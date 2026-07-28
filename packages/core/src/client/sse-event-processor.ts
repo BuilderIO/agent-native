@@ -469,7 +469,9 @@ function settleOrphanToolDone(
   if (typeof console !== "undefined") {
     console.warn(
       `[agent-chat] tool_done for "${toolName}" (id ${ev.id ?? "none"}) matched no pending tool call; ${
-        index >= 0 ? "settling the oldest unresolved call" : "recording it as a new card"
+        index >= 0
+          ? "settling the oldest unresolved call"
+          : "recording it as a new card"
       }.`,
     );
   }

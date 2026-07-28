@@ -48,7 +48,6 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { getActiveRun } from "../active-run-state.js";
 import { agentNativePath } from "../api-path.js";
 import { writeClipboardText } from "../clipboard.js";
-import { getRunErrorMetadata } from "./run-recovery.js";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -76,6 +75,7 @@ import {
   renderMarkdownToClipboardHtml,
 } from "./markdown-renderer.js";
 import { getAssistantRunDurationMs } from "./repo-helpers.js";
+import { getRunErrorMetadata } from "./run-recovery.js";
 import {
   ToolCallFallback,
   ToolActivityPresentation,
@@ -1336,6 +1336,21 @@ export function workGroupDurationMs(
 }
 
 /**
+ * A failed turn keeps its error marker for the life of the transcript. Only the
+ * newest turn gets the actionable recovery card, so without this the record of
+ * a failure vanished the moment the user sent anything else.
+ */
+export function shouldShowPersistentRunError({
+  isLast,
+  hasRunError,
+}: {
+  isLast: boolean;
+  hasRunError: boolean;
+}): boolean {
+  return hasRunError && !isLast;
+}
+
+/**
  * Compact, permanent record that this turn ended in an error. Deliberately not
  * actionable: retry belongs to the newest turn only, but the fact that a turn
  * failed is part of the transcript forever.
@@ -1617,12 +1632,16 @@ export function AssistantMessage() {
         {isLast && hasUnresolvedTool && !chatRunning && (
           <RunningActivityStatus label="Thinking" />
         )}
-        {!isLast && runError && (
-          <AssistantRunErrorMarker
-            message={runError.message}
-            errorCode={runError.errorCode}
-          />
-        )}
+        {shouldShowPersistentRunError({
+          isLast,
+          hasRunError: !!runError,
+        }) &&
+          runError && (
+            <AssistantRunErrorMarker
+              message={runError.message}
+              errorCode={runError.errorCode}
+            />
+          )}
       </div>
       {isComplete && (
         <div className="mt-1 flex items-center justify-between">

@@ -182,6 +182,7 @@ describe("buildChatModelGroups", () => {
         label: "Groq",
         models: ["llama-3.3-70b-versatile"],
         configured: false,
+        costRanked: false,
       },
     ]);
   });
@@ -230,6 +231,7 @@ describe("buildChatModelGroups", () => {
         label: "Claude",
         models: ["claude-sonnet-5"],
         configured: false,
+        costRanked: false,
       },
     ]);
   });
@@ -254,6 +256,7 @@ describe("buildChatModelGroups", () => {
         label: "Custom",
         models: ["custom/provider-model"],
         configured: false,
+        costRanked: false,
       },
     ]);
   });
@@ -261,9 +264,9 @@ describe("buildChatModelGroups", () => {
 
 describe("modelsAreCostRanked", () => {
   it("is true when every model matches a known cost tier", () => {
-    expect(
-      modelsAreCostRanked(["claude-haiku-4-5", "claude-sonnet-5"]),
-    ).toBe(true);
+    expect(modelsAreCostRanked(["claude-haiku-4-5", "claude-sonnet-5"])).toBe(
+      true,
+    );
   });
 
   it("is false when any model is unrecognised, because it sorts last regardless of price", () => {

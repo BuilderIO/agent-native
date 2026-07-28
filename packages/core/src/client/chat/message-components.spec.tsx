@@ -18,6 +18,7 @@ import {
   shouldShowAssistantWorkSummary,
   shouldShowAssistantMessageFooter,
   shouldShowMissingFinalResponse,
+  shouldShowPersistentRunError,
   useSettledFlag,
   ThinkingIndicator,
   userMessageTextBeforeAssistant,
@@ -681,7 +682,12 @@ describe("workGroupDurationMs", () => {
 
   it("reports no duration for a group that never completed", () => {
     expect(
-      workGroupDurationMs([{ type: "tool-call", startedAt: 5 }], [0], null, false),
+      workGroupDurationMs(
+        [{ type: "tool-call", startedAt: 5 }],
+        [0],
+        null,
+        false,
+      ),
     ).toBeNull();
   });
 
@@ -693,5 +699,25 @@ describe("workGroupDurationMs", () => {
       ]),
     ).toBe(0);
     expect(lastAssistantWorkPartIndex([{ type: "text" }])).toBe(-1);
+  });
+});
+
+describe("shouldShowPersistentRunError", () => {
+  it("marks an older failed turn", () => {
+    expect(
+      shouldShowPersistentRunError({ isLast: false, hasRunError: true }),
+    ).toBe(true);
+  });
+
+  it("defers to the recovery card on the newest turn", () => {
+    expect(
+      shouldShowPersistentRunError({ isLast: true, hasRunError: true }),
+    ).toBe(false);
+  });
+
+  it("stays silent for a turn that did not fail", () => {
+    expect(
+      shouldShowPersistentRunError({ isLast: false, hasRunError: false }),
+    ).toBe(false);
   });
 });

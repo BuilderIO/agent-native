@@ -35,11 +35,9 @@ describe("reorderQueuedMessages", () => {
   });
 
   it("keeps every message when the id is unknown", () => {
-    expect(reorderQueuedMessages(queue, "missing", 1).map((m) => m.id)).toEqual([
-      "a",
-      "b",
-      "c",
-    ]);
+    expect(reorderQueuedMessages(queue, "missing", 1).map((m) => m.id)).toEqual(
+      ["a", "b", "c"],
+    );
   });
 
   it("does not mutate the input", () => {

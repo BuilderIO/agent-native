@@ -3982,9 +3982,9 @@ describe("work timestamps and unmatched completions", () => {
         undefined,
       ),
     )) as any[];
-    const card = results.at(-1)?.content?.find(
-      (part: any) => part.type === "tool-call",
-    );
+    const card = results
+      .at(-1)
+      ?.content?.find((part: any) => part.type === "tool-call");
     expect(typeof card.startedAt).toBe("number");
     expect(typeof card.completedAt).toBe("number");
     expect(card.completedAt).toBeGreaterThanOrEqual(card.startedAt);
@@ -4048,7 +4048,12 @@ describe("work timestamps and unmatched completions", () => {
       readSSEStream(
         eventStream([
           { type: "tool_start", id: "b", tool: "send-email", input: {} },
-          { type: "activity", id: "c", tool: "generate-image", label: "Working" },
+          {
+            type: "activity",
+            id: "c",
+            tool: "generate-image",
+            label: "Working",
+          },
           {
             type: "error",
             error: "The run stopped before finishing.",

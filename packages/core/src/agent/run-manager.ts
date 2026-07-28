@@ -1045,7 +1045,11 @@ export function startRun(
   const send = (event: AgentChatEvent) => {
     if (run.status === "aborted" && abort.signal.aborted) return;
 
-    const runEvent: RunEvent = { seq: run.events.length, event, at: Date.now() };
+    const runEvent: RunEvent = {
+      seq: run.events.length,
+      event,
+      at: Date.now(),
+    };
     if (isTerminalRunEvent(event)) {
       pendingTerminalEvent = runEvent;
       return;
