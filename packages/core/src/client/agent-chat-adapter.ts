@@ -884,6 +884,9 @@ function lastCompletedTimeoutCandidateTool(
       part.activity !== true &&
       part.result !== undefined &&
       part.isError !== true &&
+      // A settled-interrupted tool has a result but an unknown outcome; claiming
+      // it completed is the same false-success this message exists to avoid.
+      part.outcome !== "unknown" &&
       isCompletedToolTimeoutCandidate(part)
     ) {
       return part;
