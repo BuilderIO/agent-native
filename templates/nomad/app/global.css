@@ -8,79 +8,79 @@
 @source "./**/*.{ts,tsx}";
 
 /*
- * Nomad "presence cockpit" palette. Dark theme is the design source of truth
- * (deep navy + sky/cyan accents from the design handoff tokens); light theme
- * is a matching daylight counterpart. Traffic-light status tokens
- * (--safe/--warn/--danger/--info) drive every compliance visual.
+ * Nomad "presence cockpit" palette. Neutral black/zinc base to match the
+ * other templates (cf. chat's #18181B); --info keeps a small blue accent as
+ * a conventional status color alongside the --safe/--warn/--danger
+ * traffic-light tokens that drive every compliance visual.
  */
 :root {
-  --background: 210 40% 98%;
-  --foreground: 221 40% 12%;
+  --background: 0 0% 100%;
+  --foreground: 0 0% 10%;
   --card: 0 0% 100%;
-  --card-foreground: 221 40% 12%;
+  --card-foreground: 0 0% 10%;
   --popover: 0 0% 100%;
-  --popover-foreground: 221 40% 12%;
-  --primary: 200 98% 39%;
+  --popover-foreground: 0 0% 10%;
+  --primary: 0 0% 15%;
   --primary-foreground: 0 0% 100%;
-  --secondary: 214 45% 94%;
-  --secondary-foreground: 221 40% 15%;
-  --muted: 214 45% 94%;
-  --muted-foreground: 216 20% 42%;
-  --accent: 214 45% 94%;
-  --accent-foreground: 221 40% 15%;
-  --destructive: 350 89% 55%;
+  --secondary: 0 0% 95%;
+  --secondary-foreground: 0 0% 15%;
+  --muted: 0 0% 95%;
+  --muted-foreground: 0 0% 45%;
+  --accent: 0 0% 95%;
+  --accent-foreground: 0 0% 15%;
+  --destructive: 0 84% 60%;
   --destructive-foreground: 0 0% 98%;
-  --border: 214 35% 87%;
-  --input: 214 35% 87%;
-  --ring: 199 89% 48%;
+  --border: 0 0% 90%;
+  --input: 0 0% 90%;
+  --ring: 0 0% 40%;
   --radius: 0.75rem;
   --safe: 158 74% 33%;
   --warn: 36 92% 40%;
   --danger: 350 89% 50%;
   --info: 200 98% 39%;
-  --sidebar-background: 213 42% 96%;
-  --sidebar-foreground: 216 20% 42%;
-  --sidebar-primary: 200 98% 39%;
+  --sidebar-background: 0 0% 97%;
+  --sidebar-foreground: 0 0% 45%;
+  --sidebar-primary: 0 0% 15%;
   --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 213 40% 91%;
-  --sidebar-accent-foreground: 221 40% 15%;
-  --sidebar-border: 214 35% 87%;
-  --sidebar-ring: 199 89% 48%;
+  --sidebar-accent: 0 0% 95%;
+  --sidebar-accent-foreground: 0 0% 15%;
+  --sidebar-border: 0 0% 90%;
+  --sidebar-ring: 0 0% 40%;
 }
 
 .dark {
-  --background: 222 48% 5%;
-  --foreground: 215 52% 94%;
-  --card: 221 49% 10%;
-  --card-foreground: 215 52% 94%;
-  --popover: 221 50% 13%;
-  --popover-foreground: 215 52% 94%;
-  --primary: 198 93% 60%;
-  --primary-foreground: 209 77% 7%;
-  --secondary: 221 50% 13%;
-  --secondary-foreground: 215 52% 94%;
-  --muted: 221 49% 12%;
-  --muted-foreground: 216 25% 61%;
-  --accent: 221 50% 13%;
-  --accent-foreground: 215 52% 94%;
-  --destructive: 350 89% 60%;
+  --background: 0 0% 13%;
+  --foreground: 0 0% 90%;
+  --card: 0 0% 15%;
+  --card-foreground: 0 0% 90%;
+  --popover: 0 0% 15%;
+  --popover-foreground: 0 0% 90%;
+  --primary: 0 0% 75%;
+  --primary-foreground: 0 0% 10%;
+  --secondary: 0 0% 18%;
+  --secondary-foreground: 0 0% 90%;
+  --muted: 0 0% 16%;
+  --muted-foreground: 0 0% 60%;
+  --accent: 0 0% 18%;
+  --accent-foreground: 0 0% 90%;
+  --destructive: 0 63% 51%;
   --destructive-foreground: 0 0% 98%;
-  --border: 221 41% 20%;
-  --input: 221 41% 20%;
-  --ring: 198 93% 60%;
+  --border: 0 0% 24%;
+  --input: 0 0% 24%;
+  --ring: 0 0% 60%;
   --radius: 0.75rem;
   --safe: 158 64% 52%;
   --warn: 43 96% 56%;
   --danger: 350 89% 60%;
   --info: 198 93% 60%;
-  --sidebar-background: 222 47% 7%;
-  --sidebar-foreground: 216 25% 61%;
-  --sidebar-primary: 198 93% 60%;
-  --sidebar-primary-foreground: 209 77% 7%;
-  --sidebar-accent: 221 49% 12%;
-  --sidebar-accent-foreground: 215 52% 94%;
-  --sidebar-border: 221 41% 16%;
-  --sidebar-ring: 198 93% 60%;
+  --sidebar-background: 0 0% 10%;
+  --sidebar-foreground: 0 0% 60%;
+  --sidebar-primary: 0 0% 75%;
+  --sidebar-primary-foreground: 0 0% 10%;
+  --sidebar-accent: 0 0% 16%;
+  --sidebar-accent-foreground: 0 0% 90%;
+  --sidebar-border: 0 0% 20%;
+  --sidebar-ring: 0 0% 60%;
 }
 
 @layer base {
@@ -99,16 +99,16 @@
   border-radius: var(--radius);
 }
 .dark .nomad-panel {
-  background: linear-gradient(180deg, hsl(var(--card)), hsl(221 49% 8%));
+  background: linear-gradient(180deg, hsl(var(--card)), hsl(0 0% 11%));
 }
 
 .nomad-glow {
-  box-shadow: 0 1px 3px 0 hsl(221 40% 12% / 0.08);
+  box-shadow: 0 1px 3px 0 hsl(0 0% 10% / 0.08);
 }
 .dark .nomad-glow {
   box-shadow:
-    0 0 0 1px hsl(198 93% 60% / 0.15),
-    0 12px 40px -12px hsl(187 86% 53% / 0.25);
+    0 0 0 1px hsl(0 0% 100% / 0.06),
+    0 12px 40px -12px hsl(0 0% 0% / 0.35);
 }
 
 .nomad-chip {
@@ -121,12 +121,12 @@
   background:
     radial-gradient(
       1200px 600px at 60% 30%,
-      hsl(198 93% 60% / 0.1),
+      hsl(var(--foreground) / 0.05),
       transparent 60%
     ),
     radial-gradient(
       800px 500px at 20% 80%,
-      hsl(187 86% 53% / 0.06),
+      hsl(var(--foreground) / 0.03),
       transparent 60%
     ),
     hsl(var(--card));
@@ -134,8 +134,8 @@
 
 .nomad-grid-lines {
   background-image:
-    linear-gradient(hsl(198 93% 60% / 0.05) 1px, transparent 1px),
-    linear-gradient(90deg, hsl(198 93% 60% / 0.05) 1px, transparent 1px);
+    linear-gradient(hsl(var(--foreground) / 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(var(--foreground) / 0.06) 1px, transparent 1px);
   background-size: 48px 48px;
 }
 

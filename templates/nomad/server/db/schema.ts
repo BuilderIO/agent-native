@@ -57,6 +57,10 @@ export const rules = table("rules", {
   limitDays: integer("limit_days").notNull(),
   windowDays: integer("window_days"),
   description: text("description"),
+  // Stable preset identity for idempotent seeding (see ensurePresetRules in
+  // actions/update-profile.ts); unique per owner via
+  // rules_owner_preset_slug_unique_idx, distinct from the row's own `id`.
+  presetSlug: text("preset_slug"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });

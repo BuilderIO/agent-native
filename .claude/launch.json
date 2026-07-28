@@ -277,6 +277,21 @@
         "3209"
       ],
       "port": 3209
+    },
+    {
+      "name": "nomad",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "PATH=/Users/ahmedfelfel/.nvm/versions/node/v22.22.0/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "DATABASE_URL=file:/private/tmp/claude-501/-Users-ahmedfelfel-builder-workspace/9c369680-8717-40be-96b9-54a61f28bc11/scratchpad/nomad-verify.sqlite",
+        "AUTH_MODE=local",
+        "PORT=8106",
+        "pnpm",
+        "--dir",
+        "templates/nomad",
+        "dev"
+      ],
+      "port": 8106
     }
   ]
 }

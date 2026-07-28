@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
-import { eq } from "drizzle-orm";
+import { and, eq, isNotNull } from "drizzle-orm";
+import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
@@ -83,10 +84,10 @@ async function ensurePresetRules(
   const owner = requireOwner();
   const db = getDb();
   const existing = await db
-    .select({ id: rules.id })
+    .select({ presetSlug: rules.presetSlug })
     .from(rules)
-    .where(eq(rules.ownerEmail, owner));
-  const existingIds = new Set(existing.map((r) => r.id));
+    .where(and(eq(rules.ownerEmail, owner), isNotNull(rules.presetSlug)));
+  const existingSlugs = new Set(existing.map((r) => r.presetSlug));
   const now = new Date().toISOString();
   const seeded: Array<{ id: string; name: string }> = [];
 
@@ -111,10 +112,10 @@ async function ensurePresetRules(
       if (code === fiscalHomeCountry && preset.kind === "calendar-year") {
         continue;
       }
-      if (existingIds.has(preset.slug)) continue;
-      existingIds.add(preset.slug);
+      if (existingSlugs.has(preset.slug)) continue;
+      existingSlugs.add(preset.slug);
       const row = {
-        id: preset.slug,
+        id: nanoid(),
         ownerEmail: owner,
         name: preset.name,
         kind: preset.kind,
@@ -123,6 +124,7 @@ async function ensurePresetRules(
         limitDays: preset.limitDays,
         windowDays: preset.windowDays ?? null,
         description: preset.description,
+        presetSlug: preset.slug,
         createdAt: now,
         updatedAt: now,
       };

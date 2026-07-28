@@ -221,8 +221,7 @@ export default function OnboardingRoute() {
           <div
             className="grid h-10 w-10 place-items-center rounded-xl font-bold"
             style={{
-              background:
-                "linear-gradient(135deg, hsl(var(--primary)), hsl(var(--info)))",
+              background: "hsl(var(--primary))",
               color: "hsl(var(--primary-foreground))",
             }}
           >
@@ -251,8 +250,7 @@ export default function OnboardingRoute() {
                 className="h-full rounded-full transition-all"
                 style={{
                   width: i < step ? "100%" : "0%",
-                  background:
-                    "linear-gradient(135deg, hsl(var(--primary)), hsl(var(--info)))",
+                  background: "hsl(var(--primary))",
                 }}
               />
             </div>

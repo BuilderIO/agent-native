@@ -100,6 +100,16 @@ ALTER TABLE visas ADD COLUMN IF NOT EXISTS owner_email TEXT NOT NULL DEFAULT 'lo
       name: "nomad-stays-owner-idx",
       sql: `CREATE INDEX IF NOT EXISTS stays_owner_email_idx ON stays (owner_email)`,
     },
+    {
+      version: 9,
+      name: "nomad-rules-preset-slug-column",
+      sql: `ALTER TABLE rules ADD COLUMN IF NOT EXISTS preset_slug TEXT`,
+    },
+    {
+      version: 10,
+      name: "nomad-rules-owner-preset-slug-unique-idx",
+      sql: `CREATE UNIQUE INDEX IF NOT EXISTS rules_owner_preset_slug_unique_idx ON rules (owner_email, preset_slug)`,
+    },
   ],
   { table: "nomad_migrations" },
 );
@@ -240,6 +250,10 @@ async function seedDemoData(): Promise<void> {
       limitDays: r.limitDays,
       windowDays: r.windowDays ?? null,
       description: r.description ?? null,
+      // Demo rule ids double as their own preset slugs so a later
+      // update-profile re-seed for this owner recognizes them and doesn't
+      // insert duplicates.
+      presetSlug: r.id,
       createdAt: ts,
       updatedAt: ts,
     })),
