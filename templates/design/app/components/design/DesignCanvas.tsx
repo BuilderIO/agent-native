@@ -1398,10 +1398,6 @@ export function DesignCanvas({
     bridgeUrl,
     liveEditBridgeKey,
   );
-  const hasLiveEditExternalFrame =
-    sourceType === "localhost" && Boolean(bridgeUrl && rawExternalPreviewUrl);
-  const hasAuthenticatedLiveEditExternalFrame =
-    hasLiveEditExternalFrame && Boolean(previewToken);
   const usesLiveEditInjectedBridge =
     sourceType === "localhost" &&
     Boolean(bridgeUrl && previewToken && rawExternalPreviewUrl);
