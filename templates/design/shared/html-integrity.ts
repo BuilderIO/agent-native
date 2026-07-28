@@ -4,6 +4,14 @@
  */
 export const DESIGN_HTML_INTEGRITY_ERROR_CODE = "DESIGN_HTML_INTEGRITY";
 
+/**
+ * Human-facing summary for the editor toast. `message` carries the located,
+ * agent-facing detail instead — a person dragging on the canvas did not author
+ * the markup, so a line and column are noise to them.
+ */
+export const DESIGN_HTML_INTEGRITY_SUMMARY =
+  "The edit was not applied because it would make the design HTML invalid.";
+
 export type DesignHtmlIntegrityIssue =
   | "document-boundary"
   | "document-root"
