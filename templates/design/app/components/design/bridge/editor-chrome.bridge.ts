@@ -4672,8 +4672,9 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
           // Cmd/Ctrl+R rename / Cmd/Ctrl+Shift+R paste-to-replace (onRename /
           // onPasteToReplace) — both live under bare primary+r.
           "r",
-          // Cmd/Ctrl+\ — toggle UI (onToggleUi).
-          "\\",
+          // Cmd/Ctrl+K — open the host command menu even while the iframe has
+          // focus. DesignEditor routes this chord to openCommandMenu().
+          "k",
         ].indexOf(normalized) !== -1 ||
         e.code === "Digit1" ||
         e.code === "Digit2" ||
@@ -4685,10 +4686,12 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         // shortcuts the host has no bare-primary binding for — are left
         // alone (see useDesignHotkeys.ts: both require event.shiftKey).
         (e.shiftKey && (normalized === "h" || normalized === "l")) ||
+        // Cmd/Ctrl+Shift+\ — minimize UI (onToggleUi). Keep the Shift gate
+        // here so the iframe never intercepts a desktop host's bare Cmd/Ctrl+\.
+        (e.shiftKey && normalized === "\\") ||
         // Cmd/Ctrl+Alt+B detach instance / Cmd/Ctrl+Alt+K create component
         // (onDetachInstance / onCreateComponent). Gated on altKey so bare
-        // Cmd+B / Cmd+K are left alone — the host has no bare-primary
-        // binding for either.
+        // Cmd+B is left alone — the host has no bare-primary binding for it.
         (e.altKey && (normalized === "b" || normalized === "k")) ||
         // Ctrl+Alt+H / Ctrl+Alt+T — distribute horizontal / tidy up
         // (onDistributeSelection / onTidyUp). useDesignHotkeys.ts keeps these

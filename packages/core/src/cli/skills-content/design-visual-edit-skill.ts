@@ -46,9 +46,9 @@ Prefer the host's browser/preview tool over telling the user to press a keyboard
 shortcut. Keep the canvas pane beside chat when the host supports rearrangeable
 panes.
 
-Inside Design, \`Cmd+\\\` on Apple platforms or \`Ctrl+\\\` elsewhere toggles
-all editing chrome so only the canvas remains. Some desktop hosts reserve that
-shortcut themselves; when they intercept it, use **Hide UI** / **Show UI** from
+Inside Design, use **Show/Hide UI** from the \`Cmd+K\` menu or press
+\`Cmd+Shift+\\\` on Apple platforms / \`Ctrl+Shift+\\\` elsewhere to toggle all
+editing chrome so only the canvas remains. The same action is available from
 Design's empty-canvas context menu.
 
 ## Core Model

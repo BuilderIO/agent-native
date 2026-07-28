@@ -3478,25 +3478,26 @@ const AssistantChatInner = forwardRef<
       }
 
       if (!runRes) {
-        // Still unreachable. Drop the stored run so the spinner stops, and say
-        // why instead of silently showing an idle composer.
+        // Still unreachable. Only a stored run for this thread is holding the
+        // spinner up, so that is also the only case worth interrupting the user
+        // for — drop it and say why, rather than leaving "Thinking…" forever.
         if (storedActiveRun?.threadId === threadId) {
           clearActiveRunIfMatches(threadId, storedActiveRun.runId);
+          window.dispatchEvent(
+            new CustomEvent("agent-chat:run-error", {
+              detail: {
+                message:
+                  "Couldn't reach the server to check whether the agent is still working. Send your message again to retry.",
+                errorCode: "run_status_unavailable",
+                recoverable: true,
+                ...(storedActiveRun.runId
+                  ? { runId: storedActiveRun.runId }
+                  : {}),
+                ...(tabId ? { tabId } : {}),
+              },
+            }),
+          );
         }
-        window.dispatchEvent(
-          new CustomEvent("agent-chat:run-error", {
-            detail: {
-              message:
-                "Couldn't reach the server to check whether the agent is still working. Send your message again to retry.",
-              errorCode: "run_status_unavailable",
-              recoverable: true,
-              ...(storedActiveRun?.runId
-                ? { runId: storedActiveRun.runId }
-                : {}),
-              ...(tabId ? { tabId } : {}),
-            },
-          }),
-        );
         return false;
       }
 
