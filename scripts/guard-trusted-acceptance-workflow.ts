@@ -62,6 +62,74 @@ function count(source: string, pattern: RegExp): number {
   return source.match(pattern)?.length ?? 0;
 }
 
+type GuardedWorkflowStep = {
+  uses?: string;
+  with: Record<string, string>;
+};
+
+function parseYamlScalar(source: string): string {
+  const value = source.trim();
+  const doubleQuoted = value.match(/^("(?:\\.|[^"\\])*")(?:\s+#.*)?$/);
+  if (doubleQuoted) {
+    try {
+      return JSON.parse(doubleQuoted[1]!) as string;
+    } catch {
+      return value;
+    }
+  }
+  const singleQuoted = value.match(/^'((?:''|[^'])*)'(?:\s+#.*)?$/);
+  if (singleQuoted) {
+    return singleQuoted[1]!.replaceAll("''", "'");
+  }
+  return value.replace(/\s+#.*$/, "").trim();
+}
+
+function parseWorkflowSteps(job: string): GuardedWorkflowStep[] {
+  const lines = job.split("\n");
+  const stepsIndex = lines.findIndex((line) =>
+    /^\s+steps:\s*(?:#.*)?$/.test(line),
+  );
+  if (stepsIndex === -1) return [];
+
+  const stepsIndent = lines[stepsIndex]!.search(/\S/);
+  const itemIndent = stepsIndent + 2;
+  const propertyIndent = itemIndent + 2;
+  const inputIndent = propertyIndent + 2;
+  const steps: GuardedWorkflowStep[] = [];
+  let current: GuardedWorkflowStep | undefined;
+  let readingInputs = false;
+
+  for (const line of lines.slice(stepsIndex + 1)) {
+    if (!line.trim() || line.trimStart().startsWith("#")) continue;
+    const indent = line.search(/\S/);
+    const trimmed = line.trim();
+    if (indent <= stepsIndent) break;
+
+    if (indent === itemIndent && trimmed.startsWith("-")) {
+      current = { with: {} };
+      steps.push(current);
+      readingInputs = false;
+      const inlineUses = trimmed.match(/^-\s+uses:\s*(.+)$/);
+      if (inlineUses) current.uses = parseYamlScalar(inlineUses[1]!);
+      continue;
+    }
+    if (!current) continue;
+
+    if (indent === propertyIndent) {
+      readingInputs = trimmed === "with:";
+      const uses = trimmed.match(/^uses:\s*(.+)$/);
+      if (uses) current.uses = parseYamlScalar(uses[1]!);
+      continue;
+    }
+    if (readingInputs && indent === inputIndent) {
+      const input = trimmed.match(/^([^:#]+):\s*(.+)$/);
+      if (input) current.with[input[1]!.trim()] = parseYamlScalar(input[2]!);
+    }
+  }
+
+  return steps;
+}
+
 export function validateTrustedAcceptanceWorkflow(
   source: string,
 ): WorkflowGuardResult {
@@ -110,10 +178,13 @@ export function validateTrustedAcceptanceWorkflow(
     if (!build.includes("needs.plan.outputs.effective_sha")) {
       issues.push("candidate build must use the provenance-verified exact SHA");
     }
-    if (
-      !/uses:\s+pnpm\/action-setup@[^\n]+\n\s+with:\n\s+package_json_file:\s+candidate\/package\.json(?:\s|$)/.test(
-        build,
-      )
+    const pnpmSetupSteps = parseWorkflowSteps(build).filter((step) =>
+      step.uses?.startsWith("pnpm/action-setup@"),
+    );
+    if (pnpmSetupSteps.length !== 1) {
+      issues.push("candidate build must contain exactly one pnpm setup step");
+    } else if (
+      pnpmSetupSteps[0]!.with.package_json_file !== "candidate/package.json"
     ) {
       issues.push(
         "candidate pnpm setup must read package-manager metadata from the nested checkout",

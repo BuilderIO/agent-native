@@ -162,6 +162,48 @@ describe("trusted acceptance workflow boundary", () => {
     );
   });
 
+  it("rejects duplicate pnpm setup steps", () => {
+    const unsafe = workflow.replace(
+      "          package_json_file: candidate/package.json\n\n      - uses: actions/setup-node@",
+      "          package_json_file: candidate/package.json\n\n      - uses: pnpm/action-setup@duplicate\n\n      - uses: actions/setup-node@",
+    );
+    const result = validateTrustedAcceptanceWorkflow(unsafe);
+    assert.equal(result.ok, false);
+    assert(
+      result.issues.some((issue) =>
+        issue.includes("exactly one pnpm setup step"),
+      ),
+    );
+  });
+
+  it("ignores pnpm setup lookalikes inside run blocks", () => {
+    const unsafe = workflow
+      .replace(
+        "        with:\n          package_json_file: candidate/package.json\n",
+        "",
+      )
+      .replace(
+        "      - name: Install candidate dependencies without runtime credentials",
+        "      - name: Lookalike is not an action step\n        run: |\n          uses: pnpm/action-setup@lookalike\n          with:\n            package_json_file: candidate/package.json\n\n      - name: Install candidate dependencies without runtime credentials",
+      );
+    const result = validateTrustedAcceptanceWorkflow(unsafe);
+    assert.equal(result.ok, false);
+    assert(
+      result.issues.some((issue) =>
+        issue.includes("package-manager metadata from the nested checkout"),
+      ),
+    );
+  });
+
+  it("accepts equivalent quoted candidate metadata", () => {
+    const equivalent = workflow.replace(
+      "        with:\n          package_json_file: candidate/package.json",
+      '        # Candidate metadata remains bound to pnpm setup.\n\n        with:\n          package_json_file: "candidate/package.json" # repository-root-relative',
+    );
+    const result = validateTrustedAcceptanceWorkflow(equivalent);
+    assert.equal(result.ok, true, result.issues.join("\n"));
+  });
+
   it("rejects candidate-controlled workflow triggers", () => {
     const unsafe = workflow.replace(
       "on:\n  workflow_dispatch:",
