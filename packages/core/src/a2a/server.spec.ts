@@ -23,6 +23,7 @@ vi.mock("h3", () => ({
   getMethod: (event: any) => event.method ?? "POST",
   getRequestHeader: (event: any, name: string) =>
     event.headers?.[name.toLowerCase()] ?? event.headers?.[name],
+  getRequestIP: (event: any) => event.ip ?? undefined,
   setResponseHeader: setResponseHeaderMock,
   setResponseStatus: setResponseStatusMock,
 }));
