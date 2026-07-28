@@ -46,6 +46,18 @@ export interface ShareableResourceRegistration {
     resource: any,
   ) => string | undefined | Promise<string | undefined>;
   /**
+   * Optional resolver for a preview block shown above the CTA in the
+   * share-notification email — e.g. a recording thumbnail with a play badge.
+   * Return trusted HTML (built by template code, dynamic values escaped) that
+   * is injected verbatim, or undefined to omit it. `ctx.href` is the resolved
+   * link to the resource; `ctx.alt` is its title. The template owns the entire
+   * preview markup so the generic share action stays app-agnostic.
+   */
+  getShareEmailHeroHtml?: (
+    resource: any,
+    ctx: { href: string; alt?: string },
+  ) => string | undefined | Promise<string | undefined>;
+  /**
    * Drizzle DB accessor from the template's server/db/index.ts. Required —
    * the framework-level share actions and access helpers call this to reach
    * the right DB instance (schema is template-specific).

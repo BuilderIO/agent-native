@@ -309,6 +309,21 @@ export default defineAction({
             );
           }
         }
+        let heroHtml: string | undefined;
+        if (reg.getShareEmailHeroHtml) {
+          try {
+            heroHtml =
+              (await reg.getShareEmailHeroHtml(resource, {
+                href: notificationUrl,
+                alt: resourceTitle,
+              })) ?? undefined;
+          } catch (err) {
+            console.error(
+              "[share-resource] hero html resolver failed; omitting preview:",
+              err,
+            );
+          }
+        }
         const subject = `${actor} shared "${resourceTitle}" with you on ${appName}`;
         const { html, text } = renderEmail({
           brandName: appName,
@@ -319,6 +334,7 @@ export default defineAction({
             `${emailStrong(actor)} has shared the ${reg.displayName} ${emailStrong(resourceTitle)} with you as a ${emailStrong(args.role)}.`,
             `Use the button below to open it. If prompted, sign in with ${emailStrong(principalId)}.`,
           ],
+          heroHtml,
           cta: { label: `Open ${reg.displayName}`, url: notificationUrl },
           footer: `You received this because ${actor} granted you ${args.role} access.`,
         });

@@ -38,6 +38,30 @@ describe("renderEmail", () => {
     expect(html).toContain('src="cid:agent-native-logo"');
   });
 
+  it("injects trusted heroHtml above the CTA", () => {
+    const marker = '<div id="custom-hero">preview</div>';
+    const { html } = renderEmail({
+      heading: "Access granted",
+      paragraphs: ["Watch the recording below."],
+      heroHtml: marker,
+      cta: { label: "Open", url: "https://clips.example.com/r/abc" },
+    });
+
+    expect(html).toContain(marker);
+    expect(html.indexOf(marker)).toBeLessThan(
+      html.indexOf("https://clips.example.com/r/abc"),
+    );
+  });
+
+  it("omits the hero when no heroHtml is provided", () => {
+    const { html } = renderEmail({
+      heading: "Access granted",
+      paragraphs: ["No preview here."],
+    });
+
+    expect(html).not.toContain("custom-hero");
+  });
+
   it("renders CTA buttons without visible fallback URLs", () => {
     const { html } = renderEmail({
       heading: "Your meeting is booked",
