@@ -20,6 +20,8 @@ const BUILDER_IMAGE_MODELS = [
   "gemini-2.5-flash-image",
 ];
 const REQUEST_TIMEOUT_MS = 90_000;
+const MAX_ATTEMPTS_PER_MODEL = 3;
+const RETRY_DELAY_MS = 3_000;
 
 interface BuilderImageGenerationResponse {
   id: string;
@@ -70,9 +72,14 @@ export class BuilderProvider implements ImageProvider {
     }));
 
     let lastError: Error | null = null;
+
     for (const model of BUILDER_IMAGE_MODELS) {
+      // Stable per-model idempotency key: retries of the same model reuse it
+      // so a client-side timeout replays the in-progress/finished result
+      // instead of starting (and billing) a second generation.
+      const idempotencyKey = `slides-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const requestBody = {
-        idempotencyKey: `slides-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        idempotencyKey,
         prompt,
         model,
         count: 1,
@@ -83,56 +90,20 @@ export class BuilderProvider implements ImageProvider {
         source: { appId: "slides", feature: "generate-image" },
       };
 
-      const response = await fetch(`${baseUrl}/generations`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${creds.privateKey}`,
-          "x-builder-api-key": creds.publicKey,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(requestBody),
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      const outcome = await requestModel({
+        baseUrl,
+        requestBody,
+        privateKey: creds.privateKey,
+        publicKey: creds.publicKey,
       });
 
-      if (!response.ok) {
-        const text = await response.text().catch(() => "");
-        lastError = new Error(
-          `Builder-managed image generation failed (${response.status})${text ? `: ${text}` : "."}`,
-        );
-        // A model the connected project doesn't have access to is a fixed
-        // config problem, not a transient one — move on to the next model
-        // instead of retrying the same rejected id.
-        if (isUnknownModelError(response.status, text)) continue;
-        throw lastError;
-      }
-
-      const body = (await response.json()) as BuilderImageGenerationResponse;
-      const output = body.outputs?.[0];
-      const sourceUrl = output?.downloadUrl ?? output?.url;
-      if (!sourceUrl) {
-        throw new Error(
-          "Builder-managed image generation returned no image URL.",
-        );
-      }
-
-      const imageResponse = await fetch(sourceUrl, {
-        signal: AbortSignal.timeout(30_000),
-      });
-      if (!imageResponse.ok) {
-        throw new Error(
-          `Could not download Builder-generated image (${imageResponse.status}).`,
-        );
-      }
-
-      return {
-        imageData: Buffer.from(await imageResponse.arrayBuffer()),
-        mimeType:
-          output.mimeType ||
-          imageResponse.headers.get("content-type") ||
-          "image/png",
-        model: body.model?.publicId || model,
-        provider: "builder",
-      };
+      if (outcome.kind === "success") return outcome.result;
+      lastError = outcome.error;
+      // Both "model unavailable" and "retries exhausted" fall through to
+      // the next model; only a permanent non-model error (e.g. auth)
+      // short-circuits the whole loop, since no other model id would fare
+      // differently against a rejected Builder connection.
+      if (outcome.kind === "permanent") throw outcome.error;
     }
 
     throw (
@@ -140,6 +111,104 @@ export class BuilderProvider implements ImageProvider {
       new Error("Builder-managed image generation failed for all models.")
     );
   }
+}
+
+type ModelOutcome =
+  | { kind: "success"; result: ImageGenerationResult }
+  | { kind: "retryable"; error: Error }
+  | { kind: "permanent"; error: Error };
+
+async function requestModel(args: {
+  baseUrl: string;
+  requestBody: Record<string, unknown>;
+  privateKey: string;
+  publicKey: string;
+}): Promise<ModelOutcome> {
+  const { baseUrl, requestBody, privateKey, publicKey } = args;
+  const model = requestBody.model as string;
+  let lastError: Error = new Error("Builder-managed image generation failed.");
+
+  for (let attempt = 0; attempt < MAX_ATTEMPTS_PER_MODEL; attempt++) {
+    if (attempt > 0) {
+      await new Promise((r) => setTimeout(r, attempt * RETRY_DELAY_MS));
+    }
+
+    let response: Response;
+    try {
+      response = await fetch(`${baseUrl}/generations`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${privateKey}`,
+          "x-builder-api-key": publicKey,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(requestBody),
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+    } catch (err) {
+      const name = (err as Error)?.name;
+      lastError =
+        name === "AbortError" || name === "TimeoutError"
+          ? new Error("Builder-managed image generation timed out.")
+          : (err as Error);
+      continue;
+    }
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      lastError = new Error(
+        `Builder-managed image generation failed (${response.status})${text ? `: ${text}` : "."}`,
+      );
+      if (isUnknownModelError(response.status, text)) {
+        return { kind: "retryable", error: lastError };
+      }
+      if (isTransientError(response.status)) continue;
+      return { kind: "permanent", error: lastError };
+    }
+
+    const body = (await response.json()) as BuilderImageGenerationResponse;
+    const output = body.outputs?.[0];
+    const sourceUrl = output?.downloadUrl ?? output?.url;
+    if (!sourceUrl) {
+      return {
+        kind: "permanent",
+        error: new Error(
+          "Builder-managed image generation returned no image URL.",
+        ),
+      };
+    }
+
+    const imageResponse = await fetch(sourceUrl, {
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!imageResponse.ok) {
+      return {
+        kind: "permanent",
+        error: new Error(
+          `Could not download Builder-generated image (${imageResponse.status}).`,
+        ),
+      };
+    }
+
+    return {
+      kind: "success",
+      result: {
+        imageData: Buffer.from(await imageResponse.arrayBuffer()),
+        mimeType:
+          output.mimeType ||
+          imageResponse.headers.get("content-type") ||
+          "image/png",
+        model: body.model?.publicId || model,
+        provider: "builder",
+      },
+    };
+  }
+
+  return { kind: "retryable", error: lastError };
+}
+
+function isTransientError(status: number): boolean {
+  return [429, 500, 503, 504].includes(status);
 }
 
 function isUnknownModelError(status: number, responseText: string): boolean {
