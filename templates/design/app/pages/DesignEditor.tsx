@@ -3428,6 +3428,16 @@ function DesignEditor() {
     }
   }, []);
   const staleToastShownRef = useRef(false);
+  /**
+   * Model this design's generation started with. The pending-generation blob
+   * holds the same values, but five paths clear it — three while the intake
+   * questions are still on screen — so the continuation cannot rely on it.
+   */
+  const generationModelRef = useRef<{
+    model?: string;
+    engine?: string;
+    effort?: PromptComposerSubmitOptions["effort"];
+  } | null>(null);
   const rememberPendingGenerationForRetry = useCallback(() => {
     const pending = readPendingGeneration(id);
     if (pending?.prompt) {
@@ -3562,7 +3572,14 @@ function DesignEditor() {
     [clearGenerationCompleteTimer, id, trackAgentGeneration],
   );
 
-  // Question flow — full-canvas overlays driven by the agent.
+  // Question flow — full-canvas overlays driven by the agent. Ref first, blob
+  // as the reload fallback (the ref is gone then, the blob may survive).
+  const getQuestionFlowModelSelection = useCallback(
+    () =>
+      generationModelRef.current ??
+      readPendingGeneration(id, { allowUntimestamped: true }),
+    [id],
+  );
   const {
     questions: pendingQuestions,
     title: pendingQuestionsTitle,
@@ -3575,6 +3592,7 @@ function DesignEditor() {
     enabled: isSignedIn,
     continuationTabId: generationChatTabId,
     onContinue: handleQuestionFlowContinue,
+    getModelSelection: getQuestionFlowModelSelection,
   });
   const pendingQuestionsVisible = Boolean(
     pendingQuestions && pendingQuestions.length > 0,
@@ -5794,6 +5812,11 @@ function DesignEditor() {
 
       clearGenerationCompleteTimer();
       setGenerationIssue(null);
+      generationModelRef.current = {
+        model: pending.model,
+        engine: pending.engine,
+        effort: pending.effort,
+      };
       const runTabId = agentSubmit(
         shouldSkipQuestions
           ? `Generate design for "${design.title}": ${prompt}`
@@ -22195,6 +22218,11 @@ function DesignEditor() {
       });
       setHasPendingGeneration(true);
       setRetryablePrompt(null);
+      generationModelRef.current = {
+        model: promptState.model,
+        engine: promptState.engine,
+        effort: promptState.effort,
+      };
       const runTabId = agentSubmit(
         `Generate design for "${design.title}": ${promptState.prompt}`,
         context,
@@ -30433,6 +30461,11 @@ function DesignEditor() {
           ].join("\n");
           clearGenerationCompleteTimer();
           setGenerationIssue(null);
+          generationModelRef.current = {
+            model: options.model,
+            engine: options.engine,
+            effort: options.effort,
+          };
           const startedAt = Date.now();
           patchPendingGeneration(id, {
             prompt,

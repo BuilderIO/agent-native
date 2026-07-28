@@ -88,6 +88,8 @@ interface PendingSend {
 interface PendingDelivery {
   threadId: string | null;
   send: PendingSend;
+  /** Applied to whichever thread this send lands on; a queued send outlives the handler that parsed it. */
+  modelOverride?: ModelSelection;
 }
 
 /** The single path that hands a queued send to a mounted chat ref. */
@@ -154,15 +156,6 @@ function resolveModelSelection(
   groups: EngineModelGroup[],
 ): ModelSelection | undefined {
   if (!selection?.model) return undefined;
-  if (groups.length === 0) {
-    return {
-      model: selection.model,
-      effort: resolveReasoningEffortSelection(
-        selection.model,
-        selection.effort,
-      ),
-    };
-  }
   const preferredGroup = groups.find(
     (group) =>
       group.engine === selection.engine &&
@@ -171,9 +164,9 @@ function resolveModelSelection(
   const fallbackGroup = groups.find((group) =>
     group.models.includes(selection.model),
   );
-  if (groups.length > 0 && !preferredGroup && !fallbackGroup) {
-    return undefined;
-  }
+  // An explicit engine is authoritative even for a model the catalog omits:
+  // gateway ids differ from their plain form (`gpt-5-6-luna` vs `gpt-5.6-luna`)
+  // and custom endpoints serve ids no catalog advertises.
   const engine =
     preferredGroup?.engine ?? fallbackGroup?.engine ?? selection.engine;
   if (!engine && groups.length > 0) return undefined;
@@ -1120,7 +1113,14 @@ export function MultiTabAssistantChat({
         .catch(() => null),
     ])
       .then(([enginesData, envKeys, builderStatus]) => {
-        if (!enginesData?.engines) return;
+        if (!enginesData?.engines) {
+          // Leaves `availableModels` empty for the session, so an override with
+          // no engine of its own has nothing to resolve against.
+          console.warn(
+            "[agent-chat] no engine list; model overrides cannot be catalog-resolved",
+          );
+          return;
+        }
         const configuredKeys = new Set(
           (envKeys as Array<{ key: string; configured: boolean }>)
             .filter((k) => k.configured)
@@ -1598,6 +1598,7 @@ export function MultiTabAssistantChat({
         context,
         openSidebar,
         model,
+        engine,
         effort,
         newTab,
         background,
@@ -1638,32 +1639,45 @@ export function MultiTabAssistantChat({
         ...(submitMessageId ? { submitMessageId } : {}),
       };
 
+      // Resolved once, up front, and carried with the send until a thread
+      // exists to key it by. Applying it only when `model` matched
+      // `availableModels` dropped every override that arrived before the
+      // engines fetch resolved — and the cold-start replay below runs at mount,
+      // when that list is always still empty.
+      let modelOverride: ModelSelection | undefined;
+      if (model) {
+        const catalogEngine = availableModels.find((g) =>
+          g.models.includes(model),
+        )?.engine;
+        const overrideEngine = engine ?? catalogEngine;
+        if (!overrideEngine && availableModels.length > 0) {
+          console.warn(
+            `[agent-chat] model override "${model}" is in no engine group and carries no engine; the server will substitute its default`,
+          );
+        }
+        modelOverride = {
+          model,
+          ...(overrideEngine ? { engine: overrideEngine } : {}),
+          effort: resolveReasoningEffortSelection(
+            model,
+            isReasoningEffort(effort) ? effort : undefined,
+          ),
+        };
+      } else {
+      }
+
       const sendToTab = (threadId: string) => {
         if (isAgentChatSubmitCancelled(submitMessageId)) return;
-        // If a model override was specified, apply it only if we recognize it
-        if (model) {
-          const matchedGroup = availableModels.find((g) =>
-            g.models.includes(model),
-          );
-          if (matchedGroup) {
-            const selectedEffort = resolveReasoningEffortSelection(
-              model,
-              isReasoningEffort(effort) ? effort : undefined,
-            );
-            threadModelRef.current.set(threadId, {
-              model,
-              engine: matchedGroup.engine,
-              effort: selectedEffort,
-            });
-            bumpModelSelectionVersion();
-          }
+        if (modelOverride) {
+          threadModelRef.current.set(threadId, modelOverride);
+          bumpModelSelectionVersion();
         }
 
         const ref = chatRefs.current.get(threadId);
         if (ref) {
           deliverPendingSend(ref, send);
         } else {
-          pendingDeliveries.current.push({ threadId, send });
+          pendingDeliveries.current.push({ threadId, send, modelOverride });
         }
       };
 
@@ -1709,7 +1723,11 @@ export function MultiTabAssistantChat({
         } else {
           // Cold start: no thread yet. Queue for the first active thread (the
           // bootstrap effect creates it) rather than racing a second create.
-          pendingDeliveries.current.push({ threadId: null, send });
+          pendingDeliveries.current.push({
+            threadId: null,
+            send,
+            modelOverride,
+          });
         }
       }
     };
@@ -1762,16 +1780,22 @@ export function MultiTabAssistantChat({
       if (isAgentChatSubmitCancelled(delivery.send.submitMessageId)) continue;
       const threadId = delivery.threadId ?? active ?? null;
       const ref = threadId ? chatRefs.current.get(threadId) : null;
+      if (threadId && delivery.modelOverride) {
+        threadModelRef.current.set(threadId, delivery.modelOverride);
+        bumpModelSelectionVersion();
+      }
       if (threadId && ref) {
         const { send } = delivery;
         setTimeout(() => deliverPendingSend(ref, send), 50);
       } else {
         // Not ready — keep it, pinning the resolved threadId once known.
-        remaining.push(threadId ? { threadId, send: delivery.send } : delivery);
+        remaining.push(
+          threadId ? { ...delivery, threadId, send: delivery.send } : delivery,
+        );
       }
     }
     pendingDeliveries.current = remaining;
-  }, [openTabIds, activeThreadId]);
+  }, [openTabIds, activeThreadId, bumpModelSelectionVersion]);
 
   // Listen for chatRunning completion events
   useEffect(() => {

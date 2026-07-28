@@ -140,6 +140,7 @@ vi.mock("./AssistantChat.js", async () => {
         composerSlot?: React.ReactNode;
         emptyStateAddon?: React.ReactNode;
         selectedModel?: string;
+        selectedEngine?: string;
         selectedEffort?: string;
       };
       React.useImperativeHandle(ref, () => ({
@@ -158,6 +159,7 @@ vi.mock("./AssistantChat.js", async () => {
         <div
           data-testid="assistant-chat"
           data-selected-model={props.selectedModel}
+          data-selected-engine={props.selectedEngine}
           data-reasoning-effort={props.selectedEffort}
         >
           {props.emptyStateAddon}
@@ -265,6 +267,61 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
         .querySelector("[data-testid='assistant-chat']")
         ?.getAttribute("data-reasoning-effort"),
     ).toBe("medium");
+  });
+
+  // The engines fetch is still in flight when an app-initiated first turn
+  // arrives (Design's new-design flow submits during the panel's own mount),
+  // so an override that is only honored against a loaded model list is an
+  // override that is always discarded.
+  it("applies a submitted model override before the engine list loads", () => {
+    act(() => {
+      dispatchSubmitChat({
+        message: "Generate design for hi page",
+        submit: true,
+        model: "gpt-5-6-luna",
+        engine: "builder",
+        effort: "medium",
+      });
+    });
+
+    const chat = container.querySelector("[data-testid='assistant-chat']");
+    expect(chat?.getAttribute("data-selected-model")).toBe("gpt-5-6-luna");
+    expect(chat?.getAttribute("data-selected-engine")).toBe("builder");
+  });
+
+  // Composers submit `engine: ""` whenever the engines list failed to load
+  // (useChatModels seeds it to ""). An empty string is not nullish, so it used
+  // to survive `engine ?? catalogEngine` and then read as falsy — meaning the
+  // override was recorded with no engine at all.
+  it("treats a blank submitted engine as absent rather than as a value", () => {
+    act(() => {
+      dispatchSubmitChat({
+        message: "Generate design for hi page",
+        submit: true,
+        model: "gpt-5-6-luna",
+        engine: "",
+      });
+    });
+
+    const chat = container.querySelector("[data-testid='assistant-chat']");
+    expect(chat?.getAttribute("data-selected-model")).toBe("gpt-5-6-luna");
+    expect(chat?.getAttribute("data-selected-engine")).toBeNull();
+  });
+
+  it("applies a submitted model override sent without an engine", () => {
+    act(() => {
+      dispatchSubmitChat({
+        message: "Generate design for hi page",
+        submit: true,
+        model: "claude-opus-4-8",
+      });
+    });
+
+    expect(
+      container
+        .querySelector("[data-testid='assistant-chat']")
+        ?.getAttribute("data-selected-model"),
+    ).toBe("claude-opus-4-8");
   });
 
   it("adopts model changes persisted by another shared chat surface", async () => {
