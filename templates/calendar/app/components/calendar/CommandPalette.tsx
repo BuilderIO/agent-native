@@ -196,7 +196,7 @@ export function CommandPalette({
                 <span className="flex-1 truncate">{event.title}</span>
                 <span className="ml-2 text-xs text-muted-foreground">
                   {format(
-                    event.allDay
+                    event.allDay || !timezone
                       ? parseISO(event.start)
                       : toZonedTime(event.start, timezone),
                     "MMM d",
