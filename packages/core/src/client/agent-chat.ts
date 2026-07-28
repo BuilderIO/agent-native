@@ -858,6 +858,17 @@ function normalizeAgentChatRequestMode(
   return value === "act" || value === "plan" ? value : undefined;
 }
 
+/**
+ * Composers submit `engine: ""` whenever the engines list failed to load. An
+ * empty string is not nullish, so it survives `??` yet reads as falsy — one
+ * value meaning both "specified" and "absent". Absent is decided here, once.
+ */
+function nonEmptyString(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
+}
+
 /** A normalized `agentNative.submitChat` payload — decode via {@link parseSubmitChatMessage}. */
 export interface ParsedSubmitChat {
   /** Visible prompt text (non-empty). */
@@ -867,6 +878,12 @@ export interface ParsedSubmitChat {
   submit: boolean;
   openSidebar?: boolean;
   model?: string;
+  /**
+   * Engine paired with `model`. The receiver cannot re-derive it for an id the
+   * catalog omits, and a model sent without one is normalized to the resolved
+   * engine's default server-side.
+   */
+  engine?: string;
   /** Raw effort hint; the receiver validates it against the model. */
   effort?: unknown;
   newTab?: boolean;
@@ -907,7 +924,8 @@ export function parseSubmitChatMessage(
     submit: raw.submit !== false,
     openSidebar:
       typeof raw.openSidebar === "boolean" ? raw.openSidebar : undefined,
-    model: typeof raw.model === "string" ? raw.model : undefined,
+    model: nonEmptyString(raw.model),
+    engine: nonEmptyString(raw.engine),
     effort: raw.effort,
     newTab: typeof raw.newTab === "boolean" ? raw.newTab : undefined,
     background:
