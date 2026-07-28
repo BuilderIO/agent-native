@@ -34,6 +34,30 @@ describe("sendEmail", () => {
     expect(body.reply_to).toEqual({ email: "agent-native@builder.io" });
   });
 
+  it("keeps the branded address intact when APP_NAME contains header specials", async () => {
+    vi.stubEnv("SENDGRID_API_KEY", "sendgrid-example-key");
+    vi.stubEnv("EMAIL_FROM", "Agent Native <noreply@agent-native.com>");
+    const fetchMock = vi.fn(async () => new Response(null, { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await sendEmail({
+      to: "reader@example.com",
+      subject: "Verify your email",
+      html: "<p>hi</p>",
+      appSender: {
+        name: "Agent-Native Acme <Support>, Inc.",
+        slug: "clips",
+        replyTo: "agent-native@builder.io",
+      },
+    });
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.from).toEqual({
+      name: "Agent-Native Acme Support Inc.",
+      email: "clips@agent-native.com",
+    });
+  });
+
   it("keeps a self-hosted verified sender and reply-to untouched", async () => {
     vi.stubEnv("SENDGRID_API_KEY", "sendgrid-example-key");
     vi.stubEnv("EMAIL_FROM", "Acme <noreply@acme.com>");

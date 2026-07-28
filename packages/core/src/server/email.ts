@@ -134,6 +134,19 @@ function getFromAddress(
 const AGENT_NATIVE_SENDER_DOMAIN = "agent-native.com";
 
 /**
+ * The display name derives from the operator-set APP_NAME, so it can contain
+ * characters that terminate the address portion of a From header. Angle
+ * brackets in particular would make the naive parser below read the address as
+ * part of the name and emit a malformed sender the provider rejects.
+ */
+function sanitizeSenderDisplayName(name: string): string {
+  return name
+    .replace(/[<>(),;:\\"\r\n]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
  * Resolve per-app sender branding, but only for deployments whose configured
  * sender is already on agent-native.com. Any other (or missing) EMAIL_FROM
  * means we cannot prove the branded address is a verified sender, so the
@@ -146,8 +159,10 @@ function resolveAppSender(
   if (!configuredFrom || !appSender) return undefined;
   const address = parseSendGridFrom(configuredFrom).email.toLowerCase();
   if (!address.endsWith(`@${AGENT_NATIVE_SENDER_DOMAIN}`)) return undefined;
+  const brandedAddress = `${appSender.slug}@${AGENT_NATIVE_SENDER_DOMAIN}`;
+  const displayName = sanitizeSenderDisplayName(appSender.name);
   return {
-    from: `${appSender.name} <${appSender.slug}@${AGENT_NATIVE_SENDER_DOMAIN}>`,
+    from: displayName ? `${displayName} <${brandedAddress}>` : brandedAddress,
     replyTo: appSender.replyTo,
   };
 }
