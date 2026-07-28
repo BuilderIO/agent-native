@@ -3,8 +3,8 @@ import { getRequestUserEmail } from "@agent-native/core/server";
 import { putUserSetting, putSetting } from "@agent-native/core/settings";
 import { z } from "zod";
 
-import type { Settings } from "../shared/api.js";
 import { isCalendarTimezone } from "../server/lib/calendar-settings.js";
+import type { Settings } from "../shared/api.js";
 
 export default defineAction({
   description: "Update calendar settings",

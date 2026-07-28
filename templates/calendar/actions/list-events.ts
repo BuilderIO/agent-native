@@ -13,11 +13,11 @@ import { and, gte, inArray, lte, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { getCalendarTimezone } from "../server/lib/calendar-settings.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import { fetchICalEvents } from "../server/lib/ical-fetcher.js";
 import type { CalendarEvent, ExternalCalendar } from "../shared/api.js";
 import { calendarEventMatchesQuery } from "./event-search.js";
-import { getCalendarTimezone } from "../server/lib/calendar-settings.js";
 
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
 

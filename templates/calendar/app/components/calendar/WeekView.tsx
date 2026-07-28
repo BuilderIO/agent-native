@@ -22,8 +22,8 @@ import {
   addMinutes,
   min,
 } from "date-fns";
-import { useState, useEffect, useRef, useMemo, useCallback, memo } from "react";
 import { toZonedTime } from "date-fns-tz";
+import { useState, useEffect, useRef, useMemo, useCallback, memo } from "react";
 
 import { useCalendarSetters } from "@/components/layout/AppLayout";
 import {
@@ -1191,7 +1191,6 @@ export const WeekView = memo(function WeekView({
                       <EventDetailPopover
                         key={`${event.overlayEmail ?? event.accountEmail ?? "primary"}:${event.id}`}
                         event={event}
-                        timezone={timezone}
                         onDelete={onDeleteEvent}
                         isDraft={draftEventIds.includes(event.id)}
                         defaultOpen={quickEditEventId === event.id}

@@ -29,7 +29,7 @@ interface CommandPaletteProps {
   open: boolean;
   onClose: () => void;
   events: CalendarEvent[];
-  timezone: string;
+  timezone?: string;
   onGoToDate: (date: Date) => void;
   onEventClick: (event: CalendarEvent) => void;
   onCreateEvent: () => void;

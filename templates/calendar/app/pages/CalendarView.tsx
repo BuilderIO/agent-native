@@ -30,6 +30,7 @@ import {
   parseISO,
   startOfDay,
 } from "date-fns";
+import { fromZonedTime, toZonedTime } from "date-fns-tz";
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
@@ -81,7 +82,6 @@ import { useMeetingStartNotifications } from "@/hooks/use-meeting-start-notifica
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useOverlayPeople } from "@/hooks/use-overlay-people";
 import { useSettings } from "@/hooks/use-settings";
-import { fromZonedTime, toZonedTime } from "date-fns-tz";
 import { setUndoAction, runUndo } from "@/hooks/use-undo";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
 import { resolveEventAccountEmail } from "@/lib/event-account-selection";

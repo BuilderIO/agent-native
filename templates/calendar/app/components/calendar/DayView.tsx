@@ -14,8 +14,8 @@ import {
   addDays,
   min,
 } from "date-fns";
-import { useState, useEffect, useRef, useMemo, useCallback, memo } from "react";
 import { toZonedTime } from "date-fns-tz";
+import { useState, useEffect, useRef, useMemo, useCallback, memo } from "react";
 
 import { useCalendarSetters } from "@/components/layout/AppLayout";
 import {
@@ -1054,7 +1054,6 @@ export const DayView = memo(function DayView({
                 <OutOfOfficeEvent
                   key={event._tempId ?? event.id}
                   event={event}
-                  timezone={timezone}
                   day={date}
                   hourHeight={HOUR_HEIGHT}
                   color={
