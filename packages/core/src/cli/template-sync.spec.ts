@@ -684,4 +684,27 @@ describe("template materialize command", () => {
       process.chdir(cwd);
     }
   });
+
+  it("replaces an existing --out and leaves no staging or backup residue", async () => {
+    const out = fs.mkdtempSync(path.join(os.tmpdir(), "an-materialize-spec-"));
+    dirs.push(out);
+    const dest = path.join(out, "tree");
+    fs.mkdirSync(dest, { recursive: true });
+    fs.writeFileSync(path.join(dest, "stale.txt"), "old\n");
+
+    const run = collectIO();
+    const code = await runTemplate(
+      ["materialize", "--template", "chat", "--out", dest],
+      run.io,
+    );
+
+    expect(code).toBe(0);
+    // old tree replaced (moved aside then dropped), fresh tree in place.
+    expect(fs.existsSync(path.join(dest, "stale.txt"))).toBe(false);
+    expect(fs.existsSync(path.join(dest, "package.json"))).toBe(true);
+    // neither the staging dir nor the backup is left behind.
+    expect(
+      fs.readdirSync(out).filter((e) => e.startsWith(".template-materialize-")),
+    ).toEqual([]);
+  }, 120_000);
 });

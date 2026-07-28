@@ -577,13 +577,18 @@ async function materializeCommand(
     return 1;
   }
   // Materialize into a UNIQUE staging dir in the destination's parent, then swap
-  // in only on success. This way a bad template/ref or a transient failure never
-  // destroys an existing --out tree, and — because the staging path is unique
-  // (mkdtemp), not a predictable sibling — it can't collide with an unrelated
-  // directory or a concurrent invocation. Same filesystem keeps the rename atomic.
+  // it in with a crash-safe move-old-aside → move-staged-in → restore-on-failure
+  // dance. Directory replacement isn't a single atomic op on POSIX (you can't
+  // rename onto a non-empty dir), so the previous delete-then-rename left a window
+  // where a rename failure — and the finally cleanup — destroyed both the old and
+  // the staged tree. Here the old tree is only ever moved (never deleted before
+  // the new one is in place) and is restored if the swap-in fails; a crash between
+  // the two renames leaves it recoverable under `backup`. All paths are unique
+  // siblings on the same filesystem, so each rename is atomic and can't collide.
   const parent = path.dirname(path.resolve(outDir));
   fs.mkdirSync(parent, { recursive: true });
   const tmp = fs.mkdtempSync(path.join(parent, ".template-materialize-"));
+  const backup = `${tmp}-backup`;
   try {
     const result = await materializeTemplate({
       appName: name ?? template,
@@ -592,14 +597,21 @@ async function materializeCommand(
       shape: "standalone",
       destDir: tmp,
     });
-    fs.rmSync(outDir, { recursive: true, force: true });
-    fs.renameSync(tmp, outDir);
+    const hadOld = fs.existsSync(outDir);
+    if (hadOld) fs.renameSync(outDir, backup);
+    try {
+      fs.renameSync(tmp, outDir);
+    } catch (err) {
+      if (hadOld) fs.renameSync(backup, outDir);
+      throw err;
+    }
     io.out(
       `Materialized "${template}" (${result.source}@${result.ref}) to ${outDir}.`,
     );
     return 0;
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
+    fs.rmSync(backup, { recursive: true, force: true });
   }
 }
 
