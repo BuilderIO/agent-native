@@ -8,6 +8,7 @@ import {
   keyboardShortcutLabels,
 } from "./i18n-keyboard-shortcuts";
 import { motionDockOverrides } from "./i18n-motion";
+import { responsiveInteractOverrides } from "./i18n-responsive-interact";
 import { designTemplateFeatureOverrides } from "./i18n-template-feature";
 import zhTW from "./i18n/zh-TW";
 
@@ -466,6 +467,18 @@ const enUS = {
         firstEditGuidance:
           "Responsive edits affect this breakpoint and smaller sizes by default. Change the scope beside the breakpoint control.",
       },
+    },
+    responsiveInteract: {
+      device: "Device",
+      width: "Width",
+      widthAbbreviation: "W",
+      height: "Height",
+      heightAbbreviation: "H",
+      zoom: "Zoom",
+      zoomIn: "Zoom in",
+      zoomOut: "Zoom out",
+      zoomToPreset: "Zoom to {{percent}}%",
+      exit: "Exit full-screen preview",
     },
     screenDeletion: {
       titleOne: "Delete this screen?",
