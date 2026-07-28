@@ -1633,6 +1633,21 @@ export function createAgentChatAdapter(
             : execModeRef?.current === "build"
               ? "act"
               : undefined;
+      // Queued turns carry the model/engine/effort they were composed with.
+      // The refs track the live picker, so without this a queue that flushes
+      // after the user switches models runs under the wrong one.
+      const runConfigSelection = (key: "model" | "engine" | "effort") => {
+        const raw =
+          runConfig?.custom && typeof runConfig.custom === "object"
+            ? (runConfig.custom as Record<string, unknown>)[key]
+            : undefined;
+        return typeof raw === "string" && raw.length > 0 ? raw : undefined;
+      };
+      const model = runConfigSelection("model") ?? modelRef?.current;
+      const engine = runConfigSelection("engine") ?? engineRef?.current;
+      const effort =
+        (runConfigSelection("effort") as ReasoningEffort | undefined) ??
+        effortRef?.current;
 
       const withRequestModeMetadata = (
         result: ChatModelRunResult,
@@ -3181,9 +3196,9 @@ export function createAgentChatAdapter(
                     ? { internalContinuation: true }
                     : {}),
                   ...(requestMode ? { mode: requestMode } : {}),
-                  ...(modelRef?.current ? { model: modelRef.current } : {}),
-                  ...(engineRef?.current ? { engine: engineRef.current } : {}),
-                  ...(effortRef?.current ? { effort: effortRef.current } : {}),
+                  ...(model ? { model } : {}),
+                  ...(engine ? { engine } : {}),
+                  ...(effort ? { effort } : {}),
                   ...(browserTabId ? { browserTabId } : {}),
                   ...(scopeRef?.current ? { scope: scopeRef.current } : {}),
                   ...(includeAttachments ? { attachments } : {}),

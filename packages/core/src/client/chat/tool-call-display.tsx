@@ -583,6 +583,7 @@ export function ToolCallDisplay({
   mcpApp,
   chatUI,
   isRunning,
+  outcome,
   structuredMeta,
   approval,
   repeatCount,
@@ -596,6 +597,8 @@ export function ToolCallDisplay({
   mcpApp?: AgentMcpAppPayload;
   chatUI?: ActionChatUIConfig;
   isRunning: boolean;
+  /** "unknown": the stream ended mid-flight, so the side effect may have landed. */
+  outcome?: "unknown";
   structuredMeta?: Record<string, unknown>;
   approval?: { approvalKey: string; dismissed?: boolean };
   repeatCount?: number;
@@ -661,6 +664,7 @@ export function ToolCallDisplay({
       mcpApp={mcpApp}
       chatUI={chatUI}
       isRunning={isRunning}
+      outcome={outcome}
       isActiveTail={showActiveTail}
       structuredMeta={structuredMeta}
       approval={approval}
@@ -677,6 +681,7 @@ function ToolCallDisplayGeneric({
   mcpApp,
   chatUI,
   isRunning,
+  outcome,
   isActiveTail,
   structuredMeta,
   approval,
@@ -689,6 +694,7 @@ function ToolCallDisplayGeneric({
   mcpApp?: AgentMcpAppPayload;
   chatUI?: ActionChatUIConfig;
   isRunning: boolean;
+  outcome?: "unknown";
   isActiveTail: boolean;
   structuredMeta?: Record<string, unknown>;
   approval?: { approvalKey: string; dismissed?: boolean };
