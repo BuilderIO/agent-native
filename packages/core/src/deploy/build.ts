@@ -2343,6 +2343,28 @@ const LIBSQL_NATIVE_PACKAGE_NAMES = [
 const FFMPEG_STATIC_PACKAGE_NAME = "ffmpeg-static";
 const RESVG_SCOPE = "@resvg";
 const RESVG_PACKAGE_PREFIX = "resvg-js";
+
+// Serverless functions only ever run on 64-bit Linux. The darwin/win32/android
+// and 32-bit-arm prebuilds of these native packages are ~100MB that can never
+// execute there, and Netlify copies the whole server dir again for every extra
+// emitted function — so the dead weight is paid once per function. Cold start
+// scales with bundle size, and a page that opens several requests at once
+// scales out to that many cold containers, which is how this surfaces: 502/504
+// on the first burst rather than as an obviously slow deploy.
+const SERVERLESS_NATIVE_PACKAGE_SUFFIXES = [
+  "linux-x64-gnu",
+  "linux-x64-musl",
+  "linux-arm64-gnu",
+  "linux-arm64-musl",
+];
+
+export function isServerlessNativePlatformPackage(
+  packageName: string,
+): boolean {
+  return SERVERLESS_NATIVE_PACKAGE_SUFFIXES.some((suffix) =>
+    packageName.endsWith(suffix),
+  );
+}
 const FFMPEG_STATIC_BINARY_NAMES =
   process.platform === "win32" ? ["ffmpeg.exe", "ffmpeg"] : ["ffmpeg"];
 const SERVERLESS_FFMPEG_STATIC_PLATFORM = "linux";
@@ -3441,6 +3463,7 @@ function copyInstalledLibsqlNativePackages(serverDir: string | undefined) {
   let copied = 0;
 
   for (const packageName of LIBSQL_NATIVE_PACKAGE_NAMES) {
+    if (!isServerlessNativePlatformPackage(packageName)) continue;
     const src = findInstalledLibsqlNativePackage(nodeModulesRoots, packageName);
     if (!src) continue;
 
@@ -3457,7 +3480,13 @@ function copyInstalledLibsqlNativePackages(serverDir: string | undefined) {
 
 function copyInstalledResvgPackages(serverDir: string | undefined) {
   if (!serverDir || !fs.existsSync(serverDir)) return;
-  const packages = findInstalledResvgPackages(nodeModulesAncestors(cwd));
+  // `resvg-js` itself is the JS wrapper that gets imported; everything else in
+  // the scope is a per-platform prebuild.
+  const packages = findInstalledResvgPackages(nodeModulesAncestors(cwd)).filter(
+    ({ packageName }) =>
+      packageName === RESVG_PACKAGE_PREFIX ||
+      isServerlessNativePlatformPackage(packageName),
+  );
   if (packages.length === 0) return;
 
   const destScopeDir = path.join(serverDir, "node_modules", RESVG_SCOPE);
