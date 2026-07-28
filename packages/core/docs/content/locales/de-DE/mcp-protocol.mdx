@@ -224,7 +224,11 @@ Der Agent führt die gleiche Schleife aus wie der interaktive Chat – er kann m
 {
   "poll": {
     "tool": "ask_app_status",
-    "arguments": { "app": "mail", "taskId": "task_123" }
+    "arguments": {
+      "app": "mail",
+      "taskId": "task_123",
+      "taskHandle": "opaque_handle"
+    }
   }
 }
 ```
@@ -236,8 +240,9 @@ Ist ein begrenzter, vorübergehender Statusabruf nicht verfügbar, kann
 `retryable: true` sowie das ursprüngliche `app`, `taskId` und `pollAfterMs` /
 `poll` zurückgeben. Das bedeutet, dass der Statusabruf nicht verfügbar ist –
 nicht, dass die dauerhafte Aufgabe fehlgeschlagen ist. Wiederholen Sie
-`ask_app_status` mit genau demselben `app` und `taskId`; reichen Sie zur
-Wiederherstellung niemals erneut `ask_app` ein, da dies Arbeit duplizieren kann.
+`ask_app_status` mit genau den zurückgegebenen `poll.arguments`, einschließlich
+`taskHandle`, wenn vorhanden. Ältere Ergebnisse ohne Handle müssen dasselbe `app`
+und dieselbe `taskId` wiederverwenden. Reichen Sie zur Wiederherstellung niemals erneut `ask_app` ein, da dies Arbeit duplizieren kann.
 Dauerhafte Authentifizierungs-, Nicht-gefunden- und Protokollfehler bleiben Fehler.
 
 ## Authentifizierung {#authentication}
