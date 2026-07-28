@@ -1,0 +1,88 @@
+name: Push chat template to starter
+
+# Vendor-branch mirror: materialize the post-processed templates/chat and push it
+# to builder-agent-native-starter's `template` branch. The starter's own
+# `sync.yml` (on that branch) then git-merges it into `main`. This workflow only
+# ever handles pristine, public template output — no private starter content.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "templates/chat/**"
+      - "packages/core/src/cli/create.ts"
+      - "packages/core/src/cli/template-sync.ts"
+      - ".github/workflows/push-starter-template.yml"
+  # Version bumps land the new pinned @agent-native/* only once published, so
+  # re-push after a successful publish.
+  workflow_run:
+    workflows: ["Publish packages"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: push-starter-template
+  cancel-in-progress: false
+
+jobs:
+  push:
+    name: Materialize and push template branch
+    # For the workflow_run trigger, only proceed when the publish succeeded.
+    if: >-
+      ${{ github.event_name != 'workflow_run' ||
+      github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24"
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Materialize post-processed templates/chat
+        run: >-
+          pnpm exec tsx packages/core/src/cli/index.ts template materialize
+          --template chat --out ./dist/template
+
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1
+        with:
+          app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
+          private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
+          owner: BuilderIO
+          repositories: builder-agent-native-starter
+
+      - name: Push to starter template branch
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch template \
+            "https://x-access-token:${GH_TOKEN}@github.com/BuilderIO/builder-agent-native-starter.git" \
+            /tmp/starter
+          # Mirror the materialized tree onto the template branch. Preserve
+          # .github (the starter-side sync workflow lives there) and never send
+          # a .git dir. Skills flow through (they compose with skills update on
+          # the starter side).
+          rsync -a --delete \
+            --exclude '.git/' \
+            --exclude '.github/' \
+            ./dist/template/ /tmp/starter/
+          cd /tmp/starter
+          git config user.name "builder-bot"
+          git config user.email "noreply@builder.io"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "template branch already up to date."
+            exit 0
+          fi
+          git commit -m "chore: sync template from templates/chat@${GITHUB_SHA::7}"
+          git push origin template
