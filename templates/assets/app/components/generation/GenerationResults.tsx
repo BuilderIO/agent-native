@@ -129,6 +129,21 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
         ),
     [variants?.slots],
   );
+  // Variant numbers reflect generation order (oldest = 1), not display order:
+  // refined candidates render first but keep the next number in sequence
+  // instead of stealing "Variant 1" from the newest-first display sort above.
+  const variantNumberBySlotId = useMemo(() => {
+    const map = new Map<string, number>();
+    (variants?.slots ?? [])
+      .slice()
+      .sort(
+        (left, right) =>
+          slotTime(left) - slotTime(right) ||
+          left.slotId.localeCompare(right.slotId),
+      )
+      .forEach((slot, index) => map.set(slot.slotId, index + 1));
+    return map;
+  }, [variants?.slots]);
   const belongsToThread = Boolean(
     variants &&
     (threadId ? variants.threadId === threadId : !variants.threadId),
@@ -296,6 +311,7 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
       <GenerationPreviewDialog
         slot={previewSlot}
         slots={slots}
+        variantNumberBySlotId={variantNumberBySlotId}
         prompt={variants.prompt}
         libraryTitle={libraryTitle}
         isSaving={saveGenerated.isPending}
@@ -353,19 +369,22 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
 
           <div className="max-h-[min(640px,52vh)] overflow-y-auto p-3">
             <div className="assets-library-grid grid grid-cols-2 gap-3 sm:grid-cols-3">
-              {slots.map((slot, index) => (
-                <GenerationDraftCard
-                  key={slot.slotId}
-                  slot={slot}
-                  variantNumber={index + 1}
-                  isSaving={saveGenerated.isPending}
-                  isDismissing={dismissSlot.isPending}
-                  onPreview={() => setPreviewSlotId(slot.slotId)}
-                  onSave={() => saveSlot(slot)}
-                  onRefine={() => refineSlot(slot, index + 1)}
-                  onDismiss={() => dismissSlotById(slot)}
-                />
-              ))}
+              {slots.map((slot) => {
+                const variantNumber = variantNumberBySlotId.get(slot.slotId) ?? 1;
+                return (
+                  <GenerationDraftCard
+                    key={slot.slotId}
+                    slot={slot}
+                    variantNumber={variantNumber}
+                    isSaving={saveGenerated.isPending}
+                    isDismissing={dismissSlot.isPending}
+                    onPreview={() => setPreviewSlotId(slot.slotId)}
+                    onSave={() => saveSlot(slot)}
+                    onRefine={() => refineSlot(slot, variantNumber)}
+                    onDismiss={() => dismissSlotById(slot)}
+                  />
+                );
+              })}
             </div>
           </div>
         </div>
@@ -510,6 +529,7 @@ function GenerationDraftCard({
 function GenerationPreviewDialog({
   slot,
   slots,
+  variantNumberBySlotId,
   prompt,
   libraryTitle,
   isSaving,
@@ -522,6 +542,7 @@ function GenerationPreviewDialog({
 }: {
   slot: VariantSlot | null;
   slots: VariantSlot[];
+  variantNumberBySlotId: Map<string, number>;
   prompt: string;
   libraryTitle: string | null;
   isSaving: boolean;
@@ -553,7 +574,7 @@ function GenerationPreviewDialog({
   const sources = slot ? assetPreviewSources(slot, "preview") : [];
   const src = sources[0];
   const variantNumber = slot
-    ? slots.findIndex((item) => item.slotId === slot.slotId) + 1
+    ? (variantNumberBySlotId.get(slot.slotId) ?? 0)
     : 0;
   const variantLabel = t("library.variantWithNumber", {
     number: variantNumber,
