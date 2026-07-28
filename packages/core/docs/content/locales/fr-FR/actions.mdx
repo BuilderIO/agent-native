@@ -277,8 +277,9 @@ Cinq indicateurs contrôlent _qui_ peut invoquer une action. Tous sont définis 
 | `toolCallable`  | `true`            | `false` → tout **sauf** le pont iframe d'extension en bac à sable (403)           | Opérations adjacentes à l'authentification (supprimer le compte, modifier l'adhésion/les rôles de l'organisation) |
 | `publicAgent`   | désactivé (privé) | `{ expose: true }` → ajoute l'action aux surfaces **publiques** MCP/A2A/OpenAPI   | Outils de lecture/ingestion sécurisés accessibles sans authentification                                           |
 | `needsApproval` | `false`           | `true` → l'agent **fait une pause** ; un humain doit approuver l'appel spécifique | Effets secondaires consécutifs (envoyer un e-mail, débiter une carte, supprimer)                                  |
+| `authorize`     | aucun             | une fonction de garde → seuls les appelants acceptés, sur **toutes** les surfaces | Opérations réservées à un rôle (RBAC par application, opérations réservées aux administrateurs)                   |
 
-Ceux-ci sont indépendants : `agentTool` contrôle la vue du modèle, `toolCallable` contrôle uniquement l'iframe d'extension, `publicAgent` ajoute une surface publique opt-in (les routes Web publiques n'impliquent jamais l'exposition publique de l'outil) et `needsApproval` contrôle l'exécution une fois l'appel effectué - voir [Human-in-the-loop approval](#needs-approval) ci-dessous.
+Ceux-ci sont indépendants : `agentTool` contrôle la vue du modèle, `toolCallable` contrôle uniquement l'iframe d'extension, `publicAgent` ajoute une surface publique opt-in (les routes Web publiques n'impliquent jamais l'exposition publique de l'outil), `needsApproval` contrôle l'exécution une fois l'appel effectué - voir [Human-in-the-loop approval](#needs-approval) ci-dessous - et `authorize` décide si cet appelant peut exécuter l'action, sur chaque chemin de répartition, avant d'entrer dans `run` - voir [Authorization](#authorize).
 
 #### `agentTool` — masquer du modèle {#agent-tool}
 
@@ -391,6 +392,37 @@ export default defineAction({
 ```
 
 Pour répertorier et lire actions, utilisez `accessFilter` pour étendre la requête à l'utilisateur et à l'organisation actuels. Pour les actions qui mettent à jour ou suppriment une ligne spécifique, utilisez `assertAccess` pour confirmer que l'appelant est autorisé avant d'écrire. Voir [Security](/docs/security#access-guards) et [Sharing](/docs/sharing) pour l'assistant complet API.
+
+### Autorisation {#authorize}
+
+`accessFilter` / `assertAccess` délimitent _quelles lignes_ un appelant autorisé peut toucher. `authorize` répond à la question qui vient avant celle-là : **cet appelant peut-il exécuter cette opération, tout simplement ?** Donnez-lui une fonction de garde et elle s'exécute avant `run()` pour chaque appelant — outil d'agent, HTTP, frontend, MCP, A2A et CLI :
+
+```ts
+import { coachAccess } from "../server/lib/access.js";
+
+export default defineAction({
+  description: "Archive a training plan.",
+  schema: z.object({ id: z.string() }),
+  authorize: coachAccess.requireAny("coach-admin"),
+  run: async ({ id }) => {
+    /* ... */
+  },
+});
+```
+
+La garde enveloppe `run` lui-même au lieu d'être accrochée à l'entrée de l'action, car `run` est la seule chose que traversent les six sites de répartition — aucun appelant ne peut atteindre le corps sans passer le contrôle. Une garde qui lève une exception refuse avec son propre message ; une garde qui renvoie `false` refuse avec un 403 générique ; tout le reste, y compris `undefined`, autorise. Comme la barrière a besoin d'une identité d'appelant, une invocation CLI ou cron sans surveillance et sans e-mail d'utilisateur est refusée plutôt que laissée passer.
+
+Les trois mécanismes ne sont pas interchangeables :
+
+| Mécanisme                     | Question à laquelle il répond                                 | S'applique à                              |
+| ----------------------------- | ------------------------------------------------------------- | ----------------------------------------- |
+| `authorize`                   | Cet appelant peut-il effectuer l'opération ?                   | Les six sites de répartition              |
+| `needsApproval`               | Un humain doit-il valider cet appel autorisé en particulier ?  | La boucle d'agent uniquement              |
+| `accessFilter`/`assertAccess` | Quelles lignes cet appelant autorisé peut-il voir ou écrire ?  | À l'intérieur de `run`, par requête/ligne |
+
+Une action d'écriture restreinte a généralement besoin à la fois de `authorize` et de `assertAccess` : le premier tient les non-coachs à l'écart de l'opération, le second empêche un coach de toucher au plan d'une autre organisation. `needsApproval` est encore un autre axe : il ne restreint jamais _qui_ peut appeler, seulement si l'agent peut continuer sans surveillance.
+
+`coachAccess` ci-dessus provient de `defineAppRoles`, la superposition de rôles par application au-dessus de l'adhésion à l'organisation. Voir [Organizations, Teams & Permissions → App roles](/docs/organizations-teams-permissions#app-roles-per-app-rbac) pour le modèle de rôles et ses garanties.
 
 ### Approbation humaine {#needs-approval}
 
