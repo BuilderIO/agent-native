@@ -225,7 +225,7 @@ export interface AssistantChatSendOptions {
   submitMessageId?: string;
 }
 
-function createUserMessageRunConfig(
+export function createUserMessageRunConfig(
   references?: Reference[],
   requestMode?: AgentRequestMode,
   recoveryAction?: AgentRecoveryAction,
@@ -1674,6 +1674,15 @@ type QueuedMessage = {
   engine?: string;
   effort?: ReasoningEffort;
 };
+
+export function hoistQueuedMessageToFront<T extends { id: string }>(
+  messages: readonly T[],
+  id: string,
+): T[] {
+  const target = messages.find((message) => message.id === id);
+  if (!target) return [...messages];
+  return [target, ...messages.filter((message) => message.id !== id)];
+}
 
 export function queuedMessageImageSources(
   message: Pick<QueuedMessage, "attachments" | "images">,
@@ -4527,11 +4536,7 @@ const AssistantChatInner = forwardRef<
   // run clears. Plain Enter still queues — this is the only send-now gesture.
   const sendQueuedMessageNow = useCallback(
     (id: string) => {
-      applyLocalQueuedMessages((prev) => {
-        const target = prev.find((message) => message.id === id);
-        if (!target) return prev;
-        return [target, ...prev.filter((message) => message.id !== id)];
-      });
+      applyLocalQueuedMessages((prev) => hoistQueuedMessageToFront(prev, id));
       stopActiveRunRef.current({ preserveQueuedMessages: true });
     },
     [applyLocalQueuedMessages],
