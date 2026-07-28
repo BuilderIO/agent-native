@@ -368,32 +368,19 @@ describe("app roles", () => {
       expect(args).toEqual(["org1", "coach", "ae@acme.com"]);
     });
 
-    it("inserts when no assignment row exists yet", async () => {
-      mockExecute.mockResolvedValueOnce({ rowsAffected: 0 });
-      mockExecute.mockResolvedValueOnce({ rows: [] });
-
+    it("atomically inserts or updates an assignment", async () => {
       await setAppMemberRole({ ...base, role: "member" });
-
-      const sqls = mockExecute.mock.calls.map((c) => c[0].sql);
-      expect(sqls[0]).toContain("UPDATE app_member_roles");
-      expect(sqls[1]).toContain("INSERT INTO app_member_roles");
-      expect(mockExecute.mock.calls[1][0].args).toEqual(
-        expect.arrayContaining(["org1", "coach", "ae@acme.com", "member"]),
-      );
-    });
-
-    it("updates rather than inserting a second row when assigned again", async () => {
-      // Second assignment for the same (org, app, email): the UPDATE matches,
-      // so no INSERT is issued and the unique index is never challenged.
-      mockExecute.mockResolvedValueOnce({ rowsAffected: 1 });
-
-      await setAppMemberRole({ ...base, role: "coach-admin" });
 
       expect(mockExecute).toHaveBeenCalledTimes(1);
       const { sql, args } = mockExecute.mock.calls[0][0];
-      expect(sql).toContain("UPDATE app_member_roles");
-      expect(args.slice(0, 2)).toEqual(["coach-admin", "owner@acme.com"]);
-      expect(args.slice(3)).toEqual(["org1", "coach", "ae@acme.com"]);
+      expect(sql).toContain("INSERT INTO app_member_roles");
+      expect(sql).toContain(
+        "ON CONFLICT (org_id, app_id, LOWER(email)) DO UPDATE",
+      );
+      expect(sql).toContain("role = excluded.role");
+      expect(args).toEqual(
+        expect.arrayContaining(["org1", "coach", "ae@acme.com", "member"]),
+      );
     });
   });
 

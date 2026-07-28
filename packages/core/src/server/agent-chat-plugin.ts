@@ -502,21 +502,9 @@ export function createAgentChatPlugin(
       const { awaitBootstrap } = await import("./framework-request-handler.js");
       await awaitBootstrap(nitroApp);
 
-      // Reap phantom runs left over from the previous process (HMR restart,
-      // process crash, isolate eviction). Any run whose heartbeat is already
-      // stale by startup time had a dead producer; mark it errored so the
-      // next /runs/active check returns a terminal status and reconnecting
-      // clients don't spin on "Thinking...". Runs owned by OTHER live
-      // isolates are protected by their fresh heartbeats.
-      try {
-        const { reapAllStaleRuns } = await import("../agent/run-store.js");
-        const reaped = await reapAllStaleRuns();
-        if (reaped > 0) {
-          console.log(`[agent-chat] reaped ${reaped} stale run(s) on startup`);
-        }
-      } catch {
-        // Best effort — don't block plugin init if SQL isn't ready yet.
-      }
+      // Never make route readiness wait on an org-global stale-run sweep.
+      // `/runs/active` reaps the requested run on demand, and the periodic
+      // recovery sweep below handles abandoned runs with no connected client.
 
       const env = process.env.NODE_ENV;
       // AGENT_MODE=production forces production agent constraints even in dev

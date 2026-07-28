@@ -333,20 +333,15 @@ export async function setAppMemberRole(opts: {
     return;
   }
 
-  // Portable upsert: the unique index makes the UPDATE-then-INSERT pair safe
-  // without ON CONFLICT, whose syntax differs across the dialects this runs on.
   const now = Date.now();
-  const updated = (await exec.execute({
-    sql: `UPDATE app_member_roles SET role = ?, updated_by = ?, updated_at = ?
-          WHERE org_id = ? AND app_id = ? AND LOWER(email) = ?`,
-    args: [opts.role, opts.updatedBy, now, opts.orgId, opts.appId, email],
-  })) as { rowsAffected?: number };
-  if ((updated.rowsAffected ?? 0) > 0) return;
-
   await exec.execute({
     sql: `INSERT INTO app_member_roles
             (id, org_id, app_id, email, role, updated_by, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT (org_id, app_id, LOWER(email)) DO UPDATE SET
+            role = excluded.role,
+            updated_by = excluded.updated_by,
+            updated_at = excluded.updated_at`,
     args: [
       nanoid(),
       opts.orgId,
