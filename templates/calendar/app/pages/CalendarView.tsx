@@ -338,6 +338,16 @@ export default function CalendarView() {
   const settingsQuery = useSettings();
   const { data: settings } = settingsQuery;
   const calendarTimezone = settings?.timezone || getLocalTimezone();
+  const selectedCalendarDate = useMemo(
+    () => toZonedTime(selectedDate, calendarTimezone),
+    [selectedDate, calendarTimezone],
+  );
+  const selectCalendarDate = useCallback(
+    (date: Date) => {
+      setSelectedDate(fromZonedTime(date, calendarTimezone));
+    },
+    [calendarTimezone, setSelectedDate],
+  );
   const { data: rawOverlayPeople } = useOverlayPeople();
   const overlayPeople = Array.isArray(rawOverlayPeople) ? rawOverlayPeople : [];
   const overlayEmails = useMemo(
@@ -360,8 +370,8 @@ export default function CalendarView() {
   const { from, to } = useMemo(() => {
     switch (viewMode) {
       case "month": {
-        const ms = startOfMonth(selectedDate);
-        const me = endOfMonth(selectedDate);
+        const ms = startOfMonth(selectedCalendarDate);
+        const me = endOfMonth(selectedCalendarDate);
         return {
           from: fromZonedTime(startOfWeek(ms), calendarTimezone).toISOString(),
           to: fromZonedTime(endOfWeek(me), calendarTimezone).toISOString(),
@@ -370,19 +380,19 @@ export default function CalendarView() {
       case "week": {
         return {
           from: fromZonedTime(
-            startOfWeek(selectedDate),
+            startOfWeek(selectedCalendarDate),
             calendarTimezone,
           ).toISOString(),
           to: fromZonedTime(
-            endOfWeek(selectedDate),
+            endOfWeek(selectedCalendarDate),
             calendarTimezone,
           ).toISOString(),
         };
       }
       case "day": {
-        const dayStart = new Date(selectedDate);
+        const dayStart = new Date(selectedCalendarDate);
         dayStart.setHours(0, 0, 0, 0);
-        const dayEnd = new Date(selectedDate);
+        const dayEnd = new Date(selectedCalendarDate);
         dayEnd.setHours(23, 59, 59, 999);
         return {
           from: fromZonedTime(dayStart, calendarTimezone).toISOString(),
@@ -390,7 +400,7 @@ export default function CalendarView() {
         };
       }
     }
-  }, [viewMode, selectedDate, calendarTimezone]);
+  }, [viewMode, selectedCalendarDate, calendarTimezone]);
 
   const {
     data: rawEventsData,
@@ -556,12 +566,12 @@ export default function CalendarView() {
             const evEnd = e.allDay
               ? parseISO(e.end)
               : toZonedTime(e.end, calendarTimezone);
-            const dayStart = startOfDay(selectedDate);
+            const dayStart = startOfDay(selectedCalendarDate);
             const dayEnd = addDays(dayStart, 1);
             return evStart < dayEnd && evEnd > dayStart;
           })
         : events,
-    [events, viewMode, selectedDate, calendarTimezone],
+    [events, viewMode, selectedCalendarDate, calendarTimezone],
   );
   const openNotificationEvent = useCallback(
     (event: CalendarEvent) => {
@@ -824,7 +834,7 @@ export default function CalendarView() {
       direction === "next"
         ? { month: addMonths, week: addWeeks, day: addDays }
         : { month: subMonths, week: subWeeks, day: subDays };
-    setSelectedDate(fns[viewMode](selectedDate, 1));
+    selectCalendarDate(fns[viewMode](selectedCalendarDate, 1));
   }
 
   function handleToday() {
@@ -833,16 +843,16 @@ export default function CalendarView() {
 
   const handleDateSelect = useCallback(
     (date: Date) => {
-      setSelectedDate(date);
+      selectCalendarDate(date);
       if (viewMode === "month") {
         setViewMode("day");
       }
     },
-    [viewMode, setSelectedDate, setViewMode],
+    [viewMode, selectCalendarDate, setViewMode],
   );
 
   function handleGoToDate(date: Date) {
-    setSelectedDate(date);
+    selectCalendarDate(date);
     setViewMode("day");
   }
 
@@ -1196,7 +1206,7 @@ export default function CalendarView() {
         return;
       }
 
-      setSelectedDate(clickedDate);
+      selectCalendarDate(clickedDate);
       const defaultDuration = Math.max(
         5,
         activeSettings.defaultEventDuration ?? 30,
@@ -1241,7 +1251,7 @@ export default function CalendarView() {
       settings,
       settingsQuery,
       t,
-      setSelectedDate,
+      selectCalendarDate,
       setEventDraft,
     ],
   );
@@ -1479,18 +1489,18 @@ export default function CalendarView() {
           break;
         case "ArrowDown":
           e.preventDefault();
-          setSelectedDate(
+          selectCalendarDate(
             viewMode === "month"
-              ? addWeeks(selectedDate, 1)
-              : addDays(selectedDate, 1),
+              ? addWeeks(selectedCalendarDate, 1)
+              : addDays(selectedCalendarDate, 1),
           );
           break;
         case "ArrowUp":
           e.preventDefault();
-          setSelectedDate(
+          selectCalendarDate(
             viewMode === "month"
-              ? subWeeks(selectedDate, 1)
-              : subDays(selectedDate, 1),
+              ? subWeeks(selectedCalendarDate, 1)
+              : subDays(selectedCalendarDate, 1),
           );
           break;
         case "p":
@@ -1530,7 +1540,8 @@ export default function CalendarView() {
     deleteDialogEvent,
     isTypingInInput,
     viewMode,
-    selectedDate,
+    selectedCalendarDate,
+    selectCalendarDate,
     sidebarEvent,
     focusedEvent,
     events,
@@ -1543,19 +1554,19 @@ export default function CalendarView() {
     switch (viewMode) {
       case "month":
         return isMobile
-          ? format(selectedDate, "MMM yyyy")
-          : format(selectedDate, "MMMM yyyy");
+          ? format(selectedCalendarDate, "MMM yyyy")
+          : format(selectedCalendarDate, "MMMM yyyy");
       case "week": {
-        const ws = startOfWeek(selectedDate);
-        const we = endOfWeek(selectedDate);
+        const ws = startOfWeek(selectedCalendarDate);
+        const we = endOfWeek(selectedCalendarDate);
         return isMobile
           ? `${format(ws, "MMM d")} – ${format(we, "d")}`
           : `${format(ws, "MMM d")} – ${format(we, "d, yyyy")}`;
       }
       case "day":
         return isMobile
-          ? format(selectedDate, "EEE, MMM d")
-          : format(selectedDate, "EEEE, MMMM d, yyyy");
+          ? format(selectedCalendarDate, "EEE, MMM d")
+          : format(selectedCalendarDate, "EEEE, MMMM d, yyyy");
     }
   })();
 
@@ -1731,7 +1742,7 @@ export default function CalendarView() {
                     setCreateDefaultEnd(undefined);
                   }
                 }}
-                defaultDate={selectedDate}
+                defaultDate={selectedCalendarDate}
                 defaultStartTime={createDefaultStart}
                 defaultEndTime={createDefaultEnd}
               />
@@ -1746,7 +1757,7 @@ export default function CalendarView() {
               <MonthView
                 events={events}
                 timezone={calendarTimezone}
-                selectedDate={selectedDate}
+                selectedDate={selectedCalendarDate}
                 onDateSelect={handleDateSelect}
                 onDeleteEvent={handleDeleteEvent}
                 onEventDrop={handleEventDrop}
@@ -1761,7 +1772,7 @@ export default function CalendarView() {
               <WeekView
                 events={events}
                 timezone={calendarTimezone}
-                selectedDate={selectedDate}
+                selectedDate={selectedCalendarDate}
                 onDateSelect={handleDateSelect}
                 onDeleteEvent={handleDeleteEvent}
                 onEventTimeChange={handleEventTimeChange}
@@ -1780,7 +1791,7 @@ export default function CalendarView() {
               <DayView
                 events={dayEvents}
                 timezone={calendarTimezone}
-                date={selectedDate}
+                date={selectedCalendarDate}
                 onDeleteEvent={handleDeleteEvent}
                 onEventTimeChange={handleEventTimeChange}
                 onClickTimeSlot={handleClickTimeSlot}
