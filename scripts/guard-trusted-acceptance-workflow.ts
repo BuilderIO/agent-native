@@ -110,6 +110,15 @@ export function validateTrustedAcceptanceWorkflow(
     if (!build.includes("needs.plan.outputs.effective_sha")) {
       issues.push("candidate build must use the provenance-verified exact SHA");
     }
+    if (
+      !/uses:\s+pnpm\/action-setup@[^\n]+\n\s+with:\n\s+package_json_file:\s+candidate\/package\.json(?:\s|$)/.test(
+        build,
+      )
+    ) {
+      issues.push(
+        "candidate pnpm setup must read package-manager metadata from the nested checkout",
+      );
+    }
     if (!build.includes("Upload inert candidate artifact")) {
       issues.push("candidate output must cross jobs as an inert artifact");
     }

@@ -129,6 +129,39 @@ describe("trusted acceptance workflow boundary", () => {
     assert(result.issues.some((issue) => issue.includes("candidate checkout")));
   });
 
+  it("requires pnpm metadata to follow the nested candidate checkout", () => {
+    const unsafe = workflow.replace(
+      "        with:\n          package_json_file: candidate/package.json\n",
+      "",
+    );
+    const result = validateTrustedAcceptanceWorkflow(unsafe);
+    assert.equal(result.ok, false);
+    assert(
+      result.issues.some((issue) =>
+        issue.includes("package-manager metadata from the nested checkout"),
+      ),
+    );
+  });
+
+  it("requires nested candidate metadata on the pnpm setup step", () => {
+    const unsafe = workflow
+      .replace(
+        "        with:\n          package_json_file: candidate/package.json\n\n      - uses: actions/setup-node@",
+        "\n      - uses: actions/setup-node@",
+      )
+      .replace(
+        "        with:\n          node-version-file: candidate/.nvmrc",
+        "        with:\n          package_json_file: candidate/package.json\n          node-version-file: candidate/.nvmrc",
+      );
+    const result = validateTrustedAcceptanceWorkflow(unsafe);
+    assert.equal(result.ok, false);
+    assert(
+      result.issues.some((issue) =>
+        issue.includes("package-manager metadata from the nested checkout"),
+      ),
+    );
+  });
+
   it("rejects candidate-controlled workflow triggers", () => {
     const unsafe = workflow.replace(
       "on:\n  workflow_dispatch:",
