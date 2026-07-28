@@ -360,6 +360,7 @@ const messages = {
     },
   },
   record: {
+    resizePanel: "Redimensionar panel",
     loadFailedTitle: "No se pudo cargar este registro",
     loadFailedDescription:
       "CRM no pudo leer este registro. Puede estar fuera de tu acceso.",

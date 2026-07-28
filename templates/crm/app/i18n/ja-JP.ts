@@ -357,6 +357,7 @@ const messages = {
     },
   },
   record: {
+    resizePanel: "パネルのサイズを変更",
     loadFailedTitle: "このレコードを読み込めませんでした",
     loadFailedDescription:
       "CRM はこのレコードを読み取れませんでした。アクセス範囲外の可能性があります。",

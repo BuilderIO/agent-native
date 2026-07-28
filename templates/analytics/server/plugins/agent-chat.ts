@@ -479,10 +479,14 @@ export function realDataFinalGuard(
   );
   const firstPartySourceShouldBeTried =
     noConnectedExternalSources && !externalSourceRequest;
+  // Only a `data-source-status` result can show something is missing. A turn
+  // that never called it has empty label lists, which is "we did not look",
+  // not "nothing is connected" — treating those the same made the guard demand
+  // a Connect-data-sources link on turns whose sources were working fine.
   const needsDataSourceLink =
-    !sourceStatus.checked ||
-    (externalSourceRequest &&
-      (noConnectedExternalSources || missingRequestedExternalSource));
+    sourceStatus.checked &&
+    externalSourceRequest &&
+    (noConnectedExternalSources || missingRequestedExternalSource);
   if (
     hasFailedCorpusWorkflowEvidence(context.toolResults) &&
     looksLikeCoverageSensitiveAnalyticsRequest(userText) &&

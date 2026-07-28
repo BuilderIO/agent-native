@@ -10,8 +10,7 @@
  * so the reset-password flow still works end-to-end for local development.
  */
 
-import { readFileSync } from "node:fs";
-
+import { FAVICON_PNG_BASE64 } from "../assets/branding/favicon-base64.js";
 import { resolveSecret } from "./credential-provider.js";
 import { AGENT_NATIVE_EMAIL_LOGO_CONTENT_ID } from "./email-template.js";
 
@@ -42,9 +41,7 @@ export interface SendEmailArgs {
 let cachedAgentNativeLogo: Buffer | undefined;
 
 function getAgentNativeLogoAttachment(): EmailAttachment {
-  cachedAgentNativeLogo ??= readFileSync(
-    new URL("../../src/assets/branding/favicon.png", import.meta.url),
-  );
+  cachedAgentNativeLogo ??= Buffer.from(FAVICON_PNG_BASE64, "base64");
   return {
     filename: "agent-native-logo.png",
     content: cachedAgentNativeLogo,

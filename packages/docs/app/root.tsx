@@ -148,7 +148,7 @@ export const meta = () => [
   {
     name: "description",
     content:
-      "Build agentic apps where AI agents and UI share the same database and state. Open source framework with ready-to-fork apps.",
+      "Build agentic apps where AI agents and UI share the same database and state. Open source framework with cloneable SaaS apps.",
   },
   ...defaultSocialImageMeta(),
   {
@@ -158,7 +158,7 @@ export const meta = () => [
   {
     property: "og:description",
     content:
-      "Build agentic apps where AI agents and UI share the same database and state. Open source framework with ready-to-fork apps.",
+      "Build agentic apps where AI agents and UI share the same database and state. Open source framework with cloneable SaaS apps.",
   },
   { property: "og:type", content: "website" },
   { property: "og:url", content: SITE_URL },

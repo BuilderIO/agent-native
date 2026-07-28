@@ -368,6 +368,46 @@ describe("realDataFinalGuard", () => {
     });
   });
 
+  it("does not demand a connect-sources link when data-source-status never ran", () => {
+    // A draft that ends in a question counts as a safe no-data response, and
+    // this turn only saved a panel. Nothing here shows a source is missing, so
+    // the guard must not instruct the model to say one is unavailable — the
+    // model recognizes that instruction as a prompt injection and refuses it
+    // out loud to the user.
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "yes add conversion rate",
+        draftText:
+          "Which denominator do you want for that rate — all visitors, or only the AN-tagged ones?",
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("still reports a real query failure without inventing a missing source", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "what was our signup conversion last week",
+        draftText: "Signup conversion was 4.2% last week.",
+        toolResults: [
+          {
+            name: "bigquery",
+            isError: true,
+            content: "Syntax error at [3:9]",
+          },
+        ],
+      }),
+    );
+
+    expect((result as { retryMessage: string }).retryMessage).toContain(
+      "Syntax error",
+    );
+    expect((result as { retryMessage: string }).retryMessage).not.toContain(
+      "which external source is missing",
+    );
+  });
+
   it("accepts the action's string setup link without overwriting it with the settings path", () => {
     const setupLink = "/_agent-native/open?app=analytics&view=data-sources";
     const result = realDataFinalGuard(

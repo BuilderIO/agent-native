@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { describe, it } from "node:test";
 
 import {
@@ -134,6 +135,237 @@ describe("disposable runtime authority", () => {
       log.slice(0, 4).map((entry) => entry.split(":")[0]),
       ["neon", "neon", "openrouter", "netlify"],
     );
+  });
+
+  it("installs the acceptance-only email bypass only after lease ownership and records redacted signing provenance", async () => {
+    const log: string[] = [];
+    const fake = providers(log);
+    fake.netlify.assertSiteReady = async (_accountId, _siteId, _origin, keys) =>
+      log.push(`ready:${keys.join(",")}`);
+    fake.netlify.setRuntime = async (_accountId, _siteId, values) =>
+      log.push(`set:${Object.keys(values).sort().join(",")}`);
+    fake.netlify.ownsLease = async () => {
+      log.push("owns-lease");
+      return true;
+    };
+    let removedKeys: readonly string[] = [];
+    fake.netlify.removeRuntime = async (_accountId, _siteId, keys) => {
+      removedKeys = keys;
+      return true;
+    };
+
+    const authority = new DisposableRuntimeAuthority(config(), fake, fixedNow);
+    const issued = await authority.acquire(60_000);
+    const secret = issued.secrets.memberSecrets.content!.betterAuthSecret;
+    const provenance = issued.lease.members[0]?.authSigningAuthority;
+
+    assert.equal(log[0]?.includes("AUTH_SKIP_EMAIL_VERIFICATION"), true);
+    assert.equal(
+      log.indexOf("set:AGENT_NATIVE_ACCEPTANCE_LEASE_MARKER") <
+        log.indexOf("owns-lease"),
+      true,
+    );
+    assert.equal(
+      log.lastIndexOf("owns-lease") <
+        log.indexOf(
+          "set:A2A_SECRET,AGENT_ENGINE,AUTH_SKIP_EMAIL_VERIFICATION,BETTER_AUTH_SECRET,DATABASE_URL,MCP_OAUTH_ACCESS_TOKEN_TTL,OPENROUTER_API_KEY",
+        ),
+      true,
+    );
+    assert.deepEqual(provenance, {
+      algorithm: "sha256",
+      generatedAt: fixedNow().toISOString(),
+      sha256: createHash("sha256").update(secret).digest("hex"),
+      scope: "per-run",
+    });
+    assert.equal(JSON.stringify(issued.lease).includes(secret), false);
+
+    await authority.revoke(issued.lease);
+    assert.equal(removedKeys.includes("AUTH_SKIP_EMAIL_VERIFICATION"), true);
+    assert.equal(removedKeys.includes("MCP_OAUTH_ACCESS_TOKEN_TTL"), true);
+  });
+
+  it("keeps a directory fixture controller-owned and only permits its fixed withdrawal transition", async () => {
+    const log: string[] = [];
+    const fake = providers(log);
+    let ownsLease = true;
+    const runtimeWrites: Array<Record<string, string>> = [];
+    const memberWrites: Array<Record<string, string>> = [];
+    fake.netlify.setRuntime = async (_accountId, siteId, values) => {
+      if (siteId === "directory-site") runtimeWrites.push(values);
+      else memberWrites.push(values);
+    };
+    fake.netlify.ownsLease = async () => ownsLease;
+    let removedKeys: readonly string[] = [];
+    fake.netlify.removeRuntime = async (_accountId, siteId, keys) => {
+      if (siteId === "directory-site") removedKeys = keys;
+      return true;
+    };
+    const authority = new DisposableRuntimeAuthority(
+      config({
+        directoryFixture: {
+          origin: "https://directory.acceptance.example.test",
+          netlifyAccountId: "directory-account",
+          netlifySiteId: "directory-site",
+          orgDomain: "acceptance.example.test",
+          withdrawnMemberId: "content",
+          members: [
+            {
+              id: "content",
+              name: "Content",
+              url: "https://content.acceptance.example.test",
+              a2aUrl: "https://content.acceptance.example.test",
+            },
+          ],
+        },
+      }),
+      fake,
+      fixedNow,
+    );
+    const issued = await authority.acquire(60_000);
+    assert.deepEqual(issued.lease.directoryFixture, {
+      netlifySiteId: "directory-site",
+      runtimeOwned: true,
+      runtimeWriteAttempted: true,
+      scenario: "stable",
+    });
+    assert.deepEqual(Object.keys(runtimeWrites[0]!).sort(), [
+      "AGENT_NATIVE_ACCEPTANCE_LEASE_MARKER",
+    ]);
+    assert.deepEqual(Object.keys(runtimeWrites[1]!).sort(), [
+      "A2A_SECRET",
+      "AGENT_NATIVE_ACCEPTANCE_DIRECTORY_JSON",
+      "AGENT_NATIVE_ACCEPTANCE_DIRECTORY_SCENARIO",
+    ]);
+    assert.equal(
+      memberWrites.some(
+        (values) =>
+          values.AGENT_NATIVE_ORG_DIRECTORY_URL ===
+          "https://directory.acceptance.example.test",
+      ),
+      true,
+    );
+    assert.equal(JSON.stringify(issued.lease).includes("A2A_SECRET"), false);
+
+    ownsLease = false;
+    await assert.rejects(
+      () => authority.updateDirectoryScenario(issued.lease, "withdraw-member"),
+      /not owned/,
+    );
+    ownsLease = true;
+    await authority.updateDirectoryScenario(issued.lease, "withdraw-member");
+    assert.equal(issued.lease.directoryFixture?.scenario, "withdraw-member");
+    await assert.rejects(
+      () => authority.updateDirectoryScenario(issued.lease, "withdraw-member"),
+      /not allowlisted/,
+    );
+    await authority.revoke(issued.lease);
+    assert.deepEqual(removedKeys, [
+      "AGENT_NATIVE_ACCEPTANCE_LEASE_MARKER",
+      "A2A_SECRET",
+      "AGENT_NATIVE_ACCEPTANCE_DIRECTORY_JSON",
+      "AGENT_NATIVE_ACCEPTANCE_DIRECTORY_SCENARIO",
+    ]);
+    assert.equal(
+      issued.lease.directoryFixture?.tombstoneDeployId,
+      "deploy-directory-site",
+    );
+  });
+
+  it("reconstructs an expired controller-owned directory fixture for reaper cleanup", async () => {
+    const log: string[] = [];
+    const fake = providers(log);
+    fake.netlify.readLeaseMarker = async (_accountId, siteId) =>
+      siteId === "directory-site"
+        ? {
+            leaseId: "a".repeat(24),
+            expiresAt: "2026-07-26T11:00:00.000Z",
+          }
+        : undefined;
+    let removedKeys: readonly string[] = [];
+    fake.netlify.removeRuntime = async (_accountId, siteId, keys) => {
+      if (siteId === "directory-site") removedKeys = keys;
+      return true;
+    };
+    const configured = config({
+      directoryFixture: {
+        origin: "https://directory.acceptance.example.test",
+        netlifyAccountId: "directory-account",
+        netlifySiteId: "directory-site",
+        orgDomain: "acceptance.example.test",
+        withdrawnMemberId: "content",
+        members: [
+          {
+            id: "content",
+            name: "Content",
+            url: "https://content.acceptance.example.test",
+            a2aUrl: "https://content.acceptance.example.test",
+          },
+        ],
+      },
+    });
+    const authority = new DisposableRuntimeAuthority(
+      configured,
+      fake,
+      fixedNow,
+    );
+    const [discovered] = await discoverExpiredLeases(
+      configured,
+      fake,
+      fixedNow(),
+    );
+    assert.equal(discovered?.directoryFixture?.runtimeOwned, true);
+    const [reaped] = await authority.reapExpired([discovered!]);
+    assert.equal(reaped?.state, "revoked");
+    assert.equal(
+      removedKeys.includes("AGENT_NATIVE_ACCEPTANCE_DIRECTORY_JSON"),
+      true,
+    );
+  });
+
+  it("persists a failed directory ownership verification for retryable cleanup", async () => {
+    const log: string[] = [];
+    const fake = providers(log);
+    const authority = new DisposableRuntimeAuthority(
+      config({
+        directoryFixture: {
+          origin: "https://directory.acceptance.example.test",
+          netlifyAccountId: "directory-account",
+          netlifySiteId: "directory-site",
+          orgDomain: "acceptance.example.test",
+          withdrawnMemberId: "content",
+          members: [
+            {
+              id: "content",
+              name: "Content",
+              url: "https://content.acceptance.example.test",
+              a2aUrl: "https://content.acceptance.example.test",
+            },
+          ],
+        },
+      }),
+      fake,
+      fixedNow,
+    );
+    const { lease } = await authority.acquire(60_000);
+    fake.netlify.ownsLease = async (_accountId, siteId) => {
+      if (siteId === "directory-site")
+        throw new Error("transient directory ownership read failure");
+      return true;
+    };
+    await authority.revoke(lease);
+    assert.equal(lease.state, "revoking");
+    assert.equal(
+      lease.journal.some(
+        ({ operation, outcome, handle }) =>
+          operation === "verify-directory-lease-owner" &&
+          outcome === "failed" &&
+          handle === "directory-site",
+      ),
+      true,
+    );
+    assert.equal(log.includes("netlify:remove:directory-site"), false);
+    assert.equal(log.includes("netlify:tombstone:directory-site"), false);
   });
 
   it("journals partial acquire and compensates through the same revoke path", async () => {
@@ -306,11 +538,13 @@ describe("disposable runtime authority", () => {
 
   it("reaps deterministic expired records and leaves late revoked work alone", async () => {
     const log: string[] = [];
-    const authority = new DisposableRuntimeAuthority(
-      config(),
-      providers(log),
-      fixedNow,
-    );
+    const fake = providers(log);
+    let removedKeys: readonly string[] = [];
+    fake.netlify.removeRuntime = async (_accountId, _siteId, keys) => {
+      removedKeys = keys;
+      return true;
+    };
+    const authority = new DisposableRuntimeAuthority(config(), fake, fixedNow);
     const lease: RuntimeLease = {
       id: "expired-lease",
       createdAt: "2026-07-26T10:00:00.000Z",
@@ -345,6 +579,7 @@ describe("disposable runtime authority", () => {
       log.filter((entry) => entry.startsWith("neon:delete")).length,
       1,
     );
+    assert.equal(removedKeys.includes("AUTH_SKIP_EMAIL_VERIFICATION"), true);
   });
 
   it("reconstructs an expired multi-member lease from declared provider inventory and reaps it", async () => {
@@ -999,7 +1234,7 @@ describe("disposable runtime authority", () => {
           JSON.stringify({
             values: [
               {
-                context: "all",
+                context: "production",
                 value: JSON.stringify({
                   leaseId: "a".repeat(24),
                   expiresAt: "2026-07-26T13:00:00.000Z",
@@ -1031,7 +1266,7 @@ describe("disposable runtime authority", () => {
               leaseId: "a".repeat(24),
               expiresAt: "2026-07-26T13:00:00.000Z",
             }),
-            context: "all",
+            context: "production",
           },
         ],
         is_secret: false,
@@ -1058,6 +1293,62 @@ describe("disposable runtime authority", () => {
       }),
       /refusing to overwrite/,
     );
+  });
+
+  it("updates an existing acceptance runtime variable through the per-key endpoint", async () => {
+    const requests: Array<{ input: string; init?: RequestInit }> = [];
+    const netlify = new NetlifyRuntime(async (input, init) => {
+      requests.push({ input, init });
+      return init?.method === "PUT"
+        ? new Response(null, { status: 200 })
+        : Response.json({ values: [{ context: "production" }] });
+    }, "injected-management-token");
+    await netlify.setRuntime(
+      "account",
+      "site",
+      { AGENT_NATIVE_ACCEPTANCE_DIRECTORY_SCENARIO: "withdraw-member" },
+      true,
+    );
+    assert.equal(requests[1]?.init?.method, "PUT");
+    assert.equal(
+      requests[1]?.input,
+      "https://api.netlify.com/api/v1/accounts/account/env/AGENT_NATIVE_ACCEPTANCE_DIRECTORY_SCENARIO?site_id=site",
+    );
+    assert.deepEqual(JSON.parse(String(requests[1]?.init?.body)), {
+      key: "AGENT_NATIVE_ACCEPTANCE_DIRECTORY_SCENARIO",
+      scopes: ["functions", "runtime"],
+      values: [{ value: "withdraw-member", context: "production" }],
+      is_secret: true,
+    });
+  });
+
+  it("settles every parallel runtime deletion before reporting a failure", async () => {
+    let releaseDelayed: (() => void) | undefined;
+    const delayed = new Promise<void>((resolve) => {
+      releaseDelayed = resolve;
+    });
+    const netlify = new NetlifyRuntime(async (input, init) => {
+      if (init?.method !== "DELETE") return new Response(null, { status: 404 });
+      if (input.includes("FIRST_KEY"))
+        throw new Error("injected deletion failure");
+      await delayed;
+      return new Response(null, { status: 204 });
+    }, "injected-management-token");
+    const removal = netlify.removeRuntime("account", "site", [
+      "FIRST_KEY",
+      "DELAYED_KEY",
+    ]);
+    let settled = false;
+    void removal
+      .finally(() => {
+        settled = true;
+      })
+      .catch(() => undefined);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(settled, false);
+    releaseDelayed?.();
+    await assert.rejects(removal, /injected deletion failure/);
+    assert.equal(settled, true);
   });
 
   it("binds the declared acceptance origin to the exact Netlify site before mutation", async () => {

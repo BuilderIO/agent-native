@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/select";
 
 import type { CrmValue } from "../../../../shared/crm-contract";
+import { AttributeRowShell, PANEL_SECTION_HEADING } from "./attribute-row";
 import { FieldEditor } from "./field-editors";
 import { FieldHistoryButton } from "./FieldHistory";
 import {
@@ -57,12 +58,9 @@ export function RecordLists({
 }) {
   const t = useT();
   return (
-    <section className="grid gap-3" aria-labelledby="crm-record-lists">
-      <div className="flex items-center justify-between gap-2">
-        <h2
-          id="crm-record-lists"
-          className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground"
-        >
+    <section className="grid gap-2" aria-labelledby="crm-record-lists">
+      <div className="flex min-h-9 items-center justify-between gap-2">
+        <h2 id="crm-record-lists" className={PANEL_SECTION_HEADING}>
           {t("record.lists")}
         </h2>
         <AddToListControl page={page} />
@@ -77,12 +75,12 @@ export function RecordLists({
           />
         ))
       ) : (
-        <p className="text-sm text-muted-foreground">
+        <p className="text-sm text-content-tertiary">
           {t("record.listsEmpty")}
         </p>
       )}
       {page.listMembershipsTruncated ? (
-        <p className="text-xs text-muted-foreground">
+        <p className="text-xs text-content-tertiary">
           {t("record.listsTruncated")}
         </p>
       ) : null}
@@ -105,49 +103,47 @@ function ListCard({
 }) {
   const t = useT();
   return (
-    <div className="rounded-lg border border-border/70 bg-card">
-      <div className="flex items-center justify-between gap-2 border-b border-border/70 px-3 py-2">
+    <div className="rounded-card border border-hairline bg-card">
+      <div className="flex min-h-9 items-center justify-between gap-2 border-b border-hairline px-3">
         <Link
           to={`/lists/${encodeURIComponent(list.id)}`}
           className="truncate text-sm font-medium hover:underline"
         >
           {list.name}
         </Link>
-        <span className="shrink-0 text-xs text-muted-foreground">
+        <span className="shrink-0 text-xs tabular-nums text-content-tertiary">
           {t("record.entryCount", { count: list.entries.length })}
         </span>
       </div>
-      <div className="divide-y divide-border/70">
+      <div className="divide-y divide-hairline">
         {list.entries.map((entry, index) => (
-          <div key={entry.id} className="grid gap-1.5 px-3 py-2.5">
+          <div key={entry.id} className="px-1 py-1">
             {list.entries.length > 1 ? (
-              <p className="text-[11px] uppercase tracking-[0.1em] text-muted-foreground">
+              <p className="px-2 py-1 text-xs text-content-tertiary">
                 {t("record.entryOrdinal", { index: index + 1 })}
               </p>
             ) : null}
             {list.attributes.length ? (
               list.attributes.map((attribute) => (
-                <div
+                /* An entry attribute is the list's own workflow value, not the
+                   record's — an opportunity's `Stage` and a pipeline's `Stage`
+                   are different fields, and moving one does not move the other.
+                   This label still reads identically to the object attribute
+                   above; qualifying it needs a new i18n key, which is reported
+                   rather than added here. */
+                <AttributeRowShell
                   key={attribute.id}
-                  className="group grid grid-cols-[minmax(5rem,0.7fr)_minmax(0,1.3fr)] items-center gap-2"
-                >
-                  <div className="flex min-w-0 items-start gap-1">
-                    {/* An entry attribute is the list's own workflow value, not
-                        the record's — an opportunity's `Stage` and a pipeline's
-                        `Stage` are different fields, and moving one does not
-                        move the other. This label still reads identically to
-                        the object attribute in the left panel; qualifying it
-                        needs a new i18n key, which is reported rather than
-                        added here. */}
-                    <span className="min-w-0 text-xs text-muted-foreground">
-                      {attribute.label}
-                    </span>
+                  type={attribute.attributeType}
+                  label={attribute.label}
+                  title={attribute.description ?? attribute.label}
+                  affordance={
                     <FieldHistoryButton
                       recordId={recordId}
                       entryId={entry.id}
                       attribute={entryAttributeAsEditable(attribute)}
                     />
-                  </div>
+                  }
+                >
                   <FieldEditor
                     attribute={entryAttributeAsEditable(attribute)}
                     value={entry.values[attribute.apiSlug]}
@@ -155,10 +151,10 @@ function ListCard({
                       onEntryCommit(entry.id, attribute, value)
                     }
                   />
-                </div>
+                </AttributeRowShell>
               ))
             ) : (
-              <p className="text-xs text-muted-foreground">
+              <p className="px-2 py-1 text-xs text-content-tertiary">
                 {t("record.listNoAttributes")}
               </p>
             )}

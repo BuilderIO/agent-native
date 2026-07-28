@@ -47,7 +47,9 @@ vi.mock("../server/crm/native-adapter.js", () => ({
           remoteRevision: "1",
           record: {
             ref: { localId: "record-1" },
-            displayName: mutation.fields.displayName,
+            // Mirrors summaryColumns()' real derivation: accounts and
+            // opportunities carry `name`, people carry `displayName`.
+            displayName: mutation.fields.displayName ?? mutation.fields.name,
           },
         };
       }),
@@ -121,11 +123,35 @@ describe("Native CRM actions", () => {
     expect(state.mutations[0]).toMatchObject({
       operation: "create",
       fields: {
-        displayName: "Acme",
         name: "Acme",
         domain: "acme.example",
       },
     });
+    // An account already has a `name` attribute; writing `displayName` too
+    // would mint a second attribute and a second history stream for one value.
+    expect(state.mutations[0].fields).not.toHaveProperty("displayName");
+  });
+
+  it("stores a person's name as displayName, since people have no name attribute", async () => {
+    const result = await createCrmRecord.run(
+      {
+        kind: "person",
+        displayName: "Dana Reyes",
+        fields: { primaryEmail: "dana@acme.example" },
+        idempotencyKey: "create-dana",
+      },
+      context,
+    );
+
+    expect(result).toMatchObject({ displayName: "Dana Reyes" });
+    expect(state.mutations[0]).toMatchObject({
+      operation: "create",
+      fields: {
+        displayName: "Dana Reyes",
+        primaryEmail: "dana@acme.example",
+      },
+    });
+    expect(state.mutations[0].fields).not.toHaveProperty("name");
   });
 
   it("rejects unsafe field names and payloads before persistence", () => {

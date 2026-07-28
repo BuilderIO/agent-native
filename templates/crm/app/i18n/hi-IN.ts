@@ -354,6 +354,7 @@ const messages = {
     },
   },
   record: {
+    resizePanel: "पैनल का आकार बदलें",
     loadFailedTitle: "यह रिकॉर्ड लोड नहीं हो सका",
     loadFailedDescription:
       "CRM इस रिकॉर्ड को पढ़ नहीं सका। यह आपकी पहुँच से बाहर हो सकता है।",

@@ -66,6 +66,7 @@ import { zoomBridgeScript } from "../../../.generated/bridge/zoom.generated";
 import { isTrustedCanvasBridgeMessage } from "./bridge-security";
 import { captureAnnotatedScreenshot } from "./design-canvas/annotation-snapshot";
 import { submitDesignAnnotations } from "./design-canvas/annotation-submit";
+import { appendContentSizeReporter } from "./design-canvas/content-size-report";
 import {
   getScreenContentPointFromClient,
   getZoomToCursorScrollDelta,
@@ -2180,6 +2181,13 @@ export function DesignCanvas({
         ),
       ].join("");
       frameDocument = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${frameStyle}</head><body>${iframeRenderContent}${bridgeToInject}</body></html>`;
+    }
+    // Overview frames report their own content height so the canvas can
+    // content-fit them (Framer-style). Embedded (overview) frames only — a
+    // focused single-screen view fills the viewport and must keep native
+    // 100vh/min-h-screen, which the reporter's guard would otherwise pin.
+    if (isEmbeddedFrame) {
+      frameDocument = appendContentSizeReporter(frameDocument);
     }
     return injectSessionReplayIframeBootstrap(frameDocument);
     // editorChromeScaleX/Y are intentionally NOT deps: they only seed the initial

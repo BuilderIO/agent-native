@@ -16,6 +16,7 @@ import {
 } from "@tabler/icons-react";
 import { Link } from "react-router";
 
+import { overlayProps } from "@/components/crm/shared/ui-tokens";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -45,7 +46,7 @@ export function RecordTabs({
     <Tabs
       value={tab}
       onValueChange={(next) => onTabChange(next as RecordTab)}
-      className="flex min-h-full flex-col p-5 sm:p-6"
+      className="flex flex-col p-5 sm:p-6"
     >
       <TabsList className="h-9 self-start bg-muted/70">
         <TabsTrigger value="activity" className="gap-1.5">
@@ -73,16 +74,16 @@ export function RecordTabs({
             description={t("record.activityNotIngestedDescription")}
           />
         ) : (
-          <div className="divide-y divide-border rounded-lg border border-border/70 bg-card">
+          <div className="divide-y divide-hairline rounded-card border border-hairline bg-card">
             {activity.items.map((item) => (
               <div key={item.id} className="px-4 py-3">
                 <p className="text-sm font-medium">{item.title}</p>
                 {item.summary ? (
-                  <p className="mt-1 text-sm text-muted-foreground">
+                  <p className="mt-1 text-sm text-content-secondary">
                     {item.summary}
                   </p>
                 ) : null}
-                <p className="mt-2 text-xs text-muted-foreground">
+                <p className="mt-2 text-xs text-content-secondary">
                   {[
                     item.actor,
                     item.occurredAt ? formatDate(item.occurredAt) : undefined,
@@ -104,13 +105,13 @@ export function RecordTabs({
       </TabsContent>
 
       <TabsContent value="tasks" className="mt-4 max-w-2xl">
-        <div className="divide-y divide-border rounded-lg border border-border/70 bg-card">
+        <div className="divide-y divide-hairline rounded-card border border-hairline bg-card">
           {tasks.length ? (
             tasks.map((task) => (
               <div key={task.id} className="flex items-center gap-3 px-4 py-3">
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium">{task.title}</p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
+                  <p className="mt-0.5 text-xs text-content-secondary">
                     {task.dueAt
                       ? t("record.taskDue", { when: formatDate(task.dueAt) })
                       : task.status}
@@ -132,7 +133,7 @@ export function RecordTabs({
               </div>
             ))
           ) : (
-            <p className="px-4 py-8 text-center text-sm text-muted-foreground">
+            <p className="px-4 py-8 text-center text-sm text-content-secondary">
               {t("record.tasksEmpty")}
             </p>
           )}
@@ -140,19 +141,21 @@ export function RecordTabs({
       </TabsContent>
 
       <TabsContent value="related" className="mt-4 max-w-2xl">
-        <div className="divide-y divide-border rounded-lg border border-border/70 bg-card">
+        <div className="divide-y divide-hairline rounded-card border border-hairline bg-card">
           {record.relatedRecords?.length ? (
             record.relatedRecords.map((related) => (
               <Link
                 key={`${related.id}:${related.relationshipType}`}
                 to={`/records/${encodeURIComponent(related.id)}`}
-                className="flex items-center gap-3 px-4 py-3 hover:bg-muted/50"
+                {...overlayProps({
+                  className: "flex items-center gap-3 px-4 py-3",
+                })}
               >
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">
                     {related.displayName}
                   </p>
-                  <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                  <p className="mt-0.5 truncate text-xs text-content-secondary">
                     {[
                       related.relationshipLabel ?? related.relationshipType,
                       related.subtitle,
@@ -167,7 +170,7 @@ export function RecordTabs({
               </Link>
             ))
           ) : (
-            <p className="px-4 py-8 text-center text-sm text-muted-foreground">
+            <p className="px-4 py-8 text-center text-sm text-content-secondary">
               {t("record.relatedEmpty")}
             </p>
           )}
@@ -185,9 +188,9 @@ function ComingSoon({
   description: string;
 }) {
   return (
-    <div className="rounded-lg border border-dashed border-border/70 bg-card px-5 py-8 text-center">
+    <div className="rounded-card border border-dashed border-hairline bg-card px-5 py-8 text-center">
       <p className="text-sm font-medium">{title}</p>
-      <p className="mx-auto mt-1.5 max-w-md text-sm leading-6 text-muted-foreground">
+      <p className="mx-auto mt-1.5 max-w-md text-sm leading-6 text-content-secondary">
         {description}
       </p>
     </div>

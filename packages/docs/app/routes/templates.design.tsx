@@ -318,7 +318,7 @@ export default function DesignTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                SQL-backed design records you can fork and extend
+                SQL-backed design records you can customize and extend
               </li>
             </ul>
           </div>
