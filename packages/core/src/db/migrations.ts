@@ -682,7 +682,8 @@ export function runMigrations(
         !!globalThis.process?.env?.NETLIFY ||
         !!globalThis.process?.env?.AWS_LAMBDA_FUNCTION_NAME ||
         !!globalThis.process?.env?.VERCEL ||
-        "__cf_env" in globalThis;
+        "__cf_env" in globalThis ||
+        "__env__" in globalThis;
       if (typeof globalThis.process?.exit === "function" && !isServerless) {
         process.exit(1);
       }

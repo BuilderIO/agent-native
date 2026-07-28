@@ -8609,7 +8609,9 @@ function installWebviewReloadGuard(contents: Electron.WebContents) {
     try {
       const current = new URL(contents.getURL());
       const next = new URL(url);
-      if (current.origin !== next.origin) return;
+      // Allow the targeted route navigation used by the app-side recovery
+      // handler. Only suppress a reload that points at the exact current URL.
+      if (current.origin !== next.origin || current.href !== next.href) return;
     } catch {
       return;
     }
@@ -8945,12 +8947,19 @@ function buildUpdateMenuItem(): Electron.MenuItemConstructorOptions {
     };
   }
 
+  if (currentUpdateStatus.state === "not-available") {
+    return {
+      label: `Up to Date — Version ${currentUpdateStatus.currentVersion}`,
+      click: () => void checkForAppUpdates({ notifyOnResult: true }),
+    };
+  }
+
   return {
     label:
       currentUpdateStatus.state === "error"
         ? "Retry Update Check"
         : "Check for Updates...",
-    click: () => void checkForAppUpdates(),
+    click: () => void checkForAppUpdates({ notifyOnResult: true }),
   };
 }
 

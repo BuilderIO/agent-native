@@ -21,6 +21,7 @@ describe("db/client dialect detection", () => {
       globalThis as Record<string, unknown>,
       "__AGENT_NATIVE_BACKGROUND_RUNTIME_EXPECTED__",
     );
+    Reflect.deleteProperty(globalThis as Record<string, unknown>, "__env__");
     vi.resetModules();
   });
 
@@ -63,6 +64,16 @@ describe("db/client dialect detection", () => {
     const { getDialect, isPostgres } = await import("./client.js");
     expect(getDialect()).toBe("sqlite");
     expect(isPostgres()).toBe(false);
+  });
+
+  it("detects a D1 binding from Nitro's native Worker environment", async () => {
+    vi.stubEnv("DATABASE_URL", "");
+    const binding = { prepare: vi.fn() };
+    (globalThis as Record<string, unknown>).__env__ = { DB: binding };
+    const { getCloudflareD1Binding, getDialect } = await import("./client.js");
+
+    expect(getCloudflareD1Binding()).toBe(binding);
+    expect(getDialect()).toBe("d1");
   });
 
   it("detects sqlite for remote libsql URLs", async () => {

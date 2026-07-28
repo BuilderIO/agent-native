@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 
 /**
  * Provider-neutral, disposable runtime authority for the disabled acceptance
@@ -24,8 +24,25 @@ export type RuntimeMember = {
   needsInference: boolean;
 };
 
+/** A controller-owned directory is intentionally not a candidate runtime member. */
+export type DirectoryFixtureRuntime = {
+  origin: string;
+  netlifyAccountId: string;
+  netlifySiteId: string;
+  orgDomain: string;
+  members: readonly {
+    id: string;
+    name: string;
+    url: string;
+    a2aUrl: string;
+    capabilities?: readonly string[];
+  }[];
+  withdrawnMemberId: string;
+};
+
 export type TrustedRuntimeConfig = {
   members: readonly RuntimeMember[];
+  directoryFixture?: DirectoryFixtureRuntime;
   maxInferenceUsd: number;
   tombstone: TombstoneArtifact;
 };
@@ -54,9 +71,22 @@ export type RuntimeLease = {
     netlifySiteId: string;
     runtimeWriteAttempted?: boolean;
     runtimeOwned?: boolean;
+    authSigningAuthority?: {
+      algorithm: "sha256";
+      generatedAt: string;
+      sha256: string;
+      scope: "per-run";
+    };
     inferenceKeyHash?: string;
     tombstoneDeployId?: string;
   }>;
+  directoryFixture?: {
+    netlifySiteId: string;
+    runtimeWriteAttempted?: boolean;
+    runtimeOwned?: boolean;
+    scenario: "stable" | "withdraw-member";
+    tombstoneDeployId?: string;
+  };
   journal: LeaseJournal[];
   verification: {
     inferenceDisabled: boolean;
@@ -138,6 +168,21 @@ function checkedConfig(config: TrustedRuntimeConfig): void {
     members.add(member.id);
     neonProjects.add(member.neonProjectId);
     netlifySites.add(member.netlifySiteId);
+  }
+  const fixture = config.directoryFixture;
+  if (!fixture) return;
+  if (
+    !fixture.netlifyAccountId ||
+    !fixture.netlifySiteId ||
+    !fixture.orgDomain ||
+    !isExactHttpsOrigin(fixture.origin) ||
+    netlifySites.has(fixture.netlifySiteId) ||
+    fixture.members.length === 0 ||
+    !fixture.members.some(({ id }) => id === fixture.withdrawnMemberId)
+  ) {
+    throw new Error(
+      "trusted directory fixture config is incomplete or overlaps an app runtime",
+    );
   }
 }
 
@@ -447,6 +492,7 @@ export class NetlifyRuntime {
     accountId: string,
     siteId: string,
     values: Record<string, string>,
+    allowExisting = false,
   ): Promise<void> {
     const entries = Object.entries(values);
     for (const [key] of entries) {
@@ -458,10 +504,36 @@ export class NetlifyRuntime {
         throw new Error(
           `Netlify runtime variable lookup failed: ${existing.status}`,
         );
-      if (existing.ok)
+      if (!existing.ok && allowExisting)
+        throw new Error(
+          `Netlify runtime variable ${key} does not exist; refusing acceptance-site update`,
+        );
+      if (existing.ok && !allowExisting)
         throw new Error(
           `Netlify runtime variable ${key} already exists; refusing to overwrite acceptance-site state`,
         );
+    }
+    if (allowExisting) {
+      for (const [key, value] of entries) {
+        const response = await this.fetch(this.envUrl(accountId, siteId, key), {
+          method: "PUT",
+          headers: {
+            authorization: `Bearer ${this.token}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            key,
+            scopes: ["functions", "runtime"],
+            values: [{ value, context: "production" }],
+            is_secret: key !== "AGENT_NATIVE_ACCEPTANCE_LEASE_MARKER",
+          }),
+        });
+        if (!response.ok)
+          throw new Error(
+            `Netlify runtime variable update failed: ${response.status}`,
+          );
+      }
+      return;
     }
     const response = await this.fetch(this.envUrl(accountId, siteId), {
       method: "POST",
@@ -473,7 +545,7 @@ export class NetlifyRuntime {
         entries.map(([key, value]) => ({
           key,
           scopes: ["functions", "runtime"],
-          values: [{ value, context: "all" }],
+          values: [{ value, context: "production" }],
           is_secret: key !== "AGENT_NATIVE_ACCEPTANCE_LEASE_MARKER",
         })),
       ),
@@ -489,24 +561,36 @@ export class NetlifyRuntime {
     siteId: string,
     keys: readonly string[],
   ): Promise<boolean> {
-    for (const key of keys) {
-      const response = await this.fetch(this.envUrl(accountId, siteId, key), {
-        method: "DELETE",
-        headers: { authorization: `Bearer ${this.token}` },
-      });
-      if (!response.ok && response.status !== 404)
-        throw new Error(
-          `Netlify runtime variable removal failed: ${response.status}`,
-        );
-    }
-    for (const key of keys) {
-      const verification = await this.fetch(
-        this.envUrl(accountId, siteId, key),
-        { headers: { authorization: `Bearer ${this.token}` } },
+    const removals = await Promise.allSettled(
+      keys.map((key) =>
+        this.fetch(this.envUrl(accountId, siteId, key), {
+          method: "DELETE",
+          headers: { authorization: `Bearer ${this.token}` },
+        }),
+      ),
+    );
+    const rejectedRemoval = removals.find(
+      (result) => result.status === "rejected",
+    );
+    if (rejectedRemoval?.status === "rejected") throw rejectedRemoval.reason;
+    const failedRemoval = removals.find(
+      (result) =>
+        result.status === "fulfilled" &&
+        !result.value.ok &&
+        result.value.status !== 404,
+    );
+    if (failedRemoval?.status === "fulfilled")
+      throw new Error(
+        `Netlify runtime variable removal failed: ${failedRemoval.value.status}`,
       );
-      if (verification.status !== 404) return false;
-    }
-    return true;
+    const verification = await Promise.all(
+      keys.map((key) =>
+        this.fetch(this.envUrl(accountId, siteId, key), {
+          headers: { authorization: `Bearer ${this.token}` },
+        }),
+      ),
+    );
+    return verification.every((response) => response.status === 404);
   }
 
   async readLeaseMarker(
@@ -520,7 +604,9 @@ export class NetlifyRuntime {
       if (response.status === 404) return undefined;
       const body = await json(response);
       const values = body.values as Array<Record<string, unknown>> | undefined;
-      const value = values?.find((entry) => entry.context === "all")?.value;
+      const value = values?.find(
+        (entry) => entry.context === "production",
+      )?.value;
       if (typeof value !== "string")
         throw new Error("Netlify returned a malformed acceptance lease marker");
       return value;
@@ -658,6 +744,7 @@ export async function discoverExpiredLeases(
 
   const branchesByLease = new Map<string, DiscoveredBranch[]>();
   const markersByLease = new Map<string, DiscoveredMarker[]>();
+  const directoryMarkersByLease = new Map<string, { expiresAt: string }>();
   for (const member of config.members) {
     const branches = await providers.neon.listByPrefixAndExpiry(
       member.neonProjectId,
@@ -692,6 +779,26 @@ export async function discoverExpiredLeases(
       markersByLease.set(marker.leaseId, leaseMarkers);
     }
   }
+  if (config.directoryFixture) {
+    const fixture = config.directoryFixture;
+    const marker = await providers.netlify.readLeaseMarker(
+      fixture.netlifyAccountId,
+      fixture.netlifySiteId,
+    );
+    if (marker) {
+      if (!leaseIdPattern.test(marker.leaseId))
+        throw new Error(
+          "Netlify returned an invalid trusted directory fixture lease id",
+        );
+      if (directoryMarkersByLease.has(marker.leaseId))
+        throw new Error(
+          "Netlify returned duplicate trusted directory fixture lease markers",
+        );
+      directoryMarkersByLease.set(marker.leaseId, {
+        expiresAt: marker.expiresAt,
+      });
+    }
+  }
 
   const keysByLease = new Map<string, DiscoveredKey[]>();
   for (const key of await providers.openrouter.listByPrefixAndExpiry()) {
@@ -719,6 +826,7 @@ export async function discoverExpiredLeases(
   const leaseIds = new Set([
     ...branchesByLease.keys(),
     ...markersByLease.keys(),
+    ...directoryMarkersByLease.keys(),
     ...keysByLease.keys(),
   ]);
   const activeMarkerLeases = new Set(
@@ -730,15 +838,23 @@ export async function discoverExpiredLeases(
       )
       .map(([leaseId]) => leaseId),
   );
+  for (const [leaseId, marker] of directoryMarkersByLease) {
+    if (parsedExpiry(marker.expiresAt, "Netlify") > nowMs)
+      activeMarkerLeases.add(leaseId);
+  }
 
   return [...leaseIds].flatMap((id) => {
     const branches = branchesByLease.get(id) ?? [];
     const markers = markersByLease.get(id) ?? [];
     const keys = keysByLease.get(id) ?? [];
+    const directoryMarker = directoryMarkersByLease.get(id);
     const expiries = [
       ...branches.map((branch) => parsedExpiry(branch.expiresAt, "Neon")),
       ...markers.map((marker) => parsedExpiry(marker.expiresAt, "Netlify")),
       ...keys.map((key) => parsedExpiry(key.expiresAt, "OpenRouter")),
+      ...(directoryMarker
+        ? [parsedExpiry(directoryMarker.expiresAt, "Netlify")]
+        : []),
     ];
     if (!expiries.length || expiries.every((expiry) => expiry > nowMs))
       return [];
@@ -781,6 +897,15 @@ export async function discoverExpiredLeases(
             ...(key ? { inferenceKeyHash: key.hash } : {}),
           };
         }),
+        ...(directoryMarker && config.directoryFixture
+          ? {
+              directoryFixture: {
+                netlifySiteId: config.directoryFixture.netlifySiteId,
+                runtimeOwned: true,
+                scenario: "stable" as const,
+              },
+            }
+          : {}),
         journal: [],
         verification: {
           inferenceDisabled: false,
@@ -796,10 +921,19 @@ export async function discoverExpiredLeases(
 const runtimeKeys = [
   "DATABASE_URL",
   "BETTER_AUTH_SECRET",
+  "AUTH_SKIP_EMAIL_VERIFICATION",
+  "MCP_OAUTH_ACCESS_TOKEN_TTL",
   "A2A_SECRET",
+  "AGENT_NATIVE_ORG_DIRECTORY_URL",
   "OPENROUTER_API_KEY",
   "AGENT_ENGINE",
   "AGENT_NATIVE_ACCEPTANCE_LEASE_MARKER",
+] as const;
+const directoryRuntimeKeys = [
+  "AGENT_NATIVE_ACCEPTANCE_LEASE_MARKER",
+  "A2A_SECRET",
+  "AGENT_NATIVE_ACCEPTANCE_DIRECTORY_JSON",
+  "AGENT_NATIVE_ACCEPTANCE_DIRECTORY_SCENARIO",
 ] as const;
 export class DisposableRuntimeAuthority {
   constructor(
@@ -825,6 +959,15 @@ export class DisposableRuntimeAuthority {
         netlifySiteId: member.netlifySiteId,
         runtimeOwned: false,
       })),
+      ...(this.config.directoryFixture
+        ? {
+            directoryFixture: {
+              netlifySiteId: this.config.directoryFixture.netlifySiteId,
+              scenario: "stable" as const,
+              runtimeOwned: false,
+            },
+          }
+        : {}),
       journal: [],
       verification: {
         inferenceDisabled: false,
@@ -843,6 +986,15 @@ export class DisposableRuntimeAuthority {
           member.origin,
           runtimeKeys,
         );
+      if (this.config.directoryFixture) {
+        const fixture = this.config.directoryFixture;
+        await this.providers.netlify.assertSiteReady(
+          fixture.netlifyAccountId,
+          fixture.netlifySiteId,
+          fixture.origin,
+          directoryRuntimeKeys,
+        );
+      }
       const a2aSecret = randomBytes(32).toString("base64url");
       for (const [index, member] of this.config.members.entries()) {
         const durableMember = lease.members[index]!;
@@ -883,6 +1035,15 @@ export class DisposableRuntimeAuthority {
           betterAuthSecret: randomBytes(32).toString("base64url"),
           a2aSecret,
         } as TransientLeaseSecrets["memberSecrets"][string];
+        durableMember.authSigningAuthority = {
+          algorithm: "sha256",
+          generatedAt: this.now().toISOString(),
+          sha256: createHash("sha256")
+            .update(memberSecrets.betterAuthSecret)
+            .digest("hex"),
+          scope: "per-run",
+        };
+        await this.journalStore.save(lease);
         if (member.needsInference) {
           await this.record(
             lease,
@@ -917,7 +1078,12 @@ export class DisposableRuntimeAuthority {
             key.hash,
           );
         }
-        await this.record(lease, "before", "set-netlify-runtime", "pending");
+        await this.record(
+          lease,
+          "before",
+          "set-netlify-lease-marker",
+          "pending",
+        );
         durableMember.runtimeWriteAttempted = true;
         await this.journalStore.save(lease);
         try {
@@ -929,15 +1095,6 @@ export class DisposableRuntimeAuthority {
                 leaseId: lease.id,
                 expiresAt: lease.expiresAt,
               }),
-              DATABASE_URL: memberSecrets.databaseUrl,
-              BETTER_AUTH_SECRET: memberSecrets.betterAuthSecret,
-              A2A_SECRET: a2aSecret,
-              ...(memberSecrets.inferenceKey
-                ? {
-                    OPENROUTER_API_KEY: memberSecrets.inferenceKey,
-                    AGENT_ENGINE: "ai-sdk:openrouter",
-                  }
-                : {}),
             },
           );
           if (
@@ -957,6 +1114,59 @@ export class DisposableRuntimeAuthority {
           await this.record(
             lease,
             "after",
+            "set-netlify-lease-marker",
+            "failed",
+            member.netlifySiteId,
+          );
+          throw error;
+        }
+        await this.record(
+          lease,
+          "after",
+          "set-netlify-lease-marker",
+          "ok",
+          member.netlifySiteId,
+        );
+        await this.record(lease, "before", "set-netlify-runtime", "pending");
+        try {
+          if (
+            !(await this.providers.netlify.ownsLease(
+              member.netlifyAccountId,
+              member.netlifySiteId,
+              lease.id,
+              lease.expiresAt,
+            ))
+          )
+            throw new Error(
+              "Netlify lease ownership changed before acceptance runtime install",
+            );
+          await this.providers.netlify.setRuntime(
+            member.netlifyAccountId,
+            member.netlifySiteId,
+            {
+              DATABASE_URL: memberSecrets.databaseUrl,
+              BETTER_AUTH_SECRET: memberSecrets.betterAuthSecret,
+              AUTH_SKIP_EMAIL_VERIFICATION: "1",
+              MCP_OAUTH_ACCESS_TOKEN_TTL: "5m",
+              A2A_SECRET: a2aSecret,
+              ...(this.config.directoryFixture
+                ? {
+                    AGENT_NATIVE_ORG_DIRECTORY_URL:
+                      this.config.directoryFixture.origin,
+                  }
+                : {}),
+              ...(memberSecrets.inferenceKey
+                ? {
+                    OPENROUTER_API_KEY: memberSecrets.inferenceKey,
+                    AGENT_ENGINE: "ai-sdk:openrouter",
+                  }
+                : {}),
+            },
+          );
+        } catch (error) {
+          await this.record(
+            lease,
+            "after",
             "set-netlify-runtime",
             "failed",
             member.netlifySiteId,
@@ -971,6 +1181,80 @@ export class DisposableRuntimeAuthority {
           member.netlifySiteId,
         );
         secrets.memberSecrets[member.id] = memberSecrets;
+      }
+      if (this.config.directoryFixture && lease.directoryFixture) {
+        const fixture = this.config.directoryFixture;
+        const durableFixture = lease.directoryFixture;
+        await this.record(
+          lease,
+          "before",
+          "set-directory-lease-marker",
+          "pending",
+        );
+        durableFixture.runtimeWriteAttempted = true;
+        await this.journalStore.save(lease);
+        await this.providers.netlify.setRuntime(
+          fixture.netlifyAccountId,
+          fixture.netlifySiteId,
+          {
+            AGENT_NATIVE_ACCEPTANCE_LEASE_MARKER: JSON.stringify({
+              leaseId: lease.id,
+              expiresAt: lease.expiresAt,
+            }),
+          },
+        );
+        if (
+          !(await this.providers.netlify.ownsLease(
+            fixture.netlifyAccountId,
+            fixture.netlifySiteId,
+            lease.id,
+            lease.expiresAt,
+          ))
+        )
+          throw new Error(
+            "Netlify did not retain the exact directory fixture lease marker",
+          );
+        durableFixture.runtimeOwned = true;
+        await this.record(
+          lease,
+          "after",
+          "set-directory-lease-marker",
+          "ok",
+          fixture.netlifySiteId,
+        );
+        await this.record(lease, "before", "set-directory-runtime", "pending");
+        if (
+          !(await this.providers.netlify.ownsLease(
+            fixture.netlifyAccountId,
+            fixture.netlifySiteId,
+            lease.id,
+            lease.expiresAt,
+          ))
+        )
+          throw new Error(
+            "Netlify directory fixture lease ownership changed before runtime install",
+          );
+        await this.providers.netlify.setRuntime(
+          fixture.netlifyAccountId,
+          fixture.netlifySiteId,
+          {
+            A2A_SECRET: a2aSecret,
+            AGENT_NATIVE_ACCEPTANCE_DIRECTORY_JSON: JSON.stringify({
+              orgDomain: fixture.orgDomain,
+              fixtureOrigin: fixture.origin,
+              members: fixture.members,
+              withdrawnMemberId: fixture.withdrawnMemberId,
+            }),
+            AGENT_NATIVE_ACCEPTANCE_DIRECTORY_SCENARIO: "stable",
+          },
+        );
+        await this.record(
+          lease,
+          "after",
+          "set-directory-runtime",
+          "ok",
+          fixture.netlifySiteId,
+        );
       }
       await this.setState(lease, "active");
       return { lease, secrets };
@@ -1078,6 +1362,73 @@ export class DisposableRuntimeAuthority {
         branchesDeleted &&= deleted;
       }
     }
+    if (this.config.directoryFixture && lease.directoryFixture) {
+      const fixture = this.config.directoryFixture;
+      const durableFixture = lease.directoryFixture;
+      if (durableFixture.runtimeOwned || durableFixture.runtimeWriteAttempted) {
+        let stillOwned = false;
+        let ownershipVerified = true;
+        try {
+          stillOwned = await this.providers.netlify.ownsLease(
+            fixture.netlifyAccountId,
+            fixture.netlifySiteId,
+            lease.id,
+            lease.expiresAt,
+          );
+        } catch {
+          ownershipVerified = false;
+          runtimeVariablesAbsent = false;
+          tombstoneActive = false;
+          await this.record(
+            lease,
+            "verification",
+            "verify-directory-lease-owner",
+            "failed",
+            fixture.netlifySiteId,
+          );
+        }
+        if (!stillOwned) {
+          runtimeVariablesAbsent = false;
+          tombstoneActive = false;
+          if (ownershipVerified)
+            await this.record(
+              lease,
+              "verification",
+              "verify-directory-lease-owner",
+              "failed",
+              fixture.netlifySiteId,
+            );
+        } else {
+          const absent = await this.cleanup(
+            lease,
+            "remove-directory-runtime",
+            fixture.netlifySiteId,
+            () =>
+              this.providers.netlify.removeRuntime(
+                fixture.netlifyAccountId,
+                fixture.netlifySiteId,
+                directoryRuntimeKeys,
+              ),
+          );
+          runtimeVariablesAbsent &&= absent;
+          const tombstoned = await this.cleanup(
+            lease,
+            "deploy-directory-tombstone",
+            fixture.netlifySiteId,
+            async () => {
+              const receipt =
+                await this.providers.netlify.deployTombstoneAndVerify(
+                  fixture.netlifySiteId,
+                  this.config.tombstone,
+                );
+              if (receipt) durableFixture.tombstoneDeployId = receipt.deployId;
+              return Boolean(receipt);
+            },
+          );
+          tombstoneActive &&= tombstoned;
+        }
+      }
+    }
     lease.verification = {
       inferenceDisabled,
       runtimeVariablesAbsent,
@@ -1164,5 +1515,59 @@ export class DisposableRuntimeAuthority {
       );
     }
     return reaped;
+  }
+
+  async updateDirectoryScenario(
+    lease: RuntimeLease,
+    scenario: "withdraw-member",
+  ): Promise<RuntimeLease> {
+    const fixture = this.config.directoryFixture;
+    const durableFixture = lease.directoryFixture;
+    if (!fixture || !durableFixture)
+      throw new Error(
+        "trusted acceptance lease has no controller-owned directory fixture",
+      );
+    if (
+      lease.state !== "active" ||
+      durableFixture.scenario !== "stable" ||
+      scenario !== "withdraw-member"
+    )
+      throw new Error(
+        "directory fixture scenario transition is not allowlisted",
+      );
+    if (
+      !durableFixture.runtimeOwned ||
+      !(await this.providers.netlify.ownsLease(
+        fixture.netlifyAccountId,
+        fixture.netlifySiteId,
+        lease.id,
+        lease.expiresAt,
+      ))
+    )
+      throw new Error(
+        "Netlify directory fixture is not owned by the exact acceptance lease",
+      );
+    await this.record(
+      lease,
+      "before",
+      "set-directory-withdraw-member",
+      "pending",
+      fixture.netlifySiteId,
+    );
+    await this.providers.netlify.setRuntime(
+      fixture.netlifyAccountId,
+      fixture.netlifySiteId,
+      { AGENT_NATIVE_ACCEPTANCE_DIRECTORY_SCENARIO: scenario },
+      true,
+    );
+    durableFixture.scenario = scenario;
+    await this.record(
+      lease,
+      "after",
+      "set-directory-withdraw-member",
+      "ok",
+      fixture.netlifySiteId,
+    );
+    return lease;
   }
 }

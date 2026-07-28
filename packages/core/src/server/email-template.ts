@@ -44,11 +44,21 @@ export interface RenderEmailArgs {
   cta?: EmailCta;
   /** A treated, copyable URL shown before or after the CTA. */
   linkBlock?: EmailLinkBlock;
+  /**
+   * Optional trusted HTML injected above the CTA — e.g. a template-owned video
+   * thumbnail with a play badge. Injected verbatim, so only pass markup built
+   * by app/template code (never raw user input), and escape any dynamic values.
+   */
+  heroHtml?: string;
   /** Small muted text under the CTA (e.g. expiry note). */
   footer?: string;
   /** Optional app name shown beside the framework logo. */
   brandName?: string;
-  /** Optional organization logo URL. Falls back to the Agent Native logo. */
+  /**
+   * Optional absolute `https://` logo URL shown in the brand header. When a
+   * valid URL is provided it replaces the default embedded Agent Native logo;
+   * anything else (missing, relative, non-https) falls back to that logo.
+   */
   brandLogoUrl?: string;
   /**
    * Optional brand hex color for the CTA button and inline links. Defaults to
@@ -84,16 +94,39 @@ function sanitizeHexColor(input: string | undefined): string | undefined {
   return /^#[0-9a-fA-F]{6}$/.test(input) ? input : undefined;
 }
 
+/**
+ * Only accept an absolute `https://` URL for the brand logo. Email clients drop
+ * relative and mixed-content images, and an unvalidated string in `src` is an
+ * injection surface — so anything else falls back to the embedded logo.
+ */
+function sanitizeLogoUrl(input: string | undefined): string | undefined {
+  if (!input) return undefined;
+  try {
+    return new URL(input).protocol === "https:" ? input : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function renderEmail(args: RenderEmailArgs): RenderedEmail {
   const preheader = args.preheader || "";
   const brand = sanitizeHexColor(args.brandColor);
   const brandName = args.brandName?.trim() || getAppName() || "Agent Native";
+  const logoSrc =
+    sanitizeLogoUrl(args.brandLogoUrl) ??
+    `cid:${AGENT_NATIVE_EMAIL_LOGO_CONTENT_ID}`;
 
   // Monochrome default: near-white button with dark text. Brand override:
   // colored button with white text.
   const ctaBg = brand ?? "#fafafa";
   const ctaFg = brand ? "#ffffff" : "#0a0a0c";
   const linkColor = brand ?? "#a1a1aa";
+
+  // Trusted markup supplied by the caller (template code, not user input),
+  // injected as-is so a template can own app-specific previews (e.g. a video
+  // thumbnail with a play badge). Callers are responsible for escaping any
+  // dynamic values they interpolate.
+  const heroHtml = args.heroHtml ?? "";
 
   const paragraphsHtml = args.paragraphs
     .map(
@@ -134,13 +167,11 @@ export function renderEmail(args: RenderEmailArgs): RenderedEmail {
     ? `<p style="margin:28px 0 0 0; font-size:13px; line-height:1.5; color:#71717a;">${escapeHtml(args.footer)}</p>`
     : "";
 
-  const brandLogoUrl =
-    args.brandLogoUrl || `cid:${AGENT_NATIVE_EMAIL_LOGO_CONTENT_ID}`;
   const brandHeaderHtml = `
                 <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 28px 0; padding:0 0 24px 0; border-bottom:1px solid #27272a;">
                   <tr>
                     <td align="center">
-                      <img src="${escapeAttr(brandLogoUrl)}" alt="${escapeAttr(brandName)}" width="28" height="28" style="display:inline-block; vertical-align:middle; width:28px; height:28px; margin:0 8px 0 0; border:0;" />
+                      <img src="${escapeAttr(logoSrc)}" alt="${escapeAttr(brandName)}" width="28" height="28" style="display:inline-block; vertical-align:middle; width:28px; height:28px; margin:0 8px 0 0; border:0;" />
                       <span style="font-size:18px; line-height:28px; font-weight:600; color:#fafafa; vertical-align:middle;">${escapeHtml(brandName)}</span>
                     </td>
                   </tr>
@@ -176,6 +207,7 @@ export function renderEmail(args: RenderEmailArgs): RenderedEmail {
                   ${escapeHtml(args.heading)}
                 </h1>
                 ${paragraphsHtml}
+                ${heroHtml}
                 ${args.linkBlock?.placement !== "after-cta" ? linkBlockHtml : ""}
                 ${ctaHtml}
                 ${args.linkBlock?.placement === "after-cta" ? linkBlockHtml : ""}

@@ -15,20 +15,52 @@ describe("renderEmail", () => {
     expect(html).toContain(">Clips</span>");
   });
 
-  it("uses an organization logo when provided", () => {
+  it("uses an org logo when a valid https URL is provided", () => {
     const { html } = renderEmail({
       brandName: "Clips",
-      brandLogoUrl: "https://clips.example/api/media/org-logo.png",
-      heading: "A Clip was shared",
-      paragraphs: ["Open the Clip below."],
+      brandLogoUrl: "https://cdn.example.com/org-logo.png",
+      heading: "You've been given access",
+      paragraphs: ["Open your recording below."],
     });
 
-    expect(html).toContain(
-      'src="https://clips.example/api/media/org-logo.png"',
-    );
+    expect(html).toContain('src="https://cdn.example.com/org-logo.png"');
     expect(html).not.toContain('src="cid:agent-native-logo"');
   });
 
+  it("falls back to the embedded logo for non-https or relative logo URLs", () => {
+    const { html } = renderEmail({
+      brandName: "Clips",
+      brandLogoUrl: "/api/media/org-logo.png",
+      heading: "You've been given access",
+      paragraphs: ["Open your recording below."],
+    });
+
+    expect(html).toContain('src="cid:agent-native-logo"');
+  });
+
+  it("injects trusted heroHtml above the CTA", () => {
+    const marker = '<div id="custom-hero">preview</div>';
+    const { html } = renderEmail({
+      heading: "Access granted",
+      paragraphs: ["Watch the recording below."],
+      heroHtml: marker,
+      cta: { label: "Open", url: "https://clips.example.com/r/abc" },
+    });
+
+    expect(html).toContain(marker);
+    expect(html.indexOf(marker)).toBeLessThan(
+      html.indexOf("https://clips.example.com/r/abc"),
+    );
+  });
+
+  it("omits the hero when no heroHtml is provided", () => {
+    const { html } = renderEmail({
+      heading: "Access granted",
+      paragraphs: ["No preview here."],
+    });
+
+    expect(html).not.toContain("custom-hero");
+  });
   it("renders CTA buttons without visible fallback URLs", () => {
     const { html } = renderEmail({
       heading: "Your meeting is booked",

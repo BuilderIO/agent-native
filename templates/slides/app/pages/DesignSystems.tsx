@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { useDesignSystems } from "@/hooks/use-design-systems";
 
 import type { DesignSystemData } from "../../shared/api";
+import { missingDesignSystemDataFields } from "../../shared/design-system-validation";
 
 export default function DesignSystems() {
   const t = useT();
@@ -52,7 +53,14 @@ export default function DesignSystems() {
 
   const parseDesignData = (dataStr: string): DesignSystemData | null => {
     try {
-      return JSON.parse(dataStr) as DesignSystemData;
+      const parsed = JSON.parse(dataStr) as DesignSystemData;
+      // DesignSystemCard reads colors.* / typography.* unconditionally, down
+      // to nested fields like typography.headingFont. Rows written before
+      // create/update validation existed can have `colors: {}` and still
+      // pass a truthy check, so reuse the same nested-field validator the
+      // actions use rather than only checking the top-level objects exist.
+      if (missingDesignSystemDataFields(parsed).length > 0) return null;
+      return parsed;
     } catch {
       return null;
     }

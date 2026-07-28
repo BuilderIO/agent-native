@@ -635,9 +635,10 @@ async function snapshotDashboardRevision(
   db: any,
   dashboard: DashboardRecord,
   ctx: AccessCtx,
-): Promise<void> {
+): Promise<string> {
+  const id = `dashrev-${Date.now()}-${nanoidFallback()}`;
   await db.insert(schema.dashboardRevisions).values({
-    id: `dashrev-${Date.now()}-${nanoidFallback()}`,
+    id,
     dashboardId: dashboard.id,
     kind: dashboard.kind,
     title: dashboard.title,
@@ -648,6 +649,7 @@ async function snapshotDashboardRevision(
     orgId: dashboard.orgId,
   });
   await pruneDashboardRevisions(db, dashboard.id);
+  return id;
 }
 
 /**
@@ -844,13 +846,23 @@ export async function restoreDashboardRevision(
   dashboardId: string,
   revisionId: string,
   ctx: AccessCtx,
-): Promise<DashboardRecord | null> {
+  expectedUpdatedAt?: string,
+): Promise<{
+  dashboard: DashboardRecord;
+  snapshotRevisionId: string;
+} | null> {
   const existing = await getDashboard(dashboardId, ctx);
   if (!existing) return null;
   await assertAccess("dashboard", dashboardId, "editor", {
     userEmail: ctx.email,
     orgId: ctx.orgId ?? undefined,
   });
+  if (
+    expectedUpdatedAt !== undefined &&
+    existing.updatedAt !== expectedUpdatedAt
+  ) {
+    throw new DashboardConflictError(dashboardId);
+  }
   const db = getDb() as any;
   const [revisionRow] = await db
     .select()
@@ -864,22 +876,51 @@ export async function restoreDashboardRevision(
     .limit(1);
   if (!revisionRow) return null;
   const revision = rowToDashboardRevision(revisionRow);
-  await snapshotDashboardRevision(db, existing, ctx);
-  await db
-    .update(schema.dashboards)
-    .set({
-      kind: revision.kind,
-      title: revision.title,
-      config: JSON.stringify(revision.config),
-      updatedAt: nowIso(),
-      updatedBy: ctx.email,
-    })
-    .where(eq(schema.dashboards.id, dashboardId));
-  const [row] = await db
-    .select()
-    .from(schema.dashboards)
-    .where(eq(schema.dashboards.id, dashboardId));
-  const dashboard = rowToDashboard(row);
+  const updatedAt = nowIso();
+  const restored = await db.transaction(async (tx: any) => {
+    const updateResult = await tx
+      .update(schema.dashboards)
+      .set({
+        kind: revision.kind,
+        title: revision.title,
+        config: JSON.stringify(revision.config),
+        updatedAt,
+        updatedBy: ctx.email,
+      })
+      .where(
+        expectedUpdatedAt === undefined
+          ? eq(schema.dashboards.id, dashboardId)
+          : and(
+              eq(schema.dashboards.id, dashboardId),
+              eq(schema.dashboards.updatedAt, expectedUpdatedAt),
+            ),
+      );
+    if (expectedUpdatedAt !== undefined) {
+      const affected = affectedRowCount(updateResult);
+      if (affected === undefined) {
+        throw new Error(
+          "The database driver did not report an affected-row count for the fenced dashboard restore.",
+        );
+      }
+      if (affected === 0) throw new DashboardConflictError(dashboardId);
+    }
+
+    const snapshotRevisionId = await snapshotDashboardRevision(
+      tx,
+      existing,
+      ctx,
+    );
+    const [row] = await tx
+      .select()
+      .from(schema.dashboards)
+      .where(eq(schema.dashboards.id, dashboardId));
+    return {
+      dashboard: rowToDashboard(row),
+      snapshotRevisionId,
+    };
+  });
+  if (!restored) return null;
+  const { dashboard } = restored;
   recordScopedChange(
     "dashboards",
     "change",
@@ -888,7 +929,7 @@ export async function restoreDashboardRevision(
     dashboard.orgId,
     dashboard.visibility,
   );
-  return dashboard;
+  return restored;
 }
 
 /**

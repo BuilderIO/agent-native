@@ -21,6 +21,7 @@ import type {
 import { EngineError } from "./engine/types.js";
 import {
   AGENT_INTERNAL_CONTINUE_PROMPT,
+  AGENT_INTERNAL_GUARD_PROMPT,
   appendAgentLoopContinuation,
   backgroundContinuationReasonForRun,
   buildFirstRequestPayloadDetail,
@@ -7707,6 +7708,12 @@ describe("runAgentLoop", () => {
     expect(events.at(-1)).toEqual({ type: "done" });
     expect(JSON.stringify(seenMessages[1])).toContain(
       "This answer needs a real data-source query",
+    );
+    // The corrective instruction rides in on a user-role message. Without the
+    // framework label an aligned model reads it as an injected user turn and
+    // refuses it out loud to the real user.
+    expect(JSON.stringify(seenMessages[1])).toContain(
+      AGENT_INTERNAL_GUARD_PROMPT,
     );
   });
 
