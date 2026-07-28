@@ -30,7 +30,8 @@ export interface WorkspaceConnectionProviderSummary {
 export interface DataSourceProviderStatus {
   provider: string;
   label: string;
-  configured: boolean;
+  // null when the workspace-connection lookup failed: unreadable, not absent.
+  configured: boolean | null;
   configuredKeys: string[];
   missingRequiredKeys: string[];
   optionalKeys: string[];

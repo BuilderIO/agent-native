@@ -14,6 +14,10 @@ import {
   markDefaultPluginProvided,
 } from "../server/framework-request-handler.js";
 import {
+  listAppRolesHandler,
+  setAppRoleHandler,
+} from "./app-roles-handlers.js";
+import {
   getMyOrgHandler,
   createOrgHandler,
   updateOrgHandler,
@@ -50,6 +54,8 @@ const ORG_PREFIX = `${FRAMEWORK_PREFIX}/org`;
  *   PUT    /_agent-native/org/switch                      — switch active org
  *   GET    /_agent-native/org/members                     — list members of active org
  *   DELETE /_agent-native/org/members/:email              — remove member (owner/admin only)
+ *   GET    /_agent-native/org/app-roles?appId=X           — app role vocabulary + assignments
+ *   PUT    /_agent-native/org/app-roles/:email            — assign/clear app role (owner/admin)
  *   GET    /_agent-native/org/invitations                 — list pending invites
  *   POST   /_agent-native/org/invitations                 — invite by email
  *   POST   /_agent-native/org/invitations/:id/accept      — accept an invitation
@@ -79,6 +85,27 @@ export function createOrgPlugin(): NitroPluginDef {
           return { error: "Method not allowed" };
         }
         return getMyOrgHandler(event);
+      }),
+    );
+
+    // /app-roles and /app-roles/:email — per-app role overlay on the roster.
+    app.use(
+      `${ORG_PREFIX}/app-roles`,
+      defineEventHandler(async (event: H3Event) => {
+        const tail = getRequestURL(event).pathname || "/";
+        const method = getMethod(event);
+        if (tail === "" || tail === "/") {
+          if (method !== "GET") {
+            setResponseStatus(event, 405);
+            return { error: "Method not allowed" };
+          }
+          return listAppRolesHandler(event);
+        }
+        if (method !== "PUT") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        return setAppRoleHandler(event);
       }),
     );
 

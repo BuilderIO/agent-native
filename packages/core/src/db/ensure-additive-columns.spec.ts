@@ -41,6 +41,9 @@ describe("ensureAdditiveColumns", () => {
       .default(sql`now()`),
     requiredNoDefault: pgText("required_no_default").notNull(),
   });
+  const pgErrors = pgTable("error_events", {
+    id: pgText("id").primaryKey(),
+  });
 
   const sqliteSessionRecordings = sqliteTable("session_recordings", {
     id: sqliteText("id").primaryKey(),
@@ -64,15 +67,15 @@ describe("ensureAdditiveColumns", () => {
       execute: async (sqlArg: string | { sql: string; args?: unknown[] }) => {
         const text = typeof sqlArg === "string" ? sqlArg : sqlArg.sql;
         calls.push(text);
-        if (/information_schema\.tables/i.test(text)) {
-          return {
-            rows: opts.tableExists ? [{ ok: 1 }] : [],
-            rowsAffected: 0,
-          };
-        }
         if (/information_schema\.columns/i.test(text)) {
           return {
-            rows: opts.liveColumns.map((column_name) => ({ column_name })),
+            rows: opts.tableExists
+              ? opts.liveColumns.map((column_name) => ({
+                  table_schema: "public",
+                  table_name: "session_recordings",
+                  column_name,
+                }))
+              : [],
             rowsAffected: 0,
           };
         }
@@ -212,6 +215,54 @@ describe("ensureAdditiveColumns", () => {
       expect(result.applied).toEqual([]);
       expect(result.skipped).toEqual([]);
       expect(calls.some((c) => /ALTER TABLE/i.test(c))).toBe(false);
+    });
+
+    it("loads all declared table columns in one information_schema query", async () => {
+      const { ensureAdditiveColumns } =
+        await import("./ensure-additive-columns.js");
+      const calls: string[] = [];
+      const client = {
+        execute: async (sqlArg: string | { sql: string }) => {
+          const text = typeof sqlArg === "string" ? sqlArg : sqlArg.sql;
+          calls.push(text);
+          if (/information_schema\.columns/i.test(text)) {
+            return {
+              rows: [
+                ...[
+                  "id",
+                  "network_error_count",
+                  "note",
+                  "created_at",
+                  "required_no_default",
+                ].map((column_name) => ({
+                  table_schema: "public",
+                  table_name: "session_recordings",
+                  column_name,
+                })),
+                {
+                  table_schema: "public",
+                  table_name: "error_events",
+                  column_name: "id",
+                },
+              ],
+              rowsAffected: 0,
+            };
+          }
+          return { rows: [], rowsAffected: 0 };
+        },
+      } as any;
+
+      await ensureAdditiveColumns({
+        db: client,
+        tables: [pgSessionRecordings, pgErrors],
+      });
+
+      expect(
+        calls.filter((sqlText) => /information_schema\.columns/i.test(sqlText)),
+      ).toHaveLength(1);
+      expect(
+        calls.some((sqlText) => /information_schema\.tables/i.test(sqlText)),
+      ).toBe(false);
     });
 
     it("no-ops when the table itself does not exist (creation path owns it)", async () => {

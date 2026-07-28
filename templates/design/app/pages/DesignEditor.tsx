@@ -39,6 +39,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { isEmbedAuthActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
+import { openCommandMenu } from "@agent-native/core/client/navigation";
 import {
   useReviewComments,
   useSendReviewThreadToAgent,
@@ -455,6 +456,7 @@ import {
   updateFileResultPersistedContent,
   type DesignSaveOutboxEntry,
 } from "@/lib/design-save-outbox";
+import { DESIGN_UI_TOGGLE_EVENT } from "@/lib/design-ui-events";
 import { resolveFigmaPasteImportCall } from "@/lib/figma-clipboard";
 import {
   canCopyFigmaSvgToClipboard,
@@ -2361,7 +2363,7 @@ function DesignEditor() {
   // resizable 220–420px content range.
   const [leftSidebarWidth, setLeftSidebarWidth] = useState(280);
   const [rightSidebarWidth, setRightSidebarWidth] = useState(240);
-  // Figma's Cmd+\ "Show/Hide UI": hides the left rail, right inspector panel,
+  // Figma's Minimize UI action hides the left rail, right inspector panel,
   // and bottom toolbar chrome so the canvas fills the viewport. No prior
   // panel-visibility state existed to hook into (grepped for
   // leftPanelCollapsed/rightPanelCollapsed/showLeftPanel/etc. — none found),
@@ -12612,6 +12614,16 @@ function DesignEditor() {
 
   const handleIframeHotkey = useCallback((payload: IframeHotkeyPayload) => {
     if (!payload.key) return;
+    const primary = payload.metaKey || payload.ctrlKey;
+    if (
+      primary &&
+      !payload.altKey &&
+      !payload.shiftKey &&
+      payload.key.toLowerCase() === "k"
+    ) {
+      openCommandMenu();
+      return;
+    }
     const event = new KeyboardEvent("keydown", {
       key: payload.key,
       code: payload.code,
@@ -18005,12 +18017,18 @@ function DesignEditor() {
     t,
   ]);
 
-  // Item 6: Figma's Cmd+\ — Show/Hide UI. Fully wired: uiHidden gates the
+  // Figma's Minimize UI action. Fully wired: uiHidden gates the
   // left rail, right inspector panel, and bottom toolbar chrome containers
   // declared above.
   const handleToggleUi = useCallback(() => {
     setUiHidden((current) => !current);
   }, []);
+
+  useEffect(() => {
+    window.addEventListener(DESIGN_UI_TOGGLE_EVENT, handleToggleUi);
+    return () =>
+      window.removeEventListener(DESIGN_UI_TOGGLE_EVENT, handleToggleUi);
+  }, [handleToggleUi]);
 
   // Figma's Shift+C — Show/Hide comments. The state is passed through every
   // mounted DesignCanvas so both focused and overview comment pins disappear

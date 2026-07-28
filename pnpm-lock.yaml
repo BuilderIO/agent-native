@@ -755,6 +755,9 @@ importers:
       '@assistant-ui/tap':
         specifier: ^0.5.14
         version: 0.5.16(@types/react@19.2.17)(react@19.2.7)
+      '@builder.io/ai-utils':
+        specifier: ^0.84.0
+        version: 0.84.0
       '@clack/prompts':
         specifier: ^1.4.0
         version: 1.6.0
@@ -6572,6 +6575,9 @@ packages:
   '@bramus/specificity@2.4.2':
     resolution: {integrity: sha512-ctxtJ/eA+t+6q2++vj5j7FYX3nRu311q1wfYH3xjlLOsczhlhxAg2FWNUXhpGvAw3BWo1xBcvOV6/YLc2r5FJw==}
     hasBin: true
+
+  '@builder.io/ai-utils@0.84.0':
+    resolution: {integrity: sha512-YYioQcAQ3rSyukvm6T1y+mRCQQWmOvvvf2kqKY+tKEoV1XhJ7uRP/481miXAVdprrLSJw6aKMV6GTkQIvywHhg==}
 
   '@changesets/apply-release-plan@7.1.1':
     resolution: {integrity: sha512-9qPCm/rLx/xoOFXIHGB229+4GOL76S4MC+7tyOuTsR6+1jYlfFDQORdvwR5hDA6y4FL2BPt3qpbcQIS+dW85LA==}
@@ -21841,6 +21847,10 @@ snapshots:
   '@bramus/specificity@2.4.2':
     dependencies:
       css-tree: 3.2.1
+
+  '@builder.io/ai-utils@0.84.0':
+    dependencies:
+      zod: 4.4.3
 
   '@changesets/apply-release-plan@7.1.1':
     dependencies:
