@@ -24,6 +24,8 @@ import type {
 } from "@assistant-ui/react";
 import { CompositeAttachmentAdapter } from "@assistant-ui/react";
 import {
+  IconArrowUp,
+  IconClock,
   IconMessage,
   IconX,
   IconPlayerStopFilled,
