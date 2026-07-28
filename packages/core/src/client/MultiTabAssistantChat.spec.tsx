@@ -127,6 +127,75 @@ vi.mock("./use-chat-threads.js", () => ({
   useChatThreads: chatThreadHookMocks.useChatThreads,
 }));
 
+const ANTHROPIC_ENGINES = [
+  {
+    name: "anthropic",
+    label: "Claude",
+    supportedModels: ["claude-sonnet-5"],
+    requiredEnvVars: ["ANTHROPIC_API_KEY"],
+  },
+  // Stands in for an OpenAI-compatible gateway: offered by the catalog, but its
+  // advertised models are the built-in catalog rather than what it serves.
+  {
+    name: "ai-sdk:openai",
+    label: "OpenAI",
+    supportedModels: ["gpt-5.6-luna"],
+    requiredEnvVars: ["OPENAI_API_KEY"],
+  },
+];
+
+const actionMocks = vi.hoisted(() => ({ callAction: vi.fn(async () => null) }));
+
+vi.mock("./use-action.js", () => actionMocks);
+
+/** Serve the three requests refreshEngines makes so the catalog is non-empty. */
+function stubCatalog(engines: unknown[], configuredKeys: string[]) {
+  actionMocks.callAction.mockResolvedValue({ engines } as never);
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: unknown) => {
+      const url = String(input);
+      if (url.includes("env-status")) {
+        return Response.json(
+          configuredKeys.map((key) => ({ key, configured: true })),
+        );
+      }
+      if (url.includes("builder/status")) {
+        return Response.json({ configured: false });
+      }
+      return Response.json({ value: null });
+    }),
+  );
+}
+
+/**
+ * Mounts a fresh instance after stubbing, because `refreshEngines` runs once on
+ * mount — the shared root from `beforeEach` has already resolved an empty list.
+ */
+async function mountWithCatalog(engines: unknown[], configuredKeys: string[]) {
+  stubCatalog(engines, configuredKeys);
+  const el = document.createElement("div");
+  document.body.appendChild(el);
+  const localRoot = createRoot(el);
+  await act(async () => {
+    localRoot.render(<MultiTabAssistantChat storageKey="catalog-test" />);
+  });
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  return {
+    engineOf: () =>
+      el
+        .querySelector("[data-testid='assistant-chat']")
+        ?.getAttribute("data-selected-engine") ?? null,
+    async cleanup() {
+      await act(async () => localRoot.unmount());
+      el.remove();
+    },
+  };
+}
+
 chatThreadHookMocks.useChatThreads.mockImplementation(() => threadMocks);
 
 vi.mock("./AssistantChat.js", async () => {
@@ -306,6 +375,60 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     const chat = container.querySelector("[data-testid='assistant-chat']");
     expect(chat?.getAttribute("data-selected-model")).toBe("gpt-5-6-luna");
     expect(chat?.getAttribute("data-selected-engine")).toBeNull();
+  });
+
+  it("resolves an engine from the catalog when the submit carries none", async () => {
+    const view = await mountWithCatalog(ANTHROPIC_ENGINES, [
+      "ANTHROPIC_API_KEY",
+    ]);
+    await act(async () => {
+      dispatchSubmitChat({
+        message: "m",
+        submit: true,
+        model: "claude-sonnet-5",
+      });
+      await Promise.resolve();
+    });
+    expect(view.engineOf()).toBe("anthropic");
+    await view.cleanup();
+  });
+
+  // claude-sonnet-5 is also advertised under anthropic, so a model-only match
+  // would bill this turn to Anthropic directly instead of the gateway.
+  it("honors a submitted engine the catalog offers but does not pair with the model", async () => {
+    const view = await mountWithCatalog(ANTHROPIC_ENGINES, [
+      "ANTHROPIC_API_KEY",
+    ]);
+    await act(async () => {
+      dispatchSubmitChat({
+        message: "m",
+        submit: true,
+        model: "claude-sonnet-5",
+        engine: "ai-sdk:openai",
+      });
+      await Promise.resolve();
+    });
+    expect(view.engineOf()).toBe("ai-sdk:openai");
+    await view.cleanup();
+  });
+
+  // Bring-your-own-key: `builder` drops out of the catalog when disconnected,
+  // and the same model is still reachable through the user's own provider.
+  it("heals a selection whose engine the catalog no longer offers", async () => {
+    const view = await mountWithCatalog(ANTHROPIC_ENGINES, [
+      "ANTHROPIC_API_KEY",
+    ]);
+    await act(async () => {
+      dispatchSubmitChat({
+        message: "m",
+        submit: true,
+        model: "claude-sonnet-5",
+        engine: "builder",
+      });
+      await Promise.resolve();
+    });
+    expect(view.engineOf()).toBe("anthropic");
+    await view.cleanup();
   });
 
   it("applies a submitted model override sent without an engine", () => {

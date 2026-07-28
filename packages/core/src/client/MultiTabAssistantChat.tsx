@@ -156,19 +156,28 @@ function resolveModelSelection(
   groups: EngineModelGroup[],
 ): ModelSelection | undefined {
   if (!selection?.model) return undefined;
-  const preferredGroup = groups.find(
-    (group) =>
-      group.engine === selection.engine &&
-      group.models.includes(selection.model),
-  );
-  const fallbackGroup = groups.find((group) =>
-    group.models.includes(selection.model),
-  );
-  // An explicit engine is authoritative even for a model the catalog omits:
-  // gateway ids differ from their plain form (`gpt-5-6-luna` vs `gpt-5.6-luna`)
-  // and custom endpoints serve ids no catalog advertises.
+  // Engine precedence turns on whether the catalog OFFERS the supplied engine,
+  // not on whether that engine advertises this model:
+  //   offered      → honor it. A gateway's advertised list is its built-in
+  //                  catalog, not what the endpoint serves, and one model id
+  //                  sits under several groups (claude-sonnet-5 under both
+  //                  anthropic and builder) — so a model-only match would
+  //                  reroute the turn to a different provider and bill it there.
+  //   not offered  → heal to a group that serves the model. A selection left
+  //                  on `builder` after disconnecting it must still run on the
+  //                  user's own key; the same model through another configured
+  //                  provider is the point of bring-your-own-key.
+  // `builder` is in the catalog exactly when Builder is connected, so this is a
+  // real availability signal rather than a guess.
+  const suppliedEngine = selection.engine?.trim()
+    ? selection.engine
+    : undefined;
   const engine =
-    preferredGroup?.engine ?? fallbackGroup?.engine ?? selection.engine;
+    (groups.some((group) => group.engine === suppliedEngine)
+      ? suppliedEngine
+      : undefined) ??
+    groups.find((group) => group.models.includes(selection.model))?.engine ??
+    suppliedEngine;
   if (!engine && groups.length > 0) return undefined;
 
   const effort = resolveReasoningEffortSelection(
