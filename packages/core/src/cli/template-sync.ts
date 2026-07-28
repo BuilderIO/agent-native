@@ -476,6 +476,18 @@ export async function runTemplate(
   }
 
   const rest = args.slice(1);
+
+  // `materialize` produces a fresh post-processed template tree at --out; it has
+  // no existing app to resolve, so it runs before target resolution.
+  if (command === "materialize") {
+    try {
+      return await materializeCommand(rest, io);
+    } catch (err) {
+      io.err(err instanceof Error ? err.message : String(err));
+      return 1;
+    }
+  }
+
   const appArg = positionalArgs(rest)[0];
   const flags = {
     to: flagValue(rest, "--to"),
@@ -537,6 +549,54 @@ async function runForTarget(
       io.err(`Unknown template command "${command}".`);
       io.err(templateUsage());
       return 1;
+  }
+}
+
+/**
+ * Write the post-processed template tree to a directory — the pristine,
+ * template-derived output `create` would produce (no install/git/skills). This
+ * is the monorepo half of the vendor-branch starter mirror: the public monorepo
+ * materializes `templates/chat` here and rsyncs it onto the private starter's
+ * `template` branch. `--to` defaults to the local template (walked up from the
+ * package); pass a ref to fetch from GitHub instead.
+ */
+async function materializeCommand(
+  rest: string[],
+  io: TemplateIO,
+): Promise<number> {
+  const outDir = flagValue(rest, "--out");
+  const template = flagValue(rest, "--template");
+  const name = flagValue(rest, "--name");
+  const ref = flagValue(rest, "--to") ?? null;
+  if (!outDir) {
+    io.err("template materialize requires --out <dir>.");
+    return 1;
+  }
+  if (!template) {
+    io.err("template materialize requires --template <name>.");
+    return 1;
+  }
+  // Materialize into a sibling temp dir and swap in only on success, so a bad
+  // template/ref or a transient fetch/post-process failure never destroys an
+  // existing --out tree. Sibling (same filesystem) keeps the rename atomic.
+  const tmp = `${outDir}.materialize-tmp`;
+  fs.rmSync(tmp, { recursive: true, force: true });
+  try {
+    const result = await materializeTemplate({
+      appName: name ?? template,
+      template,
+      ref,
+      shape: "standalone",
+      destDir: tmp,
+    });
+    fs.rmSync(outDir, { recursive: true, force: true });
+    fs.renameSync(tmp, outDir);
+    io.out(
+      `Materialized "${template}" (${result.source}@${result.ref}) to ${outDir}.`,
+    );
+    return 0;
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
   }
 }
 
@@ -927,7 +987,13 @@ function positionalArgs(args: string[]): string[] {
 
 function flagValue(args: string[], flag: string): string | undefined {
   const index = args.indexOf(flag);
-  if (index >= 0 && args[index + 1]) return args[index + 1];
+  if (index >= 0) {
+    // Treat an option-like next token as a missing value (e.g. `--out --template`)
+    // so callers hit their required-flag guard instead of consuming another flag
+    // as the value. None of these flags take a value that starts with "-".
+    const next = args[index + 1];
+    if (next && !next.startsWith("-")) return next;
+  }
   const inline = args.find((arg) => arg.startsWith(`${flag}=`));
   return inline?.slice(flag.length + 1);
 }
@@ -995,6 +1061,9 @@ function templateUsage(): string {
     "  baseline [app]          Record a baseline for an app scaffolded before",
     "                          provenance existed [--ref <ref>] [--template <name>]",
     "  accept [app]            Advance the baseline after resolving conflicts",
+    "  materialize --template <name> --out <dir>",
+    "                          Write the post-processed template tree to a dir",
+    "                          (no app needed) [--name <appName>] [--to <ref>]",
     "",
     "With no [app], operates on the current app, or on every app in a workspace",
     "when run from the workspace root. --to defaults to the ref matching the",

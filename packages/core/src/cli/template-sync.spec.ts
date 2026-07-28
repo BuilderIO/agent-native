@@ -582,3 +582,101 @@ describe("agent-native template commands", () => {
     expect(bad.text()).toContain('Unknown template command "nope"');
   }, 120_000);
 });
+
+describe("template materialize command", () => {
+  const dirs: string[] = [];
+  afterEach(() => {
+    for (const dir of dirs.splice(0)) {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("writes a post-processed standalone tree to --out", async () => {
+    const out = fs.mkdtempSync(path.join(os.tmpdir(), "an-materialize-spec-"));
+    dirs.push(out);
+    const dest = path.join(out, "tree");
+
+    const run = collectIO();
+    const code = await runTemplate(
+      ["materialize", "--template", "chat", "--out", dest],
+      run.io,
+    );
+
+    expect(code).toBe(0);
+    const pkg = JSON.parse(
+      fs.readFileSync(path.join(dest, "package.json"), "utf-8"),
+    ) as { name?: string };
+    expect(pkg.name).toBe("chat");
+    // post-process ran: _gitignore renamed, chat appId, standalone netlify.
+    expect(fs.existsSync(path.join(dest, ".gitignore"))).toBe(true);
+    expect(fs.existsSync(path.join(dest, "_gitignore"))).toBe(false);
+    expect(
+      fs.readFileSync(path.join(dest, "server/plugins/agent-chat.ts"), "utf-8"),
+    ).toContain('appId: "chat"');
+    expect(fs.readFileSync(path.join(dest, "netlify.toml"), "utf-8")).toContain(
+      'publish = "dist"',
+    );
+    // pristine, template-derived only: no private content, no workflows.
+    expect(fs.existsSync(path.join(dest, ".github"))).toBe(false);
+  }, 120_000);
+
+  it("requires --out and --template", async () => {
+    const noOut = collectIO();
+    expect(
+      await runTemplate(["materialize", "--template", "chat"], noOut.io),
+    ).toBe(1);
+    expect(noOut.text()).toContain("--out");
+
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "an-materialize-spec-"));
+    dirs.push(dir);
+    const noTemplate = collectIO();
+    expect(
+      await runTemplate(["materialize", "--out", dir], noTemplate.io),
+    ).toBe(1);
+    expect(noTemplate.text()).toContain("--template");
+  });
+
+  it("preserves an existing --out tree when materialization fails", async () => {
+    const out = fs.mkdtempSync(path.join(os.tmpdir(), "an-materialize-spec-"));
+    dirs.push(out);
+    const dest = path.join(out, "tree");
+    fs.mkdirSync(dest, { recursive: true });
+    fs.writeFileSync(path.join(dest, "existing.txt"), "keep me\n");
+
+    // Unknown template with no --to → materializeTemplate throws *after* the
+    // point where the naive (rm-first) version would have wiped dest.
+    const run = collectIO();
+    const code = await runTemplate(
+      ["materialize", "--template", "does-not-exist", "--out", dest],
+      run.io,
+    );
+
+    expect(code).toBe(1);
+    expect(fs.readFileSync(path.join(dest, "existing.txt"), "utf-8")).toBe(
+      "keep me\n",
+    );
+    // no leftover temp dir beside the destination.
+    expect(fs.existsSync(`${dest}.materialize-tmp`)).toBe(false);
+  });
+
+  it("rejects a following flag as the --out value instead of using it", async () => {
+    const cwd = process.cwd();
+    process.chdir(tmpDir);
+    try {
+      const run = collectIO();
+      // `--out --template` must not consume "--template" as the directory.
+      const code = await runTemplate(
+        ["materialize", "--out", "--template", "chat"],
+        run.io,
+      );
+      expect(code).toBe(1);
+      expect(run.text()).toContain("--out");
+      expect(fs.existsSync(path.join(tmpDir, "--template"))).toBe(false);
+      expect(
+        fs.existsSync(path.join(tmpDir, "--template.materialize-tmp")),
+      ).toBe(false);
+    } finally {
+      process.chdir(cwd);
+    }
+  });
+});
