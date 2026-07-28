@@ -8,7 +8,7 @@ import {
   ROLE_RANK,
   type ShareRole,
 } from "@agent-native/core/sharing";
-import { and, desc, eq, inArray, or } from "drizzle-orm";
+import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -17,6 +17,15 @@ type EffectiveRole = "owner" | ShareRole;
 
 function canManageRole(role: EffectiveRole) {
   return role === "owner" || role === "admin";
+}
+
+// Mirrors the core access model (assertAccess/resolveAccess), which compares
+// emails with `lower(column) = lowercased-input` so a share or ownership
+// grant survives casing differences between the stored principal and the
+// caller's session email.
+function normalizeEmail(email: string | undefined): string | null {
+  const normalized = email?.trim().toLowerCase();
+  return normalized || null;
 }
 
 function strongerRole(current: ShareRole | null, next: ShareRole): ShareRole {
@@ -38,7 +47,7 @@ export default defineAction({
   http: { method: "GET" },
   run: async (args) => {
     const db = getDb();
-    const userEmail = getRequestUserEmail();
+    const userEmail = normalizeEmail(getRequestUserEmail());
     const orgId = getRequestOrgId();
     // Project only the columns this list returns. The default path returns
     // `data`, but neither path returns the heavy `assets` blob — a bare
@@ -72,7 +81,7 @@ export default defineAction({
       principalClauses.push(
         and(
           eq(schema.designSystemShares.principalType, "user"),
-          eq(schema.designSystemShares.principalId, userEmail),
+          sql`lower(${schema.designSystemShares.principalId}) = ${userEmail}`,
         )!,
       );
     }
@@ -114,7 +123,7 @@ export default defineAction({
       let role: EffectiveRole = shareRoleById.get(row.id) ?? "viewer";
       if (
         userEmail &&
-        row.ownerEmail === userEmail &&
+        normalizeEmail(row.ownerEmail) === userEmail &&
         (!row.orgId || row.orgId === orgId)
       ) {
         role = "owner";

@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { withDeckLock } from "./patch-deck.js";
 
 export default defineAction({
   description:
@@ -16,26 +17,19 @@ export default defineAction({
 
     const db = getDb();
 
-    await db.transaction(async (tx) => {
-      const linkedDecks = await tx
-        .select({ id: schema.decks.id, data: schema.decks.data })
+    const linkedDeckIds = (
+      await db
+        .select({ id: schema.decks.id })
         .from(schema.decks)
-        .where(eq(schema.decks.designSystemId, id));
+        .where(eq(schema.decks.designSystemId, id))
+    ).map((row) => row.id);
 
-      const now = new Date().toISOString();
-      for (const deck of linkedDecks) {
-        const data = JSON.parse(deck.data);
-        if ("designSystemId" in data) delete data.designSystemId;
-        await tx
-          .update(schema.decks)
-          .set({
-            designSystemId: null,
-            data: JSON.stringify(data),
-            updatedAt: now,
-          })
-          .where(eq(schema.decks.id, deck.id));
-      }
-
+    // Delete the design system (and its shares) before touching linked decks.
+    // Once the row is gone, apply-design-system/create-deck's
+    // assertAccess("design-system", ...) check fails for anyone trying to
+    // attach a fresh link, shrinking the window for a deck to end up pointing
+    // at a design system we're about to remove.
+    await db.transaction(async (tx) => {
       await tx
         .delete(schema.designSystemShares)
         .where(eq(schema.designSystemShares.resourceId, id));
@@ -44,6 +38,36 @@ export default defineAction({
         .delete(schema.designSystems)
         .where(eq(schema.designSystems.id, id));
     });
+
+    // Unlink each deck under its per-deck lock — the same lock patch-deck,
+    // save-deck, and update-slide use for all deck writes — and re-read the
+    // row inside the lock so a concurrent slide edit can't be clobbered by
+    // this read-modify-write.
+    await Promise.all(
+      linkedDeckIds.map((deckId) =>
+        withDeckLock(deckId, async () => {
+          const [deck] = await db
+            .select({
+              designSystemId: schema.decks.designSystemId,
+              data: schema.decks.data,
+            })
+            .from(schema.decks)
+            .where(eq(schema.decks.id, deckId));
+          if (!deck || deck.designSystemId !== id) return;
+
+          const data = JSON.parse(deck.data);
+          if ("designSystemId" in data) delete data.designSystemId;
+          await db
+            .update(schema.decks)
+            .set({
+              designSystemId: null,
+              data: JSON.stringify(data),
+              updatedAt: new Date().toISOString(),
+            })
+            .where(eq(schema.decks.id, deckId));
+        }),
+      ),
+    );
 
     return { id, deleted: true };
   },

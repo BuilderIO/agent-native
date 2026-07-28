@@ -42,8 +42,9 @@ Builder indexing flow.
 
 ## Deleting a Design System
 
-`delete-design-system` requires owner access and removes the system, its
-shares, and the `designSystemId` link on every deck that used it. Those decks
+`delete-design-system` requires admin access or higher (owner or admin share
+role) and removes the system, its shares, and the `designSystemId` link on
+every deck that used it. Those decks
 keep the tokens already baked into their slides — deletion never rewrites deck
 content — so a deck can look on-brand while no longer being linked to a system.
 Deletion does not remove an upstream Builder-indexed design system.
