@@ -33,14 +33,6 @@ export interface LegacyChartShorthand {
   series: { label: string; data: number[]; color?: string }[];
 }
 
-/** Cheap pre-check so callers can skip the full parse on ordinary text. */
-export function looksLikeLegacyChartShorthand(line: string): boolean {
-  const trimmed = line.trim();
-  if (trimmed.length === 0 || trimmed.length > MAX_LINE_LENGTH) return false;
-  if (!/^\/[a-zA-Z][\w-]*\b/.test(trimmed)) return false;
-  return /\blabels=/.test(trimmed) && /\bdata=/.test(trimmed);
-}
-
 // Extracts a balanced JSON array/object starting exactly at `startIndex`
 // (which must point at "["), tracking string/escape state so brackets or
 // braces inside JSON string values don't confuse the boundary.
@@ -69,15 +61,41 @@ function extractBalancedArrayAt(
   return null;
 }
 
-// Finds the array value immediately following a `key=` token (only
-// whitespace allowed in between) so `labels=oops data=[1,2]` correctly
-// fails to find a labels array instead of accidentally matching `data`'s.
-function extractArrayForKey(text: string, keyRegex: RegExp): string | null {
-  const match = keyRegex.exec(text);
-  if (!match) return null;
-  let idx = match.index + match[0].length;
-  while (idx < text.length && /\s/.test(text[idx])) idx++;
-  return extractBalancedArrayAt(text, idx);
+// Finds the array value immediately following a `key=` token, scanning every
+// occurrence of `key=` (not just the first) so a `key=` that appears inside
+// an unrelated quoted string (e.g. title="data=quality") is skipped in favor
+// of the real one. Only whitespace is allowed between `key=` and the `[`.
+function extractArrayForKey(
+  text: string,
+  key: "labels" | "data",
+): string | null {
+  const re = new RegExp(`\\b${key}=`, "g");
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(text))) {
+    let idx = match.index + match[0].length;
+    while (idx < text.length && /\s/.test(text[idx])) idx++;
+    const arr = extractBalancedArrayAt(text, idx);
+    if (arr) return arr;
+  }
+  return null;
+}
+
+/**
+ * Cheap-ish pre-check so callers can skip the full parse on ordinary text.
+ * Requires `labels=`/`data=` to actually resolve to bracketed arrays (not
+ * just appear as substrings) so unrelated slash commands or API paths that
+ * happen to mention both words aren't diverted out of normal markdown
+ * rendering.
+ */
+export function looksLikeLegacyChartShorthand(line: string): boolean {
+  const trimmed = line.trim();
+  if (trimmed.length === 0 || trimmed.length > MAX_LINE_LENGTH) return false;
+  if (!/^\/[a-zA-Z][\w-]*\b/.test(trimmed)) return false;
+  if (!/\blabels=/.test(trimmed) || !/\bdata=/.test(trimmed)) return false;
+  return (
+    extractArrayForKey(trimmed, "labels") !== null &&
+    extractArrayForKey(trimmed, "data") !== null
+  );
 }
 
 export function parseLegacyChartShorthand(
@@ -93,8 +111,8 @@ export function parseLegacyChartShorthand(
   const titleMatch = trimmed.match(/\btitle=(?:"([^"]*)"|'([^']*)')/);
   const chartTitle = titleMatch ? (titleMatch[1] ?? titleMatch[2] ?? "") : "";
 
-  const labelsRaw = extractArrayForKey(trimmed, /\blabels=/);
-  const dataRaw = extractArrayForKey(trimmed, /\bdata=/);
+  const labelsRaw = extractArrayForKey(trimmed, "labels");
+  const dataRaw = extractArrayForKey(trimmed, "data");
   if (!labelsRaw || !dataRaw) return null;
 
   let parsedLabels: unknown;
@@ -171,22 +189,44 @@ export function parseLegacyChartShorthand(
 
 // Wraps any line matching the legacy shorthand shape in a fenced code block
 // tagged `chart-shorthand`, so it routes through markdownComponents.pre()
-// like any other language fence instead of rendering as inert prose. Skips
-// lines already inside a real ``` fence.
+// like any other language fence instead of rendering as inert prose.
+// Fence/indented-code tracking mirrors ../../shared/markdown-block-split.ts
+// (marker char + length, indented-code detection) so real code blocks —
+// including ~~~ fences, longer-than-3 fences, and 4-space/tab indented code —
+// are never mistaken for chat prose and rewritten.
 export function wrapLegacyChartShorthandLines(markdown: string): string {
   if (!markdown.includes("labels=") || !markdown.includes("data=")) {
     return markdown;
   }
-  let inFence = false;
+  let fenceMarker = ""; // non-empty while inside a ``` or ~~~ fence
   const lines = markdown.split("\n");
   const out: string[] = [];
   for (const line of lines) {
-    if (line.trim().startsWith("```")) {
-      inFence = !inFence;
+    const trimmed = line.trimStart();
+    if (fenceMarker) {
+      out.push(line);
+      const closeMatch = /^(`{3,}|~{3,})\s*$/.exec(trimmed);
+      if (
+        closeMatch &&
+        closeMatch[1].charAt(0) === fenceMarker.charAt(0) &&
+        closeMatch[1].length >= fenceMarker.length
+      ) {
+        fenceMarker = "";
+      }
+      continue;
+    }
+    const openMatch = /^(`{3,}|~{3,})/.exec(trimmed);
+    if (openMatch) {
+      fenceMarker = openMatch[1].charAt(0).repeat(openMatch[1].length);
       out.push(line);
       continue;
     }
-    if (!inFence && looksLikeLegacyChartShorthand(line)) {
+    // 4-space/tab indented lines are a CommonMark indented code block.
+    if (/^(?: {4}|\t)/.test(line)) {
+      out.push(line);
+      continue;
+    }
+    if (looksLikeLegacyChartShorthand(line)) {
       out.push("```" + LEGACY_CHART_SHORTHAND_LANG, line.trim(), "```");
       continue;
     }
@@ -288,14 +328,28 @@ export function LegacyChartShorthandChart({
 
         {type !== "bar" &&
           series.map((s, si) => {
-            const points = labels
-              .map((_, li) => {
-                const value = s.data[li] ?? 0;
-                const x = padding.left + groupW * li + groupW / 2;
-                const y =
-                  padding.top + innerH - (Math.max(0, value) / maxVal) * innerH;
-                return `${x.toFixed(1)},${y.toFixed(1)}`;
-              })
+            const coords = labels.map((_, li) => {
+              const value = s.data[li] ?? 0;
+              const x = padding.left + groupW * li + groupW / 2;
+              const y =
+                padding.top + innerH - (Math.max(0, value) / maxVal) * innerH;
+              return { x, y };
+            });
+            if (coords.length === 1) {
+              // A single point has no line segment to draw — render a marker
+              // instead of an invisible zero-length polyline.
+              return (
+                <circle
+                  key={si}
+                  cx={coords[0].x}
+                  cy={coords[0].y}
+                  r={4}
+                  fill={colorFor(s, si)}
+                />
+              );
+            }
+            const points = coords
+              .map(({ x, y }) => `${x.toFixed(1)},${y.toFixed(1)}`)
               .join(" ");
             const baseY = padding.top + innerH;
             const firstX = padding.left + groupW / 2;

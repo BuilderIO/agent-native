@@ -25,6 +25,15 @@ describe("looksLikeLegacyChartShorthand", () => {
     const huge = `/chart labels=["a"] data=[${"1,".repeat(15_000)}1]`;
     expect(looksLikeLegacyChartShorthand(huge)).toBe(false);
   });
+
+  it("rejects slash commands where labels=/data= aren't real arrays", () => {
+    expect(
+      looksLikeLegacyChartShorthand("/report labels=bug,urgent data=summary"),
+    ).toBe(false);
+    expect(
+      looksLikeLegacyChartShorthand("/api/export?labels=true&data=csv"),
+    ).toBe(false);
+  });
 });
 
 describe("parseLegacyChartShorthand", () => {
@@ -96,6 +105,20 @@ describe("parseLegacyChartShorthand", () => {
   it("returns null for unrelated /commands without labels/data", () => {
     expect(parseLegacyChartShorthand("/charting some other text")).toBeNull();
   });
+
+  it("skips a data= that appears inside an unrelated quoted string", () => {
+    const parsed = parseLegacyChartShorthand(
+      '/chart title="data=quality" labels=["A"] data=[1]',
+    );
+    expect(parsed?.series[0].data).toEqual([1]);
+  });
+
+  it("renders a single-label series without throwing", () => {
+    const parsed = parseLegacyChartShorthand(
+      '/chart type=line labels=["Now"] data=[5]',
+    );
+    expect(parsed?.labels).toEqual(["Now"]);
+  });
 });
 
 describe("wrapLegacyChartShorthandLines", () => {
@@ -114,6 +137,21 @@ describe("wrapLegacyChartShorthandLines", () => {
 
   it("returns the input unchanged when there is no labels=/data= pair", () => {
     const input = "Just a normal message with no charts.";
+    expect(wrapLegacyChartShorthandLines(input)).toBe(input);
+  });
+
+  it("does not touch lines inside a tilde fence", () => {
+    const input = '~~~text\n/chart labels=["a"] data=[1]\n~~~';
+    expect(wrapLegacyChartShorthandLines(input)).toBe(input);
+  });
+
+  it("does not touch lines inside a four-backtick fence", () => {
+    const input = '````md\n```js\n/chart labels=["a"] data=[1]\n```\n````';
+    expect(wrapLegacyChartShorthandLines(input)).toBe(input);
+  });
+
+  it("does not touch 4-space indented code", () => {
+    const input = '    /chart labels=["a"] data=[1]';
     expect(wrapLegacyChartShorthandLines(input)).toBe(input);
   });
 });
