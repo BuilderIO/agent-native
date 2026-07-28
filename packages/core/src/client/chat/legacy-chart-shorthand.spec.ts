@@ -58,6 +58,28 @@ describe("parseLegacyChartShorthand", () => {
     expect(parsed?.series[1].label).toBe("Merged");
   });
 
+  it("handles escaped quotes inside the title", () => {
+    const q = String.fromCharCode(34);
+    const bs = String.fromCharCode(92);
+    const line =
+      "/chart title=" +
+      q +
+      "Sales " +
+      bs +
+      q +
+      "Metrics" +
+      bs +
+      q +
+      q +
+      " labels=[" +
+      q +
+      "A" +
+      q +
+      "] data=[1]";
+    const parsed = parseLegacyChartShorthand(line);
+    expect(parsed?.title).toBe("Sales " + q + "Metrics" + q);
+  });
+
   it("returns null when a series length does not match labels", () => {
     const parsed = parseLegacyChartShorthand(
       '/chart labels=["Mar","Apr","May"] data=[115,277]',

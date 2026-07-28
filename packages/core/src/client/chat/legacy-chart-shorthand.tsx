@@ -109,6 +109,34 @@ function extractArrayForKey(
   return null;
 }
 
+// Extracts the value of a `title="..."`/`title='...'` token, honoring
+// backslash-escaped quotes and backslashes inside the string (e.g.
+// title="Sales \"Metrics\"") instead of stopping at the first escaped quote.
+function extractLegacyChartTitle(text: string): string {
+  const match = /\btitle=/.exec(text);
+  if (!match) return "";
+  let idx = match.index + match[0].length;
+  const quoteChar = text[idx];
+  if (quoteChar !== '"' && quoteChar !== "'") return "";
+  idx++;
+  let result = "";
+  while (idx < text.length) {
+    const ch = text[idx];
+    if (ch === BACKSLASH && idx + 1 < text.length) {
+      const next = text[idx + 1];
+      if (next === quoteChar || next === BACKSLASH) {
+        result += next;
+        idx += 2;
+        continue;
+      }
+    }
+    if (ch === quoteChar) return result;
+    result += ch;
+    idx++;
+  }
+  return "";
+}
+
 /**
  * Cheap-ish pre-check so callers can skip the full parse on ordinary text.
  * Requires `labels=`/`data=` to actually resolve to bracketed arrays (not
@@ -137,8 +165,7 @@ export function parseLegacyChartShorthand(
   const chartType =
     (typeMatch?.[1].toLowerCase() as LegacyChartShorthand["type"]) || "bar";
 
-  const titleMatch = trimmed.match(/\btitle=(?:"([^"]*)"|'([^']*)')/);
-  const chartTitle = titleMatch ? (titleMatch[1] ?? titleMatch[2] ?? "") : "";
+  const chartTitle = extractLegacyChartTitle(trimmed);
 
   const labelsRaw = extractArrayForKey(trimmed, "labels");
   const dataRaw = extractArrayForKey(trimmed, "data");
