@@ -18,6 +18,8 @@ export interface AskAppTaskHandleRoute {
 interface AskAppTaskHandleClaims {
   version: number;
   issuerApp: string;
+  issuerAudience: string;
+  organization: string;
   subject: string;
   route: AskAppTaskHandleRoute;
   taskId: string;
@@ -26,6 +28,13 @@ interface AskAppTaskHandleClaims {
 
 function normalizedIdentity(value: string): string {
   return value.trim().toLowerCase();
+}
+
+function normalizedAudience(value: string): string | null {
+  const url = validHttpUrl(value);
+  if (!url || url.search || url.hash) return null;
+  const pathname = url.pathname.replace(/\/+$/, "");
+  return `${url.origin}${pathname}`;
 }
 
 function rootSecrets(): string[] {
@@ -71,21 +80,33 @@ function invalidHandle(): Error {
 
 export async function signAskAppTaskHandle(params: {
   issuerApp: string;
+  issuerAudience: string;
+  organization: string;
   subject: string;
   route: AskAppTaskHandleRoute;
   taskId: string;
   expiresInSeconds?: number;
 }): Promise<string> {
   const issuerApp = normalizedIdentity(params.issuerApp);
+  const issuerAudience = normalizedAudience(params.issuerAudience);
+  const organization = normalizedIdentity(params.organization);
   const subject = normalizedIdentity(params.subject);
   const taskId = params.taskId.trim();
-  if (!issuerApp || !subject || !taskId || !validRoute(params.route)) {
+  if (
+    !issuerApp ||
+    !issuerAudience ||
+    !subject ||
+    !taskId ||
+    !validRoute(params.route)
+  ) {
     throw invalidHandle();
   }
 
   const claims: AskAppTaskHandleClaims = {
     version: HANDLE_VERSION,
     issuerApp,
+    issuerAudience,
+    organization,
     subject,
     route: {
       ...params.route,
@@ -108,11 +129,20 @@ export async function signAskAppTaskHandle(params: {
 
 export async function verifyAskAppTaskHandle(
   handle: string,
-  expected: { issuerApp: string; subject: string },
+  expected: {
+    issuerApp: string;
+    issuerAudience: string;
+    organization: string;
+    subject: string;
+  },
 ): Promise<{ route: AskAppTaskHandleRoute; taskId: string }> {
   const issuerApp = normalizedIdentity(expected.issuerApp);
+  const issuerAudience = normalizedAudience(expected.issuerAudience);
+  const organization = normalizedIdentity(expected.organization);
   const subject = normalizedIdentity(expected.subject);
-  if (!handle.trim() || !issuerApp || !subject) throw invalidHandle();
+  if (!handle.trim() || !issuerApp || !issuerAudience || !subject) {
+    throw invalidHandle();
+  }
 
   for (const rootSecret of rootSecrets()) {
     try {
@@ -133,6 +163,8 @@ export async function verifyAskAppTaskHandle(
       if (
         claims.version !== HANDLE_VERSION ||
         claims.issuerApp !== issuerApp ||
+        claims.issuerAudience !== issuerAudience ||
+        claims.organization !== organization ||
         claims.subject !== subject ||
         typeof claims.taskId !== "string" ||
         !claims.taskId ||

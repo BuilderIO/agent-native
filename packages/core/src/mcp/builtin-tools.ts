@@ -36,7 +36,10 @@ import type { ActionEntry } from "../agent/production-agent.js";
 import type { ActionTool } from "../agent/types.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
 import { buildDeepLink } from "../server/deep-link.js";
-import { getRequestUserEmail } from "../server/request-context.js";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "../server/request-context.js";
 import { MCP_APP_CHAT_BRIDGE_QUERY_PARAM } from "../shared/embed-auth.js";
 import {
   signAskAppTaskHandle,
@@ -204,6 +207,27 @@ function selfA2AEndpointUrl(requestMeta?: AskAppRequestMeta): string | null {
   if (!origin) return null;
   const basePath = requestMeta?.basePath || getConfiguredAppBasePath();
   return agentNativeA2AEndpoint(`${origin}${basePath}`);
+}
+
+function askAppIssuerAudience(requestMeta?: AskAppRequestMeta): string | null {
+  const origin = requestMeta?.origin?.replace(/\/+$/, "");
+  if (!origin) return null;
+  try {
+    const originUrl = new URL(origin);
+    if (
+      !["http:", "https:"].includes(originUrl.protocol) ||
+      originUrl.username ||
+      originUrl.password
+    ) {
+      return null;
+    }
+    const basePath = requestMeta?.basePath || getConfiguredAppBasePath();
+    const audience = new URL(basePath || "/", `${originUrl.origin}/`);
+    const pathname = audience.pathname.replace(/\/+$/, "");
+    return `${audience.origin}${pathname}`;
+  } catch {
+    return null;
+  }
 }
 
 function boundedAskAppWaitMs(raw: unknown): number {
@@ -430,6 +454,7 @@ async function waitForA2ATask(
 async function submitAskAppA2ATask(
   route: AskAppRoute,
   issuerApp: string,
+  issuerAudience: string,
   message: string,
   maxWaitMs: number,
   approvedActions?: A2AApprovedAction[],
@@ -456,6 +481,8 @@ async function submitAskAppA2ATask(
     typeof metadata.userEmail === "string" ? metadata.userEmail : "anonymous";
   const taskHandle = await signAskAppTaskHandle({
     issuerApp,
+    issuerAudience,
+    organization: getRequestOrgId() ?? "",
     subject,
     route,
     taskId: task.id,
@@ -1031,6 +1058,7 @@ async function routeAskOverA2A(
   options?: {
     durable?: boolean;
     issuerApp?: string;
+    issuerAudience?: string;
     maxWaitMs?: number;
     requestOrigin?: string;
     approvedActions?: A2AApprovedAction[];
@@ -1039,8 +1067,10 @@ async function routeAskOverA2A(
   { app: string; routedVia: "a2a"; response: string } | AskAppTaskResult
 > {
   if (options?.durable) {
-    if (!options.issuerApp) {
-      throw new Error("ask_app durable routing requires an issuer app id.");
+    if (!options.issuerApp || !options.issuerAudience) {
+      throw new Error(
+        "ask_app durable routing requires an issuer app id and audience.",
+      );
     }
     return submitAskAppA2ATask(
       {
@@ -1050,6 +1080,7 @@ async function routeAskOverA2A(
         requestOrigin: options.requestOrigin ?? origin,
       },
       options.issuerApp,
+      options.issuerAudience,
       message,
       options.maxWaitMs ?? ASK_APP_DEFAULT_INLINE_WAIT_MS,
       options.approvedActions,
@@ -1184,6 +1215,12 @@ function askAppTool(
       const requestedApp = String(args.app ?? "").trim();
       const selfId = currentAppId(config);
       const useDurableA2A = Boolean(requestMeta?.origin);
+      const issuerAudience = askAppIssuerAudience(requestMeta);
+      if (useDurableA2A && !issuerAudience) {
+        throw new Error(
+          "ask_app durable routing requires a valid HTTP(S) issuer audience.",
+        );
+      }
       const maxWaitMs = isExplicitAsyncAsk(args.async)
         ? 0
         : boundedAskAppWaitMs(args.maxWaitMs);
@@ -1205,6 +1242,7 @@ function askAppTool(
             {
               durable: useDurableA2A,
               issuerApp: selfId,
+              issuerAudience: issuerAudience ?? undefined,
               maxWaitMs,
               requestOrigin: targetApp.origin,
               approvedActions,
@@ -1241,6 +1279,7 @@ function askAppTool(
               {
                 durable: useDurableA2A,
                 issuerApp: selfId,
+                issuerAudience: issuerAudience ?? undefined,
                 maxWaitMs,
                 requestOrigin: dirMatch.url,
                 approvedActions,
@@ -1286,6 +1325,7 @@ function askAppTool(
             requestOrigin: requestMeta?.origin,
           },
           selfId,
+          issuerAudience ?? "",
           message,
           maxWaitMs,
           approvedActions,
@@ -1365,6 +1405,8 @@ function askAppStatusTool(
       if (taskHandle) {
         const verified = await verifyAskAppTaskHandle(taskHandle, {
           issuerApp: currentAppId(config),
+          issuerAudience: askAppIssuerAudience(requestMeta) ?? "",
+          organization: getRequestOrgId() ?? "",
           subject: getRequestUserEmail() ?? "anonymous",
         });
         const suppliedApp = String(args.app ?? "")

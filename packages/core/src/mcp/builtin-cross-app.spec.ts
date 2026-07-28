@@ -1175,6 +1175,25 @@ describe("ask_app — org-directory routing", () => {
         () => tools.ask_app_status.run({ taskHandle: submitted.taskHandle }),
       ),
     ).rejects.toThrow(/^Invalid or expired ask_app task handle\.$/);
+    await expect(
+      runWithRequestContext(
+        { userEmail: "caller@acme.com", orgId: "org-2" },
+        () => tools.ask_app_status.run({ taskHandle: submitted.taskHandle }),
+      ),
+    ).rejects.toThrow(/^Invalid or expired ask_app task handle\.$/);
+    const otherDeployment = getBuiltinCrossAppTools(
+      baseConfig({ appId: "mail", askAgent: async () => "unused" }),
+      { origin: "https://mail-preview.acme.com" },
+    );
+    await expect(
+      runWithRequestContext(
+        { userEmail: "caller@acme.com", orgId: "org-1" },
+        () =>
+          otherDeployment.ask_app_status.run({
+            taskHandle: submitted.taskHandle,
+          }),
+      ),
+    ).rejects.toThrow(/^Invalid or expired ask_app task handle\.$/);
     const otherConnector = getBuiltinCrossAppTools(
       baseConfig({ appId: "calendar", askAgent: async () => "unused" }),
       { origin: "https://calendar.acme.com" },

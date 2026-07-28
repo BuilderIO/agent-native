@@ -16,30 +16,38 @@ describe("ask_app task handles", () => {
     routedVia: "a2a" as const,
     requestOrigin: "https://content.example.com",
   };
+  const identity = {
+    issuerApp: "calendar",
+    issuerAudience: "https://calendar.example.com",
+    organization: "org-1",
+    subject: "alice@example.com",
+  };
 
   it("round-trips the signed route and remote task id", async () => {
     const handle = await signAskAppTaskHandle({
-      issuerApp: "calendar",
-      subject: "alice@example.com",
+      ...identity,
       route,
       taskId: "task-123",
     });
 
     await expect(
       verifyAskAppTaskHandle(handle, {
-        issuerApp: "calendar",
-        subject: "alice@example.com",
+        ...identity,
       }),
     ).resolves.toEqual({ route, taskId: "task-123" });
   });
 
   it.each([
-    ["wrong connector", { issuerApp: "mail", subject: "alice@example.com" }],
-    ["wrong user", { issuerApp: "calendar", subject: "mallory@example.com" }],
+    ["wrong connector", { ...identity, issuerApp: "mail" }],
+    [
+      "wrong deployment",
+      { ...identity, issuerAudience: "https://preview-calendar.example.com" },
+    ],
+    ["wrong organization", { ...identity, organization: "org-2" }],
+    ["wrong user", { ...identity, subject: "mallory@example.com" }],
   ])("rejects the %s without exposing claims", async (_label, expected) => {
     const handle = await signAskAppTaskHandle({
-      issuerApp: "calendar",
-      subject: "alice@example.com",
+      ...identity,
       route,
       taskId: "task-secret",
     });
@@ -51,8 +59,7 @@ describe("ask_app task handles", () => {
 
   it("rejects modified and expired handles with the same opaque error", async () => {
     const handle = await signAskAppTaskHandle({
-      issuerApp: "calendar",
-      subject: "alice@example.com",
+      ...identity,
       route,
       taskId: "task-secret",
       expiresInSeconds: -1,
@@ -61,14 +68,12 @@ describe("ask_app task handles", () => {
 
     await expect(
       verifyAskAppTaskHandle(modified, {
-        issuerApp: "calendar",
-        subject: "alice@example.com",
+        ...identity,
       }),
     ).rejects.toThrow(/^Invalid or expired ask_app task handle\.$/);
     await expect(
       verifyAskAppTaskHandle(handle, {
-        issuerApp: "calendar",
-        subject: "alice@example.com",
+        ...identity,
       }),
     ).rejects.toThrow(/^Invalid or expired ask_app task handle\.$/);
   });

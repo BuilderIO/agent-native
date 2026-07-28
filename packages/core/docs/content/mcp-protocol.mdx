@@ -252,9 +252,10 @@ If a bounded transient status read is unavailable, `ask_app_status` can return
 `status: "unknown"`, `statusRead: "unavailable"`, `retryable: true`, the
 original `app` and `taskId`, and `pollAfterMs` / `poll`. This means the status
 read is unavailable—not that the durable task failed. Retry `ask_app_status`
-with that exact `app` and `taskId`; never resubmit `ask_app` to recover, because
-submission can duplicate work. Permanent authentication, not-found, and
-protocol failures remain errors.
+with the returned `poll.arguments` unchanged, including `taskHandle` when
+present; legacy results without a handle must reuse the same `app` and `taskId`.
+Never resubmit `ask_app` to recover, because submission can duplicate work.
+Permanent authentication, not-found, and protocol failures remain errors.
 
 ## Authentication {#authentication}
 
