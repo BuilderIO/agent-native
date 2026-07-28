@@ -231,6 +231,11 @@ function createUserMessageRunConfig(
   approvedToolCalls?: string[],
   queuedMessageId?: string,
   hideUserMessage?: boolean,
+  modelSnapshot?: {
+    model?: string;
+    engine?: string;
+    effort?: ReasoningEffort;
+  },
 ) {
   const custom: {
     references?: Reference[];
@@ -238,7 +243,13 @@ function createUserMessageRunConfig(
     trackInRunsTray?: boolean;
     agentNativeQueuedMessageId?: string;
     approvedToolCalls?: string[];
+    model?: string;
+    engine?: string;
+    effort?: ReasoningEffort;
   } = {};
+  if (modelSnapshot?.model) custom.model = modelSnapshot.model;
+  if (modelSnapshot?.engine) custom.engine = modelSnapshot.engine;
+  if (modelSnapshot?.effort) custom.effort = modelSnapshot.effort;
   if (references && references.length > 0) {
     custom.references = references;
   }
@@ -1650,6 +1661,16 @@ type QueuedMessage = {
   recoveryAction?: AgentRecoveryAction;
   trackInRunsTray?: boolean;
   hideUserMessage?: boolean;
+  /**
+   * Model/engine/effort snapshotted at enqueue time, for the same reason
+   * `requestMode` is: the picker is global and live, so a queue that flushes
+   * after the user switches models would otherwise silently run the message
+   * under a model it was never composed for. Entries persisted before this
+   * existed simply lack the fields and fall back to the live selection.
+   */
+  model?: string;
+  engine?: string;
+  effort?: ReasoningEffort;
 };
 
 export function queuedMessageImageSources(
@@ -4170,6 +4191,11 @@ const AssistantChatInner = forwardRef<
               undefined,
               next.id,
               next.hideUserMessage,
+              {
+                model: next.model,
+                engine: next.engine,
+                effort: next.effort,
+              },
             ),
           } as Parameters<typeof threadRuntime.append>[0]);
           appended = true;
