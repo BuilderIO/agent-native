@@ -29,7 +29,11 @@ import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { sendToDesignAgentChat } from "@/lib/agent-chat";
-import { uploadAndIndexFigmaFiles } from "@/lib/builder-design-system-upload";
+import {
+  uploadAndIndexFigmaFiles,
+  pollDecodeJobStatus,
+  type DecodeJobStatus,
+} from "@/lib/builder-design-system-upload";
 
 interface GitHubLink {
   id: string;
@@ -103,6 +107,62 @@ export default function DesignSystemSetup() {
   const [builderIndexError, setBuilderIndexError] = useState<string | null>(
     null,
   );
+  const [decodeStatus, setDecodeStatus] = useState<DecodeJobStatus | null>(
+    null,
+  );
+  const decodePollRef = useRef<AbortController | null>(null);
+
+  const stopDecodePolling = useCallback(() => {
+    decodePollRef.current?.abort();
+    decodePollRef.current = null;
+  }, []);
+
+  useEffect(() => stopDecodePolling, [stopDecodePolling]);
+
+  const startDecodePolling = useCallback(
+    (jobId: string, indexResult: BuilderIndexResult) => {
+      decodePollRef.current?.abort();
+      const controller = new AbortController();
+      decodePollRef.current = controller;
+      setDecodeStatus({
+        status: "pending",
+        branchUrl: null,
+        error: null,
+        framesProcessed: 0,
+        totalFrames: 0,
+      });
+      pollDecodeJobStatus(jobId, {
+        signal: controller.signal,
+        onUpdate: (status) => {
+          if (!controller.signal.aborted) setDecodeStatus(status);
+        },
+      })
+        .then((status) => {
+          if (controller.signal.aborted) return;
+          setDecodeStatus(status);
+          setBuilderIndexResult(
+            status.branchUrl
+              ? { ...indexResult, builderUrl: status.branchUrl }
+              : indexResult,
+          );
+          setBuilderIndexing(false);
+        })
+        .catch((err: unknown) => {
+          if (controller.signal.aborted) return;
+          if (err instanceof DOMException && err.name === "AbortError") return;
+          setDecodeStatus((prev) => ({
+            status: "error",
+            branchUrl: prev?.branchUrl ?? null,
+            error: err instanceof Error ? err.message : String(err),
+            framesProcessed: prev?.framesProcessed ?? 0,
+            totalFrames: prev?.totalFrames ?? 0,
+          }));
+          setBuilderIndexResult(indexResult);
+          setBuilderIndexing(false);
+        });
+    },
+    [],
+  );
 
   const handleBuilderIndexUpload = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -115,6 +175,8 @@ export default function DesignSystemSetup() {
       }
       setBuilderIndexError(null);
       setBuilderIndexResult(null);
+      stopDecodePolling();
+      setDecodeStatus(null);
       setBuilderIndexing(true);
       try {
         const suggestedTitle =
@@ -125,18 +187,23 @@ export default function DesignSystemSetup() {
         const json = await uploadAndIndexFigmaFiles([file], {
           projectName: suggestedTitle,
         });
-        setBuilderIndexResult(json as unknown as BuilderIndexResult);
+        const parsed = json as unknown as BuilderIndexResult;
+        if (parsed.jobId) {
+          startDecodePolling(parsed.jobId, parsed);
+        } else {
+          setBuilderIndexResult(parsed);
+          setBuilderIndexing(false);
+        }
       } catch (err) {
         setBuilderIndexError(
           err instanceof Error
             ? err.message
             : t("designSystemSetup.errors.parseFig"),
         );
-      } finally {
         setBuilderIndexing(false);
       }
     },
-    [t],
+    [t, startDecodePolling, stopDecodePolling],
   );
 
   useEffect(() => {
@@ -587,7 +654,10 @@ export default function DesignSystemSetup() {
               ) : (
                 <BuilderIndexPreview
                   result={builderIndexResult}
+                  decodeStatus={decodeStatus}
                   onReset={() => {
+                    stopDecodePolling();
+                    setDecodeStatus(null);
                     setBuilderIndexResult(null);
                     setBuilderIndexError(null);
                   }}
@@ -1057,12 +1127,16 @@ function FileList({
 
 function BuilderIndexPreview({
   result,
+  decodeStatus,
   onReset,
 }: {
   result: BuilderIndexResult;
+  decodeStatus: DecodeJobStatus | null;
   onReset: () => void;
 }) {
   const t = useT();
+  const decodeError =
+    decodeStatus?.status === "error" ? decodeStatus.error : null;
 
   return (
     <div className="space-y-4 rounded-xl border border-border bg-card p-4">
@@ -1082,18 +1156,11 @@ function BuilderIndexPreview({
         </div>
       </div>
 
-      <dl className="grid grid-cols-[112px_minmax(0,1fr)] gap-x-3 gap-y-2 rounded-lg border border-border bg-muted/25 p-3 text-xs">
-        <dt className="text-muted-foreground">
-          {"Status" /* i18n-ignore Builder indexing field */}
-        </dt>
-        <dd className="font-medium text-foreground">{result.status}</dd>
-        <dt className="text-muted-foreground">
-          {"Project" /* i18n-ignore Builder indexing field */}
-        </dt>
-        <dd className="truncate font-mono !text-[11px] text-foreground/80">
-          {result.projectId}
-        </dd>
-      </dl>
+      {decodeError ? (
+        <p role="alert" className="text-xs text-destructive">
+          {t("designSystemSetup.figmaDecodeFailed", { error: decodeError })}
+        </p>
+      ) : null}
 
       <div className="flex items-center gap-2 border-t border-border pt-4">
         {result.builderUrl ? (

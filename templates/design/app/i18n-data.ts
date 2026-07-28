@@ -1422,6 +1422,7 @@ const enUS = {
     figmaParsingTitle: "Starting Builder DSI indexing...",
     figmaParsingDescription:
       "Builder will extract tokens, components, assets, and usage guidance",
+    figmaDecodeFailed: "Decoding failed: {{error}}",
     uploadFig: "Connect Figma with a .fig file",
     figmaSaveLocalCopy:
       "Upload a local copy from Figma: File -> Save local copy",
@@ -1891,6 +1892,7 @@ const designLocaleOverrides = {
         "通过 Builder DSI 连接 Figma、代码和可选的 design.md 指引。上下文越多，代理得到的系统越准确。",
       figmaParsingTitle: "正在启动 Builder DSI 索引...",
       figmaParsingDescription: "Builder 会提取令牌、组件、资产和使用指引",
+      figmaDecodeFailed: "解码失败：{{error}}",
       uploadFig: "连接 Figma .fig 文件",
       figmaSaveLocalCopy: "上传 Figma 本地副本：File -> Save local copy",
       websiteUrl: "网站URL",
@@ -2295,6 +2297,7 @@ const designLocaleOverrides = {
       figmaParsingTitle: "Iniciando indexación de Builder DSI...",
       figmaParsingDescription:
         "Builder extraerá tokens, componentes, recursos y guía de uso.",
+      figmaDecodeFailed: "Error al decodificar: {{error}}",
       uploadFig: "Conectar Figma con un archivo .fig",
       figmaSaveLocalCopy:
         "Sube una copia local de Figma: File -> Save local copy",
@@ -2720,6 +2723,7 @@ const designLocaleOverrides = {
       figmaParsingTitle: "Démarrage de l’indexation Builder DSI...",
       figmaParsingDescription:
         "Builder extraira les jetons, composants, ressources et consignes d’utilisation",
+      figmaDecodeFailed: "Échec du décodage : {{error}}",
       uploadFig: "Connecter Figma avec un fichier .fig",
       figmaSaveLocalCopy:
         "Importez une copie locale Figma : File -> Save local copy",
@@ -3145,6 +3149,7 @@ const designLocaleOverrides = {
       figmaParsingTitle: "Builder-DSI-Indizierung wird gestartet...",
       figmaParsingDescription:
         "Builder extrahiert Tokens, Komponenten, Assets und Nutzungsanweisungen",
+      figmaDecodeFailed: "Dekodierung fehlgeschlagen: {{error}}",
       uploadFig: "Figma mit einer .fig-Datei verbinden",
       figmaSaveLocalCopy:
         "Lade eine lokale Figma-Kopie hoch: File -> Save local copy",
@@ -3570,6 +3575,7 @@ const designLocaleOverrides = {
       figmaParsingTitle: "Builder DSI のインデックス作成を開始しています...",
       figmaParsingDescription:
         "Builder がトークン、コンポーネント、アセット、利用ガイドを抽出します",
+      figmaDecodeFailed: "デコードに失敗しました: {{error}}",
       uploadFig: "Figma .fig ファイルを接続",
       figmaSaveLocalCopy:
         "Figma のローカルコピーをアップロード: File -> Save local copy",
@@ -3990,6 +3996,7 @@ const designLocaleOverrides = {
       figmaParsingTitle: "Builder DSI 색인 생성을 시작하는 중...",
       figmaParsingDescription:
         "Builder가 토큰, 컴포넌트, 자산, 사용 지침을 추출합니다",
+      figmaDecodeFailed: "디코딩에 실패했습니다: {{error}}",
       uploadFig: "Figma .fig 파일 연결",
       figmaSaveLocalCopy: "Figma 로컬 사본 업로드: File -> Save local copy",
       websiteUrl: "웹사이트 URL",
@@ -4404,6 +4411,7 @@ const designLocaleOverrides = {
       figmaParsingTitle: "Iniciando indexação do Builder DSI...",
       figmaParsingDescription:
         "Builder extrairá tokens, componentes, recursos e orientações de uso",
+      figmaDecodeFailed: "Falha na decodificação: {{error}}",
       uploadFig: "Conectar Figma com um arquivo .fig",
       figmaSaveLocalCopy:
         "Envie uma cópia local do Figma: File -> Save local copy",
@@ -4824,6 +4832,7 @@ const designLocaleOverrides = {
       figmaParsingTitle: "Builder DSI indexing शुरू की जा रही है...",
       figmaParsingDescription:
         "Builder टोकन, कंपोनेंट, एसेट और उपयोग मार्गदर्शन निकालेगा",
+      figmaDecodeFailed: "डिकोडिंग विफल: {{error}}",
       uploadFig: "Figma .fig फ़ाइल कनेक्ट करें",
       figmaSaveLocalCopy: "Figma स्थानीय कॉपी अपलोड करें: File -> Save local copy",
       websiteUrl: "वेबसाइट URL",
@@ -5234,6 +5243,7 @@ const designLocaleOverrides = {
       figmaParsingTitle: "جارٍ بدء فهرسة Builder DSI...",
       figmaParsingDescription:
         "سيستخرج Builder الرموز والمكونات والأصول وإرشادات الاستخدام",
+      figmaDecodeFailed: "فشل فك الترميز: {{error}}",
       uploadFig: "ربط Figma بملف .fig",
       figmaSaveLocalCopy: "حمّل نسخة Figma محلية: File -> Save local copy",
       websiteUrl: "موقع URL",

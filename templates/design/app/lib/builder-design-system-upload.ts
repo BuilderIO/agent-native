@@ -100,8 +100,21 @@ async function queryCommittedOffset(
   throw new Error(`Failed to query upload status (${response.status})`);
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function delay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      return reject(new DOMException("Aborted", "AbortError"));
+    }
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        reject(new DOMException("Aborted", "AbortError"));
+      },
+      { once: true },
+    );
+  });
 }
 
 async function streamFileToStorage(
@@ -211,4 +224,57 @@ export async function uploadAndIndexFigmaFiles(
     throw new Error(json?.error || `Indexing failed (${res.status})`);
   }
   return json as BuilderIndexResult;
+}
+
+export interface DecodeJobStatus {
+  status: "pending" | "processing" | "complete" | "error";
+  branchUrl: string | null;
+  error: string | null;
+  framesProcessed: number;
+  totalFrames: number;
+}
+
+const DECODE_JOB_POLL_INTERVAL_MS = 5_000;
+const DECODE_JOB_MAX_POLLS = 120; // ~10 min at 5s, so a stuck job can't loop forever
+
+export interface PollDecodeJobOptions {
+  signal?: AbortSignal;
+  onUpdate?: (status: DecodeJobStatus) => void;
+}
+
+/**
+ * After indexing returns a jobId, the `.fig` decode job is still `pending` with
+ * no branchUrl. Poll until the branch appears or the job reaches a terminal
+ * state. A job that reports `status: "error"` resolves so the caller can read
+ * `status.error`; network failures, timeouts, and aborts reject.
+ */
+export async function pollDecodeJobStatus(
+  jobId: string,
+  options: PollDecodeJobOptions = {},
+): Promise<DecodeJobStatus> {
+  const { signal, onUpdate } = options;
+  const path = appApiPath(
+    `/api/design-system-decode-job-status?jobId=${encodeURIComponent(jobId)}`,
+  );
+  for (let i = 0; i < DECODE_JOB_MAX_POLLS; i++) {
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+    const res = await fetch(path, { signal });
+    const json = await readJson(res);
+    if (!res.ok || json?.error) {
+      throw new Error(json?.error || `Status check failed (${res.status})`);
+    }
+    const status = json as DecodeJobStatus;
+    onUpdate?.(status);
+    if (
+      status.branchUrl ||
+      status.status === "complete" ||
+      status.status === "error"
+    ) {
+      return status;
+    }
+    await delay(DECODE_JOB_POLL_INTERVAL_MS, signal);
+  }
+  throw new Error(
+    "Timed out waiting for the design system to finish decoding.",
+  );
 }
