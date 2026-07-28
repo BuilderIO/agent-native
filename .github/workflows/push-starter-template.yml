@@ -36,6 +36,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          # On workflow_run, GITHUB_SHA is the default branch HEAD, not the
+          # commit that was just published. Pin to the triggering run's commit
+          # so we materialize the exact tree whose packages are now on npm.
+          ref: >-
+            ${{ github.event_name == 'workflow_run'
+            && github.event.workflow_run.head_sha || github.sha }}
 
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
 
@@ -65,6 +72,8 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           set -euo pipefail
+          # Capture the source commit before cd'ing into the starter clone.
+          SRC_SHA="$(git rev-parse --short HEAD)"
           git clone --depth 1 --branch template \
             "https://x-access-token:${GH_TOKEN}@github.com/BuilderIO/builder-agent-native-starter.git" \
             /tmp/starter
@@ -84,5 +93,5 @@ jobs:
             echo "template branch already up to date."
             exit 0
           fi
-          git commit -m "chore: sync template from templates/chat@${GITHUB_SHA::7}"
+          git commit -m "chore: sync template from templates/chat@${SRC_SHA}"
           git push origin template
