@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   assertAccess: vi.fn(async () => undefined),
   readAppState: vi.fn(),
   compareAndSetAppState: vi.fn(async () => true),
+  compareAndSetManyAppState: vi.fn(async () => true),
 }));
 
 vi.mock("@agent-native/core", () => ({
@@ -13,6 +14,8 @@ vi.mock("@agent-native/core/application-state", () => ({
   readAppState: (...args: unknown[]) => mocks.readAppState(...args),
   compareAndSetAppState: (...args: unknown[]) =>
     mocks.compareAndSetAppState(...args),
+  compareAndSetManyAppState: (...args: unknown[]) =>
+    mocks.compareAndSetManyAppState(...args),
 }));
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: (...args: unknown[]) => mocks.assertAccess(...args),
@@ -26,6 +29,7 @@ const tabId = "clips-workflow:rec_123:request:chat-123";
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.compareAndSetAppState.mockResolvedValue(true);
+  mocks.compareAndSetManyAppState.mockResolvedValue(true);
 });
 
 describe("reconcile-workflow-generation", () => {
@@ -167,7 +171,14 @@ describe("reconcile-workflow-generation", () => {
       recordingId: "rec_123",
       requestedAt,
     };
-    mocks.readAppState.mockResolvedValue(request);
+    mocks.readAppState.mockResolvedValueOnce(request).mockResolvedValueOnce({
+      kind: "email",
+      status: "generating",
+      recordingId: "rec_123",
+      requestedAt,
+      tabId,
+      claimedAt: new Date().toISOString(),
+    });
 
     await expect(
       action.run({
@@ -177,11 +188,21 @@ describe("reconcile-workflow-generation", () => {
         tabId,
       }),
     ).resolves.toEqual({ reconciled: false, delivered: true });
-    expect(mocks.compareAndSetAppState).toHaveBeenCalledWith(
-      "clips-ai-request-rec_123",
-      request,
-      expect.objectContaining({ deliveredTabId: tabId }),
-    );
+    expect(mocks.compareAndSetManyAppState).toHaveBeenCalledWith([
+      {
+        key: "clips-workflow-rec_123",
+        expectedValue: expect.objectContaining({ tabId }),
+        nextValue: expect.objectContaining({
+          tabId,
+          claimedAt: expect.any(String),
+        }),
+      },
+      {
+        key: "clips-ai-request-rec_123",
+        expectedValue: request,
+        nextValue: expect.objectContaining({ deliveredTabId: tabId }),
+      },
+    ]);
   });
 
   it("consumes the matching request after dispatch", async () => {

@@ -113,28 +113,15 @@ export function useAutoTitleBridge(): void {
       const requestedAt = requestedAtFromTab(detail.tabId);
       if (!recordingId || !requestedAt) return;
 
-      const stopRequest = {
-        operation: "stop",
-        recordingId,
-        requestedAt,
-        tabId: detail.tabId,
-      };
-      void callAction(
-        "reconcile-workflow-generation" as any,
-        stopRequest as any,
-      )
-        .catch(() =>
-          callAction(
-            "reconcile-workflow-generation" as any,
-            stopRequest as any,
-          ),
-        )
-        .catch((error) => {
-          console.error(
-            "Failed to reconcile stopped workflow generation",
-            error,
-          );
-        });
+      void retryWorkflowAction(
+        {
+          operation: "stop",
+          recordingId,
+          requestedAt,
+          tabId: detail.tabId,
+        },
+        "reconciled",
+      );
     };
 
     window.addEventListener("agentNative.chatRunning", handleChatRunning);

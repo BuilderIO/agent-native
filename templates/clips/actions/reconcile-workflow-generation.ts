@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import {
   compareAndSetAppState,
+  compareAndSetManyAppState,
   readAppState,
 } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -83,11 +84,45 @@ export default defineAction({
             reason: "different-run" as const,
           };
         }
-        const delivered = await compareAndSetAppState(requestKey, rawRequest, {
-          ...rawRequest,
-          deliveredAt: new Date().toISOString(),
-          deliveredTabId: tabId,
-        });
+
+        const stateKey = `clips-workflow-${recordingId}`;
+        const rawState = await readAppState(stateKey);
+        if (rawState === null) {
+          return { reconciled: false, delivered: false, reason: "missing" };
+        }
+        const parsedState = WorkflowStateSchema.safeParse(rawState);
+        if (!parsedState.success) {
+          throw new Error(
+            `Invalid generated workflow state for ${recordingId}`,
+          );
+        }
+        if (parsedState.data.status !== "generating") {
+          return { reconciled: false, delivered: false, reason: "terminal" };
+        }
+        if (
+          parsedState.data.requestedAt !== requestedAt ||
+          parsedState.data.tabId !== tabId
+        ) {
+          return {
+            reconciled: false,
+            delivered: false,
+            reason: "different-run",
+          };
+        }
+
+        const deliveredAt = new Date().toISOString();
+        const delivered = await compareAndSetManyAppState([
+          {
+            key: stateKey,
+            expectedValue: rawState,
+            nextValue: { ...rawState, claimedAt: deliveredAt },
+          },
+          {
+            key: requestKey,
+            expectedValue: rawRequest,
+            nextValue: { ...rawRequest, deliveredAt, deliveredTabId: tabId },
+          },
+        ]);
         return delivered
           ? { reconciled: false, delivered: true }
           : { reconciled: false, delivered: false, reason: "stale" as const };

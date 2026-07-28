@@ -278,8 +278,15 @@ describe("workflow generation cancellation", () => {
 
   it("reconciles the exact workflow agent tab after a page reload", async () => {
     await act(async () => root.unmount());
-    mocks.callAction.mockImplementation(async (name: string) =>
-      name === "list-ai-requests" ? { requests: [] } : { reconciled: true },
+    let stopAttempts = 0;
+    mocks.callAction.mockImplementation(
+      async (name: string, payload?: { operation?: string }) => {
+        if (name === "list-ai-requests") return { requests: [] };
+        if (payload?.operation === "stop" && stopAttempts++ === 0) {
+          throw new Error("connection dropped");
+        }
+        return { reconciled: true };
+      },
     );
     root = createRoot(container);
     await act(async () => root.render(<TestBridge />));
@@ -300,16 +307,14 @@ describe("workflow generation cancellation", () => {
       }),
     );
 
-    await vi.waitFor(() =>
-      expect(mocks.callAction).toHaveBeenCalledWith(
-        "reconcile-workflow-generation",
-        {
-          operation: "stop",
-          recordingId: "rec_123",
-          requestedAt,
-          tabId: workflowTabId,
-        },
-      ),
+    await vi.waitFor(
+      () =>
+        expect(
+          mocks.callAction.mock.calls.filter(
+            ([, payload]) => payload?.operation === "stop",
+          ),
+        ).toHaveLength(2),
+      { timeout: 2500 },
     );
   });
 });
