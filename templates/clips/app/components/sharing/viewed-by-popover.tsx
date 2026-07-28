@@ -1,8 +1,8 @@
-import { useActionQuery } from "@agent-native/core/client/hooks";
+import { useActionQuery, useAvatarUrl } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { useState } from "react";
 
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   Popover,
   PopoverContent,
@@ -100,11 +100,11 @@ export function ViewedByPopover({
                     key={v.id}
                     className="flex items-center gap-2 rounded-md px-2 py-1.5"
                   >
-                    <Avatar className="h-6 w-6 shrink-0">
-                      <AvatarFallback className="text-[10px] bg-primary text-primary-foreground">
-                        {initials(v.viewerName || v.viewerEmail || "?")}
-                      </AvatarFallback>
-                    </Avatar>
+                    <ViewerAvatar
+                      email={v.viewerEmail}
+                      name={v.viewerName}
+                      label={label}
+                    />
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-sm text-foreground">
                         {label}
@@ -121,6 +121,27 @@ export function ViewedByPopover({
         </div>
       </PopoverContent>
     </Popover>
+  );
+}
+
+function ViewerAvatar({
+  email,
+  name,
+  label,
+}: {
+  email: string | null;
+  name: string | null;
+  label: string;
+}) {
+  const avatarUrl = useAvatarUrl(email);
+
+  return (
+    <Avatar className="h-6 w-6 shrink-0">
+      {avatarUrl ? <AvatarImage src={avatarUrl} alt={label} /> : null}
+      <AvatarFallback className="text-[10px] bg-primary text-primary-foreground">
+        {initials(name || email || "?")}
+      </AvatarFallback>
+    </Avatar>
   );
 }
 
