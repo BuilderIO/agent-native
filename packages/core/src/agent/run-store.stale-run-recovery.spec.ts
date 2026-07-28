@@ -85,6 +85,7 @@ const {
   markTurnAborted,
   reapIfStale,
   reapAllStaleRuns,
+  reconcileTerminalRunFromEvents,
 } = await import("./run-store.js");
 
 let seq = 0;
@@ -397,5 +398,58 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapAllStaleRuns)", 
     // successor.
     await reapAllStaleRuns();
     expect(rowsForTurn(turn)).toHaveLength(2);
+  });
+});
+
+/**
+ * The stale marker is written to the event ledger as a terminal `error` event,
+ * so a row already parked at errored/stale_run can re-derive its own current
+ * state during reconciliation. When that self-rewrite reported a repair, every
+ * caller re-read the unchanged row and reconciled it again — an unbounded
+ * async loop that pinned the event loop in SQLite and stopped the server
+ * answering any request. A stale row may only be superseded by a *different*
+ * terminal event.
+ */
+describe("stale-run reconciliation converges", () => {
+  function appendEvent(runId: string, seqNo: number, event: unknown): void {
+    sqlite
+      .prepare(
+        `INSERT INTO agent_run_events (run_id, seq, event_at, event_data) VALUES (?, ?, ?, ?)`,
+      )
+      .run(runId, seqNo, Date.now(), JSON.stringify(event));
+  }
+
+  it("reports no repair when a stale row's only terminal event is its own marker", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn, { dispatchMode: "background" });
+    await claimBackgroundRun(runId);
+    setStaleLiveness(runId, Date.now() - STALE_PAST_MS);
+    await reapIfStale(runId);
+
+    expect(readRow(runId)?.status).toBe("errored");
+
+    // Reconciling the reaped row must not claim it repaired anything, or the
+    // caller loops on it forever.
+    expect(await reconcileTerminalRunFromEvents(runId)).toBe(false);
+    expect(await reconcileTerminalRunFromEvents(runId)).toBe(false);
+  });
+
+  it("still lets a real terminal event supersede a stale row", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn, { dispatchMode: "background" });
+    await claimBackgroundRun(runId);
+    setStaleLiveness(runId, Date.now() - STALE_PAST_MS);
+    await reapIfStale(runId);
+    expect(readRow(runId)?.status).toBe("errored");
+
+    // A durable `done` landed after the reaper gave up on the run.
+    appendEvent(runId, 9_001, { type: "done" });
+
+    expect(await reconcileTerminalRunFromEvents(runId)).toBe(true);
+    expect(readRow(runId)?.status).toBe("completed");
+    // ...and once corrected, it stops reporting repairs.
+    expect(await reconcileTerminalRunFromEvents(runId)).toBe(false);
   });
 });

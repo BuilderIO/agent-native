@@ -1239,6 +1239,21 @@ export async function reconcileTerminalRunFromEvents(
   const client = getDbExec();
   const errorCode = errorCodeForTerminalEvent(latest.event);
   const errorDetail = errorDetailForTerminalEvent(latest.event);
+  // The stale marker is itself a terminal `error` event, so a row already parked
+  // at errored/stale_run re-derives its own current state here. That UPDATE
+  // still matches and reports rowsAffected > 0, so callers read "repaired",
+  // re-read the unchanged row, and reconcile it again forever. Only a different
+  // terminal event may supersede a stale row.
+  const supersedesStaleRun = errorCode !== STALE_RUN_ERROR_EVENT.errorCode;
+  const args = [
+    status,
+    latest.eventAt,
+    errorCode,
+    errorDetail,
+    terminalReason,
+    runId,
+  ];
+  if (supersedesStaleRun) args.push(STALE_RUN_ERROR_EVENT.errorCode);
   const { rowsAffected } = await client.execute({
     sql: `UPDATE agent_runs
           SET status = ?,
@@ -1248,18 +1263,14 @@ export async function reconcileTerminalRunFromEvents(
               terminal_reason = ?
           WHERE id = ?
             AND (
-              status = 'running'
-              OR (status = 'errored' AND error_code = ?)
+              status = 'running'${
+                supersedesStaleRun
+                  ? `
+              OR (status = 'errored' AND error_code = ?)`
+                  : ""
+              }
             )`,
-    args: [
-      status,
-      latest.eventAt,
-      errorCode,
-      errorDetail,
-      terminalReason,
-      runId,
-      STALE_RUN_ERROR_EVENT.errorCode,
-    ],
+    args,
   });
   return (rowsAffected ?? 0) > 0;
 }
