@@ -424,6 +424,16 @@ export default defineAction({
 
 The guard wraps `run` itself rather than hanging off the action entry, because `run` is the one thing all six dispatch sites go through — there is no caller that can reach the body without passing the check. A guard that throws denies with its own message; one that returns `false` denies with a generic 403; anything else, including `undefined`, allows. Because the gate needs a caller identity, an unattended CLI or cron invocation with no user email is denied rather than waved through.
 
+The wrappers compose in this order:
+
+```text
+validate input -> authorize -> run -> validate output -> audit
+```
+
+Authorization sits _inside_ input validation, so a guard that inspects `args` is handed the parsed, coerced value its type promises rather than whatever shape the caller sent. Auditing is outermost, so a denial is still recorded.
+
+`requireAny` fails at definition time, not at request time: calling it with no roles, or with a role outside the declared vocabulary, throws when the module loads. `authorize: coachAccess.requireAny()` is a dropped argument, and it should break where the mistake is rather than surface later as an unexplained 403.
+
 The three mechanisms are not interchangeable:
 
 | Mechanism                     | Question it answers                                | Applies to                  |

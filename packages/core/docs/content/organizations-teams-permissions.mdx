@@ -232,6 +232,15 @@ The caveats that make this safe to build on:
 - **A failed lookup throws.** It is not one of the deny statuses above: a
   database error is not an answer, and reporting it as a denial would look
   exactly like a legitimate one.
+- **`requireAny` validates at definition time.** Calling it with no roles, or
+  with a role outside the declared vocabulary, throws when the module loads —
+  a dropped argument breaks where the mistake is instead of surfacing later as
+  an unexplained 403 in production.
+- **An explicit `null` caller is not "unspecified".** `resolve({ userEmail:
+null })` means "this run has no user" and does not fall back to the ambient
+  request context; only `undefined` does. Collapsing the two would let a system
+  or cron caller that deliberately declared no identity inherit whichever
+  request happens to be on the stack and authorize as that person.
 - **`appId` comes from trusted server config, never from the request.** The
   REST layer resolves descriptors out of the `defineAppRoles` registry and 404s
   an app id the server never declared.

@@ -416,9 +416,9 @@ Les trois mécanismes ne sont pas interchangeables :
 
 | Mécanisme                     | Question à laquelle il répond                                 | S'applique à                              |
 | ----------------------------- | ------------------------------------------------------------- | ----------------------------------------- |
-| `authorize`                   | Cet appelant peut-il effectuer l'opération ?                   | Les six sites de répartition              |
-| `needsApproval`               | Un humain doit-il valider cet appel autorisé en particulier ?  | La boucle d'agent uniquement              |
-| `accessFilter`/`assertAccess` | Quelles lignes cet appelant autorisé peut-il voir ou écrire ?  | À l'intérieur de `run`, par requête/ligne |
+| `authorize`                   | Cet appelant peut-il effectuer l'opération ?                  | Les six sites de répartition              |
+| `needsApproval`               | Un humain doit-il valider cet appel autorisé en particulier ? | La boucle d'agent uniquement              |
+| `accessFilter`/`assertAccess` | Quelles lignes cet appelant autorisé peut-il voir ou écrire ? | À l'intérieur de `run`, par requête/ligne |
 
 Une action d'écriture restreinte a généralement besoin à la fois de `authorize` et de `assertAccess` : le premier tient les non-coachs à l'écart de l'opération, le second empêche un coach de toucher au plan d'une autre organisation. `needsApproval` est encore un autre axe : il ne restreint jamais _qui_ peut appeler, seulement si l'agent peut continuer sans surveillance.
 
