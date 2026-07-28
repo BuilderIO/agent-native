@@ -107,6 +107,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
       },
       { id: "multi-tenancy", labelKey: "multiTenancy", slug: "multi-tenancy" },
       {
+        id: "organizations-teams-permissions",
+        labelKey: "organizationsTeamsPermissions",
+        slug: "organizations-teams-permissions",
+      },
+      {
         id: "security",
         labelKey: "securityDataScoping",
         slug: "security",
@@ -172,13 +177,13 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
     ],
   },
   {
-    id: "workspace",
-    titleKey: "workspace",
+    id: "agent-resources",
+    titleKey: "agentResources",
     items: [
       {
-        id: "workspace-overview",
-        labelKey: "workspaceOverview",
-        slug: "workspace",
+        id: "agent-resources-overview",
+        labelKey: "agentResourcesOverview",
+        slug: "agent-resources",
       },
       { id: "skills-guide", labelKey: "skills", slug: "skills-guide" },
       {
@@ -225,9 +230,20 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         slug: "integrations",
       },
       { id: "messaging", labelKey: "messaging", slug: "messaging" },
+      {
+        id: "messaging-recipes",
+        labelKey: "messagingRecipes",
+        slug: "messaging-recipes",
+      },
+      {
+        id: "messaging-internals",
+        labelKey: "messagingInternals",
+        slug: "messaging-internals",
+      },
       { id: "dispatch", labelKey: "dispatch", slug: "dispatch" },
       { id: "a2a-protocol", labelKey: "a2aProtocol", slug: "a2a-protocol" },
       { id: "mcp-clients", labelKey: "mcpClients", slug: "mcp-clients" },
+      { id: "http-api", labelKey: "httpApi", slug: "http-api" },
       {
         id: "mcp-protocol",
         labelKey: "mcpServer",
@@ -237,6 +253,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         id: "external-agents",
         labelKey: "externalAgents",
         slug: "external-agents",
+      },
+      {
+        id: "external-agents-catalog",
+        labelKey: "externalAgentsCatalog",
+        slug: "external-agents-catalog",
       },
       { id: "mcp-apps", labelKey: "mcpApps", slug: "mcp-apps" },
       { id: "cross-app-sso", labelKey: "crossAppSso", slug: "cross-app-sso" },
@@ -263,6 +284,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         slug: "creating-templates",
       },
       {
+        id: "syncing-template-changes",
+        labelKey: "syncingTemplateChanges",
+        slug: "syncing-template-changes",
+      },
+      {
         id: "writing-agent-instructions",
         labelKey: "writingAgentInstructions",
         slug: "writing-agent-instructions",
@@ -284,6 +310,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         id: "toolkit-ui",
         labelKey: "toolkitUiPrimitives",
         slug: "toolkit-ui",
+      },
+      {
+        id: "custom-design-system",
+        labelKey: "customDesignSystem",
+        slug: "custom-design-system",
       },
       {
         id: "toolkit-editors-canvases",
@@ -425,13 +456,89 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
     // is the strict allow-list in `packages/shared-app-config/templates.ts`
     // (entries with `hidden: false`). The CI guard enforces this.
     items: [
-      { id: "template-chat", labelKey: "chat", slug: "template-chat" },
       {
-        id: "template-calendar",
-        labelKey: "calendar",
-        slug: "template-calendar",
+        id: "chat-group",
+        labelKey: "chat",
+        children: [
+          {
+            id: "template-chat",
+            labelKey: "chatOverview",
+            slug: "template-chat",
+          },
+          {
+            id: "template-chat-first-edits",
+            labelKey: "chatFirstEdits",
+            slug: "template-chat-first-edits",
+          },
+          {
+            id: "template-chat-developers",
+            labelKey: "chatDevelopers",
+            slug: "template-chat-developers",
+          },
+        ],
       },
-      { id: "template-content", labelKey: "content", slug: "template-content" },
+      {
+        id: "calendar-group",
+        labelKey: "calendar",
+        children: [
+          {
+            id: "template-calendar",
+            labelKey: "calendarOverview",
+            slug: "template-calendar",
+          },
+          {
+            id: "template-calendar-agent",
+            labelKey: "calendarAgent",
+            slug: "template-calendar-agent",
+          },
+          {
+            id: "template-calendar-scheduling",
+            labelKey: "calendarScheduling",
+            slug: "template-calendar-scheduling",
+          },
+          {
+            id: "template-calendar-booking-links",
+            labelKey: "calendarBookingLinks",
+            slug: "template-calendar-booking-links",
+          },
+          {
+            id: "template-calendar-developers",
+            labelKey: "calendarDevelopers",
+            slug: "template-calendar-developers",
+          },
+        ],
+      },
+      {
+        id: "content-group",
+        labelKey: "content",
+        children: [
+          {
+            id: "template-content",
+            labelKey: "contentOverview",
+            slug: "template-content",
+          },
+          {
+            id: "template-content-editing",
+            labelKey: "contentEditing",
+            slug: "template-content-editing",
+          },
+          {
+            id: "template-content-databases",
+            labelKey: "contentDatabases",
+            slug: "template-content-databases",
+          },
+          {
+            id: "template-content-sync",
+            labelKey: "contentSync",
+            slug: "template-content-sync",
+          },
+          {
+            id: "template-content-developers",
+            labelKey: "contentDevelopers",
+            slug: "template-content-developers",
+          },
+        ],
+      },
       {
         id: "plans-group",
         labelKey: "plans",
@@ -440,6 +547,26 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             id: "template-plan",
             labelKey: "visualPlans",
             slug: "template-plan",
+          },
+          {
+            id: "template-plan-review-workflow",
+            labelKey: "planReviewWorkflow",
+            slug: "template-plan-review-workflow",
+          },
+          {
+            id: "template-plan-automations",
+            labelKey: "planAutomations",
+            slug: "template-plan-automations",
+          },
+          {
+            id: "template-plan-local-and-desktop",
+            labelKey: "planLocalAndDesktop",
+            slug: "template-plan-local-and-desktop",
+          },
+          {
+            id: "template-plan-developers",
+            labelKey: "planDevelopers",
+            slug: "template-plan-developers",
           },
           {
             id: "pr-visual-recap",
@@ -453,23 +580,280 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
           },
         ],
       },
-      { id: "template-slides", labelKey: "slides", slug: "template-slides" },
       {
-        id: "template-analytics",
+        id: "slides-group",
+        labelKey: "slides",
+        children: [
+          {
+            id: "template-slides",
+            labelKey: "slidesOverview",
+            slug: "template-slides",
+          },
+          {
+            id: "template-slides-agent",
+            labelKey: "slidesAgent",
+            slug: "template-slides-agent",
+          },
+          {
+            id: "template-slides-editing",
+            labelKey: "slidesEditing",
+            slug: "template-slides-editing",
+          },
+          {
+            id: "template-slides-design-and-media",
+            labelKey: "slidesDesignAndMedia",
+            slug: "template-slides-design-and-media",
+          },
+          {
+            id: "template-slides-developers",
+            labelKey: "slidesDevelopers",
+            slug: "template-slides-developers",
+          },
+        ],
+      },
+      {
+        id: "analytics-group",
         labelKey: "analytics",
-        slug: "template-analytics",
+        children: [
+          {
+            id: "template-analytics",
+            labelKey: "analyticsOverview",
+            slug: "template-analytics",
+          },
+          {
+            id: "template-analytics-dashboards",
+            labelKey: "analyticsDashboards",
+            slug: "template-analytics-dashboards",
+          },
+          {
+            id: "template-analytics-connectors",
+            labelKey: "analyticsConnectors",
+            slug: "template-analytics-connectors",
+          },
+          {
+            id: "template-analytics-monitoring-and-sessions",
+            labelKey: "analyticsMonitoringAndSessions",
+            slug: "template-analytics-monitoring-and-sessions",
+          },
+          {
+            id: "template-analytics-developers",
+            labelKey: "analyticsDevelopers",
+            slug: "template-analytics-developers",
+          },
+        ],
       },
-      { id: "template-mail", labelKey: "mail", slug: "template-mail" },
-      { id: "template-clips", labelKey: "clips", slug: "template-clips" },
-      { id: "template-brain", labelKey: "brain", slug: "template-brain" },
-      { id: "template-assets", labelKey: "assets", slug: "template-assets" },
-      { id: "template-design", labelKey: "design", slug: "template-design" },
       {
-        id: "template-dispatch",
-        labelKey: "dispatch",
-        slug: "template-dispatch",
+        id: "mail-group",
+        labelKey: "mail",
+        children: [
+          {
+            id: "template-mail",
+            labelKey: "mailOverview",
+            slug: "template-mail",
+          },
+          {
+            id: "template-mail-agent",
+            labelKey: "mailAgent",
+            slug: "template-mail-agent",
+          },
+          {
+            id: "template-mail-inbox",
+            labelKey: "mailInbox",
+            slug: "template-mail-inbox",
+          },
+          {
+            id: "template-mail-drafts-and-queue",
+            labelKey: "mailDraftsAndQueue",
+            slug: "template-mail-drafts-and-queue",
+          },
+          {
+            id: "template-mail-developers",
+            labelKey: "mailDevelopers",
+            slug: "template-mail-developers",
+          },
+        ],
       },
-      { id: "template-forms", labelKey: "forms", slug: "template-forms" },
+      {
+        id: "clips-group",
+        labelKey: "clips",
+        children: [
+          {
+            id: "template-clips",
+            labelKey: "clipsOverview",
+            slug: "template-clips",
+          },
+          {
+            id: "template-clips-capture-everywhere",
+            labelKey: "clipsCaptureEverywhere",
+            slug: "template-clips-capture-everywhere",
+          },
+          {
+            id: "template-clips-ai-and-editing",
+            labelKey: "clipsAiAndEditing",
+            slug: "template-clips-ai-and-editing",
+          },
+          {
+            id: "template-clips-sharing-and-teams",
+            labelKey: "clipsSharingAndTeams",
+            slug: "template-clips-sharing-and-teams",
+          },
+          {
+            id: "template-clips-developers",
+            labelKey: "clipsDevelopers",
+            slug: "template-clips-developers",
+          },
+        ],
+      },
+      {
+        id: "brain-group",
+        labelKey: "brain",
+        children: [
+          {
+            id: "template-brain",
+            labelKey: "brainOverview",
+            slug: "template-brain",
+          },
+          {
+            id: "template-brain-sources",
+            labelKey: "brainSources",
+            slug: "template-brain-sources",
+          },
+          {
+            id: "template-brain-knowledge",
+            labelKey: "brainKnowledge",
+            slug: "template-brain-knowledge",
+          },
+          {
+            id: "template-brain-agent",
+            labelKey: "brainAgent",
+            slug: "template-brain-agent",
+          },
+          {
+            id: "template-brain-developers",
+            labelKey: "brainDevelopers",
+            slug: "template-brain-developers",
+          },
+        ],
+      },
+      {
+        id: "assets-group",
+        labelKey: "assets",
+        children: [
+          {
+            id: "template-assets",
+            labelKey: "assetsOverview",
+            slug: "template-assets",
+          },
+          {
+            id: "template-assets-generation",
+            labelKey: "assetsGeneration",
+            slug: "template-assets-generation",
+          },
+          {
+            id: "template-assets-presets",
+            labelKey: "assetsPresets",
+            slug: "template-assets-presets",
+          },
+          {
+            id: "template-assets-integrations",
+            labelKey: "assetsIntegrations",
+            slug: "template-assets-integrations",
+          },
+          {
+            id: "template-assets-developers",
+            labelKey: "assetsDevelopers",
+            slug: "template-assets-developers",
+          },
+        ],
+      },
+      {
+        id: "design-group",
+        labelKey: "design",
+        children: [
+          {
+            id: "template-design",
+            labelKey: "designOverview",
+            slug: "template-design",
+          },
+          {
+            id: "template-design-quality-and-components",
+            labelKey: "designQualityAndComponents",
+            slug: "template-design-quality-and-components",
+          },
+          {
+            id: "template-design-brand-and-figma",
+            labelKey: "designBrandAndFigma",
+            slug: "template-design-brand-and-figma",
+          },
+          {
+            id: "template-design-collaboration-and-full-apps",
+            labelKey: "designCollaborationAndFullApps",
+            slug: "template-design-collaboration-and-full-apps",
+          },
+          {
+            id: "template-design-developers",
+            labelKey: "designDevelopers",
+            slug: "template-design-developers",
+          },
+        ],
+      },
+      {
+        id: "dispatch-group",
+        labelKey: "dispatch",
+        children: [
+          {
+            id: "template-dispatch",
+            labelKey: "dispatchOverview",
+            slug: "template-dispatch",
+          },
+          {
+            id: "template-dispatch-messaging-routing",
+            labelKey: "dispatchMessagingRouting",
+            slug: "template-dispatch-messaging-routing",
+          },
+          {
+            id: "template-dispatch-operations",
+            labelKey: "dispatchOperations",
+            slug: "template-dispatch-operations",
+          },
+          {
+            id: "template-dispatch-vault-integrations",
+            labelKey: "dispatchVaultIntegrations",
+            slug: "template-dispatch-vault-integrations",
+          },
+          {
+            id: "template-dispatch-developers",
+            labelKey: "dispatchDevelopers",
+            slug: "template-dispatch-developers",
+          },
+        ],
+      },
+      {
+        id: "forms-group",
+        labelKey: "forms",
+        children: [
+          {
+            id: "template-forms",
+            labelKey: "formsOverview",
+            slug: "template-forms",
+          },
+          {
+            id: "template-forms-building-publishing",
+            labelKey: "formsBuildingPublishing",
+            slug: "template-forms-building-publishing",
+          },
+          {
+            id: "template-forms-responses",
+            labelKey: "formsResponses",
+            slug: "template-forms-responses",
+          },
+          {
+            id: "template-forms-developers",
+            labelKey: "formsDevelopers",
+            slug: "template-forms-developers",
+          },
+        ],
+      },
     ],
   },
 ];

@@ -295,7 +295,6 @@ const messages = {
       "ストレージが接続されました。このクリップをチェック中...",
     signInToFinish: "サインインして終了します",
     signInIfYours: "これがあなたのものである場合はサインインしてください",
-    openDashboard: "ダッシュボードを開く",
     checkAgain: "再確認",
     backToHome: "家に戻る",
     generatingTitle: "タイトルの生成",
@@ -491,6 +490,7 @@ const messages = {
     makePublicAndCopy: "公開してコピーする",
     copy: "コピー",
     addPeopleByEmail: "メールで人を追加",
+    invite: "招待",
     notifyPeople: "人々に通知する",
     peopleWithAccess: "アクセスできる人",
     ownerRole: "所有者",
@@ -818,11 +818,21 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     recentViewers: "最近の視聴者",
     noViewers: "視聴者はまだいません。",
     anonymous: "匿名",
-    anon: "匿名",
     moreViewers: "+{{count}} 件",
     viewedBy: "視聴者",
     someone: "誰か",
     noViewsYet: "まだ再生されていません。",
+    viewsCount_one: "{{count}} 回視聴",
+    viewsCount_other: "{{count}} 回視聴",
+    totalViewsSummary: "合計 {{total}} 回視聴、ユニーク視聴者 {{unique}} 人",
+    viewsTab: "視聴",
+    insightsTab: "インサイト",
+    humanViews: "人による視聴",
+    agentViews: "AI エージェントの視聴",
+    noAgentViewsYet: "AI エージェントによる視聴はまだありません。",
+    totalVideoViews: "動画の合計視聴数",
+    averageCompletionRate: "平均完了率",
+    moreInsights: "インサイトをもっと見る",
   },
   libraryGrid: {
     spaceRoot: "スペースのルート",
@@ -845,6 +855,10 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     loadFailedBody:
       "このリストの読み込み中に問題が発生しました。録画は安全に保存されています — もう一度お試しください。",
     retry: "再試行",
+    paginationRange: "{{total}} 件中 {{start}}–{{end}} 件",
+    paginationPrevious: "前へ",
+    paginationNext: "次へ",
+    paginationPage: "{{page}} / {{totalPages}} ページ",
   },
   notificationsRoute: {
     pageTitle: "通知 · Clips",
@@ -939,6 +953,17 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     summary: "要約",
     keyPoints: "重要ポイント",
     actionItems: "アクション項目",
+    sharedContent: "共有コンテンツ",
+    summaryIncluded: "要約、重要ポイント、アクション項目",
+    includeTranscript: "完全な文字起こしを含める",
+    includeTranscriptDescription:
+      "この会議にアクセスできるすべてのユーザーが、文字起こし全文を閲覧できます。",
+    transcriptUnavailable: "文字起こしはまだ準備できていません。",
+    transcript: "文字起こし",
+    copyTranscript: "文字起こしをコピー",
+    transcriptCopied: "文字起こしをコピーしました",
+    copyTranscriptFailed: "文字起こしをコピーできませんでした",
+    updateTranscriptSharingFailed: "文字起こしの共有を更新できませんでした",
   },
   deleteRecordingMenu: {
     movedToTrash: "クリップをゴミ箱に移動しました",
@@ -1295,6 +1320,8 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     couldNotImportLoom: "Could not import that Loom. (ローカライズ済み)",
     recordingReadyToUpload: "Recording is ready to upload (ローカライズ済み)",
     recordingSaved: "Recording saved (ローカライズ済み)",
+    linkCopied: "リンクをコピーしました",
+    copyLinkAction: "リンクをコピー",
     noLocalRecordingData:
       "No local recording data is available to download. (ローカライズ済み)",
     recordingDownloadStarted: "Recording download started (ローカライズ済み)",
@@ -1385,6 +1412,8 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
   clipsFinalRaw: {
     splitAtPlayhead: "再生位置で分割 (S)",
     selectedCount: "{{count}} 件選択中",
+    selectAll: "すべて選択",
+    deselectAll: "すべて選択解除",
     move: "移動",
     moveSelected: "選択した {{count}} 件を移動",
     current: "現在",
@@ -1509,6 +1538,22 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     guideStartDescription:
       "Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins. (ローカライズ済み)",
   },
+  rewindExtension: {
+    title: "直前の出来事を追加",
+    description:
+      "ローカルのRewindから指定した時間範囲を選び、このクリップの先頭に追加します。自動では追加されません。",
+    progressLabel: "Rewind履歴の処理状況",
+    privateFirstTitle: "先にこのクリップを非公開にする",
+    privateFirstDescription:
+      "ローカルのRewind履歴には録画開始前の情報が含まれる場合があります。この操作でクリップは非公開になります。直接アクセスできる人がいる場合は、先に共有画面で削除できるようClipsが停止します。",
+    makePrivateContinue: "非公開にして続行",
+    add30Seconds: "直前の30秒を追加",
+    add5Minutes: "直前の5分を追加",
+    add5MinutesDescription: "長い説明の導入部分を復元するのに便利です。",
+    privateReady:
+      "このクリップは非公開です。ローカルのRewind履歴を追加できます。",
+  },
+  timeline: { clipStartedHere: "クリップはここから開始" },
 };
 
 export default messages;

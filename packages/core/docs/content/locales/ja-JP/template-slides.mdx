@@ -450,6 +450,6 @@ pnpm dev
 
 `templates/slides/AGENTS.md` は、エージェントがすべての会話で読み取る短いルーターです。これは、`.agents/skills/` の下の skills を指し、コア ルール、アプリケーション状態コントラクト、およびスキル インデックスをレイアウトします。すべてのレイアウトの正確なスライド HTML テンプレートは `.agents/skills/create-deck/SKILL.md` にあります。スライド レイアウト パターンを追加または変更するたびに、そのスキルを更新します。
 
-#### API ルート
+#### Actions と API ルート
 
-actions が適切ではない場合 (ファイルのアップロード、ストリーミング)、テンプレートは REST エンドポイントの小さなセット (`GET/POST /api/decks`、`GET/PUT/DELETE /api/decks/:id`) を公開します。 `templates/slides/server/routes/api/` を参照してください。
+デッキとスライドの作成、編集、削除には `create-deck`、`add-slide`、`update-slide`、`delete-deck` などの共有 actions を使用します。これらはエージェントと UI の両方から呼び出せます。`templates/slides/server/routes/api/` の REST ルートは、アップロード、ストリーミング、エクスポートなどルート固有の処理に限定されています。

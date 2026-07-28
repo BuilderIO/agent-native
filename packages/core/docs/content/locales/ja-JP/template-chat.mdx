@@ -13,7 +13,7 @@ description: "最小限のチャットファーストのエージェントネイ
   <Screen
     surface="desktop"
     html={
-      "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>何をお手伝いできますか？</h1><p class='wf-muted' style='margin:10px 0 0'>何でもチャットできます。actions、コンポーネント、ページ、ジョブ、独自バックエンドを追加できます。</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>エージェントにメッセージ...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>Sonnet 5 · 自動</span><span class='wf-pill'>Act</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"
+      "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>何をお手伝いできますか？</h1><p class='wf-muted' style='margin:10px 0 0'>何でもチャットできます。actions、コンポーネント、ページ、ジョブ、独自バックエンドを追加できます。</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>エージェントにメッセージ...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>GPT-5.6 Luna · 自動</span><span class='wf-pill'>Act</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"
     }
   />
 </WireframeBlock>
@@ -125,76 +125,9 @@ npx @agent-native/core@latest create my-agent --headless
 
 そこから、チャット テンプレートの `/` ルートとサイドバー スレッド リストをアプリにコピーするか、チャット アプリをスキャフォールディングして actions をヘッドレス エージェントから `actions/` ディレクトリに移動します。重要な不変条件は変わりません。actions はチャット、UI、HTTP、MCP、A2A、CLI の共有サーフェスです。
 
-## 検査する最初のコード {#first-code}
-
-- `actions/hello.ts` は、エージェントが呼び出すことができるスターター動作です。交換するか、
-  その横に actions を追加します。
-- `app/routes/_index.tsx` は、フルページのチャット サーフェスをレンダリングします。
-  ここに提案、空の状態、コンポーザー、または周囲のレイアウトを入力します。
-- `AGENTS.md` は、組み込みエージェントにこのアプリ内での動作方法を指示します。
-
-<FileTree
-  id="doc-block-3lypxq"
-  title={"Chat テンプレートのレイアウト"}
-  entries={[
-    {
-      path: "actions/hello.ts",
-      note: "1 つの example action; 置き換えるか横に actions を追加",
-    },
-    {
-      path: "actions/view-screen.ts",
-      note: "エージェントが読む標準 context action",
-    },
-    {
-      path: "actions/navigate.ts",
-      note: "標準 navigation action",
-    },
-    {
-      path: "app/routes/_index.tsx",
-      note: "フルページの chat 画面を描画; suggestions、empty state、composer を編集",
-    },
-    {
-      path: "AGENTS.md",
-      note: "組み込みエージェントが読む chat-first のガイダンス",
-    },
-  ]}
-/>
-
-チャット ページは意図的に薄くされています。
-
-```tsx
-// app/routes/_index.tsx
-import { AgentChatSurface } from "@agent-native/core/client/agent-chat";
-export default function ChatRoute() {
-  return (
-    <AgentChatSurface
-      mode="page"
-      suggestions={[
-        "What can you do?",
-        "Help me customize this chat app",
-        "Show me the actions and pages I can add",
-      ]}
-    />
-  );
-}
-```
-
-## 独自のエージェント バックエンドを使用する {#own-agent-backend}
-
-テンプレートは、デフォルトで組み込みの app-agent ループを使用します。カスタム バックエンドに接続するには、UI を書き換えるのではなく、エージェント チャット プラグインの背後にあるチャット ランタイムを交換します。チャット ルートは、共有チャット サーフェスの周囲のシン レンダラーのままである必要があります。バックエンドの選択はサーバー プラグイン/ランタイム アダプターに属します。
-
-モデル オーケストレーションがすでに別の場所に存在しているが、それでも認証、スレッド、actions、UI 状態、およびデプロイ可能なページを備えたアプリが必要な場合に、これを使用します。
-
-## 最初の編集 {#first-edits}
-
-足場を構築した後、エージェントに次のことを尋ねます:
-
-> `notes` のデータ モデルを追加します。メモには ID、タイトル、本文、所有者が含まれます。 `/notes` でメモ ページをレンダリングし、actions の作成/リストを追加して、チャットでメモを作成できるようにします。
-
-エージェントは、Drizzle スキーマ、actions、ルート、ナビゲーション、および指示を追加する必要があります。その後、UI またはチャットからメモ機能を使用できるようになります。
-
 ## 次は何ですか
 
+- [**チャットでの最初の機能追加**](/docs/template-chat-first-edits) — 注釈付きのスターター チャット ルートと、実際の機能を追加する完全なウォークスルー
 - [**Getting Started**](/docs) — ヘッドレス、チャット、ドメイン テンプレートから選択します
 - [**Agent Surfaces**](/docs/agent-surfaces) — ヘッドレス、チャット、埋め込み、フルアプリのパターン
 - [**Actions**](/docs/actions) — アクション システム チャットと UI の両方を呼び出します

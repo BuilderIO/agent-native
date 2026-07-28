@@ -46,6 +46,9 @@ const prototypeSurfaceSchema = z.enum([
   "panel",
   "browser",
 ]);
+const prototypeRenderModeSchema = z.enum(["wireframe", "design"]);
+const boundedPrototypeHtml = (value: string) =>
+  !/<\/?(?:html|head|body|script|style)\b/i.test(value);
 
 const prototypeScreenSchema = z.object({
   id: z.string().optional().describe("Stable screen id"),
@@ -55,11 +58,32 @@ const prototypeScreenSchema = z.object({
     .optional()
     .describe("What the reviewer should inspect on this screen"),
   surface: prototypeSurfaceSchema.optional().default("browser"),
-  html: z
-    .string()
+  renderMode: prototypeRenderModeSchema
     .optional()
     .describe(
-      'Bounded semantic HTML fragment for a real interactive prototype. Use safe Alpine-like directives (x-data, x-model, x-for, x-text, x-show, :class, @click, @keydown.enter) for local behavior; use data-goto="screen-id" only for true screen/route changes. Never include html/body/script/style tags.',
+      'Set to "design" for polished, high-fidelity, production-like, or branded screens. Design mode persists on the artifact and disables the rough.js treatment for every viewer.',
+    ),
+  html: z
+    .string()
+    .max(40_000)
+    .refine(boundedPrototypeHtml, {
+      message:
+        "Prototype HTML must be a bounded fragment without html/head/body/script/style tags. Put scoped styles in the css field.",
+    })
+    .optional()
+    .describe(
+      'Bounded semantic HTML fragment for a real interactive prototype. Use safe Alpine-like directives (x-data, x-model, x-for, x-text, x-show, :class, @click, @keydown.enter) for local behavior; use data-goto="screen-id" only for true screen/route changes. Never include html/body/script/style tags; put visual styling in css.',
+    ),
+  css: z
+    .string()
+    .max(20_000)
+    .refine(boundedPrototypeHtml, {
+      message:
+        "Prototype CSS must not include document, script, or style tags.",
+    })
+    .optional()
+    .describe(
+      "Scoped CSS for this screen. Required when the request is high fidelity: use real codebase or brand tokens, deliberate typography, spacing, color, and state styling instead of embedding a style tag in html.",
     ),
   state: z
     .array(
@@ -112,7 +136,7 @@ const createPrototypePlanSchema = z.object({
     .optional()
     .default([])
     .describe(
-      "Prototype screens. Default to one functional screen when local UI behavior is enough; use 2-4 screens only for true routes/steps. Screen HTML should include working local controls, inputs, toggles, lists, filters, or lightweight flows where relevant.",
+      'Prototype screens. Default to one functional screen when local UI behavior is enough; use 2-4 screens only for true routes/steps. Screen HTML should include working local controls, inputs, toggles, lists, filters, or lightweight flows where relevant. For higher-fidelity requests, prefer create-plan-design; when the interaction itself requires a polished prototype, set each screen renderMode to "design" and pass its styling in css.',
     ),
   transitions: z
     .array(prototypeTransitionSchema)
@@ -143,7 +167,7 @@ const createPrototypePlanSchema = z.object({
 
 export default defineAction({
   description:
-    "Create a plan whose primary review surface is a running interactive prototype. For a document-first plan use create-visual-plan; for a UI-first wireframe canvas use create-ui-plan; for a recap of an existing diff use create-visual-recap; for full-fidelity branded design use create-plan-design. Prototype screen HTML uses safe Alpine-like directives for local state and data-goto for screen navigation only. Publish via this tool; never deliver the plan as inline chat text.",
+    'Create a plan whose primary review surface is a running interactive prototype. For a document-first plan use create-visual-plan; for a UI-first wireframe canvas use create-ui-plan; for a recap of an existing diff use create-visual-recap; for full-fidelity branded design use create-plan-design. Prototype screen HTML uses safe Alpine-like directives for local state and data-goto for screen navigation only. If a functional prototype must also be high fidelity, set renderMode to "design" and put scoped styles in css; never embed style tags in html because they are rejected. Publish via this tool; never deliver the plan as inline chat text.',
   schema: createPrototypePlanSchema.refine(
     (args) => Boolean(args.brief || args.goal),
     { message: "Either brief or goal is required." },

@@ -209,6 +209,13 @@ export interface VideoPlayerProps {
    * a visible frame for missing or blank auto-generated library thumbnails.
    */
   role?: "owner" | "admin" | "editor" | "viewer";
+  /**
+   * Called with the live `<video>` DOM node whenever it is created or
+   * destroyed (e.g. swapping to/from the Loom iframe or unsupported-format
+   * placeholder). Lets a caller key an effect off the actual element
+   * lifecycle instead of polling an imperative-handle getter.
+   */
+  onVideoElementChange?: (video: HTMLVideoElement | null) => void;
 }
 
 export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
@@ -245,6 +252,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       cover,
       recordingId,
       role,
+      onVideoElementChange,
     } = props;
 
     const resolvedVideoSrc = useMemo(
@@ -252,6 +260,13 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       [videoUrl],
     );
     const videoRef = useRef<HTMLVideoElement | null>(null);
+    const setVideoNode = useCallback(
+      (el: HTMLVideoElement | null) => {
+        videoRef.current = el;
+        onVideoElementChange?.(el);
+      },
+      [onVideoElementChange],
+    );
     const containerRef = useRef<HTMLDivElement | null>(null);
     const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const touchTapCandidateRef = useRef<{
@@ -277,9 +292,18 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     // without this guard that effect would treat the two URLs as the "same
     // resource" and immediately revert our retry before `.load()` completes.
     const recoveringFromErrorRef = useRef(false);
+    const prevMseModeRef = useRef("");
+    // Render-phase mirrors of currentMs / isPlaying so the MSE-fallback effect
+    // below can read the pre-failure values. By the time effects run, React has
+    // already committed the new <video src>, causing the browser to reset
+    // currentTime -> 0 and paused -> true, making the element values useless.
+    const currentMsRef = useRef(startMs ?? 0);
+    const isPlayingRef = useRef(false);
     const [activeVideoSrc, setActiveVideoSrc] = useState(resolvedVideoSrc);
     const [isPlaying, setIsPlaying] = useState(false);
     const [currentMs, setCurrentMs] = useState(startMs ?? 0);
+    currentMsRef.current = currentMs;
+    isPlayingRef.current = isPlaying;
     const [loomStartMs, setLoomStartMs] = useState<number | null>(null);
     const [volume, setVolume] = useState(1);
     // Autoplaying players (e.g. the Slack unfurl embed, `?autoplay=1`) must
@@ -391,6 +415,45 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       : mse.mode === "pending"
         ? undefined
         : activeVideoSrc;
+
+    // When the MSE pipeline breaks mid-stream (premature 416 or
+    // ERR_CONTENT_LENGTH_MISMATCH after the backing GCS object is replaced by
+    // the compressed version), the loader calls onFatal which flips mse.mode to
+    // "native". This effect detects that transition and:
+    //  1. saves the playback position via currentMsRef (v.currentTime is already 0)
+    //  2. cache-busts activeVideoSrc so the native <video> path fetches fresh
+    //     headers rather than a proxy-cached content-length from the old object
+    //  3. if the user was playing, arms playAttemptPendingRef so the existing
+    //     retryPendingPlay call in onLoadedData resumes without user interaction
+    useEffect(() => {
+      const prev = prevMseModeRef.current;
+      prevMseModeRef.current = mse.mode;
+      if (prev !== "mse" || mse.mode !== "native") return;
+
+      const wasPlaying = isPlayingRef.current;
+      const posMs = currentMsRef.current > 0 ? currentMsRef.current : null;
+      if (posMs != null) resumeAfterReloadMsRef.current = posMs;
+
+      if (activeVideoSrc) {
+        recoveringFromErrorRef.current = true;
+        setActiveVideoSrc(
+          setUrlSearchParam(activeVideoSrc, "cb", String(Date.now())),
+        );
+      }
+
+      if (wasPlaying) {
+        const nextId = playAttemptIdRef.current + 1;
+        playAttemptIdRef.current = nextId;
+        playAttemptPendingRef.current = true;
+        setIsPlayPending(true);
+        setIsBuffering(true);
+      } else {
+        setIsPlaying(false);
+        setIsBuffering(false);
+      }
+      setIsPreparing(true);
+      setCanPlay(false);
+    }, [mse.mode, activeVideoSrc]);
 
     useEffect(() => {
       if (!resolvedVideoSrc) {
@@ -598,10 +661,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const togglePlayback = useCallback(() => {
       const v = videoRef.current;
       if (!v) return;
-      if (!v.paused || isPlaying) {
-        pauseVideo();
-        return;
-      }
+      // A finished clip must always replay from the start, even when the browser
+      // left `paused` false at end of stream (MSE end-of-stream / DB-duration
+      // mismatch) or `isPlaying` is stale — otherwise the toggle below would
+      // pause an already-ended element and the play button appears to do nothing.
       if (v.ended) {
         try {
           v.currentTime = 0;
@@ -609,6 +672,12 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         } catch {
           // Let the normal play attempt report a media error if the seek fails.
         }
+        requestPlay();
+        return;
+      }
+      if (!v.paused || isPlaying) {
+        pauseVideo();
+        return;
       }
       requestPlay();
     }, [isPlaying, pauseVideo, requestPlay]);
@@ -1208,7 +1277,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           </div>
         ) : activeVideoSrc ? (
           <video
-            ref={videoRef}
+            ref={setVideoNode}
             src={domVideoSrc}
             poster={resolveLocalUrl(thumbnailUrl)}
             // `crossOrigin` is only needed so the owner's canvas thumbnail
@@ -1331,7 +1400,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 v,
                 resolvedDurationMs,
               );
-              if (visibleMs !== ms) {
+              // Only ever correct forward (skipping a trimmed range). Seeking
+              // backwards here flushes the decode pipeline and replays from the
+              // previous keyframe, which reads as a stutter with a buffering flash.
+              if (visibleMs > ms) {
                 v.currentTime = visibleMs / 1000;
                 setCurrentMs(visibleMs);
                 if (visibleMs > 0) {
@@ -1746,21 +1818,23 @@ function CenterPlaybackOverlay({
  * trustworthy finite number we have — preferring the resolved duration from
  * the player, then falling back to `video.duration`, then the seekable range.
  */
-function clampSeek(
+export function clampSeek(
   ms: number,
   v: HTMLVideoElement,
   resolvedDurationMs: number,
 ): number {
-  let maxSec = Number.POSITIVE_INFINITY;
+  // Clamp in integer milliseconds. Routing through seconds and back loses 1ms
+  // for ~1% of integer inputs (1001 -> 1000), which the timeupdate handler
+  // would then "correct" by seeking the player backwards.
+  let maxMs = Number.POSITIVE_INFINITY;
   if (resolvedDurationMs > 0) {
-    maxSec = resolvedDurationMs / 1000;
+    maxMs = resolvedDurationMs;
   } else if (Number.isFinite(v.duration) && v.duration > 0) {
-    maxSec = v.duration;
+    maxMs = v.duration * 1000;
   } else if (v.seekable && v.seekable.length > 0) {
-    maxSec = v.seekable.end(v.seekable.length - 1);
+    maxMs = v.seekable.end(v.seekable.length - 1) * 1000;
   }
-  const sec = Math.max(0, Math.min(maxSec, ms / 1000));
-  return Math.floor(sec * 1000);
+  return Math.floor(Math.max(0, Math.min(maxMs, ms)));
 }
 
 function skipExcludedRange(

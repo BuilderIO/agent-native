@@ -45,7 +45,10 @@ export function DatePicker({
           )}
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-auto p-0" align="start">
+      <PopoverContent
+        className="w-auto max-w-[calc(100vw-2rem)] p-0"
+        align="start"
+      >
         <Calendar
           mode="single"
           selected={validDate}

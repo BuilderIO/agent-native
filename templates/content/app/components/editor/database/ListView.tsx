@@ -1,7 +1,8 @@
-import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import type { ContentDatabaseItem, DocumentProperty } from "@shared/api";
 import { IconList, IconPlus } from "@tabler/icons-react";
 import { useRef, useState } from "react";
+
+import { Spinner } from "@/components/ui/spinner";
 
 import { displayValue } from "../DocumentProperties";
 import {
@@ -26,6 +27,7 @@ export function DatabaseListView({
   items,
   databaseDocumentId,
   canEdit,
+  canCreateItems,
   isLoading,
   isCreating,
   activeFilters,
@@ -47,6 +49,7 @@ export function DatabaseListView({
   items: ContentDatabaseItem[];
   databaseDocumentId: string;
   canEdit: boolean;
+  canCreateItems: boolean;
   isLoading: boolean;
   isCreating: boolean;
   activeFilters: DatabaseFilter[];
@@ -103,6 +106,7 @@ export function DatabaseListView({
                   properties={properties}
                   databaseDocumentId={databaseDocumentId}
                   canEdit={canEdit}
+                  canCreateItems={canCreateItems}
                   isCreating={isCreating}
                   collapsed={databaseGroupIsCollapsed(
                     collapsedGroupIds,
@@ -136,7 +140,7 @@ export function DatabaseListView({
                   onOpenPage={() => onOpenPage(item)}
                 />
               ))}
-          {canEdit && !grouped ? (
+          {canEdit && canCreateItems && !grouped ? (
             <NewListRow
               disabled={isCreating}
               isPending={isCreating}
@@ -154,6 +158,7 @@ function DatabaseGroupedListSection({
   properties,
   databaseDocumentId,
   canEdit,
+  canCreateItems,
   isCreating,
   collapsed,
   onCreateRow,
@@ -166,6 +171,7 @@ function DatabaseGroupedListSection({
   properties: DocumentProperty[];
   databaseDocumentId: string;
   canEdit: boolean;
+  canCreateItems: boolean;
   isCreating: boolean;
   collapsed: boolean;
   onCreateRow: (
@@ -203,7 +209,7 @@ function DatabaseGroupedListSection({
               onOpenPage={() => onOpenPage(item)}
             />
           ))}
-          {canEdit ? (
+          {canEdit && canCreateItems ? (
             <NewListRow
               disabled={isCreating}
               isPending={isCreating}

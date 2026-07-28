@@ -23,6 +23,11 @@ import {
   supportsClaudeAdaptiveThinking,
 } from "../../shared/reasoning-effort.js";
 import { AI_SDK_MODEL_CONFIG, type AISDKProvider } from "../model-config.js";
+import { describeErrorWithCauses } from "./error-detail.js";
+import {
+  createFirstEventAbortController,
+  FIRST_STREAM_EVENT_TIMEOUT_MS,
+} from "./first-event-timeout.js";
 import {
   clampThinkingBudgetTokens,
   resolveMaxOutputTokensForEngine,
@@ -33,6 +38,11 @@ import {
   aiSdkPartToEngineEvents,
   aiSdkStepToAssistantContent,
 } from "./translate-ai-sdk.js";
+import {
+  createStreamedToolInputState,
+  finalizeStreamedToolInputs,
+  observeStreamedToolInput,
+} from "./translate-anthropic.js";
 import type {
   AgentEngine,
   EngineCapabilities,
@@ -341,10 +351,27 @@ class AISDKEngine implements AgentEngine {
           };
         }
       } else if (this.provider === "openai") {
-        providerOpts.openai = {
-          ...((providerOpts.openai as object) ?? {}),
-          reasoningEffort,
-        };
+        // OpenAI rejects `reasoning_effort` together with function tools on
+        // the legacy Chat Completions surface for some reasoning models
+        // ("Function tools with reasoning_effort are not supported for
+        // <model> in /v1/chat/completions. To use function tools, use
+        // /v1/responses or set reasoning_effort to 'none'.") — a real prod
+        // incident, e.g. Sentry AGENT-NATIVE-BROWSER-94 on gpt-5.6-terra.
+        // `createProviderModel` forces Chat Completions specifically when
+        // `this.baseUrl` is set (many OpenAI-compatible gateways/proxies
+        // don't implement Responses — see that comment). In that exact
+        // combination — forced Chat Completions AND tools present — drop
+        // the explicit override and let the model use its default reasoning
+        // behavior instead of hard-failing the whole request; Responses-API
+        // calls (no baseUrl) are unaffected and keep full effort control.
+        const forcedChatCompletionsWithTools =
+          Boolean(this.baseUrl) && aiSdkTools !== undefined;
+        if (!forcedChatCompletionsWithTools) {
+          providerOpts.openai = {
+            ...((providerOpts.openai as object) ?? {}),
+            reasoningEffort,
+          };
+        }
       } else if (this.provider === "openrouter") {
         providerOpts.openrouter = {
           ...((providerOpts.openrouter as object) ?? {}),
@@ -379,6 +406,8 @@ class AISDKEngine implements AgentEngine {
     }
 
     let assistantContent: EngineContentPart[] = [];
+    const firstEventAbort = createFirstEventAbortController(opts.abortSignal);
+    const toolInputs = createStreamedToolInputState();
 
     try {
       const result = streamText({
@@ -387,10 +416,14 @@ class AISDKEngine implements AgentEngine {
         messages,
         tools: aiSdkTools,
         maxOutputTokens: resolvedMaxOutputTokens,
+        // Explicit: the agent loop already retries a failed model call with
+        // backoff. Leaving the SDK on its default (2) multiplies the two retry
+        // layers into ~12 HTTP requests per failed run.
+        maxRetries: 1,
         ...(opts.temperature !== undefined
           ? { temperature: opts.temperature }
           : {}),
-        abortSignal: opts.abortSignal,
+        abortSignal: firstEventAbort.signal,
         onStepFinish: (step: any) => {
           assistantContent = aiSdkStepToAssistantContent(step);
         },
@@ -402,15 +435,55 @@ class AISDKEngine implements AgentEngine {
       // Buffer the terminal stop so assistant-content can be emitted just
       // before it, regardless of where `finish` arrives in the stream.
       let bufferedStop: EngineEvent | undefined;
+      let sawFirstEvent = false;
 
       for await (const part of result.fullStream) {
+        // "start" is a synthetic lifecycle marker the AI SDK enqueues
+        // synchronously when the stream begins — before any provider bytes
+        // arrive — so it does not count as real progress. Every other part
+        // (including "start-step", only enqueued on the step's first real
+        // chunk) proves the provider is actually responding.
+        if (!sawFirstEvent && part?.type !== "start") {
+          sawFirstEvent = true;
+          firstEventAbort.markFirstEvent();
+        }
         for (const event of aiSdkPartToEngineEvents(part)) {
+          observeStreamedToolInput(toolInputs, event);
           if (event.type === "stop") {
             bufferedStop = event;
           } else {
             yield event;
           }
         }
+      }
+
+      // AI SDK surfaces an aborted stream as a graceful `{type: "abort"}`
+      // part rather than a thrown error, so a first-event timeout would
+      // otherwise fall through to the normal end_turn completion below.
+      if (!sawFirstEvent && firstEventAbort.didTimeout()) {
+        throw new Error(
+          `Model request produced no stream events within ${FIRST_STREAM_EVENT_TIMEOUT_MS / 1000}s; the connection appears wedged.`,
+        );
+      }
+
+      // A step can finish having announced a tool call it never delivered.
+      // Assemble it from its deltas, or report it in-band, rather than ending
+      // the turn as if the model never asked for it.
+      for (const recovered of finalizeStreamedToolInputs(
+        toolInputs,
+        assistantContent.flatMap((part) =>
+          part.type === "tool-call" ? [part.id] : [],
+        ),
+      )) {
+        if (recovered.type === "tool-call") {
+          assistantContent.push({
+            type: "tool-call",
+            id: recovered.id,
+            name: recovered.name,
+            input: recovered.input,
+          });
+        }
+        yield recovered;
       }
 
       yield { type: "assistant-content", parts: assistantContent };
@@ -420,19 +493,24 @@ class AISDKEngine implements AgentEngine {
       });
       yield bufferedStop ?? { type: "stop", reason: "end_turn" };
     } catch (err: any) {
+      const timedOut = firstEventAbort.didTimeout();
       // Surface structured fields from AI SDK's APICallError so
       // isRetryableError can check statusCode/providerRetryable directly
       // rather than keyword-matching the message string.
       const statusCode: number | undefined =
         typeof err?.statusCode === "number" ? err.statusCode : undefined;
-      const errorMessage = err?.message ?? String(err);
+      const rawMessage: string = err?.message ?? String(err);
+      // Classify on the bare message — the recorded `errorMessage` carries the
+      // cause chain, which is where the real transport failure lives.
+      const errorMessage = describeErrorWithCauses(err);
       const isConnectionError =
+        !timedOut &&
         statusCode === undefined &&
-        String(errorMessage).trim().toLowerCase() === "connection error.";
+        rawMessage.trim().toLowerCase() === "connection error.";
       const providerRetryable: boolean | undefined =
         typeof err?.isRetryable === "boolean"
           ? err.isRetryable
-          : isConnectionError
+          : isConnectionError || timedOut
             ? true
             : undefined;
       if (statusCode === 401) {
@@ -455,12 +533,14 @@ class AISDKEngine implements AgentEngine {
         // auto-resume too — matching the Builder gateway path.
         ...(statusCode !== undefined
           ? { errorCode: `http_${statusCode}`, statusCode }
-          : isConnectionError
+          : isConnectionError || timedOut
             ? { errorCode: "provider_network_error" }
             : {}),
         ...(providerRetryable !== undefined ? { providerRetryable } : {}),
       };
       throw err;
+    } finally {
+      firstEventAbort.cleanup();
     }
   }
 

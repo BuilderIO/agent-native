@@ -127,7 +127,7 @@ export function WorkspaceAppCard({
     <div
       aria-disabled={!href}
       className={cn(
-        "group relative rounded-xl border border-border/60 bg-card/40 p-4 transition-[background-color,border-color] hover:border-foreground/20 hover:bg-accent/15 focus-within:border-foreground/20 focus-within:bg-accent/15 aria-disabled:opacity-60",
+        "group relative rounded-xl bg-card/40 p-4 transition-[background-color] hover:bg-accent/15 focus-within:bg-accent/15 aria-disabled:opacity-60",
         isArchived && "opacity-70",
         className,
       )}
@@ -323,7 +323,7 @@ function AppResourcesDialog({ app }: { app: WorkspaceAppSummary }) {
               type="button"
               variant="ghost"
               size="sm"
-              aria-label={`View context resources for ${app.name}`}
+              aria-label={`View agent resources for ${app.name}`}
               className={APP_CARD_ACTION_CLASS}
               onClick={(e) => e.stopPropagation()}
             >
@@ -331,20 +331,21 @@ function AppResourcesDialog({ app }: { app: WorkspaceAppSummary }) {
             </Button>
           </DialogTrigger>
         </TooltipTrigger>
-        <TooltipContent>View context</TooltipContent>
+        <TooltipContent>View agent resources</TooltipContent>
       </Tooltip>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>{app.name} workspace resources</DialogTitle>
+          <DialogTitle>{app.name} agent resources</DialogTitle>
           <DialogDescription>
-            Workspace-level resources are inherited at runtime. App shared and
-            personal resources can override them locally.
+            Workspace-scope agent resources are inherited at runtime. App shared
+            and personal resources can override them locally.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <div className="rounded-lg border bg-muted/30 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
-            All-app resources live once at workspace scope and are read by each
-            app agent when it builds context. Nothing is copied into this app.
+            All-app agent resources live once at workspace scope and are read by
+            each app agent when it builds context. Nothing is copied into this
+            app.
           </div>
 
           <div className="flex flex-wrap items-center gap-2">

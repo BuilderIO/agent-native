@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client/i18n";
 import {
   closestCenter,
   DndContext,
@@ -56,6 +57,7 @@ function ChipSelectChip({
   sortable: boolean;
   onRemove: () => void;
 }) {
+  const t = useT();
   const {
     attributes,
     listeners,
@@ -89,7 +91,7 @@ function ChipSelectChip({
         variant="ghost"
         size="icon"
         disabled={disabled}
-        aria-label={`Remove ${option.label}`}
+        aria-label={t("common.removeAriaLabel", { label: option.label })}
         onPointerDown={(event) => event.stopPropagation()}
         onClick={(event) => {
           event.stopPropagation();
@@ -110,10 +112,13 @@ export function ChipSelect({
   onSelectedIdsChange,
   disabled = false,
   limit,
-  addButtonLabel = "Add",
-  emptyLabel = "None selected",
+  addButtonLabel,
+  emptyLabel,
   sortable = true,
 }: ChipSelectProps) {
+  const t = useT();
+  const resolvedAddButtonLabel = addButtonLabel ?? t("common.add");
+  const resolvedEmptyLabel = emptyLabel ?? t("common.noneSelected");
   const optionsById = useMemo(
     () => new Map(options.map((option) => [option.id, option])),
     [options],
@@ -192,7 +197,9 @@ export function ChipSelect({
       </div>
       <div className="flex min-w-0 flex-wrap items-center gap-2">
         {selectedOptions.length === 0 ? (
-          <span className="text-sm text-muted-foreground">{emptyLabel}</span>
+          <span className="text-sm text-muted-foreground">
+            {resolvedEmptyLabel}
+          </span>
         ) : sortable ? (
           <DndContext
             sensors={sensors}
@@ -218,7 +225,7 @@ export function ChipSelect({
               disabled={disabled || availableOptions.length === 0 || atLimit}
               className="h-8 gap-1.5 px-2"
             >
-              {addButtonLabel}
+              {resolvedAddButtonLabel}
               <IconChevronDown className="size-4" />
             </Button>
           </DropdownMenuTrigger>

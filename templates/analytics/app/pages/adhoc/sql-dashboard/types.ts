@@ -84,6 +84,14 @@ export interface SqlPanelConfig {
   color?: string;
   colors?: string[];
   yFormatter?: "number" | "currency" | "percent";
+  /**
+   * Series names (a subset of the plotted `yKeys`) to plot against a second,
+   * right-hand y-axis. Line, area, and bar panels render dual axes only when
+   * at least one series stays on the left axis.
+   */
+  rightYKeys?: string[];
+  /** Value formatter for the right axis. Falls back to `yFormatter`. */
+  rightYFormatter?: "number" | "currency" | "percent";
   description?: string;
   pivot?: PivotConfig;
   /** Stack bar/area series on top of each other instead of side-by-side / overlapping. */

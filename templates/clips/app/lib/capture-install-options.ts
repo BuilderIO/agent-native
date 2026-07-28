@@ -1,4 +1,5 @@
 import { appPath } from "@agent-native/core/client/api-path";
+import { useEffect, useState } from "react";
 
 const DESKTOP_PROMO_DISMISSED_STORAGE_KEY = "clips.desktop-promo.dismissed";
 const DESKTOP_DOWNLOADED_STORAGE_KEY = "clips.desktop-app.downloaded";
@@ -146,9 +147,19 @@ const chromeExtensionUrl =
 
 // The published extension manifest only trusts first-party Clips/local origins.
 // Custom deployments can opt in after publishing a matching extension/listing.
-export const clipsChromeExtensionEnabled = resolveClipsChromeExtensionEnabled({
-  enabledSetting: import.meta.env.VITE_CLIPS_CHROME_EXTENSION_ENABLED,
-  hostname: getCurrentHostname(),
-});
+export function useClipsChromeExtensionEnabled(): boolean {
+  const [enabled, setEnabled] = useState(false);
+
+  useEffect(() => {
+    setEnabled(
+      resolveClipsChromeExtensionEnabled({
+        enabledSetting: import.meta.env.VITE_CLIPS_CHROME_EXTENSION_ENABLED,
+        hostname: getCurrentHostname(),
+      }),
+    );
+  }, []);
+
+  return enabled;
+}
 
 export const clipsChromeExtensionUrl = chromeExtensionUrl || null;

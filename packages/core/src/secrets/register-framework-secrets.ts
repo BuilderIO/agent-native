@@ -49,6 +49,14 @@ export function registerFrameworkSecrets(): void {
         "https://developers.hubspot.com/docs/apps/developer-platform/build-apps/authentication/oauth/oauth-quickstart-guide",
     },
     {
+      id: "salesforce",
+      credentialPrefix: "SALESFORCE",
+      oauthProvider: "salesforce",
+      label: "Salesforce",
+      docsUrl:
+        "https://developer.salesforce.com/docs/atlas.en-us.api_rest.meta/api_rest/intro_understanding_web_server_oauth_flow.htm",
+    },
+    {
       id: "jira",
       credentialPrefix: "JIRA",
       oauthProvider: "jira",

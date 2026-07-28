@@ -183,6 +183,16 @@ describe("wireframe auto-height frame", () => {
     expect(html).toContain("shadow-xl");
   });
 
+  it("applies persisted design mode to legacy kit-tree wireframes", () => {
+    const html = render({
+      surface: "browser",
+      renderMode: "design",
+      screen: [{ el: "title", text: "Design" }],
+    });
+
+    expect(html).not.toContain("data-wireframe-style-toggle");
+  });
+
   it("shows the surface frame by default", () => {
     const html = render({
       surface: "browser",

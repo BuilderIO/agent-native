@@ -106,6 +106,7 @@ export default defineAction({
               accessFilter(schema.documents, schema.documentShares, context),
             ),
           ),
+          isNull(schema.documents.trashedAt),
           documentDiscoveryFilter({
             userEmail,
             orgIds: authorizedOrgIds,

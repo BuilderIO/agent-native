@@ -1,11 +1,4 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { Button } from "@agent-native/toolkit/ui/button";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@agent-native/toolkit/ui/collapsible";
-import { ScrollArea } from "@agent-native/toolkit/ui/scroll-area";
 import type {
   ContentDatabaseItem,
   ContentDatabaseOpenPagesIn,
@@ -19,7 +12,6 @@ import {
   IconDatabase,
   IconDots,
   IconFileText,
-  IconLoader2,
   IconPlus,
   IconStar,
   IconTrash,
@@ -37,6 +29,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -44,6 +42,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
   TooltipContent,
@@ -136,8 +136,14 @@ export function ContentFilesSidebarView({
     | "scroll"
   >;
 }) {
+  const usableData =
+    data?.database &&
+    Array.isArray(data.items) &&
+    Array.isArray(data.properties)
+      ? data
+      : undefined;
   const viewConfig = applyPersonalSidebarViewOverrides(
-    data?.database.viewConfig ?? defaultDatabaseViewConfig(),
+    usableData?.database.viewConfig ?? defaultDatabaseViewConfig(),
     overrides,
   );
   const [selectedViewId, setSelectedViewId] = useState(
@@ -154,10 +160,10 @@ export function ContentFilesSidebarView({
   useEffect(() => {
     setConstraintsCleared(false);
   }, [activeFilterKey, activeView.id]);
-  const items = data
+  const items = usableData
     ? applyDatabaseView(
-        data.items,
-        data.properties,
+        usableData.items,
+        usableData.properties,
         "",
         constraintsCleared ? [] : activeView.filters,
         activeView.sorts,
@@ -167,15 +173,17 @@ export function ContentFilesSidebarView({
   const groups = databaseVisibleGroups(
     databaseViewItemGroups(
       items,
-      data?.properties ?? [],
+      usableData?.properties ?? [],
       activeView.groupByPropertyId,
     ),
     activeView.hideEmptyGroups === true,
   );
-  const hierarchyItems = data?.properties.some(
+  const hasFilesHierarchy = usableData?.properties.some(
     (property) => property.definition.systemRole === "files_parent",
-  )
-    ? items
+  );
+  const hierarchyItems = hasFilesHierarchy ? items : undefined;
+  const hierarchyUniverseItems = hasFilesHierarchy
+    ? usableData?.items
     : undefined;
   return (
     <div className="min-w-0">
@@ -204,7 +212,10 @@ export function ContentFilesSidebarView({
         {...labels}
         groups={groups}
         grouped={
-          !!databaseViewGroupingProperty(activeView, data?.properties ?? [])
+          !!databaseViewGroupingProperty(
+            activeView,
+            usableData?.properties ?? [],
+          )
         }
         isLoading={isLoading}
         hasActiveConstraints={
@@ -223,6 +234,7 @@ export function ContentFilesSidebarView({
         onDocumentExpandedChange={onDocumentExpandedChange}
         renderItem={renderItem}
         hierarchyItems={hierarchyItems}
+        hierarchyUniverseItems={hierarchyUniverseItems}
         scroll={scroll}
       />
     </div>
@@ -247,8 +259,8 @@ export function DatabaseSidebarView({
   onDocumentExpandedChange,
   renderItem,
   hierarchyItems,
+  hierarchyUniverseItems,
   scroll = true,
-  loadingLabel,
   noMatchesLabel,
   clearLabel,
   navigationLabel,
@@ -271,8 +283,8 @@ export function DatabaseSidebarView({
   onDocumentExpandedChange?: (documentId: string, expanded: boolean) => void;
   renderItem?: (item: ContentDatabaseItem) => ReactNode;
   hierarchyItems?: ContentDatabaseItem[];
+  hierarchyUniverseItems?: ContentDatabaseItem[];
   scroll?: boolean;
-  loadingLabel: string;
   noMatchesLabel: string;
   clearLabel: string;
   navigationLabel: string;
@@ -287,7 +299,13 @@ export function DatabaseSidebarView({
   const items = groups.flatMap((group) => group.items);
   const itemTree =
     !grouped && hierarchyItems
-      ? databaseSidebarItemTree(items, hierarchyItems)
+      ? databaseSidebarItemTree(
+          databaseSidebarRootItems(
+            items,
+            hierarchyUniverseItems ?? hierarchyItems,
+          ),
+          hierarchyItems,
+        )
       : null;
 
   function setGroupOpen(groupId: string, open: boolean) {
@@ -347,9 +365,19 @@ export function DatabaseSidebarView({
 
   if (isLoading) {
     return (
-      <div className="flex h-16 items-center gap-2 px-2 text-sm text-muted-foreground">
-        <IconLoader2 className="size-4 animate-spin" />
-        {loadingLabel}
+      <div aria-hidden="true" className="grid gap-1 p-1">
+        {[70, 55, 85, 60, 45].map((width, index) => (
+          <div
+            key={`sidebar-skeleton-${index}`}
+            className="flex h-7 items-center gap-1.5 rounded px-1.5"
+          >
+            <Skeleton className="size-3.5 shrink-0 rounded-sm bg-sidebar-foreground/12 dark:bg-sidebar-foreground/10" />
+            <Skeleton
+              className="h-3 rounded bg-sidebar-foreground/12 dark:bg-sidebar-foreground/10"
+              style={{ width: `${width}%` }}
+            />
+          </div>
+        ))}
       </div>
     );
   }
@@ -688,6 +716,18 @@ export function databaseSidebarRows(groups: DatabaseBoardGroup[]) {
 export interface DatabaseSidebarItemTreeNode {
   item: ContentDatabaseItem;
   children: DatabaseSidebarItemTreeNode[];
+}
+
+export function databaseSidebarRootItems(
+  visibleItems: ContentDatabaseItem[],
+  allItems: ContentDatabaseItem[],
+) {
+  const documentIds = new Set(allItems.map((item) => item.document.id));
+  return visibleItems.filter((item) => {
+    const parentId = item.document.parentId;
+    if (!parentId) return true;
+    return !documentIds.has(parentId);
+  });
 }
 
 export function databaseSidebarRowIndent(depth: number, _hasChildren: boolean) {

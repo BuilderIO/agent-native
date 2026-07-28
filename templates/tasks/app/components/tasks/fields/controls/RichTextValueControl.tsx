@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconBold,
   IconH1,
@@ -20,6 +21,7 @@ export function RichTextValueControl({
   disabled: boolean;
   onChange: (value: string) => void;
 }) {
+  const t = useT();
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   function applyWrap(before: string, after = before, placeholder = "text") {
@@ -54,28 +56,32 @@ export function RichTextValueControl({
 
   const tools = [
     {
-      label: "Bold",
+      label: t("taskFields.toolBold"),
       icon: IconBold,
       action: () => applyWrap("**", "**", "bold"),
     },
     {
-      label: "Italic",
+      label: t("taskFields.toolItalic"),
       icon: IconItalic,
       action: () => applyWrap("_", "_", "italic"),
     },
-    { label: "Heading", icon: IconH1, action: () => applyLinePrefix("## ") },
     {
-      label: "Bulleted list",
+      label: t("taskFields.toolHeading"),
+      icon: IconH1,
+      action: () => applyLinePrefix("## "),
+    },
+    {
+      label: t("taskFields.toolBulletedList"),
       icon: IconList,
       action: () => applyLinePrefix("- "),
     },
     {
-      label: "Numbered list",
+      label: t("taskFields.toolNumberedList"),
       icon: IconListNumbers,
       action: () => applyLinePrefix("1. "),
     },
     {
-      label: "Link",
+      label: t("taskFields.toolLink"),
       icon: IconLink,
       action: () => applyWrap("[", "](https://example.com)", "link"),
     },

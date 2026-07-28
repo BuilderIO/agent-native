@@ -286,7 +286,6 @@ const messages = {
     storageConnectedChecking: "भंडारण जुड़ा हुआ है. इस क्लिप की जाँच कर रहा हूँ...",
     signInToFinish: "समाप्त करने के लिए साइन इन करें",
     signInIfYours: "यदि यह आपका है तो साइन इन करें",
-    openDashboard: "डैशबोर्ड खोलें",
     checkAgain: "फिर जाँचें",
     backToHome: "घर वापिस जा रहा हूँ",
     generatingTitle: "शीर्षक उत्पन्न करना",
@@ -479,6 +478,7 @@ const messages = {
     makePublicAndCopy: "सार्वजनिक करें और कॉपी करें",
     copy: "कॉपी करें",
     addPeopleByEmail: "ईमेल से लोगों को जोड़ें",
+    invite: "आमंत्रित करें",
     notifyPeople: "लोगों को सूचित करें",
     peopleWithAccess: "पहुंच वाले लोग",
     ownerRole: "स्वामी",
@@ -800,11 +800,21 @@ Clips में उपयोगकर्ताओं को दिखने व�
     recentViewers: "हाल के दर्शक",
     noViewers: "अभी कोई दर्शक नहीं।",
     anonymous: "अनाम",
-    anon: "अनाम",
     moreViewers: "+{{count}} और",
     viewedBy: "देखा गया",
     someone: "किसी ने",
     noViewsYet: "अभी तक कोई दृश्य नहीं।",
+    viewsCount_one: "{{count}} व्यू",
+    viewsCount_other: "{{count}} व्यू",
+    totalViewsSummary: "कुल {{total}} व्यू, {{unique}} अद्वितीय दर्शक",
+    viewsTab: "व्यू",
+    insightsTab: "इनसाइट्स",
+    humanViews: "मानव व्यू",
+    agentViews: "AI एजेंट व्यू",
+    noAgentViewsYet: "अभी तक कोई AI एजेंट व्यू नहीं।",
+    totalVideoViews: "कुल वीडियो व्यू",
+    averageCompletionRate: "औसत पूर्णता दर",
+    moreInsights: "और इनसाइट्स",
   },
   libraryGrid: {
     spaceRoot: "स्पेस रूट",
@@ -827,6 +837,10 @@ Clips में उपयोगकर्ताओं को दिखने व�
     loadFailedBody:
       "यह सूची लोड करते समय कुछ गड़बड़ हो गई। आपकी रिकॉर्डिंग सुरक्षित हैं — फिर से प्रयास करें।",
     retry: "फिर से प्रयास करें",
+    paginationRange: "{{total}} में से {{start}}–{{end}}",
+    paginationPrevious: "पिछला",
+    paginationNext: "अगला",
+    paginationPage: "पृष्ठ {{page}} / {{totalPages}}",
   },
   notificationsRoute: {
     pageTitle: "सूचनाएं · Clips",
@@ -920,6 +934,17 @@ Clips में उपयोगकर्ताओं को दिखने व�
     summary: "सारांश",
     keyPoints: "मुख्य बिंदु",
     actionItems: "कार्य आइटम",
+    sharedContent: "साझा की गई सामग्री",
+    summaryIncluded: "सारांश, मुख्य बिंदु और कार्य आइटम",
+    includeTranscript: "पूरी ट्रांसक्रिप्ट शामिल करें",
+    includeTranscriptDescription:
+      "इस मीटिंग का एक्सेस रखने वाला कोई भी व्यक्ति पूरी ट्रांसक्रिप्ट पढ़ सकता है।",
+    transcriptUnavailable: "ट्रांसक्रिप्ट अभी तैयार नहीं है।",
+    transcript: "ट्रांसक्रिप्ट",
+    copyTranscript: "ट्रांसक्रिप्ट कॉपी करें",
+    transcriptCopied: "ट्रांसक्रिप्ट कॉपी हो गई",
+    copyTranscriptFailed: "ट्रांसक्रिप्ट कॉपी नहीं हो सकी",
+    updateTranscriptSharingFailed: "ट्रांसक्रिप्ट शेयरिंग अपडेट नहीं हो सकी",
   },
   deleteRecordingMenu: {
     movedToTrash: "क्लिप ट्रैश में ले जाया गया",
@@ -1269,6 +1294,8 @@ Clips में उपयोगकर्ताओं को दिखने व�
     couldNotImportLoom: "Could not import that Loom. (स्थानीयकृत)",
     recordingReadyToUpload: "Recording is ready to upload (स्थानीयकृत)",
     recordingSaved: "Recording saved (स्थानीयकृत)",
+    linkCopied: "लिंक कॉपी हो गया",
+    copyLinkAction: "लिंक कॉपी करें",
     noLocalRecordingData:
       "No local recording data is available to download. (स्थानीयकृत)",
     recordingDownloadStarted: "Recording download started (स्थानीयकृत)",
@@ -1356,6 +1383,8 @@ Clips में उपयोगकर्ताओं को दिखने व�
   clipsFinalRaw: {
     splitAtPlayhead: "प्लेहेड पर विभाजित करें (S)",
     selectedCount: "{{count}} चुने गए",
+    selectAll: "सभी चुनें",
+    deselectAll: "सभी अचयनित करें",
     move: "ले जाएं",
     moveSelected: "चुने गए {{count}} ले जाएं",
     current: "वर्तमान",
@@ -1480,6 +1509,21 @@ Clips में उपयोगकर्ताओं को दिखने व�
     guideStartDescription:
       "Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins. (स्थानीयकृत)",
   },
+  rewindExtension: {
+    title: "पहले हुई गतिविधि जोड़ें",
+    description:
+      "स्थानीय Rewind से कोई निश्चित समय चुनकर इस क्लिप की शुरुआत में जोड़ें। कुछ भी अपने-आप नहीं जोड़ा जाता।",
+    progressLabel: "Rewind इतिहास प्रोसेस होने की प्रगति",
+    privateFirstTitle: "पहले इस क्लिप को निजी बनाएँ",
+    privateFirstDescription:
+      "स्थानीय Rewind इतिहास में रिकॉर्डिंग शुरू करने से पहले का संदर्भ हो सकता है। इससे क्लिप निजी हो जाएगी। अगर किसी के पास अब भी सीधी पहुँच है, तो Clips रुक जाएगा ताकि आप पहले शेयर में उनकी पहुँच हटा सकें।",
+    makePrivateContinue: "निजी बनाएँ और जारी रखें",
+    add30Seconds: "पिछले 30 सेकंड जोड़ें",
+    add5Minutes: "पिछले 5 मिनट जोड़ें",
+    add5MinutesDescription: "लंबी व्याख्या की शुरुआत वापस पाने के लिए उपयोगी।",
+    privateReady: "यह क्लिप निजी है। अब आप स्थानीय Rewind इतिहास जोड़ सकते हैं।",
+  },
+  timeline: { clipStartedHere: "क्लिप यहाँ शुरू हुई" },
 };
 
 export default messages;

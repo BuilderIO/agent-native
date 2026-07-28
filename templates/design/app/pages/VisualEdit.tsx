@@ -1,6 +1,6 @@
-import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { buildSignInReturnHref } from "@agent-native/core/client/ui";
 import {
   IconArrowUpRight,
   IconBrush,
@@ -12,16 +12,13 @@ import { Link } from "react-router";
 
 import { Button } from "@/components/ui/button";
 
-function buildSignInHref(): string {
-  const ret = "/visual-edit?intent=save";
-  return `${agentNativePath("/_agent-native/sign-in")}?return=${encodeURIComponent(ret)}`;
-}
-
 export default function VisualEditPage() {
   const t = useT();
   const { session } = useSession();
   const hasSession = Boolean(session?.email);
-  const primaryHref = hasSession ? "/" : buildSignInHref();
+  const primaryHref = hasSession
+    ? "/"
+    : buildSignInReturnHref({ returnTo: "/visual-edit?intent=save" });
   const primaryAriaLabel = hasSession
     ? t("visualEdit.openDesign")
     : t("designEditor.signUpToSave");

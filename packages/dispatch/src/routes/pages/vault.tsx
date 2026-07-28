@@ -437,7 +437,7 @@ function VaultAccessSettingsCard({ mode }: { mode: VaultAccessMode }) {
   const allApps = mode !== "manual";
 
   return (
-    <div className="rounded-xl border bg-card px-4 py-3">
+    <div className="rounded-xl bg-card px-4 py-3">
       <div className="flex items-center justify-between gap-4">
         <div className="min-w-0">
           <Label className="text-sm font-medium">
@@ -492,7 +492,7 @@ function SecretRow({
   const allApps = accessMode !== "manual";
 
   return (
-    <div className="rounded-xl border bg-card">
+    <div className="rounded-xl bg-card">
       <button
         type="button"
         className="flex w-full items-center gap-3 px-4 py-3 text-left cursor-pointer"
@@ -827,7 +827,7 @@ export default function VaultRoute() {
             ? Array.from({ length: 3 }).map((_, index) => (
                 <div
                   key={index}
-                  className="rounded-2xl border bg-card px-5 py-4 space-y-2"
+                  className="rounded-2xl bg-card px-5 py-4 space-y-2"
                 >
                   <Skeleton className="h-4 w-1/3" />
                   <Skeleton className="h-3 w-2/3" />

@@ -2,6 +2,7 @@
 
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
+import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { BuilderConnectCard } from "../setup-connections/BuilderConnectCard.js";
@@ -26,12 +27,12 @@ describe("ConnectionsSettingsContent", () => {
     >;
 
     expect(content.props.className).toContain("max-w-2xl");
-    expect(children).toHaveLength(2);
+    expect(children).toHaveLength(3);
     expect(children[0]?.type).toBe(BuilderConnectCard);
     expect(children[0]?.props.trackingSource).toBe("settings_connections");
-    expect(children[1]?.props.surface).toBe("page");
-    expect(children[1]?.props.showCapabilityStrip).toBe(false);
-    expect(children[1]?.props.builderConnectionOwnedExternally).toBe(true);
+    expect(children[2]?.props.surface).toBe("page");
+    expect(children[2]?.props.showCapabilityStrip).toBe(false);
+    expect(children[2]?.props.builderConnectionOwnedExternally).toBe(true);
   });
 
   it("has one Builder status owner and preserves its one-shot connect error", async () => {
@@ -74,13 +75,15 @@ describe("ConnectionsSettingsContent", () => {
 
     await act(async () => {
       root.render(
-        <ConnectionsSettingsContent
-          settingsPanelProps={{
-            isDevMode: false,
-            onToggleDevMode: vi.fn(),
-            showDevToggle: false,
-          }}
-        />,
+        <MemoryRouter>
+          <ConnectionsSettingsContent
+            settingsPanelProps={{
+              isDevMode: false,
+              onToggleDevMode: vi.fn(),
+              showDevToggle: false,
+            }}
+          />
+        </MemoryRouter>,
       );
       await Promise.resolve();
       await Promise.resolve();
@@ -89,6 +92,9 @@ describe("ConnectionsSettingsContent", () => {
     expect(builderStatusRequests).toHaveLength(1);
     expect(container.textContent).toContain(
       "Builder callback could not save credentials",
+    );
+    expect(container.querySelector('a[href="/agent#connections"]')).not.toBe(
+      null,
     );
 
     act(() => root.unmount());
@@ -128,13 +134,15 @@ describe("ConnectionsSettingsContent", () => {
 
     await act(async () => {
       root.render(
-        <ConnectionsSettingsContent
-          settingsPanelProps={{
-            isDevMode: false,
-            onToggleDevMode: vi.fn(),
-            showDevToggle: false,
-          }}
-        />,
+        <MemoryRouter>
+          <ConnectionsSettingsContent
+            settingsPanelProps={{
+              isDevMode: false,
+              onToggleDevMode: vi.fn(),
+              showDevToggle: false,
+            }}
+          />
+        </MemoryRouter>,
       );
       await Promise.resolve();
       await Promise.resolve();

@@ -1,6 +1,11 @@
 import { ACTION_CHAT_UI_DATA_WIDGET_RENDERER } from "../../action-ui.js";
 import type { ActionEntry } from "../../agent/production-agent.js";
-import { dataWidgetResultSchema } from "../../data-widgets/index.js";
+import {
+  clampDataWidgetRows,
+  DATA_WIDGET_MAX_CHART_POINTS,
+  DATA_WIDGET_MAX_ROWS,
+  dataWidgetResultSchema,
+} from "../../data-widgets/index.js";
 import { getRequestRunContext } from "../request-context.js";
 
 // ---------------------------------------------------------------------------
@@ -96,6 +101,15 @@ Convert natural language to 5-field cron format:
 - "every weekday at 9am" → \`0 9 * * 1-5\`
 - "every hour" → \`0 * * * *\`
 - "every monday at 9am" → \`0 9 * * 1\`
+
+When a recurring job needs a connected MCP, discover the exact MCP tool names
+available in the current user/org context and pass them in the create call's
+\`mcpTools\` array. Bind only the tools the job needs; do not put an MCP URL,
+OAuth token, or arbitrary endpoint in the instructions. The scheduler resolves
+the selected tools with the job owner's existing connector grant and fails
+clearly if a connector is revoked or a selected tool disappears. For imports,
+normalize the provider response and call the app's bounded idempotent import
+action once with the full batch rather than issuing one write per item.
 
 #### Suggesting "Save as automation"
 
@@ -550,8 +564,7 @@ export function createDataWidgetActionEntries(): Record<string, ActionEntry> {
         description: "Render a validated native data table or chart in chat.",
       },
       tool: {
-        description:
-          "Render a native Agent-Native chat data widget from compact, real data you already retrieved or the user provided. Use this for in-chat tables, charts, graphs, trends, and compact reports when no domain-specific action already returns a native widget. Never fabricate rows or metrics just to make a chart.",
+        description: `Render a native Agent-Native chat data widget from compact, real data you already retrieved or the user provided. Use this for in-chat tables, charts, graphs, trends, and compact reports when no domain-specific action already returns a native widget. Never fabricate rows or metrics just to make a chart. Rows travel as tool arguments you type out one token at a time, so this is only for already-summarized data: at most ${DATA_WIDGET_MAX_ROWS} table rows and ${DATA_WIDGET_MAX_CHART_POINTS} chart points (anything beyond that is dropped). For a larger result set, aggregate it first, or state the total and show only the top rows — never re-serialize a full query result here.`,
         parameters: {
           type: "object",
           properties: {
@@ -593,7 +606,8 @@ export function createDataWidgetActionEntries(): Record<string, ActionEntry> {
           required: ["widget"],
         },
       },
-      run: async (args) => dataWidgetResultSchema.parse(args),
+      run: async (args) =>
+        clampDataWidgetRows(dataWidgetResultSchema.parse(args)),
     },
   };
 }

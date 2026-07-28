@@ -1,0 +1,23 @@
+# React Router generated output
+.react-router/
+.generated/
+
+node_modules
+dist
+build
+.output
+.netlify
+*.log
+
+# Local credentials and development database
+.env
+.env.*
+!.env.example
+data/*.db
+data/*.db-shm
+data/*.db-wal
+data/uploads/
+
+.DS_Store
+test-results/
+playwright-report/

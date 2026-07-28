@@ -137,7 +137,7 @@ Skills は `.agents/skills/<name>/SKILL.md` にあり、エージェント向け
 次の場合はスキルを作成しないでください。
 
 - ガイダンスは別のスキルにすでに存在します - 代わりにそれを拡張します
-- ガイダンスは 1 回限りです。代わりに `AGENTS.md` またはワークスペース メモリに置きます
+- ガイダンスは 1 回限りです。代わりに `AGENTS.md` またはエージェント メモリに置きます
 
 ## スキルフォーマット {#skill-format}
 
@@ -295,11 +295,11 @@ scope: dev
 
 </Callout>
 
-その知識がアプリで作業しているすべての人に当てはまる場合 (「サブクエリよりも常に CTE を優先する」)、それはスキルまたは共有 `LEARNINGS.md` です。 _この特定のユーザー_ (「スティーブは簡潔な回答が好きです」) に関するものであれば、`memory/MEMORY.md` に属します。完全な治療法については、[Workspace Memory](/docs/workspace#memory) を参照してください。
+その知識がアプリで作業しているすべての人に当てはまる場合 (「サブクエリよりも常に CTE を優先する」)、それはスキルまたは共有 `LEARNINGS.md` です。 _この特定のユーザー_ (「スティーブは簡潔な回答が好きです」) に関するものであれば、`memory/MEMORY.md` に属します。完全な治療法については、[エージェント リソース — メモリ](/docs/agent-resources#memory) を参照してください。
 
 ## Skills と SQL リソース {#skills-vs-resources}
 
-このページでは、skill を `.agents/skills/<name>/SKILL.md` にあるファイルとして説明します。[Workspace](/docs/workspace#skills) では、同じ skill を `skills/<slug>/SKILL.md` パスにある workspace／shared／personal スコープの SQL リソースとして説明します。これは、同じ概念を別の角度から見たものです。Code モードはファイルを直接読み書きし、App モードはファイルシステムがなくても動作するようにリソース行として保存します。どちらの場合も、このページの形式で内容を作成してください。
+このページでは、skill を `.agents/skills/<name>/SKILL.md` にあるファイルとして説明します。[エージェント リソース](/docs/agent-resources#skills) では、同じ skill を `skills/<slug>/SKILL.md` パスにある workspace／shared／personal スコープの SQL リソースとして説明します。これは、同じ概念を別の角度から見たものです。Code モードはファイルを直接読み書きし、App モードはファイルシステムがなくても動作するようにリソース行として保存します。どちらの場合も、このページの形式で内容を作成してください。
 
 ## アプリによる skills — 詳細 {#app-backed-skills-full}
 
@@ -424,6 +424,6 @@ Claude コードが認識するための Claude 互換性リンク (`CLAUDE.md` 
 ## 次のステップ {#whats-next}
 
 - [**エージェント指示の作成**](/docs/writing-agent-instructions) — skill の説明を記述し、AGENTS.md、skills、メモリにガイダンスを分割する
-- [**Workspace**](/docs/workspace#skills) — App モードで skills が SQL リソースとして保存される場所
+- [**エージェント リソース**](/docs/agent-resources#skills) — App モードで skills が SQL リソースとして保存される場所
 - [**エージェントメンション**](/docs/agent-mentions) — チャットで skill を呼び出す `/` コマンドトリガー
 - [**Plan プラグインとマーケットプレイス**](/docs/plan-plugin) — 実際のアプリベース skill のインストールと自動更新の全体フロー

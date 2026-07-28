@@ -9,7 +9,7 @@ Ein **wiederkehrender Job** ist eine Eingabeaufforderung, die nach einem Cron-Ze
 
 Wiederkehrende Aufträge werden nach dem Takt der Uhr ausgelöst. Um auf _Ereignisse_ (eine erstellte Buchung, eine empfangene E-Mail) zu reagieren – dasselbe `jobs/`-Dateiformat plus Bedingungen – siehe [Automations](/docs/automations).
 
-Jobs leben im [workspace](/docs/workspace) bei `jobs/<name>.md` – nur eine Markdown-Datei mit YAML-Frontmatter. Keine Registrierung, keine Verkabelung. Legen Sie die Datei ab und das Framework übernimmt sie.
+Jobs leben im [Agent-Ressourcen](/docs/agent-resources) bei `jobs/<name>.md` – nur eine Markdown-Datei mit YAML-Frontmatter. Keine Registrierung, keine Verkabelung. Legen Sie die Datei ab und das Framework übernimmt sie.
 
 ## Eine Jobdatei {#job-file}
 
@@ -40,12 +40,12 @@ Jobs leben im [workspace](/docs/workspace) bei `jobs/<name>.md` – nur eine Mar
     {
       lines: "7-12",
       label: "Die Aufforderung",
-      note: "Der Textkörper ist nur eine Eingabeaufforderung – der Agent führt ihn bei jeder Auslösung mit allen normalen Tools und dem Arbeitsbereichskontext aus.",
+      note: "Der Textkörper ist nur eine Eingabeaufforderung – der Agent führt ihn bei jeder Auslösung mit allen normalen Tools und dem Agentenkontext aus.",
     },
   ]}
 />
 
-Das ist es. Der Hauptteil ist eine Eingabeaufforderung, die der Agent bei jeder geplanten Auslösung ausführt. Der Agent hat Zugriff auf dieselben Tools und denselben Arbeitsbereichskontext wie in einem interaktiven Chat – actions, skills, Speicher, verbundene MCP-Server, Subagenten.
+Das ist es. Der Hauptteil ist eine Eingabeaufforderung, die der Agent bei jeder geplanten Auslösung ausführt. Der Agent hat Zugriff auf dieselben Tools und denselben Agentenkontext wie in einem interaktiven Chat – actions, skills, Speicher, verbundene MCP-Server, Subagenten.
 
 ## Frontmatter {#frontmatter}
 
@@ -54,14 +54,32 @@ Das ist es. Der Hauptteil ist eine Eingabeaufforderung, die der Agent bei jeder 
 | `schedule`   | Cron-Ausdruck                 | _(erforderlich)_ | Standard-Cron mit 5 Feldern. `"0 7 * * *"` = jeden Tag um 07:00; `"0 */4 * * *"` = alle 4 Stunden.                                             |
 | `enabled`    | boolean                       | `true`           | Wechseln Sie zu `false`, um den Job anzuhalten, ohne ihn zu löschen.                                                                           |
 | `runAs`      | `"creator"` \| `"shared"`     | `"creator"`      | `"creator"` wird mit der Identität des Jobeigentümers und `ANTHROPIC_API_KEY` ausgeführt. `"shared"` verwendet den Schlüssel der Organisation. |
-| `createdBy`  | E-Mail                        | _(auto)_         | Wird ausgefüllt, wenn der Job über den Arbeitsbereich UI oder durch den Agenten erstellt wird.                                                 |
+| `createdBy`  | E-Mail                        | _(auto)_         | Wird ausgefüllt, wenn der Job über den Agent-Ressourcen UI oder durch den Agenten erstellt wird.                                               |
 | `orgId`      | Zeichenfolge                  | _(auto)_         | Organisationsbereich; Von der aktiven Organisation des Erstellers geerbt.                                                                      |
 | `lastRun`    | ISO-Zeitstempel               | _(verwaltet)_    | Wird vom Planer nach jedem Lauf geschrieben.                                                                                                   |
 | `lastStatus` | `"success"` \| `"error"` \| … | _(verwaltet)_    | Neuestes Ergebnis.                                                                                                                             |
 | `lastError`  | Zeichenfolge                  | _(verwaltet)_    | Fehlermeldung, wenn der letzte Lauf fehlgeschlagen ist.                                                                                        |
 | `nextRun`    | ISO-Zeitstempel               | _(verwaltet)_    | Berechnet aus `schedule`; Wird vom Planer verwendet, um zu entscheiden, wann das nächste Mal ausgelöst wird.                                   |
+| `mcpTools`   | Array von MCP-Toolnamen       | _(keine)_        | Optionale explizite Allowlist wie `mcp__server__tool`; Anmeldedaten bleiben im verbundenen MCP-Zugriff.                                        |
 
 Die Felder `last*` und `nextRun` werden vom Scheduler geschrieben. Sie können sie lesen, um den Verlauf anzuzeigen, aber bearbeiten Sie sie nicht manuell – beim nächsten Durchlauf werden sie überschrieben.
+
+## MCP-Tools mit einem Job verbinden {#connected-mcps}
+
+Wiederkehrende Jobs können entfernte oder lokale MCP-Tools verwenden, die bereits mit der App verbunden sind. Bitten Sie den Agenten, die exakten Namen mit `tool-search` zu ermitteln, und binden Sie dann mit `mcpTools` nur die Tools ein, die der Job benötigt:
+
+```md
+---
+schedule: "0 * * * *"
+enabled: true
+mcpTools:
+  ["mcp__meeting-notes__list_recordings", "mcp__meeting-notes__get_transcript"]
+---
+
+Suchen Sie seit dem letzten erfolgreichen Lauf nach neuen Aufzeichnungen. Extrahieren Sie nur umsetzbare Nachfassaktionen und rufen Sie dann die begrenzte Importaktion der App einmal mit stabilen Quellen- und externen IDs, einem kurzen Zitat und der Aufzeichnungs-URL auf. Importieren Sie nicht das vollständige Transkript.
+```
+
+Der Job speichert Toolnamen, keine MCP-URLs, Zugriffstoken oder OAuth-Refresh-Tokens. Zur Laufzeit löst das Framework den verbundenen Zugriff im Anfragekontext des Erstellers oder der Organisation des Jobs auf und stellt nur die Tools aus der Allowlist bereit. Halten Sie die Liste eng und verwenden Sie für den endgültigen Import eine idempotente App-Aktion, damit sich überschneidende Läufe keine Duplikate erzeugen. Informationen zur Verbindung und OAuth-Einrichtung finden Sie unter [MCP-Clients](/docs/mcp-clients).
 
 ## Cron-Syntax {#cron}
 
@@ -81,9 +99,9 @@ Das Framework umfasst Cron-Dienstprogramme (`isValidCron()` und `describeCron()`
 
 ## Job erstellen {#creating}
 
-### Auf der Registerkarte „Arbeitsbereich“
+### Auf der Registerkarte „Agent-Ressourcen“
 
-`+` → **Geplante Aufgabe** im Arbeitsbereichsbereich. Füllen Sie die Eingabeaufforderung und den Zeitplan aus. Speichert als `jobs/<slug>.md` und beginnt mit der Ausführung beim nächsten passenden Tick.
+`+` → **Geplante Aufgabe** im Agent-Ressourcensbereich. Füllen Sie die Eingabeaufforderung und den Zeitplan aus. Speichert als `jobs/<slug>.md` und beginnt mit der Ausführung beim nächsten passenden Tick.
 
 ### Indem Sie den Agenten fragen
 
@@ -183,7 +201,7 @@ Der Scheduler ist ein Framework-Plugin (die interne `processRecurringJobs()`-Rou
 
 ## Debuggen eines Jobs {#debugging}
 
-- Öffnen Sie `jobs/<name>.md` im Arbeitsbereich – die Vorderseite zeigt `lastRun`, `lastStatus`, `lastError`, `nextRun`.
+- Öffnen Sie `jobs/<name>.md` im Agent-Ressourcen – die Vorderseite zeigt `lastRun`, `lastStatus`, `lastError`, `nextRun`.
 - **Testen Sie es ohne zu warten:** Es gibt kein Force-Fire-Tool. Um die gleiche Arbeit bei Bedarf auszuführen, fügen Sie entweder die Eingabeaufforderung des Jobs in den Agenten-Chat ein und lassen Sie ihn dort ausführen, oder stellen Sie den Zeitplan vorübergehend auf die nächste Minute ein, damit der Planer ihn beim nächsten Tick übernimmt (und stellen Sie dann den echten Cron wieder her).
 - **Pause:** umdrehen `enabled: false`. Die Datei bleibt bestehen und wird einfach nicht mehr ausgeführt.
 
@@ -191,12 +209,12 @@ Der Scheduler ist ein Framework-Plugin (die interne `processRecurringJobs()`-Rou
 
 In jeder Vorlage ist ein einzelnes `manage-jobs`-Tool registriert. Der Parameter `action` wählt die Operation aus:
 
-| Aktion   | Parameter                                                             | Zweck                                                                          |
-| -------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| `create` | `name`, `schedule`, `instructions` (erforderlich); `scope`, `runAs`   | Erstellen Sie einen neuen wiederkehrenden Auftrag                              |
-| `list`   | `scope` (`personal`, `shared` oder alle)                              | Alle Jobs mit Status auflisten (geplant, aktiviert, letzte/nächste Ausführung) |
-| `update` | `name` (erforderlich); `schedule`, `instructions`, `enabled`, `runAs` | Bestehenden Job bearbeiten                                                     |
-| `delete` | `name` (erforderlich)                                                 | Einen Auftrag löschen – immer zuerst mit dem Benutzer bestätigen               |
+| Aktion   | Parameter                                                                         | Zweck                                                                          |
+| -------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `create` | `name`, `schedule`, `instructions` (erforderlich); `scope`, `runAs`, `mcpTools`   | Erstellen Sie einen neuen wiederkehrenden Auftrag                              |
+| `list`   | `scope` (`personal`, `shared` oder alle)                                          | Alle Jobs mit Status auflisten (geplant, aktiviert, letzte/nächste Ausführung) |
+| `update` | `name` (erforderlich); `schedule`, `instructions`, `enabled`, `runAs`, `mcpTools` | Bestehenden Job bearbeiten                                                     |
+| `delete` | `name` (erforderlich)                                                             | Einen Auftrag löschen – immer zuerst mit dem Benutzer bestätigen               |
 
 **Persönlicher vs. gemeinsamer Bereich.** Jeder Job befindet sich entweder im persönlichen Bereich (läuft als und ist nur für den Ersteller sichtbar) oder im freigegebenen/organisatorischen Bereich (wird im Namen des Erstellers ausgeführt, ist aber für Organisationsmitglieder sichtbar). Die Parameter `scope` und `runAs` steuern dies zum Zeitpunkt der Erstellung. Organisationsadministratoren können alle freigegebenen Jobs aktualisieren oder löschen. Nicht-Administrator-Mitglieder können nur ihre eigenen verwalten.
 
@@ -204,7 +222,7 @@ In jeder Vorlage ist ein einzelnes `manage-jobs`-Tool registriert. Der Parameter
 
 Verwechseln Sie wiederkehrende Aufträge nicht mit `@agent-native/scheduling`:
 
-- **Wiederkehrende Jobs (diese Seite)** – Cron-geplante Eingabeaufforderungen, die der Agent im Hintergrund ausführt. Framework-Ebene. Lebt im Arbeitsbereich. Läuft auf jeder agentennativen App.
+- **Wiederkehrende Jobs (diese Seite)** – Cron-geplante Eingabeaufforderungen, die der Agent im Hintergrund ausführt. Framework-Ebene. Lebt im Agent-Ressourcen. Läuft auf jeder agentennativen App.
 - **`@agent-native/scheduling`** – ein wiederverwendbares Domänenpaket zum Erstellen von Kalender-/Buchungsfunktionen (Veranstaltungstypen, Verfügbarkeitsfenster, Buchungen). Unterstützt die `calendar`-Vorlage und benutzerdefinierte Planungsoberflächen.
 
 Wiederkehrende Aufträge lauten: „Wie bringe ich den Agent dazu, eigenständig zu handeln?“ Das Planungspaket lautet: „Wie erstelle ich eine Kalender-App?“ Verschiedene Anliegen.
@@ -212,6 +230,6 @@ Wiederkehrende Aufträge lauten: „Wie bringe ich den Agent dazu, eigenständig
 ## Was kommt als nächstes?
 
 - [**Automations**](/docs/automations) – Ereignisauslöser und Bedingungen zum gleichen `jobs/`-Format hinzufügen
-- [**Workspace**](/docs/workspace) – wo Jobs neben skills, Speicher und benutzerdefinierten Agents leben
+- [**Agent-Ressourcen**](/docs/agent-resources) – wo Jobs neben skills, Speicher und benutzerdefinierten Agents leben
 - [**Actions**](/docs/actions) – die Werkzeuge, die ein Job erfordert
 - [**Agent Teams**](/docs/agent-teams) – Jobs erzeugen oft Subagenten, um parallele Arbeit zu erledigen

@@ -11,6 +11,11 @@ const dbExecuteMock = vi.hoisted(() => vi.fn());
 const getDbExecMock = vi.hoisted(() => vi.fn());
 const startRunMock = vi.hoisted(() => vi.fn());
 const sendMessageToTargetMock = vi.hoisted(() => vi.fn());
+const runAgentLoopWrapperMock = vi.hoisted(() => vi.fn());
+
+vi.mock("../agent/run-loop-with-resume.js", () => ({
+  runAgentLoopDirectWithSoftTimeout: runAgentLoopWrapperMock,
+}));
 
 vi.mock("../resources/store.js", () => ({
   organizationIdFromResourceOwner: (owner: string) =>
@@ -131,6 +136,11 @@ Summarize the inbox.`,
       cacheWriteTokens: 5,
       model: "test-model",
     });
+    // The scheduler runs through the resume wrapper; delegate so the existing
+    // assertions about what the loop was called with still read the same call.
+    runAgentLoopWrapperMock.mockImplementation((opts: unknown) =>
+      runAgentLoopMock(opts),
+    );
     startRunMock.mockImplementation(
       (
         runId: string,
@@ -175,6 +185,51 @@ Summarize the inbox.`,
       "alice+jobs@agent-native.test",
       expect.objectContaining({
         title: expect.stringContaining("Job: daily-report"),
+      }),
+    );
+  });
+
+  it("passes persisted MCP capabilities to the background action suppliers", async () => {
+    resourceListAllOwnersMock.mockResolvedValueOnce([
+      {
+        id: "resource-mcp",
+        owner: "alice+jobs@agent-native.test",
+        path: "jobs/hourly-meeting-todos.md",
+        content: `---
+schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+createdBy: alice+jobs@agent-native.test
+mcpTools: ["mcp__meeting-notes__list_meetings"]
+---
+
+Import action items.`,
+      },
+    ]);
+    const getActions = vi.fn(() => ({}));
+    const getInitialToolNames = vi.fn(() => ["manage-jobs"]);
+
+    await processRecurringJobs({
+      getActions,
+      getInitialToolNames,
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+    });
+
+    expect(getActions).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "hourly-meeting-todos",
+        meta: expect.objectContaining({
+          mcpTools: ["mcp__meeting-notes__list_meetings"],
+        }),
+      }),
+    );
+    expect(getInitialToolNames).toHaveBeenCalledWith(
+      expect.objectContaining({
+        meta: expect.objectContaining({
+          mcpTools: ["mcp__meeting-notes__list_meetings"],
+        }),
       }),
     );
   });
@@ -454,6 +509,174 @@ Post the digest.`,
         tenantId: "T123",
       },
     );
+  });
+
+  it("marks the job run as background dispatch so the stale reaper uses the background window", async () => {
+    // dispatch_mode NULL falls through to RUN_STALE_MS (15s) in
+    // backgroundAwareStaleCutoffSql — a window sized for a foreground run a
+    // browser is streaming. Nothing streams a job, so it gets reaped mid-run.
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+    });
+
+    expect(startRunMock).toHaveBeenCalledOnce();
+    expect(startRunMock.mock.calls[0][4]).toEqual(
+      expect.objectContaining({ dispatchMode: "background" }),
+    );
+  });
+
+  it("runs the job through the resume wrapper instead of calling runAgentLoop raw", async () => {
+    runAgentLoopWrapperMock.mockImplementation(async () => ({
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      model: "test-model",
+    }));
+
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+    });
+
+    expect(runAgentLoopWrapperMock).toHaveBeenCalledOnce();
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+  });
+
+  it("records a run_timeout continuation boundary as an error and suppresses delivery", async () => {
+    // The soft timeout emits auto_continue{run_timeout} and the run row is
+    // still status 'completed'. Without the cut-off check the job is reported
+    // as a success and its truncated partial answer is shipped to Slack.
+    resourceListAllOwnersMock.mockResolvedValueOnce([
+      {
+        id: "resource-cutoff",
+        owner: "alice+jobs@agent-native.test",
+        path: "jobs/channel-digest.md",
+        content: `---
+schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+createdBy: alice+jobs@agent-native.test
+originScopeId: scope-1
+deliveryPlatform: slack
+deliveryDestination: C123
+deliveryThreadRef: 123.456
+deliveryTenantId: T123
+---
+
+Post the digest.`,
+      },
+    ]);
+    startRunMock.mockImplementationOnce(
+      (
+        runId: string,
+        threadId: string,
+        runFn: (
+          send: (event: unknown) => void,
+          signal: AbortSignal,
+        ) => Promise<void>,
+        onComplete?: (run: any) => void | Promise<void>,
+      ) => {
+        const abort = new AbortController();
+        const activeRun = { runId, threadId, status: "running", abort };
+        void Promise.resolve().then(async () => {
+          await runFn(vi.fn(), abort.signal);
+          activeRun.status = "completed";
+          await onComplete?.({
+            ...activeRun,
+            events: [
+              { seq: 0, event: { type: "text", text: "Half a digest" } },
+              {
+                seq: 1,
+                event: { type: "auto_continue", reason: "run_timeout" },
+              },
+            ],
+          });
+        });
+        return activeRun;
+      },
+    );
+
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+    });
+
+    expect(sendMessageToTargetMock).not.toHaveBeenCalled();
+    const putContent: string = resourcePutMock.mock.calls.at(-1)![2];
+    expect(putContent).toContain("lastStatus: error");
+    expect(putContent).toContain("run_timeout");
+  });
+
+  it("still records a job that resumed past a continuation boundary as a success", async () => {
+    resourceListAllOwnersMock.mockResolvedValueOnce([
+      {
+        id: "resource-resumed",
+        owner: "alice+jobs@agent-native.test",
+        path: "jobs/channel-digest.md",
+        content: `---
+schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+createdBy: alice+jobs@agent-native.test
+originScopeId: scope-1
+deliveryPlatform: slack
+deliveryDestination: C123
+deliveryThreadRef: 123.456
+deliveryTenantId: T123
+---
+
+Post the digest.`,
+      },
+    ]);
+    startRunMock.mockImplementationOnce(
+      (
+        runId: string,
+        threadId: string,
+        runFn: (
+          send: (event: unknown) => void,
+          signal: AbortSignal,
+        ) => Promise<void>,
+        onComplete?: (run: any) => void | Promise<void>,
+      ) => {
+        const abort = new AbortController();
+        const activeRun = { runId, threadId, status: "running", abort };
+        void Promise.resolve().then(async () => {
+          await runFn(vi.fn(), abort.signal);
+          activeRun.status = "completed";
+          await onComplete?.({
+            ...activeRun,
+            events: [
+              {
+                seq: 0,
+                event: { type: "auto_continue", reason: "network_interrupted" },
+              },
+              { seq: 1, event: { type: "text", text: "Digest ready" } },
+              { seq: 2, event: { type: "done" } },
+            ],
+          });
+        });
+        return activeRun;
+      },
+    );
+
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+    });
+
+    expect(sendMessageToTargetMock).toHaveBeenCalledOnce();
+    const putContent: string = resourcePutMock.mock.calls.at(-1)![2];
+    expect(putContent).toContain("lastStatus: success");
   });
 
   it("resets a job stuck in lastStatus:running after 10+ minutes without executing it", async () => {

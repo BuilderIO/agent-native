@@ -69,6 +69,10 @@ export default defineAction({
     colorId: googleColorIdInput.describe(
       "Google Calendar event color id, 1 through 11.",
     ),
+    recurrence: z
+      .array(z.string())
+      .optional()
+      .describe("Google recurrence rules such as RRULE:FREQ=WEEKLY;BYDAY=MO."),
     reminderMinutes: reminderMinutesInput.describe(
       "Convenience field for a single reminder in minutes before the event.",
     ),
@@ -168,6 +172,7 @@ export default defineAction({
       attendees,
       attachments: args.attachments,
       colorId: args.colorId,
+      recurrence: args.recurrence,
       ...reminderFields,
       ...statusEventFields,
       createdAt: new Date().toISOString(),

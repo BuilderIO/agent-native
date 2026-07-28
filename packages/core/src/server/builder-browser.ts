@@ -8,6 +8,7 @@ import {
 import type { H3Event } from "h3";
 import { getHeader } from "h3";
 
+import { applyBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
 import {
   getAuthSecret,
   resolveSignupTrackingIdentity,
@@ -25,6 +26,8 @@ export const BUILDER_RELAY_STATE_PARAM = "_an_relay";
 export const BUILDER_RELAY_SECRET_ENV = "AGENT_NATIVE_BUILDER_RELAY_SECRET";
 export const BUILDER_RELAY_TARGET_ORIGINS_ENV =
   "AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS";
+export const BUILDER_RELAY_TARGET_DOMAIN_SUFFIXES_ENV =
+  "AGENT_NATIVE_BUILDER_RELAY_TARGET_DOMAIN_SUFFIXES";
 export const BUILDER_RELAY_TIMESTAMP_HEADER = "x-agent-native-relay-timestamp";
 export const BUILDER_RELAY_FLOW_HEADER = "x-agent-native-relay-flow";
 export const BUILDER_RELAY_SIGNATURE_HEADER = "x-agent-native-relay-signature";
@@ -33,6 +36,10 @@ const BUILDER_RELAY_PURPOSE = "builder-preview-callback-relay";
 const BUILDER_RELAY_STATE_VERSION = 1;
 const BUILDER_RELAY_TTL_MS = 10 * 60 * 1000;
 const BUILDER_RELAY_REQUEST_SKEW_MS = 2 * 60 * 1000;
+const IMMUTABLE_NETLIFY_RELAY_HOST =
+  /^(?<deploy>[a-f0-9]{24})--(?<site>[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)\.netlify\.app$/;
+const NETLIFY_DEPLOY_PREVIEW_HOST =
+  /^deploy-preview-\d+--(?<site>[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)\.netlify\.app$/;
 
 export interface BuilderPreviewRelayState {
   v: 1;
@@ -150,15 +157,57 @@ export function isTrustedBuilderRelayTargetOrigin(value: string): boolean {
   ) {
     return false;
   }
-  const configured = process.env[BUILDER_RELAY_TARGET_ORIGINS_ENV];
-  if (!configured) return false;
-  return configured
+  const exactOriginMatch = (process.env[BUILDER_RELAY_TARGET_ORIGINS_ENV] ?? "")
     .split(",")
     .map((origin) => origin.trim())
     .filter(Boolean)
     .some((origin) => origin === value && !origin.includes("*"));
+  return (
+    exactOriginMatch ||
+    builderRelayTargetDomainSuffixes().some((suffix) =>
+      hostname.endsWith(suffix),
+    )
+  );
 }
 
+/**
+ * Netlify's deploy-preview alias is convenient for people but mutable, so it
+ * must never be the signed relay destination. The deploy builder embeds
+ * Netlify's DEPLOY_ID into the Nitro server bundle, while SITE_NAME remains
+ * available to Functions at runtime. Use that pair only when it
+ * identifies the same site as the visible preview alias; otherwise preserve
+ * the visible origin so callback validation fails closed.
+ */
+export function resolveBuilderPreviewRelayTargetOrigin(
+  previewOrigin: string,
+): string {
+  let previewUrl: URL;
+  try {
+    previewUrl = new URL(previewOrigin);
+  } catch {
+    return previewOrigin;
+  }
+  const previewMatch = NETLIFY_DEPLOY_PREVIEW_HOST.exec(
+    previewUrl.hostname.toLowerCase(),
+  );
+  if (!previewMatch?.groups?.site) return previewOrigin;
+
+  const buildId = process.env.AGENT_NATIVE_BUILD_ID?.trim().toLowerCase();
+  const siteName = process.env.SITE_NAME?.trim().toLowerCase();
+  if (
+    !buildId ||
+    !siteName ||
+    !/^[a-f0-9]{24}$/.test(buildId) ||
+    siteName !== previewMatch.groups.site
+  ) {
+    return previewOrigin;
+  }
+
+  const immutableOrigin = `https://${buildId}--${siteName}.netlify.app`;
+  return IMMUTABLE_NETLIFY_RELAY_HOST.test(new URL(immutableOrigin).hostname)
+    ? immutableOrigin
+    : previewOrigin;
+}
 export function signBuilderPreviewRelayState(input: {
   ownerEmail: string;
   targetOrigin: string;
@@ -188,6 +237,31 @@ export function signBuilderPreviewRelayState(input: {
     "base64url",
   );
   return { state: `${encoded}.${builderRelayMac(encoded)}`, payload };
+}
+
+function builderRelayTargetDomainSuffixes(): string[] {
+  return (process.env[BUILDER_RELAY_TARGET_DOMAIN_SUFFIXES_ENV] ?? "")
+    .split(",")
+    .map((suffix) => suffix.trim().toLowerCase())
+    .filter((suffix) => {
+      if (!suffix.startsWith(".") || suffix.includes("*")) return false;
+      const hostname = suffix.slice(1);
+      if (!hostname.includes(".") || hostname.length > 253) return false;
+      if (
+        !hostname
+          .split(".")
+          .every((label) =>
+            /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label),
+          )
+      ) {
+        return false;
+      }
+      try {
+        return new URL(`https://${hostname}`).hostname === hostname;
+      } catch {
+        return false;
+      }
+    });
 }
 
 export function verifyBuilderPreviewRelayState(
@@ -920,6 +994,9 @@ export function buildBuilderCliAuthUrl(
   );
   url.searchParams.set("framework", "agent-native");
   applyBuilderConnectTrackingParams(url.searchParams, tracking);
+  applyBuilderUtmTrackingParams(url.searchParams, {
+    content: cleanTrackingParam(tracking.agentNativeConnectSource) ?? null,
+  });
   return url.toString();
 }
 
@@ -1192,6 +1269,39 @@ export function resolveSafePreviewUrl(
     return previewUrl;
   }
   return getBuilderBrowserOriginForEvent(event);
+}
+
+export function resolveBuilderPreviewRelayParentOrigin(options: {
+  openerOrigin?: string | null;
+  targetOrigin: string;
+}): string {
+  if (!options.openerOrigin) return options.targetOrigin;
+  let openerUrl: URL;
+  let targetUrl: URL;
+  try {
+    openerUrl = new URL(options.openerOrigin);
+    targetUrl = new URL(options.targetOrigin);
+  } catch {
+    return options.targetOrigin;
+  }
+  if (
+    openerUrl.origin !== options.openerOrigin ||
+    !isSafeBuilderRelayTargetOrigin(openerUrl.origin)
+  ) {
+    return options.targetOrigin;
+  }
+  if (openerUrl.origin === targetUrl.origin) return openerUrl.origin;
+
+  const openerMatch = NETLIFY_DEPLOY_PREVIEW_HOST.exec(
+    openerUrl.hostname.toLowerCase(),
+  );
+  const targetMatch = IMMUTABLE_NETLIFY_RELAY_HOST.exec(
+    targetUrl.hostname.toLowerCase(),
+  );
+  return openerMatch?.groups?.site &&
+    openerMatch.groups.site === targetMatch?.groups?.site
+    ? openerUrl.origin
+    : options.targetOrigin;
 }
 
 export function resolveBuilderCallbackReturnUrl(options: {
@@ -1596,8 +1706,16 @@ export async function runBuilderAgent(
       "Builder project ID is not configured. Set DISPATCH_BUILDER_PROJECT_ID, BUILDER_BRANCH_PROJECT_ID, or BUILDER_PROJECT_ID.",
     );
   }
-  const builderUserId = args.userId || creds.userId || undefined;
-  const builderUserEmail = builderUserId ? undefined : args.userEmail;
+  // The requesting user's email must win over any stored BUILDER_USER_ID.
+  // The connect flow always persists BUILDER_USER_ID, so preferring it here
+  // attributed every branch to whoever connected the credential — at org scope
+  // that is the admin, not the person who asked. Builder resolves userEmail
+  // against Space membership, so fall back to the credential's user id when
+  // there is no session email or the email is not a member.
+  const requestedEmail = args.userEmail?.trim() || undefined;
+  const fallbackUserId = args.userId || creds.userId || undefined;
+  const builderUserEmail = requestedEmail;
+  const builderUserId = requestedEmail ? undefined : fallbackUserId;
   if (!builderUserEmail && !builderUserId) {
     throw new Error("userEmail or userId is required");
   }
@@ -1605,27 +1723,47 @@ export async function runBuilderAgent(
   const url = new URL("/agents/run", getBuilderApiHost());
   url.searchParams.set("apiKey", creds.publicKey);
 
-  const body: Record<string, unknown> = {
-    userMessage: { userPrompt: args.prompt },
-    projectId,
-  };
-  if (args.branchName) body.branchName = args.branchName;
-  if (builderUserEmail) body.userEmail = builderUserEmail;
-  if (builderUserId) body.userId = builderUserId;
+  const postRun = async (actor: { userEmail?: string; userId?: string }) => {
+    const body: Record<string, unknown> = {
+      userMessage: { userPrompt: args.prompt },
+      projectId,
+    };
+    if (args.branchName) body.branchName = args.branchName;
+    if (actor.userEmail) body.userEmail = actor.userEmail;
+    if (actor.userId) body.userId = actor.userId;
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${creds.privateKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${creds.privateKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+    const parsed = (await response.json().catch(() => ({}))) as Record<
+      string,
+      unknown
+    >;
+    return { response, parsed };
+  };
+
+  let { response, parsed } = await postRun({
+    userEmail: builderUserEmail,
+    userId: builderUserId,
   });
 
-  const parsed = (await response.json().catch(() => ({}))) as Record<
-    string,
-    unknown
-  >;
+  // Builder rejects an email that is not a member of the Space (403/404). Retry
+  // once as the connected credential's user so a non-member still gets a branch,
+  // rather than losing the run entirely.
+  if (
+    !response.ok &&
+    (response.status === 403 || response.status === 404) &&
+    builderUserEmail &&
+    fallbackUserId
+  ) {
+    ({ response, parsed } = await postRun({ userId: fallbackUserId }));
+  }
+
   if (!response.ok) {
     const msg =
       typeof parsed.error === "string"

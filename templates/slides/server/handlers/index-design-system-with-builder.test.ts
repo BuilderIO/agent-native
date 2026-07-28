@@ -39,6 +39,16 @@ vi.mock("../lib/builder-design-system-proxy.js", () => ({
     mockUpsertBuilderProxyDesignSystem(...args),
 }));
 
+vi.mock("./request-auth-context.js", () => ({
+  withSlidesRequestContext: async (
+    event: unknown,
+    fn: (ctx: { email?: string; orgId?: string }) => unknown,
+  ) => {
+    const session = await mockGetSession(event);
+    return fn({ email: session?.email, orgId: session?.orgId });
+  },
+}));
+
 import { indexDesignSystemWithBuilder } from "./index-design-system-with-builder";
 
 describe("indexDesignSystemWithBuilder", () => {

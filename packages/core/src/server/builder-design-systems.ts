@@ -1,3 +1,4 @@
+import { withBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
 import { FeatureNotConfiguredError } from "./credential-provider.js";
 import {
   getBuilderProxyOrigin,
@@ -139,7 +140,7 @@ function trimTrailingSlash(value: string): string {
 export function getBuilderDesignSystemsBaseUrl(): string {
   return (
     process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL ||
-    `${trimTrailingSlash(getBuilderProxyOrigin())}/design-systems/v1`
+    `${trimTrailingSlash(getBuilderProxyOrigin())}/agent-native/design-systems/v1`
   );
 }
 
@@ -356,11 +357,15 @@ function nonEmptyFiles(
 
 export function builderDesignSystemUrl(designSystemId?: string | null): string {
   const host = trimTrailingSlash(getBuilderAppHost());
-  return designSystemId
+  const url = designSystemId
     ? `${host}/app/design-system-intelligence/${encodeURIComponent(
         designSystemId,
       )}`
     : `${host}/app/design-system-intelligence`;
+  return withBuilderUtmTrackingParams(url, {
+    campaign: "product",
+    content: "design_system_intelligence",
+  });
 }
 
 export function localBuilderDesignSystemId(

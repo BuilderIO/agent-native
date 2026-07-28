@@ -60,6 +60,7 @@ export default defineAction({
       .where(
         and(
           accessFilter(schema.documents, schema.documentShares),
+          isNull(schema.documents.trashedAt),
           documentDiscoveryFilter(),
           isNull(schema.contentDatabases.deletedAt),
           excludedDatabaseIds.size === 1

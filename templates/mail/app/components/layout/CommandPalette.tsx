@@ -1,7 +1,7 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { CommandMenu } from "@agent-native/core/client/navigation";
 import {
-  IconBrain,
+  IconHierarchy2,
   IconInbox,
   IconStar,
   IconSend,
@@ -78,7 +78,7 @@ const navCommands = [
   { labelKey: "commandPalette.goToTrash", icon: IconTrash, route: "/trash" },
   {
     labelKey: "settings.openAgentSettings",
-    icon: IconBrain,
+    icon: IconHierarchy2,
     route: "/agent",
   },
 ];

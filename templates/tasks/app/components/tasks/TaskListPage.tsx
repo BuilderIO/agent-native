@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client/i18n";
 import {
   INCLUDE_DONE_QUERY_VALUE,
   parseIncludeDoneParam,
@@ -11,6 +12,7 @@ import { TaskList } from "@/components/tasks/TaskList";
 import { useTasks } from "@/hooks/use-tasks";
 
 export function TaskListPage() {
+  const t = useT();
   const [searchParams, setSearchParams] = useSearchParams();
   const includeDone = parseIncludeDoneParam(searchParams.get("includeDone"));
   const activeTaskId = searchParams.get("task");
@@ -84,8 +86,8 @@ export function TaskListPage() {
       {isError ? (
         <>
           <ListViewHeader
-            title="Tasks"
-            description="Manage your task list, drag to reorder, or ask chat to add reminders."
+            title={t("tasks.pageTitle")}
+            description={t("tasks.pageDescription")}
             isPending={false}
             showSelectToggle={false}
             selection={null}
@@ -96,7 +98,7 @@ export function TaskListPage() {
           />
           <ListErrorMessage
             error={error}
-            fallbackMessage="Failed to load tasks."
+            fallbackMessage={t("tasks.loadError")}
           />
         </>
       ) : (

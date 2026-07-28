@@ -114,7 +114,11 @@ export type {
 } from "./remote-types.js";
 
 // Adapters
-export { slackAdapter, type SlackAdapterOptions } from "./adapters/slack.js";
+export {
+  resolveSlackBotTokenForIncoming,
+  slackAdapter,
+  type SlackAdapterOptions,
+} from "./adapters/slack.js";
 export { telegramAdapter } from "./adapters/telegram.js";
 export { whatsappAdapter } from "./adapters/whatsapp.js";
 export { discordAdapter } from "./adapters/discord.js";
@@ -194,6 +198,12 @@ export type {
   IntegrationScopeAccess,
   IntegrationScopePolicy,
 } from "./scope-store.js";
+
+export {
+  resolveIntegrationSourceContext,
+  sourceContextFromPendingTask,
+  type ResolvedIntegrationSourceContext,
+} from "./pending-tasks-store.js";
 
 export {
   getIntegrationBudgetSnapshot,

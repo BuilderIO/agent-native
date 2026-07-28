@@ -5,6 +5,8 @@ import {
   generateWorkspaceAppDescription,
   listAvailableWorkspaceTemplates,
   listWorkspaceApps,
+  setAppCreationSettings,
+  startWorkspaceAppCreation,
   updateWorkspaceAppMetadata,
 } from "./app-creation-store.js";
 
@@ -28,6 +30,35 @@ const mocks = vi.hoisted(() => {
         rows: state.orgRole ? [{ role: state.orgRole }] : [],
       })),
     })),
+    resolveBuilderCredentialsDetailed: vi.fn(async () => ({
+      privateKey: null as string | null,
+      publicKey: null as string | null,
+      userId: null as string | null,
+      orgName: null,
+      orgKind: null,
+      subscription: null,
+      subscriptionLevel: null,
+      subscriptionName: null,
+      isEnterprise: null,
+      isFreeAccount: null,
+      source: null,
+      lookupFailed: false,
+    })),
+    runBuilderAgent: vi.fn(),
+    resolveBuilderBranchProjectId: vi.fn(async () => ""),
+    getBuilderBranchProjectId: vi.fn(() => ""),
+    writeAppSecret: vi.fn(async () => "secret-id"),
+    deleteAppSecret: vi.fn(async () => true),
+  };
+});
+
+vi.mock("@agent-native/core/secrets", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/secrets")>();
+  return {
+    ...actual,
+    writeAppSecret: (...args: any[]) => mocks.writeAppSecret(...args),
+    deleteAppSecret: (...args: any[]) => mocks.deleteAppSecret(...args),
   };
 });
 
@@ -44,6 +75,21 @@ vi.mock("@agent-native/core/settings", () => ({
   putSetting: (...args: any[]) => mocks.putSetting(...args),
 }));
 
+vi.mock("@agent-native/core/server", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/server")>();
+  return {
+    ...actual,
+    resolveBuilderCredentialsDetailed: (...args: any[]) =>
+      mocks.resolveBuilderCredentialsDetailed(...args),
+    runBuilderAgent: (...args: any[]) => mocks.runBuilderAgent(...args),
+    resolveBuilderBranchProjectId: (...args: any[]) =>
+      mocks.resolveBuilderBranchProjectId(...args),
+    getBuilderBranchProjectId: (...args: any[]) =>
+      mocks.getBuilderBranchProjectId(...args),
+  };
+});
+
 vi.mock("./dispatch-store.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./dispatch-store.js")>();
   return {
@@ -58,6 +104,22 @@ afterEach(() => {
   vi.clearAllMocks();
   mocks.settings.clear();
   mocks.state.orgRole = "admin";
+  mocks.resolveBuilderCredentialsDetailed.mockResolvedValue({
+    privateKey: null,
+    publicKey: null,
+    userId: null,
+    orgName: null,
+    orgKind: null,
+    subscription: null,
+    subscriptionLevel: null,
+    subscriptionName: null,
+    isEnterprise: null,
+    isFreeAccount: null,
+    source: null,
+    lookupFailed: false,
+  });
+  mocks.resolveBuilderBranchProjectId.mockResolvedValue("");
+  mocks.getBuilderBranchProjectId.mockReturnValue("");
   globalThis.fetch = originalFetch;
 });
 
@@ -375,5 +437,195 @@ describe("listWorkspaceApps", () => {
     );
 
     expect(templates).toEqual([]);
+  });
+});
+
+describe("startWorkspaceAppCreation", () => {
+  const leakedProjectId = "940ebc5a83164aa6a37dde445e494f3a";
+
+  function stubHostedRuntime() {
+    vi.stubEnv("NODE_ENV", "production");
+  }
+
+  function stubBuilderProjectConfigured() {
+    vi.stubEnv("DISPATCH_BUILDER_PROJECT_ID", leakedProjectId);
+  }
+
+  function credentials(overrides: Record<string, unknown> = {}) {
+    return {
+      privateKey: null,
+      publicKey: null,
+      userId: null,
+      orgName: null,
+      orgKind: null,
+      subscription: null,
+      subscriptionLevel: null,
+      subscriptionName: null,
+      isEnterprise: null,
+      isFreeAccount: null,
+      source: null,
+      lookupFailed: false,
+      ...overrides,
+    };
+  }
+
+  function create(appId = "onboarding") {
+    return runWithRequestContext({ userEmail: "dev@example.test" }, () =>
+      startWorkspaceAppCreation({ prompt: "Track onboarding tasks", appId }),
+    );
+  }
+
+  it("returns builder-not-connected without leaking the project id when no Builder credentials are configured", async () => {
+    stubHostedRuntime();
+    stubBuilderProjectConfigured();
+    mocks.resolveBuilderCredentialsDetailed.mockResolvedValue(credentials());
+
+    const result = (await create()) as any;
+
+    expect(result.mode).toBe("builder-unavailable");
+    expect(result.reason).toBe("builder-not-connected");
+    expect(result.message).not.toContain(leakedProjectId);
+    expect(mocks.runBuilderAgent).not.toHaveBeenCalled();
+  });
+
+  it("returns credential-store-unavailable when the credential lookup itself fails", async () => {
+    stubHostedRuntime();
+    stubBuilderProjectConfigured();
+    mocks.resolveBuilderCredentialsDetailed.mockResolvedValue(
+      credentials({ lookupFailed: true }),
+    );
+
+    const result = (await create()) as any;
+
+    expect(result.mode).toBe("builder-unavailable");
+    expect(result.reason).toBe("credential-store-unavailable");
+    expect(mocks.runBuilderAgent).not.toHaveBeenCalled();
+  });
+
+  it("returns builder-error with the raw failure in detail when runBuilderAgent throws", async () => {
+    stubHostedRuntime();
+    stubBuilderProjectConfigured();
+    mocks.resolveBuilderCredentialsDetailed.mockResolvedValue(
+      credentials({
+        privateKey: "priv",
+        publicKey: "pub",
+        userId: "builder-user-1",
+      }),
+    );
+    mocks.runBuilderAgent.mockRejectedValue(
+      new Error("Builder keys are not configured"),
+    );
+
+    const result = (await create()) as any;
+
+    expect(result.mode).toBe("builder-unavailable");
+    expect(result.reason).toBe("builder-error");
+    expect(result.detail).toBe("Builder keys are not configured");
+    expect(result.message).not.toContain(leakedProjectId);
+  });
+
+  it("starts the Builder branch and passes the resolved userId through", async () => {
+    stubHostedRuntime();
+    stubBuilderProjectConfigured();
+    mocks.resolveBuilderCredentialsDetailed.mockResolvedValue(
+      credentials({
+        privateKey: "priv",
+        publicKey: "pub",
+        userId: "builder-user-42",
+      }),
+    );
+    mocks.runBuilderAgent.mockResolvedValue({
+      branchName: "onboarding1",
+      url: "https://builder.io/app/projects/project-1/branch/onboarding1",
+      status: "processing",
+    });
+
+    const result = (await create()) as any;
+
+    expect(result.mode).toBe("builder");
+    expect(mocks.runBuilderAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: "builder-user-42" }),
+    );
+  });
+
+  it("returns coming-soon when no Builder project is configured", async () => {
+    stubHostedRuntime();
+
+    const result = (await create()) as any;
+
+    expect(result.mode).toBe("coming-soon");
+    expect(mocks.resolveBuilderCredentialsDetailed).not.toHaveBeenCalled();
+  });
+});
+
+describe("setAppCreationSettings", () => {
+  const projectId = "274d28fec94b48f2b2d68f2274d390eb";
+  const orgId = "builder_io";
+
+  function save(
+    builderProjectId: string | null,
+    ctx: { userEmail: string; orgId?: string } = {
+      userEmail: "dev@example.test",
+      orgId,
+    },
+  ) {
+    return runWithRequestContext(ctx, () =>
+      setAppCreationSettings({ builderProjectId }),
+    );
+  }
+
+  it("stores the project id as an org-scoped credential so member apps resolve it", async () => {
+    await save(projectId);
+
+    expect(mocks.writeAppSecret).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: "BUILDER_BRANCH_PROJECT_ID",
+        value: projectId,
+        scope: "org",
+        scopeId: orgId,
+      }),
+    );
+    expect(mocks.deleteAppSecret).not.toHaveBeenCalled();
+  });
+
+  it("scopes the credential to one organization rather than every tenant", async () => {
+    await save(projectId);
+
+    const [args] = mocks.writeAppSecret.mock.calls.at(-1) as [
+      { scope: string; scopeId: string },
+    ];
+    expect(args.scope).not.toBe("user");
+    expect(args.scopeId).toBe(orgId);
+  });
+
+  it("falls back to a solo workspace scope when there is no active org", async () => {
+    await save(projectId, { userEmail: "dev@example.test" });
+
+    expect(mocks.writeAppSecret).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scope: "workspace",
+        scopeId: "solo:dev@example.test",
+      }),
+    );
+  });
+
+  it("removes the credential when the project id is cleared", async () => {
+    await save(null);
+
+    expect(mocks.deleteAppSecret).toHaveBeenCalledWith({
+      key: "BUILDER_BRANCH_PROJECT_ID",
+      scope: "org",
+      scopeId: orgId,
+    });
+    expect(mocks.writeAppSecret).not.toHaveBeenCalled();
+  });
+
+  it("does not save the setting when the credential write fails", async () => {
+    mocks.writeAppSecret.mockRejectedValueOnce(
+      new Error("credential store down"),
+    );
+
+    await expect(save(projectId)).rejects.toThrow("credential store down");
+    expect(mocks.putSetting).not.toHaveBeenCalled();
   });
 });

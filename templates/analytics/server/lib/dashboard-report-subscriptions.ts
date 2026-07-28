@@ -1,11 +1,14 @@
 import { randomUUID } from "node:crypto";
 
 import { recordChange } from "@agent-native/core/server";
+import { EMBED_TOKEN_QUERY_PARAM } from "@agent-native/core/shared";
 import { and, asc, eq, isNull, lte, or, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
+import { repairCanonicalFirstPartyDashboardQueries } from "./canonical-first-party-dashboard-repair";
 import { loadDashboardSeed } from "./dashboard-seeds";
 import { getDashboard } from "./dashboards-store";
+import { FIRST_PARTY_DASHBOARD_ID } from "./first-party-metric-catalog";
 
 export interface ReportSubscriptionInput {
   id?: string;
@@ -32,16 +35,28 @@ export interface DashboardReportSubscription {
   lastRunAt: string | null;
   lastStatus: "success" | "error" | "running" | null;
   lastError: string | null;
+  lastCaptureAt: string | null;
+  lastCaptureMode: DashboardReportCaptureMode | null;
+  lastCaptureError: string | null;
   createdAt: string;
   updatedAt: string;
   ownerEmail: string;
   orgId: string | null;
 }
 
+export type DashboardReportCaptureMode = "full" | "partial" | "none";
+
+export interface DashboardReportCaptureOutcome {
+  mode: DashboardReportCaptureMode;
+  error?: string;
+}
+
 export interface AccessCtx {
   email: string;
   orgId: string | null;
 }
+
+export const MAX_DASHBOARD_REPORT_RECIPIENTS = 5;
 
 export interface ReportDashboard {
   id: string;
@@ -55,10 +70,14 @@ export async function getReportDashboard(
 ): Promise<ReportDashboard | null> {
   const dashboard = await getDashboard(dashboardId, ctx);
   if (dashboard?.kind === "sql") {
+    const config =
+      dashboardId === FIRST_PARTY_DASHBOARD_ID
+        ? repairCanonicalFirstPartyDashboardQueries(dashboard.config).config
+        : dashboard.config;
     return {
       id: dashboard.id,
       title: dashboard.title,
-      config: dashboard.config,
+      config,
     };
   }
 
@@ -78,6 +97,27 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+const DASHBOARD_REPORT_ERROR_MAX_LENGTH = 2_000;
+const DASHBOARD_REPORT_ERROR_OMISSION = "\n… [truncated] …\n";
+
+export function redactDashboardReportDiagnostic(value: string): string {
+  return value.replace(
+    new RegExp(`(${EMBED_TOKEN_QUERY_PARAM}=)[^&\\s]+`, "gi"),
+    "$1[REDACTED]",
+  );
+}
+
+export function truncateDashboardReportError(error: string): string {
+  error = redactDashboardReportDiagnostic(error);
+  if (error.length <= DASHBOARD_REPORT_ERROR_MAX_LENGTH) return error;
+
+  const retainedLength =
+    DASHBOARD_REPORT_ERROR_MAX_LENGTH - DASHBOARD_REPORT_ERROR_OMISSION.length;
+  const prefixLength = Math.ceil(retainedLength / 2);
+  const suffixLength = Math.floor(retainedLength / 2);
+  return `${error.slice(0, prefixLength)}${DASHBOARD_REPORT_ERROR_OMISSION}${error.slice(-suffixLength)}`;
+}
+
 function safeJsonParse<T>(raw: unknown, fallback: T): T {
   if (typeof raw !== "string") return fallback;
   try {
@@ -88,7 +128,9 @@ function safeJsonParse<T>(raw: unknown, fallback: T): T {
   }
 }
 
-function normalizeRecipients(recipients: string[]): string[] {
+export function normalizeDashboardReportRecipients(
+  recipients: string[],
+): string[] {
   const seen = new Set<string>();
   const normalized: string[] = [];
   for (const raw of recipients) {
@@ -96,6 +138,14 @@ function normalizeRecipients(recipients: string[]): string[] {
     if (!email || seen.has(email)) continue;
     seen.add(email);
     normalized.push(email);
+  }
+  if (normalized.length === 0) {
+    throw new Error("At least one recipient is required");
+  }
+  if (normalized.length > MAX_DASHBOARD_REPORT_RECIPIENTS) {
+    throw new Error(
+      `Dashboard reports support at most ${MAX_DASHBOARD_REPORT_RECIPIENTS} recipients; use a mailing-list address for larger audiences`,
+    );
   }
   return normalized;
 }
@@ -239,6 +289,8 @@ export function lastDailyRunAt(
 }
 
 const DASHBOARD_REPORT_RETRY_WINDOW_MS = 60 * 60 * 1000;
+// This is the earliest nextRunAt. The generated */15 cron means the actual
+// retry occurs on the first sweep after this floor, not exactly ten minutes later.
 const DASHBOARD_REPORT_RETRY_DELAY_MS = 10 * 60 * 1000;
 
 export function dashboardReportRetryAt(
@@ -274,6 +326,9 @@ function rowToSubscription(row: any): DashboardReportSubscription {
     lastRunAt: row.lastRunAt ?? null,
     lastStatus: row.lastStatus ?? null,
     lastError: row.lastError ?? null,
+    lastCaptureAt: row.lastCaptureAt ?? null,
+    lastCaptureMode: row.lastCaptureMode ?? null,
+    lastCaptureError: row.lastCaptureError ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     ownerEmail: row.ownerEmail,
@@ -348,10 +403,7 @@ export async function saveDashboardReportSubscription(
     throw Object.assign(new Error("Dashboard not found"), { statusCode: 404 });
   }
 
-  const recipients = normalizeRecipients(input.recipients);
-  if (recipients.length === 0) {
-    throw new Error("At least one recipient is required");
-  }
+  const recipients = normalizeDashboardReportRecipients(input.recipients);
 
   const timeOfDay = assertTimeOfDay(input.timeOfDay);
   const timezone = assertTimezone(input.timezone);
@@ -539,7 +591,7 @@ export async function markDashboardReportResult(
     .update(schema.dashboardReportSubscriptions)
     .set({
       lastStatus: status,
-      lastError: error ? error.slice(0, 500) : null,
+      lastError: error ? truncateDashboardReportError(error) : null,
       nextRunAt: sub.enabled
         ? (options?.nextRunAt ??
           nextDailyRunAt(sub.timeOfDay, sub.timezone, new Date()))
@@ -547,4 +599,36 @@ export async function markDashboardReportResult(
       updatedAt: now,
     })
     .where(eq(schema.dashboardReportSubscriptions.id, sub.id));
+}
+
+/**
+ * Persists the capture result before email delivery so a serverless cutoff
+ * cannot erase the browser diagnostics after a fallback message is accepted.
+ */
+export async function recordDashboardReportCaptureOutcome(
+  sub: DashboardReportSubscription,
+  outcome: DashboardReportCaptureOutcome,
+): Promise<boolean> {
+  if (!sub.lastRunAt) return false;
+
+  const capturedAt = nowIso();
+  const db = getDb() as any;
+  const rows = await db
+    .update(schema.dashboardReportSubscriptions)
+    .set({
+      lastCaptureAt: capturedAt,
+      lastCaptureMode: outcome.mode,
+      lastCaptureError: outcome.error
+        ? truncateDashboardReportError(outcome.error)
+        : null,
+      updatedAt: capturedAt,
+    })
+    .where(
+      and(
+        eq(schema.dashboardReportSubscriptions.id, sub.id),
+        eq(schema.dashboardReportSubscriptions.lastRunAt, sub.lastRunAt),
+      ),
+    )
+    .returning();
+  return Boolean(rows[0]);
 }

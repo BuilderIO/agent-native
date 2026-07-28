@@ -1,5 +1,6 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { withBuilderUtmTrackingParams } from "@agent-native/core/shared/builder-link-tracking";
 import {
   IconApps,
   IconArrowUpRight,
@@ -300,7 +301,7 @@ function OtherAppsSkeletonGrid() {
   return (
     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
       {Array.from({ length: 3 }).map((_, index) => (
-        <div key={index} className="rounded-lg border bg-card p-4">
+        <div key={index} className="rounded-lg bg-card p-4">
           <div className="flex items-start gap-3">
             <Skeleton className="size-8 rounded-md" />
             <div className="flex-1 space-y-3">
@@ -319,10 +320,13 @@ function OtherAppCard({ app }: { app: ConnectedAppSummary }) {
   const t = useT();
   return (
     <a
-      href={app.url}
+      href={withBuilderUtmTrackingParams(app.url, {
+        campaign: "product",
+        content: "dispatch_app",
+      })}
       target="_blank"
       rel="noopener noreferrer"
-      className="group flex min-h-[116px] items-start gap-3 rounded-xl border border-border/60 bg-card/40 p-4 transition-[background-color,border-color] hover:border-foreground/20 hover:bg-accent/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="group flex min-h-[116px] items-start gap-3 rounded-xl bg-card/40 p-4 transition-[background-color] hover:bg-accent/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted text-xs font-semibold text-muted-foreground">
         {app.name.charAt(0).toUpperCase()}
@@ -352,7 +356,7 @@ function AppsSkeletonGrid() {
   return (
     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
       {Array.from({ length: 3 }).map((_, index) => (
-        <div key={index} className="rounded-lg border bg-card p-4">
+        <div key={index} className="rounded-lg bg-card p-4">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1 space-y-3">
               <Skeleton className="h-4 w-32" />

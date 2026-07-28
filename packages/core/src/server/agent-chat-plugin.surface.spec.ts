@@ -1,8 +1,11 @@
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
 import {
   _agentChatPromptSectionsForTests,
   buildLeanRunPolicyPrompt,
+  resolveInteractiveAgentRunOptions,
   shouldBlockInProductCodeEditingSurface,
 } from "./agent-chat-plugin.js";
 import {
@@ -74,6 +77,88 @@ describe("lean production run policy", () => {
     expect(buildLeanRunPolicyPrompt(restriction, codeExecution)).toBe(
       restriction + codeExecution,
     );
+  });
+});
+
+describe("interactive agent run options", () => {
+  it("forwards an app's durable no-progress watchdog to every interactive handler", () => {
+    expect(
+      resolveInteractiveAgentRunOptions({
+        runSoftTimeoutMs: 13 * 60_000,
+        runNoProgressTimeoutMs: 3 * 60_000,
+        durableBackgroundRuns: true,
+      }),
+    ).toEqual({
+      runSoftTimeoutMs: 13 * 60_000,
+      runNoProgressTimeoutMs: 3 * 60_000,
+      durableBackgroundRuns: true,
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// `resolveInteractiveAgentRunOptions` echoing its own inputs (above) proves
+// nothing about whether the value it returns actually reaches the run
+// manager — that wiring lives inside `createAgentChatPlugin`'s and
+// `createProductionAgentHandler`'s multi-thousand-line request-handler
+// closures, which have no cheap unit seam (same rationale as the
+// "prompt-caching wiring guards" in runtime-context.spec.ts). These source
+// guards close that gap: they fail if a future call site forgets to spread
+// `resolveInteractiveAgentRunOptions(options)`, or if `startRun` stops
+// receiving `runNoProgressTimeoutMs` as its `noProgressTimeoutMs` option —
+// exactly the class of bug the run-manager's own no-progress-backstop tests
+// (run-manager.spec.ts) cannot see, since they drive `startRun` directly.
+describe("interactive agent run options — wiring guards", () => {
+  it("spreads resolveInteractiveAgentRunOptions(options) into every createProductionAgentHandler call site", () => {
+    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+      encoding: "utf-8",
+    });
+
+    const handlerCallSites = source.match(/createProductionAgentHandler\(\{/g);
+    const spreadSites = source.match(
+      /\.\.\.resolveInteractiveAgentRunOptions\(options\),\s*\n\s*finalResponseGuard: options\?\.finalResponseGuard,/g,
+    );
+
+    // Three interactive handlers are created today (prod, anonymous
+    // read-only, dev). If this count changes, a new call site was added or
+    // removed — update this guard alongside it, and confirm the new/changed
+    // site still spreads the run options immediately before
+    // `finalResponseGuard`.
+    expect(handlerCallSites).toHaveLength(3);
+    expect(spreadSites).toHaveLength(handlerCallSites?.length ?? 0);
+  });
+
+  it("threads runNoProgressTimeoutMs into startRun's noProgressTimeoutMs option", () => {
+    const source = readFileSync("src/agent/production-agent.ts", {
+      encoding: "utf-8",
+    });
+
+    // There is exactly one `startRun(...)` call in production-agent.ts — the
+    // interactive/production run start. Confirm it stays singular so the
+    // adjacency assertion below can't silently start matching a different,
+    // unrelated call site.
+    expect(source.match(/\n {4}const startedRun = startRun\(\n/g)).toHaveLength(
+      1,
+    );
+
+    // `noProgressTimeoutMs` must be set from `options.runNoProgressTimeoutMs`
+    // (not hardcoded, not dropped) and live in the same options object as
+    // `turnId`/`dispatchMode`, which are unambiguously the literal passed as
+    // startRun's final argument.
+    expect(source).toMatch(
+      /noProgressTimeoutMs: options\.runNoProgressTimeoutMs,\s*(?:\/\/[^\n]*\n\s*)*turnId: effectiveTurnId,/,
+    );
+  });
+
+  it("keeps background workers alive through run-manager finalization", () => {
+    const source = readFileSync("src/agent/production-agent.ts", {
+      encoding: "utf-8",
+    });
+
+    expect(source).toMatch(
+      /if \(isBackgroundWorker\) \{\s*await startedRun\.finalized;\s*return \{ ok: true, runId \};\s*\}/,
+    );
+    expect(source).not.toContain("backgroundRunDone");
   });
 });
 
@@ -230,11 +315,13 @@ describe("prompt content invariants", () => {
   it("routes extension requests that need native placement to code customization", () => {
     const prompts = _agentChatPromptSectionsForTests.buildFrameworkPrompts();
 
+    // The 7-row routing table and worked examples were cut in favor of one
+    // boundary sentence (routing among render-inline-extension/create-extension/
+    // show-extension-inline/update-extension is already derivable from each
+    // tool's own description; the "can't reach native chrome" case is also
+    // restated in connect-builder's own tool description).
     expect(prompts.PROD_FRAMEWORK_PROMPT).toContain(
-      "UI inside or beside a native component where no named slot exists",
-    );
-    expect(prompts.PROD_FRAMEWORK_PROMPT).toContain(
-      "show local time beside every native Calendar attendee row",
+      "they cannot inject UI into arbitrary native components",
     );
     expect(prompts.PROD_FRAMEWORK_PROMPT).toContain(
       'do not end with "extensions cannot do that."',
@@ -267,11 +354,15 @@ describe("prompt content invariants", () => {
     }
   });
 
-  it("both variants contain the plan/progress discipline rule", () => {
+  it("both variants say when to open a progress run without restating the tool's mechanics", () => {
     for (const prompt of [full, compact]) {
       expect(prompt).toContain("manage-progress");
-      expect(prompt).toContain("in_progress");
-      expect(prompt).toContain("Never create single-step plans");
+      expect(prompt).toContain("never create single-step plans");
+      // The start/update/complete call sequence belongs to `manage-progress`'s
+      // own tool description, which the model reads before it can call the
+      // tool. Restating it here charges every turn for it.
+      expect(prompt).not.toContain('action: "start"');
+      expect(prompt).not.toContain('status: "succeeded"');
     }
   });
 
@@ -326,17 +417,26 @@ describe("available action prompt rendering", () => {
     ).toEqual(["common"]);
   });
 
-  it("summarizes only starter actions and points to tool-search for the rest", () => {
+  it("points to tool-search for actions omitted from the initial tool set, without re-listing loaded actions (already covered by native tool schemas)", () => {
     const prompt = _agentChatPromptSectionsForTests.generateActionsPrompt(
       actions,
       "tool",
       ["common"],
     );
 
-    expect(prompt).toContain("`common`");
+    expect(prompt).not.toContain("`common`");
     expect(prompt).not.toContain("`rare`");
     expect(prompt).toContain("1 less-common app action is available on demand");
     expect(prompt).toContain("`tool-search`");
+  });
+
+  it("returns nothing when every action is already loaded and none has a native widget", () => {
+    const prompt = _agentChatPromptSectionsForTests.generateActionsPrompt(
+      actions,
+      "tool",
+    );
+
+    expect(prompt).toBe("");
   });
 
   it("labels actions that render native chat widgets", () => {

@@ -10,6 +10,7 @@ import type {
   IframeContextMenuPayload,
   IframeFigmaClipboardPastePayload,
   IframeHotkeyPayload,
+  IframeImagePastePayload,
 } from "../design-canvas/iframe-events";
 import type {
   DeviceFrameType,
@@ -137,6 +138,8 @@ export interface MultiScreenCanvasProps {
   /** Lets every live frame receive native pointer interaction while the
    * overview camera and frame chrome remain available. */
   interactMode?: boolean;
+  /** Viewer mode keeps selection/inspection available without edit chrome. */
+  readOnly?: boolean;
   activeScreenHasHoveredChild?: boolean;
   hoveredChildScreenId?: string | null;
   directlyHoveredScreenId?: string | null;
@@ -361,6 +364,7 @@ export interface MultiScreenCanvasProps {
   onBoardFigmaClipboardPaste?: (
     event: IframeFigmaClipboardPastePayload,
   ) => void;
+  onBoardImagePaste?: (event: IframeImagePastePayload) => void;
   onBoardIframeContextMenu?: (event: IframeContextMenuPayload) => void;
   onBoardTextEditingStateChange?: (state: {
     active: boolean;
@@ -938,6 +942,7 @@ export type {
   IframeContextMenuPayload,
   IframeFigmaClipboardPastePayload,
   IframeHotkeyPayload,
+  IframeImagePastePayload,
 };
 
 export interface ResolvedScreenMetadata {

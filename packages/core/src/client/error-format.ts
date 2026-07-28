@@ -11,7 +11,8 @@
  * regex stays narrow; the gateway may emit URLs containing `(`
  * (e.g. `?ref=Acme%20(staging)`) and we don't want to reject them.
  */
-export const BUILDER_SPACE_SETTINGS_URL = "https://builder.io/account/space";
+export const BUILDER_SPACE_SETTINGS_URL =
+  "https://builder.io/account/space?utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=space_settings";
 
 // Pseudo-href used to mark an in-app "Start new chat" CTA inside the markdown
 // error message. The chat renderer intercepts this href and renders a button
@@ -121,6 +122,24 @@ export function normalizeChatError(
   const raw = String(errorMessage || "Unknown error");
   const looksHtml = /<html[\s>]|<body[\s>]|<head[\s>]/i.test(raw);
   const text = looksHtml ? htmlToText(raw) : raw.trim();
+
+  const code = normalizeErrorCode(errorCode);
+
+  if (code === "builder_model_unauthorized") {
+    return {
+      message:
+        "The provider behind this model rejected the request. Pick a different model, then retry.",
+      details: text,
+    };
+  }
+
+  if (code === "builder_auth_error") {
+    return {
+      message:
+        "Builder rejected the connected credentials. Reconnect Builder.io in Settings, then retry.",
+      details: text,
+    };
+  }
 
   if (isProviderRateLimit(text, errorCode)) {
     return {

@@ -279,7 +279,14 @@ function stripExecutableStaticPreviewContent(html: string) {
     .replace(/<(?:iframe|object|embed|audio|video|source)\b[^>]*\/?\s*>/gi, "")
     .replace(/<(?:link|meta|base)\b[^>]*>/gi, "")
     .replace(/@import\s+(?:url\([^)]*\)|["'][^"']*["'])\s*[^;]*;/gi, "")
-    .replace(/url\(\s*(?:"[^"]*"|'[^']*'|[^)]*)\s*\)/gi, "none")
+    .replace(/url\(\s*(?:"[^"]*"|'[^']*'|[^)]*)\s*\)/gi, (match) => {
+      // Strip data:, blob:, and unknown-scheme url() references to prevent
+      // large embedded payloads or local-resource leaks. Allow https:// URLs
+      // (CDN images/fonts) — they can only fetch inert assets, not execute code.
+      const raw = match.slice(4, -1).trim();
+      const inner = raw.replace(/^['"]|['"]$/g, "").trim();
+      return /^https:\/\//i.test(inner) ? match : "none";
+    })
     .replace(/<(?:img|image|use)\b[^>]*>/gi, (tag) =>
       tag.replace(
         /\s+(?:src|srcset|href|xlink:href)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi,

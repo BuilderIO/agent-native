@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   assertAccess: vi.fn(),
   readAppState: vi.fn(),
   compareAndSetAppState: vi.fn(),
+  compareAndSetManyAppState: vi.fn(),
 }));
 
 vi.mock("@agent-native/core", () => ({
@@ -13,6 +14,7 @@ vi.mock("@agent-native/core", () => ({
 vi.mock("@agent-native/core/application-state", () => ({
   readAppState: mocks.readAppState,
   compareAndSetAppState: mocks.compareAndSetAppState,
+  compareAndSetManyAppState: mocks.compareAndSetManyAppState,
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
@@ -35,6 +37,7 @@ describe("cancel-node-rewrite-request", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.compareAndSetAppState.mockResolvedValue(true);
+    mocks.compareAndSetManyAppState.mockResolvedValue(true);
   });
 
   it("does not cancel a newer request", async () => {
@@ -70,5 +73,44 @@ describe("cancel-node-rewrite-request", () => {
       pending,
       null,
     );
+  });
+
+  it("clears a pending request and its proposal in one transition", async () => {
+    const proposal = {
+      proposalId: "proposal_1",
+      repromptId: "reprompt_1",
+      designId: "design_1",
+      fileId: "file_1",
+      baseVersionHash: "hash_base",
+      target: { nodeId: "hero" },
+      resolvedTarget: { nodeId: "hero", selector: "[data-hero]" },
+      variants: [{ html: "<section />", summary: "Updated" }],
+    };
+    mocks.readAppState
+      .mockResolvedValueOnce(pending)
+      .mockResolvedValueOnce(proposal);
+
+    await expect(
+      action.run({
+        designId: "design_1",
+        fileId: "file_1",
+        repromptId: "reprompt_1",
+      }),
+    ).resolves.toMatchObject({
+      cancelled: true,
+      proposalCancelled: true,
+      superseded: false,
+    });
+    expect(mocks.compareAndSetManyAppState).toHaveBeenCalledWith([
+      expect.objectContaining({
+        key: "design-reprompt-pending:design_1:file_1",
+        nextValue: null,
+      }),
+      expect.objectContaining({
+        key: "design-reprompt-proposal:design_1:file_1:reprompt_1",
+        nextValue: null,
+      }),
+    ]);
+    expect(mocks.compareAndSetAppState).not.toHaveBeenCalled();
   });
 });

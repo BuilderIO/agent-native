@@ -53,6 +53,7 @@ const workspaceSkillIncludes = [
   "agent-native-toolkit",
   "agent-page",
   "adding-a-feature",
+  "adding-workspace-apps",
   "address-feedback",
   "audit-log",
   "authentication",
@@ -99,6 +100,7 @@ const workspaceSkillIncludes = [
   "upgrade-agent-native",
   "visual-answer",
   "voice-transcription",
+  "workspace-conventions",
   "writing-agent-instructions",
 ];
 
@@ -129,6 +131,7 @@ const templateSharedSkillIncludes = [
   "shadcn-ui",
   "secrets",
   "storing-data",
+  "sharing",
   "upgrade-agent-native",
 ];
 
@@ -138,9 +141,12 @@ const requiredTemplateSharedSkills: Record<string, string[]> = {
 
 /** Copied into every first-party template that uses shared skills. */
 const requiredAllTemplateSharedSkills = [
+  "agent-native-docs",
   "agent-native-toolkit",
   "customizing-agent-native",
   "feature-flags",
+  "sharing",
+  "storing-data",
   "upgrade-agent-native",
 ];
 

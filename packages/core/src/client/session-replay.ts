@@ -1158,13 +1158,13 @@ function updateReplayResourceNode(
 ): ReplayResourceNode {
   return {
     tagName: current.tagName,
-    rel: Object.hasOwn(attributes, "rel")
+    rel: Object.prototype.hasOwnProperty.call(attributes, "rel")
       ? replayAttributeString(attributes, "rel")
       : current.rel,
-    as: Object.hasOwn(attributes, "as")
+    as: Object.prototype.hasOwnProperty.call(attributes, "as")
       ? replayAttributeString(attributes, "as")
       : current.as,
-    type: Object.hasOwn(attributes, "type")
+    type: Object.prototype.hasOwnProperty.call(attributes, "type")
       ? replayAttributeString(attributes, "type")
       : current.type,
   };
@@ -2397,7 +2397,7 @@ function installConsoleCapture(
         ...(stack ? { stack } : {}),
         ...(url ? { url } : {}),
       };
-      const key = `${level} ${source} ${message}`;
+      const key = `${level}\u0000${source}\u0000${message}`;
       if (pending && pending.key === key) {
         pending.repeat += 1;
         return;

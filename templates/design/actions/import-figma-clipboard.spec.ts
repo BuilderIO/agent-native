@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   resolveImportDesignId: vi.fn(),
   ssrfSafeFetch: vi.fn(),
   uploadFile: vi.fn(),
+  importFigmaClipboardFromBuffer: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/extensions/url-safety", () => ({
@@ -32,6 +33,10 @@ vi.mock("../server/lib/import-design-files.js", () => ({
   ),
   resolveImportDesignId: mocks.resolveImportDesignId,
   saveImportedDesignFiles: mocks.saveImportedDesignFiles,
+}));
+
+vi.mock("../server/lib/figma-clipboard-local-decode.js", () => ({
+  importFigmaClipboardFromBuffer: mocks.importFigmaClipboardFromBuffer,
 }));
 
 import action from "./import-figma-clipboard.js";
@@ -445,5 +450,132 @@ describe("import-figma-clipboard", () => {
         clipboardHtml: CLIPBOARD_HTML_HERO,
       } as any),
     ).rejects.toThrow(/could not be parsed/i);
+  });
+
+  describe("local-kiwi path (no token)", () => {
+    const FAKE_BUFFER_BASE64 =
+      Buffer.from("fake-kiwi-bytes").toString("base64");
+
+    beforeEach(() => {
+      mocks.executeProviderApiRequest.mockRejectedValue(
+        new Error("figma credential not configured. Tried: FIGMA_ACCESS_TOKEN"),
+      );
+    });
+
+    it("decodes the clipboard buffer and returns localKiwi strategy when token is missing", async () => {
+      mocks.importFigmaClipboardFromBuffer.mockResolvedValue({
+        files: [
+          {
+            filename: "Frame.html",
+            fileType: "html",
+            content: "<div>frame</div>",
+            source: {
+              sourceType: "figma-clipboard-local-kiwi",
+              figmaFileKey: FILE_KEY,
+            },
+          },
+        ],
+        warnings: [],
+        unresolvedImageRefs: [],
+        stats: {
+          sourceKind: "figma-clipboard-local-kiwi",
+          format: "kiwi",
+          frameCount: 1,
+          nodeCount: 5,
+          unresolvedImageCount: 0,
+        },
+      });
+
+      const result = await action.run({
+        figmetaFileKey: FILE_KEY,
+        selectedNodeIds: ["1:1"],
+        clipboardHtml: CLIPBOARD_HTML_CURRENT_BINARY_ONLY,
+        clipboardBuffer: FAKE_BUFFER_BASE64,
+      } as any);
+
+      expect(result.strategy).toBe("localKiwi");
+      expect(result.figmaApiKeyMissing).toBe(true);
+      expect(result.unresolvedImages).toBe(0);
+      expect(result.guidance).toMatch(/local decode/i);
+      expect(mocks.importFigmaClipboardFromBuffer).toHaveBeenCalledWith(
+        expect.objectContaining({
+          bufferBase64: FAKE_BUFFER_BASE64,
+          fileKey: FILE_KEY,
+        }),
+      );
+      expect(mocks.saveImportedDesignFiles).toHaveBeenCalledWith(
+        expect.objectContaining({ sourceType: "figma-clipboard-local-kiwi" }),
+      );
+    });
+
+    it("reports unresolvedImages count and connect guidance when images are unresolved", async () => {
+      mocks.importFigmaClipboardFromBuffer.mockResolvedValue({
+        files: [
+          {
+            filename: "Frame.html",
+            fileType: "html",
+            content: '<div data-figma-image-ref="abc123">frame</div>',
+            source: {
+              sourceType: "figma-clipboard-local-kiwi",
+              figmaFileKey: FILE_KEY,
+              unresolvedImageRefs: ["abc123"],
+            },
+          },
+        ],
+        warnings: ["1 image could not be loaded without a Figma access token."],
+        unresolvedImageRefs: ["abc123"],
+        stats: {
+          sourceKind: "figma-clipboard-local-kiwi",
+          format: "kiwi",
+          frameCount: 1,
+          nodeCount: 3,
+          unresolvedImageCount: 1,
+        },
+      });
+
+      const result = await action.run({
+        figmetaFileKey: FILE_KEY,
+        selectedNodeIds: ["1:1"],
+        clipboardHtml: CLIPBOARD_HTML_CURRENT_BINARY_ONLY,
+        clipboardBuffer: FAKE_BUFFER_BASE64,
+      } as any);
+
+      expect(result.strategy).toBe("localKiwi");
+      expect(result.unresolvedImages).toBe(1);
+      expect(result.fidelityReport.unresolvedImages).toBe(1);
+      expect(result.guidance).toMatch(/Figma access token/i);
+      expect(result.warnings).toContainEqual(
+        expect.stringMatching(/could not be loaded/i),
+      );
+    });
+
+    it("falls through to htmlFallback when local decode fails and no visible HTML is present", async () => {
+      mocks.importFigmaClipboardFromBuffer.mockRejectedValue(
+        new Error("No editable frames found"),
+      );
+
+      const result = await action.run({
+        figmetaFileKey: FILE_KEY,
+        selectedNodeIds: ["1:1"],
+        clipboardHtml: CLIPBOARD_HTML_CURRENT_BINARY_ONLY,
+        clipboardBuffer: FAKE_BUFFER_BASE64,
+      } as any);
+
+      expect(result.strategy).toBe("htmlFallback");
+      expect(result.files).toEqual([]);
+      expect(result.figmaApiKeyMissing).toBe(true);
+    });
+
+    it("does not attempt local decode when no buffer is provided", async () => {
+      const result = await action.run({
+        figmetaFileKey: FILE_KEY,
+        selectedNodeIds: ["1:1"],
+        clipboardHtml: CLIPBOARD_HTML_CURRENT_BINARY_ONLY,
+        // no clipboardBuffer
+      } as any);
+
+      expect(result.strategy).toBe("htmlFallback");
+      expect(mocks.importFigmaClipboardFromBuffer).not.toHaveBeenCalled();
+    });
   });
 });

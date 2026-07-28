@@ -2211,6 +2211,81 @@ function PlainTextBody({
 const IFRAME_BG_DARK = "transparent";
 const IFRAME_BG_LIGHT = "#ffffff";
 
+function buildEmailIframeCss(
+  useDarkIframeCss: boolean,
+  iframeBackground: string,
+): string {
+  return useDarkIframeCss
+    ? `
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: ${iframeBackground} !important;
+      color: #e4e4e7 !important;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 14px;
+      line-height: 1.6;
+      overflow: hidden;
+      color-scheme: dark;
+    }
+    /* Force dark backgrounds on all container elements */
+    div, table, tr, td, th, span, p, blockquote, pre, ul, ol, li,
+    h1, h2, h3, h4, h5, h6, header, footer, section, article,
+    form, fieldset, center, font, main, aside, nav {
+      background-color: transparent !important;
+      background-image: none !important;
+    }
+    /* Default text color for elements that don't have readable inline colors */
+    body, div, p, span, td, th, li, h1, h2, h3, h4, h5, h6,
+    font, strong, em, b, i, u, small, label, dt, dd, pre, code,
+    blockquote { color: inherit; }
+    a { color: #818cf8 !important; }
+    img { max-width: 100%; height: auto; }
+    hr { border-color: rgba(255,255,255,0.1) !important; }
+    .quoted-hidden { display: none; }
+    .sig-collapsed { display: none; }
+    .quote-toggle, .sig-toggle {
+      display: inline-block;
+      cursor: pointer;
+      color: rgba(161,161,170,0.5);
+      font-size: 13px;
+      letter-spacing: 0.15em;
+      padding: 2px 0;
+      border: none;
+      background: none;
+      margin-top: 4px;
+    }
+    .quote-toggle:hover, .sig-toggle:hover { color: rgba(161,161,170,0.8); }
+`
+    : `
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: ${iframeBackground};
+      color: #1a1a1a;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 14px;
+      line-height: 1.6;
+      overflow: hidden;
+    }
+    img { max-width: 100%; height: auto; }
+    .quoted-hidden { display: none; }
+    .sig-collapsed { display: none; }
+    .quote-toggle, .sig-toggle {
+      display: inline-block;
+      cursor: pointer;
+      color: rgba(0,0,0,0.4);
+      font-size: 13px;
+      letter-spacing: 0.15em;
+      padding: 2px 0;
+      border: none;
+      background: none;
+      margin-top: 4px;
+    }
+    .quote-toggle:hover, .sig-toggle:hover { color: rgba(0,0,0,0.7); }
+`;
+}
+
 // ─── Color utilities for dark-mode email processing ─────────────────────────
 
 const NAMED_COLORS: Record<string, [number, number, number]> = {
@@ -2583,6 +2658,7 @@ function HtmlEmailBody({
   const frameHostRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(200);
+  const [iframeReady, setIframeReady] = useState(false);
   const [iframeLoadVersion, setIframeLoadVersion] = useState(0);
   const { resolvedTheme } = useTheme();
   const isDark = getResolvedTheme(resolvedTheme) === "dark";
@@ -2629,13 +2705,19 @@ function HtmlEmailBody({
       blockedCount: headBlockedCount + bodyBlockedCount,
     };
   }, [sanitizedHtml.headHtml, sanitizedHtml.bodyHtml, effectivePolicy]);
+  const useDarkIframeCss = isDark && !hasDesignedBg;
+  const iframeCss = useMemo(
+    () => buildEmailIframeCss(useDarkIframeCss, IFRAME_BG),
+    [IFRAME_BG, useDarkIframeCss],
+  );
   const iframeDocument = useMemo(
     () =>
       buildEmailIframeDocument(
         processedEmailHtml.headHtml,
         processedEmailHtml.bodyHtml,
+        iframeCss,
       ),
-    [processedEmailHtml.bodyHtml, processedEmailHtml.headHtml],
+    [iframeCss, processedEmailHtml.bodyHtml, processedEmailHtml.headHtml],
   );
 
   const handleAlwaysTrust = () => {
@@ -2648,8 +2730,6 @@ function HtmlEmailBody({
     setShowImagesForThread(true);
   };
 
-  const useDarkIframeCss = isDark && !hasDesignedBg;
-
   useEffect(() => {
     const iframe = iframeRef.current;
     if (!iframe) return;
@@ -2657,80 +2737,14 @@ function HtmlEmailBody({
     const doc = iframe.contentDocument;
     if (!doc) return;
 
-    const iframeCss = useDarkIframeCss
-      ? `
-    html, body {
-      margin: 0;
-      padding: 0;
-      background: ${IFRAME_BG} !important;
-      color: #e4e4e7 !important;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      font-size: 14px;
-      line-height: 1.6;
-      overflow: hidden;
-      color-scheme: dark;
-    }
-    /* Force dark backgrounds on all container elements */
-    div, table, tr, td, th, span, p, blockquote, pre, ul, ol, li,
-    h1, h2, h3, h4, h5, h6, header, footer, section, article,
-    form, fieldset, center, font, main, aside, nav {
-      background-color: transparent !important;
-      background-image: none !important;
-    }
-    /* Default text color for elements that don't have readable inline colors */
-    body, div, p, span, td, th, li, h1, h2, h3, h4, h5, h6,
-    font, strong, em, b, i, u, small, label, dt, dd, pre, code,
-    blockquote { color: inherit; }
-    a { color: #818cf8 !important; }
-    img { max-width: 100%; height: auto; }
-    hr { border-color: rgba(255,255,255,0.1) !important; }
-    .quoted-hidden { display: none; }
-    .sig-collapsed { display: none; }
-    .quote-toggle, .sig-toggle {
-      display: inline-block;
-      cursor: pointer;
-      color: rgba(161,161,170,0.5);
-      font-size: 13px;
-      letter-spacing: 0.15em;
-      padding: 2px 0;
-      border: none;
-      background: none;
-      margin-top: 4px;
-    }
-    .quote-toggle:hover, .sig-toggle:hover { color: rgba(161,161,170,0.8); }
-`
-      : `
-    html, body {
-      margin: 0;
-      padding: 0;
-      background: ${IFRAME_BG};
-      color: #1a1a1a;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      font-size: 14px;
-      line-height: 1.6;
-      overflow: hidden;
-    }
-    img { max-width: 100%; height: auto; }
-    .quoted-hidden { display: none; }
-    .sig-collapsed { display: none; }
-    .quote-toggle, .sig-toggle {
-      display: inline-block;
-      cursor: pointer;
-      color: rgba(0,0,0,0.4);
-      font-size: 13px;
-      letter-spacing: 0.15em;
-      padding: 2px 0;
-      border: none;
-      background: none;
-      margin-top: 4px;
-    }
-    .quote-toggle:hover, .sig-toggle:hover { color: rgba(0,0,0,0.7); }
-`;
-
-    const themeStyle = doc.createElement("style");
+    const existingThemeStyle = doc.head.querySelector<HTMLStyleElement>(
+      "style[data-mail-theme]",
+    );
+    const themeStyle = existingThemeStyle ?? doc.createElement("style");
+    const ownsThemeStyle = !existingThemeStyle;
     themeStyle.setAttribute("data-mail-theme", "");
     themeStyle.textContent = iframeCss;
-    doc.head.appendChild(themeStyle);
+    if (!themeStyle.parentNode) doc.head.appendChild(themeStyle);
 
     const resize = () => {
       const h = measureEmailDocumentHeight(doc);
@@ -3228,7 +3242,7 @@ function HtmlEmailBody({
       images.forEach((img) => img.removeEventListener("load", resize));
       resizeObserver?.disconnect();
       window.removeEventListener("resize", resize);
-      themeStyle.remove();
+      if (ownsThemeStyle) themeStyle.remove();
     };
   }, [
     processedEmailHtml.bodyHtml,
@@ -3236,6 +3250,7 @@ function HtmlEmailBody({
     isDark,
     useDarkIframeCss,
     IFRAME_BG,
+    iframeCss,
     iframeLoadVersion,
   ]);
 
@@ -3363,23 +3378,49 @@ function HtmlEmailBody({
           )}
         </div>
       )}
-      <iframe
-        ref={iframeRef}
-        data-agent-native-session-replay=""
-        srcDoc={iframeDocument}
-        sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
-        scrolling="no"
-        style={{
-          width: "100%",
-          height: `${height}px`,
-          border: "none",
-          background: IFRAME_BG,
-          colorScheme: useDarkIframeCss ? "dark" : "light",
-          borderRadius: hasDesignedBg && isDark ? "6px" : undefined,
-        }}
-        title={t("mail.thread.emailContent")}
-        onLoad={() => setIframeLoadVersion((version) => version + 1)}
-      />
+      <div
+        className="relative"
+        aria-busy={!iframeReady}
+        aria-label={!iframeReady ? t("mail.thread.emailContent") : undefined}
+      >
+        {!iframeReady && (
+          <div
+            className="pointer-events-none absolute inset-0 z-10 space-y-2 px-1 pt-1"
+            aria-hidden="true"
+          >
+            <Skeleton className="h-3 w-full" />
+            <Skeleton className="h-3 w-[92%]" />
+            <Skeleton className="h-3 w-[70%]" />
+            <div className="h-1" />
+            <Skeleton className="h-3 w-full" />
+            <Skeleton className="h-3 w-[84%]" />
+          </div>
+        )}
+        <iframe
+          ref={iframeRef}
+          data-agent-native-session-replay=""
+          srcDoc={iframeDocument}
+          sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+          scrolling="no"
+          className={cn(
+            "transition-opacity duration-150 motion-reduce:transition-none",
+            iframeReady ? "opacity-100" : "opacity-0",
+          )}
+          style={{
+            width: "100%",
+            height: `${height}px`,
+            border: "none",
+            background: IFRAME_BG,
+            colorScheme: useDarkIframeCss ? "dark" : "light",
+            borderRadius: hasDesignedBg && isDark ? "6px" : undefined,
+          }}
+          title={t("mail.thread.emailContent")}
+          onLoad={() => {
+            setIframeReady(true);
+            setIframeLoadVersion((version) => version + 1);
+          }}
+        />
+      </div>
     </div>
   );
 }

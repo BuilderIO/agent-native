@@ -196,6 +196,7 @@ export default function DeckEditor() {
   const [tweaksOpen, setTweaksOpen] = useState(false);
   const [drawMode, setDrawMode] = useState(false);
   const [pinMode, setPinMode] = useState(false);
+  const [textBoxMode, setTextBoxMode] = useState(false);
   const [pendingComment, setPendingComment] = useState<{
     quotedText: string;
   } | null>(null);
@@ -816,6 +817,8 @@ export default function DeckEditor() {
         onToggleDrawMode={() => setDrawMode((v) => !v)}
         pinMode={pinMode}
         onTogglePinMode={() => setPinMode((v) => !v)}
+        textBoxMode={textBoxMode}
+        onToggleTextBoxMode={() => setTextBoxMode((v) => !v)}
         onDuplicateDeck={() => {
           const newId = `deck-${nanoid()}`;
           const optimistic = duplicateDeck(id, newId);
@@ -992,6 +995,8 @@ export default function DeckEditor() {
               onExitDrawMode={() => setDrawMode(false)}
               pinMode={pinMode}
               onExitPinMode={() => setPinMode(false)}
+              textBoxMode={textBoxMode}
+              onExitTextBoxMode={() => setTextBoxMode(false)}
               slideId={currentSlide.id}
               slideTitle={(() => {
                 const m = currentSlide.content?.match(

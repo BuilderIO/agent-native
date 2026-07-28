@@ -24,6 +24,7 @@
  * respond with newline-delimited JSON over chunked HTTP.
  */
 
+import { withBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
 import { getBuilderApiHost, getBuilderAppHost } from "./builder-browser.js";
 
 export interface FusionBranchRef {
@@ -86,7 +87,10 @@ function fusionUrl(
 /** The Builder visual-editor URL for a fusion branch. */
 export function getFusionBranchEditorUrl(ref: FusionBranchRef): string {
   const host = getBuilderAppHost().replace(/\/+$/, "");
-  return `${host}/app/projects/${encodeURIComponent(ref.projectId)}/${encodeURIComponent(ref.branchName)}`;
+  return withBuilderUtmTrackingParams(
+    `${host}/app/projects/${encodeURIComponent(ref.projectId)}/${encodeURIComponent(ref.branchName)}`,
+    { campaign: "product", content: "fusion_editor" },
+  );
 }
 
 /** Public URL for a reserved fusion hosting slug. */

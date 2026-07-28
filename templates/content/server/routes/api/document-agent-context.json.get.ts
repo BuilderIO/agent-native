@@ -3,7 +3,7 @@ import {
   getConfiguredAppBasePath,
   verifyScopedAgentAccessToken,
 } from "@agent-native/core/server";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import {
   defineEventHandler,
   getQuery,
@@ -56,7 +56,7 @@ export default defineEventHandler(async (event) => {
       createdAt: schema.documents.createdAt,
     })
     .from(schema.documents)
-    .where(eq(schema.documents.id, id))
+    .where(and(eq(schema.documents.id, id), isNull(schema.documents.trashedAt)))
     .limit(1);
 
   if (!document) {

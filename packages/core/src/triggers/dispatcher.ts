@@ -18,6 +18,7 @@ import {
   getOwnerActiveApiKey,
   type ActionEntry,
 } from "../agent/production-agent.js";
+import { runAgentLoopDirectWithSoftTimeout } from "../agent/run-loop-with-resume.js";
 import { attachToolSearch } from "../agent/tool-search.js";
 import type { AgentChatEvent } from "../agent/types.js";
 import { createThread } from "../chat-threads/store.js";
@@ -94,6 +95,9 @@ export function parseTriggerFrontmatter(content: string): {
       case "domain":
         meta.domain = value;
         break;
+      case "delegatedPolicyId":
+        meta.delegatedPolicyId = value || undefined;
+        break;
       case "createdBy":
         meta.createdBy = value;
         break;
@@ -135,6 +139,16 @@ export function buildTriggerContent(
     lines.push(`condition: "${meta.condition.replace(/"/g, '\\"')}"`);
   lines.push(`mode: ${meta.mode}`);
   if (meta.domain) lines.push(`domain: ${meta.domain}`);
+  if (
+    meta.delegatedPolicyId &&
+    !/^[a-z0-9][a-z0-9._:-]{0,127}$/i.test(meta.delegatedPolicyId)
+  ) {
+    throw new Error(
+      "Delegated automation policy IDs must be 1-128 letters, numbers, dots, underscores, colons, or hyphens.",
+    );
+  }
+  if (meta.delegatedPolicyId)
+    lines.push(`delegatedPolicyId: ${meta.delegatedPolicyId}`);
   if (meta.createdBy) lines.push(`createdBy: ${meta.createdBy}`);
   if (meta.orgId) lines.push(`orgId: ${meta.orgId}`);
   if (meta.runAs) lines.push(`runAs: ${meta.runAs}`);
@@ -360,7 +374,7 @@ async function isTriggerRunAsStillValid(
 }
 
 async function dispatchAgentic(
-  resource: { path: string; owner: string; content: string },
+  resource: { id: string; path: string; owner: string; content: string },
   meta: TriggerFrontmatter,
   body: string,
   payload: unknown,
@@ -472,18 +486,34 @@ ${body}`;
           null;
 
         try {
-          triggerUsage = await runAgentLoop({
-            engine,
-            model,
-            systemPrompt,
-            tools,
-            availableTools,
-            messages,
-            actions,
-            send: (event) => events.push(event),
-            signal: controller.signal,
-            threadId: thread.id,
-          });
+          // Wrapper, not raw `runAgentLoop`: an automation runs with nobody
+          // watching, so a transport-level cut (gateway 45s, socket hang up)
+          // has to be resumed inside this invocation or the trigger silently
+          // does nothing. `undefined` budget + the hosted default keeps the
+          // soft timeout under the serverless wall on hosts that have one and
+          // disabled locally.
+          triggerUsage = await runAgentLoopDirectWithSoftTimeout(
+            {
+              engine,
+              model,
+              systemPrompt,
+              tools,
+              availableTools,
+              messages,
+              actions,
+              send: (event) => events.push(event),
+              signal: controller.signal,
+              threadId: thread.id,
+              actionCaller: "automation",
+              automation: {
+                triggerId: resource.id,
+                triggerName,
+                policyId: meta.delegatedPolicyId,
+              },
+            },
+            undefined,
+            { useHostedDefault: true },
+          );
         } finally {
           clearTimeout(timeout);
         }

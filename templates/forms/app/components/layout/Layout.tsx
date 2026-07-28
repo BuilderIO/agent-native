@@ -1,6 +1,7 @@
 import {
   AgentSidebar,
   focusAgentChat,
+  isAgentChatHomeHandoffActive,
   navigateWithAgentChatViewTransition,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
@@ -37,9 +38,11 @@ export function Layout({ children }: LayoutProps) {
     activePath: location.pathname,
     enabled: !isAskRoute,
   });
+  const chatHomeHandoffPending = isAgentChatHomeHandoffActive("forms");
   useAgentChatHomeHandoffLinks({
     storageKey: "forms",
     chatPath: "/ask",
+    requireActiveHandoff: true,
   });
 
   // Bind chat to the currently-open form. The `/forms/:id` URL covers
@@ -89,6 +92,7 @@ export function Layout({ children }: LayoutProps) {
             agentPageHref="/agent"
             defaultOpen={false}
             chatViewTransition
+            chatViewTransitionHandoff={chatHomeHandoffPending}
             storageKey="forms"
             browserTabId={TAB_ID}
             openOnChatRunning={chatHomeHandoffActive}

@@ -14,6 +14,16 @@ export interface IframeFigmaClipboardPastePayload {
   content: string;
 }
 
+export interface IframeImagePasteFile {
+  dataUrl: string;
+  type: string;
+  name: string;
+}
+
+export interface IframeImagePastePayload {
+  files: IframeImagePasteFile[];
+}
+
 export interface IframeContextMenuPayload {
   screenId?: string;
   clientX: number;

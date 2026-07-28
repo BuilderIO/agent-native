@@ -13,7 +13,9 @@ the agent can use.
   Do not add duplicate JSON CRUD routes under `/api/*`, and do not add routes
   whose main job is to wrap, proxy, or re-export an action. Use custom routes
   only for route-only concerns such as uploads, streaming, webhooks, OAuth
-  callbacks, public SEO/OG endpoints, or binary/static asset serving.
+  callbacks, public SEO/OG endpoints, or binary/static asset serving. If you
+  are about to create a file under `server/routes/api/`, or middleware to guard
+  one, stop and write a `defineAction` instead.
 - All AI work goes through the agent chat. Do not call LLMs directly from UI
   components.
 - Application state belongs in SQL `application_state` so the agent can know the
@@ -24,6 +26,9 @@ the agent can use.
 
 ## Implementation Rules
 
+- Scale effort to the task. A small, well-specified change is a short read, the
+  edit, and the app's existing checks — not a codebase survey, unrequested
+  tests, or browser automation.
 - Before using non-trivial Agent Native APIs, read the version-matched package
   docs with `pnpm action docs-search --query "<topic>"` or
   `node_modules/@agent-native/core/docs`. When implementation examples or

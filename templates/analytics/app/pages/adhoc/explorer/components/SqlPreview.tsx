@@ -23,7 +23,7 @@ export function SqlPreview({ sql }: SqlPreviewProps) {
   };
 
   return (
-    <div className="border rounded-lg">
+    <div className="rounded-lg bg-card">
       <button
         className="flex items-center gap-2 w-full px-3 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
         type="button"
@@ -51,7 +51,7 @@ export function SqlPreview({ sql }: SqlPreviewProps) {
         )}
       >
         <div className="min-h-0 overflow-hidden">
-          <div className="relative border-t">
+          <div className="relative">
             <SqlHighlight
               sql={sql}
               preClassName="p-3 overflow-auto max-h-[300px] bg-muted/50 rounded-b-lg"

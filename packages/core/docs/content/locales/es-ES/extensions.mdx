@@ -213,7 +213,7 @@ Patrón en todos estos: las extensiones son aproximadamente **el momento** en el
 
 El camino sencillo:
 
-1. **Haga clic en "Nueva extensión"** en la barra lateral (o simplemente pregunte en el chat).
+1. Abra **Settings → Extensions** (o simplemente pregunte en el chat) y haga clic en **"Nueva extensión"**.
 2. **Describe lo que quieres en una oración.** "Un bloc de notas adhesivas para el contacto al que le envío un correo electrónico". "Esta semana comenzó una caja KPI para pruebas."
 3. **El agente lo escribe y aparece en tu lista de Extensiones, listo para usar.**
 
@@ -425,9 +425,13 @@ Las extensiones son privadas para el usuario que las creó de forma predetermina
 
 Las extensiones compartidas tienen sus propios URL y se conectan al mismo cuadro de diálogo para compartir que documentos, presentaciones y paneles. Las instalaciones de tragamonedas son siempre personales: compartir una extensión significa que otros _pueden_ instalarla; no lo fija automáticamente a su UI.
 
-## Extensiones versus edición del código de la aplicación {#vs-app-code}
+## ¿Debo usar una extensión o editar el código de la aplicación? {#vs-app-code}
 
-El marco permite al agente editar el código fuente de la aplicación directamente: componentes, rutas, estilos. Entonces, ¿cuándo debería optar por una extensión?
+El marco permite al agente editar directamente el código fuente de la aplicación —componentes, rutas, estilos y lógica de negocio—. Usa esta pregunta cuando cualquiera de las dos opciones podría resolver la solicitud:
+
+- **Empieza con una extensión** para un widget autónomo y relativamente puntual: una visualización o interacción personalizada, un bloque de dashboard, una utilidad independiente o un complemento en un slot existente. Es rápida, no requiere cambios en el código fuente, compilación ni despliegue, y puede ser privada o compartida.
+- **Usa el código de la aplicación** para una función principal de la plantilla, cambios en la UI nativa, el layout, las rutas o la lógica de negocio, o cualquier cosa que deba reutilizarse ampliamente en dashboards o usuarios. Si el host no tiene un slot adecuado o la solicitud necesita uno nuevo, usa código.
+- **Promueve las extensiones repetidas.** Si se vuelve a crear la misma extensión una y otra vez, o mantener muchas copias sería peor que una implementación compartida, pásala al código de la aplicación como una función nativa reutilizable.
 
 |                                 | Extensión                                                     | Edición del código de la aplicación                       |
 | ------------------------------- | ------------------------------------------------------------- | --------------------------------------------------------- |
@@ -438,7 +442,7 @@ El marco permite al agente editar el código fuente de la aplicación directamen
 | **Alcance**                     | Un usuario (o compartido con la organización)                 | El producto completo, cada usuario                        |
 | **Mejor para**                  | Widgets personales, KPI personalizados, utilidades por equipo | Funciones principales disponibles para todos los usuarios |
 
-Regla general: **si es para un usuario o un equipo, es una extensión.** Si todos los usuarios de la plantilla deben obtenerla, envíela como una característica real.
+Regla general: **si una extensión puede resolver el problema, normalmente empieza por ahí.** Usa código cuando el límite de las extensiones no encaje o cuando la reutilización amplia y la disponibilidad para todo el producto justifiquen una implementación nativa. Por ejemplo, una visualización personalizada puntual en un dashboard es una buena extensión; un nuevo tipo de gráfico circular, de barras múltiples o de líneas que deba estar disponible en todos los dashboards pertenece al código de la plantilla.
 
 Para la obtención de datos personalizada que deba alimentar gráficos y tablas nativos en lugar de una UI de widget a medida, vea [Programas de datos](/docs/data-programs) — un script `run-code` almacenado y actualizable al que los paneles de dashboard se vinculan directamente, sin ningún iframe de extensión de por medio.
 

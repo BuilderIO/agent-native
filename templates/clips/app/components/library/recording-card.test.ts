@@ -46,4 +46,21 @@ describe("library recording cards", () => {
     expect(source).toContain("captureInstall.openDesktopApp");
     expect(source).toContain("nativeUploadPaused");
   });
+
+  it("keeps sharing available on read-only cards", () => {
+    const source = readSource("./recording-card.tsx");
+
+    expect(source).toContain(
+      "const showActions = Boolean(onShare || onMove || onArchive || onTrash);",
+    );
+    expect(source).toContain("{onShare && (");
+  });
+
+  it("shows the creator and creation time beneath the title", () => {
+    const source = readSource("./recording-card.tsx");
+
+    expect(source).toContain("alt={recording.ownerEmail}");
+    expect(source).toContain("{recording.ownerEmail}");
+    expect(source).toContain("{relative}");
+  });
 });

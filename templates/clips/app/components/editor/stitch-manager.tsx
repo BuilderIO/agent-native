@@ -23,24 +23,10 @@ import {
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { exportConcat } from "@/lib/ffmpeg-export";
+import { copyRecordingShareLink } from "@/lib/recording-link";
 import { formatMs } from "@/lib/timestamp-mapping";
+import { uploadFileClient } from "@/lib/upload-file-client";
 import { cn } from "@/lib/utils";
-
-/** Client-side upload via the framework's auto-mounted `/file-upload` route. */
-async function uploadFileClient(
-  blob: Blob,
-  filename: string,
-): Promise<{ url: string } | null> {
-  const form = new FormData();
-  form.append("file", blob, filename);
-  const res = await fetch(agentNativePath("/_agent-native/file-upload"), {
-    method: "POST",
-    body: form,
-  });
-  if (!res.ok) return null;
-  const json = await res.json();
-  return json?.url ? { url: json.url as string } : null;
-}
 
 export interface StitchManagerProps {
   open: boolean;
@@ -157,7 +143,26 @@ export function StitchManager({
         videoUrl,
         durationMs: totalDuration,
       });
-      toast.success(t("stitchManager.created"));
+      const newRecordingId = (result as { id?: string } | null)?.id;
+      if (newRecordingId) {
+        const copied = await copyRecordingShareLink(newRecordingId);
+        if (copied) {
+          toast.success(t("stitchManager.created"), {
+            description: t("recordRoute.linkCopied"),
+          });
+        } else {
+          toast.success(t("stitchManager.created"), {
+            action: {
+              label: t("recordRoute.copyLinkAction"),
+              onClick: () => {
+                void copyRecordingShareLink(newRecordingId);
+              },
+            },
+          });
+        }
+      } else {
+        toast.success(t("stitchManager.created"));
+      }
       onOpenChange(false);
       return result;
     } catch (err: any) {

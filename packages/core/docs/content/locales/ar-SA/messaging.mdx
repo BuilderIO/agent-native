@@ -20,6 +20,7 @@ description: "تحدث إلى وكيلك عبر Slack أو Microsoft Teams أو 
 - **إرسال رسالة مباشرة للوكيل على Slack**، أو `@mention` في أي قناة.
 - **راسل الوكيل على Telegram أو WhatsApp** من هاتفك.
 - **نفس الوكيل، نفس الذاكرة.** كل ما تقوله على Slack يتم تذكره عندما ترسله بالبريد الإلكتروني لاحقًا. تشترك دردشة الويب والرسائل الخارجية في سجل موضوع واحد.
+- **نفّذ إجراءات في أدوات أخرى انطلاقًا من رسالة.** يمكن أن ينتهي `@mention` بصف في Notion أو مهمة في Jira أو سجل في HubSpot — راجع [`@mention` في Slack ← صف في Notion](#slack-to-notion) للمثال الكامل.
 - للحصول على تنبيهات أحادية الاتجاه داخل التطبيق (رمز الجرس، webhooks)، راجع [Notifications](/docs/notifications).
 
 <Diagram id="doc-block-13wwymq" title={"العديد من القنوات، وكيل واحد"} summary={"تنضم كل منصة إلى نفس حلقة الوكيل ونفس سجل سلاسل الرسائل SQL - لذلك تواصل رسالة مباشرة Slack وبريد إلكتروني نفس المحادثة."}>
@@ -195,6 +196,179 @@ users:read.email
 Slack، وتفرض ميزانيات يومية أو شهرية للمؤسسة أو الطالب أو القناة مع سجل تدقيق كامل.
 يتيح `assistant:write` أحداث سياق Agent View، بينما يتيح `chat:write` الردود
 وتحديثات الحالة المباشرة.
+
+### مثال عملي كامل: `@mention` في Slack ← صف في Notion {#slack-to-notion}
+
+بعد أن تعمل إشارات Slack، يكون الطلب التالي الأكثر شيوعًا صيغة من صيغ _«عندما أشير إلى الوكيل بـ `@mention` داخل سلسلة رسائل، خذ ما كتبته وأضفه صفًا في قاعدة بيانات Notion الخاصة بي»_. هذا ممكن بالفعل — استقبال Slack، وواجهة مزوّد Notion، وإجراءات التطبيق كلها مدمجة — لكنه يتطلب ربط ثلاثة أجزاء بالترتيب الصحيح، واثنان منها يفشلان بصمت إذا تجاوزتهما.
+
+كل ما يظهر بين `<ANGLE_BRACKETS>` أدناه هو عنصر نائب. لا تلصق أبدًا سرًا حقيقيًا من Notion في الشيفرة المصدرية أو في ملف `.env` مُودَع في المستودع أو في رسالة دردشة.
+
+#### 1. اجعل الإشارات تصل إلى التطبيق
+
+أكمل [إعداد Slack](#slack) وتأكد من أن `@mention` في قناة يحصل على رد قبل أن تبدأ بـ Notion. هناك سلوكان مهمان لبقية المثال:
+
+- الرسالة التي تحتوي على `@mention` هي الاستدعاء، ونصها هو ما يراه الوكيل.
+- الرد العادي اللاحق في السلسلة نفسها يصل إلى الوكيل **فقط ما دام لتلك السلسلة عمل قيد التنفيذ**. إذا انتهى التشغيل فسيُتجاهل ردك اللاحق — أعد استخدام `@mention` بدل افتراض أن الوكيل ما زال يستمع.
+
+#### 2. أتِح إجراءات واجهة المزوّد
+
+يأتي Core بإعداد مسبق لمزوّد Notion (عنوان URL الأساسي، وترويسة `Notion-Version`، والمصادقة، وروابط التوثيق)، لكن الإجراءات الثلاثة التي تتيح للوكيل استخدامه — `provider-api-catalog` و`provider-api-docs` و`provider-api-request` — هي **تصدير مسار فرعي اختياري**. التطبيق الذي لم يضِفها مطلقًا لا يملك أي طريق إلى Notion، وسيقول الوكيل إنه لا يملك أداة Notion. هذه هي الخطوة التي يفوّتها معظم الناس.
+
+أضِف بيئة تشغيل المزوّد:
+
+```ts
+// server/lib/provider-api.ts
+import { createProviderApiRuntime } from "@agent-native/core/provider-api";
+
+const runtime = createProviderApiRuntime({
+  appId: "<YOUR_APP_ID>",
+  providerIds: ["notion"],
+});
+
+export function getProviderApiRuntime() {
+  return runtime;
+}
+```
+
+ثم أضِف ملف إجراء رفيعًا لكل معرّف إجراء. جميع خيارات المصنع اختيارية، لذا يكفي في كل ملف استدعاء واحد:
+
+```ts
+// actions/provider-api-catalog.ts
+import { createProviderApiCatalogAction } from "@agent-native/core/provider-api/actions/provider-api";
+
+import { getProviderApiRuntime } from "../server/lib/provider-api.js";
+
+export default createProviderApiCatalogAction(getProviderApiRuntime());
+```
+
+```ts
+// actions/provider-api-docs.ts
+import { createProviderApiDocsAction } from "@agent-native/core/provider-api/actions/provider-api";
+
+import { getProviderApiRuntime } from "../server/lib/provider-api.js";
+
+export default createProviderApiDocsAction(getProviderApiRuntime());
+```
+
+```ts
+// actions/provider-api-request.ts
+import { createProviderApiRequestAction } from "@agent-native/core/provider-api/actions/provider-api";
+
+import { getProviderApiRuntime } from "../server/lib/provider-api.js";
+
+export default createProviderApiRequestAction(getProviderApiRuntime());
+```
+
+تُكتشف الملفات الموجودة في `actions/` تلقائيًا — لا يوجد سجل يحتاج إلى تعديل. راجع [إعادة استخدام مصانع الإجراءات في Core](/docs/integrations#provider-api-factories) لتضييق قائمة المزوّدين أو إتاحتها عبر HTTP.
+
+#### 3. ضع مفتاح Notion في الخزنة لا في `.env`
+
+أنشئ تكاملًا داخليًا على **[notion.so/my-integrations](https://www.notion.so/my-integrations)** وانسخ سرّه. ثم في تطبيقك افتح **Settings → API Keys & Connections**، وأضِف مفتاحًا باسم `NOTION_API_KEY` تمامًا، والصق القيمة، واختر النطاق:
+
+- **Personal** — لا يستطيع استخدامه إلا التشغيلات التي تجري باسمك.
+- **Workspace** — مشترك مع المؤسسة. اختر هذا إذا كان غيرك سيشير إلى الوكيل، لأن تشغيل Slack يجري باسم مالك التكامل لا باسم من كتب الرسالة.
+
+تحلّ بيئة تشغيل المزوّد بيانات الاعتماد من الخزنة المشفّرة بهذا الترتيب — شخصي، ثم مؤسسة، ثم مساحة عمل — و**لا تقرأ `process.env` إطلاقًا وعن قصد**، لأن متغيّر بيئة على مستوى النشر سيكون مشتركًا بين جميع مستخدمي تطبيق متعدد المستأجرين. لن يُؤخذ سطر `NOTION_API_KEY` في `.env` بعين الاعتبار هنا.
+
+#### 4. شارك قاعدة البيانات مع التكامل
+
+في Notion، افتح قاعدة البيانات المستهدفة ثم أضِف تكاملك من **••• → Connections →**. تخطّي هذه الخطوة هو أكثر أعطال Notion شيوعًا وأكثرها تضليلًا: تُجيب الواجهة بـ **404** لا 403، فيبدو الأمر وكأن معرّف قاعدة البيانات خاطئ. يحمل مدخل الكتالوج نصّ المعالجة هذا، ويضيفه `provider-api-request` إلى حقل `guidance` في أي استجابة 401 أو 403 أو 404.
+
+تجد معرّف قاعدة البيانات في عنوان URL الخاص بها — وهو السلسلة المكوّنة من 32 حرفًا قبل `?`.
+
+#### 5. اطلب من وكيلك أن يبنيه
+
+هذا هو الجزء الذي لا تخبرك به أي شاشة إعداد: لست أنت من يربط النصفين، بل تطلب السلوك المطلوب. في دردشة الوكيل داخل التطبيق:
+
+> أضِف إجراءً باسم `add-notion-row` يضيف صفًا إلى قاعدة بيانات Notion `<NOTION_DATABASE_ID>` عبر واجهة المزوّد. يجب أن يستقبل نص الرسالة، وكاتبها في Slack، ورابطًا يعود إلى رسالة Slack. ثم حدِّث `AGENTS.md` بحيث تستدعي هذا الإجراء وترد بعنوان صفحة Notion الجديدة عندما يشير إليك أحد بـ `@mention` في Slack ويطلب تسجيل شيء أو حفظه.
+
+ما ينبغي أن يكتبه الوكيل هو **إجراء واحد** — لا مسار Nitro، ولا `fetch` من المتصفح:
+
+```ts
+// actions/add-notion-row.ts
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+import { getProviderApiRuntime } from "../server/lib/provider-api.js";
+
+export default defineAction({
+  description:
+    "Append one row to the team's Notion database, e.g. from a Slack reply.",
+  schema: z.object({
+    databaseId: z.string().describe("Notion database id"),
+    text: z.string().min(1).describe("Body of the message to record"),
+    author: z.string().optional().describe("Who said it"),
+    sourceUrl: z.string().url().optional().describe("Link back to Slack"),
+  }),
+  run: async ({ databaseId, text, author, sourceUrl }) => {
+    const runtime = getProviderApiRuntime();
+
+    const database = await runtime.executeRequest({
+      provider: "notion",
+      method: "GET",
+      path: `/databases/${databaseId}`,
+    });
+    if (!database.response.ok) {
+      throw new Error(
+        `Notion rejected the database lookup (${database.response.status}). ${database.guidance}`,
+      );
+    }
+
+    const dataSourceId = (
+      database.response.json as { data_sources?: { id: string }[] }
+    )?.data_sources?.[0]?.id;
+    if (!dataSourceId) {
+      throw new Error("That Notion database has no readable data source.");
+    }
+
+    const created = await runtime.executeRequest({
+      provider: "notion",
+      method: "POST",
+      path: "/pages",
+      body: {
+        parent: { data_source_id: dataSourceId },
+        properties: {
+          Name: { title: [{ text: { content: text.slice(0, 200) } }] },
+          ...(author
+            ? { Author: { rich_text: [{ text: { content: author } }] } }
+            : {}),
+          ...(sourceUrl ? { Source: { url: sourceUrl } } : {}),
+        },
+      },
+    });
+    if (!created.response.ok) {
+      throw new Error(
+        `Notion rejected the new row (${created.response.status}). ${created.guidance}`,
+      );
+    }
+
+    return created.response.json;
+  },
+});
+```
+
+ثلاث تفاصيل في هذا المثال أساسية:
+
+- ترتبط الصفوف في إصدارات Notion الحالية بـ**مصدر بيانات** داخل قاعدة البيانات، لذا اقرأ قاعدة البيانات أولًا واستخدم `data_sources[0].id` الخاص بها كأب. تمرير معرّف قاعدة البيانات مباشرةً كأب هو صيغة الواجهة القديمة.
+- يعيد `executeRequest` أخطاء المزوّد بدل رميها، لذا تحقّق بنفسك من `response.ok` ومرّر قيمة `guidance` المعادة — فهناك تصل تلميحة «شارك قاعدة البيانات».
+- يجب أن تطابق أسماء الخصائص (`Name` و`Author` و`Source`) أعمدة قاعدة بياناتك تمامًا، وأن تطابق الأنواع أيضًا. اجعل الوكيل يقرأ `properties` الخاصة بقاعدة البيانات أولًا بدل التخمين.
+
+الجزء الخاص بـ `AGENTS.md` ليس اختياريًا. من دونه يملك الوكيل الأداة لكن لا سبب لديه لاستخدامها حين تقول رسالة في Slack «سجّل هذا».
+
+#### 6. تأكّد من نجاحه، وماذا تفحص عند الفشل
+
+في قناة Slack التي يوجد فيها الوكيل، اكتب `@YourAgent سجّل هذا في Notion: <SOME_TEXT>`. التشغيل الناجح يرد داخل السلسلة بعنوان الصفحة الجديدة، ويظهر الصف في Notion.
+
+عندما لا ينجح:
+
+| ما تراه                                                   | أين تبحث                                                                                                                            |
+| --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| لا يرد Slack إطلاقًا                                      | لم تصل الإشارة إلى التطبيق أصلًا. أعِد فحص Request URL وسر التوقيع في [إعداد Slack](#slack) — هذه ليست مشكلة Notion.                |
+| يرد الوكيل لكنه يقول إنه لا يملك أداة Notion              | الخطوة 2. لم تُضَف إجراءات واجهة المزوّد إلى `actions/` مطلقًا.                                                                     |
+| `notion credential not configured. Tried: NOTION_API_KEY` | الخطوة 3. المفتاح موجود في `.env`، أو محفوظ بنطاق **Personal** لحساب غير الحساب الذي يجري التشغيل باسمه. احفظه بنطاق **Workspace**. |
+| يرد Notion بـ `404`                                       | الخطوة 4. لم تُشارَك قاعدة البيانات مع التكامل.                                                                                     |
+| يرد Notion بـ `400` بخصوص الخصائص                         | أسماء الخصائص أو أنواعها في الإجراء لا تطابق أعمدة قاعدة البيانات.                                                                  |
+| نجح مرة، ثم جرى تجاهل رد لاحق في السلسلة                  | هذا متوقّع. ردود السلسلة بلا إشارة لا تصل إلى الوكيل إلا ما دام للسلسلة عمل نشط — أعد استخدام `@mention`.                           |
 
 ## إعداد تيليجرام {#telegram}
 

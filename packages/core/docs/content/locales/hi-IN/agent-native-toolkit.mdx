@@ -95,6 +95,17 @@ Toolkit उच्च-गुणवत्ता वाले एजेंटिक
 - इस चरण में Blocks और Context X-Ray इंजन **Core** के स्वामित्व में रहते हैं; पुन: उपयोग योग्य Context X-Ray प्रस्तुति Toolkit की है।
 - Creative Context, Scheduling और Pinpoint मांग पर इंस्टॉल किए जाने वाले **Toolkit क्षमता मॉड्यूल** हैं; वे अलग npm पैकेज और लाइफसाइकल मैनिफेस्ट रखते हैं। Dispatch अलग उत्पाद बना रहता है।
 
+## डैशबोर्ड किट {#dashboard-kit}
+
+`@agent-native/toolkit/dashboard` केवल प्रस्तुति के लिए ejectable इकाई है: metric
+और stats cards, tables, date range, panel order/layout और generic charts। ऐप
+rows और callbacks देता है; किट data fetch नहीं करता और dashboard state या
+credentials नहीं रखता। `@agent-native/core/dashboard-storage` को हर ऐप के लिए
+अपने schema और access के साथ instantiate करें; default `program` source ऐप का
+data program चलाता है।
+इसे लागू करने से पहले `agent-native eject inspect toolkit/dashboard` चलाएँ। Provider
+resolver उसी ऐप में रखें जो connection और query policy का स्वामी है।
+
 ## कार्यान्वयन सीमा {#implementation-boundary}
 
 किट पहले उत्पाद सतहें हैं। कुछ हिस्से रनटाइम-समर्थित हैं (`@agent-native/core`), कुछ प्रस्तुति प्रिमिटिव हैं (`@agent-native/toolkit`), और ऐप्स सामान्यतः दोनों को स्थानीय अडैप्टर से रैप करते हैं। आवश्यक व्यवहार का स्वामी पैकेज पथ उपयोग करें, लेकिन उपयोगकर्ता-मुखी सेटिंग्स, सहयोग, शेयरिंग, टीम, समीक्षा और सेटअप अनुभवों को ऐप में पैकेज सीमाएँ दिखाने के बजाय एक सुसंगत किट के रूप में डिज़ाइन करें।

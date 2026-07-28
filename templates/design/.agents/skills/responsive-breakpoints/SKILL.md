@@ -27,6 +27,14 @@ scopes to `≤ 809px`). `breakpointUpperBoundPx` in
 
 ## Managing breakpoints
 
+A newly generated design's frame set comes from `generate-design`'s `devices`
+param (`("mobile"|"tablet"|"desktop")[]`, default `["desktop","mobile"]`). The
+cascade is **desktop-base**: the widest requested device is the primary/base
+frame and each narrower device is a breakpoint frame. The default injected set
+is therefore a Desktop base plus a single Mobile (390) breakpoint frame — the
+narrower frame(s) only, never a frame at the primary desktop width and never an
+auto-added tablet.
+
 - `add-breakpoint` — adds a device-width frame to `designs.data.breakpointSet`
   (Framer defaults: Desktop 1200 / Tablet 810 / Phone 390, or custom 320-3840).
   Duplicate widths are ignored.
@@ -35,7 +43,10 @@ scopes to `≤ 809px`). `breakpointUpperBoundPx` in
 - `set-active-breakpoint` — persists the active edit scope to application
   state (`design-active-breakpoint:<designId>`); the UI mirrors it in the
   `design-selection` state (`activeBreakpointId`). Check the active
-  breakpoint via `view-screen` before making responsive-only edits.
+  breakpoint via `view-screen` before making responsive-only edits. Its
+  `editScope` is `cascade-smaller` by default (edits at this breakpoint also
+  apply to every narrower one); pass `only` when the user explicitly wants a
+  bounded, breakpoint-only override.
 
 The UI's breakpoint bar (chips above the focused screen) and the overview's
 side-by-side linked frames drive the same state — a chip click changes the

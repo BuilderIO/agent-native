@@ -9,6 +9,28 @@ import {
   signA2AToken,
 } from "./client.js";
 
+// ssrfSafeFetch does a REAL node:dns lookup before calling fetch. Under fake
+// timers that wall-clock work can take seconds on CI resolvers (agent.test is
+// not a real host), so fake time races past request timeouts and deadlines
+// before the stubbed fetch is ever reached. Keep the synchronous private-host
+// check (the blocking test relies on it; IP literals need no DNS) and skip
+// only the DNS phase — full SSRF behavior is covered by url-safety's own spec.
+vi.mock("../extensions/url-safety.js", async (importOriginal) => {
+  const original =
+    await importOriginal<typeof import("../extensions/url-safety.js")>();
+  return {
+    ...original,
+    ssrfSafeFetch: async (url: string, init?: RequestInit) => {
+      if (original.isBlockedExtensionUrl(url)) {
+        throw new Error(
+          `SSRF blocked: refusing to fetch private/internal address (${url})`,
+        );
+      }
+      return fetch(url, init);
+    },
+  };
+});
+
 describe("A2AClient", () => {
   const originalEnv = { ...process.env };
 
@@ -141,6 +163,137 @@ describe("A2AClient", () => {
     ).rejects.toBeInstanceOf(A2ATaskTimeoutError);
   });
 
+  it("bounds a hung task-status request by the overall poll deadline", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn(
+      async (_url: string, init?: RequestInit): Promise<Response> => {
+        if (init?.method !== "POST") {
+          return new Response("not found", { status: 404 });
+        }
+        const body = JSON.parse(String(init.body));
+        if (body.method === "message/send") {
+          return workingResponse(body, "task-hung-poll");
+        }
+
+        return new Promise<Response>((_resolve, reject) => {
+          const rejectAborted = () =>
+            reject(new DOMException("The operation was aborted", "AbortError"));
+          if (init.signal?.aborted) {
+            rejectAborted();
+            return;
+          }
+          init.signal?.addEventListener("abort", rejectAborted, {
+            once: true,
+          });
+        });
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new A2AClient("https://agent.test");
+    const result = client.sendAndWait(
+      { role: "user", parts: [{ type: "text", text: "hello" }] },
+      { timeoutMs: 5_000, pollIntervalMs: 1_000 },
+    );
+    // Attach a handler before advancing timers so the intentional rejection is
+    // never reported as unhandled while the fake clock is moving.
+    void result.catch(() => undefined);
+
+    const hasTaskRead = () =>
+      fetchMock.mock.calls.some(
+        ([, init]) =>
+          init?.method === "POST" &&
+          JSON.parse(String(init.body)).method === "tasks/get",
+      );
+    // waitFor advances fake time in coarse intervals. Stepping the clock 1ms at
+    // a time performs 1,000 async flushes and can exceed Vitest's real 5s test
+    // timeout when the full suite is under load.
+    await vi.waitFor(() => expect(hasTaskRead()).toBe(true), {
+      interval: 100,
+      timeout: 5_000,
+    });
+    await vi.runAllTimersAsync();
+    await expect(result).rejects.toMatchObject({
+      name: "A2ATaskTimeoutError",
+      taskId: "task-hung-poll",
+      lastState: "working",
+      timeoutMs: 5_000,
+    });
+    expect(hasTaskRead()).toBe(true);
+    expect(
+      fetchMock.mock.calls.find(
+        ([, init]) =>
+          init?.method === "POST" &&
+          JSON.parse(String(init.body)).method === "tasks/get",
+      )?.[1]?.signal,
+    ).toBeInstanceOf(AbortSignal);
+  }, 30_000);
+
+  it("recovers after one task-status request exceeds the per-request timeout", async () => {
+    vi.useFakeTimers();
+    let taskReads = 0;
+    let firstPollSignal: AbortSignal | null = null;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit): Promise<Response> => {
+        if (init?.method !== "POST") {
+          return new Response("not found", { status: 404 });
+        }
+        const body = JSON.parse(String(init.body));
+        if (body.method === "message/send") {
+          return workingResponse(body, "task-transient-hung-poll");
+        }
+
+        taskReads += 1;
+        if (taskReads === 1) {
+          firstPollSignal = init.signal ?? null;
+          return new Promise<Response>((_resolve, reject) => {
+            const rejectAborted = () =>
+              reject(
+                new DOMException("The operation was aborted", "AbortError"),
+              );
+            if (init.signal?.aborted) {
+              rejectAborted();
+              return;
+            }
+            init.signal?.addEventListener("abort", rejectAborted, {
+              once: true,
+            });
+          });
+        }
+        return completedResponse(body, "recovered after transient poll hang");
+      }),
+    );
+
+    const client = new A2AClient("https://agent.test");
+    const result = client.sendAndWait(
+      { role: "user", parts: [{ type: "text", text: "hello" }] },
+      { timeoutMs: 60_000, pollIntervalMs: 1_000 },
+    );
+    // Attach a handler before advancing timers so an unexpected rejection is
+    // never reported as unhandled while the fake clock is moving.
+    void result.catch(() => undefined);
+
+    // Same coarse-interval pacing rationale as the hung-poll test above.
+    await vi.waitFor(() => expect(taskReads).toBeGreaterThan(0), {
+      interval: 100,
+      timeout: 5_000,
+    });
+    await vi.runAllTimersAsync();
+    await expect(result).resolves.toMatchObject({
+      status: {
+        state: "completed",
+        message: {
+          parts: [
+            { type: "text", text: "recovered after transient poll hang" },
+          ],
+        },
+      },
+    });
+    expect(firstPollSignal?.aborted).toBe(true);
+    expect(taskReads).toBe(2);
+  }, 30_000);
+
   it("returns input-required without polling until timeout", async () => {
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body));
@@ -248,6 +401,47 @@ describe("A2AClient", () => {
         ],
       },
     );
+  });
+
+  it("transports structured source context in A2A metadata", async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      expect(body.params.metadata.sourceContext).toEqual({
+        platform: "slack",
+        integrationTaskId: "integration-task-1",
+      });
+      return completedResponse(body, "sent");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await callAgent("https://agent.test", "capture this", {
+      async: false,
+      sourceContext: {
+        platform: "slack",
+        integrationTaskId: "integration-task-1",
+      },
+    });
+  });
+
+  it("forwards additional metadata without letting it override caller identity", async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      expect(body.params.metadata).toMatchObject({
+        googleToken: "fake-google-token",
+        userEmail: "verified@example.test",
+      });
+      return completedResponse(body, "sent");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await callAgent("https://agent.test", "capture this", {
+      async: false,
+      metadata: {
+        googleToken: "fake-google-token",
+        userEmail: "spoofed@example.test",
+      },
+      userEmail: "verified@example.test",
+    });
   });
 
   it("sends bounded correlation metadata and idempotency at the protocol top level", async () => {
@@ -450,7 +644,7 @@ describe("A2AClient", () => {
     );
 
     const result = callAgent("https://slides.agent.test", "make a deck", {
-      timeoutMs: 3,
+      timeoutMs: 200,
       pollIntervalMs: 1,
     });
     const assertion = expect(result).resolves.toContain(
@@ -655,6 +849,49 @@ describe("A2AClient", () => {
         org_domain: "builder.io",
       },
     });
+  });
+
+  it("tries explicit bearer token fallbacks in order", async () => {
+    const bearerTokens: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method !== "POST")
+          return new Response("not found", { status: 404 });
+        bearerTokens.push(
+          String(new Headers(init.headers).get("authorization") ?? "").replace(
+            /^Bearer\s+/i,
+            "",
+          ),
+        );
+        const body = JSON.parse(String(init.body));
+        if (bearerTokens.length < 3) {
+          return new Response(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: body.id,
+              error: { code: -32001, message: "Invalid or expired A2A token" },
+            }),
+            { status: 401 },
+          );
+        }
+        return completedResponse(body, "signed with explicit fallback");
+      }),
+    );
+
+    await expect(
+      callAgent("https://agent.test", "hello", {
+        async: false,
+        apiKey: "primary-test-key",
+        apiKeyFallbacks: ["first-test-fallback", "second-test-fallback"],
+      }),
+    ).resolves.toBe("signed with explicit fallback");
+
+    expect(bearerTokens).toEqual([
+      "primary-test-key",
+      "first-test-fallback",
+      "second-test-fallback",
+    ]);
   });
 
   it("retries async task polling with fallback delegated bearer tokens", async () => {

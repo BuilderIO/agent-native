@@ -222,6 +222,58 @@ describe("mountActionRoutes", () => {
     expect(event._status).toBe(403);
   });
 
+  it("captures uncategorized action failures with low-cardinality context", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { registerErrorCaptureProvider } = await import("./capture-error.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const error = new Error("upstream failed");
+    const provider = vi.fn(() => "evt_action_failure");
+    const unregister = registerErrorCaptureProvider(
+      "action-routes-test",
+      provider,
+    );
+    const actions: Record<string, ActionEntry> = {
+      "resolve-notion-sync-conflict": {
+        run: vi.fn(async () => {
+          throw error;
+        }),
+      } as any,
+    };
+
+    try {
+      mountActionRoutes(nitroApp, actions);
+
+      const event = {
+        _method: "POST",
+        _headers: { "x-agent-native-frontend": "1" },
+        req: {
+          url: "http://app.test/_agent-native/actions/resolve-notion-sync-conflict",
+          json: async () => ({}),
+        },
+      };
+      const result = await mounted[0].handler(event);
+
+      expect(result).toEqual({ error: "Internal server error" });
+      expect(event._status).toBe(500);
+      expect(provider).toHaveBeenCalledWith(error, {
+        route: "/_agent-native/actions/resolve-notion-sync-conflict",
+        method: "POST",
+        tags: {
+          action: "resolve-notion-sync-conflict",
+          caller: "frontend",
+          status_code: "500",
+        },
+      });
+    } finally {
+      unregister();
+    }
+  });
+
   it("serializes plain string action results as JSON strings", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     const mounted: Array<{ path: string; handler: any }> = [];

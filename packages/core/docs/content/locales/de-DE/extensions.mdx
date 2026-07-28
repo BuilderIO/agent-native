@@ -213,7 +213,7 @@ Muster in all diesen Punkten: Bei Erweiterungen geht es um **den Moment**, in de
 
 Der einfache Pfad:
 
-1. **Klicken Sie in der Seitenleiste auf „Neue Erweiterung“** (oder fragen Sie einfach im Chat).
+1. Öffnen Sie **Settings → Extensions** (oder fragen Sie einfach im Chat) und klicken Sie dann auf **„Neue Erweiterung“**.
 2. **Beschreiben Sie in einem Satz, was Sie möchten.** „Ein Haftnotizblock für den Kontakt, dem ich eine E-Mail sende.“ „Eine KPI-Box für Testversionen ist diese Woche gestartet.“
 3. **Der Agent schreibt es und es erscheint in Ihrer Erweiterungsliste und ist einsatzbereit.**
 
@@ -425,9 +425,13 @@ Erweiterungen sind standardmäßig privat für den Benutzer, der sie erstellt ha
 
 Freigegebene Erweiterungen haben ihre eigenen URLs und werden in denselben Freigabedialog eingebunden wie Dokumente, Decks und Dashboards. Slot-Installationen sind immer persönlich – das Teilen einer Erweiterung bedeutet, dass andere sie installieren können; Es wird nicht automatisch an UI angeheftet.
 
-## Erweiterungen vs. Bearbeiten des App-Codes {#vs-app-code}
+## Sollte ich eine Erweiterung verwenden oder den App-Code bearbeiten? {#vs-app-code}
 
-Mit dem Framework kann der Agent den Quellcode der App direkt bearbeiten – Komponenten, Routen, Stile. Wann sollten Sie stattdessen zu einer Erweiterung greifen?
+Mit dem Framework kann der Agent den Quellcode der App direkt bearbeiten – Komponenten, Routen, Stile und Geschäftslogik. Verwenden Sie diese Frage, wenn beide Wege die Anfrage lösen könnten:
+
+- **Beginnen Sie mit einer Erweiterung** für ein eigenständiges, relativ einmaliges Widget: eine benutzerdefinierte Visualisierung oder Interaktion, eine Dashboard-Kachel, ein eigenständiges Dienstprogramm oder ein Zusatz in einem vorhandenen Slot. Sie ist schnell, benötigt keine Quellcodeänderung, keinen Build und keine Bereitstellung und kann privat oder geteilt sein.
+- **Verwenden Sie App-Code** für eine Kernfunktion der Vorlage, Änderungen an nativer UI, Layout, Routen oder Geschäftslogik oder für etwas, das über viele Dashboards oder Benutzer hinweg breit wiederverwendet werden soll. Wenn kein geeigneter Slot vorhanden ist oder ein neuer Slot benötigt wird, verwenden Sie Code.
+- **Überführen Sie wiederholte Erweiterungen.** Wenn dieselbe Erweiterung immer wieder erstellt wird oder die Pflege vieler Kopien schlechter wäre als eine gemeinsame Implementierung, verschieben Sie sie als wiederverwendbare native Funktion in den App-Code.
 
 |                                   | Erweiterung                                                                   | App-Code bearbeiten                                      |
 | --------------------------------- | ----------------------------------------------------------------------------- | -------------------------------------------------------- |
@@ -438,7 +442,7 @@ Mit dem Framework kann der Agent den Quellcode der App direkt bearbeiten – Kom
 | **Umfang**                        | Ein Benutzer (oder mit der Organisation geteilt)                              | Das gesamte Produkt, jeder Benutzer                      |
 | **Am besten für**                 | Persönliche Widgets, benutzerdefinierte KPIs, teamspezifische Dienstprogramme | Kernfunktionen, die allen Benutzern zur Verfügung stehen |
 
-Faustregel: **Wenn es für einen Benutzer oder ein Team ist, handelt es sich um eine Erweiterung.** Wenn jeder Benutzer der Vorlage sie erhalten soll, liefern Sie sie als echtes Feature aus.
+Faustregel: **Wenn eine Erweiterung das Problem lösen kann, beginnen Sie im Allgemeinen damit.** Verwenden Sie Code, wenn die Erweiterungsgrenze nicht passt oder breite Wiederverwendung und produktweite Verfügbarkeit eine native Implementierung rechtfertigen. Eine einmalige benutzerdefinierte Visualisierung in einem Dashboard ist beispielsweise eine gute Erweiterung; ein neuer Kreis-, Mehrfachbalken- oder Liniendiagrammtyp, der in allen Dashboards verfügbar sein soll, gehört in den Vorlagencode.
 
 Für benutzerdefinierten Datenabruf, der native Diagramme und Tabellen speisen soll statt einer eigens gebauten Widget-UI, siehe [Datenprogramme](/docs/data-programs) — ein gespeichertes, aktualisierbares `run-code`-Skript, an das sich Dashboard-Panels direkt binden, ganz ohne Extension-iframe.
 

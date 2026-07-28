@@ -106,6 +106,7 @@ interface DashboardUsageStats {
   viewCount: number;
   engagementCount: number;
   eventEngagementCount: number;
+  editCount: number;
   savedViewCount: number;
   uniqueUserCount: number;
   lastViewedAt: string | null;
@@ -135,6 +136,7 @@ function DashboardUsageAdminPanel() {
   const t = useT();
   const { formatDate } = useFormatters();
   const numberFormat = useMemo(() => new Intl.NumberFormat(), []);
+  const [sortBy, setSortBy] = useState<"views" | "edits">("views");
   const {
     data: dashboards = [],
     isLoading,
@@ -172,7 +174,25 @@ function DashboardUsageAdminPanel() {
   const staleDashboards = dashboards.filter(
     (dashboard) => dashboard.viewCount === 0 && !dashboard.archivedAt,
   );
-  const mostViewedDashboard = dashboards[0] ?? null;
+  const mostViewedDashboard = dashboards.reduce<DashboardUsageStats | null>(
+    (mostViewed, dashboard) =>
+      !mostViewed || dashboard.viewCount > mostViewed.viewCount
+        ? dashboard
+        : mostViewed,
+    null,
+  );
+  const sortedDashboards = useMemo(
+    () =>
+      [...dashboards].sort((a, b) => {
+        const primary =
+          sortBy === "views"
+            ? b.viewCount - a.viewCount
+            : b.editCount - a.editCount;
+        if (primary !== 0) return primary;
+        return b.updatedAt.localeCompare(a.updatedAt);
+      }),
+    [dashboards, sortBy],
+  );
 
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-4">
@@ -185,6 +205,27 @@ function DashboardUsageAdminPanel() {
             {t("agents.dashboardUsageDescription")}
           </p>
         </div>
+        <Select
+          value={sortBy}
+          onValueChange={(value) => {
+            if (value === "views" || value === "edits") setSortBy(value);
+          }}
+        >
+          <SelectTrigger
+            className="w-44"
+            aria-label={t("agents.dashboardUsageSort")}
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="views">
+              {t("agents.dashboardUsageMostViewed")}
+            </SelectItem>
+            <SelectItem value="edits">
+              {t("agents.dashboardUsageMostEdited")}
+            </SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       {error ? (
@@ -260,6 +301,7 @@ function DashboardUsageAdminPanel() {
                     <TableHead>{t("agents.dashboardUsageDashboard")}</TableHead>
                     <TableHead>{t("agents.dashboardUsageOwner")}</TableHead>
                     <TableHead>{t("agents.dashboardUsageViews")}</TableHead>
+                    <TableHead>{t("agents.dashboardUsageEdits")}</TableHead>
                     <TableHead>
                       {t("agents.dashboardUsageEngagements")}
                     </TableHead>
@@ -270,7 +312,7 @@ function DashboardUsageAdminPanel() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {dashboards.map((dashboard) => (
+                  {sortedDashboards.map((dashboard) => (
                     <TableRow key={dashboard.id}>
                       <TableCell className="min-w-[240px]">
                         <div className="flex min-w-0 flex-col gap-1">
@@ -301,6 +343,11 @@ function DashboardUsageAdminPanel() {
                         </div>
                         <div className="text-xs text-muted-foreground">
                           {formatMaybeDate(dashboard.lastViewedAt)}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="font-medium">
+                          {formatCount(dashboard.editCount)}
                         </div>
                       </TableCell>
                       <TableCell>

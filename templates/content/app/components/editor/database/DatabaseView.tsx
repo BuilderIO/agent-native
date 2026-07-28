@@ -11,47 +11,6 @@ import {
   useBuilderStatus,
 } from "@agent-native/core/client/settings";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@agent-native/toolkit/ui/alert-dialog";
-import { Button } from "@agent-native/toolkit/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
-} from "@agent-native/toolkit/ui/dropdown-menu";
-import { Input } from "@agent-native/toolkit/ui/input";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@agent-native/toolkit/ui/popover";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@agent-native/toolkit/ui/sheet";
-import { Spinner } from "@agent-native/toolkit/ui/spinner";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@agent-native/toolkit/ui/tooltip";
-import {
   CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
   type BuilderCmsModelSummary,
   type ContentDatabaseItem,
@@ -157,7 +116,51 @@ import {
   SELECTED_CONTENT_SPACE_STORAGE_KEY,
   selectContentSpace,
 } from "@/components/sidebar/select-content-space";
+import { WorkspaceSourceMenu } from "@/components/sidebar/WorkspaceSourceMenu";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { Spinner } from "@/components/ui/spinner";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+  applyOptimisticBuilderWriteMode,
+  contentDatabaseQueryFilter,
   isContentDatabaseUnavailable,
   useAddDatabaseItem,
   useAddContentDatabaseSourceFieldProperty,
@@ -188,7 +191,6 @@ import {
 } from "@/hooks/use-content-database";
 import {
   useContentSpaces,
-  useCreateContentSpace,
   useDeleteContentSpace,
 } from "@/hooks/use-content-spaces";
 import {
@@ -197,6 +199,7 @@ import {
 } from "@/hooks/use-document-properties";
 import {
   isDocumentUpdateConflict,
+  type DocumentUpdateResult,
   useDeleteDocument,
   useDocument,
   seedDatabaseItemDocumentCaches,
@@ -254,7 +257,10 @@ import { EmojiPicker } from "../EmojiPicker";
 import {
   createPreviewDocumentSaveController,
   deferredPreviewDocumentSave,
+  type PreviewDocumentPayload,
   type PreviewDocumentSaveAdapter,
+  type PreviewDocumentSaveDeferred,
+  type PreviewDocumentSaveSuccess,
 } from "../previewDocumentSaveController";
 import {
   acquirePreviewDocumentSaveController,
@@ -436,7 +442,8 @@ export function databaseCreatedItemForImmediatePreview(
   if (returnedItem) return returnedItem;
   if (!response.createdItemId || !response.createdDocumentId) return null;
 
-  const now = args.now ?? new Date().toISOString();
+  const now =
+    response.createdDocumentUpdatedAt ?? args.now ?? new Date().toISOString();
   const position = Math.max(
     0,
     (response.pagination?.totalItems ?? response.items.length + 1) - 1,
@@ -470,6 +477,42 @@ export function databaseCreatedItemForImmediatePreview(
       createdAt: now,
       updatedAt: now,
     },
+  };
+}
+
+export function previewDocumentSaveResult(args: {
+  result: DocumentUpdateResult;
+  payload: PreviewDocumentPayload;
+  baseline?: PreviewDocumentPayload;
+  contentChanged: boolean;
+}): PreviewDocumentSaveDeferred | PreviewDocumentSaveSuccess {
+  const serverDocument = isDocumentUpdateConflict(args.result)
+    ? args.result.document
+    : args.result;
+  const titleSaveObservedExternalBody =
+    !args.contentChanged && serverDocument.content !== args.payload.content;
+
+  if (isDocumentUpdateConflict(args.result) || titleSaveObservedExternalBody) {
+    return deferredPreviewDocumentSave("conflict", {
+      lastSaved: args.baseline ?? args.payload,
+      pending: {
+        title: serverDocument.title,
+        content: serverDocument.content,
+        loadedUpdatedAt: serverDocument.updatedAt,
+        loadedContentWasEmpty: isEffectivelyEmptyDocumentContent(
+          serverDocument.content,
+        ),
+      },
+      deferredReason: "conflict",
+    });
+  }
+
+  return {
+    outcome: "saved",
+    loadedUpdatedAt: args.result.updatedAt,
+    loadedContentWasEmpty: isEffectivelyEmptyDocumentContent(
+      args.result.content,
+    ),
   };
 }
 
@@ -729,8 +772,6 @@ function DatabaseTable({
   );
   const database = useContentDatabase(document.id, databaseRequestItemLimit);
   const addItem = useAddDatabaseItem(document.id);
-  const createContentSpace = useCreateContentSpace();
-  const workspaceCreateRequestIdRef = useRef<string | null>(null);
   const attachSource = useAttachContentDatabaseSource(document.id);
   const changeSourceRole = useChangeContentDatabaseSourceRole(document.id);
   const refreshSource = useRefreshContentDatabaseSource(document.id);
@@ -750,10 +791,8 @@ function DatabaseTable({
   const data = isContentDatabaseUnavailable(database.data)
     ? undefined
     : database.data;
-  const isCreatingDatabaseItem =
-    data?.database.systemRole === "workspaces"
-      ? createContentSpace.isPending
-      : addItem.isPending;
+  const isWorkspaceCatalog = data?.database.systemRole === "workspaces";
+  const isCreatingDatabaseItem = addItem.isPending;
   const isDatabaseInitialLoading = database.isLoading && !data;
   const properties = data?.properties ?? [];
   const items = data?.items ?? [];
@@ -764,10 +803,9 @@ function DatabaseTable({
   const isLoadingMoreItems =
     database.isFetching && data?.pagination?.limit !== databaseRequestItemLimit;
   const databaseId = data?.database.id ?? expectedDatabaseId;
-  const newDatabaseRowLabel =
-    data?.database.systemRole === "workspaces"
-      ? t("sidebar.newWorkspace")
-      : dbText("newPage");
+  const newDatabaseRowLabel = isWorkspaceCatalog
+    ? t("sidebar.addWorkspace")
+    : dbText("newPage");
   const personalView = useContentDatabasePersonalView(databaseId);
   const updatePersonalView = useUpdateContentDatabasePersonalView(databaseId);
   const source = data?.source ?? null;
@@ -847,6 +885,9 @@ function DatabaseTable({
   const filters = activeView.filters;
   const visibleFilters = filters;
   const filterMode = activeView.filterMode ?? "and";
+  const workspaceCreationPropertyValues = isWorkspaceCatalog
+    ? databasePropertyValuesForNewItem(filters, properties, filterMode)
+    : undefined;
   const columnWidths = activeView.columnWidths;
   const databaseGroupProperty = useMemo(
     () => databaseViewGroupingProperty(activeView, orderedProperties),
@@ -871,6 +912,7 @@ function DatabaseTable({
   );
   const autoContinueBuilderSourceRef = useRef<Set<string>>(new Set());
   const builderContinuationWatchdogRef = useRef<Map<string, number>>(new Map());
+  const builderContinuationFailureRef = useRef<Map<string, number>>(new Map());
   const refreshSourceInFlightRef = useRef<string | null>(null);
   const hydrationSourceInFlightRef = useRef<string | null>(null);
   const workspaceSelectionQueueRef = useRef(createContentSpaceSelectionQueue());
@@ -1076,14 +1118,24 @@ function DatabaseTable({
     ),
   };
   const runSourceRefresh = useCallback(
-    (sourceId: string, onError?: () => void) => {
+    (
+      sourceId: string,
+      onError?: () => void,
+      expectedBuilderContinuationOffset?: number,
+      onSuccess?: () => void,
+    ) => {
       if (!acquireDatabaseSourceOperation(refreshSourceInFlightRef, sourceId)) {
         return false;
       }
       refreshSource.mutate(
-        { documentId: document.id, sourceId },
+        {
+          documentId: document.id,
+          sourceId,
+          expectedBuilderContinuationOffset,
+        },
         {
           onError,
+          onSuccess,
           onSettled: () => {
             releaseDatabaseSourceOperation(refreshSourceInFlightRef, sourceId);
           },
@@ -1092,6 +1144,25 @@ function DatabaseTable({
       return true;
     },
     [document.id, refreshSource.mutate],
+  );
+  const handleBuilderContinuationError = useCallback(
+    (continuationKey: string) => {
+      const failures =
+        (builderContinuationFailureRef.current.get(continuationKey) ?? 0) + 1;
+      builderContinuationFailureRef.current.set(continuationKey, failures);
+      if (builderSourceContinuationFailureDecision(failures) === "error") {
+        setBuilderContinuationClientErrorKeys((current) =>
+          addUniqueKey(current, continuationKey),
+        );
+      }
+    },
+    [],
+  );
+  const handleBuilderContinuationSuccess = useCallback(
+    (continuationKey: string) => {
+      builderContinuationFailureRef.current.delete(continuationKey);
+    },
+    [],
   );
   const runBuilderHydration = useCallback(
     (
@@ -1158,10 +1229,11 @@ function DatabaseTable({
       continuationKey,
     );
     if (
-      !runSourceRefresh(candidate.id, () =>
-        setBuilderContinuationClientErrorKeys((current) =>
-          addUniqueKey(current, continuationKey),
-        ),
+      !runSourceRefresh(
+        candidate.id,
+        () => handleBuilderContinuationError(continuationKey),
+        candidate.metadata.lastReadNextOffset,
+        () => handleBuilderContinuationSuccess(continuationKey),
       )
     ) {
       autoContinueBuilderSourceRef.current.delete(continuationKey);
@@ -1171,6 +1243,8 @@ function DatabaseTable({
     builderSources,
     canEdit,
     isActive,
+    handleBuilderContinuationError,
+    handleBuilderContinuationSuccess,
     refreshSource.isPending,
     runSourceRefresh,
   ]);
@@ -1234,10 +1308,11 @@ function DatabaseTable({
         return;
       }
       if (
-        runSourceRefresh(candidate.id, () =>
-          setBuilderContinuationClientErrorKeys((current) =>
-            addUniqueKey(current, continuationKey),
-          ),
+        runSourceRefresh(
+          candidate.id,
+          () => handleBuilderContinuationError(continuationKey),
+          candidate.metadata.lastReadNextOffset,
+          () => handleBuilderContinuationSuccess(continuationKey),
         )
       ) {
         builderContinuationWatchdogRef.current.set(
@@ -1256,6 +1331,8 @@ function DatabaseTable({
     builderSources,
     canEdit,
     isActive,
+    handleBuilderContinuationError,
+    handleBuilderContinuationSuccess,
     refreshSource.isPending,
     runSourceRefresh,
   ]);
@@ -1427,29 +1504,7 @@ function DatabaseTable({
     } = {},
   ) {
     if (!databaseId) return null;
-    if (data?.database.systemRole === "workspaces") {
-      const name = title.trim() || t("sidebar.newWorkspace");
-      const requestId =
-        workspaceCreateRequestIdRef.current ?? crypto.randomUUID();
-      workspaceCreateRequestIdRef.current = requestId;
-      try {
-        await createContentSpace.mutateAsync({
-          name,
-          requestId,
-          propertyValues:
-            Object.keys(propertyValueOverrides).length > 0
-              ? propertyValueOverrides
-              : undefined,
-        });
-        workspaceCreateRequestIdRef.current = null;
-      } catch (err) {
-        toast.error(dbText("failedToCreateRow"), {
-          description:
-            err instanceof Error ? err.message : dbText("somethingWentWrong"),
-        });
-      }
-      return null;
-    }
+    if (isWorkspaceCatalog) return null;
     const propertyValues = {
       ...databasePropertyValuesForNewItem(filters, properties, filterMode),
       ...propertyValueOverrides,
@@ -2417,7 +2472,21 @@ function DatabaseTable({
               </span>
             ) : null}
           </Button>
-          {canEdit ? (
+          {canEdit && isWorkspaceCatalog ? (
+            <WorkspaceSourceMenu
+              align="end"
+              propertyValues={workspaceCreationPropertyValues}
+            >
+              <Button
+                type="button"
+                size="sm"
+                className="h-7 rounded-md bg-foreground px-2.5 text-xs font-medium text-background hover:bg-foreground/90"
+                disabled={!databaseId}
+              >
+                New
+              </Button>
+            </WorkspaceSourceMenu>
+          ) : canEdit ? (
             <Button
               type="button"
               size="sm"
@@ -2514,10 +2583,12 @@ function DatabaseTable({
                 continuationKey,
               );
               builderContinuationWatchdogRef.current.set(continuationKey, 0);
-              runSourceRefresh(builderSource.id, () =>
-                setBuilderContinuationClientErrorKeys((current) =>
-                  addUniqueKey(current, continuationKey),
-                ),
+              builderContinuationFailureRef.current.delete(continuationKey);
+              runSourceRefresh(
+                builderSource.id,
+                () => handleBuilderContinuationError(continuationKey),
+                builderSource.metadata.lastReadNextOffset,
+                () => handleBuilderContinuationSuccess(continuationKey),
               );
             }}
           />
@@ -2541,6 +2612,7 @@ function DatabaseTable({
           groupProperty={boardGroupProperty}
           databaseDocumentId={document.id}
           canEdit={canEdit}
+          canCreateItems={!isWorkspaceCatalog}
           isLoading={isDatabaseViewLoading}
           isCreating={isCreatingDatabaseItem || setProperty.isPending}
           hasActiveConstraints={!!searchQuery || activeFilters.length > 0}
@@ -2569,6 +2641,7 @@ function DatabaseTable({
           items={visibleItems}
           databaseDocumentId={document.id}
           canEdit={canEdit}
+          canCreateItems={!isWorkspaceCatalog}
           isLoading={isDatabaseViewLoading}
           isCreating={isCreatingDatabaseItem}
           activeFilters={activeFilters}
@@ -2592,6 +2665,7 @@ function DatabaseTable({
           items={visibleItems}
           databaseDocumentId={document.id}
           canEdit={canEdit}
+          canCreateItems={!isWorkspaceCatalog}
           isLoading={isDatabaseViewLoading}
           isCreating={isCreatingDatabaseItem}
           activeFilters={activeFilters}
@@ -2615,6 +2689,7 @@ function DatabaseTable({
           items={visibleItems}
           databaseDocumentId={document.id}
           canEdit={canEdit}
+          canCreateItems={!isWorkspaceCatalog}
           isLoading={isDatabaseViewLoading}
           isCreating={isCreatingDatabaseItem || setProperty.isPending}
           activeFilters={activeFilters}
@@ -2641,6 +2716,7 @@ function DatabaseTable({
           items={visibleItems}
           databaseDocumentId={document.id}
           canEdit={canEdit}
+          canCreateItems={!isWorkspaceCatalog}
           isLoading={isDatabaseViewLoading}
           isCreating={isCreatingDatabaseItem || setProperty.isPending}
           activeFilters={activeFilters}
@@ -2676,6 +2752,7 @@ function DatabaseTable({
           sources={sources}
           databaseDocumentId={document.id}
           canEdit={canEdit}
+          workspaceCreationPropertyValues={workspaceCreationPropertyValues}
           isLoading={isDatabaseViewLoading}
           isCreating={isCreatingDatabaseItem}
           columnWidths={columnWidths}
@@ -2860,36 +2937,44 @@ function DatabaseTable({
         onReviewBuilderUpdate={(sourceId) => {
           openBuilderReview(sourceId);
         }}
-        onSetBuilderLiveWrites={(settings) =>
-          setSourceWriteMode.mutate(
-            {
-              documentId: document.id,
-              sourceId: settings.sourceId,
-              writeMode: settings.writeMode,
-              allowPublicationTransitions:
-                settings.writeMode === "publish_updates" &&
-                settings.allowPublicationTransitions === true,
+        onSetBuilderLiveWrites={(settings) => {
+          const request = {
+            documentId: document.id,
+            sourceId: settings.sourceId,
+            writeMode: settings.writeMode,
+            allowPublicationTransitions:
+              settings.writeMode === "publish_updates" &&
+              settings.allowPublicationTransitions === true,
+          };
+          const previous = queryClient.getQueriesData<ContentDatabaseResponse>(
+            contentDatabaseQueryFilter(document.id),
+          );
+          queryClient.setQueriesData<ContentDatabaseResponse>(
+            contentDatabaseQueryFilter(document.id),
+            (current) => applyOptimisticBuilderWriteMode(current, request),
+          );
+          setSourceWriteMode.mutate(request, {
+            onSuccess: () => {
+              toast.success(dbText("builderWriteModeUpdated"), {
+                description:
+                  settings.writeMode === "publish_updates"
+                    ? "Approved updates can write through to Builder while preserving publication state."
+                    : settings.writeMode === "stage_only"
+                      ? "Approved updates will stage Builder autosave revisions."
+                      : "Builder writes are disabled for this source.",
+              });
             },
-            {
-              onSuccess: () => {
-                toast.success(dbText("builderWriteModeUpdated"), {
-                  description:
-                    settings.writeMode === "publish_updates"
-                      ? "Approved updates can write through to Builder while preserving publication state."
-                      : settings.writeMode === "stage_only"
-                        ? "Approved updates will stage Builder autosave revisions."
-                        : "Builder writes are disabled for this source.",
-                });
-              },
-              onError: (error) => {
-                toast.error(dbText("builderWriteModeWasNotChanged"), {
-                  description:
-                    error instanceof Error ? error.message : dbText("tryAgain"),
-                });
-              },
+            onError: (error) => {
+              for (const [queryKey, data] of previous) {
+                queryClient.setQueryData(queryKey, data);
+              }
+              toast.error(dbText("builderWriteModeWasNotChanged"), {
+                description:
+                  error instanceof Error ? error.message : dbText("tryAgain"),
+              });
             },
-          )
-        }
+          });
+        }}
         sourceActionPending={
           attachSource.isPending ||
           changeSourceRole.isPending ||
@@ -2930,6 +3015,7 @@ function DatabaseTable({
           executeBuilderExecution.isPending ||
           cancelPreparedBuilderUpdate.isPending
         }
+        executionPending={executeBuilderExecution.isPending}
         error={
           builderReviewError ??
           (builderReviewPreviewQuery.error instanceof Error
@@ -4102,8 +4188,6 @@ function DatabaseItemPreview({
   // ever touch its own row's state. See previewDocumentSaveRegistry.
   const updateDocumentRef = useRef(updateDocument);
   updateDocumentRef.current = updateDocument;
-  const queryClientRef = useRef(queryClient);
-  queryClientRef.current = queryClient;
   const bodyHydrationPendingRef = useRef(bodyHydrationPending);
   bodyHydrationPendingRef.current = bodyHydrationPending;
   const draftVersionsRef = useRef<Map<string, number | null>>(new Map());
@@ -4147,25 +4231,6 @@ function DatabaseItemPreview({
             draftVersionsRef.current.set(documentId, null);
           else if (result.draft) {
             draftVersionsRef.current.set(documentId, result.draft.version);
-            if (
-              previewDraftNeedsConflict({
-                returnedDraft: result.draft,
-                pending: controller.pending,
-              })
-            ) {
-              controller.notifyDraftConflict({
-                lastSaved: snapshot.lastSaved,
-                pending: {
-                  title: result.draft.title,
-                  content: result.draft.content,
-                  loadedUpdatedAt:
-                    result.draft.baseDocumentUpdatedAt ?? undefined,
-                  loadedContentWasEmpty:
-                    result.draft.loadedContentWasEmpty === 1,
-                },
-                deferredReason: "conflict",
-              });
-            }
           } else {
             // Another tab already removed the row. Treat the stale delete as
             // converged instead of retaining a version that can never match.
@@ -4190,24 +4255,6 @@ function DatabaseItemPreview({
           draftVersionsRef.current.set(documentId, result.draft.version);
         } else if (result.draft) {
           draftVersionsRef.current.set(documentId, result.draft.version);
-          if (
-            previewDraftNeedsConflict({
-              returnedDraft: result.draft,
-              pending: controller.pending,
-            })
-          ) {
-            controller.notifyDraftConflict({
-              lastSaved: snapshot.lastSaved,
-              pending: {
-                title: result.draft.title,
-                content: result.draft.content,
-                loadedUpdatedAt:
-                  result.draft.baseDocumentUpdatedAt ?? undefined,
-                loadedContentWasEmpty: result.draft.loadedContentWasEmpty === 1,
-              },
-              deferredReason: "conflict",
-            });
-          }
         } else {
           // A competing tab deleted the version we tried to update. Reset to
           // create mode and enqueue the latest pending payload once; keeping
@@ -4285,24 +4332,14 @@ function DatabaseItemPreview({
           },
           {
             onSuccess: (result) => {
-              if (isDocumentUpdateConflict(result)) {
-                resolve(
-                  deferredPreviewDocumentSave("conflict", {
-                    lastSaved: baseline ?? payload,
-                    pending: {
-                      title: result.document.title,
-                      content: result.document.content,
-                      loadedUpdatedAt: result.document.updatedAt,
-                      loadedContentWasEmpty: isEffectivelyEmptyDocumentContent(
-                        result.document.content,
-                      ),
-                    },
-                    deferredReason: "conflict",
-                  }),
-                );
-                return;
-              }
-              resolve(undefined);
+              resolve(
+                previewDocumentSaveResult({
+                  result,
+                  payload,
+                  baseline,
+                  contentChanged,
+                }),
+              );
             },
             onError: reject,
           },
@@ -4311,12 +4348,6 @@ function DatabaseItemPreview({
     onSaved: (persistedPayload) => {
       const controller = peekPreviewDocumentSaveController(documentId);
       if (controller) enqueueDraftWrite(controller, "delete", persistedPayload);
-      void queryClientRef.current.invalidateQueries({
-        queryKey: contentDatabaseQueryKey(databaseDocumentId),
-      });
-      void queryClientRef.current.invalidateQueries({
-        queryKey: ["action", "list-documents"],
-      });
     },
     onError: (err) => {
       toast.error(dbText("failedToSavePagePreview"), {
@@ -4414,6 +4445,8 @@ function DatabaseItemPreview({
       }
       return;
     }
+    const previouslyExpectedVersion =
+      draftVersionsRef.current.get(documentId) ?? null;
     draftVersionsRef.current.set(documentId, draft.version);
     const controller = peekPreviewDocumentSaveController(documentId);
     if (!controller) return;
@@ -4435,8 +4468,19 @@ function DatabaseItemPreview({
           ? draft.deferredReason
           : null,
     } as const;
+    // A poll tick simply confirming a version this client's own debounced
+    // write already advanced the ref to is not an external change — it is
+    // this client's typing racing ahead of its own last round trip. Comparing
+    // that echo against the still-live `pending` would flag a conflict on
+    // almost every keystroke. Only treat the draft as having moved out from
+    // under the user when its version is newer than what this client itself
+    // last recorded.
+    const draftAdvancedExternally =
+      previouslyExpectedVersion !== null &&
+      draft.version > previouslyExpectedVersion;
     if (controllerDirty) {
       if (
+        draftAdvancedExternally &&
         previewDraftNeedsConflict({
           returnedDraft: draft,
           pending: controller.pending,
@@ -4786,6 +4830,7 @@ function DatabaseItemPreview({
             </Button>
             {canEdit || canManage || removesFavoriteMembership ? (
               <DropdownMenu
+                modal={false}
                 open={actionsMenuOpen}
                 onOpenChange={setActionsMenuOpen}
               >
@@ -4898,6 +4943,7 @@ function DatabaseItemPreview({
             {previewDocument.databaseMembership ? (
               <DocumentProperties
                 documentId={previewDocument.id}
+                databaseDocumentId={databaseDocumentId}
                 canEdit={previewCanEdit}
                 popoversPortalled={false}
               />
@@ -4935,6 +4981,7 @@ function DatabaseItemPreview({
                 const editor = previewDocument.databaseMembership ? (
                   <DocumentBlockFields
                     documentId={previewDocument.id}
+                    databaseDocumentId={databaseDocumentId}
                     canEdit={previewCanEdit}
                     primaryEditor={primaryEditor}
                   />
@@ -5045,6 +5092,7 @@ function DatabaseTableView({
   sources,
   databaseDocumentId,
   canEdit,
+  workspaceCreationPropertyValues,
   isLoading,
   isCreating,
   columnWidths,
@@ -5090,6 +5138,7 @@ function DatabaseTableView({
   sources: ContentDatabaseSource[];
   databaseDocumentId: string;
   canEdit: boolean;
+  workspaceCreationPropertyValues?: Record<string, DocumentPropertyValue>;
   isLoading: boolean;
   isCreating: boolean;
   columnWidths: Record<string, number>;
@@ -5572,6 +5621,9 @@ function DatabaseTableView({
                 }
                 sorts={sorts}
                 filters={filters}
+                onSortsChange={onSortsChange}
+                onFiltersChange={onFiltersChange}
+                onPropertyHiddenChange={onPropertyHiddenChange}
                 onPointerDown={(event) =>
                   startPropertyPointerDrag(property, event)
                 }
@@ -5632,6 +5684,9 @@ function DatabaseTableView({
                     columnWidths={columnWidths}
                     databaseDocumentId={databaseDocumentId}
                     workspaceCatalog={isWorkspaceCatalog}
+                    workspaceCreationPropertyValues={
+                      workspaceCreationPropertyValues
+                    }
                     canEdit={canEdit}
                     selectedIdSet={selectedIdSet}
                     wrapCells={wrapCells}
@@ -5698,16 +5753,27 @@ function DatabaseTableView({
                   />
                 ))}
             {canEdit && !grouped ? (
-              <NewDatabaseRow
-                label={newRowLabel}
-                properties={properties}
-                columnWidths={columnWidths}
-                rowDensity={rowDensity}
-                disabled={isCreating}
-                isPending={isCreating}
-                onCreate={onCreateRow}
-                actionColumnWidth={actionColumnWidth}
-              />
+              isWorkspaceCatalog ? (
+                <WorkspaceSourceMenuRow
+                  label={newRowLabel}
+                  properties={properties}
+                  columnWidths={columnWidths}
+                  rowDensity={rowDensity}
+                  propertyValues={workspaceCreationPropertyValues}
+                  actionColumnWidth={actionColumnWidth}
+                />
+              ) : (
+                <NewDatabaseRow
+                  label={newRowLabel}
+                  properties={properties}
+                  columnWidths={columnWidths}
+                  rowDensity={rowDensity}
+                  disabled={isCreating}
+                  isPending={isCreating}
+                  onCreate={onCreateRow}
+                  actionColumnWidth={actionColumnWidth}
+                />
+              )
             ) : null}
             {cleanDefaultTable ? (
               <DatabaseBlankDefaultRows
@@ -10179,6 +10245,10 @@ export function builderSourceContinuationWatchdogDecision(refires: number) {
   return "refire";
 }
 
+export function builderSourceContinuationFailureDecision(failures: number) {
+  return failures <= 1 ? "retry" : "error";
+}
+
 export function builderSourceContinuationWatchdogDelay(refires: number) {
   return Math.min(
     BUILDER_SOURCE_CONTINUATION_MAX_BACKOFF_MS,
@@ -11602,6 +11672,7 @@ function DatabaseCalendarView({
   items,
   databaseDocumentId,
   canEdit,
+  canCreateItems,
   isLoading,
   isCreating,
   activeFilters,
@@ -11621,6 +11692,7 @@ function DatabaseCalendarView({
   items: ContentDatabaseItem[];
   databaseDocumentId: string;
   canEdit: boolean;
+  canCreateItems: boolean;
   isLoading: boolean;
   isCreating: boolean;
   activeFilters: DatabaseFilter[];
@@ -11659,6 +11731,7 @@ function DatabaseCalendarView({
     );
   const canCreateOnDay =
     canEdit &&
+    canCreateItems &&
     dateProperty?.editable &&
     dateProperty.definition.type === "date";
   const monthLabel = month.toLocaleDateString(undefined, {
@@ -12051,6 +12124,7 @@ function DatabaseBoardView({
   groupProperty,
   databaseDocumentId,
   canEdit,
+  canCreateItems,
   isLoading,
   isCreating,
   isMoving,
@@ -12074,6 +12148,7 @@ function DatabaseBoardView({
   groupProperty: DocumentProperty | null;
   databaseDocumentId: string;
   canEdit: boolean;
+  canCreateItems: boolean;
   isLoading: boolean;
   isCreating: boolean;
   isMoving: boolean;
@@ -12380,7 +12455,7 @@ function DatabaseBoardView({
                           {dbText("noMatchingPages")}
                         </div>
                       ) : null}
-                      {canEdit ? (
+                      {canEdit && canCreateItems ? (
                         <NewBoardCard
                           group={group}
                           disabled={isCreating}
@@ -12809,6 +12884,60 @@ function NewBoardCard({
         />
       </label>
     </form>
+  );
+}
+
+function WorkspaceSourceMenuRow({
+  label,
+  properties,
+  columnWidths,
+  rowDensity,
+  actionColumnWidth = ACTION_COLUMN_WIDTH,
+  propertyValues,
+}: {
+  label: string;
+  properties: DocumentProperty[];
+  columnWidths: Record<string, number>;
+  rowDensity: DatabaseRowDensity;
+  actionColumnWidth?: number;
+  propertyValues?: Record<string, DocumentPropertyValue>;
+}) {
+  return (
+    <WorkspaceSourceMenu propertyValues={propertyValues}>
+      <button
+        type="button"
+        aria-label={label}
+        className={cn(
+          "grid w-full border-t border-border/35 text-left text-sm text-muted-foreground transition-colors hover:bg-muted/35 hover:text-foreground focus-visible:bg-muted/35 focus-visible:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+          databaseTableRowDensityClass(rowDensity),
+        )}
+        style={{
+          gridTemplateColumns: databaseGridColumns(
+            properties,
+            true,
+            columnWidths,
+            actionColumnWidth,
+          ),
+        }}
+      >
+        <span
+          className={cn(
+            "flex min-w-0 items-center gap-2 border-r border-border/35",
+            databaseTableCellDensityClass(rowDensity),
+          )}
+        >
+          <IconPlus className="size-4 shrink-0" />
+          <span className="h-7 min-w-0 flex-1 truncate leading-7">{label}</span>
+        </span>
+        {properties.map((property) => (
+          <span
+            key={property.definition.id}
+            className="border-r border-border/35 last:border-r-0"
+          />
+        ))}
+        <span />
+      </button>
+    </WorkspaceSourceMenu>
   );
 }
 
@@ -15727,6 +15856,9 @@ function DatabasePropertyHeader({
   dropSide,
   sorts,
   filters,
+  onSortsChange,
+  onFiltersChange,
+  onPropertyHiddenChange,
   onPointerDown,
   onResize,
 }: {
@@ -15738,6 +15870,9 @@ function DatabasePropertyHeader({
   dropSide: DatabaseDropSide | null;
   sorts: DatabaseSort[];
   filters: DatabaseFilter[];
+  onSortsChange: (sorts: DatabaseSort[]) => void;
+  onFiltersChange: (filters: DatabaseFilter[]) => void;
+  onPropertyHiddenChange: (propertyId: string, hidden: boolean) => void;
   onPointerDown: (event: ReactPointerEvent<HTMLElement>) => void;
   onResize: (event: ReactPointerEvent) => void;
 }) {
@@ -15780,6 +15915,11 @@ function DatabasePropertyHeader({
             property.definition.id,
           )}
           sourceAttached={!!source}
+          sorts={sorts}
+          filters={filters}
+          onSortsChange={onSortsChange}
+          onFiltersChange={onFiltersChange}
+          onHide={() => onPropertyHiddenChange(property.definition.id, true)}
         />
       ) : (
         <div className="flex h-7 min-w-0 flex-1 items-center gap-2 px-1">
@@ -17831,6 +17971,7 @@ function DatabaseGroupedTableSection({
   columnWidths,
   databaseDocumentId,
   workspaceCatalog,
+  workspaceCreationPropertyValues,
   canEdit,
   selectedIdSet,
   wrapCells,
@@ -17853,6 +17994,7 @@ function DatabaseGroupedTableSection({
   columnWidths: Record<string, number>;
   databaseDocumentId: string;
   workspaceCatalog: boolean;
+  workspaceCreationPropertyValues?: Record<string, DocumentPropertyValue>;
   canEdit: boolean;
   selectedIdSet: Set<string>;
   wrapCells: boolean;
@@ -17918,15 +18060,36 @@ function DatabaseGroupedTableSection({
             />
           ))}
           {canEdit ? (
-            <NewDatabaseRow
-              label={newRowLabel}
-              properties={properties}
-              columnWidths={columnWidths}
-              rowDensity={rowDensity}
-              disabled={isCreating}
-              isPending={isCreating}
-              onCreate={(title) => onCreateRow(group, title)}
-            />
+            workspaceCatalog ? (
+              <WorkspaceSourceMenuRow
+                label={newRowLabel}
+                properties={properties}
+                columnWidths={columnWidths}
+                rowDensity={rowDensity}
+                propertyValues={{
+                  ...workspaceCreationPropertyValues,
+                  ...(group.property && group.value !== BOARD_UNGROUPED_VALUE
+                    ? {
+                        [group.property.definition.id]:
+                          boardGroupValueForProperty(
+                            group.property,
+                            group.value,
+                          ),
+                      }
+                    : {}),
+                }}
+              />
+            ) : (
+              <NewDatabaseRow
+                label={newRowLabel}
+                properties={properties}
+                columnWidths={columnWidths}
+                rowDensity={rowDensity}
+                disabled={isCreating}
+                isPending={isCreating}
+                onCreate={(title) => onCreateRow(group, title)}
+              />
+            )
           ) : null}
         </>
       ) : null}

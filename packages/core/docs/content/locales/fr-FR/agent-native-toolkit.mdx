@@ -107,6 +107,17 @@ being rebuilt in slightly different ways every time.
 - Blocks et le moteur Context X-Ray restent détenus par **Core** à cette étape ; la présentation réutilisable de Context X-Ray appartient à Toolkit.
 - Creative Context, Scheduling et Pinpoint sont des **modules de capacité Toolkit** installés à la demande ; ils conservent des paquets npm et manifests de cycle de vie séparés. Dispatch reste un produit distinct.
 
+## Kit de tableau de bord {#dashboard-kit}
+
+`@agent-native/toolkit/dashboard` est une unité éjectable de présentation seule :
+cartes de métriques et statistiques, tableaux, plage de dates, ordre et mise en
+page des panneaux, et graphiques génériques. L'application fournit les lignes
+et callbacks ; le kit ne récupère ni données, ni état, ni identifiants.
+Instanciez `@agent-native/core/dashboard-storage` par application avec son
+schéma et ses accès ; la source `program` par défaut exécute un programme de données app-owned.
+Avant de l'appliquer, exécutez `agent-native eject inspect toolkit/dashboard`.
+Les résolveurs de fournisseur restent dans l'application qui possède sa connexion et sa politique de requête.
+
 ## Limite d’implémentation {#implementation-boundary}
 
 Les kits sont d’abord des surfaces produit. Certaines pièces sont fournies par

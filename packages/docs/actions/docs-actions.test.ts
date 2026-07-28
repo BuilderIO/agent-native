@@ -20,7 +20,7 @@ describe("docs actions", () => {
 
     expect(output).toContain("[Getting Started](/docs)");
     expect(output).toContain("[Onboarding & API Keys](/docs/onboarding)");
-    expect(output).toContain("[Agent Resources](/docs/workspace)");
+    expect(output).toContain("[Agent Resources](/docs/agent-resources)");
     expect(output).toContain("[Mail](/docs/template-mail)");
   });
 
@@ -42,7 +42,9 @@ describe("docs actions", () => {
     const output = await searchDocs.run({ query: "browser logs" });
 
     expect(output).toContain("Clips");
-    expect(output).toContain("Browser logs and developer diagnostics");
-    expect(output).toContain("**Path:** /docs/template-clips");
+    expect(output).toContain("browser logs and network activity");
+    expect(output).toContain(
+      "**Path:** /docs/template-clips-capture-everywhere",
+    );
   });
 });

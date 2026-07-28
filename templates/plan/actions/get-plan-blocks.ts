@@ -49,7 +49,7 @@ const AUTHORING_RULES_NOTE = `
 
 **API endpoints**: keep \`api-endpoint\` and \`openapi-spec\` blocks in normal single-column document flow. Use \`columns\` only for an explicit before/after contract comparison.
 
-**renderMode**: leave unset or set to \`wireframe\` unless a design-only editable mock is required.\``;
+**Visual fidelity and renderMode**: leave \`renderMode\` unset or set it to \`wireframe\` for normal wireframes. “Higher fidelity,” “pixel-accurate,” “polished mockup,” “production-like,” “real design,” or “not a sketch/wireframe” requires \`renderMode: "design"\`, substantial branded HTML/CSS grounded in the real app, and stable \`data-design-id\` targets. Put scoped styles in the wireframe/prototype \`css\` field — never in a \`<style>\` tag. On an existing plan, update the same plan id with \`set-visual-render-mode\` plus the upgraded HTML/CSS; do not create a duplicate. The viewer-local Clean toggle is not a fidelity upgrade.\``;
 
 /**
  * Expose the live plan block vocabulary to the agent. The list is generated from

@@ -48,6 +48,13 @@ tauri-plugin-fs = "2.5.1"
 # tauri-plugin-notification`). Powers the Granola-style "Meeting starting
 # in N min — Join + Record" banners.
 tauri-plugin-notification = "2"
+# System clipboard writes from Rust (arboard). The share link is copied when a
+# recording finishes, at which point the popover webview is usually unfocused —
+# `navigator.clipboard.writeText` rejects with `NotAllowedError: Document is not
+# focused` in exactly that case, so the write has to happen native-side. v2.3.2
+# is the current latest (verified via `cargo info
+# tauri-plugin-clipboard-manager`).
+tauri-plugin-clipboard-manager = "2.3.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sentry = "0.48.3"
@@ -77,6 +84,11 @@ libc = "0.2"
 core-foundation = "0.10"
 core-graphics = "0.25"
 objc2 = { version = "0.6", features = ["exception"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = [
+  "std",
+  "NSEvent",
+  "block2",
+] }
 # Grapheme-cluster-aware chunking for voice-dictation Unicode typing in
 # terminal apps, so a chunk boundary never splits a multi-scalar emoji/
 # combining-mark sequence across two synthetic keyboard events. Already

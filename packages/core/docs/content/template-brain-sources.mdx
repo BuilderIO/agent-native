@@ -1,0 +1,163 @@
+---
+title: "Brain: Connecting & Reviewing Sources"
+description: "How to connect Slack, Granola, GitHub, Clips, and webhook sources to Brain, roll out safely, and check whether a source is healthy."
+---
+
+# Brain: Connecting & Reviewing Sources
+
+This page is for whoever sets up Brain's data feeds: what a source is, how to add one safely, and how to tell whether it's actually working. It's written for the person connecting Brain to real company data, whether or not they write code.
+
+<Diagram id="doc-block-brain2" title="From source to cited knowledge, with Ops watching the pipeline" summary="Every source feeds raw captures through distillation and review before becoming knowledge. Ops tracks the health of every step without exposing raw content.">
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-card">
+    <span class="diagram-pill">Sources</span
+    ><small class="diagram-muted"
+      >Slack · Granola · GitHub · Clips · webhooks</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    Raw captures<br /><small class="diagram-muted">deduped, redacted</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    Distill<br /><small class="diagram-muted"
+      >facts · decisions · processes</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill warn">Review</span
+    ><small class="diagram-muted">sensitive / low-confidence queue</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    <span class="diagram-pill ok">Knowledge</span
+    ><small class="diagram-muted">approved, atomic</small>
+  </div>
+</div>
+<div class="diagram-flow diagram-ops-row">
+  <div class="diagram-box" data-rough>
+    <span class="diagram-pill accent">Ops</span
+    ><small class="diagram-muted"
+      >source health · sync freshness · queue retries</small
+    >
+  </div>
+  <div class="diagram-muted diagram-ops-note">
+    watches every source and every queued distillation job — reachable from the
+    Cmd+K command menu, not the sidebar
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+}
+.diagram-flow .diagram-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.diagram-ops-row {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--wf-line, #ccc);
+}
+.diagram-ops-note {
+  font-size: 13px;
+}
+```
+
+</Diagram>
+
+## Adding a source
+
+Brain accepts exactly six source providers — there's no arbitrary "custom" provider:
+
+- **Slack** — an allow-listed set of channel IDs. DMs and MPIMs are always rejected.
+- **Granola** — a Team-space feed, polled on an interval you set. Enterprise API keys expose Team-space notes only, never private notes or folders.
+- **GitHub** — an allow-listed set of repositories, importing issue and pull-request context.
+- **Clips** — recordings exported from the Clips template over a signed webhook.
+- **Generic webhook** — any other source (call transcripts, customer research, imported notes) that can push a bounded capture to a signed endpoint.
+- **Manual** — captures you or the agent import directly, with no connector at all.
+
+Sources are org-shared by default so the company memory they produce is useful to the whole workspace. If a shared provider connection already exists elsewhere in the workspace (for example Dispatch already connected Slack), reuse it instead of pasting the same token into Brain — the Sources page shows each provider's connection readiness (connected, granted, needs a grant, or not connected) alongside the source list.
+
+## The Slack safe rollout
+
+Slack is the source most worth rolling out carefully, and Brain's Sources page builds the caution in as a four-step flow on each Slack source card:
+
+1. **Test** — validates the Slack bot token and checks the configured channel allow-list without reading any message history.
+2. **Safe pilot** — imports a tiny, capped sample (two validated channels, one page each, ten messages per page) so you can see what Brain would ingest before committing to a real sync.
+3. **Review captures** — opens the imported capture inventory. Raw message bodies stay hidden by default; enable a preview only when a reviewer needs the context.
+4. **Review queue** — sends reviewers to approve or reject the proposals a pilot or sync produced, before anything becomes queryable company knowledge.
+
+Keep background auto-sync off until the channel allow-list, review quality, and first distilled entries look right. Private channels require manually inviting the Slack app before Brain can validate or sync them — discovery is never treated as consent to read a private channel.
+
+## Checking source health on Ops {#ops}
+
+Brain has a dedicated operations view at `/ops` for exactly one question: is anything broken, and where? It's not in the left sidebar — open it from the Cmd+K command menu (search "Ops") or navigate to `/ops` directly. It shows:
+
+- **Distillation queue state** — queued, processing, done, failed, and stale counts, with a one-click retry for anything stuck or failed.
+- **Semantic index health** (admin-only signal) — index coverage, embedding lag, ACL freshness, and suppressed-record counts, so an admin can tell whether the search index has fallen behind without seeing any protected content.
+
+Each source also gets one deterministic health value, visible on the Sources page and summarized by Ops:
+
+| Health        | Meaning                                                                                 |
+| ------------- | --------------------------------------------------------------------------------------- |
+| `error`       | The source's status is `error`, it has a recorded error, or its latest sync run failed. |
+| `paused`      | The source is paused or archived.                                                       |
+| `needs_setup` | A Slack source with no configured channel allow-list yet.                               |
+| `needs_sync`  | An auto-sync-eligible source (Slack/Granola/GitHub) that has never completed a sync.    |
+| `stale`       | Past its next scheduled sync by more than a 15-minute grace window.                     |
+| `healthy`     | None of the above.                                                                      |
+
+Before telling someone "your source is broken" or "nothing has synced yet," check this instead of inspecting each source by hand — it's the same read the agent uses when asked "why isn't X in Brain yet."
+
+## Privacy and gating
+
+Brain is designed for company memory, not personal surveillance:
+
+- Slack sync only reads explicitly configured channels and always rejects DMs/MPIMs.
+- Granola sync reads Team-space notes exposed by Granola's API, never private notes or private folders.
+- Raw captures are redacted from listing/search surfaces by default; reviewers and distillation flows request previews or raw content only when needed.
+- Every allowed capture and derived record is scoped to an audience (org-wide, a private channel's membership, or a meeting's attendee list) so an answer can never surface content its reader isn't part of.
+- Source configs can require review before distilled knowledge becomes durable company memory.
+- Settings control the default publish tier, whether company-tier knowledge requires approval, citation requirements, email redaction, and connector error notifications.
+
+## Reusing an existing workspace integration
+
+Source credentials resolve in a fixed order: a workspace connection already granted to Brain first, then legacy Brain-local credentials, then a registered vault secret — never a raw `.env` value. The Sources page shows each provider's readiness so you don't have to guess:
+
+| State           | Meaning                                                                                 |
+| --------------- | --------------------------------------------------------------------------------------- |
+| `connected`     | An active workspace connection is already granted to Brain.                             |
+| `granted`       | Brain can access the connection, but it isn't currently active.                         |
+| `needs_grant`   | The workspace has a connection for this provider that hasn't been granted to Brain yet. |
+| `not_connected` | Brain is using its own scoped credentials, or there's no connection at all.             |
+
+If a provider shows `needs_grant`, the fix is granting Brain access to the existing connection in Dispatch — not creating a new one or asking for another token.
+
+## What's next
+
+- [**Brain overview**](/docs/template-brain) — what Brain is and when to pick it
+- [**Asking, Citations & Knowledge**](/docs/template-brain-knowledge) — where the knowledge these sources produce shows up
+- [**Talking to the Agent & Cross-App Use**](/docs/template-brain-agent) — prompts for checking source health and running a pilot from chat
+- [**Developer Guide**](/docs/template-brain-developers) — the full source-management action list and credential resolution code path
+- [**Messaging**](/docs/messaging) — connecting Slack at the workspace level

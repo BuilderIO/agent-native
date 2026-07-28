@@ -1,18 +1,19 @@
-import { appApiPath } from "@agent-native/core/client/api-path";
+import { callAction } from "@agent-native/core/client/hooks";
+import { DASHBOARD_REPORT_ACTION_TIMEOUT_MS } from "@shared/dashboard-report-timeouts";
+import { MAX_CONCURRENT_SQL_QUERIES } from "@shared/sql-query-limits";
 import { useQuery } from "@tanstack/react-query";
 
 import type { DataSourceType } from "@/pages/adhoc/sql-dashboard/types";
 
-import { getIdToken } from "./auth";
 import { addBytesProcessed } from "./cost-tracker";
+
+export { DASHBOARD_REPORT_ACTION_TIMEOUT_MS };
 
 export interface SqlQueryResult {
   rows: Record<string, unknown>[];
   error?: string;
   schema?: { name: string; type: string }[];
 }
-
-const MAX_CONCURRENT_SQL_QUERIES = 4;
 
 type PendingSqlQuerySlot = {
   resolve: (release: () => void) => void;
@@ -79,40 +80,33 @@ async function acquireSqlQuerySlot(signal?: AbortSignal): Promise<() => void> {
   });
 }
 
-async function readSqlQueryError(res: Response): Promise<string> {
-  const body = await res.json().catch(() => ({}));
-  return typeof body?.error === "string"
-    ? body.error
-    : `Query failed (${res.status})`;
-}
+type DashboardPanelQueryResponse = SqlQueryResult & {
+  bytesProcessed?: number;
+  message?: string;
+};
 
 export async function executeSqlQuery(
   sql: string,
   source: DataSourceType,
   signal?: AbortSignal,
+  options?: { reportScreenshot?: boolean },
 ): Promise<SqlQueryResult> {
-  const token = await getIdToken();
   const release = await acquireSqlQuerySlot(signal);
-  let res: Response;
+  let data: DashboardPanelQueryResponse;
   try {
-    res = await fetch(appApiPath("/api/sql-query"), {
-      method: "POST",
-      signal,
-      headers: {
-        "Content-Type": "application/json",
-        ...(token && { Authorization: `Bearer ${token}` }),
+    data = await callAction<DashboardPanelQueryResponse>(
+      "query-dashboard-panel",
+      { query: sql, source },
+      {
+        signal,
+        ...(options?.reportScreenshot
+          ? { timeoutMs: DASHBOARD_REPORT_ACTION_TIMEOUT_MS }
+          : {}),
       },
-      body: JSON.stringify({ query: sql, source }),
-    });
+    );
   } finally {
     release();
   }
-
-  if (!res.ok) {
-    throw new Error(await readSqlQueryError(res));
-  }
-
-  const data = await res.json();
 
   if (typeof data?.error === "string") {
     throw new Error(
@@ -143,12 +137,16 @@ export function useSqlQuery(
     refetchOnReconnect?: boolean | "always";
     refetchOnWindowFocus?: boolean | "always";
     retry?: boolean | number;
+    reportScreenshot?: boolean;
     staleTime?: number;
   },
 ) {
   return useQuery<SqlQueryResult>({
     queryKey,
-    queryFn: ({ signal }) => executeSqlQuery(sql, source, signal),
+    queryFn: ({ signal }) =>
+      executeSqlQuery(sql, source, signal, {
+        reportScreenshot: options?.reportScreenshot,
+      }),
     enabled: options?.enabled ?? true,
     refetchInterval: options?.refetchInterval,
     refetchOnMount: options?.refetchOnMount ?? false,

@@ -8,13 +8,13 @@ import {
   type ChatThreadSummary,
 } from "@agent-native/core/client/agent-chat";
 import { appBasePath, appPath } from "@agent-native/core/client/api-path";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
-import { useActionQuery } from "@agent-native/core/client/hooks";
-import { useT } from "@agent-native/core/client/i18n";
+import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
+import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
-  ChatHistoryList,
+  ChatHistoryRail,
   type ChatHistoryItem,
 } from "@agent-native/toolkit/chat-history";
 import {
@@ -29,7 +29,6 @@ import {
   IconLayersSubtract,
   IconMessageQuestion,
   IconMessages,
-  IconPlus,
   IconPlugConnected,
   IconBroadcast,
   IconFingerprint,
@@ -40,6 +39,7 @@ import {
   IconSettings,
   IconSettingsAutomation,
   IconShieldCheck,
+  IconSearch,
 } from "@tabler/icons-react";
 import {
   useEffect,
@@ -178,12 +178,14 @@ const OPERATIONS_NAV_ITEMS = [
     icon: IconLayersSubtract,
     section: "operations",
   },
+] as const satisfies readonly DispatchNavItem[];
+
+const BOTTOM_NAV_ITEMS = [
   {
     id: "settings",
     to: "/settings",
     label: "Settings",
     icon: IconSettings,
-    section: "operations",
   },
 ] as const satisfies readonly DispatchNavItem[];
 
@@ -238,12 +240,6 @@ function pageOwnsToolbar(pathname: string): boolean {
   if (pathname === "/extensions" || pathname.startsWith("/extensions/"))
     return true;
   return false;
-}
-
-interface WorkspaceInfo {
-  name: string | null;
-  displayName: string | null;
-  appCount: number;
 }
 
 function sectionFor(item: DispatchNavItem): DispatchNavSection {
@@ -355,7 +351,7 @@ function DispatchChatsSection({ onNavigate }: { onNavigate?: () => void }) {
           (thread) => thread.messageCount > 0 || thread.id === activeThreadId,
         )
         .sort((a, b) => threadUpdatedAt(b) - threadUpdatedAt(a))
-        .slice(0, 8),
+        .slice(0, 15),
     [activeThreadId, threads],
   );
   const localPathname = localDispatchPath(location.pathname);
@@ -430,36 +426,31 @@ function DispatchChatsSection({ onNavigate }: { onNavigate?: () => void }) {
             <Skeleton className="h-3 w-3/4 rounded" />
           </div>
         ))}
-      {visibleThreads.length > 0 && (
-        <ChatHistoryList
-          items={chatItems}
-          activeId={displayedActiveThreadId}
-          onSelect={(threadId) => openThread(threadId)}
-          renameMaxLength={160}
-          onRename={(threadId, title) => void renameThread(threadId, title)}
-          labels={{
-            options: (item) =>
-              t("dispatch.sidebar.chatOptions", {
-                title: item.titleText ?? "",
-              }),
-            renameInput: (item) =>
-              t("dispatch.sidebar.renameThread", {
-                title: item.titleText ?? "",
-              }),
-            rename: t("dispatch.sidebar.renameChat"),
-          }}
-          variant="rail"
-          className="min-w-0"
-        />
-      )}
-      <button
-        type="button"
-        onClick={() => void handleNewChat()}
-        className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-3 py-1.5 text-xs text-muted-foreground/60 transition-colors hover:bg-sidebar-accent/50 hover:text-foreground"
-      >
-        <IconPlus className="size-3 shrink-0" />
-        <span className="truncate">{t("dispatch.sidebar.newChat")}</span>
-      </button>
+      <ChatHistoryRail
+        items={chatItems}
+        activeId={displayedActiveThreadId}
+        onSelect={(threadId) => openThread(threadId)}
+        onNewChat={() => void handleNewChat()}
+        railLabels={{
+          newChat: t("dispatch.sidebar.newChat"),
+          showMore: t("dispatch.sidebar.chats"),
+          showLess: t("dispatch.sidebar.chats"),
+        }}
+        renameMaxLength={160}
+        onRename={(threadId, title) => void renameThread(threadId, title)}
+        labels={{
+          options: (item) =>
+            t("dispatch.sidebar.chatOptions", {
+              title: item.titleText ?? "",
+            }),
+          renameInput: (item) =>
+            t("dispatch.sidebar.renameThread", {
+              title: item.titleText ?? "",
+            }),
+          rename: t("dispatch.sidebar.renameChat"),
+        }}
+        className="min-w-0"
+      />
     </div>
   );
 }
@@ -480,13 +471,6 @@ export function NavContent({
   const t = useT();
   const location = useLocation();
   const navigate = useNavigate();
-  const { data: workspace } = useActionQuery(
-    "get-workspace-info",
-    {},
-    { staleTime: 60_000 },
-  );
-  const ws = workspace as WorkspaceInfo | undefined;
-  const workspaceLabel = ws?.displayName ?? ws?.name ?? null;
   const extensionNavItems = extensions?.navItems ?? EMPTY_NAV_ITEMS;
   const primaryNavItems = [
     ...PRIMARY_NAV_ITEMS,
@@ -509,6 +493,57 @@ export function NavContent({
           : item.id;
     return t(`dispatch.nav.${key}`, { defaultValue: item.label });
   };
+
+  const collapseButton = collapsible ? (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={() => onCollapsedChange?.(!collapsed)}
+          aria-label={
+            collapsed
+              ? t("sidebar.expandSidebar")
+              : t("sidebar.collapseSidebar")
+          }
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-sidebar-foreground/65 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+        >
+          {collapsed ? (
+            <IconLayoutSidebarLeftExpand className="h-4 w-4 rtl:-scale-x-100" />
+          ) : (
+            <IconLayoutSidebarLeftCollapse className="h-4 w-4 rtl:-scale-x-100" />
+          )}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">
+        {collapsed ? t("sidebar.expandSidebar") : t("sidebar.collapseSidebar")}
+      </TooltipContent>
+    </Tooltip>
+  ) : null;
+  const searchButton = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={openCommandMenu}
+          aria-label={t("sidebar.search")}
+          className="flex h-8 w-8 items-center justify-center rounded-md text-sidebar-foreground/65 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+        >
+          <IconSearch className="h-4 w-4" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">{t("sidebar.search")}</TooltipContent>
+    </Tooltip>
+  );
+  const translateButton = (
+    <LanguagePicker variant="ghost-icon" label={t("settings.languageLabel")} />
+  );
+  const feedbackButton = (
+    <FeedbackButton
+      variant={collapsed ? "icon" : "sidebar"}
+      side="right"
+      className={collapsed ? "size-8" : "min-w-0"}
+    />
+  );
 
   const renderNavItem = (item: DispatchNavItem) => {
     const Icon = item.icon;
@@ -632,38 +667,11 @@ export function NavContent({
               />
               <div className="min-w-0 flex-1">
                 <div className="truncate text-lg font-bold tracking-tight text-foreground">
-                  {workspaceLabel ?? "Dispatch"}
+                  Dispatch
                 </div>
               </div>
             </>
           )}
-          {collapsible ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={() => onCollapsedChange?.(!collapsed)}
-                  aria-label={
-                    collapsed
-                      ? t("sidebar.expandSidebar")
-                      : t("sidebar.collapseSidebar")
-                  }
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-sidebar-foreground/65 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                >
-                  {collapsed ? (
-                    <IconLayoutSidebarLeftExpand className="h-4 w-4 rtl:-scale-x-100" />
-                  ) : (
-                    <IconLayoutSidebarLeftCollapse className="h-4 w-4 rtl:-scale-x-100" />
-                  )}
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="right">
-                {collapsed
-                  ? t("sidebar.expandSidebar")
-                  : t("sidebar.collapseSidebar")}
-              </TooltipContent>
-            </Tooltip>
-          ) : null}
         </div>
       </div>
 
@@ -713,21 +721,32 @@ export function NavContent({
           )}
         </nav>
 
-        {!collapsed ? (
-          <div className="mt-auto shrink-0">
-            <div className="px-2 py-1">
-              <ExtensionsSidebarSection />
-            </div>
-
-            <div className="px-3 py-2">
-              <OrgSwitcher />
-            </div>
-
-            <div className="px-3 py-2">
-              <FeedbackButton />
-            </div>
+        <div className="mt-auto shrink-0">
+          <nav className={cn("py-1", collapsed ? "px-1" : "px-2")}>
+            <ul
+              className={cn(
+                collapsed ? "flex flex-col items-center gap-1" : "space-y-0.5",
+              )}
+            >
+              {BOTTOM_NAV_ITEMS.map(renderNavItem)}
+            </ul>
+          </nav>
+          <div
+            className={cn(
+              "py-2",
+              collapsed ? "flex justify-center px-1" : "px-3",
+            )}
+          >
+            <OrgSwitcher compact={collapsed} reserveSpace />
           </div>
-        ) : null}
+        </div>
+        <SidebarFooterActions
+          collapsed={collapsed}
+          feedback={feedbackButton}
+          translate={translateButton}
+          search={searchButton}
+          collapse={collapseButton}
+        />
       </div>
     </>
   );

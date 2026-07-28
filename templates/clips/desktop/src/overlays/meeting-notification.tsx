@@ -9,16 +9,16 @@ import { invoke } from "@tauri-apps/api/core";
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { useEffect, useRef, useState } from "react";
 
-import { resolveDesktopMeetingJoinUrl } from "../lib/meeting-join-url";
+import { dismissMeetingNotification } from "../lib/meeting-notification-dismissal";
 import {
   detectMeetingJoinProvider,
   joinProviderLabel,
   meetingNotificationAutoHideMs,
   type MeetingJoinProvider,
 } from "../lib/meeting-notification-timing";
+import { openMeetingJoinUrl } from "../lib/open-meeting-join-url";
 
 interface NotificationData {
   type: "calendar" | "adhoc";
@@ -39,6 +39,7 @@ interface TranscriptionStatusPayload {
 
 const SNOOZE_MS = 5 * 60_000;
 const FALLBACK_AUTO_HIDE_MS = 6 * 60_000;
+const DISMISSAL_TOMBSTONE_MS = 30 * 60_000;
 // Card is up to 440px wide; the extra width leaves room for the drop shadow
 // (~32px each side) so it isn't clipped by the transparent window edges.
 const NOTIFICATION_WINDOW_WIDTH = 504;
@@ -51,7 +52,7 @@ const NOTIFICATION_MENU_HEIGHT = 224;
 async function openJoinUrl(url: string | null | undefined): Promise<void> {
   if (!url) return;
   try {
-    await openExternal(resolveDesktopMeetingJoinUrl(url));
+    await openMeetingJoinUrl(url);
   } catch (err) {
     console.error("[clips-tray] openJoinUrl failed:", err);
   }
@@ -128,6 +129,7 @@ export function MeetingNotification() {
   const [pending, setPending] = useState(false);
   const autoHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dataRef = useRef<NotificationData | null>(null);
+  const dismissedKeysRef = useRef(new Map<string, number>());
   // Real DOM hover only fires while this overlay window is key, which macOS
   // won't grant it without a click (`show_without_activation` never
   // activates). `polledHovered` mirrors the Rust-side global cursor poll
@@ -138,6 +140,21 @@ export function MeetingNotification() {
   const [polledHovered, setPolledHovered] = useState(false);
   const hovered = domHovered || polledHovered;
   const prevHoveredRef = useRef(false);
+
+  function notificationKey(payload: NotificationData): string {
+    return [payload.type, payload.meetingId, payload.scheduledStart ?? ""].join(
+      "|",
+    );
+  }
+
+  function isDismissed(payload: NotificationData): boolean {
+    const now = Date.now();
+    const dismissed = dismissedKeysRef.current;
+    for (const [key, expiresAt] of dismissed) {
+      if (expiresAt <= now) dismissed.delete(key);
+    }
+    return dismissed.has(notificationKey(payload));
+  }
 
   useEffect(() => {
     dataRef.current = data;
@@ -188,6 +205,7 @@ export function MeetingNotification() {
     payload: NotificationData,
     options?: { hydrated?: boolean },
   ) {
+    if (isDismissed(payload)) return;
     setData(payload);
     setError(null);
     setMenuOpen(false);
@@ -307,6 +325,20 @@ export function MeetingNotification() {
     setPending(false);
     setMenuOpen(false);
     dataRef.current = null;
+  }
+
+  function dismissNotification() {
+    const current = dataRef.current;
+    if (current) {
+      dismissedKeysRef.current.set(
+        notificationKey(current),
+        Date.now() + DISMISSAL_TOMBSTONE_MS,
+      );
+    }
+    hideNotification();
+    if (current) {
+      void dismissMeetingNotification(current);
+    }
   }
 
   async function takeNotes() {
@@ -448,7 +480,7 @@ export function MeetingNotification() {
         {showClose ? (
           <button
             className="meeting-notification-close"
-            onClick={hideNotification}
+            onClick={dismissNotification}
             aria-label="Dismiss"
             data-no-drag
           >

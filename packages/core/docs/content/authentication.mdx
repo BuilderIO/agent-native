@@ -133,10 +133,11 @@ database/origin share sign-in and apps that don't stay isolated:
 
 First-party hosted apps each have their own auth database, so cross-app sign-in
 goes through [Cross-App SSO](/docs/cross-app-sso) rather than a shared cookie.
-These deploys must provide `APP_NAME` or a derivable app URL (`APP_URL`, `URL`,
-`DEPLOY_PRIME_URL`, or `DEPLOY_URL`); otherwise startup fails instead of falling
-back to the shared `an_session` name. To intentionally share one auth database
-across subdomains, set `AGENT_NATIVE_SHARE_COOKIE_DOMAIN=1` alongside
+These deploys must provide `APP_NAME` or a derivable app URL (`APP_URL`,
+`BETTER_AUTH_URL`, `VITE_BETTER_AUTH_URL`, `URL`, `DEPLOY_PRIME_URL`, or
+`DEPLOY_URL`); otherwise startup fails instead of falling back to the shared
+`an_session` name. To intentionally share one auth database across
+subdomains, set `AGENT_NATIVE_SHARE_COOKIE_DOMAIN=1` alongside
 `COOKIE_DOMAIN`.
 
 ## QA Accounts {#qa-accounts}
@@ -198,7 +199,7 @@ The framework provides a built-in organization system. This is the framework's o
 - Switching active organization
 - Per-org data scoping via `org_id` columns
 
-The active org is tracked on the session as `session.orgId`, and switching orgs changes the data the user and agent see. Data scoping itself happens further down the stack — see [Security & Data Scoping](/docs/security#data-scoping) for the full `session.orgId → AGENT_ORG_ID → SQL` pipeline and the access guards. The [Multi-Tenancy](/docs/multi-tenancy) docs cover the org-management surface.
+The active org is tracked on the session as `session.orgId`, and switching orgs changes the data the user and agent see. Data scoping itself happens further down the stack — see [Security & Data Scoping](/docs/security#data-scoping) for the full `session.orgId → AGENT_ORG_ID → SQL` pipeline and the access guards. The [Multi-Tenancy](/docs/multi-tenancy) docs cover the org-management surface. For the org-role vs. resource-role distinction, the full org REST route table, and a practical multi-user setup sequence, see [Organizations, Teams & Permissions](/docs/organizations-teams-permissions).
 
 ## Static MCP Bearer Tokens {#access-tokens}
 
@@ -404,6 +405,8 @@ function SignInCta() {
 
 Normal app pages use one impersonal, public-cacheable SSR shell for every visitor. `AppProviders` checks the session on the client; on a private path such as `/dashboard`, it redirects an anonymous visitor to `/_agent-native/sign-in?return=%2Fdashboard` before mounting private app UI. After sign-in, the visitor returns to `/dashboard`. Pass `isPublicPath` for public/SEO routes, or `sessionBypass` for a surface that authenticates through another scoped mechanism such as an MCP embed token.
 
+How long that shell is cached is a deployment-wide setting — see [SSR Caching](/docs/deployment#ssr-caching) for `AGENT_NATIVE_SSR_CACHE`. Shortening or disabling the cache changes duration only; SSR still renders the anonymous branch with cookies stripped.
+
 ### Behind the scenes: Google OAuth
 
 Both flows (the explicit `/_agent-native/sign-in` entrypoint and the bookmarked-path case) thread the return URL through the OAuth state. The state is HMAC-signed, so it can't be forged in transit. On the callback, the return URL is re-validated as same-origin before the redirect — so a leaked signing key still can't be turned into an open-redirect oracle.
@@ -446,6 +449,7 @@ The default `/_agent-native/google/auth-url` route does this automatically — o
 
 ## What's next
 
+- [**Organizations, Teams & Permissions**](/docs/organizations-teams-permissions) — the org-role vs. resource-role RBAC model, and a practical multi-user setup sequence
 - [**Multi-Tenancy**](/docs/multi-tenancy) — the org-management surface built on top of `session.orgId`
 - [**Security — Data Scoping**](/docs/security#data-scoping) — the `session.orgId → AGENT_ORG_ID → SQL` pipeline and access guards
 - [**Cross-App SSO**](/docs/cross-app-sso) — sharing sign-in across first-party hosted apps that each have their own auth database

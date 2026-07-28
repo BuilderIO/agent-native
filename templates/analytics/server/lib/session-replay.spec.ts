@@ -339,6 +339,59 @@ describe("session replay ingest parsing", () => {
     expect(parsed.networkErrorCount).toBe(0);
   });
 
+  it("detects rage clicks from repeated clicks on one target", () => {
+    const click = (timestamp: number, id: number) => ({
+      type: 3,
+      timestamp,
+      data: { source: 2, type: 2, id, x: 10, y: 10 },
+    });
+    const parsed = parseSessionReplayIngestPayload({
+      publicKey: "anpk_test",
+      replayId: "recording_1",
+      sessionId: "session_1",
+      sequence: 0,
+      events: [
+        click(1_000, 7),
+        click(1_002, 7),
+        click(1_400, 7),
+        // Different target and a long gap: neither extends the burst.
+        click(9_000, 8),
+        click(30_000, 8),
+      ],
+    });
+
+    expect(parsed.rageClickCount).toBe(1);
+  });
+
+  it("does not count deliberate, spread-out clicks as rage clicks", () => {
+    const parsed = parseSessionReplayIngestPayload({
+      publicKey: "anpk_test",
+      replayId: "recording_1",
+      sessionId: "session_1",
+      sequence: 0,
+      events: [
+        { type: 3, timestamp: 1_000, data: { source: 2, type: 2, id: 7 } },
+        { type: 3, timestamp: 4_000, data: { source: 2, type: 2, id: 7 } },
+        { type: 3, timestamp: 7_000, data: { source: 2, type: 2, id: 7 } },
+      ],
+    });
+
+    expect(parsed.rageClickCount).toBe(0);
+  });
+
+  it("keeps a client-reported rage click count when the recorder sends one", () => {
+    const parsed = parseSessionReplayIngestPayload({
+      publicKey: "anpk_test",
+      replayId: "recording_1",
+      sessionId: "session_1",
+      sequence: 0,
+      rageClickCount: 4,
+      events: [{ type: 3, timestamp: 1, data: { source: 2, type: 2, id: 7 } }],
+    });
+
+    expect(parsed.rageClickCount).toBe(4);
+  });
+
   it("accepts full snapshot chunks larger than the SQL inline fallback cap", () => {
     const fullSnapshotText = "x".repeat(300 * 1024);
     const parsed = parseSessionReplayIngestPayload({

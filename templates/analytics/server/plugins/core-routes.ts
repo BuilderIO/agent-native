@@ -10,7 +10,7 @@ export default createCoreRoutesPlugin({
   resolveOpenPath: ({ view, params }) => {
     if (params.dashboardId) return `/dashboards/${params.dashboardId}`;
     if (params.analysisId) return `/analyses/${params.analysisId}`;
-    if (view === "analyses") return "/analyses";
+    if (view === "analyses") return "/dashboards";
     // `adhoc`/unknown with no id: there is no bare `/dashboards` record route —
     // send to the app root rather than 404 (the polled `navigate` command
     // still applies any record focus once the SPA is loaded).

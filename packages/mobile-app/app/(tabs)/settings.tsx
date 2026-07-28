@@ -1,13 +1,13 @@
 import type { AppConfig } from "@agent-native/shared-app-config";
 import { Feather } from "@expo/vector-icons";
-import { useState, useCallback } from "react";
+import { useCallback, useState } from "react";
 import {
-  View,
-  Text,
-  TouchableOpacity,
+  Alert,
   ScrollView,
   Switch,
-  Alert,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 
 import AppForm from "@/components/AppForm";

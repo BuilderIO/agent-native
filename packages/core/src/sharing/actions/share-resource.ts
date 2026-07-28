@@ -297,8 +297,22 @@ export default defineAction({
         );
         const appName =
           process.env.APP_NAME || process.env.VITE_APP_NAME || "Agent Native";
+        let brandLogoUrl: string | undefined;
+        if (reg.getShareEmailLogoUrl) {
+          try {
+            brandLogoUrl =
+              (await reg.getShareEmailLogoUrl(resource)) ?? undefined;
+          } catch (err) {
+            console.error(
+              "[share-resource] brand logo resolver failed; using default logo:",
+              err,
+            );
+          }
+        }
         const subject = `${actor} shared "${resourceTitle}" with you on ${appName}`;
         const { html, text } = renderEmail({
+          brandName: appName,
+          brandLogoUrl,
           preheader: subject,
           heading: "You've been given access",
           paragraphs: [

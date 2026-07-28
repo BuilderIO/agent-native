@@ -193,7 +193,7 @@ Cuando el agente crea un borrador de correo electrónico, aparece en UI. Cuando 
 
 La razón por la que herramientas como Claude Code parecen tan poderosas no es el modelo, sino la **capa de personalización**: instrucciones por proyecto, skills, memoria, subagentes y servicios conectados. Puede configurar el agente según su código base, sus preferencias y su equipo.
 
-El agente nativo ofrece a cada usuario la misma capa de personalización, sin tener que salir de la aplicación. Cada aplicación viene con un **espacio de trabajo** personal donde tú (o cualquier miembro de tu equipo) puedes:
+El agente nativo ofrece a cada usuario la misma capa de personalización, sin tener que salir de la aplicación. Cada aplicación viene con **recursos del agente** personales que tú (o cualquier miembro de tu equipo) puedes usar para:
 
 - Editar reglas para todo el equipo que leen todos los agentes
 - Permita que el agente recuerde las preferencias automáticamente a medida que las corrige
@@ -202,9 +202,9 @@ El agente nativo ofrece a cada usuario la misma capa de personalización, sin te
 - Programar trabajos para que se ejecuten en un cron (por ejemplo, "todos los lunes por la mañana, resumir la semana pasada")
 - Conectar servicios externos (Gmail, Stripe, Slack, API internos) a través de servidores MCP por usuario
 
-El giro: todo está almacenado en la base de datos, no en el sistema de archivos. No hay un entorno de desarrollo que poner en marcha, ni un contenedor por usuario. Cada usuario obtiene su propio espacio de trabajo completo (memoria personal, conexiones personales, skills personal) esencialmente gratis, porque son todas las filas de una tabla. Eso es lo que hace que la flexibilidad a nivel de código Claude sea viable dentro de un producto SaaS multiinquilino real.
+El giro: todo está almacenado en la base de datos, no en el sistema de archivos. No hay un entorno de desarrollo que poner en marcha, ni un contenedor por usuario. Cada usuario obtiene su propio conjunto completo de recursos del agente (memoria personal, conexiones personales, skills personal) esencialmente gratis, porque son todas las filas de una tabla. Eso es lo que hace que la flexibilidad a nivel de código Claude sea viable dentro de un producto SaaS multiinquilino real.
 
-Consulte [Workspace](/docs/workspace) para conocer el concepto completo.
+Consulte [Recursos del Agente](/docs/agent-resources) para conocer el concepto completo.
 
 ## Qué lo hace diferente {#what-makes-it-different}
 
@@ -226,19 +226,19 @@ El agente nativo no es solo para desarrolladores. Debido a que el agente puede e
 
 La visión: menos traspasos, una persona haciendo el trabajo de un equipo pequeño.
 
-## Bifurcar y personalizar {#fork-and-customize}
+## Empezar con una plantilla y personalizar {#fork-and-customize}
 
-Las aplicaciones nativas del agente siguen un modelo de bifurcación y personalización. Comienza desde una **plantilla** (calendario, contenido, diapositivas, análisis, correo, clips, diseño, formularios, envío) y la hace suya. Cada uno es un producto SaaS completo y funcional que se vende al por mayor, no un andamio en blanco:
+Las aplicaciones nativas del agente siguen un modelo de empezar con una app funcional. Comienza desde una **plantilla** (calendario, contenido, diapositivas, análisis, correo, clips, diseño, formularios, envío) y la hace suya. Cada uno es un producto SaaS completo y funcional, no un andamio en blanco:
 
 1. Elija una plantilla en [agent-native.com/templates](/templates)
 2. Úselo inmediatamente como una aplicación alojada (por ejemplo, mail.agent-native.com)
-3. Búsquelo cuando desee personalizar: "conectar nuestra cuenta de Stripe", "agregar un gráfico de cohortes"
+3. Cree su propia app desde la plantilla cuando desee personalizar: "conectar nuestra cuenta de Stripe", "agregar un gráfico de cohortes"
 4. El agente modifica el código para adaptarlo a sus necesidades
-5. Implemente su bifurcación en su propio dominio o permanezca en agent-native.com
+5. Implemente su app en su propio dominio o permanezca en agent-native.com
 
 Debido a que es _su_ aplicación, no una infraestructura compartida, el agente puede desarrollar el código de manera segura. Tu aplicación sigue mejorando a medida que la usas. Consulte [Templates](/docs/cloneable-saas) para conocer la historia completa.
 
-¿No estás listo para bifurcar una plantilla completa? También puede probar el agente nativo agregando una **habilidad** a un agente de codificación que ya usa: instale la habilidad Planes con `npx @agent-native/core@latest skills add visual-plan`. Ver el [Skills Guide](/docs/skills-guide#app-backed-skills).
+¿No estás listo para empezar con una plantilla completa? También puede probar el agente nativo agregando una **habilidad** a un agente de codificación que ya usa: instale la habilidad Planes con `npx @agent-native/core@latest skills add visual-plan`. Ver el [Skills Guide](/docs/skills-guide#app-backed-skills).
 
 ## Agentes componibles {#composable-agents}
 
@@ -300,7 +300,7 @@ Una acción, muchas superficies: el agente lo llama como una herramienta, el UI 
 - [**Agent Surfaces**](/docs/agent-surfaces): elige chat enriquecido sin cabeza, sidecar integrado o aplicación completa
 - [**Key Concepts**](/docs/key-concepts): la arquitectura: SQL, actions, sincronización de sondeo, reconocimiento del contexto, portabilidad
 - [**Templates**](/docs/cloneable-saas): plantillas como productos completos de tu propiedad
-- [**Workspace**](/docs/workspace): la capa de personalización por usuario (skills, memoria, instrucciones, MCP) respaldada por SQL, no archivos
+- [**Recursos del Agente**](/docs/agent-resources): la capa de personalización por usuario (skills, memoria, instrucciones, MCP) respaldada por SQL, no archivos
 - [**Dispatch**](/docs/dispatch): plano de control del espacio de trabajo: bóveda de secretos, Slack/bandeja de entrada de correo electrónico, delegación entre aplicaciones
 - [**Extensions**](/docs/extensions): miniaplicaciones en espacio aislado que el agente crea instantáneamente sin cambios de código
 - [**Drop-in Agent**](/docs/drop-in-agent): monta `<AgentPanel>` en cualquier aplicación React

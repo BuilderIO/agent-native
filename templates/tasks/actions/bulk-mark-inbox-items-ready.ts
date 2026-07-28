@@ -9,7 +9,7 @@ import { BULK_ID_LIMIT } from "../shared/bulk-limits.js";
 
 export default defineAction({
   description:
-    "Promote multiple inbox items to incomplete tasks in one atomic batch.",
+    "Promote multiple inbox items to incomplete tasks in one atomic batch, preserving their ids. Use mark-inbox-item-ready for one item.",
   schema: z.object({
     inboxItemIds: z
       .array(z.string())

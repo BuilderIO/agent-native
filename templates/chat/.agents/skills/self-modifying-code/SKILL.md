@@ -1,9 +1,10 @@
 ---
 name: self-modifying-code
 description: >-
-  How the agent can modify the app's own source code. Use when the agent needs
-  to edit components, routes, styles, or scripts, when designing UI for agent
-  editability, or when deciding what the agent should and shouldn't modify.
+  Tiers, checkpoints, and off-limits paths for an agent editing the app's own
+  source. Use when designing UI for agent editability, deciding whether a file
+  is safe for the agent to change, or when tempted to patch config, `.env`, or
+  an `@agent-native/*` package. Do not load it for ordinary source edits.
 scope: dev
 metadata:
   internal: true

@@ -13,6 +13,7 @@ import {
   ContentFilesSidebarView,
   DatabaseSidebarView,
   databaseSidebarItemTree,
+  databaseSidebarRootItems,
   databaseSidebarRowIndent,
   databaseSidebarRows,
 } from "./sidebar";
@@ -56,6 +57,52 @@ describe("DatabaseSidebarView", () => {
     ).toEqual(["item-first", "item-second"]);
   });
 
+  it("renders an empty fallback while database data is incomplete", () => {
+    const markup = renderToStaticMarkup(
+      <MemoryRouter>
+        <TooltipProvider>
+          <ContentFilesSidebarView
+            data={{} as ContentDatabaseResponse}
+            overrides={null}
+            isLoading={false}
+            labels={{
+              noMatchesLabel: "No matches",
+              clearLabel: "Clear",
+              navigationLabel: "Files",
+              untitledLabel: "Untitled",
+            }}
+          />
+        </TooltipProvider>
+      </MemoryRouter>,
+    );
+
+    expect(markup).toContain('aria-label="Files"');
+  });
+
+  it("renders skeleton rows without loading copy or a spinner", () => {
+    const markup = renderToStaticMarkup(
+      <MemoryRouter>
+        <DatabaseSidebarView
+          groups={[]}
+          grouped={false}
+          isLoading
+          hasActiveConstraints={false}
+          openPagesIn="full_page"
+          noMatchesLabel="No pages"
+          clearLabel="Clear"
+          navigationLabel="Pages"
+          untitledLabel="Untitled"
+          onClearResultConstraints={() => {}}
+          onPreview={() => {}}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(markup).not.toContain("Loading");
+    expect(markup).not.toContain("animate-spin");
+    expect(markup).toContain("animate-pulse");
+  });
+
   it("renders compact router links for an ungrouped saved view", () => {
     const markup = renderToStaticMarkup(
       <MemoryRouter>
@@ -74,7 +121,6 @@ describe("DatabaseSidebarView", () => {
             isLoading={false}
             hasActiveConstraints={false}
             openPagesIn="full_page"
-            loadingLabel="Loading list"
             noMatchesLabel="No rows match this view"
             clearLabel="Clear"
             navigationLabel="Database pages"
@@ -133,7 +179,6 @@ describe("DatabaseSidebarView", () => {
             isLoading={false}
             hasActiveConstraints
             openPagesIn="full_page"
-            loadingLabel="Loading list"
             noMatchesLabel="No rows match this view"
             clearLabel="Clear"
             navigationLabel="Database pages"
@@ -150,6 +195,61 @@ describe("DatabaseSidebarView", () => {
     expect(markup).not.toContain('href="/page/child"');
     expect(markup).not.toContain("Page three");
     expect(markup).toContain('aria-current="page"');
+  });
+
+  it("does not promote a child when sorting places it before its parent", () => {
+    const parent = item("parent", "Zulu parent");
+    const child = item("child", "Alpha child", "parent");
+    const sortedItems = [child, parent];
+
+    expect(
+      databaseSidebarRootItems(sortedItems, sortedItems).map(
+        (candidate) => candidate.document.id,
+      ),
+    ).toEqual(["parent"]);
+
+    expect(
+      databaseSidebarItemTree(
+        databaseSidebarRootItems(sortedItems, sortedItems),
+        sortedItems,
+      ),
+    ).toMatchObject([
+      {
+        item: { document: { id: "parent" } },
+        children: [{ item: { document: { id: "child" } } }],
+      },
+    ]);
+  });
+
+  it("does not promote a matching child when its existing parent is filtered out", () => {
+    const parent = item("parent", "Parent");
+    const child = item("child", "Matching child", "parent");
+
+    expect(databaseSidebarRootItems([child], [parent, child])).toEqual([]);
+  });
+
+  it("keeps a true orphan visible as a root", () => {
+    const orphan = item("orphan", "Orphan", "deleted-parent");
+
+    expect(databaseSidebarRootItems([orphan], [orphan])).toEqual([orphan]);
+  });
+
+  it("does not promote a database row when its database page is in Files", () => {
+    const databasePage = item("database-page", "Database");
+    const databaseRow = item("row", "Database row", "database-page");
+    databaseRow.document.databaseMembership = {
+      databaseId: "database",
+      databaseDocumentId: "database-page",
+      databaseTitle: "Database",
+      position: 0,
+    };
+
+    expect(
+      databaseSidebarRootItems(
+        [databaseRow, databasePage],
+        [databaseRow, databasePage],
+      ).map((candidate) => candidate.document.id),
+    ).toEqual(["database-page"]);
   });
 
   it("reveals descendants only after their parent is explicitly expanded", async () => {
@@ -177,7 +277,6 @@ describe("DatabaseSidebarView", () => {
               isLoading={false}
               hasActiveConstraints={false}
               openPagesIn="full_page"
-              loadingLabel="Loading list"
               noMatchesLabel="No rows match this view"
               clearLabel="Clear"
               navigationLabel="Database pages"
@@ -245,7 +344,6 @@ describe("DatabaseSidebarView", () => {
             overrides={null}
             isLoading={false}
             labels={{
-              loadingLabel: "Loading",
               noMatchesLabel: "No matches",
               clearLabel: "Clear",
               navigationLabel: "Files",
@@ -259,6 +357,62 @@ describe("DatabaseSidebarView", () => {
     expect(markup).toContain("Matching");
     expect(markup).not.toContain(">Parent<");
     expect(markup).not.toContain(">Child<");
+  });
+
+  it("does not promote a matching child whose parent is filtered out", () => {
+    const parent = item("parent", "Parent");
+    const child = item("child", "Matching child", "parent");
+    const data = {
+      database: {
+        viewConfig: {
+          version: 1,
+          activeViewId: "default",
+          views: [
+            {
+              id: "default",
+              name: "Table",
+              type: "table",
+              filters: [
+                {
+                  key: "name",
+                  label: "Name",
+                  operator: "contains",
+                  value: "Matching",
+                },
+              ],
+              sorts: [],
+              filterMode: "and",
+            },
+          ],
+        },
+      },
+      items: [parent, child],
+      properties: [
+        {
+          definition: { id: "parent", systemRole: "files_parent" },
+        },
+      ],
+    } as unknown as ContentDatabaseResponse;
+
+    const markup = renderToStaticMarkup(
+      <MemoryRouter>
+        <TooltipProvider>
+          <ContentFilesSidebarView
+            data={data}
+            overrides={null}
+            isLoading={false}
+            labels={{
+              noMatchesLabel: "No matches",
+              clearLabel: "Clear",
+              navigationLabel: "Files",
+              untitledLabel: "Untitled",
+            }}
+          />
+        </TooltipProvider>
+      </MemoryRouter>,
+    );
+
+    expect(markup).not.toContain("Matching child");
   });
 
   it("lets a saved database view render workspace roots inside its groups", () => {
@@ -280,7 +434,6 @@ describe("DatabaseSidebarView", () => {
           isLoading={false}
           hasActiveConstraints={false}
           openPagesIn="full_page"
-          loadingLabel="Loading workspaces"
           noMatchesLabel="No workspaces"
           clearLabel="Clear"
           navigationLabel="Content navigation"
@@ -335,7 +488,6 @@ describe("DatabaseSidebarView", () => {
           overrides={null}
           isLoading={false}
           labels={{
-            loadingLabel: "Loading workspaces",
             noMatchesLabel: "No workspaces match this view",
             clearLabel: "Show all",
             navigationLabel: "Content navigation",
@@ -372,7 +524,6 @@ describe("DatabaseSidebarView", () => {
             isLoading={false}
             hasActiveConstraints={false}
             openPagesIn="full_page"
-            loadingLabel="Loading list"
             noMatchesLabel="No rows match this view"
             clearLabel="Clear"
             navigationLabel="Database pages"
@@ -429,7 +580,6 @@ describe("DatabaseSidebarView", () => {
             isLoading={false}
             hasActiveConstraints={false}
             openPagesIn="full_page"
-            loadingLabel="Loading list"
             noMatchesLabel="No rows match this view"
             clearLabel="Clear"
             navigationLabel="Database pages"

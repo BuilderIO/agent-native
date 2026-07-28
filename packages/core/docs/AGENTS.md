@@ -59,7 +59,7 @@ preserve public action, state, auth, and agent-chat runtime contracts.
 | Localize UI copy and language choices | `content/internationalization.md`, `content/client.md`                                                   |
 | Build headless or chat-first apps     | `content/pure-agent-apps.md`, `content/agent-surfaces.md`, `content/using-your-agent.md`                 |
 | Add automations or scheduled work     | `content/automations.md`, `content/recurring-jobs.md`                                                    |
-| Compose apps or call sibling agents   | `content/a2a-protocol.md`, `content/multi-app-workspace.md`, `content/workspace.md`                      |
+| Compose apps or call sibling agents   | `content/a2a-protocol.md`, `content/multi-app-workspace.md`, `content/agent-resources.mdx`               |
 | Expose tools to external agents       | `content/external-agents.md`, `content/mcp-protocol.md`, `content/mcp-apps.md`, `content/mcp-clients.md` |
 | Add integrations, setup, or secrets   | `content/onboarding.md`, `content/workspace-connections.md`, `content/security.md`                       |
 | Build extensions or custom widgets    | `content/extensions.md`, `content/agent-web-surfaces.md`                                                 |

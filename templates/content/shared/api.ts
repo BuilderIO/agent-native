@@ -749,6 +749,7 @@ export interface ContentDatabaseResponse {
   };
   createdItemId?: string;
   createdDocumentId?: string;
+  createdDocumentUpdatedAt?: string;
   duplicatedItemId?: string;
   duplicatedDocumentId?: string;
   duplicatedItemIds?: string[];
@@ -911,6 +912,16 @@ export interface ListTrashedContentDatabasesResponse {
   databases: TrashedContentDatabaseSummary[];
 }
 
+export interface TrashedDocumentSummary {
+  documentId: string;
+  title: string;
+  trashedAt: string;
+}
+
+export interface ListTrashedDocumentsResponse {
+  documents: TrashedDocumentSummary[];
+}
+
 export interface SuggestSourceJoinKeyRequest {
   databaseId?: string;
   documentId?: string;
@@ -946,6 +957,7 @@ export interface RefreshContentDatabaseSourceRequest {
   documentId?: string;
   sourceId?: string;
   fullRefresh?: boolean;
+  expectedBuilderContinuationOffset?: number;
 }
 
 export interface DisconnectContentDatabaseSourceRequest {

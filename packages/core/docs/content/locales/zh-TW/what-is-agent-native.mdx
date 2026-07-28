@@ -188,7 +188,7 @@ Agent-Native 翻轉了這一點。由於應用程式中的每個操作都定義�
 
 像 Claude Code 這樣的工具之所以如此強大，並不是因為模型，而是**定制層**：每個專案的指令、skills、記憶、子代理、連線的服務。您可以根據您的程式碼庫、您的偏好、您的團隊來塑造代理。
 
-Agent-Native 為每個使用者提供相同的自訂層 - 無需離開應用程式。每個應用程式都附帶一個個人**工作區**，您（或團隊中的任何人）可以：
+Agent-Native 為每個使用者提供相同的自訂層 - 無需離開應用程式。每個應用程式都附帶一個個人**代理資源**，您（或團隊中的任何人）可以：
 
 - 編輯每個代理都會讀取的團隊範圍規則
 - 讓代理在您更正時自動記住偏好
@@ -199,7 +199,7 @@ Agent-Native 為每個使用者提供相同的自訂層 - 無需離開應用程�
 
 不同之處：它全部儲存在資料庫中，而不是檔案系統中。沒有需要啟動的開發環境，每個使用者沒有容器。每個使用者都可以獲得自己的完整工作空間 - 個人記憶、個人聯絡、個人 skills - 基本上免費，因為它是表中的所有行。這就是 Claude 程式碼級靈活性在真正的多租戶 SaaS 產品中可行的原因。
 
-請參閱 [Workspace](/docs/workspace) 了解完整概念。
+請參閱 [代理資源](/docs/agent-resources) 了解完整概念。
 
 ## 有何不同 {#what-makes-it-different}
 
@@ -221,19 +221,19 @@ Agent-Native 不僅僅適合開發人員。由於代理可以編輯應用程式�
 
 願景：減少交接，一個人完成小團隊的工作。
 
-## 分叉並自訂 {#fork-and-customize}
+## 從範本開始並自訂 {#fork-and-customize}
 
-Agent-Native 應用程式遵循分叉和自訂模型。您從**範本**開始 - 行事曆、內容、幻燈片、分析、郵件、剪輯、設計、表單、調度 - 並將其變成您的。每一個都是一個完整的、可工作的 SaaS 產品，您可以批量分叉，而不是一個空白的腳手架：
+Agent-Native 應用程式遵循從可執行 app 開始的模型。您從**範本**開始 - 行事曆、內容、幻燈片、分析、郵件、剪輯、設計、表單、調度 - 並將其變成您的。每一個都是一個完整的、可工作的 SaaS 產品，而不是一個空白的腳手架：
 
 1. 在[agent-native.com/templates](/templates)上選取範本
 2. 立即將其用作託管應用程式（例如 mail.agent-native.com）
-3. 當您想要自訂時分叉它 - “連線我們的 Stripe 帳戶”、“新增同類圖表”
+3. 當您想要自訂時，從範本建立自己的 app - “連線我們的 Stripe 帳戶”、“新增同類圖表”
 4. 代理修改程式碼以滿足您的需求
-5. 將您的分叉部署到您自己的域 - 或留在agent-native.com
+5. 將您的 app 部署到您自己的域 - 或留在agent-native.com
 
 因為它是*您的*應用程式，而不是共用基礎設施，所以代理可以安全地改行程式碼。您的應用程式會隨著您的使用而不斷改進。完整故事請參見 [Templates](/docs/cloneable-saas)。
 
-尚未準備好分叉整個範本？您還可以透過向已使用的編碼代理新增**技能**來嘗試 Agent-Native - 使用 `npx @agent-native/core@latest skills add visual-plan` 安裝計畫技能。請參閱 [Skills Guide](/docs/skills-guide#app-backed-skills)。
+尚未準備好從整個範本開始？您還可以透過向已使用的編碼代理新增**技能**來嘗試 Agent-Native - 使用 `npx @agent-native/core@latest skills add visual-plan` 安裝計畫技能。請參閱 [Skills Guide](/docs/skills-guide#app-backed-skills)。
 
 ## 可組合代理 {#composable-agents}
 
@@ -295,7 +295,7 @@ import { AgentSidebar } from "@agent-native/core/client/agent-chat";
 - [**Agent Surfaces**](/docs/agent-surfaces) — 選取無頭、豐富的聊天、嵌入式邊車或完整應用
 - [**Key Concepts**](/docs/key-concepts) — 架構：SQL、actions、輪詢同步、脈絡感知、可移植性
 - [**Templates**](/docs/cloneable-saas) — 範本作為您擁有的完整產品
-- [**Workspace**](/docs/workspace) - 由 SQL 支援的每使用者自訂層（skills、記憶、指令、MCP），而不是檔案
+- [**代理資源**](/docs/agent-resources) - 由 SQL 支援的每使用者自訂層（skills、記憶、指令、MCP），而不是檔案
 - [**Dispatch**](/docs/dispatch) — 工作區控制平面：秘密庫、Slack/電子郵件收件箱、跨應用委派
 - [**Extensions**](/docs/extensions) - 代理立即建立的沙盒迷你應用程式，無需更改程式碼
 - [**Drop-in Agent**](/docs/drop-in-agent) — 將 `<AgentPanel>` 安裝到任何 React 應用中

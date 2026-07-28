@@ -56,13 +56,13 @@ const PERMISSION_CARDS: Array<{
 // fails — same URLs the main app window uses.
 const MACOS_PRIVACY_URLS: Record<PermissionPane, string> = {
   microphone:
-    "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
+    "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Microphone",
   speech:
-    "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition",
+    "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_SpeechRecognition",
   accessibility:
-    "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+    "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Accessibility",
   "input-monitoring":
-    "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent",
+    "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_ListenEvent",
 };
 
 function openPermissionSettings(pane: PermissionPane): void {

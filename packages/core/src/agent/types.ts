@@ -1,3 +1,4 @@
+import type { A2AAgentActivitySnapshot } from "../a2a/activity.js";
 import type { ActionChatUIConfig } from "../action-ui.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
@@ -166,6 +167,7 @@ export interface AgentChatRequest {
     continuationReason?:
       | "run_timeout"
       | "loop_limit"
+      | "max_tokens"
       | "no_progress"
       | "stream_ended"
       | "gateway_timeout"
@@ -273,6 +275,8 @@ export type AgentChatEvent =
       type: "agent_call";
       agent: string;
       status: "start" | "done" | "error";
+      agentCallId?: string;
+      durationMs?: number;
     }
   | {
       /**
@@ -290,14 +294,26 @@ export type AgentChatEvent =
        */
       type: "agent_call_progress";
       agent: string;
-      /** Remote A2A task state for this poll, e.g. "working" | "submitted". */
+      /** Remote A2A task state for this poll, e.g. "working" | "processing". */
       state: string;
       /** Elapsed wall-clock seconds since the cross-app call began. */
       elapsedSeconds: number;
       /** Optional short text surfaced from the remote poll, when present. */
       detail?: string;
+      agentCallId?: string;
     }
-  | { type: "agent_call_text"; agent: string; text: string }
+  | {
+      type: "agent_call_text";
+      agent: string;
+      text: string;
+      agentCallId?: string;
+    }
+  | {
+      type: "agent_call_activity";
+      agent: string;
+      snapshot: A2AAgentActivitySnapshot;
+      agentCallId?: string;
+    }
   | {
       type: "agent_task";
       taskId: string;
@@ -353,20 +369,58 @@ export type AgentChatEvent =
     }
   | {
       type: "auto_continue";
-      reason:
-        | "run_timeout"
-        | "loop_limit"
-        | "no_progress"
-        | "stream_ended"
-        | "gateway_timeout"
-        | "network_interrupted";
+      reason: ContinuationReason;
       maxIterations?: number;
     }
   | { type: "clear" };
+
+export const CONTINUATION_REASONS = [
+  "run_timeout",
+  "loop_limit",
+  "max_tokens",
+  "no_progress",
+  "stream_ended",
+  "gateway_timeout",
+  "network_interrupted",
+] as const;
+
+export type ContinuationReason = (typeof CONTINUATION_REASONS)[number];
+
+/**
+ * True when an `agent_runs.terminal_reason` marks a CHUNK boundary rather than
+ * the end of the turn — i.e. the run was TRUNCATED at a budget/timeout/loop/
+ * no-progress boundary and did not finish what it was asked to do.
+ *
+ * This is the single predicate for "the reason says this run did not finish".
+ * `setRunTerminalReason` (run-store) uses it to record `status='truncated'`
+ * instead of `'completed'`, so consumers should read the status rather than
+ * re-deriving truncation from the reason. It stays exported for legacy
+ * `status='completed'` rows written before the `truncated` status existed,
+ * which linger for one retention window.
+ */
+export function isContinuationTerminalReason(reason: unknown): boolean {
+  return (
+    reason === "auto_continue" ||
+    CONTINUATION_REASONS.includes(reason as ContinuationReason)
+  );
+}
 
 export interface RunEvent {
   seq: number;
   event: AgentChatEvent;
 }
 
-export type RunStatus = "running" | "completed" | "errored" | "aborted";
+/**
+ * `agent_runs.status`. `completed` means the turn actually finished (terminal
+ * reason `done`); `truncated` means it stopped at a budget/timeout/loop/
+ * no-progress boundary with work still outstanding. Truncations were previously
+ * filed as `completed`, which made them invisible to every success-rate query
+ * and — because retention keys off status — deleted them a week before the
+ * genuine failures they belong with.
+ */
+export type RunStatus =
+  | "running"
+  | "completed"
+  | "truncated"
+  | "errored"
+  | "aborted";

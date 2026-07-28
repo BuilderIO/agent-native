@@ -28,10 +28,7 @@ import {
   smoothStreamingRevealCount,
   splitStreamingTextGraphemes,
 } from "../../shared/streaming-text-smoothing.js";
-import {
-  NEW_CHAT_ACTION_HREF,
-  BUILDER_SPACE_SETTINGS_URL,
-} from "../error-format.js";
+import { NEW_CHAT_ACTION_HREF } from "../error-format.js";
 import { HighlightedCodeBlock as SharedHighlightedCodeBlock } from "../HighlightedCodeBlock.js";
 import { IframeEmbed, parseEmbedBody } from "../IframeEmbed.js";
 import { cn } from "../utils.js";
@@ -187,7 +184,8 @@ function isBuilderErrorCtaHref(href: string | undefined): boolean {
       return false;
     }
     return (
-      url.href === BUILDER_SPACE_SETTINGS_URL ||
+      (url.origin === "https://builder.io" &&
+        url.pathname === "/account/space") ||
       url.pathname === "/account/billing" ||
       url.pathname === "/account/subscription" ||
       /^\/app\/organizations\/[^/]+\/billing$/.test(url.pathname)

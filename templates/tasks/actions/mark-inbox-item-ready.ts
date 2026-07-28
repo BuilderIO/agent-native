@@ -5,12 +5,14 @@ import { z } from "zod";
 import { markInboxItemReady, requireUserEmail } from "../server/inbox/store.js";
 import type { Task } from "../server/tasks/store.js";
 
+export const markInboxItemReadySchema = z.object({
+  inboxItemId: z.string().describe("Inbox item id"),
+});
+
 export default defineAction({
   description:
-    "Mark an inbox item ready: promotes the inbox item to an incomplete task (same id).",
-  schema: z.object({
-    inboxItemId: z.string().describe("Inbox item id"),
-  }),
+    "Promote one inbox item to an incomplete task, preserving its id. Use bulk-mark-inbox-items-ready for multiple items.",
+  schema: markInboxItemReadySchema,
   run: async (args, ctx) => {
     const ownerEmail = requireUserEmail(ctx?.userEmail);
     return markInboxItemReady({ ownerEmail, id: args.inboxItemId });

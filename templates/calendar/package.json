@@ -1,10 +1,10 @@
 {
   "name": "calendar",
-  "displayName": "Agent-Native Calendar",
+  "displayName": "Calendar",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "agent-native dev",
+    "dev": "agent-native dev --inspect",
     "build": "agent-native build",
     "start": "agent-native start",
     "test": "vitest --run",

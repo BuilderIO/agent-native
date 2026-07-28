@@ -5,7 +5,7 @@ description: "Branching, CODEOWNERS, examen des relations publiques et comment D
 
 # Gouvernance de l'espace de travail
 
-> **Quel document d'espace de travail ?** Cette page couvre la **gouvernance** : qui révise, approuve et possède quoi dans de nombreuses applications dans un seul dépôt. Pour la couche de personnalisation de l'agent (Ressources de l'agent : `AGENTS.md`, mémoire, skills, agents personnalisés), voir [Ressources de l'agent](/docs/workspace) ; pour la forme de déploiement (un monorepo, plusieurs applications), voir [Multi-App Workspaces](/docs/multi-app-workspace).
+> **Quel document d'espace de travail ?** Cette page couvre la **gouvernance** : qui révise, approuve et possède quoi dans de nombreuses applications dans un seul dépôt. Pour la couche de personnalisation de l'agent (Ressources de l'agent : `AGENTS.md`, mémoire, skills, agents personnalisés), voir [Ressources de l'agent](/docs/agent-resources) ; pour la forme de déploiement (un monorepo, plusieurs applications), voir [Multi-App Workspaces](/docs/multi-app-workspace).
 
 Ce guide couvre l'aspect opérationnel de l'exécution d'un espace de travail natif d'agent : comment créer des branches, qui examine quoi, comment configurer la propriété du code et comment le plan de contrôle Dispatch s'intègre dans votre modèle de gouvernance.
 
@@ -87,7 +87,7 @@ Gardez les branches de courte durée. Les branches de longue durée divergent de
 
 ### Branchement non-développeur
 
-Tous ceux qui ont besoin d'apporter des modifications ne sont pas à l'aise avec git. [Builder.io](https://www.builder.io) prend en charge un modèle de branchement visuel qui correspond aux branches Git sous le capot – utile pour les modifications de contenu et de copie, les ajustements de mise en page, les itérations de conception et les tests A/B sans environnement de développement.
+Tous ceux qui ont besoin d'apporter des modifications ne sont pas à l'aise avec git. [Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=workspace_management) prend en charge un modèle de branchement visuel qui correspond aux branches Git sous le capot – utile pour les modifications de contenu et de copie, les ajustements de mise en page, les itérations de conception et les tests A/B sans environnement de développement.
 
 ## Propriété du code
 
@@ -207,7 +207,7 @@ L'application [Dispatch](/docs/dispatch) est le plan de contrôle d'exécution d
 
 Dispatch gère : les secrets du coffre-fort, les connexions à l'espace de travail réutilisables, les ressources de l'espace de travail (skills, instructions, profils d'agent, serveurs MCP), les approbations et les journaux d'audit. Pour la configuration de l'itinéraire de l'application publique (`workspaceApp.audience` / `publicPaths` / `protectedPaths`), voir [Multi-App Workspaces — Public app routes](/docs/multi-app-workspace#deployment).
 
-Pour le modèle de ressource et les chemins canoniques, voir [Ressources de l'agent — Global resources](/docs/workspace#global-resources).
+Pour le modèle de ressource et les chemins canoniques, voir [Ressources de l'agent — Global resources](/docs/agent-resources#global-resources).
 
 ## Liste de contrôle de configuration
 
@@ -228,7 +228,7 @@ Pour un nouvel espace de travail, après avoir exécuté `npx @agent-native/core
 - [ ] Enregistrez les connexions d'espace de travail réutilisables pour les comptes de fournisseur partagés, puis
       accorder des applications telles que Brain, Analytics, Mail ou Dispatch uniquement lorsqu'elles en ont besoin
       ce compte
-- [ ] Ajoutez skills à l'échelle de l'espace de travail, des instructions de garde-corps et des ressources de référence de marque/entreprise via la page Ressources. Voir [Ressources de l'agent](/docs/workspace#global-resources) pour le tableau complet du modèle de ressource et le pack de démarrage recommandé.
+- [ ] Ajoutez skills à l'échelle de l'espace de travail, des instructions de garde-corps et des ressources de référence de marque/entreprise via la page Ressources. Voir [Ressources de l'agent](/docs/agent-resources#global-resources) pour le tableau complet du modèle de ressource et le pack de démarrage recommandé.
 - [ ] Configurer la politique d'approbation et les e-mails des approbateurs
 - [ ] Configurer SendGrid (`SENDGRID_API_KEY`, `SENDGRID_FROM_EMAIL`) pour les notifications d'administrateur
 - [ ] Connectez Slack ou Telegram pour la messagerie de l'espace de travail

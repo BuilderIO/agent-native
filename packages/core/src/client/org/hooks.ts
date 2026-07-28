@@ -274,6 +274,22 @@ export function useSwitchOrg() {
   });
 }
 
+export function useDeleteOrg() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) =>
+      apiFetch(ORG_BASE, {
+        method: "DELETE",
+        body: JSON.stringify({ name }),
+      }),
+    onSuccess: async () => {
+      // Deleting an org drops the user into a different active org (or none),
+      // so every org-scoped query is stale — same reasoning as create/switch.
+      await qc.invalidateQueries();
+    },
+  });
+}
+
 export function useJoinByDomain() {
   const qc = useQueryClient();
   return useMutation({
@@ -299,6 +315,17 @@ export function useSetOrgDomain() {
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ["org-me"] });
     },
+  });
+}
+
+/**
+ * Fetch the org's A2A secret on demand (owner/admin). Deliberately a separate
+ * request from `useOrg()` so the secret only reaches the browser when the
+ * operator asks to reveal or copy it.
+ */
+export function useRevealA2ASecret() {
+  return useMutation<{ a2aSecret: string | null }, Error, void>({
+    mutationFn: () => apiFetch(`${ORG_BASE}/a2a-secret`),
   });
 }
 

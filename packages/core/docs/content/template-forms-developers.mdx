@@ -1,0 +1,195 @@
+---
+title: "Forms — data model and actions"
+description: "The Forms template's SQL schema, its full action reference, and how to extend it with new field types or capabilities."
+---
+
+# Forms — data model and actions
+
+This page is for developers customizing or extending the Forms template. It covers the SQL schema, every action the agent and UI call, and how to add new capabilities. For what the app does day to day, see [Forms](/docs/template-forms); for field types, publishing, and public-form protections, see [Building and publishing a form](/docs/template-forms-building-publishing); for response handling, see [Responses, insights, and destinations](/docs/template-forms-responses).
+
+### Quick start
+
+```bash
+npx @agent-native/core@latest create my-forms --standalone --template forms
+```
+
+See [Getting started](/docs/getting-started) for install, dev server, and deployment steps. For a workspace with Forms alongside other apps, run `npx @agent-native/core@latest create my-platform` and pick Forms in the template list.
+
+## Data model
+
+All data lives in SQL via Drizzle ORM. Schema: `templates/forms/server/db/schema.ts`. Forms carry the standard `ownableColumns()` and a matching framework shares table, so they slot into the per-user / per-org sharing model.
+
+| Table         | What it holds                                                                                                                                                                                                  |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `forms`       | A form definition — `title`, `description`, unique `slug`, `fields` (JSON array of `FormField`), `settings` (JSON `FormSettings`), `status` (`draft` / `published` / `closed`), and a soft-delete `deleted_at` |
+| `responses`   | One submission per row — `form_id`, `data` (JSON `{ fieldId: value }`), `submitted_at`, optional `ip`, `submitter_email`, `page_url`, and `client_surface`                                                     |
+| `form_shares` | Framework shares table mapping principals (users or orgs) to roles (viewer, editor, admin) per form                                                                                                            |
+
+`page_url` and `client_surface` are hidden pass-through columns: trusted embeds (like the framework's FeedbackButton) forward the URL of the page a respondent was on and the runtime shell they were in (`web`, `electron`, or `tauri`), so form owners can see which screen and which app feedback came from. Both are `NULL` for direct fills that send no context, and `client_surface` is allowlisted server-side — anything else is dropped.
+
+The `fields` and `settings` JSON shapes are defined in `templates/forms/shared/types.ts` (`FormField`, `FormSettings`). `FormSettings` includes `integrations` (webhook URLs) and `allowedOrigins`, both owner-private. `toPublicFormSettings()` projects settings down to an explicit allowlist (`submitText`, `successMessage`, `redirectUrl`, `showProgressBar`) before any data reaches the public fill page, so integration URLs never leak to anonymous respondents.
+
+Every persisted field `id` (and `conditional.fieldId`) is restricted to `/^[A-Za-z0-9_-]+$/` — both are interpolated into HTML attributes and inline-script selectors by the public-form renderer, so an unrestricted id would be a stored-XSS vector.
+
+<DataModel
+  id="doc-block-forms8"
+  title="Forms data model"
+  summary={
+    "Three tables. Fields and integrations are JSON columns on forms, so the agent's edits are surgical patches rather than cross-table row changes."
+  }
+  entities={[
+    {
+      id: "forms",
+      name: "forms",
+      note: "A form definition (ownable)",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "title", type: "string" },
+        { name: "description", type: "string", nullable: true },
+        { name: "slug", type: "string", note: "unique; public URL" },
+        { name: "fields", type: "json", note: "FormField[] — all field types" },
+        {
+          name: "settings",
+          type: "json",
+          note: "FormSettings — integrations, etc.",
+        },
+        { name: "status", type: "enum", note: "draft | published | closed" },
+        {
+          name: "deleted_at",
+          type: "datetime",
+          nullable: true,
+          note: "soft delete",
+        },
+        { name: "owner_email", type: "string" },
+        { name: "org_id", type: "id", nullable: true },
+      ],
+    },
+    {
+      id: "responses",
+      name: "responses",
+      note: "One submission per row",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "form_id", type: "id", fk: "forms.id" },
+        { name: "data", type: "json", note: "{ fieldId: value }" },
+        { name: "submitted_at", type: "datetime" },
+        { name: "ip", type: "string", nullable: true },
+        { name: "submitter_email", type: "string", nullable: true },
+        {
+          name: "page_url",
+          type: "string",
+          nullable: true,
+          note: "hidden pass-through — page respondent was on",
+        },
+        {
+          name: "client_surface",
+          type: "string",
+          nullable: true,
+          note: "hidden pass-through — web | electron | tauri",
+        },
+      ],
+    },
+    {
+      id: "form_shares",
+      name: "form_shares",
+      note: "Framework shares table — principals to roles per form",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "form_id", type: "id", fk: "forms.id" },
+        { name: "principal", type: "string", note: "user or org" },
+        { name: "role", type: "enum", note: "viewer | editor | admin" },
+      ],
+    },
+  ]}
+  relations={[
+    { from: "forms", to: "responses", kind: "1-n", label: "has responses" },
+    {
+      from: "forms",
+      to: "form_shares",
+      kind: "1-n",
+      label: "has share grants",
+    },
+  ]}
+/>
+
+## Action reference
+
+Every operation is a TypeScript file in `templates/forms/actions/`, auto-mounted at `POST /_agent-native/actions/:name`.
+
+**Form lifecycle**
+
+- `create-form` — create a draft or published form (title, description, fields, settings, slug, status). Set `settings.anonymous: true` to suppress submitter IP/identity/source metadata, or `settings.emailOnNewResponses: true` to email the owner on new responses. Returns an editor URL, plus a public response URL when created as `published`.
+- `get-form` — get a single form by id with all fields and settings. Private settings (`integrations`, `allowedOrigins`) are only included for owner/editor/admin roles.
+- `list-forms` — list accessible forms with response counts. Pass `archived: true` to list soft-deleted forms (the Archive) instead of the main list.
+- `delete-form` — soft-delete (sets `deleted_at`); responses are preserved and stay visible in the Archive. Pass `purge: true` to permanently delete the form and all its responses.
+- `restore-form` — restore a soft-deleted form; responses stay intact.
+
+**Editing fields**
+
+- `patch-form-fields` — the visual builder's real edit path. Applies granular `upsert` / `remove` / `reorder` operations against the current row via a server-side, per-form-locked read-modify-write, so two concurrent editors patching different fields both survive instead of one clobbering the other with a stale full-array snapshot.
+- `update-form` — whole-array replace of `fields`, plus `title`/`description`/`slug`/`settings`/`status`. Its own source docblock marks this the _legacy_ path, kept for agents and bulk imports that want to replace the entire form in one call. The UI builder does not use it for field edits.
+
+<AnnotatedCode
+  id="doc-block-forms9"
+  title="patch-form-fields: upsert, remove, reorder in one call"
+  filename="patch-form-fields ops"
+  language="bash"
+  code={
+    'pnpm action patch-form-fields --id frm_8x2 --ops \'[\n  {"op":"upsert","field":{"id":"nps_score","type":"scale","label":"How likely are you to recommend us?","required":true,"validation":{"min":0,"max":10}}},\n  {"op":"remove","id":"legacy_notes"},\n  {"op":"reorder","ids":["name","email","nps_score"]}\n]\''
+  }
+  annotations={[
+    {
+      lines: "2",
+      label: "upsert",
+      note: "Inserts if `id` is new, or replaces in place at the same position if it already exists — safe under the per-form lock even if another editor is patching a different field at the same time.",
+    },
+    {
+      lines: "3",
+      label: "remove",
+      note: "Deletes the field by id. A no-op if the id is already gone.",
+    },
+    {
+      lines: "4",
+      label: "reorder",
+      note: "Fields listed in `ids` move to that order; any field not mentioned keeps its place, appended after the listed ones.",
+    },
+  ]}
+/>
+
+The result is validated before it's persisted: `assertValidFields` rejects invalid or duplicate field ids and conditional rules that reference a later or missing field, and — if the form is already `published` — `assertPublishableForm` re-checks that every field still has a label and that `select`/`multiselect`/`radio` fields still have options.
+
+**Previewing and analyzing**
+
+- `preview-form` — inline chat summary/table of a form's setup: fields, status, visibility, response count, and an "Open editor" action. The first-party answer to "@form setup?"
+- `response-insights` — chart/table/insights analytics widget over response data. `displayMode` (`chart` / `table` / `insights`, default `insights`) controls what's returned. See [Responses, insights, and destinations](/docs/template-forms-responses#response-insights) for the full contract.
+- `list-responses` — list raw response rows for a form, for reasoning or export. If the user just wants to see responses in the UI, use `navigate` with `view=responses` instead of rendering rows in chat.
+- `export-responses` — export responses to CSV or JSON, uploaded to configured file storage (never written to local disk), returning the file URL.
+
+**Database**
+
+- `db-status` — check the current database connection (local SQLite file vs. a configured remote `DATABASE_URL`).
+- `db-connect` — explain how to configure `DATABASE_URL` / `DATABASE_AUTH_TOKEN` for a deployment; it does not write the connection itself, since those are deployment-level settings applied through your hosting provider.
+
+**UI awareness**
+
+`navigate` and `view-screen` give the agent awareness of the current form, builder tab, and response view — they back the "what am I looking at" and "open this view" behavior described in [Forms](/docs/template-forms) and aren't meant to be called directly by integrations.
+
+## Customizing it
+
+Ask the agent for shipped behavior first:
+
+- "Add a required radio field for preferred contact method."
+- "Post every new submission to Slack." Connect Slack first via [Messaging](/docs/messaging).
+- "Add a webhook destination for our CRM."
+- "Create a customer feedback form with a 1-10 scale and a long-text follow-up."
+- "Make some forms public and others login-only."
+
+If you need new capabilities such as file uploads, signatures, or custom field widgets, treat them as template extensions: add the SQL shape, actions, UI editor controls, public renderer support, and agent instructions together. See [Creating Templates](/docs/creating-templates) for the current build pattern.
+
+## What's next
+
+- [**Forms**](/docs/template-forms) — the product overview and non-developer tour
+- [**Building and publishing a form**](/docs/template-forms-building-publishing) — field types, conditional logic, and public-form protections
+- [**Responses, insights, and destinations**](/docs/template-forms-responses) — analyzing, exporting, and routing submissions
+- [**Actions**](/docs/actions) — the action system powering the builder
+- [**Sharing**](/docs/sharing) — the `form_shares` role model

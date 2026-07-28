@@ -18,6 +18,7 @@ import {
   MultiTabAssistantChat,
   type MultiTabAssistantChatHeaderProps,
 } from "./MultiTabAssistantChat.js";
+import { CHAT_MODEL_SELECTION_CHANGED_EVENT } from "./use-chat-models.js";
 import type { ChatThreadSummary } from "./use-chat-threads.js";
 
 const chatHandleMocks = vi.hoisted(() => ({
@@ -138,6 +139,7 @@ vi.mock("./AssistantChat.js", async () => {
       const props = _props as {
         composerSlot?: React.ReactNode;
         emptyStateAddon?: React.ReactNode;
+        selectedModel?: string;
         selectedEffort?: string;
       };
       React.useImperativeHandle(ref, () => ({
@@ -155,6 +157,7 @@ vi.mock("./AssistantChat.js", async () => {
       return (
         <div
           data-testid="assistant-chat"
+          data-selected-model={props.selectedModel}
           data-reasoning-effort={props.selectedEffort}
         >
           {props.emptyStateAddon}
@@ -262,6 +265,29 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
         .querySelector("[data-testid='assistant-chat']")
         ?.getAttribute("data-reasoning-effort"),
     ).toBe("medium");
+  });
+
+  it("adopts model changes persisted by another shared chat surface", async () => {
+    const key = "agent-native:chat-models:selection:bridge-test";
+    window.localStorage.setItem(
+      key,
+      JSON.stringify({ model: "claude-sonnet-5", engine: "anthropic" }),
+    );
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent(CHAT_MODEL_SELECTION_CHANGED_EVENT, {
+          detail: { key },
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    expect(
+      container
+        .querySelector("[data-testid='assistant-chat']")
+        ?.getAttribute("data-selected-model"),
+    ).toBe("claude-sonnet-5");
   });
 
   it("migrates persisted legacy auto reasoning to medium", async () => {
@@ -1394,6 +1420,9 @@ describe("MultiTabAssistantChat page overlay", () => {
     );
     expect(scrollTarget).not.toBeNull();
     expect(
+      container.querySelector("[data-agent-page-chat-topbar]"),
+    ).not.toBeNull();
+    expect(
       container.querySelector("[data-agent-page-chat-scrolled]"),
     ).toBeNull();
 
@@ -1406,6 +1435,23 @@ describe("MultiTabAssistantChat page overlay", () => {
     expect(
       container.querySelector("[data-agent-page-chat-scrolled]"),
     ).not.toBeNull();
+  });
+
+  it("reserves the page top bar even when its actions are temporarily empty", async () => {
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="page-overlay-test"
+          renderOverlay={() => null}
+        />,
+      );
+    });
+
+    const topbar = container.querySelector<HTMLElement>(
+      "[data-agent-page-chat-topbar]",
+    );
+    expect(topbar).not.toBeNull();
+    expect(topbar?.className).toContain("pt-14");
   });
 });
 

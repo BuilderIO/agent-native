@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -49,8 +50,16 @@ class MockEventSource {
   }
 }
 
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { retry: false, gcTime: 0, staleTime: 0 } },
+});
+
 function wrapper({ children }: { children: ReactNode }) {
-  return createElement(DeckProvider, null, children);
+  return createElement(
+    QueryClientProvider,
+    { client: queryClient },
+    createElement(DeckProvider, null, children),
+  );
 }
 
 function setupFetch(options?: { hangPut?: boolean; failDeckList?: boolean }) {
@@ -64,11 +73,11 @@ function setupFetch(options?: { hangPut?: boolean; failDeckList?: boolean }) {
           ? url.toString()
           : url.url;
 
-    // Legacy full-replace PUT. When `hangPut` is set, the request never
+    // Legacy full-replace write. When `hangPut` is set, the request never
     // resolves on its own — it only rejects when its AbortSignal fires, which
-    // is exactly what `fetchWithTimeout` does after the timeout. This lets a
-    // test prove the timeout drains `inFlightSaves` instead of wedging it.
-    if (init?.method === "PUT" && href.includes("/api/decks/")) {
+    // is exactly what `callAction`'s timeout does. This lets a test prove the
+    // timeout drains `inFlightSaves` instead of wedging it.
+    if (href.includes("/_agent-native/actions/save-deck")) {
       if (options?.hangPut) {
         return new Promise<Response>((_resolve, reject) => {
           const signal = init?.signal;
@@ -86,7 +95,7 @@ function setupFetch(options?: { hangPut?: boolean; failDeckList?: boolean }) {
       );
     }
 
-    if (init?.method === "POST" && href.endsWith("/api/decks")) {
+    if (href.includes("/_agent-native/actions/add-deck")) {
       return new Promise<Response>((resolve) => {
         resolveCreate = resolve;
       });
@@ -121,19 +130,6 @@ function setupFetch(options?: { hangPut?: boolean; failDeckList?: boolean }) {
       );
     }
 
-    if (href.endsWith("/api/decks")) {
-      return Promise.resolve(new Response("[]", { status: 200 }));
-    }
-
-    if (href.includes("/api/decks/")) {
-      if (accessibleDeck) {
-        return Promise.resolve(
-          new Response(JSON.stringify(accessibleDeck), { status: 200 }),
-        );
-      }
-      return Promise.resolve(new Response("", { status: 404 }));
-    }
-
     return Promise.resolve(new Response("", { status: 200 }));
   });
 
@@ -153,6 +149,28 @@ function deckFetchCalls(fetchMock: ReturnType<typeof setupFetch>["fetchMock"]) {
   );
 }
 
+function actionCallBody(
+  init: RequestInit | undefined,
+): Record<string, unknown> {
+  try {
+    return JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+function deletedDeck(
+  fetchMock: ReturnType<typeof setupFetch>["fetchMock"],
+  deckId: string,
+): boolean {
+  return fetchMock.mock.calls.some(
+    ([url, init]) =>
+      String(url).includes("/_agent-native/actions/delete-deck") &&
+      init?.method === "DELETE" &&
+      actionCallBody(init).id === deckId,
+  );
+}
+
 describe("DeckContext deck creation persistence", () => {
   beforeEach(() => {
     vi.stubGlobal("EventSource", MockEventSource);
@@ -163,6 +181,7 @@ describe("DeckContext deck creation persistence", () => {
     vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    queryClient.clear();
     MockEventSource.lastInstance = null;
     MockEventSource.instances = [];
   });
@@ -505,25 +524,11 @@ describe("DeckContext deck creation persistence", () => {
       result.current.undo();
     });
     expect(result.current.getDeck(deckId)).toBeUndefined();
-    expect(
-      fetchMock.mock.calls.some(
-        ([url, init]) =>
-          String(url).includes(`/api/decks/${deckId}`) &&
-          init?.method === "DELETE",
-      ),
-    ).toBe(false);
+    expect(deletedDeck(fetchMock, deckId)).toBe(false);
 
     resolveCreate(new Response("", { status: 200 }));
 
-    await waitFor(() =>
-      expect(
-        fetchMock.mock.calls.some(
-          ([url, init]) =>
-            String(url).includes(`/api/decks/${deckId}`) &&
-            init?.method === "DELETE",
-        ),
-      ).toBe(true),
-    );
+    await waitFor(() => expect(deletedDeck(fetchMock, deckId)).toBe(true));
   });
 
   it("records delete deck on the undo stack", async () => {
@@ -620,12 +625,15 @@ describe("DeckContext deck creation persistence", () => {
 
     const putCall = fetchMock.mock.calls.find(
       ([url, init]) =>
-        String(url).includes(`/api/decks/${deckId}`) && init?.method === "PUT",
+        String(url).includes("/_agent-native/actions/save-deck") &&
+        init?.method === "PUT" &&
+        actionCallBody(init).deckId === deckId,
     );
     expect(putCall).toBeTruthy();
-    expect(JSON.parse(String(putCall?.[1]?.body)).slides[0].content).toBe(
-      "<div>Generated</div>",
-    );
+    expect(
+      (actionCallBody(putCall?.[1]).deck as { slides: { content: string }[] })
+        .slides[0].content,
+    ).toBe("<div>Generated</div>");
 
     const patchCall = fetchMock.mock.calls.find(([url, init]) => {
       if (!String(url).includes("/_agent-native/actions/patch-deck")) {
@@ -1144,8 +1152,9 @@ describe("DeckContext deck creation persistence", () => {
       });
 
       vi.useFakeTimers();
-      // A local edit via setDeckSlides enqueues the legacy full-replace PUT.
-      // After the 500ms debounce it moves into inFlightSaves — then hangs.
+      // A local edit via setDeckSlides enqueues the legacy full-replace
+      // save-deck call. After the 500ms debounce it moves into inFlightSaves —
+      // then hangs.
       act(() => {
         result.current.setDeckSlides("hang-deck", [
           {
@@ -1164,8 +1173,8 @@ describe("DeckContext deck creation persistence", () => {
       // hasUncommittedDeckChanges directly by passing an EMPTY dirty set.
       expect(hasUncommittedDeckChanges("hang-deck", new Set())).toBe(true);
 
-      // Advance past the 60s raw-fetch timeout: the AbortController fires, the
-      // PUT rejects, and the save's `finally` deletes the inFlightSaves entry.
+      // Advance past the 60s action timeout: the AbortController fires, the
+      // save rejects, and the save's `finally` deletes the inFlightSaves entry.
       await act(async () => {
         await vi.advanceTimersByTimeAsync(60_000);
       });

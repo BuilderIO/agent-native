@@ -2,13 +2,14 @@ export const HELP = `npx @agent-native/core@latest skills
 
 Usage:
   npx @agent-native/core@latest skills list
-  npx @agent-native/core@latest skills status [assets|content|design-exploration|visual-edit|visual-plan|visual-recap|visualize-repo|context-xray|scaffold] [--client codex|claude-code|pi|all] [--scope user|project] [--json]
-  npx @agent-native/core@latest skills update [assets|content|design-exploration|visual-edit|visual-plan|visual-recap|visualize-repo|context-xray|scaffold] [--client codex|claude-code|pi|all] [--scope user|project] [--dry-run] [--json]
-  npx @agent-native/core@latest skills add assets|content|design-exploration|visual-edit|visual-plan|visual-recap|visualize-repo|context-xray [--client codex|claude-code|cowork|cursor|opencode|github-copilot|all] [--scope user|project] [--mode hosted|local-files|self-hosted] [--mcp-url <url>] [--no-connect] [--with-github-action] [--yes] [--dry-run] [--json]
+  npx @agent-native/core@latest skills status [assets|content|rewind|design-exploration|visual-edit|visual-plan|visual-recap|visualize-repo|context-xray|scaffold] [--client codex|claude-code|pi|all] [--scope user|project] [--json]
+  npx @agent-native/core@latest skills update [assets|content|rewind|design-exploration|visual-edit|visual-plan|visual-recap|visualize-repo|context-xray|scaffold] [--client codex|claude-code|pi|all] [--scope user|project] [--dry-run] [--json]
+  npx @agent-native/core@latest skills add assets|content|rewind|design-exploration|visual-edit|visual-plan|visual-recap|visualize-repo|context-xray [--client codex|claude-code|cowork|cursor|opencode|github-copilot|all] [--scope user|project] [--mode hosted|local-files|self-hosted] [--mcp-url <url>] [--no-connect] [--with-github-action] [--yes] [--dry-run] [--json]
   npx @agent-native/core@latest skills add <manifest-or-app-dir|skill-repo> [--skill <name>] [--client ...] [--yes]
 
 Examples:
   npx @agent-native/core@latest skills add assets
+  npx @agent-native/core@latest skills add rewind --client codex --scope user --yes
   npx @agent-native/core@latest skills add content --mode local-files
   npx @agent-native/core@latest skills add design-exploration
   npx @agent-native/core@latest skills add visual-edit

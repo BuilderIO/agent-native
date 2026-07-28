@@ -1,3 +1,4 @@
+import { TextSelection } from "@tiptap/pm/state";
 import type { Editor } from "@tiptap/react";
 import {
   useCallback,
@@ -22,7 +23,84 @@ export interface SlashCommandItem {
   searchText?: string;
   /** Short text glyph shown in the menu (T, H1, tbl, …). */
   icon: string;
+  /** Hide this command when the shared editor feature is disabled. */
+  requires?: "tables" | "tasks" | "codeBlock";
   action: (editor: Editor) => void;
+}
+
+/**
+ * Put the caret inside the block a slash command just created or transformed.
+ *
+ * Tiptap commands usually preserve a text selection, but commands that replace
+ * the current paragraph (notably code blocks and horizontal rules) can leave a
+ * node selection or a caret at the following block. Resolving from the slash
+ * range keeps the behavior consistent for built-in and app-provided block
+ * commands: after selecting a block, typing starts in that block immediately.
+ */
+export function focusEditorInInsertedBlock(
+  editor: Editor,
+  anchorPosition?: number,
+): void {
+  if (editor.isDestroyed) return;
+
+  const { state } = editor;
+  const anchor = Math.max(
+    1,
+    Math.min(anchorPosition ?? state.selection.from, state.doc.content.size),
+  );
+  let containingTextblock: number | null = null;
+  let nextTextblock: number | null = null;
+  let previousTextblock: number | null = null;
+
+  state.doc.nodesBetween(0, state.doc.content.size, (node, pos) => {
+    if (!node.isTextblock) return;
+
+    const start = pos + 1;
+    const end = pos + node.nodeSize - 1;
+    if (anchor >= start && anchor <= end) {
+      containingTextblock ??= anchor;
+      return;
+    }
+    if (start > anchor) {
+      if (nextTextblock === null || start < nextTextblock) {
+        nextTextblock = start;
+      }
+      return;
+    }
+    if (previousTextblock === null || start > previousTextblock) {
+      previousTextblock = Math.min(anchor, end);
+    }
+  });
+
+  const target = containingTextblock ?? nextTextblock ?? previousTextblock;
+  if (target === null) {
+    editor.commands.focus();
+    return;
+  }
+
+  const transaction = state.tr.setSelection(
+    TextSelection.create(
+      state.doc,
+      Math.max(1, Math.min(target, state.doc.content.size)),
+    ),
+  );
+  editor.view.dispatch(transaction.scrollIntoView());
+  editor.view.focus();
+}
+
+export interface SlashCommandFeatureFlags {
+  tables?: boolean;
+  tasks?: boolean;
+  codeBlock?: boolean;
+}
+
+export function filterSlashCommandItems(
+  items: readonly SlashCommandItem[],
+  features?: SlashCommandFeatureFlags,
+): SlashCommandItem[] {
+  return items.filter(
+    (item) => !item.requires || features?.[item.requires] !== false,
+  );
 }
 
 /**
@@ -73,6 +151,7 @@ export const DEFAULT_SLASH_COMMANDS: SlashCommandItem[] = [
     title: "To-do list",
     description: "Checklist items",
     icon: "[]",
+    requires: "tasks",
     action: (editor) => editor.chain().focus().toggleTaskList().run(),
   },
   {
@@ -85,6 +164,7 @@ export const DEFAULT_SLASH_COMMANDS: SlashCommandItem[] = [
     title: "Code block",
     description: "Code snippet",
     icon: "<>",
+    requires: "codeBlock",
     action: (editor) => editor.chain().focus().toggleCodeBlock().run(),
   },
   {
@@ -97,6 +177,7 @@ export const DEFAULT_SLASH_COMMANDS: SlashCommandItem[] = [
     title: "Table",
     description: "Three by three table",
     icon: "tbl",
+    requires: "tables",
     action: (editor) =>
       editor
         .chain()
@@ -172,13 +253,18 @@ export function SlashCommandMenu({
     (command: SlashCommandItem) => {
       if (slashPosRef.current !== null) {
         const { from } = editor.state.selection;
+        const anchorPosition = slashPosRef.current;
         editor
           .chain()
           .focus()
-          .deleteRange({ from: slashPosRef.current, to: from })
+          .deleteRange({ from: anchorPosition, to: from })
           .run();
+        command.action(editor);
+        focusEditorInInsertedBlock(editor, anchorPosition);
+      } else {
+        command.action(editor);
+        focusEditorInInsertedBlock(editor);
       }
-      command.action(editor);
       close();
     },
     [close, editor],

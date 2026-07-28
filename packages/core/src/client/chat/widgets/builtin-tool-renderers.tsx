@@ -126,11 +126,15 @@ function renderDataWidget(context: ToolRendererContext) {
   return null;
 }
 
-function BuiltinToolRendererSkeleton() {
+function BuiltinToolRendererSkeleton({ framed = true }: { framed?: boolean }) {
   return (
     <div
       aria-label="Loading tool result"
-      className="my-1.5 h-24 animate-pulse rounded-lg border border-border bg-muted/30"
+      className={
+        framed
+          ? "my-1.5 h-24 animate-pulse rounded-lg border border-border bg-muted/30"
+          : "h-24 animate-pulse bg-muted/30"
+      }
     />
   );
 }
@@ -140,7 +144,7 @@ const BuiltinDataWidgetRenderer: ToolRendererComponent = ({ context }) =>
 
 const BuiltinInlineExtensionRenderer: ToolRendererComponent = ({ context }) =>
   normalizeInlineExtensionToolResult(context) ? (
-    <Suspense fallback={<BuiltinToolRendererSkeleton />}>
+    <Suspense fallback={<BuiltinToolRendererSkeleton framed={false} />}>
       <LazyInlineExtensionWidget context={context} />
     </Suspense>
   ) : null;

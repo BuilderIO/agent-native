@@ -44,3 +44,4 @@ learnings.md
 /e2e/.auth/
 data/e2e.db
 data/e2e.db-*
+.agent-native/

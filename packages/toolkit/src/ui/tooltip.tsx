@@ -21,12 +21,16 @@ function normalizeTooltipText(text: string): string {
 
 const TooltipContent = React.forwardRef<
   React.ElementRef<typeof TooltipPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof TooltipPrimitive.Content>
->(({ className, sideOffset = 6, children, ...props }, ref) => {
+  React.ComponentPropsWithoutRef<typeof TooltipPrimitive.Content> & {
+    container?: React.ComponentPropsWithoutRef<
+      typeof TooltipPrimitive.Portal
+    >["container"];
+  }
+>(({ className, sideOffset = 6, children, container, ...props }, ref) => {
   const normalizedChildren =
     typeof children === "string" ? normalizeTooltipText(children) : children;
   return (
-    <TooltipPrimitive.Portal>
+    <TooltipPrimitive.Portal container={container}>
       <TooltipPrimitive.Content
         ref={ref}
         sideOffset={sideOffset}

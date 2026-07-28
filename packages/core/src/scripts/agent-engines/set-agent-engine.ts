@@ -8,6 +8,7 @@ import {
   isAgentEnginePackageInstalled,
   isStoredEngineUsableForRequest,
   normalizeModelForEngine,
+  resolveEnginePreservesCustomModels,
   registerBuiltinEngines,
 } from "../../agent/engine/index.js";
 import type { ActionTool } from "../../agent/types.js";
@@ -54,7 +55,14 @@ export async function run(args: Record<string, string>): Promise<string> {
   }
 
   const requestedModel = model ?? entry.defaultModel;
-  const resolvedModel = normalizeModelForEngine(entry, requestedModel);
+  // A static registry entry can't carry the runtime `preserveCustomModels`
+  // flag, so resolve the OpenAI-compatible-endpoint capability here and pass it
+  // through — otherwise a gateway model (e.g. an Ollama id) is rewritten to the
+  // engine default on save.
+  const preserveCustomModels = await resolveEnginePreservesCustomModels(entry);
+  const resolvedModel = normalizeModelForEngine(entry, requestedModel, {
+    preserveCustomModels,
+  });
 
   const usable = await isStoredEngineUsableForRequest(
     { engine: engineName },

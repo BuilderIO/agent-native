@@ -57,6 +57,7 @@ const enUS = {
     brainNavigationDescription: "Navigate between Brain work surfaces.",
   },
   settings: {
+    pageTitle: "Settings",
     agentTitle: "Manage agent",
     agentDescription:
       "Manage the agent's model, API keys, automations, voice, and other controls.",
@@ -403,6 +404,18 @@ const enUS = {
     noCapturesTitle: "No captures match this view",
     noCapturesDetail:
       "Try another status, run a source sync, or import a transcript.",
+    rotateIngestToken: "Rotate ingest token",
+    connectIngestSource: "Connect {{source}}",
+    ingestHandoffDescription:
+      "Save these values in the sending app now. The ingest token is shown only once and cannot be recovered after this dialog closes.",
+    endpoint: "Endpoint",
+    sourceKey: "Source key",
+    ingestToken: "Ingest token",
+    copied: "Copied",
+    copy: "Copy",
+    ingestTokenSecurity:
+      "For security, Brain stores only a hash of this token. Rotate the token whenever the receiving app needs a new credential.",
+    ingestHandoffSaved: "I saved these values",
     tuneSource: "Tune source",
     setupDescription:
       "Configure what Brain may ingest. Credentials stay in the workspace credential store; this form only saves allow-lists, cursors, and review rules.",
@@ -3052,6 +3065,18 @@ const exactEnglishDebtOverrides: Partial<
       noCapturesDetail:
         "جرب حالة أخرى، أو قم بتشغيل مزامنة المصدر، أو قم باستيراد نص.",
       noCapturesTitle: "لا توجد لقطات تطابق هذا الرأي",
+      rotateIngestToken: "تدوير رمز الإدخال",
+      connectIngestSource: "ربط {{source}}",
+      ingestHandoffDescription:
+        "احفظ هذه القيم في التطبيق المرسل الآن. سيُعرض رمز الإدخال مرة واحدة فقط ولا يمكن استعادته بعد إغلاق هذا الحوار.",
+      endpoint: "نقطة النهاية",
+      sourceKey: "مفتاح المصدر",
+      ingestToken: "رمز الإدخال",
+      copied: "تم النسخ",
+      copy: "نسخ",
+      ingestTokenSecurity:
+        "لأسباب أمنية، يخزّن Brain تجزئة هذا الرمز فقط. أدر الرمز كلما احتاج التطبيق المستلم إلى بيانات اعتماد جديدة.",
+      ingestHandoffSaved: "حفظت هذه القيم",
       noConnectionProviders:
         "لا يتوفر أي موفري اتصال Brain من الكتالوج المشترك.",
       noCredentialKeysRequired: "لا توجد مفاتيح الاعتماد المطلوبة",
@@ -3467,6 +3492,18 @@ const exactEnglishDebtOverrides: Partial<
       noCapturesDetail:
         "Versuchen Sie es mit einem anderen Status, führen Sie eine Quellsynchronisierung durch oder importieren Sie ein Transkript.",
       noCapturesTitle: "Keine Aufnahmen stimmen mit dieser Ansicht überein",
+      rotateIngestToken: "Aufnahmetoken drehen",
+      connectIngestSource: "{{source}} verbinden",
+      ingestHandoffDescription:
+        "Speichern Sie diese Werte jetzt in der sendenden App. Das Aufnahmetoken wird nur einmal angezeigt und kann nach dem Schließen dieses Dialogs nicht wiederhergestellt werden.",
+      endpoint: "Endpunkt",
+      sourceKey: "Quellschlüssel",
+      ingestToken: "Aufnahmetoken",
+      copied: "Kopiert",
+      copy: "Kopieren",
+      ingestTokenSecurity:
+        "Aus Sicherheitsgründen speichert Brain nur einen Hash dieses Tokens. Drehen Sie das Token, sobald die empfangende App neue Anmeldedaten benötigt.",
+      ingestHandoffSaved: "Ich habe diese Werte gespeichert",
       noConnectionProviders:
         "Im freigegebenen Katalog sind keine Brain-Verbindungsanbieter verfügbar.",
       noCredentialKeysRequired:
@@ -3891,6 +3928,18 @@ const exactEnglishDebtOverrides: Partial<
       noCapturesDetail:
         "Pruebe con otro estado, ejecute una sincronización de origen o importe una transcripción.",
       noCapturesTitle: "Ninguna captura coincide con esta vista.",
+      rotateIngestToken: "Rotar token de ingesta",
+      connectIngestSource: "Conectar {{source}}",
+      ingestHandoffDescription:
+        "Guarde estos valores ahora en la aplicación emisora. El token de ingesta se muestra una sola vez y no se puede recuperar después de cerrar este diálogo.",
+      endpoint: "Punto final",
+      sourceKey: "Clave de origen",
+      ingestToken: "Token de ingesta",
+      copied: "Copiado",
+      copy: "Copiar",
+      ingestTokenSecurity:
+        "Por seguridad, Brain solo almacena un hash de este token. Rote el token cuando la aplicación receptora necesite una credencial nueva.",
+      ingestHandoffSaved: "He guardado estos valores",
       noConnectionProviders:
         "No hay proveedores de conexión Brain disponibles en el catálogo compartido.",
       noCredentialKeysRequired: "No se requieren claves de credenciales",
@@ -4316,6 +4365,18 @@ const exactEnglishDebtOverrides: Partial<
       noCapturesDetail:
         "Essayez un autre statut, exécutez une synchronisation source ou importez une transcription.",
       noCapturesTitle: "Aucune capture ne correspond à cette vue",
+      rotateIngestToken: "Faire pivoter le jeton d’ingestion",
+      connectIngestSource: "Connecter {{source}}",
+      ingestHandoffDescription:
+        "Enregistrez maintenant ces valeurs dans l’application émettrice. Le jeton d’ingestion ne s’affiche qu’une seule fois et ne peut pas être récupéré après la fermeture de cette boîte de dialogue.",
+      endpoint: "Point de terminaison",
+      sourceKey: "Clé de source",
+      ingestToken: "Jeton d’ingestion",
+      copied: "Copié",
+      copy: "Copier",
+      ingestTokenSecurity:
+        "Pour des raisons de sécurité, Brain ne stocke que le hachage de ce jeton. Faites pivoter le jeton lorsque l’application destinataire a besoin d’un nouvel identifiant.",
+      ingestHandoffSaved: "J’ai enregistré ces valeurs",
       noConnectionProviders:
         "Aucun fournisseur de connexion Brain n’est disponible dans le catalogue partagé.",
       noCredentialKeysRequired: "Aucune clé d'identification requise",
@@ -4717,6 +4778,18 @@ const exactEnglishDebtOverrides: Partial<
       noCapturesDetail:
         "कोई अन्य स्थिति आज़माएँ, स्रोत सिंक चलाएँ, या एक प्रतिलेख आयात करें।",
       noCapturesTitle: "कोई भी कैप्चर इस दृश्य से मेल नहीं खाता",
+      rotateIngestToken: "इंजेस्ट टोकन घुमाएँ",
+      connectIngestSource: "कनेक्ट करें: {{source}}",
+      ingestHandoffDescription:
+        "इन मानों को अभी भेजने वाले ऐप में सहेजें। इंजेस्ट टोकन केवल एक बार दिखाया जाता है और यह संवाद बंद होने के बाद इसे पुनर्प्राप्त नहीं किया जा सकता।",
+      endpoint: "एंडपॉइंट",
+      sourceKey: "सोर्स कुंजी",
+      ingestToken: "इंजेस्ट टोकन",
+      copied: "कॉपी किया गया",
+      copy: "कॉपी करें",
+      ingestTokenSecurity:
+        "सुरक्षा के लिए, Brain इस टोकन का केवल हैश संग्रहीत करता है। जब प्राप्त करने वाले ऐप को नए क्रेडेंशियल की आवश्यकता हो, तब टोकन घुमाएँ।",
+      ingestHandoffSaved: "मैंने ये मान सहेज लिए हैं",
       noConnectionProviders: "साझा कैटलॉग से कोई Brain कनेक्शन प्रदाता उपलब्ध नहीं हैं।",
       noCredentialKeysRequired: "किसी क्रेडेंशियल कुंजी की आवश्यकता नहीं है",
       noCredentialRefs: "इस संबंध पर कोई क्रेडेंशियल संदर्भ नहीं है",
@@ -5111,6 +5184,18 @@ const exactEnglishDebtOverrides: Partial<
       noCapturesDetail:
         "別のステータスを試すか、ソース同期を実行するか、トランスクリプトをインポートしてください。",
       noCapturesTitle: "このビューに一致するキャプチャはありません",
+      rotateIngestToken: "取り込みトークンをローテーション",
+      connectIngestSource: "「{{source}}」を接続",
+      ingestHandoffDescription:
+        "これらの値を今すぐ送信元アプリに保存してください。取り込みトークンは一度しか表示されず、このダイアログを閉じると復元できません。",
+      endpoint: "エンドポイント",
+      sourceKey: "ソースキー",
+      ingestToken: "取り込みトークン",
+      copied: "コピーしました",
+      copy: "コピー",
+      ingestTokenSecurity:
+        "セキュリティのため、Brain はこのトークンのハッシュのみを保存します。受信アプリに新しい認証情報が必要になったら、トークンをローテーションしてください。",
+      ingestHandoffSaved: "これらの値を保存しました",
       noConnectionProviders:
         "共有カタログから使用できる Brain 接続プロバイダーはありません。",
       noCredentialKeysRequired: "認証キーは必要ありません",
@@ -5511,6 +5596,18 @@ const exactEnglishDebtOverrides: Partial<
       noCapturesDetail:
         "다른 상태를 시도하거나, 소스 동기화를 실행하거나, 스크립트를 가져오세요.",
       noCapturesTitle: "이 보기와 일치하는 캡처가 없습니다.",
+      rotateIngestToken: "수집 토큰 교체",
+      connectIngestSource: "{{source}} 연결",
+      ingestHandoffDescription:
+        "지금 이 값을 보내는 앱에 저장하세요. 수집 토큰은 한 번만 표시되며 이 대화상자를 닫으면 복구할 수 없습니다.",
+      endpoint: "엔드포인트",
+      sourceKey: "소스 키",
+      ingestToken: "수집 토큰",
+      copied: "복사됨",
+      copy: "복사",
+      ingestTokenSecurity:
+        "보안을 위해 Brain은 이 토큰의 해시만 저장합니다. 수신 앱에 새 자격 증명이 필요할 때 토큰을 교체하세요.",
+      ingestHandoffSaved: "이 값을 저장했습니다",
       noConnectionProviders:
         "공유 카탈로그에서는 Brain 연결 공급자를 사용할 수 없습니다.",
       noCredentialKeysRequired: "자격 증명 키가 필요하지 않습니다",
@@ -5921,6 +6018,18 @@ const exactEnglishDebtOverrides: Partial<
       noCapturesDetail:
         "Tente outro status, execute uma sincronização de origem ou importe uma transcrição.",
       noCapturesTitle: "Nenhuma captura corresponde a esta visualização",
+      rotateIngestToken: "Alternar token de ingestão",
+      connectIngestSource: "Conectar {{source}}",
+      ingestHandoffDescription:
+        "Salve estes valores agora no aplicativo emissor. O token de ingestão é exibido apenas uma vez e não pode ser recuperado depois que esta caixa de diálogo for fechada.",
+      endpoint: "Endpoint",
+      sourceKey: "Chave da fonte",
+      ingestToken: "Token de ingestão",
+      copied: "Copiado",
+      copy: "Copiar",
+      ingestTokenSecurity:
+        "Por segurança, o Brain armazena apenas um hash deste token. Alterne o token sempre que o aplicativo receptor precisar de uma nova credencial.",
+      ingestHandoffSaved: "Salvei estes valores",
       noConnectionProviders:
         "Nenhum provedor de conexão Brain está disponível no catálogo compartilhado.",
       noCredentialKeysRequired: "Nenhuma chave de credencial necessária",
@@ -6300,6 +6409,18 @@ const exactEnglishDebtOverrides: Partial<
       noBrainSourcesYet: "还没有 Brain 来源",
       noCapturesDetail: "尝试其他状态、运行源同步或导入转录本。",
       noCapturesTitle: "没有与此视图匹配的捕获",
+      rotateIngestToken: "轮换摄取令牌",
+      connectIngestSource: "连接 {{source}}",
+      ingestHandoffDescription:
+        "现在将这些值保存到发送应用中。摄取令牌只显示一次，关闭此对话框后将无法恢复。",
+      endpoint: "端点",
+      sourceKey: "源密钥",
+      ingestToken: "摄取令牌",
+      copied: "已复制",
+      copy: "复制",
+      ingestTokenSecurity:
+        "出于安全考虑，Brain 只存储此令牌的哈希值。当接收应用需要新的凭据时，请轮换令牌。",
+      ingestHandoffSaved: "我已保存这些值",
       noConnectionProviders: "共享目录中没有可用的 Brain 连接提供程序。",
       noCredentialKeysRequired: "无需凭证密钥",
       noCredentialRefs: "此连接上没有凭据参考",

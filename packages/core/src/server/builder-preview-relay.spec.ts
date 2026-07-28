@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { shouldBypassAuthForBuilderConnect } from "./auth.js";
 import {
   BUILDER_RELAY_SECRET_ENV,
+  BUILDER_RELAY_TARGET_DOMAIN_SUFFIXES_ENV,
   BUILDER_RELAY_TARGET_ORIGINS_ENV,
   BUILDER_RELAY_SIGNATURE_HEADER,
   BUILDER_RELAY_TIMESTAMP_HEADER,
@@ -12,6 +13,7 @@ import {
   buildBuilderCliAuthUrl,
   createBuilderBrowserCallbackErrorPage,
   createBuilderRelayRequest,
+  isTrustedBuilderRelayTargetOrigin,
   signBuilderPreviewRelayState,
   verifyBuilderPreviewRelayState,
   verifyBuilderPreviewRelayStateForCallback,
@@ -73,6 +75,8 @@ function callbackEvent(relayState: string, origin = TARGET): H3Event {
 describe("Builder preview callback relay", () => {
   const originalSecret = process.env[BUILDER_RELAY_SECRET_ENV];
   const originalTargetOrigins = process.env[BUILDER_RELAY_TARGET_ORIGINS_ENV];
+  const originalSuffixes =
+    process.env[BUILDER_RELAY_TARGET_DOMAIN_SUFFIXES_ENV];
   const originalNodeEnv = process.env.NODE_ENV;
 
   beforeEach(() => {
@@ -80,6 +84,7 @@ describe("Builder preview callback relay", () => {
     vi.setSystemTime(NOW);
     process.env[BUILDER_RELAY_SECRET_ENV] = SECRET;
     process.env[BUILDER_RELAY_TARGET_ORIGINS_ENV] = TARGET;
+    delete process.env[BUILDER_RELAY_TARGET_DOMAIN_SUFFIXES_ENV];
     process.env.NODE_ENV = "production";
   });
 
@@ -93,6 +98,11 @@ describe("Builder preview callback relay", () => {
       delete process.env[BUILDER_RELAY_TARGET_ORIGINS_ENV];
     } else {
       process.env[BUILDER_RELAY_TARGET_ORIGINS_ENV] = originalTargetOrigins;
+    }
+    if (originalSuffixes === undefined) {
+      delete process.env[BUILDER_RELAY_TARGET_DOMAIN_SUFFIXES_ENV];
+    } else {
+      process.env[BUILDER_RELAY_TARGET_DOMAIN_SUFFIXES_ENV] = originalSuffixes;
     }
     if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
     else process.env.NODE_ENV = originalNodeEnv;
@@ -191,6 +201,94 @@ describe("Builder preview callback relay", () => {
         "/_agent-native/builder/callback",
       ),
     ).toBe(false);
+  });
+
+  describe("domain-suffix relay trust", () => {
+    const PREVIEW = "https://preview-example.builderio.xyz";
+
+    beforeEach(() => {
+      // Isolate the suffix allow-list from the exact-origin allow-list.
+      process.env[BUILDER_RELAY_TARGET_ORIGINS_ENV] = "";
+    });
+
+    it("trusts a preview origin by configured domain suffix when no exact origins are set", () => {
+      process.env[BUILDER_RELAY_TARGET_DOMAIN_SUFFIXES_ENV] = ".builderio.xyz";
+
+      expect(isTrustedBuilderRelayTargetOrigin(PREVIEW)).toBe(true);
+
+      const relay = makeRelay(PREVIEW);
+      const event = callbackEvent(relay.state, PREVIEW);
+      expect(
+        verifyBuilderPreviewRelayStateForCallback(relay.state, { now: NOW }),
+      ).toEqual(relay.payload);
+      expect(
+        shouldBypassAuthForBuilderConnect(
+          event,
+          "/_agent-native/builder/callback",
+        ),
+      ).toBe(true);
+    });
+
+    it("does not trust a preview origin when neither exact origins nor suffixes are configured", () => {
+      delete process.env[BUILDER_RELAY_TARGET_DOMAIN_SUFFIXES_ENV];
+
+      expect(isTrustedBuilderRelayTargetOrigin(PREVIEW)).toBe(false);
+
+      const relay = makeRelay(PREVIEW);
+      const event = callbackEvent(relay.state, PREVIEW);
+      expect(verifyBuilderPreviewRelayState(relay.state, { now: NOW })).toEqual(
+        relay.payload,
+      );
+      expect(
+        verifyBuilderPreviewRelayStateForCallback(relay.state, { now: NOW }),
+      ).toBeNull();
+      expect(
+        shouldBypassAuthForBuilderConnect(
+          event,
+          "/_agent-native/builder/callback",
+        ),
+      ).toBe(false);
+    });
+
+    it.each([
+      ["missing leading dot", "builderio.xyz"],
+      ["wildcard", ".*.builderio.xyz"],
+      ["no dot in hostname", ".builderio"],
+      ["invalid leading label", ".-bad.builderio.xyz"],
+      ["empty entry", ""],
+    ])("ignores malformed suffix (%s)", (_label, suffix) => {
+      process.env[BUILDER_RELAY_TARGET_DOMAIN_SUFFIXES_ENV] = suffix;
+      expect(isTrustedBuilderRelayTargetOrigin(PREVIEW)).toBe(false);
+    });
+
+    it("honors only the well-formed entries in a mixed suffix list", () => {
+      process.env[BUILDER_RELAY_TARGET_DOMAIN_SUFFIXES_ENV] =
+        "builderio.dev,.builderio.xyz";
+      // 'builderio.dev' has no leading dot and is dropped; '.builderio.xyz' is honored.
+      expect(isTrustedBuilderRelayTargetOrigin(PREVIEW)).toBe(true);
+      expect(
+        isTrustedBuilderRelayTargetOrigin("https://app.builderio.dev"),
+      ).toBe(false);
+    });
+
+    it("still rejects a mutable Netlify deploy-preview alias even when its suffix is configured", () => {
+      process.env[BUILDER_RELAY_TARGET_DOMAIN_SUFFIXES_ENV] = ".netlify.app";
+      // The mutable-alias permalink check runs before suffix matching, so a
+      // configurable suffix can never widen trust to non-immutable previews.
+      expect(isTrustedBuilderRelayTargetOrigin(MUTABLE_TARGET)).toBe(false);
+
+      const relay = makeRelay(MUTABLE_TARGET);
+      expect(
+        verifyBuilderPreviewRelayStateForCallback(relay.state, { now: NOW }),
+      ).toBeNull();
+    });
+
+    it("does not trust an unsafe (non-preview) origin even if a matching suffix is configured", () => {
+      process.env[BUILDER_RELAY_TARGET_DOMAIN_SUFFIXES_ENV] = ".example.com";
+      expect(isTrustedBuilderRelayTargetOrigin("https://app.example.com")).toBe(
+        false,
+      );
+    });
   });
 
   it("rejects tampered, expired, far-future, unsafe-target, and wrong-secret state", () => {

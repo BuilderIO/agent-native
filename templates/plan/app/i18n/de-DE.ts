@@ -583,6 +583,10 @@ const messages = {
           label: "UI Prozess",
           description: "UI-Prozess – Wireframes und Zustände",
         },
+        design: {
+          label: "High-Fidelity-Design",
+          description: "High-Fidelity-Design – ausgearbeitete Markenscreens",
+        },
         questions: {
           label: "Visualisierungsproblem",
           description:
@@ -607,6 +611,8 @@ const messages = {
           "# Implementierungsplan\n\nFüge hier den vorhandenen Codex- oder Claude Code-Plan ein und verwandle ihn in ein visuelles Review-Dokument.",
       },
       assessment: {
+        design:
+          "Eine High-Fidelity-Anfrage wurde automatisch erkannt; der Agent erstellt ausgearbeitete Markenscreens.",
         ui: "Der UI-Status oder -Prozess wird automatisch erkannt; Der Agent erstellt zunächst einen Wireframe-Plan.",
         visual:
           "Ermöglicht Agenten automatisch die Erstellung umfassender technischer Pläne mit Diagrammen und Implementierungsdetails.",

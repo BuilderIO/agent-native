@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 async function drain(iterable: AsyncIterable<unknown>) {
   for await (const _ of iterable) {
@@ -402,5 +402,265 @@ describe("AISDKEngine OpenAI model selection", () => {
       expect.objectContaining({ model: chatModel }),
     );
     expect(engine.preserveCustomModels).toBe(true);
+  });
+
+  // Real prod incident (Sentry AGENT-NATIVE-BROWSER-94, gpt-5.6-terra): OpenAI
+  // rejects `reasoning_effort` together with function tools on the legacy
+  // Chat Completions surface — "Function tools with reasoning_effort are not
+  // supported for <model> in /v1/chat/completions." `createProviderModel`
+  // forces Chat Completions whenever a custom baseUrl is configured (the test
+  // above), so that combination is reachable in prod whenever the app also
+  // has tools available, not just for one specific model name.
+  const TEST_TOOL = {
+    name: "test-tool",
+    description: "A test tool",
+    inputSchema: { type: "object" as const, properties: {} },
+  };
+
+  it("drops the reasoning-effort override when tools are present on a forced Chat Completions base URL", async () => {
+    const { streamText } = mockAiSdk();
+    mockOpenAIProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("openai", {
+      apiKey: "sk-test",
+      baseUrl: "https://gateway.example/v1",
+    });
+
+    await drain(
+      engine.stream({
+        ...BASE_STREAM_OPTIONS,
+        tools: [TEST_TOOL],
+        reasoningEffort: "medium",
+      }),
+    );
+
+    const call = streamText.mock.calls[0]?.[0];
+    expect(call.providerOptions?.openai?.reasoningEffort).toBeUndefined();
+  });
+
+  it("still applies reasoning effort on a forced Chat Completions base URL when there are no tools", async () => {
+    const { streamText } = mockAiSdk();
+    mockOpenAIProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("openai", {
+      apiKey: "sk-test",
+      baseUrl: "https://gateway.example/v1",
+    });
+
+    await drain(
+      engine.stream({
+        ...BASE_STREAM_OPTIONS,
+        tools: [],
+        reasoningEffort: "medium",
+      }),
+    );
+
+    expect(streamText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerOptions: expect.objectContaining({
+          openai: expect.objectContaining({ reasoningEffort: "medium" }),
+        }),
+      }),
+    );
+  });
+
+  it("applies reasoning effort with tools present on the default Responses API path (no baseUrl)", async () => {
+    const { streamText } = mockAiSdk();
+    mockOpenAIProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("openai", { apiKey: "sk-test" });
+
+    await drain(
+      engine.stream({
+        ...BASE_STREAM_OPTIONS,
+        tools: [TEST_TOOL],
+        reasoningEffort: "medium",
+      }),
+    );
+
+    expect(streamText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerOptions: expect.objectContaining({
+          openai: expect.objectContaining({ reasoningEffort: "medium" }),
+        }),
+      }),
+    );
+  });
+});
+
+describe("AISDKEngine first-event deadline", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.unstubAllEnvs();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("aborts with a retryable network error when the stream produces no parts within 120s", async () => {
+    const streamText = vi.fn((params: any) => ({
+      fullStream: (async function* () {
+        await new Promise((_resolve, reject) => {
+          const signal: AbortSignal | undefined = params.abortSignal;
+          if (signal?.aborted) {
+            reject(signal.reason ?? new Error("aborted"));
+            return;
+          }
+          signal?.addEventListener(
+            "abort",
+            () => reject(signal.reason ?? new Error("aborted")),
+            { once: true },
+          );
+        });
+      })(),
+    }));
+    vi.doMock("ai", () => ({ streamText, jsonSchema: (s: unknown) => s }));
+    mockOpenAIProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("openai", { apiKey: "sk-test" });
+    vi.useFakeTimers();
+
+    const events: any[] = [];
+    let settledEarly = false;
+    const runPromise = (async () => {
+      for await (const e of engine.stream(BASE_STREAM_OPTIONS)) events.push(e);
+    })();
+    void runPromise
+      .catch(() => {})
+      .then(() => {
+        settledEarly = true;
+      });
+
+    await vi.advanceTimersByTimeAsync(119_000);
+    expect(settledEarly).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    await expect(runPromise).rejects.toThrow();
+
+    const stopEvent = events.find((e) => e.type === "stop");
+    expect(stopEvent?.reason).toBe("error");
+    expect(stopEvent?.errorCode).toBe("provider_network_error");
+    expect(stopEvent?.providerRetryable).toBe(true);
+    expect(stopEvent?.error).toContain("120s");
+  });
+
+  it("does not abort once the stream has produced a real part (a synthetic 'start' part alone does not count)", async () => {
+    const streamText = vi.fn().mockReturnValue({
+      fullStream: (async function* () {
+        yield { type: "start" };
+        yield { type: "text-delta", text: "hi" };
+        yield { type: "finish", finishReason: "stop", usage: {} };
+      })(),
+    });
+    vi.doMock("ai", () => ({ streamText, jsonSchema: (s: unknown) => s }));
+    mockOpenAIProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("openai", { apiKey: "sk-test" });
+
+    const events: any[] = [];
+    for await (const e of engine.stream(BASE_STREAM_OPTIONS)) events.push(e);
+
+    const stopEvent = events.find((e) => e.type === "stop");
+    expect(stopEvent?.reason).toBe("end_turn");
+    expect(stopEvent?.errorCode).toBeUndefined();
+  });
+});
+
+describe("AISDKEngine streamed tool-input reconciliation", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.unstubAllEnvs();
+  });
+
+  async function runToolInputStream(parts: unknown[]) {
+    const streamText = vi.fn().mockReturnValue({
+      fullStream: (async function* () {
+        for (const part of parts) yield part;
+        yield { type: "finish", finishReason: "tool-calls", usage: {} };
+      })(),
+    });
+    vi.doMock("ai", () => ({ streamText, jsonSchema: (s: unknown) => s }));
+    mockOpenAIProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const events: any[] = [];
+    for await (const event of createAISDKEngine("openai", {
+      apiKey: "key",
+    }).stream(BASE_STREAM_OPTIONS)) {
+      events.push(event);
+    }
+    return events;
+  }
+
+  it("assembles a tool call whose arguments arrive across multiple deltas but never lands a tool-call part", async () => {
+    const events = await runToolInputStream([
+      {
+        type: "tool-input-start",
+        id: "call_1",
+        toolName: "create_document",
+      },
+      { type: "tool-input-delta", id: "call_1", delta: '{"title":"Q' },
+      { type: "tool-input-delta", id: "call_1", delta: '3 plan"' },
+      { type: "tool-input-delta", id: "call_1", delta: "}" },
+    ]);
+
+    expect(events.find((e) => e.type === "tool-call")).toEqual({
+      type: "tool-call",
+      id: "call_1",
+      name: "create_document",
+      input: { title: "Q3 plan" },
+    });
+    expect(
+      events.find((e) => e.type === "assistant-content")?.parts,
+    ).toContainEqual({
+      type: "tool-call",
+      id: "call_1",
+      name: "create_document",
+      input: { title: "Q3 plan" },
+    });
+  });
+
+  it("reports a tool call truncated mid-arguments as an in-band tool-call error", async () => {
+    const events = await runToolInputStream([
+      {
+        type: "tool-input-start",
+        id: "call_1",
+        toolName: "create_document",
+      },
+      { type: "tool-input-delta", id: "call_1", delta: '{"title":"Q' },
+    ]);
+
+    expect(events.find((e) => e.type === "tool-call-error")).toMatchObject({
+      id: "call_1",
+      name: "create_document",
+      input: '{"title":"Q',
+    });
+    expect(events.some((e) => e.type === "tool-call")).toBe(false);
+  });
+
+  it("does not re-emit a tool call the SDK already delivered", async () => {
+    const events = await runToolInputStream([
+      {
+        type: "tool-input-start",
+        id: "call_1",
+        toolName: "create_document",
+      },
+      { type: "tool-input-delta", id: "call_1", delta: '{"title":"Q3 plan"}' },
+      {
+        type: "tool-call",
+        toolCallId: "call_1",
+        toolName: "create_document",
+        input: { title: "Q3 plan" },
+      },
+    ]);
+
+    expect(events.filter((e) => e.type === "tool-call")).toHaveLength(1);
+    expect(events.some((e) => e.type === "tool-call-error")).toBe(false);
   });
 });
