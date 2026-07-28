@@ -177,9 +177,34 @@ workspace repo:
 npx agent-native doctor --only no-env-credentials
 ```
 
-Findings in files that already call `resolveCredential` are usually the
-sanctioned `resolveCredential(key, ctx) ?? process.env.KEY` fallback. The bugs
-are the files with **no** resolver at all.
+## `resolveCredential` sees exactly one organization
+
+`resolveCredential(key, { userEmail, orgId })` checks the user scope, then the
+one `orgId` you pass, then the solo workspace. That is the whole search. It is
+correct for a signed-in request, and wrong for two common cases:
+
+- **The caller has no organization.** A cron, a scheduled job, or any CLI run
+  without a real member identity resolves no `orgId`, so only the user and solo
+  scopes are ever consulted — and a shared key is in neither.
+- **The key was synced under a different organization.** `app_secrets` has no
+  scope visible to every org (`readAppSecret` is strict equality on
+  `(scope, scope_id, key)`), so a key the vault UI advertises as available to
+  every app is unreadable from any org except the one that ran the sync.
+
+Both produce the same misleading "not set" that the split brain above produces,
+which is why swapping `process.env` for `resolveCredential` can look like a fix
+and change nothing. A workspace app should read shared keys through a resolver
+that also sweeps the caller's other memberships and a designated vault org —
+see `resolveConnectorSecret` and `AGENT_VAULT_ORG_ID` in the builder-workspace
+repo for the shape, including the boot-time assertion that the deployment really
+is single-tenant before a non-membership-gated fallback is safe.
+
+**The doctor guard does not catch this second form** — it looks for
+`process.env` reads, and `resolveCredential` is not one. Grep for
+`resolveCredential` yourself and confirm each call sits somewhere a single-org
+lookup is genuinely the right question. Findings that pair it with a
+`?? process.env.KEY` fallback are the sanctioned deploy-level escape hatch; the
+bugs are calls whose value can only live in another org's vault.
 
 ## HTTP routes
 
