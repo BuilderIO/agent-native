@@ -103,6 +103,10 @@ import type {
 } from "../agent/types.js";
 import { readAppStateForCurrentTab } from "../application-state/script-helpers.js";
 import {
+  CHAT_THREADS_MIGRATIONS,
+  CHAT_THREADS_MIGRATIONS_TABLE,
+} from "../chat-threads/migrations.js";
+import {
   createThread,
   forkThread,
   getThread,
@@ -128,6 +132,7 @@ import {
 import { isCheckpointRestorePath } from "../checkpoints/route-match.js";
 import { createDbAdminAgentTools } from "../db-admin/agent-tools.js";
 import { isTransientDatabaseError } from "../db/client.js";
+import { runMigrations } from "../db/migrations.js";
 import {
   verifyInternalToken,
   extractBearerToken,
@@ -493,6 +498,10 @@ export async function resolveFetchToolKeyAllowlist(
 export function createAgentChatPlugin(
   options?: AgentChatPluginOptions,
 ): NitroPluginDef {
+  const migrateChatThreads = runMigrations(CHAT_THREADS_MIGRATIONS, {
+    table: CHAT_THREADS_MIGRATIONS_TABLE,
+  });
+
   return (nitroApp: any) => {
     markDefaultPluginProvided(nitroApp, "agent-chat");
     // Nitro v3 calls plugins synchronously and doesn't await async return
@@ -5951,6 +5960,23 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           }, 30_000); // Check every 30s but only sweep once per 2min
         }, 20_000); // Start 20s after init (after the agent-teams sweep)
       })();
+
+      // ─── Legacy chat-thread message_count repair ──────────────────────
+      // Deliberately NOT awaited: on the one boot where it applies it scans
+      // every zero-count `thread_data` blob, and route readiness must not wait
+      // on that. Safe to interrupt — each row is updated under its own
+      // `message_count = 0` guard, and the migration name is recorded only
+      // after the full scan completes, so a frozen isolate resumes on a later
+      // boot instead of leaving the repair half-recorded. Once recorded, the
+      // migration gate skips the scan entirely.
+      void Promise.resolve(migrateChatThreads(nitroApp)).catch(
+        (err: unknown) => {
+          console.error(
+            "[chat-threads] legacy message_count repair failed — retrying on the next boot:",
+            err,
+          );
+        },
+      );
 
       // ─── Trigger Dispatcher (event-based automations) ─────────────────
       if (disableRecurringJobsRuntime) {
