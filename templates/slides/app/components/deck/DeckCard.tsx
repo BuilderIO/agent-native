@@ -181,9 +181,7 @@ export default function DeckCard({
               Rename
             </DropdownMenuItem>
             <DropdownMenuItem
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
+              onSelect={() => {
                 if (isDuplicating) return;
                 onDuplicate(deck.id);
               }}
@@ -204,9 +202,7 @@ export default function DeckCard({
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
+              onSelect={() => {
                 onDelete(deck.id);
               }}
               className="text-red-400 focus:text-red-400"

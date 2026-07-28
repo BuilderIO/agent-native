@@ -263,7 +263,10 @@ const messages = {
     downloadHtml: "Download as HTML",
     exportPdf: "Export as PDF",
     exportPptx: "Export as PPTX",
-    downloadGoogleSlides: "Download for Google Slides",
+    openInGoogleSlides: "Open in Google Slides",
+    googleSlidesCreated: "Opened in Google Slides",
+    googleSlidesCreatedHint:
+      "A copy of this deck was created in your Google Drive.",
     duplicateDeck: "Duplicate deck",
   },
   share: {
@@ -474,6 +477,12 @@ const messages = {
     slides: "Slides",
   },
   presentation: {
+    presenterView: "Presenter view",
+    speakerNotes: "Speaker notes",
+    noNotesForSlide: "No notes for this slide",
+    upNext: "Up next",
+    endOfDeck: "End of deck",
+    closePresenterView: "Close presenter view",
     noSlides: "No slides to present",
     previousSlide: "Previous slide",
     nextSlide: "Next slide",
@@ -535,6 +544,7 @@ const messages = {
     builderDesignSystemId: "Design system",
     builderJobId: "Job",
     openInBuilder: "Open in Builder",
+    decodeFailed: "Decoding failed: {{error}}",
     websiteUrl: "Website URL",
     websitePlaceholder: "example.com or Nike",
     add: "Add",

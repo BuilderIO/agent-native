@@ -8,6 +8,7 @@ import { renderEmail, emailStrong } from "../../server/email-template.js";
 import { sendEmail, isEmailConfigured } from "../../server/email.js";
 import { invalidateCollabAccessCache } from "../../server/poll.js";
 import { getRequestUserEmail } from "../../server/request-context.js";
+import { getUserProfile } from "../../user-profile/store.js";
 import { assertAccess, ForbiddenError } from "../access.js";
 import { requireShareableResource } from "../registry.js";
 import {
@@ -298,10 +299,9 @@ export default defineAction({
         const appName =
           process.env.APP_NAME || process.env.VITE_APP_NAME || "Agent Native";
         let brandLogoUrl: string | undefined;
-        if (reg.getShareEmailLogoUrl) {
+        if (reg.getLogoUrl) {
           try {
-            brandLogoUrl =
-              (await reg.getShareEmailLogoUrl(resource)) ?? undefined;
+            brandLogoUrl = (await reg.getLogoUrl(resource)) ?? undefined;
           } catch (err) {
             console.error(
               "[share-resource] brand logo resolver failed; using default logo:",
@@ -309,9 +309,51 @@ export default defineAction({
             );
           }
         }
+        let brandName = appName;
+        if (reg.getBrandName) {
+          try {
+            brandName = (await reg.getBrandName(resource))?.trim() || appName;
+          } catch (err) {
+            console.error(
+              "[share-resource] brand name resolver failed; using app name:",
+              err,
+            );
+          }
+        }
+        let fromName: string | undefined;
+        let replyTo: string | undefined;
+        if (reg.getSender) {
+          try {
+            const sender = await reg.getSender(resource, {
+              sender: await getUserProfile(actor),
+            });
+            fromName = sender?.fromName?.trim() || undefined;
+            replyTo = sender?.replyTo?.trim() || undefined;
+          } catch (err) {
+            console.error(
+              "[share-resource] sender resolver failed; using default sender:",
+              err,
+            );
+          }
+        }
+        let heroHtml: string | undefined;
+        if (reg.getHeroHtml) {
+          try {
+            heroHtml =
+              (await reg.getHeroHtml(resource, {
+                href: notificationUrl,
+                alt: resourceTitle,
+              })) ?? undefined;
+          } catch (err) {
+            console.error(
+              "[share-resource] hero html resolver failed; omitting preview:",
+              err,
+            );
+          }
+        }
         const subject = `${actor} shared "${resourceTitle}" with you on ${appName}`;
         const { html, text } = renderEmail({
-          brandName: appName,
+          brandName,
           brandLogoUrl,
           preheader: subject,
           heading: "You've been given access",
@@ -319,10 +361,18 @@ export default defineAction({
             `${emailStrong(actor)} has shared the ${reg.displayName} ${emailStrong(resourceTitle)} with you as a ${emailStrong(args.role)}.`,
             `Use the button below to open it. If prompted, sign in with ${emailStrong(principalId)}.`,
           ],
+          heroHtml,
           cta: { label: `Open ${reg.displayName}`, url: notificationUrl },
           footer: `You received this because ${actor} granted you ${args.role} access.`,
         });
-        await sendEmail({ to: principalId, subject, html, text });
+        await sendEmail({
+          to: principalId,
+          subject,
+          html,
+          text,
+          fromName,
+          replyTo,
+        });
       } catch (err) {
         console.error(
           "[share-resource] failed to send share notification:",

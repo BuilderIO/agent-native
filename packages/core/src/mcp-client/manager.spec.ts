@@ -564,6 +564,27 @@ describe("McpClientManager", () => {
     }
   });
 
+  it("hydrates an initially empty manager through reconfigure", async () => {
+    serverFixtures["late-bin"] = {
+      tools: [{ name: "late_tool" }],
+      callImpl: () => ({ content: [{ type: "text", text: "ok" }] }),
+    };
+    const manager = new McpClientManager(null);
+    const changed = vi.fn();
+    manager.onChange(changed);
+
+    const result = await manager.reconfigure({
+      servers: { late: { command: "late-bin" } },
+    });
+
+    expect(result.added).toEqual(["late"]);
+    expect(manager.connectedServers).toEqual(["late"]);
+    expect(manager.getTools().map((tool) => tool.name)).toEqual([
+      "mcp__late__late_tool",
+    ]);
+    expect(changed).toHaveBeenCalledOnce();
+  });
+
   it("retries unchanged servers left in an error state on reconfigure", async () => {
     serverFixtures["flaky-bin"] = {
       tools: [{ name: "ok" }],

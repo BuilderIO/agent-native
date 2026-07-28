@@ -36,6 +36,12 @@ export interface RenderEmailArgs {
   paragraphs: string[];
   /** Primary call-to-action rendered as a real button. */
   cta?: EmailCta;
+  /**
+   * Optional trusted HTML injected above the CTA — e.g. a template-owned video
+   * thumbnail with a play badge. Injected verbatim, so only pass markup built
+   * by app/template code (never raw user input), and escape any dynamic values.
+   */
+  heroHtml?: string;
   /** Small muted text under the CTA (e.g. expiry note). */
   footer?: string;
   /** Optional app name shown beside the framework logo. */
@@ -108,6 +114,12 @@ export function renderEmail(args: RenderEmailArgs): RenderedEmail {
   const ctaFg = brand ? "#ffffff" : "#0a0a0c";
   const linkColor = brand ?? "#a1a1aa";
 
+  // Trusted markup supplied by the caller (template code, not user input),
+  // injected as-is so a template can own app-specific previews (e.g. a video
+  // thumbnail with a play badge). Callers are responsible for escaping any
+  // dynamic values they interpolate.
+  const heroHtml = args.heroHtml ?? "";
+
   const paragraphsHtml = args.paragraphs
     .map(
       (p) =>
@@ -174,6 +186,7 @@ export function renderEmail(args: RenderEmailArgs): RenderedEmail {
                   ${escapeHtml(args.heading)}
                 </h1>
                 ${paragraphsHtml}
+                ${heroHtml}
                 ${ctaHtml}
                 ${footerHtml}
               </td>

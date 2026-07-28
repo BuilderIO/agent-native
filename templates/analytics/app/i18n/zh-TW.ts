@@ -448,6 +448,9 @@ const messages = {
     sharedCredentials: "共用憑證：{{credentials}}",
     ready: "準備好",
     notConfigured: "未設定",
+    statusUnknown: "無法檢查連線狀態",
+    statusUnknownDescription:
+      "無法讀取連線狀態，此資料來源可能已連線。請重新載入頁面確認後再新增憑證。",
     back: "後退",
     continue: "繼續",
     saveCredentials: "儲存憑證",

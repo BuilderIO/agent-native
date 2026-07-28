@@ -39,6 +39,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { isEmbedAuthActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
+import { openCommandMenu } from "@agent-native/core/client/navigation";
 import {
   useReviewComments,
   useSendReviewThreadToAgent,
@@ -455,6 +456,7 @@ import {
   updateFileResultPersistedContent,
   type DesignSaveOutboxEntry,
 } from "@/lib/design-save-outbox";
+import { DESIGN_UI_TOGGLE_EVENT } from "@/lib/design-ui-events";
 import { resolveFigmaPasteImportCall } from "@/lib/figma-clipboard";
 import {
   canCopyFigmaSvgToClipboard,
@@ -2361,7 +2363,7 @@ function DesignEditor() {
   // resizable 220–420px content range.
   const [leftSidebarWidth, setLeftSidebarWidth] = useState(280);
   const [rightSidebarWidth, setRightSidebarWidth] = useState(240);
-  // Figma's Cmd+\ "Show/Hide UI": hides the left rail, right inspector panel,
+  // Figma's Minimize UI action hides the left rail, right inspector panel,
   // and bottom toolbar chrome so the canvas fills the viewport. No prior
   // panel-visibility state existed to hook into (grepped for
   // leftPanelCollapsed/rightPanelCollapsed/showLeftPanel/etc. — none found),
@@ -3428,6 +3430,16 @@ function DesignEditor() {
     }
   }, []);
   const staleToastShownRef = useRef(false);
+  /**
+   * Model this design's generation started with. The pending-generation blob
+   * holds the same values, but five paths clear it — three while the intake
+   * questions are still on screen — so the continuation cannot rely on it.
+   */
+  const generationModelRef = useRef<{
+    model?: string;
+    engine?: string;
+    effort?: PromptComposerSubmitOptions["effort"];
+  } | null>(null);
   const rememberPendingGenerationForRetry = useCallback(() => {
     const pending = readPendingGeneration(id);
     if (pending?.prompt) {
@@ -3562,7 +3574,14 @@ function DesignEditor() {
     [clearGenerationCompleteTimer, id, trackAgentGeneration],
   );
 
-  // Question flow — full-canvas overlays driven by the agent.
+  // Question flow — full-canvas overlays driven by the agent. Ref first, blob
+  // as the reload fallback (the ref is gone then, the blob may survive).
+  const getQuestionFlowModelSelection = useCallback(
+    () =>
+      generationModelRef.current ??
+      readPendingGeneration(id, { allowUntimestamped: true }),
+    [id],
+  );
   const {
     questions: pendingQuestions,
     title: pendingQuestionsTitle,
@@ -3575,6 +3594,7 @@ function DesignEditor() {
     enabled: isSignedIn,
     continuationTabId: generationChatTabId,
     onContinue: handleQuestionFlowContinue,
+    getModelSelection: getQuestionFlowModelSelection,
   });
   const pendingQuestionsVisible = Boolean(
     pendingQuestions && pendingQuestions.length > 0,
@@ -5794,6 +5814,11 @@ function DesignEditor() {
 
       clearGenerationCompleteTimer();
       setGenerationIssue(null);
+      generationModelRef.current = {
+        model: pending.model,
+        engine: pending.engine,
+        effort: pending.effort,
+      };
       const runTabId = agentSubmit(
         shouldSkipQuestions
           ? `Generate design for "${design.title}": ${prompt}`
@@ -12589,6 +12614,16 @@ function DesignEditor() {
 
   const handleIframeHotkey = useCallback((payload: IframeHotkeyPayload) => {
     if (!payload.key) return;
+    const primary = payload.metaKey || payload.ctrlKey;
+    if (
+      primary &&
+      !payload.altKey &&
+      !payload.shiftKey &&
+      payload.key.toLowerCase() === "k"
+    ) {
+      openCommandMenu();
+      return;
+    }
     const event = new KeyboardEvent("keydown", {
       key: payload.key,
       code: payload.code,
@@ -17982,12 +18017,18 @@ function DesignEditor() {
     t,
   ]);
 
-  // Item 6: Figma's Cmd+\ — Show/Hide UI. Fully wired: uiHidden gates the
+  // Figma's Minimize UI action. Fully wired: uiHidden gates the
   // left rail, right inspector panel, and bottom toolbar chrome containers
   // declared above.
   const handleToggleUi = useCallback(() => {
     setUiHidden((current) => !current);
   }, []);
+
+  useEffect(() => {
+    window.addEventListener(DESIGN_UI_TOGGLE_EVENT, handleToggleUi);
+    return () =>
+      window.removeEventListener(DESIGN_UI_TOGGLE_EVENT, handleToggleUi);
+  }, [handleToggleUi]);
 
   // Figma's Shift+C — Show/Hide comments. The state is passed through every
   // mounted DesignCanvas so both focused and overview comment pins disappear
@@ -22195,6 +22236,11 @@ function DesignEditor() {
       });
       setHasPendingGeneration(true);
       setRetryablePrompt(null);
+      generationModelRef.current = {
+        model: promptState.model,
+        engine: promptState.engine,
+        effort: promptState.effort,
+      };
       const runTabId = agentSubmit(
         `Generate design for "${design.title}": ${promptState.prompt}`,
         context,
@@ -30433,6 +30479,11 @@ function DesignEditor() {
           ].join("\n");
           clearGenerationCompleteTimer();
           setGenerationIssue(null);
+          generationModelRef.current = {
+            model: options.model,
+            engine: options.engine,
+            effort: options.effort,
+          };
           const startedAt = Date.now();
           patchPendingGeneration(id, {
             prompt,

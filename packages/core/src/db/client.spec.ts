@@ -780,5 +780,43 @@ describe("isTransientDatabaseError", () => {
   });
 });
 
+describe("annotateMissingTable", () => {
+  it("points SQLite and Postgres missing-table errors at the db plugin", async () => {
+    const { annotateMissingTable } = await import("./client.js");
+
+    for (const message of [
+      "no such table: text_analyses",
+      'relation "text_analyses" does not exist',
+    ]) {
+      const annotated = annotateMissingTable(
+        new Error(message),
+        "SELECT * FROM text_analyses",
+      ) as Error;
+      expect(annotated.message).toContain(message);
+      expect(annotated.message).toContain("text_analyses");
+      expect(annotated.message).toContain("server/plugins/db.ts");
+    }
+  });
+
+  it("leaves unrelated errors and non-Errors untouched", async () => {
+    const { annotateMissingTable } = await import("./client.js");
+
+    const unrelated = new Error("duplicate column name: title");
+    expect((annotateMissingTable(unrelated, "") as Error).message).toBe(
+      "duplicate column name: title",
+    );
+    expect(annotateMissingTable("not an error", "")).toBe("not an error");
+  });
+
+  it("does not stack the hint when the same error passes through twice", async () => {
+    const { annotateMissingTable } = await import("./client.js");
+
+    const err = new Error("no such table: forms");
+    const once = annotateMissingTable(err, "SELECT 1") as Error;
+    const twice = annotateMissingTable(once, "SELECT 1") as Error;
+    expect(twice.message.match(/server\/plugins\/db\.ts/g)).toHaveLength(1);
+  });
+});
+
 // Tests for `widenIntColumnsToBigInt` live in `./widen-columns.spec.ts`
 // (the helper moved to `./widen-columns.js`).

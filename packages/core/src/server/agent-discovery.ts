@@ -79,7 +79,7 @@ const HIDDEN_FIRST_PARTY_AGENT_IDS = new Set([
   "workbench",
 ]);
 
-function normalizeAgentId(id: string): string {
+export function normalizeAgentId(id: string): string {
   const normalized = id.trim().toLowerCase();
   if (
     normalized === "image" ||

@@ -1,5 +1,11 @@
 # @agent-native/toolkit
 
+## 0.10.9
+
+### Patch Changes
+
+- cbc6936: Show only the connect actions in the composer model picker when no LLM provider is configured, instead of a list of unpickable "needs API key" models, and surface Builder connect failures instead of leaving the "Connect Builder.io" button looking dead when the popup is blocked.
+
 ## 0.10.8
 
 ### Patch Changes

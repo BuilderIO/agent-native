@@ -43,6 +43,7 @@ export interface ComposerBuilderConnectFlow {
   envManaged: boolean;
   connecting: boolean;
   statusResolved: boolean;
+  error: string | null;
   start: () => void;
 }
 
@@ -196,6 +197,7 @@ const fallbackBuilderFlow = {
   envManaged: false,
   connecting: false,
   statusResolved: false,
+  error: null,
   start: () => {},
 };
 

@@ -476,6 +476,42 @@ describe("realDataFinalGuard", () => {
     });
   });
 
+  it("does not demand a connect-sources link when the status result could not be read", () => {
+    // A failed workspace-connection lookup hides exactly the workspace-held
+    // connections it would take to prove a provider is missing, so the empty
+    // provider list is "we could not look", not "nothing is connected".
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "what were our HubSpot deals last week",
+        draftText:
+          "I can't retrieve HubSpot deals because that source is not configured yet.",
+        toolResults: [
+          {
+            name: "data-source-status",
+            isError: false,
+            content: JSON.stringify({
+              configuredDataSources: [
+                {
+                  provider: "first-party",
+                  label: "First-party Analytics",
+                  via: "built-in",
+                },
+              ],
+              workspaceConnections: {
+                appId: "analytics",
+                available: false,
+                error: "org_members lookup failed",
+                providers: [],
+              },
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
   it("accepts a contextual missing-source response when it includes the setup link", () => {
     const setupLink = "/_agent-native/open?app=analytics&view=data-sources";
     const result = realDataFinalGuard(
