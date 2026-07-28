@@ -10,7 +10,15 @@ import type {
   ReferenceImage,
 } from "./types.js";
 
-const BUILDER_IMAGE_MODEL = "gemini-3.1-flash-image-preview";
+// Google retired the "-preview" model aliases; Builder's gateway proxies
+// straight through to the publisher model id, so it 404s on the old preview
+// suffix the same way the direct Gemini SDK path does. Try the GA ids in
+// order in case one isn't enabled for a given Builder-connected project.
+const BUILDER_IMAGE_MODELS = [
+  "gemini-3.1-flash-image",
+  "gemini-3-pro-image",
+  "gemini-2.5-flash-image",
+];
 const REQUEST_TIMEOUT_MS = 90_000;
 
 interface BuilderImageGenerationResponse {
@@ -54,69 +62,89 @@ export class BuilderProvider implements ImageProvider {
     }
 
     const baseUrl = getBuilderImageGenerationBaseUrl().replace(/\/$/, "");
-    const requestBody = {
-      idempotencyKey: `slides-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      prompt,
-      model: BUILDER_IMAGE_MODEL,
-      count: 1,
-      aspectRatio: toBuilderAspectRatio(config?.aspectRatio),
-      size: "1K",
-      outputFormat: config?.outputFormat || "png",
-      references: referenceImages.map((ref, i) => ({
-        id: `ref-${i}`,
-        role: "style",
-        mimeType: ref.mimeType,
-        data: ref.data,
-      })),
-      source: { appId: "slides", feature: "generate-image" },
-    };
+    const references = referenceImages.map((ref, i) => ({
+      id: `ref-${i}`,
+      role: "style",
+      mimeType: ref.mimeType,
+      data: ref.data,
+    }));
 
-    const response = await fetch(`${baseUrl}/generations`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${creds.privateKey}`,
-        "x-builder-api-key": creds.publicKey,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(requestBody),
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
+    let lastError: Error | null = null;
+    for (const model of BUILDER_IMAGE_MODELS) {
+      const requestBody = {
+        idempotencyKey: `slides-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        prompt,
+        model,
+        count: 1,
+        aspectRatio: toBuilderAspectRatio(config?.aspectRatio),
+        size: "1K",
+        outputFormat: config?.outputFormat || "png",
+        references,
+        source: { appId: "slides", feature: "generate-image" },
+      };
 
-    if (!response.ok) {
-      const text = await response.text().catch(() => "");
-      throw new Error(
-        `Builder-managed image generation failed (${response.status})${text ? `: ${text}` : "."}`,
-      );
+      const response = await fetch(`${baseUrl}/generations`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${creds.privateKey}`,
+          "x-builder-api-key": creds.publicKey,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(requestBody),
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+
+      if (!response.ok) {
+        const text = await response.text().catch(() => "");
+        lastError = new Error(
+          `Builder-managed image generation failed (${response.status})${text ? `: ${text}` : "."}`,
+        );
+        // A model the connected project doesn't have access to is a fixed
+        // config problem, not a transient one — move on to the next model
+        // instead of retrying the same rejected id.
+        if (isUnknownModelError(response.status, text)) continue;
+        throw lastError;
+      }
+
+      const body = (await response.json()) as BuilderImageGenerationResponse;
+      const output = body.outputs?.[0];
+      const sourceUrl = output?.downloadUrl ?? output?.url;
+      if (!sourceUrl) {
+        throw new Error(
+          "Builder-managed image generation returned no image URL.",
+        );
+      }
+
+      const imageResponse = await fetch(sourceUrl, {
+        signal: AbortSignal.timeout(30_000),
+      });
+      if (!imageResponse.ok) {
+        throw new Error(
+          `Could not download Builder-generated image (${imageResponse.status}).`,
+        );
+      }
+
+      return {
+        imageData: Buffer.from(await imageResponse.arrayBuffer()),
+        mimeType:
+          output.mimeType ||
+          imageResponse.headers.get("content-type") ||
+          "image/png",
+        model: body.model?.publicId || model,
+        provider: "builder",
+      };
     }
 
-    const body = (await response.json()) as BuilderImageGenerationResponse;
-    const output = body.outputs?.[0];
-    const sourceUrl = output?.downloadUrl ?? output?.url;
-    if (!sourceUrl) {
-      throw new Error(
-        "Builder-managed image generation returned no image URL.",
-      );
-    }
-
-    const imageResponse = await fetch(sourceUrl, {
-      signal: AbortSignal.timeout(30_000),
-    });
-    if (!imageResponse.ok) {
-      throw new Error(
-        `Could not download Builder-generated image (${imageResponse.status}).`,
-      );
-    }
-
-    return {
-      imageData: Buffer.from(await imageResponse.arrayBuffer()),
-      mimeType:
-        output.mimeType ||
-        imageResponse.headers.get("content-type") ||
-        "image/png",
-      model: body.model?.publicId || BUILDER_IMAGE_MODEL,
-      provider: "builder",
-    };
+    throw (
+      lastError ||
+      new Error("Builder-managed image generation failed for all models.")
+    );
   }
+}
+
+function isUnknownModelError(status: number, responseText: string): boolean {
+  if (status !== 404 && status !== 502) return false;
+  return /publisher model|not_found|NOT_FOUND/i.test(responseText);
 }
 
 function toBuilderAspectRatio(aspectRatio?: string): string {
