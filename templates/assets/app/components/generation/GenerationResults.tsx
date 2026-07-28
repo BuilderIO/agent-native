@@ -89,6 +89,9 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
   const queryClient = useQueryClient();
   const [clearAllOpen, setClearAllOpen] = useState(false);
   const [previewSlotId, setPreviewSlotId] = useState<string | null>(null);
+  const trayScrollRef = useRef<HTMLDivElement | null>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
   const stateKey = variantStateKey(threadId);
   const stateQueryKey = useMemo(() => ["app-state", stateKey], [stateKey]);
   const { data: variants } = useQuery({
@@ -179,6 +182,25 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
     () => slots.find((slot) => slot.slotId === previewSlotId) ?? null,
     [previewSlotId, slots],
   );
+
+  const updateScrollEdges = () => {
+    const el = trayScrollRef.current;
+    if (!el) return;
+    setCanScrollLeft(el.scrollLeft > 1);
+    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
+  };
+
+  useEffect(() => {
+    // Re-measure after the slot list changes size (new/removed candidates)
+    // since that can flip whether either arrow should be enabled.
+    updateScrollEdges();
+  }, [slots.length]);
+
+  const scrollTrayBy = (direction: 1 | -1) => {
+    const el = trayScrollRef.current;
+    if (!el) return;
+    el.scrollBy({ left: direction * el.clientWidth * 0.9, behavior: "smooth" });
+  };
 
   if (!belongsToThread || !variants) return null;
   if (slots.length === 0) return null;
@@ -367,8 +389,12 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
             </Button>
           </div>
 
-          <div className="max-h-[min(640px,52vh)] overflow-y-auto p-3">
-            <div className="assets-library-grid grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <div className="relative">
+            <div
+              ref={trayScrollRef}
+              onScroll={updateScrollEdges}
+              className="assets-library-tray flex gap-3 overflow-x-auto scroll-smooth p-3"
+            >
               {slots.map((slot) => {
                 const variantNumber = variantNumberBySlotId.get(slot.slotId) ?? 1;
                 return (
@@ -386,6 +412,26 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
                 );
               })}
             </div>
+            {canScrollLeft ? (
+              <button
+                type="button"
+                aria-label={t("library.previousImage")}
+                onClick={() => scrollTrayBy(-1)}
+                className="absolute left-1 top-1/2 z-10 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-border/80 bg-background/90 text-foreground shadow-sm transition hover:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <IconChevronLeft className="h-4 w-4" />
+              </button>
+            ) : null}
+            {canScrollRight ? (
+              <button
+                type="button"
+                aria-label={t("library.nextImage")}
+                onClick={() => scrollTrayBy(1)}
+                className="absolute right-1 top-1/2 z-10 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-border/80 bg-background/90 text-foreground shadow-sm transition hover:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <IconChevronRight className="h-4 w-4" />
+              </button>
+            ) : null}
           </div>
         </div>
       </section>
@@ -418,7 +464,7 @@ function GenerationDraftCard({
     number: variantNumber,
   });
   return (
-    <div className="overflow-hidden rounded-lg border border-border/80 bg-background transition hover:border-foreground/25 hover:bg-muted/10">
+    <div className="w-36 shrink-0 overflow-hidden rounded-lg border border-border/80 bg-background transition hover:border-foreground/25 hover:bg-muted/10 sm:w-44">
       <div className="group relative">
         <button
           type="button"
