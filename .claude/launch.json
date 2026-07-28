@@ -254,7 +254,7 @@
         "PORT=3220",
         "AUTH_MODE=local",
         "APP_URL=http://localhost:3220",
-        "OPENAI_API_KEY=sk-not-a-real-key-local-ui-check",
+        "OPENAI_API_KEY=local-test-placeholder",
         "pnpm",
         "--dir",
         "templates/slides",
