@@ -45,6 +45,10 @@ import {
   type DesignGenerationSession,
   updateGenerationSessionWithSavedFiles,
 } from "../shared/generation-session.js";
+import {
+  assertDesignHtmlCreateIntegrity,
+  describeDesignHtmlIntegrityIssue,
+} from "../shared/html-integrity.js";
 import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
 import { widthToPrefix } from "../shared/responsive-classes.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
@@ -769,6 +773,25 @@ const generateDesignAction = defineAction({
       content: annotateScreenHtmlForPersist(file.content, file.fileType),
     }));
 
+    // Gate every NEW file up front so a rejected file cannot orphan the ones
+    // written before it. Existing files take the edit transition inside
+    // writeInlineSourceFile, which still allows repairing a malformed screen.
+    const integrityWarnings: Array<{ filename: string; message: string }> = [];
+    for (const file of annotatedFiles) {
+      if (existingByName.has(file.filename)) continue;
+      const advisory = assertDesignHtmlCreateIntegrity({
+        content: file.content,
+        fileType: file.fileType ?? "html",
+        filename: file.filename,
+      });
+      for (const entry of advisory) {
+        integrityWarnings.push({
+          filename: file.filename,
+          message: describeDesignHtmlIntegrityIssue(entry),
+        });
+      }
+    }
+
     for (const file of annotatedFiles) {
       const existing = existingByName.get(file.filename);
       if (existing) {
@@ -1198,6 +1221,9 @@ const generateDesignAction = defineAction({
       savedFiles,
       placedFrames,
       fileCount: savedFiles.length,
+      // Non-blocking: a well-formed screen with no Tailwind runtime renders
+      // unstyled, which reads as a layout bug rather than a missing runtime.
+      ...(integrityWarnings.length > 0 ? { warnings: integrityWarnings } : {}),
       ...creativeContextProvenance,
     };
   },

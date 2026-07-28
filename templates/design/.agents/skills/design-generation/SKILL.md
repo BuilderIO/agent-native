@@ -377,6 +377,24 @@ view only when the user asked to focus one specific screen.
 
 ## HTML Structure Requirements
 
+### The save gate rejects malformed markup
+
+Every write runs an integrity check, and a **new** file is held to it strictly.
+Rejections name the file, line, column, and offending source line — fix exactly
+what it points at instead of re-sending the payload differently. Blocked: an
+attribute quote that is never closed; an unclosed element or a closing tag with
+no opener; content ending mid-tag (a payload cut off in transit); a
+`<style>`/`<script>` missing its opener or closer; duplicated editor-managed
+style blocks; more than one `<html>`/`<body>`.
+
+This exists because the HTML parser never throws — it recovers silently and
+renders a page, just not the one you wrote. An unterminated quote in `<head>`
+swallows every following tag into that attribute, so the Tailwind runtime stops
+applying and the screen renders unstyled with no console error to show it.
+
+Saves may also return non-blocking `warnings` (e.g. utility classes with no
+reachable Tailwind runtime). Fix those before reporting the design as ready.
+
 ### Mandatory Elements
 
 Every `index.html` must include:
