@@ -59,6 +59,54 @@ describe("reconcile-workflow-generation", () => {
     );
   });
 
+  it("does not replace another tab's active claim", async () => {
+    mocks.readAppState.mockResolvedValue({
+      kind: "email",
+      status: "generating",
+      recordingId: "rec_123",
+      requestedAt,
+      tabId: "clips-workflow:rec_123:request:chat-other",
+    });
+
+    await expect(
+      action.run({
+        operation: "track",
+        recordingId: "rec_123",
+        requestedAt,
+        tabId,
+      }),
+    ).resolves.toEqual({
+      reconciled: false,
+      tracked: false,
+      reason: "claimed",
+    });
+    expect(mocks.compareAndSetAppState).not.toHaveBeenCalled();
+  });
+
+  it("releases a rejected delivery claim", async () => {
+    mocks.readAppState.mockResolvedValue({
+      kind: "email",
+      status: "generating",
+      recordingId: "rec_123",
+      requestedAt,
+      tabId,
+    });
+
+    await expect(
+      action.run({
+        operation: "release",
+        recordingId: "rec_123",
+        requestedAt,
+        tabId,
+      }),
+    ).resolves.toEqual({ reconciled: false, released: true });
+    expect(mocks.compareAndSetAppState).toHaveBeenCalledWith(
+      "clips-workflow-rec_123",
+      expect.objectContaining({ tabId }),
+      expect.not.objectContaining({ tabId: expect.anything() }),
+    );
+  });
+
   it("persists confirmed delivery before consuming the request", async () => {
     const request = {
       kind: "generate-workflow",

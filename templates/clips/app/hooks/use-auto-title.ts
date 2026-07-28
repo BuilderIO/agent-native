@@ -202,22 +202,12 @@ export function useAutoTitleBridge(): void {
               typeof request.requestedAt === "string"
             ) {
               if (request.deliveredTabId) {
-                try {
-                  const result = (await callAction(
-                    "reconcile-workflow-generation" as any,
-                    {
-                      operation: "consume",
-                      recordingId: rec.id,
-                      requestedAt: request.requestedAt,
-                      tabId: request.deliveredTabId,
-                    } as any,
-                  )) as { consumed?: boolean };
-                  if (result.consumed !== true) {
-                    fallbackTimer = setTimeout(() => void tick(), 1000);
-                  }
-                } catch {
-                  fallbackTimer = setTimeout(() => void tick(), 1000);
-                }
+                dispatched.current.add(dispatchKey);
+                void consumeWorkflowRequest({
+                  recordingId: rec.id,
+                  requestedAt: request.requestedAt,
+                  tabId: request.deliveredTabId,
+                });
                 continue;
               }
 
@@ -246,39 +236,24 @@ export function useAutoTitleBridge(): void {
                 chatTarget: "local",
               });
               if (!delivery.delivered) {
-                fallbackTimer = setTimeout(() => void tick(), 1000);
-                continue;
-              }
-              const delivered = (await callAction(
-                "reconcile-workflow-generation" as any,
-                {
-                  operation: "mark-delivered",
-                  recordingId: rec.id,
-                  requestedAt: request.requestedAt,
-                  tabId,
-                } as any,
-              )) as { delivered?: boolean };
-              if (delivered.delivered !== true) {
+                await retryWorkflowAction(
+                  {
+                    operation: "release",
+                    recordingId: rec.id,
+                    requestedAt: request.requestedAt,
+                    tabId,
+                  },
+                  "released",
+                );
                 fallbackTimer = setTimeout(() => void tick(), 1000);
                 continue;
               }
               dispatched.current.add(dispatchKey);
-              try {
-                const result = (await callAction(
-                  "reconcile-workflow-generation" as any,
-                  {
-                    operation: "consume",
-                    recordingId: rec.id,
-                    requestedAt: request.requestedAt,
-                    tabId,
-                  } as any,
-                )) as { consumed?: boolean };
-                if (result.consumed !== true) {
-                  fallbackTimer = setTimeout(() => void tick(), 1000);
-                }
-              } catch {
-                fallbackTimer = setTimeout(() => void tick(), 1000);
-              }
+              void persistAndConsumeWorkflowRequest({
+                recordingId: rec.id,
+                requestedAt: request.requestedAt,
+                tabId,
+              });
               continue;
             }
             dispatchAiRequest(rec, request);
@@ -418,6 +393,44 @@ export function buildAiRequestChatOptions(
         }
       : {}),
   };
+}
+
+interface WorkflowRunRequest {
+  recordingId: string;
+  requestedAt: string;
+  tabId: string;
+}
+
+async function retryWorkflowAction(
+  request: WorkflowRunRequest & { operation: string },
+  successKey: string,
+): Promise<void> {
+  for (;;) {
+    try {
+      const result = (await callAction(
+        "reconcile-workflow-generation" as any,
+        request as any,
+      )) as Record<string, unknown>;
+      if (result[successKey] === true) return;
+    } catch {}
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+}
+
+async function consumeWorkflowRequest(
+  request: WorkflowRunRequest,
+): Promise<void> {
+  await retryWorkflowAction({ ...request, operation: "consume" }, "consumed");
+}
+
+async function persistAndConsumeWorkflowRequest(
+  request: WorkflowRunRequest,
+): Promise<void> {
+  await retryWorkflowAction(
+    { ...request, operation: "mark-delivered" },
+    "delivered",
+  );
+  await consumeWorkflowRequest(request);
 }
 
 function workflowTabId(recordingId: string, requestedAt: string) {

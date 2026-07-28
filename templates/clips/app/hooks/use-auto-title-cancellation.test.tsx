@@ -75,6 +75,9 @@ beforeEach(async () => {
       if (payload?.operation === "track") {
         return { reconciled: false, tracked: true };
       }
+      if (payload?.operation === "release") {
+        return { reconciled: false, released: true };
+      }
       if (payload?.operation === "mark-delivered") {
         return { reconciled: false, delivered: true };
       }
@@ -149,6 +152,12 @@ describe("workflow generation cancellation", () => {
 
     await vi.waitFor(() =>
       expect(mocks.sendToAgentChatAndConfirm).toHaveBeenCalledOnce(),
+    );
+    await vi.waitFor(() =>
+      expect(mocks.callAction).toHaveBeenCalledWith(
+        "reconcile-workflow-generation",
+        expect.objectContaining({ operation: "release" }),
+      ),
     );
     expect(mocks.callAction).not.toHaveBeenCalledWith(
       "reconcile-workflow-generation",

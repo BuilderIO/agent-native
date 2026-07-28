@@ -30,7 +30,13 @@ export default defineAction({
     "Track and reconcile the agent run responsible for a generated workflow.",
   agentTool: false,
   schema: z.object({
-    operation: z.enum(["track", "mark-delivered", "consume", "stop"]),
+    operation: z.enum([
+      "track",
+      "release",
+      "mark-delivered",
+      "consume",
+      "stop",
+    ]),
     recordingId: z.string().min(1),
     requestedAt: z.string().min(1),
     tabId: z.string().min(1),
@@ -42,22 +48,26 @@ export default defineAction({
     if (operation === "mark-delivered" || operation === "consume") {
       const rawRequest = await readAppState(requestKey);
       if (rawRequest === null) {
-        return {
-          reconciled: false,
-          consumed: false,
-          reason: "missing" as const,
-        };
+        return operation === "consume"
+          ? { reconciled: false, consumed: true, reason: "missing" as const }
+          : { reconciled: false, delivered: true, reason: "missing" as const };
       }
       const parsedRequest = WorkflowRequestSchema.safeParse(rawRequest);
       if (!parsedRequest.success) {
         throw new Error(`Invalid workflow request state for ${recordingId}`);
       }
       if (parsedRequest.data.requestedAt !== requestedAt) {
-        return {
-          reconciled: false,
-          consumed: false,
-          reason: "newer-request" as const,
-        };
+        return operation === "consume"
+          ? {
+              reconciled: false,
+              consumed: true,
+              reason: "newer-request" as const,
+            }
+          : {
+              reconciled: false,
+              delivered: true,
+              reason: "newer-request" as const,
+            };
       }
       if (operation === "mark-delivered") {
         if (parsedRequest.data.deliveredTabId === tabId) {
@@ -116,6 +126,16 @@ export default defineAction({
     }
 
     if (operation === "track") {
+      if (state.tabId === tabId) {
+        return { reconciled: false, tracked: true };
+      }
+      if (state.tabId) {
+        return {
+          reconciled: false,
+          tracked: false,
+          reason: "claimed" as const,
+        };
+      }
       const rawRequest = await readAppState(requestKey);
       if (rawRequest === null) {
         return { reconciled: false, reason: "request-missing" as const };
@@ -134,10 +154,28 @@ export default defineAction({
       });
       return tracked
         ? { reconciled: false, tracked: true }
-        : { reconciled: false, reason: "stale" as const };
+        : { reconciled: false, tracked: false, reason: "stale" as const };
     }
     if (state.tabId !== tabId) {
-      return { reconciled: false, reason: "different-run" as const };
+      return operation === "release"
+        ? {
+            reconciled: false,
+            released: true,
+            reason: "different-run" as const,
+          }
+        : { reconciled: false, reason: "different-run" as const };
+    }
+    if (operation === "release") {
+      const untrackedState = { ...rawState };
+      delete untrackedState.tabId;
+      const released = await compareAndSetAppState(
+        stateKey,
+        rawState,
+        untrackedState,
+      );
+      return released
+        ? { reconciled: false, released: true }
+        : { reconciled: false, released: false, reason: "stale" as const };
     }
 
     const reconciled = await compareAndSetAppState(stateKey, rawState, {
