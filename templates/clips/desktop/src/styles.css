@@ -812,10 +812,9 @@ body[data-clips-route="recording-pill"] #root {
   vector-effect: non-scaling-stroke;
 }
 
-/* Bar heights are `calc(var(--meter-height) * level)`, never a percentage: a
-   percentage height on a flex item does not resolve in WKWebView, so every bar
-   sat at its min-height and the meter looked frozen no matter how loud the room
-   was. Every rule that resizes the meter sets the variable, not `height`. */
+/* One variable owns the meter's height and the bars scale off it — every rule
+   that resizes the meter sets `--meter-height`, not `height`. Two rules setting
+   `height` independently is how the box and the bars drifted apart before. */
 .live-audio-bars {
   --meter-height: 26px;
   display: inline-flex;
