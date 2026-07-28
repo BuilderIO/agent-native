@@ -176,7 +176,11 @@ describe("node-html-preview iframe bridge", () => {
           originalOuterHtml,
         );
         await restored.evaluate((element) => {
-          element.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+          element.dispatchEvent(
+            new CustomEvent("agent-native-node-identity-probe", {
+              bubbles: true,
+            }),
+          );
         });
         expect(
           await page.evaluate(
