@@ -45,7 +45,7 @@ import {
 } from "@tabler/icons-react";
 import React, { useState, useEffect, useCallback, useRef } from "react";
 
-import { getActiveRun } from "../active-run-state.js";
+import { listActiveRuns } from "../active-run-state.js";
 import { agentNativePath } from "../api-path.js";
 import { writeClipboardText } from "../clipboard.js";
 import {
@@ -602,11 +602,14 @@ export function MessageActionsMenu({
     const m = messageRuntime.getState();
     // If the message carries no run id (e.g. the run is still in flight and
     // this is the first message), fall back to the active-run state so a hung /
-    // mid-stream chat still surfaces a usable trace ID. Last resort is the
-    // assistant-ui local message id.
+    // mid-stream chat still surfaces a usable trace ID — but only when exactly
+    // one run is in flight, since copying another chat's run id would send the
+    // reporter chasing the wrong trace. Last resort is the assistant-ui local
+    // message id.
+    const activeRuns = typeof window !== "undefined" ? listActiveRuns() : [];
     const runId =
       assistantMessageRunId(m) ||
-      (typeof window !== "undefined" ? getActiveRun()?.runId : null) ||
+      (activeRuns.length === 1 ? activeRuns[0]?.runId : null) ||
       m.id ||
       "";
     void writeClipboardText(runId).then((ok) => {

@@ -531,9 +531,8 @@ export async function waitForThreadRunToClear(
 
   const resumeActiveRun = (info: ActiveRunLookup) => {
     if (!info.runId) return;
-    const stored = getActiveRun();
-    const sameStoredRun =
-      stored?.threadId === threadId && stored.runId === info.runId;
+    const stored = getActiveRun(threadId);
+    const sameStoredRun = stored?.runId === info.runId;
     setActiveRun({
       threadId,
       runId: info.runId,
@@ -2553,8 +2552,8 @@ const AssistantChatInner = forwardRef<
     activityLabelSurfacedRef.current = false;
     setRunningActivityLabel(null);
     setRunningActivityTool(null);
-    updateActiveRunActivity(null);
-  }, []);
+    updateActiveRunActivity(threadId, null);
+  }, [threadId]);
   const [reconnectContent, setReconnectContent] = useState<ContentPart[]>([]);
   // When stop is clicked during reconnect, keep content visible (don't wipe it)
   const [reconnectFrozen, setReconnectFrozen] = useState(false);
@@ -2589,7 +2588,7 @@ const AssistantChatInner = forwardRef<
   const isAutoResumingRef = useRef(isAutoResuming);
   isAutoResumingRef.current = isAutoResuming;
   const [hasActiveServerRun, setHasActiveServerRun] = useState(() =>
-    activeRunMatchesThread(getActiveRun(), threadId),
+    activeRunMatchesThread(getActiveRun(threadId), threadId),
   );
   const trackStoppedRun = useAgentChatLifecycleTracking({
     surface: agentChatSurface,
@@ -3198,7 +3197,7 @@ const AssistantChatInner = forwardRef<
                 (seq) => {
                   markReconnectProgress();
                   reconnectRetryCount = 0;
-                  updateActiveRunSeq(seq);
+                  updateActiveRunSeq(threadId, seq);
                 },
                 { preparingActionState },
               );
@@ -3441,7 +3440,7 @@ const AssistantChatInner = forwardRef<
         return false;
       }
       try {
-        const storedActiveRun = getActiveRun();
+        const storedActiveRun = getActiveRun(threadId);
         const runRes = await fetch(
           `${apiUrl}/runs/active?threadId=${encodeURIComponent(threadId)}`,
         );
@@ -3945,7 +3944,7 @@ const AssistantChatInner = forwardRef<
       };
       if (tabId && detail?.tabId && detail.tabId !== tabId) return;
       if (!detail?.message) return;
-      const activeRun = getActiveRun();
+      const activeRun = getActiveRun(threadId);
       const activeRunId = activeRunMatchesThread(activeRun, threadId)
         ? activeRun?.runId
         : undefined;
@@ -3999,7 +3998,7 @@ const AssistantChatInner = forwardRef<
       const tool = typeof detail?.tool === "string" ? detail.tool.trim() : "";
       clearAutoResume();
       setRunningActivityTool(tool || null);
-      updateActiveRunActivity(tool || null);
+      updateActiveRunActivity(threadId, tool || null);
       latestActivityLabelRef.current = label;
       // Already past the delay → keep the visible label current.
       if (activityLabelSurfacedRef.current) {
@@ -4360,7 +4359,10 @@ const AssistantChatInner = forwardRef<
         dequeueInFlightRef.current = false;
         applyLocalQueuedMessages(() => []);
       }
-      const activeRun = getActiveRun();
+      // This thread's run only. Reading a global slot here meant stopping (or
+      // sending while running in) one chat aborted whichever run had been
+      // registered last — including another resource's.
+      const activeRun = getActiveRun(threadId);
       const runIdToAbort = reconnectRunIdRef.current ?? activeRun?.runId;
       const pendingTurn = threadId ? getPendingTurn(threadId) : null;
       userStoppedRunRef.current = {

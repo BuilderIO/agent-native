@@ -14,8 +14,14 @@ const CHAT_STOP_DEBOUNCE_MS = 4_000;
 interface UseAgentGeneratingOptions {
   onComplete?: (tabId: string | null) => void;
   onStale?: (tabId: string | null) => void;
-  /** When chat starts on a tab we did not open, adopt it if this returns true. */
-  shouldAdoptRunningTab?: () => boolean;
+  /**
+   * When chat starts on a tab we did not open, adopt it if this returns true.
+   * Receives the tab that started running: `chatRunning` is a window-wide
+   * event, so any chat in the page — including one belonging to a different
+   * resource — can trigger this. Callers must confirm the tab is theirs, or
+   * they inherit another resource's run and its completion.
+   */
+  shouldAdoptRunningTab?: (tabId: string) => boolean;
   onAdoptRunningTab?: (tabId: string) => void;
   onRunning?: (tabId: string | null) => void;
 }
@@ -84,7 +90,10 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
           typeof detail.tabId === "string" ? detail.tabId : null;
 
         if (!activeTabIdRef.current && detail.isRunning) {
-          if (eventTabId && callbacksRef.current.shouldAdoptRunningTab?.()) {
+          if (
+            eventTabId &&
+            callbacksRef.current.shouldAdoptRunningTab?.(eventTabId)
+          ) {
             activeTabIdRef.current = eventTabId;
             callbacksRef.current.onAdoptRunningTab?.(eventTabId);
             callbacksRef.current.onRunning?.(eventTabId);

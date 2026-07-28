@@ -2041,7 +2041,7 @@ export function createAgentChatAdapter(
               );
               if (!reconnectRes.ok || !reconnectRes.body) {
                 if (reconnectRes.status === 404) {
-                  clearActiveRun();
+                  clearActiveRun(threadId);
                   return false;
                 }
                 lastReconnectError = new Error(
@@ -2072,21 +2072,21 @@ export function createAgentChatAdapter(
                 tabId,
                 (seq) => {
                   rememberRunSeq(seq);
-                  if (threadId) updateActiveRunSeq(seq);
+                  updateActiveRunSeq(threadId, seq);
                 },
                 runId,
                 currentSSEOptions(),
               )) {
                 yield withRequestModeMetadata(result);
               }
-              clearActiveRun();
+              clearActiveRun(threadId);
               return true;
             } catch (reconnectErr: unknown) {
               if (
                 reconnectErr instanceof Error &&
                 reconnectErr.name === "AbortError"
               ) {
-                clearActiveRun();
+                clearActiveRun(threadId);
                 return true;
               }
               if (reconnectErr instanceof AgentAutoContinueSignal) {
@@ -2159,7 +2159,7 @@ export function createAgentChatAdapter(
                 activeErr instanceof Error &&
                 activeErr.name === "AbortError"
               ) {
-                clearActiveRun();
+                clearActiveRun(threadId);
                 return true;
               }
               lastActiveRunError = activeErr;
@@ -2237,7 +2237,7 @@ export function createAgentChatAdapter(
                   activeErr instanceof Error &&
                   activeErr.name === "AbortError"
                 ) {
-                  clearActiveRun();
+                  clearActiveRun(threadId);
                   return true;
                 }
                 lastActiveRunError = activeErr;
@@ -2294,7 +2294,7 @@ export function createAgentChatAdapter(
             status: { type: "incomplete" as const, reason: "error" as const },
             metadata: { custom: { ...(runId ? { runId } : {}), runError } },
           } as ChatModelRunResult;
-          clearActiveRun();
+          clearActiveRun(threadId);
         };
 
         // Final outcome for a background turn the follow loop can no longer
@@ -2373,7 +2373,7 @@ export function createAgentChatAdapter(
                 },
               },
             } as ChatModelRunResult;
-            clearActiveRun();
+            clearActiveRun(threadId);
             return;
           }
 
@@ -2435,7 +2435,7 @@ export function createAgentChatAdapter(
               tabId,
               (seq) => {
                 rememberRunSeq(seq);
-                if (threadId) updateActiveRunSeq(seq);
+                updateActiveRunSeq(threadId, seq);
               },
               runId,
               currentSSEOptions(),
@@ -2444,11 +2444,11 @@ export function createAgentChatAdapter(
             }
             // readSSEStream returned normally: a terminal done/error was
             // consumed and rendered — the turn is over.
-            clearActiveRun();
+            clearActiveRun(threadId);
             return "completed";
           } catch (attachErr: unknown) {
             if (attachErr instanceof Error && attachErr.name === "AbortError") {
-              clearActiveRun();
+              clearActiveRun(threadId);
               return "aborted";
             }
             if (attachErr instanceof AgentAutoContinueSignal) {
@@ -2619,7 +2619,7 @@ export function createAgentChatAdapter(
 
           while (true) {
             if (abortSignal.aborted) {
-              clearActiveRun();
+              clearActiveRun(threadId);
               return "completed";
             }
             if (
@@ -2644,7 +2644,7 @@ export function createAgentChatAdapter(
               }
             } catch (pollErr: unknown) {
               if (pollErr instanceof Error && pollErr.name === "AbortError") {
-                clearActiveRun();
+                clearActiveRun(threadId);
                 return "completed";
               }
               // Transient poll failure — counts as "no active run" this tick.
@@ -2733,7 +2733,7 @@ export function createAgentChatAdapter(
                   const graceOutcome =
                     await awaitBackgroundErrorRecoverySuccessor(activeRunId);
                   if (graceOutcome === "aborted") {
-                    clearActiveRun();
+                    clearActiveRun(threadId);
                     return "completed";
                   }
                   if (graceOutcome === "successor") {
@@ -2856,7 +2856,7 @@ export function createAgentChatAdapter(
             }
             await delay(BACKGROUND_FOLLOW_POLL_INTERVAL_MS, abortSignal);
             if (abortSignal.aborted) {
-              clearActiveRun();
+              clearActiveRun(threadId);
               return "completed";
             }
           }
@@ -3148,7 +3148,7 @@ export function createAgentChatAdapter(
           includeReferences = Boolean(runConfig?.custom?.references);
           internalContinuationRequest = true;
           startupRecoveryAttempts = 0;
-          clearActiveRun();
+          clearActiveRun(threadId);
           if (!isTransient) {
             return { ok: true, resetVisibleContent: false, emptyRun };
           }
@@ -3303,7 +3303,7 @@ export function createAgentChatAdapter(
                     },
                     metadata: { custom: { runError } },
                   } as ChatModelRunResult;
-                  clearActiveRun();
+                  clearActiveRun(threadId);
                   return;
                 }
               }
@@ -3423,7 +3423,7 @@ export function createAgentChatAdapter(
               (seq) => {
                 rememberRunSeq(seq);
                 if (runId && threadId) {
-                  updateActiveRunSeq(seq);
+                  updateActiveRunSeq(threadId, seq);
                 }
               },
               runId,
@@ -3433,12 +3433,12 @@ export function createAgentChatAdapter(
             }
 
             // Run completed normally — clear active run state
-            clearActiveRun();
+            clearActiveRun(threadId);
             return;
           } catch (err: unknown) {
             if (err instanceof Error && err.name === "AbortError") {
               // User-initiated abort (Stop button) — clear active run
-              clearActiveRun();
+              clearActiveRun(threadId);
               return;
             }
 
@@ -3500,7 +3500,7 @@ export function createAgentChatAdapter(
                       },
                     },
                   };
-                  clearActiveRun();
+                  clearActiveRun(threadId);
                   return;
                 }
                 const preservedError =
@@ -3561,7 +3561,7 @@ export function createAgentChatAdapter(
                     custom: { ...(runId ? { runId } : {}), runError },
                   },
                 };
-                clearActiveRun();
+                clearActiveRun(threadId);
                 return;
               }
               if (continuation.resetVisibleContent) {
@@ -3615,7 +3615,7 @@ export function createAgentChatAdapter(
                   reason: "error" as const,
                 },
               };
-              clearActiveRun();
+              clearActiveRun(threadId);
               return;
             }
 
@@ -3638,7 +3638,7 @@ export function createAgentChatAdapter(
                 },
                 metadata: { custom: { runError: failure.runError } },
               };
-              clearActiveRun();
+              clearActiveRun(threadId);
               return;
             }
 
@@ -3701,7 +3701,7 @@ export function createAgentChatAdapter(
                 },
                 metadata: { custom: { ...(runId ? { runId } : {}), runError } },
               };
-              clearActiveRun();
+              clearActiveRun(threadId);
               return;
             }
 
@@ -3734,7 +3734,7 @@ export function createAgentChatAdapter(
                       },
                     },
                   };
-                  clearActiveRun();
+                  clearActiveRun(threadId);
                   return;
                 }
                 const message = exhaustedRecoveryMessage("stream_ended");
@@ -3770,7 +3770,7 @@ export function createAgentChatAdapter(
                     custom: { ...(runId ? { runId } : {}), runError },
                   },
                 };
-                clearActiveRun();
+                clearActiveRun(threadId);
                 return;
               }
               if (continuation.resetVisibleContent) {

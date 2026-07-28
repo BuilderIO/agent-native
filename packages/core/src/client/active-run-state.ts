@@ -14,6 +14,59 @@ export interface PendingTurnState {
   turnId: string;
 }
 
+/**
+ * Active runs, keyed by thread.
+ *
+ * This used to be a single record: whichever thread started a run last owned
+ * the slot. Two chats running at once meant the second erased the first's
+ * `lastSeq` (so its reconnect replayed from zero) and any code reading the slot
+ * without checking `threadId` acted on a stranger's run — stopping one chat
+ * could abort another's. Every accessor is therefore addressed by thread; the
+ * only way to ask "what is running anywhere" is {@link listActiveRuns}, which
+ * hands back all of them rather than picking one.
+ */
+type ActiveRunsByThread = Record<string, ActiveRunState>;
+
+function isActiveRunState(value: unknown): value is ActiveRunState {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<ActiveRunState>;
+  return (
+    typeof candidate.threadId === "string" &&
+    typeof candidate.runId === "string" &&
+    typeof candidate.lastSeq === "number"
+  );
+}
+
+function readActiveRuns(): ActiveRunsByThread {
+  try {
+    const raw = sessionStorage.getItem(STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") return {};
+    // A run in flight when this shipped still has the old single-record shape.
+    if (isActiveRunState(parsed)) return { [parsed.threadId]: parsed };
+    const runs: ActiveRunsByThread = {};
+    for (const [threadId, state] of Object.entries(
+      parsed as Record<string, unknown>,
+    )) {
+      if (isActiveRunState(state)) runs[threadId] = state;
+    }
+    return runs;
+  } catch {
+    return {};
+  }
+}
+
+function writeActiveRuns(runs: ActiveRunsByThread): void {
+  try {
+    if (Object.keys(runs).length === 0) {
+      sessionStorage.removeItem(STORAGE_KEY);
+      return;
+    }
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(runs));
+  } catch {}
+}
+
 function notifyActiveRunStateChanged(state: ActiveRunState | null): void {
   if (
     typeof window === "undefined" ||
@@ -34,34 +87,43 @@ function normalizeActivityTool(toolName: unknown): string | null {
 }
 
 export function setActiveRun(state: ActiveRunState): void {
-  try {
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch {}
+  const runs = readActiveRuns();
+  runs[state.threadId] = state;
+  writeActiveRuns(runs);
   notifyActiveRunStateChanged(state);
 }
 
-export function getActiveRun(): ActiveRunState | null {
-  try {
-    const raw = sessionStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
+/** The run in flight for `threadId`, or null. Never another thread's run. */
+export function getActiveRun(
+  threadId: string | undefined,
+): ActiveRunState | null {
+  if (!threadId) return null;
+  return readActiveRuns()[threadId] ?? null;
 }
 
-export function updateActiveRunSeq(seq: number): void {
-  const state = getActiveRun();
-  if (state) {
-    state.lastSeq = seq;
-    setActiveRun(state);
-  }
+/**
+ * Every run currently in flight. For callers with no thread in hand (feedback
+ * context, trace-id fallbacks) that must decide for themselves what to do when
+ * more than one run is active, rather than silently getting one of them.
+ */
+export function listActiveRuns(): ActiveRunState[] {
+  return Object.values(readActiveRuns());
+}
+
+export function updateActiveRunSeq(
+  threadId: string | undefined,
+  seq: number,
+): void {
+  const state = getActiveRun(threadId);
+  if (!state) return;
+  setActiveRun({ ...state, lastSeq: seq });
 }
 
 export function updateActiveRunActivity(
+  threadId: string | undefined,
   toolName: string | null | undefined,
 ): void {
-  const state = getActiveRun();
+  const state = getActiveRun(threadId);
   if (!state) return;
   const activityTool = normalizeActivityTool(toolName);
   if (activityTool) {
@@ -76,22 +138,25 @@ export function getActiveRunActivityTool(
   threadId: string,
   runId: string,
 ): string | null {
-  const stored = getActiveRun();
-  if (stored?.threadId !== threadId || stored.runId !== runId) return null;
+  const stored = getActiveRun(threadId);
+  if (!stored || stored.runId !== runId) return null;
   return normalizeActivityTool(stored.activityTool);
 }
 
-export function clearActiveRun(): void {
-  try {
-    sessionStorage.removeItem(STORAGE_KEY);
-  } catch {}
+/** Forget `threadId`'s run. Other threads' runs are left alone. */
+export function clearActiveRun(threadId: string | undefined): void {
+  if (!threadId) return;
+  const runs = readActiveRuns();
+  if (!(threadId in runs)) return;
+  delete runs[threadId];
+  writeActiveRuns(runs);
   notifyActiveRunStateChanged(null);
 }
 
 export function clearActiveRunIfMatches(threadId: string, runId: string): void {
-  const state = getActiveRun();
-  if (state?.threadId !== threadId || state.runId !== runId) return;
-  clearActiveRun();
+  const state = getActiveRun(threadId);
+  if (!state || state.runId !== runId) return;
+  clearActiveRun(threadId);
 }
 
 export function setPendingTurn(state: PendingTurnState): void {
@@ -127,12 +192,8 @@ export function resolveReconnectAfterSeq(
   threadId: string,
   runId: string,
 ): number {
-  const stored = getActiveRun();
-  if (
-    stored?.threadId === threadId &&
-    stored?.runId === runId &&
-    Number.isFinite(stored.lastSeq)
-  ) {
+  const stored = getActiveRun(threadId);
+  if (stored?.runId === runId && Number.isFinite(stored.lastSeq)) {
     return stored.lastSeq + 1;
   }
   return 0;

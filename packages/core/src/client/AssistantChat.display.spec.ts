@@ -1802,7 +1802,7 @@ describe("chat submit and stop hardening", () => {
 
 describe("waitForThreadRunToClear", () => {
   afterEach(() => {
-    clearActiveRun();
+    clearActiveRun("thread-deferred-successor");
     vi.unstubAllGlobals();
   });
 
@@ -1830,7 +1830,7 @@ describe("waitForThreadRunToClear", () => {
         "thread-deferred-successor",
       ),
     ).resolves.toBe(false);
-    expect(getActiveRun()).toEqual({
+    expect(getActiveRun("thread-deferred-successor")).toEqual({
       threadId: "thread-deferred-successor",
       runId: "run-deferred-successor",
       lastSeq: -1,
@@ -1944,7 +1944,9 @@ describe("waitForThreadRunToClear", () => {
 
     expect(start).toBeGreaterThan(-1);
     expect(end).toBeGreaterThan(start);
-    expect(reconnectSource).toContain("const storedActiveRun = getActiveRun()");
+    expect(reconnectSource).toContain(
+      "const storedActiveRun = getActiveRun(threadId)",
+    );
     expect(reconnectSource).toContain(
       "clearActiveRunIfMatches(threadId, storedActiveRun.runId)",
     );

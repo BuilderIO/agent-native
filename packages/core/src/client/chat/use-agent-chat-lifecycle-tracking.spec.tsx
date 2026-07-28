@@ -21,14 +21,14 @@ describe("useAgentChatLifecycleTracking", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
-    clearActiveRun();
+    clearActiveRun("thread-1");
     analyticsMock.trackAgentChatLifecycle.mockClear();
   });
 
   afterEach(async () => {
     await act(async () => root.unmount());
     container.remove();
-    clearActiveRun();
+    clearActiveRun("thread-1");
   });
 
   it("tracks surface, active run, and stop wiring with correlation ids", async () => {

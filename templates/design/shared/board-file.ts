@@ -45,6 +45,21 @@ export function isBoardFile(filename: string): boolean {
   return filename === BOARD_FILENAME;
 }
 
+/**
+ * The subset of a design's files that represents actual design output.
+ *
+ * The editor creates the board file for every design the first time it opens
+ * (migrate-board-objects-to-file), so a design's file list is never empty for
+ * long and `files.length > 0` cannot mean "something has been designed here".
+ * Anything deciding whether a design has content — generation gating,
+ * pending-generation completion, screen counts — must go through this.
+ */
+export function designOutputFiles<T extends { filename: string }>(
+  files: readonly T[],
+): T[] {
+  return files.filter((file) => !isBoardFile(file.filename));
+}
+
 // ---------------------------------------------------------------------------
 // emptyBoardHtml
 // ---------------------------------------------------------------------------

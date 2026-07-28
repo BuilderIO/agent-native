@@ -30,7 +30,7 @@ export function useAgentChatLifecycleTracking({
   }, [surface, tabId, threadId]);
 
   useEffect(() => {
-    const sync = (state = getActiveRun()) => {
+    const sync = (state = getActiveRun(threadId)) => {
       const active = Boolean(
         threadId && state?.threadId === threadId && state.runId,
       );

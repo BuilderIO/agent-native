@@ -57,6 +57,7 @@ import {
 import type { TweakDefinition } from "@shared/api";
 import {
   computeReparentedChildPosition,
+  designOutputFiles,
   isBoardFile,
   normalizePoisonedBoardNestedCoords,
   stripBoardSurfaceOffsetFromCoord,
@@ -3521,10 +3522,16 @@ function DesignEditor() {
   } = useAgentGenerating({
     onComplete: handleGenerationComplete,
     onStale: markGenerationStale,
-    shouldAdoptRunningTab: () =>
+    // Only re-adopt the run this design queued (a remount lands here before the
+    // stored-run effect does). Adopting any running tab meant a brand-new
+    // design picked up the previously created design's run, so that run's
+    // completion cleared this design's queued prompt and its edits landed in
+    // the other design.
+    shouldAdoptRunningTab: (tabId) =>
       Boolean(id) &&
       !generationOutputReadyRef.current &&
-      hasFreshPendingGeneration(id),
+      hasFreshPendingGeneration(id) &&
+      readPendingGeneration(id)?.runTabId === tabId,
     onAdoptRunningTab: (tabId) => {
       generationRunConfirmedRef.current = true;
       setGenerationChatTabId(tabId);
@@ -4904,6 +4911,13 @@ function DesignEditor() {
       return pending ? { ...file, content: pending.content } : file;
     });
   }, [pendingLocalFileContentsSnapshot, serverFiles]);
+  // How many files are real design output. Never use `files.length` to ask
+  // whether this design has content: the editor creates the board file on open,
+  // so that count is > 0 for an untouched design (see designOutputFiles).
+  const outputFileCount = useMemo(
+    () => designOutputFiles(files).length,
+    [files],
+  );
   const [pendingNodeRewriteProposals, setPendingNodeRewriteProposals] =
     useState<NodeRewriteProposal[]>([]);
   const proposalFileIds = useMemo(() => files.map((file) => file.id), [files]);
@@ -5705,7 +5719,7 @@ function DesignEditor() {
   );
 
   useEffect(() => {
-    if (!id || files.length === 0) return;
+    if (!id || outputFileCount === 0) return;
     const pending = readPendingGeneration(id);
     if (pending?.templateId) return;
     clearGenerationCompleteTimer();
@@ -5714,7 +5728,7 @@ function DesignEditor() {
     setGenerationIssue(null);
     setRetryablePrompt(null);
     staleToastShownRef.current = false;
-  }, [clearGenerationCompleteTimer, id, files.length]);
+  }, [clearGenerationCompleteTimer, id, outputFileCount]);
 
   useEffect(() => {
     if (!id || !design) return;
@@ -5724,8 +5738,10 @@ function DesignEditor() {
       setHasPendingGeneration(false);
       return;
     }
-    const templateRefinement = Boolean(pending.templateId && files.length > 0);
-    if (files.length > 0 && !templateRefinement) return;
+    const templateRefinement = Boolean(
+      pending.templateId && outputFileCount > 0,
+    );
+    if (outputFileCount > 0 && !templateRefinement) return;
 
     if (isPendingGenerationStale(pending)) {
       markGenerationStale();
@@ -5822,7 +5838,7 @@ function DesignEditor() {
   }, [
     id,
     design,
-    files.length,
+    outputFileCount,
     agentSubmit,
     markGenerationStale,
     trackAgentGeneration,
@@ -11588,8 +11604,8 @@ function DesignEditor() {
   );
 
   useEffect(() => {
-    if (files.length > 0) resetAgentGenerating();
-  }, [files.length, resetAgentGenerating]);
+    if (outputFileCount > 0) resetAgentGenerating();
+  }, [outputFileCount, resetAgentGenerating]);
 
   // Parse design.data for agent-supplied tweaks. The agent writes a JSON blob
   // to designs.data containing { tweaks: TweakDefinition[], ... }; we surface
@@ -30670,9 +30686,7 @@ function DesignEditor() {
         onOpenChange={setSaveTemplateOpen}
         defaultTitle={design.title}
         defaultDescription={design.description ?? ""}
-        screenCount={
-          files.filter((file) => file.filename !== "__board__.html").length
-        }
+        screenCount={outputFileCount}
         lockedLayerCount={durableLockedLayerCount}
         saving={saveDesignAsTemplateMutation.isPending}
         onSave={async (values) => {

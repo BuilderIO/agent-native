@@ -1,4 +1,4 @@
-import { getActiveRun } from "./active-run-state.js";
+import { listActiveRuns } from "./active-run-state.js";
 import { getClientSurface, type ClientSurface } from "./client-surface.js";
 import { scrubUrl } from "./url-scrub.js";
 
@@ -70,8 +70,11 @@ export function getFeedbackClientContext(
   const ids = new Set<string>();
   addId(ids, options.chatSessionId);
 
-  const activeRun = typeof window !== "undefined" ? getActiveRun() : null;
-  addId(ids, activeRun?.threadId);
+  // Every in-flight run is a candidate session for this feedback. With more
+  // than one running there is no basis for picking a single `activeRunId`, so
+  // none is reported rather than attaching feedback to an arbitrary run.
+  const activeRuns = typeof window !== "undefined" ? listActiveRuns() : [];
+  for (const run of activeRuns) addId(ids, run.threadId);
 
   for (const id of recentStoredThreadIds(options.storageKey)) {
     addId(ids, id);
@@ -81,7 +84,8 @@ export function getFeedbackClientContext(
   const context: FeedbackClientContext = {
     chatSessionIds: [...ids].slice(0, MAX_CHAT_SESSION_IDS),
   };
-  if (activeRun?.runId) context.activeRunId = activeRun.runId;
+  const onlyActiveRun = activeRuns.length === 1 ? activeRuns[0] : null;
+  if (onlyActiveRun?.runId) context.activeRunId = onlyActiveRun.runId;
   if (typeof window !== "undefined") {
     context.pageUrl = scrubUrl(window.location.href);
     context.clientSurface = getClientSurface();

@@ -1,4 +1,5 @@
 import { type PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
+import { designOutputFiles } from "@shared/board-file";
 import { sourceContentHash } from "@shared/source-workspace";
 
 import type { UploadedFile } from "@/components/editor/PromptDialog";
@@ -28,13 +29,17 @@ export interface PendingGeneration {
 
 export function hasPendingGenerationOutput(
   pending: PendingGeneration | null,
-  files: readonly {
+  allFiles: readonly {
     id: string;
+    filename: string;
     content: string;
     createdAt?: string | null;
     updatedAt?: string | null;
   }[],
 ): boolean {
+  // The board file is created for every design on first open, so it must never
+  // read as generation output — see designOutputFiles.
+  const files = designOutputFiles(allFiles);
   if (!pending?.templateId) return files.length > 0;
 
   if (pending.templateBaselineFiles?.length) {

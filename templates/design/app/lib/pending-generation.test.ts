@@ -28,9 +28,68 @@ describe("pending generation freshness", () => {
   });
 });
 
+describe("generation output", () => {
+  // The editor creates this for every design the first time it opens, so it can
+  // never count as generation output — otherwise a queued prompt is discarded
+  // (and never submitted) moments after a brand-new design is opened.
+  const board = {
+    id: "board-file",
+    filename: "__board__.html",
+    content: "<body></body>",
+    createdAt: "2026-07-10T12:00:00.000Z",
+    updatedAt: "2026-07-10T12:00:00.000Z",
+  };
+
+  it("does not treat the reserved board file as output", () => {
+    expect(
+      hasPendingGenerationOutput({ prompt: "Build a page" }, [board]),
+    ).toBe(false);
+  });
+
+  it("recognizes a generated screen as output", () => {
+    expect(
+      hasPendingGenerationOutput({ prompt: "Build a page" }, [
+        board,
+        {
+          id: "file-1",
+          filename: "index.html",
+          content: "<main>Generated</main>",
+          createdAt: "2026-07-10T12:00:00.000Z",
+          updatedAt: "2026-07-10T12:00:00.000Z",
+        },
+      ]),
+    ).toBe(true);
+  });
+
+  it("ignores the board file while judging template refinement", () => {
+    const copiedFile = {
+      id: "file-1",
+      filename: "index.html",
+      content: "<main>Copied template</main>",
+      createdAt: "2026-07-10T12:00:00.000Z",
+      updatedAt: "2026-07-10T12:00:00.000Z",
+    };
+    expect(
+      hasPendingGenerationOutput(
+        {
+          templateId: "template-1",
+          templateBaselineFiles: [
+            {
+              id: copiedFile.id,
+              contentHash: sourceContentHash(copiedFile.content),
+            },
+          ],
+        },
+        [board, copiedFile],
+      ),
+    ).toBe(false);
+  });
+});
+
 describe("template refinement output", () => {
   const copied = {
     id: "file-1",
+    filename: "index.html",
     content: "<main>Copied template</main>",
     createdAt: "2026-07-10T12:00:00.000Z",
     updatedAt: "2026-07-10T12:00:00.000Z",

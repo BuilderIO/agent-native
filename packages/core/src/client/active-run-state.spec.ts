@@ -11,6 +11,7 @@ import {
   getPendingTurn,
   resolveReconnectAfterSeq,
   clearActiveRunIfMatches,
+  listActiveRuns,
   setPendingTurn,
   setActiveRun,
   updateActiveRunActivity,
@@ -47,7 +48,8 @@ describe("resolveReconnectAfterSeq", () => {
   });
 
   afterEach(() => {
-    clearActiveRun();
+    clearActiveRun("thread-1");
+    clearActiveRun("thread-2");
     vi.unstubAllGlobals();
   });
 
@@ -60,34 +62,34 @@ describe("resolveReconnectAfterSeq", () => {
     setActiveRun({ threadId: "thread-1", runId: "run-1", lastSeq: 10 });
     expect(resolveReconnectAfterSeq("thread-1", "run-2")).toBe(0);
     expect(resolveReconnectAfterSeq("thread-2", "run-1")).toBe(0);
-    clearActiveRun();
+    clearActiveRun("thread-1");
     expect(resolveReconnectAfterSeq("thread-1", "run-1")).toBe(0);
   });
 
   it("persists the current activity tool for refresh-time reconnects", () => {
     setActiveRun({ threadId: "thread-1", runId: "run-1", lastSeq: 10 });
 
-    updateActiveRunActivity(" generate-design ");
+    updateActiveRunActivity("thread-1", " generate-design ");
     expect(getActiveRunActivityTool("thread-1", "run-1")).toBe(
       "generate-design",
     );
     expect(getActiveRunActivityTool("thread-1", "run-2")).toBeNull();
 
-    updateActiveRunSeq(12);
-    expect(getActiveRun()).toMatchObject({
+    updateActiveRunSeq("thread-1", 12);
+    expect(getActiveRun("thread-1")).toMatchObject({
       threadId: "thread-1",
       runId: "run-1",
       lastSeq: 12,
       activityTool: "generate-design",
     });
 
-    updateActiveRunActivity("");
-    expect(getActiveRun()).toMatchObject({
+    updateActiveRunActivity("thread-1", "");
+    expect(getActiveRun("thread-1")).toMatchObject({
       threadId: "thread-1",
       runId: "run-1",
       lastSeq: 12,
     });
-    expect(getActiveRun()?.activityTool).toBeUndefined();
+    expect(getActiveRun("thread-1")?.activityTool).toBeUndefined();
   });
 
   it("notifies listeners when the active run changes", () => {
@@ -98,7 +100,7 @@ describe("resolveReconnectAfterSeq", () => {
     window.addEventListener(ACTIVE_RUN_STATE_EVENT, listener);
 
     setActiveRun({ threadId: "thread-1", runId: "run-1", lastSeq: 1 });
-    clearActiveRun();
+    clearActiveRun("thread-1");
 
     window.removeEventListener(ACTIVE_RUN_STATE_EVENT, listener);
 
@@ -112,14 +114,14 @@ describe("resolveReconnectAfterSeq", () => {
     setActiveRun({ threadId: "thread-1", runId: "run-1", lastSeq: 7 });
 
     clearActiveRunIfMatches("thread-1", "run-2");
-    expect(getActiveRun()).toMatchObject({
+    expect(getActiveRun("thread-1")).toMatchObject({
       threadId: "thread-1",
       runId: "run-1",
       lastSeq: 7,
     });
 
     clearActiveRunIfMatches("thread-1", "run-1");
-    expect(getActiveRun()).toBeNull();
+    expect(getActiveRun("thread-1")).toBeNull();
   });
 
   it("keeps a pending turn addressable until its matching run id arrives", () => {
@@ -136,5 +138,62 @@ describe("resolveReconnectAfterSeq", () => {
 
     clearPendingTurnIfMatches("thread-1", "turn-1");
     expect(getPendingTurn("thread-1")).toBeNull();
+  });
+});
+
+describe("concurrent runs in different threads", () => {
+  beforeEach(() => {
+    vi.stubGlobal("sessionStorage", createMemoryStorage());
+  });
+
+  afterEach(() => {
+    clearActiveRun("thread-1");
+    clearActiveRun("thread-2");
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps each thread's run cursor and activity when another thread starts a run", () => {
+    setActiveRun({ threadId: "thread-1", runId: "run-1", lastSeq: -1 });
+    updateActiveRunSeq("thread-1", 42);
+    updateActiveRunActivity("thread-1", "generate-design");
+
+    // A second design's editor starts its own run while the first is in flight.
+    setActiveRun({ threadId: "thread-2", runId: "run-2", lastSeq: -1 });
+
+    expect(resolveReconnectAfterSeq("thread-1", "run-1")).toBe(43);
+    expect(getActiveRunActivityTool("thread-1", "run-1")).toBe(
+      "generate-design",
+    );
+    expect(resolveReconnectAfterSeq("thread-2", "run-2")).toBe(0);
+    expect(
+      listActiveRuns()
+        .map((run) => run.runId)
+        .sort(),
+    ).toEqual(["run-1", "run-2"]);
+  });
+
+  it("never hands one thread another thread's run", () => {
+    setActiveRun({ threadId: "thread-1", runId: "run-1", lastSeq: 5 });
+
+    expect(getActiveRun("thread-2")).toBeNull();
+    expect(getActiveRun(undefined)).toBeNull();
+
+    clearActiveRun("thread-2");
+    expect(getActiveRun("thread-1")?.runId).toBe("run-1");
+  });
+
+  it("still resumes a run stored in the pre-per-thread format", () => {
+    sessionStorage.setItem(
+      "agent-chat-active-run",
+      JSON.stringify({ threadId: "thread-1", runId: "run-1", lastSeq: 7 }),
+    );
+
+    expect(getActiveRun("thread-1")).toEqual({
+      threadId: "thread-1",
+      runId: "run-1",
+      lastSeq: 7,
+    });
+    expect(resolveReconnectAfterSeq("thread-1", "run-1")).toBe(8);
+    expect(getActiveRun("thread-2")).toBeNull();
   });
 });
