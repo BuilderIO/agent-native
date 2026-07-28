@@ -1,12 +1,10 @@
 import {
   callAction,
-  setClientAppState,
   useActionMutation,
   useChangeVersion,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
-  designRepromptPendingStateKey,
   isNodeRewriteProposal,
   type NodeHtmlPreviewBridgeMessage,
   type NodeRewriteProposal,
@@ -426,7 +424,6 @@ export function NodeRewriteProposal({
     if (!proposal || !instruction || refining || resolveMutation.isPending)
       return;
     const repromptId = crypto.randomUUID();
-    const pendingKey = designRepromptPendingStateKey(designId, fileId);
     const pending = {
       repromptId,
       designId,
@@ -440,7 +437,7 @@ export function NodeRewriteProposal({
     };
     setRefining(true);
     try {
-      await setClientAppState(pendingKey, pending);
+      await callAction("begin-node-rewrite-request", pending);
       const submission = formatNodeRepromptSubmission({
         ...pending,
         priorProposalId: proposal.proposalId,

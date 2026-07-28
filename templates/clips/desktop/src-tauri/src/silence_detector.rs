@@ -11,9 +11,11 @@
 //!
 //!  * **System sleep** — `NSWorkspaceWillSleepNotification` via objc2.
 //!    Emits `meetings:sleep-stop`.
-//!  * **Call-end heuristic** — best-effort: if a known video-conferencing
-//!    bundle id (Zoom, Google Meet wrapper, MS Teams) goes from frontmost
-//!    to background for >2 minutes, emit `meetings:call-ended`.
+//!  * **Call-end heuristic** — best-effort: when a known conferencing app
+//!    releases its microphone after using it for the active meeting, emit
+//!    `meetings:call-ended`. Falling back to a foreground-to-background
+//!    transition keeps the detector useful on macOS versions that do not
+//!    expose per-process input activity.
 //!  * **Calendar end** — when the scheduled meeting end has passed and both
 //!    audio sources have been quiet for the call-end window, emit the same
 //!    event even if the conferencing app remains frontmost.
@@ -69,6 +71,11 @@ pub struct SilenceConfig {
     /// Whether to enable the call-ended heuristic.
     #[serde(default = "default_true")]
     pub watch_call_ended: bool,
+    /// Bundle IDs allowed to corroborate a call ending by releasing their
+    /// microphone input. Restricting this to the meeting provider prevents an
+    /// unrelated browser tab from affecting a live meeting session.
+    #[serde(default)]
+    pub call_app_bundle_ids: Option<Vec<String>>,
     /// Unix epoch milliseconds for the calendar event's scheduled end.
     /// Calendar-end stopping still requires quiet audio as confirmation.
     #[serde(default)]
@@ -117,6 +124,9 @@ struct DetectorInner {
     silence_fired: bool,
     /// Calendar event end for the active session, if one is known.
     scheduled_end_ms: Option<u64>,
+    /// Apps allowed to corroborate a call ending by releasing their microphone
+    /// input. This varies by the calendar join URL for each session.
+    call_app_bundle_ids: Vec<String>,
 }
 
 pub struct DetectorState {
@@ -151,6 +161,7 @@ pub fn silence_detector_start(app: AppHandle, config: Option<SilenceConfig>) -> 
         call_ended_ms: default_call_ended_ms(),
         watch_sleep: true,
         watch_call_ended: true,
+        call_app_bundle_ids: None,
         scheduled_end_ms: None,
     });
 
@@ -196,6 +207,13 @@ pub fn silence_detector_start(app: AppHandle, config: Option<SilenceConfig>) -> 
         g.silence_fired = false;
         g.config = Some(cfg.clone());
         g.scheduled_end_ms = cfg.scheduled_end_ms;
+        g.call_app_bundle_ids = cfg
+            .call_app_bundle_ids
+            .clone()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|bundle_id| bundle_id.to_lowercase())
+            .collect();
         // Seed both buckets with `now()` so we don't insta-fire on start
         // before any audio has streamed in yet.
         g.mic = Some(SourceState::fresh());
@@ -293,6 +311,7 @@ pub fn silence_detector_stop(app: AppHandle) -> Result<(), String> {
     g.mic = None;
     g.system = None;
     g.scheduled_end_ms = None;
+    g.call_app_bundle_ids.clear();
     Ok(())
 }
 
@@ -334,6 +353,20 @@ fn install_sleep_watcher(_app: &AppHandle) {}
 
 // --- call-ended heuristic --------------------------------------------------
 
+const GENERIC_BROWSER_BUNDLE_IDS: &[&str] = &[
+    "com.google.chrome",
+    "company.thebrowser.browser",
+    "com.apple.safari",
+    "org.mozilla.firefox",
+];
+
+fn is_configured_generic_browser(bundle_id: &str, call_app_bundle_ids: &[String]) -> bool {
+    GENERIC_BROWSER_BUNDLE_IDS.contains(&bundle_id)
+        && call_app_bundle_ids
+            .iter()
+            .any(|candidate| GENERIC_BROWSER_BUNDLE_IDS.contains(&candidate.as_str()))
+}
+
 #[cfg(target_os = "macos")]
 fn install_call_ended_watcher(app: &AppHandle, threshold_ms: u64) {
     static INSTALLED: OnceLock<()> = OnceLock::new();
@@ -356,39 +389,63 @@ fn install_call_ended_watcher(app: &AppHandle, threshold_ms: u64) {
             // (DetectorInner.mic/system), never on the frontmost-app poll
             // alone — matching the granola-ux.md "transcript length +
             // calendar times" model instead of raw frontmost tracking.
-            let strong_vc_bundles: &[&str] = &[
-                "us.zoom.xos",
-                "us.zoom.ZoomClips",
-                "com.microsoft.teams2",
-                "com.microsoft.teams",
-            ];
-            let generic_browser_bundles: &[&str] = &[
-                "com.google.Chrome",
-                "company.thebrowser.Browser", // Arc
-            ];
             let mut ever_seen_front = false;
             let mut last_front_at: Option<Instant> = None;
             let mut fired = false;
             let mut last_front_was_generic_browser = false;
+            let mut call_app_used_microphone = false;
+            let mut microphone_released_at: Option<Instant> = None;
+            let mut generation: Option<u64> = None;
             loop {
                 std::thread::sleep(Duration::from_secs(10));
                 let state = app.state::<DetectorState>();
-                let active = state.inner.lock().map(|g| g.active).unwrap_or(false);
+                let (active, active_generation, configured_bundle_ids) = state
+                    .inner
+                    .lock()
+                    .map(|g| (g.active, g.generation, g.call_app_bundle_ids.clone()))
+                    .unwrap_or((false, 0, Vec::new()));
                 if !active {
                     ever_seen_front = false;
                     last_front_at = None;
                     fired = false;
                     last_front_was_generic_browser = false;
+                    call_app_used_microphone = false;
+                    microphone_released_at = None;
                     continue;
                 }
+                if generation != Some(active_generation) {
+                    ever_seen_front = false;
+                    last_front_at = None;
+                    fired = false;
+                    last_front_was_generic_browser = false;
+                    call_app_used_microphone = false;
+                    microphone_released_at = None;
+                    generation = Some(active_generation);
+                }
+                let call_app_bundle_ids = if configured_bundle_ids.is_empty() {
+                    default_call_app_bundle_ids()
+                } else {
+                    configured_bundle_ids
+                };
                 let front = crate::util::frontmost_bundle_id();
-                let is_strong_vc = front
-                    .as_ref()
-                    .map(|b| strong_vc_bundles.iter().any(|k| k == b))
-                    .unwrap_or(false);
                 let is_generic_browser = front
                     .as_ref()
-                    .map(|b| generic_browser_bundles.iter().any(|k| k == b))
+                    .map(|bundle_id| {
+                        is_configured_generic_browser(
+                            &bundle_id.to_lowercase(),
+                            &call_app_bundle_ids,
+                        )
+                    })
+                    .unwrap_or(false);
+                let is_strong_vc = front
+                    .as_ref()
+                    .map(|bundle_id| {
+                        let bundle_id = bundle_id.to_lowercase();
+                        call_app_bundle_ids
+                            .iter()
+                            .any(|candidate| candidate == &bundle_id)
+                            && !is_generic_browser
+                    })
                     .unwrap_or(false);
                 if is_strong_vc || is_generic_browser {
                     ever_seen_front = true;
@@ -398,6 +455,29 @@ fn install_call_ended_watcher(app: &AppHandle, threshold_ms: u64) {
                 if fired {
                     continue;
                 }
+
+                // A native call application remains frontmost on its post-call
+                // screen, so foreground tracking alone cannot tell that the
+                // meeting ended. CoreAudio reports whether the provider still
+                // has an active microphone stream. Only accept a true -> false
+                // transition that stays stable for 30 seconds; this tolerates
+                // a device handoff while avoiding a stop before the call has
+                // actually acquired its microphone.
+                match call_app_uses_microphone(&call_app_bundle_ids) {
+                    Some(true) => {
+                        call_app_used_microphone = true;
+                        microphone_released_at = None;
+                    }
+                    Some(false) if call_app_used_microphone => {
+                        microphone_released_at.get_or_insert_with(Instant::now);
+                    }
+                    _ => {}
+                }
+
+                let microphone_released = microphone_release_stop_ready(
+                    call_app_used_microphone,
+                    microphone_released_at.map(|at| Instant::now().duration_since(at)),
+                );
 
                 let frontmost_call_ended = ever_seen_front
                     && last_front_at
@@ -412,7 +492,7 @@ fn install_call_ended_watcher(app: &AppHandle, threshold_ms: u64) {
                     && (!last_front_was_generic_browser
                         || audio_recently_silent(&state, threshold_ms));
 
-                if frontmost_call_ended {
+                if microphone_released || frontmost_call_ended {
                     let _ = app.emit("meetings:call-ended", ());
                     fired = true;
                 }
@@ -423,6 +503,136 @@ fn install_call_ended_watcher(app: &AppHandle, threshold_ms: u64) {
 
 #[cfg(not(target_os = "macos"))]
 fn install_call_ended_watcher(_app: &AppHandle, _threshold_ms: u64) {}
+
+#[cfg(target_os = "macos")]
+fn default_call_app_bundle_ids() -> Vec<String> {
+    [
+        "us.zoom.xos",
+        "us.zoom.ZoomClips",
+        "com.microsoft.teams2",
+        "com.microsoft.teams",
+    ]
+    .into_iter()
+    .map(|bundle_id| bundle_id.to_lowercase())
+    .collect()
+}
+
+fn microphone_release_stop_ready(
+    app_used_microphone: bool,
+    released_for: Option<Duration>,
+) -> bool {
+    app_used_microphone
+        && released_for
+            .map(|elapsed| elapsed >= Duration::from_secs(30))
+            .unwrap_or(false)
+}
+
+/// Returns whether one of the target conferencing apps currently has a live
+/// CoreAudio input stream. `None` means the OS could not provide a reliable
+/// answer, so callers must keep the existing conservative fallbacks.
+#[cfg(target_os = "macos")]
+fn call_app_uses_microphone(bundle_ids: &[String]) -> Option<bool> {
+    use core_foundation::base::TCFType;
+    use core_foundation::string::CFString;
+    use objc2_core_audio::{
+        kAudioHardwareNoError, kAudioHardwarePropertyProcessObjectList,
+        kAudioObjectPropertyElementMain, kAudioObjectPropertyScopeGlobal, kAudioObjectSystemObject,
+        kAudioProcessPropertyBundleID, kAudioProcessPropertyIsRunningInput,
+        AudioObjectGetPropertyData, AudioObjectGetPropertyDataSize, AudioObjectID,
+        AudioObjectPropertyAddress,
+    };
+    use std::ffi::c_void;
+    use std::mem::size_of;
+    use std::ptr::NonNull;
+
+    let mut list_address = AudioObjectPropertyAddress {
+        mSelector: kAudioHardwarePropertyProcessObjectList,
+        mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMain,
+    };
+    let mut data_size = 0;
+    let list_status = unsafe {
+        AudioObjectGetPropertyDataSize(
+            kAudioObjectSystemObject as AudioObjectID,
+            NonNull::from(&mut list_address),
+            0,
+            std::ptr::null(),
+            NonNull::from(&mut data_size),
+        )
+    };
+    if list_status != kAudioHardwareNoError || data_size == 0 {
+        return None;
+    }
+
+    let mut processes = vec![0 as AudioObjectID; data_size as usize / size_of::<AudioObjectID>()];
+    let list_status = unsafe {
+        AudioObjectGetPropertyData(
+            kAudioObjectSystemObject as AudioObjectID,
+            NonNull::from(&mut list_address),
+            0,
+            std::ptr::null(),
+            NonNull::from(&mut data_size),
+            NonNull::new(processes.as_mut_ptr().cast::<c_void>())?,
+        )
+    };
+    if list_status != kAudioHardwareNoError {
+        return None;
+    }
+
+    for process in processes {
+        let mut bundle_address = AudioObjectPropertyAddress {
+            mSelector: kAudioProcessPropertyBundleID,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain,
+        };
+        let mut bundle_ref: *const c_void = std::ptr::null();
+        let mut bundle_size = size_of::<*const c_void>() as u32;
+        let bundle_status = unsafe {
+            AudioObjectGetPropertyData(
+                process,
+                NonNull::from(&mut bundle_address),
+                0,
+                std::ptr::null(),
+                NonNull::from(&mut bundle_size),
+                NonNull::new((&mut bundle_ref as *mut *const c_void).cast::<c_void>())?,
+            )
+        };
+        if bundle_status != kAudioHardwareNoError || bundle_ref.is_null() {
+            continue;
+        }
+        let bundle_id = unsafe {
+            CFString::wrap_under_get_rule(bundle_ref as core_foundation::string::CFStringRef)
+        }
+        .to_string()
+        .to_lowercase();
+        if !bundle_ids.iter().any(|candidate| candidate == &bundle_id) {
+            continue;
+        }
+
+        let mut input_address = AudioObjectPropertyAddress {
+            mSelector: kAudioProcessPropertyIsRunningInput,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain,
+        };
+        let mut input_running: u32 = 0;
+        let mut input_size = size_of::<u32>() as u32;
+        let input_status = unsafe {
+            AudioObjectGetPropertyData(
+                process,
+                NonNull::from(&mut input_address),
+                0,
+                std::ptr::null(),
+                NonNull::from(&mut input_size),
+                NonNull::new((&mut input_running as *mut u32).cast::<c_void>())?,
+            )
+        };
+        if input_status == kAudioHardwareNoError && input_running != 0 {
+            return Some(true);
+        }
+    }
+
+    Some(false)
+}
 
 fn scheduled_end_reached(scheduled_end_ms: Option<u64>, now_ms: u64) -> bool {
     scheduled_end_ms
@@ -470,7 +680,12 @@ fn audio_recently_silent(state: &tauri::State<'_, DetectorState>, threshold_ms: 
 
 #[cfg(test)]
 mod tests {
-    use super::{calendar_end_stop_ready, scheduled_end_reached};
+    use std::time::Duration;
+
+    use super::{
+        calendar_end_stop_ready, is_configured_generic_browser, microphone_release_stop_ready,
+        scheduled_end_reached,
+    };
 
     #[test]
     fn calendar_end_requires_a_known_end_and_allows_the_exact_boundary() {
@@ -485,5 +700,38 @@ mod tests {
         assert!(!calendar_end_stop_ready(Some(9_999), 10_000, false));
         assert!(calendar_end_stop_ready(Some(9_999), 10_000, true));
         assert!(!calendar_end_stop_ready(Some(10_001), 10_000, true));
+    }
+
+    #[test]
+    fn microphone_release_only_stops_after_an_observed_call_input_ends() {
+        assert!(!microphone_release_stop_ready(
+            false,
+            Some(Duration::from_secs(60))
+        ));
+        assert!(!microphone_release_stop_ready(true, None));
+        assert!(!microphone_release_stop_ready(
+            true,
+            Some(Duration::from_secs(29))
+        ));
+        assert!(microphone_release_stop_ready(
+            true,
+            Some(Duration::from_secs(30))
+        ));
+    }
+
+    #[test]
+    fn browser_calls_require_a_configured_browser_bundle() {
+        let browser_call = vec!["com.google.chrome".to_owned()];
+        let native_call = vec!["us.zoom.xos".to_owned()];
+
+        for browser in [
+            "com.google.chrome",
+            "company.thebrowser.browser",
+            "com.apple.safari",
+            "org.mozilla.firefox",
+        ] {
+            assert!(is_configured_generic_browser(browser, &browser_call));
+            assert!(!is_configured_generic_browser(browser, &native_call));
+        }
     }
 }

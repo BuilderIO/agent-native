@@ -286,7 +286,6 @@ const messages = {
     storageConnectedChecking: "وحدة التخزين متصلة. التحقق من هذا المقطع...",
     signInToFinish: "قم بتسجيل الدخول للإنهاء",
     signInIfYours: "قم بتسجيل الدخول إذا كان هذا لك",
-    openDashboard: "فتح لوحة التحكم",
     checkAgain: "تحقق مجددًا",
     backToHome: "العودة إلى المنزل",
     generatingTitle: "توليد العنوان",
@@ -486,6 +485,7 @@ const messages = {
     makePublicAndCopy: "جعله عامًا ونسخه",
     copy: "نسخ",
     addPeopleByEmail: "إضافة أشخاص بالبريد الإلكتروني",
+    invite: "دعوة",
     notifyPeople: "إشعار الأشخاص",
     peopleWithAccess: "الأشخاص الذين لديهم وصول",
     ownerRole: "المالك",
@@ -812,11 +812,25 @@ const messages = {
     recentViewers: "المشاهدون الأخيرون",
     noViewers: "لا يوجد مشاهدون بعد.",
     anonymous: "مجهول",
-    anon: "مجهول",
     moreViewers: "+{{count}} آخرين",
     viewedBy: "شاهده",
     someone: "شخص ما",
     noViewsYet: "لا توجد مشاهدات بعد.",
+    viewsCount_zero: "{{count}} مشاهدة",
+    viewsCount_one: "{{count}} مشاهدة",
+    viewsCount_two: "{{count}} مشاهدتان",
+    viewsCount_few: "{{count}} مشاهدات",
+    viewsCount_many: "{{count}} مشاهدة",
+    viewsCount_other: "{{count}} مشاهدة",
+    totalViewsSummary: "{{total}} مشاهدة إجمالية، {{unique}} مشاهدًا فريدًا",
+    viewsTab: "المشاهدات",
+    insightsTab: "الرؤى",
+    humanViews: "مشاهدات بشرية",
+    agentViews: "مشاهدات وكلاء الذكاء الاصطناعي",
+    noAgentViewsYet: "لا توجد مشاهدات من وكلاء الذكاء الاصطناعي بعد.",
+    totalVideoViews: "إجمالي مشاهدات الفيديو",
+    averageCompletionRate: "متوسط معدل الإكمال",
+    moreInsights: "المزيد من الرؤى",
   },
   libraryGrid: {
     spaceRoot: "جذر المساحة",
@@ -839,6 +853,10 @@ const messages = {
     loadFailedBody:
       "حدث خطأ ما أثناء تحميل هذه القائمة. تسجيلاتك آمنة — يرجى المحاولة مرة أخرى.",
     retry: "إعادة المحاولة",
+    paginationRange: "{{start}}–{{end}} من {{total}}",
+    paginationPrevious: "السابق",
+    paginationNext: "التالي",
+    paginationPage: "صفحة {{page}} من {{totalPages}}",
   },
   notificationsRoute: {
     pageTitle: "الإشعارات · Clips",
@@ -932,6 +950,17 @@ const messages = {
     summary: "الملخص",
     keyPoints: "النقاط الرئيسية",
     actionItems: "عناصر العمل",
+    sharedContent: "المحتوى المشترك",
+    summaryIncluded: "الملخص والنقاط الرئيسية وعناصر العمل",
+    includeTranscript: "تضمين النص الكامل",
+    includeTranscriptDescription:
+      "يمكن لأي شخص لديه حق الوصول إلى هذا الاجتماع قراءة النص الكامل.",
+    transcriptUnavailable: "النص ليس جاهزًا بعد.",
+    transcript: "النص",
+    copyTranscript: "نسخ النص",
+    transcriptCopied: "تم نسخ النص",
+    copyTranscriptFailed: "تعذر نسخ النص",
+    updateTranscriptSharingFailed: "تعذر تحديث مشاركة النص",
   },
   deleteRecordingMenu: {
     movedToTrash: "تم نقل المقطع إلى المهملات",
@@ -1283,6 +1312,8 @@ const messages = {
     couldNotImportLoom: "Could not import that Loom. (مترجم)",
     recordingReadyToUpload: "Recording is ready to upload (مترجم)",
     recordingSaved: "Recording saved (مترجم)",
+    linkCopied: "تم نسخ الرابط",
+    copyLinkAction: "نسخ الرابط",
     noLocalRecordingData:
       "No local recording data is available to download. (مترجم)",
     recordingDownloadStarted: "Recording download started (مترجم)",
@@ -1370,6 +1401,8 @@ const messages = {
   clipsFinalRaw: {
     splitAtPlayhead: "قسّم عند موضع التشغيل (S)",
     selectedCount: "{{count}} محدد",
+    selectAll: "تحديد الكل",
+    deselectAll: "إلغاء تحديد الكل",
     move: "نقل",
     moveSelected: "نقل {{count}} عناصر محددة",
     current: "الحالي",
@@ -1493,6 +1526,21 @@ const messages = {
     guideStartDescription:
       "Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins. (مترجم)",
   },
+  rewindExtension: {
+    title: "إضافة ما حدث قبل التسجيل",
+    description:
+      "اختر فترة محددة من Rewind المحلي وأضفها إلى بداية هذا المقطع. لن تتم إضافة أي شيء تلقائيًا.",
+    progressLabel: "تقدم معالجة سجل Rewind",
+    privateFirstTitle: "اجعل هذا المقطع خاصًا أولًا",
+    privateFirstDescription:
+      "قد يتضمن سجل Rewind المحلي سياقًا من قبل بدء التسجيل. سيؤدي هذا إلى جعل المقطع خاصًا. إذا كان لدى أي شخص وصول مباشر، فسيتوقف Clips لتتمكن من إزالته أولًا من المشاركة.",
+    makePrivateContinue: "اجعله خاصًا وتابع",
+    add30Seconds: "إضافة الثلاثين ثانية السابقة",
+    add5Minutes: "إضافة الدقائق الخمس السابقة",
+    add5MinutesDescription: "مفيد لاستعادة بداية شرح أطول.",
+    privateReady: "أصبح هذا المقطع خاصًا. يمكنك الآن إضافة سجل Rewind المحلي.",
+  },
+  timeline: { clipStartedHere: "بدأ المقطع هنا" },
 };
 
 export default messages;

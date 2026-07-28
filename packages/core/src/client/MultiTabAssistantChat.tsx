@@ -53,10 +53,10 @@ import {
   TooltipTrigger,
 } from "./components/ui/tooltip.js";
 import { isTrustedFrameMessage } from "./frame.js";
-import { KeepTabOpenNotice } from "./KeepTabOpenNotice.js";
 import { RunStuckBanner } from "./RunStuckBanner.js";
 import { callAction } from "./use-action.js";
 import { useChangeVersion } from "./use-change-version.js";
+import { CHAT_MODEL_SELECTION_CHANGED_EVENT } from "./use-chat-models.js";
 import {
   useChatThreads,
   type ChatThreadScope,
@@ -139,6 +139,13 @@ function writeStoredModelSelection(key: string, selection: ModelSelection) {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(key, JSON.stringify(selection));
+    queueMicrotask(() => {
+      window.dispatchEvent(
+        new CustomEvent(CHAT_MODEL_SELECTION_CHANGED_EVENT, {
+          detail: { key },
+        }),
+      );
+    });
   } catch {}
 }
 
@@ -703,7 +710,7 @@ export type MultiTabAssistantChatProps = Omit<
   showTabBar?: boolean;
   /** Optional custom single-row header renderer */
   renderHeader?: (props: MultiTabAssistantChatHeaderProps) => React.ReactNode;
-  /** Optional overlay actions renderer for the active tab */
+  /** Optional page-level top-bar actions renderer for the active tab. */
   renderOverlay?: (props: MultiTabAssistantChatHeaderProps) => React.ReactNode;
   /** Hide the chat content while keeping the header visible. Used when CLI/resources mode is active. */
   contentHidden?: boolean;
@@ -955,6 +962,43 @@ export function MultiTabAssistantChat({
   const bumpModelSelectionVersion = useCallback(() => {
     setModelSelectionVersion((version) => version + 1);
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const syncPersistedSelection = (event?: Event) => {
+      const detail = (event as CustomEvent<{ key?: string }> | undefined)
+        ?.detail;
+      if (detail?.key && detail.key !== modelSelectionKey) return;
+
+      const next = readStoredModelSelection(modelSelectionKey);
+      if (!next) return;
+
+      const activeThreadId = activeThreadIdRef.current;
+      if (activeThreadId) {
+        threadModelRef.current.set(activeThreadId, next);
+      }
+      setPersistedModelSelection(next);
+      bumpModelSelectionVersion();
+    };
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === modelSelectionKey) syncPersistedSelection();
+    };
+
+    window.addEventListener(
+      CHAT_MODEL_SELECTION_CHANGED_EVENT,
+      syncPersistedSelection,
+    );
+    window.addEventListener("storage", handleStorage);
+    return () => {
+      window.removeEventListener(
+        CHAT_MODEL_SELECTION_CHANGED_EVENT,
+        syncPersistedSelection,
+      );
+      window.removeEventListener("storage", handleStorage);
+    };
+  }, [bumpModelSelectionVersion, modelSelectionKey]);
+
   const postMessageSubmissionsDisabled = props.composerDisabled === true;
 
   const setContextInTab = useCallback(
@@ -2442,7 +2486,11 @@ export function MultiTabAssistantChat({
 
       {/* Chat content with optional overlay */}
       <div
-        className="relative flex-1 flex flex-col min-h-0"
+        className={cn(
+          "relative flex-1 flex flex-col min-h-0",
+          renderOverlay && "pt-14",
+        )}
+        data-agent-page-chat-topbar={renderOverlay ? "" : undefined}
         data-agent-page-chat-scrolled={
           renderOverlay && pageOverlayScrolled ? "" : undefined
         }
@@ -2494,11 +2542,6 @@ export function MultiTabAssistantChat({
                     contentHidden || tabId !== activeThreadId ? "none" : "flex",
                 }}
               >
-                <KeepTabOpenNotice
-                  threadId={tabId}
-                  enabled={tabId === activeThreadId}
-                  apiUrl={apiUrl}
-                />
                 <RunStuckBanner
                   threadId={tabId}
                   enabled={tabId === activeThreadId}

@@ -105,4 +105,25 @@ describe("send-platform-message tenant scoping", () => {
     expect(mocks.slackAdapter).not.toHaveBeenCalled();
     expect(mocks.sendMessageToTarget).not.toHaveBeenCalled();
   });
+
+  it("does not use the deployment token for an unconnected workspace", async () => {
+    mocks.getInstallation.mockResolvedValue([]);
+    mocks.resolveSecret.mockResolvedValue("fusion-token");
+
+    await expect(
+      action.run(
+        {
+          platform: "slack",
+          destination: "C1",
+          tenantId: "T-agent-native",
+          text: "hello",
+        },
+        {} as never,
+      ),
+    ).rejects.toThrow("That Slack workspace is not connected");
+
+    expect(mocks.resolveSecret).not.toHaveBeenCalledWith("SLACK_BOT_TOKEN");
+    expect(mocks.slackAdapter).not.toHaveBeenCalled();
+    expect(mocks.sendMessageToTarget).not.toHaveBeenCalled();
+  });
 });

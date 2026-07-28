@@ -405,6 +405,8 @@ function SignInCta() {
 
 As páginas normais do aplicativo usam um único shell SSR impessoal e armazenável em cache público para todos os visitantes. O `AppProviders` verifica a sessão no cliente; em um caminho privado como `/dashboard`, ele redireciona o visitante anônimo para `/_agent-native/sign-in?return=%2Fdashboard` antes de montar a interface privada. Após o login, o visitante retorna a `/dashboard`. Use `isPublicPath` para rotas públicas/SEO ou `sessionBypass` para uma superfície autenticada por outro mecanismo limitado, como um token de incorporação MCP.
 
+Por quanto tempo esse shell é armazenado em cache é uma configuração de toda a implantação — consulte [SSR Caching](/docs/deployment#ssr-caching) para `AGENT_NATIVE_SSR_CACHE`. Encurtar ou desativar o cache altera apenas a duração; o SSR continua renderizando o branch anônimo com os cookies removidos.
+
 ### Nos bastidores: Google OAuth
 
 Ambos os fluxos (o ponto de entrada `/_agent-native/sign-in` explícito e o caso do caminho marcado) encadeiam o retorno URL através do estado OAuth. O estado é assinado por HMAC, portanto não pode ser falsificado em trânsito. No retorno de chamada, o retorno URL é revalidado como de mesma origem antes do redirecionamento. Portanto, uma chave de assinatura vazada ainda não pode ser transformada em um oráculo de redirecionamento aberto.

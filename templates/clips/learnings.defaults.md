@@ -6,7 +6,7 @@
 
 ## Recording defaults
 
-- New recordings default to **private** visibility unless the user asks otherwise.
+- New recordings default to **public** visibility so anyone with the link can watch them. Organization admins can choose a different default.
 - Default playback speed for viewers is **1.2x** (creator can override per video).
 - Animated GIF thumbnails are enabled by default on new recordings — the first few seconds play as a hover preview.
 

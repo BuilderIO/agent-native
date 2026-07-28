@@ -1,3 +1,5 @@
+import { useT } from "@agent-native/core/client/i18n";
+
 import { selectColorClass } from "@/components/custom-fields/editor/config/select-colors";
 import { optionsFromConfig } from "@/components/custom-fields/editor/config/utils";
 import {
@@ -24,6 +26,7 @@ export function SingleSelectValueControl({
   disabled: boolean;
   onChange: (value: FieldValue | null) => void;
 }) {
+  const t = useT();
   const options = optionsFromConfig(field.config);
   const selected = typeof value === "string" ? value : EMPTY_SELECT_VALUE;
 
@@ -40,7 +43,9 @@ export function SingleSelectValueControl({
       </SelectTrigger>
       <SelectContent>
         <SelectGroup>
-          <SelectItem value={EMPTY_SELECT_VALUE}>None</SelectItem>
+          <SelectItem value={EMPTY_SELECT_VALUE}>
+            {t("taskFields.noneOption")}
+          </SelectItem>
           {options.map((option) => (
             <SelectItem key={option.id} value={option.id}>
               <span className="flex items-center gap-2">

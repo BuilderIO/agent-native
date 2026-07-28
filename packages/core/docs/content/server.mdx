@@ -258,13 +258,14 @@ Migrations must be additive. Never put destructive SQL in startup plugins.
 
 ## Framework-Mounted Routes {#framework-routes}
 
-The framework mounts its own routes under `/_agent-native/`. Treat that namespace as reserved.
+The framework mounts its own routes under `/_agent-native/`. Treat that namespace as reserved. This table is representative, not exhaustive — it lists the routes most templates touch directly.
 
 | Route prefix                     | Purpose                                                                         |
 | -------------------------------- | ------------------------------------------------------------------------------- |
 | `/_agent-native/actions/:name`   | Action HTTP endpoints                                                           |
 | `/_agent-native/agent-chat`      | Agent chat loop                                                                 |
 | `/_agent-native/poll`            | SQL-backed UI sync                                                              |
+| `/_agent-native/runs`            | Progress primitive — the `RunsTray` polls this; see [Progress](/docs/progress)  |
 | `/_agent-native/resources/*`     | Workspace resources                                                             |
 | `/_agent-native/extensions/*`    | Runtime extensions and extension proxy (legacy alias: `/_agent-native/tools/*`) |
 | `/_agent-native/integrations/*`  | Messaging/webhook integrations                                                  |

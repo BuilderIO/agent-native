@@ -291,7 +291,6 @@ const messages = {
       "저장소가 연결되었습니다. 이 클립을 확인하는 중...",
     signInToFinish: "완료하려면 로그인하세요.",
     signInIfYours: "본인의 계정인 경우 로그인하세요.",
-    openDashboard: "대시보드 열기",
     checkAgain: "다시 확인",
     backToHome: "집으로 돌아가기",
     generatingTitle: "제목 생성 중",
@@ -484,6 +483,7 @@ const messages = {
     makePublicAndCopy: "공개로 전환하고 복사",
     copy: "복사",
     addPeopleByEmail: "이메일로 사람 추가",
+    invite: "초대",
     notifyPeople: "사람들에게 알림",
     peopleWithAccess: "액세스 권한이 있는 사람",
     ownerRole: "소유자",
@@ -808,11 +808,21 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     recentViewers: "최근 시청자",
     noViewers: "아직 시청자가 없습니다.",
     anonymous: "익명",
-    anon: "익명",
     moreViewers: "+{{count}}명 더",
     viewedBy: "시청자",
     someone: "누군가",
     noViewsYet: "아직 조회 기록이 없습니다.",
+    viewsCount_one: "조회수 {{count}}회",
+    viewsCount_other: "조회수 {{count}}회",
+    totalViewsSummary: "총 조회수 {{total}}회, 고유 시청자 {{unique}}명",
+    viewsTab: "조회",
+    insightsTab: "인사이트",
+    humanViews: "사람 조회수",
+    agentViews: "AI 에이전트 조회수",
+    noAgentViewsYet: "아직 AI 에이전트 조회 기록이 없습니다.",
+    totalVideoViews: "총 동영상 조회수",
+    averageCompletionRate: "평균 완료율",
+    moreInsights: "인사이트 더 보기",
   },
   libraryGrid: {
     spaceRoot: "스페이스 루트",
@@ -835,6 +845,10 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     loadFailedBody:
       "목록을 불러오는 중 문제가 발생했습니다. 녹화는 안전하게 보관되어 있으니 다시 시도해 보세요.",
     retry: "다시 시도",
+    paginationRange: "{{total}}개 중 {{start}}–{{end}}",
+    paginationPrevious: "이전",
+    paginationNext: "다음",
+    paginationPage: "{{page}} / {{totalPages}} 페이지",
   },
   notificationsRoute: {
     pageTitle: "알림 · Clips",
@@ -928,6 +942,17 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     summary: "요약",
     keyPoints: "핵심 포인트",
     actionItems: "작업 항목",
+    sharedContent: "공유 콘텐츠",
+    summaryIncluded: "요약, 핵심 포인트 및 작업 항목",
+    includeTranscript: "전체 스크립트 포함",
+    includeTranscriptDescription:
+      "이 회의에 액세스할 수 있는 모든 사용자가 전체 스크립트를 읽을 수 있습니다.",
+    transcriptUnavailable: "스크립트가 아직 준비되지 않았습니다.",
+    transcript: "스크립트",
+    copyTranscript: "스크립트 복사",
+    transcriptCopied: "스크립트가 복사되었습니다",
+    copyTranscriptFailed: "스크립트를 복사하지 못했습니다",
+    updateTranscriptSharingFailed: "스크립트 공유를 업데이트하지 못했습니다",
   },
   deleteRecordingMenu: {
     movedToTrash: "클립이 휴지통으로 이동됨",
@@ -1280,6 +1305,8 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     couldNotImportLoom: "Could not import that Loom. (현지화됨)",
     recordingReadyToUpload: "Recording is ready to upload (현지화됨)",
     recordingSaved: "Recording saved (현지화됨)",
+    linkCopied: "링크가 복사되었습니다",
+    copyLinkAction: "링크 복사",
     noLocalRecordingData:
       "No local recording data is available to download. (현지화됨)",
     recordingDownloadStarted: "Recording download started (현지화됨)",
@@ -1367,6 +1394,8 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
   clipsFinalRaw: {
     splitAtPlayhead: "재생 위치에서 분할 (S)",
     selectedCount: "{{count}}개 선택됨",
+    selectAll: "모두 선택",
+    deselectAll: "모두 선택 해제",
     move: "이동",
     moveSelected: "선택한 {{count}}개 이동",
     current: "현재",
@@ -1491,6 +1520,22 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     guideStartDescription:
       "Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins. (현지화됨)",
   },
+  rewindExtension: {
+    title: "이전에 있었던 내용 추가",
+    description:
+      "로컬 Rewind에서 특정 구간을 선택해 이 클립의 시작 부분에 추가합니다. 자동으로 추가되는 내용은 없습니다.",
+    progressLabel: "Rewind 기록 처리 진행률",
+    privateFirstTitle: "먼저 이 클립을 비공개로 설정",
+    privateFirstDescription:
+      "로컬 Rewind 기록에는 녹화를 시작하기 전의 맥락이 포함될 수 있습니다. 이 작업은 클립을 비공개로 바꿉니다. 누군가 직접 접근 권한을 갖고 있으면 공유에서 먼저 제거할 수 있도록 Clips가 중지합니다.",
+    makePrivateContinue: "비공개로 설정하고 계속",
+    add30Seconds: "이전 30초 추가",
+    add5Minutes: "이전 5분 추가",
+    add5MinutesDescription: "긴 설명의 도입부를 복구할 때 유용합니다.",
+    privateReady:
+      "이 클립은 비공개입니다. 이제 로컬 Rewind 기록을 추가할 수 있습니다.",
+  },
+  timeline: { clipStartedHere: "클립이 여기서 시작됨" },
 };
 
 export default messages;

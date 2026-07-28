@@ -1,6 +1,14 @@
 // A2A Protocol types (spec v0.3) + framework config types
 import type { PublicAgentActionConfig } from "../action.js";
 
+export type {
+  A2AAgentActivityPhase,
+  A2AAgentActivitySnapshot,
+  A2AAgentActivityState,
+  A2AAgentActivityToolCall,
+  A2AAgentActivityToolStatus,
+} from "./activity.js";
+
 // --- Parts (content atoms) ---
 
 export interface TextPart {
@@ -36,6 +44,7 @@ export interface Message {
 export type TaskState =
   | "submitted"
   | "working"
+  | "processing"
   | "completed"
   | "failed"
   | "canceled"
@@ -132,6 +141,18 @@ export interface A2AApprovedAction {
   input: unknown;
 }
 
+/** Structured provenance accepted only from an authenticated A2A caller. */
+export interface A2ASourceContext {
+  platform: "slack";
+  sourceUrl: string;
+}
+
+/** Opaque reference that a receiver must resolve through its trusted Dispatch app. */
+export interface A2ASourceContextReference {
+  platform: "slack";
+  integrationTaskId: string;
+}
+
 /**
  * Telemetry-only cross-app correlation. Receivers must never use these
  * caller-supplied values for identity, ownership, org scoping, access, or
@@ -156,6 +177,8 @@ export interface A2AHandlerContext {
   event?: unknown;
   /** Exact one-time action grants from a JWT-authenticated caller. */
   approvedActions?: A2AApprovedAction[];
+  /** Receiver-validated provenance from a JWT-authenticated caller. */
+  sourceContext?: A2ASourceContext;
   writeArtifact: (name: string, content: string, mimeType?: string) => string;
 }
 

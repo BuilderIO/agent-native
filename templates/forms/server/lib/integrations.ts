@@ -118,9 +118,14 @@ function formatFields(
   data: Record<string, unknown>,
 ): Record<string, unknown> {
   const out: Record<string, unknown> = {};
+  const usedLabels = new Set<string>();
   for (const field of fields) {
     if (data[field.id] !== undefined) {
-      out[field.label] = data[field.id];
+      const label = field.label.trim() || field.id;
+      let key = label;
+      if (usedLabels.has(key)) key = `${label} (${field.id})`;
+      usedLabels.add(key);
+      out[key] = data[field.id];
     }
   }
   return out;
@@ -258,9 +263,13 @@ function buildDiscordPayload(submission: SubmissionPayload) {
 }
 
 /** Google Sheets (Apps Script web app) — flat key/value pairs */
-function buildGoogleSheetsPayload(submission: SubmissionPayload) {
+export function buildGoogleSheetsPayload(submission: SubmissionPayload) {
   return {
+    event: "form_submission",
+    eventVersion: 1,
+    formId: submission.formId,
     formTitle: submission.formTitle,
+    responseId: submission.responseId,
     submittedAt: submission.submittedAt,
     submitterEmail: publicSubmitterEmail(submission.submitterEmail) ?? "",
     chatSessionIds: (submission.chatSessionIds ?? []).join(", "),

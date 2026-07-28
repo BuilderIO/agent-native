@@ -14,6 +14,11 @@ import {
 } from "h3";
 
 import {
+  applyA2AAgentActivityEvent,
+  buildA2AAgentActivityPart,
+  createA2AAgentActivityState,
+} from "../a2a/activity.js";
+import {
   appendA2AArtifactLinks,
   buildA2ARecoverableArtifactMessage,
   type A2AToolResultSummary,
@@ -60,6 +65,7 @@ import {
   listAgentEngines,
   registerBuiltinEngines,
 } from "../agent/engine/index.js";
+import { SYSTEM_PROMPT_CACHE_SPLIT } from "../agent/engine/prompt-cache.js";
 import type { EngineMessage } from "../agent/engine/types.js";
 import {
   createProductionAgentHandler,
@@ -118,12 +124,14 @@ import {
   type ChatThreadScope,
   type ForkThreadSourceSnapshot,
 } from "../chat-threads/store.js";
+import { isCheckpointRestorePath } from "../checkpoints/route-match.js";
 import { createDbAdminAgentTools } from "../db-admin/agent-tools.js";
 import { isTransientDatabaseError } from "../db/client.js";
 import {
   verifyInternalToken,
   extractBearerToken,
 } from "../integrations/internal-token.js";
+import type { RecurringJobContext } from "../jobs/scheduler.js";
 import {
   McpClientManager,
   loadMcpConfig,
@@ -332,6 +340,19 @@ export { loadRunCodeToolEntries };
 export { shouldDisableRecurringJobsRuntime };
 export { finalizeClaimedAgentChatProcessRunFailure };
 
+export function resolveInteractiveAgentRunOptions(
+  options?: Pick<
+    AgentChatPluginOptions,
+    "runSoftTimeoutMs" | "runNoProgressTimeoutMs" | "durableBackgroundRuns"
+  >,
+) {
+  return {
+    runSoftTimeoutMs: options?.runSoftTimeoutMs,
+    runNoProgressTimeoutMs: options?.runNoProgressTimeoutMs,
+    durableBackgroundRuns: options?.durableBackgroundRuns,
+  };
+}
+
 export function createSerializedA2ATaskStatusWriter(
   taskId: string,
   writeStatus: (
@@ -385,6 +406,8 @@ export function createSerializedA2ATaskStatusWriter(
     },
   };
 }
+
+const A2A_ACTIVITY_CHECKPOINT_MIN_INTERVAL_MS = 2_000;
 
 export async function resolveA2ARecoverableArtifactSecret(
   orgId: string | null | undefined = getRequestOrgId(),
@@ -562,6 +585,22 @@ export function createAgentChatPlugin(
       }
       setGlobalMcpManager(mcpManager);
       const mcpActionEntries = mcpToolsToActionEntries(mcpManager);
+      const getJobMcpActionEntries = (
+        job?: RecurringJobContext,
+      ): Record<string, ActionEntry> => {
+        const requested = job?.meta.mcpTools ?? [];
+        if (requested.length === 0) return {};
+        const entries = mcpToolsToActionEntries(mcpManager, {
+          toolNames: requested,
+        });
+        const missing = requested.filter((toolName) => !entries[toolName]);
+        if (missing.length > 0) {
+          throw new Error(
+            `Configured MCP tools are unavailable in this run: ${missing.join(", ")}. Reconnect the MCP server or update the job's capability list.`,
+          );
+        }
+        return entries;
+      };
 
       // Mount status + management routes so the settings UI can list / add /
       // remove remote MCP servers and hot-reload the running manager.
@@ -1142,8 +1181,10 @@ export function createAgentChatPlugin(
       // that never emit the corpus prompt (no provider/run-code tools
       // registered), so this never silently expands the initial set for
       // apps that don't teach these tools by name.
-      const corpusToolNames =
-        corpusToolNamesTaughtByPrompt(corpusPromptRegistry);
+      const loadCorpusToolsInitially = options?.corpusTools !== "lazy";
+      const corpusToolNames = loadCorpusToolsInitially
+        ? corpusToolNamesTaughtByPrompt(corpusPromptRegistry)
+        : [];
       const effectiveInitialToolNames =
         corpusToolNames.length > 0
           ? [...new Set([...templateInitialToolNames, ...corpusToolNames])]
@@ -1545,12 +1586,14 @@ export function createAgentChatPlugin(
           const runtimeContext = runtimeContextForEvent(context.event);
           const systemPrompt = devActive
             ? devPrompt +
+              SYSTEM_PROMPT_CACHE_SPLIT +
               resources +
               schemaBlock +
               extra +
               modelOverlay +
               runtimeContext
             : basePrompt +
+              SYSTEM_PROMPT_CACHE_SPLIT +
               resources +
               schemaBlock +
               extra +
@@ -1626,10 +1669,36 @@ export function createAgentChatPlugin(
           const a2aEvents: AgentChatEvent[] = [];
           const a2aToolResults: A2AToolResultSummary[] = [];
           let lastRecoverableArtifactText = "";
+          let activityState = createA2AAgentActivityState();
+          let lastActivityCheckpointAt = 0;
           const recoverableArtifactSecret =
             await resolveA2ARecoverableArtifactSecret();
           const recoverableArtifactStatusWriter =
             createSerializedA2ATaskStatusWriter(context.taskId);
+          const activityStatusMessage = (): A2AMessage => ({
+            role: "agent",
+            ...(lastRecoverableArtifactText
+              ? { metadata: { agentNativeRecoverableArtifacts: true } }
+              : {}),
+            parts: [
+              buildA2AAgentActivityPart(activityState),
+              ...(lastRecoverableArtifactText
+                ? [{ type: "text" as const, text: lastRecoverableArtifactText }]
+                : []),
+            ],
+          });
+          const checkpointActivity = (force = false) => {
+            const now = Date.now();
+            if (
+              !force &&
+              now - lastActivityCheckpointAt <
+                A2A_ACTIVITY_CHECKPOINT_MIN_INTERVAL_MS
+            ) {
+              return;
+            }
+            lastActivityCheckpointAt = now;
+            recoverableArtifactStatusWriter.enqueue(activityStatusMessage());
+          };
           const controller = new AbortController();
           const correlation = sanitizeA2ACorrelationMetadata(context.metadata);
           const telemetryThreadId =
@@ -1667,6 +1736,12 @@ export function createAgentChatPlugin(
               turnId: context.taskId,
               send: (event) => {
                 a2aEvents.push(event);
+                const nextActivityState = applyA2AAgentActivityEvent(
+                  activityState,
+                  event,
+                );
+                const activityChanged = nextActivityState !== activityState;
+                activityState = nextActivityState;
                 if (event.type === "tool_start") {
                   console.log(`[A2A] Tool call: ${event.tool}`);
                 } else if (event.type === "tool_done") {
@@ -1697,21 +1772,19 @@ export function createAgentChatPlugin(
                     recoverableArtifactText !== lastRecoverableArtifactText
                   ) {
                     lastRecoverableArtifactText = recoverableArtifactText;
-                    recoverableArtifactStatusWriter.enqueue({
-                      role: "agent",
-                      metadata: { agentNativeRecoverableArtifacts: true },
-                      parts: [
-                        {
-                          type: "text",
-                          text: recoverableArtifactText,
-                        },
-                      ],
-                    });
                   }
                 } else if (event.type === "error") {
                   console.error(`[A2A] Error: ${event.error}`);
                 } else if (event.type === "done") {
                   console.log(`[A2A] Done. Events: ${a2aEvents.length}`);
+                }
+                if (activityChanged) {
+                  checkpointActivity(
+                    event.type === "tool_start" ||
+                      event.type === "tool_done" ||
+                      event.type === "error" ||
+                      event.type === "done",
+                  );
                 }
               },
               signal: controller.signal,
@@ -1721,6 +1794,10 @@ export function createAgentChatPlugin(
               runSoftTimeoutMs: options?.runSoftTimeoutMs,
             },
             {
+              // Without the hosted default an app that never sets
+              // `runSoftTimeoutMs` resolves to 0 and the wrapper degrades to a
+              // bare `runAgentLoop` — no resume at all on a delegated turn.
+              useHostedDefault: true,
               backgroundFunction:
                 options?.durableBackgroundRuns === true &&
                 isInBackgroundFunctionRuntime(),
@@ -1749,6 +1826,7 @@ export function createAgentChatPlugin(
 
           // The continuation can observe terminal output immediately, so make
           // its latest mutation checkpoint durable first.
+          checkpointActivity(true);
           await recoverableArtifactStatusWriter.flush();
 
           const approval = [...a2aEvents]
@@ -1787,6 +1865,7 @@ export function createAgentChatPlugin(
                 },
               },
               parts: [
+                buildA2AAgentActivityPart(activityState),
                 {
                   type: "text" as const,
                   text:
@@ -1821,6 +1900,7 @@ export function createAgentChatPlugin(
           yield {
             role: "agent" as const,
             parts: [
+              buildA2AAgentActivityPart(activityState),
               {
                 type: "text" as const,
                 text: finalText || "(no response)",
@@ -1837,7 +1917,9 @@ export function createAgentChatPlugin(
       // Dev: actions are invoked via bash — emit `pnpm action name --arg <type>`
       //      and include discoveredActions too, since those are also missing
       //      from the dev tool registry.
-      const corpusToolsPrompt = generateCorpusToolsPrompt(corpusPromptRegistry);
+      const corpusToolsPrompt = loadCorpusToolsInitially
+        ? generateCorpusToolsPrompt(corpusPromptRegistry)
+        : "";
       const prodActionsPrompt =
         generateActionsPrompt(
           templateScripts,
@@ -1998,10 +2080,12 @@ export function createAgentChatPlugin(
             // this plugin (A2A above, prod/anonymous/dev handlers below).
             const systemPrompt = devActiveMcp
               ? mcpDevPrompt +
+                SYSTEM_PROMPT_CACHE_SPLIT +
                 resources +
                 schemaBlock +
                 buildRuntimeContextPrompt()
               : basePrompt +
+                SYSTEM_PROMPT_CACHE_SPLIT +
                 resources +
                 schemaBlock +
                 buildRuntimeContextPrompt();
@@ -2051,6 +2135,9 @@ export function createAgentChatPlugin(
                 runSoftTimeoutMs: options?.runSoftTimeoutMs,
               },
               {
+                // Same as the A2A call site: without this a hosted app that
+                // never configured `runSoftTimeoutMs` gets no resume at all.
+                useHostedDefault: true,
                 backgroundFunction:
                   options?.durableBackgroundRuns === true &&
                   isInBackgroundFunctionRuntime(),
@@ -2179,6 +2266,11 @@ export function createAgentChatPlugin(
                 turnId:
                   typeof run.turnId === "string" && run.turnId
                     ? run.turnId
+                    : undefined,
+                runDurationMs:
+                  typeof run.startedAt === "number" &&
+                  Number.isFinite(run.startedAt)
+                    ? Math.max(0, Date.now() - run.startedAt)
                     : undefined,
               },
             );
@@ -2619,6 +2711,7 @@ export function createAgentChatPlugin(
       // through the settings UI). getEngineTools() in production-agent re-reads
       // the registry per request, so updates here propagate without restart.
       mcpManager.onChange(() => {
+        syncMcpActionEntries(mcpManager, mcpActionEntries);
         syncMcpActionEntries(mcpManager, prodActions);
       });
 
@@ -2847,6 +2940,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           // less-stable content would still invalidate the cached prefix for
           // everything that follows it — putting it last means a day
           // rollover invalidates as little of the prefix as possible.
+          // `SYSTEM_PROMPT_CACHE_SPLIT` marks where the cacheable prefix ends,
+          // so everything after it can change without a cache write.
           if (leanPrompt) {
             const leanRunPolicyPrompt = buildLeanRunPolicyPrompt(
               codeEditingSurfaceRestriction,
@@ -2866,6 +2961,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             return setSystemPromptOnContext(
               leanBasePrompt +
                 leanRunPolicyPrompt +
+                SYSTEM_PROMPT_CACHE_SPLIT +
                 extra +
                 modelOverlay +
                 runtimeContext,
@@ -2897,6 +2993,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           });
           return setSystemPromptOnContext(
             basePrompt +
+              SYSTEM_PROMPT_CACHE_SPLIT +
               resources +
               schemaBlock +
               codeEditingSurfaceRestriction +
@@ -2909,9 +3006,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         model: options?.model,
         appId: options?.appId,
         apiKey: options?.apiKey,
-        runSoftTimeoutMs: options?.runSoftTimeoutMs,
-        runNoProgressTimeoutMs: options?.runNoProgressTimeoutMs,
-        durableBackgroundRuns: options?.durableBackgroundRuns,
+        ...resolveInteractiveAgentRunOptions(options),
         finalResponseGuard: options?.finalResponseGuard,
         prepareRequest: async (details) => {
           if (details.threadId && details.ownerEmail) {
@@ -3017,9 +3112,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               model: options?.model,
               appId: options?.appId,
               apiKey: options?.apiKey,
-              runSoftTimeoutMs: options?.runSoftTimeoutMs,
-              runNoProgressTimeoutMs: options?.runNoProgressTimeoutMs,
-              durableBackgroundRuns: options?.durableBackgroundRuns,
+              ...resolveInteractiveAgentRunOptions(options),
               finalResponseGuard: options?.finalResponseGuard,
               prepareRequest: options?.prepareRequest,
               skipFilesContext: true,
@@ -3176,9 +3269,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           model: options?.model,
           appId: options?.appId,
           apiKey: options?.apiKey,
-          runSoftTimeoutMs: options?.runSoftTimeoutMs,
-          runNoProgressTimeoutMs: options?.runNoProgressTimeoutMs,
-          durableBackgroundRuns: options?.durableBackgroundRuns,
+          ...resolveInteractiveAgentRunOptions(options),
           finalResponseGuard: options?.finalResponseGuard,
           prepareRequest: async (details) => {
             if (details.threadId && details.ownerEmail) {
@@ -4696,11 +4787,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
           }
 
-          // POST /checkpoints — restore to a checkpoint
-          // h3 prefix-matches, so /checkpoints/restore hits this handler with
-          // event.path containing "/restore".
-          const remainder = (event.path || "").replace(/^\/+/, "");
-          if (method === "POST" && remainder.startsWith("restore")) {
+          // POST /checkpoints/restore — restore to a checkpoint.
+          const restorePath = event.path || event.node?.req?.url || "";
+          if (method === "POST" && isCheckpointRestorePath(restorePath)) {
             if (!canToggle) {
               setResponseStatus(event, 403);
               return { error: "Checkpoints only available in dev mode" };
@@ -4711,17 +4800,25 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
             const body = await readBody(event);
             const checkpointId = body?.checkpointId;
-            if (!checkpointId) {
+            const restoreRunId =
+              typeof body?.runId === "string" ? body.runId : "";
+            if (!checkpointId && !restoreRunId) {
               setResponseStatus(event, 400);
-              return { error: "checkpointId is required" };
+              return { error: "checkpointId or runId is required" };
             }
             try {
-              const { getCheckpointById } =
+              const { getCheckpointById, getCheckpointByRunId } =
                 await import("../checkpoints/store.js");
-              const checkpoint = await getCheckpointById(checkpointId);
+              const checkpoint = checkpointId
+                ? await getCheckpointById(checkpointId)
+                : await getCheckpointByRunId(restoreRunId);
               if (!checkpoint) {
                 setResponseStatus(event, 404);
-                return { error: "Checkpoint not found" };
+                return {
+                  error: restoreRunId
+                    ? "No checkpoint was saved for this turn, so there is nothing to restore."
+                    : "Checkpoint not found",
+                };
               }
               const owner = await getOwnerFromEvent(event);
               const thread = await getThread(checkpoint.threadId);
@@ -5517,7 +5614,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           const { processRecurringJobs } = await import("../jobs/scheduler.js");
 
           const schedulerDeps = {
-            getActions: () => ({
+            getActions: (job?: RecurringJobContext) => ({
               ...templateScripts,
               ...resourceScripts,
               ...docsScripts,
@@ -5530,6 +5627,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               ...fetchTool,
               ...webSearchTool,
               ...toolActions,
+              ...getJobMcpActionEntries(job),
             }),
             getSystemPrompt: async (owner: string) => {
               const resources = await loadResourcesForPrompt(
@@ -5550,10 +5648,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             // first request on the same compact surface as interactive chat
             // instead of the full jobTools/automationTools/notificationTools/
             // fetchTool/webSearchTool/toolActions catalog every tick.
-            getInitialToolNames: () => [
+            getInitialToolNames: (job?: RecurringJobContext) => [
               ...effectiveInitialToolNames,
               "manage-jobs",
               "manage-progress",
+              ...(job?.meta.mcpTools ?? []),
             ],
             apiKey: options?.apiKey,
             model: options?.model,
@@ -5745,7 +5844,18 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 const {
                   listUnclaimedBackgroundRunRows,
                   shouldRedispatchUnclaimedBackgroundRun,
+                  reapAllStaleRuns,
                 } = await import("../agent/run-store.js");
+                // The unclaimed-background sweep below only matches
+                // dispatch_mode='background' — handoffs a worker never
+                // claimed. Once a worker CLAIMS a row nothing periodic looked
+                // at it again, so a dead producer was only reaped when some
+                // client request path or an unrelated run's cleanup happened
+                // to notice (prod: 24 minutes after the last heartbeat,
+                // against a 45s window). `reapAllStaleRuns` is per-row,
+                // idempotent, re-checks staleness at UPDATE time and honours
+                // the in-flight grace, so it is safe on this cadence.
+                await reapAllStaleRuns().catch(() => {});
                 let rows: { id: string; startedAt: number }[];
                 try {
                   rows = await listUnclaimedBackgroundRunRows();

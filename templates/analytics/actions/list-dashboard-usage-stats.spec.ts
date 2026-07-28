@@ -25,4 +25,13 @@ describe("dashboard usage path parsing", () => {
       ),
     ).toBe("encoded id");
   });
+
+  it("reads standard dashboard ids from absolute event urls", () => {
+    expect(
+      dashboardIdFromEventLocation(
+        null,
+        "https://app.example.test/dashboards/sql-1",
+      ),
+    ).toBe("sql-1");
+  });
 });

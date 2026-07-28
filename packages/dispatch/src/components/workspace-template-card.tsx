@@ -78,10 +78,10 @@ const DEFAULT_LABELS: WorkspaceTemplateLabels = {
   cancel: "Cancel",
   integrationSetup: "Integration setup",
   installed: "Installed",
-  remix: "Remix into workspace",
-  remixing: "Remixing…",
-  remixSuccess: "Template remixed into your workspace.",
-  remixError: "Could not remix this template",
+  remix: "Create from template",
+  remixing: "Creating app…",
+  remixSuccess: "Template app creation started.",
+  remixError: "Could not create an app from this template",
   appIdRequired: "App ID is required.",
   source: "Source",
   viewLiveApp: "View the live app",
@@ -151,7 +151,17 @@ export function WorkspaceTemplateCard({
   const setupNote = template.integrationSetup || template.setupNote;
   const remix = useActionMutation("remix-workspace-template", {
     onSuccess: (result) => {
-      toast.success(labels.remixSuccess);
+      const mode = (result as { mode?: string } | null)?.mode;
+      const message = (result as { message?: string } | null)?.message;
+      if (mode === "builder") {
+        toast.success(labels.remixSuccess);
+      } else if (mode === "builder-unavailable") {
+        toast.error(message || labels.remixError);
+      } else if (mode === "coming-soon") {
+        toast.info(message || labels.remixSuccess);
+      } else {
+        toast.success(labels.remixSuccess);
+      }
       setOpen(false);
       onRemixSuccess?.(result, template);
     },
@@ -181,14 +191,14 @@ export function WorkspaceTemplateCard({
   return (
     <Card
       className={cn(
-        "flex h-full flex-col border-border/60 bg-card/40 shadow-none transition-[background-color,border-color] hover:border-foreground/20 hover:bg-accent/15",
+        "flex h-full flex-col bg-card/40 shadow-none transition-[background-color] hover:bg-accent/15",
         className,
       )}
     >
       <CardHeader className="gap-2 p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 items-start gap-2.5">
-            <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md border border-border/70 bg-muted/40 text-muted-foreground">
+            <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md bg-muted/40 text-muted-foreground">
               <IconFileText size={16} />
             </span>
             <div className="min-w-0">

@@ -1,5 +1,6 @@
 import type { ChatModelRunResult } from "@assistant-ui/react";
 
+import type { A2AAgentActivitySnapshot } from "../a2a/activity.js";
 import type { ActionChatUIConfig } from "../action-ui.js";
 import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
@@ -74,6 +75,12 @@ export interface SSEEvent {
   seq?: number;
   agent?: string;
   status?: string;
+  state?: string;
+  elapsedSeconds?: number;
+  detail?: string;
+  agentCallId?: string;
+  durationMs?: number;
+  snapshot?: A2AAgentActivitySnapshot;
   reason?: string;
   // Agent task fields
   taskId?: string;
@@ -99,6 +106,12 @@ export type AgentAutoContinueReason =
   | "stale_run";
 
 export type AgentActivityTrailEntry = { label: string; tool?: string };
+
+export interface AgentCallProgress {
+  state: string;
+  elapsedSeconds: number;
+  detail?: string;
+}
 
 export interface AgentAutoContinueErrorInfo {
   message: string;
@@ -154,12 +167,20 @@ export class AgentAutoContinueSignal extends Error {
   readonly maxIterations?: number;
   readonly activityTrail: AgentActivityTrailEntry[];
   readonly errorInfo?: AgentAutoContinueErrorInfo;
+  /**
+   * True when a CLIENT watchdog produced this signal rather than the server
+   * asking for a continuation. The two need opposite handling: a server
+   * `auto_continue` wants a fresh POST, a client watchdog only means "the
+   * browser stopped seeing bytes" and must reattach instead.
+   */
+  readonly clientWatchdog: boolean;
 
   constructor(options: {
     reason: AgentAutoContinueReason;
     maxIterations?: number;
     activityTrail?: AgentActivityTrailEntry[];
     errorInfo?: AgentAutoContinueErrorInfo;
+    clientWatchdog?: boolean;
   }) {
     super(`Agent run needs automatic continuation: ${options.reason}`);
     this.name = "AgentAutoContinueSignal";
@@ -167,11 +188,45 @@ export class AgentAutoContinueSignal extends Error {
     this.maxIterations = options.maxIterations;
     this.activityTrail = options.activityTrail ?? [];
     this.errorInfo = options.errorInfo;
+    this.clientWatchdog = options.clientWatchdog === true;
   }
 }
 
-export const SSE_NO_PROGRESS_TIMEOUT_MS = 75_000;
+/**
+ * Client no-progress window for foreground runs. MUST stay ABOVE the server's
+ * authoritative backstop (`RUN_NO_PROGRESS_HARD_TIMEOUT_MS`, 150s in
+ * agent/run-manager.ts) so the server's recovery ladder always gets first
+ * chance and the browser is never the primary stall detector. At the old 75s
+ * this fired below every server bound, so the whole server ladder was dead
+ * code and the median hosted foreground turn ended as a client-declared stall.
+ * Progress accounting here deliberately mirrors the server's
+ * `shouldBumpProgressForEvent` (keepalives and zero-byte prep activity do not
+ * count) so the two never disagree about what "progress" means.
+ */
+export const SSE_NO_PROGRESS_TIMEOUT_MS = 180_000;
 export const SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS = 90_000;
+/**
+ * Window applied instead of the normal no-progress budget while a tool call or
+ * A2A delegation is open. The server deliberately suspends its own backstop for
+ * exactly this case — tool execution legitimately emits nothing for minutes —
+ * so without the mirror here the browser silently caps every long tool at the
+ * shorter window and kills a run the server believes is healthy.
+ */
+export const SSE_IN_FLIGHT_WORK_TIMEOUT_MS = 15 * 60_000;
+
+/**
+ * Open-work delta for one event: +1 when a tool call or A2A delegation starts,
+ * -1 when it settles. Mirrors the server's `in_flight_since` marker.
+ */
+export function sseInFlightWorkDelta(ev: SSEEvent): number {
+  if (ev.type === "tool_start") return 1;
+  if (ev.type === "tool_done") return -1;
+  if (ev.type === "agent_call") {
+    if (ev.status === "start") return 1;
+    if (ev.status === "done" || ev.status === "error") return -1;
+  }
+  return 0;
+}
 /**
  * Widened client watchdog windows for durable background runs. The SERVER is
  * the recovery brain for these runs: its run-manager no-progress backstop
@@ -595,7 +650,10 @@ async function readChunkWithProgressTimeout(
   }
   if (result === "timeout") {
     await reader.cancel("no_progress").catch(() => {});
-    throw new AgentAutoContinueSignal({ reason: "no_progress" });
+    throw new AgentAutoContinueSignal({
+      reason: "no_progress",
+      clientWatchdog: true,
+    });
   }
   return result;
 }
@@ -612,6 +670,9 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
     code === "unauthorized" ||
     code === "authentication_error" ||
     code === "permission_error" ||
+    code === "builder_auth_error" ||
+    // The account cannot use this model; another POST picks the same one.
+    code === "builder_model_unauthorized" ||
     code === "http_401" ||
     code === "http_403" ||
     code === "rate_limit_exceeded" ||
@@ -639,7 +700,15 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
     // the recovery banner reads "stopped before finishing", but it must NOT
     // auto-continue: another POST would hit the same ~40s wall and churn. The
     // user retries deliberately (ideally as a single bulk action).
-    code === "run_budget_exhausted"
+    code === "run_budget_exhausted" ||
+    // `aborted_<reason>` is emitted by `terminalEventForAbortReason` for every
+    // abort that is neither a user stop nor a continuation boundary — a Slack
+    // cancel, a stuck-banner auto-retry, an operator kill. Whoever aborted the
+    // run owns the retry; auto-continuing here restarts work someone just
+    // stopped (and double-fires alongside the stuck banner's own retry). They
+    // stay `recoverable: true` so the banner still reads "stopped before
+    // finishing".
+    code.startsWith("aborted_")
   ) {
     return false;
   }
@@ -974,6 +1043,73 @@ function completedToolOnlyMessage(toolNames: string[]): string | null {
   return `The agent completed ${label}, but stopped before sending a final message. Review the completed tool card above or ask the agent to continue.`;
 }
 
+function hasCompletedCustomUi(content: ContentPart[]): boolean {
+  const lastTextIndex = lastAssistantTextIndex(content);
+  let lastCompletedToolIsCustomUi = false;
+  let hasCompletedTool = false;
+  for (let index = lastTextIndex + 1; index < content.length; index++) {
+    const part = content[index];
+    if (
+      part?.type !== "tool-call" ||
+      part.activity === true ||
+      part.result === undefined ||
+      part.isError === true
+    ) {
+      continue;
+    }
+    hasCompletedTool = true;
+    lastCompletedToolIsCustomUi =
+      part.chatUI !== undefined || part.mcpApp !== undefined;
+  }
+  return hasCompletedTool && lastCompletedToolIsCustomUi;
+}
+
+export function appendMissingFinalResponseWarning(
+  content: ContentPart[],
+  completedToolNames?: Iterable<string>,
+): { message: string; errorCode: string; recoverable: true } | null {
+  const lastTextIndex = lastAssistantTextIndex(content);
+  const successfulToolNames = [
+    ...new Set(
+      completedToolNames ?? completedToolNamesAfterLastAssistantText(content),
+    ),
+  ];
+  let lastToolIndex = -1;
+  const materializedToolNames = new Set<string>();
+  for (let index = lastTextIndex + 1; index < content.length; index++) {
+    const part = content[index];
+    if (
+      part.type === "tool-call" &&
+      part.activity !== true &&
+      part.result !== undefined
+    ) {
+      lastToolIndex = index;
+      materializedToolNames.add(part.toolName);
+    }
+  }
+  if (hasCompletedCustomUi(content)) return null;
+  if (successfulToolNames.length === 0 && lastTextIndex > lastToolIndex) {
+    return null;
+  }
+  const completedToolMessage = completedToolOnlyMessage(successfulToolNames);
+  const message = completedToolMessage
+    ? completedToolMessage
+    : materializedToolNames.size > 0
+      ? `The agent stopped after ${formatToolNames([...materializedToolNames])} without sending a final message. Review the tool card above or ask the agent to continue.`
+      : "The agent stopped without sending a final message. Ask the agent to continue or retry.";
+  if (!content.some((part) => part.type === "text" && part.text === message)) {
+    content.push({ type: "text", text: message });
+  }
+  return {
+    message,
+    errorCode:
+      successfulToolNames.length > 0 || materializedToolNames.size > 0
+        ? "final_response_missing_after_tool"
+        : "final_response_missing",
+    recoverable: true,
+  };
+}
+
 interface ProcessEventState {
   completedToolsAfterLastAssistantText: Set<string>;
   /** Set once `agent-chat:stream-progress` has been dispatched for the
@@ -1298,13 +1434,14 @@ export function processEvent(
   if (ev.type === "agent_call") {
     const agentName = ev.agent ?? "agent";
     if (ev.status === "start") {
-      const toolCallId = `tc_${++toolCallCounter.value}`;
+      const toolCallId = ev.agentCallId ?? `tc_${++toolCallCounter.value}`;
       content.push({
         type: "tool-call",
         toolCallId,
         toolName: `agent:${agentName}`,
         argsText: "",
         args: {},
+        activity: true,
       });
     } else if (ev.status === "done" || ev.status === "error") {
       for (let i = content.length - 1; i >= 0; i--) {
@@ -1312,9 +1449,16 @@ export function processEvent(
         if (
           part.type === "tool-call" &&
           part.toolName === `agent:${agentName}` &&
+          (!ev.agentCallId || part.toolCallId === ev.agentCallId) &&
           part.result === undefined
         ) {
           part.result = ev.status === "error" ? "Error calling agent" : "Done";
+          part.structuredMeta = {
+            ...part.structuredMeta,
+            ...(ev.durationMs != null
+              ? { agentDurationMs: ev.durationMs }
+              : {}),
+          };
           break;
         }
       }
@@ -1333,9 +1477,73 @@ export function processEvent(
       if (
         part.type === "tool-call" &&
         part.toolName === `agent:${agentName}` &&
+        (!ev.agentCallId || part.toolCallId === ev.agentCallId) &&
         part.result === undefined
       ) {
         part.argsText += ev.text ?? "";
+        break;
+      }
+    }
+    return {
+      action: "yield",
+      result: { content: contentSnapshot(content) } as ChatModelRunResult,
+    };
+  }
+
+  if (ev.type === "agent_call_progress") {
+    const agentName = ev.agent ?? "agent";
+    if (typeof ev.state !== "string") {
+      return { action: "continue" };
+    }
+    const elapsedSeconds =
+      typeof ev.elapsedSeconds === "number" &&
+      Number.isFinite(ev.elapsedSeconds) &&
+      ev.elapsedSeconds >= 0
+        ? ev.elapsedSeconds
+        : 0;
+    for (let i = content.length - 1; i >= 0; i--) {
+      const part = content[i];
+      if (
+        part.type === "tool-call" &&
+        part.toolName === `agent:${agentName}` &&
+        (!ev.agentCallId || part.toolCallId === ev.agentCallId) &&
+        part.result === undefined
+      ) {
+        part.structuredMeta = {
+          ...part.structuredMeta,
+          agentProgress: {
+            state: ev.state,
+            elapsedSeconds,
+            ...(ev.detail ? { detail: ev.detail } : {}),
+          } satisfies AgentCallProgress,
+        };
+        break;
+      }
+    }
+    return {
+      action: "yield",
+      result: { content: contentSnapshot(content) } as ChatModelRunResult,
+    };
+  }
+
+  if (ev.type === "agent_call_activity" && ev.snapshot) {
+    const agentName = ev.agent ?? "agent";
+    for (let i = content.length - 1; i >= 0; i--) {
+      const part = content[i];
+      if (
+        part.type === "tool-call" &&
+        part.toolName === `agent:${agentName}` &&
+        (!ev.agentCallId || part.toolCallId === ev.agentCallId)
+      ) {
+        const previous = part.structuredMeta?.agentActivity as
+          | A2AAgentActivitySnapshot
+          | undefined;
+        if (!previous || ev.snapshot.sequence >= previous.sequence) {
+          part.structuredMeta = {
+            ...part.structuredMeta,
+            agentActivity: ev.snapshot,
+          };
+        }
         break;
       }
     }
@@ -1535,16 +1743,11 @@ export function processEvent(
         } as ChatModelRunResult,
       };
     }
-    const toolOnlyMessage = completedToolOnlyMessage(
-      state
-        ? [...state.completedToolsAfterLastAssistantText]
-        : completedToolNamesAfterLastAssistantText(content),
+    const runWarning = appendMissingFinalResponseWarning(
+      content,
+      state ? state.completedToolsAfterLastAssistantText : undefined,
     );
-    if (toolOnlyMessage) {
-      content.push({
-        type: "text",
-        text: toolOnlyMessage,
-      });
+    if (runWarning) {
       return {
         action: "done",
         result: {
@@ -1552,11 +1755,7 @@ export function processEvent(
           status: { type: "complete" as const, reason: "stop" as const },
           metadata: {
             custom: {
-              runWarning: {
-                message: toolOnlyMessage,
-                errorCode: "final_response_missing_after_tool",
-                recoverable: true,
-              },
+              runWarning,
             },
           },
         } as ChatModelRunResult,
@@ -1625,6 +1824,11 @@ export async function* readSSEStream(
   };
   let renderUpdatesThisTurn = 0;
   let nextEventLoopTurn: Promise<void> | null = null;
+  let inFlightWork = 0;
+  const currentNoProgressTimeoutMs = () =>
+    inFlightWork > 0
+      ? Math.max(noProgressTimeoutMs, SSE_IN_FLIGHT_WORK_TIMEOUT_MS)
+      : noProgressTimeoutMs;
 
   const paceRenderUpdate = async (): Promise<void> => {
     renderUpdatesThisTurn += 1;
@@ -1679,7 +1883,7 @@ export async function* readSSEStream(
         readResult = await readChunkWithProgressTimeout(
           reader,
           lastMeaningfulEventAt,
-          noProgressTimeoutMs,
+          currentNoProgressTimeoutMs(),
         );
       } catch (err) {
         if (err instanceof AgentAutoContinueSignal) {
@@ -1688,6 +1892,7 @@ export async function* readSSEStream(
             maxIterations: err.maxIterations,
             activityTrail: [...activityTrail],
             errorInfo: err.errorInfo,
+            clientWatchdog: err.clientWatchdog,
           });
         }
         throw err;
@@ -1712,6 +1917,7 @@ export async function* readSSEStream(
           continue;
         }
         const now = Date.now();
+        inFlightWork = Math.max(0, inFlightWork + sseInFlightWorkDelta(ev));
         const actionPreparationProgress = updatePreparingActionState(
           preparingActionState,
           ev,
@@ -1772,6 +1978,7 @@ export async function* readSSEStream(
           throw new AgentAutoContinueSignal({
             reason: "no_progress",
             activityTrail: [...activityTrail],
+            clientWatchdog: true,
           });
         }
         if (action === "auto_continue") {
@@ -1792,11 +1999,12 @@ export async function* readSSEStream(
 
       if (
         !sawProgressEvent &&
-        Date.now() - lastMeaningfulEventAt >= noProgressTimeoutMs
+        Date.now() - lastMeaningfulEventAt >= currentNoProgressTimeoutMs()
       ) {
         throw new AgentAutoContinueSignal({
           reason: "no_progress",
           activityTrail: [...activityTrail],
+          clientWatchdog: true,
         });
       }
     }
@@ -1816,6 +2024,7 @@ export async function* readSSEStream(
   throw new AgentAutoContinueSignal({
     reason: "stream_ended",
     activityTrail: [...activityTrail],
+    clientWatchdog: true,
   });
 }
 
@@ -1852,6 +2061,11 @@ export async function readSSEStreamRaw(
   // identical content a second time when the stream closes without a terminal
   // event.
   let emittedLatestContent = false;
+  let inFlightWork = 0;
+  const currentNoProgressTimeoutMs = () =>
+    inFlightWork > 0
+      ? Math.max(noProgressTimeoutMs, SSE_IN_FLIGHT_WORK_TIMEOUT_MS)
+      : noProgressTimeoutMs;
 
   try {
     while (true) {
@@ -1860,7 +2074,7 @@ export async function readSSEStreamRaw(
         readResult = await readChunkWithProgressTimeout(
           reader,
           lastMeaningfulEventAt,
-          noProgressTimeoutMs,
+          currentNoProgressTimeoutMs(),
         );
       } catch (err) {
         if (err instanceof AgentAutoContinueSignal) {
@@ -1869,6 +2083,7 @@ export async function readSSEStreamRaw(
             maxIterations: err.maxIterations,
             activityTrail: [...activityTrail],
             errorInfo: err.errorInfo,
+            clientWatchdog: err.clientWatchdog,
           });
         }
         throw err;
@@ -1893,6 +2108,7 @@ export async function readSSEStreamRaw(
           continue;
         }
         const now = Date.now();
+        inFlightWork = Math.max(0, inFlightWork + sseInFlightWorkDelta(ev));
         const actionPreparationProgress = updatePreparingActionState(
           preparingActionState,
           ev,
@@ -1967,6 +2183,7 @@ export async function readSSEStreamRaw(
           throw new AgentAutoContinueSignal({
             reason: "no_progress",
             activityTrail: [...activityTrail],
+            clientWatchdog: true,
           });
         }
         if (
@@ -1980,11 +2197,12 @@ export async function readSSEStreamRaw(
 
       if (
         !sawProgressEvent &&
-        Date.now() - lastMeaningfulEventAt >= noProgressTimeoutMs
+        Date.now() - lastMeaningfulEventAt >= currentNoProgressTimeoutMs()
       ) {
         throw new AgentAutoContinueSignal({
           reason: "no_progress",
           activityTrail: [...activityTrail],
+          clientWatchdog: true,
         });
       }
     }
@@ -1998,5 +2216,8 @@ export async function readSSEStreamRaw(
   if (content.length > 0 && !emittedLatestContent) {
     onUpdate(contentSnapshot(content));
   }
-  throw new AgentAutoContinueSignal({ reason: "stream_ended" });
+  throw new AgentAutoContinueSignal({
+    reason: "stream_ended",
+    clientWatchdog: true,
+  });
 }

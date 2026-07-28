@@ -1,5 +1,5 @@
 import { getDbExec } from "../db/client.js";
-import { putUserSetting } from "../settings/user-settings.js";
+import { setActiveOrgId } from "./active-org.js";
 
 const nanoid = (): string =>
   globalThis.crypto?.randomUUID?.().replace(/-/g, "") ??
@@ -88,7 +88,7 @@ export async function acceptPendingInvitationsForEmail(
   const activeOrgId = accepted[0]?.orgId ?? null;
   if (activeOrgId) {
     try {
-      await putUserSetting(email, "active-org-id", { orgId: activeOrgId });
+      await setActiveOrgId(email, activeOrgId, "accepted pending invitation");
     } catch {
       // user_settings table might not exist in a minimal template — not fatal.
     }

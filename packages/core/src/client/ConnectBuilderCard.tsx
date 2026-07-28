@@ -1,6 +1,7 @@
 import { IconExternalLink, IconLoader2 } from "@tabler/icons-react";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 
+import { withBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
 import { agentNativePath } from "./api-path.js";
 import { BuilderBMark } from "./builder-mark.js";
 import { getCallbackOrigin } from "./frame.js";
@@ -307,7 +308,10 @@ export function ConnectBuilderCard({
           <div className="mt-3">
             {runResult ? (
               <a
-                href={runResult.url}
+                href={withBuilderUtmTrackingParams(runResult.url, {
+                  campaign: "product",
+                  content: "connect_builder_card_branch",
+                })}
                 target="_blank"
                 rel="noopener noreferrer"
                 className={cn(

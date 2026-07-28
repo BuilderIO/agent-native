@@ -1,4 +1,23 @@
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@agent-native/toolkit/ui/alert-dialog";
+import { Button as ToolkitButton } from "@agent-native/toolkit/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@agent-native/toolkit/ui/select";
+import {
   Table,
   TableBody,
   TableCell,
@@ -28,7 +47,14 @@ import {
   IconUsersGroup,
   IconHelpCircle,
 } from "@tabler/icons-react";
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  forwardRef,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentPropsWithoutRef,
+  type ReactNode,
+} from "react";
 
 import type { DomainMatchOrg } from "../../org/types.js";
 import {
@@ -38,6 +64,7 @@ import {
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
+import { cn } from "../utils.js";
 import {
   useOrg,
   useOrgMembers,
@@ -48,14 +75,32 @@ import {
   useChangeMemberRole,
   useAcceptInvitation,
   useRemoveMember,
+  useDeleteOrg,
   useSwitchOrg,
   useSetOrgDomain,
+  useRevealA2ASecret,
   useSetA2ASecret,
   useSyncA2ASecret,
   useJoinByDomain,
   type InviteRole,
   type SyncA2ASecretResult,
 } from "./hooks.js";
+
+const Button = forwardRef<
+  HTMLButtonElement,
+  ComponentPropsWithoutRef<typeof ToolkitButton>
+>(({ className, ...props }, ref) => (
+  <ToolkitButton
+    ref={ref}
+    variant="ghost"
+    className={cn(
+      "h-auto p-0 hover:bg-transparent hover:text-inherit active:scale-100 [&_svg]:!size-auto",
+      className,
+    )}
+    {...props}
+  />
+));
+Button.displayName = "TeamPrimitiveButton";
 
 export interface TeamPageProps {
   /**
@@ -86,16 +131,16 @@ export interface TeamPageProps {
 
 function RoleIcon({ role }: { role: string }) {
   if (role === "owner")
-    return <IconCrown className="h-3.5 w-3.5 text-amber-500" />;
+    return <IconCrown className="h-3.5 w-3.5 text-primary" />;
   if (role === "admin")
-    return <IconShieldCheck className="h-3.5 w-3.5 text-blue-500" />;
+    return <IconShieldCheck className="h-3.5 w-3.5 text-muted-foreground" />;
   return null;
 }
 
 function ErrorText({ error }: { error: unknown }) {
   if (!error) return null;
   return (
-    <p className="text-xs text-red-500">
+    <p className="text-xs text-destructive">
       {error instanceof Error ? error.message : String(error)}
     </p>
   );
@@ -122,18 +167,20 @@ function PendingInvitationsCard() {
               {t("org.invitedByLabel", { name: inv.invitedBy })}
             </div>
           </div>
-          <button
+          <Button
             type="button"
+            intent="primary"
+            emphasis="solid"
             onClick={() => acceptInvitation.mutate(inv.id)}
             disabled={acceptInvitation.isPending}
-            className="rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-50"
+            className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
           >
             {acceptInvitation.isPending ? (
-              <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+              <IconLoader2 size={14} className="animate-spin" />
             ) : (
               t("org.accept")
             )}
-          </button>
+          </Button>
         </div>
       ))}
       <ErrorText error={acceptInvitation.error} />
@@ -161,13 +208,15 @@ function JoinByDomainCard({ matches }: { matches: DomainMatchOrg[] }) {
             className="flex items-center justify-between rounded-md border border-border p-3"
           >
             <div className="flex items-center gap-2.5">
-              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-blue-600/10">
-                <IconUsersGroup className="h-4 w-4 text-blue-600" />
+              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/10">
+                <IconUsersGroup className="h-4 w-4 text-primary" />
               </div>
               <div className="text-sm font-medium">{m.orgName}</div>
             </div>
-            <button
+            <Button
               type="button"
+              intent="primary"
+              emphasis="solid"
               disabled={joinByDomain.isPending && pendingId === m.orgId}
               onClick={() => {
                 setPendingId(m.orgId);
@@ -175,14 +224,14 @@ function JoinByDomainCard({ matches }: { matches: DomainMatchOrg[] }) {
                   onSettled: () => setPendingId(null),
                 });
               }}
-              className="rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90 disabled:opacity-50"
+              className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
             >
               {joinByDomain.isPending && pendingId === m.orgId ? (
-                <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+                <IconLoader2 size={14} className="animate-spin" />
               ) : (
                 t("org.join")
               )}
-            </button>
+            </Button>
           </div>
         ))}
       </div>
@@ -203,14 +252,20 @@ function CreateOrgCard({ description }: { description?: string }) {
       <p className="text-sm text-muted-foreground">
         {description || t("org.createOrgCardDescription")}
       </p>
+      <p className="flex items-start gap-2 text-xs text-muted-foreground">
+        <IconKey className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+        <span>{t("org.createOrgVaultNotice")}</span>
+      </p>
       {!showForm ? (
-        <button
+        <Button
           type="button"
+          intent="primary"
+          emphasis="solid"
           onClick={() => setShowForm(true)}
-          className="rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90"
+          className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
         >
           {t("org.createOrganization")}
-        </button>
+        </Button>
       ) : (
         <div className="space-y-2">
           <input
@@ -222,8 +277,10 @@ function CreateOrgCard({ description }: { description?: string }) {
             autoFocus
           />
           <div className="flex gap-2">
-            <button
+            <Button
               type="button"
+              intent="primary"
+              emphasis="solid"
               disabled={!name.trim() || createOrg.isPending}
               onClick={() =>
                 createOrg.mutate(name.trim(), {
@@ -233,16 +290,18 @@ function CreateOrgCard({ description }: { description?: string }) {
                   },
                 })
               }
-              className="rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90 disabled:opacity-50"
+              className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
             >
               {createOrg.isPending ? (
-                <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+                <IconLoader2 size={14} className="animate-spin" />
               ) : (
                 t("org.create")
               )}
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
+              intent="neutral"
+              emphasis="outline"
               onClick={() => {
                 setShowForm(false);
                 setName("");
@@ -250,7 +309,7 @@ function CreateOrgCard({ description }: { description?: string }) {
               className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
             >
               {t("org.cancel")}
-            </button>
+            </Button>
           </div>
           <ErrorText error={createOrg.error} />
         </div>
@@ -268,7 +327,7 @@ function OrgNameDisplay({ name, canEdit }: { name: string; canEdit: boolean }) {
 
   if (!editing) {
     return (
-      <button
+      <Button
         type="button"
         onClick={() => {
           setDraft(name);
@@ -277,8 +336,11 @@ function OrgNameDisplay({ name, canEdit }: { name: string; canEdit: boolean }) {
         className="group flex items-center gap-1.5 text-sm font-medium hover:text-foreground/80"
       >
         {name}
-        <IconPencil className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100" />
-      </button>
+        <IconPencil
+          size={12}
+          className="text-muted-foreground opacity-0 group-hover:opacity-100"
+        />
+      </Button>
     );
   }
 
@@ -341,8 +403,8 @@ function MembersCard() {
       <section className="rounded-lg border border-border bg-card p-4 space-y-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-600/10">
-              <IconUsersGroup className="h-5 w-5 text-blue-600" />
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+              <IconUsersGroup className="h-5 w-5 text-primary" />
             </div>
             <div className="min-w-0">
               <OrgNameDisplay
@@ -356,18 +418,22 @@ function MembersCard() {
             </div>
           </div>
           {hasMultipleOrgs && (
-            <select
+            <Select
               value={org.orgId ?? ""}
-              onChange={(e) => switchOrg.mutate(e.target.value || null)}
+              onValueChange={(value) => switchOrg.mutate(value || null)}
               disabled={switchOrg.isPending}
-              className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-xs sm:w-auto"
             >
-              {org.orgs.map((o) => (
-                <option key={o.orgId} value={o.orgId}>
-                  {o.orgName}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger className="h-auto w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-xs sm:w-auto">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {org.orgs.map((o) => (
+                  <SelectItem key={o.orgId} value={o.orgId}>
+                    {o.orgName}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           )}
         </div>
 
@@ -378,7 +444,7 @@ function MembersCard() {
               ownerEmail={org.email}
             />
 
-            {isOwner && <A2ASecretSection secret={org.a2aSecret} />}
+            {isOwner && <A2ASecretSection isSet={Boolean(org.a2aSecretSet)} />}
           </div>
         )}
 
@@ -392,6 +458,8 @@ function MembersCard() {
         currentUserEmail={org.email}
         currentUserRole={org.role ?? null}
       />
+
+      {isOwner && <DangerZoneCard orgName={org.orgName ?? ""} />}
     </div>
   );
 }
@@ -423,14 +491,16 @@ function MembersTableCard({
           </p>
         </div>
         {canInvite && !showInviteForm && (
-          <button
+          <Button
             type="button"
+            intent="primary"
+            emphasis="solid"
             onClick={() => setShowInviteForm(true)}
-            className="inline-flex items-center justify-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90"
+            className="inline-flex items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
           >
-            <IconUserPlus className="h-3.5 w-3.5" />
+            <IconUserPlus size={14} />
             {t("org.inviteMembers")}
-          </button>
+          </Button>
         )}
       </div>
       {canInvite && showInviteForm && (
@@ -489,6 +559,92 @@ function MembersTableCard({
           )}
         </TableBody>
       </Table>
+    </section>
+  );
+}
+
+function DangerZoneCard({ orgName }: { orgName: string }) {
+  const t = useT();
+  const deleteOrg = useDeleteOrg();
+  const [open, setOpen] = useState(false);
+  const [confirmText, setConfirmText] = useState("");
+
+  const canConfirm =
+    confirmText.trim().toLowerCase() === orgName.trim().toLowerCase();
+
+  function handleConfirm(e: { preventDefault: () => void }) {
+    e.preventDefault();
+    if (!canConfirm || deleteOrg.isPending) return;
+    deleteOrg.mutate(orgName, { onSuccess: () => setOpen(false) });
+  }
+
+  return (
+    <section className="rounded-lg border border-destructive/40 bg-card p-4 space-y-3">
+      <div className="flex items-start gap-2.5">
+        <IconAlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+        <div className="space-y-1">
+          <h3 className="text-sm font-medium text-destructive">
+            {t("org.dangerZone")}
+          </h3>
+          <p className="text-sm text-muted-foreground">
+            {t("org.deleteOrgDescription")}
+          </p>
+        </div>
+      </div>
+      <AlertDialog
+        open={open}
+        onOpenChange={(next) => {
+          setOpen(next);
+          if (!next) setConfirmText("");
+        }}
+      >
+        <AlertDialogTrigger asChild>
+          <Button
+            type="button"
+            intent="danger"
+            emphasis="outline"
+            className="cursor-pointer rounded-md border border-destructive/40 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10"
+          >
+            {t("org.deleteOrg")}
+          </Button>
+        </AlertDialogTrigger>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("org.deleteOrg")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("org.deleteOrgConfirmPrompt", { name: orgName })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <input
+            type="text"
+            value={confirmText}
+            onChange={(e) => setConfirmText(e.target.value)}
+            placeholder={t("org.deleteOrgConfirmPlaceholder")}
+            className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-destructive"
+            autoFocus
+          />
+          <ErrorText error={deleteOrg.error} />
+          <AlertDialogFooter>
+            <AlertDialogCancel className="cursor-pointer">
+              {t("org.cancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={!canConfirm || deleteOrg.isPending}
+              onClick={handleConfirm}
+              className="cursor-pointer bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {deleteOrg.isPending ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <IconLoader2 size={14} className="animate-spin" />
+                  {t("org.deleteOrgPending")}
+                </span>
+              ) : (
+                t("org.deleteOrgConfirmCta")
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </section>
   );
 }
@@ -576,11 +732,14 @@ function MemberRow({
         {canManage ? (
           <div className="flex shrink-0 items-center justify-end gap-1">
             {editing ? (
-              <select
-                autoFocus
+              <Select
+                defaultOpen
                 value={role}
-                onChange={(e) => {
-                  const next = e.target.value === "admin" ? "admin" : "member";
+                onOpenChange={(open) => {
+                  if (!open) setEditing(false);
+                }}
+                onValueChange={(value) => {
+                  const next = value === "admin" ? "admin" : "member";
                   if (next !== role) {
                     changeRole.mutate(
                       { email, role: next },
@@ -590,60 +749,72 @@ function MemberRow({
                     setEditing(false);
                   }
                 }}
-                onBlur={() => setEditing(false)}
                 disabled={changeRole.isPending}
-                className="rounded-md border border-border bg-background px-1.5 py-0.5 text-[11px]"
               >
-                <option value="member">{t("org.member")}</option>
-                <option value="admin">{t("org.admin")}</option>
-              </select>
+                <SelectTrigger
+                  autoFocus
+                  className="h-auto w-auto rounded-md border border-border bg-background px-1.5 py-0.5 text-[11px]"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="member">{t("org.member")}</SelectItem>
+                  <SelectItem value="admin">{t("org.admin")}</SelectItem>
+                </SelectContent>
+              </Select>
             ) : (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <button
+                  <Button
                     type="button"
                     onClick={() => setEditing(true)}
                     className="text-muted-foreground hover:text-foreground"
                   >
-                    <IconPencil className="h-3.5 w-3.5" />
-                  </button>
+                    <IconPencil size={14} />
+                  </Button>
                 </TooltipTrigger>
                 <TooltipContent>{t("org.changeRole")}</TooltipContent>
               </Tooltip>
             )}
             {confirmingRemove ? (
               <div className="flex items-center gap-1">
-                <button
+                <Button
                   type="button"
+                  intent="neutral"
+                  emphasis="ghost"
                   onClick={() => setConfirmingRemove(false)}
                   className="rounded px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
                 >
                   {t("org.cancel")}
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
+                  intent="danger"
+                  emphasis="solid"
                   disabled={removeMember.isPending}
                   onClick={() =>
                     removeMember.mutate(email, {
                       onSettled: () => setConfirmingRemove(false),
                     })
                   }
-                  className="rounded bg-red-500 px-1.5 py-0.5 text-[11px] text-white hover:bg-red-600 disabled:opacity-50"
+                  className="rounded bg-destructive px-1.5 py-0.5 text-[11px] text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50"
                 >
                   {t("org.remove")}
-                </button>
+                </Button>
               </div>
             ) : (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <button
+                  <Button
                     type="button"
+                    intent="danger"
+                    emphasis="ghost"
                     disabled={removeMember.isPending}
                     onClick={() => setConfirmingRemove(true)}
-                    className="text-muted-foreground hover:text-red-500 disabled:opacity-50"
+                    className="text-muted-foreground hover:text-destructive disabled:opacity-50"
                   >
-                    <IconTrash className="h-3.5 w-3.5" />
-                  </button>
+                    <IconTrash size={14} />
+                  </Button>
                 </TooltipTrigger>
                 <TooltipContent>{t("org.removeMember")}</TooltipContent>
               </Tooltip>
@@ -810,66 +981,78 @@ function BulkInviteForm({
               className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-foreground"
               autoFocus={i === drafts.length - 1}
             />
-            <select
+            <Select
               value={draft.role}
-              onChange={(e) =>
+              onValueChange={(value) =>
                 setDraft(i, {
-                  role: e.target.value === "admin" ? "admin" : "member",
+                  role: value === "admin" ? "admin" : "member",
                 })
               }
               disabled={!canSetAdmin}
-              title={
-                canSetAdmin
-                  ? undefined
-                  : "Only the organization owner can invite admins"
-              }
-              className="rounded-md border border-border bg-background px-2 py-1.5 text-xs disabled:opacity-50"
             >
-              <option value="member">Member</option>
-              <option value="admin">Admin</option>
-            </select>
+              <SelectTrigger
+                title={
+                  canSetAdmin
+                    ? undefined
+                    : "Only the organization owner can invite admins"
+                }
+                className="h-auto w-auto rounded-md border border-border bg-background px-2 py-1.5 text-xs disabled:opacity-50"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="member">Member</SelectItem>
+                <SelectItem value="admin">Admin</SelectItem>
+              </SelectContent>
+            </Select>
             {drafts.length > 1 && (
-              <button
+              <Button
                 type="button"
                 onClick={() =>
                   setDrafts((prev) => prev.filter((_, j) => j !== i))
                 }
-                className="text-muted-foreground hover:text-red-500"
+                className="text-muted-foreground hover:text-destructive"
               >
-                <IconX className="h-3.5 w-3.5" />
-              </button>
+                <IconX size={14} />
+              </Button>
             )}
           </div>
         ))}
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <button
+        <Button
           type="button"
+          intent="neutral"
+          emphasis="outline"
           onClick={() =>
             setDrafts((prev) => [...prev, { email: "", role: "member" }])
           }
           className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
         >
-          <IconPlus className="h-3.5 w-3.5" />
+          <IconPlus size={14} />
           Add another
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
+          intent="neutral"
+          emphasis="outline"
           onClick={() => setPasteOpen((v) => !v)}
           className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
         >
-          <IconUserPlus className="h-3.5 w-3.5" />
+          <IconUserPlus size={14} />
           Paste many
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
+          intent="neutral"
+          emphasis="outline"
           onClick={() => fileRef.current?.click()}
           className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
         >
-          <IconFileImport className="h-3.5 w-3.5" />
+          <IconFileImport size={14} />
           Import CSV
-        </button>
+        </Button>
         <input
           ref={fileRef}
           type="file"
@@ -897,31 +1080,39 @@ function BulkInviteForm({
             className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-foreground"
           />
           <div className="flex items-center gap-2">
-            <select
+            <Select
               value={pasteRole}
-              onChange={(e) =>
-                setPasteRole(e.target.value === "admin" ? "admin" : "member")
+              onValueChange={(value) =>
+                setPasteRole(value === "admin" ? "admin" : "member")
               }
               disabled={!canSetAdmin}
-              className="rounded-md border border-border bg-background px-2 py-1.5 text-xs disabled:opacity-50"
             >
-              <option value="member">Add as members</option>
-              <option value="admin">Add as admins</option>
-            </select>
-            <button
+              <SelectTrigger className="h-auto w-auto rounded-md border border-border bg-background px-2 py-1.5 text-xs disabled:opacity-50">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="member">Add as members</SelectItem>
+                <SelectItem value="admin">Add as admins</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button
               type="button"
+              intent="primary"
+              emphasis="solid"
               onClick={() => {
                 appendEmails(parseEmailList(pasteValue), pasteRole);
                 setPasteValue("");
                 setPasteOpen(false);
               }}
               disabled={parseEmailList(pasteValue).length === 0}
-              className="rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90 disabled:opacity-50"
+              className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
             >
               Add
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
+              intent="neutral"
+              emphasis="outline"
               onClick={() => {
                 setPasteValue("");
                 setPasteOpen(false);
@@ -929,35 +1120,39 @@ function BulkInviteForm({
               className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
             >
               Cancel
-            </button>
+            </Button>
           </div>
         </div>
       )}
 
       <div className="flex items-center gap-2">
-        <button
+        <Button
           type="button"
+          intent="primary"
+          emphasis="solid"
           disabled={validDrafts.length === 0 || bulkInvite.isPending}
           onClick={submit}
-          className="rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90 disabled:opacity-50"
+          className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
         >
           {bulkInvite.isPending ? (
-            <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+            <IconLoader2 size={14} className="animate-spin" />
           ) : (
             <span className="inline-flex items-center gap-1">
-              <IconCheck className="h-3.5 w-3.5" />
+              <IconCheck size={14} />
               Send {validDrafts.length || ""}{" "}
               {validDrafts.length === 1 ? "invite" : "invites"}
             </span>
           )}
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
+          intent="neutral"
+          emphasis="outline"
           onClick={onClose}
           className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
         >
           Close
-        </button>
+        </Button>
       </div>
 
       <p className="text-[11px] text-muted-foreground">
@@ -970,14 +1165,14 @@ function BulkInviteForm({
       {resultBanner && (
         <div className="space-y-1 rounded-md border border-border bg-accent/30 p-2.5">
           {resultBanner.succeeded > 0 && (
-            <p className="text-[11px] text-green-600">
+            <p className="text-[11px] text-primary">
               <IconCheck className="inline h-3 w-3 -mt-0.5" /> Sent{" "}
               {resultBanner.succeeded}{" "}
               {resultBanner.succeeded === 1 ? "invite" : "invites"}.
             </p>
           )}
           {resultBanner.failed.length > 0 && (
-            <ul className="space-y-0.5 text-[11px] text-red-500">
+            <ul className="space-y-0.5 text-[11px] text-destructive">
               {resultBanner.failed.map((f) => (
                 <li key={f.email}>
                   <IconAlertTriangle className="inline h-3 w-3 -mt-0.5 me-1" />
@@ -1039,7 +1234,7 @@ function DomainSettingsSection({
               </span>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <button
+                  <Button
                     type="button"
                     onClick={() => {
                       setDraft(domain);
@@ -1047,37 +1242,41 @@ function DomainSettingsSection({
                     }}
                     className="text-muted-foreground hover:text-foreground"
                   >
-                    <IconPencil className="h-3.5 w-3.5" />
-                  </button>
+                    <IconPencil size={14} />
+                  </Button>
                 </TooltipTrigger>
                 <TooltipContent>Edit domain</TooltipContent>
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <button
+                  <Button
                     type="button"
+                    intent="danger"
+                    emphasis="ghost"
                     disabled={setOrgDomain.isPending}
                     onClick={() => setOrgDomain.mutate(null)}
-                    className="text-muted-foreground hover:text-red-500 disabled:opacity-50"
+                    className="text-muted-foreground hover:text-destructive disabled:opacity-50"
                   >
-                    <IconX className="h-3.5 w-3.5" />
-                  </button>
+                    <IconX size={14} />
+                  </Button>
                 </TooltipTrigger>
                 <TooltipContent>Remove domain</TooltipContent>
               </Tooltip>
             </>
           ) : (
-            <button
+            <Button
               type="button"
+              intent="neutral"
+              emphasis="outline"
               onClick={() => {
                 setDraft(ownDomain);
                 setEditing(true);
               }}
               className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
             >
-              <IconAt className="h-3.5 w-3.5" />
+              <IconAt size={14} />
               Allow {ownDomain || "your domain"} to auto-join
-            </button>
+            </Button>
           )}
         </div>
       ) : (
@@ -1094,25 +1293,29 @@ function DomainSettingsSection({
             className="rounded-md border border-border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-foreground"
             autoFocus
           />
-          <button
+          <Button
             type="button"
+            intent="primary"
+            emphasis="solid"
             disabled={setOrgDomain.isPending}
             onClick={save}
-            className="rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90 disabled:opacity-50"
+            className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
           >
             {setOrgDomain.isPending ? (
-              <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+              <IconLoader2 size={14} className="animate-spin" />
             ) : (
               "Save"
             )}
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
+            intent="neutral"
+            emphasis="outline"
             onClick={() => setEditing(false)}
             className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
           >
             Cancel
-          </button>
+          </Button>
         </div>
       )}
       <ErrorText error={setOrgDomain.error} />
@@ -1120,10 +1323,11 @@ function DomainSettingsSection({
   );
 }
 
-function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
+function A2ASecretSection({ isSet }: { isSet: boolean }) {
+  const revealA2ASecret = useRevealA2ASecret();
   const setA2ASecret = useSetA2ASecret();
   const syncA2ASecret = useSyncA2ASecret();
-  const [revealed, setRevealed] = useState(false);
+  const [secret, setSecret] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [pasteMode, setPasteMode] = useState(false);
   const [pasteValue, setPasteValue] = useState("");
@@ -1131,11 +1335,32 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
     null,
   );
 
-  function copyToClipboard() {
-    if (!secret) return;
-    navigator.clipboard.writeText(secret).then(() => {
+  function writeClipboard(value: string) {
+    navigator.clipboard.writeText(value).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  function toggleReveal() {
+    if (secret) {
+      setSecret(null);
+      return;
+    }
+    revealA2ASecret.mutate(undefined, {
+      onSuccess: (result) => setSecret(result.a2aSecret),
+    });
+  }
+
+  function copyToClipboard() {
+    if (secret) {
+      writeClipboard(secret);
+      return;
+    }
+    revealA2ASecret.mutate(undefined, {
+      onSuccess: (result) => {
+        if (result.a2aSecret) writeClipboard(result.a2aSecret);
+      },
     });
   }
 
@@ -1154,7 +1379,7 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
   function regenerate() {
     setA2ASecret.mutate(undefined, {
       onSuccess: (result) => {
-        setRevealed(false);
+        setSecret(null);
         // Auto-sync the new secret to all connected apps. Sign with the
         // PREVIOUS secret (which peers still hold) so verification on
         // their side succeeds and they accept the new value.
@@ -1177,7 +1402,7 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
     });
   }
 
-  const masked = secret ? "****" + secret.slice(-8) : "Not set";
+  const masked = isSet ? "••••••••••••" : "Not set";
 
   return (
     <div className="space-y-2">
@@ -1208,41 +1433,39 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
       <div className="flex items-center gap-2 flex-wrap">
         <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm font-mono">
           <IconKey className="h-3.5 w-3.5 text-muted-foreground" />
-          {revealed && secret ? secret : masked}
+          {secret ?? masked}
         </span>
-        {secret && (
+        {isSet && (
           <>
             <Tooltip>
               <TooltipTrigger asChild>
-                <button
+                <Button
                   type="button"
-                  onClick={() => setRevealed(!revealed)}
+                  onClick={toggleReveal}
+                  disabled={revealA2ASecret.isPending}
                   className="text-muted-foreground hover:text-foreground"
                 >
-                  {revealed ? (
-                    <IconEyeOff className="h-3.5 w-3.5" />
-                  ) : (
-                    <IconEye className="h-3.5 w-3.5" />
-                  )}
-                </button>
+                  {secret ? <IconEyeOff size={14} /> : <IconEye size={14} />}
+                </Button>
               </TooltipTrigger>
               <TooltipContent>
-                {revealed ? "Hide secret" : "Reveal secret"}
+                {secret ? "Hide secret" : "Reveal secret"}
               </TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
-                <button
+                <Button
                   type="button"
                   onClick={copyToClipboard}
+                  disabled={revealA2ASecret.isPending}
                   className="text-muted-foreground hover:text-foreground"
                 >
                   {copied ? (
-                    <IconCheck className="h-3.5 w-3.5 text-green-500" />
+                    <IconCheck size={14} className="text-primary" />
                   ) : (
-                    <IconCopy className="h-3.5 w-3.5" />
+                    <IconCopy size={14} />
                   )}
-                </button>
+                </Button>
               </TooltipTrigger>
               <TooltipContent>Copy secret</TooltipContent>
             </Tooltip>
@@ -1250,40 +1473,44 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
         )}
         <Tooltip>
           <TooltipTrigger asChild>
-            <button
+            <Button
               type="button"
+              intent="danger"
+              emphasis="outline"
               onClick={regenerate}
               disabled={setA2ASecret.isPending || syncA2ASecret.isPending}
               className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50 disabled:opacity-50"
             >
               {setA2ASecret.isPending ? (
-                <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+                <IconLoader2 size={14} className="animate-spin" />
               ) : (
-                <IconRefresh className="h-3.5 w-3.5" />
+                <IconRefresh size={14} />
               )}
               Regenerate
-            </button>
+            </Button>
           </TooltipTrigger>
           <TooltipContent>
             Regenerate secret and sync to connected apps
           </TooltipContent>
         </Tooltip>
-        {secret && (
+        {isSet && (
           <Tooltip>
             <TooltipTrigger asChild>
-              <button
+              <Button
                 type="button"
+                intent="neutral"
+                emphasis="outline"
                 onClick={() => syncToApps()}
                 disabled={setA2ASecret.isPending || syncA2ASecret.isPending}
                 className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50 disabled:opacity-50"
               >
                 {syncA2ASecret.isPending ? (
-                  <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+                  <IconLoader2 size={14} className="animate-spin" />
                 ) : (
-                  <IconCloudUpload className="h-3.5 w-3.5" />
+                  <IconCloudUpload size={14} />
                 )}
                 Sync to apps
-              </button>
+              </Button>
             </TooltipTrigger>
             <TooltipContent>
               Push this secret to every connected app
@@ -1306,7 +1533,7 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
             {syncResult.failed > 0 ? ` (${syncResult.failed} failed)` : ""}.
           </p>
           {syncResult.failed > 0 && (
-            <ul className="text-[11px] text-red-500 list-disc ps-5 space-y-0.5">
+            <ul className="text-[11px] text-destructive list-disc ps-5 space-y-0.5">
               {syncResult.results
                 .filter((r) => !r.ok)
                 .map((r) => (
@@ -1320,14 +1547,16 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
       )}
 
       {!pasteMode ? (
-        <button
+        <Button
           type="button"
+          intent="neutral"
+          emphasis="outline"
           onClick={() => setPasteMode(true)}
           className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
         >
-          <IconKey className="h-3.5 w-3.5" />
+          <IconKey size={14} />
           Paste secret from another app
-        </button>
+        </Button>
       ) : (
         <div className="flex items-center gap-2">
           <input
@@ -1345,20 +1574,24 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
             className="flex-1 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-foreground"
             autoFocus
           />
-          <button
+          <Button
             type="button"
+            intent="primary"
+            emphasis="solid"
             disabled={!pasteValue.trim() || setA2ASecret.isPending}
             onClick={saveSecret}
-            className="rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90 disabled:opacity-50"
+            className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
           >
             {setA2ASecret.isPending ? (
-              <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+              <IconLoader2 size={14} className="animate-spin" />
             ) : (
               "Save"
             )}
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
+            intent="neutral"
+            emphasis="outline"
             onClick={() => {
               setPasteMode(false);
               setPasteValue("");
@@ -1366,10 +1599,11 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
             className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
           >
             Cancel
-          </button>
+          </Button>
         </div>
       )}
 
+      <ErrorText error={revealA2ASecret.error} />
       <ErrorText error={setA2ASecret.error} />
       <ErrorText error={syncA2ASecret.error} />
     </div>
@@ -1409,13 +1643,14 @@ export function TeamPage({
       {!isLoading && (
         <>
           <PendingInvitationsCard />
+          {/* Sitting in a personal workspace still counts as having an org, so
+              gating this on `!org?.orgId` hid the only in-page way to reach the
+              company workspace from the people who most needed it. */}
+          {org?.domainMatches && org.domainMatches.length > 0 && (
+            <JoinByDomainCard matches={org.domainMatches} />
+          )}
           {!org?.orgId ? (
-            <>
-              {org?.domainMatches && org.domainMatches.length > 0 && (
-                <JoinByDomainCard matches={org.domainMatches} />
-              )}
-              <CreateOrgCard description={createOrgDescription} />
-            </>
+            <CreateOrgCard description={createOrgDescription} />
           ) : (
             <MembersCard />
           )}

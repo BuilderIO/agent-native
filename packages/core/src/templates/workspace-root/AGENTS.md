@@ -76,6 +76,9 @@ refreshes framework-provided shared skills and repairs `CLAUDE.md` /
 
 ## Workspace Scope
 
+- Scale effort to the task. A small, well-specified change is a short read, the
+  edit, and the existing checks — not a codebase survey, unrequested tests, or
+  browser automation.
 - Keep root changes focused on workspace orchestration, shared configuration,
   deploy settings, and monorepo tooling.
 - Keep application routes, actions, server plugins, and app state inside the
@@ -156,7 +159,9 @@ refreshes framework-provided shared skills and repairs `CLAUDE.md` /
   for the same data unless the route is for uploads, streaming, webhooks,
   OAuth, or another route-only concern. Do not add routes whose main job is to
   wrap, proxy, or re-export an action; the action endpoint already exists at
-  `/_agent-native/actions/:name`. Action-backed UI is what makes agent-created
+  `/_agent-native/actions/:name`. If you are about to create a file under
+  `server/routes/api/`, or middleware to guard one, stop and write a
+  `defineAction` instead. Action-backed UI is what makes agent-created
   or agent-edited records appear without a manual refresh.
 - App database code must be provider-agnostic. Define schemas with
   `@agent-native/core/db/schema` helpers and write app reads/writes with

@@ -40,34 +40,64 @@ function addCurrentModel(
   return next;
 }
 
+const MODEL_COST_ORDER = [
+  "luna",
+  "terra",
+  "sol",
+  "haiku",
+  "sonnet",
+  "opus",
+  "fable",
+  "flash",
+  "pro",
+] as const;
+
+function modelCostRank(model: string): number {
+  const normalized = model.toLowerCase();
+  const rank = MODEL_COST_ORDER.findIndex((tier) => normalized.includes(tier));
+  return rank === -1 ? MODEL_COST_ORDER.length : rank;
+}
+
+function sortModelsByCost(models: readonly string[]): string[] {
+  return [...models].sort((a, b) => modelCostRank(a) - modelCostRank(b));
+}
+
 function groupBuilderModels(models: readonly string[]): EngineModelGroup[] {
-  const claude = models.filter((model) => model.startsWith("claude-"));
-  const openai = models.filter((model) => model.startsWith("gpt-"));
-  const gemini = models.filter((model) => model.startsWith("gemini-"));
-  const other = models.filter(
-    (model) =>
-      !model.startsWith("claude-") &&
-      !model.startsWith("gpt-") &&
-      !model.startsWith("gemini-"),
+  const claude = sortModelsByCost(
+    models.filter((model) => model.startsWith("claude-")),
+  );
+  const openai = sortModelsByCost(
+    models.filter((model) => model.startsWith("gpt-")),
+  );
+  const gemini = sortModelsByCost(
+    models.filter((model) => model.startsWith("gemini-")),
+  );
+  const other = sortModelsByCost(
+    models.filter(
+      (model) =>
+        !model.startsWith("claude-") &&
+        !model.startsWith("gpt-") &&
+        !model.startsWith("gemini-"),
+    ),
   );
 
   return [
-    ...(claude.length
-      ? [
-          {
-            engine: "builder",
-            label: "Claude",
-            models: claude,
-            configured: true,
-          },
-        ]
-      : []),
     ...(openai.length
       ? [
           {
             engine: "builder",
             label: "OpenAI",
             models: openai,
+            configured: true,
+          },
+        ]
+      : []),
+    ...(claude.length
+      ? [
+          {
+            engine: "builder",
+            label: "Claude",
+            models: claude,
             configured: true,
           },
         ]
@@ -115,16 +145,24 @@ function shouldShowDirectEngine(
   return true;
 }
 
-function putOpenRouterLast(
+function modelPickerEngineRank(engine: ChatModelEngineEntry): number {
+  if (engine.name === "ai-sdk:openai" || engine.label === "OpenAI") return 0;
+  if (
+    engine.name === "anthropic" ||
+    engine.name === "ai-sdk:anthropic" ||
+    engine.label === "Claude"
+  ) {
+    return 1;
+  }
+  if (engine.name === "ai-sdk:openrouter") return 100;
+  return 2;
+}
+
+function sortModelPickerEngines(
   a: ChatModelEngineEntry,
   b: ChatModelEngineEntry,
 ): number {
-  const aIsOpenRouter = a.name === "ai-sdk:openrouter";
-  const bIsOpenRouter = b.name === "ai-sdk:openrouter";
-  if (aIsOpenRouter === bIsOpenRouter) return 0;
-  if (aIsOpenRouter) return 1;
-  if (bIsOpenRouter) return -1;
-  return 0;
+  return modelPickerEngineRank(a) - modelPickerEngineRank(b);
 }
 
 export function buildChatModelGroups({
@@ -150,17 +188,19 @@ export function buildChatModelGroups({
   return engines
     .filter((engine) => engine.packageInstalled !== false)
     .filter((engine) => shouldShowDirectEngine(engine, currentEngineName))
-    .sort(putOpenRouterLast)
+    .sort(sortModelPickerEngines)
     .map((engine) => {
       const requiredEnvVars = engine.requiredEnvVars ?? [];
       return {
         engine: engine.name,
         label: engine.label,
-        models: addCurrentModel(
-          engine.supportedModels ?? [],
-          engine.name,
-          currentEngineName,
-          currentModel,
+        models: sortModelsByCost(
+          addCurrentModel(
+            engine.supportedModels ?? [],
+            engine.name,
+            currentEngineName,
+            currentModel,
+          ),
         ),
         configured:
           requiredEnvVars.length === 0 ||

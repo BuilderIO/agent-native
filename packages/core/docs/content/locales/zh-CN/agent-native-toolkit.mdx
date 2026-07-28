@@ -95,6 +95,15 @@ Toolkit 是面向高质量智能体应用的可复用、久经验证的构建模
 - 本阶段 Blocks 和 Context X-Ray 引擎仍由 **Core** 所有；可复用的 Context X-Ray 呈现由 Toolkit 所有。
 - Creative Context、Scheduling 和 Pinpoint 是按需安装的 **Toolkit 能力模块**；它们保留独立的 npm 包和生命周期清单。Dispatch 仍是独立产品。
 
+## 仪表板套件 {#dashboard-kit}
+
+`@agent-native/toolkit/dashboard` 是可弹出的纯呈现单元，提供指标和统计卡片、
+表格、日期范围、面板排序与布局以及通用图表。应用提供行数据和回调；该套件不
+获取数据，也不拥有仪表板状态或凭据。请为每个应用单独实例化
+`@agent-native/core/dashboard-storage` 的架构和访问控制；默认 `program` source
+运行应用自有的数据程序。
+应用前请运行 `agent-native eject inspect toolkit/dashboard`。提供商解析器应保留在拥有其连接和查询策略的应用中。
+
 ## 实现边界 {#implementation-boundary}
 
 工具包首先是产品界面。一些部分由运行时支持（`@agent-native/core`），一些是呈现原语（`@agent-native/toolkit`），应用通常通过本地适配器封装两者。请使用拥有所需行为的包路径，但将面向用户的设置、协作、共享、团队、审阅和配置体验设计为一个连贯的工具包，而不是在应用中暴露包边界。

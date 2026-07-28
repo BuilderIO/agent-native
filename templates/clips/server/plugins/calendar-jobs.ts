@@ -5,6 +5,7 @@
  * pattern).
  */
 
+import registerBrainExportJob from "../jobs/brain-export.js";
 import registerBuilderMediaCompressionJob from "../jobs/builder-media-compression.js";
 import registerMediaVerificationJob from "../jobs/media-verification.js";
 import registerMeetingRemindersJob from "../jobs/meeting-reminders.js";
@@ -17,6 +18,7 @@ export default () => {
   // background loop is off.
   registerMeetingRemindersJob();
   registerBuilderMediaCompressionJob();
+  registerBrainExportJob();
   registerMediaVerificationJob();
   registerPollCalendarsJob();
   registerStaleMeetingSweeperJob();

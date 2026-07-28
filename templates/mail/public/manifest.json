@@ -1,5 +1,5 @@
 {
-  "name": "Agent Native Mail",
+  "name": "Mail",
   "short_name": "Mail",
   "description": "Email client",
   "start_url": ".",

@@ -168,6 +168,10 @@ function preferredDeterministicSection(content: string): string {
   return content;
 }
 
+function hasSummarySection(content: string): boolean {
+  return /(?:^|\n)\s*Summary\s*\n/i.test(content);
+}
+
 function looksLikeRawTranscriptLine(line: string): boolean {
   return (
     /^\[[^\]\n]{1,80}\]\s*/.test(line) ||
@@ -206,6 +210,35 @@ function deterministicSanitizeContent(
 
   if (retained.length === 0) return DEFAULT_SANITIZATION_OUTPUT;
   return retained.join("\n").slice(0, 80_000).trim();
+}
+
+function deterministicMeetingOutageFallback(
+  input: CaptureSanitizationInput,
+  decision: BrainSensitivityDecision,
+  capturedAt: string,
+): string | null {
+  if (
+    decision.disposition !== "allowed" ||
+    input.kind !== "transcript" ||
+    !["granola", "clips"].includes(input.source.provider) ||
+    !shouldSanitizeCaptureBeforeStorage(input) ||
+    !hasSummarySection(decision.safeContent) ||
+    PERSONAL_SIGNAL.test(decision.safeContent) ||
+    RECRUITING_SIGNAL.test(decision.safeContent)
+  ) {
+    return null;
+  }
+
+  const content = deterministicSanitizeContent(
+    sanitizeSensitiveText(decision.safeContent),
+    { dropTranscriptLines: true },
+  );
+  if (content === DEFAULT_SANITIZATION_OUTPUT) return null;
+
+  return fallbackSensitivityDecision(content, capturedAt).disposition ===
+    "allowed"
+    ? content
+    : null;
 }
 
 function safeTranscriptTitle(input: CaptureSanitizationInput): string {
@@ -506,7 +539,9 @@ export async function sanitizeCaptureForStorage(
     deterministicQuarantineDecision(input.title, capturedAt) ??
     (titleDecision.disposition === "allowed" ? null : titleDecision) ??
     deterministicQuarantineDecision(input.content, capturedAt);
+  const sanitizationRequested = shouldSanitizeCaptureBeforeStorage(input);
   let fallbackReason: string | undefined;
+  let classifierOutageFallback = false;
   const classifierConfigured = Boolean(
     stringSetting(input.settings.privacyClassifierModel) &&
     stringSetting(input.settings.privacyClassifierEngine),
@@ -526,13 +561,35 @@ export async function sanitizeCaptureForStorage(
   }
   decision ??= fallbackSensitivityDecision(input.content, capturedAt);
   if (classifierFailed) {
-    decision = {
-      ...decision,
-      disposition: "quarantined",
-      confidenceBand: "uncertain",
-    };
+    const deterministicMeetingContent = deterministicMeetingOutageFallback(
+      input,
+      decision,
+      capturedAt,
+    );
+    if (deterministicMeetingContent) {
+      classifierOutageFallback = true;
+      decision = {
+        ...decision,
+        safeContent: deterministicMeetingContent,
+        safeSegments: [
+          {
+            id: "deterministic-meeting-summary",
+            capturedAt,
+            text: deterministicMeetingContent,
+            reactionCount: 0,
+          },
+        ],
+        confidenceBand: "deterministic",
+        classifier: "deterministic",
+      };
+    } else {
+      decision = {
+        ...decision,
+        disposition: "quarantined",
+        confidenceBand: "uncertain",
+      };
+    }
   }
-  const sanitizationRequested = shouldSanitizeCaptureBeforeStorage(input);
 
   const sanitizedContent =
     decision.disposition === "allowed"
@@ -575,6 +632,7 @@ export async function sanitizeCaptureForStorage(
             ? input.settings.privacyClassifierModel
             : undefined,
         fallbackReason,
+        classifierOutageFallback: classifierOutageFallback || undefined,
         disposition: decision.disposition,
         categories: decision.categories,
         confidenceBand: decision.confidenceBand,

@@ -2,7 +2,9 @@
 name: change-summary
 description: >-
   End agent responses that include code changes with a Change summary table
-  (Code / Tests / Config / Docs) and per-file line counts from git diff.
+  (Code / Tests / Config / Docs) and per-file line counts from git diff, and
+  the commit message conventions for this app. Use after any code change and
+  before creating a commit.
 metadata:
   internal: true
 ---
@@ -81,3 +83,19 @@ Use line counts from `git diff --numstat` (added, removed). Do not approximate f
 - If the user asked only for a review with no changes, skip the summary.
 
 Place the change summary **before** the final 🟢/🟡/🔴 status line.
+
+## Commit Message Conventions
+
+- Never include `Made-with: Cursor` in commit messages. Remove it if it appears
+  in a generated message.
+- Use one of these prefixes:
+  - `feature: ...` or `feature(PROJECT): ...`
+  - `fix: ...` or `fix(PROJECT): ...`
+  - `refactor: ...` or `refactor(PROJECT): ...`
+  - `technical: ...` or `technical(PROJECT): ...`
+  - `chore: ...` or `chore(PROJECT): ...`
+- `PROJECT` is optional. If provided, it must be one of `generator` or `web`.
+- Before creating any commit, always:
+  - ask for confirmation,
+  - show the proposed commit message first,
+  - commit only after explicit user approval.

@@ -190,7 +190,7 @@ AI が*できるようになりました*。 「メールの下書き」、「�
 
 Claude コードのようなツールが非常に強力であると感じられる理由は、モデルではなく、**カスタマイズ レイヤー**です。プロジェクトごとの指示、skills、メモリ、サブエージェント、接続されたサービスです。コードベース、好み、チームに合わせてエージェントを形成できます。
 
-エージェント ネイティブでは、アプリを離れることなく、すべてのユーザーに同じカスタマイズ レイヤーが提供されます。各アプリには個人用 **ワークスペース** が付属しており、あなた (またはチームのメンバー) は次のことができます。
+エージェント ネイティブでは、アプリを離れることなく、すべてのユーザーに同じカスタマイズ レイヤーが提供されます。各アプリには個人用 **エージェント リソース** が付属しており、あなた (またはチームのメンバー) は次のことができます。
 
 - 全員のエージェントが読むチーム全体のルールを編集します
 - 設定を修正すると、エージェントに自動的に設定を記憶させます
@@ -199,9 +199,9 @@ Claude コードのようなツールが非常に強力であると感じられ�
 - cron でジョブを実行するようにスケジュールを設定します (例: 「毎週月曜日の朝、先週の要約」)
 - ユーザーごとの MCP サーバー経由で外部サービス (Gmail、ストライプ、Slack、内部 API) に接続
 
-ひねり: すべてはファイル システムではなくデータベースに保存されます。起動する開発環境も、ユーザーごとのコンテナもありません。すべてのユーザーは、テーブル内のすべての行であるため、自分の完全なワークスペース (個人のメモリ、個人の接続、個人の skills) を基本的に無料で利用できます。これが、実際のマルチテナント SaaS 製品内で Claude コード レベルの柔軟性を実現できる理由です。
+ひねり: すべてはファイル システムではなくデータベースに保存されます。起動する開発環境も、ユーザーごとのコンテナもありません。すべてのユーザーは、テーブル内のすべての行であるため、自分の完全なエージェント リソース (個人のメモリ、個人の接続、個人の skills) を基本的に無料で利用できます。これが、実際のマルチテナント SaaS 製品内で Claude コード レベルの柔軟性を実現できる理由です。
 
-完全な概念については、[Workspace](/docs/workspace) を参照してください。
+完全な概念については、[エージェント リソース](/docs/agent-resources) を参照してください。
 
 ## 何が違うのか {#what-makes-it-different}
 
@@ -223,19 +223,19 @@ Claude コードのようなツールが非常に強力であると感じられ�
 
 ビジョン: 引き継ぎを減らし、小規模なチームの仕事を 1 人で行う
 
-## フォークしてカスタマイズ {#fork-and-customize}
+## テンプレートから始めてカスタマイズ {#fork-and-customize}
 
-エージェント ネイティブ アプリは、フォークとカスタマイズのモデルに従います。 **テンプレート** (カレンダー、コンテンツ、スライド、アナリティクス、メール、クリップ、デザイン、フォーム、ディスパッチ) から始めて、それを自分のものにします。それぞれは、空の足場ではなく、卸売でフォークした完全に機能する SaaS 製品です。
+エージェント ネイティブ アプリは、動く app から始めるモデルに従います。 **テンプレート** (カレンダー、コンテンツ、スライド、アナリティクス、メール、クリップ、デザイン、フォーム、ディスパッチ) から始めて、それを自分のものにします。それぞれは、空の足場ではない、完全に機能する SaaS 製品です。
 
 1. [agent-native.com/templates](/templates) でテンプレートを選択してください
 2. ホストされたアプリ (例: mail.agent-native.com) としてすぐに使用します
-3. カスタマイズしたいときにフォークしてください — 「Stripe アカウントに接続する」、「コホート チャートを追加する」
+3. カスタマイズしたいときはテンプレートから自分の app を作成してください — 「Stripe アカウントに接続する」、「コホート チャートを追加する」
 4. エージェントはニーズに合わせてコードを変更します
-5. フォークを独自のドメインにデプロイするか、agent-native.com に留まる
+5. app を独自のドメインにデプロイするか、agent-native.com に留まる
 
 これは共有インフラストラクチャではなく、自分のアプリであるため、エージェントは安全にコードを進化させることができます。アプリは使用するにつれて改善され続けます。全文については、[Templates](/docs/cloneable-saas) を参照してください。
 
-テンプレート全体をフォークする準備ができていませんか?すでに使用しているコーディング エージェントに **スキル** を追加して、エージェント ネイティブを試すこともできます。`npx @agent-native/core@latest skills add visual-plan` で計画スキルをインストールします。 [Skills Guide](/docs/skills-guide#app-backed-skills) を参照してください。
+テンプレート全体から始める準備ができていませんか?すでに使用しているコーディング エージェントに **スキル** を追加して、エージェント ネイティブを試すこともできます。`npx @agent-native/core@latest skills add visual-plan` で計画スキルをインストールします。 [Skills Guide](/docs/skills-guide#app-backed-skills) を参照してください。
 
 ## コンポーザブルエージェント {#composable-agents}
 
@@ -297,7 +297,7 @@ import { AgentSidebar } from "@agent-native/core/client/agent-chat";
 - [**Agent Surfaces**](/docs/agent-surfaces) — choose headless, rich chat, embedded sidecar, or full app
 - [**Key Concepts**](/docs/key-concepts) — the architecture: SQL, actions, polling sync, context awareness, portability
 - [**Templates**](/docs/cloneable-saas) — templates as complete products you own
-- [**Workspace**](/docs/workspace) — the per-user customization layer (skills, memory, instructions, MCP) backed by SQL, not files
+- [**エージェント リソース**](/docs/agent-resources) — the per-user customization layer (skills, memory, instructions, MCP) backed by SQL, not files
 - [**Dispatch**](/docs/dispatch) — the workspace control plane: secrets vault, Slack/email inbox, cross-app delegation
 - [**Extensions**](/docs/extensions) — sandboxed mini-apps the agent creates instantly without code changes
 - [**Drop-in Agent**](/docs/drop-in-agent) — mount `<AgentPanel>` into any React app

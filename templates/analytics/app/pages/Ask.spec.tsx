@@ -23,7 +23,6 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 
 vi.mock("@/lib/chat-handoff", () => ({
   ANALYTICS_CHAT_STORAGE_KEY: "analytics-chat",
-  hasRecentAnalyticsChat: () => false,
 }));
 
 vi.mock("@/lib/tab-id", () => ({ TAB_ID: "test-tab" }));

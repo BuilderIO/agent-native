@@ -3,7 +3,7 @@
  *
  * Called by the web client (Web Speech API) and desktop client (whispher).
  * Native transcripts are available instantly with no API-key requirement
- * and are the primary transcript source. Always replaces the stored transcript with `fullText`. If `segments` are
+ * and are the primary transcript source. A non-empty result replaces the stored transcript with `fullText`. If `segments` are
  * supplied (real timestamps, e.g. from the desktop Whisper engine) they're
  * stored verbatim; otherwise evenly-paced segments are synthesized from the
  * text. Live capture that OWNS the transcript (meeting flushes re-sending the
@@ -133,40 +133,23 @@ export default defineAction({
           reason: "Transcript already exists",
         };
       }
+      // An empty native result is only a diagnostic. Never create a terminal
+      // transcript row here: finalization owns creating the pending row that
+      // lets the Builder fallback run against the saved recording.
       if (current) {
-        await db
-          .update(schema.recordingTranscripts)
-          .set({
-            ownerEmail,
-            fullText: "",
-            segmentsJson: "[]",
-            status: "failed",
-            failureReason,
-            updatedAt: now,
-          })
-          .where(eq(schema.recordingTranscripts.recordingId, args.recordingId));
-      } else {
-        await db.insert(schema.recordingTranscripts).values({
+        return {
           recordingId: args.recordingId,
-          ownerEmail,
-          language: "en",
-          segmentsJson: "[]",
-          fullText: "",
-          status: "failed",
-          failureReason,
-          createdAt: now,
-          updatedAt: now,
-        });
+          status: "skipped" as const,
+          reason: "Transcript attempt already exists",
+        };
       }
-      await writeAppState("refresh-signal", { ts: Date.now() });
       console.warn(
-        `[clips] Native transcript failed for ${args.recordingId} via ${args.source ?? "web-speech"}: ${failureReason}`,
+        `[clips] Native transcript unavailable for ${args.recordingId} via ${args.source ?? "web-speech"}; finalization will queue Builder fallback: ${failureReason}`,
       );
       return {
         recordingId: args.recordingId,
-        status: "failed" as const,
-        provider: args.source ?? "web-speech",
-        failureReason,
+        status: "skipped" as const,
+        reason: "Empty native transcript; waiting for recording finalization",
       };
     }
 

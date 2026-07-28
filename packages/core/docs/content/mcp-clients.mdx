@@ -145,6 +145,18 @@ Use concise, explicit setup copy for the sensitive built-ins:
 | GET    | `/_agent-native/mcp/builtin` | List built-in capabilities, enabled scopes, merged ids, and live status.   |
 | POST   | `/_agent-native/mcp/builtin` | Update a scope. Body: `{ scope, enabledIds }` or `{ scope, id, enabled }`. |
 
+<Endpoint id="doc-block-mcpc-builtin" method="GET" path="/_agent-native/mcp/builtin" summary="List built-in capability state for the current user/org scope" responses={[
+  {
+    "status": "200",
+    "description": "Built-in capabilities (chrome-devtools, playwright, computer-use), which scopes have them enabled, merged server ids, and live connection status.",
+    "example": "{\n  \"capabilities\": [\n    { \"id\": \"playwright\", \"enabledScopes\": [\"user\"], \"connected\": true }\n  ]\n}"
+  }
+]}>
+
+Reports which local-development built-ins (Chrome DevTools, Playwright, Computer Use) are enabled for the current user or organization, and whether they're currently connected. `POST` to the same path with `{ scope, enabledIds }` or `{ scope, id, enabled }` to change a scope's setting.
+
+</Endpoint>
+
 ## Adding a local MCP server {#adding-a-server}
 
 Create `mcp.config.json` at your workspace root (or at an individual app root — workspace root wins when both exist):
@@ -275,9 +287,9 @@ export default {
 };
 ```
 
-Preset ids are `context7`, `sentry`, `notion`, `semgrep`, `linear`,
+Preset ids are `context7`, `sentry`, `notion`, `granola`, `semgrep`, `linear`,
 `atlassian`, `supabase`, `neon`, `stripe`, `cloudflare`, `gitlab`, `figma`,
-`vercel`, `github`, `slack`, `asana`, `hubspot`, `intercom`, `monday`,
+`canva`, `vercel`, `github`, `slack`, `asana`, `hubspot`, `intercom`, `monday`,
 `webflow`, `paypal`, `box`, `netlify`, and `zapier`.
 
 The directory distinguishes endpoints that support the framework's generic
@@ -286,6 +298,12 @@ pre-registered OAuth application. The latter stay visible for discovery and
 link to their official setup instructions, but do not show a misleading
 one-click connect button. Provider restrictions change over time, so verify
 the vendor setup note before enabling one in a production catalog.
+
+When a chat request clearly names an unconnected catalog provider, the
+composer and relevant completed responses can show an inline **Connect**
+suggestion. OAuth and direct connections preserve that request in the current
+tab and resume it after setup completes; long or abandoned requests expire
+automatically.
 
 ### Atlassian / Jira
 
@@ -380,6 +398,25 @@ Under the hood these servers are persisted in the framework's `settings` table u
 | DELETE | `/_agent-native/mcp/servers/:id?scope=user\|org`      | Remove a server and reconfigure the manager.                           |
 | POST   | `/_agent-native/mcp/servers/:id/test?scope=user\|org` | Dry-run the existing server's connect + list-tools.                    |
 | POST   | `/_agent-native/mcp/servers/test`                     | Dry-run an arbitrary URL before persisting. Body: `{ url, headers? }`. |
+
+<Endpoint id="doc-block-mcpc-servers" method="POST" path="/_agent-native/mcp/servers" summary="Add a remote MCP server for the current user or organization" auth="Authenticated session; org-scope writes require owner or admin." request={{
+  "contentType": "application/json",
+  "example": "{\n  \"scope\": \"user\",\n  \"name\": \"zapier\",\n  \"url\": \"https://mcp.zapier.com/s/abc123/mcp\",\n  \"headers\": { \"Authorization\": \"Bearer sk-your-key-here\" }\n}"
+}} responses={[
+  {
+    "status": "200",
+    "description": "Server saved and hot-reloaded into the running MCP manager; its tools appear to the agent on the next message.",
+    "example": "{ \"id\": \"zapier\", \"scope\": \"user\", \"toolCount\": 6 }"
+  },
+  {
+    "status": "400",
+    "description": "Invalid URL (non-HTTPS and not localhost) or malformed headers."
+  }
+]}>
+
+Adds a remote MCP server for `scope: "user"` (personal) or `scope: "org"` (team, owner/admin only). The addition hot-reloads into the running MCP manager — no restart — and the new `mcp__<scope>-<name>__*` tools become searchable via `tool-search` immediately. `DELETE /_agent-native/mcp/servers/:id?scope=user|org` removes one the same way.
+
+</Endpoint>
 
 Stdio servers are still a no-op outside Node runtimes, but remote HTTP MCP servers work in any environment with `fetch` — including desktop production builds.
 

@@ -405,6 +405,8 @@ function SignInCta() {
 
 일반 앱 페이지는 모든 방문자에게 동일한 비개인화 공개 캐시 가능 SSR 셸을 사용합니다. `AppProviders`가 클라이언트에서 세션을 확인하며, `/dashboard` 같은 비공개 경로에서는 비공개 UI를 마운트하기 전에 익명 방문자를 `/_agent-native/sign-in?return=%2Fdashboard`로 리디렉션합니다. 로그인 후에는 `/dashboard`로 돌아옵니다. 공개/SEO 경로에는 `isPublicPath`를, MCP 임베드 토큰처럼 별도의 제한된 인증 방식을 사용하는 화면에는 `sessionBypass`를 지정하세요.
 
+셸이 캐시되는 기간은 배포 전체 설정입니다 — `AGENT_NATIVE_SSR_CACHE`에 대해서는 [SSR Caching](/docs/deployment#ssr-caching)을 참조하세요. 캐시를 단축하거나 비활성화해도 기간만 바뀔 뿐, SSR은 여전히 쿠키가 제거된 익명 분기를 렌더링합니다.
+
 ### 비하인드 스토리: 구글 OAuth
 
 두 흐름(명시적 `/_agent-native/sign-in` 진입점 및 북마크된 경로 사례) 모두 OAuth 상태를 통해 반환 URL를 스레드합니다. 상태는 HMAC로 서명되어 있으므로 전송 중에 위조될 수 없습니다. 콜백에서 반환된 URL는 리디렉션 전에 동일 출처로 재검증되므로 유출된 서명 키는 여전히 공개 리디렉션 오라클로 전환될 수 없습니다.

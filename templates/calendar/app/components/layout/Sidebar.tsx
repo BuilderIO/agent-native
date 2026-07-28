@@ -1,11 +1,11 @@
 import { appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
-import { useT } from "@agent-native/core/client/i18n";
+import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
+import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
-  IconBrain,
   IconCalendar,
   IconSettings,
   IconLink,
@@ -16,13 +16,13 @@ import {
   IconChevronRight,
   IconPlus,
   IconX,
-  IconKeyboard,
   IconInfoCircle,
   IconCheck,
   IconEye,
   IconEyeOff,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
+  IconSearch,
 } from "@tabler/icons-react";
 import {
   startOfMonth,
@@ -45,7 +45,6 @@ import { useState, useEffect, useMemo } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
-import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
@@ -96,7 +95,9 @@ const navItems = [
     labelKey: "navigation.bookingLinks",
     icon: IconLink,
   },
-  { path: "/agent", labelKey: "settings.agentTitle", icon: IconBrain },
+];
+
+const bottomNavItems = [
   { path: "/settings", labelKey: "navigation.settings", icon: IconSettings },
 ];
 
@@ -350,7 +351,7 @@ function GoogleConnectSidebarButton() {
   }
 
   return (
-    <div className="border-t border-border p-3">
+    <div className="p-3">
       <div className="rounded-lg bg-primary/10 p-3">
         <p className="mb-1 text-xs font-semibold text-foreground">
           {t("settings.connectGoogleCalendar")}
@@ -499,7 +500,7 @@ function GoogleAccountsSection({
   }
 
   return (
-    <div className="border-t border-border px-1.5 py-1.5">
+    <div className="px-1.5 py-1.5">
       <div className="mb-1 flex min-h-8 items-center justify-between px-3">
         <div className="flex items-center">
           <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
@@ -697,6 +698,61 @@ export function Sidebar({
     onClose();
   }
 
+  const collapseButton = onCollapsedChange ? (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 shrink-0 text-muted-foreground"
+          onClick={() => onCollapsedChange(!collapsed)}
+          aria-label={
+            collapsed
+              ? t("sidebar.expandSidebar")
+              : t("sidebar.collapseSidebar")
+          }
+        >
+          {collapsed ? (
+            <IconLayoutSidebarLeftExpand className="h-4 w-4 rtl:-scale-x-100" />
+          ) : (
+            <IconLayoutSidebarLeftCollapse className="h-4 w-4 rtl:-scale-x-100" />
+          )}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="top">
+        {collapsed ? t("sidebar.expandSidebar") : t("sidebar.collapseSidebar")}
+      </TooltipContent>
+    </Tooltip>
+  ) : null;
+  const searchButton = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 text-muted-foreground"
+          onClick={openCommandMenu}
+          aria-label={t("root.commandSearch")}
+        >
+          <IconSearch className="h-4 w-4" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="top">{t("root.commandSearch")}</TooltipContent>
+    </Tooltip>
+  );
+  const translateButton = (
+    <LanguagePicker variant="ghost-icon" label={t("settings.languageLabel")} />
+  );
+  const feedbackButton = (
+    <FeedbackButton
+      variant={collapsed ? "icon" : "sidebar"}
+      side="right"
+      className={collapsed ? "h-8 w-8" : "min-w-0"}
+    />
+  );
+
   return (
     <>
       {/* Mobile overlay */}
@@ -711,36 +767,18 @@ export function Sidebar({
         data-open={open ? "true" : "false"}
         data-collapsed={collapsed ? "true" : "false"}
         className={cn(
-          "agent-layout-left-drawer calendar-app-sidebar fixed start-0 top-0 z-50 flex h-full min-w-0 flex-col overflow-hidden border-e border-border bg-sidebar transition-[width,translate] duration-200 ease-out lg:static",
+          "agent-layout-left-drawer calendar-app-sidebar fixed start-0 top-0 z-50 flex h-full min-w-0 flex-col overflow-hidden bg-sidebar transition-[width,translate] duration-200 ease-out lg:static",
           collapsed ? "w-12" : "w-56",
         )}
       >
         {/* Logo */}
         <div
           className={cn(
-            "flex h-12 shrink-0 items-center justify-between gap-2.5 border-b border-border",
+            "flex h-12 shrink-0 items-center justify-between gap-2.5",
             collapsed ? "px-1" : "px-4",
           )}
         >
-          {collapsed && onCollapsedChange ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-10 w-10 shrink-0 text-muted-foreground"
-                  onClick={() => onCollapsedChange(false)}
-                  aria-label={t("sidebar.expandSidebar")}
-                >
-                  <IconLayoutSidebarLeftExpand className="h-4 w-4 rtl:-scale-x-100" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="right">
-                {t("sidebar.expandSidebar")}
-              </TooltipContent>
-            </Tooltip>
-          ) : (
+          {!collapsed && (
             <>
               <Link
                 to="/"
@@ -763,35 +801,6 @@ export function Sidebar({
                   {t("navigation.brand")}
                 </span>
               </Link>
-              {onCollapsedChange ? (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 shrink-0 text-muted-foreground"
-                      onClick={() => onCollapsedChange(!collapsed)}
-                      aria-label={
-                        collapsed
-                          ? t("sidebar.expandSidebar")
-                          : t("sidebar.collapseSidebar")
-                      }
-                    >
-                      {collapsed ? (
-                        <IconLayoutSidebarLeftExpand className="h-4 w-4 rtl:-scale-x-100" />
-                      ) : (
-                        <IconLayoutSidebarLeftCollapse className="h-4 w-4 rtl:-scale-x-100" />
-                      )}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="right">
-                    {collapsed
-                      ? t("sidebar.expandSidebar")
-                      : t("sidebar.collapseSidebar")}
-                  </TooltipContent>
-                </Tooltip>
-              ) : null}
             </>
           )}
         </div>
@@ -835,7 +844,7 @@ export function Sidebar({
               />
 
               {/* Nav */}
-              <nav className="space-y-0.5 border-t border-border p-2.5">
+              <nav className="space-y-0.5 p-2.5">
                 {navItems.map((item) => {
                   const isActive =
                     item.path === "/"
@@ -875,7 +884,7 @@ export function Sidebar({
                 )}
 
               {/* Other Calendars — people overlays + external ICS feeds combined */}
-              <div className="border-t border-border px-1.5 py-1.5">
+              <div className="px-1.5 py-1.5">
                 <div className="flex min-h-8 items-center justify-between px-3">
                   <div className="flex items-center gap-1">
                     <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
@@ -1119,47 +1128,64 @@ export function Sidebar({
           )}
         </div>
 
+        <nav
+          className={cn(
+            "shrink-0",
+            collapsed
+              ? "flex flex-col items-center gap-1 px-1 py-2"
+              : "space-y-0.5 p-2.5",
+          )}
+        >
+          {bottomNavItems.map((item) => {
+            const isActive = location.pathname.startsWith(item.path);
+            const link = (
+              <Link
+                to={item.path}
+                onClick={onClose}
+                aria-label={collapsed ? t(item.labelKey) : undefined}
+                className={cn(
+                  "flex items-center rounded-lg font-medium transition-colors",
+                  collapsed
+                    ? "h-10 w-10 justify-center"
+                    : "gap-3 px-3 py-2 text-sm",
+                  isActive
+                    ? "bg-primary/10 text-primary"
+                    : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+                )}
+              >
+                <item.icon className="h-4 w-4" />
+                {!collapsed && t(item.labelKey)}
+              </Link>
+            );
+            return collapsed ? (
+              <Tooltip key={item.path}>
+                <TooltipTrigger asChild>{link}</TooltipTrigger>
+                <TooltipContent side="right">{t(item.labelKey)}</TooltipContent>
+              </Tooltip>
+            ) : (
+              <div key={item.path}>{link}</div>
+            );
+          })}
+        </nav>
+
         {!collapsed ? (
           <div className="shrink-0">
-            <div className="px-2.5 py-1.5">
-              <ExtensionsSidebarSection />
-            </div>
-
             <div className="px-3 py-2">
               <OrgSwitcher reserveSpace />
             </div>
 
             <div className="flex items-center gap-1 px-1.5 py-1.5">
               <DevDatabaseLink />
-              <div className="min-w-0 flex-1">
-                <FeedbackButton className="px-3 py-2" />
-              </div>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 text-muted-foreground"
-                    onClick={() =>
-                      window.dispatchEvent(new Event("calendar:open-shortcuts"))
-                    }
-                  >
-                    <IconKeyboard className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="top">
-                  <p>
-                    {t("keyboardShortcuts.title")}{" "}
-                    <kbd className="ms-1 rounded border border-border bg-muted px-1 font-mono text-[10px]">
-                      ?
-                    </kbd>
-                  </p>
-                </TooltipContent>
-              </Tooltip>
-              <ThemeToggle className="h-8 w-8" />
             </div>
           </div>
         ) : null}
+        <SidebarFooterActions
+          collapsed={collapsed}
+          feedback={feedbackButton}
+          translate={translateButton}
+          search={searchButton}
+          collapse={collapseButton}
+        />
       </aside>
     </>
   );

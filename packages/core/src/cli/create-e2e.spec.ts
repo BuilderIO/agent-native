@@ -17,7 +17,7 @@ import { fileURLToPath } from "url";
  *   - postinstall scripts missing for required packages
  *   - dist/catalog.json not embedded in the built package
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import { addAppToWorkspace, createApp } from "./create.js";
 import {
@@ -31,6 +31,7 @@ import {
   _getCoreDependencyVersion,
   _getDispatchDependencyVersion,
   _getToolkitDependencyVersion,
+  _getCorePackageVersion,
   _getGitHubTemplateRef,
   _getGitHubTemplateRefCandidates,
   _githubTarballUrl,
@@ -210,6 +211,12 @@ describe("standalone scaffold — chat template", { timeout: 180_000 }, () => {
     expect(pkg["agent-native"]?.scaffold).toEqual({
       template: "chat",
       frameworkSkills: "default",
+      templateRef: expect.any(String),
+      templateSource: expect.stringMatching(
+        /^(github|bundled|local-checkout)$/,
+      ),
+      coreVersion: expect.any(String),
+      shape: "standalone",
     });
     expect(fs.existsSync(toolkitSkill)).toBe(true);
     expect(
@@ -346,6 +353,10 @@ describe("standalone scaffold — headless template", { timeout: 60000 }, () => 
     expect(readPkg(root)["agent-native"]?.scaffold).toEqual({
       template: "headless",
       frameworkSkills: "headless",
+      templateRef: expect.any(String),
+      templateSource: "bundled",
+      coreVersion: expect.any(String),
+      shape: "standalone",
     });
     expect(agents).toContain("This is a headless Agent Native app");
     expect(agents).toContain("This app is not stateless");
@@ -603,11 +614,54 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     expect(fs.existsSync(path.join(pinpointDir, "package.json"))).toBe(true);
   });
 
+  it("scaffolds the committed design bridge modules that DesignCanvas imports at module load", async () => {
+    const wsDir = await scaffoldWorkspace("my-ws", ["chat", "design"]);
+    const generatedDir = path.join(wsDir, "apps", "design", ".generated");
+    const scaffoldedBridgeDir = path.join(generatedDir, "bridge");
+
+    expect(
+      fs.existsSync(path.join(scaffoldedBridgeDir, "hit-test.generated.ts")),
+    ).toBe(true);
+
+    const sourceBridgeDir = path.join(
+      CORE_ROOT,
+      "..",
+      "..",
+      "templates",
+      "design",
+      ".generated",
+      "bridge",
+    );
+    const sourceBridgeFiles = fs.readdirSync(sourceBridgeDir).sort();
+    expect(sourceBridgeFiles.length).toBeGreaterThan(0);
+    for (const file of sourceBridgeFiles) {
+      expect(
+        fs.existsSync(path.join(scaffoldedBridgeDir, file)),
+        `expected scaffolded apps/design/.generated/bridge to include ${file}`,
+      ).toBe(true);
+    }
+
+    // Everything else under .generated is regenerated at dev time (e.g.
+    // actions-registry.ts, action-types.d.ts) and must stay excluded — only
+    // the committed bridge/ subdir survives scaffolding.
+    expect(fs.existsSync(path.join(generatedDir, "actions-registry.ts"))).toBe(
+      false,
+    );
+    expect(fs.readdirSync(generatedDir)).toEqual(["bridge"]);
+  });
+
   it("backs first-party workspace deps with scaffolded packages", async () => {
     // Includes every template that declares an @agent-native/* workspace:*
     // dep so a missing `requiredPackages` entry surfaces here instead of as
     // ERR_PNPM_WORKSPACE_PKG_NOT_FOUND on the user's machine.
-    const apps = ["assets", "calendar", "design", "slides"];
+    const apps = [
+      "analytics",
+      "assets",
+      "calendar",
+      "content",
+      "design",
+      "slides",
+    ];
     const wsDir = await scaffoldWorkspace("my-ws", apps);
 
     for (const appName of apps) {
@@ -644,6 +698,30 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
         ).not.toMatch(/^workspace:/);
         expect(val).toBe(_getCoreDependencyVersion());
       }
+    }
+  });
+
+  it("adds a prepare script so scaffolded packages self-build on install", async () => {
+    // These packages' `exports` maps point at `./dist/*`, and `dist/` is
+    // gitignored, so a clean `pnpm install` in the generated workspace must
+    // build it. pnpm always runs `prepare` for workspace packages, so every
+    // scaffolded package with a `build` script needs a `prepare` script too.
+    const wsDir = await scaffoldWorkspace("my-ws", [
+      "chat",
+      "design",
+      "slides",
+    ]);
+    const packagesDir = path.join(wsDir, "packages");
+    const packageNames = fs.readdirSync(packagesDir);
+    expect(packageNames.length).toBeGreaterThan(0);
+
+    for (const packageName of packageNames) {
+      const pkg = readPkg(path.join(packagesDir, packageName));
+      if (typeof pkg.scripts?.build !== "string") continue;
+      expect(
+        typeof pkg.scripts?.prepare === "string" && pkg.scripts.prepare !== "",
+        `packages/${packageName} has a build script but no prepare script`,
+      ).toBe(true);
     }
   });
 
@@ -976,13 +1054,13 @@ describe("workspace add-app scaffold", { timeout: 60000 }, () => {
 });
 
 describe("template/core version compatibility", () => {
-  it("uses the npm latest dist-tag for the generated core dependency", () => {
+  it("pins the generated core dependency to the exact running CLI version", () => {
     // Pin the default behaviour even when the headless install e2e has set
     // AGENT_NATIVE_CREATE_USE_LOCAL_CORE in the ambient environment.
     const previous = process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
     delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
     try {
-      expect(_getCoreDependencyVersion()).toBe("latest");
+      expect(_getCoreDependencyVersion()).toBe(_getCorePackageVersion());
     } finally {
       if (previous === undefined) {
         delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
@@ -992,12 +1070,87 @@ describe("template/core version compatibility", () => {
     }
   });
 
-  it("pins the generated toolkit dependency to latest by default", () => {
+  it("keeps core and toolkit paired even when a stale CLI scaffolds after a newer core/toolkit pair has published", () => {
+    // Simulate an old/cached CLI binary (bundled with core 0.114.2, which
+    // itself depended on toolkit ^0.8.0) running `create` after core 0.117.2
+    // (toolkit ^0.9.1) is already the npm `latest`. Pinning core to `latest`
+    // here would install 0.117.2 while the toolkit range stays ^0.8.0 from
+    // the stale CLI's own manifest — the exact duplicate/mismatched-toolkit
+    // pairing this pinning strategy exists to prevent. Pinning core to the
+    // exact version bundled with the running CLI keeps the pair consistent
+    // regardless of what `latest` has moved on to.
+    const previous = process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+    delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+    const originalReadFileSync = fs.readFileSync;
+    const readFileSyncSpy = vi
+      .spyOn(fs, "readFileSync")
+      .mockImplementation((filePath: any, options: any) => {
+        if (String(filePath).endsWith(path.join("core", "package.json"))) {
+          return JSON.stringify({
+            version: "0.114.2",
+            dependencies: { "@agent-native/toolkit": "^0.8.0" },
+          });
+        }
+        return originalReadFileSync(filePath, options);
+      });
+    try {
+      expect(_getCoreDependencyVersion()).toBe("0.114.2");
+      expect(_getToolkitDependencyVersion()).toBe("^0.8.0");
+    } finally {
+      readFileSyncSpy.mockRestore();
+      if (previous === undefined) {
+        delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+      } else {
+        process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE = previous;
+      }
+    }
+  });
+
+  it("pins the generated toolkit dependency to latest when unpublished", () => {
+    // In monorepo source, core's own package.json still has the raw
+    // `workspace:^` protocol for toolkit/dispatch, so there is no published
+    // range to trust yet — falling back to `latest` is correct here.
     const previous = process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
     delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
     try {
       expect(_getToolkitDependencyVersion()).toBe("latest");
     } finally {
+      if (previous === undefined) {
+        delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+      } else {
+        process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE = previous;
+      }
+    }
+  });
+
+  it("pins the generated toolkit dependency to the core published range", () => {
+    // Once changesets publishes core, its package.json has the `workspace:`
+    // protocol rewritten to a real semver range. Scaffolded apps must use
+    // that exact range instead of `latest`, since toolkit is versioned and
+    // published independently and its `latest` dist-tag can briefly lag or
+    // outrun the core release this CLI shipped with. Dispatch is not listed
+    // as a dependency of core, so it has no published range to read and
+    // stays pinned to `latest`.
+    const previous = process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+    delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+    const originalReadFileSync = fs.readFileSync;
+    const readFileSyncSpy = vi
+      .spyOn(fs, "readFileSync")
+      .mockImplementation((filePath: any, options: any) => {
+        if (String(filePath).endsWith(path.join("core", "package.json"))) {
+          return JSON.stringify({
+            dependencies: {
+              "@agent-native/toolkit": "^0.9.1",
+            },
+          });
+        }
+        return originalReadFileSync(filePath, options);
+      });
+    try {
+      expect(_getToolkitDependencyVersion()).toBe("^0.9.1");
+      expect(_getDispatchDependencyVersion()).toBe("latest");
+    } finally {
+      readFileSyncSpy.mockRestore();
       if (previous === undefined) {
         delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
       } else {

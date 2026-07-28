@@ -128,3 +128,15 @@ export async function updateMobileDictation(
     { session },
   );
 }
+
+let lastDictatedText: string | null = null;
+
+export function setLastDictatedText(text: string | null) {
+  lastDictatedText = text;
+}
+
+export function getAndClearLastDictatedText(): string | null {
+  const t = lastDictatedText;
+  lastDictatedText = null;
+  return t;
+}

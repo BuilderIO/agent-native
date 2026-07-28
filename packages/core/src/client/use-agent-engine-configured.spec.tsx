@@ -80,6 +80,36 @@ describe("useAgentEngineConfigured", () => {
     expect(container.textContent).toBe("configured");
   });
 
+  it("starts the readiness check on mount without blocking the initial state", async () => {
+    const responses: Array<(response: Response) => void> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            responses.push(resolve);
+          }),
+      ),
+    );
+
+    act(() => {
+      root.render(<Probe />);
+    });
+
+    expect(container.textContent).toBe("unknown");
+    expect(fetch).toHaveBeenCalledTimes(3);
+
+    await act(async () => {
+      for (const resolve of responses) {
+        resolve(jsonResponse({ configured: true }));
+      }
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toBe("configured");
+  });
+
   it("uses missing-key events when no current engine is configured", async () => {
     vi.stubGlobal(
       "fetch",
@@ -170,7 +200,7 @@ describe("useAgentEngineConfigured", () => {
     ).resolves.toBe("missing");
   });
 
-  it("returns unknown when every status check times out", async () => {
+  it("returns unavailable when every status check times out", async () => {
     vi.useFakeTimers();
     vi.stubGlobal(
       "fetch",
@@ -180,10 +210,10 @@ describe("useAgentEngineConfigured", () => {
     const status = fetchAgentEngineConfiguredState(true, { timeoutMs: 25 });
 
     await vi.advanceTimersByTimeAsync(25);
-    await expect(status).resolves.toBe("unknown");
+    await expect(status).resolves.toBe("unavailable");
   });
 
-  it("does not use missing fallback after timed-out status checks", async () => {
+  it("does not use missing fallback after unavailable status checks", async () => {
     vi.useFakeTimers();
     vi.stubGlobal(
       "fetch",
@@ -196,7 +226,76 @@ describe("useAgentEngineConfigured", () => {
     });
 
     await vi.advanceTimersByTimeAsync(25);
-    await expect(status).resolves.toBe("unknown");
+    await expect(status).resolves.toBe("unavailable");
+  });
+
+  it("retries a failed check instead of latching a dead state", async () => {
+    vi.useFakeTimers();
+    let failing = true;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string | URL | Request) => {
+        if (failing) return Promise.reject(new Error("offline"));
+        const href = String(url);
+        if (href.includes("/_agent-native/env-status")) {
+          return Promise.resolve(jsonResponse([]));
+        }
+        return Promise.resolve(jsonResponse({ configured: true }));
+      }),
+    );
+
+    act(() => {
+      root.render(<Probe />);
+    });
+    expect(container.textContent).toBe("unknown");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    // Never "missing": an unanswered probe is not evidence of no provider.
+    expect(container.textContent).toBe("unavailable");
+
+    failing = false;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(container.textContent).toBe("configured");
+  });
+
+  it("enables the composer when a slow probe eventually answers", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (url: string | URL | Request) =>
+          new Promise<Response>((resolve) => {
+            const href = String(url);
+            setTimeout(
+              () =>
+                resolve(
+                  href.includes("/_agent-native/env-status")
+                    ? jsonResponse([])
+                    : jsonResponse({ configured: true }),
+                ),
+              6000,
+            );
+          }),
+      ),
+    );
+
+    act(() => {
+      root.render(<Probe />);
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000);
+    });
+    expect(container.textContent).toBe("unknown");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4000);
+    });
+    expect(container.textContent).toBe("configured");
   });
 
   it("ignores scoped missing-key events for other tabs", async () => {

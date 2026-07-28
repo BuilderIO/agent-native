@@ -180,7 +180,7 @@ Para reducir el costo:
 - **Fije un modelo más económico.** Para Claude, configure `VISUAL_RECAP_MODEL=claude-haiku-4-5` para repositorios simples o pequeños — es el nivel más económico de Claude; `claude-sonnet-5` (el predeterminado) es el nivel equilibrado.
 - **Cambie a Codex con un modelo más económico.** Configure `VISUAL_RECAP_AGENT=codex` con `VISUAL_RECAP_MODEL=gpt-5.6-luna` (el nivel más económico de GPT-5.6) o `gpt-5.6-terra` (nivel intermedio), y configure `VISUAL_RECAP_REASONING=low` para reducir aún más el gasto en tokens de razonamiento. La profundidad de razonamiento solo se aplica a Codex.
 - **Apunte a un proveedor compatible con OpenAI más económico.** Configure `VISUAL_RECAP_AGENT=openai-compatible` con `VISUAL_RECAP_BASE_URL`/`VISUAL_RECAP_MODEL`/`VISUAL_RECAP_API_KEY` apuntando a DeepSeek, Kimi o cualquier otro endpoint compatible con OpenAI.
-- **Resuma con menos frecuencia.** Edite el `on.pull_request.types` del flujo de trabajo instalado de `[opened, synchronize, reopened, ready_for_review, closed]` a `[opened, ready_for_review, closed]` para que solo genere resúmenes cuando un PR se abre y cuando se fusiona, en lugar de en cada push.
+- **Resuma con menos frecuencia.** Edite el `on.pull_request.types` del flujo de trabajo instalado de `[opened, synchronize, reopened, ready_for_review, labeled, closed]` a `[opened, ready_for_review, closed]` para que solo genere resúmenes cuando un PR se abre y cuando se fusiona, en lugar de en cada push.
 
 Cada ejecución registra lo que realmente gastó: el paso `recap usage` del flujo de trabajo adjunta el uso de tokens y costo al plan publicado, para que pueda ver el gasto real por ejecución en lugar de adivinar.
 
@@ -479,10 +479,11 @@ name: PR Visual Recap
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, closed]
+    types: [opened, synchronize, reopened, ready_for_review, labeled, closed]
 
 jobs:
   visual-recap:
+    if: github.event.action != 'labeled' || vars.VISUAL_RECAP_REQUIRED_LABELS != ''
     permissions:
       actions: write
       contents: read
@@ -502,6 +503,7 @@ jobs:
       skill-source: ${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}
       runs-on: ${{ vars.VISUAL_RECAP_RUNS_ON || '"ubuntu-latest"' }}
       gate-runs-on: ${{ vars.VISUAL_RECAP_GATE_RUNS_ON || 'ubuntu-latest' }}
+      required-labels: ${{ vars.VISUAL_RECAP_REQUIRED_LABELS || '' }}
       # cli-version: "latest"  # pin to a specific @agent-native/recap-cli version
 ```
 

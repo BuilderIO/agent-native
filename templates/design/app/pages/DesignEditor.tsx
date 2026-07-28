@@ -45,7 +45,9 @@ import {
   type ReviewThread,
 } from "@agent-native/core/client/review";
 import { ShareButton } from "@agent-native/core/client/sharing";
+import { buildSignInReturnHref } from "@agent-native/core/client/ui";
 import type { ReviewComment } from "@agent-native/core/review";
+import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
 import { CreativeContextShareTab } from "@agent-native/creative-context/client";
 import {
   LiveCursorOverlay,
@@ -136,6 +138,7 @@ import { sourceContentHash } from "@shared/source-workspace";
 import {
   IconArrowLeft,
   IconArrowUpRight,
+  IconArrowsDown,
   IconPencil,
   IconMessage,
   IconBrush,
@@ -211,6 +214,7 @@ import {
 import { toast } from "sonner";
 import * as Y from "yjs";
 
+import { AddLocalhostScreenDialog } from "@/components/design/AddLocalhostScreenDialog";
 import { AutoLayoutSuggestionDialog } from "@/components/design/AutoLayoutSuggestionDialog";
 import {
   BreakpointDeviceControl,
@@ -231,6 +235,7 @@ import { sanitizeLocalhostSourceSnapshotHtml } from "@/components/design/design-
 import type {
   IframeContextMenuPayload,
   IframeHotkeyPayload,
+  IframeImagePastePayload,
 } from "@/components/design/design-canvas/iframe-events";
 import type { MotionTrackWire } from "@/components/design/design-canvas/motion-types";
 import { DesignCanvas } from "@/components/design/DesignCanvas";
@@ -242,6 +247,10 @@ import {
 } from "@/components/design/DesignExtensionsPanel";
 import { DesignImportPanel } from "@/components/design/DesignImportPanel";
 import { dndHostLog } from "@/components/design/dnd-debug";
+import {
+  mergeRotationValue,
+  parseRotationValue,
+} from "@/components/design/edit-panel/transform-helpers";
 import { nextTextDecorationLineValue } from "@/components/design/edit-panel/typography-helpers";
 import {
   EditPanel,
@@ -252,6 +261,7 @@ import {
   type ScreenGeometrySelection,
   type StyleChangeMeta,
 } from "@/components/design/EditPanel";
+import { FigmaHydrationDialog } from "@/components/design/FigmaHydrationDialog";
 import { FusionAppBanner } from "@/components/design/FusionAppBanner";
 import {
   beginEyedropperPick,
@@ -308,7 +318,6 @@ import {
   type ReviewCommentsPanelProps,
 } from "@/components/design/ReviewCommentsPanel";
 import type { ReviewPanelProps } from "@/components/design/ReviewPanel";
-import { ReviewStatusControl } from "@/components/design/ReviewStatusControl";
 import { TokensPanel } from "@/components/design/TokensPanel";
 import type {
   CanvasLayerHitCandidate,
@@ -561,6 +570,7 @@ import {
   getCanvasFrameGeometry,
   getDesignDataRecord,
   isDesignData,
+  nextLocalhostScreenPosition,
   parseDesignDataJson,
   staleGeometryFrameIds,
   viewportChangedFrameIds,
@@ -985,25 +995,15 @@ interface SelectedCanvasLayerSnapshot extends CanvasLayerClipboardEntry {
 }
 
 function buildSignInHrefForDesignIntent(intent: PostAuthDesignIntent): string {
-  const base = agentNativePath("/_agent-native/sign-in");
-  if (typeof window === "undefined") return base;
-
-  const returnUrl = new URL(window.location.href);
-  returnUrl.search = "";
-  returnUrl.hash = "";
-  returnUrl.searchParams.set("intent", intent);
-  const ret = returnUrl.pathname + returnUrl.search + returnUrl.hash;
-  return `${base}?return=${encodeURIComponent(ret)}`;
+  if (typeof window === "undefined") return buildSignInReturnHref();
+  return buildSignInReturnHref({
+    returnTo: `${window.location.pathname}?intent=${encodeURIComponent(intent)}`,
+  });
 }
 
 function buildSignInHrefForComment(): string {
-  const base = agentNativePath("/_agent-native/sign-in");
-  if (typeof window === "undefined") return base;
-  const returnUrl = new URL(window.location.href);
-  returnUrl.search = "";
-  returnUrl.hash = "";
-  const ret = returnUrl.pathname + returnUrl.search + returnUrl.hash;
-  return `${base}?return=${encodeURIComponent(ret)}`;
+  if (typeof window === "undefined") return buildSignInReturnHref();
+  return buildSignInReturnHref({ returnTo: window.location.pathname });
 }
 
 type PatchProofStatus =
@@ -3327,6 +3327,11 @@ function DesignEditor() {
   const pngExportingRef = useRef(false);
   const figmaSvgExportingRef = useRef(false);
   const figmaPasteImportingRef = useRef(false);
+  const [figmaHydrationOpen, setFigmaHydrationOpen] = useState(false);
+  const [figmaHydrationFileIds, setFigmaHydrationFileIds] = useState<string[]>(
+    [],
+  );
+  const [figmaHydrationImageCount, setFigmaHydrationImageCount] = useState(0);
   const generateBtnRef = useRef<HTMLButtonElement | null>(null);
   const promptAnchorRef = useRef<HTMLElement | null>(null);
   const tweakPromptAnchorRef = useRef<HTMLElement | null>(null);
@@ -3712,7 +3717,6 @@ function DesignEditor() {
     persistedReviewSummary?.openCount ?? reviewOpenThreadIds.size;
   const reviewAgentQueueCount =
     persistedReviewSummary?.agentQueueCount ?? reviewAgentQueueThreadIds.size;
-  const reviewStatus = reviewResult.data?.reviewStatus?.status ?? "draft";
   const sendReviewThreadToAgent = useSendReviewThreadToAgent();
   const [reviewSendingThreadId, setReviewSendingThreadId] = useState<
     string | null
@@ -4030,7 +4034,9 @@ function DesignEditor() {
         designId: id,
         actorScope: designSaveActorScope,
       });
-      if (result.saved.length > 0) {
+      if (result.saved.length > 0 || result.rebased.length > 0) {
+        // rebased = a 409 the server moved past; refetch so the editor rebases
+        // onto current content. No toast: the file wasn't lost, unlike dropped.
         queryClient.invalidateQueries({
           queryKey: ["action", "get-design"],
         });
@@ -4254,7 +4260,12 @@ function DesignEditor() {
             );
             if (failureKind === "offline") {
               warnChangesWillRetry();
-            } else if (failureKind !== "intentional-abort") {
+            } else if (
+              failureKind !== "intentional-abort" &&
+              failureKind !== "conflict"
+            ) {
+              // Conflicts already rebased above (acked-hash reset + get-design
+              // invalidation); a red toast for a routine rebase is just noise.
               toast.error(
                 designSaveErrorMessage(error) ?? t("common.genericError"),
                 { id: `design-save-error:${pending.id}` },
@@ -6400,11 +6411,13 @@ function DesignEditor() {
       const inspectorTab =
         command.inspectorTab === "design" ||
         command.inspectorTab === "comments" ||
-        command.inspectorTab === "tweaks"
+        command.inspectorTab === "tweaks" ||
+        command.inspectorTab === "code"
           ? command.inspectorTab
           : command.inspector === "design" ||
               command.inspector === "comments" ||
-              command.inspector === "tweaks"
+              command.inspector === "tweaks" ||
+              command.inspector === "code"
             ? command.inspector
             : undefined;
       if (inspectorTab) setActiveInspectorTab(inspectorTab);
@@ -15674,12 +15687,30 @@ function DesignEditor() {
             ? t("designEditor.import.figmaPasteRestLabel")
             : result?.strategy === "htmlFallback"
               ? t("designEditor.import.figmaPasteHtmlLabel")
-              : undefined;
+              : result?.strategy === "localKiwi"
+                ? t("designEditor.import.figmaPasteLocalKiwiLabel")
+                : undefined;
         toast.success(
           importResultSummary(result, t("designEditor.import.figmaSuccess")),
           figmaStrategyLabel ? { description: figmaStrategyLabel } : undefined,
         );
-        if (result?.figmaApiKeyMissing) {
+        if (
+          result?.strategy === "localKiwi" &&
+          (result?.unresolvedImages ?? 0) > 0 &&
+          result?.files?.length
+        ) {
+          const count = result.unresolvedImages!;
+          const fileIds = result.files.map((f) => f.id);
+          setFigmaHydrationFileIds(fileIds);
+          setFigmaHydrationImageCount(count);
+          setFigmaHydrationOpen(true);
+          toast.info(
+            t("designEditor.import.figmaPasteImagesNeedToken", {
+              count,
+              plural: count === 1 ? "" : "s",
+            }),
+          );
+        } else if (result?.figmaApiKeyMissing) {
           toast.info(t("designEditor.import.figmaPasteApiKeyHint"));
         } else if (
           result?.strategy === "htmlFallback" &&
@@ -15918,6 +15949,24 @@ function DesignEditor() {
       uploadImageFileForHtml,
       zoom,
     ],
+  );
+
+  const handleCanvasImagePaste = useCallback(
+    ({ files }: IframeImagePastePayload) => {
+      if (files.length === 0 || !canEditDesign) return;
+      const fileObjects = files.map(({ dataUrl, type, name }) => {
+        const comma = dataUrl.indexOf(",");
+        const base64 = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
+        const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+        return new File(
+          [new Blob([bytes], { type })],
+          name || "pasted-image.png",
+          { type },
+        );
+      });
+      handlePastedImageFiles(fileObjects);
+    },
+    [canEditDesign, handlePastedImageFiles],
   );
 
   // OS-file-drop (contract 13): MultiScreenCanvas's `onDropFiles` reports a
@@ -19151,6 +19200,15 @@ function DesignEditor() {
     parseSelectionScaleValue,
     selectedElement,
   ]);
+
+  const handleRotateSelectionClockwise = useCallback(() => {
+    if (!canEditDesign || !selectedElement) return;
+    const transform = selectedElement.computedStyles.transform;
+    handleStyleChange(
+      "transform",
+      mergeRotationValue(transform, parseRotationValue(transform) + 90),
+    );
+  }, [canEditDesign, handleStyleChange, selectedElement]);
 
   // Figma's Shift+X — swap fill and stroke. Matches Figma even when one side
   // is empty: an element with a fill and no stroke ends up with a stroke and
@@ -25260,6 +25318,39 @@ function DesignEditor() {
     return [...seen.values()];
   }, [activeLocalhostConnectionResult?.connections, overviewScreens]);
 
+  // "Add screen" for a localhost-sourced design offers a route picker instead
+  // of a blank artboard — see AddLocalhostScreenDialog.
+  const [addLocalhostScreenOpen, setAddLocalhostScreenOpen] = useState(false);
+  const addLocalhostScreenConnectionId =
+    activeLocalhostConnectionId ||
+    workbenchLocalhostConnections[0]?.connectionId;
+  const addLocalhostScreenFallbackPaths = useMemo(() => {
+    const paths = new Set<string>();
+    for (const screen of overviewScreens) {
+      if (screen.sourceType !== "localhost") continue;
+      const screenUrl = screen.url ?? screen.previewUrl;
+      if (!screenUrl) continue;
+      try {
+        const parsed = new URL(screenUrl);
+        paths.add(`${parsed.pathname}${parsed.search}`);
+      } catch {
+        // Skip malformed screen URLs.
+      }
+    }
+    return [...paths];
+  }, [overviewScreens]);
+  const addLocalhostScreenPosition = useMemo(
+    () => nextLocalhostScreenPosition(canvasFrameGeometryById),
+    [canvasFrameGeometryById],
+  );
+  const handleAddScreenAffordance = useCallback(() => {
+    if (designSourceType === "localhost") {
+      setAddLocalhostScreenOpen(true);
+      return;
+    }
+    handleAddScreen();
+  }, [designSourceType, handleAddScreen]);
+
   // Consent round trip for code-workbench saves to local files: opens the
   // shared write-consent dialog and retries the save once granted.
   const handleWorkbenchLocalWriteConsent = useCallback(
@@ -27263,6 +27354,11 @@ function DesignEditor() {
           selectedSelectorGroups={
             selectedLayerSelectorGroupsByScreen[screen.id] ?? []
           }
+          passiveSelectionStyle={
+            screen.breakpointWidths?.length && !screenIsActive
+              ? "soft"
+              : "default"
+          }
           hoveredSelector={
             hoveredElementScreenId === screen.id ? hoveredCanvasSelector : null
           }
@@ -27291,6 +27387,7 @@ function DesignEditor() {
           }}
           onIframeHotkey={handleIframeHotkey}
           onFigmaClipboardPaste={handleCanvasFigmaClipboardPaste}
+          onImagePaste={handleCanvasImagePaste}
           onIframeContextMenu={handleIframeContextMenu}
           onVisualStyleChange={(selector, styles, info, metadata) => {
             activateResponsiveScope();
@@ -27416,6 +27513,7 @@ function DesignEditor() {
       handleScreenElementClear,
       handleIframeHotkey,
       handleCanvasFigmaClipboardPaste,
+      handleCanvasImagePaste,
       handleIframeContextMenu,
       handleScreenVisualStyleChange,
       handleScreenVisualStructureChange,
@@ -27932,12 +28030,27 @@ function DesignEditor() {
           handleResponsiveEditScopeChange(value as ResponsiveEditScope)
         }
       >
-        <SelectTrigger
-          className="h-7 w-[190px] shrink-0 !text-[11px]"
-          aria-label={t("designEditor.breakpointBar.scope.label")}
-        >
-          <SelectValue />
-        </SelectTrigger>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <SelectTrigger
+              className="size-7 shrink-0 justify-center p-0 [&>svg:last-child]:hidden"
+              aria-label={t("designEditor.breakpointBar.scope.label")}
+              title={
+                responsiveEditScope === "only"
+                  ? t("designEditor.breakpointBar.scope.only")
+                  : t("designEditor.breakpointBar.scope.cascadeSmaller")
+              }
+            >
+              <IconArrowsDown className="size-3.5" aria-hidden="true" />
+              <SelectValue className="sr-only" />
+            </SelectTrigger>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            {responsiveEditScope === "only"
+              ? t("designEditor.breakpointBar.scope.only")
+              : t("designEditor.breakpointBar.scope.cascadeSmaller")}
+          </TooltipContent>
+        </Tooltip>
         <SelectContent>
           <SelectItem value="cascade-smaller">
             {t("designEditor.breakpointBar.scope.cascadeSmaller")}
@@ -28571,7 +28684,6 @@ function DesignEditor() {
               shareUrlLabel={t("designEditor.shareEditorLink")}
               shareUrlDescription={t("designEditor.shareEditorLinkDescription")}
               showShareLinks={false}
-              showDoneButton={false}
               shareFooterContent={shareLinkFooter}
               shareTabs={designShareTabs}
               popoverClassName={designSharePopoverClassName}
@@ -28667,9 +28779,14 @@ function DesignEditor() {
           (collaborators + play + share in a ~300px panel) cannot spare that
           without overlapping — squeezing both into one line collapsed the
           collaborators menu to a sliver behind the segments. */}
-      <div className="mt-1 flex min-w-0 items-center gap-1.5">
-        {deviceFrameControl}
-        {responsiveEditScopeControl}
+      {/* Zoom sits here rather than in the inspector tab row below: sharing
+          that row truncated the "Comments" tab label at normal panel widths. */}
+      <div className="mt-1 flex min-w-0 flex-nowrap items-center gap-1.5">
+        <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-1.5 overflow-x-auto">
+          {deviceFrameControl}
+          {responsiveEditScopeControl}
+        </div>
+        <div className="shrink-0">{renderZoomControl("inspector")}</div>
       </div>
     </div>
   );
@@ -28746,13 +28863,6 @@ function DesignEditor() {
               >
                 <div className="flex h-10 shrink-0 items-center gap-1.5 border-b border-border px-3">
                   {projectTitleControl}
-                  {id ? (
-                    <ReviewStatusControl
-                      designId={id}
-                      status={reviewStatus}
-                      editable={designAccessRole === "owner"}
-                    />
-                  ) : null}
                 </div>
                 <div className="min-h-0 flex-1">
                   <LayersPanel
@@ -28775,7 +28885,7 @@ function DesignEditor() {
                     searchQuery={layersSearchQuery}
                     onScreenSelect={handleSidebarScreenSelect}
                     onScreenOverview={handleSidebarScreenOverview}
-                    onAddScreen={handleAddScreen}
+                    onAddScreen={handleAddScreenAffordance}
                     onSearchQueryChange={setLayersSearchQuery}
                     onExpandedIdsChange={setExpandedLayerIds}
                     onSelectionChange={handleLayerSelectionChange}
@@ -28881,7 +28991,17 @@ function DesignEditor() {
                 )}
               >
                 {canEditDesign ? (
-                  <DesignImportPanel context={designExtensionContext} />
+                  <DesignImportPanel
+                    context={designExtensionContext}
+                    onImport={(result) => {
+                      const count = result.unresolvedImageRefCount ?? 0;
+                      if (count > 0 && result.files?.length) {
+                        setFigmaHydrationFileIds(result.files.map((f) => f.id));
+                        setFigmaHydrationImageCount(count);
+                        setFigmaHydrationOpen(true);
+                      }
+                    }}
+                  />
                 ) : (
                   <ReadOnlyEditorPanel
                     title={"Import requires editor access" /* i18n-ignore */}
@@ -29116,6 +29236,7 @@ function DesignEditor() {
               (selectedElement ||
                 (viewMode === "overview" && selectedScreenIds.length === 1)),
             )}
+            canRotateClockwise={canEditDesign && Boolean(selectedElement)}
             canGroup={canGroup}
             canUngroup={canUngroup}
             canPasteToReplace={
@@ -29231,6 +29352,7 @@ function DesignEditor() {
             onCopyAsCode={handleCopySelection}
             onCopyAsPng={() => void handleCopyAsPng()}
             onCopyAsSvg={() => void handleCopyAsFigmaSvg()}
+            onRotateClockwise={handleRotateSelectionClockwise}
             onPasteToReplace={canEditDesign ? handlePasteToReplace : undefined}
             onFrameSelection={canEditDesign ? handleFrameSelection : undefined}
             onCreateComponent={
@@ -29316,66 +29438,71 @@ function DesignEditor() {
                     />
                   )}
                   {showPendingVisualStyleApply ? (
-                    <div className="pointer-events-none absolute bottom-5 right-5 z-[70] flex items-end">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            className="pointer-events-auto h-11 cursor-pointer rounded-md bg-blue-500 px-4 text-sm font-semibold text-white shadow-[0_18px_40px_-20px_rgba(37,99,235,0.9)] hover:bg-blue-400 focus-visible:ring-blue-400"
-                            aria-label={t(
-                              "designEditor.pendingVisualStyles.applyAria",
-                            )}
-                          >
-                            <IconBrush className="h-4 w-4" />
-                            {t(
-                              pendingStructureVerificationBusy
-                                ? "designEditor.pendingVisualStyles.verifying"
-                                : pendingStructureVerificationStatus ===
-                                    "conflict"
-                                  ? "designEditor.pendingVisualStyles.retryWithAgent"
-                                  : "designEditor.pendingVisualStyles.applyButton",
-                            )}
-                            <span className="rounded bg-white/20 px-1.5 py-0.5 text-xs font-semibold text-white">
-                              {pendingVisualStylePropertyCount}
-                            </span>
-                            <IconChevronDown className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent
-                          align="end"
-                          className="design-editor-app-menu-content w-64"
+                    <div
+                      data-design-pending-visual-style-toolbar
+                      className="pointer-events-none absolute inset-x-0 top-4 z-[70] flex justify-center px-4"
+                    >
+                      <div className="pointer-events-auto flex w-fit max-w-full items-center overflow-x-auto rounded-xl border border-white/10 bg-[#2c2c2c]/95 p-1.5 text-neutral-100 shadow-[0_22px_55px_-24px_rgba(0,0,0,0.9),0_0_0_1px_rgba(0,0,0,0.25)] backdrop-blur">
+                        <Button
+                          className="h-11 min-w-0 shrink-0 cursor-pointer rounded-md bg-blue-500 px-4 text-sm font-semibold text-white hover:bg-blue-400 focus-visible:ring-blue-400"
+                          aria-label={t(
+                            "designEditor.pendingVisualStyles.applyAria",
+                          )}
+                          disabled={pendingStructureVerificationBusy}
+                          onClick={handleApplyPendingVisualStylesWithAgent}
                         >
-                          <DropdownMenuLabel className="text-xs text-muted-foreground">
-                            {t("designEditor.pendingVisualStyles.previewLabel")}
-                          </DropdownMenuLabel>
-                          <DropdownMenuItem
-                            disabled={pendingStructureVerificationBusy}
-                            onClick={handleApplyPendingVisualStylesWithAgent}
-                          >
-                            <IconMessage className="mr-2 h-4 w-4" />
+                          <span className="truncate">
                             {t(
                               pendingStructureVerificationBusy
                                 ? "designEditor.pendingVisualStyles.verifying"
                                 : pendingStructureVerificationStatus ===
                                     "conflict"
                                   ? "designEditor.pendingVisualStyles.retryWithAgent"
-                                  : "designEditor.pendingVisualStyles.applyWithAgent",
+                                  : "designEditor.pendingVisualStyles.applyDesignUpdates",
                             )}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={handleCopyPendingVisualStylePrompt}
+                          </span>
+                          <span className="rounded bg-white/20 px-1.5 py-0.5 text-xs font-semibold text-white">
+                            {pendingVisualStylePropertyCount}
+                          </span>
+                        </Button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              className="h-11 w-8 shrink-0 cursor-pointer rounded-md border-l border-white/20 bg-blue-500 px-0 text-white hover:bg-blue-400 focus-visible:ring-blue-400"
+                              aria-label={t(
+                                "designEditor.pendingVisualStyles.previewLabel",
+                              )}
+                            >
+                              <IconChevronDown className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent
+                            align="end"
+                            className="design-editor-app-menu-content w-64"
                           >
-                            <IconClipboard className="mr-2 h-4 w-4" />
-                            {t("designEditor.pendingVisualStyles.copyPrompt")}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            className="text-destructive focus:text-destructive"
-                            onClick={handleAbortPendingVisualStyles}
-                          >
-                            <IconX className="mr-2 h-4 w-4" />
-                            {t("designEditor.pendingVisualStyles.abortPreview")}
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                            <DropdownMenuLabel className="text-xs text-muted-foreground">
+                              {t(
+                                "designEditor.pendingVisualStyles.previewLabel",
+                              )}
+                            </DropdownMenuLabel>
+                            <DropdownMenuItem
+                              onClick={handleCopyPendingVisualStylePrompt}
+                            >
+                              <IconClipboard className="mr-2 h-4 w-4" />
+                              {t("designEditor.pendingVisualStyles.copyPrompt")}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              className="text-destructive focus:text-destructive"
+                              onClick={handleAbortPendingVisualStyles}
+                            >
+                              <IconX className="mr-2 h-4 w-4" />
+                              {t(
+                                "designEditor.pendingVisualStyles.abortPreview",
+                              )}
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
                     </div>
                   ) : null}
                   {viewMode === "overview" ? (
@@ -29393,6 +29520,7 @@ function DesignEditor() {
                         pendingReviewScreenIds={pendingNodeRewriteScreenIds}
                         onReviewPendingScreen={handleReviewPendingScreen}
                         interactMode={mode === "interact"}
+                        readOnly={!canEditDesign}
                         activeScreenHasHoveredChild={
                           Boolean(hoveredElement) &&
                           !hoveredElementIsScreenRoot &&
@@ -29489,6 +29617,7 @@ function DesignEditor() {
                         onBoardFigmaClipboardPaste={
                           handleCanvasFigmaClipboardPaste
                         }
+                        onBoardImagePaste={handleCanvasImagePaste}
                         onBoardIframeContextMenu={handleIframeContextMenu}
                         onBoardTextEditingStateChange={
                           handleBoardTextEditingStateChange
@@ -29717,6 +29846,7 @@ function DesignEditor() {
                         }}
                         onIframeHotkey={handleIframeHotkey}
                         onFigmaClipboardPaste={handleCanvasFigmaClipboardPaste}
+                        onImagePaste={handleCanvasImagePaste}
                         onIframeContextMenu={handleIframeContextMenu}
                         onVisualStyleChange={handleVisualStyleChange}
                         onVisualStructureChange={handleVisualStructureChange}
@@ -29940,6 +30070,7 @@ function DesignEditor() {
               <div className="min-h-0 flex-1">
                 <EditPanel
                   selectedElement={selectedElement}
+                  readOnly={!canEditDesign}
                   selectedElements={selectedInspectorElements}
                   selectedScreenGeometry={selectedScreenGeometry}
                   pageStyles={pageStyles}
@@ -29949,7 +30080,6 @@ function DesignEditor() {
                     canEditDesign ? handleCreateScreenFromPreset : undefined
                   }
                   zoom={zoom}
-                  headerTrailing={renderZoomControl("inspector")}
                   width={rightSidebarWidth}
                   activeTab={activeInspectorTab}
                   onActiveTabChange={setActiveInspectorTab}
@@ -30031,6 +30161,7 @@ function DesignEditor() {
             <div className="h-full min-h-0 pt-8">
               <EditPanel
                 selectedElement={selectedElement}
+                readOnly={!canEditDesign}
                 selectedElements={selectedInspectorElements}
                 selectedScreenGeometry={selectedScreenGeometry}
                 pageStyles={pageStyles}
@@ -30130,6 +30261,17 @@ function DesignEditor() {
           if (!open) setAutoLayoutSuggestionPreview(null);
         }}
         onApply={handleApplyAutoLayoutSuggestion}
+      />
+
+      <FigmaHydrationDialog
+        open={figmaHydrationOpen}
+        onOpenChange={setFigmaHydrationOpen}
+        designId={id ?? ""}
+        fileIds={figmaHydrationFileIds}
+        imageCount={figmaHydrationImageCount}
+        onHydrated={() => {
+          void queryClient.invalidateQueries({ queryKey: ["action"] });
+        }}
       />
 
       <AlertDialog open={pendingScreenDeletion !== null}>
@@ -30363,7 +30505,10 @@ function DesignEditor() {
                 )}
                 {migrationResult.url && (
                   <a
-                    href={migrationResult.url}
+                    href={withBuilderUtmTrackingParams(migrationResult.url, {
+                      campaign: "product",
+                      content: "design_migration",
+                    })}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center gap-1.5 text-sm text-[var(--design-editor-accent-color)] hover:underline"
@@ -30526,6 +30671,16 @@ function DesignEditor() {
           payload={localhostWriteConsentPayload}
         />
       )}
+      {id ? (
+        <AddLocalhostScreenDialog
+          open={addLocalhostScreenOpen}
+          onOpenChange={setAddLocalhostScreenOpen}
+          designId={id}
+          connectionId={addLocalhostScreenConnectionId}
+          fallbackPaths={addLocalhostScreenFallbackPaths}
+          position={addLocalhostScreenPosition}
+        />
+      ) : null}
     </div>
   );
 }

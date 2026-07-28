@@ -1,3 +1,5 @@
+import { appPath } from "@agent-native/core/client/api-path";
+import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import {
   useActionMutation,
   useActionQuery,
@@ -99,6 +101,8 @@ interface Meeting {
   recordingId?: string | null;
   recordingDurationMs?: number | null;
   transcriptStatus?: "pending" | "ready" | "failed" | "in_progress" | string;
+  visibility?: "private" | "org" | "public" | null;
+  shareTranscript?: boolean | null;
   summaryMd?: string | null;
   userNotesMd?: string | null;
   bulletsJson?: Bullet[] | null;
@@ -313,7 +317,10 @@ export default function MeetingDetailRoute() {
     meeting?: Omit<Meeting, "participants" | "segmentsJson"> | null;
     participants?: Participant[];
     actionItems?: ActionItem[];
-    transcript?: { segmentsJson?: TranscriptSegment[] | null } | null;
+    transcript?: {
+      fullText?: string | null;
+      segmentsJson?: TranscriptSegment[] | null;
+    } | null;
     recording?: { id: string; durationMs?: number | null } | null;
     role?: "owner" | "admin" | "editor" | "viewer";
   };
@@ -538,6 +545,30 @@ export default function MeetingDetailRoute() {
 
   const handleEndMeeting = () => {
     if (!meeting) return;
+    // The meeting share link is valid independently of the stop call, so copy
+    // it while the user's click still counts as activation instead of waiting
+    // on the mutation. The public meeting page resolves `visibility = public`
+    // rows only — anything else would hand the user a link that 404s for the
+    // people they send it to.
+    if (meeting.visibility === "public" && typeof window !== "undefined") {
+      const shareUrl = `${window.location.origin}${appPath(
+        `/share/meeting/${meeting.id}`,
+      )}`;
+      void writeClipboardText(shareUrl).then((copied) => {
+        if (copied) {
+          toast.success(t("recordRoute.linkCopied"));
+          return;
+        }
+        toast(t("meetingDetail.share"), {
+          action: {
+            label: t("recordRoute.copyLinkAction"),
+            onClick: () => {
+              void writeClipboardText(shareUrl);
+            },
+          },
+        });
+      });
+    }
     // Optimistic: flip the live badge off immediately rather than waiting
     // for the next 2s poll — stop-meeting-recording stamps actualEnd and
     // flips transcriptStatus server-side.
@@ -682,6 +713,12 @@ export default function MeetingDetailRoute() {
           <ShareMeetingPopover
             meetingId={meeting.id}
             meetingTitle={meeting.title}
+            shareTranscript={meeting.shareTranscript === true}
+            transcriptReady={
+              meeting.transcriptStatus === "ready" &&
+              (segments.length > 0 ||
+                Boolean(data?.transcript?.fullText?.trim()))
+            }
           >
             <Button size="sm" className="shrink-0 gap-1.5">
               <IconShare3 className="h-4 w-4" />

@@ -1,5 +1,6 @@
 import { getDbExec } from "../db/client.js";
-import { getUserSetting, putUserSetting } from "../settings/user-settings.js";
+import { getUserSetting } from "../settings/user-settings.js";
+import { setActiveOrgId } from "./active-org.js";
 
 const nanoid = (): string =>
   globalThis.crypto?.randomUUID?.().replace(/-/g, "") ??
@@ -14,9 +15,10 @@ export interface AutoJoinDomainOptions {
   /**
    * The signup hook should not clobber an org selected by an invite flow, but
    * request-time org resolution may need to move an existing account from a
-   * personal workspace into its newly matched company org.
+   * personal workspace into its newly matched company org. `"never"` joins
+   * without touching `active-org-id` — the caller decides activation itself.
    */
-  activateJoinedOrg?: "if-missing" | "always";
+  activateJoinedOrg?: "if-missing" | "always" | "never";
 }
 
 /**
@@ -96,13 +98,17 @@ export async function autoJoinDomainMatchingOrgs(
   // one, unless the caller is request-time org resolution intentionally moving
   // an existing account into its newly matched company org.
   let activeOrgId: string | null = null;
-  if (joined[0]) {
+  if (joined[0] && options.activateJoinedOrg !== "never") {
     try {
       const existing = await getUserSetting(email, "active-org-id");
       const hasActive = Boolean(existing?.orgId);
       if (options.activateJoinedOrg === "always" || !hasActive) {
         activeOrgId = joined[0].orgId;
-        await putUserSetting(email, "active-org-id", { orgId: activeOrgId });
+        await setActiveOrgId(
+          email,
+          activeOrgId,
+          "auto-joined domain-matched org",
+        );
       }
     } catch {
       // settings table missing — not fatal.

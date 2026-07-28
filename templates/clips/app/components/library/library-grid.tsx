@@ -3,8 +3,12 @@ import {
   setClientAppState,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { IconAlertTriangle } from "@tabler/icons-react";
-import { useEffect, useMemo, useState } from "react";
+import {
+  IconAlertTriangle,
+  IconChevronLeft,
+  IconChevronRight,
+} from "@tabler/icons-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { CreateFolderDialog } from "@/components/library/create-folder-dialog";
@@ -13,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import {
   useFolders,
   useRecordings,
+  useRecordingsCount,
   useTrashRecording,
   useArchiveRecording,
   useRestoreRecording,
@@ -53,6 +58,8 @@ function Skeleton() {
     </div>
   );
 }
+
+const PAGE_SIZE = 100;
 
 interface FolderTargetRow {
   id: string;
@@ -105,12 +112,37 @@ export function LibraryGrid({
   const t = useT();
   const [sort, setSort] = useState<SortKey>("recent");
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
   const selectionMode = selected.size > 0;
   const [sharingRec, setSharingRec] = useState<RecordingSummary | null>(null);
   const [createFolderTarget, setCreateFolderTarget] =
     useState<CreateFolderTarget | null>(null);
   const [isBulkPending, setIsBulkPending] = useState(false);
+  const [page, setPage] = useState(1);
   const selectionStateKey = useMemo(() => `selection:${getBrowserTabId()}`, []);
+
+  useEffect(() => {
+    setPage(1);
+    setSelected(new Set());
+    setLastSelectedId(null);
+  }, [view, folderId, spaceId, tagFilter, sort]);
+
+  const countArgs = useMemo(
+    () => ({
+      view,
+      folderId: folderId ?? null,
+      spaceId: spaceId ?? null,
+      tag: tagFilter ?? null,
+    }),
+    [view, folderId, spaceId, tagFilter],
+  );
+  const { data: totalCount } = useRecordingsCount(countArgs);
+  const total = totalCount ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
 
   const args: ListRecordingsArgs = useMemo(
     () => ({
@@ -119,8 +151,10 @@ export function LibraryGrid({
       spaceId: spaceId ?? null,
       tag: tagFilter ?? null,
       sort,
+      limit: PAGE_SIZE,
+      offset: (page - 1) * PAGE_SIZE,
     }),
-    [view, folderId, spaceId, tagFilter, sort],
+    [view, folderId, spaceId, tagFilter, sort, page],
   );
 
   const { data, isLoading, isError, refetch, isRefetching } =
@@ -189,17 +223,53 @@ export function LibraryGrid({
     };
   }, [selectionStateKey]);
 
-  const toggleSelect = (id: string) => {
+  const handleToggleSelect = useCallback(
+    (id: string, shiftKey = false) => {
+      setSelected((prev) => {
+        if (shiftKey && lastSelectedId && lastSelectedId !== id) {
+          const ids = recordings.map((r) => r.id);
+          const fromIndex = ids.indexOf(lastSelectedId);
+          const toIndex = ids.indexOf(id);
+          if (fromIndex !== -1 && toIndex !== -1) {
+            const [start, end] =
+              fromIndex < toIndex ? [fromIndex, toIndex] : [toIndex, fromIndex];
+            const next = new Set(prev);
+            for (let i = start; i <= end; i++) next.add(ids[i]);
+            return next;
+          }
+        }
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      });
+      setLastSelectedId(id);
+    },
+    [lastSelectedId, recordings],
+  );
+
+  const allSelected =
+    recordings.length > 0 && recordings.every(({ id }) => selected.has(id));
+
+  const toggleSelectAll = useCallback(() => {
     setSelected((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      const visibleIds = recordings.map(({ id }) => id);
+      const allVisibleSelected = visibleIds.every((id) => prev.has(id));
+
+      for (const id of visibleIds) {
+        if (allVisibleSelected) next.delete(id);
+        else next.add(id);
+      }
+
       return next;
     });
-  };
+    setLastSelectedId(null);
+  }, [recordings]);
 
   const clearSelection = () => {
     setSelected(new Set());
+    setLastSelectedId(null);
   };
 
   const moveRecordings = async (
@@ -321,7 +391,7 @@ export function LibraryGrid({
       )}
 
       {/* Grid body */}
-      <div className="relative flex min-h-0 flex-1 overflow-hidden">
+      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
         <div
           className={cn(
             "min-h-0 flex-1 overflow-y-auto",
@@ -371,13 +441,9 @@ export function LibraryGrid({
                     }
                     selectionMode={canManageRecordings && selectionMode}
                     onToggleSelect={
-                      canManageRecordings ? toggleSelect : undefined
+                      canManageRecordings ? handleToggleSelect : undefined
                     }
-                    onShare={
-                      canManageRecordings
-                        ? (rec) => setSharingRec(rec)
-                        : undefined
-                    }
+                    onShare={(rec) => setSharingRec(rec)}
                     moveTargets={moveTargets}
                     onMove={canMoveSelection ? moveSingle : undefined}
                     isMovePending={moveRecording.isPending}
@@ -430,12 +496,51 @@ export function LibraryGrid({
           </div>
         </div>
 
+        {!isLoading && recordings.length > 0 && totalPages > 1 && (
+          <div className="flex shrink-0 items-center justify-between gap-3 border-t border-border px-5 py-2.5">
+            <span className="text-xs text-muted-foreground">
+              {t("libraryGrid.paginationRange", {
+                start: (page - 1) * PAGE_SIZE + 1,
+                end: (page - 1) * PAGE_SIZE + recordings.length,
+                total,
+              })}
+            </span>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page <= 1}
+              >
+                <IconChevronLeft className="h-3.5 w-3.5" />
+                {t("libraryGrid.paginationPrevious")}
+              </Button>
+              <span className="text-xs text-muted-foreground">
+                {t("libraryGrid.paginationPage", { page, totalPages })}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1"
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page >= totalPages}
+              >
+                {t("libraryGrid.paginationNext")}
+                <IconChevronRight className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          </div>
+        )}
+
         {/* Keep selected-library actions visible while the recording list scrolls. */}
         {canManageRecordings && selected.size > 0 && (
           <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 flex justify-center px-4 pb-4">
             <div className="pointer-events-auto max-w-full overflow-x-auto">
               <BulkActionToolbar
                 count={selected.size}
+                allSelected={allSelected}
+                onSelectAll={toggleSelectAll}
                 moveTargets={moveTargets}
                 onArchive={async () => {
                   setIsBulkPending(true);

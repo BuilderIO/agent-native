@@ -1,15 +1,4 @@
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@agent-native/toolkit/ui/alert-dialog";
-import { Checkbox } from "@agent-native/toolkit/ui/checkbox";
 import type {
   BuilderCmsPublicationTransitionIntent,
   BuilderCmsWriteEffect,
@@ -27,7 +16,18 @@ import {
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -291,6 +291,7 @@ export function BuilderSourceReviewDialog({
   source,
   canEdit,
   pending,
+  executionPending = false,
   batchResult = null,
   error = null,
   checkedAt,
@@ -307,6 +308,7 @@ export function BuilderSourceReviewDialog({
   source: ContentDatabaseSource | null;
   canEdit: boolean;
   pending: boolean;
+  executionPending?: boolean;
   // Optional so the inline-database caller (DatabaseView) that doesn't surface
   // batch results can still mount the dialog.
   batchResult?: ExecuteBuilderSourceBatchResponse | null;
@@ -485,7 +487,7 @@ export function BuilderSourceReviewDialog({
       : review?.result.status,
   );
   const footerHint = pending
-    ? preparedForExecution
+    ? executionPending
       ? "Sending to Builder…"
       : "Preparing full review…"
     : hasUnconfirmedUnpublish
@@ -517,7 +519,7 @@ export function BuilderSourceReviewDialog({
             ? `Push ${selectedReviewRows.length} updates`
             : "Push update";
   const buttonLabel = pending
-    ? preparedForExecution
+    ? executionPending
       ? "Sending…"
       : "Preparing…"
     : checked && review?.result.status === "running"

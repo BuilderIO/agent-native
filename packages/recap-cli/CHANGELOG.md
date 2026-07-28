@@ -1,5 +1,35 @@
 # @agent-native/recap-cli
 
+## 0.5.1
+
+### Patch Changes
+
+- 03a043e: Retry transient recap document-load timeouts and only embed screenshot previews when both light and dark themes are available.
+
+## 0.5.0
+
+### Minor Changes
+
+- f8fe58b: Add `VISUAL_RECAP_REQUIRED_LABELS` so PR Visual Recap can run only when a pull request has an opt-in label.
+
+## 0.4.7
+
+### Patch Changes
+
+- 687fefc: Bundle the visual recap workflow as a package asset instead of an escaped source string.
+
+## 0.4.6
+
+### Patch Changes
+
+- fb32d85: Run configurable PR Visual Recap jobs with Bash on every runner platform.
+
+## 0.4.5
+
+### Patch Changes
+
+- 570be31: Skip visual recap publishing when the authoring agent does not produce recap source.
+
 ## 0.4.4
 
 ### Patch Changes

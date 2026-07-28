@@ -1,0 +1,149 @@
+---
+title: "Content: Local Files, Notion & Builder CMS Sync"
+description: "Edit Content documents from outside the app: a local Markdown/MDX folder, a linked Notion page, or a Builder CMS entry, each with reviewable two-way sync."
+---
+
+# Local Files, Notion & Builder CMS Sync
+
+A Content document doesn't have to be edited only inside the app. This page covers the three ways to keep a document in sync with something outside Content: a folder of Markdown/MDX files on disk, a linked Notion page, or a Builder CMS entry. Each is optional, and a document can use more than one.
+
+<Diagram id="doc-block-content6" title="Three sync surfaces, one canonical document" summary={"SQL is always the source of truth for a document's live state. Local files, Notion, and Builder CMS are round-trip surfaces around it, never a second source of truth."}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-box">
+      Local .md / .mdx folder<br /><small class="diagram-muted"
+        >Pull · Check · Push</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">documents (markdown)</span
+    ><small class="diagram-muted">canonical SQL store</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">
+      Notion page<br /><small class="diagram-muted"
+        >pull · push · comments</small
+      >
+    </div>
+    <div class="diagram-box">
+      Builder CMS entry<br /><small class="diagram-muted"
+        >pull · guarded push</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## Local Markdown/MDX folder sync
+
+Open `/local-files` and connect a folder from your browser or Agent Native Desktop. This is the "Obsidian for MDX" workflow: files stay inspectable and editable on disk with your own tools, while Content still gives you a rich editor, agent actions, sharing, and custom blocks on the same pages.
+
+Each row in `/local-files` gives you three actions:
+
+- **Pull** — import the folder's current files into Content as ordinary documents.
+- **Check** — run the same import as a dry run, so you can preview what would change before committing to it.
+- **Push** — export the current document tree back out to the folder as Markdown/MDX files.
+
+Every exported file carries frontmatter (`id`, `title`, `parentId`, `position`, favorite/search/visibility flags, `updatedAt`) plus the page body as Markdown, so editing the file directly and pulling it back in updates the same document instead of creating a duplicate. If the same page changed on both sides since the last sync, or a file that used to exist is now missing, Content surfaces it as a conflict to review instead of silently deleting or overwriting either side. Disconnecting a folder always leaves both the Content pages and the files on disk in place.
+
+To open Content for an existing repo directly against a folder:
+
+```bash
+npx @agent-native/core@latest content .
+```
+
+This starts normal database-backed Content and registers an opaque local-folder connection in `agent-native.json` — it does not switch the app into a separate local-only mode. See [Local folder sources](/docs/local-file-mode) for the manifest format, truth policies, and Desktop bridge details.
+
+### Local MDX components
+
+A local-file workspace can expose its own React components as custom MDX blocks. Export a PascalCase component from a `.tsx` file in the configured `components` folder, and it becomes usable as `<ImpactCounter />` both in raw MDX and from the editor's slash menu under **Local components**. Components can also export simple editable input metadata, so selecting the component in the editor shows a corner edit button that rewrites its MDX props without touching code. Live component previews need a local Content dev server or Agent Native Desktop, since the browser alone can't compile `.tsx` files.
+
+## Notion sync
+
+Connect your Notion workspace once, then link any document to a Notion page. From there:
+
+- **Pull** overwrites the local document with the Notion page's current content.
+- **Push** overwrites the Notion page with the local document's current content.
+- Comments sync in both directions too.
+
+Content stores documents as Notion-Flavored Markdown — the same format Notion's own API emits and accepts — so a synced page round-trips byte-identical instead of drifting after repeated pulls and pushes. If both sides changed since the last sync, the link enters a conflict state and you choose a direction (pull-wins or push-wins) rather than getting an automatic line-level merge.
+
+Ask the agent: "Is Notion connected?", "Link this doc to Notion," "Pull the latest from Notion," or "Show me every document linked to Notion."
+
+## Builder CMS sync
+
+If your workspace has Builder.io configured, Content can pull a Builder docs or blog entry in as an editable document, complete with its `.builder.mdx` source file and any raw sidecar files Builder needs to reconstruct the entry. Edit it like any other Content document, then push it back through a guarded autosave — pushes currently target Builder's designated safe test model rather than every model, so a push can't accidentally overwrite production content you didn't intend to touch.
+
+Builder CMS models can also be attached as read-only inline-database sources — see [Databases, properties & forms](/docs/template-content-databases#connecting-an-external-source) for that workflow, which is a separate path from pulling/pushing a single document.
+
+<Callout tone="warning">
+
+Builder pulls can preserve provider-native blocks Content doesn't have a Markdown mapping for yet, marked as read-only `<SourceComponent>` placeholders in the source file. Treat those as preservation anchors: edit the prose around them freely, but don't delete, duplicate, or rewrite the marker itself — a guarded push refuses to go out if a marker looks tampered with or moved.
+
+</Callout>
+
+## Spaces and the Files database underneath every sync surface
+
+Every document belongs to a **space** — your personal space, or one shared with your organization — and every space owns one canonical Files database. A local folder, once connected, is a source attached to that Files database rather than a separate storage system, which is why imported files show up as normal pages with the same properties, sharing, and search as anything you typed by hand.
+
+<FileTree
+  id="doc-block-content7"
+  title="Sync contracts"
+  entries={[
+    {
+      path: "shared/content-source.ts",
+      note: "Single contract for local-folder filenames, frontmatter, parsing, and serialization",
+    },
+    {
+      path: "shared/nfm.ts",
+      note: "Notion-Flavored Markdown converter — the canonical Notion sync format",
+    },
+    {
+      path: "actions/pull-builder-doc.ts",
+      note: "Pull a Builder docs/blog entry into Content",
+    },
+    {
+      path: "actions/push-builder-doc.ts",
+      note: "Guarded autosave push back to Builder",
+    },
+  ]}
+/>
+
+## What's next
+
+- [Content overview](/docs/template-content) — what the app is and how to get started
+- [Writing & organizing documents](/docs/template-content-editing) — the editor and sharing model these synced documents use
+- [Databases, properties & forms](/docs/template-content-databases) — syncing rows inside a database, rather than whole documents
+- [Local folder sources](/docs/local-file-mode) — full configuration, truth policies, and conflict handling reference
+- [Developer Guide](/docs/template-content-developers) — the full sync action inventory and data model

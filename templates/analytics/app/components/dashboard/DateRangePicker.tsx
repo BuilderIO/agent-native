@@ -27,7 +27,7 @@ export function dateRangeToInterval(range: DateRange): number {
 
 export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
   return (
-    <div className="flex items-center gap-1 rounded-lg border border-border p-1">
+    <div className="flex items-center gap-1 rounded-lg bg-card p-1">
       {options.map((opt) => (
         <Button
           key={opt.value}
@@ -35,7 +35,7 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
           size="sm"
           className={cn(
             "h-7 px-3 text-xs",
-            value === opt.value && "bg-secondary text-secondary-foreground",
+            value === opt.value && "bg-accent text-accent-foreground",
           )}
           onClick={() => onChange(opt.value)}
         >

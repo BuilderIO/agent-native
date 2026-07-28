@@ -60,6 +60,8 @@ describe("toolkit must not import core guard", () => {
   it("scans Toolkit source, config, and scripts while excluding generated artifacts", () => {
     for (const file of [
       "packages/toolkit/src/index.ts",
+      "packages/toolkit/src/design-system/default-adapter.tsx",
+      "packages/toolkit/src/conformance/runner.tsx",
       "packages/toolkit/vite.config.ts",
       "packages/toolkit/scripts/finalize-build.mjs",
     ]) {

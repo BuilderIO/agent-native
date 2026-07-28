@@ -4,6 +4,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { _getCoreDependencyVersion } from "./create.js";
 import {
   applyStarterToolchainSync,
   applyWorkspaceFileSync,
@@ -35,7 +36,7 @@ describe("sync-builder-starter-manifest", () => {
       };
 
       expect(packageJson.name).toBe("builder-agent-native-starter");
-      expect(deps["@agent-native/core"]).toBe("latest");
+      expect(deps["@agent-native/core"]).toBe(_getCoreDependencyVersion());
       expect(deps.postgres).toBe("^3.4.9");
       expect(
         Object.values(deps).some((value) => value.startsWith("workspace:")),

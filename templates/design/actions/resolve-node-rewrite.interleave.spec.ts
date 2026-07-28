@@ -28,6 +28,7 @@ const mocks = vi.hoisted(() => {
     selectChain,
     state: new Map<string, Record<string, unknown>>(),
     live: { content: initialContent, versionHash: "hash_base" },
+    readLiveSourceFile: vi.fn(),
     writeInlineSourceFile: vi.fn(),
   };
 });
@@ -49,13 +50,34 @@ vi.mock("@agent-native/core/application-state", () => ({
   compareAndSetAppState: vi.fn(
     async (
       key: string,
-      expected: Record<string, unknown>,
+      expected: Record<string, unknown> | null,
       next: Record<string, unknown> | null,
     ) => {
-      const current = mocks.state.get(key);
+      const current = mocks.state.get(key) ?? null;
       if (JSON.stringify(current) !== JSON.stringify(expected)) return false;
       if (next) mocks.state.set(key, next);
       else mocks.state.delete(key);
+      return true;
+    },
+  ),
+  compareAndSetManyAppState: vi.fn(
+    async (
+      operations: Array<{
+        key: string;
+        expectedValue: Record<string, unknown> | null;
+        nextValue: Record<string, unknown> | null;
+      }>,
+    ) => {
+      const matches = operations.every(
+        ({ key, expectedValue }) =>
+          JSON.stringify(mocks.state.get(key) ?? null) ===
+          JSON.stringify(expectedValue),
+      );
+      if (!matches) return false;
+      for (const { key, nextValue } of operations) {
+        if (nextValue) mocks.state.set(key, nextValue);
+        else mocks.state.delete(key);
+      }
       return true;
     },
   ),
@@ -91,10 +113,7 @@ vi.mock("../server/db/index.js", () => ({
 }));
 
 vi.mock("../server/source-workspace.js", () => ({
-  readLiveSourceFile: vi.fn(async () => ({
-    ...mocks.live,
-    language: "html",
-  })),
+  readLiveSourceFile: mocks.readLiveSourceFile,
   writeInlineSourceFile: mocks.writeInlineSourceFile,
 }));
 
@@ -102,6 +121,7 @@ import {
   designRepromptPendingStateKey,
   designRepromptProposalStateKey,
 } from "../shared/node-rewrite.js";
+import beginAction from "./begin-node-rewrite-request.js";
 import proposeAction from "./propose-node-rewrite.js";
 import resolveAction from "./resolve-node-rewrite.js";
 
@@ -112,6 +132,10 @@ describe("node rewrite propose/accept interleave", () => {
     mocks.live.content = mocks.initialContent;
     mocks.live.versionHash = "hash_base";
     mocks.selectChain.limit.mockResolvedValue([mocks.file]);
+    mocks.readLiveSourceFile.mockImplementation(async () => ({
+      ...mocks.live,
+      language: "html",
+    }));
     mocks.writeInlineSourceFile.mockResolvedValue({
       changed: true,
       versionHash: "hash_next",
@@ -165,5 +189,94 @@ describe("node rewrite propose/accept interleave", () => {
     expect(
       mocks.state.has(designRepromptPendingStateKey("design_1", "file_1")),
     ).toBe(true);
+  });
+
+  it("does not write an old proposal when a newer request wins before reservation", async () => {
+    const proposed = await proposeAction.run({
+      source: { fileId: "file_1" },
+      target: { nodeId: "hero" },
+      baseVersionHash: "hash_base",
+      repromptId: "reprompt_1",
+      variants: [
+        {
+          html: '<section data-agent-native-node-id="hero">New</section>',
+          summary: "Updated hero",
+        },
+      ],
+    });
+    let finishRead!: () => void;
+    mocks.readLiveSourceFile.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishRead = () =>
+            resolve({ ...mocks.live, language: "html" } as never);
+        }),
+    );
+
+    const accepting = resolveAction.run({
+      proposalId: proposed.proposalId,
+      resolution: "accept",
+    });
+    await vi.waitFor(() => expect(finishRead).toBeTypeOf("function"));
+    await beginAction.run({
+      repromptId: "reprompt_2",
+      designId: "design_1",
+      fileId: "file_1",
+      target: { nodeId: "hero" },
+      baseVersionHash: "hash_base",
+      instruction: "Try another direction",
+      createdAt: "2026-07-17T00:00:00.000Z",
+    });
+    finishRead();
+
+    await expect(accepting).rejects.toThrow("newer regeneration request");
+    expect(mocks.writeInlineSourceFile).not.toHaveBeenCalled();
+  });
+
+  it("lets acceptance reservation defeat a concurrent rejection", async () => {
+    const proposed = await proposeAction.run({
+      source: { fileId: "file_1" },
+      target: { nodeId: "hero" },
+      baseVersionHash: "hash_base",
+      repromptId: "reprompt_1",
+      variants: [
+        {
+          html: '<section data-agent-native-node-id="hero">New</section>',
+          summary: "Updated hero",
+        },
+      ],
+    });
+    let finishWrite!: () => void;
+    mocks.writeInlineSourceFile.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishWrite = () =>
+            resolve({
+              changed: true,
+              versionHash: "hash_next",
+              updatedAt: "2026-07-17T00:01:00.000Z",
+            });
+        }),
+    );
+
+    const accepting = resolveAction.run({
+      proposalId: proposed.proposalId,
+      resolution: "accept",
+    });
+    await vi.waitFor(() => expect(finishWrite).toBeTypeOf("function"));
+    await expect(
+      resolveAction.run({
+        proposalId: proposed.proposalId,
+        resolution: "reject",
+      }),
+    ).rejects.toThrow("newer regeneration request");
+    finishWrite();
+
+    await expect(accepting).resolves.toEqual(
+      expect.objectContaining({ changed: true, cleanupComplete: true }),
+    );
+    expect(
+      mocks.state.has(designRepromptPendingStateKey("design_1", "file_1")),
+    ).toBe(false);
   });
 });

@@ -5,11 +5,13 @@ import {
   IconExternalLink,
   IconFolder,
   IconHistory,
+  IconHelpCircle,
   IconHierarchy2,
   IconNotes,
   IconPlugConnected,
   IconTopologyRing2,
   IconSearch,
+  IconSettings,
   IconShieldLock,
   IconX,
 } from "@tabler/icons-react";
@@ -49,6 +51,11 @@ import {
   type McpServer,
   type McpServerScope,
 } from "../resources/use-mcp-servers.js";
+import {
+  AGENT_SETTINGS_SECTIONS,
+  buildSectionSearchEntries,
+} from "../settings/agent-settings-search.js";
+import { AgentSettingsContent } from "../settings/SettingsPanel.js";
 import type {
   SettingsSearchEntry,
   SettingsTabItem,
@@ -133,40 +140,48 @@ function EmptySlot({ label }: { label: string }) {
   );
 }
 
+export const AGENT_RESOURCE_DOCS_HREF: Record<ResourceView, string> = {
+  files: "https://agent-native.com/docs/agent-resources#resources-tab",
+  instructions: "https://agent-native.com/docs/agent-resources#agents-md",
+  agents: "https://agent-native.com/docs/agent-resources#custom-agents",
+  memory: "https://agent-native.com/docs/agent-resources#memory",
+  skills: "https://agent-native.com/docs/skills-guide",
+  learnings: "https://agent-native.com/docs/agent-resources#memory",
+  "remote-agents":
+    "https://agent-native.com/docs/agent-resources#remote-vs-custom-agents",
+};
+
 const RESOURCE_TAB_COPY: Record<
   ResourceView,
-  { title: string; description: string }
+  { titleKey: string; descriptionKey: string }
 > = {
   files: {
-    title: "Files",
-    description: "Plain workspace files the agent can read and write.",
+    titleKey: "agentResources.files.title",
+    descriptionKey: "agentResources.files.description",
   },
   instructions: {
-    title: "Instructions",
-    description:
-      "The rules, preferences, and project guidance that steer the agent.",
+    titleKey: "agentResources.instructions.title",
+    descriptionKey: "agentResources.instructions.description",
   },
   agents: {
-    title: "Agents",
-    description: "Reusable profiles for focused sub-agents and delegated work.",
+    titleKey: "agentResources.agents.title",
+    descriptionKey: "agentResources.agents.description",
   },
   memory: {
-    title: "Memory",
-    description: "Durable notes the agent can retrieve across conversations.",
+    titleKey: "agentResources.memory.title",
+    descriptionKey: "agentResources.memory.description",
   },
   skills: {
-    title: "Skills",
-    description:
-      "Specialized instructions that give the agent repeatable abilities.",
+    titleKey: "agentResources.skills.title",
+    descriptionKey: "agentResources.skills.description",
   },
   learnings: {
-    title: "Learnings",
-    description:
-      "Corrections and patterns worth carrying forward for future work.",
+    titleKey: "agentResources.learnings.title",
+    descriptionKey: "agentResources.learnings.description",
   },
   "remote-agents": {
-    title: "Remote agents",
-    description: "Other agents this workspace can call through A2A.",
+    titleKey: "agentResources.remoteAgents.title",
+    descriptionKey: "agentResources.remoteAgents.description",
   },
 };
 
@@ -174,9 +189,16 @@ function AgentResourceTab({
   scope,
   view,
 }: AgentPageTabProps & { view: ResourceView }) {
+  const t = useT();
   const copy = RESOURCE_TAB_COPY[view];
+  const title = t(copy.titleKey);
   return (
-    <AgentTabFrame title={copy.title} description={copy.description}>
+    <AgentTabFrame
+      title={title}
+      description={t(copy.descriptionKey)}
+      helpHref={AGENT_RESOURCE_DOCS_HREF[view]}
+      helpLabel={t("agentResources.openDocs", { section: title })}
+    >
       <div className="min-h-[480px]">
         <ResourcesPanel
           key={`${scope}-${view}`}
@@ -400,7 +422,19 @@ interface AccessUrls {
   agentCardUrl: string;
 }
 
-function CopyField({ label, value }: { label: string; value: string }) {
+export const AGENT_ACCESS_DOCS_HREF = {
+  mcp: "https://agent-native.com/docs/mcp-protocol",
+  a2a: "https://agent-native.com/docs/a2a-protocol",
+} as const;
+
+interface CopyFieldProps {
+  label: string;
+  value: string;
+  docsHref?: string;
+  docsLabel?: string;
+}
+
+function CopyField({ label, value, docsHref, docsLabel }: CopyFieldProps) {
   const [copied, setCopied] = useState(false);
   const copy = async () => {
     try {
@@ -414,8 +448,20 @@ function CopyField({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex min-w-0 items-center gap-2 rounded-md border border-border bg-muted/20 p-2">
       <div className="min-w-0 flex-1">
-        <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">
+        <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">
           {label}
+          {docsHref && (
+            <a
+              href={docsHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={docsLabel ?? `Open ${label} documentation`}
+              title={docsLabel ?? `Open ${label} documentation`}
+              className="inline-flex size-4 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <IconHelpCircle className="size-3" />
+            </a>
+          )}
         </div>
         <code className="mt-1 block truncate text-xs text-foreground">
           {value}
@@ -509,9 +555,19 @@ function AccessTab({
       <div className="space-y-6">
         {urls ? (
           <>
-            <CopyField label="MCP URL" value={urls.mcpUrl} />
+            <CopyField
+              label="MCP URL"
+              value={urls.mcpUrl}
+              docsHref={AGENT_ACCESS_DOCS_HREF.mcp}
+              docsLabel="Open MCP documentation"
+            />
             {agentCardAvailable && (
-              <CopyField label="A2A agent card" value={urls.agentCardUrl} />
+              <CopyField
+                label="A2A agent card"
+                value={urls.agentCardUrl}
+                docsHref={AGENT_ACCESS_DOCS_HREF.a2a}
+                docsLabel="Open A2A documentation"
+              />
             )}
             <section className="space-y-3 border-t border-border/70 pt-6">
               <div>
@@ -670,6 +726,7 @@ export function AgentTabsPage({
   value,
   onValueChange,
 }: AgentTabsPageProps) {
+  const t = useT();
   const { data: org } = useOrg();
   const canManageOrg =
     !org?.orgId || org.role === "owner" || org.role === "admin";
@@ -809,6 +866,22 @@ export function AgentTabsPage({
           <Suspense fallback={<TabLoading />}>
             <AgentJobsTab scope={scope} canManageOrg={canManageOrg} />
           </Suspense>
+        ),
+      },
+      {
+        id: "settings",
+        label: t("settings.agentTitle"),
+        icon: IconSettings,
+        group: "agent",
+        keywords: "agent settings model llm api keys limits voice automations",
+        searchEntries: buildSectionSearchEntries(AGENT_SETTINGS_SECTIONS),
+        content: (
+          <AgentTabFrame
+            title={t("settings.agentTitle")}
+            description={t("settings.agentDescription")}
+          >
+            <AgentSettingsContent />
+          </AgentTabFrame>
         ),
       },
       {

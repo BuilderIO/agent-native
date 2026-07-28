@@ -7,7 +7,7 @@ export default createAuthPlugin({
   // callback can handle both normal sign-in and the Calendar connect flow.
   mountGoogleOAuthRoutes: false,
   marketing: {
-    appName: "Agent-Native Clips",
+    appName: "Clips",
     tagline:
       "Your AI agent transcribes, summarizes, and searches everything you record alongside you.",
     features: [
@@ -30,6 +30,7 @@ export default createAuthPlugin({
     "/__manifest",
     "/api/view-event",
     "/api/public-recording",
+    "/api/public-meeting",
     "/api/slack",
     "/api/agent-context.json",
     "/api/agent-transcript.json",

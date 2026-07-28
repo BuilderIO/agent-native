@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 
+import { applyBuilderUtmTrackingParams } from "../../shared/builder-link-tracking.js";
 import { trackEvent } from "../analytics.js";
 import { agentNativePath } from "../api-path.js";
 import { getCallbackOrigin } from "../frame.js";
@@ -342,6 +343,8 @@ export function withBuilderConnectTrackingParams(
       });
       parsed.searchParams.set("redirect_url", parsedRedirect.toString());
     }
+
+    applyBuilderUtmTrackingParams(parsed.searchParams, { content: source });
 
     return parsed.toString();
   } catch {

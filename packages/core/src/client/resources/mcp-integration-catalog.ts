@@ -49,6 +49,8 @@ export interface DefaultMcpIntegration {
     templateUses?: readonly string[];
   };
   headerPlaceholder?: string;
+  brandAliases?: string[];
+  aliases?: string[];
   keywords: string[];
 }
 
@@ -122,6 +124,32 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     keywords: ["docs", "knowledge", "notes", "pages"],
   },
   {
+    id: "granola",
+    name: "Granola",
+    provider: "granola",
+    description: "Search meeting notes, transcripts, and action items.",
+    descriptionKey: "mcpIntegrations.catalog.granola.description",
+    useCase: "meeting notes, recordings, transcripts, action items, follow-ups",
+    useCaseKey: "mcpIntegrations.catalog.granola.useCase",
+    url: "https://mcp.granola.ai/mcp",
+    authMode: "oauth",
+    connectionMode: "oauth",
+    availability: "ready",
+    verification: "preflight-only",
+    logoUrl: mcpIntegrationLogo("granola"),
+    docsUrl: "https://docs.granola.ai/help-center/sharing/integrations/mcp",
+    setupNoteKey: "mcpIntegrations.catalog.granola.setupNote",
+    keywords: [
+      "meetings",
+      "meeting notes",
+      "recordings",
+      "transcripts",
+      "action items",
+      "follow-ups",
+      "decisions",
+    ],
+  },
+  {
     id: "semgrep",
     name: "Semgrep",
     provider: "semgrep",
@@ -173,6 +201,7 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     docsUrl:
       "https://developer.atlassian.com/cloud/rovo-mcp/guides/getting-started/",
     setupNoteKey: "mcpIntegrations.catalog.atlassian.setupNote",
+    brandAliases: ["Jira", "Confluence", "Rovo"],
     keywords: ["atlassian", "jira", "confluence", "issues", "tickets"],
   },
   {
@@ -189,7 +218,8 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     availability: "ready",
     verification: "preflight-only",
     logoUrl: mcpIntegrationLogo("supabase"),
-    docsUrl: "https://www.builder.io/c/docs/fusion-connect-to-supabase",
+    docsUrl:
+      "https://www.builder.io/c/docs/fusion-connect-to-supabase?utm_source=agent-native&utm_medium=product&utm_campaign=integrations&utm_content=fusion_connect_supabase",
     keywords: ["database", "auth", "postgres", "storage"],
   },
   {
@@ -206,7 +236,8 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     availability: "ready",
     verification: "preflight-only",
     logoUrl: mcpIntegrationLogo("neon"),
-    docsUrl: "https://www.builder.io/c/docs/fusion-connect-to-neon",
+    docsUrl:
+      "https://www.builder.io/c/docs/fusion-connect-to-neon?utm_source=agent-native&utm_medium=product&utm_campaign=integrations&utm_content=fusion_connect_neon",
     keywords: ["database", "postgres", "serverless", "backend"],
   },
   {
@@ -647,6 +678,19 @@ export function buildMcpOAuthStartUrl({
   return `/_agent-native/mcp/servers/oauth/start?${params.toString()}`;
 }
 
+export function navigateToMcpOAuthStart(url: string): void {
+  if (typeof window === "undefined") return;
+
+  const navigate = () => {
+    window.setTimeout(() => window.location.assign(url), 0);
+  };
+  if (typeof window.requestAnimationFrame === "function") {
+    window.requestAnimationFrame(navigate);
+  } else {
+    navigate();
+  }
+}
+
 export function resolveMcpIntegrationScope(
   defaultScope: "user" | "org",
   hasOrg: boolean,
@@ -668,6 +712,8 @@ export function filterMcpIntegrations(
       integration.description,
       integration.useCase,
       integration.url,
+      ...(integration.brandAliases ?? []),
+      ...(integration.aliases ?? []),
       ...integration.keywords,
     ]
       .join(" ")
@@ -677,10 +723,19 @@ export function filterMcpIntegrations(
 }
 
 const MCP_LINK_HOSTS: Record<string, string[]> = {
+  context7: ["context7.com"],
+  sentry: ["sentry.io", "sentry.dev"],
   notion: ["notion.so", "notion.site"],
+  granola: ["granola.ai"],
+  semgrep: ["semgrep.dev", "semgrep.com"],
   canva: ["canva.com", "canva.ai"],
   figma: ["figma.com"],
   linear: ["linear.app"],
+  atlassian: ["atlassian.com", "atlassian.net", "jira.com", "confluence.com"],
+  supabase: ["supabase.com"],
+  neon: ["neon.tech"],
+  stripe: ["stripe.com"],
+  cloudflare: ["cloudflare.com"],
   github: ["github.com", "github.dev"],
   gitlab: ["gitlab.com"],
   slack: ["slack.com"],
@@ -692,6 +747,8 @@ const MCP_LINK_HOSTS: Record<string, string[]> = {
   paypal: ["paypal.com"],
   box: ["box.com"],
   netlify: ["netlify.com"],
+  vercel: ["vercel.com"],
+  zapier: ["zapier.com"],
 };
 
 function hostMatches(hostname: string, domain: string): boolean {
@@ -711,7 +768,12 @@ function findUrlForText(text: string): URL | null {
 }
 
 const MCP_RESOURCE_INTENT_PATTERN =
-  /\b(?:connect|connected|connection|integration|integrate|link|page|document|doc|file|workspace|project|issue|design|board|channel|message|ticket|read|access|open|see|fetch|sync|import)\b/i;
+  /\b(?:action|add|access|board|check|connect|connected|connection|create|decision|design|document|doc|do|extract|fetch|file|find|follow[- ]?ups?|get|import|integration|integrate|issue|link|list|meeting|message|notes?|open|page|populate|project|pull|read|recordings?|review|search|see|summary|summarize|sync|task|ticket|todo|transcripts?|turn|use|workspace)\b/i;
+
+function textContainsTerm(text: string, term: string): boolean {
+  const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`, "i").test(text);
+}
 
 export function findMcpIntegrationForText(
   text: string,
@@ -732,17 +794,13 @@ export function findMcpIntegrationForText(
     MCP_RESOURCE_INTENT_PATTERN.test(normalizedText) ||
     isMcpConnectionFailureText(normalizedText);
   if (!hasResourceIntent) return null;
-  return (
-    integrations.find((integration) => {
-      const aliases = [integration.name, integration.provider, integration.id];
-      return aliases.some((alias) => {
-        const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        return new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`, "i").test(
-          normalizedText,
-        );
-      });
-    }) ?? null
-  );
+  const matchesCanonicalName = (integration: DefaultMcpIntegration) =>
+    [integration.name, ...(integration.brandAliases ?? [])].some((alias) =>
+      textContainsTerm(normalizedText, alias),
+    );
+  const canonicalMatch = integrations.find(matchesCanonicalName);
+  if (canonicalMatch) return canonicalMatch;
+  return null;
 }
 
 export function isMcpConnectionFailureText(text: string): boolean {

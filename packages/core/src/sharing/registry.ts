@@ -37,6 +37,15 @@ export interface ShareableResourceRegistration {
    */
   getResourcePath?: (resource: any) => string | undefined;
   /**
+   * Optional resolver for the share-notification email's brand logo. Return an
+   * absolute `https://` URL to override the default embedded Agent Native logo
+   * (e.g. the sharing org's own logo), or undefined to fall back. Receives the
+   * resource row being shared so the template can scope the logo to its org.
+   */
+  getShareEmailLogoUrl?: (
+    resource: any,
+  ) => string | undefined | Promise<string | undefined>;
+  /**
    * Drizzle DB accessor from the template's server/db/index.ts. Required —
    * the framework-level share actions and access helpers call this to reach
    * the right DB instance (schema is template-specific).

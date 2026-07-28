@@ -66,6 +66,7 @@ import { zoomBridgeScript } from "../../../.generated/bridge/zoom.generated";
 import { isTrustedCanvasBridgeMessage } from "./bridge-security";
 import { captureAnnotatedScreenshot } from "./design-canvas/annotation-snapshot";
 import { submitDesignAnnotations } from "./design-canvas/annotation-submit";
+import { appendContentSizeReporter } from "./design-canvas/content-size-report";
 import {
   getScreenContentPointFromClient,
   getZoomToCursorScrollDelta,
@@ -97,6 +98,7 @@ import type {
   IframeContextMenuPayload,
   IframeFigmaClipboardPastePayload,
   IframeHotkeyPayload,
+  IframeImagePastePayload,
 } from "./design-canvas/iframe-events";
 import {
   forwardEmbeddedCanvasPanMessage,
@@ -473,6 +475,7 @@ interface DesignCanvasProps {
   onElementDblClickText?: (info: ElementInfo) => void;
   onIframeHotkey?: (event: IframeHotkeyPayload) => void;
   onFigmaClipboardPaste?: (event: IframeFigmaClipboardPastePayload) => void;
+  onImagePaste?: (event: IframeImagePastePayload) => void;
   onIframeContextMenu?: (event: IframeContextMenuPayload) => void;
   onEditorDragStateChange?: (active: boolean) => void;
   onVisualStructureChange?: (
@@ -533,6 +536,8 @@ interface DesignCanvasProps {
   selectedSelector?: string | null;
   selectedSelectorCandidates?: string[];
   selectedSelectorGroups?: string[][];
+  /** Visual treatment for selection mirrors in responsive peer previews. */
+  passiveSelectionStyle?: "default" | "soft";
   hoveredSelector?: string | null;
   hoveredSelectorCandidates?: string[];
   lockedSelectors?: string[];
@@ -1043,6 +1048,7 @@ export function DesignCanvas({
   onElementDblClickText,
   onIframeHotkey,
   onFigmaClipboardPaste,
+  onImagePaste,
   onIframeContextMenu,
   onEditorDragStateChange,
   onVisualStructureChange,
@@ -1058,6 +1064,7 @@ export function DesignCanvas({
   selectedSelector,
   selectedSelectorCandidates = [],
   selectedSelectorGroups = [],
+  passiveSelectionStyle = "default",
   hoveredSelector,
   hoveredSelectorCandidates = [],
   lockedSelectors = [],
@@ -2132,6 +2139,7 @@ export function DesignCanvas({
     // static-fallback board thumbnails that call appendHitTestResponder.
     // Without this, a drop onto a live/active screen has no responder and
     // always falls through to the 50ms request timeout.
+    const imageDiagBridge = "";
     const bridgeToInject =
       MOTION_PREVIEW_BRIDGE_SCRIPT +
       SHADER_FILL_PREVIEW_BRIDGE_SCRIPT +
@@ -2140,7 +2148,8 @@ export function DesignCanvas({
       NAV_BRIDGE_SCRIPT +
       LIGHTWEIGHT_HIT_TEST_BRIDGE_SCRIPT +
       embeddedGestureBridgeForCurrentState +
-      editorChromeBridge;
+      editorChromeBridge +
+      imageDiagBridge;
     const frameContent = getEmbeddedFrameDocumentContent({
       content: iframeRenderContent,
       embeddedFrameBackground,
@@ -2172,6 +2181,13 @@ export function DesignCanvas({
         ),
       ].join("");
       frameDocument = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${frameStyle}</head><body>${iframeRenderContent}${bridgeToInject}</body></html>`;
+    }
+    // Overview frames report their own content height so the canvas can
+    // content-fit them (Framer-style). Embedded (overview) frames only — a
+    // focused single-screen view fills the viewport and must keep native
+    // 100vh/min-h-screen, which the reporter's guard would otherwise pin.
+    if (isEmbeddedFrame) {
+      frameDocument = appendContentSizeReporter(frameDocument);
     }
     return injectSessionReplayIframeBootstrap(frameDocument);
     // editorChromeScaleX/Y are intentionally NOT deps: they only seed the initial
@@ -2684,6 +2700,27 @@ export function DesignCanvas({
         if (content) onFigmaClipboardPaste?.({ content });
         return;
       }
+      if (e.data.type === "canvas-image-paste") {
+        const raw = Array.isArray(e.data.files) ? e.data.files : [];
+        const MAX_IMAGE_PASTE_FILES = 20;
+        const MAX_DATA_URL_BYTES = 20 * 1024 * 1024; // 20 MB per file
+        const files = raw
+          .slice(0, MAX_IMAGE_PASTE_FILES)
+          .filter(
+            (
+              f: unknown,
+            ): f is { dataUrl: string; type: string; name: string } => {
+              if (!f || typeof f !== "object") return false;
+              const dataUrl = (f as { dataUrl?: unknown }).dataUrl;
+              if (typeof dataUrl !== "string") return false;
+              if (!dataUrl.startsWith("data:image/")) return false;
+              if (dataUrl.length > MAX_DATA_URL_BYTES) return false;
+              return true;
+            },
+          );
+        if (files.length > 0) onImagePaste?.({ files });
+        return;
+      }
       if (e.data.type === "element-contextmenu") {
         const clientX = Number(e.data.clientX);
         const clientY = Number(e.data.clientY);
@@ -2876,6 +2913,7 @@ export function DesignCanvas({
     onElementDblClickText,
     onIframeHotkey,
     onFigmaClipboardPaste,
+    onImagePaste,
     onIframeContextMenu,
     onEditorDragStateChange,
     onVisualStructureChange,
@@ -2969,6 +3007,7 @@ export function DesignCanvas({
       {
         type: "select-elements",
         selectorGroups: selectedSelectorGroups,
+        passiveSelectionStyle,
       },
       "*",
     );
@@ -2978,8 +3017,14 @@ export function DesignCanvas({
             type: "hover-element",
             selector: hoveredSelector,
             selectorCandidates: hoveredSelectorCandidates,
+            hoverStyle: passiveSelectionStyle,
           }
-        : { type: "hover-element", selector: "", selectorCandidates: [] },
+        : {
+            type: "hover-element",
+            selector: "",
+            selectorCandidates: [],
+            hoverStyle: passiveSelectionStyle,
+          },
       "*",
     );
     // Re-send motion tracks so the preview bridge is ready after a reload.
@@ -3038,6 +3083,7 @@ export function DesignCanvas({
     selectedSelector,
     selectedSelectorCandidates,
     selectedSelectorGroups,
+    passiveSelectionStyle,
     shaderFillPreview,
     spacePanActive,
     statePreviewTarget,
@@ -4070,7 +4116,7 @@ export function DesignCanvas({
       data-node-rewrite-canvas-target={
         nodeRewriteCanvasTarget ? "true" : undefined
       }
-      className="design-canvas-iframe-wrapper relative inline-block ring-1 ring-border/60 shadow-[0_0_0_1px_rgba(0,0,0,0.04),0_8px_24px_-12px_rgba(0,0,0,0.45)]"
+      className="design-canvas-iframe-wrapper relative inline-block ring-1 ring-border/60"
       onDragEnter={handleWrapperDragEnter}
       onDragOver={handleWrapperDragOver}
       onDragLeave={handleWrapperDragLeave}

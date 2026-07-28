@@ -1,13 +1,5 @@
-import {
-  isAgentChatHomeHandoffActive,
-  markAgentChatHomeHandoff,
-} from "@agent-native/core/client/agent-chat";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useAgentRouteState } from "@agent-native/core/client/navigation";
-import { useLocation } from "react-router";
-
-import { ASSETS_CHAT_STORAGE_KEY } from "@/lib/chat";
-
 function optionalParam(params: URLSearchParams, key: string) {
   const value = params.get(key)?.trim();
   return value ? value : undefined;
@@ -194,27 +186,13 @@ function pathFromCommand(command: any): string | null {
 }
 
 export function useNavigationState() {
-  const location = useLocation();
   useAgentRouteState({
     browserTabId: getBrowserTabId(),
     requestSource: getBrowserTabId(),
     getNavigationState: ({ pathname, search }) =>
       navigationFromPath(pathname, search),
     getCommandPath: (command) => pathFromCommand(command),
-    onNavigate: (_command, path) => {
-      if (
-        isCreatePath(location.pathname) &&
-        !isCreatePath(pathnameFromPath(path)) &&
-        isAgentChatHomeHandoffActive(ASSETS_CHAT_STORAGE_KEY)
-      ) {
-        markAgentChatHomeHandoff(ASSETS_CHAT_STORAGE_KEY);
-      }
-    },
   });
-}
-
-function pathnameFromPath(path: string): string {
-  return path.split(/[?#]/, 1)[0] || "/";
 }
 
 function decodePathParam(value: string): string {
@@ -223,8 +201,4 @@ function decodePathParam(value: string): string {
   } catch {
     return value;
   }
-}
-
-function isCreatePath(pathname: string): boolean {
-  return pathname === "/" || pathname.startsWith("/chat/");
 }

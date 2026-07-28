@@ -201,7 +201,10 @@ export function resolveRealtimeVoiceReasoningEffort(
 ): "minimal" | "low" | "medium" {
   const normalized = value?.trim().toLowerCase();
   return normalized &&
-    Object.hasOwn(REALTIME_VOICE_REASONING_EFFORT, normalized)
+    Object.prototype.hasOwnProperty.call(
+      REALTIME_VOICE_REASONING_EFFORT,
+      normalized,
+    )
     ? REALTIME_VOICE_REASONING_EFFORT[
         normalized as keyof typeof REALTIME_VOICE_REASONING_EFFORT
       ]
@@ -646,7 +649,7 @@ function createSessionHandler(
               },
               turn_detection: {
                 type: "semantic_vad",
-                create_response: true,
+                create_response: false,
                 interrupt_response: true,
                 eagerness: "auto",
               },

@@ -19,3 +19,214 @@
  *     compiled `.js` next to it for consumers that only install `dist/`.
  */
 @source "./**/*.{js,ts,tsx}";
+
+@property --agent-realtime-voice-angle {
+  syntax: "<angle>";
+  inherits: true;
+  initial-value: 0deg;
+}
+
+.agent-realtime-voice-glow {
+  --agent-realtime-voice-angle: 0deg;
+  --agent-realtime-voice-proximity: 72;
+  --agent-realtime-voice-edge-sensitivity: 30;
+  --agent-realtime-voice-color-sensitivity: 50;
+  --agent-realtime-voice-cone-spread: 25;
+  --agent-realtime-voice-fill-opacity: 0.5;
+  --agent-realtime-voice-card-bg: hsl(var(--background));
+  --agent-realtime-voice-glow-color: 40 80% 80%;
+  --agent-realtime-voice-glow-padding: 18px;
+  --agent-realtime-voice-gradient-one: radial-gradient(
+    at 80% 55%,
+    #c084fc 0,
+    transparent 50%
+  );
+  --agent-realtime-voice-gradient-two: radial-gradient(
+    at 69% 34%,
+    #f472b6 0,
+    transparent 50%
+  );
+  --agent-realtime-voice-gradient-three: radial-gradient(
+    at 8% 6%,
+    #38bdf8 0,
+    transparent 50%
+  );
+  --agent-realtime-voice-gradient-four: radial-gradient(
+    at 41% 38%,
+    #c084fc 0,
+    transparent 50%
+  );
+  --agent-realtime-voice-gradient-five: radial-gradient(
+    at 86% 85%,
+    #f472b6 0,
+    transparent 50%
+  );
+  --agent-realtime-voice-gradient-six: radial-gradient(
+    at 82% 18%,
+    #38bdf8 0,
+    transparent 50%
+  );
+  --agent-realtime-voice-gradient-seven: radial-gradient(
+    at 51% 4%,
+    #f472b6 0,
+    transparent 50%
+  );
+  position: absolute;
+  z-index: 0;
+  inset: -1px;
+  border-radius: inherit;
+  isolation: isolate;
+  pointer-events: none;
+  transform: translate3d(0, 0, 0.01px);
+}
+
+.agent-realtime-voice-working {
+  --agent-realtime-voice-proximity: 96;
+}
+
+.agent-realtime-voice-glow::before,
+.agent-realtime-voice-glow::after {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  content: "";
+  transition: opacity 250ms ease-out;
+}
+
+.agent-realtime-voice-glow::before {
+  border: 1px solid transparent;
+  background:
+    linear-gradient(
+        var(--agent-realtime-voice-card-bg),
+        var(--agent-realtime-voice-card-bg)
+      )
+      padding-box,
+    linear-gradient(transparent 0 100%) border-box,
+    var(--agent-realtime-voice-gradient-one) border-box,
+    var(--agent-realtime-voice-gradient-two) border-box,
+    var(--agent-realtime-voice-gradient-three) border-box,
+    var(--agent-realtime-voice-gradient-four) border-box,
+    var(--agent-realtime-voice-gradient-five) border-box,
+    var(--agent-realtime-voice-gradient-six) border-box,
+    var(--agent-realtime-voice-gradient-seven) border-box,
+    linear-gradient(#c084fc 0 100%) border-box;
+  opacity: calc(
+    (
+        var(--agent-realtime-voice-proximity) -
+          var(--agent-realtime-voice-color-sensitivity)
+      ) /
+      (100 - var(--agent-realtime-voice-color-sensitivity))
+  );
+  mask-image: conic-gradient(
+    from var(--agent-realtime-voice-angle) at center,
+    #000 calc(var(--agent-realtime-voice-cone-spread) * 1%),
+    rgb(0 0 0 / 75%) calc((var(--agent-realtime-voice-cone-spread) + 4) * 1%),
+    rgb(0 0 0 / 45%) calc((var(--agent-realtime-voice-cone-spread) + 8) * 1%),
+    rgb(0 0 0 / 18%) calc((var(--agent-realtime-voice-cone-spread) + 12) * 1%),
+    transparent calc((var(--agent-realtime-voice-cone-spread) + 15) * 1%),
+    transparent calc((100 - var(--agent-realtime-voice-cone-spread) - 15) * 1%),
+    rgb(0 0 0 / 18%)
+      calc((100 - var(--agent-realtime-voice-cone-spread) - 12) * 1%),
+    rgb(0 0 0 / 45%)
+      calc((100 - var(--agent-realtime-voice-cone-spread) - 8) * 1%),
+    rgb(0 0 0 / 75%)
+      calc((100 - var(--agent-realtime-voice-cone-spread) - 4) * 1%),
+    #000 calc((100 - var(--agent-realtime-voice-cone-spread)) * 1%)
+  );
+}
+
+.agent-realtime-voice-glow::after {
+  border: 1px solid transparent;
+  background:
+    var(--agent-realtime-voice-gradient-one) padding-box,
+    var(--agent-realtime-voice-gradient-two) padding-box,
+    var(--agent-realtime-voice-gradient-three) padding-box,
+    var(--agent-realtime-voice-gradient-four) padding-box,
+    var(--agent-realtime-voice-gradient-five) padding-box,
+    var(--agent-realtime-voice-gradient-six) padding-box,
+    var(--agent-realtime-voice-gradient-seven) padding-box,
+    linear-gradient(#c084fc 0 100%) padding-box;
+  mask-image:
+    linear-gradient(to bottom, #000, #000),
+    radial-gradient(ellipse at 50% 50%, #000 40%, transparent 65%),
+    radial-gradient(ellipse at 66% 66%, #000 5%, transparent 40%),
+    radial-gradient(ellipse at 33% 33%, #000 5%, transparent 40%),
+    radial-gradient(ellipse at 66% 33%, #000 5%, transparent 40%),
+    radial-gradient(ellipse at 33% 66%, #000 5%, transparent 40%),
+    conic-gradient(
+      from var(--agent-realtime-voice-angle) at center,
+      transparent 5%,
+      #000 15%,
+      #000 85%,
+      transparent 95%
+    );
+  mask-composite: subtract, add, add, add, add, add;
+  opacity: calc(
+    var(--agent-realtime-voice-fill-opacity) *
+      (
+        var(--agent-realtime-voice-proximity) -
+          var(--agent-realtime-voice-color-sensitivity)
+      ) /
+      (100 - var(--agent-realtime-voice-color-sensitivity))
+  );
+  mix-blend-mode: soft-light;
+}
+
+.agent-realtime-voice-edge-light {
+  position: absolute;
+  z-index: 1;
+  inset: calc(var(--agent-realtime-voice-glow-padding) * -1);
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: calc(
+    (
+        var(--agent-realtime-voice-proximity) -
+          var(--agent-realtime-voice-edge-sensitivity)
+      ) /
+      (100 - var(--agent-realtime-voice-edge-sensitivity))
+  );
+  mask-image: conic-gradient(
+    from var(--agent-realtime-voice-angle) at center,
+    #000 2.5%,
+    rgb(0 0 0 / 85%) 4%,
+    rgb(0 0 0 / 55%) 7%,
+    rgb(0 0 0 / 25%) 11%,
+    transparent 15%,
+    transparent 85%,
+    rgb(0 0 0 / 25%) 89%,
+    rgb(0 0 0 / 55%) 93%,
+    rgb(0 0 0 / 85%) 96%,
+    #000 97.5%
+  );
+  mix-blend-mode: plus-lighter;
+  transition: opacity 250ms ease-out;
+}
+
+.agent-realtime-voice-edge-light::before {
+  position: absolute;
+  inset: var(--agent-realtime-voice-glow-padding);
+  border-radius: inherit;
+  content: "";
+  box-shadow:
+    inset 0 0 0 1px hsl(var(--agent-realtime-voice-glow-color) / 100%),
+    inset 0 0 1px hsl(var(--agent-realtime-voice-glow-color) / 60%),
+    inset 0 0 3px hsl(var(--agent-realtime-voice-glow-color) / 50%),
+    inset 0 0 6px hsl(var(--agent-realtime-voice-glow-color) / 40%),
+    inset 0 0 15px hsl(var(--agent-realtime-voice-glow-color) / 30%),
+    inset 0 0 25px 2px hsl(var(--agent-realtime-voice-glow-color) / 20%),
+    inset 0 0 50px 2px hsl(var(--agent-realtime-voice-glow-color) / 10%),
+    0 0 1px hsl(var(--agent-realtime-voice-glow-color) / 60%),
+    0 0 3px hsl(var(--agent-realtime-voice-glow-color) / 50%),
+    0 0 6px hsl(var(--agent-realtime-voice-glow-color) / 40%),
+    0 0 15px hsl(var(--agent-realtime-voice-glow-color) / 30%),
+    0 0 25px 2px hsl(var(--agent-realtime-voice-glow-color) / 20%),
+    0 0 50px 2px hsl(var(--agent-realtime-voice-glow-color) / 10%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-realtime-voice-glow {
+    --agent-realtime-voice-angle: 35deg;
+  }
+}

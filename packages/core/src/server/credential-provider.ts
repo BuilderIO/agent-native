@@ -20,7 +20,8 @@
 
 import { createHash } from "node:crypto";
 
-import { isLocalDatabase } from "../db/client.js";
+import { CREDENTIAL_STORE_UNAVAILABLE_ERROR_CODE } from "../agent/engine/credential-errors.js";
+import { isLocalDatabase, isTransientDatabaseError } from "../db/client.js";
 import { getRequestUserEmail, getRequestOrgId } from "./request-context.js";
 
 /**
@@ -66,6 +67,38 @@ export class FeatureNotConfiguredError extends Error {
 }
 
 /**
+ * The credential store could not be read — which is NOT the same as the
+ * credential being absent. Never render this as "not configured": the user has
+ * nothing to configure, they have something to retry.
+ */
+export class CredentialStoreUnavailableError extends Error {
+  readonly errorCode = CREDENTIAL_STORE_UNAVAILABLE_ERROR_CODE;
+  readonly retryable = true;
+
+  constructor(cause?: unknown) {
+    super(
+      "Could not read your saved connections — the app database did not answer. This is temporary; try again in a moment.",
+      { cause },
+    );
+    this.name = "CredentialStoreUnavailableError";
+  }
+}
+
+/**
+ * The one place that decides when an unanswered credential lookup becomes a
+ * user-visible retryable error. A store that is not configured at all is a real
+ * "no credential"; a store that timed out or dropped the connection is not.
+ */
+export function assertCredentialStoreReadable(result: {
+  lookupFailed: boolean;
+  cause?: unknown;
+}): void {
+  if (result.lookupFailed && isTransientDatabaseError(result.cause)) {
+    throw new CredentialStoreUnavailableError(result.cause);
+  }
+}
+
+/**
  * Deployment-level credential fallback for single-tenant/local operation.
  * Multi-tenant call sites must gate this explicitly before calling.
  */
@@ -75,6 +108,9 @@ export function readDeployCredentialEnv(key: string): string | undefined {
 
 const APP_PROVIDED_DEPLOY_CREDENTIAL_KEYS = new Set([
   "ANTHROPIC_API_KEY",
+  "EMAIL_FROM",
+  "EMAIL_INBOUND_WEBHOOK_SECRET",
+  "EMAIL_AGENT_ADDRESS",
   "OPENAI_API_KEY",
   "OPENAI_BASE_URL",
   "OPENROUTER_API_KEY",
@@ -84,6 +120,8 @@ const APP_PROVIDED_DEPLOY_CREDENTIAL_KEYS = new Set([
   "GROQ_API_KEY",
   "MISTRAL_API_KEY",
   "COHERE_API_KEY",
+  "RESEND_API_KEY",
+  "SENDGRID_API_KEY",
 ]);
 
 function isAppProvidedDeployCredentialKey(key: string | undefined): boolean {
@@ -97,9 +135,10 @@ function isAppProvidedDeployCredentialKey(key: string | undefined): boolean {
  * identity-bearing provider keys so one deploy key does not silently
  * impersonate another tenant. App-provided service credentials are different:
  * they configure the deployed app itself rather than identifying a user. This
- * includes LLM keys that let the app developer pay for model usage and OAuth
- * client credentials whose per-user identity remains in scoped OAuth tokens.
- * Key-aware callers may use those env vars.
+ * includes LLM keys that let the app developer pay for model usage, email
+ * transport configuration owned by the deployment, and OAuth client
+ * credentials whose per-user identity remains in scoped OAuth tokens. Key-aware
+ * callers may use those env vars.
  *
  * @deprecated Use `canUseDeployCredentialFallbackForRequest()` for generic
  * provider secrets. This stricter helper remains for legacy call sites with
@@ -282,16 +321,54 @@ async function readBuilderCredentialScope(
   };
 }
 
+/**
+ * A transient org_members read failure makes getOrgContext report no org, which
+ * would otherwise hide an org-scoped Builder connection behind a permanent-
+ * sounding "not configured" error. resolveOrgIdForEmail honors an explicit
+ * Personal selection, so this cannot promote a user into an org they left.
+ */
+async function resolveOrgIdForRequestEmail(
+  email: string,
+): Promise<{ orgId: string | null; cause?: unknown }> {
+  try {
+    const { resolveOrgIdForEmail } = await import("../org/context.js");
+    return { orgId: await resolveOrgIdForEmail(email) };
+  } catch (err) {
+    // Could not read org membership, so org- and workspace-scoped rows were
+    // never searched. Report the failure instead of the empty answer.
+    return { orgId: null, cause: err };
+  }
+}
+
+interface ScopedCredentialResult {
+  value: string | null;
+  source: "user" | "org" | "workspace" | null;
+  /** The failure, when there was one, so callers can classify it. */
+  cause?: unknown;
+  /**
+   * True when reading the store (or the org membership that decides which
+   * scopes to search) failed, as opposed to the store answering "no row".
+   */
+  lookupFailed: boolean;
+}
+
+const NOT_FOUND: ScopedCredentialResult = {
+  value: null,
+  source: null,
+  lookupFailed: false,
+};
+
 async function resolveScopedBuilderCredential(
   key: string,
-): Promise<{ value: string; source: "user" | "org" | "workspace" } | null> {
+): Promise<ScopedCredentialResult> {
   const email = getRequestUserEmail();
-  if (!email) return null;
+  if (!email) return NOT_FOUND;
 
   // Trace only when explicitly requested. These diagnostics are useful for
   // support, but they include account identifiers and run on hot paths.
   const traceLookup = shouldTraceCredentialResolve();
   let scopeAttempted = "user";
+  let orgLookupCause: unknown;
   try {
     const { readAppSecret } = await import("../secrets/storage.js");
 
@@ -308,7 +385,18 @@ async function resolveScopedBuilderCredential(
           `[builder-credential] key=${key} email=${email} scope=user hit=true`,
         );
       }
-      return { value: userSecret.value, source: "user" };
+      return { value: userSecret.value, source: "user", lookupFailed: false };
+    }
+
+    let orgId: string | null | undefined = getRequestOrgId();
+    let orgSource: "request" | "email-fallback" | "none" = orgId
+      ? "request"
+      : "none";
+    if (!orgId) {
+      const resolved = await resolveOrgIdForRequestEmail(email);
+      orgLookupCause = resolved.cause;
+      orgId = resolved.orgId;
+      if (orgId) orgSource = "email-fallback";
     }
 
     // 2. Per-org shared credential: when one teammate connects Builder
@@ -316,7 +404,6 @@ async function resolveScopedBuilderCredential(
     //    every member of that org gets the AI chat working without
     //    re-running the connect flow. Resolution falls back here
     //    silently — the caller never has to know which scope answered.
-    const orgId = getRequestOrgId();
     if (orgId) {
       scopeAttempted = "org";
       const orgSecret = await readAppSecret({
@@ -327,10 +414,10 @@ async function resolveScopedBuilderCredential(
       if (orgSecret) {
         if (traceLookup) {
           console.log(
-            `[builder-credential] key=${key} email=${email} orgId=${orgId} scope=org hit=true`,
+            `[builder-credential] key=${key} email=${email} orgId=${orgId} orgSource=${orgSource} scope=org hit=true`,
           );
         }
-        return { value: orgSecret.value, source: "org" };
+        return { value: orgSecret.value, source: "org", lookupFailed: false };
       }
 
       // Older setup flows wrote shared credentials at workspace scope.
@@ -345,36 +432,60 @@ async function resolveScopedBuilderCredential(
       if (workspaceSecret) {
         if (traceLookup) {
           console.log(
-            `[builder-credential] key=${key} email=${email} orgId=${orgId} scope=workspace hit=true`,
+            `[builder-credential] key=${key} email=${email} orgId=${orgId} orgSource=${orgSource} scope=workspace hit=true`,
           );
         }
-        return { value: workspaceSecret.value, source: "workspace" };
+        return {
+          value: workspaceSecret.value,
+          source: "workspace",
+          lookupFailed: false,
+        };
       }
       if (traceLookup) {
         console.log(
-          `[builder-credential] key=${key} email=${email} orgId=${orgId} miss tried=user,org,workspace`,
+          `[builder-credential] key=${key} email=${email} orgId=${orgId} orgSource=${orgSource} miss tried=user,org,workspace`,
         );
       }
-    } else {
-      scopeAttempted = "workspace-solo";
-      const soloWorkspaceSecret = await readAppSecret({
-        key,
-        scope: "workspace",
-        scopeId: `solo:${email}`,
-      });
-      if (soloWorkspaceSecret) {
-        if (traceLookup) {
-          console.log(
-            `[builder-credential] key=${key} email=${email} scope=workspace-solo hit=true`,
-          );
-        }
-        return { value: soloWorkspaceSecret.value, source: "workspace" };
-      }
+    }
+
+    // Membership lookup failure means the org scopes were never searched.
+    // Do not let a pre-org solo row silently impersonate the current org while
+    // the membership read is retryable.
+    if (orgLookupCause !== undefined) {
+      return {
+        value: null,
+        source: null,
+        lookupFailed: true,
+        cause: orgLookupCause,
+      };
+    }
+
+    // 3. Solo-workspace fallback: always checked, even when an org id was
+    //    found above. Older no-org connect flows wrote here, so a credential
+    //    written before the user joined/created an org must not become
+    //    unreachable once that org exists.
+    scopeAttempted = "workspace-solo";
+    const soloWorkspaceSecret = await readAppSecret({
+      key,
+      scope: "workspace",
+      scopeId: `solo:${email}`,
+    });
+    if (soloWorkspaceSecret) {
       if (traceLookup) {
         console.log(
-          `[builder-credential] key=${key} email=${email} orgId=(none) miss tried=user,workspace-solo`,
+          `[builder-credential] key=${key} email=${email} orgId=${orgId ?? "(none)"} orgSource=${orgSource} scope=workspace-solo hit=true`,
         );
       }
+      return {
+        value: soloWorkspaceSecret.value,
+        source: "workspace",
+        lookupFailed: false,
+      };
+    }
+    if (traceLookup) {
+      console.log(
+        `[builder-credential] key=${key} email=${email} orgId=${orgId ?? "(none)"} orgSource=${orgSource} miss tried=${orgId ? "user,org,workspace,workspace-solo" : "user,workspace-solo"}`,
+      );
     }
   } catch (err) {
     if (traceLookup) {
@@ -382,23 +493,45 @@ async function resolveScopedBuilderCredential(
         `[builder-credential] key=${key} email=${email} scope=${scopeAttempted} error=${(err as Error)?.message ?? err}`,
       );
     }
-    // Secrets table not ready — treat as missing.
+    return { value: null, source: null, lookupFailed: true, cause: err };
   }
-  return null;
+  return {
+    value: null,
+    source: null,
+    lookupFailed: orgLookupCause !== undefined,
+    cause: orgLookupCause,
+  };
 }
 
-async function resolveScopedBuilderCredentials(): Promise<BuilderResolvedCredentials | null> {
+interface ScopedBuilderCredentialsResult {
+  creds: BuilderResolvedCredentials | null;
+  /** The failure, when there was one, so callers can classify it. */
+  cause?: unknown;
+  /**
+   * True when reading the credential store itself threw (db timeout, etc),
+   * as opposed to the store answering cleanly with "no row". Callers must
+   * report this as retryable rather than "not configured".
+   */
+  lookupFailed: boolean;
+}
+
+async function resolveScopedBuilderCredentials(): Promise<ScopedBuilderCredentialsResult> {
   const email = getRequestUserEmail();
-  if (!email) return null;
+  if (!email) return { creds: null, lookupFailed: false };
 
   const traceLookup = shouldTraceCredentialResolve();
   let scopeAttempted = "user";
+  let orgLookupCause: unknown;
   try {
     const { readAppSecrets } = await import("../secrets/storage.js");
-    const traceScope = (creds: BuilderResolvedCredentials, scopeId: string) => {
+    const traceScope = (
+      creds: BuilderResolvedCredentials,
+      scopeId: string,
+      extra = "",
+    ) => {
       if (!traceLookup) return;
       console.log(
-        `[builder-credential] scope=${creds.source} scopeId=${scopeId} email=${email} complete=${isCompleteBuilderConnection(creds)} private=${Boolean(creds.privateKey)} public=${Boolean(creds.publicKey)}`,
+        `[builder-credential] scope=${creds.source} scopeId=${scopeId} email=${email}${extra} complete=${isCompleteBuilderConnection(creds)} private=${Boolean(creds.privateKey)} public=${Boolean(creds.publicKey)}`,
       );
     };
 
@@ -408,9 +541,21 @@ async function resolveScopedBuilderCredentials(): Promise<BuilderResolvedCredent
       email,
     );
     traceScope(userCreds, email);
-    if (isCompleteBuilderConnection(userCreds)) return userCreds;
+    if (isCompleteBuilderConnection(userCreds)) {
+      return { creds: userCreds, lookupFailed: false };
+    }
 
-    const orgId = getRequestOrgId();
+    let orgId: string | null | undefined = getRequestOrgId();
+    let orgSource: "request" | "email-fallback" | "none" = orgId
+      ? "request"
+      : "none";
+    if (!orgId) {
+      const resolved = await resolveOrgIdForRequestEmail(email);
+      orgLookupCause = resolved.cause;
+      orgId = resolved.orgId;
+      if (orgId) orgSource = "email-fallback";
+    }
+
     if (orgId) {
       scopeAttempted = "org";
       const orgCreds = await readBuilderCredentialScope(
@@ -418,8 +563,10 @@ async function resolveScopedBuilderCredentials(): Promise<BuilderResolvedCredent
         "org",
         orgId,
       );
-      traceScope(orgCreds, orgId);
-      if (isCompleteBuilderConnection(orgCreds)) return orgCreds;
+      traceScope(orgCreds, orgId, ` orgSource=${orgSource}`);
+      if (isCompleteBuilderConnection(orgCreds)) {
+        return { creds: orgCreds, lookupFailed: false };
+      }
 
       scopeAttempted = "workspace";
       const workspaceCreds = await readBuilderCredentialScope(
@@ -427,18 +574,33 @@ async function resolveScopedBuilderCredentials(): Promise<BuilderResolvedCredent
         "workspace",
         orgId,
       );
-      traceScope(workspaceCreds, orgId);
-      if (isCompleteBuilderConnection(workspaceCreds)) return workspaceCreds;
-    } else {
-      scopeAttempted = "workspace-solo";
-      const scopeId = `solo:${email}`;
-      const workspaceCreds = await readBuilderCredentialScope(
-        readAppSecrets,
-        "workspace",
-        scopeId,
-      );
-      traceScope(workspaceCreds, scopeId);
-      if (isCompleteBuilderConnection(workspaceCreds)) return workspaceCreds;
+      traceScope(workspaceCreds, orgId, ` orgSource=${orgSource}`);
+      if (isCompleteBuilderConnection(workspaceCreds)) {
+        return { creds: workspaceCreds, lookupFailed: false };
+      }
+    }
+
+    if (orgLookupCause !== undefined) {
+      return { creds: null, lookupFailed: true, cause: orgLookupCause };
+    }
+
+    // Solo-workspace fallback: always checked, even when an org id was found
+    // above. See resolveScopedBuilderCredential for why this must not be
+    // gated behind "no org".
+    scopeAttempted = "workspace-solo";
+    const soloScopeId = `solo:${email}`;
+    const soloCreds = await readBuilderCredentialScope(
+      readAppSecrets,
+      "workspace",
+      soloScopeId,
+    );
+    traceScope(
+      soloCreds,
+      soloScopeId,
+      ` orgId=${orgId ?? "(none)"} orgSource=${orgSource}`,
+    );
+    if (isCompleteBuilderConnection(soloCreds)) {
+      return { creds: soloCreds, lookupFailed: false };
     }
   } catch (err) {
     if (traceLookup) {
@@ -446,8 +608,13 @@ async function resolveScopedBuilderCredentials(): Promise<BuilderResolvedCredent
         `[builder-credential] email=${email} scope=${scopeAttempted} credentials error=${(err as Error)?.message ?? err}`,
       );
     }
+    return { creds: null, lookupFailed: true, cause: err };
   }
-  return null;
+  return {
+    creds: null,
+    lookupFailed: orgLookupCause !== undefined,
+    cause: orgLookupCause,
+  };
 }
 
 /**
@@ -460,9 +627,15 @@ export async function resolveBuilderCredential(
   key: string,
 ): Promise<string | null> {
   const scoped = await resolveScopedBuilderCredential(key);
-  if (scoped) return scoped.value;
-  if (!canUseBuilderDeployCredentialFallbackForRequest()) return null;
-  return readDeployCredentialEnv(key) ?? null;
+  if (scoped.value) return scoped.value;
+  const envValue = canUseBuilderDeployCredentialFallbackForRequest()
+    ? (readDeployCredentialEnv(key) ?? null)
+    : null;
+  if (envValue) return envValue;
+  // Nothing answered AND the store never gave a real answer: that is not
+  // "not connected", it is "we could not look".
+  assertCredentialStoreReadable(scoped);
+  return null;
 }
 
 /**
@@ -513,20 +686,11 @@ export async function resolveHasCompleteBuilderConnection(): Promise<boolean> {
  * status UIs don't report a mixed user/org credential set as connected.
  */
 export async function resolveBuilderCredentialSource(): Promise<BuilderCredentialSource | null> {
-  const scoped = await resolveScopedBuilderCredentials();
-  if (scoped) return scoped.source;
-  return canUseBuilderDeployCredentialFallbackForRequest() &&
-    process.env.BUILDER_PRIVATE_KEY
-    ? "env"
-    : null;
+  const detailed = await resolveBuilderCredentialsDetailed();
+  return detailed.source;
 }
 
-/**
- * Resolve the Builder assistant credential bundle from one complete scope.
- * A partial user row is treated as a miss so the org-shared connection can
- * still power the assistant for teammates.
- */
-export async function resolveBuilderCredentials(): Promise<{
+export interface BuilderCredentialsDetailed {
   privateKey: string | null;
   publicKey: string | null;
   userId: string | null;
@@ -537,8 +701,32 @@ export async function resolveBuilderCredentials(): Promise<{
   subscriptionName: string | null;
   isEnterprise: boolean | null;
   isFreeAccount: boolean | null;
-}> {
-  const scoped = await resolveScopedBuilderCredentials();
+  /** Which scope answered, or null when nothing did. */
+  source: BuilderCredentialSource | null;
+  /**
+   * True when reading the credential store itself failed (db timeout, etc).
+   * Callers must report this as retryable rather than "not configured".
+   */
+  lookupFailed: boolean;
+  /** The failure, when there was one, so callers can classify it. */
+  cause?: unknown;
+}
+
+/**
+ * Resolve the Builder assistant credential bundle from one complete scope,
+ * plus where it came from and whether the credential-store read itself
+ * failed. A partial user row is treated as a miss so the org-shared
+ * connection can still power the assistant for teammates.
+ *
+ * Callers that only need the plain credential bundle (the historical shape)
+ * should use `resolveBuilderCredentials()` instead.
+ */
+export async function resolveBuilderCredentialsDetailed(): Promise<BuilderCredentialsDetailed> {
+  const {
+    creds: scoped,
+    lookupFailed,
+    cause,
+  } = await resolveScopedBuilderCredentials();
   if (scoped) {
     const {
       privateKey,
@@ -551,6 +739,7 @@ export async function resolveBuilderCredentials(): Promise<{
       subscriptionName,
       isEnterprise,
       isFreeAccount,
+      source,
     } = scoped;
     return {
       privateKey,
@@ -563,38 +752,41 @@ export async function resolveBuilderCredentials(): Promise<{
       subscriptionName,
       isEnterprise,
       isFreeAccount,
+      source,
+      lookupFailed: false,
     };
   }
-  const privateKey = canUseBuilderDeployCredentialFallbackForRequest()
+  const canUseEnv = canUseBuilderDeployCredentialFallbackForRequest();
+  const privateKey = canUseEnv
     ? (readDeployCredentialEnv("BUILDER_PRIVATE_KEY") ?? null)
     : null;
-  const publicKey = canUseBuilderDeployCredentialFallbackForRequest()
+  const publicKey = canUseEnv
     ? (readDeployCredentialEnv("BUILDER_PUBLIC_KEY") ?? null)
     : null;
-  const userId = canUseBuilderDeployCredentialFallbackForRequest()
+  const userId = canUseEnv
     ? (readDeployCredentialEnv("BUILDER_USER_ID") ?? null)
     : null;
-  const orgName = canUseBuilderDeployCredentialFallbackForRequest()
+  const orgName = canUseEnv
     ? (readDeployCredentialEnv("BUILDER_ORG_NAME") ?? null)
     : null;
-  const orgKind = canUseBuilderDeployCredentialFallbackForRequest()
+  const orgKind = canUseEnv
     ? (readDeployCredentialEnv("BUILDER_ORG_KIND") ?? null)
     : null;
-  const subscription = canUseBuilderDeployCredentialFallbackForRequest()
+  const subscription = canUseEnv
     ? (readDeployCredentialEnv("BUILDER_SUBSCRIPTION") ?? null)
     : null;
-  const subscriptionLevel = canUseBuilderDeployCredentialFallbackForRequest()
+  const subscriptionLevel = canUseEnv
     ? (readDeployCredentialEnv("BUILDER_SUBSCRIPTION_LEVEL") ?? null)
     : null;
-  const subscriptionName = canUseBuilderDeployCredentialFallbackForRequest()
+  const subscriptionName = canUseEnv
     ? (readDeployCredentialEnv("BUILDER_SUBSCRIPTION_NAME") ?? null)
     : null;
-  const isEnterprise = canUseBuilderDeployCredentialFallbackForRequest()
+  const isEnterprise = canUseEnv
     ? readOptionalBuilderBoolean(
         readDeployCredentialEnv("BUILDER_IS_ENTERPRISE"),
       )
     : null;
-  const isFreeAccount = canUseBuilderDeployCredentialFallbackForRequest()
+  const isFreeAccount = canUseEnv
     ? readOptionalBuilderBoolean(
         readDeployCredentialEnv("BUILDER_IS_FREE_ACCOUNT"),
       )
@@ -610,10 +802,63 @@ export async function resolveBuilderCredentials(): Promise<{
     subscriptionName,
     isEnterprise,
     isFreeAccount,
+    source: canUseEnv && privateKey ? "env" : null,
+    lookupFailed,
+    cause,
+  };
+}
+
+/**
+ * Resolve the Builder assistant credential bundle from one complete scope.
+ * Kept to its original return shape (no `source`/`lookupFailed`) for existing
+ * callers; use `resolveBuilderCredentialsDetailed()` for those fields.
+ */
+export async function resolveBuilderCredentials(): Promise<{
+  privateKey: string | null;
+  publicKey: string | null;
+  userId: string | null;
+  orgName: string | null;
+  orgKind: string | null;
+  subscription: string | null;
+  subscriptionLevel: string | null;
+  subscriptionName: string | null;
+  isEnterprise: boolean | null;
+  isFreeAccount: boolean | null;
+}> {
+  const {
+    privateKey,
+    publicKey,
+    userId,
+    orgName,
+    orgKind,
+    subscription,
+    subscriptionLevel,
+    subscriptionName,
+    isEnterprise,
+    isFreeAccount,
+  } = await resolveBuilderCredentialsDetailed();
+  return {
+    privateKey,
+    publicKey,
+    userId,
+    orgName,
+    orgKind,
+    subscription,
+    subscriptionLevel,
+    subscriptionName,
+    isEnterprise,
+    isFreeAccount,
   };
 }
 
 const BUILDER_AUTH_FAILURE_SETTING_PREFIX = "builder-auth-failure:";
+/**
+ * Stale markers expire so a rejected model or a transient gateway failure
+ * cannot pin a signed-in user to "Builder not connected" forever. Only a
+ * successful gateway call clears the marker early, and that call never happens
+ * while the marker is what makes the connection look broken.
+ */
+export const BUILDER_AUTH_FAILURE_TTL_MS = 15 * 60 * 1000;
 
 export interface BuilderCredentialAuthFailure {
   fingerprint: string;
@@ -654,9 +899,17 @@ export async function getBuilderCredentialAuthFailure(
   );
   if (!fingerprint) return null;
   try {
-    const { getSetting } = await import("../settings/store.js");
-    const row = await getSetting(builderAuthFailureSettingKey(fingerprint));
+    const settings = await import("../settings/store.js");
+    const settingKey = builderAuthFailureSettingKey(fingerprint);
+    const row = await settings.getSetting(settingKey);
     if (!row) return null;
+    const at = typeof row.at === "number" ? row.at : Date.now();
+    if (Date.now() - at > BUILDER_AUTH_FAILURE_TTL_MS) {
+      if (typeof settings.deleteSetting === "function") {
+        await settings.deleteSetting(settingKey).catch(() => {});
+      }
+      return null;
+    }
     return {
       fingerprint,
       message:
@@ -665,7 +918,7 @@ export async function getBuilderCredentialAuthFailure(
           : "Builder rejected the connected credentials. Reconnect Builder.io.",
       status: typeof row.status === "number" ? row.status : undefined,
       code: typeof row.code === "string" ? row.code : undefined,
-      at: typeof row.at === "number" ? row.at : Date.now(),
+      at,
       ownerEmail:
         typeof row.ownerEmail === "string" ? row.ownerEmail : undefined,
       orgId: typeof row.orgId === "string" ? row.orgId : undefined,
@@ -1025,12 +1278,32 @@ export async function deleteBuilderCredentials(
 
 /**
  * Resolve a request-scoped secret. Reads from `app_secrets` first (current
- * user override, active org, then workspace row); falls back to `process.env`
- * only when the deploy fallback policy allows it.
+ * user override, active org, workspace row for that org, then the solo
+ * workspace row); falls back to `process.env` only when the deploy fallback
+ * policy allows it.
  */
 export async function resolveSecret(key: string): Promise<string | null> {
+  const resolved = await resolveSecretDetailed(key);
+  if (resolved.value) return resolved.value;
+  // Nothing answered AND the store never gave a real answer. Reporting null
+  // here is what turns a database blip into "you never configured this".
+  assertCredentialStoreReadable(resolved);
+  return null;
+}
+
+/**
+ * `resolveSecret` without the throw: reports whether the miss is definitive
+ * (`lookupFailed: false` — no such row anywhere the caller can reach) or just
+ * unknown (`lookupFailed: true` — the store or the org membership behind it
+ * could not be read).
+ */
+export async function resolveSecretDetailed(
+  key: string,
+): Promise<{ value: string | null; lookupFailed: boolean; cause?: unknown }> {
   const traceLookup = shouldTraceCredentialResolve();
   const email = getRequestUserEmail();
+  let lookupFailed = false;
+  let cause: unknown;
   if (email) {
     try {
       const { readAppSecret } = await import("../secrets/storage.js");
@@ -1046,10 +1319,20 @@ export async function resolveSecret(key: string): Promise<string | null> {
             `[resolve-secret] key=${key} email=${email} scope=user hit=true`,
           );
         }
-        return userSecret.value;
+        return { value: userSecret.value, lookupFailed: false };
       }
 
-      const orgId = getRequestOrgId();
+      // Mirrors resolveScopedBuilderCredential: a transient org_members read
+      // failure makes getOrgContext report no org, which would otherwise hide
+      // an org-scoped vault row behind an intermittent "not configured" error.
+      let orgId: string | null | undefined = getRequestOrgId();
+      if (!orgId) {
+        const resolved = await resolveOrgIdForRequestEmail(email);
+        cause = resolved.cause;
+        lookupFailed = cause !== undefined;
+        orgId = resolved.orgId;
+      }
+
       if (orgId) {
         // Fall back to the active org's shared row, when present. Builder
         // Connect uses this first-class org scope.
@@ -1064,7 +1347,7 @@ export async function resolveSecret(key: string): Promise<string | null> {
               `[resolve-secret] key=${key} email=${email} orgId=${orgId} scope=org hit=true`,
             );
           }
-          return orgSecret.value;
+          return { value: orgSecret.value, lookupFailed: false };
         }
 
         // Registered secrets historically used "workspace" scope for
@@ -1081,22 +1364,31 @@ export async function resolveSecret(key: string): Promise<string | null> {
               `[resolve-secret] key=${key} email=${email} orgId=${orgId} scope=workspace hit=true`,
             );
           }
-          return workspaceSecret.value;
+          return { value: workspaceSecret.value, lookupFailed: false };
         }
-      } else {
-        const soloWorkspaceSecret = await readAppSecret({
-          key,
-          scope: "workspace",
-          scopeId: `solo:${email}`,
-        });
-        if (soloWorkspaceSecret?.value) {
-          if (traceLookup) {
-            console.log(
-              `[resolve-secret] key=${key} email=${email} scope=workspace-solo hit=true`,
-            );
-          }
-          return soloWorkspaceSecret.value;
+      }
+
+      if (lookupFailed) {
+        return { value: null, lookupFailed: true, cause };
+      }
+
+      // Solo-workspace fallback: always checked, even when an org id was found
+      // above. A secret written before the user joined/created an org lives
+      // here, and must not become unreachable once that org exists. It stays
+      // inside this try so a failed org-scoped read still surfaces as
+      // retryable instead of being answered by a stale pre-org row.
+      const soloWorkspaceSecret = await readAppSecret({
+        key,
+        scope: "workspace",
+        scopeId: `solo:${email}`,
+      });
+      if (soloWorkspaceSecret?.value) {
+        if (traceLookup) {
+          console.log(
+            `[resolve-secret] key=${key} email=${email} orgId=${orgId ?? "(none)"} scope=workspace-solo hit=true`,
+          );
         }
+        return { value: soloWorkspaceSecret.value, lookupFailed: false };
       }
     } catch (err) {
       if (traceLookup) {
@@ -1104,7 +1396,10 @@ export async function resolveSecret(key: string): Promise<string | null> {
           `[resolve-secret] key=${key} email=${email} scope=error err=${(err as Error)?.message ?? err}`,
         );
       }
-      // Secrets table not ready — treat as missing.
+      // Keep looking (env may still have the key), but remember that the store
+      // never actually answered "no row".
+      lookupFailed = true;
+      cause = err;
     }
     // Read deployment-provided env values as fallbacks; framework code must not
     // write to `process.env`, but keys supplied by the host remain valid config.
@@ -1122,7 +1417,11 @@ export async function resolveSecret(key: string): Promise<string | null> {
         `[resolve-secret] key=${key} email=${email} orgId=${getRequestOrgId() ?? "(none)"} scope=${envFallback ? "env-fallback" : "none"} hit=${!!envFallback}`,
       );
     }
-    return envFallback;
+    return {
+      value: envFallback,
+      lookupFailed: lookupFailed && !envFallback,
+      cause,
+    };
   }
   // Unauthenticated / local-dev / CLI / background context: env fallback
   // is safe because there's no user to mis-identify.
@@ -1132,7 +1431,7 @@ export async function resolveSecret(key: string): Promise<string | null> {
       `[resolve-secret] key=${key} email=(none) scope=env-anonymous hit=${!!value}`,
     );
   }
-  return value;
+  return { value, lookupFailed: false };
 }
 
 // ---------------------------------------------------------------------------

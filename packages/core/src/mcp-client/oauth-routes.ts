@@ -4,10 +4,11 @@ import type { OAuthClientInformationMixed } from "@modelcontextprotocol/sdk/shar
 import {
   deleteCookie,
   defineEventHandler,
+  getChunkedCookie,
   getCookie,
   getMethod,
   getQuery,
-  setCookie,
+  setChunkedCookie,
   setResponseStatus,
   type H3Event,
 } from "h3";
@@ -32,6 +33,9 @@ import {
 
 const FLOW_COOKIE = "an_mcp_oauth_flow";
 const FLOW_TTL_SECONDS = 10 * 60;
+const FLOW_COOKIE_CHUNK_SIZE = 2_800;
+const FLOW_COOKIE_MAX_CHUNKS = 8;
+const CHUNKED_COOKIE_PREFIX = "__chunked__";
 
 export interface McpOAuthFlow {
   name: string;
@@ -52,6 +56,20 @@ export interface McpOAuthFlow {
 
 export interface McpOAuthRoutesOptions {
   reconfigure: () => Promise<void>;
+}
+
+export function redirectWithStagedCookies(
+  event: H3Event,
+  location: string,
+): Response {
+  const headers = new Headers({
+    Location: location,
+    "Cache-Control": "no-store",
+  });
+  for (const cookie of event.res?.headers?.getSetCookie?.() ?? []) {
+    headers.append("set-cookie", cookie);
+  }
+  return new Response(null, { status: 302, headers });
 }
 
 export function mountMcpOAuthRoutes(
@@ -175,14 +193,8 @@ async function handleMcpOAuthStart(
       ...(safeReturnUrl ? { returnUrl: safeReturnUrl } : {}),
       expiresAt: Date.now() + FLOW_TTL_SECONDS * 1_000,
     };
-    setCookie(event, FLOW_COOKIE, encryptSecretValue(JSON.stringify(flow)), {
-      httpOnly: true,
-      secure: redirectUri.startsWith("https://"),
-      sameSite: "lax",
-      path: "/",
-      maxAge: FLOW_TTL_SECONDS,
-    });
-    return Response.redirect(started.authorizationUrl.href, 302);
+    setMcpOAuthFlowCookie(event, flow, redirectUri.startsWith("https://"));
+    return redirectWithStagedCookies(event, started.authorizationUrl.href);
   } catch {
     setResponseStatus(event, 400);
     return {
@@ -203,8 +215,8 @@ async function handleMcpOAuthCallback(
   const code = text(query.code);
   const state = text(query.state);
   const providerError = text(query.error);
-  const flow = readFlow(event);
-  deleteCookie(event, FLOW_COOKIE, { path: "/" });
+  const flow = readMcpOAuthFlowCookie(event);
+  clearMcpOAuthFlowCookies(event);
   if (providerError || !code || !state) {
     setResponseStatus(event, 400);
     return { error: "MCP OAuth authorization was not completed." };
@@ -254,21 +266,56 @@ async function handleMcpOAuthCallback(
     const returnPath =
       flow.returnUrl ??
       `/settings/connections?connected=mcp-${encodeURIComponent(flow.name)}`;
-    return Response.redirect(getAppUrl(event, returnPath), 302);
+    return redirectWithStagedCookies(event, getAppUrl(event, returnPath));
   } catch {
     setResponseStatus(event, 400);
     return { error: "MCP OAuth authorization could not be completed." };
   }
 }
 
-function readFlow(event: H3Event): McpOAuthFlow | null {
-  const encrypted = getCookie(event, FLOW_COOKIE);
+export function setMcpOAuthFlowCookie(
+  event: H3Event,
+  flow: McpOAuthFlow,
+  secure: boolean,
+): void {
+  const encrypted = encryptSecretValue(JSON.stringify(flow));
+  const chunkCount = Math.ceil(encrypted.length / FLOW_COOKIE_CHUNK_SIZE);
+  if (chunkCount > FLOW_COOKIE_MAX_CHUNKS) {
+    throw new Error("MCP OAuth flow state exceeds the cookie size limit.");
+  }
+  setChunkedCookie(event, FLOW_COOKIE, encrypted, {
+    httpOnly: true,
+    secure,
+    sameSite: "lax",
+    path: "/",
+    maxAge: FLOW_TTL_SECONDS,
+    chunkMaxLength: FLOW_COOKIE_CHUNK_SIZE,
+  });
+}
+
+export function readMcpOAuthFlowCookie(event: H3Event): McpOAuthFlow | null {
+  const primaryCookie = getCookie(event, FLOW_COOKIE);
+  if (!primaryCookie) return null;
+  if (primaryCookie.startsWith(CHUNKED_COOKIE_PREFIX)) {
+    const rawCount = primaryCookie.slice(CHUNKED_COOKIE_PREFIX.length);
+    if (!/^\d+$/.test(rawCount)) return null;
+    const chunkCount = Number(rawCount);
+    if (chunkCount < 2 || chunkCount > FLOW_COOKIE_MAX_CHUNKS) return null;
+  }
+  const encrypted = getChunkedCookie(event, FLOW_COOKIE);
   if (!encrypted) return null;
   try {
     const parsed = JSON.parse(decryptSecretValue(encrypted)) as McpOAuthFlow;
     return parsed && typeof parsed === "object" ? parsed : null;
   } catch {
     return null;
+  }
+}
+
+export function clearMcpOAuthFlowCookies(event: H3Event): void {
+  deleteCookie(event, FLOW_COOKIE, { path: "/" });
+  for (let index = 1; index <= FLOW_COOKIE_MAX_CHUNKS; index += 1) {
+    deleteCookie(event, `${FLOW_COOKIE}.${index}`, { path: "/" });
   }
 }
 

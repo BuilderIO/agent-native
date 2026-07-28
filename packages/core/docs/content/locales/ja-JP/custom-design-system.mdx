@@ -1,0 +1,323 @@
+---
+title: "カスタムデザインシステム"
+description: "Agent Native の動作を置き換えることなく、自社の React デザインシステムを Agent Native アプリと共有 Toolkit エクスペリエンスで利用します。"
+---
+
+# カスタムデザインシステム
+
+Agent Native では、自社の React コンポーネントを使ってアプリ所有の画面と共有 Toolkit エクスペリエンスを描画できます。明示的で型付きのアダプターを一度登録すれば、同じフィーチャーコントローラーがアクション、状態、アクセシビリティ要件、エージェントに見える動作を引き続き管理します。
+
+アダプターのコントラクトは Tailwind、shadcn、Radix、`className`、特定のスタイリングランタイムを必要としません。コンポーネントはテーマプロバイダー、CSS-in-JS、CSS Modules、React Aria、通常の CSS のいずれも利用できます。`className` と `style` は任意の相互運用フックであり、スタイリング要件ではありません。
+
+完全なアダプター、テーマプロバイダーの配線、ダークモード、v1 で記載されたギャップについては、実行可能な [Material UI Chat の例](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) と [Ant Design Chat の例](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-antd) を参照してください。
+
+## 最小のカスタマイズ階層を選ぶ
+
+| 階層                    | 用途                                                                                 | 共有されるもの                                                          |
+| ----------------------- | ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------- |
+| **Theme tokens**        | デフォルトおよび未対応のサーフェスをすばやくブランドに合わせる                       | Toolkit コンポーネント、コントローラー、動作                            |
+| **Semantic components** | ボタン、フィールド、ピッカー、ダイアログ、メニュー、サーフェスなどの自社コントロール | フィーチャーコントローラーとプロダクトコントラクト                      |
+| **Product slots**       | 接続カードやチャット履歴レールなど、1 つのフィーチャーの自社固有レイアウト           | フィーチャーのコントローラーとアクション                                |
+| **Eject**               | サポートされるスロットでは表現できないプロダクトの動作や構造                         | Core ランタイムのコントラクト。eject したフィーチャーはアプリ所有になる |
+
+トークンから始め、システムに相当するものがある箇所でセマンティックコンポーネントを追加し、フィーチャーレベルの構成にはプロダクトスロットを使い、それでも所有権が必要な最小単位だけを eject してください。
+
+## アダプターを登録する
+
+カスタマーアダプターは通常の npm パッケージです。`app/design-system.ts` で 1 つを明示的に import してください。Agent Native は依存関係をスキャンしたり、ライブラリを自動検出したり、JSON からコンポーネントを読み込んだりしません。
+
+ビルド時のテーマは依存関係の少ないモジュールに置き、Vite が設定を読み込む際にカスタマーの React パッケージを評価せずに済むようにします。
+
+```ts filename="app/design-system-theme.ts"
+import { defineTheme } from "@agent-native/toolkit/design-system";
+
+export const acmeTheme = defineTheme({
+  colors: {
+    light: {
+      background: "#ffffff",
+      foreground: "oklch(24% 0.03 255)",
+      primary: "rgb(33 82 255)",
+      "primary-foreground": "white",
+      border: "hsl(218 20% 88%)",
+    },
+    dark: {
+      background: "#11131a",
+      foreground: "#f7f8fb",
+      primary: "oklch(72% 0.17 259)",
+      "primary-foreground": "#07102f",
+    },
+  },
+  radius: "0.625rem",
+  typography: { fontFamily: "Acme Sans, sans-serif" },
+});
+```
+
+```tsx filename="app/design-system.ts"
+import { defineDesignSystem } from "@agent-native/toolkit/design-system";
+import { acmeComponents } from "@acme/agent-native-design-system";
+
+import { acmeTheme } from "@/design-system-theme";
+
+export const designSystem = defineDesignSystem({
+  name: "Acme",
+  theme: acmeTheme,
+  components: acmeComponents,
+});
+```
+
+アプリのプロバイダーシームを通して定義を接続します。
+
+```tsx filename="app/components/ui/toolkit-provider.tsx"
+import { ToolkitProvider } from "@agent-native/toolkit/provider";
+
+import { designSystem } from "@/design-system";
+
+export function AppToolkitProvider({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <ToolkitProvider designSystem={designSystem}>{children}</ToolkitProvider>
+  );
+}
+```
+
+部分的なアダプターもサポートされます。省略したコンポーネントには Agent Native のデフォルトアダプターが使われます。カスタムコンポーネントの 1 つが描画中に例外を投げると、コンポーネント単位のエラーバウンダリーが失敗をログに記録し、そのコントロールにはデフォルトコンポーネントを描画します。カスタムシステムの残りは有効なままです。
+
+2 つの完全な Chat アプリが実際のデザインシステムに対してこのコントラクトを検証します。[Material UI の例](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) は Emotion、`ThemeProvider`、MUI のオーバーレイスタックを使い、[Ant Design の例](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-antd) は `ConfigProvider` と Ant Design のフォームおよびオーバーレイプリミティブを使います。それぞれの `app/design-system.tsx` が主な統合リファレンスです。上記の Acme フィクスチャは意図的に小さく、ユニットテストで使われます。
+
+以前の `components={{ Button }}` プロバイダー API も互換性を保ち、最も低い優先度の `ActionButton` アダプターとして扱われます。両方を指定した場合は `designSystem.components.ActionButton` が優先され、開発ビルドで警告がログに出ます。
+
+## ビルド時のテーマトークン
+
+`defineTheme` は hex、`rgb()`、`hsl()`、OKLCH を含む標準 CSS カラーを受け付けます。Core の Vite プラグインは値を検証し、Agent Native の既存のセマンティック変数へ正規化します。ダークカラーはトークンごとにライトパレットへフォールバックします。Agent Native がダークパレットを自動生成することはありません。
+
+テーマを Vite プラグインに渡します。
+
+```tsx filename="vite.config.ts"
+import { agentNative } from "@agent-native/core/vite";
+import { defineConfig } from "vite";
+
+import { acmeTheme } from "./app/design-system-theme";
+
+export default defineConfig({
+  plugins: [...agentNative({ designSystemTheme: acmeTheme })],
+});
+```
+
+開発環境と React Router の本番ビルドの両方に含まれるように、アプリのルートから仮想スタイルシートを一度 import します。
+
+```tsx filename="app/root.tsx"
+import "virtual:agent-native-theme.css";
+```
+
+プラグインはその仮想テーマ CSS をビルド時に生成します。セマンティックトークンは scaffold のフォールバック値を上書きしますが、フォールバック専用のトークンは削除しません。バージョン 1 ではリクエスト単位や組織単位でテーマを選択しません。
+
+## 17 のセマンティックコントラクト
+
+このコントラクトは DOM の形や見た目の実装ではなく、意図的に意味と動作を定義します。プロダクトの状態を移植可能に保つ必要がある箇所では、値と開閉状態を制御します。
+
+### リーフコントラクト
+
+| コンポーネント | 必須コントラクト                     | 重要な任意セマンティクス                                                            |
+| -------------- | ------------------------------------ | ----------------------------------------------------------------------------------- |
+| `ActionButton` | 必要に応じた `children` と `onPress` | `intent`、`emphasis`、`size`、`pending`、アイコン、disabled state、button type、ref |
+| `IconButton`   | アクセシブルな `label`、`icon`       | `ActionButton` と同等のボタンセマンティクス                                         |
+| `TextField`    | 制御された文字列 `value`、`onChange` | label、description、error、input type/mode、validation、adornments、events、ref     |
+| `TextArea`     | 制御された文字列 `value`、`onChange` | label、description、error、rows、validation、events、ref                            |
+| `Spinner`      | プログレスインジケーター             | アクセシブルな label とセマンティックサイズ                                         |
+| `Skeleton`     | 非インタラクティブなプレースホルダー | width、height、line/rectangle/circle shape                                          |
+| `Status`       | `children`                           | neutral/info/success/warning/danger の tone、icon、size                             |
+| `Surface`      | `children`                           | semantic element、elevation、padding、interactive press behavior                    |
+| `Avatar`       | アクセシブルな `name`                | image source、fallback、size、presence status、image ref                            |
+
+### ビヘイビアコントラクト
+
+| コンポーネント | 必須コントラクト                                   | アダプターが所有する動作                                                        |
+| -------------- | -------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `Tooltip`      | trigger と content                                 | 制御/非制御の open state、delay、placement、portal behavior                     |
+| `Menu`         | trigger、items/sections、`onAction`                | キーボードナビゲーション、ネストした項目、selection、dismissal、portal behavior |
+| `Popover`      | trigger と children                                | 制御/非制御の open state、dismissal、focus、modality、portal behavior           |
+| `Dialog`       | 制御された `open`、`onOpenChange`、title、children | dialog semantics、dismissal、initial/restore focus、portal と stacking behavior |
+| `Picker`       | `mode`、options、制御された `value`、`onChange`    | select/combobox semantics、search/open state、validation、loading/empty state   |
+| `Checkbox`     | 制御された `checked`、`onChange`                   | checkbox semantics、indeterminate/required/invalid state                        |
+| `Switch`       | 制御された `checked`、`onChange`                   | switch semantics と disabled state                                              |
+| `Tabs`         | items、制御された `value`、`onChange`              | tab semantics、orientation、automatic/manual activation                         |
+
+`intent` は `primary`、`neutral`、`danger` のいずれか、`emphasis` は `solid`、`outline`、`ghost` のいずれかです。サイズは `compact`、`default`、`large` です。これらの値は目的を表し、デフォルト UI のクラス名や variant 名を表すものではありません。
+
+デフォルトアダプターは、これらの見た目の props にセマンティック属性だけでなく観測可能な動作も与えます。button、spinner、status、skeleton、avatar、dialog のサイズは具体的な variant を選び、skeleton shape と avatar presence status は表示を変え、メニューの選択と `closeOnAction` は動作に影響します。カスタムアダプターは同じ意味を自分の視覚的な語彙へマッピングする責任を持ちます。
+
+`Picker` が対応するのは select と combobox の動作だけです。日付選択はバージョン 1 のセマンティックコントラクトに含まれません。
+
+## オーバーレイ、ポータル、フォーカス
+
+ビヘイビアコンポーネントは、デザインシステムのオーバーレイとフォーカス実装をそのまま使えます。Radix でラップする必要はありません。制御状態、アクセシブルなロール、提供される `portalContainer`、`initialFocusRef`、`restoreFocusRef` のシームを含むセマンティックコントラクトを守る必要があります。
+
+これは Radix がホストする Toolkit サーフェスからネイティブのデザインシステムダイアログを開く場合に重要です。アダプターが自分のオーバーレイスタックを所有し、シームによって両システムはポータル層、z-index の順序、初期フォーカス、フォーカスの復元に合意できます。ネストしたオーバーレイと隣接するオーバーレイは、分離したコンポーネントエクスプローラーだけでなく実際のアプリでテストしてください。
+
+## ヘッドレスフィーチャーコントローラーとプロダクトスロット
+
+セマンティックコンポーネントは共有語彙です。フィーチャーコントローラーは動作の境界です。コントローラーが状態遷移、アクション、トラッキング、ビューモデルを所有し、デフォルトビューとプロダクトスロットの両方が同じコントローラーを利用します。
+
+```tsx
+<BuilderConnectCard
+  className="connection-card"
+  render={({ viewModel, className }) => (
+    <AcmeConnectionPanel
+      className={className}
+      title={viewModel.title}
+      status={viewModel.status}
+      pending={viewModel.action?.pending ?? false}
+      onConnect={viewModel.action?.onPress}
+    />
+  )}
+/>
+```
+
+これはフィーチャーレベルのヘッドレス UI であり、すべてのウィジェットに低レベルフックをもう 1 セット用意するものではありません。`BuilderConnectCard` と `ChatHistoryRail` が最初の実証スライスです。settings と sharing も同じ controller/default-view/custom-view の不変条件に従います。
+
+`ChatHistoryRail` は v1 で意図的に不透明な `renderRail` スロットを 1 つだけ保持します。このスロットはレールビュー全体を置き換え、共有コントローラーとリスト props を受け取ります。個別の header、footer、row スロットは、別のプロダクトが必要とするまで保留します。これにより API を限定しながら、履歴状態とアクションを共有コントローラーに保持できます。
+
+スロットで必要なプロダクト変更を表現できない場合は、公開されている最小単位を調査して eject します。
+
+```bash
+agent-native eject --list
+agent-native eject inspect toolkit/design-system
+agent-native eject toolkit/design-system --app my-app --apply
+```
+
+Ejection は所有権を移します。Core の auth、actions、persistence、access checks、chat transport、agent execution をフォークするものではありません。
+
+## コンフォーマンスキットを実行する
+
+カスタマーパッケージから完全なコンポーネントマップを export し、ブラウザーに近いテスト環境で同梱のテストキットを実行します。
+
+```tsx filename="design-system.conformance.spec.tsx"
+import { describe, it } from "vitest";
+import { assertDesignSystemConformance } from "@agent-native/toolkit/conformance";
+import { DESIGN_SYSTEM_CONTRACT_VERSION } from "@agent-native/toolkit/design-system";
+import { acmeComponents } from "@acme/agent-native-design-system";
+
+describe("Acme Agent Native adapter", () => {
+  it("conforms", async () => {
+    await assertDesignSystemConformance({
+      adapterName: "Acme",
+      components: acmeComponents,
+      contractVersion: DESIGN_SYSTEM_CONTRACT_VERSION,
+    });
+  });
+});
+```
+
+このスイートは 17 個すべての export、制御された値と開閉状態、アクセシブルなロール、キーボード操作、selection、ポータルのターゲット、z-index の相互運用性、初期フォーカス、フォーカスの復元を検査します。アダプターパッケージの CI で実行し、プロバイダー固有の構成について小さなアプリレベルのオーバーレイテストも残してください。
+
+コントラクトの進化はセマンティックバージョニングに従います。
+
+- 新しいコンポーネントと任意の props は、互換性のある minor 変更です。
+- 新しい必須 props、削除されたコンポーネント/props、動作コントラクトの変更には、新しい contract major が必要です。
+- アダプターの contract major と Toolkit の contract major が異なると、コンフォーマンスキットは失敗します。
+
+## アダプターレシピ
+
+### MUI 風のテーマプロバイダーシステム
+
+[Chat + Material UI の例](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) が主な実装リファレンスです。単一の `app/design-system.tsx` モジュールがセマンティックアダプター、MUI の light/dark `createTheme` の値、`defineTheme` のトークンソースを export します。アプリの `AppToolkitProvider` は共有 Toolkit サーフェスの上に MUI `ThemeProvider` を保ち、`vite.config.ts` は同じ `theme` の値をビルド時 CSS 生成のために import します。これにより Emotion のスタイル、MUI のポータル、Agent Native のトークンが 1 つの source of truth に揃います。
+
+会社のテーマプロバイダーを `AppToolkitProvider` の上に置き、パッケージ境界でセマンティック props を適応させます。`intent`、`emphasis`、`size` をアダプター内部で自社システムの語彙にマッピングし、Agent Native のフィーチャーコードには入れないでください。オーバーレイでは `portalContainer` をデザインシステムのコンテナーまたは portal prop に転送し、そのフォーカスマネージャーを使って `initialFocusRef`/`restoreFocusRef` を実装します。
+
+```tsx
+export const ActionButton: DesignSystemComponents["ActionButton"] = ({
+  intent = "neutral",
+  emphasis = "solid",
+  pending,
+  onPress,
+  children,
+  ...props
+}) => (
+  <CompanyButton
+    {...props}
+    color={intent === "danger" ? "error" : intent}
+    variant={emphasis === "solid" ? "contained" : emphasis}
+    loading={pending}
+    onClick={onPress}
+  >
+    {children}
+  </CompanyButton>
+);
+```
+
+フィーチャーのテーマプロバイダーを各アダプターコンポーネントにコピーしないでください。アプリ境界に一度だけインストールし、ポータルとオーバーレイが同じコンテキストを継承できるようにします。
+
+[Chat MUI アダプター](https://github.com/BuilderIO/agent-native/blob/main/examples/chat-mui/app/design-system.tsx) が実装例です。1 つの `defineTheme` 値を export し、その値を `defineDesignSystem` に import し、同じモジュールを `vite.config.ts` から import します。この single source of truth により、ランタイムでテーマを生成せずに MUI の light/dark プロバイダートークンとビルド時のセマンティック CSS トークンを揃えられます。
+
+### React Aria ベースのシステム
+
+React Aria のコンポーネントまたはフックを使ってセマンティクスを直接実装します。制御された `value`/`open` props を保持し、2 つ目の state store を作らずに変更コールバックを転送してください。ビヘイビアコントラクトにはオーバーレイプロバイダーとフォーカススコープを使い、`portalContainer` からポータルルートを設定し、initial/restore ref をフォーカス管理 API に接続します。コンフォーマンススイートは最低限の動作チェックです。デザインシステムは完全なキーボードおよびスクリーンリーダーのテストマトリクスに引き続き責任を持ちます。
+
+```tsx
+export const Checkbox: DesignSystemComponents["Checkbox"] = ({
+  checked,
+  onChange,
+  label,
+  ...props
+}) => (
+  <AriaCheckbox {...props} isSelected={checked} onChange={onChange}>
+    {label}
+  </AriaCheckbox>
+);
+```
+
+### CSS Modules と素の React
+
+アダプターは通常の React と CSS Modules で構いません。`className` がコンポーネントのスタイルコントラクトを迂回する場合は完全に無視してください。これは任意です。DOM ロール、アクセシブルな名前、キーボード動作、制御状態を明示します。
+
+```tsx
+import styles from "./action-button.module.css";
+
+export const ActionButton: DesignSystemComponents["ActionButton"] = ({
+  intent = "neutral",
+  emphasis = "solid",
+  pending,
+  disabled,
+  onPress,
+  children,
+  elementRef,
+}) => (
+  <button
+    ref={elementRef}
+    className={styles[`${intent}-${emphasis}`]}
+    disabled={disabled || pending}
+    aria-busy={pending || undefined}
+    onClick={onPress}
+  >
+    {children}
+  </button>
+);
+```
+
+## Version 1 の境界
+
+Version 1 のセマンティックブリッジは、すべてのサードパーティ UI エコシステムを置き換えるものではありません。次のサーフェスには、利用可能な場合はテーマトークンとフィーチャースロットが提供されますが、内部ウィジェットはまだセマンティックアダプターのコントラクトではありません。
+
+- `@assistant-ui/react` のチャットおよびコンポーザー内部
+- Tiptap エディターキット
+- `cmdk`、`vaul`、Recharts、`react-day-picker`
+- date-picker コンポーネント（`Picker` コントラクトは select/combobox のみ）
+- Dispatch の独立したプリミティブフォーク
+- Pinpoint の Solid.js と Shadow DOM UI
+
+これらの境界を明示することで、アダプターパッケージは正確なサポート範囲を主張できます。同じ意味と動作が複数のフィーチャーで役立つ場合にだけ新しいセマンティックコンポーネントを提案し、1 フィーチャーだけの差異にはプロダクトスロットまたは eject を使います。
+
+## 次のステップ
+
+- [**Toolkit UI Primitives**](/docs/toolkit-ui) — ローカルアダプター、プロバイダー配線、共有プリミティブの import。
+- [**Agent-Native Toolkit**](/docs/agent-native-toolkit) — 再利用可能なフィーチャー所有権とパッケージ境界。
+- [**Settings Kit**](/docs/toolkit-settings) と [**Sharing Kit**](/docs/toolkit-sharing) — アプリのアクションとアクセスコントラクトを維持する共有フィーチャーコントローラー。
+
+## Chat 例の対応範囲
+
+実行可能な [Material UI Chat](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) と [Ant Design Chat](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-antd) の例は、17 個すべての contract components を登録し、adapters を通じて 16/17 を描画します。`Menu` が明示的な未対応部分として残るのは、agent-panel header に v1 の data-only contract では表現できない live compound submenu が含まれるためです。assistant-ui composer/message renderer、cmdk internals、Tiptap editor は v1 の non-goals のままです。
+
+通常の Chat 共有ボタンは引き続き従来のポップオーバーです。提供される `/design-system-proof` ルートでは、そのポップオーバーをデザインシステムのダイアログと見せかけることなく、Core の完全な `ShareDialog` にアクセスできます。

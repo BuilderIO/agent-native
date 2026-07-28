@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildDocumentTree,
+  DOCUMENT_QUERY_FRESHNESS_OPTIONS,
   documentUpdateSuccessPatch,
   documentPropertiesQueryKey,
   documentQueryKey,
@@ -20,6 +21,16 @@ import {
   setDocumentFavoriteInListCache,
   seedDatabaseItemDocumentCaches,
 } from "./use-documents";
+
+describe("document query freshness", () => {
+  it("always replaces seeded row snapshots before the editor mounts", () => {
+    expect(DOCUMENT_QUERY_FRESHNESS_OPTIONS).toMatchObject({
+      staleTime: 0,
+      refetchOnMount: "always",
+      retry: false,
+    });
+  });
+});
 
 function doc(id: string, parentId: string | null, position = 0): Document {
   return {
@@ -361,11 +372,17 @@ describe("optimistic document titles", () => {
       ],
     });
 
-    patchDocumentCaches(queryClient, "a", { title: "Page one" });
+    patchDocumentCaches(queryClient, "a", {
+      title: "Page one",
+      content: "Saved body",
+    });
 
     expect(
       queryClient.getQueryData<Document>(documentQueryKey("a"))?.title,
     ).toBe("Page one");
+    expect(
+      queryClient.getQueryData<Document>(documentQueryKey("a"))?.content,
+    ).toBe("Saved body");
     expect(
       queryClient.getQueryData<Document[]>([
         "action",
@@ -376,6 +393,9 @@ describe("optimistic document titles", () => {
     expect(
       queryClient.getQueryData<any>(databaseKey)?.items[0].document.title,
     ).toBe("Page one");
+    expect(
+      queryClient.getQueryData<any>(databaseKey)?.items[0].document.content,
+    ).toBe("Saved body");
   });
 });
 
@@ -437,6 +457,7 @@ describe("documentUpdateSuccessPatch", () => {
     const response = {
       ...doc("page", null),
       title: "Renamed",
+      content: "Saved body",
       updatedAt: "2026-05-12T00:00:01.000Z",
       urlPath: "/page/page",
       softDeletedDatabaseIds: [],
@@ -446,9 +467,11 @@ describe("documentUpdateSuccessPatch", () => {
       documentUpdateSuccessPatch(response, {
         id: "page",
         title: "Renamed",
+        content: "Saved body",
       }),
     ).toEqual({
       title: "Renamed",
+      content: "Saved body",
       updatedAt: "2026-05-12T00:00:01.000Z",
     });
   });
@@ -477,7 +500,7 @@ describe("isDocumentUpdateConflict", () => {
 });
 
 describe("seedDatabaseItemDocumentCaches", () => {
-  it("warms get-document and list-document-properties from a database row", () => {
+  it("warms properties without treating a database row snapshot as an editable document", () => {
     const queryClient = new QueryClient();
     const item: ContentDatabaseItem = {
       id: "item-a",
@@ -517,14 +540,9 @@ describe("seedDatabaseItemDocumentCaches", () => {
 
     seedDatabaseItemDocumentCaches(queryClient, item);
 
-    expect(
-      queryClient.getQueryData(documentQueryKey("row-page")),
-    ).toMatchObject({
-      id: "row-page",
-      title: "Builder blog launch",
-      icon: "B",
-      properties: item.properties,
-    });
+    expect(queryClient.getQueryData(documentQueryKey("row-page"))).toBe(
+      undefined,
+    );
     expect(
       queryClient.getQueryData(documentPropertiesQueryKey("row-page")),
     ).toEqual({

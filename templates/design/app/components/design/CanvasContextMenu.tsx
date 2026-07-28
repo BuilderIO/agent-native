@@ -106,6 +106,7 @@ export type CanvasContextMenuAction =
   | "copy-as-code"
   | "copy-as-svg"
   | "copy-as-png"
+  | "rotate-clockwise"
   | "flip-horizontal"
   | "flip-vertical"
   | "toggle-ui"
@@ -176,6 +177,7 @@ export interface CanvasContextMenuLabels {
   copyAsCode: string;
   copyAsSvg: string;
   copyAsPng: string;
+  rotateClockwise: string;
   flipHorizontal: string;
   flipVertical: string;
   toggleUiShow: string;
@@ -219,6 +221,7 @@ export interface CanvasContextMenuShortcuts {
   copyAsCode: string;
   copyAsSvg: string;
   copyAsPng: string;
+  rotateClockwise: string;
   flipHorizontal: string;
   flipVertical: string;
   toggleUi: string;
@@ -296,6 +299,7 @@ export interface CanvasContextMenuProps {
   canCopyAsCode?: boolean;
   canCopyAsSvg?: boolean;
   canCopyAsPng?: boolean;
+  canRotateClockwise?: boolean;
   canFlipHorizontal?: boolean;
   canFlipVertical?: boolean;
   canToggleUi?: boolean;
@@ -356,6 +360,7 @@ export interface CanvasContextMenuProps {
   onCopyAsCode?: CanvasContextMenuActionHandler;
   onCopyAsSvg?: CanvasContextMenuActionHandler;
   onCopyAsPng?: CanvasContextMenuActionHandler;
+  onRotateClockwise?: CanvasContextMenuActionHandler;
   onFlipHorizontal?: CanvasContextMenuActionHandler;
   onFlipVertical?: CanvasContextMenuActionHandler;
   onToggleUi?: CanvasContextMenuActionHandler;
@@ -409,6 +414,7 @@ const DEFAULT_LABELS: CanvasContextMenuLabels = {
   copyAsCode: "Copy as code",
   copyAsSvg: "Copy as SVG",
   copyAsPng: "Copy as PNG",
+  rotateClockwise: "Rotate 90° clockwise",
   flipHorizontal: "Flip horizontal",
   flipVertical: "Flip vertical",
   toggleUiShow: "Show UI",
@@ -452,6 +458,7 @@ const DEFAULT_SHORTCUTS: CanvasContextMenuShortcuts = {
   copyAsCode: "",
   copyAsSvg: "",
   copyAsPng: "⇧⌘C",
+  rotateClockwise: "",
   flipHorizontal: "⇧H",
   flipVertical: "⇧V",
   toggleUi: "⌘\\",
@@ -464,7 +471,7 @@ type ActionCallbackMap = Partial<
 
 // design-editor menu chrome: compact, dark-border, subtle shadow, no animation jitter
 const MENU_CONTENT_CLASS =
-  "w-52 min-w-[200px] rounded-[6px] border border-[var(--design-editor-control-border)] bg-[var(--design-editor-panel-bg)] py-[3px] px-[3px] text-[12px] text-foreground shadow-[0_4px_16px_rgba(0,0,0,0.16),0_0_0_0.5px_rgba(0,0,0,0.08)] outline-none";
+  "w-52 min-w-[200px] rounded-[6px] border border-[var(--design-editor-control-border)] bg-[var(--design-editor-panel-bg)] py-[3px] px-[3px] text-[12px] text-foreground shadow-[0_4px_16px_rgba(0,0,0,0.16),0_0_0_0.5px_rgba(0,0,0,0.08)] outline-none data-[state=open]:!animate-none data-[state=closed]:!animate-none";
 // design row height ~28px, full-width highlight on hover, no icon gap waste
 const MENU_ITEM_CLASS =
   "flex h-7 cursor-default select-none items-center rounded-[4px] px-2 py-0 text-[12px] leading-none gap-0 focus:bg-[var(--design-editor-selection-color)] focus:text-white data-[disabled]:pointer-events-none data-[disabled]:opacity-35";
@@ -525,6 +532,7 @@ export const CanvasContextMenu = forwardRef<
     canCopyAsCode = selectedCount > 0,
     canCopyAsSvg = selectedCount > 0,
     canCopyAsPng = selectedCount > 0,
+    canRotateClockwise = false,
     canFlipHorizontal = selectedCount > 0,
     canFlipVertical = selectedCount > 0,
     canToggleUi = true,
@@ -565,6 +573,7 @@ export const CanvasContextMenu = forwardRef<
     onCopyAsCode,
     onCopyAsSvg,
     onCopyAsPng,
+    onRotateClockwise,
     onFlipHorizontal,
     onFlipVertical,
     onToggleUi,
@@ -650,6 +659,7 @@ export const CanvasContextMenu = forwardRef<
       "copy-as-code": onCopyAsCode,
       "copy-as-svg": onCopyAsSvg,
       "copy-as-png": onCopyAsPng,
+      "rotate-clockwise": onRotateClockwise,
       "flip-horizontal": onFlipHorizontal,
       "flip-vertical": onFlipVertical,
       "toggle-ui": onToggleUi,
@@ -665,6 +675,7 @@ export const CanvasContextMenu = forwardRef<
       onCopyAsCode,
       onCopyAsPng,
       onCopyAsSvg,
+      onRotateClockwise,
       onCopyProps,
       onCreateComponent,
       onReprompt,
@@ -1073,6 +1084,13 @@ export const CanvasContextMenu = forwardRef<
             <CanvasMenuSeparator />
 
             <ContextMenuGroup>
+              <CanvasMenuItem
+                hidden={isHiddenAction("rotate-clockwise")}
+                disabled={!canRun("rotate-clockwise", canRotateClockwise)}
+                label={labels.rotateClockwise}
+                shortcut={shortcuts.rotateClockwise}
+                onSelect={(event) => runAction("rotate-clockwise", event)}
+              />
               <CanvasMenuItem
                 hidden={isHiddenAction("flip-horizontal")}
                 disabled={!canRun("flip-horizontal", canFlipHorizontal)}

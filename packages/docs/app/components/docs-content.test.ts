@@ -3,6 +3,17 @@ import { describe, expect, it } from "vitest";
 import { buildSearchIndex, getDoc } from "./docs-content";
 
 describe("docs content parsing", () => {
+  it("uses Agent Resources as the canonical docs slug and search path", () => {
+    const doc = getDoc("agent-resources");
+    const paths = buildSearchIndex().map((entry) => entry.path);
+
+    expect(doc?.title).toBe("Agent Resources");
+    expect(doc?.body).not.toContain("Which workspace doc?");
+    expect(getDoc("workspace")).toBeUndefined();
+    expect(paths).toContain("/docs/agent-resources");
+    expect(paths).not.toContain("/docs/workspace");
+  });
+
   it("ignores fenced markdown headings when extracting page headings", () => {
     const doc = getDoc("creating-templates");
 

@@ -50,7 +50,9 @@ describe("integration pending task store", () => {
       return { rows: [] };
     });
 
-    const task = await claimPendingTask("task-1");
+    const task = await claimPendingTask("task-1", {
+      dispatchOutcome: "background-acknowledged",
+    });
 
     expect(task?.id).toBe("task-1");
     const updateCall = executeMock.mock.calls.find(([query]) => {
@@ -68,6 +70,15 @@ describe("integration pending task store", () => {
     expect((updateCall?.[0] as { sql: string }).sql).toContain(
       "earlier.created_at < integration_pending_tasks.created_at",
     );
+    expect((updateCall?.[0] as { sql: string }).sql).toContain(
+      "last_dispatch_outcome = COALESCE(?, last_dispatch_outcome)",
+    );
+    expect((updateCall?.[0] as { args: unknown[] }).args).toEqual([
+      "processing",
+      expect.any(Number),
+      "background-acknowledged",
+      "task-1",
+    ]);
   });
 
   it("does not claim terminal failed tasks", async () => {
@@ -103,20 +114,49 @@ describe("integration pending task store", () => {
     await expect(claimPendingTask("task-failed")).resolves.toBeNull();
   });
 
+  it("does not let fallback telemetry downgrade an active background lease", async () => {
+    executeMock.mockResolvedValue({ rows: [], rowsAffected: 1 });
+    const { recordPendingTaskDispatchAttempt } = await loadStore();
+
+    await recordPendingTaskDispatchAttempt("task-1", "portable-unconfirmed");
+
+    const update = executeMock.mock.calls
+      .map(([query]) => query)
+      .find(
+        (query): query is { sql: string; args: unknown[] } =>
+          typeof query !== "string" &&
+          query.sql.includes("dispatch_attempts = dispatch_attempts + 1"),
+      );
+    expect(update?.sql).toContain("WHEN status = 'processing'");
+    expect(update?.sql).toContain(
+      "last_dispatch_outcome = 'background-acknowledged'",
+    );
+    expect(update?.sql).toContain("THEN last_dispatch_outcome");
+    expect(update?.args).toEqual([
+      expect.any(Number),
+      "portable-unconfirmed",
+      "task-1",
+    ]);
+  });
+
   it("dispatches same-millisecond thread tasks by stable id order", async () => {
-    executeMock.mockResolvedValue({ rows: [{ id: "task-a" }] });
-    const { getNextPendingTaskIdForThread } = await loadStore();
+    executeMock.mockResolvedValue({
+      rows: [{ id: "task-a", dispatch_scope: "channel-7" }],
+    });
+    const { getNextPendingTaskForThread } = await loadStore();
 
     await expect(
-      getNextPendingTaskIdForThread("slack", "thread-1"),
-    ).resolves.toBe("task-a");
+      getNextPendingTaskForThread("slack", "thread-1"),
+    ).resolves.toEqual({ id: "task-a", dispatchScope: "channel-7" });
 
     const select = executeMock.mock.calls
       .map(([query]) => query)
       .find(
         (query): query is { sql: string; args: unknown[] } =>
           typeof query !== "string" &&
-          query.sql.includes("SELECT id FROM integration_pending_tasks"),
+          query.sql.includes(
+            "SELECT id, dispatch_scope FROM integration_pending_tasks",
+          ),
       );
     expect(select?.sql).toContain("ORDER BY created_at ASC, id ASC");
     expect(select?.args).toEqual(["slack", "thread-1"]);
@@ -202,6 +242,220 @@ describe("integration pending task store", () => {
     expect(isDuplicateEventError(new Error("CHECK constraint failed"))).toBe(
       false,
     );
+  });
+
+  it("persists the channel scope used by durable dispatch", async () => {
+    executeMock.mockResolvedValue({ rows: [], rowsAffected: 1 });
+    const { insertPendingTask } = await loadStore();
+
+    await insertPendingTask({
+      id: "task-scoped",
+      platform: "microsoft-teams",
+      externalThreadId: "conversation-9",
+      payload: "{}",
+      ownerEmail: "member@example.com",
+      dispatchScope: "channel-7",
+    });
+
+    const insert = executeMock.mock.calls
+      .map(([query]) => query)
+      .find(
+        (query): query is { sql: string; args: unknown[] } =>
+          typeof query !== "string" &&
+          query.sql.includes("INSERT INTO integration_pending_tasks"),
+      );
+    expect(insert?.sql).toContain("dispatch_scope");
+    expect(insert?.args.at(-1)).toBe("channel-7");
+  });
+
+  it("resolves valid Slack provenance from the caller's stored task", async () => {
+    executeMock.mockImplementation(async (query: string | { sql: string }) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      if (sql.includes("SELECT platform, payload, owner_email, org_id")) {
+        return {
+          rows: [
+            {
+              platform: "slack",
+              payload: JSON.stringify({
+                incoming: {
+                  platform: "slack",
+                  sourceUrl:
+                    "https://example-workspace.slack.com/archives/C123/p123456",
+                },
+              }),
+              owner_email: "member@example.com",
+              org_id: "org-a",
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+    const { resolveIntegrationSourceContext } = await loadStore();
+
+    await expect(
+      resolveIntegrationSourceContext("task-1", "member@example.com", "org-a"),
+    ).resolves.toEqual({
+      platform: "slack",
+      sourceUrl: "https://example-workspace.slack.com/archives/C123/p123456",
+    });
+    const select = executeMock.mock.calls
+      .map(([query]) => query)
+      .find(
+        (query): query is { sql: string; args: unknown[] } =>
+          typeof query !== "string" &&
+          query.sql.includes("SELECT platform, payload, owner_email, org_id"),
+      );
+    expect(select?.args).toEqual([
+      "task-1",
+      "member@example.com",
+      "org-a",
+      "org-a",
+    ]);
+    expect(select?.sql).toContain("owner_email = ?");
+    expect(select?.sql).toContain("org_id IS NULL AND CAST(? AS TEXT) IS NULL");
+    expect(select?.sql).toContain("platform = 'slack'");
+    expect(select?.sql).not.toContain("SELECT *");
+  });
+
+  it("returns null for an unknown pending task", async () => {
+    executeMock.mockResolvedValue({ rows: [] });
+    const { resolveIntegrationSourceContext } = await loadStore();
+
+    await expect(
+      resolveIntegrationSourceContext(
+        "missing-task",
+        "member@example.com",
+        "org-a",
+      ),
+    ).resolves.toBeNull();
+  });
+
+  it.each([
+    {
+      name: "owner mismatch",
+      task: {
+        platform: "slack",
+        payload: JSON.stringify({
+          incoming: {
+            platform: "slack",
+            sourceUrl: "https://example.slack.com/archives/C1/p1",
+          },
+        }),
+        ownerEmail: "other@example.com",
+        orgId: "org-a",
+      },
+      ownerEmail: "member@example.com",
+      orgId: "org-a",
+    },
+    {
+      name: "organization mismatch",
+      task: {
+        platform: "slack",
+        payload: JSON.stringify({
+          incoming: {
+            platform: "slack",
+            sourceUrl: "https://example.slack.com/archives/C1/p1",
+          },
+        }),
+        ownerEmail: "member@example.com",
+        orgId: "org-b",
+      },
+      ownerEmail: "member@example.com",
+      orgId: "org-a",
+    },
+    {
+      name: "non-Slack task",
+      task: {
+        platform: "telegram",
+        payload: JSON.stringify({
+          incoming: {
+            platform: "telegram",
+            sourceUrl: "https://example.slack.com/archives/C1/p1",
+          },
+        }),
+        ownerEmail: "member@example.com",
+        orgId: "org-a",
+      },
+      ownerEmail: "member@example.com",
+      orgId: "org-a",
+    },
+    {
+      name: "malformed payload",
+      task: {
+        platform: "slack",
+        payload: "not-json",
+        ownerEmail: "member@example.com",
+        orgId: "org-a",
+      },
+      ownerEmail: "member@example.com",
+      orgId: "org-a",
+    },
+    {
+      name: "padded URL",
+      task: {
+        platform: "slack",
+        payload: JSON.stringify({
+          incoming: {
+            platform: "slack",
+            sourceUrl: " https://example.slack.com/archives/C1/p1 ",
+          },
+        }),
+        ownerEmail: "member@example.com",
+        orgId: "org-a",
+      },
+      ownerEmail: "member@example.com",
+      orgId: "org-a",
+    },
+    {
+      name: "credential-bearing URL",
+      task: {
+        platform: "slack",
+        payload: JSON.stringify({
+          incoming: {
+            platform: "slack",
+            sourceUrl: "https://user@example.slack.com/archives/C1/p1",
+          },
+        }),
+        ownerEmail: "member@example.com",
+        orgId: "org-a",
+      },
+      ownerEmail: "member@example.com",
+      orgId: "org-a",
+    },
+    {
+      name: "malformed URL",
+      task: {
+        platform: "slack",
+        payload: JSON.stringify({
+          incoming: { platform: "slack", sourceUrl: "not-a-url" },
+        }),
+        ownerEmail: "member@example.com",
+        orgId: "org-a",
+      },
+      ownerEmail: "member@example.com",
+      orgId: "org-a",
+    },
+    {
+      name: "non-Slack URL",
+      task: {
+        platform: "slack",
+        payload: JSON.stringify({
+          incoming: {
+            platform: "slack",
+            sourceUrl: "https://example.com/archives/C1/p1",
+          },
+        }),
+        ownerEmail: "member@example.com",
+        orgId: "org-a",
+      },
+      ownerEmail: "member@example.com",
+      orgId: "org-a",
+    },
+  ])("fails closed for $name", async ({ task, ownerEmail, orgId }) => {
+    const { sourceContextFromPendingTask } = await loadStore();
+
+    expect(sourceContextFromPendingTask(task, ownerEmail, orgId)).toBeNull();
   });
 
   it("erases transient provider credentials from terminal task payloads", async () => {

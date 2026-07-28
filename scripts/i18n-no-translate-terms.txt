@@ -46,6 +46,7 @@ gh · ffmpeg · stripe
 GitHub OAuth
 Google Calendar
 Google OAuth
+Google Sheets
 Headless Chrome
 hello.ts · view-screen · navigate
 HTTP · MCP · A2A

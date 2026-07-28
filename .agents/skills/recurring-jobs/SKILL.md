@@ -21,6 +21,21 @@ Recurring jobs are scheduled tasks the agent executes automatically on a cron sc
 3. A scheduler polls every 60 seconds, finds due jobs, and executes them via `runAgentLoop`
 4. Job results are saved as chat threads
 
+## Connected MCPs in background jobs
+
+Jobs can use connected remote MCPs with the same server-side OAuth lifecycle as
+interactive chat. When creating a job that needs an MCP, bind the exact
+advertised `mcp__<server>__<tool>` names through `mcpTools`. The scheduler
+resolves only that allowlist under the job's persisted user/org request
+context; it never stores or exposes OAuth tokens, URLs, or arbitrary proxy
+targets. A revoked connector or missing tool fails the run clearly instead of
+silently widening access.
+
+Use an app-owned bounded import/upsert action for writes. Keep provider-specific
+response mapping, provenance, deduplication, and write policy in the app rather
+than in core. For example, a job can read meeting notes from any connected MCP
+and pass normalized action items to an app's idempotent `import` action.
+
 ## Job Tool (built in)
 
 | Tool          | Action     | Purpose                                                    |

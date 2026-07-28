@@ -13,9 +13,9 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import enMessages from "@/i18n/en-US";
 import {
-  clipsChromeExtensionEnabled,
   clipsChromeExtensionUrl,
   markDesktopAppDownloaded,
+  useClipsChromeExtensionEnabled,
 } from "@/lib/capture-install-options";
 
 export function meta() {
@@ -179,6 +179,7 @@ function secondaryDownloadButton(
 }
 
 export default function DownloadPage() {
+  const chromeExtensionEnabled = useClipsChromeExtensionEnabled();
   const t = useT();
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [manifestError, setManifestError] = useState(false);
@@ -283,7 +284,7 @@ export default function DownloadPage() {
             </div>
           </div>
 
-          {clipsChromeExtensionEnabled && (
+          {chromeExtensionEnabled && (
             <section className="mt-10 w-full max-w-xl rounded-2xl border border-border bg-card p-4 text-start shadow-sm">
               <div className="flex items-start gap-3">
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">

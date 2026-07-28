@@ -69,6 +69,16 @@ export function documentBodyHydrationIsPending(
   return builderBodyHydrationIsPending(hydration);
 }
 
+export function newDocumentPageChoiceIsDisabled(args: {
+  canEdit: boolean;
+  bodyHydrationPending: boolean;
+  databaseCreationPending: boolean;
+}) {
+  return (
+    !args.canEdit || args.bodyHydrationPending || args.databaseCreationPending
+  );
+}
+
 export function previewBodyHydrationIsPending(args: {
   item: Pick<ContentDatabaseItem, "bodyHydration" | "document">;
   document: Pick<Document, "content" | "databaseMembership"> | null | undefined;

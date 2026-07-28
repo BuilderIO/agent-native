@@ -137,7 +137,7 @@ Créez une compétence lorsque :
 Ne créez pas de compétence lorsque :
 
 - Les conseils existent déjà dans une autre compétence – étendez-les à la place
-- Le guide est unique : placez-le plutôt dans `AGENTS.md` ou dans la mémoire de l'espace de travail
+- Le guide est unique : placez-le plutôt dans `AGENTS.md` ou dans la mémoire de l'agent
 
 ## Format de compétence {#skill-format}
 
@@ -295,11 +295,11 @@ Cela remplace l'ancien hack consistant à s'appuyer sur le code Claude lisant un
 
 </Callout>
 
-Si les connaissances s'appliquent à _tout le monde_ travaillant dans l'application (« préférez toujours les CTE aux sous-requêtes »), il s'agit d'une compétence ou d'un `LEARNINGS.md` partagé. S'il s'agit de _cet utilisateur particulier_ ("Steve aime les réponses concises"), cela appartient à `memory/MEMORY.md`. Voir [Workspace Memory](/docs/workspace#memory) pour le traitement complet.
+Si les connaissances s'appliquent à _tout le monde_ travaillant dans l'application (« préférez toujours les CTE aux sous-requêtes »), il s'agit d'une compétence ou d'un `LEARNINGS.md` partagé. S'il s'agit de _cet utilisateur particulier_ ("Steve aime les réponses concises"), cela appartient à `memory/MEMORY.md`. Voir [Ressources de l'agent — Mémoire](/docs/agent-resources#memory) pour le traitement complet.
 
 ## Skills et ressources SQL {#skills-vs-resources}
 
-Cette page présente un skill comme un fichier situé dans `.agents/skills/<name>/SKILL.md`. [Workspace](/docs/workspace#skills) présente ce même skill comme une ressource SQL au chemin `skills/<slug>/SKILL.md`, de portée workspace, partagée ou personnelle. Il s'agit du même concept vu sous deux angles : le mode Code lit et écrit directement le fichier ; le mode App le stocke sous forme de ligne de ressource afin qu'il fonctionne sans système de fichiers. Dans les deux cas, rédigez le contenu au format décrit sur cette page.
+Cette page présente un skill comme un fichier situé dans `.agents/skills/<name>/SKILL.md`. [Ressources de l'agent](/docs/agent-resources#skills) présente ce même skill comme une ressource SQL au chemin `skills/<slug>/SKILL.md`, de portée workspace, partagée ou personnelle. Il s'agit du même concept vu sous deux angles : le mode Code lit et écrit directement le fichier ; le mode App le stocke sous forme de ligne de ressource afin qu'il fonctionne sans système de fichiers. Dans les deux cas, rédigez le contenu au format décrit sur cette page.
 
 ## skills basé sur une application — tous les détails {#app-backed-skills-full}
 
@@ -424,6 +424,6 @@ les mêmes instructions sans conserver une deuxième copie.
 ## Et ensuite ? {#whats-next}
 
 - [**Rédiger les instructions de l'agent**](/docs/writing-agent-instructions) — formuler les descriptions des skills et répartir les consignes entre AGENTS.md, les skills et la mémoire
-- [**Workspace**](/docs/workspace#skills) — où les skills résident sous forme de ressources SQL en mode App
+- [**Ressources de l'agent**](/docs/agent-resources#skills) — où les skills résident sous forme de ressources SQL en mode App
 - [**Mentions d'agents**](/docs/agent-mentions) — le déclencheur de commande `/` qui invoque un skill dans le chat
 - [**Plugin et marketplace Plan**](/docs/plan-plugin) — installation et mise à jour automatique de bout en bout d'un véritable skill basé sur une application

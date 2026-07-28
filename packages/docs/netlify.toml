@@ -5,7 +5,25 @@ publish = "packages/docs/dist"
 # Slug redirects for renamed docs — keep in sync with SLUG_REDIRECTS in app/routes/docs.$slug.tsx.
 [[redirects]]
 from = "/docs/resources"
-to = "/docs/workspace"
+to = "/docs/agent-resources"
+status = 301
+force = true
+
+[[redirects]]
+from = "/docs/workspace"
+to = "/docs/agent-resources"
+status = 301
+force = true
+
+[[redirects]]
+from = "/:locale/docs/workspace"
+to = "/:locale/docs/agent-resources"
+status = 301
+force = true
+
+[[redirects]]
+from = "/docs/:locale/workspace"
+to = "/:locale/docs/agent-resources"
 status = 301
 force = true
 

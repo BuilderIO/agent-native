@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 
+import { ToolkitProvider } from "@agent-native/toolkit";
+import type { PickerProps } from "@agent-native/toolkit/design-system";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -153,5 +155,32 @@ describe("LanguagePicker", () => {
         .querySelector("[data-language-picker-trigger]")
         ?.getAttribute("aria-label"),
     ).toBe("Interface language: English (en-US)");
+  });
+
+  it("routes the select variant through a registered picker adapter", async () => {
+    const CustomPicker = (props: PickerProps) => (
+      <div data-custom-language-picker>{String(props.value)}</div>
+    );
+
+    await act(async () => {
+      root.render(
+        <ToolkitProvider
+          designSystem={{ components: { Picker: CustomPicker } }}
+        >
+          <AgentNativeI18nProvider
+            initialLocale="en-US"
+            initialPreference="en-US"
+            persistPreference={false}
+          >
+            <LanguagePicker label="Interface language" />
+          </AgentNativeI18nProvider>
+        </ToolkitProvider>,
+      );
+      await Promise.resolve();
+    });
+
+    expect(
+      document.querySelector("[data-custom-language-picker]"),
+    ).not.toBeNull();
   });
 });

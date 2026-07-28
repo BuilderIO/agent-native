@@ -6,6 +6,7 @@ import { isSlidesReferenceFileExtension } from "../../shared/upload-types.js";
 import { saveUploadedReferenceFile } from "../handlers/uploads.js";
 
 const MAX_CHAT_UPLOAD_BYTES = 50 * 1024 * 1024;
+const MAX_INLINE_IMAGE_BYTES = 10 * 1024 * 1024;
 
 function decodeDataUrl(data: string | undefined): {
   bytes: Buffer;
@@ -135,9 +136,12 @@ function stripForwardedAttachmentData(
   saved: { path: string; url?: string },
 ): AgentChatAttachment {
   const next = { ...attachment };
-  // Keep image data for the current model turn when storage only gives Slides
-  // an import path. A hosted URL is the replacement that lets us strip it.
-  if (saved.url || !isVisualAttachment(attachment)) {
+  // Keep visual data for the current model turn so uploaded screenshots remain
+  // available for vision analysis; non-visual files only need their path/URL.
+  const inlineImage = isVisualAttachment(attachment)
+    ? decodeDataUrl(attachment.data)
+    : null;
+  if (!inlineImage || inlineImage.bytes.length > MAX_INLINE_IMAGE_BYTES) {
     delete next.data;
   }
   (next as any).slidesUploadPath = saved.path;

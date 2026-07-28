@@ -299,7 +299,6 @@ const messages = {
     storageConnectedChecking: "Stockage connecté. Je vérifie ce clip...",
     signInToFinish: "Connectez-vous pour terminer",
     signInIfYours: "Connectez-vous si c'est le vôtre",
-    openDashboard: "Ouvrir le tableau de bord",
     checkAgain: "Revérifier",
     backToHome: "Retour à la maison",
     generatingTitle: "Génération du titre",
@@ -496,6 +495,7 @@ const messages = {
     makePublicAndCopy: "Rendre public et copier",
     copy: "Copie",
     addPeopleByEmail: "Ajouter des personnes par email",
+    invite: "Inviter",
     notifyPeople: "Avertir les gens",
     peopleWithAccess: "Personnes ayant accès",
     ownerRole: "Propriétaire",
@@ -828,11 +828,23 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     recentViewers: "Spectateurs récents",
     noViewers: "Aucun spectateur pour le moment.",
     anonymous: "Anonyme",
-    anon: "Anon",
     moreViewers: "+{{count}} de plus",
     viewedBy: "Vu par",
     someone: "Quelqu’un",
     noViewsYet: "Aucune vue pour le moment.",
+    viewsCount_one: "{{count}} vue",
+    viewsCount_many: "{{count}} vues",
+    viewsCount_other: "{{count}} vues",
+    totalViewsSummary:
+      "{{total}} vues au total, {{unique}} spectateurs uniques",
+    viewsTab: "Vues",
+    insightsTab: "Insights",
+    humanViews: "Vues humaines",
+    agentViews: "Vues d’agents IA",
+    noAgentViewsYet: "Aucune vue d’agent IA pour le moment.",
+    totalVideoViews: "Vues totales de la vidéo",
+    averageCompletionRate: "Taux d’achèvement moyen",
+    moreInsights: "Plus d’insights",
   },
   libraryGrid: {
     spaceRoot: "Racine de l’espace",
@@ -856,6 +868,10 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     loadFailedBody:
       "Une erreur s’est produite lors du chargement de cette liste. Vos enregistrements sont en sécurité — réessayez.",
     retry: "Réessayer",
+    paginationRange: "{{start}}–{{end}} sur {{total}}",
+    paginationPrevious: "Précédent",
+    paginationNext: "Suivant",
+    paginationPage: "Page {{page}} sur {{totalPages}}",
   },
   notificationsRoute: {
     pageTitle: "Alertes · Clips",
@@ -951,6 +967,18 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     summary: "Résumé",
     keyPoints: "Points clés",
     actionItems: "Actions à faire",
+    sharedContent: "Contenu partagé",
+    summaryIncluded: "Résumé, points clés et actions à faire",
+    includeTranscript: "Inclure la transcription complète",
+    includeTranscriptDescription:
+      "Toute personne ayant accès à cette réunion peut lire la transcription complète.",
+    transcriptUnavailable: "La transcription n’est pas encore prête.",
+    transcript: "Transcription",
+    copyTranscript: "Copier la transcription",
+    transcriptCopied: "Transcription copiée",
+    copyTranscriptFailed: "Impossible de copier la transcription",
+    updateTranscriptSharingFailed:
+      "Impossible de modifier le partage de la transcription",
   },
   deleteRecordingMenu: {
     movedToTrash: "Clip déplacé vers la corbeille",
@@ -1304,6 +1332,8 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     couldNotImportLoom: "Could not import that Loom. (Localisé)",
     recordingReadyToUpload: "Recording is ready to upload (Localisé)",
     recordingSaved: "Recording saved (Localisé)",
+    linkCopied: "Lien copié",
+    copyLinkAction: "Copier le lien",
     noLocalRecordingData:
       "No local recording data is available to download. (Localisé)",
     recordingDownloadStarted: "Recording download started (Localisé)",
@@ -1391,6 +1421,8 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
   clipsFinalRaw: {
     splitAtPlayhead: "Couper à la tête de lecture (S)",
     selectedCount: "{{count}} sélectionnés",
+    selectAll: "Tout sélectionner",
+    deselectAll: "Tout désélectionner",
     move: "Déplacer",
     moveSelected: "Déplacer {{count}} sélectionnés",
     current: "Actuel",
@@ -1516,6 +1548,23 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     guideStartDescription:
       "Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins. (Localisé)",
   },
+  rewindExtension: {
+    title: "Ajouter ce qui s’est passé avant",
+    description:
+      "Choisissez un intervalle du Rewind local et ajoutez-le au début de ce clip. Rien n’est ajouté automatiquement.",
+    progressLabel: "Progression du traitement de l’historique Rewind",
+    privateFirstTitle: "Rendre d’abord ce clip privé",
+    privateFirstDescription:
+      "L’historique Rewind local peut contenir du contexte antérieur au début de l’enregistrement. Le clip deviendra privé. Si quelqu’un dispose encore d’un accès direct, Clips s’arrêtera pour vous laisser le retirer dans Partager.",
+    makePrivateContinue: "Rendre privé et continuer",
+    add30Seconds: "Ajouter les 30 secondes précédentes",
+    add5Minutes: "Ajouter les 5 minutes précédentes",
+    add5MinutesDescription:
+      "Utile pour retrouver le début d’une explication plus longue.",
+    privateReady:
+      "Ce clip est privé. Vous pouvez maintenant ajouter l’historique Rewind local.",
+  },
+  timeline: { clipStartedHere: "Le clip commence ici" },
 };
 
 export default messages;

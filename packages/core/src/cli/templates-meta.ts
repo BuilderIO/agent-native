@@ -112,6 +112,7 @@ export const TEMPLATES: TemplateMeta[] = [
     devPort: 8088,
     prodUrl: "https://analytics.agent-native.com",
     defaultMode: "prod",
+    requiredPackages: ["creative-context"],
     core: true,
   },
   {
@@ -226,6 +227,19 @@ export const TEMPLATES: TemplateMeta[] = [
     prodUrl: "https://tasks.agent-native.com",
     defaultMode: "prod",
     hidden: true,
+    core: false,
+  },
+  {
+    name: "crm",
+    label: "CRM",
+    hint: "Agent-native CRM over native SQL, HubSpot, or Salesforce — typed attributes, lists, pipelines, and evidence-grounded signals",
+    icon: "Users",
+    color: "#2563EB",
+    colorRgb: "37 99 235",
+    devPort: 8107,
+    prodUrl: "https://crm.agent-native.com",
+    hidden: true,
+    defaultMode: "dev",
     core: false,
   },
   {

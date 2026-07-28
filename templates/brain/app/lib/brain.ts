@@ -1,6 +1,5 @@
 import type { Icon } from "@tabler/icons-react";
 import {
-  IconBrain,
   IconBook2,
   IconChecks,
   IconDatabase,
@@ -1006,12 +1005,6 @@ export const navItems: Array<{
     label: "Settings",
     href: "/settings",
     icon: IconSettings,
-  },
-  {
-    view: "agent",
-    label: "Manage agent",
-    href: "/agent",
-    icon: IconBrain,
   },
 ];
 

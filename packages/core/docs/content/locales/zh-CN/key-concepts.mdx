@@ -397,7 +397,7 @@ UI 在路线变更时写入此信息；代理在采取任何操作之前都会�
 
 没有需要破坏的共享代码库。您拥有该应用程序，代理会随着时间的推移为您改进它：
 
-1. 分叉模板（例如分析模板）
+1. 从模板开始（例如分析模板）
 2. 通过询问代理进行定制
 3. “为同期群分析添加新的图表类型”——代理构建它
 4. “连接到我们的 Stripe 帐户”- 代理编写集成
@@ -412,7 +412,7 @@ UI 在路线变更时写入此信息；代理在采取任何操作之前都会�
 
 ## 工作区 {#workspace}
 
-每个用户都会获得一个个人**工作空间** - 指令、skills、内存、自定义子代理、计划作业和连接的 MCP 服务器 - 全部存储在 SQL 而不是文件中。这使得 Claude 代码级定制可以在多租户 SaaS 中实现，而无需为每个用户启动一个容器。参见[Workspace](/docs/workspace)。
+每个用户都会获得一个个人**工作空间** - 指令、skills、内存、自定义子代理、计划作业和连接的 MCP 服务器 - 全部存储在 SQL 而不是文件中。这使得 Claude 代码级定制可以在多租户 SaaS 中实现，而无需为每个用户启动一个容器。参见[代理资源](/docs/agent-resources)。
 
 ## 相关构建块 {#building-blocks}
 
@@ -428,7 +428,7 @@ UI 在路线变更时写入此信息；代理在采取任何操作之前都会�
 采用该框架很有价值，主要是因为您不再需要构建什么。一旦您的应用遵循这六个规则，您就继承了：
 
 - **一个操作 = 每个表面。** 使用 `defineAction()` 定义的每个操作同时是一个代理工具、类型安全前端挂钩 (`useActionQuery` / `useActionMutation`)、框架拥有的 HTTP 传输、CLI 命令、用于外部客户端的 MCP 工具以及用于其他代理本机应用程序的 A2A 工具。可选的 `link` 和 `mcpApp` 元数据添加深层链接和 MCP 应用 UI，无需第二次实现。
-- **每个用户一个完整的工作区。** Skills、共享 `LEARNINGS.md`、个人 `memory/MEMORY.md`、`AGENTS.md`、自定义子代理、计划作业、连接的 MCP 服务器 — 所有 SQL 支持，无需开发盒。参见[Workspace](/docs/workspace)。
+- **每个用户一个完整的工作区。** Skills、共享 `LEARNINGS.md`、个人 `memory/MEMORY.md`、`AGENTS.md`、自定义子代理、计划作业、连接的 MCP 服务器 — 所有 SQL 支持，无需开发盒。参见[代理资源](/docs/agent-resources)。
 - **插入 React 组件。** `<AgentPanel />` 和 `<AgentSidebar />` 在应用程序中的任何位置呈现聊天 + 工作区。参见[Drop-in Agent](/docs/drop-in-agent)。
 - **BYO 代理聊天运行时。** 相同的聊天 UI 可以位于 OpenAI 代理、OpenAI 响应、Claude 代理 SDK、Vercel AI SDK、AG-UI 或您自己的规范化 HTTP 流之上。参见[Native 聊天界面](/docs/native-chat-ui#byo-agent-runtimes)。
 - **代理和 UI 之间的实时同步。**同一进程立即通过 `/_agent-native/events` 写入流；轻量级轮询使无服务器、cron 和跨进程写入保持收敛。改变 actions 会自动使操作支持的查询失效，因此无需手动刷新即可显示代理创建的记录。请参阅下面的 [Live Sync](#polling-sync)。

@@ -26,7 +26,7 @@ import type { ListContentDatabasesResponse } from "@shared/api";
 import {
   IconDatabase,
   IconDeviceDesktop,
-  IconBrain,
+  IconHierarchy2,
   IconFileText,
   IconFolderOpen,
   IconLoader2,
@@ -49,7 +49,11 @@ import {
   useRouteLoaderData,
   useRouteError,
 } from "react-router";
-import type { LinksFunction, LoaderFunctionArgs } from "react-router";
+import type {
+  LinksFunction,
+  LoaderFunctionArgs,
+  ShouldRevalidateFunctionArgs,
+} from "react-router";
 
 // Styled sonner wrapper — passed via AppProviders `toaster` prop to avoid duplicate.
 import { Toaster as Sonner } from "@/components/ui/sonner";
@@ -103,6 +107,13 @@ export async function loader({
     dir: resolved.dir,
     messages,
   };
+}
+
+export function shouldRevalidate({
+  defaultShouldRevalidate,
+  formMethod,
+}: ShouldRevalidateFunctionArgs) {
+  return formMethod ? defaultShouldRevalidate : false;
 }
 
 // Pass args to match content's 3-way theme-cycle UX (no disableTransitionOnChange).
@@ -539,7 +550,7 @@ function ContentCommandMenu({
     >
       <CommandMenu.Group heading={t("root.commandContent")}>
         <CommandMenu.Item onSelect={() => navigate("/agent")}>
-          <IconBrain size={16} />
+          <IconHierarchy2 size={16} />
           {t("root.openAgent")}
         </CommandMenu.Item>
       </CommandMenu.Group>
@@ -555,12 +566,7 @@ export default function Root() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const location = useLocation();
   const loaderData = useLoaderData<typeof loader>();
-  useCommandMenuShortcut(
-    useCallback(() => setCmdkOpen(true), []),
-    {
-      allowContentEditable: true,
-    },
-  );
+  useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
 
   // Public document paths (/p/*) SSR real content without the ClientOnly gate
   // so crawlers and unauthenticated visitors receive full markup on first visit.

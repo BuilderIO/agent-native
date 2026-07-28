@@ -20,8 +20,8 @@ import { createRequestHandler } from "react-router";
 
 import { isMcpPublicPath } from "../mcp/route-paths.js";
 import {
-  DEFAULT_SSR_CACHE_HEADERS,
   DEFAULT_SPECULATION_RULES_PATH,
+  resolveSsrCacheHeaders,
 } from "../shared/cache-control.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
@@ -37,12 +37,19 @@ import {
 } from "./app-base-path.js";
 import { captureError } from "./capture-error.js";
 import { runWithRequestContext } from "./request-context.js";
-import { getSentryClientConfigScript } from "./sentry-config.js";
+import {
+  getRealtimeClientConfigScript,
+  getSentryClientConfigScript,
+} from "./sentry-config.js";
 
 export {
   DEFAULT_SSR_CACHE_HEADERS,
   DEFAULT_SPECULATION_RULES_HEADER,
   DEFAULT_SSR_CACHE_CONTROL,
+  DISABLED_SSR_CACHE_HEADERS,
+  isSsrCacheEnabled,
+  resolveSsrCacheHeaders,
+  SSR_CACHE_ENV_VAR,
 } from "../shared/cache-control.js";
 
 function getAppBasePath(): string {
@@ -241,6 +248,13 @@ function isSsrHtmlOrDataResponse(
  * │ resolved CLIENT-SIDE after load. Keep it that way: if you need the SSR     │
  * │ output to differ per user, the fix is to move that work client-side, not   │
  * │ to disable caching here.                                                   │
+ * │                                                                            │
+ * │ HOW LONG the shell is cached is deployment-wide and configurable through   │
+ * │ AGENT_NATIVE_SSR_CACHE (see `resolveSsrCacheHeaders`), for hosts that do   │
+ * │ not purge their CDN on deploy. What remains forbidden is PER-REQUEST /     │
+ * │ PER-USER variation — no `private`, no `Vary: Cookie`, no per-route escape  │
+ * │ hatch — because that is what poisons a shared CDN cache key. A value fixed │
+ * │ for the whole deployment cannot.                                           │
  * └──────────────────────────────────────────────────────────────────────────┘
  */
 function applyDefaultSsrCacheHeader(
@@ -276,7 +290,7 @@ function applyDefaultSsrCacheHeader(
   // and Netlify-CDN-Cache-Control (with durable) so Netlify's shared cache
   // actually serves SSR HTML/.data from the edge instead of forwarding every
   // request to origin — for every visitor, authenticated or not.
-  for (const [name, value] of Object.entries(DEFAULT_SSR_CACHE_HEADERS)) {
+  for (const [name, value] of Object.entries(resolveSsrCacheHeaders())) {
     headers.set(name, value);
   }
 }
@@ -342,7 +356,10 @@ async function rewriteMountedResponse(
   pathname: string,
   requestUrl: string,
 ): Promise<Response> {
-  const sentryClientConfigScript = getSentryClientConfigScript();
+  const clientConfigScript =
+    [getSentryClientConfigScript(), getRealtimeClientConfigScript()]
+      .filter(Boolean)
+      .join("") || null;
   const headers = new Headers(response.headers);
   applyDefaultSsrCacheHeader(headers, response.status, pathname);
   applyDefaultSpeculationRulesHeader(headers, response.status, basePath);
@@ -377,7 +394,7 @@ async function rewriteMountedResponse(
         prefixMountedHtml(html, basePath),
         defaultSocialImageUrl(requestUrl, basePath),
       ),
-      sentryClientConfigScript,
+      clientConfigScript,
     ),
     {
       status: response.status,

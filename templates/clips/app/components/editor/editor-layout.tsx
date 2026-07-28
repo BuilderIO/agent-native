@@ -49,6 +49,7 @@ import {
   readPlaybackSpeedPreference,
   savePlaybackSpeedPreference,
 } from "@/lib/playback-speed";
+import { canOfferRewindHistory } from "@/lib/rewind-visibility";
 import {
   parseEdits,
   getExcludedRanges,
@@ -62,6 +63,7 @@ import { computePeaks, type WaveformPeaks } from "@/lib/waveform-peaks";
 import { ChaptersEditor } from "./chapters-editor";
 import { defaultSelectionRange } from "./editor-selection";
 import { EditorToolbar } from "./editor-toolbar";
+import { RewindExtensionDialog } from "./rewind-extension-dialog";
 import { StitchManager } from "./stitch-manager";
 import { ThumbnailPicker } from "./thumbnail-picker";
 import { Timeline } from "./timeline";
@@ -219,6 +221,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
 
   const [thumbOpen, setThumbOpen] = useState(false);
   const [stitchOpen, setStitchOpen] = useState(false);
+  const [rewindOpen, setRewindOpen] = useState(false);
   const [chaptersOpen, setChaptersOpen] = useState(false);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -636,6 +639,10 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
         onOpenThumbnailPicker={() => setThumbOpen(true)}
         onOpenChapters={() => setChaptersOpen((v) => !v)}
         onOpenStitch={() => setStitchOpen(true)}
+        onOpenRewind={() => setRewindOpen(true)}
+        rewindAlreadyAdded={Boolean(edits.rewindOriginalStartMs)}
+        rewindAvailable={canOfferRewindHistory(playerData?.role)}
+        rewindRequiresPrivate={recording?.visibility !== "private"}
         chaptersOpen={chaptersOpen}
       />
 
@@ -739,6 +746,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
                   playheadMs={playheadMs}
                   chapters={chapters}
                   splitPoints={splitPoints}
+                  originalStartMs={edits.rewindOriginalStartMs}
                   onSeek={seek}
                   onClickChapter={(c) => seek(c.startMs)}
                 />
@@ -787,6 +795,23 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
         onOpenChange={setStitchOpen}
         seedRecordingId={recordingId}
       />
+      {canOfferRewindHistory(playerData?.role) ? (
+        <RewindExtensionDialog
+          open={rewindOpen}
+          onOpenChange={setRewindOpen}
+          recordingId={recordingId}
+          durationMs={durationMs}
+          videoFormat={videoFormat}
+          hasAudio={Boolean(recording.hasAudio)}
+          visibility={recording.visibility}
+          onVisibilityChanged={async () => {
+            await playerDataQuery.refetch();
+          }}
+          onApplied={async () => {
+            await playerDataQuery.refetch();
+          }}
+        />
+      ) : null}
     </div>
   );
 }

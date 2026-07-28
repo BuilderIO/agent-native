@@ -1,7 +1,7 @@
 export function createSettingsSectionIds(
   appSectionIds: Iterable<string>,
 ): Set<string> {
-  return new Set(["general", "team", "whats-new", ...appSectionIds]);
+  return new Set(["general", "account", "team", "whats-new", ...appSectionIds]);
 }
 
 export function resolveSettingsSection(

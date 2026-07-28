@@ -1,14 +1,15 @@
 import { useChatModels } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
-import { appApiPath } from "@agent-native/core/client/api-path";
 import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
 import {
+  callAction,
   useActionMutation,
   useChangeVersions,
 } from "@agent-native/core/client/hooks";
 import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
 import { TeamPage } from "@agent-native/core/client/org";
 import {
+  AccountSettingsCard,
   SettingsTabsPage,
   useAgentSettingsTabs,
   type SettingsSearchEntry,
@@ -896,9 +897,15 @@ function AutomationsSection() {
   const { data: autoSettings } = useQuery({
     queryKey: ["automation-settings", settingsSync],
     queryFn: async () => {
-      const res = await fetch(appApiPath("/api/automations/settings"));
-      if (!res.ok) return { engine: "anthropic", model: defaultModel };
-      return res.json();
+      try {
+        return await callAction(
+          "get-automation-settings",
+          {},
+          { method: "GET" },
+        );
+      } catch {
+        return { engine: "anthropic", model: defaultModel };
+      }
     },
     staleTime: 30_000,
     placeholderData: (prev) => prev,
@@ -922,11 +929,11 @@ function AutomationsSection() {
     const [engine, model] = value.split("::");
     if (!engine || !model) return;
     queryClient.setQueryData(["automation-settings"], { engine, model });
-    await fetch(appApiPath("/api/automations/settings"), {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ engine, model }),
-    });
+    await callAction(
+      "update-automation-settings",
+      { engine, model },
+      { method: "PUT" },
+    );
   };
 
   const handleCreate = (data: {
@@ -1549,7 +1556,7 @@ export function SettingsPage() {
   );
 
   const validSectionIds = useMemo(() => {
-    const ids = new Set<string>(["general", "team", "whats-new"]);
+    const ids = new Set<string>(["general", "account", "team", "whats-new"]);
     for (const tab of extraTabs) ids.add(tab.id);
     return ids;
   }, [extraTabs]);
@@ -1578,6 +1585,7 @@ export function SettingsPage() {
 
   return (
     <SettingsTabsPage
+      account={<AccountSettingsCard />}
       className="flex-1"
       generalLabel={t("settings.general")}
       teamLabel={t("settings.team")}

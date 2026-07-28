@@ -52,6 +52,7 @@ import {
   setResumableSession,
 } from "../../../../lib/resumable-session.js";
 import { shouldEnableStreamingUpload } from "../../../../lib/streaming-upload-mode.js";
+import { uploadLeaseExpiry } from "../../../../lib/upload-lease.js";
 import { allowsSqlRecordingChunkScratch } from "../../../../lib/video-storage.js";
 
 interface CompressionMeta {
@@ -250,6 +251,9 @@ export default defineEventHandler(async (event: H3Event) => {
         status: "uploading",
         failureReason: null,
         uploadProgress: 0,
+        // A retry re-takes the lease. Without this the row would go back to
+        // 'uploading' still carrying the expired lease that killed it.
+        uploadLeaseExpiresAt: uploadLeaseExpiry(),
         updatedAt: now,
       })
       .where(eq(schema.recordings.id, recordingId));

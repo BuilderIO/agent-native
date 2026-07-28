@@ -20,8 +20,11 @@ export default createCollabPlugin({
   // Per-block collab has no single content column to sync; the block markdown is
   // persisted via the `update-rich-text` patch path, not by the collab plugin.
   autoSeed: false,
-  resourceType: "plan",
-  resolveResourceId: (docId) => resolvePlanIdFromCollabDocId(docId),
+  access: {
+    mode: "resource",
+    resourceType: "plan",
+    resolveResourceId: (docId) => resolvePlanIdFromCollabDocId(docId),
+  },
 });
 
 /**

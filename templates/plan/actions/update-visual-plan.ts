@@ -112,6 +112,7 @@ function contentPatchTargetId(patch: PlanContentPatch) {
   if ("blockId" in patch) return patch.blockId;
   if ("screenId" in patch) return patch.screenId;
   if (patch.op === "set-metadata") return "plan-metadata";
+  if (patch.op === "set-visual-render-mode") return "visual-render-mode";
   if (patch.op === "set-prototype" || patch.op === "remove-prototype") {
     return "prototype";
   }
@@ -451,7 +452,7 @@ function contentPatchDetails(input: {
 const CONTENT_DESCRIPTION =
   "Destructive full structured content replacement. Read the latest plan first and pass its updatedAt as expectedUpdatedAt. Prefer granular contentPatches for ordinary edits; use this only for intentional broad restructuring.";
 const CONTENT_PATCHES_DESCRIPTION =
-  "Targeted structured content edits addressed by stable id. Prefer granular operations for live plans. The destructive replace-blocks operation requires expectedUpdatedAt from a fresh read. patch-visual-plan-source is only for exported MDX folders. Supported ops: set-metadata for title/brief, set-prototype / remove-prototype / update-prototype-screen / patch-prototype-html for live prototype surfaces; update-block / replace-block, update-rich-text, patch-wireframe-html, patch-diagram-html, update-wireframe-node, replace-wireframe-screen, update-canvas-frame, update-canvas-annotation / append-canvas-annotation, append-block / remove-block, update-custom-html.";
+  "Targeted structured content edits addressed by stable id. Prefer granular operations for live plans. The destructive replace-blocks operation requires expectedUpdatedAt from a fresh read. patch-visual-plan-source is only for exported MDX folders. Supported ops: set-metadata for title/brief; set-visual-render-mode to persist `design` (high fidelity, authored CSS, no rough.js for any viewer) or `wireframe` across canvas, linked blocks, and prototype screens; set-prototype / remove-prototype / update-prototype-screen / patch-prototype-html for live prototype surfaces; update-block / replace-block, update-rich-text, patch-wireframe-html, patch-diagram-html, update-wireframe-node, replace-wireframe-screen, update-canvas-frame, update-canvas-annotation / append-canvas-annotation, append-block / remove-block, update-custom-html. A fidelity upgrade must also replace or patch the existing screen HTML/CSS with deliberate branded design; changing render mode alone only removes the sketch treatment.";
 
 // Named so `agentInputSchema` below can `.extend()` it with compact
 // `content`/`contentPatches` fields instead of duplicating every other key.
@@ -528,7 +529,7 @@ const updateVisualPlanSchema = z.object({
 
 export default defineAction({
   description:
-    "Update an Agent-Native Plan's structured content blocks, prototype screens, sections, comments, or status. Prefer contentPatches for targeted edits. Use full content only for broad restructuring. Works on plans and recaps alike when you have editor access; with viewer access (common on PR recaps published by CI) only comment-only calls succeed — to change a recap you cannot edit, publish a replacement with create-visual-recap instead of retrying this call.",
+    "Update an Agent-Native Plan's structured content blocks, prototype screens, visual fidelity, sections, comments, or status. Prefer contentPatches for targeted edits. When a user asks for higher fidelity on an existing plan, update that same plan in place: use set-visual-render-mode with design and provide polished screen HTML/CSS in the same call instead of creating a duplicate plan or only toggling the viewer-local clean style. Use full content only for broad restructuring. Works on plans and recaps alike when you have editor access; with viewer access (common on PR recaps published by CI) only comment-only calls succeed — to change a recap you cannot edit, publish a replacement with create-visual-recap instead of retrying this call.",
   schema: updateVisualPlanSchema,
   // ADVERTISED-ONLY: same top-level shape, but `content`/`contentPatches`
   // swap the deep per-block-type union for a compact `type`-enum stand-in.

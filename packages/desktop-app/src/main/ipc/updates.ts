@@ -31,10 +31,18 @@ let currentUpdateStatus: UpdateStatus = IS_DEV
 let updateCheckInFlight: Promise<unknown> | null = null;
 let lastUpdateCheckStartedAt = 0;
 let notifiedUpdateVersion: string | null = null;
+let pendingDownloadedUpdate: Extract<
+  UpdateStatus,
+  { state: "downloaded" }
+> | null = null;
 
 export interface UpdatesIpcDeps {
   refreshApplicationMenu: () => void;
   focusMainWindow: () => void;
+}
+
+export interface UpdateCheckOptions {
+  notifyOnResult?: boolean;
 }
 
 // Populated by `registerUpdatesIpc` during startup, before any of the
@@ -64,16 +72,36 @@ function broadcastUpdateStatus(status: UpdateStatus) {
   }
 }
 
-/** Triggers (or awaits an in-flight) update check. Exported for the app menu's "Check for Updates" item. */
-export async function checkForAppUpdates(): Promise<UpdateStatus> {
+function publishDownloadedUpdate() {
+  if (!pendingDownloadedUpdate) return;
+  const update = pendingDownloadedUpdate;
+  pendingDownloadedUpdate = null;
+  broadcastUpdateStatus(update);
+  showUpdateReadyNotification(update.version);
+}
+
+async function waitForDownloadedUpdate(
+  downloadPromise: Promise<unknown> | null | undefined,
+) {
+  await downloadPromise;
+  publishDownloadedUpdate();
+}
+
+/** Triggers (or awaits an in-flight) update check. */
+export async function checkForAppUpdates(
+  options: UpdateCheckOptions = {},
+): Promise<UpdateStatus> {
   if (IS_DEV) return currentUpdateStatus;
   if (currentUpdateStatus.state === "downloaded") return currentUpdateStatus;
 
   if (!updateCheckInFlight) {
     lastUpdateCheckStartedAt = Date.now();
-    updateCheckInFlight = autoUpdater
-      .checkForUpdates()
+    updateCheckInFlight = (async () => {
+      const result = await autoUpdater.checkForUpdates();
+      await waitForDownloadedUpdate(result?.downloadPromise);
+    })()
       .catch((err) => {
+        pendingDownloadedUpdate = null;
         broadcastUpdateStatus({
           state: "error",
           message: err instanceof Error ? err.message : String(err),
@@ -85,6 +113,9 @@ export async function checkForAppUpdates(): Promise<UpdateStatus> {
   }
 
   await updateCheckInFlight;
+  if (options.notifyOnResult) {
+    showUpdateCheckResultNotification(currentUpdateStatus);
+  }
   return currentUpdateStatus;
 }
 
@@ -112,6 +143,27 @@ function showUpdateReadyNotification(version: string) {
   notification.on("click", (_event) => {
     getDeps().focusMainWindow();
   });
+  notification.show();
+}
+
+function showUpdateCheckResultNotification(status: UpdateStatus) {
+  if (!Notification.isSupported()) return;
+
+  const notification =
+    status.state === "not-available"
+      ? new Notification({
+          title: "Agent Native is up to date",
+          body: `You're running the latest version (${status.currentVersion}).`,
+        })
+      : status.state === "error"
+        ? new Notification({
+            title: "Could not check for Agent Native updates",
+            body: status.message,
+          })
+        : null;
+
+  if (!notification) return;
+  notification.on("click", () => getDeps().focusMainWindow());
   notification.show();
 }
 
@@ -164,16 +216,18 @@ export function registerUpdatesIpc(ipcDeps: UpdatesIpcDeps): void {
     });
 
     autoUpdater.on("update-downloaded", (info) => {
-      broadcastUpdateStatus({
+      // On macOS this event precedes native Squirrel staging; publish only
+      // after the download promise resolves so the first relaunch can install.
+      pendingDownloadedUpdate = {
         state: "downloaded",
         version: info.version,
         releaseNotes:
           typeof info.releaseNotes === "string" ? info.releaseNotes : undefined,
-      });
-      showUpdateReadyNotification(info.version);
+      };
     });
 
     autoUpdater.on("error", (err) => {
+      pendingDownloadedUpdate = null;
       broadcastUpdateStatus({
         state: "error",
         message: err?.message ?? String(err),
@@ -195,14 +249,15 @@ export function registerUpdatesIpc(ipcDeps: UpdatesIpcDeps): void {
   );
 
   ipcMain.handle(IPC.UPDATE_CHECK, async (): Promise<UpdateStatus> => {
-    return checkForAppUpdates();
+    return checkForAppUpdates({ notifyOnResult: true });
   });
 
   ipcMain.handle(IPC.UPDATE_DOWNLOAD, async (): Promise<UpdateStatus> => {
     if (IS_DEV) return currentUpdateStatus;
     try {
-      await autoUpdater.downloadUpdate();
+      await waitForDownloadedUpdate(autoUpdater.downloadUpdate());
     } catch (err) {
+      pendingDownloadedUpdate = null;
       broadcastUpdateStatus({
         state: "error",
         message: err instanceof Error ? err.message : String(err),

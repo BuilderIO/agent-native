@@ -62,6 +62,15 @@
  * mismatch.
  */
 
+import {
+  cssBlendMode,
+  gradientAngleDegrees as gradientAngleDegreesMath,
+  remapLinearStopPosition as remapLinearStopPositionMath,
+  resolveGradientHandles,
+  vectorLength,
+  type GradientHandles,
+} from "./figma-paint-math.js";
+
 export interface FigmaColor {
   r: number;
   g: number;
@@ -422,16 +431,8 @@ class FidelityTracker {
 // Gradient angle / position derivation
 // ---------------------------------------------------------------------------
 
-interface GradientGeometry {
-  start: { x: number; y: number };
-  end: { x: number; y: number };
-  width: { x: number; y: number };
-}
-
-function resolveGradientGeometry(paint: FigmaPaint): GradientGeometry | null {
-  const handles = paint.gradientHandlePositions;
-  if (!handles || handles.length < 3) return null;
-  return { start: handles[0]!, end: handles[1]!, width: handles[2]! };
+function resolveGradientGeometry(paint: FigmaPaint): GradientHandles | null {
+  return resolveGradientHandles(paint.gradientHandlePositions);
 }
 
 /**
@@ -453,13 +454,7 @@ export function gradientAngleDegrees(
   paint: FigmaPaint,
   box: { width: number; height: number },
 ): number | null {
-  const geometry = resolveGradientGeometry(paint);
-  if (!geometry) return null;
-  const dx = (geometry.end.x - geometry.start.x) * box.width;
-  const dy = (geometry.end.y - geometry.start.y) * box.height;
-  const angleRad = Math.atan2(dy, dx);
-  const angleDeg = (angleRad * 180) / Math.PI + 90;
-  return ((angleDeg % 360) + 360) % 360;
+  return gradientAngleDegreesMath(paint, box);
 }
 
 function gradientStopsCss(
@@ -478,59 +473,12 @@ function gradientStopsCss(
     .join(", ");
 }
 
-/**
- * CSS `linear-gradient(angle, ...)` always stretches its 0%/100% stops
- * across the box's FULL diagonal extent at that angle (the CSS spec's
- * "gradient line" always spans corner-to-corner) -- it has no way to say
- * "start partway in, end partway in" the way Figma's actual gradient handles
- * can (a designer can drag the start/end handles anywhere, including short
- * of the shape's edges, or past them). Figma's own stop positions are
- * fractions of the literal start-handle-to-end-handle distance, which only
- * happens to coincide with the CSS full-box span when the handles are
- * dragged exactly corner-to-corner -- a common case, but far from the only
- * one, and the divergence gets worse the more the box's aspect ratio departs
- * from square (rotated/skewed handles included, e.g. gradientTransform-authored
- * paints). This projects each Figma stop's real pixel position onto the same
- * angle CSS will use and re-expresses it as a percentage of the CSS line's
- * length, so a partial/offset gradient renders at the same actual pixel
- * positions Figma draws it at instead of silently stretching to fill the box.
- */
 function remapLinearStopPosition(
-  geometry: GradientGeometry,
+  geometry: GradientHandles,
   box: { width: number; height: number },
   angleDeg: number,
 ): (position: number) => number {
-  const angleRad = (angleDeg * Math.PI) / 180;
-  const ux = Math.sin(angleRad);
-  const uy = -Math.cos(angleRad);
-  const lineLength = box.width * Math.abs(ux) + box.height * Math.abs(uy);
-  if (lineLength < 1e-6) return (position) => position;
-  const startPx = {
-    x: geometry.start.x * box.width,
-    y: geometry.start.y * box.height,
-  };
-  const endPx = {
-    x: geometry.end.x * box.width,
-    y: geometry.end.y * box.height,
-  };
-  const centerX = box.width / 2;
-  const centerY = box.height / 2;
-  return (position: number) => {
-    const pointX = startPx.x + position * (endPx.x - startPx.x);
-    const pointY = startPx.y + position * (endPx.y - startPx.y);
-    const projected = (pointX - centerX) * ux + (pointY - centerY) * uy;
-    return (projected + lineLength / 2) / lineLength;
-  };
-}
-
-function vectorLength(
-  from: { x: number; y: number },
-  to: { x: number; y: number },
-  box: { width: number; height: number },
-): number {
-  const dx = (to.x - from.x) * box.width;
-  const dy = (to.y - from.y) * box.height;
-  return Math.sqrt(dx * dx + dy * dy);
+  return remapLinearStopPositionMath(geometry, box, angleDeg);
 }
 
 /**
@@ -960,49 +908,22 @@ function buildEffects(
 // Blend modes
 // ---------------------------------------------------------------------------
 
-const CSS_BLEND_MODES = new Set([
-  "multiply",
-  "screen",
-  "overlay",
-  "darken",
-  "lighten",
-  "color-dodge",
-  "color-burn",
-  "hard-light",
-  "soft-light",
-  "difference",
-  "exclusion",
-  "hue",
-  "saturation",
-  "color",
-  "luminosity",
-]);
-
-const FIGMA_ONLY_BLEND_MODE_FALLBACK: Record<string, string> = {
-  LINEAR_BURN: "multiply",
-  LINEAR_DODGE: "plus-lighter",
-  LIGHTER: "plus-lighter",
-  DARKER: "darken",
-};
-
 function buildBlendMode(
   node: FigmaNode,
   tracker: FidelityTracker,
 ): string | undefined {
   const mode = node.blendMode;
-  if (!mode || mode === "PASS_THROUGH" || mode === "NORMAL") return undefined;
-  const cssMode = mode.toLowerCase().replace(/_/g, "-");
-  if (CSS_BLEND_MODES.has(cssMode)) return cssMode;
-  const fallback = FIGMA_ONLY_BLEND_MODE_FALLBACK[mode];
-  if (fallback) {
+  if (!mode) return undefined;
+  const result = cssBlendMode(mode);
+  if (!result) return undefined;
+  if (result.verdict === "approximated") {
     tracker.record(
       node,
       "approximated",
-      `Figma blend mode "${mode}" has no CSS equivalent; approximated as mix-blend-mode: ${fallback}.`,
+      `Figma blend mode "${mode}" has no CSS equivalent; approximated as mix-blend-mode: ${result.cssMode}.`,
     );
-    return fallback;
   }
-  return undefined;
+  return result.cssMode;
 }
 
 // ---------------------------------------------------------------------------

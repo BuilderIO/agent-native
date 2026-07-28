@@ -3,6 +3,41 @@ import { describe, expect, it } from "vitest";
 import { emailLink, renderEmail } from "./email-template.js";
 
 describe("renderEmail", () => {
+  it("uses a CID-backed brand header with a text fallback", () => {
+    const { html } = renderEmail({
+      brandName: "Clips",
+      heading: "Your recording is ready",
+      paragraphs: ["Open your recording below."],
+    });
+
+    expect(html).toContain('src="cid:agent-native-logo"');
+    expect(html).toContain('alt="Clips"');
+    expect(html).toContain(">Clips</span>");
+  });
+
+  it("uses an org logo when a valid https URL is provided", () => {
+    const { html } = renderEmail({
+      brandName: "Clips",
+      brandLogoUrl: "https://cdn.example.com/org-logo.png",
+      heading: "You've been given access",
+      paragraphs: ["Open your recording below."],
+    });
+
+    expect(html).toContain('src="https://cdn.example.com/org-logo.png"');
+    expect(html).not.toContain('src="cid:agent-native-logo"');
+  });
+
+  it("falls back to the embedded logo for non-https or relative logo URLs", () => {
+    const { html } = renderEmail({
+      brandName: "Clips",
+      brandLogoUrl: "/api/media/org-logo.png",
+      heading: "You've been given access",
+      paragraphs: ["Open your recording below."],
+    });
+
+    expect(html).toContain('src="cid:agent-native-logo"');
+  });
+
   it("renders CTA buttons without visible fallback URLs", () => {
     const { html } = renderEmail({
       heading: "Your meeting is booked",
