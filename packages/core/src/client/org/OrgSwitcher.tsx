@@ -692,9 +692,9 @@ export function OrgSwitcher({
               <div className="px-0.5 pb-1 text-[10px] uppercase tracking-wide text-muted-foreground">
                 New organization
               </div>
-              <p className="flex items-start gap-1.5 pe-0.5 pb-1.5 ps-2 text-[11px] leading-snug text-muted-foreground">
-                <IconKey className="mt-0.5 h-3 w-3 shrink-0" />
-                <span>{t("org.createOrgVaultNotice")}</span>
+              <p className="pe-0.5 pb-1.5 ps-2 text-[11px] leading-snug text-muted-foreground">
+                <IconKey className="me-1.5 inline-block h-3 w-3 align-text-top" />
+                {t("org.createOrgVaultNotice")}
               </p>
               <input
                 autoFocus
