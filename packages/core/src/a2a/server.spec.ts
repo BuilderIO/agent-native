@@ -447,6 +447,160 @@ describe("mountA2A auth", () => {
         "A2A processor not configured — set A2A_SECRET on this deployment to enable async A2A.",
     });
   });
+
+  describe("unsigned loopback trust (no A2A_SECRET / no apiKeyEnv)", () => {
+    // These regression tests pin the reverse-proxy fix: on an unrecognized
+    // self-hosted runtime, an anonymous request must fail closed unless the
+    // request arrives on loopback AND NODE_ENV is explicitly development/test
+    // (or the operator explicitly opts in with A2A_ALLOW_UNSIGNED_INTERNAL=1).
+    // The pre-fix bug was that loopback alone was sufficient, so Nginx/Caddy
+    // -> 127.0.0.1 forwarded a public request straight through as anonymous.
+
+    beforeEach(() => {
+      delete process.env.A2A_SECRET;
+      delete process.env.A2A_ALLOW_UNSIGNED_INTERNAL;
+      delete process.env.NETLIFY;
+      delete process.env.VERCEL;
+      delete process.env.VERCEL_ENV;
+    });
+
+    it("JSON-RPC: rejects loopback caller when NODE_ENV is unset (reverse-proxy relay case)", async () => {
+      delete process.env.NODE_ENV;
+      const handler = await mountedA2AHandler(config);
+      const event = { ...postEvent({}), ip: "127.0.0.1" };
+      const response = await handler(event);
+
+      expect(event._status).toBe(503);
+      expect(response).toMatchObject({
+        jsonrpc: "2.0",
+        error: { code: -32001 },
+      });
+      expect(handleJsonRpcH3Mock).not.toHaveBeenCalled();
+    });
+
+    it("JSON-RPC: rejects loopback caller when NODE_ENV is unrecognized (e.g. 'staging')", async () => {
+      process.env.NODE_ENV = "staging";
+      const handler = await mountedA2AHandler(config);
+      const event = { ...postEvent({}), ip: "127.0.0.1" };
+      const response = await handler(event);
+
+      expect(event._status).toBe(503);
+      expect(handleJsonRpcH3Mock).not.toHaveBeenCalled();
+    });
+
+    it("JSON-RPC: rejects non-loopback caller even with NODE_ENV=development", async () => {
+      process.env.NODE_ENV = "development";
+      const handler = await mountedA2AHandler(config);
+      const event = { ...postEvent({}), ip: "203.0.113.42" };
+      const response = await handler(event);
+
+      expect(event._status).toBe(503);
+      expect(handleJsonRpcH3Mock).not.toHaveBeenCalled();
+    });
+
+    it("JSON-RPC: accepts loopback caller when NODE_ENV=development", async () => {
+      process.env.NODE_ENV = "development";
+      const handler = await mountedA2AHandler(config);
+      const event = { ...postEvent({}), ip: "127.0.0.1" };
+      const response = await handler(event);
+
+      expect(handleJsonRpcH3Mock).toHaveBeenCalledTimes(1);
+      expect(response).toEqual({ jsonrpc: "2.0", id: 1, result: { ok: true } });
+    });
+
+    it("JSON-RPC: accepts loopback caller when NODE_ENV=test", async () => {
+      process.env.NODE_ENV = "test";
+      const handler = await mountedA2AHandler(config);
+      const event = { ...postEvent({}), ip: "::1" };
+      const response = await handler(event);
+
+      expect(handleJsonRpcH3Mock).toHaveBeenCalledTimes(1);
+      expect(response).toEqual({ jsonrpc: "2.0", id: 1, result: { ok: true } });
+    });
+
+    it("JSON-RPC: accepts non-loopback caller when A2A_ALLOW_UNSIGNED_INTERNAL=1", async () => {
+      delete process.env.NODE_ENV;
+      process.env.A2A_ALLOW_UNSIGNED_INTERNAL = "1";
+      const handler = await mountedA2AHandler(config);
+      const event = { ...postEvent({}), ip: "10.0.0.5" };
+      await handler(event);
+
+      expect(handleJsonRpcH3Mock).toHaveBeenCalledTimes(1);
+    });
+
+    it("processor: rejects loopback caller when NODE_ENV is unset (reverse-proxy relay case)", async () => {
+      delete process.env.NODE_ENV;
+      const handler = await mountedA2AProcessorHandler(config);
+      const event = {
+        method: "POST",
+        headers: {},
+        path: "/",
+        context: {},
+        body: { taskId: "task-1" },
+        ip: "127.0.0.1",
+      };
+      const response = await handler(event);
+
+      expect(event._status).toBe(503);
+      expect(response).toEqual({
+        error:
+          "A2A processor not configured — set A2A_SECRET on this deployment to enable async A2A.",
+      });
+    });
+
+    it("processor: rejects loopback caller when NODE_ENV is unrecognized", async () => {
+      process.env.NODE_ENV = "staging";
+      const handler = await mountedA2AProcessorHandler(config);
+      const event = {
+        method: "POST",
+        headers: {},
+        path: "/",
+        context: {},
+        body: { taskId: "task-1" },
+        ip: "127.0.0.1",
+      };
+      const response = await handler(event);
+
+      expect(event._status).toBe(503);
+    });
+
+    it("processor: rejects non-loopback caller even with NODE_ENV=development", async () => {
+      process.env.NODE_ENV = "development";
+      const handler = await mountedA2AProcessorHandler(config);
+      const event = {
+        method: "POST",
+        headers: {},
+        path: "/",
+        context: {},
+        body: { taskId: "task-1" },
+        ip: "203.0.113.42",
+      };
+      const response = await handler(event);
+
+      expect(event._status).toBe(503);
+    });
+
+    it("processor: accepts loopback caller when NODE_ENV=test", async () => {
+      process.env.NODE_ENV = "test";
+      const handler = await mountedA2AProcessorHandler(config);
+      const event = {
+        method: "POST",
+        headers: {},
+        path: "/",
+        context: {},
+        body: { taskId: "task-1" },
+        ip: "127.0.0.1",
+      };
+      const response = await handler(event);
+
+      // Not the 503 fail-closed shape; processor proceeded.
+      expect(event._status).not.toBe(503);
+      expect(response).not.toEqual({
+        error:
+          "A2A processor not configured — set A2A_SECRET on this deployment to enable async A2A.",
+      });
+    });
+  });
 });
 
 describe("verifyA2AToken (exported)", () => {
