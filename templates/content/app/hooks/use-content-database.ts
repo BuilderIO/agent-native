@@ -110,6 +110,25 @@ export function removeOptimisticItemFromContentDatabase(
   };
 }
 
+export function moveOptimisticContentDatabaseItem(
+  current: ContentDatabaseResponse | undefined,
+  itemId: string,
+  position: number,
+) {
+  if (!current) return current;
+  const currentIndex = current.items.findIndex((item) => item.id === itemId);
+  if (currentIndex < 0 || current.items.length < 2) return current;
+  const nextIndex = Math.min(Math.max(position, 0), current.items.length - 1);
+  if (currentIndex === nextIndex) return current;
+  const items = [...current.items];
+  const [moved] = items.splice(currentIndex, 1);
+  items.splice(nextIndex, 0, moved);
+  return {
+    ...current,
+    items: items.map((item, index) => ({ ...item, position: index })),
+  };
+}
+
 export function preserveScopedDatabasePlaceholder<T>(
   previous: T | undefined,
   previousQuery: Pick<Query, "queryKey"> | undefined,
@@ -823,10 +842,62 @@ export function useMoveDatabaseItem(documentId: string) {
   return useActionMutation<ContentDatabaseResponse, MoveDatabaseItemRequest>(
     "move-database-item",
     {
-      onSuccess: () => {
+      skipActionQueryInvalidation: true,
+      onMutate: async (variables) => {
+        await queryClient.cancelQueries({
+          queryKey: ["action", "get-content-database"],
+        });
+        const previous = queryClient.getQueriesData<ContentDatabaseResponse>({
+          queryKey: ["action", "get-content-database"],
+        });
+        if (variables.itemId) {
+          queryClient.setQueriesData<ContentDatabaseResponse>(
+            { queryKey: ["action", "get-content-database"] },
+            (current) => {
+              if (
+                variables.databaseId &&
+                current?.database.id !== variables.databaseId
+              ) {
+                return current;
+              }
+              return moveOptimisticContentDatabaseItem(
+                current,
+                variables.itemId!,
+                variables.position,
+              );
+            },
+          );
+        }
+        return { previous };
+      },
+      onError: (_error, _variables, context) => {
+        const rollback = context as
+          | {
+              previous?: Array<
+                [readonly unknown[], ContentDatabaseResponse | undefined]
+              >;
+            }
+          | undefined;
+        for (const [queryKey, data] of rollback?.previous ?? []) {
+          queryClient.setQueryData(queryKey, data);
+        }
+      },
+      onSuccess: (data) => {
+        writeContentDatabaseResponseToCache(queryClient, documentId, data);
+        queryClient.setQueryData(
+          contentDatabaseByIdQueryKey(data.database.id),
+          data,
+        );
+      },
+      onSettled: (_data, _error, variables) => {
         queryClient.invalidateQueries({
           queryKey: contentDatabaseQueryKey(documentId),
         });
+        if (variables.databaseId) {
+          queryClient.invalidateQueries({
+            queryKey: contentDatabaseByIdQueryKey(variables.databaseId),
+          });
+        }
         queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
@@ -875,12 +946,47 @@ export function useUpdateContentDatabasePersonalView(
     ContentDatabasePersonalViewResponse,
     UpdateContentDatabasePersonalViewRequest
   >("update-content-database-personal-view", {
+    skipActionQueryInvalidation: true,
+    onMutate: async (variables) => {
+      if (!databaseId) return undefined;
+      const queryKey = [
+        "action",
+        "get-content-database-personal-view",
+        { databaseId },
+      ] as const;
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData(queryKey);
+      queryClient.setQueryData(queryKey, {
+        databaseId,
+        overrides: variables.overrides,
+      });
+      return { previous };
+    },
+    onError: (_error, _variables, context) => {
+      if (!databaseId) return;
+      const previous = (context as { previous?: unknown } | undefined)
+        ?.previous;
+      queryClient.setQueryData(
+        ["action", "get-content-database-personal-view", { databaseId }],
+        previous,
+      );
+    },
     onSuccess: (data) => {
       if (!databaseId) return;
       queryClient.setQueryData(
         ["action", "get-content-database-personal-view", { databaseId }],
         data,
       );
+    },
+    onSettled: () => {
+      if (!databaseId) return;
+      queryClient.invalidateQueries({
+        queryKey: [
+          "action",
+          "get-content-database-personal-view",
+          { databaseId },
+        ],
+      });
     },
   });
 }
