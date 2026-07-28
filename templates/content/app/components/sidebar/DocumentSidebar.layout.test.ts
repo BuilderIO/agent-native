@@ -229,6 +229,19 @@ describe("document sidebar layout", () => {
     );
     expect(sidebar).not.toContain("<SidebarDragHandle");
     expect(sidebar).not.toContain("<SidebarReorderMenuItems");
+    expect(sidebar).toContain(
+      "data-sidebar-reorder-item-id={reorder?.controls.itemId}",
+    );
+    expect(sidebar).toContain('"touch-none cursor-pointer select-none"');
+    expect(sidebar).toContain(
+      '<span className="min-w-0 flex-1 truncate">{space.name}</span>',
+    );
+    expect(sidebar).toContain(
+      'className="absolute inset-y-0 start-3 border-s border-border/70"',
+    );
+    expect(sidebar).not.toContain(
+      'className="ms-3 border-s border-border/70 pb-1 ps-1"',
+    );
     expect(sidebar).toContain('role="link"');
     expect(sidebar).toContain(
       'aria-label={`${t("sidebar.newPage")} — ${space.name}`}',
@@ -282,6 +295,34 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain("renderItem={(item, reorder) =>");
     expect(sidebar).toContain("name: item.document.title || space.name");
     expect(sidebar).toContain("scroll={false}");
+  });
+
+  it("uses the full row width until right-side actions are revealed", () => {
+    const databaseSidebar = readSidebarSource("../editor/database/sidebar.tsx");
+    const reorder = readSidebarSource("./sidebar-reorder.tsx");
+
+    expect(databaseSidebar).toContain(
+      '"group-hover:pe-12 group-focus-within:pe-12"',
+    );
+    expect(databaseSidebar).not.toContain(
+      '(hasMenuActions || canCreateChild) && "pe-12"',
+    );
+    expect(databaseSidebar).toContain(
+      "data-sidebar-reorder-item-id={reorder?.controls.itemId}",
+    );
+    expect(databaseSidebar).toContain(
+      '"touch-none cursor-pointer select-none"',
+    );
+    expect(databaseSidebar).toContain(
+      'className="grid min-w-0 gap-1 overflow-x-hidden py-1 ps-1"',
+    );
+    expect(databaseSidebar).toContain(
+      "pointer-events-none absolute end-0 top-1/2",
+    );
+    expect(reorder).toContain(
+      'document.addEventListener("click", preventDraggedLinkNavigation, true)',
+    );
+    expect(reorder).toContain("event.preventDefault()");
   });
 
   it("keeps a unified page and database Trash lifecycle visible in the sidebar", () => {

@@ -6,6 +6,11 @@
 > revised plan be shaped, implemented, and returned on PR #2423's existing
 > preview. This revision supersedes the earlier handle-and-menu interaction
 > plan while retaining its personal-order persistence boundary.
+>
+> Alice's July 28 follow-up clip clarifies the same approved interaction story;
+> it does not add a shipping surface or change the persistence boundary. The
+> clarifications below are tracked as v3.1 implementation and acceptance
+> evidence under the existing fingerprint.
 
 ## Refresher
 
@@ -36,6 +41,35 @@ Alice's July 27 feedback establishes the revised interaction:
 All sidebar dragging changes only the current viewer's order. It never reparents
 a document, moves it between workspaces, changes access or ownership, or
 rewrites shared Files membership.
+
+## July 28 feedback clarification (v3.1)
+
+The second preview review showed four defects inside the frozen v3 story:
+
+- Releasing a pointer drag on a sidebar row can still activate its link. The
+  release must commit the reorder without navigating; a later ordinary click
+  must continue to navigate normally.
+- The primary row advertises a grab cursor before a drag exists. It should use
+  the app's ordinary pointer cursor at rest and switch to dragging feedback only
+  after the activation threshold is crossed.
+- Long row and workspace labels reserve action-button space even while those
+  actions are hidden. At rest, text may use the full available row width and
+  ellipsize at the actual boundary; hover or focus reveals actions and contracts
+  the label immediately, without animation.
+- Nested Files rows inherit a narrower right edge from their indentation
+  wrapper. Nesting changes only the left edge; overflow and add controls remain
+  aligned to the sidebar's shared right rail at every depth.
+
+The clip also exposes a regression in the already-approved Toolkit assertion:
+after a successful editor block drop, the moved block retains a visible text or
+node selection and editor focus. Completing the drop must collapse incidental
+selection and blur the editor while preserving the moved block and every
+existing before/after, column, and cross-editor drop contract.
+
+These points clarify assertions 2, 6, 9, 10, and 13 below. They restore the
+intended click-versus-drag and editor-drop behavior; they do not change the
+outcome, shipping surfaces, governing architecture, risk strategy, or durable
+order model.
 
 ## Interaction contract
 
@@ -242,7 +276,8 @@ Required assertions:
     access, visibility, sharing, ownership, or shared Files membership.
 12. Failed persistence rolls back visibly and refetches canonical state.
 13. Content and Plan block dragging retain existing drop behavior while the
-    floating preview preserves the pointer's source-block offset.
+    floating preview preserves the pointer's source-block offset; completing a
+    successful drop leaves no incidental text/node selection or editor focus.
 
 ## Architecture fingerprint and authority envelope
 

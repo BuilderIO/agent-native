@@ -430,11 +430,12 @@ function WorkspaceSidebarItem({
           to={`/page/${space.filesDocumentId}`}
           {...reorder?.controls.attributes}
           {...reorder?.controls.listeners}
+          data-sidebar-reorder-item-id={reorder?.controls.itemId}
           role="link"
           className={cn(
-            "flex h-7 min-w-0 flex-1 items-center truncate pe-2 text-start text-[10px] font-semibold uppercase leading-none tracking-wider",
-            reorder &&
-              "touch-none cursor-grab select-none active:cursor-grabbing",
+            "flex h-7 min-w-0 flex-1 items-center pe-2 text-start text-[10px] font-semibold uppercase leading-none tracking-wider",
+            reorder && "touch-none cursor-pointer select-none",
+            reorder?.controls.isDragging && "cursor-grabbing",
           )}
           onClick={(event) => {
             if (
@@ -448,7 +449,7 @@ function WorkspaceSidebarItem({
             }
           }}
         >
-          {space.name}
+          <span className="min-w-0 flex-1 truncate">{space.name}</span>
         </Link>
         {expanded ? (
           <DropdownMenu>
@@ -511,7 +512,11 @@ function WorkspaceSidebarItem({
         </button>
       </div>
       {expanded ? (
-        <div className="ms-3 border-s border-border/70 pb-1 ps-1">
+        <div className="relative min-w-0 pb-1 ps-4">
+          <span
+            aria-hidden="true"
+            className="absolute inset-y-0 start-3 border-s border-border/70"
+          />
           {failed ? (
             <QueryErrorState
               compact

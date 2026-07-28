@@ -494,7 +494,7 @@ export function DatabaseSidebarView({
   const navigation = (
     <nav
       aria-label={navigationLabel}
-      className="grid min-w-0 gap-1 overflow-x-hidden p-1"
+      className="grid min-w-0 gap-1 overflow-x-hidden py-1 ps-1"
     >
       {grouped
         ? groups.map((group) => {
@@ -777,11 +777,12 @@ function DatabaseSidebarRow({
           to={`/page/${item.document.id}`}
           {...reorder?.controls.attributes}
           {...reorder?.controls.listeners}
+          data-sidebar-reorder-item-id={reorder?.controls.itemId}
           role="link"
           className={cn(
             "flex h-7 min-w-0 items-center gap-1.5 rounded pe-1.5 text-sm text-foreground/85 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            reorder &&
-              "touch-none cursor-grab select-none active:cursor-grabbing",
+            reorder && "touch-none cursor-pointer select-none",
+            reorder?.controls.isDragging && "cursor-grabbing",
             active && "font-semibold text-foreground",
           )}
           style={{
@@ -808,7 +809,8 @@ function DatabaseSidebarRow({
           <span
             className={cn(
               "min-w-0 flex-1 truncate",
-              (hasMenuActions || canCreateChild) && "pe-12",
+              (hasMenuActions || canCreateChild) &&
+                "group-hover:pe-12 group-focus-within:pe-12",
             )}
           >
             {title}
@@ -816,7 +818,7 @@ function DatabaseSidebarRow({
         </Link>
 
         {(hasMenuActions || canCreateChild) && (
-          <div className="pointer-events-none absolute end-1 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5 rounded bg-sidebar px-0.5 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
+          <div className="pointer-events-none absolute end-0 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5 rounded bg-sidebar px-0.5 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
             {hasMenuActions && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>

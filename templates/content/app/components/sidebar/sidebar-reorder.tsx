@@ -21,6 +21,7 @@ import { CSS } from "@dnd-kit/utilities";
 import {
   createContext,
   useContext,
+  useEffect,
   useRef,
   useState,
   type CSSProperties,
@@ -58,6 +59,25 @@ interface SidebarReorderContextValue {
 const SidebarReorderContext = createContext<SidebarReorderContextValue | null>(
   null,
 );
+const DRAG_RELEASE_CLICK_WINDOW_MS = 60;
+
+export function isSidebarDragReleaseClick(
+  event: Pick<MouseEvent, "button" | "detail" | "target">,
+  itemId: string,
+) {
+  if (event.button !== 0 || event.detail !== 1) return false;
+  const target = event.target;
+  if (!(target instanceof Element)) return false;
+  const row = target.closest<HTMLElement>("[data-sidebar-reorder-item-id]");
+  return row?.dataset.sidebarReorderItemId === itemId;
+}
+
+export function isPointerSidebarDrag(activatorEvent: Event) {
+  return (
+    typeof PointerEvent !== "undefined" &&
+    activatorEvent instanceof PointerEvent
+  );
+}
 
 export function reorderedSidebarItemIds(
   items: SidebarReorderItem[],
@@ -137,6 +157,10 @@ export function SidebarReorderProvider({
   children: ReactNode;
 }) {
   const itemNodes = useRef(new Map<string, HTMLElement>());
+  const suppressedClickItemId = useRef<string | null>(null);
+  const suppressedClickTimer = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const [activeId, setActiveId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
   const [dragBounds, setDragBounds] = useState<{
@@ -169,6 +193,24 @@ export function SidebarReorderProvider({
     onDragCancel: ({ active }) =>
       sidebarReorderAnnouncement(items, String(active.id), null, labels),
   };
+
+  useEffect(() => {
+    function preventDraggedLinkNavigation(event: MouseEvent) {
+      const itemId = suppressedClickItemId.current;
+      if (!itemId || !isSidebarDragReleaseClick(event, itemId)) return;
+
+      event.preventDefault();
+      suppressedClickItemId.current = null;
+    }
+
+    document.addEventListener("click", preventDraggedLinkNavigation, true);
+    return () => {
+      document.removeEventListener("click", preventDraggedLinkNavigation, true);
+      if (suppressedClickTimer.current) {
+        clearTimeout(suppressedClickTimer.current);
+      }
+    };
+  }, []);
 
   function registerItemNode(itemId: string, node: HTMLElement | null) {
     if (node) itemNodes.current.set(itemId, node);
@@ -212,7 +254,24 @@ export function SidebarReorderProvider({
     setDragBounds(null);
   }
 
+  function suppressReleaseClick(itemId: string) {
+    suppressedClickItemId.current = itemId;
+    if (suppressedClickTimer.current) {
+      clearTimeout(suppressedClickTimer.current);
+    }
+    suppressedClickTimer.current = setTimeout(() => {
+      if (suppressedClickItemId.current === itemId) {
+        suppressedClickItemId.current = null;
+      }
+      suppressedClickTimer.current = null;
+    }, DRAG_RELEASE_CLICK_WINDOW_MS);
+  }
+
   function handleDragEnd(event: DragEndEvent) {
+    const itemId = String(event.active.id);
+    if (isPointerSidebarDrag(event.activatorEvent)) {
+      suppressReleaseClick(itemId);
+    }
     const overId = event.over?.id;
     if (overId) {
       const currentIds = items.map((item) => item.id);
@@ -222,7 +281,6 @@ export function SidebarReorderProvider({
         String(overId),
       );
       if (nextIds.some((id, index) => id !== currentIds[index])) {
-        const itemId = String(event.active.id);
         onReorder(nextIds, { itemId, position: nextIds.indexOf(itemId) });
       }
     }
@@ -319,6 +377,7 @@ export function useSidebarReorderItem(itemId: string) {
     } satisfies CSSProperties,
     attributes: sortable.attributes,
     listeners: sortable.listeners,
+    itemId,
     isDragging: sortable.isDragging,
     dropIndicator,
     siblings,
