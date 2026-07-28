@@ -824,14 +824,14 @@ body[data-clips-route="recording-pill"] #root {
 
 .live-audio-bars-compact {
   width: 24px;
-  height: 22px;
-  gap: 3px;
+  height: 24px;
+  gap: 3.5px;
 }
 
 .live-audio-bar {
   display: block;
-  width: 2.5px;
-  min-height: 2.5px;
+  width: 3.5px;
+  min-height: 3.5px;
   border-radius: 999px;
   background: rgba(132, 204, 22, 0.98);
   box-shadow: 0 0 5px rgba(132, 204, 22, 0.35);
@@ -5499,7 +5499,10 @@ body[data-clips-route="recording-pill"] #root {
 .pill-inner-compact {
   width: fit-content;
   height: fit-content;
-  border-radius: 18px;
+  /* Stadium, not a squircle — the collapsed capsule reads as a pill at any
+     height. A fixed radius on the ~44x64 vertical form looks like a rounded
+     rectangle. */
+  border-radius: 999px;
   cursor: pointer;
   transition:
     background 120ms ease,
@@ -5574,7 +5577,7 @@ body[data-clips-route="recording-pill"] #root {
   gap: 6px;
   height: auto;
   width: auto;
-  padding: 12px 10px 10px;
+  padding: 12px 10px;
   cursor: pointer;
 }
 
@@ -5589,7 +5592,7 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 .pill-vertical .pill-wave-meter {
-  height: 22px;
+  height: 24px;
   width: 24px;
 }
 

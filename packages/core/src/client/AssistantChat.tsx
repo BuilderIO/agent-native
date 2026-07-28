@@ -333,8 +333,16 @@ function activeRunStuckThresholdMs(runInfo: ActiveRunLookup): number {
 }
 
 function activeRunLooksStale(runInfo: ActiveRunLookup): boolean {
+  // A run killed before it emitted anything has no `lastProgressAt`. Falling
+  // back to the heartbeat keeps that case from reading as perpetually fresh —
+  // "never reported progress" is the worst case, not an exemption from the
+  // staleness check.
   const lastProgressAt =
-    typeof runInfo.lastProgressAt === "number" ? runInfo.lastProgressAt : null;
+    typeof runInfo.lastProgressAt === "number"
+      ? runInfo.lastProgressAt
+      : typeof runInfo.heartbeatAt === "number"
+        ? runInfo.heartbeatAt
+        : null;
   const nowMs =
     typeof runInfo.serverNow === "number" ? runInfo.serverNow : Date.now();
   const thresholdMs = activeRunStuckThresholdMs(runInfo);
@@ -344,6 +352,16 @@ function activeRunLooksStale(runInfo: ActiveRunLookup): boolean {
     nowMs - lastProgressAt > thresholdMs
   );
 }
+
+/**
+ * The stored active run is what keeps the "Thinking…" spinner up across a
+ * reload, and the `/runs/active` probe is the only path that clears it. A 5xx
+ * or a network drop there means "couldn't determine", NOT "still running" —
+ * collapsing the two is what strands the spinner forever when the server is
+ * briefly unreachable, because no caller reschedules the probe. Retry inside
+ * the call, then give up loudly.
+ */
+const ACTIVE_RUN_PROBE_RETRY_DELAYS_MS = [400, 1200];
 
 /**
  * Decide whether a reconnect should give up with "no progress". The signal is
@@ -3440,12 +3458,50 @@ const AssistantChatInner = forwardRef<
       if (isRuntimeRunningRef.current || isAutoResumingRef.current) {
         return false;
       }
+      const storedActiveRun = getActiveRun();
+      let runRes: Response | null = null;
+      for (let attempt = 0; ; attempt += 1) {
+        try {
+          const res = await fetch(
+            `${apiUrl}/runs/active?threadId=${encodeURIComponent(threadId)}`,
+          );
+          if (res.ok) {
+            runRes = res;
+            break;
+          }
+        } catch {
+          // Fall through to the retry/give-up path below.
+        }
+        const retryDelayMs = ACTIVE_RUN_PROBE_RETRY_DELAYS_MS[attempt];
+        if (retryDelayMs === undefined) break;
+        await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+      }
+
+      if (!runRes) {
+        // Still unreachable. Only a stored run for this thread is holding the
+        // spinner up, so that is also the only case worth interrupting the user
+        // for — drop it and say why, rather than leaving "Thinking…" forever.
+        if (storedActiveRun?.threadId === threadId) {
+          clearActiveRunIfMatches(threadId, storedActiveRun.runId);
+          window.dispatchEvent(
+            new CustomEvent("agent-chat:run-error", {
+              detail: {
+                message:
+                  "Couldn't reach the server to check whether the agent is still working. Send your message again to retry.",
+                errorCode: "run_status_unavailable",
+                recoverable: true,
+                ...(storedActiveRun.runId
+                  ? { runId: storedActiveRun.runId }
+                  : {}),
+                ...(tabId ? { tabId } : {}),
+              },
+            }),
+          );
+        }
+        return false;
+      }
+
       try {
-        const storedActiveRun = getActiveRun();
-        const runRes = await fetch(
-          `${apiUrl}/runs/active?threadId=${encodeURIComponent(threadId)}`,
-        );
-        if (!runRes.ok) return false;
         const runInfo = (await runRes.json()) as ActiveRunLookup;
         if (
           !runInfo.active ||
@@ -3464,7 +3520,7 @@ const AssistantChatInner = forwardRef<
       } catch {
         return false;
       }
-    }, [apiUrl, refreshThreadFromServer, startReconnectToRun, threadId]);
+    }, [apiUrl, refreshThreadFromServer, startReconnectToRun, tabId, threadId]);
 
   useEffect(() => {
     if (!threadId || !isNewThread) return;

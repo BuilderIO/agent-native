@@ -151,6 +151,41 @@ describe("buildMergedConfig built-in MCP capabilities", () => {
 });
 
 describe("MCP server routes", () => {
+  it("serializes route access behind deferred manager hydration", async () => {
+    getSessionMock.mockResolvedValue(null);
+    getOrgContextMock.mockRejectedValue(new Error("no org"));
+    let release!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const nitroApp = createNitroApp();
+    const manager = {
+      getStatus: vi.fn(() => ({
+        connectedServers: [],
+        configuredServers: [],
+        errors: {},
+        tools: [],
+      })),
+      reconfigure: vi.fn(),
+    };
+    mountMcpServersRoutes(nitroApp, manager as any, {
+      waitUntilReady: () => ready,
+    });
+
+    const pending = dispatchMountedRoute(
+      nitroApp,
+      "/_agent-native/mcp/servers/test",
+      "POST",
+      { url: "https://mcp.example.test/mcp" },
+    );
+    await Promise.resolve();
+    expect(getSessionMock).not.toHaveBeenCalled();
+
+    release();
+    await expect(pending).resolves.toMatchObject({ status: 401 });
+    expect(getSessionMock).toHaveBeenCalledOnce();
+  });
+
   it("requires authentication before dry-running arbitrary MCP URLs", async () => {
     getSessionMock.mockResolvedValueOnce(null);
     getOrgContextMock.mockRejectedValueOnce(new Error("no org"));
