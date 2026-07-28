@@ -418,7 +418,7 @@ export function OrgSwitcher({
           align="start"
           sideOffset={6}
           collisionPadding={12}
-          className={POPOVER_CONTENT_CLASS}
+          className={`${POPOVER_CONTENT_CLASS} ${mode === "list" ? "" : "w-64"}`}
           onOpenAutoFocus={(e) => {
             // Don't auto-focus the first item — feels heavy on a switcher.
             if (mode === "list") e.preventDefault();
