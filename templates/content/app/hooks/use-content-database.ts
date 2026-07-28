@@ -1080,7 +1080,11 @@ export function useAddContentDatabaseSourceFieldProperty(documentId: string) {
         queryKey: ["action", "get-content-database-source", { documentId }],
       });
       queryClient.invalidateQueries({
-        queryKey: ["action", "list-document-properties", { documentId }],
+        queryKey: [
+          "action",
+          "list-document-properties",
+          { documentId, databaseId: data.databaseId },
+        ],
       });
     },
   });
@@ -1101,7 +1105,11 @@ export function useMaterializeBuilderRequiredFields(documentId: string) {
         queryKey: ["action", "get-content-database-source", { documentId }],
       });
       queryClient.invalidateQueries({
-        queryKey: ["action", "list-document-properties", { documentId }],
+        queryKey: [
+          "action",
+          "list-document-properties",
+          { documentId, databaseId: data.database.id },
+        ],
       });
     },
   });

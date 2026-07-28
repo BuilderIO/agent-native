@@ -199,6 +199,7 @@ export interface DocumentPropertiesResponse {
 export interface ConfigureDocumentPropertyRequest {
   id?: string;
   documentId: string;
+  databaseId: string;
   name: string;
   type: DocumentPropertyType;
   description?: string;
@@ -208,22 +209,26 @@ export interface ConfigureDocumentPropertyRequest {
 
 export interface SetDocumentPropertyRequest {
   documentId: string;
+  databaseId: string;
   propertyId: string;
   value: DocumentPropertyValue;
 }
 
 export interface DuplicateDocumentPropertyRequest {
   documentId: string;
+  databaseId: string;
   propertyId: string;
 }
 
 export interface DeleteDocumentPropertyRequest {
   documentId: string;
+  databaseId: string;
   propertyId: string;
 }
 
 export interface ReorderDocumentPropertyRequest {
   documentId: string;
+  databaseId: string;
   propertyId: string;
   targetPropertyId: string;
   position?: "before" | "after";

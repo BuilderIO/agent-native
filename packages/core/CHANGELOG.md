@@ -1,5 +1,17 @@
 # @agent-native/core
 
+## 0.128.3
+
+### Patch Changes
+
+- 4a59320: Switch the builder-agent-native-starter sync to the vendor-branch model: a new `push-starter-template` workflow materializes the post-processed `templates/chat` and pushes it to the starter's `template` branch (which the starter git-merges into `main`). Removes the obsolete dispatch workflow and the `sync-builder-starter-manifest` CLI (the `merge`/`generate`/`paths` allowlist sync), superseded by `agent-native template materialize` + git-native merge.
+
+## 0.128.2
+
+### Patch Changes
+
+- 363d36f: Add organization logo support to the shared email template, safe sender display-name overrides, and a server-side user profile export for transactional emails.
+
 ## 0.128.1
 
 ### Patch Changes
