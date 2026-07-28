@@ -973,6 +973,19 @@ describe("Builder CMS read client", () => {
           arguments?: { limit?: number; offset?: number };
         };
       };
+      if (body.method === "server/discover") {
+        expect(init?.headers).toMatchObject({
+          "mcp-method": "server/discover",
+          "mcp-protocol-version": "2026-07-28",
+        });
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            result: { supportedVersions: ["2026-07-28"] },
+          }),
+          { status: 200 },
+        );
+      }
       if (body.method === "initialize") {
         return new Response(JSON.stringify({ jsonrpc: "2.0", result: {} }), {
           status: 200,

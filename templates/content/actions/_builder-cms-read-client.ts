@@ -439,19 +439,43 @@ async function postBuilderMcp(args: {
   endpoint: string;
   privateKey: string;
   payload: Record<string, unknown>;
-  sessionId?: string | null;
+  connection?: BuilderMcpConnection;
+  modernClientName?: string;
   fetchImpl: FetchLike;
 }) {
+  const method =
+    typeof args.payload.method === "string" ? args.payload.method : "";
+  const modernClientName =
+    args.modernClientName ??
+    (args.connection?.protocolVersion === "2026-07-28"
+      ? "agent-native-content-template"
+      : undefined);
+  const payload = modernClientName
+    ? withModernBuilderMcpEnvelope(args.payload, modernClientName)
+    : args.payload;
   const headers: Record<string, string> = {
     accept: "application/json, text/event-stream",
     authorization: `Bearer ${args.privateKey}`,
     "content-type": "application/json",
   };
-  if (args.sessionId) headers["mcp-session-id"] = args.sessionId;
+  if (args.connection?.sessionId) {
+    headers["mcp-session-id"] = args.connection.sessionId;
+  }
+  if (modernClientName) {
+    headers["mcp-protocol-version"] = "2026-07-28";
+    headers["mcp-method"] = method;
+    const params = args.payload.params as Record<string, unknown> | undefined;
+    if (typeof params?.name === "string") {
+      headers["mcp-name"] = params.name;
+    }
+    if (method === "resources/read" && typeof params?.uri === "string") {
+      headers["mcp-name"] = params.uri;
+    }
+  }
   const response = await args.fetchImpl(args.endpoint, {
     method: "POST",
     headers,
-    body: JSON.stringify(args.payload),
+    body: JSON.stringify(payload),
   });
   const text = await response.text();
   if (!response.ok) {
@@ -460,6 +484,44 @@ async function postBuilderMcp(args: {
   return {
     json: JSON.parse(text) as Record<string, unknown>,
     sessionId: response.headers.get("mcp-session-id"),
+  };
+}
+
+interface BuilderMcpConnection {
+  protocolVersion: "2026-07-28" | "2025-11-25";
+  sessionId: string | null;
+}
+
+function withModernBuilderMcpEnvelope(
+  payload: Record<string, unknown>,
+  clientName: string,
+): Record<string, unknown> {
+  const params =
+    payload.params &&
+    typeof payload.params === "object" &&
+    !Array.isArray(payload.params)
+      ? (payload.params as Record<string, unknown>)
+      : {};
+  const meta =
+    params._meta &&
+    typeof params._meta === "object" &&
+    !Array.isArray(params._meta)
+      ? (params._meta as Record<string, unknown>)
+      : {};
+  return {
+    ...payload,
+    params: {
+      ...params,
+      _meta: {
+        ...meta,
+        "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+        "io.modelcontextprotocol/clientInfo": {
+          name: clientName,
+          version: "0.1.0",
+        },
+        "io.modelcontextprotocol/clientCapabilities": {},
+      },
+    },
   };
 }
 
@@ -593,6 +655,42 @@ async function initializeBuilderMcp(args: {
   privateKey: string;
   fetchImpl: FetchLike;
 }) {
+  try {
+    const discovered = await postBuilderMcp({
+      endpoint: args.endpoint,
+      privateKey: args.privateKey,
+      fetchImpl: args.fetchImpl,
+      modernClientName: "agent-native-content-template",
+      payload: {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "server/discover",
+        params: {},
+      },
+    });
+    const result = discovered.json.result;
+    if (
+      result &&
+      typeof result === "object" &&
+      Array.isArray((result as Record<string, unknown>).supportedVersions) &&
+      (
+        (result as Record<string, unknown>).supportedVersions as unknown[]
+      ).includes("2026-07-28")
+    ) {
+      return {
+        protocolVersion: "2026-07-28",
+        sessionId: null,
+      } satisfies BuilderMcpConnection;
+    }
+  } catch (error) {
+    // A legacy server may reject server/discover before initialize.
+    if (
+      !(error instanceof Error) ||
+      !/HTTP (?:400|404|405)\./.test(error.message)
+    ) {
+      throw error;
+    }
+  }
   const initialized = await postBuilderMcp({
     endpoint: args.endpoint,
     privateKey: args.privateKey,
@@ -602,7 +700,7 @@ async function initializeBuilderMcp(args: {
       id: 1,
       method: "initialize",
       params: {
-        protocolVersion: "2024-11-05",
+        protocolVersion: "2025-11-25",
         capabilities: {},
         clientInfo: {
           name: "agent-native-content-template",
@@ -617,7 +715,7 @@ async function initializeBuilderMcp(args: {
       endpoint: args.endpoint,
       privateKey: args.privateKey,
       fetchImpl: args.fetchImpl,
-      sessionId,
+      connection: { protocolVersion: "2025-11-25", sessionId },
       payload: {
         jsonrpc: "2.0",
         method: "notifications/initialized",
@@ -625,7 +723,10 @@ async function initializeBuilderMcp(args: {
       },
     }).catch(() => null);
   }
-  return sessionId;
+  return {
+    protocolVersion: "2025-11-25",
+    sessionId,
+  } satisfies BuilderMcpConnection;
 }
 
 async function readBuilderCmsContentEntriesViaMcp(args: {
@@ -640,7 +741,7 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
 }): Promise<BuilderCmsReadResult> {
   const fetchedAt = new Date().toISOString();
   const endpoint = builderMcpEndpoint();
-  const sessionId = await initializeBuilderMcp({
+  const connection = await initializeBuilderMcp({
     endpoint,
     privateKey: args.privateKey,
     fetchImpl: args.fetchImpl,
@@ -668,7 +769,7 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
       endpoint,
       privateKey: args.privateKey,
       fetchImpl: args.fetchImpl,
-      sessionId,
+      connection,
       payload: {
         jsonrpc: "2.0",
         id: `content-${offset}`,
@@ -747,7 +848,7 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
     endpoint,
     privateKey: args.privateKey,
     fetchImpl: args.fetchImpl,
-    sessionId,
+    connection,
     payload: {
       jsonrpc: "2.0",
       id: 3,
@@ -775,7 +876,7 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
       endpoint,
       privateKey: args.privateKey,
       fetchImpl: args.fetchImpl,
-      sessionId,
+      connection,
       payload: {
         jsonrpc: "2.0",
         id: `entry-${entry.id}`,
@@ -1046,7 +1147,7 @@ export async function listBuilderCmsModels(
 
   try {
     const endpoint = builderMcpEndpoint();
-    const sessionId = await initializeBuilderMcp({
+    const connection = await initializeBuilderMcp({
       endpoint,
       privateKey,
       fetchImpl,
@@ -1055,7 +1156,7 @@ export async function listBuilderCmsModels(
       endpoint,
       privateKey,
       fetchImpl,
-      sessionId,
+      connection,
       payload: {
         jsonrpc: "2.0",
         id: 2,

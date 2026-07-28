@@ -18,6 +18,8 @@
  * — it can be bundled into the serverless function alongside `mountMCP`.
  */
 
+import type { Tool } from "@modelcontextprotocol/server";
+
 import {
   MCP_APP_EXTENSION_ID,
   MCP_APP_MIME_TYPE,
@@ -935,6 +937,10 @@ function mcpServerInfo(config: MCPConfig, requestMeta?: MCPRequestMeta) {
   };
 }
 
+function compareMcpCatalogValues(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 function safeUiSegment(value: string | undefined, fallback: string): string {
   const normalized = (value || fallback)
     .trim()
@@ -1419,14 +1425,8 @@ export async function createMCPServerForRequest(
   identity: MCPCallerIdentity | undefined,
   requestMeta?: MCPRequestMeta,
 ) {
-  const { Server } = await import("@modelcontextprotocol/sdk/server/index.js");
-  const {
-    ListToolsRequestSchema,
-    CallToolRequestSchema,
-    ListResourcesRequestSchema,
-    ReadResourceRequestSchema,
-    ListResourceTemplatesRequestSchema,
-  } = await import("@modelcontextprotocol/sdk/types.js");
+  const { ResourceNotFoundError, Server } =
+    await import("@modelcontextprotocol/server");
 
   // Resolve the effective caller identity. JWT / header-derived identity
   // (passed by `mountMCP` via `verifyAuth`) wins. When the caller passed no
@@ -1546,6 +1546,17 @@ export async function createMCPServerForRequest(
           }
         : {}),
     },
+    // Every catalog and resource is identity-scoped and can change at runtime
+    // through app configuration/HMR. Explicitly mark modern cacheable results
+    // private and immediately stale; the 2026 codec adds the required
+    // ttlMs/cacheScope fields while 2025 responses remain byte-compatible.
+    cacheHints: {
+      "server/discover": { ttlMs: 0, cacheScope: "private" },
+      "tools/list": { ttlMs: 0, cacheScope: "private" },
+      "resources/list": { ttlMs: 0, cacheScope: "private" },
+      "resources/templates/list": { ttlMs: 0, cacheScope: "private" },
+      "resources/read": { ttlMs: 0, cacheScope: "private" },
+    },
   });
 
   // Resolve orgId once per request (DB lookup) so subsequent wraps are
@@ -1581,60 +1592,62 @@ export async function createMCPServerForRequest(
   // tools/list — return all actions + ask-agent meta-tool. Wrapped in the
   // request context so per-user MCP visibility (mcp-client/visibility.ts)
   // applies to the listing too.
-  server.setRequestHandler(ListToolsRequestSchema, async () => {
+  server.setRequestHandler("tools/list", async () => {
     return withCallerContext(async () => {
-      const tools = await Promise.all(
-        Object.entries(advertisedActions).map(async ([name, entry]) => {
-          const hasLink = typeof entry.link === "function";
-          const mcpAppResource = await resolveMcpAppResourceSafely(
-            config,
-            name,
-            entry,
-            requestMeta,
-          );
-          const rawToolMeta =
-            (entry.tool as any)._meta &&
-            typeof (entry.tool as any)._meta === "object" &&
-            !Array.isArray((entry.tool as any)._meta)
-              ? { ...((entry.tool as any)._meta as Record<string, unknown>) }
-              : {};
-          const toolMeta = {
-            ...rawToolMeta,
-            // Advertisement path: only tag the tool with its inline-embed
-            // descriptor when the kill switch is on, so disabled embeds never
-            // prompt a host to render/read the `ui://` resource.
-            ...(mcpAppResource && requestMeta?.inlineMcpApps
-              ? {
-                  ...openAiToolDescriptorMeta(mcpAppResource),
-                  [MCP_APP_RESOURCE_URI_META_KEY]: mcpAppResource.uri,
-                  ui: mcpAppToolUiMeta(
-                    mcpAppResource,
-                    entry.mcpApp?.visibility ??
-                      metadataObject(rawToolMeta.ui).visibility,
-                  ),
-                }
-              : {}),
-          };
-          const baseDescription = entry.tool.description ?? name;
-          const annotations: Record<string, unknown> = {
-            readOnlyHint: entry.readOnly === true,
-            destructiveHint: entry.publicAgent?.isConsequential === true,
-            openWorldHint: false,
-          };
-          if (hasLink) annotations["agent-native/producesOpenLink"] = true;
-          return {
-            name,
-            description: hasLink
-              ? `${baseDescription} After calling, surface the returned "Open in … →" link to the user.`
-              : baseDescription,
-            inputSchema: entry.tool.parameters ?? {
-              type: "object" as const,
-              properties: {},
-            },
-            ...(Object.keys(toolMeta).length > 0 ? { _meta: toolMeta } : {}),
-            annotations,
-          };
-        }),
+      const tools: Tool[] = await Promise.all(
+        Object.entries(advertisedActions)
+          .sort(([a], [b]) => compareMcpCatalogValues(a, b))
+          .map(async ([name, entry]) => {
+            const hasLink = typeof entry.link === "function";
+            const mcpAppResource = await resolveMcpAppResourceSafely(
+              config,
+              name,
+              entry,
+              requestMeta,
+            );
+            const rawToolMeta =
+              (entry.tool as any)._meta &&
+              typeof (entry.tool as any)._meta === "object" &&
+              !Array.isArray((entry.tool as any)._meta)
+                ? { ...((entry.tool as any)._meta as Record<string, unknown>) }
+                : {};
+            const toolMeta = {
+              ...rawToolMeta,
+              // Advertisement path: only tag the tool with its inline-embed
+              // descriptor when the kill switch is on, so disabled embeds
+              // never prompt a host to render/read the `ui://` resource.
+              ...(mcpAppResource && requestMeta?.inlineMcpApps
+                ? {
+                    ...openAiToolDescriptorMeta(mcpAppResource),
+                    [MCP_APP_RESOURCE_URI_META_KEY]: mcpAppResource.uri,
+                    ui: mcpAppToolUiMeta(
+                      mcpAppResource,
+                      entry.mcpApp?.visibility ??
+                        metadataObject(rawToolMeta.ui).visibility,
+                    ),
+                  }
+                : {}),
+            };
+            const baseDescription = entry.tool.description ?? name;
+            const annotations: Record<string, unknown> = {
+              readOnlyHint: entry.readOnly === true,
+              destructiveHint: entry.publicAgent?.isConsequential === true,
+              openWorldHint: false,
+            };
+            if (hasLink) annotations["agent-native/producesOpenLink"] = true;
+            return {
+              name,
+              description: hasLink
+                ? `${baseDescription} After calling, surface the returned "Open in … →" link to the user.`
+                : baseDescription,
+              inputSchema: entry.tool.parameters ?? {
+                type: "object" as const,
+                properties: {},
+              },
+              ...(Object.keys(toolMeta).length > 0 ? { _meta: toolMeta } : {}),
+              annotations,
+            } as Tool;
+          }),
       );
 
       if (
@@ -1679,6 +1692,7 @@ export async function createMCPServerForRequest(
         });
       }
 
+      tools.sort((a, b) => compareMcpCatalogValues(a.name, b.name));
       return { tools };
     });
   });
@@ -1686,7 +1700,7 @@ export async function createMCPServerForRequest(
   // tools/call — dispatch to action registry or ask-agent. Wrapped in the
   // request context so the action's `run(args)` and `askAgent()` execute
   // with the verified caller's identity, not the platform default.
-  server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
+  server.setRequestHandler("tools/call", async (request: any) => {
     return withCallerContext(async () => {
       const { name, arguments: args } = request.params;
 
@@ -1878,7 +1892,7 @@ export async function createMCPServerForRequest(
   });
 
   if (supportsMcpApps) {
-    server.setRequestHandler(ListResourcesRequestSchema, async () => {
+    server.setRequestHandler("resources/list", async () => {
       return withCallerContext(async () => {
         const mcpAppResources = await getMcpAppResources(
           config,
@@ -1886,21 +1900,23 @@ export async function createMCPServerForRequest(
           requestMeta,
         );
         return {
-          resources: mcpAppResources.map((resource) => ({
-            uri: resource.uri,
-            name: resource.name,
-            ...(resource.title ? { title: resource.title } : {}),
-            ...(resource.description
-              ? { description: resource.description }
-              : {}),
-            mimeType: resource.mimeType,
-            ...(resource._meta ? { _meta: resource._meta } : {}),
-          })),
+          resources: mcpAppResources
+            .sort((a, b) => compareMcpCatalogValues(a.uri, b.uri))
+            .map((resource) => ({
+              uri: resource.uri,
+              name: resource.name,
+              ...(resource.title ? { title: resource.title } : {}),
+              ...(resource.description
+                ? { description: resource.description }
+                : {}),
+              mimeType: resource.mimeType,
+              ...(resource._meta ? { _meta: resource._meta } : {}),
+            })),
         };
       });
     });
 
-    server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => {
+    server.setRequestHandler("resources/templates/list", async () => {
       return withCallerContext(async () => {
         const mcpAppResources = await getMcpAppResources(
           config,
@@ -1908,71 +1924,71 @@ export async function createMCPServerForRequest(
           requestMeta,
         );
         return {
-          resourceTemplates: mcpAppResources.map((resource) => ({
-            uriTemplate: resource.uri,
-            name: resource.name,
-            ...(resource.title ? { title: resource.title } : {}),
-            ...(resource.description
-              ? { description: resource.description }
-              : {}),
-            mimeType: resource.mimeType,
-            ...(resource._meta ? { _meta: resource._meta } : {}),
-          })),
+          resourceTemplates: mcpAppResources
+            .sort((a, b) => compareMcpCatalogValues(a.uri, b.uri))
+            .map((resource) => ({
+              uriTemplate: resource.uri,
+              name: resource.name,
+              ...(resource.title ? { title: resource.title } : {}),
+              ...(resource.description
+                ? { description: resource.description }
+                : {}),
+              mimeType: resource.mimeType,
+              ...(resource._meta ? { _meta: resource._meta } : {}),
+            })),
         };
       });
     });
 
-    server.setRequestHandler(
-      ReadResourceRequestSchema,
-      async (request: any) => {
-        return withCallerContext(async () => {
-          const uri = request.params?.uri;
-          let found: {
-            actionName: string;
-            resource: ResolvedMcpAppResource;
-          } | null = null;
-          for (const [name, entry] of Object.entries(advertisedActions)) {
-            const resourceUri = getMcpAppResourceUri(config, name, entry);
-            if (!resourceUri || !matchesMcpAppResourceUri(resourceUri, uri)) {
-              continue;
-            }
-            const resource = await resolveMcpAppResourceSafely(
-              config,
-              name,
-              entry,
-              requestMeta,
-            );
-            if (resource) {
-              found = { actionName: name, resource };
-              break;
-            }
-            // resolveMcpAppResourceSafely returned null (e.g. an async resolver
-            // threw) — keep scanning the remaining candidates rather than
-            // aborting and reporting the resource as missing.
+    server.setRequestHandler("resources/read", async (request: any) => {
+      return withCallerContext(async () => {
+        const uri = request.params?.uri;
+        let found: {
+          actionName: string;
+          resource: ResolvedMcpAppResource;
+        } | null = null;
+        for (const [name, entry] of Object.entries(advertisedActions)) {
+          const resourceUri = getMcpAppResourceUri(config, name, entry);
+          if (!resourceUri || !matchesMcpAppResourceUri(resourceUri, uri)) {
+            continue;
           }
-          if (!found) {
-            throw new Error(`MCP App resource not found: ${uri}`);
+          const resource = await resolveMcpAppResourceSafely(
+            config,
+            name,
+            entry,
+            requestMeta,
+          );
+          if (resource) {
+            found = { actionName: name, resource };
+            break;
           }
-          return {
-            contents: [
-              {
-                uri,
-                mimeType: found.resource.mimeType,
-                text: renderMcpAppHtml(
-                  found.resource,
-                  found.actionName,
-                  config,
-                  requestMeta,
-                ),
-                ...(found.resource._meta
-                  ? { _meta: found.resource._meta }
-                  : {}),
-              },
-            ],
-          };
-        });
-      },
-    );
+          // resolveMcpAppResourceSafely returned null (e.g. an async resolver
+          // threw) — keep scanning the remaining candidates rather than
+          // aborting and reporting the resource as missing.
+        }
+        if (!found) {
+          throw new ResourceNotFoundError(
+            String(uri ?? ""),
+            `MCP App resource not found: ${uri}`,
+          );
+        }
+        return {
+          contents: [
+            {
+              uri,
+              mimeType: found.resource.mimeType,
+              text: renderMcpAppHtml(
+                found.resource,
+                found.actionName,
+                config,
+                requestMeta,
+              ),
+              ...(found.resource._meta ? { _meta: found.resource._meta } : {}),
+            },
+          ],
+        };
+      });
+    });
   }
 
   return server;

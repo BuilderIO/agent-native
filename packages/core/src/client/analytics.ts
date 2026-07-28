@@ -9,7 +9,10 @@ import {
   getOrCreateAnalyticsAnonymousId,
   getOrCreateAnalyticsSessionId,
 } from "./analytics-session.js";
-import { agentNativePath } from "./api-path.js";
+import {
+  fetchAgentEngineStatus,
+  fetchAuthSessionStatus,
+} from "./client-status-requests.js";
 import {
   installErrorCapture,
   type CapturedExceptionEvent,
@@ -301,20 +304,12 @@ function refreshLlmConnectionStatus(): Promise<void> {
     return Promise.resolve();
   }
   if (_llmConnectionRefresh) return _llmConnectionRefresh;
-  let request: Promise<Response>;
-  try {
-    request = fetch(agentNativePath("/_agent-native/agent-engine/status"));
-  } catch {
-    return Promise.resolve();
-  }
-  _llmConnectionRefresh = request
-    .then((res) => (res.ok ? res.json() : null))
-    .then((data) => {
-      _llmConnectionStatus = normalizeAgentEngineStatus(data);
-      cacheLlmConnectionStatus(_llmConnectionStatus);
-    })
-    .catch(() => {
-      if (!_llmConnectionStatus) {
+  _llmConnectionRefresh = fetchAgentEngineStatus()
+    .then((result) => {
+      if (result.state === "available") {
+        _llmConnectionStatus = normalizeAgentEngineStatus(result.value);
+        cacheLlmConnectionStatus(_llmConnectionStatus);
+      } else if (!_llmConnectionStatus) {
         _llmConnectionStatus = readCachedLlmConnectionStatus();
       }
     })
@@ -396,15 +391,11 @@ function refreshTrackingAuthSession(): Promise<void> {
     return Promise.resolve();
   }
   if (_trackingSessionRefresh) return _trackingSessionRefresh;
-  _trackingSessionRefresh = fetch(
-    agentNativePath("/_agent-native/auth/session"),
-  )
-    .then((res) => (res.ok ? res.json() : null))
-    .then((data) => {
-      setTrackingIdentityFromSession(data);
-    })
-    .catch(() => {
-      clearTrackingIdentity();
+  _trackingSessionRefresh = fetchAuthSessionStatus()
+    .then((result) => {
+      if (result.state === "available") {
+        setTrackingIdentityFromSession(result.value);
+      }
     })
     .finally(() => {
       _trackingIdentityResolved = true;
@@ -1647,6 +1638,7 @@ function pageviewProperties(reason: string): Record<string, unknown> {
 }
 
 function emitPageview(reason: string): void {
+  if (typeof window === "undefined") return;
   if (isLocalAnalyticsHostname(window.location.hostname)) return;
   const state = getPageviewTrackingState();
   const key = pageviewKey();

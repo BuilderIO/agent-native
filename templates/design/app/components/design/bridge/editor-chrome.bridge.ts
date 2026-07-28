@@ -4646,6 +4646,11 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       return true;
     }
     if (/^Arrow/.test(key || "")) return !e.altKey;
+    // Figma's Shift+\ "Minimize UI" chord. Use the physical code because
+    // Shift+\ produces "|" on US keyboard layouts.
+    if (!primary && !e.altKey && e.shiftKey && e.code === "Backslash") {
+      return true;
+    }
     if (primary) {
       return (
         [
@@ -4686,9 +4691,6 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         // shortcuts the host has no bare-primary binding for — are left
         // alone (see useDesignHotkeys.ts: both require event.shiftKey).
         (e.shiftKey && (normalized === "h" || normalized === "l")) ||
-        // Cmd/Ctrl+Shift+\ — minimize UI (onToggleUi). Keep the Shift gate
-        // here so the iframe never intercepts a desktop host's bare Cmd/Ctrl+\.
-        (e.shiftKey && normalized === "\\") ||
         // Cmd/Ctrl+Alt+B detach instance / Cmd/Ctrl+Alt+K create component
         // (onDetachInstance / onCreateComponent). Gated on altKey so bare
         // Cmd+B is left alone — the host has no bare-primary binding for it.

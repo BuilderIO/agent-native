@@ -3152,6 +3152,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         return true;
       }
       if (/^Arrow/.test(key || "")) return !e.altKey;
+      if (!primary && !e.altKey && e.shiftKey && e.code === "Backslash") {
+        return true;
+      }
       if (primary) {
         return [
           "z",
@@ -3185,9 +3188,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         // Cmd+H / Cmd+L — common OS "Hide app" / browser "focus address bar"
         // shortcuts the host has no bare-primary binding for — are left
         // alone (see useDesignHotkeys.ts: both require event.shiftKey).
-        e.shiftKey && (normalized === "h" || normalized === "l") || // Cmd/Ctrl+Shift+\\ — minimize UI (onToggleUi). Keep the Shift gate
-        // here so the iframe never intercepts a desktop host's bare Cmd/Ctrl+\\.
-        e.shiftKey && normalized === "\\\\" || // Cmd/Ctrl+Alt+B detach instance / Cmd/Ctrl+Alt+K create component
+        e.shiftKey && (normalized === "h" || normalized === "l") || // Cmd/Ctrl+Alt+B detach instance / Cmd/Ctrl+Alt+K create component
         // (onDetachInstance / onCreateComponent). Gated on altKey so bare
         // Cmd+B is left alone — the host has no bare-primary binding for it.
         e.altKey && (normalized === "b" || normalized === "k") || // Ctrl+Alt+H / Ctrl+Alt+T — distribute horizontal / tidy up

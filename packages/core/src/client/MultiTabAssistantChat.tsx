@@ -42,6 +42,10 @@ import {
   type ChatHistorySection,
 } from "./chat/ChatHistoryList.js";
 import {
+  fetchBuilderStatus,
+  fetchEnvironmentStatus,
+} from "./client-status-requests.js";
+import {
   Popover,
   PopoverAnchor,
   PopoverContent,
@@ -1114,12 +1118,12 @@ export function MultiTabAssistantChat({
       callAction("manage-agent-engine" as any, { action: "list" } as any).catch(
         () => null,
       ),
-      fetch(agentNativePath("/_agent-native/env-status"))
-        .then((r) => (r.ok ? r.json() : []))
-        .catch(() => []),
-      fetch(agentNativePath("/_agent-native/builder/status"))
-        .then((r) => (r.ok ? r.json() : null))
-        .catch(() => null),
+      fetchEnvironmentStatus<
+        Array<{ key: string; configured: boolean }>
+      >().then((result) => (result.state === "available" ? result.value : [])),
+      fetchBuilderStatus<{ configured?: boolean }>().then((result) =>
+        result.state === "available" ? result.value : null,
+      ),
     ])
       .then(([enginesData, envKeys, builderStatus]) => {
         if (!enginesData?.engines) {
@@ -1131,9 +1135,7 @@ export function MultiTabAssistantChat({
           return;
         }
         const configuredKeys = new Set(
-          (envKeys as Array<{ key: string; configured: boolean }>)
-            .filter((k) => k.configured)
-            .map((k) => k.key),
+          envKeys.filter((k) => k.configured).map((k) => k.key),
         );
         const builderConnected = builderStatus?.configured === true;
         const currentEngineName: string | undefined =

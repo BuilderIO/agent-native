@@ -113,6 +113,7 @@ vi.mock("./oauth-store.js", () => ({
 }));
 
 const {
+  buildMcpOAuthChallenge,
   handleMcpOAuth,
   handleMcpOAuthAuthorizationServerMetadata,
   handleMcpOAuthProtectedResourceMetadata,
@@ -172,8 +173,12 @@ describe("MCP OAuth route", () => {
     await expect(protectedRes.json()).resolves.toMatchObject({
       resource: "https://mail.agent-native.com/mcp",
       authorization_servers: ["https://mail.agent-native.com"],
-      scopes_supported: ["mcp:read", "mcp:write", "mcp:apps", "offline_access"],
+      scopes_supported: ["mcp:read", "mcp:write", "mcp:apps"],
     });
+    expect(buildMcpOAuthChallenge(event())).toContain(
+      'scope="mcp:read mcp:write mcp:apps"',
+    );
+    expect(buildMcpOAuthChallenge(event())).not.toContain("offline_access");
 
     const authRes = handleMcpOAuthAuthorizationServerMetadata(event());
     await expect(authRes.json()).resolves.toMatchObject({
@@ -185,6 +190,7 @@ describe("MCP OAuth route", () => {
       scopes_supported: expect.arrayContaining(["offline_access"]),
       code_challenge_methods_supported: ["S256"],
       token_endpoint_auth_methods_supported: ["none"],
+      authorization_response_iss_parameter_supported: true,
     });
   });
 
@@ -245,6 +251,44 @@ describe("MCP OAuth route", () => {
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
       token_endpoint_auth_method: "none",
+      application_type: "native",
+    });
+  });
+
+  it("round-trips explicit OAuth application_type metadata", async () => {
+    const response = await handleMcpOAuth(
+      event({
+        method: "POST",
+        body: {
+          application_type: "web",
+          redirect_uris: ["https://client.example.com/callback"],
+        } as any,
+      }),
+      "/register",
+    );
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toMatchObject({
+      application_type: "web",
+      redirect_uris: ["https://client.example.com/callback"],
+    });
+  });
+
+  it("rejects unknown OAuth application_type metadata", async () => {
+    const response = await handleMcpOAuth(
+      event({
+        method: "POST",
+        body: {
+          application_type: "desktop",
+          redirect_uris: ["http://localhost:54545/callback"],
+        } as any,
+      }),
+      "/register",
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: "invalid_client_metadata",
     });
   });
 
@@ -398,6 +442,9 @@ describe("MCP OAuth route", () => {
     const location = authorize.headers.get("location")!;
     const code = new URL(location).searchParams.get("code")!;
     expect(location).toContain("state=state-123");
+    expect(new URL(location).searchParams.get("iss")).toBe(
+      "https://mail.agent-native.com",
+    );
 
     const token = await handleMcpOAuth(
       event({
@@ -503,6 +550,9 @@ describe("MCP OAuth route", () => {
     const linkUrl = new URL(link);
     expect(linkUrl.searchParams.get("code")).toBeTruthy();
     expect(linkUrl.searchParams.get("state")).toBe("state-xyz");
+    expect(linkUrl.searchParams.get("iss")).toBe(
+      "https://mail.agent-native.com",
+    );
   });
 
   it("preserves org_id in OAuth access tokens even when the org has no domain", async () => {
@@ -613,6 +663,9 @@ describe("MCP OAuth route", () => {
     expect(res.status).toBe(302);
     const location = new URL(res.headers.get("location")!);
     expect(location.searchParams.get("error")).toBe("invalid_scope");
+    expect(location.searchParams.get("iss")).toBe(
+      "https://mail.agent-native.com",
+    );
     expect(location.searchParams.get("code")).toBeNull();
   });
 

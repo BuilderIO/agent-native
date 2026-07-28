@@ -95,6 +95,7 @@ import {
   AGENT_CHAT_VIEW_TRANSITION_CLASS,
   getAgentChatViewTransitionStyle,
 } from "./chat-view-transition.js";
+import { fetchBuilderStatus } from "./client-status-requests.js";
 import { RealtimeVoiceModeProvider } from "./composer/index.js";
 import {
   getFramePostMessageTargetOrigin,
@@ -481,13 +482,16 @@ function useBuilderConnectUrl() {
     // global), refresh fired again, and we'd loop forever.
     let lastConfigured = false;
     const refresh = () => {
-      fetch(agentNativePath("/_agent-native/builder/status"))
-        .then((res) => (res.ok ? res.json() : null))
+      fetchBuilderStatus<{
+        cliAuthUrl?: string;
+        connectUrl?: string;
+        configured?: boolean;
+      }>()
+        .then((result) => (result.state === "available" ? result.value : null))
         .then((data) => {
           if (cancelled || !data) return;
-          if (data.cliAuthUrl || data.connectUrl) {
-            setConnectUrl(data.cliAuthUrl || data.connectUrl);
-          }
+          const nextConnectUrl = data.cliAuthUrl || data.connectUrl;
+          if (nextConnectUrl) setConnectUrl(nextConnectUrl);
           const nextConfigured = !!data.configured;
           setConfigured(nextConfigured);
           if (nextConfigured && !lastConfigured) {

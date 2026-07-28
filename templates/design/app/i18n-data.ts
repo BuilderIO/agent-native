@@ -951,7 +951,9 @@ const enUS = {
       copyPrompt: "Copy prompt to your agent",
       abortPreview: "Abort preview and interact",
       agentMessage: "Apply the pending visual style edits to the source.",
-      sentToast: "Style edits sent to the Design agent",
+      sentToast: "Design updates sent to the agent",
+      agentHandoffFailedToast:
+        "Could not reach the agent. The preview was kept so you can retry or copy the prompt.",
       verifiedToast: "Source and runtime structure verified",
       conflictToast:
         "The reloaded runtime did not match the pending structure edit. The preview is still undoable; retry after resolving the source conflict.",
@@ -11130,7 +11132,9 @@ const designPendingVisualStyleOverrides = {
         copyPrompt: "將提示複製給您的代理",
         abortPreview: "中止預覽並互動",
         agentMessage: "將待處理的視覺樣式編輯套用到來源。",
-        sentToast: "樣式編輯已傳送給 Design 代理",
+        sentToast: "設計更新已傳送給代理",
+        agentHandoffFailedToast:
+          "無法連線到代理。預覽已保留，您可以重試或複製提示。",
         verifiedToast: "已驗證來源與執行階段結構",
         conflictToast:
           "重新載入的執行階段與待處理的結構編輯不符。預覽仍可復原；請解決來源衝突後重試。",
@@ -11161,7 +11165,9 @@ const designPendingVisualStyleOverrides = {
         copyPrompt: "将提示复制给你的代理",
         abortPreview: "中止预览并互动",
         agentMessage: "将待处理的视觉样式编辑应用到源文件。",
-        sentToast: "样式编辑已发送给 Design 代理",
+        sentToast: "设计更新已发送给代理",
+        agentHandoffFailedToast:
+          "无法连接到代理。预览已保留，你可以重试或复制提示。",
         verifiedToast: "已验证源文件和运行时结构",
         conflictToast:
           "重新加载的运行时与待处理的结构编辑不匹配。预览仍可撤销；请解决源文件冲突后重试。",
@@ -11193,7 +11199,9 @@ const designPendingVisualStyleOverrides = {
         abortPreview: "Cancelar vista previa e interactuar",
         agentMessage:
           "Aplica las ediciones visuales de estilo pendientes al código fuente.",
-        sentToast: "Ediciones de estilo enviadas al agente de Design",
+        sentToast: "Actualizaciones de diseño enviadas al agente",
+        agentHandoffFailedToast:
+          "No se pudo contactar con el agente. Se conservó la vista previa para que puedas reintentar o copiar el prompt.",
         verifiedToast: "Código y estructura del runtime verificados",
         conflictToast:
           "El runtime recargado no coincide con la edición estructural pendiente. La vista previa aún se puede deshacer; resuelve el conflicto y vuelve a intentarlo.",
@@ -11226,7 +11234,9 @@ const designPendingVisualStyleOverrides = {
         abortPreview: "Annuler l’aperçu et interagir",
         agentMessage:
           "Appliquez les modifications visuelles de style en attente à la source.",
-        sentToast: "Modifications de style envoyées à l’agent Design",
+        sentToast: "Mises à jour du design envoyées à l’agent",
+        agentHandoffFailedToast:
+          "Impossible de joindre l’agent. L’aperçu a été conservé pour réessayer ou copier le prompt.",
         verifiedToast: "Source et structure du runtime vérifiées",
         conflictToast:
           "Le runtime rechargé ne correspond pas à la modification de structure en attente. L’aperçu reste annulable ; résolvez le conflit puis réessayez.",
@@ -11259,7 +11269,9 @@ const designPendingVisualStyleOverrides = {
         abortPreview: "Vorschau abbrechen und interagieren",
         agentMessage:
           "Wende die ausstehenden visuellen Stiländerungen auf die Quelle an.",
-        sentToast: "Stiländerungen an den Design-Agent gesendet",
+        sentToast: "Design-Updates an den Agenten gesendet",
+        agentHandoffFailedToast:
+          "Der Agent konnte nicht erreicht werden. Die Vorschau wurde beibehalten, damit du es erneut versuchen oder den Prompt kopieren kannst.",
         verifiedToast: "Quelle und Laufzeitstruktur überprüft",
         conflictToast:
           "Die neu geladene Laufzeit stimmt nicht mit der ausstehenden Strukturänderung überein. Die Vorschau kann weiterhin rückgängig gemacht werden; löse den Konflikt und versuche es erneut.",
@@ -11292,7 +11304,9 @@ const designPendingVisualStyleOverrides = {
         abortPreview: "プレビューを中止して操作",
         agentMessage:
           "保留中のビジュアルスタイル編集をソースに適用してください。",
-        sentToast: "スタイル編集を Design エージェントに送信しました",
+        sentToast: "デザイン更新をエージェントに送信しました",
+        agentHandoffFailedToast:
+          "エージェントに接続できませんでした。再試行またはプロンプトのコピーができるよう、プレビューは保持されています。",
         verifiedToast: "ソースとランタイム構造を検証しました",
         conflictToast:
           "再読み込みしたランタイムが保留中の構造編集と一致しません。プレビューは元に戻せます。ソースの競合を解決して再試行してください。",
@@ -11324,7 +11338,9 @@ const designPendingVisualStyleOverrides = {
         copyPrompt: "에이전트에 프롬프트 복사",
         abortPreview: "미리보기를 중단하고 상호작용",
         agentMessage: "보류 중인 시각 스타일 편집을 소스에 적용하세요.",
-        sentToast: "스타일 편집을 Design 에이전트로 보냈습니다",
+        sentToast: "디자인 업데이트를 에이전트로 보냈습니다",
+        agentHandoffFailedToast:
+          "에이전트에 연결할 수 없습니다. 다시 시도하거나 프롬프트를 복사할 수 있도록 미리보기를 유지했습니다.",
         verifiedToast: "소스와 런타임 구조를 확인했습니다",
         conflictToast:
           "다시 로드된 런타임이 보류 중인 구조 편집과 일치하지 않습니다. 미리보기는 계속 실행 취소할 수 있으니 소스 충돌을 해결한 뒤 다시 시도하세요.",
@@ -11357,7 +11373,9 @@ const designPendingVisualStyleOverrides = {
         abortPreview: "Cancelar prévia e interagir",
         agentMessage:
           "Aplique as edições visuais de estilo pendentes à origem.",
-        sentToast: "Edições de estilo enviadas ao agente Design",
+        sentToast: "Atualizações de design enviadas ao agente",
+        agentHandoffFailedToast:
+          "Não foi possível acessar o agente. A prévia foi mantida para você tentar novamente ou copiar o prompt.",
         verifiedToast: "Origem e estrutura do runtime verificadas",
         conflictToast:
           "O runtime recarregado não corresponde à edição estrutural pendente. A prévia ainda pode ser desfeita; resolva o conflito e tente novamente.",
@@ -11389,7 +11407,9 @@ const designPendingVisualStyleOverrides = {
         copyPrompt: "Prompt अपने agent को कॉपी करें",
         abortPreview: "Preview रोकें और interact करें",
         agentMessage: "लंबित visual style edits को source पर लागू करें।",
-        sentToast: "Style edits Design agent को भेजे गए",
+        sentToast: "Design updates agent को भेजे गए",
+        agentHandoffFailedToast:
+          "Agent तक नहीं पहुंच सके। Retry या prompt कॉपी करने के लिए preview रखा गया है।",
         verifiedToast: "Source और runtime structure सत्यापित हैं",
         conflictToast:
           "Reload हुआ runtime pending structure edit से मेल नहीं खाता। Preview अभी भी undo किया जा सकता है; source conflict हल करके फिर कोशिश करें।",
@@ -11420,7 +11440,9 @@ const designPendingVisualStyleOverrides = {
         copyPrompt: "نسخ الموجه إلى وكيلك",
         abortPreview: "إلغاء المعاينة والتفاعل",
         agentMessage: "طبّق تعديلات النمط المرئية المعلقة على المصدر.",
-        sentToast: "تم إرسال تعديلات النمط إلى وكيل Design",
+        sentToast: "تم إرسال تحديثات التصميم إلى الوكيل",
+        agentHandoffFailedToast:
+          "تعذر الوصول إلى الوكيل. تم الاحتفاظ بالمعاينة لتتمكن من إعادة المحاولة أو نسخ الموجه.",
         verifiedToast: "تم التحقق من المصدر وبنية وقت التشغيل",
         conflictToast:
           "لا يطابق وقت التشغيل المعاد تحميله تعديل البنية المعلق. لا تزال المعاينة قابلة للتراجع؛ عالج تعارض المصدر ثم أعد المحاولة.",

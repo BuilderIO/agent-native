@@ -53,16 +53,12 @@ describe("KeyboardShortcutsPanel Essential tutorial", () => {
     expect(
       first.querySelector("[data-essential-shortcut-description]")?.textContent,
     ).toBe("Press it now to quickly hide the panes and focus on your work");
-    expect(first.querySelectorAll("kbd")).toHaveLength(3);
+    expect(first.querySelectorAll("kbd")).toHaveLength(2);
     expect(
       first
         .querySelector("[data-shortcut-bindings]")
         ?.getAttribute("aria-label"),
-    ).toBe(
-      /Mac|iPhone|iPad/.test(navigator.platform)
-        ? "Command shift Backslash"
-        : "Control shift Backslash",
-    );
+    ).toBe("shift Backslash");
     expect(first.querySelector("kbd")?.getAttribute("aria-hidden")).toBe(
       "true",
     );

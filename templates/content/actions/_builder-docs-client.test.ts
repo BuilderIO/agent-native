@@ -227,6 +227,13 @@ function mcpFetchForEntries(entries: BuilderContentEntry[]) {
       typeof init?.body === "string"
         ? (JSON.parse(init.body) as Record<string, unknown>)
         : {};
+    if (body.method === "server/discover") {
+      return mcpResponse({
+        jsonrpc: "2.0",
+        id: body.id,
+        result: { supportedVersions: ["2026-07-28"] },
+      });
+    }
     if (body.method === "initialize") {
       return mcpResponse({ jsonrpc: "2.0", id: body.id, result: {} }, "s-1");
     }

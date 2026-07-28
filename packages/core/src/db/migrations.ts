@@ -395,8 +395,13 @@ export function runMigrations(
 
             if (raw == null) {
               // Dialect-gated migration with no SQL for this dialect; still
-              // record it so we don't retry forever.
-              for (const stmt of recordStatements) await stmt.run();
+              // record it so we don't retry forever. Keep the name + legacy
+              // version rows atomic: if an isolate is interrupted between
+              // separate writes, the name row would suppress every retry even
+              // though the legacy bookkeeping row never landed.
+              if (recordStatements.length > 0) {
+                await d1.batch(recordStatements);
+              }
               continue;
             }
             const originalStatements = splitSqlStatements(raw);

@@ -3,6 +3,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { invalidateClientStatusRequests } from "./client-status-requests.js";
 import {
   fetchAgentEngineConfiguredState,
   useAgentEngineConfigured,
@@ -44,6 +45,7 @@ describe("useAgentEngineConfigured", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    invalidateClientStatusRequests();
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });
@@ -97,7 +99,7 @@ describe("useAgentEngineConfigured", () => {
     });
 
     expect(container.textContent).toBe("unknown");
-    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(fetch).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       for (const resolve of responses) {
@@ -209,7 +211,7 @@ describe("useAgentEngineConfigured", () => {
 
     const status = fetchAgentEngineConfiguredState(true, { timeoutMs: 25 });
 
-    await vi.advanceTimersByTimeAsync(25);
+    await vi.advanceTimersByTimeAsync(50);
     await expect(status).resolves.toBe("unavailable");
   });
 
@@ -225,8 +227,30 @@ describe("useAgentEngineConfigured", () => {
       timeoutMs: 25,
     });
 
-    await vi.advanceTimersByTimeAsync(25);
+    await vi.advanceTimersByTimeAsync(50);
     await expect(status).resolves.toBe("unavailable");
+  });
+
+  it("starts a fresh request after a timed-out shared probe", async () => {
+    vi.useFakeTimers();
+    let requestCount = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => {
+        requestCount += 1;
+        if (requestCount <= 3) return new Promise<Response>(() => {});
+        return Promise.resolve(jsonResponse({ configured: true }));
+      }),
+    );
+
+    const first = fetchAgentEngineConfiguredState(true, { timeoutMs: 25 });
+    await vi.advanceTimersByTimeAsync(50);
+    await expect(first).resolves.toBe("unavailable");
+
+    await expect(
+      fetchAgentEngineConfiguredState(true, { timeoutMs: 25 }),
+    ).resolves.toBe("configured");
+    expect(fetch).toHaveBeenCalledTimes(4);
   });
 
   it("retries a failed check instead of latching a dead state", async () => {

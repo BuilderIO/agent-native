@@ -8,6 +8,7 @@ const actionMocks = vi.hoisted(() => ({ callAction: vi.fn() }));
 
 vi.mock("./use-action.js", () => actionMocks);
 
+import { invalidateClientStatusRequests } from "./client-status-requests.js";
 import { useChatModels } from "./use-chat-models.js";
 
 /** Serve the three requests refreshEngines makes: engines, env keys, builder. */
@@ -84,6 +85,7 @@ describe("useChatModels", () => {
   });
 
   afterEach(() => {
+    invalidateClientStatusRequests();
     act(() => root.unmount());
     container.remove();
     vi.unstubAllGlobals();

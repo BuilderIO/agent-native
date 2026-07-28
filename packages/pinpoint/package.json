@@ -67,7 +67,6 @@
   },
   "devDependencies": {
     "@agent-native/core": "workspace:*",
-    "@modelcontextprotocol/sdk": "^1.0.0",
     "@types/express": "^5.0.3",
     "@types/node": "^24.2.1",
     "@types/react": "^19.2.14",

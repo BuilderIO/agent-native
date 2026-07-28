@@ -362,6 +362,22 @@ describe("browser analytics pageviews", () => {
     expect(events[1].properties.navigation_type).toBe("pushState");
   });
 
+  it("drops a queued pageview when the browser environment is gone", async () => {
+    installBrowser();
+    const { analyticsCalls } = installFetch();
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      llmConnectionStatus: false,
+      authSessionRefresh: false,
+    });
+    vi.unstubAllGlobals();
+    await tick();
+
+    expect(analyticsCalls).toHaveLength(0);
+  });
+
   it("initializes a chat surface and de-duplicates repeated run observation", async () => {
     installBrowser("https://analytics.agent-native.com/ask");
     const { analyticsCalls } = installFetch({

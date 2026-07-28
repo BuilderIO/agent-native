@@ -30,7 +30,6 @@ import {
 } from "./oauth-store.js";
 import {
   MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS,
-  MCP_OAUTH_DEFAULT_SCOPE,
   MCP_OAUTH_SCOPES,
   normalizeOAuthScope,
   signMcpOAuthAccessToken,
@@ -41,6 +40,11 @@ export interface McpOAuthRouteOptions {
   appId?: string;
   appName?: string;
 }
+
+const MCP_OAUTH_RESOURCE_SCOPES = MCP_OAUTH_SCOPES.filter(
+  (scope) => scope !== "offline_access",
+);
+const MCP_OAUTH_RESOURCE_SCOPE = MCP_OAUTH_RESOURCE_SCOPES.join(" ");
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -229,7 +233,7 @@ export function getMcpOAuthProtectedResourceMetadataUrl(
 
 export function buildMcpOAuthChallenge(event: H3Event): string {
   const metadata = getMcpOAuthProtectedResourceMetadataUrl(event);
-  const scope = MCP_OAUTH_DEFAULT_SCOPE;
+  const scope = MCP_OAUTH_RESOURCE_SCOPE;
   return metadata
     ? `Bearer resource_metadata="${metadata}", scope="${scope}"`
     : `Bearer scope="${scope}"`;
@@ -268,7 +272,7 @@ export function handleMcpOAuthProtectedResourceMetadata(
   return json({
     resource,
     authorization_servers: [issuer],
-    scopes_supported: MCP_OAUTH_SCOPES,
+    scopes_supported: MCP_OAUTH_RESOURCE_SCOPES,
     resource_documentation: issuer,
   });
 }
@@ -296,6 +300,7 @@ export function handleMcpOAuthAuthorizationServerMetadata(
     code_challenge_methods_supported: ["S256"],
     token_endpoint_auth_methods_supported: ["none"],
     scopes_supported: MCP_OAUTH_SCOPES,
+    authorization_response_iss_parameter_supported: true,
   });
 }
 
@@ -350,6 +355,23 @@ function parseStringArray(value: unknown): string[] {
     : [];
 }
 
+function applicationTypeForRedirectUris(
+  redirectUris: string[],
+): "native" | "web" {
+  return redirectUris.some((value) => {
+    const url = new URL(value);
+    return (
+      url.protocol !== "https:" ||
+      url.hostname === "localhost" ||
+      url.hostname === "127.0.0.1" ||
+      url.hostname === "::1" ||
+      url.hostname === "[::1]"
+    );
+  })
+    ? "native"
+    : "web";
+}
+
 async function handleRegister(event: H3Event): Promise<Response> {
   if (getMethod(event) !== "POST") {
     return oauthError("invalid_request", "Method not allowed", 405);
@@ -393,6 +415,22 @@ async function handleRegister(event: H3Event): Promise<Response> {
       "Only public OAuth clients are supported",
     );
   }
+  const requestedApplicationType =
+    typeof body.application_type === "string"
+      ? body.application_type
+      : undefined;
+  if (
+    requestedApplicationType &&
+    requestedApplicationType !== "native" &&
+    requestedApplicationType !== "web"
+  ) {
+    return oauthError(
+      "invalid_client_metadata",
+      "application_type must be native or web",
+    );
+  }
+  const applicationType =
+    requestedApplicationType ?? applicationTypeForRedirectUris(redirectUris);
 
   const clientName =
     typeof body.client_name === "string"
@@ -422,6 +460,7 @@ async function handleRegister(event: H3Event): Promise<Response> {
       grant_types: client.grantTypes,
       response_types: client.responseTypes,
       token_endpoint_auth_method: client.tokenEndpointAuthMethod,
+      application_type: applicationType,
     },
     201,
   );
@@ -429,12 +468,14 @@ async function handleRegister(event: H3Event): Promise<Response> {
 
 function redirectWithOAuthError(params: {
   redirectUri: string;
+  issuer: string;
   state?: string;
   error: string;
   description?: string;
 }): Response {
   const url = new URL(params.redirectUri);
   url.searchParams.set("error", params.error);
+  url.searchParams.set("iss", params.issuer);
   if (params.description) {
     url.searchParams.set("error_description", params.description);
   }
@@ -444,17 +485,20 @@ function redirectWithOAuthError(params: {
 
 function buildCodeRedirectUrl(params: {
   redirectUri: string;
+  issuer: string;
   code: string;
   state?: string;
 }): string {
   const url = new URL(params.redirectUri);
   url.searchParams.set("code", params.code);
+  url.searchParams.set("iss", params.issuer);
   if (params.state) url.searchParams.set("state", params.state);
   return url.toString();
 }
 
 function redirectWithCode(params: {
   redirectUri: string;
+  issuer: string;
   code: string;
   state?: string;
 }): Response {
@@ -721,6 +765,7 @@ async function handleAuthorize(
     );
   }
   const params = await readOAuthParams(event);
+  const issuer = getMcpOAuthIssuer(event);
   const state = params.state;
   const clientId = params.client_id;
   const redirectUri = params.redirect_uri;
@@ -739,6 +784,7 @@ async function handleAuthorize(
   if (
     !clientId ||
     !redirectUri ||
+    !issuer ||
     !resource ||
     !expectedResources.includes(resource)
   ) {
@@ -758,6 +804,7 @@ async function handleAuthorize(
     if (params.prompt === "none") {
       return redirectWithOAuthError({
         redirectUri,
+        issuer,
         state,
         error: "login_required",
       });
@@ -772,6 +819,7 @@ async function handleAuthorize(
   if (!scope) {
     return redirectWithOAuthError({
       redirectUri,
+      issuer,
       state,
       error: "invalid_scope",
     });
@@ -821,6 +869,7 @@ async function handleAuthorize(
   if (params.decision !== "approve") {
     return redirectWithOAuthError({
       redirectUri,
+      issuer,
       state,
       error: "access_denied",
     });
@@ -861,13 +910,19 @@ async function handleAuthorize(
         clientName: client.clientName ?? null,
         redirectUrl: buildCodeRedirectUrl({
           redirectUri,
+          issuer,
           state,
           code: code.code,
         }),
       }),
     );
   }
-  return redirectWithCode({ redirectUri, state, code: code.code });
+  return redirectWithCode({
+    redirectUri,
+    issuer,
+    state,
+    code: code.code,
+  });
 }
 
 async function issueTokenSet(params: {

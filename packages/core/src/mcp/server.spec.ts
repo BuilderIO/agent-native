@@ -1,3 +1,7 @@
+import {
+  Client,
+  StreamableHTTPClientTransport,
+} from "@modelcontextprotocol/client";
 import * as jose from "jose";
 /**
  * Regression coverage for the production blocker: `/_agent-native/mcp` must
@@ -474,6 +478,57 @@ async function callWeb(
   return JSON.parse(text);
 }
 
+async function createModernClient(
+  serverConfig: Record<string, unknown> = config,
+): Promise<{
+  client: Client;
+  wireResponses: Array<Record<string, any>>;
+  wireContentTypes: string[];
+}> {
+  const wireResponses: Array<Record<string, any>> = [];
+  const wireContentTypes: string[] = [];
+  const transport = new StreamableHTTPClientTransport(
+    new URL("https://mail.agent-native.com/mcp"),
+    {
+      requestInit: {
+        headers: {
+          authorization: "Bearer test-access-token",
+          "x-agent-native-mcp-full-catalog": "1",
+        },
+      },
+      fetch: async (input, init) => {
+        const request = new Request(input, init);
+        const body =
+          request.method === "POST"
+            ? JSON.parse(await request.clone().text())
+            : undefined;
+        const event = makeWebEvent({
+          method: request.method,
+          headers: Object.fromEntries(request.headers),
+          body,
+        });
+        const result = await handleMcpRequest(event, serverConfig as any);
+        if (!(result instanceof Response)) {
+          throw new Error("Expected MCP handler to return a Response");
+        }
+        const response = result as Response;
+        const contentType = response.headers.get("content-type") ?? "";
+        wireContentTypes.push(contentType);
+        if (contentType.includes("application/json")) {
+          wireResponses.push(await response.clone().json());
+        }
+        return response;
+      },
+    },
+  );
+  const client = new Client(
+    { name: "agent-native-server-spec", version: "1.0.0" },
+    { versionNegotiation: { mode: "auto" } },
+  );
+  await client.connect(transport);
+  return { client, wireResponses, wireContentTypes };
+}
+
 async function mcpAppsAuthHeaders(
   options: {
     clientId?: string;
@@ -578,6 +633,50 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     ).toMatchObject({
       mimeTypes: ["text/html;profile=mcp-app"],
     });
+  });
+
+  it("negotiates 2026-07-28 and emits modern result and cache metadata", async () => {
+    const { client, wireResponses } = await createModernClient();
+    try {
+      expect(client.getNegotiatedProtocolVersion()).toBe("2026-07-28");
+      expect(client.getDiscoverResult()).toBeDefined();
+      expect(
+        (client.getDiscoverResult()?.capabilities.extensions as any)?.[
+          "io.modelcontextprotocol/tasks"
+        ],
+      ).toBeUndefined();
+
+      const result = await client.listTools();
+      expect(result.tools.map((tool) => tool.name)).toEqual(["echo-thing"]);
+
+      const discoverWire = wireResponses.find(
+        (response) => response.result?.capabilities,
+      );
+      expect(discoverWire?.result).toMatchObject({
+        resultType: "complete",
+        ttlMs: 0,
+        cacheScope: "private",
+      });
+
+      const toolsWire = wireResponses.find(
+        (response) => response.result?.tools,
+      );
+      expect(toolsWire?.result).toMatchObject({
+        resultType: "complete",
+        ttlMs: 0,
+        cacheScope: "private",
+      });
+
+      await expect(
+        client.readResource({ uri: "ui://mail/missing/shell-v64" }),
+      ).rejects.toMatchObject({ code: -32602 });
+      expect(wireResponses.at(-1)?.error).toMatchObject({
+        code: -32602,
+        data: { uri: "ui://mail/missing/shell-v64" },
+      });
+    } finally {
+      await client.close();
+    }
   });
 
   it("resolves MCP server branding URLs under APP_BASE_PATH", async () => {
@@ -697,11 +796,11 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(toolsOut.error).toBeUndefined();
     const names = toolsOut.result.tools.map((t: any) => t.name);
     expect(names).toEqual([
-      "list_apps",
-      "open_app",
       "ask_app",
       "ask_app_status",
       "create_embed_session",
+      "list_apps",
+      "open_app",
     ]);
     expect(names).not.toContain("echo-thing");
     expect(names).not.toContain("review-draft");
@@ -932,11 +1031,11 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.error).toBeUndefined();
     const names = out.result.tools.map((t: any) => t.name);
     expect(names).toEqual([
-      "list_apps",
-      "open_app",
       "ask_app",
       "ask_app_status",
       "create_embed_session",
+      "list_apps",
+      "open_app",
     ]);
     expect(names).not.toContain("bloated-widget");
     expect(JSON.stringify(out)).not.toContain(
@@ -1004,8 +1103,8 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.error).toBeUndefined();
     expect(out.result.tools.map((t: any) => t.name)).toEqual([
       "echo-thing",
-      "review-draft",
       "private-widget",
+      "review-draft",
     ]);
     expect(JSON.stringify(out)).not.toContain("INTERNAL_TOOL_BLOAT_SENTINEL");
 
@@ -1025,8 +1124,8 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(resourcesOut.error).toBeUndefined();
     expect(resourcesOut.result.resources.map((r: any) => r.uri)).toEqual([
       "ui://mail/echo-thing/shell-v64",
-      "ui://mail/review-draft/shell-v64",
       "ui://mail/private-widget/shell-v64",
+      "ui://mail/review-draft/shell-v64",
     ]);
 
     const templatesOut = await callWeb(
@@ -1047,8 +1146,8 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       templatesOut.result.resourceTemplates.map((r: any) => r.uriTemplate),
     ).toEqual([
       "ui://mail/echo-thing/shell-v64",
-      "ui://mail/review-draft/shell-v64",
       "ui://mail/private-widget/shell-v64",
+      "ui://mail/review-draft/shell-v64",
     ]);
 
     const readOut = await callWeb(
@@ -1291,11 +1390,11 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(toolsOut.error).toBeUndefined();
     const names = toolsOut.result.tools.map((t: any) => t.name);
     expect(names).toEqual([
-      "list_apps",
-      "open_app",
       "ask_app",
       "ask_app_status",
       "create_embed_session",
+      "list_apps",
+      "open_app",
     ]);
     expect(names).not.toContain("internal-heavy");
     expect(names).not.toContain("bloated-widget");
@@ -2260,7 +2359,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       connect_domains: ["https://mail.agent-native.com"],
     });
     // The tools/call RESULT deliberately carries NO `_meta.ui` resource
-    // linkage. MCP Apps (ext-apps 1.7.2) binds the `ui://` window on the tool
+    // linkage. MCP Apps binds the `ui://` window on the tool
     // DESCRIPTOR (`_meta.ui.resourceUri`, asserted in the tools/list test
     // above); `ui/notifications/tool-result` delivers a plain CallToolResult,
     // so Claude.ai / Claude Desktop render inline from the descriptor binding
@@ -3363,7 +3462,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       'resource_metadata="https://mail.agent-native.com/.well-known/oauth-protected-resource"',
     );
     expect(event._responseHeaders?.["www-authenticate"]).toContain(
-      'scope="mcp:read mcp:write mcp:apps offline_access"',
+      'scope="mcp:read mcp:write mcp:apps"',
     );
     // The legacy `error` field is preserved, plus an actionable message and the
     // exact remediation (connect command + authorize/metadata/MCP URLs).
@@ -3483,22 +3582,25 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     });
   });
 
-  it("returns 204 for DELETE on the web runtime (stateless, unchanged)", async () => {
+  it("returns the SDK's stateless 405 for DELETE", async () => {
     process.env.ACCESS_TOKEN = "secret-token";
     const event = makeWebEvent({
       method: "DELETE",
       headers: { authorization: "Bearer secret-token" },
     });
     const res = await handleMcpRequest(event, config as any);
-    expect(event._status).toBe(204);
-    expect(res).toBe("");
+    expect(res).toBeInstanceOf(Response);
+    expect((res as Response).status).toBe(405);
+    expect(await (res as Response).json()).toMatchObject({
+      error: { message: "Method not allowed." },
+    });
   });
 
   it("returns 405 for an unsupported method", async () => {
     const event = makeWebEvent({ method: "PUT" });
     const res = await handleMcpRequest(event, config as any);
-    expect(event._status).toBe(405);
-    expect(res).toEqual({ error: "Method not allowed" });
+    expect(res).toBeInstanceOf(Response);
+    expect((res as Response).status).toBe(405);
   });
 
   it("returns 405 for GET (no standalone SSE stream on a stateless serverless server)", async () => {
@@ -3508,38 +3610,32 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     // Answering 405 tells the client to use plain POST request/response.
     const event = makeWebEvent({ method: "GET" });
     const res = await handleMcpRequest(event, config as any);
-    expect(event._status).toBe(405);
-    expect(res).toEqual({ error: "Method not allowed" });
+    expect(res).toBeInstanceOf(Response);
+    expect((res as Response).status).toBe(405);
+    expect(await (res as Response).json()).toMatchObject({
+      error: { message: "Method not allowed." },
+    });
   });
 
-  it("returns tools/call results as JSON, not an SSE stream (serverless-safe framing)", async () => {
-    // enableJsonResponse: true — the result is computed and returned inside the
-    // request lifecycle. With the SDK default (SSE), a serverless instance can
-    // freeze right after returning the streaming Response, before the result
-    // event flushes, so the client never receives it and reports "session
-    // expired". JSON framing is what makes tools/call actually complete.
-    const event = makeWebEvent({
-      method: "POST",
-      body: {
-        jsonrpc: "2.0",
-        id: 314,
-        method: "tools/call",
-        params: { name: "echo-thing", arguments: { value: "hello" } },
-      },
-      headers: { "x-agent-native-mcp-full-catalog": "1" },
-    });
-    const res = await handleMcpRequest(event, config as any);
-    expect(res).toBeInstanceOf(Response);
-    const response = res as Response;
-    expect(response.headers.get("content-type")).toContain("application/json");
-    expect(response.headers.get("content-type")).not.toContain(
-      "text/event-stream",
-    );
-    const body = JSON.parse(await response.text());
-    expect(body.error).toBeUndefined();
-    expect(body.result.content[0].text).toBe(
-      "echo-thing completed for thing-42.",
-    );
+  it("returns modern tools/call results as one JSON response", async () => {
+    const { client, wireContentTypes, wireResponses } =
+      await createModernClient();
+    try {
+      const result = await client.callTool({
+        name: "echo-thing",
+        arguments: { value: "hello" },
+      });
+      expect(result.content[0]).toMatchObject({
+        type: "text",
+        text: "echo-thing completed for thing-42.",
+      });
+      expect(wireContentTypes.at(-1)).toContain("application/json");
+      expect(wireResponses.at(-1)?.result).toMatchObject({
+        resultType: "complete",
+      });
+    } finally {
+      await client.close();
+    }
   });
 
   it("falls through (undefined) for sub-routes so management routes handle them", async () => {
@@ -3549,7 +3645,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
   });
 });
 
-describe("handleMcpRequest — Node request objects use the web transport by default", () => {
+describe("handleMcpRequest — Node request objects use the v2 web handler", () => {
   beforeEach(() => {
     // Authenticated deployed-app caller (default makeWebEvent bearer matches);
     // header-only dev-open is loopback-only now.
@@ -3557,41 +3653,15 @@ describe("handleMcpRequest — Node request objects use the web transport by def
     delete process.env.ACCESS_TOKENS;
     delete process.env.A2A_SECRET;
     delete process.env.BETTER_AUTH_SECRET;
-    delete process.env.AGENT_NATIVE_MCP_NODE_FAST_PATH;
   });
   afterEach(() => {
     delete process.env.ACCESS_TOKEN;
     delete process.env.BETTER_AUTH_SECRET;
-    delete process.env.AGENT_NATIVE_MCP_NODE_FAST_PATH;
     vi.clearAllMocks();
     vi.restoreAllMocks();
   });
 
   it("returns a Web Response even when a Node req/res pair is present", async () => {
-    const sdkMod =
-      await import("@modelcontextprotocol/sdk/server/streamableHttp.js");
-    const webMod =
-      await import("@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js");
-    const handleRequestSpy = vi
-      .spyOn(
-        sdkMod.StreamableHTTPServerTransport.prototype as any,
-        "handleRequest",
-      )
-      .mockImplementation(async function (
-        this: any,
-        nodeReq: any,
-        nodeRes: any,
-        body: any,
-      ) {
-        // Record what the handler delegated so we can assert on it.
-        (globalThis as any).__nodeDelegation = { nodeReq, nodeRes, body };
-        nodeRes.end?.('{"jsonrpc":"2.0","id":1,"result":{}}');
-      });
-    const webHandleSpy = vi.spyOn(
-      webMod.WebStandardStreamableHTTPServerTransport.prototype as any,
-      "handleRequest",
-    );
-
     const rpc = {
       jsonrpc: "2.0",
       id: 1,
@@ -3607,59 +3677,7 @@ describe("handleMcpRequest — Node request objects use the web transport by def
 
     expect(res).toBeInstanceOf(Response);
     expect(event._handled).toBeUndefined();
-    expect(handleRequestSpy).not.toHaveBeenCalled();
-    expect(webHandleSpy).toHaveBeenCalledTimes(1);
-
-    delete (globalThis as any).__nodeDelegation;
-  });
-
-  it("keeps the SDK Node transport available behind an explicit escape hatch", async () => {
-    process.env.AGENT_NATIVE_MCP_NODE_FAST_PATH = "1";
-    const sdkMod =
-      await import("@modelcontextprotocol/sdk/server/streamableHttp.js");
-    const webMod =
-      await import("@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js");
-    const handleRequestSpy = vi
-      .spyOn(
-        sdkMod.StreamableHTTPServerTransport.prototype as any,
-        "handleRequest",
-      )
-      .mockImplementation(async function (
-        this: any,
-        nodeReq: any,
-        nodeRes: any,
-        body: any,
-      ) {
-        (globalThis as any).__nodeDelegation = { nodeReq, nodeRes, body };
-        nodeRes.end?.('{"jsonrpc":"2.0","id":1,"result":{}}');
-      });
-    const webHandleSpy = vi.spyOn(
-      webMod.WebStandardStreamableHTTPServerTransport.prototype as any,
-      "handleRequest",
-    );
-
-    const rpc = {
-      jsonrpc: "2.0",
-      id: 1,
-      method: "initialize",
-      params: {
-        protocolVersion: "2025-06-18",
-        capabilities: {},
-        clientInfo: { name: "c", version: "1" },
-      },
-    };
-    const event = makeWebEvent({ method: "POST", node: true, body: rpc });
-    const res = await handleMcpRequest(event, config as any);
-
-    expect(res).toBeUndefined();
-    expect(event._handled).toBe(true);
-    expect(handleRequestSpy).toHaveBeenCalledTimes(1);
-    const delegated = (globalThis as any).__nodeDelegation;
-    expect(delegated.nodeReq).toBe(event.node.req);
-    expect(delegated.nodeRes).toBe(event.node.res);
-    expect(delegated.body).toEqual(rpc);
-    expect(webHandleSpy).not.toHaveBeenCalled();
-
-    delete (globalThis as any).__nodeDelegation;
+    expect((res as Response).status).toBe(200);
+    expect(event.node.res.headersSent).toBe(false);
   });
 });

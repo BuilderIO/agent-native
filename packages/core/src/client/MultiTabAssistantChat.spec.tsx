@@ -14,12 +14,17 @@ import {
   _resetAgentChatContextForTests,
   _resetAgentChatSubmitBufferForTests,
 } from "./agent-chat.js";
+import { invalidateClientStatusRequests } from "./client-status-requests.js";
 import {
   MultiTabAssistantChat,
   type MultiTabAssistantChatHeaderProps,
 } from "./MultiTabAssistantChat.js";
 import { CHAT_MODEL_SELECTION_CHANGED_EVENT } from "./use-chat-models.js";
 import type { ChatThreadSummary } from "./use-chat-threads.js";
+
+afterEach(() => {
+  invalidateClientStatusRequests();
+});
 
 const chatHandleMocks = vi.hoisted(() => ({
   sendMessage: vi.fn(),
@@ -150,6 +155,7 @@ vi.mock("./use-action.js", () => actionMocks);
 
 /** Serve the three requests refreshEngines makes so the catalog is non-empty. */
 function stubCatalog(engines: unknown[], configuredKeys: string[]) {
+  invalidateClientStatusRequests();
   actionMocks.callAction.mockResolvedValue({ engines } as never);
   vi.stubGlobal(
     "fetch",
