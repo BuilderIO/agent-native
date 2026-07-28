@@ -1,5 +1,7 @@
 import { readFileSync } from "node:fs";
 
+import { parse } from "yaml";
+
 export type WorkflowGuardResult = {
   ok: boolean;
   issues: string[];
@@ -67,85 +69,26 @@ type GuardedWorkflowStep = {
   with: Record<string, string>;
 };
 
-function parseYamlScalar(source: string): string {
-  const value = source.trim();
-  const doubleQuoted = value.match(/^("(?:\\.|[^"\\])*")(?:\s+#.*)?$/);
-  if (doubleQuoted) {
-    try {
-      return JSON.parse(doubleQuoted[1]!) as string;
-    } catch {
-      return value;
-    }
-  }
-  const singleQuoted = value.match(/^'((?:''|[^'])*)'(?:\s+#.*)?$/);
-  if (singleQuoted) {
-    return singleQuoted[1]!.replaceAll("''", "'");
-  }
-  return value.replace(/\s+#.*$/, "").trim();
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function parseWorkflowSteps(job: string): GuardedWorkflowStep[] {
-  const lines = job.split("\n");
-  const stepsIndex = lines.findIndex((line) =>
-    /^\s+steps:\s*(?:#.*)?$/.test(line),
-  );
-  if (stepsIndex === -1) return [];
+function parseWorkflowSteps(source: string): GuardedWorkflowStep[] {
+  const workflow: unknown = parse(source);
+  if (!isRecord(workflow) || !isRecord(workflow.jobs)) return [];
+  const build = workflow.jobs.build;
+  if (!isRecord(build) || !Array.isArray(build.steps)) return [];
 
-  const stepsIndent = lines[stepsIndex]!.search(/\S/);
-  const firstItem = lines.slice(stepsIndex + 1).find((line) => {
-    const indent = line.search(/\S/);
-    return indent > stepsIndent && line.trim().startsWith("-");
-  });
-  if (!firstItem) return [];
-  const itemIndent = firstItem.search(/\S/);
-  const steps: GuardedWorkflowStep[] = [];
-  let current: GuardedWorkflowStep | undefined;
-  let propertyIndent: number | undefined;
-  let inputIndent: number | undefined;
-  let readingInputs = false;
-
-  for (const line of lines.slice(stepsIndex + 1)) {
-    if (!line.trim() || line.trimStart().startsWith("#")) continue;
-    const indent = line.search(/\S/);
-    const trimmed = line.trim();
-    if (indent <= stepsIndent) break;
-
-    if (indent === itemIndent && trimmed.startsWith("-")) {
-      current = { with: {} };
-      steps.push(current);
-      propertyIndent = undefined;
-      inputIndent = undefined;
-      readingInputs = false;
-      const inlineUses = trimmed.match(/^-\s+uses:\s*(.+)$/);
-      if (inlineUses) current.uses = parseYamlScalar(inlineUses[1]!);
-      continue;
-    }
-    if (!current) continue;
-
-    if (propertyIndent === undefined && indent > itemIndent) {
-      propertyIndent = indent;
-    }
-    if (indent === propertyIndent) {
-      readingInputs = trimmed === "with:";
-      inputIndent = undefined;
-      const uses = trimmed.match(/^uses:\s*(.+)$/);
-      if (uses) current.uses = parseYamlScalar(uses[1]!);
-      continue;
-    }
-    if (
-      readingInputs &&
-      propertyIndent !== undefined &&
-      indent > propertyIndent
-    ) {
-      inputIndent ??= indent;
-    }
-    if (readingInputs && indent === inputIndent) {
-      const input = trimmed.match(/^([^:#]+):\s*(.+)$/);
-      if (input) current.with[input[1]!.trim()] = parseYamlScalar(input[2]!);
-    }
-  }
-
-  return steps;
+  return build.steps.filter(isRecord).map((step) => ({
+    uses: typeof step.uses === "string" ? step.uses : undefined,
+    with: isRecord(step.with)
+      ? Object.fromEntries(
+          Object.entries(step.with).filter(
+            (entry): entry is [string, string] => typeof entry[1] === "string",
+          ),
+        )
+      : {},
+  }));
 }
 
 export function validateTrustedAcceptanceWorkflow(
@@ -155,6 +98,12 @@ export function validateTrustedAcceptanceWorkflow(
   const workflowEnvironment = section(source, "\nenv:\n", "\njobs:\n");
   const build = section(source, "\n  build:\n", "\n  deploy:\n");
   const deploy = section(source, "\n  deploy:\n", "\n  receipt:\n");
+  let workflowSteps: GuardedWorkflowStep[] = [];
+  try {
+    workflowSteps = parseWorkflowSteps(source);
+  } catch {
+    issues.push("workflow must be valid YAML");
+  }
 
   if (!source.includes("workflow_dispatch:")) {
     issues.push("workflow must be manually dispatched");
@@ -196,7 +145,7 @@ export function validateTrustedAcceptanceWorkflow(
     if (!build.includes("needs.plan.outputs.effective_sha")) {
       issues.push("candidate build must use the provenance-verified exact SHA");
     }
-    const pnpmSetupSteps = parseWorkflowSteps(build).filter((step) =>
+    const pnpmSetupSteps = workflowSteps.filter((step) =>
       step.uses?.startsWith("pnpm/action-setup@"),
     );
     if (pnpmSetupSteps.length !== 1) {

@@ -3,6 +3,8 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
+import { parse, stringify } from "yaml";
+
 import {
   validateRuntimeAuthorityConfiguration,
   validateTrustedAcceptanceReaper,
@@ -210,16 +212,24 @@ describe("trusted acceptance workflow boundary", () => {
       workflow.indexOf("\n  build:\n"),
     );
     const deployStart = workflow.indexOf("\n  deploy:\n", stepsStart);
-    const reindentedSteps = workflow
-      .slice(stepsStart, deployStart)
+    const parsed = parse(workflow) as {
+      jobs: { build: { steps: unknown[] } };
+    };
+    const reindentedSteps = stringify(parsed.jobs.build.steps, { indent: 4 })
+      .trimEnd()
       .split("\n")
-      .map((line) => {
-        const indent = line.search(/\S/);
-        if (indent < 6) return line;
-        return `${" ".repeat(indent - 4)}${line}`;
-      })
+      .map((line) => `        ${line}`)
       .join("\n");
-    const equivalent = `${workflow.slice(0, stepsStart)}${reindentedSteps}${workflow.slice(deployStart)}`;
+    const equivalent = `${workflow.slice(0, stepsStart)}\n    steps:\n${reindentedSteps}${workflow.slice(deployStart)}`;
+    const result = validateTrustedAcceptanceWorkflow(equivalent);
+    assert.equal(result.ok, true, result.issues.join("\n"));
+  });
+
+  it("accepts flow-style pnpm setup inputs", () => {
+    const equivalent = workflow.replace(
+      "        with:\n          package_json_file: candidate/package.json",
+      "        with: { package_json_file: candidate/package.json }",
+    );
     const result = validateTrustedAcceptanceWorkflow(equivalent);
     assert.equal(result.ok, true, result.issues.join("\n"));
   });
