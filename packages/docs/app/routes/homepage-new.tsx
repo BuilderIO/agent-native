@@ -273,8 +273,8 @@ function ArrowLink({
   const isInternalPath = to.startsWith("/");
   const className =
     variant === "primary"
-      ? "inline-flex min-w-0 items-center justify-center gap-2 rounded-full bg-[var(--fg)] px-5 py-3 text-sm font-medium text-[var(--bg)] no-underline transition hover:opacity-85 hover:no-underline"
-      : "inline-flex min-w-0 items-center justify-center gap-2 rounded-full border border-[var(--docs-border)] bg-[var(--bg)] px-5 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline";
+      ? "inline-flex min-w-0 items-center justify-center gap-2 rounded-xl bg-[var(--fg)] px-5 py-3 text-sm font-medium text-[var(--bg)] no-underline transition hover:opacity-85 hover:no-underline"
+      : "inline-flex min-w-0 items-center justify-center gap-2 rounded-xl border border-[var(--docs-border)] bg-[var(--bg)] px-5 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline";
 
   if (isInternalPath) {
     return (

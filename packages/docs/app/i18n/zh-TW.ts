@@ -16,6 +16,9 @@ const messages = {
     searchPlaceholder: "搜尋檔案...",
     askAssistant: "詢問 AI 助手",
     toggleNavigation: "切換導覽選單",
+    copyLogoSvg: "複製標誌 SVG",
+    copyWordmark: "複製文字標誌",
+    brandAssets: "品牌資源",
   },
   footer: {
     download: "下載",

@@ -18,6 +18,9 @@ const hiIN = {
     searchPlaceholder: "दस्तावेज़ खोजें...",
     askAssistant: "AI सहायक से पूछें",
     toggleNavigation: "नेविगेशन मेनू बदलें",
+    copyLogoSvg: "लोगो SVG कॉपी करें",
+    copyWordmark: "वर्डमार्क कॉपी करें",
+    brandAssets: "ब्रांड सामग्री",
   },
   footer: {
     download: "डाउनलोड",
