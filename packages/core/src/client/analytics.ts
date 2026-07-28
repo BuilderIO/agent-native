@@ -1,5 +1,5 @@
-import * as amplitude from "@amplitude/analytics-browser";
-import * as Sentry from "@sentry/browser";
+import type * as amplitude from "@amplitude/analytics-browser";
+import type * as Sentry from "@sentry/browser";
 
 import {
   llmConnectionTrackingProperties,
@@ -152,7 +152,16 @@ let _getDefaultProps: GetDefaultProps | null = null;
 let _agentNativeAnalyticsPublicKey: string | null = null;
 let _agentNativeAnalyticsEndpoint: string | null = null;
 let _amplitudeInitialized = false;
+let _amplitudeModule: typeof amplitude | null = null;
+let _amplitudeLoadPromise: Promise<typeof amplitude | null> | null = null;
+let _amplitudeApiKey: string | null = null;
+let _pendingAmplitudeEvents: Array<[
+  string,
+  Record<string, unknown>,
+]> = [];
 let _sentryInitialized = false;
+let _sentryModule: typeof Sentry | null = null;
+let _sentryLoadPromise: Promise<typeof Sentry | null> | null = null;
 let _llmConnectionStatus: LlmConnectionStatus | null = null;
 let _llmConnectionRefresh: Promise<void> | null = null;
 let _llmConnectionRefreshInstalled = false;
@@ -607,12 +616,31 @@ function ensureAmplitude(): boolean {
   const key = (import.meta.env as Record<string, string | undefined>)
     ?.VITE_AMPLITUDE_API_KEY;
   if (!key) return false;
-  // Standard pageviews and explicit events are emitted below. Keep SDK-level
-  // DOM/network autocapture off so rendered user content is never collected as
-  // an implicit analytics side effect.
-  amplitude.init(key, { autocapture: false });
-  _amplitudeInitialized = true;
-  return true;
+  _amplitudeApiKey = key;
+  if (_amplitudeLoadPromise) return false;
+
+  _amplitudeLoadPromise = import("@amplitude/analytics-browser")
+    .then((module) => {
+      // Standard pageviews and explicit events are emitted below. Keep SDK-level
+      // DOM/network autocapture off so rendered user content is never collected as
+      // an implicit analytics side effect.
+      module.init(key, { autocapture: false });
+      _amplitudeModule = module;
+      _amplitudeInitialized = true;
+      for (const [name, properties] of _pendingAmplitudeEvents) {
+        module.track(name, properties);
+      }
+      _pendingAmplitudeEvents = [];
+      return module;
+    })
+    .catch(() => {
+      _pendingAmplitudeEvents = [];
+      return null;
+    })
+    .finally(() => {
+      _amplitudeLoadPromise = null;
+    });
+  return false;
 }
 
 function hasOnlySourcelessFrames(value: {
@@ -873,57 +901,66 @@ function getClientSentryDsn(): string | undefined {
 }
 
 function ensureSentry(): void {
-  if (_sentryInitialized) return;
+  if (_sentryInitialized || _sentryLoadPromise) return;
   const dsn = getClientSentryDsn();
   if (!dsn) return;
-  Sentry.init({
-    dsn,
-    environment:
-      window.__AGENT_NATIVE_CONFIG__?.sentryEnvironment ||
-      (import.meta.env as Record<string, string | undefined>)?.MODE ||
-      "production",
-    beforeSend(event) {
-      if (shouldDropBrowserSentryNoise(event)) {
-        return null;
-      }
-      // Strip sensitive query params from the request URL. React Router
-      // history can include share tokens, ?signin=1, password reset codes,
-      // public-share password params (audit F-07), etc.
-      if (event.request?.url) {
-        event.request.url = scrubUrl(event.request.url);
-      }
-      // Clean the same params from breadcrumb URLs (Sentry captures
-      // history.pushState breadcrumbs by default).
-      if (Array.isArray(event.breadcrumbs)) {
-        for (const crumb of event.breadcrumbs) {
-          if (crumb && typeof crumb === "object" && "data" in crumb) {
-            const data = crumb.data as Record<string, unknown> | undefined;
-            if (data && typeof data.url === "string") {
-              data.url = scrubUrl(data.url);
-            }
-            if (data && typeof data.from === "string") {
-              data.from = scrubUrl(data.from);
-            }
-            if (data && typeof data.to === "string") {
-              data.to = scrubUrl(data.to);
+  _sentryLoadPromise = import("@sentry/browser")
+    .then((module) => {
+      module.init({
+        dsn,
+        environment:
+          window.__AGENT_NATIVE_CONFIG__?.sentryEnvironment ||
+          (import.meta.env as Record<string, string | undefined>)?.MODE ||
+          "production",
+        beforeSend(event) {
+          if (shouldDropBrowserSentryNoise(event)) {
+            return null;
+          }
+          // Strip sensitive query params from the request URL. React Router
+          // history can include share tokens, ?signin=1, password reset codes,
+          // public-share password params (audit F-07), etc.
+          if (event.request?.url) {
+            event.request.url = scrubUrl(event.request.url);
+          }
+          // Clean the same params from breadcrumb URLs (Sentry captures
+          // history.pushState breadcrumbs by default).
+          if (Array.isArray(event.breadcrumbs)) {
+            for (const crumb of event.breadcrumbs) {
+              if (crumb && typeof crumb === "object" && "data" in crumb) {
+                const data = crumb.data as Record<string, unknown> | undefined;
+                if (data && typeof data.url === "string") {
+                  data.url = scrubUrl(data.url);
+                }
+                if (data && typeof data.from === "string") {
+                  data.from = scrubUrl(data.from);
+                }
+                if (data && typeof data.to === "string") {
+                  data.to = scrubUrl(data.to);
+                }
+              }
             }
           }
-        }
+          return event;
+        },
+      });
+      _sentryModule = module;
+      module.setTag("runtime", "browser");
+      _sentryInitialized = true;
+      // Flush any user/tag that was set before init.
+      if (_pendingSentryUser !== undefined) {
+        module.setUser(_pendingSentryUser);
+        _pendingSentryUser = undefined;
       }
-      return event;
-    },
-  });
-  Sentry.setTag("runtime", "browser");
-  _sentryInitialized = true;
-  // Flush any user/tag that was set before init.
-  if (_pendingSentryUser !== undefined) {
-    Sentry.setUser(_pendingSentryUser);
-    _pendingSentryUser = undefined;
-  }
-  if (_pendingSentryOrgId !== undefined) {
-    Sentry.setTag("orgId", _pendingSentryOrgId);
-    _pendingSentryOrgId = undefined;
-  }
+      if (_pendingSentryOrgId !== undefined) {
+        module.setTag("orgId", _pendingSentryOrgId);
+        _pendingSentryOrgId = undefined;
+      }
+      return module;
+    })
+    .catch(() => null)
+    .finally(() => {
+      _sentryLoadPromise = null;
+    });
 }
 
 /**
@@ -963,10 +1000,10 @@ export function setSentryUser(
   ) {
     void startConfiguredSessionReplay(_sessionReplayOptions);
   }
-  if (_sentryInitialized) {
-    Sentry.setUser(user);
+  if (_sentryInitialized && _sentryModule) {
+    _sentryModule.setUser(user);
     if (orgId !== undefined) {
-      Sentry.setTag("orgId", orgId ?? null);
+      _sentryModule.setTag("orgId", orgId ?? null);
     }
     return;
   }
@@ -1016,7 +1053,8 @@ export function captureClientException(
   if (typeof window === "undefined") return undefined;
   try {
     ensureSentry();
-    return Sentry.withScope((scope) => {
+    if (!_sentryModule) return undefined;
+    return _sentryModule.withScope((scope) => {
       if (context.tags) {
         for (const [k, v] of Object.entries(context.tags)) {
           if (typeof v === "string") scope.setTag(k, v);
@@ -1032,7 +1070,7 @@ export function captureClientException(
           scope.setContext(k, v);
         }
       }
-      return Sentry.captureException(error);
+      return _sentryModule?.captureException(error);
     });
   } catch {
     return undefined;
@@ -1759,7 +1797,9 @@ export function trackEvent(
   const props = resolveProps(name, params);
   window.gtag?.("event", name.replace(/\s+/g, "_"), props);
   if (ensureAmplitude()) {
-    amplitude.track(name, props);
+    _amplitudeModule?.track(name, props);
+  } else if (_amplitudeApiKey) {
+    _pendingAmplitudeEvents.push([name, props]);
   }
   sendAgentNativeAnalytics(name, props);
 }
