@@ -2249,7 +2249,7 @@ describe("createAgentChatAdapter", () => {
           toolName: "run-code",
           activity: true,
           result: "Stopped before this action started.",
-          isError: true,
+          outcome: "unknown",
         }),
       ]),
     );
