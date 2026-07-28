@@ -58,6 +58,12 @@ import {
   verifyMcpOAuthAccessToken,
 } from "./oauth-token.js";
 
+const PRESERVE_MCP_OBJECT_RESULT = Symbol("preserveMcpObjectResult");
+
+type MCPActionEntry = ActionEntry & {
+  [PRESERVE_MCP_OBJECT_RESULT]?: true;
+};
+
 export interface MCPConfig {
   /** App name shown in MCP server info */
   name: string;
@@ -878,7 +884,16 @@ function mergeBuiltinTools(
   requestMeta?: MCPRequestMeta,
 ): Record<string, ActionEntry> {
   if (config.builtinCrossAppTools === false) return baseActions;
-  const builtins = getBuiltinCrossAppTools(config, requestMeta);
+  const builtins = getBuiltinCrossAppTools(config, requestMeta) as Record<
+    string,
+    MCPActionEntry
+  >;
+  // Async ask_app responses contain the opaque handle needed to poll the same
+  // task. Mark the actual framework builtin rather than matching by name: an
+  // app-defined ask_app overrides this entry and keeps normal concise output.
+  if (builtins.ask_app) {
+    builtins.ask_app[PRESERVE_MCP_OBJECT_RESULT] = true;
+  }
   const merged: Record<string, ActionEntry> = { ...builtins };
   // Template / app actions overwrite same-named builtins.
   for (const [name, entry] of Object.entries(baseActions)) {
@@ -1854,7 +1869,9 @@ export async function createMCPServerForRequest(
         const text = mcpAppResource
           ? conciseMcpAppToolText(name, resultForClient, structuredContent!)
           : conciseToolResultText(name, resultForClient, {
-              preserveObjectResult: entry.readOnly === true,
+              preserveObjectResult:
+                entry.readOnly === true ||
+                (entry as MCPActionEntry)[PRESERVE_MCP_OBJECT_RESULT] === true,
             });
         const content: any[] = [{ type: "text", text }];
         if (block) content.push(block);
