@@ -226,6 +226,35 @@ describe("queryFirstPartyAnalytics", () => {
     expect(execute.mock.calls[1][0]).toEqual(
       expect.objectContaining({ timeoutMs: 375, maxAttempts: 1 }),
     );
+    expect(execute.mock.calls[2][0]).toEqual(
+      expect.objectContaining({ timeoutMs: 375, maxAttempts: 1 }),
+    );
+  });
+
+  it("does not start the panel query after the shared deadline expires", async () => {
+    let now = 2_000;
+    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
+    execute.mockImplementation(async ({ sql }: { sql: string }) => {
+      if (sql.includes("SELECT result FROM first_party_analytics_cache")) {
+        now += 500;
+        return { rows: [], rowsAffected: 0 };
+      }
+      return { rows: [{ count: "1" }], rowsAffected: 0 };
+    });
+
+    try {
+      await expect(
+        queryFirstPartyAnalytics(
+          "SELECT COUNT(*) AS count FROM analytics_events",
+          { userEmail: "expired-deadline@example.com", orgId: null },
+          { cache: true, timeoutMs: 500 },
+        ),
+      ).rejects.toThrow("First-party analytics query timed out after 500ms");
+    } finally {
+      dateNow.mockRestore();
+    }
+
+    expect(execute).toHaveBeenCalledTimes(1);
   });
 
   it("does not hold a successful panel response on the cache write", async () => {
