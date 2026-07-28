@@ -64,8 +64,16 @@ The same action is available from Design's empty-canvas context menu.
 - Each screen keeps URL metadata: `connectionId`, `routeId`, `path`,
   `url`, `bridgeUrl`, title, and viewport size.
 - Localhost Edit mode renders the running app through the local bridge as a live
-  iframe with the same editor bridge used by HTML designs. It is not a frozen
-  static DOM snapshot.
+  iframe with the same editor bridge used by HTML designs. It is never a frozen
+  static DOM snapshot. Editing is direct DOM manipulation against that live
+  document; the parallel `/snapshot` fetch feeds the editable source model only
+  and must never be rendered in the frame.
+- A viewer holding the connection's `previewToken` gets the proxied
+  `/live-edit` document with editor chrome. A viewer without one — a signed-out
+  session, a public link, or an inline browser with no cookies — gets the plain
+  dev-server URL: still live, but with no editor chrome, no layers, and no
+  editing. If the canvas looks right but selection and the layers panel do
+  nothing, the frame is unbridged; sign in rather than assuming Design is broken.
 - The live editor is same-origin through the local bridge proxy. This boots
   CSR apps and root-relative assets, but it is still a localhost editing proxy:
   app-origin cookies, WebSockets/HMR, SSE, and non-GET app API calls may need a
@@ -419,6 +427,9 @@ the connected app's text/code files through the bridge
 - The Design editor opens in overview mode.
 - Every requested screen renders the intended localhost URL, showing real app
   content rather than an endless loading spinner.
+- The screen iframe carries a `src`, not a `srcdoc`. A localhost screen with a
+  `srcdoc` is a bug, not a slow load — check it in the browser devtools before
+  reporting the canvas as working.
 - Alt-dragging a screen copies the URL-backed frame, not an inline HTML clone.
 - A query/path edit changes only the target screen's URL metadata and iframe.
 - The Code tab shows a local-files root for the connection and opens its files.
