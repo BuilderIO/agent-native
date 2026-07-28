@@ -45,6 +45,11 @@ import {
   type DesignGenerationSession,
   updateGenerationSessionWithSavedFiles,
 } from "../shared/generation-session.js";
+import {
+  assertDesignHtmlCreateIntegrity,
+  describeDesignHtmlIntegrityIssue,
+  inspectDesignHtmlDocumentIntegrity,
+} from "../shared/html-integrity.js";
 import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
 import { widthToPrefix } from "../shared/responsive-classes.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
@@ -769,6 +774,38 @@ const generateDesignAction = defineAction({
       content: annotateScreenHtmlForPersist(file.content, file.fileType),
     }));
 
+    // Gate every NEW file up front so a rejected file cannot orphan the ones
+    // written before it. Existing files take the edit transition inside
+    // writeInlineSourceFile, which still allows repairing a malformed screen.
+    const integrityWarnings: Array<{ filename: string; message: string }> = [];
+    for (const file of annotatedFiles) {
+      if ((file.fileType ?? "html") !== "html") continue;
+      const existing = existingByName.get(file.filename);
+      // A row changing type into HTML is new HTML, not an edit: the edit
+      // transition validates against the row's CURRENT type, so a css→html
+      // candidate would skip the HTML checks and still be stored as HTML below.
+      const becomesHtml =
+        existing !== undefined && (existing.fileType ?? "html") !== "html";
+      // Blocking applies to new files and type transitions. An existing HTML row
+      // takes the lenient edit transition instead, so a legacy-malformed screen
+      // stays repairable — but its advisories are still reported, or the same
+      // content would warn as a new file and save silently as a regeneration.
+      const advisory =
+        !existing || becomesHtml
+          ? assertDesignHtmlCreateIntegrity({
+              content: file.content,
+              fileType: "html",
+              filename: file.filename,
+            })
+          : (inspectDesignHtmlDocumentIntegrity(file.content).advisory ?? []);
+      for (const entry of advisory) {
+        integrityWarnings.push({
+          filename: file.filename,
+          message: describeDesignHtmlIntegrityIssue(entry),
+        });
+      }
+    }
+
     for (const file of annotatedFiles) {
       const existing = existingByName.get(file.filename);
       if (existing) {
@@ -1198,6 +1235,9 @@ const generateDesignAction = defineAction({
       savedFiles,
       placedFrames,
       fileCount: savedFiles.length,
+      // Non-blocking: a well-formed screen with no Tailwind runtime renders
+      // unstyled, which reads as a layout bug rather than a missing runtime.
+      ...(integrityWarnings.length > 0 ? { warnings: integrityWarnings } : {}),
       ...creativeContextProvenance,
     };
   },
