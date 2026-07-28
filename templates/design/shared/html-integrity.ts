@@ -69,7 +69,7 @@ const DOCUMENT_SHAPE_MESSAGES: Partial<
   "document-boundary":
     "the document's <html>/<body> tags are out of order, or content sits outside <html>",
   "raw-text-balance":
-    "a <style> or <script> element is missing its opening or closing tag",
+    "a <style>, <script>, <textarea>, or <title> element is missing its opening or closing tag",
   "managed-marker-orphaned":
     "an editor-managed <style>/<script> marker is no longer attached to its element — it was likely split by a partial edit",
   "managed-marker-duplicated":
@@ -149,6 +149,15 @@ export class DesignHtmlIntegrityError extends Error {
     this.detail = options.detail;
   }
 }
+
+/**
+ * Bodies are text, not markup — mis-tokenizing these turns a `'</div>'` string
+ * inside Alpine JavaScript into a phantom structural error. Both passes must
+ * agree on this set: when only one treated `<title>`/`<textarea>` as raw text,
+ * literal `<body>` text inside a title reached the root-tag count as real markup.
+ */
+const RAW_TEXT_TAGS = new Set(["script", "style", "textarea", "title"]);
+type RawTextTag = "script" | "style" | "textarea" | "title";
 
 const MANAGED_RAW_TEXT_MARKERS = [
   { marker: "data-agent-native-breakpoints", tag: "style" },
@@ -315,7 +324,7 @@ function scanRawTextTags(value: string): RawTextScan {
   // seen, ignore every tag-like token except that element's own closer. This
   // mirrors browser tokenization closely enough to avoid rejecting code-heavy
   // Alpine documents while still detecting an orphaned closer/missing opener.
-  let active: "style" | "script" | null = null;
+  let active: RawTextTag | null = null;
   let bodyStart = -1;
   let severity = 0;
   const bodyRanges: RawTextScan["bodyRanges"] = [];
@@ -361,10 +370,10 @@ function scanRawTextTags(value: string): RawTextScan {
       }
     }
     const token = value.slice(nextOpen, tokenEnd);
-    const match = token.match(/^<\s*(\/?)\s*(style|script)\b/i);
-    if (match) {
+    const match = token.match(/^<\s*(\/?)\s*([a-zA-Z][a-zA-Z0-9:-]*)\b/i);
+    if (match && RAW_TEXT_TAGS.has(match[2]!.toLowerCase())) {
       const closing = match[1] === "/";
-      const tag = match[2]!.toLowerCase() as "style" | "script";
+      const tag = match[2]!.toLowerCase() as RawTextTag;
       if (closing) severity += 1;
       else {
         active = tag;
@@ -400,12 +409,6 @@ const VOID_TAGS = new Set([
   "track",
   "wbr",
 ]);
-
-/**
- * Bodies are text, not markup — mis-tokenizing these turns a `'</div>'` string
- * inside Alpine JavaScript into a phantom structural error.
- */
-const RAW_TEXT_TAGS = new Set(["script", "style", "textarea", "title"]);
 
 /**
  * Closing tag optional per HTML5, so omitting one is legal authoring.
@@ -457,28 +460,45 @@ const MAX_EXCERPT_CHARS = 120;
 const USES_TAILWIND_UTILITIES =
   /\bclass\s*=\s*["'][^"']*(?:\b(?:flex|grid|hidden|absolute|relative|sticky)\b|\b(?:p|m|px|py|mx|my|pt|pb|pl|pr|gap|w|h|text|bg|border|rounded|shadow|items|justify|font|leading|tracking|space-x|space-y|min-h|max-w|opacity|ring|z)-[a-z0-9[\]./-]+)/i;
 
-function locate(
-  value: string,
-  index: number,
-): { line: number; column: number; excerpt: string } {
-  let line = 1;
-  let lineStart = 0;
-  for (let cursor = 0; cursor < index && cursor < value.length; cursor += 1) {
-    if (value[cursor] === "\n") {
-      line += 1;
-      lineStart = cursor + 1;
+type Locator = (index: number) => {
+  line: number;
+  column: number;
+  excerpt: string;
+};
+
+/**
+ * Scanning to the offset per call made validation quadratic on VALID documents,
+ * not just malformed ones — a 117KB screen cost ~700ms on every save. Index the
+ * line starts once, lazily, and binary search.
+ */
+function createLocator(value: string): Locator {
+  let starts: number[] | null = null;
+  return (index) => {
+    if (!starts) {
+      starts = [0];
+      for (let cursor = 0; cursor < value.length; cursor += 1) {
+        if (value[cursor] === "\n") starts.push(cursor + 1);
+      }
     }
-  }
-  let lineEnd = value.indexOf("\n", lineStart);
-  if (lineEnd === -1) lineEnd = value.length;
-  const raw = value.slice(lineStart, lineEnd).trim();
-  return {
-    line,
-    column: index - lineStart + 1,
-    excerpt:
-      raw.length > MAX_EXCERPT_CHARS
-        ? `${raw.slice(0, MAX_EXCERPT_CHARS)}…`
-        : raw,
+    let low = 0;
+    let high = starts.length - 1;
+    while (low < high) {
+      const mid = (low + high + 1) >> 1;
+      if (starts[mid]! <= index) low = mid;
+      else high = mid - 1;
+    }
+    const lineStart = starts[low]!;
+    let lineEnd = value.indexOf("\n", lineStart);
+    if (lineEnd === -1) lineEnd = value.length;
+    const raw = value.slice(lineStart, lineEnd).trim();
+    return {
+      line: low + 1,
+      column: index - lineStart + 1,
+      excerpt:
+        raw.length > MAX_EXCERPT_CHARS
+          ? `${raw.slice(0, MAX_EXCERPT_CHARS)}…`
+          : raw,
+    };
   };
 }
 
@@ -559,6 +579,7 @@ function collectStructuralIssues(
 ): DesignHtmlIntegrityIssueDetail[] {
   const issues: DesignHtmlIntegrityIssueDetail[] = [];
   const stack: Array<{ tag: string; start: number }> = [];
+  const locate = createLocator(value);
   let cursor = 0;
 
   while (cursor < value.length) {
@@ -568,10 +589,7 @@ function collectStructuralIssues(
     if (value.startsWith("<!--", open)) {
       const commentEnd = value.indexOf("-->", open + 4);
       if (commentEnd === -1) {
-        issues.push({
-          issue: "content-truncated",
-          ...locate(value, open),
-        });
+        issues.push({ issue: "content-truncated", ...locate(open) });
         return issues;
       }
       cursor = commentEnd + 3;
@@ -594,7 +612,7 @@ function collectStructuralIssues(
     const scan = scanTag(value, open);
     if (!scan.terminated) {
       // Anything after an unclosed tag would be invented structure. Stop here.
-      const located = locate(value, open);
+      const located = locate(open);
       issues.push(
         scan.quoteOpen
           ? {
@@ -618,20 +636,19 @@ function collectStructuralIssues(
       }
       if (matched === -1) {
         if (!OPTIONAL_CLOSE_TAGS.has(tag) && !VOID_TAGS.has(tag)) {
-          issues.push({
-            issue: "close-tag-orphaned",
-            ...locate(value, open),
-            tag,
-          });
+          issues.push({ issue: "close-tag-orphaned", ...locate(open), tag });
         }
       } else {
-        const closeLine = locate(value, open).line;
+        // Located lazily: computing this for every balanced close tag is what
+        // made a valid document quadratic.
+        let closeLine: number | null = null;
         for (let index = stack.length - 1; index > matched; index -= 1) {
           const abandoned = stack[index]!;
           if (OPTIONAL_CLOSE_TAGS.has(abandoned.tag)) continue;
+          closeLine ??= locate(open).line;
           issues.push({
             issue: "element-unclosed",
-            ...locate(value, abandoned.start),
+            ...locate(abandoned.start),
             tag: abandoned.tag,
             closedBy: { tag, line: closeLine },
           });
@@ -678,7 +695,7 @@ function collectStructuralIssues(
     if (OPTIONAL_CLOSE_TAGS.has(abandoned.tag)) continue;
     issues.push({
       issue: "element-unclosed",
-      ...locate(value, abandoned.start),
+      ...locate(abandoned.start),
       tag: abandoned.tag,
     });
   }
@@ -720,7 +737,7 @@ function collectAdvisoryIssues(
   return [
     {
       issue: "runtime-missing",
-      ...locate(value, headIndex === -1 ? 0 : headIndex),
+      ...createLocator(value)(headIndex === -1 ? 0 : headIndex),
     },
   ];
 }
@@ -772,6 +789,13 @@ export function inspectDesignHtmlDocumentIntegrity(
   }
 
   if (!isDocumentHtml(value, rawText.bodyRanges)) return { valid: true };
+
+  // Before the root counts: an unbalanced raw-text element swallows the tags
+  // those counts look for, so checking order decides whether the report names
+  // the cause or its effect.
+  if (rawText.severity > 0) {
+    return { valid: false, issue: "raw-text-balance" };
+  }
 
   const html = tagCount(value, "html", rawText.bodyRanges);
   if (html.open !== 1 || html.close !== 1) {
@@ -826,10 +850,6 @@ export function inspectDesignHtmlDocumentIntegrity(
   );
   if (prefix.trim() || suffix.trim()) {
     return { valid: false, issue: "document-boundary" };
-  }
-
-  if (rawText.severity > 0) {
-    return { valid: false, issue: "raw-text-balance" };
   }
 
   for (const { marker, tag } of MANAGED_RAW_TEXT_MARKERS) {
@@ -894,6 +914,26 @@ export function assertDesignHtmlEditIntegrity(args: {
  * Returns advisory issues for the caller to surface; throws on anything
  * blocking.
  */
+/**
+ * Well-formedness only — no document-shape rules. For markup that is not
+ * required to be a complete screen, such as a variant sketch, where `<html>` and
+ * `<body>` are legitimately implied. Unbalanced tags are defects at any level of
+ * completeness; a missing skeleton is not.
+ */
+export function assertDesignHtmlWellFormed(args: {
+  content: string;
+  filename?: string;
+}): void {
+  if (!args.content.trim()) return;
+  const structural = collectStructuralIssues(args.content);
+  if (structural.length > 0) {
+    throw new DesignHtmlIntegrityError(structural[0]!.issue, {
+      filename: args.filename,
+      detail: structural,
+    });
+  }
+}
+
 export function assertDesignHtmlCreateIntegrity(args: {
   content: string;
   fileType: string;

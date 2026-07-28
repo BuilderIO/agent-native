@@ -379,7 +379,12 @@ view only when the user asked to focus one specific screen.
 
 ### The save gate rejects malformed markup
 
-Every write runs an integrity check, and a **new** file is held to it strictly.
+Every path that persists model-authored HTML — `generate-design`, `create-file`,
+`present-design-variants`, `edit-design`, `update-file`, canvas edits — runs an
+integrity check, and a **new** file is held to it strictly. Import paths
+(Figma, localhost, templates, duplication) deliberately do not fail closed:
+that markup comes from a real app or an existing design, and rejecting it would
+block bringing work in rather than prevent a bad generation.
 Rejections name the file, line, column, and offending source line — fix exactly
 what it points at instead of re-sending the payload differently. Blocked: an
 attribute quote that is never closed; an unclosed element or a closing tag with

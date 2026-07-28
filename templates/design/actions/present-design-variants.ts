@@ -19,6 +19,7 @@ import {
   type CanvasFramePlacement,
 } from "../shared/canvas-frames.js";
 import { isUniqueConstraintViolation } from "../shared/db-conflict.js";
+import { assertDesignHtmlWellFormed } from "../shared/html-integrity.js";
 import { widthToPrefix } from "../shared/responsive-classes.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
 
@@ -848,6 +849,20 @@ export default defineAction({
     const usedFilenames = new Set(existingFiles.map((file) => file.filename));
     const variantSetId = nanoid();
     const screens: VariantScreen[] = [];
+
+    // Model-authored screens created by raw insert, so they need the same
+    // well-formedness gate — but not generate-design's document-shape rules: a
+    // variant is allowed to be a sketch with `<html>`/`<body>` implied.
+    // Validated up front so a rejected variant cannot leave earlier ones on the
+    // board.
+    for (const variant of variants) {
+      const candidate = variant.content?.trim();
+      if (!candidate) continue;
+      assertDesignHtmlWellFormed({
+        content: annotateScreenHtmlForPersist(candidate, "html"),
+        filename: `variant-${slugify(variant.label.trim(), "option")}.html`,
+      });
+    }
 
     for (let index = 0; index < variants.length; index += 1) {
       const variant = variants[index]!;

@@ -317,6 +317,67 @@ describe("Design HTML structural integrity", () => {
     });
   });
 
+  it("treats a literal closing tag in a script string as the break it is", () => {
+    // Not a false positive: per the HTML spec, `</script>` inside a JS string
+    // DOES end the element — which is why `"<\\/script>"` escaping exists. The
+    // browser ends the script early, leaves `";` as text, and orphans the real
+    // closer. Rejecting is the gate working, not over-reach.
+    expect(
+      inspectDesignHtmlDocumentIntegrity(
+        SCREEN.replace(
+          '<div class="rounded-xl p-6"><h1 class="text-3xl">Hi</h1></div>',
+          '<script>const s = "</script>";</script>',
+        ),
+      ).valid,
+    ).toBe(false);
+  });
+
+  it.each([
+    [
+      "title",
+      "<!doctype html><html><head><title>Hi</head><body>x</body></html>",
+    ],
+    [
+      "textarea",
+      "<!doctype html><html><head></head><body><textarea>Hi<div>x</div></body></html>",
+    ],
+  ])("rejects an unclosed raw-text %s", (_label, html) => {
+    expect(inspectDesignHtmlDocumentIntegrity(html).valid).toBe(false);
+  });
+
+  it.each([
+    [
+      "title",
+      "<!doctype html><html><head><title>How to write <body></title></head><body>x</body></html>",
+    ],
+    [
+      "textarea",
+      "<!doctype html><html><head></head><body><textarea>paste <body> here</textarea></body></html>",
+    ],
+  ])(
+    "does not read root tags inside a %s body as document markup",
+    (_l, html) => {
+      expect(inspectDesignHtmlDocumentIntegrity(html)).toEqual({ valid: true });
+    },
+  );
+
+  it("stays linear on large valid documents", () => {
+    // Locating per close tag made this quadratic: a 117KB valid screen cost
+    // ~700ms synchronously on every save.
+    const build = (count: number) =>
+      `<!doctype html><html><head><meta charset="UTF-8"></head><body>${"<div>x</div>".repeat(count)}</body></html>`;
+    const time = (html: string) => {
+      const start = performance.now();
+      expect(inspectDesignHtmlDocumentIntegrity(html).valid).toBe(true);
+      return performance.now() - start;
+    };
+    time(build(1000));
+    const small = time(build(2000));
+    const large = time(build(8000));
+    // 4x the input must not cost anything like 16x the time.
+    expect(large).toBeLessThan(Math.max(small, 1) * 10);
+  });
+
   it("reports a missing Tailwind runtime as advisory, not a rejection", () => {
     const result = inspectDesignHtmlDocumentIntegrity(
       SCREEN.replace(/<script[^>]*><\/script>/, ""),
