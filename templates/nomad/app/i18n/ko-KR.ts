@@ -276,6 +276,9 @@ const messages = {
       continue: "계속",
       enterCockpit: "콕핏 입장 →",
     },
+    demo: {
+      disabledHint: "실제 데이터를 편집하려면 데모 모드를 꺼주세요.",
+    },
   },
 };
 

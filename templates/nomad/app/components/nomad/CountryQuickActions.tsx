@@ -32,6 +32,7 @@ export function CountryQuickActions({
   onAddVisa,
   onDetails,
   close,
+  disabled,
 }: {
   code: string;
   snapshot: ComplianceSnapshot;
@@ -39,6 +40,8 @@ export function CountryQuickActions({
   onAddVisa: (code: string) => void;
   onDetails: (code: string) => void;
   close: () => void;
+  /** Fabricated demo data — every mutating/agent action here is disabled. */
+  disabled?: boolean;
 }) {
   const t = useT();
   const { locale } = useLocale();
@@ -184,6 +187,8 @@ export function CountryQuickActions({
           type="button"
           size="sm"
           className="h-8 w-full justify-start gap-2 rounded-lg text-xs"
+          disabled={disabled}
+          title={disabled ? t("nomad.demo.disabledHint") : undefined}
           onClick={askAgent}
         >
           <IconMessageCircle className="size-4" />
@@ -193,13 +198,16 @@ export function CountryQuickActions({
           <QuickButton
             icon={<IconMapPin className="size-4" />}
             label={t("nomad.quick.hereNow")}
-            disabled={upsertStay.isPending}
+            disabled={disabled || upsertStay.isPending}
+            title={disabled ? t("nomad.demo.disabledHint") : undefined}
             onClick={() => void moveHere()}
           />
         )}
         <QuickButton
           icon={<IconPlus className="size-4" />}
           label={t("nomad.quick.logTrip")}
+          disabled={disabled}
+          title={disabled ? t("nomad.demo.disabledHint") : undefined}
           onClick={() => {
             onLogTrip(code);
             close();
@@ -208,6 +216,8 @@ export function CountryQuickActions({
         <QuickButton
           icon={<IconId className="size-4" />}
           label={t("nomad.quick.addVisa")}
+          disabled={disabled}
+          title={disabled ? t("nomad.demo.disabledHint") : undefined}
           onClick={() => {
             onAddVisa(code);
             close();
@@ -217,7 +227,8 @@ export function CountryQuickActions({
           <QuickButton
             icon={<IconMapPinPlus className="size-4" />}
             label={t("nomad.quick.track")}
-            disabled={updateProfile.isPending}
+            disabled={disabled || updateProfile.isPending}
+            title={disabled ? t("nomad.demo.disabledHint") : undefined}
             onClick={() =>
               updateProfile.mutate(
                 {
@@ -249,18 +260,21 @@ function QuickButton({
   label,
   onClick,
   disabled,
+  title,
 }: {
   icon: React.ReactNode;
   label: string;
   onClick: () => void;
   disabled?: boolean;
+  title?: string;
 }) {
   return (
     <button
       type="button"
       disabled={disabled}
+      title={title}
       onClick={onClick}
-      className="flex w-full cursor-pointer items-center gap-2 rounded-lg border border-border bg-popover px-2.5 py-1.5 text-left text-xs font-medium transition-colors hover:border-ring disabled:opacity-50"
+      className="flex w-full cursor-pointer items-center gap-2 rounded-lg border border-border bg-popover px-2.5 py-1.5 text-left text-xs font-medium transition-colors hover:border-ring disabled:cursor-not-allowed disabled:opacity-50"
     >
       <span className="text-muted-foreground">{icon}</span>
       {label}

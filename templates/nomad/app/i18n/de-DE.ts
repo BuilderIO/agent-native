@@ -285,6 +285,10 @@ const messages = {
       continue: "Weiter",
       enterCockpit: "Zum Cockpit →",
     },
+    demo: {
+      disabledHint:
+        "Demo-Modus deaktivieren, um deine echten Daten zu bearbeiten.",
+    },
   },
 };
 

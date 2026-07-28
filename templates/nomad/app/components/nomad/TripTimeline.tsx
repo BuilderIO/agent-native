@@ -1,5 +1,4 @@
 import { useT } from "@agent-native/core/client";
-import { useDemoModeStatus } from "@agent-native/core/client/hooks";
 import { IconMailFast } from "@tabler/icons-react";
 
 import { formatStayRange, severityColor, stayLengthDays } from "@/lib/nomad";
@@ -7,10 +6,10 @@ import { formatStayRange, severityColor, stayLengthDays } from "@/lib/nomad";
 import { countryFlag, countryName } from "../../../shared/countries";
 import type { ComplianceSnapshot, Stay } from "../../../shared/types";
 
-function stayPlace(stay: Stay, demo: boolean): string {
-  const name = countryName(stay.countryCode);
-  // Demo mode: keep the country (the structure) but drop the identifying city.
-  return stay.city && !demo ? `${stay.city}, ${stay.countryCode}` : name;
+function stayPlace(stay: Stay): string {
+  return stay.city
+    ? `${stay.city}, ${stay.countryCode}`
+    : countryName(stay.countryCode);
 }
 
 /**
@@ -21,12 +20,14 @@ function stayPlace(stay: Stay, demo: boolean): string {
 export function TripTimeline({
   snapshot,
   onEdit,
+  disabled,
 }: {
   snapshot: ComplianceSnapshot;
   onEdit: (stay: Stay) => void;
+  /** Fabricated demo data doesn't back a real row — editing it is disabled. */
+  disabled?: boolean;
 }) {
   const t = useT();
-  const { enabled: demoMode } = useDemoModeStatus();
   const severityByCountry = new Map(
     snapshot.countries.map((c) => [c.countryCode, c.severity]),
   );
@@ -49,8 +50,10 @@ export function TripTimeline({
           <button
             key={trip.id}
             type="button"
+            disabled={disabled}
+            title={disabled ? t("nomad.demo.disabledHint") : undefined}
             onClick={() => onEdit(trip)}
-            className="w-[150px] shrink-0 cursor-pointer rounded-xl border border-border bg-popover p-3 text-left transition-colors hover:border-ring"
+            className="w-[150px] shrink-0 cursor-pointer rounded-xl border border-border bg-popover p-3 text-left transition-colors hover:border-ring disabled:cursor-not-allowed disabled:opacity-60"
           >
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <span
@@ -64,7 +67,7 @@ export function TripTimeline({
               <span className="truncate">{formatStayRange(trip)}</span>
             </div>
             <div className="mt-1 truncate font-semibold">
-              {countryFlag(trip.countryCode)} {stayPlace(trip, demoMode)}
+              {countryFlag(trip.countryCode)} {stayPlace(trip)}
             </div>
             <div className="mt-1 text-xs text-muted-foreground">
               {t("nomad.cockpit.days", {
@@ -83,15 +86,17 @@ export function TripTimeline({
           <button
             key={trip.id}
             type="button"
+            disabled={disabled}
+            title={disabled ? t("nomad.demo.disabledHint") : undefined}
             onClick={() => onEdit(trip)}
-            className="w-[150px] shrink-0 cursor-pointer rounded-xl border border-dashed border-ring/50 bg-popover/50 p-3 text-left transition-colors hover:border-ring"
+            className="w-[150px] shrink-0 cursor-pointer rounded-xl border border-dashed border-ring/50 bg-popover/50 p-3 text-left transition-colors hover:border-ring disabled:cursor-not-allowed disabled:opacity-60"
           >
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <span className="inline-block h-2 w-2 shrink-0 rounded-full bg-muted-foreground" />
               <span className="truncate">{formatStayRange(trip)}</span>
             </div>
             <div className="mt-1 truncate font-semibold">
-              {countryFlag(trip.countryCode)} {stayPlace(trip, demoMode)}
+              {countryFlag(trip.countryCode)} {stayPlace(trip)}
             </div>
             <div className="nomad-chip mt-2 inline-flex items-center gap-1 px-2 py-0.5 text-[10px] text-muted-foreground">
               <IconMailFast className="size-3" />

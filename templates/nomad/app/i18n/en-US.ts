@@ -279,6 +279,9 @@ const messages = {
       continue: "Continue",
       enterCockpit: "Enter cockpit →",
     },
+    demo: {
+      disabledHint: "Turn off demo mode to edit your real data.",
+    },
   },
 };
 

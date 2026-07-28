@@ -284,6 +284,9 @@ const messages = {
       continue: "Continuar",
       enterCockpit: "Entrar na cabine →",
     },
+    demo: {
+      disabledHint: "Desative o modo demo para editar seus dados reais.",
+    },
   },
 };
 

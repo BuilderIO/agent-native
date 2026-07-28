@@ -274,6 +274,10 @@ const messages = {
       continue: "続行",
       enterCockpit: "コックピットへ →",
     },
+    demo: {
+      disabledHint:
+        "実際のデータを編集するには、デモモードをオフにしてください。",
+    },
   },
 };
 

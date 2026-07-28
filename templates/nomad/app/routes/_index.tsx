@@ -1,8 +1,4 @@
-import {
-  useActionMutation,
-  useActionQuery,
-  useT,
-} from "@agent-native/core/client";
+import { useActionMutation, useT } from "@agent-native/core/client";
 import { IconMapPin, IconPlus, IconRadar2, IconX } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 import { Navigate, useNavigate } from "react-router";
@@ -28,9 +24,10 @@ import {
   severityBorder,
   severityColor,
 } from "@/lib/nomad";
+import { useComplianceSnapshot } from "@/lib/use-compliance-snapshot";
 
 import { countryFlag, countryName } from "../../shared/countries";
-import type { ComplianceSnapshot, Stay } from "../../shared/types";
+import type { Stay } from "../../shared/types";
 
 const SEO_TITLE = "Nomad — Presence Cockpit";
 const SEO_DESCRIPTION =
@@ -51,7 +48,7 @@ export function meta() {
 export default function CockpitRoute() {
   const t = useT();
   const navigate = useNavigate();
-  const { data: snapshot } = useActionQuery("compliance-status", {});
+  const { data: snap, isDemo } = useComplianceSnapshot();
   const scan = useActionMutation("scan-inbox");
   const [dismissedAlertId, setDismissedAlertId] = useState<string | null>(null);
   const [dialogStay, setDialogStay] = useState<Stay | null>(null);
@@ -59,8 +56,6 @@ export default function CockpitRoute() {
   const [dialogCountry, setDialogCountry] = useState<string | undefined>();
   const [visaDialogOpen, setVisaDialogOpen] = useState(false);
   const [visaCountry, setVisaCountry] = useState<string | undefined>();
-
-  const snap = snapshot as ComplianceSnapshot | undefined;
 
   const mapStatuses = useMemo<MapCountryStatus[]>(() => {
     if (!snap) return [];
@@ -195,7 +190,8 @@ export default function CockpitRoute() {
           <Button
             size="sm"
             className="rounded-lg text-xs font-medium"
-            disabled={scan.isPending}
+            disabled={isDemo || scan.isPending}
+            title={isDemo ? t("nomad.demo.disabledHint") : undefined}
             onClick={() => scan.mutate({})}
           >
             <IconRadar2 className="size-3.5" />
@@ -244,6 +240,7 @@ export default function CockpitRoute() {
                 code={code}
                 snapshot={snap}
                 close={close}
+                disabled={isDemo}
                 onLogTrip={(c) => {
                   setDialogStay(null);
                   setDialogCountry(c);
@@ -274,6 +271,7 @@ export default function CockpitRoute() {
           <div className="relative">
             <TripTimeline
               snapshot={snap}
+              disabled={isDemo}
               onEdit={(stay) => {
                 setDialogStay(stay);
                 setDialogOpen(true);
@@ -283,6 +281,8 @@ export default function CockpitRoute() {
               size="sm"
               variant="outline"
               className="absolute right-3 top-3 hidden h-7 rounded-lg text-xs sm:inline-flex"
+              disabled={isDemo}
+              title={isDemo ? t("nomad.demo.disabledHint") : undefined}
               onClick={() => {
                 setDialogStay(null);
                 setDialogOpen(true);
@@ -295,13 +295,13 @@ export default function CockpitRoute() {
         </section>
 
         <aside className="flex min-h-0 flex-col gap-4 lg:col-span-4 lg:overflow-y-auto lg:pr-1">
-          <AlertsPanel alerts={snap.alerts} />
+          <AlertsPanel alerts={snap.alerts} disabled={isDemo} />
           <RuleCards
             rules={snap.rules}
             onExport={() =>
               downloadPresenceCsv(
                 [...snap.trips, ...snap.pendingStays],
-                "presence-log.csv",
+                isDemo ? "nomad-demo-presence-log.csv" : "presence-log.csv",
               )
             }
           />

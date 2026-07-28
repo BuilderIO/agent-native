@@ -1,5 +1,4 @@
 import { useActionMutation, useLocale, useT } from "@agent-native/core/client";
-import { useDemoModeStatus } from "@agent-native/core/client/hooks";
 import { IconEPassport } from "@tabler/icons-react";
 import { useState } from "react";
 
@@ -25,7 +24,6 @@ export function PassportChip({
   const t = useT();
   const { locale } = useLocale();
   const updateProfile = useActionMutation("update-profile");
-  const { enabled: demoMode } = useDemoModeStatus();
   const [open, setOpen] = useState(false);
 
   return (
@@ -38,11 +36,9 @@ export function PassportChip({
         <IconEPassport className="size-3.5 text-muted-foreground" />
         {t("nomad.cockpit.passport")}
         <b className="text-foreground">
-          {demoMode
-            ? "···"
-            : citizenshipCountry
-              ? `${countryFlag(citizenshipCountry)} ${countryName(citizenshipCountry, locale)}`
-              : "—"}
+          {citizenshipCountry
+            ? `${countryFlag(citizenshipCountry)} ${countryName(citizenshipCountry, locale)}`
+            : "—"}
         </b>
       </button>
       <Dialog open={open} onOpenChange={setOpen}>

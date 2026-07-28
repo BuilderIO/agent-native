@@ -428,15 +428,17 @@
       "runtimeExecutable": "env",
       "runtimeArgs": [
         "PATH=/Users/ahmedfelfel/.nvm/versions/node/v22.22.0/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
-        "DATABASE_URL=file:/private/tmp/claude-501/-Users-ahmedfelfel-builder-workspace/9c369680-8717-40be-96b9-54a61f28bc11/scratchpad/nomad-verify.sqlite",
+        "DATABASE_URL=file:/private/tmp/claude-501/-Users-ahmedfelfel-builder-workspace/9c369680-8717-40be-96b9-54a61f28bc11/scratchpad/nomad-demo-verify.sqlite",
         "AUTH_MODE=local",
-        "PORT=8106",
+        "PORT=8206",
         "pnpm",
         "--dir",
         "templates/nomad",
-        "dev"
+        "dev",
+        "--port",
+        "8206"
       ],
-      "port": 8106
+      "port": 8206
     }
   ]
 }

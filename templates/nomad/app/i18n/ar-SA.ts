@@ -273,6 +273,9 @@ const messages = {
       continue: "متابعة",
       enterCockpit: "ادخل قمرة القيادة ←",
     },
+    demo: {
+      disabledHint: "أوقف وضع العرض التوضيحي لتعديل بياناتك الحقيقية.",
+    },
   },
 };
 

@@ -287,6 +287,10 @@ const messages = {
       continue: "Continuer",
       enterCockpit: "Entrer dans le cockpit →",
     },
+    demo: {
+      disabledHint:
+        "Désactivez le mode démo pour modifier vos données réelles.",
+    },
   },
 };
 

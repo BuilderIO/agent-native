@@ -84,7 +84,14 @@ export function alertBody(
  * Right-rail alert stack: rule warnings ranked by severity, then pending
  * inbox-detected trips with one-tap confirm/discard.
  */
-export function AlertsPanel({ alerts }: { alerts: ComplianceAlert[] }) {
+export function AlertsPanel({
+  alerts,
+  disabled,
+}: {
+  alerts: ComplianceAlert[];
+  /** Fabricated demo alerts don't back a real stay — confirm/discard is disabled. */
+  disabled?: boolean;
+}) {
   const t = useT();
   const confirmStay = useActionMutation("upsert-stay");
   const discardStay = useActionMutation("delete-stay");
@@ -144,7 +151,8 @@ export function AlertsPanel({ alerts }: { alerts: ComplianceAlert[] }) {
                     <Button
                       size="sm"
                       className="h-7 px-2.5 text-xs"
-                      disabled={confirmStay.isPending}
+                      disabled={disabled || confirmStay.isPending}
+                      title={disabled ? t("nomad.demo.disabledHint") : undefined}
                       onClick={() =>
                         alert.stayId &&
                         confirmStay.mutate({
@@ -159,7 +167,8 @@ export function AlertsPanel({ alerts }: { alerts: ComplianceAlert[] }) {
                       size="sm"
                       variant="ghost"
                       className="h-7 px-2.5 text-xs text-muted-foreground"
-                      disabled={discardStay.isPending}
+                      disabled={disabled || discardStay.isPending}
+                      title={disabled ? t("nomad.demo.disabledHint") : undefined}
                       onClick={() =>
                         alert.stayId && discardStay.mutate({ id: alert.stayId })
                       }

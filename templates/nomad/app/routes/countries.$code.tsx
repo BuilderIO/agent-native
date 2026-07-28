@@ -5,7 +5,6 @@ import {
   useLocale,
   useT,
 } from "@agent-native/core/client";
-import { useDemoModeStatus } from "@agent-native/core/client/hooks";
 import {
   IconDownload,
   IconId,
@@ -32,16 +31,12 @@ import {
   statusLabelKey,
   stayLengthDays,
 } from "@/lib/nomad";
+import { useComplianceSnapshot } from "@/lib/use-compliance-snapshot";
 import { cn } from "@/lib/utils";
 
 import { visaAppliesToCountry } from "../../shared/compliance";
 import { countryFlag, countryName, isSchengen } from "../../shared/countries";
-import type {
-  ComplianceSnapshot,
-  RuleComputation,
-  Stay,
-  Visa,
-} from "../../shared/types";
+import type { RuleComputation, Stay, Visa } from "../../shared/types";
 
 export function meta({ params }: { params: { code?: string } }) {
   const name = params.code ? countryName(params.code) : "Country";
@@ -51,10 +46,9 @@ export function meta({ params }: { params: { code?: string } }) {
 export default function CountryRoute() {
   const t = useT();
   const { locale } = useLocale();
-  const { enabled: demoMode } = useDemoModeStatus();
   const params = useParams();
   const code = (params.code ?? "").toUpperCase();
-  const { data: snapshot } = useActionQuery("compliance-status", {});
+  const { data: snap, isDemo } = useComplianceSnapshot();
   const { data: stays } = useActionQuery("list-stays", { countryCode: code });
   const updateProfile = useActionMutation("update-profile");
   const [dialogStay, setDialogStay] = useState<Stay | null>(null);
@@ -62,8 +56,17 @@ export default function CountryRoute() {
   const [dialogVisa, setDialogVisa] = useState<Visa | null>(null);
   const [visaDialogOpen, setVisaDialogOpen] = useState(false);
 
-  const snap = snapshot as ComplianceSnapshot | undefined;
-  const ledger = (stays ?? []) as Stay[];
+  // In demo mode `list-stays` still returns real rows — derive the ledger
+  // from the fabricated snapshot instead so this page never mixes real and
+  // fabricated data.
+  const ledger = useMemo(() => {
+    if (isDemo) {
+      return [...(snap?.trips ?? []), ...(snap?.pendingStays ?? [])]
+        .filter((s) => s.countryCode === code)
+        .sort((a, b) => (a.entryDate < b.entryDate ? 1 : -1));
+    }
+    return (stays ?? []) as Stay[];
+  }, [isDemo, snap, stays, code]);
 
   const country = snap?.countries.find((c) => c.countryCode === code);
   const applicableRules = useMemo(
@@ -180,6 +183,8 @@ export default function CountryRoute() {
             <Button
               variant="outline"
               size="sm"
+              disabled={isDemo}
+              title={isDemo ? t("nomad.demo.disabledHint") : undefined}
               onClick={() => {
                 setDialogStay(null);
                 setDialogOpen(true);
@@ -191,7 +196,12 @@ export default function CountryRoute() {
             <Button
               size="sm"
               onClick={() =>
-                downloadPresenceCsv(ledger, `presence-log-${code}.csv`)
+                downloadPresenceCsv(
+                  ledger,
+                  isDemo
+                    ? `nomad-demo-presence-log-${code}.csv`
+                    : `presence-log-${code}.csv`,
+                )
               }
             >
               <IconDownload className="size-4" />
@@ -295,7 +305,8 @@ export default function CountryRoute() {
                 {!tracked && (
                   <Button
                     size="sm"
-                    disabled={updateProfile.isPending}
+                    disabled={isDemo || updateProfile.isPending}
+                    title={isDemo ? t("nomad.demo.disabledHint") : undefined}
                     onClick={() =>
                       updateProfile.mutate({
                         trackedCountries: [
@@ -317,11 +328,13 @@ export default function CountryRoute() {
               <button
                 key={vc.visa.id}
                 type="button"
+                disabled={isDemo}
+                title={isDemo ? t("nomad.demo.disabledHint") : undefined}
                 onClick={() => {
                   setDialogVisa(vc.visa);
                   setVisaDialogOpen(true);
                 }}
-                className="nomad-panel flex cursor-pointer items-center gap-4 p-4 text-left transition-colors hover:border-ring"
+                className="nomad-panel flex cursor-pointer items-center gap-4 p-4 text-left transition-colors hover:border-ring disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <IconId
                   className="size-6 shrink-0"
@@ -352,6 +365,8 @@ export default function CountryRoute() {
               variant="outline"
               size="sm"
               className="self-start"
+              disabled={isDemo}
+              title={isDemo ? t("nomad.demo.disabledHint") : undefined}
               onClick={() => {
                 setDialogVisa(null);
                 setVisaDialogOpen(true);
@@ -375,7 +390,9 @@ export default function CountryRoute() {
                 <button
                   key={stay.id}
                   type="button"
-                  className="flex w-full cursor-pointer items-center gap-3 rounded-md text-left text-sm hover:bg-accent/50"
+                  disabled={isDemo}
+                  title={isDemo ? t("nomad.demo.disabledHint") : undefined}
+                  className="flex w-full cursor-pointer items-center gap-3 rounded-md text-left text-sm hover:bg-accent/50 disabled:cursor-not-allowed disabled:opacity-60"
                   onClick={() => {
                     setDialogStay(stay);
                     setDialogOpen(true);
@@ -392,7 +409,7 @@ export default function CountryRoute() {
                   />
                   <span>
                     {formatStayRange(stay)}
-                    {stay.city && !demoMode ? ` · ${stay.city}` : ""}
+                    {stay.city ? ` · ${stay.city}` : ""}
                   </span>
                   <span className="ml-auto font-medium">
                     {t("nomad.cockpit.days", {

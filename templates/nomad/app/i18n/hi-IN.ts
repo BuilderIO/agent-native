@@ -275,6 +275,9 @@ const messages = {
       continue: "आगे",
       enterCockpit: "कॉकपिट में जाएँ →",
     },
+    demo: {
+      disabledHint: "अपना वास्तविक डेटा संपादित करने के लिए डेमो मोड बंद करें.",
+    },
   },
 };
 

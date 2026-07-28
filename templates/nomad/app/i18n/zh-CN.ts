@@ -263,6 +263,9 @@ const messages = {
       continue: "继续",
       enterCockpit: "进入驾驶舱 →",
     },
+    demo: {
+      disabledHint: "关闭演示模式以编辑您的真实数据。",
+    },
   },
 };
 
