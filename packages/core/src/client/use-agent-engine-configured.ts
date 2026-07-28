@@ -5,7 +5,7 @@ import {
   fetchAgentEngineStatus,
   fetchBuilderStatus,
   fetchEnvironmentStatus,
-  invalidateClientStatusRequests,
+  invalidateClientStatusRequest,
   type ClientStatusResult,
 } from "./client-status-requests.js";
 
@@ -45,25 +45,22 @@ export interface UseAgentEngineConfiguredOptions {
   threadId?: string | null;
 }
 
-// Abort ceiling for a hung request, NOT a deadline the probes race against.
-// `/agent-engine/status` resolves session, org context, a scoped secret and a
-// settings row — several DB round-trips that measured ~4.7s on a warm local
-// dev server, so any budget short enough to "feel fast" just manufactures a
-// fake answer. Losing this ceiling is treated as "don't know", never "missing".
-const DEFAULT_STATUS_CHECK_TIMEOUT_MS = 15000;
 const RETRY_BASE_MS = 2000;
 const RETRY_MAX_MS = 30000;
 
 async function waitForStatus<T>(
   request: Promise<ClientStatusResult<T>>,
-  timeoutMs: number,
+  path: string,
+  timeoutMs: number | undefined,
 ): Promise<ClientStatusResult<T>> {
+  if (timeoutMs === undefined) return request;
+
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<ClientStatusResult<T>>((resolve) => {
     timeoutId = setTimeout(() => {
       // A request that loses this race may never settle. Evict and abort the
       // shared probe so the scheduled retry starts a genuinely new request.
-      invalidateClientStatusRequests();
+      invalidateClientStatusRequest(path);
       resolve({ state: "unavailable" });
     }, timeoutMs);
   });
@@ -115,8 +112,12 @@ export async function fetchAgentEngineConfiguredState(
   const timeoutMs =
     typeof options?.timeoutMs === "number" && options.timeoutMs > 0
       ? options.timeoutMs
-      : DEFAULT_STATUS_CHECK_TIMEOUT_MS;
-  const engineResult = await waitForStatus(fetchAgentEngineStatus(), timeoutMs);
+      : undefined;
+  const engineResult = await waitForStatus(
+    fetchAgentEngineStatus(),
+    "/_agent-native/agent-engine/status",
+    timeoutMs,
+  );
   if (
     engineResult.state === "available" &&
     hasConfiguredFlag(engineResult.value)
@@ -127,8 +128,16 @@ export async function fetchAgentEngineConfiguredState(
   // Older hosts may not expose the canonical route. Only then pay for the two
   // legacy probes; current hosts answer readiness with one request.
   const [envResult, builderResult] = await Promise.all([
-    waitForStatus(fetchEnvironmentStatus(), timeoutMs),
-    waitForStatus(fetchBuilderStatus(), timeoutMs),
+    waitForStatus(
+      fetchEnvironmentStatus(),
+      "/_agent-native/env-status",
+      timeoutMs,
+    ),
+    waitForStatus(
+      fetchBuilderStatus(),
+      "/_agent-native/builder/status",
+      timeoutMs,
+    ),
   ]);
   const envKeys = envResult.state === "available" ? envResult.value : undefined;
   const builderStatus =

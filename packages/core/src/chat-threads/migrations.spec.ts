@@ -10,6 +10,7 @@ vi.mock("../db/client.js", async (importOriginal) => {
     retrySqliteBusy: vi.fn(async (fn: () => Promise<unknown>) => fn()),
     getDbExec: vi.fn(),
     createDbExec: vi.fn(),
+    isServerlessRuntime: vi.fn(() => false),
   };
 });
 
@@ -26,6 +27,7 @@ import {
   CHAT_THREADS_MIGRATIONS,
   CHAT_THREADS_MIGRATIONS_TABLE,
   CHAT_THREADS_REPAIR_MESSAGE_COUNTS_MIGRATION,
+  runChatThreadDataMigrations,
 } from "./migrations.js";
 import { repairLegacyChatThreadMessageCounts } from "./store.js";
 
@@ -106,5 +108,30 @@ describe("chat-threads migrations", () => {
       CHAT_THREADS_REPAIR_MESSAGE_COUNTS_MIGRATION,
     );
     exitSpy.mockRestore();
+  });
+
+  it("never launches the blob repair from a serverless cold start", async () => {
+    const { isServerlessRuntime } = await import("../db/client.js");
+    vi.mocked(isServerlessRuntime).mockReturnValueOnce(true);
+
+    await expect(runChatThreadDataMigrations(null)).resolves.toBe(
+      "skipped-serverless",
+    );
+
+    expect(repairLegacyChatThreadMessageCounts).not.toHaveBeenCalled();
+  });
+
+  it("applies the name-tracked repair in a long-lived process", async () => {
+    const { isServerlessRuntime } = await import("../db/client.js");
+    vi.mocked(isServerlessRuntime).mockReturnValueOnce(false);
+    const exec = makeExec([]);
+    vi.mocked(getDbExec).mockReturnValue(exec);
+
+    await expect(runChatThreadDataMigrations(null)).resolves.toBe("applied");
+
+    expect(repairLegacyChatThreadMessageCounts).toHaveBeenCalledTimes(1);
+    expect(exec.insertedNames).toContain(
+      CHAT_THREADS_REPAIR_MESSAGE_COUNTS_MIGRATION,
+    );
   });
 });

@@ -195,14 +195,10 @@ export function useChatModels({
       callAction("manage-agent-engine" as any, { action: "list" } as any).catch(
         () => null,
       ),
-      fetchEnvironmentStatus<
-        Array<{ key: string; configured: boolean }>
-      >().then((result) => (result.state === "available" ? result.value : [])),
-      fetchBuilderStatus<{ configured?: boolean }>().then((result) =>
-        result.state === "available" ? result.value : null,
-      ),
+      fetchEnvironmentStatus<Array<{ key: string; configured: boolean }>>(),
+      fetchBuilderStatus<{ configured?: boolean }>(),
     ])
-      .then(([enginesData, envKeys, builderStatus]) => {
+      .then(([enginesData, envResult, builderResult]) => {
         if (!enginesData?.engines) {
           // Without a catalog the picker keeps an unvalidated DEFAULT_MODEL,
           // which is indistinguishable from a real selection unless we say so.
@@ -211,6 +207,14 @@ export function useChatModels({
           );
           return;
         }
+        if (
+          envResult.state !== "available" ||
+          builderResult.state !== "available"
+        ) {
+          return;
+        }
+        const envKeys = envResult.value;
+        const builderStatus = builderResult.value;
         const configuredKeys = new Set(
           envKeys.filter((k) => k.configured).map((k) => k.key),
         );

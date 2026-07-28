@@ -14,8 +14,14 @@ const REQUEST_TIMEOUT_MS = 15_000;
 const cache = new Map<string, CacheEntry>();
 const requests = new Map<string, Promise<ClientStatusResult<unknown>>>();
 const requestControllers = new Map<string, AbortController>();
+const requestGenerations = new Map<string, number>();
 let invalidationListenersInstalled = false;
 let generation = 0;
+
+function expireClientStatusCache(): void {
+  generation += 1;
+  cache.clear();
+}
 
 function installInvalidationListeners(): void {
   if (
@@ -28,7 +34,7 @@ function installInvalidationListeners(): void {
   invalidationListenersInstalled = true;
 
   if (typeof window.addEventListener === "function") {
-    window.addEventListener("focus", invalidateClientStatusRequests);
+    window.addEventListener("focus", expireClientStatusCache);
     window.addEventListener(
       "agent-engine:configured-changed",
       invalidateClientStatusRequests,
@@ -37,7 +43,7 @@ function installInvalidationListeners(): void {
   if (typeof document.addEventListener === "function") {
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "visible") {
-        invalidateClientStatusRequests();
+        expireClientStatusCache();
       }
     });
   }
@@ -58,6 +64,7 @@ async function fetchClientStatus<T>(
   if (pending) return pending as Promise<ClientStatusResult<T>>;
 
   const requestGeneration = generation;
+  const requestUrlGeneration = requestGenerations.get(url) ?? 0;
   const controller =
     typeof AbortController === "undefined" ? null : new AbortController();
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -85,7 +92,11 @@ async function fetchClientStatus<T>(
     .catch((): ClientStatusResult<unknown> => ({ state: "unavailable" }));
   const request = Promise.race([transport, timeout])
     .then((result) => {
-      if (generation === requestGeneration && result.state === "available") {
+      if (
+        generation === requestGeneration &&
+        (requestGenerations.get(url) ?? 0) === requestUrlGeneration &&
+        result.state === "available"
+      ) {
         cache.set(url, {
           expiresAt: Date.now() + RESULT_TTL_MS,
           result,
@@ -104,6 +115,15 @@ async function fetchClientStatus<T>(
   requests.set(url, request);
   if (controller) requestControllers.set(url, controller);
   return request as Promise<ClientStatusResult<T>>;
+}
+
+export function invalidateClientStatusRequest(path: string): void {
+  const url = agentNativePath(path);
+  requestGenerations.set(url, (requestGenerations.get(url) ?? 0) + 1);
+  cache.delete(url);
+  requestControllers.get(url)?.abort();
+  requestControllers.delete(url);
+  requests.delete(url);
 }
 
 export function invalidateClientStatusRequests(): void {

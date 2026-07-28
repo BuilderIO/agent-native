@@ -195,6 +195,10 @@ async function mountWithCatalog(engines: unknown[], configuredKeys: string[]) {
       el
         .querySelector("[data-testid='assistant-chat']")
         ?.getAttribute("data-selected-engine") ?? null,
+    catalogOf: () =>
+      el
+        .querySelector("[data-testid='assistant-chat']")
+        ?.getAttribute("data-model-catalog") ?? null,
     async cleanup() {
       await act(async () => localRoot.unmount());
       el.remove();
@@ -217,6 +221,7 @@ vi.mock("./AssistantChat.js", async () => {
         selectedModel?: string;
         selectedEngine?: string;
         selectedEffort?: string;
+        availableModels?: Array<{ engine: string; configured: boolean }>;
       };
       React.useImperativeHandle(ref, () => ({
         sendMessage: chatHandleMocks.sendMessage,
@@ -236,6 +241,9 @@ vi.mock("./AssistantChat.js", async () => {
           data-selected-model={props.selectedModel}
           data-selected-engine={props.selectedEngine}
           data-reasoning-effort={props.selectedEffort}
+          data-model-catalog={props.availableModels
+            ?.map((group) => `${group.engine}:${group.configured}`)
+            .join(",")}
         >
           {props.emptyStateAddon}
           {props.composerSlot}
@@ -396,6 +404,29 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       await Promise.resolve();
     });
     expect(view.engineOf()).toBe("anthropic");
+    await view.cleanup();
+  });
+
+  it("keeps the last model readiness when status refresh is unavailable", async () => {
+    const view = await mountWithCatalog(ANTHROPIC_ENGINES, [
+      "ANTHROPIC_API_KEY",
+    ]);
+    const initialCatalog = view.catalogOf();
+    expect(initialCatalog).toContain("anthropic:true");
+    expect(initialCatalog).toContain("ai-sdk:openai:false");
+
+    invalidateClientStatusRequests();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Promise.reject(new Error("down"))),
+    );
+    await act(async () => {
+      window.dispatchEvent(new Event("agent-engine:configured-changed"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(view.catalogOf()).toBe(initialCatalog);
     await view.cleanup();
   });
 
