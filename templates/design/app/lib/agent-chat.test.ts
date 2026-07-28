@@ -104,6 +104,33 @@ describe("Design agent chat routing", () => {
     expect(sendToAgentChatAndConfirmMock).not.toHaveBeenCalled();
   });
 
+  it("times out a stalled host handoff without duplicating it locally", async () => {
+    vi.useFakeTimers();
+    try {
+      sendMcpAppHostMessageMock.mockReturnValueOnce(
+        new Promise<boolean>(() => {}),
+      );
+
+      const resultPromise = sendDesignSourceHandoffAndConfirm(
+        {
+          message: "Apply these edits",
+          submit: true,
+        },
+        { timeoutMs: 123 },
+      );
+      await vi.advanceTimersByTimeAsync(123);
+
+      await expect(resultPromise).resolves.toEqual({
+        target: "host",
+        delivered: false,
+        reason: "host-timeout",
+      });
+      expect(sendToAgentChatAndConfirmMock).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("uses the confirmed local Design agent when no host bridge exists", async () => {
     sendMcpAppHostMessageMock.mockReturnValueOnce(false);
 

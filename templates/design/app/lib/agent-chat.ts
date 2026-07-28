@@ -43,6 +43,8 @@ export interface DesignSourceHandoffResult {
   tabId?: string;
 }
 
+const DEFAULT_HOST_HANDOFF_TIMEOUT_MS = 15_000;
+
 /**
  * Pending localhost source edits belong in the coding host when Design is
  * running as an MCP App. Ordinary Design pages have no host bridge, so they
@@ -63,11 +65,26 @@ export async function sendDesignSourceHandoffAndConfirm(
     requestMode: opts.requestMode,
   });
   if (hostDelivery !== false) {
-    const delivered = await hostDelivery.catch(() => false);
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const outcome = await Promise.race([
+      hostDelivery
+        .then((delivered) =>
+          delivered
+            ? ({ delivered: true } as const)
+            : ({ delivered: false, reason: "host-rejected" } as const),
+        )
+        .catch(() => ({ delivered: false, reason: "host-rejected" })),
+      new Promise<{ delivered: false; reason: string }>((resolve) => {
+        timeoutId = setTimeout(
+          () => resolve({ delivered: false, reason: "host-timeout" }),
+          Math.max(100, options?.timeoutMs ?? DEFAULT_HOST_HANDOFF_TIMEOUT_MS),
+        );
+      }),
+    ]);
+    if (timeoutId !== undefined) clearTimeout(timeoutId);
     return {
       target: "host",
-      delivered,
-      ...(delivered ? {} : { reason: "host-rejected" }),
+      ...outcome,
     };
   }
 
