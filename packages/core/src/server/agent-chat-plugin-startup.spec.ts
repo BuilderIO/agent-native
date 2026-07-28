@@ -32,4 +32,18 @@ describe("agent chat startup", () => {
       source.indexOf("mcpInitializationPromise = initializeMcpManager()"),
     ).toBeGreaterThan(source.lastIndexOf("mcpManager.onChange"));
   });
+
+  it("keeps trigger subscription registration behind route readiness", () => {
+    const source = readFileSync(
+      new URL("./agent-chat-plugin.ts", import.meta.url),
+      "utf8",
+    );
+    const triggerSetup = source.slice(
+      source.indexOf("// ─── Trigger Dispatcher"),
+      source.indexOf("})().catch((err)"),
+    );
+
+    expect(triggerSetup).toContain("await initTriggerDispatcher");
+    expect(triggerSetup).not.toContain("void (async () =>");
+  });
 });

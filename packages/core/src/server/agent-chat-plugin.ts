@@ -5960,55 +5960,51 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           );
         }
       } else {
-        // Trigger subscription discovery scans persisted jobs across owners.
-        // It is eventual background setup, not a prerequisite for HTTP routes.
-        void (async () => {
-          try {
-            const { initTriggerDispatcher } =
-              await import("../triggers/dispatcher.js");
-            await initTriggerDispatcher({
-              getActions: () => ({
-                ...templateScripts,
-                ...resourceScripts,
-                ...docsScripts,
-                ...(lazyContext ? frameworkContextTool : {}),
-                ...chatScripts,
-                ...jobTools,
-                ...automationTools,
-                ...notificationTools,
-                ...progressTools,
-                ...fetchTool,
-                ...webSearchTool,
-                ...toolActions,
-              }),
-              getSystemPrompt: async (owner: string) => {
-                const resources = await loadResourcesForPrompt(
-                  owner,
-                  lazyContext,
-                  options?.appId,
-                );
-                const schemaBlock = lazyContext
-                  ? ""
-                  : await buildSchemaBlock(owner, databaseToolsMode);
-                return basePrompt + resources + schemaBlock;
-              },
-              // See the matching comment on schedulerDeps.getInitialToolNames
-              // above — same shared `basePrompt`, same reasoning.
-              getInitialToolNames: () => [
-                ...effectiveInitialToolNames,
-                "manage-jobs",
-                "manage-progress",
-              ],
-              apiKey: options?.apiKey,
-              model: options?.model,
-              appId: options?.appId,
-            });
-            if (process.env.DEBUG)
-              console.log("[triggers] Trigger dispatcher initialized");
-          } catch {
-            // Triggers module not available — skip silently
-          }
-        })();
+        try {
+          const { initTriggerDispatcher } =
+            await import("../triggers/dispatcher.js");
+          await initTriggerDispatcher({
+            getActions: () => ({
+              ...templateScripts,
+              ...resourceScripts,
+              ...docsScripts,
+              ...(lazyContext ? frameworkContextTool : {}),
+              ...chatScripts,
+              ...jobTools,
+              ...automationTools,
+              ...notificationTools,
+              ...progressTools,
+              ...fetchTool,
+              ...webSearchTool,
+              ...toolActions,
+            }),
+            getSystemPrompt: async (owner: string) => {
+              const resources = await loadResourcesForPrompt(
+                owner,
+                lazyContext,
+                options?.appId,
+              );
+              const schemaBlock = lazyContext
+                ? ""
+                : await buildSchemaBlock(owner, databaseToolsMode);
+              return basePrompt + resources + schemaBlock;
+            },
+            // See the matching comment on schedulerDeps.getInitialToolNames
+            // above — same shared `basePrompt`, same reasoning.
+            getInitialToolNames: () => [
+              ...effectiveInitialToolNames,
+              "manage-jobs",
+              "manage-progress",
+            ],
+            apiKey: options?.apiKey,
+            model: options?.model,
+            appId: options?.appId,
+          });
+          if (process.env.DEBUG)
+            console.log("[triggers] Trigger dispatcher initialized");
+        } catch {
+          // Triggers module not available — skip silently
+        }
       }
     })().catch((err) => {
       // If the init fails, the routes never get registered and requests
