@@ -13,6 +13,8 @@ build/
 dist
 dist-ssr
 .output/
+.netlify/
+.deploy-tmp/
 *.local
 
 # Editor directories and files
