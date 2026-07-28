@@ -576,11 +576,14 @@ async function materializeCommand(
     io.err("template materialize requires --template <name>.");
     return 1;
   }
-  // Materialize into a sibling temp dir and swap in only on success, so a bad
-  // template/ref or a transient fetch/post-process failure never destroys an
-  // existing --out tree. Sibling (same filesystem) keeps the rename atomic.
-  const tmp = `${outDir}.materialize-tmp`;
-  fs.rmSync(tmp, { recursive: true, force: true });
+  // Materialize into a UNIQUE staging dir in the destination's parent, then swap
+  // in only on success. This way a bad template/ref or a transient failure never
+  // destroys an existing --out tree, and — because the staging path is unique
+  // (mkdtemp), not a predictable sibling — it can't collide with an unrelated
+  // directory or a concurrent invocation. Same filesystem keeps the rename atomic.
+  const parent = path.dirname(path.resolve(outDir));
+  fs.mkdirSync(parent, { recursive: true });
+  const tmp = fs.mkdtempSync(path.join(parent, ".template-materialize-"));
   try {
     const result = await materializeTemplate({
       appName: name ?? template,

@@ -655,8 +655,10 @@ describe("template materialize command", () => {
     expect(fs.readFileSync(path.join(dest, "existing.txt"), "utf-8")).toBe(
       "keep me\n",
     );
-    // no leftover temp dir beside the destination.
-    expect(fs.existsSync(`${dest}.materialize-tmp`)).toBe(false);
+    // no leftover staging dir remains in the destination's parent.
+    expect(
+      fs.readdirSync(out).filter((e) => e.startsWith(".template-materialize-")),
+    ).toEqual([]);
   });
 
   it("rejects a following flag as the --out value instead of using it", async () => {
@@ -672,9 +674,12 @@ describe("template materialize command", () => {
       expect(code).toBe(1);
       expect(run.text()).toContain("--out");
       expect(fs.existsSync(path.join(tmpDir, "--template"))).toBe(false);
+      // errored before any staging dir was created.
       expect(
-        fs.existsSync(path.join(tmpDir, "--template.materialize-tmp")),
-      ).toBe(false);
+        fs
+          .readdirSync(tmpDir)
+          .filter((e) => e.startsWith(".template-materialize-")),
+      ).toEqual([]);
     } finally {
       process.chdir(cwd);
     }
