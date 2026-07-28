@@ -41,6 +41,7 @@ import {
 import { ConnectBuilderCard } from "../ConnectBuilderCard.js";
 import { useT } from "../i18n.js";
 import { McpAppRenderer } from "../mcp-apps/McpAppRenderer.js";
+import { findMcpIntegrationForToolName } from "../resources/mcp-integration-catalog.js";
 import type { AgentCallProgress, ContentPart } from "../sse-event-processor.js";
 import {
   BashCell,
@@ -279,7 +280,31 @@ type ToolIconComponent = React.ComponentType<{
   size?: number | string;
 }>;
 
+const brandIcons = new Map<string, ToolIconComponent>();
+
+function brandToolIcon(logoUrl: string, name: string): ToolIconComponent {
+  const cached = brandIcons.get(logoUrl);
+  if (cached) return cached;
+  const Icon: ToolIconComponent = ({ className, size }) => (
+    <img
+      src={logoUrl}
+      alt=""
+      aria-hidden
+      width={size}
+      height={size}
+      title={name}
+      className={cn("rounded-[3px] object-contain", className)}
+    />
+  );
+  brandIcons.set(logoUrl, Icon);
+  return Icon;
+}
+
 function resolveToolIcon(toolName: string): ToolIconComponent {
+  const integration = findMcpIntegrationForToolName(toolName);
+  if (integration) {
+    return brandToolIcon(integration.logoUrl, integration.name);
+  }
   const name = toolName.toLowerCase();
   if (name.includes("slack")) return IconBrandSlack;
   if (

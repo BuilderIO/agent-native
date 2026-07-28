@@ -63,7 +63,6 @@ import { toast } from "sonner";
 
 import { ContentFilesSidebarView } from "@/components/editor/database/sidebar";
 import { QueryErrorState } from "@/components/QueryErrorState";
-import { ThemeToggle } from "@/components/ThemeToggle";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -83,6 +82,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
   TooltipContent,
@@ -133,7 +133,6 @@ import {
   DocumentTreeItem,
   FavoriteDocumentItem,
 } from "./DocumentTreeItem";
-import { NotionButton } from "./NotionButton";
 import {
   contentSpaceAvailability,
   contentSpaceForStoredSelection,
@@ -288,7 +287,7 @@ function WorkspaceFilesSection({
   const failed = filesDatabase.isError || filesPersonalView.isError;
 
   return (
-    <div className="ms-3 border-s border-border/70 pb-1 ps-1">
+    <div className="ms-3 pb-1 ps-1">
       {failed ? (
         <QueryErrorState
           compact
@@ -329,7 +328,6 @@ function WorkspaceFilesSection({
           onDeleteItem={onDeleteItem}
           onToggleFavorite={onToggleFavorite}
           labels={{
-            loadingLabel: t("sidebar.loadingFiles"),
             noMatchesLabel: t("database.noRowsMatchThisView"),
             clearLabel: t("database.clearSearchAndFilters"),
             navigationLabel: `${space.name} ${t("sidebar.files")}`,
@@ -1407,12 +1405,12 @@ export function DocumentSidebar({
   };
 
   const renderTreeSkeleton = () => (
-    <div className="space-y-1 px-3 py-1">
+    <div aria-hidden="true" className="grid gap-1 px-3 py-1">
       {[70, 55, 85, 60, 45].map((w, i) => (
         <div key={i} className="flex items-center gap-2 px-1 py-1.5">
-          <div className="h-3.5 w-3.5 shrink-0 animate-pulse rounded bg-muted" />
-          <div
-            className="h-3.5 animate-pulse rounded bg-muted"
+          <Skeleton className="size-3.5 shrink-0 rounded-sm bg-sidebar-foreground/12 dark:bg-sidebar-foreground/10" />
+          <Skeleton
+            className="h-3 rounded bg-sidebar-foreground/12 dark:bg-sidebar-foreground/10"
             style={{ width: `${w}%` }}
           />
         </div>
@@ -1611,7 +1609,6 @@ export function DocumentSidebar({
               }}
               scroll={false}
               labels={{
-                loadingLabel: t("sidebar.loadingFiles"),
                 noMatchesLabel: t("database.noRowsMatchThisView"),
                 clearLabel: t("database.clearSearchAndFilters"),
                 navigationLabel: "Content navigation",
@@ -1637,9 +1634,7 @@ export function DocumentSidebar({
           </div>
         </div>
       ) : contentSpaceState === "loading" ? (
-        <div className="px-3 py-4 text-center text-sm text-muted-foreground">
-          {t("sidebar.loadingFiles")}
-        </div>
+        renderTreeSkeleton()
       ) : (
         <QueryErrorState
           compact
@@ -1656,7 +1651,7 @@ export function DocumentSidebar({
     const collapsed = collapsedSections.trash;
 
     return (
-      <div className="mt-3 border-t border-border/60 pt-2">
+      <div className="mt-3 pt-2">
         <div className="px-2">
           <button
             type="button"
@@ -2025,26 +2020,30 @@ export function DocumentSidebar({
                     </Link>
                   </div>
                   {!collapsedSections.favorites &&
-                    favorites.map((doc) => (
-                      <FavoriteDocumentItem
-                        key={doc.id}
-                        document={doc}
-                        active={doc.id === activeDocumentId}
-                        sidebarWidth={favoriteRowWidth}
-                        onSelect={() => {
-                          handleOpenFavorite(doc);
-                          onNavigate?.();
-                        }}
-                        onCreateChildPage={() => void handleCreatePage(doc.id)}
-                        onCreateChildDatabase={() =>
-                          void handleCreateDatabase(doc.id)
-                        }
-                        onRemoveFavorite={() =>
-                          handleToggleFavorite(doc.id, false)
-                        }
-                        onDelete={() => void handleDelete(doc.id)}
-                      />
-                    ))}
+                    (isLoading
+                      ? renderTreeSkeleton()
+                      : favorites.map((doc) => (
+                          <FavoriteDocumentItem
+                            key={doc.id}
+                            document={doc}
+                            active={doc.id === activeDocumentId}
+                            sidebarWidth={favoriteRowWidth}
+                            onSelect={() => {
+                              handleOpenFavorite(doc);
+                              onNavigate?.();
+                            }}
+                            onCreateChildPage={() =>
+                              void handleCreatePage(doc.id)
+                            }
+                            onCreateChildDatabase={() =>
+                              void handleCreateDatabase(doc.id)
+                            }
+                            onRemoveFavorite={() =>
+                              handleToggleFavorite(doc.id, false)
+                            }
+                            onDelete={() => void handleDelete(doc.id)}
+                          />
+                        )))}
                 </div>
               )}
 
@@ -2080,10 +2079,6 @@ export function DocumentSidebar({
       {/* Footer */}
       <div className="shrink-0 space-y-2 px-3 py-2">
         {isCodeMode ? <DevDatabaseLink /> : null}
-        <div className="flex justify-end gap-0.5">
-          <NotionButton />
-          <ThemeToggle />
-        </div>
         <SidebarFooterActions
           feedback={feedbackButton}
           translate={translateButton}

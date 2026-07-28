@@ -65,11 +65,11 @@ export interface DbExecConfig {
 /** Read the request-scoped Cloudflare binding without requiring every
  * consuming app's TypeScript program to include core's ambient Worker globals. */
 export function getCloudflareD1Binding(): unknown {
-  return (
-    globalThis as typeof globalThis & {
-      __cf_env?: { DB?: unknown };
-    }
-  ).__cf_env?.DB;
+  const runtime = globalThis as typeof globalThis & {
+    __cf_env?: { DB?: unknown };
+    __env__?: { DB?: unknown };
+  };
+  return runtime.__cf_env?.DB ?? runtime.__env__?.DB;
 }
 
 // ---------------------------------------------------------------------------
@@ -451,7 +451,8 @@ export function getDialect(): Dialect {
     return _dialect;
   }
 
-  // Don't cache the fallthrough — on CF Workers, env bindings (__cf_env) aren't
+  // Don't cache the fallthrough — on CF Workers, env bindings (__cf_env/__env__)
+  // aren't
   // available at import time. If we cache "sqlite" here, D1 will never be
   // detected once the bindings are set in the fetch handler.
   return "sqlite";
@@ -1594,6 +1595,35 @@ async function initClient(): Promise<void> {
  * Get the singleton database client. Returns a `DbExec` whose first
  * `execute()` call lazily initializes the underlying driver.
  */
+/**
+ * Point a missing-table failure at the cause instead of the symptom.
+ *
+ * The driver reports `no such table: x` / `relation "x" does not exist` from
+ * whichever query happened to touch it first, so the stack lands in an action
+ * and reads as a bug in that action. The actual cause is almost always that no
+ * migration ever created the table — a template with no `server/plugins/db.ts`
+ * creates none, and core's own tables self-heal, so app tables are the only
+ * ones that fail this way. Appends rather than replaces: `isDuplicateColumnError`
+ * and friends match substrings of the driver's original text.
+ */
+export function annotateMissingTable(err: unknown, sql: unknown): unknown {
+  if (!(err instanceof Error)) return err;
+  const match =
+    /no such table:?\s*["'`]?([\w.]+)/i.exec(err.message) ??
+    /relation\s+["'`]?([\w.]+)["'`]?\s+does not exist/i.exec(err.message);
+  if (!match) return err;
+  if (err.message.includes("server/plugins/db.ts")) return err;
+  const statement =
+    typeof sql === "string" ? sql : (sql as { sql?: string })?.sql;
+  err.message =
+    `${err.message}\n` +
+    `  [agent-native] Table "${match[1]}" does not exist. App tables are created by migrations in ` +
+    `server/plugins/db.ts — check that the plugin exists and declares a migration for this table, ` +
+    `then restart the dev server so it runs.` +
+    (statement ? `\n  Statement: ${statement.slice(0, 200)}` : "");
+  return err;
+}
+
 export function getDbExec(): DbExec {
   if (_exec) return _exec;
 
@@ -1605,6 +1635,16 @@ export function getDbExec(): DbExec {
       return { ...sql, args: sql.args.map((a) => a ?? null) };
     }
     return sql;
+  }
+
+  async function execAnnotated(
+    s: string | { sql: string; args?: unknown[] },
+  ): ReturnType<DbExec["execute"]> {
+    try {
+      return await _exec!.execute(sanitize(s));
+    } catch (err) {
+      throw annotateMissingTable(err, s);
+    }
   }
 
   // Return a proxy that lazy-inits on first call
@@ -1623,7 +1663,7 @@ export function getDbExec(): DbExec {
       }
       // After init, swap to a sanitizing wrapper around the real client
       const wrapper: DbExec = {
-        execute: (s) => _exec!.execute(sanitize(s)),
+        execute: (s) => execAnnotated(s),
         atomicBatch: _exec!.atomicBatch
           ? (statements) =>
               _exec!.atomicBatch!(statements.map((s) => sanitize(s)))
@@ -1639,7 +1679,7 @@ export function getDbExec(): DbExec {
           : undefined,
       };
       Object.assign(proxy, wrapper);
-      return _exec!.execute(sanitize(sql));
+      return execAnnotated(sql);
     },
     async transaction(fn) {
       if (!_initPromise) _initPromise = initClient();
@@ -1651,7 +1691,7 @@ export function getDbExec(): DbExec {
         throw err;
       }
       const wrapper: DbExec = {
-        execute: (s) => _exec!.execute(sanitize(s)),
+        execute: (s) => execAnnotated(s),
         atomicBatch: _exec!.atomicBatch
           ? (statements) =>
               _exec!.atomicBatch!(statements.map((s) => sanitize(s)))

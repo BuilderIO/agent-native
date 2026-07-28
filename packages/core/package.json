@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.124.3",
+  "version": "0.128.1",
   "description": "Framework for agent-native application development — where AI agents and UI share SQL state, actions, and context",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -338,6 +338,7 @@
     "@assistant-ui/react-markdown": "^0.12.6",
     "@assistant-ui/store": ">=0.2.9 <0.2.14",
     "@assistant-ui/tap": "^0.5.14",
+    "@builder.io/ai-utils": "^0.84.0",
     "@clack/prompts": "^1.4.0",
     "@codemirror/lang-sql": "^6.10.0",
     "@codemirror/theme-one-dark": "^6.1.3",

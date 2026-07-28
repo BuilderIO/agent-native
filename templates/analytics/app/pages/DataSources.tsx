@@ -1100,6 +1100,7 @@ function DataSourceCard({
   sharedConnectionStatus,
   envStatus,
   isStatusLoading,
+  statusUnknown,
   onSaved,
 }: {
   source: DataSource;
@@ -1108,6 +1109,7 @@ function DataSourceCard({
   sharedConnectionStatus: SharedConnectionStatus | null;
   envStatus: EnvKeyStatus[];
   isStatusLoading: boolean;
+  statusUnknown: boolean;
   onSaved: () => void;
 }) {
   const t = useT();
@@ -1136,6 +1138,9 @@ function DataSourceCard({
   const readyViaWorkspace = sharedConnectionStatus?.kind === "ready";
   const showCredentialSetup =
     !locallyConfigured && (!readyViaWorkspace || showLocalCredentials);
+  // An unreadable status cannot tell this source apart from an unconfigured
+  // one, so the setup walkthrough would be guessing.
+  const showUnknownStatus = statusUnknown && !ready && !showLocalCredentials;
 
   return (
     <Card className="data-source-card bg-card border-border/50">
@@ -1161,6 +1166,11 @@ function DataSourceCard({
             <div className="flex shrink-0 items-center gap-2">
               {isStatusLoading ? (
                 <Skeleton className="h-4 w-20 rounded-full" />
+              ) : statusUnknown && !ready ? (
+                <span className="flex items-center gap-1.5 text-xs text-amber-500 font-medium whitespace-nowrap">
+                  <IconAlertCircle className="h-3.5 w-3.5" />
+                  {t("dataSources.statusUnknown")}
+                </span>
               ) : ready ? (
                 <span className="flex items-center gap-1.5 text-xs text-emerald-500 font-medium whitespace-nowrap">
                   <IconCheck className="h-3.5 w-3.5" />
@@ -1174,7 +1184,7 @@ function DataSourceCard({
                   {t("dataSources.notConfigured")}
                 </span>
               )}
-              {!isStatusLoading && sharedConnectionStatus && (
+              {!isStatusLoading && !statusUnknown && sharedConnectionStatus && (
                 <span className="data-source-shared-badge">
                   <SharedConnectionBadge status={sharedConnectionStatus} />
                 </span>
@@ -1189,7 +1199,26 @@ function DataSourceCard({
         </CardHeader>
       </button>
 
-      {expanded && (
+      {expanded && showUnknownStatus && (
+        <CardContent className="border-t border-border/50 px-5 py-4">
+          <div className="space-y-3">
+            <p className="flex items-start gap-2 text-xs text-muted-foreground">
+              <IconAlertCircle className="mt-px h-3.5 w-3.5 shrink-0 text-amber-500" />
+              {t("dataSources.statusUnknownDescription")}
+            </p>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setShowLocalCredentials(true)}
+              className="text-xs"
+            >
+              {t("dataSources.addLocalCredentials")}
+            </Button>
+          </div>
+        </CardContent>
+      )}
+
+      {expanded && !showUnknownStatus && (
         <CardContent className="border-t border-border/50 px-5 py-4">
           {source.id === "github" && (
             <div className="mb-4">
@@ -1700,15 +1729,24 @@ export default function DataSources() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
 
-  const { data: rawStatusData, isLoading: isStatusLoading } = useActionQuery(
-    "data-source-status",
-    undefined,
-    {
-      staleTime: 10_000,
-    },
-  );
+  const {
+    data: rawStatusData,
+    isLoading: isStatusLoading,
+    isError: isStatusError,
+  } = useActionQuery("data-source-status", undefined, {
+    staleTime: 10_000,
+  });
   const statusData = rawStatusData as DataSourceStatusResponse | undefined;
   const envStatus = credentialRowsFromStatus(statusData);
+  // A failed fetch, an error payload, or a failed workspace-connection lookup
+  // all read as "everything is unconfigured" once they collapse into the empty
+  // credential list. Keep them a separate state instead.
+  const statusUnknown =
+    !isStatusLoading &&
+    (isStatusError ||
+      !statusData ||
+      Boolean(statusData.error) ||
+      statusData.workspaceConnections?.available === false);
 
   const configuredCount = dataSources.filter((s) =>
     isSourceReady(s, statusData, envStatus),
@@ -1743,7 +1781,11 @@ export default function DataSources() {
       <p className="text-sm text-muted-foreground">
         {t("dataSources.intro")}{" "}
         {!isStatusLoading &&
-          (configuredCount > 0 ? (
+          (statusUnknown && configuredCount === 0 ? (
+            <span className="text-amber-500 font-medium">
+              {t("dataSources.statusUnknown")}
+            </span>
+          ) : configuredCount > 0 ? (
             <span className="text-emerald-500 font-medium">
               {t("dataSources.configuredCount", { count: configuredCount })}
             </span>
@@ -1793,6 +1835,7 @@ export default function DataSources() {
                 )}
                 envStatus={envStatus}
                 isStatusLoading={isStatusLoading}
+                statusUnknown={statusUnknown}
                 onSaved={handleSaved}
               />
             ))}
@@ -1830,6 +1873,7 @@ export default function DataSources() {
                     )}
                     envStatus={envStatus}
                     isStatusLoading={isStatusLoading}
+                    statusUnknown={statusUnknown}
                     onSaved={handleSaved}
                   />
                 ))}

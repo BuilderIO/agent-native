@@ -270,6 +270,9 @@ export async function createDocsScriptEntries(): Promise<
 
   try {
     const mod = await import("../../scripts/docs/source-search.js");
+    if (!mod.hasSourceCorpus()) {
+      return entries;
+    }
     entries["source-search"] = wrapCliScript(
       {
         description:

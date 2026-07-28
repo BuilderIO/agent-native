@@ -19,24 +19,31 @@ import {
   assertSingleTemplateNetlifyBuildOutput,
   bundleYjsRuntimeForServerlessOutput,
   CLOUDFLARE_WORKER_ESBUILD_EXTERNALS,
+  CLOUDFLARE_MODULE_STUB_MODULES,
   CLOUDFLARE_WORKER_NODE_BUILTIN_STUB_MODULES,
   CLOUDFLARE_WORKER_STUB_MODULES,
   CLOUDFLARE_WORKER_STUB_SUBPATH_MODULES,
   cloudflareWorkerStubAliasArgs,
+  configureCloudflareModuleWorkerOutput,
   copyDir,
+  createCloudflareModuleStubPlugin,
   emitSingleTemplateNetlifyBackgroundFunction,
   emitSingleTemplateNetlifyIntegrationRecoveryFunction,
   emitSingleTemplateNetlifyKeepWarmFunction,
   findInstalledFfmpegStaticPackage,
   findInstalledResvgPackages,
+  isServerlessNativePlatformPackage,
   generateCloudflarePagesStaticShellFromManifest,
+  generateCloudflareModuleWorkerEntry,
   generateProvidedPluginsNitroPluginSource,
   generateWorkerEntry,
   getNodeBuiltinNames,
+  isCloudflareModulePreset,
   isDurableBackgroundDeployEnabled,
   isIntegrationDurableDispatchDeployEnabled,
   NITRO_RUNTIME_IGNORE_PATTERNS,
   nitroNoExternalsForPreset,
+  patchCloudflareModuleNitroEntry,
   resolveNitroBundledYjsEntry,
   runNitroBuildPipeline,
   sanitizeServerlessFunctionPackageManifest,
@@ -61,7 +68,94 @@ describe("nitroNoExternalsForPreset", () => {
 
   it("bundles every dependency for edge output", () => {
     expect(nitroNoExternalsForPreset("cloudflare-pages")).toBe(true);
+    expect(nitroNoExternalsForPreset("cloudflare_module")).toBe(true);
     expect(nitroNoExternalsForPreset("deno-deploy")).toBe(true);
+  });
+});
+
+describe("isCloudflareModulePreset", () => {
+  it("recognizes Nitro's module preset and its CLI spelling", () => {
+    expect(isCloudflareModulePreset("cloudflare_module")).toBe(true);
+    expect(isCloudflareModulePreset("cloudflare-module")).toBe(true);
+    expect(isCloudflareModulePreset("cloudflare_pages")).toBe(false);
+  });
+});
+
+describe("Cloudflare module Worker entry", () => {
+  it("defers Nitro's handler and lifecycle initialization", () => {
+    const source =
+      'function ki(e){let t=Ei(),n=Di();return{async fetch(n,r,i){globalThis.__env__=r,g(n,{env:r,context:i});return await t.fetch(n)},scheduled(e,t,r){r.waitUntil(n.callHook("scheduled",e))}}';
+
+    const patched = patchCloudflareModuleNitroEntry(source);
+
+    expect(patched).toContain("let t,n;");
+    expect(patched).toContain("t??=Ei();");
+    expect(patched).toContain('(n??=Di()).callHook("scheduled",e)');
+    expect(patched).not.toContain("let t=Ei(),n=Di();");
+  });
+
+  it("defers Nitro initialization until bindings are available", () => {
+    const entry = generateCloudflareModuleWorkerEntry();
+
+    expect(entry).toContain("globalThis.__env__ = env;");
+    expect(entry).not.toContain("globalThis.__cf_ctx");
+    expect(entry).toContain("request.waitUntil = ctx.waitUntil.bind(ctx);");
+    expect(entry).toContain("function initializeBindings(env)");
+    expect(entry).toContain('export * from "./index.mjs";');
+    expect(entry).toContain(
+      "initializeBindings(env);\n    return (await loadHandler())",
+    );
+    expect(entry).toContain('await import("./index.mjs")');
+    expect(entry).toContain(
+      "return (await loadHandler()).fetch(request, env, ctx);",
+    );
+    expect(entry).toContain("async scheduled(controller, env, ctx)");
+    expect(entry).toContain("async queue(batch, env, ctx)");
+    expect(entry).toContain("async email(message, env, ctx)");
+    expect(entry).toContain("async tail(traces, env, ctx)");
+    expect(entry).toContain("async trace(traces, env, ctx)");
+  });
+
+  it("points Wrangler at the lazy entry while retaining the Nitro server", () => {
+    const serverDir = makeTempDir();
+    fs.writeFileSync(
+      path.join(serverDir, "wrangler.json"),
+      JSON.stringify({ main: "index.mjs", assets: { binding: "ASSETS" } }),
+    );
+    fs.writeFileSync(
+      path.join(serverDir, "index.mjs"),
+      'function ki(e){let t=Ei(),n=Di();return{async fetch(n,r,i){globalThis.__env__=r,g(n,{env:r,context:i});return await t.fetch(n)},scheduled(e,t,r){r.waitUntil(n.callHook("scheduled",e))}}',
+    );
+
+    configureCloudflareModuleWorkerOutput(serverDir);
+
+    expect(
+      JSON.parse(
+        fs.readFileSync(path.join(serverDir, "wrangler.json"), "utf8"),
+      ),
+    ).toMatchObject({
+      main: "worker.mjs",
+      assets: { binding: "ASSETS" },
+    });
+    expect(
+      fs.readFileSync(path.join(serverDir, "worker.mjs"), "utf8"),
+    ).toContain('await import("./index.mjs")');
+    expect(
+      fs.readFileSync(path.join(serverDir, "index.mjs"), "utf8"),
+    ).toContain("t??=Ei();");
+  });
+});
+
+describe("Cloudflare module preset stubs", () => {
+  it("intercepts only the edge-incompatible package roots", async () => {
+    const plugin = createCloudflareModuleStubPlugin();
+    const sentryStub = plugin.resolveId("@sentry/node");
+
+    expect(CLOUDFLARE_MODULE_STUB_MODULES).toContain("@sentry/node");
+    expect(sentryStub).toMatch(/^\0agent-native-cloudflare-module-stub:/);
+    expect(plugin.load(sentryStub as string)).toContain("captureException");
+    expect(plugin.resolveId("@sentry/node/internals")).toBeNull();
+    expect(plugin.resolveId("@anthropic-ai/sdk")).toBeNull();
   });
 });
 
@@ -1207,6 +1301,41 @@ describe("sanitizeServerlessFunctionPackageManifest", () => {
   });
 });
 
+describe("isServerlessNativePlatformPackage", () => {
+  it("keeps only the 64-bit Linux prebuilds a serverless function can run", () => {
+    const kept = [
+      "linux-x64-gnu",
+      "linux-x64-musl",
+      "linux-arm64-gnu",
+      "linux-arm64-musl",
+      "resvg-js-linux-x64-gnu",
+      "resvg-js-linux-arm64-musl",
+    ];
+    const dropped = [
+      "darwin-arm64",
+      "darwin-x64",
+      "win32-x64-msvc",
+      "linux-arm-gnueabihf",
+      "linux-arm-musleabihf",
+      "resvg-js-darwin-x64",
+      "resvg-js-win32-ia32-msvc",
+      "resvg-js-android-arm64",
+      "resvg-js-linux-arm-gnueabihf",
+    ];
+
+    for (const name of kept) {
+      expect(isServerlessNativePlatformPackage(name)).toBe(true);
+    }
+    for (const name of dropped) {
+      expect(isServerlessNativePlatformPackage(name)).toBe(false);
+    }
+  });
+
+  it("does not classify the resvg JS wrapper as a platform prebuild", () => {
+    expect(isServerlessNativePlatformPackage("resvg-js")).toBe(false);
+  });
+});
+
 describe("findInstalledResvgPackages", () => {
   const dirs: string[] = [];
 
@@ -2113,6 +2242,7 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     );
     const collabChunk = path.join(serverDir, "_chunks", "collab.mjs");
     const editorChunk = path.join(serverDir, "_chunks", "editor.mjs");
+    const nitroChunk = path.join(serverDir, "_chunks", "nitro-yjs.mjs");
     fs.mkdirSync(path.dirname(collabChunk), { recursive: true });
     fs.writeFileSync(
       collabChunk,
@@ -2121,6 +2251,10 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     fs.writeFileSync(
       editorChunk,
       'import { Text, UndoManager } from "yjs";\nexport { Text, UndoManager };\n',
+    );
+    fs.writeFileSync(
+      nitroChunk,
+      'import { Text } from "../_libs/yjs.mjs";\nexport { Text };\n',
     );
 
     expect(bundleYjsRuntimeForServerlessOutput(serverDir, cwd)).toEqual([
@@ -2137,6 +2271,9 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
       'from "../_libs/yjs-runtime.mjs"',
     );
     expect(fs.readFileSync(editorChunk, "utf-8")).toContain(
+      'from "../_libs/yjs-runtime.mjs"',
+    );
+    expect(fs.readFileSync(nitroChunk, "utf-8")).toContain(
       'from "../_libs/yjs-runtime.mjs"',
     );
     const [collab, editor] = await Promise.all([

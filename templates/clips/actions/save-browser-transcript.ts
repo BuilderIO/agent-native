@@ -153,6 +153,18 @@ export default defineAction({
       };
     }
 
+    // Text plus a failure reason means capture died partway (a Web Speech
+    // session that could not restart, a revoked mic). Keep the partial text,
+    // but never mark it `ready`: that is the terminal state every preserve
+    // guard checks, so a three-line partial would permanently suppress the
+    // Builder fallback that can still transcribe the whole recording.
+    // `failed` rather than `pending`/`streaming` — a fresh pending row makes
+    // finalization's own transcript job skip itself as already-pending, and a
+    // perpetual streaming row reads as normal progress that never resolves.
+    const truncated = Boolean(failureReason);
+    const savedStatus = truncated ? ("failed" as const) : ("ready" as const);
+    const savedFailureReason = truncated ? failureReason : null;
+
     if (current) {
       // Don't overwrite an already-segmented cloud/native transcript with a
       // later lower-confidence native pass — UNLESS the caller owns this
@@ -172,8 +184,8 @@ export default defineAction({
           ownerEmail,
           fullText,
           segmentsJson,
-          status: "ready",
-          failureReason: null,
+          status: savedStatus,
+          failureReason: savedFailureReason,
           updatedAt: now,
         })
         .where(eq(schema.recordingTranscripts.recordingId, args.recordingId));
@@ -184,15 +196,17 @@ export default defineAction({
         language: "en",
         segmentsJson,
         fullText,
-        status: "ready",
-        failureReason: null,
+        status: savedStatus,
+        failureReason: savedFailureReason,
         createdAt: now,
         updatedAt: now,
       });
     }
 
     console.log(
-      `[clips] Native transcript saved for ${args.recordingId} via ${args.source ?? "web-speech"} (${fullText.length} chars)`,
+      truncated
+        ? `[clips] Partial native transcript saved for ${args.recordingId} via ${args.source ?? "web-speech"} (${fullText.length} chars); Builder fallback will retranscribe: ${failureReason}`
+        : `[clips] Native transcript saved for ${args.recordingId} via ${args.source ?? "web-speech"} (${fullText.length} chars)`,
     );
 
     await writeAppState("refresh-signal", { ts: Date.now() });
@@ -212,7 +226,13 @@ export default defineAction({
       rec && isAutoTitleReplaceable(rec.title, rec.titleSource)
     );
     const summaryQueued = Boolean(rec && !rec.description?.trim());
-    if (rec?.status === "ready" && (titleQueued || summaryQueued)) {
+    // A truncated capture dispatches too: the transcript job is what runs the
+    // Builder fallback, and it must not be skipped just because this clip
+    // already has a title and summary.
+    if (
+      rec?.status === "ready" &&
+      (truncated || titleQueued || summaryQueued)
+    ) {
       await dispatchPostFinalizeJob({
         recordingId: args.recordingId,
         kind: "transcript",
@@ -226,9 +246,10 @@ export default defineAction({
 
     return {
       recordingId: args.recordingId,
-      status: "ready" as const,
+      status: savedStatus,
       provider: args.source ?? "web-speech",
       chars: fullText.length,
+      truncated,
       titleQueued,
       summaryQueued,
     };
