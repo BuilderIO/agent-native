@@ -5,7 +5,7 @@ description: "agent-native template 使用針對純淨基線的、真正逐檔�
 
 # 同步範本變更
 
-`agent-native create` 會將第一方範本複製到您的應用程式中，然後使其成為您自己的——取代應用程式名稱、重新命名 `_gitignore`、重寫 `package.json`、將 `workspace:*` 和 `catalog:` 相依性固定為具體版本，並且（在工作區中）替換繼承的驗證和聊天外掛。從那一刻起，該應用程式就是一個分支（fork）。上游範本中落地的修正和改進不會傳達到它。
+`agent-native create` 會將第一方範本複製到您的應用程式中，然後使其成為您自己的——取代應用程式名稱、重新命名 `_gitignore`、重寫 `package.json`、將 `workspace:*` 和 `catalog:` 相依性固定為具體版本，並且（在工作區中）替換繼承的驗證和聊天外掛。從那一刻起，該應用程式就是從範本建立的獨立 app。上游範本中落地的修正和改進不會傳達到它。
 
 `agent-native upgrade` 不會彌補這個差距。它移動套件版本、執行匯入程式碼遷移（codemods），並重新整理 skill 目錄——它永遠不會觸碰從範本中複製出來的檔案。
 

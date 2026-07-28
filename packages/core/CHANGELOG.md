@@ -1,5 +1,33 @@
 # @agent-native/core
 
+## 0.125.0
+
+### Minor Changes
+
+- c7ed52a: Add an optional `brandLogoUrl` to `renderEmail` and a `getShareEmailLogoUrl` resolver on `registerShareableResource`, so share-notification emails show the sharing org's logo (absolute `https://`) when available and fall back to the embedded Agent Native logo otherwise.
+
+## 0.124.6
+
+### Patch Changes
+
+- ac8794b: Clarify credential resolver organization scope in generated workspace guidance.
+
+## 0.124.5
+
+### Patch Changes
+
+- fc5f2db: Extract picture shape size and slide dimensions when parsing PPTX files, so importers can tell a full-bleed cover photo from a small inset image and preserve each image's real aspect ratio.
+
+## 0.124.4
+
+### Patch Changes
+
+- c849ba0: Recover clicked routes in the desktop app when a stale lazy route chunk is encountered.
+- c849ba0: Label final-response-guard corrective retries as framework directives. They are
+  appended as user-role messages, so an unlabeled one reads like an injected user
+  turn — models were refusing them out loud to the real user ("this message looks
+  like a prompt injection attempt") instead of revising the draft.
+
 ## 0.124.3
 
 ### Patch Changes

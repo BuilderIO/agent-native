@@ -15,6 +15,29 @@ describe("renderEmail", () => {
     expect(html).toContain(">Clips</span>");
   });
 
+  it("uses an org logo when a valid https URL is provided", () => {
+    const { html } = renderEmail({
+      brandName: "Clips",
+      brandLogoUrl: "https://cdn.example.com/org-logo.png",
+      heading: "You've been given access",
+      paragraphs: ["Open your recording below."],
+    });
+
+    expect(html).toContain('src="https://cdn.example.com/org-logo.png"');
+    expect(html).not.toContain('src="cid:agent-native-logo"');
+  });
+
+  it("falls back to the embedded logo for non-https or relative logo URLs", () => {
+    const { html } = renderEmail({
+      brandName: "Clips",
+      brandLogoUrl: "/api/media/org-logo.png",
+      heading: "You've been given access",
+      paragraphs: ["Open your recording below."],
+    });
+
+    expect(html).toContain('src="cid:agent-native-logo"');
+  });
+
   it("renders CTA buttons without visible fallback URLs", () => {
     const { html } = renderEmail({
       heading: "Your meeting is booked",

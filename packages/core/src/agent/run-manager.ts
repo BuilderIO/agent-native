@@ -348,6 +348,8 @@ function shouldCaptureRunError(err: unknown): boolean {
 }
 
 export interface StartRunOptions {
+  /** Keep a request-scoped serverless invocation alive for this run. */
+  waitUntil?: (promise: Promise<unknown>) => void;
   /** Optional internal run chunk budget. When reached, the framework emits an
    * auto-continuation signal instead of a user-facing timeout. Leave unset for
    * no framework-imposed run timeout. */
@@ -1344,19 +1346,10 @@ export function startRun(
     });
   runPromise.then(resolveFinalized, rejectFinalized);
 
-  // On Cloudflare Workers, keep the isolate alive for this run
-  try {
-    const cfCtx = (
-      globalThis as typeof globalThis & {
-        __cf_ctx?: { waitUntil(promise: Promise<unknown>): void };
-      }
-    ).__cf_ctx;
-    if (cfCtx?.waitUntil) {
-      cfCtx.waitUntil(runPromise);
-    }
-  } catch {
-    // Not on Workers — ignore
-  }
+  // Keep the originating request alive when its runtime supports background
+  // work. The callback is passed through request context so concurrent Worker
+  // requests cannot overwrite one another through a global binding.
+  options?.waitUntil?.(runPromise);
 
   return run;
 }

@@ -5,7 +5,7 @@ description: "agent-native template zieht spätere Upstream-Änderungen an Ersta
 
 # Vorlagenänderungen synchronisieren
 
-`agent-native create` kopiert eine Erstanbieter-Vorlage in Ihre App und macht sie dann zu Ihrer eigenen – der App-Name wird ersetzt, `_gitignore` umbenannt, `package.json` neu geschrieben, `workspace:*`- und `catalog:`-Abhängigkeiten auf konkrete Versionen festgelegt und (in einem Arbeitsbereich) geerbte Auth- und Chat-Plugins eingesetzt. Von diesem Moment an ist die App ein Fork. Fixes und Verbesserungen, die im Upstream der Vorlage landen, erreichen sie nicht mehr.
+`agent-native create` kopiert eine Erstanbieter-Vorlage in Ihre App und macht sie dann zu Ihrer eigenen – der App-Name wird ersetzt, `_gitignore` umbenannt, `package.json` neu geschrieben, `workspace:*`- und `catalog:`-Abhängigkeiten auf konkrete Versionen festgelegt und (in einem Arbeitsbereich) geerbte Auth- und Chat-Plugins eingesetzt. Von diesem Moment an ist die App eine unabhängige, aus der Vorlage erstellte App. Fixes und Verbesserungen, die im Upstream der Vorlage landen, erreichen sie nicht mehr.
 
 `agent-native upgrade` schließt diese Lücke nicht. Es aktualisiert Paketversionen, führt Import-Codemods aus und aktualisiert skills-Verzeichnisse – es rührt niemals eine Datei an, die aus einer Vorlage kopiert wurde.
 

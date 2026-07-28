@@ -65,11 +65,11 @@ export interface DbExecConfig {
 /** Read the request-scoped Cloudflare binding without requiring every
  * consuming app's TypeScript program to include core's ambient Worker globals. */
 export function getCloudflareD1Binding(): unknown {
-  return (
-    globalThis as typeof globalThis & {
-      __cf_env?: { DB?: unknown };
-    }
-  ).__cf_env?.DB;
+  const runtime = globalThis as typeof globalThis & {
+    __cf_env?: { DB?: unknown };
+    __env__?: { DB?: unknown };
+  };
+  return runtime.__cf_env?.DB ?? runtime.__env__?.DB;
 }
 
 // ---------------------------------------------------------------------------
@@ -451,7 +451,8 @@ export function getDialect(): Dialect {
     return _dialect;
   }
 
-  // Don't cache the fallthrough — on CF Workers, env bindings (__cf_env) aren't
+  // Don't cache the fallthrough — on CF Workers, env bindings (__cf_env/__env__)
+  // aren't
   // available at import time. If we cache "sqlite" here, D1 will never be
   // detected once the bindings are set in the fetch handler.
   return "sqlite";
