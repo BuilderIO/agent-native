@@ -974,10 +974,9 @@ describe("Builder CMS read client", () => {
         };
       };
       if (body.method === "server/discover") {
-        expect(init?.headers).toMatchObject({
-          "mcp-method": "server/discover",
-          "mcp-protocol-version": "2026-07-28",
-        });
+        expect(init?.headers).not.toHaveProperty("mcp-method");
+        expect(init?.headers).not.toHaveProperty("mcp-protocol-version");
+        expect(body.params).toEqual({});
         return new Response(
           JSON.stringify({
             jsonrpc: "2.0",
@@ -1035,6 +1034,65 @@ describe("Builder CMS read client", () => {
       partial: false,
       readMode: "mcp",
     });
+  });
+
+  it("falls back to the 2024 MCP protocol when 2025 initialize is rejected", async () => {
+    resolveBuilderCredentialMock.mockImplementation(async (key) =>
+      key === "BUILDER_PRIVATE_KEY" ? "private-key" : null,
+    );
+    const initializeVersions: string[] = [];
+    const fetchImpl = vi.fn(async (_input: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as {
+        method: string;
+        params?: {
+          protocolVersion?: string;
+          _meta?: Record<string, unknown>;
+          name?: string;
+        };
+      };
+      const headers = init?.headers as Record<string, string>;
+      if (body.method === "server/discover") {
+        expect(headers).not.toHaveProperty("mcp-method");
+        expect(headers).not.toHaveProperty("mcp-protocol-version");
+        expect(body.params?._meta).toBeUndefined();
+        return new Response("not found", { status: 404 });
+      }
+      if (body.method === "initialize") {
+        const protocolVersion = String(body.params?.protocolVersion);
+        initializeVersions.push(protocolVersion);
+        if (protocolVersion === "2025-11-25") {
+          return new Response("unsupported protocol", { status: 400 });
+        }
+        return new Response(JSON.stringify({ jsonrpc: "2.0", result: {} }), {
+          status: 200,
+          headers: { "mcp-session-id": "legacy-session" },
+        });
+      }
+      if (body.method === "notifications/initialized") {
+        expect(headers["mcp-session-id"]).toBe("legacy-session");
+        return new Response(JSON.stringify({ jsonrpc: "2.0", result: {} }), {
+          status: 200,
+        });
+      }
+      expect(headers["mcp-session-id"]).toBe("legacy-session");
+      expect(headers).not.toHaveProperty("mcp-protocol-version");
+      return new Response(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          result: {
+            content: [{ type: "text", text: JSON.stringify({ models: [] }) }],
+          },
+        }),
+        { status: 200 },
+      );
+    });
+
+    await expect(
+      listBuilderCmsModels({
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).resolves.toMatchObject({ state: "live", models: [] });
+    expect(initializeVersions).toEqual(["2025-11-25", "2024-11-05"]);
   });
 
   it("retries transient Content API failures", async () => {

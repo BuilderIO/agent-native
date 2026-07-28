@@ -340,7 +340,7 @@ describe("MCP OAuth client", () => {
     );
   });
 
-  it("does not refresh credentials missing an issuer binding", async () => {
+  it("requires reauthorization for expiring legacy credentials without issuer binding", async () => {
     getOAuthTokensMock.mockResolvedValueOnce({
       ...credentials,
       clientInformation: {
@@ -356,8 +356,46 @@ describe("MCP OAuth client", () => {
         scopeId: "alice@example.com",
         serverUrl: "https://mcp.example.com/mcp",
       }),
-    ).resolves.toBe("<ACCESS_TOKEN>");
+    ).resolves.toBeNull();
     expect(refreshAuthorizationMock).not.toHaveBeenCalled();
+  });
+
+  it("does not return an expired token when refresh fails", async () => {
+    getOAuthTokensMock.mockResolvedValueOnce({
+      ...credentials,
+      tokenExpiresAt: Date.now() - 1,
+    });
+    refreshAuthorizationMock.mockRejectedValueOnce(
+      new Error("authorization server unavailable"),
+    );
+
+    await expect(
+      getMcpOAuthAccessToken({
+        key: "mcp_oauth:test",
+        scope: "user",
+        scopeId: "alice@example.com",
+        serverUrl: "https://mcp.example.com/mcp",
+      }),
+    ).resolves.toBeNull();
+  });
+
+  it("keeps a still-valid token when an early refresh fails", async () => {
+    getOAuthTokensMock.mockResolvedValueOnce({
+      ...credentials,
+      tokenExpiresAt: Date.now() + 30_000,
+    });
+    refreshAuthorizationMock.mockRejectedValueOnce(
+      new Error("authorization server unavailable"),
+    );
+
+    await expect(
+      getMcpOAuthAccessToken({
+        key: "mcp_oauth:test",
+        scope: "user",
+        scopeId: "alice@example.com",
+        serverUrl: "https://mcp.example.com/mcp",
+      }),
+    ).resolves.toBe("<ACCESS_TOKEN>");
   });
 
   it("rejects malformed stored bundles", async () => {

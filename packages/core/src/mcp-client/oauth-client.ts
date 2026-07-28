@@ -486,17 +486,19 @@ export async function getMcpOAuthAccessToken(options: {
   if (!credentials || credentials.serverUrl !== options.serverUrl) return null;
 
   const accessToken = credentials.tokens.access_token;
+  const now = Date.now();
   if (
     typeof credentials.tokenExpiresAt !== "number" ||
-    credentials.tokenExpiresAt - Date.now() > TOKEN_EXPIRY_SKEW_MS
+    credentials.tokenExpiresAt - now > TOKEN_EXPIRY_SKEW_MS
   ) {
     return accessToken;
   }
+  const tokenIsExpired = credentials.tokenExpiresAt <= now;
 
   const refreshToken = credentials.tokens.refresh_token;
   const discovery = credentials.discoveryState;
   if (!refreshToken || !discovery?.authorizationServerUrl) {
-    return accessToken;
+    return tokenIsExpired ? null : accessToken;
   }
 
   try {
@@ -506,7 +508,7 @@ export async function getMcpOAuthAccessToken(options: {
       credentials.clientInformation.issuer !== expectedIssuer ||
       credentials.tokens.issuer !== expectedIssuer
     ) {
-      return accessToken;
+      return null;
     }
     const resource = discovery.resourceMetadata?.resource
       ? checkedRemoteUrl(discovery.resourceMetadata.resource, "resource")
@@ -543,9 +545,9 @@ export async function getMcpOAuthAccessToken(options: {
     });
     return nextTokens.access_token;
   } catch {
-    // Keep the old token so the MCP request can return the provider's normal
-    // auth error. A single expired connector must not remove every server from
-    // the process-wide manager during a config refresh.
-    return accessToken;
+    // A still-valid token can survive a transient refresh failure. Once it has
+    // expired, omit it so callers surface reauthorization instead of retrying
+    // a credential that can never authenticate.
+    return tokenIsExpired ? null : accessToken;
   }
 }

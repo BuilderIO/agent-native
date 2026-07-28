@@ -243,7 +243,7 @@ async function postBuilderMcp(args: {
 }
 
 interface BuilderMcpConnection {
-  protocolVersion: "2026-07-28" | "2025-11-25";
+  protocolVersion: "2026-07-28" | "2025-11-25" | "2024-11-05";
   sessionId: string | null;
 }
 
@@ -290,7 +290,6 @@ async function initializeBuilderMcp(args: {
       endpoint: args.endpoint,
       privateKey: args.privateKey,
       fetchImpl: args.fetchImpl,
-      modernClientName: "agent-native-content-builder-mdx",
       payload: {
         jsonrpc: "2.0",
         id: 1,
@@ -321,42 +320,63 @@ async function initializeBuilderMcp(args: {
       throw error;
     }
   }
-  const initialized = await postBuilderMcp({
-    endpoint: args.endpoint,
-    privateKey: args.privateKey,
-    fetchImpl: args.fetchImpl,
-    payload: {
-      jsonrpc: "2.0",
-      id: 1,
-      method: "initialize",
-      params: {
-        protocolVersion: "2025-11-25",
-        capabilities: {},
-        clientInfo: {
-          name: "agent-native-content-builder-mdx",
-          version: "0.1.0",
-        },
-      },
-    },
-  });
-  const sessionId = initialized.sessionId;
-  if (sessionId) {
-    await postBuilderMcp({
+
+  const initializeLegacyProtocol = async (
+    protocolVersion: "2025-11-25" | "2024-11-05",
+  ) => {
+    const initialized = await postBuilderMcp({
       endpoint: args.endpoint,
       privateKey: args.privateKey,
       fetchImpl: args.fetchImpl,
-      connection: { protocolVersion: "2025-11-25", sessionId },
       payload: {
         jsonrpc: "2.0",
-        method: "notifications/initialized",
-        params: {},
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion,
+          capabilities: {},
+          clientInfo: {
+            name: "agent-native-content-builder-mdx",
+            version: "0.1.0",
+          },
+        },
       },
-    }).catch(() => null);
+    });
+    if (initialized.json.error) {
+      throw new Error(
+        `Builder MCP initialize rejected protocol ${protocolVersion}.`,
+      );
+    }
+    const sessionId = initialized.sessionId;
+    if (sessionId) {
+      await postBuilderMcp({
+        endpoint: args.endpoint,
+        privateKey: args.privateKey,
+        fetchImpl: args.fetchImpl,
+        connection: { protocolVersion, sessionId },
+        payload: {
+          jsonrpc: "2.0",
+          method: "notifications/initialized",
+          params: {},
+        },
+      }).catch(() => null);
+    }
+    return {
+      protocolVersion,
+      sessionId,
+    } satisfies BuilderMcpConnection;
+  };
+
+  try {
+    return await initializeLegacyProtocol("2025-11-25");
+  } catch (error) {
+    const isProtocolRejection =
+      error instanceof Error &&
+      (/HTTP (?:400|404|405|422)\./.test(error.message) ||
+        error.message.includes("initialize rejected protocol"));
+    if (!isProtocolRejection) throw error;
+    return await initializeLegacyProtocol("2024-11-05");
   }
-  return {
-    protocolVersion: "2025-11-25",
-    sessionId,
-  } satisfies BuilderMcpConnection;
 }
 
 function fullEntryFromToolResponse(value: unknown, model: string) {
