@@ -1,0 +1,130 @@
+Agent Native
+Template engagement and per-app activity recorded through analytics.agent-native.com/track. Source: first-party analytics_events.
+Tue, 28 Jul 2026 05:04:05 GMT
+timeRange: 30d · emailFilter: all
+
+Signed-In Daily Active Visitors by Template: chart attached (Distinct signed-in browser identities per day, stacked by inferred template/app. Docs traffic is excluded. This is signed-in activity, not true account-level DAU, until session telemetry includes account identity.)
+Signed-In Weekly Active Visitors by Template: chart attached (Trailing 7-day distinct signed-in browser identities for each active date, stacked by inferred template/app. Docs traffic is excluded. This is signed-in activity, not true account-level WAU, until session telemetry includes account identity.)
+New vs Recurring Signed-In Users Over Time: chart attached (Daily signed-in visitors split by first active day observed in the previous 365 days (New) vs return visit (Recurring), stacked with Recurring on the bottom and New on top. Docs excluded.)
+7d Rolling Signed-In Return Rate: chart attached (Trailing 7-day cohorts whose first signed-in app session was observed in the previous 365 days, keyed by browser identity. Counts returns within 1-7d and 7-14d windows. Docs traffic is excluded; windows under 5 identities are hidden.)
+7-14d Signed-In Return by Starting Template: chart attached (Selected-range signed-in cohorts by the browser identity's first non-docs app/template observed in the previous 365 days. Counts returns to any non-docs app within 7-14 days. Templates with fewer than 20 mature cohort identities are hidden.)
+Recurring Signed-In Users by Template: chart attached (Daily signed-in visitors who are not on their first active day observed in the previous 365 days, stacked by inferred template/app used that day. Docs traffic and unknown template are excluded.)
+Recurring Signed-In Users by Template (Bar): chart attached (Weekly distinct signed-in visitors who are not on their first active day observed in the previous 365 days, stacked by inferred template/app used that week. Weeks start Monday; docs traffic and unknown template are excluded.)
+Signups Over Time: chart attached (Daily signup events stacked by inferred template/app.)
+Signups by Template: chart attached (Signup events grouped by inferred template/app.)
+Try-Demo Clicks Over Time: chart attached
+Template Interest Over Time: chart attached
+Pageviews Over Time: chart attached (Pageview events per day stacked by inferred template/app.)
+CLI Copies Over Time: chart attached
+Signed-In vs Anonymous Sessions: chart attached (true = signed in, false = anonymous. Best proxy for total signups per period (still includes returning users).)
+Sessions Over Time: chart attached
+Sessions by Agent-Native App: chart attached (Per-template-site session activity (mail, calendar, slides, ...). Each tab fires session status once.)
+Top Visited URLs
+URL | Views | Users | Last seen
+https://www.agent-native.com/ | 9948 | 7111 | Jul 28, 2026
+https://clips.agent-native.com/library | 7739 | 2315 | Jul 28, 2026
+https://www.agent-native.com/docs/template-plan | 4738 | 3167 | Jul 28, 2026
+https://www.agent-native.com/apps | 4698 | 2880 | Jul 28, 2026
+https://www.agent-native.com/docs | 4034 | 2522 | Jul 28, 2026
+https://plan.agent-native.com/plans | 3548 | 1586 | Jul 28, 2026
+https://plan.agent-native.com/ | 3132 | 1864 | Jul 28, 2026
+https://clips.agent-native.com/record | 2596 | 946 | Jul 28, 2026
+https://plan.agent-native.com/settings | 2225 | 664 | Jul 28, 2026
+https://design.agent-native.com/ | 1575 | 580 | Jul 28, 2026
+https://analytics.agent-native.com/ask | 1463 | 671 | Jul 28, 2026
+https://clips.agent-native.com/settings | 1293 | 374 | Jul 28, 2026
+https://design.agent-native.com/design/6wWOOE5TYVxfM_T5eVadM | 1236 | 4 | Jul 21, 2026
+https://www.agent-native.com/apps/clips | 1071 | 885 | Jul 28, 2026
+https://www.agent-native.com/apps/plan | 1041 | 880 | Jul 28, 2026
+https://www.agent-native.com/docs/what-is-agent-native | 1032 | 762 | Jul 28, 2026
+https://www.agent-native.com/skills | 1007 | 740 | Jul 28, 2026
+https://slides.agent-native.com/ | 928 | 310 | Jul 28, 2026
+https://www.agent-native.com/templates | 787 | 546 | Jul 14, 2026
+https://design.agent-native.com/design/dS-qH0m3xtypkz65lS6Bh | 753 | 2 | Jul 6, 2026
+https://slides.agent-native.com/deck/deck-1784302911754-vmo8k | 741 | 5 | Jul 21, 2026
+https://www.agent-native.com/docs/template-clips | 711 | 481 | Jul 28, 2026
+https://www.agent-native.com/docs/pr-visual-recap | 697 | 501 | Jul 28, 2026
+https://design.agent-native.com/design/kkfRbdVco5Jji2DenjkVF | 638 | 2 | Jul 7, 2026
+https://content.agent-native.com/ | 605 | 343 | Jul 28, 2026
+Top Visited Clips
+Clip URL | Views | Users | Last seen
+3Co5gBqWezvM | 29 | 1 | Jul 20, 2026
+1W4QSLdvWtoa | 21 | 4 | Jul 20, 2026
+7Nd4WEDraQsW | 16 | 2 | Jul 20, 2026
+QUAHaMyTVlMH | 14 | 2 | Jul 21, 2026
+tGpjIcv87xk5 | 13 | 3 | Jul 16, 2026
+7pVNhO2JHnov | 13 | 5 | Jul 17, 2026
+IfPKERU0mHZS | 11 | 7 | Jul 1, 2026
+zPnrlrcV4wp6 | 11 | 4 | Jul 26, 2026
+1Tw00nSZpPcz | 11 | 4 | Jul 21, 2026
+bo8BpVfBGfkE | 11 | 6 | Jul 22, 2026
+B841x2hgZ22p | 11 | 6 | Jul 20, 2026
+sSctJUogL0KY | 11 | 2 | Jul 20, 2026
+OehCkOX8IX5C | 9 | 3 | Jul 14, 2026
+wkOizclAYE76 | 8 | 2 | Jul 26, 2026
+0aTOKb4ZNnY3 | 8 | 3 | Jul 23, 2026
+pq26l3U20584 | 8 | 6 | Jul 21, 2026
+QOjv2YSBc18a | 8 | 1 | Jul 17, 2026
+PVXkCpAuUo5m | 8 | 2 | Jul 15, 2026
+3NZ4fbv1Y76t | 8 | 3 | Jul 26, 2026
+ebDn5sYVlFgs | 8 | 4 | Jul 19, 2026
+BFO0TeMPT1PE | 7 | 2 | Jul 17, 2026
+c7PYgKW724VP | 7 | 6 | Jul 9, 2026
+K8u8c4mA3kAt | 7 | 5 | Jul 1, 2026
+MQsuskrPPnXz | 7 | 5 | Jul 13, 2026
+gRBL2BjnjJlj | 7 | 4 | Jul 16, 2026
+Top Referrer Domains
+Referrer domain | Visits | Users
+github.com | 13943 | 5309
+www.google.com | 777 | 385
+www.builder.io | 532 | 243
+www.youtube.com | 498 | 344
+www.agent-native.com | 425 | 160
+t.co | 300 | 162
+search.brave.com | 148 | 47
+android-app: | 113 | 68
+chromewebstore.google.com | 110 | 51
+teams.public.onecdn.static.microsoft | 105 | 53
+www.linkedin.com | 98 | 69
+claude.ai | 81 | 42
+www.nocodesupply.co | 71 | 39
+analytics.agent-native.com | 65 | 11
+localhost:8080 | 64 | 42
+chatgpt.com | 63 | 34
+gemini.google.com | 61 | 26
+statics.teams.cdn.office.net | 49 | 27
+duckduckgo.com | 46 | 22
+localhost:8081 | 44 | 7
+
+== Signed-In Retention & Activity ==
+Signed-in app session return-rate and active visitor trends. Docs traffic is excluded; overall return rate uses rolling cohorts, while per-template return rates are selected-range cohort aggregates.
+Clip-Share Signups (30d)
+26
+Referred Signups (30d)
+792
+Viral Signup Share (30d)
+20.91%
+Repeat Signed-In Visitors
+1,208
+1-7d Signed-In Return by Starting Template: chart attached (Selected-range signed-in cohorts by the browser identity's first non-docs app/template observed in the previous 365 days. Counts returns to any non-docs app within 1-7 days. Templates with fewer than 20 mature cohort identities are hidden.)
+Signups by Referral Source (90d): chart attached (Signups grouped by referral_source over the window. Null/empty sources are bucketed as direct.)
+Referred Signups Over Time (90d): chart attached (Daily referred (non-direct) signups over the window.)
+Top Referral Sources
+Referral source | Signups
+direct | 2996
+external | 619
+plan_share | 147
+clip_share | 26
+Share Funnel (30d): chart attached (View to click to signup funnel for shared surfaces over the window: share_view, share_cta_click, then clip_share signups.)
+Viral Coefficient K (90d)
+0.17
+Viral Participation Rate (90d)
+3.94%
+Active Sharers (90d)
+212
+LLM Feedback Sentiment by Model: chart attached (Explicit thumbs-up and thumbs-down responses grouped by the model that generated the rated response.)
+Inferred Message Sentiment (30d): chart attached (Optional LLM-inferred positive, neutral, and negative message classifications over the last 30 days. This is separate from explicit thumbs feedback.)
+Agent-Native Growth: Extension panels only render in the live dashboard — https://analytics.agent-native.com/dashboards/agent-native-templates-first-party?f_timeRange=30d&f_emailFilter=all
+
+Dashboard: https://analytics.agent-native.com/dashboards/agent-native-templates-first-party?f_timeRange=30d&f_emailFilter=all
+Manage this report: https://analytics.agent-native.com/dashboards/agent-native-templates-first-party?f_timeRange=30d&f_emailFilter=all&reportSettings=1
