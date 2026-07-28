@@ -893,6 +893,9 @@ const enUS = {
     sharedCredentials: "Shared credentials: {{credentials}}",
     ready: "Ready",
     notConfigured: "Not configured",
+    statusUnknown: "Couldn't check connection status",
+    statusUnknownDescription:
+      "The connection status couldn't be read, so this source may already be connected. Reload to check again before adding credentials.",
     back: "Back",
     continue: "Continue",
     saveCredentials: "Save Credentials",
@@ -1356,6 +1359,9 @@ const analyticsSliceTranslations: {
       sharedCredentials: "共享凭证：{{credentials}}",
       ready: "准备好",
       notConfigured: "未配置",
+      statusUnknown: "无法检查连接状态",
+      statusUnknownDescription:
+        "无法读取连接状态，此数据源可能已连接。请重新加载页面确认后再添加凭据。",
       back: "后退",
       continue: "继续",
       saveCredentials: "保存凭证",
@@ -1648,6 +1654,9 @@ const analyticsSliceTranslations: {
       sharedCredentials: "Credenciales compartidas: {{credentials}}",
       ready: "Listo",
       notConfigured: "No configurado",
+      statusUnknown: "No se pudo comprobar el estado de la conexión",
+      statusUnknownDescription:
+        "No se pudo leer el estado de la conexión, así que esta fuente puede estar ya conectada. Vuelve a cargar la página para comprobarlo antes de añadir credenciales.",
       back: "Atrás",
       continue: "Continuar",
       saveCredentials: "Guardar credenciales",
@@ -1957,6 +1966,9 @@ const analyticsSliceTranslations: {
       sharedCredentials: "Identifiants partagés : {{credentials}}",
       ready: "Prêt",
       notConfigured: "Non configuré",
+      statusUnknown: "Impossible de vérifier l'état de la connexion",
+      statusUnknownDescription:
+        "L'état de la connexion n'a pas pu être lu ; cette source est peut-être déjà connectée. Rechargez la page pour vérifier avant d'ajouter des identifiants.",
       back: "Dos",
       continue: "Continuer",
       saveCredentials: "Enregistrer les informations d'identification",
@@ -2264,6 +2276,9 @@ const analyticsSliceTranslations: {
       sharedCredentials: "Gemeinsame Anmeldeinformationen: {{credentials}}",
       ready: "Bereit",
       notConfigured: "Nicht konfiguriert",
+      statusUnknown: "Verbindungsstatus konnte nicht geprüft werden",
+      statusUnknownDescription:
+        "Der Verbindungsstatus konnte nicht gelesen werden, diese Quelle ist möglicherweise bereits verbunden. Lade die Seite neu, um erneut zu prüfen, bevor du Zugangsdaten hinzufügst.",
       back: "Zurück",
       continue: "Weitermachen",
       saveCredentials: "Anmeldeinformationen speichern",
@@ -2568,6 +2583,9 @@ const analyticsSliceTranslations: {
       sharedCredentials: "共有資格情報: {{credentials}}",
       ready: "準備ができて",
       notConfigured: "未設定",
+      statusUnknown: "接続状態を確認できませんでした",
+      statusUnknownDescription:
+        "接続状態を読み取れなかったため、このソースはすでに接続されている可能性があります。認証情報を追加する前に、再読み込みして確認してください。",
       back: "戻る",
       continue: "続く",
       saveCredentials: "認証情報の保存",
@@ -2867,6 +2885,9 @@ const analyticsSliceTranslations: {
       sharedCredentials: "공유 자격 증명: {{credentials}}",
       ready: "준비가 된",
       notConfigured: "구성되지 않음",
+      statusUnknown: "연결 상태를 확인할 수 없습니다",
+      statusUnknownDescription:
+        "연결 상태를 읽을 수 없어 이 소스가 이미 연결되어 있을 수 있습니다. 자격 증명을 추가하기 전에 새로 고쳐 다시 확인하세요.",
       back: "뒤쪽에",
       continue: "계속하다",
       saveCredentials: "자격 증명 저장",
@@ -3163,6 +3184,9 @@ const analyticsSliceTranslations: {
       sharedCredentials: "Credenciais compartilhadas: {{credentials}}",
       ready: "Preparar",
       notConfigured: "Não configurado",
+      statusUnknown: "Não foi possível verificar o status da conexão",
+      statusUnknownDescription:
+        "Não foi possível ler o status da conexão, então esta fonte pode já estar conectada. Recarregue a página para verificar antes de adicionar credenciais.",
       back: "Voltar",
       continue: "Continuar",
       saveCredentials: "Salvar credenciais",
@@ -3464,6 +3488,9 @@ const analyticsSliceTranslations: {
       sharedCredentials: "साझा क्रेडेंशियल: {{credentials}}",
       ready: "तैयार",
       notConfigured: "कॉन्फ़िगर नहीं किया गया",
+      statusUnknown: "कनेक्शन स्थिति जाँची नहीं जा सकी",
+      statusUnknownDescription:
+        "कनेक्शन स्थिति पढ़ी नहीं जा सकी, इसलिए हो सकता है कि यह स्रोत पहले से जुड़ा हो। क्रेडेंशियल जोड़ने से पहले पेज फिर से लोड करके जाँचें।",
       back: "पीछे",
       continue: "जारी रखना",
       saveCredentials: "क्रेडेंशियल सहेजें",
@@ -3756,6 +3783,9 @@ const analyticsSliceTranslations: {
       sharedCredentials: "بيانات الاعتماد المشتركة: {{credentials}}",
       ready: "مستعد",
       notConfigured: "لم يتم تكوينه",
+      statusUnknown: "تعذّر التحقق من حالة الاتصال",
+      statusUnknownDescription:
+        "تعذّرت قراءة حالة الاتصال، لذا قد يكون هذا المصدر متصلاً بالفعل. أعد تحميل الصفحة للتحقق قبل إضافة بيانات الاعتماد.",
       back: "خلف",
       continue: "يكمل",
       saveCredentials: "حفظ بيانات الاعتماد",

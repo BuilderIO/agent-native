@@ -5,6 +5,7 @@ import {
   createMcpIntegrationFormDefaults,
   DEFAULT_MCP_INTEGRATIONS,
   findMcpIntegrationForText,
+  findMcpIntegrationForToolName,
   filterMcpIntegrations,
   getMcpIntegrationApiFallback,
   getDefaultMcpIntegrations,
@@ -193,6 +194,27 @@ describe("MCP integration catalog", () => {
       availability: "ready",
       docsUrl: "https://docs.granola.ai/help-center/sharing/integrations/mcp",
     });
+  });
+
+  it("matches MCP tool names to their preset for brand icons", () => {
+    expect(findMcpIntegrationForToolName("mcp__slack__search")?.id).toBe(
+      "slack",
+    );
+    expect(
+      findMcpIntegrationForToolName("mcp__user_deadbeef00_zapier__send")?.id,
+    ).toBe("zapier");
+    expect(
+      findMcpIntegrationForToolName("mcp__atlassian__jira_issue")?.id,
+    ).toBe("atlassian");
+    expect(findMcpIntegrationForToolName("mcp__dropbox__upload")).toBeNull();
+    expect(findMcpIntegrationForToolName("mcp__chrome-devtools__click")).toBe(
+      null,
+    );
+    // The tool half of the name must never drive the icon.
+    expect(
+      findMcpIntegrationForToolName("mcp__zapier__send_slack_message")?.id,
+    ).toBe("zapier");
+    expect(findMcpIntegrationForToolName("run-code")).toBeNull();
   });
 
   it("matches resource links to their MCP preset", () => {

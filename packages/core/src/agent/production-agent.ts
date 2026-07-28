@@ -141,6 +141,7 @@ import {
   getRun,
   abortRun,
   abortRunDurably,
+  abortTurnDurably,
   tryClaimRunSlot,
   isHostedRuntime,
   resolveRunSoftTimeoutMs,
@@ -7409,8 +7410,11 @@ export function createProductionAgentHandler(
     // sent from the model picker; `engine.name` is what resolveEngine picked.
     // Divergence between them is the usual cause of "status says builder but
     // no [builder-engine] log lines appear" confusion.
+    // `requestModel` differing from `model` means normalizeModelForEngine
+    // substituted the engine default — otherwise indistinguishable from the
+    // client never asking for one.
     console.log(
-      `[agent-chat] resolved engine=${engine.name} model=${effectiveModel} requestEngine=${requestEngine ?? "(none)"} modelSource=${modelSelectionSource}`,
+      `[agent-chat] resolved engine=${engine.name} model=${effectiveModel} requestModel=${requestModel ?? "(none)"} requestEngine=${requestEngine ?? "(none)"} modelSource=${modelSelectionSource} turnId=${requestTurnId ?? "(none)"}`,
     );
 
     if (
@@ -9020,5 +9024,6 @@ export {
   getRun,
   abortRun,
   abortRunDurably,
+  abortTurnDurably,
   subscribeToRun,
 };

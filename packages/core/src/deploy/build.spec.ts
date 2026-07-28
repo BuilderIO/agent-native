@@ -32,6 +32,7 @@ import {
   emitSingleTemplateNetlifyKeepWarmFunction,
   findInstalledFfmpegStaticPackage,
   findInstalledResvgPackages,
+  isServerlessNativePlatformPackage,
   generateCloudflarePagesStaticShellFromManifest,
   generateCloudflareModuleWorkerEntry,
   generateProvidedPluginsNitroPluginSource,
@@ -1297,6 +1298,41 @@ describe("sanitizeServerlessFunctionPackageManifest", () => {
     expect(
       fs.existsSync(path.join(functionDir, "node_modules", "playwright-core")),
     ).toBe(true);
+  });
+});
+
+describe("isServerlessNativePlatformPackage", () => {
+  it("keeps only the 64-bit Linux prebuilds a serverless function can run", () => {
+    const kept = [
+      "linux-x64-gnu",
+      "linux-x64-musl",
+      "linux-arm64-gnu",
+      "linux-arm64-musl",
+      "resvg-js-linux-x64-gnu",
+      "resvg-js-linux-arm64-musl",
+    ];
+    const dropped = [
+      "darwin-arm64",
+      "darwin-x64",
+      "win32-x64-msvc",
+      "linux-arm-gnueabihf",
+      "linux-arm-musleabihf",
+      "resvg-js-darwin-x64",
+      "resvg-js-win32-ia32-msvc",
+      "resvg-js-android-arm64",
+      "resvg-js-linux-arm-gnueabihf",
+    ];
+
+    for (const name of kept) {
+      expect(isServerlessNativePlatformPackage(name)).toBe(true);
+    }
+    for (const name of dropped) {
+      expect(isServerlessNativePlatformPackage(name)).toBe(false);
+    }
+  });
+
+  it("does not classify the resvg JS wrapper as a platform prebuild", () => {
+    expect(isServerlessNativePlatformPackage("resvg-js")).toBe(false);
   });
 });
 

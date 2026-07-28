@@ -318,6 +318,73 @@ export function useSetOrgDomain() {
   });
 }
 
+export interface AppRoleAssignment {
+  email: string;
+  role: string;
+}
+
+export interface AppRolesInfo {
+  appId: string;
+  roles: string[];
+  /** Shown for members with no assignment. Never satisfies a server guard. */
+  defaultRole: string | null;
+  roleLabels: Record<string, string>;
+  /** Whether the current user may change assignments (org owner/admin). */
+  canManage: boolean;
+  assignments: AppRoleAssignment[];
+  myRole: string | null;
+}
+
+/**
+ * App-role vocabulary and assignments for the active org.
+ *
+ * `myRole` and `canManage` are progressive disclosure only — every guarded
+ * operation re-resolves both server-side, so a client that shows the wrong
+ * affordance still cannot perform the operation.
+ */
+export function useAppRoles(appId: string | undefined) {
+  const { data: org } = useOrg();
+  return useQuery<AppRolesInfo>({
+    queryKey: ["org-app-roles", appId ?? null, org?.orgId ?? null],
+    queryFn: () =>
+      apiFetch(`${ORG_BASE}/app-roles?appId=${encodeURIComponent(appId!)}`),
+    enabled: Boolean(appId),
+    staleTime: 30_000,
+  });
+}
+
+/** The current user's role in one app, or `null` when unassigned. */
+export function useAppRole(appId: string | undefined): {
+  role: string | null;
+  isLoading: boolean;
+  error: Error | null;
+} {
+  const query = useAppRoles(appId);
+  return {
+    role: query.data?.myRole ?? null,
+    isLoading: query.isLoading,
+    error: query.error,
+  };
+}
+
+export function useSetAppMemberRole(appId: string) {
+  const qc = useQueryClient();
+  return useMutation<
+    { appId: string; email: string; role: string | null },
+    Error,
+    { email: string; role: string | null }
+  >({
+    mutationFn: ({ email, role }) =>
+      apiFetch(`${ORG_BASE}/app-roles/${encodeURIComponent(email)}`, {
+        method: "PUT",
+        body: JSON.stringify({ appId, role }),
+      }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["org-app-roles"] });
+    },
+  });
+}
+
 /**
  * Fetch the org's A2A secret on demand (owner/admin). Deliberately a separate
  * request from `useOrg()` so the secret only reaches the browser when the

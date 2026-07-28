@@ -690,13 +690,43 @@ describe("useDesignHotkeys — Shift+A adds auto layout", () => {
   });
 });
 
-describe("useDesignHotkeys — Cmd+\\ show/hide UI and Shift+C show/hide comments", () => {
-  it("fires onToggleUi for Cmd+\\", async () => {
-    const onToggleUi = vi.fn();
-    await withHotkeys({ onToggleUi }, () => {
-      dispatchKey("\\", { metaKey: true });
-    });
-    expect(onToggleUi).toHaveBeenCalledTimes(1);
+describe("useDesignHotkeys — minimize UI and show/hide comments", () => {
+  it("uses Cmd+Shift+\\ on Apple and Ctrl+Shift+\\ elsewhere", async () => {
+    const onAppleToggleUi = vi.fn();
+    await withNavigatorPlatform("MacIntel", () =>
+      withHotkeys({ onToggleUi: onAppleToggleUi }, () => {
+        dispatchKey("\\", {
+          code: "Backslash",
+          metaKey: true,
+          shiftKey: true,
+        });
+        dispatchKey("\\", { code: "Backslash", metaKey: true });
+        dispatchKey("\\", {
+          code: "Backslash",
+          ctrlKey: true,
+          shiftKey: true,
+        });
+      }),
+    );
+    expect(onAppleToggleUi).toHaveBeenCalledTimes(1);
+
+    const onWindowsToggleUi = vi.fn();
+    await withNavigatorPlatform("Win32", () =>
+      withHotkeys({ onToggleUi: onWindowsToggleUi }, () => {
+        dispatchKey("\\", {
+          code: "Backslash",
+          ctrlKey: true,
+          shiftKey: true,
+        });
+        dispatchKey("\\", { code: "Backslash", ctrlKey: true });
+        dispatchKey("\\", {
+          code: "Backslash",
+          metaKey: true,
+          shiftKey: true,
+        });
+      }),
+    );
+    expect(onWindowsToggleUi).toHaveBeenCalledTimes(1);
   });
 
   it("fires onToggleComments for Shift+C, not the comment tool", async () => {
