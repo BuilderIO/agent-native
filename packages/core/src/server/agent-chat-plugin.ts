@@ -549,44 +549,44 @@ export function createAgentChatPlugin(
         extensionTools: options?.extensionTools,
       });
 
-      // Initialize MCP client. Merges file/env config + auto-detected binaries
-      // + any remote servers users have added through the settings UI (persisted
-      // in the settings table, scanned across all scopes so we never drop
-      // another user's entries). Graceful-degrade: any failure yields zero MCP
-      // tools and agent-chat keeps working as before.
-      let mcpConfig = await buildMergedConfig().catch((err) => {
-        console.warn(
-          `[mcp-client] buildMergedConfig failed: ${err?.message ?? err}`,
-        );
-        return null;
-      });
-      if (!mcpConfig) {
-        const fileOrEnv = loadMcpConfig() ?? autoDetectMcpConfig();
-        mcpConfig = fileOrEnv;
-        if (mcpConfig?.source) {
-          console.log(
-            `[mcp-client] loaded config from ${mcpConfig.source} (${Object.keys(mcpConfig.servers).length} server(s))`,
+      // Route readiness must not wait on settings scans, remote hub fetches, or
+      // third-party MCP handshakes. Build the action surface against an empty
+      // manager, then hydrate it after every live action registry has subscribed
+      // to manager changes.
+      const mcpManager = new McpClientManager(null);
+      setGlobalMcpManager(mcpManager);
+      const mcpActionEntries: Record<string, ActionEntry> = {};
+      const initializeMcpManager = async (): Promise<void> => {
+        let mcpConfig = await buildMergedConfig().catch((err) => {
+          console.warn(
+            `[mcp-client] buildMergedConfig failed: ${err?.message ?? err}`,
           );
-        } else if (process.env.DEBUG) {
+          return null;
+        });
+        if (!mcpConfig) {
+          mcpConfig = loadMcpConfig() ?? autoDetectMcpConfig();
+          if (mcpConfig?.source) {
+            console.log(
+              `[mcp-client] loaded config from ${mcpConfig.source} (${Object.keys(mcpConfig.servers).length} server(s))`,
+            );
+          } else if (process.env.DEBUG) {
+            console.log(
+              "[mcp-client] no configured MCP servers — skipping MCP tools",
+            );
+          }
+        } else if (mcpConfig.source) {
           console.log(
-            "[mcp-client] no configured MCP servers — skipping MCP tools",
+            `[mcp-client] merged config (${Object.keys(mcpConfig.servers).length} server(s), source: ${mcpConfig.source})`,
           );
         }
-      } else if (mcpConfig.source) {
-        console.log(
-          `[mcp-client] merged config (${Object.keys(mcpConfig.servers).length} server(s), source: ${mcpConfig.source})`,
-        );
-      }
-      const mcpManager = new McpClientManager(mcpConfig);
-      try {
-        await mcpManager.start();
-      } catch (err: any) {
-        console.warn(
-          `[mcp-client] start() failed: ${err?.message ?? err}. Continuing without MCP tools.`,
-        );
-      }
-      setGlobalMcpManager(mcpManager);
-      const mcpActionEntries = mcpToolsToActionEntries(mcpManager);
+        try {
+          await mcpManager.reconfigure(mcpConfig);
+        } catch (err: any) {
+          console.warn(
+            `[mcp-client] initialization failed: ${err?.message ?? err}. Continuing without MCP tools.`,
+          );
+        }
+      };
       const getJobMcpActionEntries = (
         job?: RecurringJobContext,
       ): Record<string, ActionEntry> => {
@@ -5682,6 +5682,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         }
       }
 
+      void initializeMcpManager();
+
       // ─── Agent Teams orphan sweep ─────────────────────────────────────
       // Re-fires stuck/queued dispatches when the browser is closed and the
       // RunsTray's per-user reconciliation never triggers. Runs every 2 minutes
@@ -5947,51 +5949,55 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           );
         }
       } else {
-        try {
-          const { initTriggerDispatcher } =
-            await import("../triggers/dispatcher.js");
-          await initTriggerDispatcher({
-            getActions: () => ({
-              ...templateScripts,
-              ...resourceScripts,
-              ...docsScripts,
-              ...(lazyContext ? frameworkContextTool : {}),
-              ...chatScripts,
-              ...jobTools,
-              ...automationTools,
-              ...notificationTools,
-              ...progressTools,
-              ...fetchTool,
-              ...webSearchTool,
-              ...toolActions,
-            }),
-            getSystemPrompt: async (owner: string) => {
-              const resources = await loadResourcesForPrompt(
-                owner,
-                lazyContext,
-                options?.appId,
-              );
-              const schemaBlock = lazyContext
-                ? ""
-                : await buildSchemaBlock(owner, databaseToolsMode);
-              return basePrompt + resources + schemaBlock;
-            },
-            // See the matching comment on schedulerDeps.getInitialToolNames
-            // above — same shared `basePrompt`, same reasoning.
-            getInitialToolNames: () => [
-              ...effectiveInitialToolNames,
-              "manage-jobs",
-              "manage-progress",
-            ],
-            apiKey: options?.apiKey,
-            model: options?.model,
-            appId: options?.appId,
-          });
-          if (process.env.DEBUG)
-            console.log("[triggers] Trigger dispatcher initialized");
-        } catch (err) {
-          // Triggers module not available — skip silently
-        }
+        // Trigger subscription discovery scans persisted jobs across owners.
+        // It is eventual background setup, not a prerequisite for HTTP routes.
+        void (async () => {
+          try {
+            const { initTriggerDispatcher } =
+              await import("../triggers/dispatcher.js");
+            await initTriggerDispatcher({
+              getActions: () => ({
+                ...templateScripts,
+                ...resourceScripts,
+                ...docsScripts,
+                ...(lazyContext ? frameworkContextTool : {}),
+                ...chatScripts,
+                ...jobTools,
+                ...automationTools,
+                ...notificationTools,
+                ...progressTools,
+                ...fetchTool,
+                ...webSearchTool,
+                ...toolActions,
+              }),
+              getSystemPrompt: async (owner: string) => {
+                const resources = await loadResourcesForPrompt(
+                  owner,
+                  lazyContext,
+                  options?.appId,
+                );
+                const schemaBlock = lazyContext
+                  ? ""
+                  : await buildSchemaBlock(owner, databaseToolsMode);
+                return basePrompt + resources + schemaBlock;
+              },
+              // See the matching comment on schedulerDeps.getInitialToolNames
+              // above — same shared `basePrompt`, same reasoning.
+              getInitialToolNames: () => [
+                ...effectiveInitialToolNames,
+                "manage-jobs",
+                "manage-progress",
+              ],
+              apiKey: options?.apiKey,
+              model: options?.model,
+              appId: options?.appId,
+            });
+            if (process.env.DEBUG)
+              console.log("[triggers] Trigger dispatcher initialized");
+          } catch {
+            // Triggers module not available — skip silently
+          }
+        })();
       }
     })().catch((err) => {
       // If the init fails, the routes never get registered and requests

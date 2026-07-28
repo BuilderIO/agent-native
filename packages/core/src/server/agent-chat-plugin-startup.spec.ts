@@ -15,4 +15,21 @@ describe("agent chat startup", () => {
 
     expect(startup).not.toContain("reapAllStaleRuns");
   });
+
+  it("hydrates MCP connections after building the base action routes", () => {
+    const source = readFileSync(
+      new URL("./agent-chat-plugin.ts", import.meta.url),
+      "utf8",
+    );
+    const mcpSetup = source.slice(
+      source.indexOf("// Route readiness must not wait"),
+      source.indexOf("// Resolve actions"),
+    );
+
+    expect(mcpSetup).toContain("new McpClientManager(null)");
+    expect(mcpSetup).not.toContain("await mcpManager.start()");
+    expect(source.indexOf("void initializeMcpManager()")).toBeGreaterThan(
+      source.indexOf("mcpManager.onChange"),
+    );
+  });
 });
