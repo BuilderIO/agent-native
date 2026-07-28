@@ -33,23 +33,43 @@ export function shouldAdvertiseJwtA2AAuth(): boolean {
 }
 
 /**
- * True only when unsigned internal self-dispatch is acceptable: no A2A_SECRET
- * is configured AND we can positively identify a local/dev runtime. Everything
- * else — production, or any UNRECOGNIZED deployed/networked host — must fail
- * closed and require A2A_SECRET. `loopback` should be whether the inbound
- * request arrived over the loopback interface (127.0.0.1/::1); callers that
- * cannot determine the peer address pass `false`.
+ * True when the process is a positively-identified developer/test runtime
+ * (NODE_ENV explicitly `development` or `test`). We deliberately do NOT treat
+ * an *unset* NODE_ENV as dev: a bare self-hosted Docker/VPS/K8s deployment
+ * that forgot to set NODE_ENV must fall through to the fail-closed path so
+ * that a local reverse proxy (Nginx/Caddy) forwarding public traffic to an
+ * app bound on 127.0.0.1 cannot silently satisfy the loopback gate.
+ */
+function isExplicitDevRuntime(): boolean {
+  const env = process.env.NODE_ENV;
+  return env === "development" || env === "test";
+}
+
+/**
+ * True only when unsigned internal self-dispatch is acceptable. This is the
+ * gate for anonymous A2A/JSON-RPC when no `A2A_SECRET` and no `apiKeyEnv` is
+ * configured. To pass:
  *
- * NODE_ENV alone is deliberately NOT a trust grant: a self-hosted deployment
- * that doesn't set NODE_ENV=production and isn't recognized by
- * `isA2AProductionRuntime()` (a bare Docker/VPS/K8s pod) must still fail
- * closed unless the request actually came from loopback or the explicit
- * opt-in flag is set.
+ *   - the runtime must NOT look like production/a recognized cloud host, AND
+ *   - EITHER the operator explicitly opted in with
+ *     `A2A_ALLOW_UNSIGNED_INTERNAL=1` (documented, deliberate),
+ *   - OR the request arrived over the loopback interface AND `NODE_ENV` is
+ *     explicitly `development` / `test` (positive dev signal, not just
+ *     "unrecognized runtime").
+ *
+ * The `NODE_ENV=development|test` requirement is what closes the
+ * reverse-proxy hole: on a self-hosted VPS/Docker box where the operator
+ * runs the app bound to 127.0.0.1 behind Nginx/Caddy WITHOUT setting
+ * NODE_ENV, every public request would otherwise appear as a loopback peer
+ * and satisfy an "is-local" check. Requiring an explicit dev signal makes
+ * the operator opt in either through NODE_ENV or through
+ * A2A_ALLOW_UNSIGNED_INTERNAL — an unset NODE_ENV alone is not a trust
+ * grant.
  */
 export function isTrustedLocalRuntime(opts: { loopback: boolean }): boolean {
   if (isA2AProductionRuntime()) return false;
   if (process.env.A2A_ALLOW_UNSIGNED_INTERNAL === "1") return true;
-  return opts.loopback === true;
+  return opts.loopback === true && isExplicitDevRuntime();
 }
 
 /** True if a socket peer address is a loopback/local address. */

@@ -4,6 +4,7 @@ import {
   setResponseStatus,
   getMethod,
   getRequestHeader,
+  getRequestIP,
 } from "h3";
 import * as jose from "jose";
 
@@ -19,6 +20,8 @@ import { generateAgentCard } from "./agent-card.js";
 import {
   hasConfiguredA2ASecret,
   isA2AProductionRuntime,
+  isLoopbackAddress,
+  isTrustedLocalRuntime,
 } from "./auth-policy.js";
 import { handleJsonRpcH3, processA2ATaskFromQueue } from "./handlers.js";
 import {
@@ -40,8 +43,8 @@ function warnA2AUnauthOnce(): void {
   _warnedUnauthA2A = true;
   // eslint-disable-next-line no-console
   console.warn(
-    "[a2a] No A2A_SECRET or apiKeyEnv configured — A2A endpoint runs unauthenticated. " +
-      "This is allowed in development but blocked in production. Set A2A_SECRET before deploying.",
+    "[a2a] No A2A_SECRET or apiKeyEnv configured — A2A endpoint accepting an unauthenticated loopback request from a NODE_ENV=development/test runtime. " +
+      "Non-loopback callers, unrecognized runtimes, and self-hosted deployments behind a local reverse proxy are rejected; set A2A_SECRET (or A2A_ALLOW_UNSIGNED_INTERNAL=1 for trusted local dev) before deploying.",
   );
 }
 
@@ -398,13 +401,25 @@ export function mountA2A(
           setResponseStatus(event, 401);
           return { error: "Invalid or expired processor token" };
         }
-      } else if (isA2AProductionRuntime()) {
-        setResponseStatus(event, 503);
-        return {
-          error:
-            "A2A processor not configured — set A2A_SECRET on this deployment to enable async A2A.",
-        };
       } else {
+        // No A2A_SECRET is configured. Unsigned processor dispatches are only
+        // acceptable when we can positively identify a local/dev runtime —
+        // either the request arrived over loopback (127.0.0.1/::1) or the
+        // operator explicitly set A2A_ALLOW_UNSIGNED_INTERNAL=1. Any other
+        // caller (a non-loopback peer on a bare Docker/VPS/K8s host that
+        // happens to be missing NODE_ENV=production) must be rejected — an
+        // attacker who fishes a taskId out of logs / a share link could
+        // otherwise force-replay it.
+        const loopback = isLoopbackAddress(
+          getRequestIP(event, { xForwardedFor: false }),
+        );
+        if (!isTrustedLocalRuntime({ loopback })) {
+          setResponseStatus(event, 503);
+          return {
+            error:
+              "A2A processor not configured — set A2A_SECRET on this deployment to enable async A2A.",
+          };
+        }
         warnA2AUnauthOnce();
       }
 
@@ -510,7 +525,19 @@ export function mountA2A(
         }
 
         if (!hasA2ASecret && !hasApiKey) {
-          if (isA2AProductionRuntime()) {
+          // No auth is configured at all. Only allow the request through
+          // when we can positively identify a local/dev runtime — either
+          // the request arrived over loopback (127.0.0.1/::1) or the
+          // operator explicitly opted in with A2A_ALLOW_UNSIGNED_INTERNAL=1.
+          // NODE_ENV alone is NOT a trust grant: a self-hosted deployment
+          // that doesn't set NODE_ENV=production and isn't recognized by
+          // isA2AProductionRuntime() (a bare Docker/VPS/K8s pod) must
+          // still fail closed. Otherwise any anonymous caller could reach
+          // the JSON-RPC handler and trigger message/send / agent runs.
+          const loopback = isLoopbackAddress(
+            getRequestIP(event, { xForwardedFor: false }),
+          );
+          if (!isTrustedLocalRuntime({ loopback })) {
             setResponseStatus(event, 503);
             return {
               jsonrpc: "2.0",

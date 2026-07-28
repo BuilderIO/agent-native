@@ -277,6 +277,20 @@ descriptions, client bundles, or examples. A2A tokens are deploy-level secrets
 unless a specific app designs a scoped credential flow; read them from secure
 runtime configuration and never log or return them.
 
+### Unsigned local development
+
+If neither `A2A_SECRET` nor `apiKeyEnv` is configured, the JSON-RPC endpoint
+and the internal `_process-task` route only accept requests when the runtime
+is positively identified as local development — the request must arrive over
+the loopback interface (`127.0.0.1`/`::1`) **and** `NODE_ENV` must be
+explicitly `development` or `test`. Loopback alone is not enough: a
+self-hosted Nginx/Caddy reverse proxy forwarding public traffic to an app
+bound on `127.0.0.1` (bare Docker/VPS/K8s, no `NODE_ENV` set) will fail
+closed. Operators who really want unsigned internal self-dispatch on a
+non-recognized host must set `A2A_ALLOW_UNSIGNED_INTERNAL=1` explicitly; any
+production or networked deployment should configure `A2A_SECRET` instead.
+
+
 ## Message Parts
 
 Messages contain typed parts:
