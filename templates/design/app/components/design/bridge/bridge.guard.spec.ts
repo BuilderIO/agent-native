@@ -9284,7 +9284,7 @@ const PRIMARY_HOTKEY_FORWARDING_CASES: Array<{
   { name: "Cmd/Ctrl+Alt+B detach instance", key: "b", alt: true },
   { name: "Cmd/Ctrl+] bring forward", key: "]" },
   { name: "Cmd/Ctrl+[ send backward", key: "[" },
-  { name: "Cmd/Ctrl+\\ toggle UI", key: "\\" },
+  { name: "Cmd/Ctrl+Shift+\\ minimize UI", key: "\\", shift: true },
   { name: "Cmd/Ctrl+Backspace ungroup", key: "Backspace" },
   {
     name: "Ctrl+Alt+H distribute horizontal (literal Control)",
@@ -9360,7 +9360,46 @@ it(
 );
 
 it(
-  "editor chrome bridge leaves bare Cmd/Ctrl+T and Cmd/Ctrl+L alone (no host binding without the alt/shift gate)",
+  "editor chrome bridge forwards Cmd+K so the host command menu opens from an iframe",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent("<!doctype html><html><body></body></html>");
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await collectBridgeMessages(page);
+
+      await page.evaluate(() => {
+        document.body.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "k",
+            code: "KeyK",
+            metaKey: true,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      });
+      await page.waitForTimeout(60);
+
+      expect(await readBridgeMessages(page)).toContainEqual(
+        expect.objectContaining({
+          type: "design-hotkey",
+          key: "k",
+          metaKey: true,
+        }),
+      );
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "editor chrome bridge leaves bare Cmd/Ctrl+T, Cmd/Ctrl+L, and Cmd/Ctrl+\\ alone",
   { timeout: 30_000 },
   async () => {
     const browser = await chromium.launch({ headless: true });
@@ -9397,6 +9436,19 @@ it(
       await page.keyboard.down("Meta");
       await page.keyboard.press("l");
       await page.keyboard.up("Meta");
+      // Bare Cmd+\ belongs to the desktop coding host. Design only claims the
+      // Figma-style Cmd+Shift+\ minimize-UI chord.
+      await page.evaluate(() => {
+        document.body.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "\\",
+            code: "Backslash",
+            metaKey: true,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      });
       await page.waitForTimeout(60);
 
       const messages = await readBridgeMessages(page);

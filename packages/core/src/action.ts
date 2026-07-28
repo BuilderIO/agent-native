@@ -123,6 +123,19 @@ export interface ActionRunContext {
   turnId?: string;
 }
 
+/**
+ * Pre-run authorization gate. Throw to deny with a specific message (the
+ * framework's `ForbiddenError` carries a 403), or return `false` for a generic
+ * denial. Returning `undefined` allows the call — a guard that forgets to
+ * return is therefore permissive, which is why `false` is honoured at all:
+ * `(args) => someCheck(args)` written against a boolean helper would otherwise
+ * pass silently on every denial.
+ */
+export type ActionAuthorize<TArgs> = (
+  args: TArgs,
+  ctx?: ActionRunContext,
+) => void | boolean | Promise<void | boolean>;
+
 export interface AgentActionStopOptions {
   /** Optional stable code surfaced in run metadata and tests. */
   errorCode?: string;
@@ -467,6 +480,30 @@ interface DefineActionWithSchema<
         ctx?: ActionRunContext,
       ) => boolean | Promise<boolean>);
   /**
+   * Authorization gate that runs before `run()` on **every** caller — agent
+   * tool, HTTP, frontend, MCP, A2A, and CLI. It wraps `run` itself rather than
+   * hanging off the action entry, because a flag consulted by the dispatcher
+   * only guards the dispatchers that remember to consult it.
+   *
+   * This is *authorization*, not approval: `needsApproval` asks a human to
+   * bless one call the caller is already allowed to make, while `authorize`
+   * decides whether they are allowed at all. It also does not replace
+   * `accessFilter` / `assertAccess` — those scope which rows a permitted caller
+   * may see; this decides whether the operation is open to them.
+   *
+   * ```ts
+   * import { coachAccess } from "../lib/access.js";
+   *
+   * export default defineAction({
+   *   description: "Archive a training plan.",
+   *   schema,
+   *   authorize: coachAccess.requireAny("coach-admin"),
+   *   run: async (args) => { ... },
+   * });
+   * ```
+   */
+  authorize?: ActionAuthorize<StandardSchemaV1.InferOutput<TSchema>>;
+  /**
    * Audit-log configuration. **Default-on for mutating actions** — you only
    * need this to tune capture: declare the mutated `target` (so the change
    * shows up in the owner's audit trail) and/or a `summary`, opt a read-only
@@ -556,6 +593,9 @@ interface DefineActionWithParams<
         args: InferParams<TParams>,
         ctx?: ActionRunContext,
       ) => boolean | Promise<boolean>);
+  /** Pre-run authorization gate applied to every caller. See the schema
+   *  overload above for full semantics. */
+  authorize?: ActionAuthorize<InferParams<TParams>>;
   /** Audit-log configuration (default-on for mutations). See the schema
    *  overload above and the `audit-log` skill. */
   audit?: ActionAuditConfig;
@@ -714,12 +754,21 @@ export function defineAction(options: any) {
     );
   }
 
+  // Authorization sits INSIDE input validation, so a gate that inspects `args`
+  // is handed the parsed, coerced value its type promises rather than whatever
+  // shape the caller sent. Putting it outside would have every guard reading
+  // attacker-shaped input while typed as though it were validated.
+  const guardedRun =
+    typeof options.authorize === "function"
+      ? wrapRunWithAuthorize(options.run, options.authorize)
+      : options.run;
+
   // Wrap run() with INPUT validation when schema is provided.
   // Pass toolParameters so the validation error can echo the expected signature
   // (required vs optional fields) and help the caller self-correct.
   const inputValidatedRun = hasSchema
-    ? wrapWithValidation(options.schema, options.run, toolParameters)
-    : options.run;
+    ? wrapWithValidation(options.schema, guardedRun, toolParameters)
+    : guardedRun;
 
   // Then wrap with OUTPUT validation when an outputSchema is provided. This
   // composes AROUND the input-validated run so the order is: validate input →
@@ -874,6 +923,38 @@ export function defineAction(options: any) {
       ? { needsApproval: options.needsApproval }
       : {}),
     ...(auditConfig ? { audit: auditConfig } : {}),
+  };
+}
+
+/**
+ * Wrap an action's run with its `authorize` gate.
+ *
+ * The gate is applied here, around `run`, rather than exposed as a flag on the
+ * action entry: `run` is the one thing all six dispatch sites (agent loop, HTTP
+ * route, frontend, MCP, A2A, CLI) go through, so there is no caller that can
+ * reach the body without passing the check. `needsApproval` took the flag route
+ * and is consequently honoured only inside the agent loop.
+ *
+ * Composed so the full order is: validate input → authorize → run → validate
+ * output → audit. The audit wrapper is outermost, so a denial is still recorded
+ * as an attempt — which is precisely what an audit trail is for.
+ *
+ * A guard that throws denies with its own message. A guard that returns `false`
+ * denies generically. Anything else — including `undefined` — allows.
+ */
+function wrapRunWithAuthorize(
+  run: (args: any, ctx?: ActionRunContext) => any,
+  authorize: ActionAuthorize<any>,
+): (args: any, ctx?: ActionRunContext) => Promise<any> {
+  return async function authorizedRun(args: any, ctx?: ActionRunContext) {
+    const verdict = await authorize(args, ctx);
+    if (verdict === false) {
+      const err = new Error("Not authorized") as Error & { statusCode: number };
+      err.name = "ForbiddenError";
+      err.statusCode = 403;
+      throw err;
+    }
+    return run(args, ctx);
   };
 }
 

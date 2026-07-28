@@ -167,6 +167,16 @@ describe("AgentPanel header tab visibility", () => {
       "resources",
     );
   });
+
+  it("normalizes every legacy sidebar mode back to chat on chat-only surfaces", () => {
+    expect(normalizeAgentPanelModeForSurface("resources", false, true)).toBe(
+      "chat",
+    );
+    expect(normalizeAgentPanelModeForSurface("cli", false, true)).toBe("chat");
+    expect(normalizeAgentPanelModeForSurface("settings", true, true)).toBe(
+      "chat",
+    );
+  });
 });
 
 describe("AgentPanel mode and full-view visibility", () => {

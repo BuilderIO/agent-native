@@ -159,6 +159,35 @@ whole site. Data scoping lives in actions and API routes; the client gates
 private UI after the shell loads. See the `authentication` skill and
 `guard:ssr-cache-shell` / `ssr-handler.spec.ts`.
 
+**Authorization beyond "is there a session" — `authorize`.** The auth guard only
+proves *someone* is signed in. To restrict an operation to some teammates, set
+`authorize` on the `defineAction`. It wraps `run`, so it applies at every
+dispatch site (agent tool, HTTP, frontend, MCP, A2A, CLI) — unlike
+`needsApproval`, which is honoured only in the agent loop.
+
+```ts
+import { coachAccess } from "../lib/access.js"; // defineAppRoles(...)
+
+export default defineAction({
+  description: "Archive a client roster.",
+  schema: z.object({ id: z.string() }),
+  authorize: coachAccess.requireAny("coach-admin"),
+  run: async (args) => {
+    /* ... */
+  },
+});
+```
+
+A guard that throws denies with its own message; returning `false` denies
+generically; anything else (including `undefined`) allows. Guarded actions need
+a user identity — an unattended CLI/cron caller with no user email is denied.
+
+`authorize` is **not** a substitute for `accessFilter` / `assertAccess`. It
+decides whether this caller may perform the operation at all; `accessFilter` /
+`assertAccess` scope which rows a permitted caller may see or touch. A
+restricted write action needs both. See the `authentication` skill for
+`defineAppRoles` and the `actions` skill for the full surface.
+
 ## Human-in-the-Loop Approval for High-Consequence Actions
 
 For a small set of outward-facing, hard-to-undo operations — sending an email, charging a card, deleting an account, posting publicly — auth and access control are necessary but not sufficient: you also do not want the **agent** to perform them autonomously. Set `needsApproval` on the `defineAction` so the agent cannot run the action without a human approving the specific call.
@@ -274,6 +303,8 @@ Run `pnpm action db-check-scoping` to verify. Use `--require-org` for multi-org 
 - [ ] New env vars in `.env` only, not committed
 - [ ] New user-data tables have `owner_email` column
 - [ ] Custom routes call `getSession` and reject unauthenticated requests
+- [ ] Actions only some teammates may run set `authorize` (in addition to any
+      `accessFilter` / `assertAccess` row scoping)
 
 ## Related Skills
 

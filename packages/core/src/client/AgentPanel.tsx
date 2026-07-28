@@ -198,7 +198,9 @@ type PanelMode = "chat" | "cli" | "resources" | "settings";
 export function normalizeAgentPanelModeForSurface(
   mode: PanelMode,
   allowSettingsMode: boolean,
+  chatOnly = false,
 ): PanelMode {
+  if (chatOnly) return "chat";
   return mode === "settings" && !allowSettingsMode ? "chat" : mode;
 }
 const AGENT_PANEL_FONT_FAMILY =
@@ -597,6 +599,8 @@ export interface AgentPanelProps extends Omit<
   showPageNewChatButton?: boolean;
   /** Allow the sidebar settings view to render inside this panel. Default: true. */
   allowSettingsMode?: boolean;
+  /** Keep this surface on chat even when mode controls are hidden. */
+  chatOnly?: boolean;
   /** Optional link shown in Resources and Settings modes for the full Agent page. */
   agentPageHref?: string;
   /** Capability gate for source edits and CLI access. */
@@ -754,6 +758,7 @@ function AgentPanelInner({
   showTabBar = true,
   showPageNewChatButton = false,
   allowSettingsMode = true,
+  chatOnly = false,
   agentPageHref,
   codeAccess,
   ...assistantChatProps
@@ -807,9 +812,17 @@ function AgentPanelInner({
         saved === "resources" ||
         saved === "settings"
       )
-        return normalizeAgentPanelModeForSurface(saved, allowSettingsMode);
+        return normalizeAgentPanelModeForSurface(
+          saved,
+          allowSettingsMode,
+          chatOnly,
+        );
     } catch {}
-    return normalizeAgentPanelModeForSurface(defaultMode, allowSettingsMode);
+    return normalizeAgentPanelModeForSurface(
+      defaultMode,
+      allowSettingsMode,
+      chatOnly,
+    );
   });
   useEffect(() => {
     try {
@@ -823,15 +836,21 @@ function AgentPanelInner({
   const switchMode = useCallback(
     (m: PanelMode) => {
       startTransition(() =>
-        setMode(normalizeAgentPanelModeForSurface(m, allowSettingsMode)),
+        setMode(
+          normalizeAgentPanelModeForSurface(m, allowSettingsMode, chatOnly),
+        ),
       );
     },
-    [allowSettingsMode],
+    [allowSettingsMode, chatOnly],
   );
   useEffect(() => {
-    const nextMode = normalizeAgentPanelModeForSurface(mode, allowSettingsMode);
+    const nextMode = normalizeAgentPanelModeForSurface(
+      mode,
+      allowSettingsMode,
+      chatOnly,
+    );
     if (nextMode !== mode) switchMode(nextMode);
-  }, [mode, allowSettingsMode, switchMode]);
+  }, [mode, allowSettingsMode, chatOnly, switchMode]);
   const openRunThread = useCallback(
     (threadId: string, run?: AgentRun) => {
       switchMode("chat");
@@ -3349,6 +3368,7 @@ export function AgentSidebar({
             threadUrlSync={threadUrlSync}
             agentPageHref={agentPageHref}
             allowSettingsMode={false}
+            chatOnly
           />
         </div>
       </div>

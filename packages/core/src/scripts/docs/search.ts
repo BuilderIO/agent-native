@@ -39,6 +39,21 @@ function getDocsDir(): string {
   return path.join(getDocsRoot(), "content");
 }
 
+/**
+ * Bundled serverless deploys carry the runtime agent bundle but not the
+ * framework doc pages, so a miss there means "not deployed", not "no such
+ * doc". Say which, or the agent concludes a documented API does not exist.
+ */
+function logMissingFrameworkDocsNote(): void {
+  if (fs.existsSync(getDocsDir())) return;
+  console.log(
+    "\nNote: bundled framework doc pages are not deployed here (only this " +
+      "app's AGENTS.md and skills are). A miss above does not mean the page " +
+      "does not exist — check the framework docs another way before concluding " +
+      "an API is missing.",
+  );
+}
+
 function parseFrontmatter(raw: string): {
   data: Record<string, string>;
   body: string;
@@ -256,6 +271,7 @@ Options:
     if (!doc) {
       console.log(`Doc not found: ${parsed.slug}`);
       console.log(`Available: ${docs.map((d) => d.slug).join(", ")}`);
+      logMissingFrameworkDocsNote();
       return;
     }
     console.log(`# ${doc.title}\n`);
@@ -268,6 +284,7 @@ Options:
     const results = await searchDocs(parsed.query);
     if (results.length === 0) {
       console.log(`No docs found matching "${parsed.query}".`);
+      logMissingFrameworkDocsNote();
       return;
     }
     console.log(`Found ${results.length} doc(s) matching "${parsed.query}":\n`);

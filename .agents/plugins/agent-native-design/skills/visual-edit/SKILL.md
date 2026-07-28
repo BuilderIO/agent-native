@@ -25,6 +25,32 @@ hosted Design MCP connector together. The open Skills CLI path
 (`npx skills@latest add BuilderIO/agent-native --skill visual-edit`) installs
 exported instructions only, with no MCP connector registration.
 
+## Put Design Beside The Chat
+
+After `open-visual-edit` returns `openUrl`, open that URL in the coding host's
+inline browser when one is available. This is the preferred working surface:
+the user can keep Design's canvas beside the conversation, inspect the same
+screens as the agent, and iterate without switching apps.
+
+- In Codex Desktop, use the in-app Browser tool to open `openUrl`. The built-in
+  browser is the right surface for localhost and public pages that should stay
+  inside the app.
+- In Claude Code Desktop's Code tab, open or preview `openUrl` in the Browser
+  pane. Ask Claude to preview it rather than opening the system browser.
+- In VS Code, use the Agent Native Design webview/deep link described below.
+- Inline browser availability is host-dependent. CLI, remote, or restricted
+  sessions may not expose one. If the inline surface is unavailable or disabled,
+  return the normal **Open design** link instead of claiming it opened.
+
+Prefer the host's browser/preview tool over telling the user to press a keyboard
+shortcut. Keep the canvas pane beside chat when the host supports rearrangeable
+panes.
+
+Inside Design, use **Show/Hide UI** from the `Cmd+K` menu or press
+`Cmd+Shift+\` on Apple platforms / `Ctrl+Shift+\` elsewhere to toggle all
+editing chrome so only the canvas remains. The same action is available from
+Design's empty-canvas context menu.
+
 ## Core Model
 
 - Each screen is a URL-backed iframe, not copied HTML.
@@ -53,6 +79,23 @@ exported instructions only, with no MCP connector registration.
   and create one screen per URL/path. Shorthand like
   `localhost:1234/onboarding/1` means
   `http://localhost:1234/onboarding/1`.
+
+## Useful Canvas Sets
+
+Translate the user's requested review into the smallest useful set of frames:
+
+- **Multi-step flow:** one ordered frame per route or query state, such as cart,
+  shipping, payment, and confirmation.
+- **Multiple pages:** one frame per meaningful route, such as home, pricing,
+  docs, and account settings.
+- **Responsive comparison:** repeat the same route at the requested desktop,
+  tablet, and mobile viewports so they align in one row.
+- **State review:** repeat a route for meaningful URL-addressable states such as
+  empty, loading, error, modal-open, or selected-item views.
+
+Do not expand every discovered route or every viewport unless the user asks for
+an exhaustive audit. Preserve the user's labels and sequence so the canvas reads
+like the workflow they described.
 
 ## Select And Reprompt
 
@@ -275,9 +318,9 @@ Fallback, only when `open-visual-edit` is unavailable:
 ## Open The Design Surface
 
 - Use the `link`, `deepLink`, or MCP App embed returned by Design actions so
-  the user sees the canvas. In Codex Desktop or VS Code, prefer opening that
-  Design URL in the available preview/webview panel; otherwise surface the
-  "Open design" link.
+  the user sees the canvas. Follow **Put Design Beside The Chat**: prefer the
+  host's inline Browser, preview, or webview panel; otherwise surface the
+  **Open design** link.
 - Return or open the `openUrl` / action link, not a hand-built
   `/design/:id?_session=...` URL.
 - If the user is working in VS Code, the Agent Native extension can open the
