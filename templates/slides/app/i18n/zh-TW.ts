@@ -517,6 +517,7 @@ const messages = {
     builderDesignSystemId: "設計系統",
     builderJobId: "Job",
     openInBuilder: "在 Builder 中開啟",
+    decodeFailed: "解碼失敗：{{error}}",
     websiteUrl: "網站 URL",
     websitePlaceholder: "example.com 或 Nike",
     add: "新增",
