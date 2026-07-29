@@ -55,6 +55,7 @@ import { useMeetingTranscription } from "./hooks/useMeetingTranscription";
 import { stopAllMicMeters } from "./hooks/useMicMeter";
 import { useWhisperSettings } from "./hooks/useWhisperSettings";
 import { startBubbleFramePump } from "./lib/bubble-pump";
+import { shouldKeepBubbleSession } from "./lib/bubble-session";
 import {
   startBubbleWebrtc,
   type BubbleWebrtcHandle,
@@ -2196,26 +2197,21 @@ export function App() {
   const nativeFullscreenRecordingActive =
     mode !== "camera" && shouldUseNativeFullscreenRecording(source);
   // Ref mirror of `isRecording || recordingFlowActive` so cleanup (which
-  // captures the dep-snapshot value) can still see the CURRENT flow state
-  // at the moment it actually runs. Without this, if `recordingFlowActive`
-  // briefly flips false on a re-render mid-flow (e.g. finally-block
-  // recovery path), the cleanup function snapshots `bubbleActive=false`
-  // from THAT render and stops the camera stream even though recording is
-  // still in flight.
+  // captures the dep-snapshot value) can still see the current flow state.
+  // Assign during render: passive effect cleanup runs before passive effect
+  // setup, so mirroring this in an effect leaves cleanup one render behind.
   const recordingFlowGateRef = useRef(false);
   // Stop detaches the recorder state before optimization/upload finishes so a
   // fresh camera session can recover immediately. Keep that post-stop phase
   // separate so React cleanup does not close the finalizing progress window.
   const recordingStopFinalizingRef = useRef(false);
-  useEffect(() => {
-    recordingFlowGateRef.current = isRecording || recordingFlowActive;
-  }, [isRecording, recordingFlowActive]);
-  const bubbleActive =
-    wantsCamera &&
-    (popoverVisible ||
-      isRecording ||
-      recordingFlowActive ||
-      recordingFlowGateRef.current);
+  const recordingInFlight = isRecording || recordingFlowActive;
+  recordingFlowGateRef.current = recordingInFlight;
+  const bubbleActive = shouldKeepBubbleSession({
+    wantsCamera,
+    popoverVisible,
+    recordingInFlight,
+  });
 
   bubbleActiveRef.current = bubbleActive;
   // The toolbar is recording chrome, not pre-record chrome. Showing it while

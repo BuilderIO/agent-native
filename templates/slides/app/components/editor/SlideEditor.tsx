@@ -101,6 +101,37 @@ import { SpeakerNotesPanel } from "./SpeakerNotesPanel";
 
 let builderIdCounter = 0;
 const CANVAS_ZOOM_PRESETS = [10, 25, 50, 75, 100, 125, 150, 200] as const;
+// Keep the text itself a normal click-to-edit surface. Only the slim perimeter
+// is reserved for object movement, matching the familiar Slides interaction.
+const ELEMENT_EDGE_MOVE_BAND = 8;
+
+function isWithinElementEdgeMoveBand(
+  rect: DOMRect,
+  clientX: number,
+  clientY: number,
+): boolean {
+  // Tiny labels still need a usable center click target. Cap the move band at
+  // one quarter of either dimension so its opposite edges never consume it.
+  const edgeBand = Math.min(
+    ELEMENT_EDGE_MOVE_BAND,
+    rect.width / 4,
+    rect.height / 4,
+  );
+  const outerBand = edgeBand / 2;
+  const withinExpandedBounds =
+    clientX >= rect.left - outerBand &&
+    clientX <= rect.right + outerBand &&
+    clientY >= rect.top - outerBand &&
+    clientY <= rect.bottom + outerBand;
+  if (!withinExpandedBounds) return false;
+
+  return (
+    Math.abs(clientX - rect.left) <= edgeBand ||
+    Math.abs(clientX - rect.right) <= edgeBand ||
+    Math.abs(clientY - rect.top) <= edgeBand ||
+    Math.abs(clientY - rect.bottom) <= edgeBand
+  );
+}
 
 function ensureBuilderId(element: HTMLElement): string {
   const existing = element.getAttribute("data-builder-id");
@@ -692,6 +723,10 @@ function ElementSelectionOutline({
   const handle = 7;
   const handleClass =
     "absolute size-[7px] rounded-sm border border-background bg-[#609FF8] shadow-sm";
+  const edgeHandleClass =
+    "absolute flex items-center justify-center bg-transparent p-0";
+  const edgeBarClass =
+    "rounded-sm border border-background bg-[#609FF8] shadow-sm";
   return (
     <SelectionOverlayPortal viewportRect={viewportRect} zIndex={51}>
       <div
@@ -752,6 +787,74 @@ function ElementSelectionOutline({
             cursor: "nwse-resize",
           }}
         />
+        <span
+          data-slide-resize-handle="n"
+          aria-label="Resize from top edge"
+          onPointerDown={(e) => onResizeStart?.("n", e)}
+          className={edgeHandleClass}
+          style={{
+            width: 22,
+            height: 12,
+            left: "50%",
+            top: -6,
+            transform: "translateX(-50%)",
+            pointerEvents: "auto",
+            cursor: "ns-resize",
+          }}
+        >
+          <span className={`${edgeBarClass} h-1 w-3.5`} />
+        </span>
+        <span
+          data-slide-resize-handle="e"
+          aria-label="Resize from right edge"
+          onPointerDown={(e) => onResizeStart?.("e", e)}
+          className={edgeHandleClass}
+          style={{
+            width: 12,
+            height: 22,
+            right: -6,
+            top: "50%",
+            transform: "translateY(-50%)",
+            pointerEvents: "auto",
+            cursor: "ew-resize",
+          }}
+        >
+          <span className={`${edgeBarClass} h-3.5 w-1`} />
+        </span>
+        <span
+          data-slide-resize-handle="s"
+          aria-label="Resize from bottom edge"
+          onPointerDown={(e) => onResizeStart?.("s", e)}
+          className={edgeHandleClass}
+          style={{
+            width: 22,
+            height: 12,
+            left: "50%",
+            bottom: -6,
+            transform: "translateX(-50%)",
+            pointerEvents: "auto",
+            cursor: "ns-resize",
+          }}
+        >
+          <span className={`${edgeBarClass} h-1 w-3.5`} />
+        </span>
+        <span
+          data-slide-resize-handle="w"
+          aria-label="Resize from left edge"
+          onPointerDown={(e) => onResizeStart?.("w", e)}
+          className={edgeHandleClass}
+          style={{
+            width: 12,
+            height: 22,
+            left: -6,
+            top: "50%",
+            transform: "translateY(-50%)",
+            pointerEvents: "auto",
+            cursor: "ew-resize",
+          }}
+        >
+          <span className={`${edgeBarClass} h-3.5 w-1`} />
+        </span>
       </div>
     </SelectionOverlayPortal>
   );
@@ -2069,6 +2172,13 @@ export default function SlideEditor({
         return;
       }
 
+      // Pointer-down on the selection perimeter is a move gesture, never a
+      // text caret placement. The following click is suppressed below so a
+      // click without movement still leaves the object selected.
+      e.preventDefault();
+      e.stopPropagation();
+      suppressNextClickRef.current = true;
+
       const origin = getObjectGeometry(element);
       const originalObjectId = element.getAttribute("data-slide-object-id");
       const startClientX = e.clientX;
@@ -2139,7 +2249,14 @@ export default function SlideEditor({
 
       const onUp = (upEvent: PointerEvent) => {
         stop();
-        if (!moved) return;
+        if (!moved) {
+          // Pointer-up can occur outside the canvas, where React will not see
+          // the click that normally clears this flag.
+          window.setTimeout(function clearEdgeClickSuppression() {
+            suppressNextClickRef.current = false;
+          }, 0);
+          return;
+        }
         // A drag does not always produce a click (for example when released
         // outside the canvas), so do not leave the one-click suppression
         // armed for the user's next unrelated action.
@@ -2338,6 +2455,34 @@ export default function SlideEditor({
 
   // --- Marquee drag handlers (attached to slide-content via React props) ---
 
+  const clearEdgeMoveCursor = useCallback(() => {
+    if (slideCanvasRef.current) slideCanvasRef.current.style.cursor = "";
+  }, []);
+
+  const handleSlidePointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      if (editingEl || readOnly) {
+        clearEdgeMoveCursor();
+        return;
+      }
+      const selected = resolveSelectedElement();
+      const shouldShowMoveCursor =
+        selected !== null &&
+        getComputedStyle(selected).position === "absolute" &&
+        isWithinElementEdgeMoveBand(
+          selected.getBoundingClientRect(),
+          e.clientX,
+          e.clientY,
+        );
+      if (slideCanvasRef.current) {
+        slideCanvasRef.current.style.cursor = shouldShowMoveCursor
+          ? "move"
+          : "";
+      }
+    },
+    [clearEdgeMoveCursor, editingEl, readOnly, resolveSelectedElement],
+  );
+
   const handleSlidePointerDown = useCallback(
     (e: React.PointerEvent) => {
       if (e.button !== 0) return; // left click only
@@ -2364,8 +2509,12 @@ export default function SlideEditor({
       const selected = resolveSelectedElement();
       if (
         selected &&
-        selected.contains(target) &&
-        getComputedStyle(selected).position === "absolute"
+        getComputedStyle(selected).position === "absolute" &&
+        isWithinElementEdgeMoveBand(
+          selected.getBoundingClientRect(),
+          e.clientX,
+          e.clientY,
+        )
       ) {
         startElementDrag(e, selected);
         return;
@@ -2898,6 +3047,8 @@ export default function SlideEditor({
                       onContextMenu={handleSlideContextMenu}
                       onDoubleClick={handleSlideDoubleClick}
                       onPointerDown={handleSlidePointerDown}
+                      onPointerMove={handleSlidePointerMove}
+                      onPointerLeave={clearEdgeMoveCursor}
                       onDragOver={handleSlideDragOver}
                       onDrop={handleSlideDrop}
                     >
