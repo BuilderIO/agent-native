@@ -75,7 +75,7 @@ product-boundary-gates:
   agent-native-public-constituency: source-blind developers packaging Desktop with standard Core and Dispatch apps receive the reusable identity boundary without Alice-specific infrastructure
 acceptance-state:
   status: blocked
-  summary: the updater guard is locally proven and independently reviewed; current-head CI, a fresh signed artifact, updater-safe exact-artifact QA, and authenticated real-app acceptance still block handoff readiness
+  summary: current main is integrated and the conflict-focused identity/updater suites pass; exact-head CI, a fresh signed artifact, updater-safe exact-artifact QA, and authenticated real-app acceptance still block handoff readiness
   verified:
     - Core identity protocol suite: 210 tests passed
     - Desktop main, renderer, shared, broker, and preload suites: 202 tests passed
@@ -90,14 +90,16 @@ acceptance-state:
     - final-fix Desktop TypeScript passed
     - final-fix formatting, focused lint, and git diff checks passed
     - independent final technical review found no remaining actionable issues after the repeated sign-out concurrency regression was added
-    - current origin/main merged without conflicts; the SSO implementation remains based on current main
+    - current origin/main ce426feef1ebeb370fca581291c9391339a757ed integrated in merge commit 7d4cbf499; updater and Dispatch identity conflicts were resolved by retaining both current-main recovery/sign-in behavior and the frozen SSO safety boundaries
     - post-integration Desktop broker and preload suite: 17 tests passed; Core identity: 18; Dispatch auth: 1; Desktop typecheck and diff checks passed
     - independent security review verified authenticated server revocation, logout-all escalation during revocation and cleanup, exhaustive partial-failure cleanup, and dormant production-session cleanup for disabled, Dev-switched, missing, or edited canonical app configurations
     - prior head 8d33ffffe9e8b0b3acc78e725736a96f97dae7e5 passed required CI and the signed/notarized macOS canary workflow
     - the short locked production canary proved canonical Mail to Dispatch routing, callback/state construction, hostile-callback rejection, and safe reverse-order rollback
     - the exact signed canary launched and reached production Dispatch, but its browser had no authenticated Dispatch identity
-    - current updater guard focused suite: 10 tests passed; Desktop identity, preload, and updater suite: 27 tests passed; Desktop typecheck and diff checks passed
-    - independent incremental review found no updater-code defects and verified the exact canary version family has no feed, check, download, install, listener, focus, ready-callback, or timer capability while stable and unrelated prerelease builds retain normal updater behavior
+    - pre-integration updater guard focused suite: 10 tests passed; Desktop identity, preload, and updater suite: 27 tests passed; Desktop typecheck and diff checks passed
+    - pre-integration independent review found no updater-code defects and verified the exact canary version family has no feed, check, download, install, listener, focus, ready-callback, or timer capability while stable and unrelated prerelease builds retain normal updater behavior
+    - post-integration focused verification on 7d4cbf499: Desktop identity, updater policy/runtime, and preload 29 tests passed; Core identity 27; Dispatch primary-auth forwarding 1; Dispatch identity library 24
+    - post-integration conflict review verified every updater touchpoint retains the exact canary eligibility guard while current-main delayed native staging and manual-result notifications remain intact; Dispatch retains the sign-in journey while primary auth remains the sole initializer
   implementation:
     - authenticated nonce-only app-local completion route in Core
     - dedicated persistent Dispatch identity partition in packaged Desktop
@@ -110,7 +112,8 @@ acceptance-state:
     - branch-scoped signed macOS canary workflow with no publishing, tags, releases, or updater feed
     - Dispatch primary-auth public-route configuration eliminating concurrent auth-initializer pre-emption
   blockers:
-    - current-head required CI and a fresh signed/notarized canary artifact must pass
+    - exact-head required CI must pass after the current-main integration; the Framework compute host was unavailable, so heavy package and full-repository gates remain assigned to GitHub CI
+    - a fresh signed/notarized canary artifact must be produced because the prior exact-head artifact expired on 2026-07-26
     - the branch canary must not offer, download, or install a stable Desktop update while exact-artifact acceptance is running
     - a safe authenticated Dispatch test identity is required to complete same-account Mail data, restart, sign-out, account-switch, isolation, and hostile-flow acceptance
   last-land-packet: https://github.com/BuilderIO/agent-native/pull/2290#issuecomment-5062742844
@@ -125,6 +128,6 @@ deployment-boundary:
     - merge or stable Desktop publication without a separate decision
     - enabling arbitrary preview hosts, custom apps, or Builder credentials
 vault-brief: /Users/alicemoore/Developer/teenylilthoughts/briefs/Agent-Native Desktop workspace SSO canary implementation plan 2026-07-21.md
-ledger-revision: desktop-sso-work-r11
+ledger-revision: desktop-sso-work-r12
 status: active
 ```
