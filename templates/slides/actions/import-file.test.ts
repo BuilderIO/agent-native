@@ -80,6 +80,10 @@ vi.mock("../server/lib/builder-design-system-proxy.js", () => ({
     mockUpsertBuilderProxyDesignSystem(...args),
 }));
 
+vi.mock("./patch-deck.js", () => ({
+  withDeckLock: (_deckId: string, fn: () => unknown) => fn(),
+}));
+
 import action from "./import-file";
 
 beforeEach(() => {

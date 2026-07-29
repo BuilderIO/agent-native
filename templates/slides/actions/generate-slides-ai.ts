@@ -5,7 +5,7 @@ import { z } from "zod";
 
 export default defineAction({
   description:
-    "Legacy helper for the Generate Slides dialog. It returns markdown slide drafts, not the app's rendered slide HTML. Agent chat should create decks with create-deck slides: [] plus add-slide HTML instead of this action.",
+    "Legacy helper for the Generate Slides dialog that drafts a whole new deck outline (multiple slides) from a topic. It returns markdown slide drafts, not the app's rendered slide HTML. Agent chat should create decks with create-deck slides: [] plus add-slide HTML instead of this action. Do NOT use this for a request to generate one or more images/image variations for an existing slide — use generate-image-api for that; this action requires its own GEMINI_API_KEY and has no Builder-managed fallback.",
   schema: z.object({
     topic: z.string().describe("Presentation topic"),
     slideCount: z.coerce
