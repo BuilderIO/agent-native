@@ -1,0 +1,58 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { describe, it } from "node:test";
+
+import { validateContentProductImpactWorkflow } from "./validate-content-product-impact-workflow.ts";
+
+const workflow = readFileSync(
+  ".github/workflows/content-product-conformance.yml",
+  "utf8",
+);
+
+describe("Content product conformance workflow boundary", () => {
+  it("keeps the pilot read-only, exact-revision, and broadly observable", () => {
+    assert.deepEqual(validateContentProductImpactWorkflow(workflow), {
+      ok: true,
+      issues: [],
+    });
+  });
+
+  it("rejects pull_request_target and write permissions", () => {
+    const unsafe = workflow
+      .replace("  pull_request:", "  pull_request_target:")
+      .replace("contents: read", "contents: write");
+    const result = validateContentProductImpactWorkflow(unsafe);
+    assert.equal(result.ok, false);
+    assert(
+      result.issues.some((issue) => issue.includes("pull_request_target")),
+    );
+    assert(result.issues.some((issue) => issue.includes("permissions")));
+  });
+
+  it("rejects path filtering or a candidate checkout with credentials", () => {
+    const unsafe = workflow
+      .replace("    types:", '    paths: ["templates/content/**"]\n    types:')
+      .replace("persist-credentials: false", "persist-credentials: true");
+    const result = validateContentProductImpactWorkflow(unsafe);
+    assert.equal(result.ok, false);
+    assert(result.issues.some((issue) => issue.includes("path filters")));
+    assert(result.issues.some((issue) => issue.includes("credentials")));
+  });
+
+  it("requires declaration and label edits to rerun the pilot", () => {
+    const unsafe = workflow.replace("        edited,\n", "");
+    const result = validateContentProductImpactWorkflow(unsafe);
+    assert.equal(result.ok, false);
+    assert(result.issues.some((issue) => issue.includes("recalibration")));
+  });
+
+  it("does not hide checker infrastructure failures", () => {
+    const unsafe = workflow.replace(
+      "        run: pnpm content-product-impact",
+      "        continue-on-error: true\n        run: pnpm content-product-impact",
+    );
+    const result = validateContentProductImpactWorkflow(unsafe);
+    assert.equal(result.ok, false);
+    assert(result.issues.some((issue) => issue.includes("infrastructure")));
+  });
+});

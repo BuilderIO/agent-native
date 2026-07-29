@@ -63,6 +63,8 @@
     "guard:trusted-acceptance": "tsx scripts/guard-trusted-acceptance-workflow.ts",
     "guard:content-product-docs": "tsx scripts/validate-content-product-docs.ts",
     "test:content-product-docs": "tsx --test scripts/validate-content-product-docs.test.ts",
+    "content-product-impact": "tsx scripts/validate-content-product-impact.ts",
+    "test:content-product-impact": "tsx --test scripts/validate-content-product-impact.test.ts scripts/validate-content-product-impact-workflow.test.ts",
     "guard:workspace-skills": "tsx scripts/sync-workspace-core-skills.ts --check",
     "sync:template-standard": "tsx scripts/template-standard/index.ts",
     "guard:template-standard": "tsx scripts/template-standard/index.ts --check",

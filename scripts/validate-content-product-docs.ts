@@ -50,9 +50,9 @@ const roadmapBoundaries = new Set([
   "superseded",
 ]);
 
-type RecordKind = "chapter" | "feature" | "capability";
+export type RecordKind = "chapter" | "feature" | "capability";
 
-type ProductRecord = {
+export type ProductRecord = {
   file: string;
   body: string;
   data: Record<string, unknown>;
@@ -60,7 +60,7 @@ type ProductRecord = {
   id: string;
 };
 
-type ProductCatalog = {
+export type ProductCatalog = {
   root: string;
   chapters: ProductRecord[];
   features: ProductRecord[];
