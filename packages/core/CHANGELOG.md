@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.130.2
+
+### Patch Changes
+
+- ae02242: Share notification emails now lead with "<sharer> shared "<title>" with you" and support overridable body paragraphs, a second dark CTA, and closing paragraphs via the new `getShareEmailExtras` registration hook.
+
 ## 0.130.1
 
 ### Patch Changes
