@@ -27,9 +27,11 @@ QuickBooks Online を使用したことがある方は、このモデルを見�
 - **組み込みストレージ。** 各拡張機能にはユーザーごと/組織ごとに独自のキーと値のストアがあるため、新しい SQL テーブルを追加しなくても状態を保存できます。
 
 拡張機能は既定で無効です。有効にするには、
-`createAgentChatPlugin()` で `extensionTools: true` を設定します。
-これによりエージェント向けの actions とガイダンスが追加され、
-サンドボックス runtime と既存リンクは互換性のため維持されます。
+`createAgentChatPlugin()` と `createCoreRoutesPlugin()` の両方で
+`extensionTools: true` を設定します。前者はエージェント向けの actions
+とガイダンスを追加し、後者は `POST /_agent-native/extensions` による
+認証済みの作成を許可します。サンドボックス runtime と既存の読み取り、
+編集、ディープリンク routes は互換性のため維持されます。
 
 <Diagram id="doc-block-co8nb2" title={"サンドボックスブリッジ"} summary={"拡張機能 HTML は分離された iframe で実行され、ブリッジ ヘルパーの固定セットを介してのみホストに到達します。すべての呼び出しはスコープ設定され、アクセス チェックされます。"}>
 

@@ -26,9 +26,11 @@ QuickBooks Online을 사용해 본 적이 있다면 모델을 본 적이 있을 
 - **내장 저장소.** 각 확장 프로그램에는 사용자별/조직별 키-값 저장소가 있으므로 새 SQL 테이블을 추가하지 않고도 상태를 저장할 수 있습니다.
 
 확장 프로그램은 기본적으로 비활성화됩니다. 활성화하려면
-`createAgentChatPlugin()`에 `extensionTools: true`를 설정하세요.
-그러면 에이전트용 actions와 안내가 추가되고, 샌드박스 runtime과
-기존 링크는 호환성을 위해 유지됩니다.
+`createAgentChatPlugin()`과 `createCoreRoutesPlugin()` 모두에
+`extensionTools: true`를 설정하세요. 전자는 에이전트용 actions와 안내를
+추가하고, 후자는 `POST /_agent-native/extensions`를 통한 인증된 생성을
+허용합니다. 샌드박스 runtime과 기존 읽기, 편집, 딥 링크 routes는
+호환성을 위해 유지됩니다.
 
 <Diagram id="doc-block-gtw3mr" title={"샌드박스 브리지"} summary={"확장 HTML은 격리된 iframe에서 실행되며 고정된 브리지 도우미 세트를 통해서만 호스트에 도달합니다. 모든 호출은 범위가 지정되고 액세스가 확인됩니다."}>
 

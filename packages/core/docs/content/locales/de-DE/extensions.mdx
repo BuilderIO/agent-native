@@ -28,9 +28,11 @@ Drei Dinge sorgen dafür, dass Erweiterungen funktionieren:
 - **Integrierter Speicher.** Jede Erweiterung verfügt über einen eigenen Schlüsselwertspeicher pro Benutzer/pro Organisation, sodass der Status gespeichert werden kann, ohne dass Sie eine neue SQL-Tabelle hinzufügen müssen.
 
 Erweiterungen sind standardmäßig deaktiviert. Aktivieren Sie sie mit
-`extensionTools: true` in `createAgentChatPlugin()`. Dadurch werden die
-agentenseitigen actions und Anweisungen ergänzt; Sandbox-Laufzeit und bestehende
-Links bleiben aus Kompatibilitätsgründen erhalten.
+`extensionTools: true` in `createAgentChatPlugin()` und
+`createCoreRoutesPlugin()`. Das erste ergänzt agentenseitige actions und
+Anweisungen; das zweite erlaubt authentifizierte Erstellung über
+`POST /_agent-native/extensions`. Sandbox-Laufzeit sowie bestehende Lese-,
+Bearbeitungs- und Deep-Link-Routen bleiben aus Kompatibilitätsgründen erhalten.
 
 <Diagram id="doc-block-1yn00sz" title={"Die Sandkastenbrücke"} summary={"Die Erweiterung HTML wird in einem isolierten Iframe ausgeführt und erreicht den Host nur über einen festen Satz von Bridge-Helfern – jeder Aufruf ist umfangreich und zugriffsüberprüft."}>
 

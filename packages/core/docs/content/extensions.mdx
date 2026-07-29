@@ -45,9 +45,11 @@ Three things make extensions work:
 - **Built-in storage.** Each extension has its own per-user / per-org key-value store, so it can save state without you adding a new SQL table.
 
 Extensions are disabled by default. To expose user-authored extensions, set
-`extensionTools: true` on `createAgentChatPlugin()`. That adds the agent-facing
-extension actions and prompt guidance while leaving the sandbox runtime and
-existing deep links available for compatibility either way.
+`extensionTools: true` on both `createAgentChatPlugin()` and
+`createCoreRoutesPlugin()`. The first adds the agent-facing actions and prompt
+guidance; the second permits authenticated creation through
+`POST /_agent-native/extensions`. The sandbox runtime and existing read, edit,
+and deep-link routes remain available for compatibility either way.
 
 <Diagram id="doc-block-l8xkep" title="The sandbox bridge" summary={"Extension HTML runs in an isolated iframe and reaches the host only through a fixed set of bridge helpers — every call is scoped and access-checked."}>
 

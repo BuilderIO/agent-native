@@ -586,6 +586,12 @@ export default createAgentChatPlugin({
 });
 ```
 
+```ts filename="server/plugins/core-routes.ts"
+export default createCoreRoutesPlugin({
+  extensionTools: true,
+});
+```
+
 - `databaseTools: "read"` — default. Registers only `db-schema` and `db-query`;
   agents inspect data with SQL but must use typed app actions for writes.
 - `databaseTools: "write"` or `true` — additionally registers `db-exec` and
@@ -595,7 +601,8 @@ export default createAgentChatPlugin({
   agent surface so the app's actions are the only data access path.
 - `extensionTools: true` — opts the app into framework extension-management
   actions and prompt guidance (`create-extension`, `update-extension`, etc.).
-  Extensions are disabled by default.
+  Set it on both plugins to also allow authenticated REST creation. Extensions
+  are disabled by default.
 
 ## Production Code Execution {#production-code-execution}
 

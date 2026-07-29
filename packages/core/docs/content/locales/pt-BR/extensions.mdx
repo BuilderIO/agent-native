@@ -27,9 +27,11 @@ Três coisas fazem as extensões funcionarem:
 - **Armazenamento integrado.** Cada extensão tem seu próprio armazenamento de valores-chave por usuário/por organização, para que possa salvar o estado sem você adicionar uma nova tabela SQL.
 
 As extensões ficam desativadas por padrão. Para habilitá-las, defina
-`extensionTools: true` em `createAgentChatPlugin()`. Isso adiciona as actions e
-orientações do agente, mantendo o runtime isolado e os links existentes para
-compatibilidade.
+`extensionTools: true` em `createAgentChatPlugin()` e
+`createCoreRoutesPlugin()`. O primeiro adiciona as actions e orientações do
+agente; o segundo permite a criação autenticada por
+`POST /_agent-native/extensions`. O runtime isolado e as rotas existentes de
+leitura, edição e links profundos permanecem disponíveis por compatibilidade.
 
 <Diagram id="doc-block-2dtgp8" title="A ponte da caixa de areia" summary={"A extensão HTML é executada em um iframe isolado e atinge o host apenas por meio de um conjunto fixo de auxiliares de ponte - cada chamada tem escopo e acesso verificado."}>
 

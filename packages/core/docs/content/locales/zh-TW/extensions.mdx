@@ -23,9 +23,11 @@ description: "用於一次性沙盒自訂區塊的選用 Toolkit 能力。持久
 - **對範本資料的完全存取權限。**擴充功能可以呼叫代理呼叫的相同 actions - 郵件中的 `list-emails`、幻燈片中的 `list-decks`、剪輯中的 `list-recordings` - 因此它們擁有主機應用程式擁有的一切。
 - **內建儲存。**每個擴充功能都有自己的每使用者/每組織鍵值儲存，因此它可以儲存狀態，而無需新增新的 SQL 表。
 
-擴充功能預設關閉。若要啟用，請在 `createAgentChatPlugin()` 中設定
-`extensionTools: true`。這會加入面向代理的 actions 與提示指引，
-並為相容性保留沙盒 runtime 與既有連結。
+擴充功能預設關閉。若要啟用，請在 `createAgentChatPlugin()` 和
+`createCoreRoutesPlugin()` 中都設定 `extensionTools: true`。前者加入面向
+代理的 actions 與提示指引；後者允許透過
+`POST /_agent-native/extensions` 進行已驗證的建立。沙盒 runtime
+以及既有的讀取、編輯和深層連結 routes 會繼續保留以維持相容性。
 
 <Diagram id="doc-block-7osdxe" title={"沙盒橋"} summary={"擴充功能 HTML 在隔離的 iframe 中執行，僅透過一組固定的橋接助手到達主機 - 每個呼叫都經過範圍和存取檢查。"}>
 

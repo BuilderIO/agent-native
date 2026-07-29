@@ -236,12 +236,15 @@ describe("Analytics agent Plan mode policy", () => {
     );
   });
 
-  it("explicitly keeps extension tools for Analytics Custom Blocks", async () => {
-    const source = await import("node:fs/promises").then(({ readFile }) =>
+  it("explicitly keeps extension creation enabled for Analytics Custom Blocks", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const [agentChatSource, coreRoutesSource] = await Promise.all([
       readFile(new URL("./agent-chat.ts", import.meta.url), "utf8"),
-    );
+      readFile(new URL("./core-routes.ts", import.meta.url), "utf8"),
+    ]);
 
-    expect(source).toContain("extensionTools: true");
+    expect(agentChatSource).toContain("extensionTools: true");
+    expect(coreRoutesSource).toContain("extensionTools: true");
   });
 });
 

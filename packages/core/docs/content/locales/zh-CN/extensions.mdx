@@ -23,9 +23,11 @@ description: "用于一次性沙盒自定义块的可选 Toolkit 能力。持久
 - **对模板数据的完全访问权限。**扩展可以调用代理调用的相同 actions - 邮件中的 `list-emails`、幻灯片中的 `list-decks`、剪辑中的 `list-recordings` - 因此它们拥有主机应用程序拥有的一切。
 - **内置存储。**每个扩展都有自己的每用户/每组织键值存储，因此它可以保存状态，而无需添加新的 SQL 表。
 
-扩展默认关闭。要启用它们，请在 `createAgentChatPlugin()` 中设置
-`extensionTools: true`。这会添加面向代理的 actions 和提示指导，
-同时为兼容性保留沙盒 runtime 和现有链接。
+扩展默认关闭。要启用它们，请在 `createAgentChatPlugin()` 和
+`createCoreRoutesPlugin()` 中都设置 `extensionTools: true`。前者添加面向
+代理的 actions 和提示指导；后者允许通过
+`POST /_agent-native/extensions` 进行经过身份验证的创建。沙盒 runtime
+以及现有的读取、编辑和深层链接 routes 会继续保留以实现兼容性。
 
 <Diagram id="doc-block-1bni74h" title={"沙盒桥"} summary={"扩展 HTML 在隔离的 iframe 中运行，仅通过一组固定的桥接助手到达主机 - 每个调用都经过范围和访问检查。"}>
 
