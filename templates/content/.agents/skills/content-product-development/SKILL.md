@@ -33,15 +33,19 @@ The repository source of truth lives in `templates/content/docs/product/`.
    rg -n "<workflow or Feature>" templates/content/docs/product/features
    ```
 
-3. Read the Feature's required and enhancing Capability records by stable ID.
+3. Read the Feature's required and enhancing Capability records by stable ID,
+   including each record's workflow, contract, boundaries, acceptance stories,
+   current evidence, proof plan, and open questions. The encyclopedia row is an
+   index, not enough implementation context.
 4. Inspect the current implementation, tests, feature flags, and provider state.
 
 Load only the relevant records. Do not paste the encyclopedia into the context
 and hope the important sentence floats to the top.
 
-If a required record is missing, name the missing ID. A narrow bug fix may still
-proceed when tests and existing behavior make the contract unambiguous; record
-the context gap in the handoff.
+If a required record is missing or still contains only the legacy generated
+shell, name the missing or incomplete ID. Do not manufacture edge behavior from
+its one-line summary. A narrow bug fix may still proceed when tests and existing
+behavior make the contract unambiguous; record the context gap in the handoff.
 
 ## Classify the change
 

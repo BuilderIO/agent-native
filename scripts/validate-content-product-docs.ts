@@ -227,15 +227,16 @@ export function renderEncyclopedia(catalog: ProductCatalog) {
     `- Named increments: ${catalog.features.reduce((total, feature) => total + stringArrayField(feature, "increments").length, 0)}`,
     `- Capabilities: ${capabilities.length}`,
     "",
-    "| Capability state | Count |",
-    "| --- | ---: |",
   ];
 
+  const stateRows = [["Capability state", "Count"]];
   for (const state of capabilityStates) {
-    lines.push(
-      `| ${displayCapabilityState(state)} | ${stateCounts.get(state) ?? 0} |`,
-    );
+    stateRows.push([
+      displayCapabilityState(state),
+      String(stateCounts.get(state) ?? 0),
+    ]);
   }
+  lines.push(...renderMarkdownTable(stateRows, ["left", "right"]));
 
   lines.push(
     "",
@@ -257,12 +258,15 @@ export function renderEncyclopedia(catalog: ProductCatalog) {
     left.localeCompare(right),
   )) {
     lines.push(`## ${displayCapabilityFamily(family)}`, "");
-    lines.push("| Capability | State | User promise |", "| --- | --- | --- |");
+    const rows = [["Capability", "State", "User promise"]];
     for (const capability of records) {
-      lines.push(
-        `| [${escapeTable(stringField(capability, "name"))}](capabilities/${capability.id}.md) | ${displayCapabilityState(stringField(capability, "state"))} | ${escapeTable(stringField(capability, "user_promise"))} |`,
-      );
+      rows.push([
+        `[${escapeTable(stringField(capability, "name"))}](capabilities/${capability.id}.md)`,
+        displayCapabilityState(stringField(capability, "state")),
+        escapeTable(stringField(capability, "user_promise")),
+      ]);
     }
+    lines.push(...renderMarkdownTable(rows));
     lines.push("");
   }
 
@@ -459,7 +463,11 @@ function validateCatalog(
       "related_features",
       errors,
     );
-    requireStringArray(capability, "proof_requirements", errors);
+    const proofRequirements = requireStringArray(
+      capability,
+      "proof_requirements",
+      errors,
+    );
     requireStringArray(capability, "evidence", errors);
     validateReferences(
       capability,
@@ -506,10 +514,30 @@ function validateCatalog(
           `${displayPath(capability.file)}: superseded_by references unknown id ${target}`,
         );
       }
+      if (target === capability.id) {
+        errors.push(
+          `${displayPath(capability.file)}: superseded_by cannot reference itself`,
+        );
+      }
+      if (target && recordsById.get(target)?.data.state === "superseded") {
+        errors.push(
+          `${displayPath(capability.file)}: superseded_by must reference an active terminal Capability, not superseded ${target}`,
+        );
+      }
     } else if (capability.data.superseded_by !== null) {
       errors.push(
         `${displayPath(capability.file)}: superseded_by must be null unless state is superseded`,
       );
+    }
+    if (capability.data.spec_version !== undefined) {
+      const specVersion = requireNumber(capability, "spec_version", errors);
+      if (specVersion !== 2) {
+        errors.push(
+          `${displayPath(capability.file)}: spec_version must be 2 when present`,
+        );
+      } else {
+        validateCapabilityMiniSpec(capability, proofRequirements, errors);
+      }
     }
   }
 
@@ -544,6 +572,16 @@ function validateCatalog(
   }
 
   if (strictCatalog) {
+    const legacyCapabilities = catalog.capabilities.filter(
+      (capability) => capability.data.spec_version !== 2,
+    );
+    if (legacyCapabilities.length > 0) {
+      errors.push(
+        `catalog: every Capability must use spec_version 2; legacy records: ${legacyCapabilities
+          .map((capability) => capability.id)
+          .join(", ")}`,
+      );
+    }
     if (catalog.chapters.length !== 6) {
       errors.push(
         `catalog: expected 6 Chapters, found ${catalog.chapters.length}`,
@@ -552,6 +590,11 @@ function validateCatalog(
     if (catalog.features.length !== 32) {
       errors.push(
         `catalog: expected 32 Features, found ${catalog.features.length}`,
+      );
+    }
+    if (catalog.capabilities.length !== 124) {
+      errors.push(
+        `catalog: expected 124 Capabilities, found ${catalog.capabilities.length}`,
       );
     }
     const incrementCount = catalog.features.reduce(
@@ -563,6 +606,154 @@ function validateCatalog(
       errors.push(
         `catalog: expected 1 named increment, found ${incrementCount}`,
       );
+    }
+  }
+}
+
+function validateCapabilityMiniSpec(
+  capability: ProductRecord,
+  proofRequirements: string[],
+  errors: string[],
+) {
+  const primaryUserJob = requireString(capability, "primary_user_job", errors);
+  if (
+    primaryUserJob &&
+    primaryUserJob === stringField(capability, "user_promise")
+  ) {
+    errors.push(
+      `${displayPath(capability.file)}: primary_user_job must explain the job in the user's terms rather than duplicate user_promise`,
+    );
+  }
+  if (proofRequirements.length < 3) {
+    errors.push(
+      `${displayPath(capability.file)}: spec_version 2 requires at least 3 concrete proof_requirements`,
+    );
+  }
+
+  const acceptanceSummary = stringField(capability, "acceptance_summary");
+  if (/^A complete proof demonstrates:/i.test(acceptanceSummary)) {
+    errors.push(
+      `${displayPath(capability.file)}: acceptance_summary must describe the observable completion boundary, not repeat the legacy generated prefix`,
+    );
+  }
+
+  const headings = [
+    "## Why this exists",
+    "## Example workflow",
+    "## Product contract",
+    "## Boundaries and non-goals",
+    "## Acceptance stories",
+    "## Current evidence",
+    "## Proof plan",
+    "## Open questions",
+  ];
+  let previousIndex = -1;
+  for (const heading of headings) {
+    const headingCount = capability.body
+      .split("\n")
+      .filter((line) => line === heading).length;
+    const index = capability.body.indexOf(heading);
+    if (index < 0) {
+      errors.push(
+        `${displayPath(capability.file)}: spec_version 2 requires ${heading}`,
+      );
+      continue;
+    }
+    if (headingCount !== 1) {
+      errors.push(
+        `${displayPath(capability.file)}: spec_version 2 requires exactly one ${heading}`,
+      );
+    }
+    if (index < previousIndex) {
+      errors.push(
+        `${displayPath(capability.file)}: ${heading} must follow the preceding mini-spec section`,
+      );
+    }
+    previousIndex = index;
+  }
+
+  const whyThisExists = extractSection(
+    capability.body,
+    "## Why this exists",
+    "## Example workflow",
+  ).trim();
+  if (
+    whyThisExists &&
+    (whyThisExists === primaryUserJob ||
+      whyThisExists === stringField(capability, "user_promise"))
+  ) {
+    errors.push(
+      `${displayPath(capability.file)}: Why this exists must explain the human problem rather than repeat frontmatter`,
+    );
+  }
+
+  const acceptanceStories = extractSection(
+    capability.body,
+    "## Acceptance stories",
+    "## Current evidence",
+  );
+  const scenarioCount = [...acceptanceStories.matchAll(/^### .+$/gm)].length;
+  if (scenarioCount < 2) {
+    errors.push(
+      `${displayPath(capability.file)}: spec_version 2 requires at least 2 independently named acceptance stories`,
+    );
+  }
+  if (
+    acceptanceStories &&
+    !/\bGiven\b[\s\S]*\bwhen\b[\s\S]*\bthen\b/i.test(acceptanceStories)
+  ) {
+    errors.push(
+      `${displayPath(capability.file)}: acceptance stories must include observable Given/when/then behavior`,
+    );
+  }
+
+  const currentEvidence = extractSection(
+    capability.body,
+    "## Current evidence",
+    "## Proof plan",
+  );
+  if (
+    !currentEvidence ||
+    /^Existing code may provide useful substrate/i.test(currentEvidence)
+  ) {
+    errors.push(
+      `${displayPath(capability.file)}: Current evidence must name concrete implementation truth or explicitly say that none exists`,
+    );
+  }
+
+  const genericPatterns: Array<[RegExp, string]> = [
+    [
+      /A person uses .+ in an authorized document workflow/i,
+      "replace the generic example workflow with a concrete actor, object, action, and outcome",
+    ],
+    [
+      /^### Complete the ordinary workflow$/m,
+      "replace the generic acceptance-story heading with a capability-specific scenario",
+    ],
+    [
+      /^### Preserve truth at the boundary$/m,
+      "replace the generic failure story with the actual boundary this capability must preserve",
+    ],
+    [
+      /^### Preserve the governing boundary$/m,
+      "name the actual authority, permission, or data boundary in the acceptance story",
+    ],
+    [
+      /^### Record an ordinary outcome$/m,
+      "name the observable capability-specific outcome in the acceptance story",
+    ],
+    [
+      /^1\. Exercise the typed contract, authorization, validation, Events, history, and recovery\.$/m,
+      "replace the generic proof plan with capability-specific evidence",
+    ],
+    [
+      /Implementation choices, exact controls, and rollout order remain open only where they preserve this contract/i,
+      "replace the generic open-questions sentence with real capability-specific questions or an explicit statement that none remain",
+    ],
+  ];
+  for (const [pattern, repair] of genericPatterns) {
+    if (pattern.test(capability.body)) {
+      errors.push(`${displayPath(capability.file)}: ${repair}`);
     }
   }
 }
@@ -922,6 +1113,33 @@ function titleCase(value: string) {
 
 function escapeTable(value: string) {
   return value.replace(/\|/g, "\\|").replace(/\s+/g, " ").trim();
+}
+
+function renderMarkdownTable(
+  rows: string[][],
+  alignments: Array<"left" | "right"> = [],
+) {
+  const widths = rows[0].map((_, column) =>
+    Math.max(3, ...rows.map((row) => row[column]?.length ?? 0)),
+  );
+  const renderRow = (row: string[]) =>
+    `| ${row
+      .map((cell, column) =>
+        alignments[column] === "right"
+          ? cell.padStart(widths[column])
+          : cell.padEnd(widths[column]),
+      )
+      .join(" | ")} |`;
+  const separator = widths.map((width, column) =>
+    alignments[column] === "right"
+      ? `${"-".repeat(Math.max(2, width - 1))}:`
+      : "-".repeat(width),
+  );
+  return [
+    renderRow(rows[0]),
+    renderRow(separator),
+    ...rows.slice(1).map(renderRow),
+  ];
 }
 
 function generatedNotice() {

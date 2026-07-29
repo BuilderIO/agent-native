@@ -349,7 +349,7 @@ Open a folder or repository through the same Source model while keeping device a
 - **Queued edits:** Holds permitted source-owned changes with their base revision until an authorized bridge returns.
 - **Portable vault:** Keeps the human-readable folder separate from disposable caches and any particular desktop application bundle.
 
-**Required capability records:** [Local Source bridge](capabilities/content.source.local-bridge.md), [Files and folders as Sources](capabilities/content.source.file-folder.md), [Portable source representation](capabilities/content.portability.source-representation.md), [Whole-vault export](capabilities/content.portability.vault-export.md)
+**Required capability records:** [Local Source bridge](capabilities/content.source.local-bridge.md), [Files and folders as Sources](capabilities/content.source.file-folder.md), [Portable Source representation](capabilities/content.portability.source-representation.md), [Portable vault export](capabilities/content.portability.vault-export.md)
 
 **Enhancing capability records:** [Source adapters](capabilities/content.source.adapters.md), [Source sync policy](capabilities/content.source.sync-policy.md)
 
@@ -583,7 +583,7 @@ Build Forms over the same schema, validation, and submission Actions as the Data
 
 **Required capability records:** [Shared Form engine](capabilities/content.form.shared-engine.md), [Property validation and defaults](capabilities/content.property.constraints.md), [Agent and UI parity](capabilities/content.agent.action-parity.md), [Committed Events](capabilities/content.event.committed.md)
 
-**Enhancing capability records:** [Rules](capabilities/content.rule.deterministic.md), [Durable background jobs](capabilities/content.job.durable.md)
+**Enhancing capability records:** [Rules](capabilities/content.rule.deterministic.md), [Durable Content jobs](capabilities/content.job.durable.md)
 
 ### Feature 22: Understand what your data says
 
@@ -632,7 +632,7 @@ Compose responsive Views, Charts, expressions, controls, and prose into durable 
 - **Live context:** Keeps prose, decisions, metrics, and the underlying records together for people and agents.
 - **Presentation mode:** Reuses shared Slides primitives to present Pages or ordered records without inventing slide-only content.
 
-**Required capability records:** [Responsive Page layout](capabilities/content.layout.responsive.md), [Chart View](capabilities/content.view.chart.md), [Embeddable Content surfaces](capabilities/content.embed.surface.md)
+**Required capability records:** [Responsive Page layout](capabilities/content.layout.responsive.md), [Chart View](capabilities/content.view.chart.md), [Embedded Content surface](capabilities/content.embed.surface.md)
 
 **Enhancing capability records:** [Presentation mode](capabilities/content.presentation.mode.md), [Typed expression language](capabilities/content.expression.language.md)
 
@@ -662,7 +662,7 @@ Resolve or create one canonical Page in the chosen Database, preserve provenance
 - **Downstream enrichment:** Lets target-owned Rules and agents summarize, classify, extract, or route the record without making Capture wait for them.
 - **Receipts and repair:** Reports what Capture created or reused and allows failed later enrichment to retry independently.
 
-**Required capability records:** [Capture and enrichment](capabilities/content.capture.enrich.md), [Sources catalog](capabilities/content.source.catalog.md), [Durable background jobs](capabilities/content.job.durable.md)
+**Required capability records:** [Capture and enrichment](capabilities/content.capture.enrich.md), [Sources catalog](capabilities/content.source.catalog.md), [Durable Content jobs](capabilities/content.job.durable.md)
 
 **Enhancing capability records:** [Rules](capabilities/content.rule.deterministic.md), [Multi-object Templates](capabilities/content.template.graph.md)
 
@@ -770,9 +770,9 @@ Publish one chosen revision faithfully while private collaborative work continue
 - **Private-work separation:** Prevents Comments, Discussion, unpublished Versions, inaccessible assets, and internal Properties from leaking.
 - **Lifecycle history:** Records who published, updated, or withdrew which revision and preserves the public artifact's provenance.
 
-**Required capability records:** [Public publishing](capabilities/content.publish.public.md), [Public reading](capabilities/content.publish.reading.md), [Visibility closure](capabilities/content.access.visibility-closure.md)
+**Required capability records:** [Public publication](capabilities/content.publish.public.md), [Public reading](capabilities/content.publish.reading.md), [Visibility closure](capabilities/content.access.visibility-closure.md)
 
-**Enhancing capability records:** [Named Page Versions](capabilities/content.version.branching.md), [PDF and print export](capabilities/content.portability.pdf-export.md), [Guarded property changes](capabilities/content.property.guarded-change.md)
+**Enhancing capability records:** [Named Page Versions](capabilities/content.version.branching.md), [PDF export](capabilities/content.portability.pdf-export.md), [Guarded property changes](capabilities/content.property.guarded-change.md)
 
 ### Feature 29: Take the whole vault with you
 
@@ -796,9 +796,9 @@ Export the complete authorized vault into open, understandable formats and a los
 - **Durable transfer job:** Supports progress, interruption, retry, and resume without duplicating work.
 - **Local backup:** Lets Desktop maintain a user-chosen portable vault separately from its fast disposable cache.
 
-**Required capability records:** [Whole-vault export](capabilities/content.portability.vault-export.md), [Faithful round-tripping](capabilities/content.portability.roundtrip.md), [Durable background jobs](capabilities/content.job.durable.md)
+**Required capability records:** [Portable vault export](capabilities/content.portability.vault-export.md), [Faithful round-tripping](capabilities/content.portability.roundtrip.md), [Durable Content jobs](capabilities/content.job.durable.md)
 
-**Enhancing capability records:** [PDF and print export](capabilities/content.portability.pdf-export.md), [Local Source bridge](capabilities/content.source.local-bridge.md)
+**Enhancing capability records:** [PDF export](capabilities/content.portability.pdf-export.md), [Local Source bridge](capabilities/content.source.local-bridge.md)
 
 ### Feature 30: Move without starting over
 
@@ -822,7 +822,7 @@ Import or migrate a foreign corpus with resumable progress, provenance, repair, 
 - **Repair workflows:** Lets people and agents inspect unresolved mappings, missing assets, conflicts, and partial failures.
 - **Provenance:** Keeps enough source context to compare, refresh, or understand the imported material later.
 
-**Required capability records:** [Durable background jobs](capabilities/content.job.durable.md), [Source adapters](capabilities/content.source.adapters.md), [Faithful round-tripping](capabilities/content.portability.roundtrip.md)
+**Required capability records:** [Durable Content jobs](capabilities/content.job.durable.md), [Source adapters](capabilities/content.source.adapters.md), [Faithful round-tripping](capabilities/content.portability.roundtrip.md)
 
 **Enhancing capability records:** [Sources catalog](capabilities/content.source.catalog.md), [Committed Events](capabilities/content.event.committed.md)
 
@@ -847,7 +847,7 @@ Mount and edit the same canonical Content object inside an authorized host witho
 - **Agent Native toolkits:** Reuse common components and behavior across sibling applications without coupling them to the Content app shell.
 - **MCP App widening:** Later exposes the same governed surface to compatible external agent hosts once identity and presentation contracts are proven.
 
-**Required capability records:** [Embeddable Content surfaces](capabilities/content.embed.surface.md), [Embedded host grants](capabilities/content.embed.host-grant.md), [Agent and UI parity](capabilities/content.agent.action-parity.md)
+**Required capability records:** [Embedded Content surface](capabilities/content.embed.surface.md), [Embedded host grants](capabilities/content.embed.host-grant.md), [Agent and UI parity](capabilities/content.agent.action-parity.md)
 
 **Enhancing capability records:** [MCP App embedding](capabilities/content.embed.mcp-app.md), [Responsive Page layout](capabilities/content.layout.responsive.md)
 
@@ -873,6 +873,6 @@ Add user-controlled encrypted custody without abandoning collaboration, recovery
 - **Portable exit:** Allows the owner to export readable authorized content and keys without permanent service dependence.
 - **Paused boundary:** Retains the existing E2EE research and implementation history without claiming the complete workflow is ready.
 
-**Required capability records:** [Private vault encryption](capabilities/content.security.private-vault.md), [Agent resource consent](capabilities/content.agent.resource-consent.md), [Whole-vault export](capabilities/content.portability.vault-export.md)
+**Required capability records:** [Private vault encryption](capabilities/content.security.private-vault.md), [Agent resource consent](capabilities/content.agent.resource-consent.md), [Portable vault export](capabilities/content.portability.vault-export.md)
 
 **Enhancing capability records:** [Local Source bridge](capabilities/content.source.local-bridge.md), [Audience-safe synthesis](capabilities/content.agent.audience-safe.md)
