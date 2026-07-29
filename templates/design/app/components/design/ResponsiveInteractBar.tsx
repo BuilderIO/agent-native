@@ -5,6 +5,8 @@ import {
   IconDeviceLaptop,
   IconDeviceMobile,
   IconDeviceTablet,
+  IconScribble,
+  IconTransformPoint,
   IconX,
 } from "@tabler/icons-react";
 import { useState } from "react";
@@ -48,6 +50,21 @@ import {
 const INTERACT_ZOOM_MIN = 10;
 const INTERACT_ZOOM_MAX = 200;
 const ZOOM_PRESET_BUTTONS = [50, 75, 100] as const;
+
+/** Same labels/icons as the bottom toolbar's mode tabs, which this bar stands
+ * in for while Interact owns the surface. */
+const MODE_EXITS = [
+  {
+    mode: "edit",
+    labelKey: "designEditor.modes.edit",
+    Icon: IconTransformPoint,
+  },
+  {
+    mode: "annotate",
+    labelKey: "designEditor.modes.annotate",
+    Icon: IconScribble,
+  },
+] as const;
 
 function DeviceCategoryIcon({
   category,
@@ -108,6 +125,16 @@ export interface ResponsiveInteractBarProps {
   onWidthChange: (width: number) => void;
   onHeightChange: (height: number) => void;
   onZoomChange: (zoom: number) => void;
+  /**
+   * Leave Interact for a canvas mode. The bottom toolbar (which owns the mode
+   * tabs) is hidden while Interact owns the surface, so without this the only
+   * exit is Close. The handler must route through `resolveModeChangeView` so
+   * Edit/Annotate land on the infinite canvas rather than the forbidden
+   * single-screen editing state.
+   */
+  onModeChange: (mode: "edit" | "annotate") => void;
+  /** Annotate is editor-only; commenters get Edit alone. */
+  canAnnotate: boolean;
   onClose: () => void;
   className?: string;
 }
@@ -127,6 +154,8 @@ export function ResponsiveInteractBar({
   onWidthChange,
   onHeightChange,
   onZoomChange,
+  onModeChange,
+  canAnnotate,
   onClose,
   className,
 }: ResponsiveInteractBarProps) {
@@ -209,6 +238,26 @@ export function ResponsiveInteractBar({
       </div>
 
       <div className="flex min-w-0 flex-1 items-center justify-end gap-1">
+        {MODE_EXITS.filter((exit) => exit.mode === "edit" || canAnnotate).map(
+          (exit) => (
+            <Tooltip key={exit.mode}>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => onModeChange(exit.mode)}
+                  aria-label={t(exit.labelKey)}
+                  className="size-7 cursor-pointer rounded-md text-muted-foreground hover:text-foreground"
+                >
+                  <exit.Icon className="size-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">{t(exit.labelKey)}</TooltipContent>
+            </Tooltip>
+          ),
+        )}
+        <Separator orientation="vertical" className="mx-1 !h-5" />
+
         <Popover
           open={zoomOpen}
           onOpenChange={(open) => {

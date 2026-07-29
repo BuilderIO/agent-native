@@ -1197,6 +1197,29 @@ export function DesignCanvas({
     // command is lost permanently before the bridge can announce readiness.
     if (!win || !bridgeReadyRef.current) {
       pendingOneShotMessagesRef.current.push(message);
+      // The readiness recovery in the message handler below is PASSIVE: it
+      // waits for the frame to say something first. A live-edit screen keeps
+      // its already-loaded iframe across a canvas remount, so a replacement
+      // instance never sees `editor-chrome-ready`, and an idle frame says
+      // nothing on its own — every inspector style commit then sat here
+      // reporting success while the running app never changed, until some
+      // unrelated hover/selection happened to talk and flushed the backlog.
+      // Ask instead of waiting: `agent-native:text-edit-status` is the
+      // cheapest bridge round trip (no DOM walk with an empty nodeId), its
+      // reply is a trusted message from the current frame, and that reply is
+      // what marks the bridge ready and drains this queue. A frame with no
+      // bridge attached simply never answers, so the queue keeps its original
+      // meaning.
+      if (win) {
+        win.postMessage(
+          {
+            type: "agent-native:text-edit-status",
+            correlationId: "",
+            nodeId: "",
+          },
+          "*",
+        );
+      }
       return true;
     }
     win.postMessage(message, "*");

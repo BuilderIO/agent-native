@@ -487,6 +487,7 @@ import {
 import { prettyScreenName } from "@/lib/screen-names";
 import { cn } from "@/lib/utils";
 
+import { actionErrorDetail } from "./design-editor/action-error";
 import {
   applyAutoLayoutSuggestion,
   hasMeaningfulCssTransform,
@@ -618,6 +619,7 @@ import {
   resolveServerFiles,
   shouldClearLatestUnloadSave,
   shouldReplacePreviewAfterVisualStyleCommit,
+  shouldRetirePendingLocalFileContent,
   shouldSendKeepalive,
   shouldSkipVisualStyleCommitForPreview,
   type OptimisticTextDecorationLineEntry,
@@ -4937,16 +4939,9 @@ function DesignEditor() {
     let changed = false;
     for (const file of serverFiles) {
       const pending = pendingLocalFileContentsRef.current.get(file.id);
-      if (pending && (file.content ?? "") === pending.content) {
-        if (
-          pending.baseUpdatedAt !== undefined &&
-          file.updatedAt === pending.baseUpdatedAt
-        ) {
-          continue;
-        }
-        pendingLocalFileContentsRef.current.delete(file.id);
-        changed = true;
-      }
+      if (!shouldRetirePendingLocalFileContent(pending, file)) continue;
+      pendingLocalFileContentsRef.current.delete(file.id);
+      changed = true;
     }
     if (changed) {
       setPendingLocalFileContentsRevision((revision) => revision + 1);
@@ -10961,6 +10956,19 @@ function DesignEditor() {
           before: baseContent,
           after: nextContent,
         });
+        // Stamp the server-clock base the same way applyFileContentUpdate
+        // does. Without it the reconcile effect reads the optimistic cache
+        // write below as a server acknowledgement and retires the pending
+        // entry immediately, leaving that cache the only carrier of the
+        // insert — so any get-design response already in flight (the board
+        // file's own lazy migration invalidates on success, so one usually
+        // is) overwrites it with pre-insert content and the primitive
+        // disappears from the canvas until a reload.
+        markPendingLocalFileContent(
+          targetFile.id,
+          nextContent,
+          targetFile.updatedAt,
+        );
         queryClient.setQueryData(
           ["action", "get-design", { id }],
           (old: any) => {
@@ -11006,6 +11014,7 @@ function DesignEditor() {
       files,
       id,
       isSynced,
+      markPendingLocalFileContent,
       queryClient,
       recordContentHistoryEntry,
       saveFileContent,
@@ -12986,6 +12995,8 @@ function DesignEditor() {
       options: {
         runtimeApplied?: boolean;
         elementInfo?: ElementInfo;
+        /** Pre-gesture values, for the pending-edit revert stack. */
+        originalStyles?: Record<string, string>;
       } = {},
     ) => {
       if (!activeFile || !canEditDesign) return;
@@ -13012,6 +13023,50 @@ function DesignEditor() {
       );
       if (entries.length === 0) return;
       upsertMotionKeyframesFromStyles(styles, options.elementInfo, selector);
+      // §gesture-persistence — a localhost screen's source of truth is the
+      // running app's own files, which this client cannot write. Everything
+      // below patches the design's STORED html, which for such a screen is
+      // only the bridged route URL, so an inspector commit updated the model
+      // and the undo stack while the running app kept rendering the old value
+      // and no pending edit was ever queued for the Apply pass. Push the value
+      // into the live DOM and queue it, exactly like a canvas gesture
+      // (handleVisualStyleChange delegates here with runtimeApplied set
+      // because its gesture already moved the live DOM).
+      if (activeCanvasSourceType === "localhost") {
+        const targetInfo = options.elementInfo ?? selectedElement ?? undefined;
+        const sendStyleToLiveFrame = (window as any).__designCanvasSendStyle;
+        // Breakpoint-scoped writes are excluded for the same reason as the
+        // base path below (Item 5, edit-flash): the agent persists them as a
+        // width-scoped class or an `@media` rule, which an inline style would
+        // preview wrong.
+        if (
+          !options.runtimeApplied &&
+          activeBreakpointUpperBoundPx == null &&
+          typeof sendStyleToLiveFrame === "function"
+        ) {
+          const selectorCandidates = [
+            selector,
+            targetInfo?.runtimeSelector,
+            targetInfo?.selector,
+          ].filter((candidate): candidate is string => Boolean(candidate));
+          entries.forEach(([property, value]) => {
+            sendStyleToLiveFrame(selector, property, value, {
+              selectorCandidates,
+              nodeId: targetInfo?.runtimeSourceId ?? targetInfo?.sourceId,
+            });
+          });
+        }
+        recordPendingVisualStyleEdit(
+          activeFile.id,
+          selector,
+          styles,
+          targetInfo,
+          {
+            originalStyles: options.originalStyles,
+          },
+        );
+        return;
+      }
       // Base every patch off the freshest known content, not the closed-over
       // render value. Handlers that fire several onStyleChange calls in one
       // synchronous user action (e.g. fixed-size text → width+height+whiteSpace,
@@ -13445,6 +13500,7 @@ function DesignEditor() {
       activeFile,
       activeBreakpointWidthState,
       activeBreakpointUpperBoundPx,
+      activeCanvasSourceType,
       activeCodeLayerProjection,
       activeProjectionContent,
       canEditDesign,
@@ -13453,6 +13509,7 @@ function DesignEditor() {
       recordContentHistoryEntry,
       recordLocalContentHistoryEntry,
       recordLocalContentHistoryChangeFallback,
+      recordPendingVisualStyleEdit,
       replacePreviewContent,
       selectedElement,
       t,
@@ -14252,38 +14309,18 @@ function DesignEditor() {
       metadata?: { originalStyles?: Record<string, string> },
     ) => {
       if (!activeFile?.id) return;
-      // §gesture-persistence — only localhost screens need the agent-applied
-      // pending queue (the client has no direct write path to the real
-      // filesystem). Inline/fusion screens are SQL-backed and can persist the
-      // gesture commit immediately, the same way inspector-driven style
-      // commits already do via commitVisualStyles (breakpoint-aware,
-      // single history step). Routing every screen through the pending
-      // queue here (as of #1702) silently dropped inline gesture edits: the
-      // apply CTA only renders when every pending edit's screen is
-      // localhost, so inline commits never had anywhere to go.
-      if (activeCanvasSourceType === "localhost") {
-        recordPendingVisualStyleEdit(
-          activeFile.id,
-          selector,
-          styles,
-          elementInfo,
-          metadata,
-        );
-        upsertMotionKeyframesFromStyles(styles, elementInfo, selector);
-        return;
-      }
+      // The gesture already moved the live DOM, so this never needs the
+      // runtime push. Which screens queue a pending edit instead of writing
+      // source is commitVisualStyles' single decision — inline/fusion screens
+      // are SQL-backed and persist immediately (breakpoint-aware, one history
+      // step); localhost screens queue for the Apply pass.
       commitVisualStyles(selector, styles, {
         runtimeApplied: true,
         elementInfo,
+        originalStyles: metadata?.originalStyles,
       });
     },
-    [
-      activeCanvasSourceType,
-      activeFile?.id,
-      commitVisualStyles,
-      recordPendingVisualStyleEdit,
-      upsertMotionKeyframesFromStyles,
-    ],
+    [activeFile?.id, commitVisualStyles],
   );
 
   const handleVisualStructureChange = useCallback(
@@ -23408,6 +23445,7 @@ function DesignEditor() {
         cancelPendingStructureVerification("conflict");
         toast.error(
           t("designEditor.pendingVisualStyles.sourceCheckFailedToast"),
+          { description: actionErrorDetail(error) },
         );
       }
     } finally {
@@ -30286,6 +30324,8 @@ function DesignEditor() {
                     onWidthChange={handleInteractWidthChange}
                     onHeightChange={handleInteractHeightChange}
                     onZoomChange={setInteractZoom}
+                    onModeChange={handleModeChange}
+                    canAnnotate={canEditDesign}
                     onClose={handleExitResponsiveInteract}
                   />
                 ) : null}

@@ -164,4 +164,125 @@ describe("DesignCanvas one-shot bridge queue", () => {
       anchorSourceId: "anchor-1",
     });
   });
+
+  /**
+   * The recovery above is passive — it needs the frame to speak first. An idle
+   * live-edit frame never does, so an inspector style commit into a canvas
+   * that missed the ready handshake queued forever: the inspector showed the
+   * new value, the running app kept the old one, and nothing reported a
+   * failure. Queueing must now ASK the bridge whether it is there.
+   */
+  it("probes the bridge when a style commit has to queue, and delivers it on the reply", async () => {
+    iframeServer = http.createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      response.end("<!doctype html><html><body>Runtime</body></html>");
+    });
+    const iframePort = await new Promise<number>((resolve, reject) => {
+      iframeServer!.once("error", reject);
+      iframeServer!.listen(0, "127.0.0.1", () => {
+        const address = iframeServer!.address();
+        resolve(typeof address === "object" && address ? address.port : 0);
+      });
+    });
+    const bridgeUrl = `http://127.0.0.1:${iframePort}`;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ ok: true }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        ),
+      ),
+    );
+
+    await act(async () => {
+      root.render(
+        <DesignCanvas
+          content="http://localhost:5173/"
+          contentKey="screen-live"
+          screenId="screen-live"
+          sourceType="localhost"
+          bridgeUrl={bridgeUrl}
+          previewToken="style-probe-preview-token"
+          zoom={100}
+          deviceFrame="none"
+          editMode
+          interactMode={false}
+          onElementSelect={() => {}}
+          onElementHover={() => {}}
+          tweakValues={{}}
+        />,
+      );
+    });
+    await vi.waitFor(() => {
+      expect(
+        container.querySelector<HTMLIFrameElement>(
+          "iframe[data-design-preview-iframe]",
+        )?.src,
+      ).toContain("/live-edit?");
+    });
+    const iframe = container.querySelector<HTMLIFrameElement>(
+      "iframe[data-design-preview-iframe]",
+    )!;
+    const iframeWindow = iframe.contentWindow as Window;
+    const posted: unknown[] = [];
+    iframeWindow.postMessage = ((message: unknown) => {
+      posted.push(message);
+    }) as Window["postMessage"];
+    const typesOf = (type: string) =>
+      posted.filter(
+        (message) => (message as { type?: string } | null)?.type === type,
+      );
+
+    const sendStyleChange = (
+      window as unknown as {
+        __designCanvasSendStyle?: (
+          selector: string,
+          property: string,
+          value: string,
+          options?: { selectorCandidates?: string[]; nodeId?: string | null },
+        ) => void;
+      }
+    ).__designCanvasSendStyle;
+    expect(typeof sendStyleChange).toBe("function");
+
+    const probesBefore = typesOf("agent-native:text-edit-status").length;
+    await act(async () => {
+      sendStyleChange!("#card", "borderRadius", "24px", {
+        selectorCandidates: ["#card"],
+      });
+    });
+    expect(typesOf("style-change")).toHaveLength(0);
+    expect(typesOf("agent-native:text-edit-status").length).toBeGreaterThan(
+      probesBefore,
+    );
+
+    // The bridge answers the probe — that reply is the readiness proof.
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agent-native:text-edit-status-result",
+            correlationId: "",
+            status: false,
+          },
+          origin: bridgeUrl,
+          source: iframeWindow,
+        }),
+      );
+    });
+
+    expect(typesOf("style-change")).toEqual([
+      {
+        type: "style-change",
+        selector: "#card",
+        property: "borderRadius",
+        value: "24px",
+        selectorCandidates: ["#card"],
+        nodeId: "",
+      },
+    ]);
+  });
 });

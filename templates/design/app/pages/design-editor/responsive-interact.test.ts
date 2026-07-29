@@ -170,6 +170,27 @@ describe("responsive Interact wiring", () => {
     expect(frames).not.toContain('t("multiScreenCanvas.fullView")');
   });
 
+  it("keeps a way out of Interact into Edit/Annotate on the one canvas path", () => {
+    // Hiding the bottom toolbar removed the mode tabs, so the bar carries the
+    // exits instead. It must hand them to `handleModeChange` — the only
+    // handler that consults `resolveModeChangeView` — or Edit/Annotate could
+    // land on a focused screen, which is the state the toolbar rule exists to
+    // prevent.
+    const barMount = source.slice(
+      source.indexOf("<ResponsiveInteractBar"),
+      source.indexOf("onClose={handleExitResponsiveInteract}"),
+    );
+    expect(barMount).toContain("onModeChange={handleModeChange}");
+    expect(barMount).toContain("canAnnotate={canEditDesign}");
+    const bar = readFileSync(
+      "app/components/design/ResponsiveInteractBar.tsx",
+      "utf8",
+    );
+    expect(bar).toContain("onModeChange(exit.mode)");
+    expect(bar).not.toContain("setMode(");
+    expect(bar).not.toContain('"interact"');
+  });
+
   it("uses the selected screen size and the real canvas bounds", () => {
     expect(source).toContain("resolveInteractDeviceForScreen(");
     expect(source).toContain("container.clientWidth - 48");

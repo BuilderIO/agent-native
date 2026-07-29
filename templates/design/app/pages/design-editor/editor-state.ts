@@ -517,3 +517,30 @@ export function resolveServerFiles(
 ): DesignFile[] {
   return design?.files ?? EMPTY_DESIGN_FILES;
 }
+
+/**
+ * Pure decision helper (exported for unit testing) for the pending-local-write
+ * reconcile: now that `file` arrived from the server, may the editor stop
+ * overlaying this file's pending local content and trust the query cache?
+ *
+ * Matching content alone does not prove the server took the write. Every
+ * optimistic writer also mirrors its content into the cached `get-design`
+ * payload while deliberately keeping the file's prior server-clock
+ * `updatedAt`, so an echo of our own cache write is indistinguishable from an
+ * acknowledgement by content. A writer that records `baseUpdatedAt` keeps its
+ * overlay until `updatedAt` actually advances; retiring it early leaves the
+ * cache as the only carrier of the edit, and a `get-design` response already
+ * in flight when the write happened then lands with pre-write content and the
+ * edit vanishes until a reload.
+ */
+export function shouldRetirePendingLocalFileContent(
+  pending: { content: string; baseUpdatedAt?: string | null } | undefined,
+  file: { content?: string | null; updatedAt?: string | null },
+): boolean {
+  if (!pending) return false;
+  if ((file.content ?? "") !== pending.content) return false;
+  return (
+    pending.baseUpdatedAt === undefined ||
+    file.updatedAt !== pending.baseUpdatedAt
+  );
+}
