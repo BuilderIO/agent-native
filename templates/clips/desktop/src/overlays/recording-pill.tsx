@@ -406,19 +406,32 @@ export function RecordingPill() {
                 )}
               </button>
             ) : null}
-            <button
-              type="button"
-              onClick={toggleExpanded}
-              data-no-drag
-              className="pill-expand-btn"
-              aria-label={expanded ? "Collapse" : "Expand"}
-            >
-              {expanded ? (
-                <IconChevronUp size={16} />
-              ) : (
-                <IconChevronDown size={16} />
-              )}
-            </button>
+            {finished ? (
+              <button
+                type="button"
+                onClick={() => closeFinished(false)}
+                data-no-drag
+                className="pill-close-btn"
+                aria-label="Dismiss"
+                title="Dismiss"
+              >
+                <IconX size={16} />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={toggleExpanded}
+                data-no-drag
+                className="pill-expand-btn"
+                aria-label={expanded ? "Collapse" : "Expand"}
+              >
+                {expanded ? (
+                  <IconChevronUp size={16} />
+                ) : (
+                  <IconChevronDown size={16} />
+                )}
+              </button>
+            )}
           </div>
         </div>
 
@@ -453,16 +466,6 @@ export function RecordingPill() {
                 onClick={() => closeFinished(true)}
               >
                 Open meeting
-              </button>
-              <button
-                type="button"
-                data-no-drag
-                className="pill-finished-dismiss"
-                onClick={() => closeFinished(false)}
-                aria-label="Dismiss"
-                title="Dismiss"
-              >
-                <IconX size={13} />
               </button>
             </div>
           ) : null}

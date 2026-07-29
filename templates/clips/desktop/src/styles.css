@@ -5652,7 +5652,8 @@ body[data-clips-route="recording-pill"] #root {
   opacity: 0.6;
 }
 
-.pill-expand-btn {
+.pill-expand-btn,
+.pill-close-btn {
   margin-left: 4px;
   display: inline-flex;
   height: 28px;
@@ -5667,7 +5668,8 @@ body[data-clips-route="recording-pill"] #root {
   transition: background 120ms;
 }
 
-.pill-expand-btn:hover {
+.pill-expand-btn:hover,
+.pill-close-btn:hover {
   background: rgba(255, 255, 255, 0.1);
 }
 
@@ -5898,27 +5900,6 @@ body[data-clips-route="recording-pill"] #root {
 
 .pill-finished-open:hover {
   background: #4ade80;
-}
-
-.pill-finished-dismiss {
-  display: inline-flex;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: center;
-  padding: 3px;
-  border: none;
-  border-radius: 5px;
-  background: transparent;
-  color: rgba(187, 247, 208, 0.7);
-  cursor: pointer;
-  transition:
-    background 120ms,
-    color 120ms;
-}
-
-.pill-finished-dismiss:hover {
-  background: rgba(34, 197, 94, 0.22);
-  color: #dcfce7;
 }
 
 .pill-transcript-area {
