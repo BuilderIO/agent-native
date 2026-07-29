@@ -122,6 +122,63 @@ function tokenPalette(
   ];
 }
 
+// `slide.background` holds either a raw CSS value or a Tailwind arbitrary
+// class (`bg-[#000000]`), which SlideRenderer applies as a class rather than
+// an inline style. The picker only speaks CSS colors, so unwrap the class.
+function backgroundCssValue(background: string | undefined): string {
+  if (!background) return "#000000";
+  const arbitrary = background.match(/^bg-\[(.+)\]$/);
+  if (arbitrary) return arbitrary[1].replace(/_/g, " ");
+  return background.startsWith("bg-") ? "#000000" : background;
+}
+
+/**
+ * Rendered in the style dock when no element is selected — otherwise the
+ * slide's own background is unreachable from the editor UI.
+ */
+export function SlideBackgroundInspector({
+  background,
+  designSystem,
+  className,
+  onChange,
+}: {
+  background: string | undefined;
+  designSystem?: DesignSystemData;
+  className?: string;
+  onChange: (background: string) => void;
+}) {
+  const t = useT();
+  const documentColors = tokenPalette(designSystem, t).map(
+    (option) => option.value,
+  );
+
+  return (
+    <VisualInspectorPanel
+      title={t("styleInspector.title")}
+      subtitle={t("styleInspector.slide")}
+      className={className}
+    >
+      <VisualInspectorSection
+        title={
+          <span className="inline-flex items-center gap-1.5">
+            <IconDroplet className="size-3" />
+            {t("styleInspector.slideBackground")}
+          </span>
+        }
+      >
+        <VisualControlRow label={t("styleInspector.background")}>
+          <VisualColorPicker
+            label={t("styleInspector.slideBackground")}
+            value={backgroundCssValue(background)}
+            documentColors={documentColors}
+            onChange={onChange}
+          />
+        </VisualControlRow>
+      </VisualInspectorSection>
+    </VisualInspectorPanel>
+  );
+}
+
 export function SlideStyleInspector({
   snapshot,
   designSystem,

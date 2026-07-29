@@ -355,6 +355,8 @@ const messages = {
   styleInspector: {
     title: "Style",
     close: "스타일 검사기 닫기",
+    slideBackground: "슬라이드 배경",
+    slide: "슬라이드",
     deckStyle: "덱 스타일",
     designSystemTweaks: "디자인 시스템 조정",
     closeTweaks: "조정 닫기",
@@ -604,6 +606,7 @@ const messages = {
     clearWorkspaceDefault: "워크스페이스 기본값 해제",
     workspaceDefaultSet: "워크스페이스 기본값으로 설정했습니다",
     workspaceDefaultCleared: "워크스페이스 기본값을 해제했습니다",
+    duplicateFailed: "해당 덱을 복제하지 못했습니다",
     workspaceDefaultFailed: "워크스페이스 기본값을 업데이트하지 못했습니다",
     workspaceDefaultConfirmTitle: "워크스페이스 기본값으로 설정할까요?",
     workspaceDefaultDeckShareBody:

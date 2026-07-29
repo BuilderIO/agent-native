@@ -358,6 +358,8 @@ const messages = {
   styleInspector: {
     title: "Style",
     close: "スタイルインスペクターを閉じる",
+    slideBackground: "スライドの背景",
+    slide: "スライド",
     deckStyle: "デッキスタイル",
     designSystemTweaks: "デザインシステム調整",
     closeTweaks: "調整を閉じる",
@@ -610,6 +612,7 @@ const messages = {
     clearWorkspaceDefault: "ワークスペースのデフォルトを解除",
     workspaceDefaultSet: "ワークスペースのデフォルトに設定しました",
     workspaceDefaultCleared: "ワークスペースのデフォルトを解除しました",
+    duplicateFailed: "このデッキを複製できませんでした",
     workspaceDefaultFailed: "ワークスペースのデフォルトを更新できませんでした",
     workspaceDefaultConfirmTitle: "ワークスペースのデフォルトに設定しますか？",
     workspaceDefaultDeckShareBody:

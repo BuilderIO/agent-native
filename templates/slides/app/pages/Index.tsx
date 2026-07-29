@@ -14,6 +14,7 @@ import {
   IconStack2,
   IconUserCircle,
 } from "@tabler/icons-react";
+import { nanoid } from "nanoid";
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { flushSync } from "react-dom";
 import { useNavigate, useSearchParams } from "react-router";
@@ -194,6 +195,7 @@ export default function Index() {
   const {
     decks,
     createDeck,
+    duplicateDeck,
     ensureDeckPersisted,
     deleteDeck,
     updateDeck,
@@ -644,22 +646,32 @@ export default function Index() {
     void applyWorkspaceDefaultDeck(deck);
   }, [workspaceDefaultCandidate, applyWorkspaceDefaultDeck]);
 
+  // Navigating on the action's response raced the deck list: the editor reads
+  // the copy out of `useDecks()`, which had not seen the new row yet, so the
+  // route rendered "Deck unavailable". Insert the optimistic copy locally
+  // first (the same path the editor's own Duplicate uses) and navigate to
+  // that; the background action reconciles or rolls the copy back.
   const handleDuplicate = useCallback(
-    async (id: string) => {
+    (id: string) => {
       if (duplicatingRef.current) return;
       duplicatingRef.current = id;
       setDuplicating(id);
       try {
-        const { id: newId } = await callAction("duplicate-deck", {
-          deckId: id,
+        let optimistic: Deck | null = null;
+        flushSync(() => {
+          optimistic = duplicateDeck(id, `deck-${nanoid()}`);
         });
-        navigate(`/deck/${newId}`);
+        if (!optimistic) {
+          toast.error(t("home.duplicateFailed"));
+          return;
+        }
+        navigate(`/deck/${(optimistic as Deck).id}`);
       } finally {
         duplicatingRef.current = null;
         setDuplicating(null);
       }
     },
-    [navigate],
+    [duplicateDeck, navigate, t],
   );
 
   useSetPageTitle(t("home.decksTitle"));

@@ -367,6 +367,8 @@ const messages = {
   styleInspector: {
     title: "Style",
     close: "Fermer l’inspecteur de style",
+    slideBackground: "Arrière-plan de la diapositive",
+    slide: "Diapositive",
     deckStyle: "Style du deck",
     designSystemTweaks: "Réglages du système de design",
     closeTweaks: "Fermer les réglages",
@@ -636,6 +638,7 @@ const messages = {
     clearWorkspaceDefault: "Retirer le deck par défaut de l'espace de travail",
     workspaceDefaultSet: "Défini par défaut pour l'espace de travail",
     workspaceDefaultCleared: "Valeur par défaut de l'espace de travail retirée",
+    duplicateFailed: "Impossible de dupliquer ce deck",
     workspaceDefaultFailed:
       "Impossible de mettre à jour le deck par défaut de l'espace de travail",
     workspaceDefaultConfirmTitle:

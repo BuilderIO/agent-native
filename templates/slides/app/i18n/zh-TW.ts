@@ -345,6 +345,8 @@ const messages = {
   styleInspector: {
     title: "Style",
     close: "關閉樣式檢查器",
+    slideBackground: "投影片背景",
+    slide: "投影片",
     deckStyle: "簡報樣式",
     designSystemTweaks: "設計系統微調",
     closeTweaks: "關閉微調",
@@ -591,6 +593,7 @@ const messages = {
     clearWorkspaceDefault: "清除工作區預設",
     workspaceDefaultSet: "已設為工作區預設",
     workspaceDefaultCleared: "已清除工作區預設",
+    duplicateFailed: "無法複製該簡報",
     workspaceDefaultFailed: "無法更新工作區預設設定",
     workspaceDefaultConfirmTitle: "設為工作區預設？",
     workspaceDefaultDeckShareBody:

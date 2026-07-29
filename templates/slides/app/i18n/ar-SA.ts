@@ -358,6 +358,8 @@ const messages = {
   styleInspector: {
     title: "Style",
     close: "إغلاق مفتش الأنماط",
+    slideBackground: "خلفية الشريحة",
+    slide: "شريحة",
     deckStyle: "نمط العرض",
     designSystemTweaks: "تعديلات نظام التصميم",
     closeTweaks: "إغلاق التعديلات",
@@ -635,6 +637,7 @@ const messages = {
     clearWorkspaceDefault: "إزالة افتراضي مساحة العمل",
     workspaceDefaultSet: "تم التعيين كافتراضي لمساحة العمل",
     workspaceDefaultCleared: "تمت إزالة افتراضي مساحة العمل",
+    duplicateFailed: "تعذّر تكرار هذا العرض",
     workspaceDefaultFailed: "تعذّر تحديث افتراضي مساحة العمل",
     workspaceDefaultConfirmTitle: "التعيين كافتراضي لمساحة العمل؟",
     workspaceDefaultDeckShareBody:

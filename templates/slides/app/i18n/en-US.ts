@@ -356,6 +356,8 @@ const messages = {
   styleInspector: {
     title: "Style",
     close: "Close style inspector",
+    slideBackground: "Slide background",
+    slide: "Slide",
     deckStyle: "Deck style",
     designSystemTweaks: "Design system tweaks",
     closeTweaks: "Close tweaks",
@@ -615,6 +617,7 @@ const messages = {
     clearWorkspaceDefault: "Clear workspace default",
     workspaceDefaultSet: "Set as the workspace default",
     workspaceDefaultCleared: "Workspace default cleared",
+    duplicateFailed: "Couldn't duplicate that deck",
     workspaceDefaultFailed: "Couldn't update the workspace default",
     workspaceDefaultConfirmTitle: "Set as workspace default?",
     workspaceDefaultDeckShareBody:

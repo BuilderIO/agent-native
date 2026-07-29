@@ -361,6 +361,8 @@ const messages = {
   styleInspector: {
     title: "Style",
     close: "Stilinspektor schließen",
+    slideBackground: "Folienhintergrund",
+    slide: "Folie",
     deckStyle: "Deck-Stil",
     designSystemTweaks: "Designsystem-Anpassungen",
     closeTweaks: "Anpassungen schließen",
@@ -626,6 +628,7 @@ const messages = {
     clearWorkspaceDefault: "Arbeitsbereichs-Standard entfernen",
     workspaceDefaultSet: "Als Arbeitsbereichs-Standard festgelegt",
     workspaceDefaultCleared: "Arbeitsbereichs-Standard entfernt",
+    duplicateFailed: "Dieses Deck konnte nicht dupliziert werden",
     workspaceDefaultFailed:
       "Arbeitsbereichs-Standard konnte nicht aktualisiert werden",
     workspaceDefaultConfirmTitle: "Als Arbeitsbereichs-Standard festlegen?",

@@ -350,6 +350,8 @@ const messages = {
   styleInspector: {
     title: "Style",
     close: "关闭样式检查器",
+    slideBackground: "幻灯片背景",
+    slide: "幻灯片",
     deckStyle: "演示样式",
     designSystemTweaks: "设计系统微调",
     closeTweaks: "关闭微调",
@@ -596,6 +598,7 @@ const messages = {
     clearWorkspaceDefault: "清除工作区默认",
     workspaceDefaultSet: "已设为工作区默认",
     workspaceDefaultCleared: "已清除工作区默认",
+    duplicateFailed: "无法复制该演示文稿",
     workspaceDefaultFailed: "无法更新工作区默认设置",
     workspaceDefaultConfirmTitle: "设为工作区默认？",
     workspaceDefaultDeckShareBody:
