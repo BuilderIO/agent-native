@@ -166,7 +166,12 @@ const AGENT_NATIVE_SENDER_DOMAIN = "agent-native.com";
  * EMAIL_FROM means we cannot prove the branded address is a verified sender,
  * so the deployment's own configuration is left untouched.
  */
-let warnedAppSenderSuppressed = false;
+/**
+ * Keyed by configured address rather than a single latch: one process can see
+ * more than one sender configuration, and a global flag would mute every
+ * config after the first, which is the opposite of what a diagnostic is for.
+ */
+const warnedAppSenderAddresses = new Set<string>();
 
 /**
  * Suppressing the branding is the correct outcome for a deployment we cannot
@@ -174,8 +179,9 @@ let warnedAppSenderSuppressed = false;
  * operator sees generic senders and has nothing pointing at why.
  */
 function warnAppSenderSuppressed(configuredAddress: string | undefined): void {
-  if (warnedAppSenderSuppressed) return;
-  warnedAppSenderSuppressed = true;
+  const key = configuredAddress ?? "unset";
+  if (warnedAppSenderAddresses.has(key)) return;
+  warnedAppSenderAddresses.add(key);
   console.warn(
     `[agent-native:email] Per-app sender branding is off because EMAIL_FROM ` +
       `(${configuredAddress ?? "unset"}) is not on ${AGENT_NATIVE_SENDER_DOMAIN}. ` +
