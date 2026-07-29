@@ -18,7 +18,6 @@ import {
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import {
   IconAlertTriangle,
-  IconArrowsMove,
   IconMaximize,
   IconX,
   IconZoomIn,
@@ -72,6 +71,14 @@ import { enterSelectionMode } from "@/root";
 import type { DesignSystemData } from "../../../shared/api";
 import { BlockBubbleMenu } from "./BlockBubbleMenu";
 import ImageOverlay from "./ImageOverlay";
+import {
+  cloneSlideObject,
+  ensureSlideObjectId,
+  escapedEditingSelection,
+  resizeSlideObject,
+  type ResizeHandle,
+  type SlideObjectGeometry,
+} from "./slide-object-interactions";
 import { getPassiveSlidePresenceUsers } from "./slide-presence";
 import {
   SlideStyleInspector,
@@ -319,6 +326,15 @@ function buildStyleSnapshot(
   selector: string,
 ): SlideStyleSnapshot {
   const computed = window.getComputedStyle(element);
+  const fmdSlide = element.closest(".fmd-slide") as HTMLElement | null;
+  const isAbsolute = computed.position === "absolute";
+  const slideWidth = fmdSlide?.offsetWidth ?? 0;
+  const slideHeight = fmdSlide?.offsetHeight ?? 0;
+  const matrix = new DOMMatrixReadOnly(computed.transform);
+  const rotation =
+    computed.transform === "none"
+      ? 0
+      : Math.round((Math.atan2(matrix.b, matrix.a) * 180) / Math.PI);
   const textPreview = (element.textContent ?? "").trim().slice(0, 80);
   const fontSize = cssPx(computed.fontSize);
   const rawLineHeight = cssPx(computed.lineHeight);
@@ -352,6 +368,14 @@ function buildStyleSnapshot(
     borderColor: normalizedColor(computed.borderTopColor),
     paddingX: Math.round((paddingLeft + paddingRight) / 2),
     paddingY: Math.round((paddingTop + paddingBottom) / 2),
+    isAbsolute,
+    x: Math.round(element.offsetLeft),
+    y: Math.round(element.offsetTop),
+    width: Math.round(element.offsetWidth),
+    height: Math.round(element.offsetHeight),
+    rotation,
+    slideWidth,
+    slideHeight,
   };
 }
 
@@ -620,13 +644,12 @@ function ImageSelectionOutline({
 function ElementSelectionOutline({
   rect,
   viewportRect,
-  onDragStart,
+  onResizeStart,
 }: {
   rect: DOMRect;
   viewportRect: DOMRect | null;
-  onDragStart?: (e: React.PointerEvent) => void;
+  onResizeStart?: (handle: ResizeHandle, e: React.PointerEvent) => void;
 }) {
-  const t = useT();
   const pad = 2;
   const handle = 7;
   const handleClass =
@@ -647,38 +670,45 @@ function ElementSelectionOutline({
         }}
       >
         <span
+          onPointerDown={(e) => onResizeStart?.("nw", e)}
           className={handleClass}
-          style={{ left: -handle / 2, top: -handle / 2 }}
+          style={{
+            left: -handle / 2,
+            top: -handle / 2,
+            pointerEvents: "auto",
+            cursor: "nwse-resize",
+          }}
         />
         <span
+          onPointerDown={(e) => onResizeStart?.("ne", e)}
           className={handleClass}
-          style={{ right: -handle / 2, top: -handle / 2 }}
+          style={{
+            right: -handle / 2,
+            top: -handle / 2,
+            pointerEvents: "auto",
+            cursor: "nesw-resize",
+          }}
         />
         <span
+          onPointerDown={(e) => onResizeStart?.("sw", e)}
           className={handleClass}
-          style={{ left: -handle / 2, bottom: -handle / 2 }}
+          style={{
+            left: -handle / 2,
+            bottom: -handle / 2,
+            pointerEvents: "auto",
+            cursor: "nesw-resize",
+          }}
         />
         <span
+          onPointerDown={(e) => onResizeStart?.("se", e)}
           className={handleClass}
-          style={{ right: -handle / 2, bottom: -handle / 2 }}
+          style={{
+            right: -handle / 2,
+            bottom: -handle / 2,
+            pointerEvents: "auto",
+            cursor: "nwse-resize",
+          }}
         />
-        {onDragStart && (
-          <span
-            onPointerDown={onDragStart}
-            title={t("raw.dragToMove")}
-            className="absolute flex items-center justify-center rounded-full border border-background bg-[#609FF8] shadow-sm cursor-move"
-            style={{
-              left: "50%",
-              top: -22,
-              width: 16,
-              height: 16,
-              transform: "translateX(-50%)",
-              pointerEvents: "auto",
-            }}
-          >
-            <IconArrowsMove className="size-2.5 text-background" />
-          </span>
-        )}
       </div>
     </SelectionOverlayPortal>
   );
@@ -1231,6 +1261,7 @@ export default function SlideEditor({
   const exitInlineEdit = useCallback(() => {
     const el = editingElRef.current;
     if (!el) return;
+    const selector = getBuilderSelector(el);
     editingElRef.current = null;
     el.contentEditable = "false";
     el.removeAttribute("data-editing-block");
@@ -1240,9 +1271,14 @@ export default function SlideEditor({
       onUpdateSlideRef.current({ content: html });
     }
     inlineEditDraftRef.current = null;
-    syncSelectionToAppState(null);
-    setEditingEl(null);
-  }, [readCurrentSlideContentHtml]);
+    const next = escapedEditingSelection(el, resolveSelectedElement());
+    setEditingEl(next.editing);
+    if (next.selected && selector) {
+      selectElementForStyling(next.selected, selector);
+    } else {
+      syncSelectionToAppState(null);
+    }
+  }, [readCurrentSlideContentHtml, resolveSelectedElement, selectElementForStyling]);
 
   /** Enter edit mode on a smart block (text leaf or smart group) */
   const enterInlineEdit = useCallback(
@@ -1772,6 +1808,7 @@ export default function SlideEditor({
 
       const box = document.createElement("div");
       box.className = "fmd-text-box";
+      box.setAttribute("data-slide-object-id", ensureSlideObjectId(box));
       box.style.position = "absolute";
       box.style.left = `${xPct}%`;
       box.style.top = `${yPct}%`;
@@ -1801,6 +1838,219 @@ export default function SlideEditor({
     [enterInlineEdit],
   );
 
+  const getObjectGeometry = useCallback(
+    (element: HTMLElement): SlideObjectGeometry => ({
+      x: element.offsetLeft,
+      y: element.offsetTop,
+      width: element.offsetWidth,
+      height: element.offsetHeight,
+    }),
+    [],
+  );
+
+  const applyObjectGeometry = useCallback(
+    (element: HTMLElement, geometry: SlideObjectGeometry) => {
+      element.style.left = `${geometry.x}px`;
+      element.style.top = `${geometry.y}px`;
+      element.style.width = `${geometry.width}px`;
+      element.style.height = `${geometry.height}px`;
+    },
+    [],
+  );
+
+  const startElementDrag = useCallback(
+    (e: React.PointerEvent, element: HTMLElement) => {
+      const fmdSlide = element.closest(".fmd-slide") as HTMLElement | null;
+      if (!fmdSlide || getComputedStyle(element).position !== "absolute") {
+        return;
+      }
+
+      const slideRect = fmdSlide.getBoundingClientRect();
+      const slideWidth = fmdSlide.offsetWidth;
+      const slideHeight = fmdSlide.offsetHeight;
+      if (!slideRect.width || !slideRect.height || !slideWidth || !slideHeight) {
+        return;
+      }
+
+      const origin = getObjectGeometry(element);
+      const startClientX = e.clientX;
+      const startClientY = e.clientY;
+      const duplicateRequested = e.altKey;
+      let activeElement = element;
+      let clone: HTMLElement | null = null;
+      let moved = false;
+
+      const stop = () => {
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        window.removeEventListener("pointercancel", onCancel);
+        window.removeEventListener("keydown", onKeyDown, true);
+      };
+
+      const restore = () => {
+        if (clone) {
+          clone.remove();
+        } else {
+          applyObjectGeometry(element, origin);
+        }
+        selectElementForStyling(element, getBuilderSelector(element) ?? "");
+      };
+
+      const onMove = (moveEvent: PointerEvent) => {
+        let dx =
+          ((moveEvent.clientX - startClientX) / slideRect.width) * slideWidth;
+        let dy =
+          ((moveEvent.clientY - startClientY) / slideRect.height) * slideHeight;
+        if (!moved && Math.hypot(dx, dy) < 2) return;
+        if (moveEvent.shiftKey) {
+          if (Math.abs(dx) >= Math.abs(dy)) dy = 0;
+          else dx = 0;
+        }
+        if (!moved) {
+          moved = true;
+          ensureSlideObjectId(element);
+          if (duplicateRequested && moveEvent.altKey) {
+            clone = cloneSlideObject(element);
+            element.after(clone);
+            stampBuilderIds(clone);
+            activeElement = clone;
+          }
+        }
+        applyObjectGeometry(activeElement, {
+          ...origin,
+          x: origin.x + dx,
+          y: origin.y + dy,
+        });
+        const selector = getBuilderSelector(activeElement);
+        if (selector) selectElementForStyling(activeElement, selector);
+      };
+
+      const onUp = (upEvent: PointerEvent) => {
+        stop();
+        if (!moved) return;
+        // Keeping Option pressed is the explicit duplicate commit. If it was
+        // released before drop, turn the gesture back into a normal move.
+        if (clone && !upEvent.altKey) {
+          applyObjectGeometry(element, getObjectGeometry(clone));
+          clone.remove();
+          activeElement = element;
+        }
+        const html = readCurrentSlideContentHtml();
+        if (html !== null) onUpdateSlideRef.current({ content: html });
+        const selector = getBuilderSelector(activeElement);
+        if (selector) selectElementForStyling(activeElement, selector);
+      };
+
+      const onCancel = () => {
+        stop();
+        restore();
+      };
+
+      const onKeyDown = (keyEvent: KeyboardEvent) => {
+        if (keyEvent.key !== "Escape") return;
+        keyEvent.preventDefault();
+        keyEvent.stopPropagation();
+        onCancel();
+      };
+
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+      window.addEventListener("pointercancel", onCancel);
+      window.addEventListener("keydown", onKeyDown, true);
+    },
+    [
+      applyObjectGeometry,
+      getObjectGeometry,
+      readCurrentSlideContentHtml,
+      selectElementForStyling,
+    ],
+  );
+
+  const startElementResize = useCallback(
+    (handle: ResizeHandle, e: React.PointerEvent) => {
+      const element = resolveSelectedElement();
+      const fmdSlide = element?.closest(".fmd-slide") as HTMLElement | null;
+      if (!element || !fmdSlide || getComputedStyle(element).position !== "absolute") {
+        return;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+
+      const slideRect = fmdSlide.getBoundingClientRect();
+      const slideWidth = fmdSlide.offsetWidth;
+      const slideHeight = fmdSlide.offsetHeight;
+      if (!slideRect.width || !slideRect.height || !slideWidth || !slideHeight) {
+        return;
+      }
+
+      const origin = getObjectGeometry(element);
+      const startClientX = e.clientX;
+      const startClientY = e.clientY;
+      let resized = false;
+
+      const stop = () => {
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        window.removeEventListener("pointercancel", onCancel);
+        window.removeEventListener("keydown", onKeyDown, true);
+      };
+
+      const onMove = (moveEvent: PointerEvent) => {
+        const dx =
+          ((moveEvent.clientX - startClientX) / slideRect.width) * slideWidth;
+        const dy =
+          ((moveEvent.clientY - startClientY) / slideRect.height) * slideHeight;
+        if (!resized && Math.hypot(dx, dy) < 1) return;
+        resized = true;
+        ensureSlideObjectId(element);
+        applyObjectGeometry(
+          element,
+          resizeSlideObject(origin, {
+            handle,
+            dx,
+            dy,
+            preserveAspectRatio: moveEvent.shiftKey,
+          }),
+        );
+        const selector = getBuilderSelector(element);
+        if (selector) selectElementForStyling(element, selector);
+      };
+
+      const onUp = () => {
+        stop();
+        if (!resized) return;
+        const html = readCurrentSlideContentHtml();
+        if (html !== null) onUpdateSlideRef.current({ content: html });
+      };
+
+      const onCancel = () => {
+        stop();
+        applyObjectGeometry(element, origin);
+        const selector = getBuilderSelector(element);
+        if (selector) selectElementForStyling(element, selector);
+      };
+
+      const onKeyDown = (keyEvent: KeyboardEvent) => {
+        if (keyEvent.key !== "Escape") return;
+        keyEvent.preventDefault();
+        keyEvent.stopPropagation();
+        onCancel();
+      };
+
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+      window.addEventListener("pointercancel", onCancel);
+      window.addEventListener("keydown", onKeyDown, true);
+    },
+    [
+      applyObjectGeometry,
+      getObjectGeometry,
+      readCurrentSlideContentHtml,
+      resolveSelectedElement,
+      selectElementForStyling,
+    ],
+  );
+
   // --- Marquee drag handlers (attached to slide-content via React props) ---
 
   const handleSlidePointerDown = useCallback(
@@ -1825,6 +2075,16 @@ export default function SlideEditor({
         return;
       }
       if (editingEl) return; // avoid interfering with an active inline edit
+
+      const selected = resolveSelectedElement();
+      if (
+        selected &&
+        selected.contains(target) &&
+        getComputedStyle(selected).position === "absolute"
+      ) {
+        startElementDrag(e, selected);
+        return;
+      }
 
       // Only start a marquee from "whitespace" inside the slide. Clicks on
       // an actual element fall through to handleSlideClick (which handles
@@ -1859,6 +2119,8 @@ export default function SlideEditor({
       exitInlineEdit,
       placeTextBoxAt,
       onExitTextBoxMode,
+      resolveSelectedElement,
+      startElementDrag,
     ],
   );
 
@@ -2202,63 +2464,6 @@ export default function SlideEditor({
     ],
   );
 
-  /**
-   * Drag-to-reposition for the selected element. Only elements that are (or
-   * can safely become) absolutely positioned support this — repositioning an
-   * in-flow element would shift the rest of the slide's layout. Percentages
-   * (not px) are used for left/top so the drag stays accurate under canvas
-   * zoom and the autofit scale transform, matching placeTextBoxAt.
-   */
-  const startElementDrag = useCallback(
-    (e: React.PointerEvent) => {
-      const element = resolveSelectedElement();
-      if (!element) return;
-      const fmdSlide = element.closest(".fmd-slide") as HTMLElement | null;
-      if (!fmdSlide) return;
-      // left/top only place an element at an absolute coordinate for
-      // position: absolute (or fixed). For position: relative they're an
-      // *offset* from the element's normal flow position instead, so
-      // treating a relative element as draggable here would make it jump by
-      // the wrong amount. Restrict dragging to elements already out of flow.
-      if (getComputedStyle(element).position !== "absolute") return;
-
-      e.preventDefault();
-      e.stopPropagation();
-
-      const slideRect = fmdSlide.getBoundingClientRect();
-      const elRect = element.getBoundingClientRect();
-      const startXPct =
-        ((elRect.left - slideRect.left) / slideRect.width) * 100;
-      const startYPct = ((elRect.top - slideRect.top) / slideRect.height) * 100;
-      const startClientX = e.clientX;
-      const startClientY = e.clientY;
-      let moved = false;
-
-      const onMove = (moveEvent: PointerEvent) => {
-        moved = true;
-        const dxPct =
-          ((moveEvent.clientX - startClientX) / slideRect.width) * 100;
-        const dyPct =
-          ((moveEvent.clientY - startClientY) / slideRect.height) * 100;
-        element.style.left = `${startXPct + dxPct}%`;
-        element.style.top = `${startYPct + dyPct}%`;
-        setSelectedElementRect(element.getBoundingClientRect());
-      };
-
-      const onUp = () => {
-        window.removeEventListener("pointermove", onMove);
-        window.removeEventListener("pointerup", onUp);
-        if (!moved) return;
-        const html = readCurrentSlideContentHtml();
-        if (html !== null) onUpdateSlideRef.current({ content: html });
-      };
-
-      window.addEventListener("pointermove", onMove);
-      window.addEventListener("pointerup", onUp);
-    },
-    [resolveSelectedElement, readCurrentSlideContentHtml],
-  );
-
   // --- Pending visual updates ---
   const [pendingUpdateCount, setPendingUpdateCount] = useState(0);
 
@@ -2535,8 +2740,8 @@ export default function SlideEditor({
         <ElementSelectionOutline
           rect={selectedElementRect}
           viewportRect={selectionViewportRect}
-          onDragStart={
-            isSelectedElementDraggable ? startElementDrag : undefined
+          onResizeStart={
+            isSelectedElementDraggable ? startElementResize : undefined
           }
         />
       )}
