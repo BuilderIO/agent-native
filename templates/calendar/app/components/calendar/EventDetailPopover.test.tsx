@@ -274,6 +274,40 @@ describe("EventDetailPopover characterization", () => {
     expect(titleInput!.value).toBe("");
   });
 
+  it("preserves a literal fallback label typed by the user", () => {
+    const onTitleSave = vi.fn();
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={baseEvent({ title: "(No title)" })}
+          defaultOpen
+          onDelete={() => undefined}
+          onTitleSave={onTitleSave}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    const titleInput = document.querySelector<HTMLInputElement>(
+      'input[placeholder="eventForm.addTitle"]',
+    );
+    expect(titleInput).toBeTruthy();
+
+    act(() => {
+      setNativeInputValue(titleInput!, "(No title)");
+      titleInput!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
+
+    expect(onTitleSave).toHaveBeenCalledWith(
+      "event-1",
+      "(No title)",
+      undefined,
+    );
+  });
+
   it("does not show the event timezone as a standalone row", () => {
     const event = baseEvent({ startTimeZone: "America/Halifax" });
 

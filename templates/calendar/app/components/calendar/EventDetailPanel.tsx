@@ -338,8 +338,7 @@ export function EventDetailPanel({
                     onKeyDown={(e) => {
                       if (e.key === "Enter") {
                         e.preventDefault();
-                        const trimmed =
-                          getEditableEventTitle(editingTitle).trim();
+                        const trimmed = editingTitle.trim();
                         if (
                           trimmed &&
                           trimmed !== getEditableEventTitle(event.title)
@@ -354,8 +353,7 @@ export function EventDetailPanel({
                       e.stopPropagation();
                     }}
                     onBlur={() => {
-                      const trimmed =
-                        getEditableEventTitle(editingTitle).trim();
+                      const trimmed = editingTitle.trim();
                       if (
                         trimmed &&
                         trimmed !== getEditableEventTitle(event.title)

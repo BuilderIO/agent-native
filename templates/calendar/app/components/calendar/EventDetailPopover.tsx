@@ -1327,7 +1327,7 @@ export function EventDetailPopover({
 
   const handleCreateDraft = useCallback(() => {
     if (!onDraftCreate) return;
-    const title = getEditableEventTitle(editingTitle).trim();
+    const title = editingTitle.trim();
     const updates = isEditingTitle && title ? { title } : undefined;
     if (updates) {
       onTitleSave?.(event.id, updates.title, event.accountEmail);
@@ -1365,7 +1365,7 @@ export function EventDetailPopover({
         eventDetailSidebar && !isNewEventRef.current && !isDraft;
       if (newOpen && isPopoverSuppressed) return;
       if (!newOpen && open) {
-        const trimmedTitle = getEditableEventTitle(editingTitle).trim();
+        const trimmedTitle = editingTitle.trim();
         let savedPendingChange = false;
         // Popover is closing — handle saves
         if (isEditingTitle) {
@@ -1536,8 +1536,7 @@ export function EventDetailPopover({
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       e.preventDefault();
-                      const trimmed =
-                        getEditableEventTitle(editingTitle).trim();
+                      const trimmed = editingTitle.trim();
                       if (trimmed) {
                         onTitleSave?.(event.id, trimmed, event.accountEmail);
                         isNewEventRef.current = false;
@@ -1563,7 +1562,7 @@ export function EventDetailPopover({
                     e.stopPropagation();
                   }}
                   onBlur={() => {
-                    const trimmed = getEditableEventTitle(editingTitle).trim();
+                    const trimmed = editingTitle.trim();
                     if (
                       trimmed &&
                       trimmed !== getEditableEventTitle(event.title)

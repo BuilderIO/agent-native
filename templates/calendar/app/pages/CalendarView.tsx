@@ -654,7 +654,7 @@ export default function CalendarView() {
         setEventDraft(draft);
         persistCalendarDraft(draft);
       }
-      const editableTitle = getEditableEventTitle(draft.title ?? "").trim();
+      const editableTitle = draft.title?.trim() ?? "";
       const eventType = draft.eventType ?? "default";
       const title =
         editableTitle || (eventType === "outOfOffice" ? "Out of office" : "");
@@ -1359,7 +1359,7 @@ export default function CalendarView() {
   const handleQuickEditSave = useCallback(
     async (eventId: string, title: string, accountEmail?: string) => {
       setQuickEditEventId(null);
-      const trimmedTitle = getEditableEventTitle(title).trim();
+      const trimmedTitle = title.trim();
       if (calendarDraftIdFromEventId(eventId)) {
         updateDraftEvent(eventId, { title: trimmedTitle });
         return;
@@ -1393,7 +1393,7 @@ export default function CalendarView() {
 
   const handleTitleSave = useCallback(
     async (eventId: string, title: string, accountEmail?: string) => {
-      const trimmedTitle = getEditableEventTitle(title).trim();
+      const trimmedTitle = title.trim();
       if (!trimmedTitle) return;
       if (calendarDraftIdFromEventId(eventId)) {
         updateDraftEvent(eventId, { title: trimmedTitle });
