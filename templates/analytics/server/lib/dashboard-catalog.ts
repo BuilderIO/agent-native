@@ -65,7 +65,7 @@ function seedConfig(id: string): SqlDashboardConfig {
     return seed as unknown as SqlDashboardConfig;
   }
   return repairFirstPartyObservedRetentionPanels(seed)
-    .config as SqlDashboardConfig;
+    .config as unknown as SqlDashboardConfig;
 }
 
 function promPanelSql(

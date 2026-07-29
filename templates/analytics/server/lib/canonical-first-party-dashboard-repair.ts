@@ -13,7 +13,7 @@ const NEW_VS_RECURRING_USERS_SQL = `WITH first_seen AS (SELECT NULLIF(user_key, 
 const MARKETING_SITE_TEMPLATE_FILTER =
   "lower(COALESCE(NULLIF(template, ''), NULLIF(properties::jsonb ->> 'templateId', ''), NULLIF(app, ''), NULLIF(properties::jsonb ->> 'agent_native_app', ''), 'unknown')) <> 'www'";
 const NEW_VS_RECURRING_USERS_WITHOUT_MARKETING_SITE_SQL =
-  NEW_VS_RECURRING_USERS_SQL.replaceAll(
+  NEW_VS_RECURRING_USERS_SQL.replace(
     " <> 'docs' AND ",
     ` <> 'docs' AND ${MARKETING_SITE_TEMPLATE_FILTER} AND `,
   );
