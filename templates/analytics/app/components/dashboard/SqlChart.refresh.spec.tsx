@@ -103,7 +103,9 @@ describe("SqlChart refresh feedback", () => {
     );
     expect(loadingSkeleton).not.toBeNull();
     expect(loadingSkeleton?.className).toContain("animate-pulse");
-    expect(loadingSkeleton?.className).toContain("bg-muted");
+    expect(loadingSkeleton?.className).toContain(
+      "analytics-dashboard-panel-skeleton",
+    );
     expect(container.textContent).not.toContain("42");
 
     mocks.query.isFetching = false;

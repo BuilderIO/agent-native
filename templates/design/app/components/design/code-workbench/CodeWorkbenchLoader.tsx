@@ -15,7 +15,9 @@ import {
 
 import { Spinner } from "@/components/ui/spinner";
 import { prettyScreenName } from "@/lib/screen-names";
+import { cn } from "@/lib/utils";
 
+import { CODE_WORKBENCH_SHELL_CLASSNAME } from "./code-workbench-shell";
 import type { CodeWorkbenchProps } from "./CodeWorkbench";
 import { baseName } from "./workspace/types";
 
@@ -101,7 +103,10 @@ function CodeWorkbenchLoading({
     <div
       role="status"
       data-testid="design-code-workbench-loading"
-      className="flex min-h-0 flex-1 bg-[var(--design-editor-panel-bg)] text-muted-foreground"
+      className={cn(
+        CODE_WORKBENCH_SHELL_CLASSNAME,
+        "flex min-h-0 flex-1 bg-[var(--design-editor-panel-bg)] text-muted-foreground",
+      )}
     >
       <div className="flex w-60 shrink-0 flex-col border-r border-border">
         <div className="flex h-9 shrink-0 items-center border-b border-border px-3 text-[11px] font-medium uppercase tracking-wide">
@@ -221,7 +226,10 @@ function CodeWorkbenchLoadFailure({
     <div
       role="alert"
       data-testid="design-code-workbench-load-error"
-      className="grid min-h-0 flex-1 place-items-center bg-[var(--design-editor-panel-bg)] p-6 text-muted-foreground"
+      className={cn(
+        CODE_WORKBENCH_SHELL_CLASSNAME,
+        "grid min-h-0 flex-1 place-items-center bg-[var(--design-editor-panel-bg)] p-6 text-muted-foreground",
+      )}
     >
       <div className="max-w-sm text-center text-[12px]">
         <p>{message}</p>

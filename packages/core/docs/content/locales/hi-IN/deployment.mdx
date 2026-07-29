@@ -442,7 +442,14 @@ typed app actions से गुजरते हैं, जब तक ऐप स�
 export default createAgentChatPlugin({
   // Default: "read"
   databaseTools: "read", // "write" | "read" | "off"
-  extensionTools: false,
+  extensionTools: true,
+});
+```
+
+```ts
+// server/plugins/core-routes.ts
+export default createCoreRoutesPlugin({
+  extensionTools: true,
 });
 ```
 
@@ -453,9 +460,10 @@ export default createAgentChatPlugin({
   तक scoped रहते हैं और schema changes blocked रहते हैं।
 - `databaseTools: "off"` या `false` - कच्चे डेटाबेस टूल को हटा देता है
   एजेंट सतह इसलिए ऐप का actions ही एकमात्र डेटा एक्सेस पथ है।
-- `extensionTools: false` - फ्रेमवर्क एक्सटेंशन-प्रबंधन actions को हटा देता है और
-  ऐप्स के लिए त्वरित मार्गदर्शन (`create-extension`, `update-extension`, आदि)
-  नहीं चाहते कि एजेंट सैंडबॉक्स वाले मिनी-ऐप बनाएं।
+- `extensionTools: true` - ऐप के लिए फ्रेमवर्क एक्सटेंशन-प्रबंधन actions और
+  मार्गदर्शन (`create-extension`, `update-extension`, आदि) चालू करता है।
+  प्रमाणित REST निर्माण की अनुमति देने के लिए इसे दोनों plugins पर सेट करें।
+  एक्सटेंशन डिफ़ॉल्ट रूप से बंद रहते हैं।
 
 ## उत्पादन कोड निष्पादन {#production-code-execution}
 

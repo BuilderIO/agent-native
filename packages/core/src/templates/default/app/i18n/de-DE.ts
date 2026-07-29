@@ -73,6 +73,24 @@ const messages = {
       suggestionGrantKey: "Gewähren Sie dieser App meinen OpenAI-Schlüssel",
     },
     pages: {
+      browserChatUnavailableTitle: "Browser-Chat-Sitzung nicht verfügbar",
+      browserChatUnavailableDescription:
+        "Stelle die Verbindung über die Agent-Native-Erweiterung erneut her.",
+      browserChatPlaceholder: "Zu dieser Seite fragen…",
+      browserChatAttachedPlaceholder: "Zu {{page}} fragen…",
+      browserConnectTitle: "Browser-Chat verbinden",
+      browserConnectDescription:
+        "Erlaube der Agent-Native Chrome-Erweiterung, diese Dispatch-Sitzung zu öffnen. Die Verbindung verwendet ein einmaliges, kurzlebiges Ticket.",
+      browserConnectInvalid:
+        "Diese Verbindungsanfrage ist ungültig. Starte erneut über die Erweiterung.",
+      browserConnectConnected:
+        "Browser-Chat verbunden. Du kannst diesen Tab schließen.",
+      browserConnectConnecting: "Verbindung wird hergestellt…",
+      browserConnectButton: "Verbinden",
+      browserConnectOpenFromExtension:
+        "Öffne diese Seite über die Agent-Native Chrome-Erweiterung.",
+      browserConnectFailed:
+        "Die Browser-Erweiterung konnte keine Verbindung herstellen.",
       appsDescription:
         "Öffnen Sie Workspace-Apps und starten Sie die Erstellung neuer Apps von Dispatch aus.",
       appsDescriptionWithWorkspace:
@@ -365,6 +383,16 @@ const messages = {
     deleting: "Wird archiviert...",
     openFullView: "Vollansicht öffnen",
     removeFromWidgetArea: "Aus diesem Widget-Bereich entfernen",
+    customBlockSandboxed: "Custom Block · isoliert",
+    sandboxedCustomBlock: "Isolierter SQL-Custom-Block",
+    sandboxedCustomBlockCreatedBy:
+      "Isolierter SQL-Custom-Block, erstellt von {{email}}",
+    promoteToAppCode: "In App-Code überführen",
+    historyShowsSourceVersions: "Der Verlauf zeigt Quellversionen",
+    createdByHistoryShowsSourceVersions:
+      "Erstellt von {{email}}. Der Verlauf zeigt Quellversionen.",
+    createdByHistoryShowsSourceVersionsCompact:
+      "Erstellt von {{email}} · Verlauf zeigt Quellversionen",
     deleteExtensionEllipsis: "Erweiterung archivieren...",
     removeFromMyListEllipsis: "Von meiner Liste entfernen...",
     removeFromWidgetAreaForMe: "Remove from this widget area (for me)",

@@ -1,6 +1,11 @@
-import { BrowserControlError, BrowserControlService } from "./browser-control";
-import { parseNativeRequest, ProtocolValidationError } from "./policy";
-import type { NativeHeartbeat, NativeResponse } from "./protocol";
+import {
+  BrowserControlError,
+  BrowserControlService,
+  parseNativeRequest,
+  ProtocolValidationError,
+  type NativeHeartbeat,
+  type NativeResponse,
+} from "@agent-native/browser-control-extension-core";
 
 const NATIVE_HOST = "com.agent_native.dispatch";
 const RECONNECT_ALARM = "agent-native-browser-native-host-reconnect";

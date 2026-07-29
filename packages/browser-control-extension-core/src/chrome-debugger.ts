@@ -1,3 +1,4 @@
+// Keep all debugger calls reviewable behind this narrow adapter.
 const PROTOCOL_VERSION = "1.3";
 
 export type DebuggerSource = chrome.debugger.Debuggee;

@@ -236,6 +236,31 @@ describe("elementInfoFromCodeLayerNode provenance", () => {
     });
   });
 
+  it("preserves explicit Angular and LWC provenance through clipboard projections", () => {
+    for (const framework of ["angular", "lwc"] as const) {
+      expect(
+        elementInfoFromCodeLayerNode(
+          makeNode({
+            dataAttributes: {
+              "data-source-framework": framework,
+              "data-source-file": `src/${framework}/card.ts`,
+              "data-source-line": "12",
+              "data-source-column": "4",
+            },
+          }),
+        ),
+      ).toMatchObject({
+        provenance: {
+          framework,
+          sourceFile: `src/${framework}/card.ts`,
+          line: 12,
+          column: 4,
+          method: "data-attribute",
+        },
+      });
+    }
+  });
+
   it("carries WHY a node has no location, so absent stays distinct from not-loaded-yet", () => {
     const info = elementInfoFromCodeLayerNode(
       makeNode({ dataAttributes: { "data-source-unavailable": "not-react" } }),

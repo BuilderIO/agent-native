@@ -484,12 +484,28 @@ function SortableRow({
   const isFav = favoriteIds.has(favoriteKey);
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [openDeleteAfterMenuClose, setOpenDeleteAfterMenuClose] =
+    useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(name);
 
   useEffect(() => {
     if (!isRenaming) setRenameValue(name);
   }, [isRenaming, name]);
+
+  useEffect(() => {
+    if (menuOpen || !openDeleteAfterMenuClose) return;
+    const frame = requestAnimationFrame(() => {
+      setOpenDeleteAfterMenuClose(false);
+      setConfirmDeleteOpen(true);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [menuOpen, openDeleteAfterMenuClose]);
+
+  const requestDashboardDelete = useCallback(() => {
+    setOpenDeleteAfterMenuClose(true);
+    setMenuOpen(false);
+  }, []);
 
   const submitRename = useCallback(async () => {
     const trimmed = renameValue.trim();
@@ -773,8 +789,7 @@ function SortableRow({
                   <DropdownMenuItem
                     onSelect={(event) => {
                       event.preventDefault();
-                      setMenuOpen(false);
-                      setConfirmDeleteOpen(true);
+                      requestDashboardDelete();
                     }}
                     className="text-destructive focus:text-destructive"
                   >
@@ -786,8 +801,7 @@ function SortableRow({
                 <DropdownMenuItem
                   onSelect={(event) => {
                     event.preventDefault();
-                    setMenuOpen(false);
-                    setConfirmDeleteOpen(true);
+                    requestDashboardDelete();
                   }}
                   className="text-destructive focus:text-destructive"
                 >

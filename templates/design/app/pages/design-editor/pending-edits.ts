@@ -266,6 +266,11 @@ export interface PendingLiveStructureEdit {
    * must insert this markup rather than relocate an existing element.
    */
   insertedHtml?: string;
+  /** The inserted markup replaced `selector` instead of landing beside it. */
+  replaced?: true;
+  /** Runtime identity of the optimistic replacement used for verification. */
+  replacementSelector?: string;
+  replacementSourceId?: string | null;
   /**
    * This edit DELETED the subject from the running app. A removal has no
    * anchor — `anchorSelector`/`placement` carry no meaning for it — so every
@@ -511,8 +516,10 @@ export function pendingStructureEditSourcePaths(
   edit: PendingLiveStructureEdit,
 ): string[] | null {
   const required = [
-    ...(edit.insertedHtml ? [] : [edit.sourceAnchor?.relPath]),
-    ...(edit.removed
+    ...(edit.insertedHtml && !edit.replaced
+      ? []
+      : [edit.sourceAnchor?.relPath]),
+    ...(edit.removed || edit.replaced
       ? []
       : [
           edit.anchorSourceAnchor?.relPath ??
@@ -525,7 +532,7 @@ export function pendingStructureEditSourcePaths(
 
 export type PendingStructureRedoCommand =
   | { kind: "delete" }
-  | { kind: "insert"; html: string }
+  | { kind: "insert"; html: string; replaceAnchor?: boolean }
   | { kind: "move" };
 
 /**
@@ -539,7 +546,11 @@ export function pendingStructureRedoCommand(
 ): PendingStructureRedoCommand {
   if (edit.removed) return { kind: "delete" };
   return edit.insertedHtml
-    ? { kind: "insert", html: edit.insertedHtml }
+    ? {
+        kind: "insert",
+        html: edit.insertedHtml,
+        ...(edit.replaced ? { replaceAnchor: true } : {}),
+      }
     : { kind: "move" };
 }
 
@@ -555,6 +566,7 @@ export function pendingLiveStructureEditsMatch(
     (left.anchorSourceId ?? "") === (right.anchorSourceId ?? "") &&
     left.placement === right.placement &&
     Boolean(left.removed) === Boolean(right.removed) &&
+    Boolean(left.replaced) === Boolean(right.replaced) &&
     left.dropMode === right.dropMode &&
     Boolean(left.forceFlowPositionOverride) ===
       Boolean(right.forceFlowPositionOverride)
@@ -903,49 +915,23 @@ export function formatPendingVisualStylePrompt(args: {
     const insertedHtml = edit.insertedHtml
       ? boundedInsertedHtml(edit.insertedHtml)
       : undefined;
-    const semanticHandoff = edit.removed
-      ? subjectAnchor
-        ? buildReactSemanticHandoff({
-            operation: "remove",
-            desiredChange:
-              "Delete the selected runtime element from the source that renders it. The live preview already shows it gone; remove its markup (and anything that exists only to render it) without disturbing sibling layout or behavior.",
-            sourceAnchors: [subjectAnchor],
-            runtimeRelationship: {
-              kind: "remove",
-              subjectAnchorIds: ["subject"],
-              screenId: edit.screenId,
-              description: `remove ${edit.selector}`,
-            },
-            versionHashes: [],
-          })
-        : {
-            ok: false as const,
-            rejection: {
-              code: "missing-source-provenance" as const,
-              reason:
-                "The removed element's source anchor was not available for this runtime deletion.",
-            },
-          }
-      : insertedHtml
-        ? targetAnchor
+    const semanticHandoff =
+      edit.replaced && insertedHtml
+        ? subjectAnchor
           ? buildReactSemanticHandoff({
-              operation: "insert",
+              operation: "replace",
               desiredChange: [
-                `Add the new markup in insertedHtml ${edit.placement} the target runtime element.`,
+                "Replace the selected runtime element with insertedHtml.",
                 insertedHtml.truncated
                   ? "The markup below was truncated for prompt size; read the running preview or ask before writing it verbatim."
-                  : "The markup is already positioned for the drop point.",
-                edit.dropMode === "absolute-container"
-                  ? "The target is an absolute-positioning container; keep the inline left/top offsets."
-                  : "This is a flow/auto-layout insertion; the markup carries no absolute positioning.",
+                  : "Preserve the replacement markup, styles, and child order shown in the live preview.",
               ].join(" "),
-              sourceAnchors: [targetAnchor],
+              sourceAnchors: [subjectAnchor],
               runtimeRelationship: {
-                kind: edit.placement,
-                subjectAnchorIds: [],
-                targetAnchorId: "target",
+                kind: "replace",
+                subjectAnchorIds: ["subject"],
                 screenId: edit.screenId,
-                description: `insert ${edit.selector} ${edit.placement} ${edit.anchorSelector}`,
+                description: `replace ${edit.selector}`,
               },
               versionHashes: [],
             })
@@ -954,40 +940,94 @@ export function formatPendingVisualStylePrompt(args: {
               rejection: {
                 code: "missing-source-provenance" as const,
                 reason:
-                  "The insertion target's source anchor was not available for this runtime insert.",
+                  "The replaced element's source anchor was not available for this runtime replacement.",
               },
             }
-        : subjectAnchor && targetAnchor
-          ? buildReactSemanticHandoff({
-              operation: edit.placement === "inside" ? "reparent" : "move",
-              desiredChange: [
-                `Move the selected runtime element ${edit.placement} the target runtime element.`,
-                edit.dropMode === "flow-insert"
-                  ? `The drop is a flow/auto-layout insertion${edit.forceFlowPositionOverride ? "; remove authored absolute positioning so the moved element participates in the target container's layout" : "; preserve normal flow participation"}.`
-                  : edit.dropMode === "absolute-container"
-                    ? "The target is an absolute-positioning container; preserve absolute positioning and rebase the moved element's visual offset from sourceRect into the target anchorRect coordinate space."
-                    : "Preserve the runtime layout behavior observed in the preview.",
-              ].join(" "),
-              sourceAnchors: [subjectAnchor, targetAnchor],
-              runtimeRelationship: {
-                kind: edit.placement,
-                subjectAnchorIds: ["subject"],
-                targetAnchorId: "target",
-                screenId: edit.screenId,
-                description: `${edit.selector} ${edit.placement} ${edit.anchorSelector}`,
-              },
-              // The packet intentionally starts without a hash: its execution
-              // contract requires read-local-file before every write.
-              versionHashes: [],
-            })
-          : {
-              ok: false as const,
-              rejection: {
-                code: "missing-source-provenance" as const,
-                reason:
-                  "Exact subject and target source anchors were not both available for this React structure edit.",
-              },
-            };
+        : edit.removed
+          ? subjectAnchor
+            ? buildReactSemanticHandoff({
+                operation: "remove",
+                desiredChange:
+                  "Delete the selected runtime element from the source that renders it. The live preview already shows it gone; remove its markup (and anything that exists only to render it) without disturbing sibling layout or behavior.",
+                sourceAnchors: [subjectAnchor],
+                runtimeRelationship: {
+                  kind: "remove",
+                  subjectAnchorIds: ["subject"],
+                  screenId: edit.screenId,
+                  description: `remove ${edit.selector}`,
+                },
+                versionHashes: [],
+              })
+            : {
+                ok: false as const,
+                rejection: {
+                  code: "missing-source-provenance" as const,
+                  reason:
+                    "The removed element's source anchor was not available for this runtime deletion.",
+                },
+              }
+          : insertedHtml
+            ? targetAnchor
+              ? buildReactSemanticHandoff({
+                  operation: "insert",
+                  desiredChange: [
+                    `Add the new markup in insertedHtml ${edit.placement} the target runtime element.`,
+                    insertedHtml.truncated
+                      ? "The markup below was truncated for prompt size; read the running preview or ask before writing it verbatim."
+                      : "The markup is already positioned for the drop point.",
+                    edit.dropMode === "absolute-container"
+                      ? "The target is an absolute-positioning container; keep the inline left/top offsets."
+                      : "This is a flow/auto-layout insertion; the markup carries no absolute positioning.",
+                  ].join(" "),
+                  sourceAnchors: [targetAnchor],
+                  runtimeRelationship: {
+                    kind: edit.placement,
+                    subjectAnchorIds: [],
+                    targetAnchorId: "target",
+                    screenId: edit.screenId,
+                    description: `insert ${edit.selector} ${edit.placement} ${edit.anchorSelector}`,
+                  },
+                  versionHashes: [],
+                })
+              : {
+                  ok: false as const,
+                  rejection: {
+                    code: "missing-source-provenance" as const,
+                    reason:
+                      "The insertion target's source anchor was not available for this runtime insert.",
+                  },
+                }
+            : subjectAnchor && targetAnchor
+              ? buildReactSemanticHandoff({
+                  operation: edit.placement === "inside" ? "reparent" : "move",
+                  desiredChange: [
+                    `Move the selected runtime element ${edit.placement} the target runtime element.`,
+                    edit.dropMode === "flow-insert"
+                      ? `The drop is a flow/auto-layout insertion${edit.forceFlowPositionOverride ? "; remove authored absolute positioning so the moved element participates in the target container's layout" : "; preserve normal flow participation"}.`
+                      : edit.dropMode === "absolute-container"
+                        ? "The target is an absolute-positioning container; preserve absolute positioning and rebase the moved element's visual offset from sourceRect into the target anchorRect coordinate space."
+                        : "Preserve the runtime layout behavior observed in the preview.",
+                  ].join(" "),
+                  sourceAnchors: [subjectAnchor, targetAnchor],
+                  runtimeRelationship: {
+                    kind: edit.placement,
+                    subjectAnchorIds: ["subject"],
+                    targetAnchorId: "target",
+                    screenId: edit.screenId,
+                    description: `${edit.selector} ${edit.placement} ${edit.anchorSelector}`,
+                  },
+                  // The packet intentionally starts without a hash: its execution
+                  // contract requires read-local-file before every write.
+                  versionHashes: [],
+                })
+              : {
+                  ok: false as const,
+                  rejection: {
+                    code: "missing-source-provenance" as const,
+                    reason:
+                      "Exact subject and target source anchors were not both available for this React structure edit.",
+                  },
+                };
     return {
       kind: edit.kind,
       screenId: edit.screenId,
@@ -998,8 +1038,14 @@ export function formatPendingVisualStylePrompt(args: {
       sourceAnchor: redactReactSourceAnchor(edit.sourceAnchor),
       // A removal has no anchor; emitting empty anchor fields alongside a
       // meaningless placement reads as a half-captured move.
-      ...(edit.removed
-        ? { removed: true as const }
+      ...(edit.removed || edit.replaced
+        ? edit.removed
+          ? { removed: true as const }
+          : {
+              replaced: true as const,
+              replacementSelector: edit.replacementSelector,
+              replacementSourceId: edit.replacementSourceId ?? null,
+            }
         : {
             anchorSelector: edit.anchorSelector,
             anchorSourceId: edit.anchorSourceId ?? null,

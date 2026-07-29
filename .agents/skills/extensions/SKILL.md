@@ -2,8 +2,8 @@
 name: extensions
 description: >-
   Creating, editing, and managing extensions — sandboxed Alpine.js mini-apps
-  that run inside iframes. Use when a user asks for a dashboard, widget,
-  calculator, or any interactive mini-app that calls external APIs. Distinct
+  that run inside iframes. Use only when the host app explicitly enables
+  extensions and the user asks for a one-off custom block or mini-app. Distinct
   from LLM "tools" (function calls) — see note below.
 metadata:
   internal: true
@@ -73,24 +73,26 @@ host layout/styles/routes/business logic, or adding a new slot:
      `self-modifying-code` skill and edit the app source directly.
 
 Full source-code customization is a core Agent Native capability. Extensions
-are the fast, sandboxed, no-deploy layer—not the limit of what the app can
-become.
+are an optional, sandboxed, no-deploy patch layer—not the limit of what the app
+can become. Most apps keep extension creation disabled; do not offer or create
+one unless the host app has explicitly opted in.
 
 Use this decision rule when either path could solve the request:
 
-- Start with an extension for a self-contained, relatively one-off widget,
-  custom visualization or interaction, dashboard tile, standalone utility, or
-  add-on in an existing slot.
+- Start with native app behavior or app code. Use an extension only when the app
+  opted in, the user explicitly wants a bespoke one-off block, and an existing
+  extension surface fits the requested placement.
 - Use app code for a core template feature, native UI/layout/routes/business
-  logic, a new slot, or behavior that should be reused broadly across dashboards
-  or users.
-- If the same extension keeps getting rebuilt, promote it into app code as one
-  reusable native feature instead of maintaining copies.
+  logic, a new slot, or behavior that should be reused across dashboards or
+  users.
+- Treat an extension as an agent-authored patch. Make that provenance clear,
+  preserve it while promoting, and use **Promote to app code** when the behavior
+  becomes durable. Do not imply that promotion is a lossless mechanical
+  conversion.
 
-As a rule of thumb, if an extension can solve the problem, generally start
-there. An isolated custom dashboard visualization belongs in an extension; a
-new chart type that should be available across dashboards belongs in the
-template code.
+As a rule of thumb, default to app code. In Analytics, an explicitly requested
+one-off custom visualization can be a Custom Block; a new chart type that
+should be available across dashboards belongs in the template code.
 
 **When a user asks to "make an extension", "create an extension", or "build
 a ... extension" (or the older phrasings "make a tool" / "create a tool"):**
@@ -212,6 +214,12 @@ Or via the HTTP API:
 POST /_agent-native/extensions
 { "name": "GitHub PR Dashboard", "description": "Shows open PRs", "content": "<div ...>...</div>" }
 ```
+
+HTTP creation is disabled by default. The host app must set
+`extensionTools: true` on `createCoreRoutesPlugin()` as well as
+`createAgentChatPlugin()`; otherwise authenticated collection `POST` requests
+return `403` while existing extension runtime, read, edit, and deep-link routes
+remain available for compatibility.
 
 The action accepts:
 

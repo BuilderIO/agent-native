@@ -514,12 +514,15 @@ import {
   defaultCanvasTextColor,
   parsePenPathFromSerializedD,
 } from "./design-editor/canvas-primitives";
+import { resolveClipboardLayerSourceHtml } from "./design-editor/clipboard-layer-source";
 import {
   cloneHtmlLayerAtPosition,
   extractLayerPosition,
   getElementOuterHtml,
   insertClonedHtmlLayer,
   insertClonedHtmlLayers,
+  prepareClonedHtmlLayersForLiveInsert,
+  preserveClipboardLayerName,
   setPenNodesAttributeOnElement,
   writeBackVectorEditedPenPath,
 } from "./design-editor/clone-and-pen-edit";
@@ -9122,6 +9125,10 @@ function DesignEditor() {
         /** Markup this change introduced; the subject does not exist in the
          * screen's source yet, so it must be added rather than relocated. */
         insertedHtml?: string;
+        /** The inserted markup replaced this subject as one live gesture. */
+        replaced?: true;
+        replacementSelector?: string;
+        replacementSourceId?: string;
         /** This change DELETED the subject; it has no anchor. */
         removed?: true;
       },
@@ -9190,6 +9197,13 @@ function DesignEditor() {
         sourceRect: details?.sourceRect,
         anchorRect: details?.anchorRect,
         insertedHtml: details?.insertedHtml,
+        ...(details?.replaced
+          ? {
+              replaced: true as const,
+              replacementSelector: details.replacementSelector,
+              replacementSourceId: details.replacementSourceId,
+            }
+          : {}),
         ...(details?.removed ? { removed: true as const } : {}),
         requestId: details?.requestId,
         updatedAt: Date.now(),
@@ -14699,6 +14713,9 @@ function DesignEditor() {
         /** Markup this change introduced; the subject does not exist in the
          * screen's source yet, so it must be added rather than relocated. */
         insertedHtml?: string;
+        replaced?: true;
+        replacementSelector?: string;
+        replacementSourceId?: string;
       },
     ) => {
       dndHostLog("persist:begin", {
@@ -15204,6 +15221,9 @@ function DesignEditor() {
         /** Markup this change introduced; the subject does not exist in the
          * screen's source yet, so it must be added rather than relocated. */
         insertedHtml?: string;
+        replaced?: true;
+        replacementSelector?: string;
+        replacementSourceId?: string;
       },
     ) => {
       if (screenId === activeFile?.id) {
@@ -15611,15 +15631,25 @@ function DesignEditor() {
 
     const snapshots: SelectedCanvasLayerSnapshot[] = [];
     for (const file of files) {
-      // BUG-DELETE-LIVE-SNAPSHOT: getScreenContent returns DesignFile.content,
-      // which for a localhost/live-snapshot screen is just the bridged route
-      // URL, not HTML — so a node lookup against it always came up empty and
-      // this screen's selection silently produced no snapshot. Prefer the
-      // live snapshot HTML (same source commitVisualStyles already reads for
-      // this exact reason) and fall back to the file content for inline/board
-      // screens that don't have one.
-      const content =
-        liveScreenSnapshotsById[file.id]?.html ?? getScreenContent(file.id);
+      // A hydrated localhost app has two snapshots: `/snapshot` is the source
+      // or SSR shell, while the runtime layer snapshot is the DOM the user can
+      // actually see and select. Layers already prefers that rendered tree, so
+      // Copy must resolve against the same id namespace or client-rendered
+      // React/Vue/Svelte nodes silently produce an empty clipboard.
+      const runtimeProjectionEligible = shouldUseRuntimeLayerProjection({
+        screen: overviewScreens.find((screen) => screen.id === file.id),
+        fallbackSourceType: designSourceType,
+        content: file.content ?? "",
+      });
+      const runtimeSnapshot = runtimeProjectionEligible
+        ? runtimeLayerSnapshotsById[file.id]
+        : undefined;
+      const content = resolveClipboardLayerSourceHtml({
+        runtimeProjectionEligible,
+        runtimeSnapshot,
+        liveSnapshotHtml: liveScreenSnapshotsById[file.id]?.html,
+        storedContent: getScreenContent(file.id),
+      });
       if (!content) continue;
       const projection = buildCodeLayerProjection(content);
       const tree = buildCodeLayerTree(projection);
@@ -15655,8 +15685,20 @@ function DesignEditor() {
     }
 
     if (snapshots.length === 0 && activeFile && selectedElement?.selector) {
-      const content =
-        liveScreenSnapshotsById[activeFile.id]?.html ?? getFreshActiveContent();
+      const runtimeProjectionEligible = shouldUseRuntimeLayerProjection({
+        screen: overviewScreens.find((screen) => screen.id === activeFile.id),
+        fallbackSourceType: designSourceType,
+        content: activeFile.content ?? "",
+      });
+      const runtimeSnapshot = runtimeProjectionEligible
+        ? runtimeLayerSnapshotsById[activeFile.id]
+        : undefined;
+      const content = resolveClipboardLayerSourceHtml({
+        runtimeProjectionEligible,
+        runtimeSnapshot,
+        liveSnapshotHtml: liveScreenSnapshotsById[activeFile.id]?.html,
+        storedContent: getFreshActiveContent(),
+      });
       const projection = buildCodeLayerProjection(content);
       const tree = buildCodeLayerTree(projection);
       const node = resolveCodeLayerNodeFromElementInfo(
@@ -15708,10 +15750,13 @@ function DesignEditor() {
     });
   }, [
     activeFile,
+    designSourceType,
     files,
     getFreshActiveContent,
     getScreenContent,
     liveScreenSnapshotsById,
+    overviewScreens,
+    runtimeLayerSnapshotsById,
     selectedElement,
     selectedElementLayerId,
     selectedLayerIdsState,
@@ -15844,7 +15889,7 @@ function DesignEditor() {
 
   const handleCopySelection = useCallback(async () => {
     const entries = getSelectedLayerSnapshots().map((snapshot) => ({
-      html: snapshot.html,
+      html: preserveClipboardLayerName(snapshot.html, snapshot.node.layerName),
       rootNodeId: snapshot.rootNodeId,
       sourceFileId: snapshot.sourceFileId,
       portableStyleSnapshot: snapshot.portableStyleSnapshot,
@@ -15861,7 +15906,24 @@ function DesignEditor() {
         ? overviewSelectedScreenIds
             .map((screenId): DesignClipboardScreenEntry | null => {
               const file = files.find((candidate) => candidate.id === screenId);
-              const content = getScreenContent(screenId) ?? file?.content;
+              const runtimeProjectionEligible =
+                file &&
+                shouldUseRuntimeLayerProjection({
+                  screen: overviewScreens.find(
+                    (screen) => screen.id === screenId,
+                  ),
+                  fallbackSourceType: designSourceType,
+                  content: file.content ?? "",
+                });
+              const runtimeSnapshot = runtimeProjectionEligible
+                ? runtimeLayerSnapshotsById[screenId]
+                : undefined;
+              const content = resolveClipboardLayerSourceHtml({
+                runtimeProjectionEligible: Boolean(runtimeProjectionEligible),
+                runtimeSnapshot,
+                liveSnapshotHtml: liveScreenSnapshotsById[screenId]?.html,
+                storedContent: getScreenContent(screenId) ?? file?.content,
+              });
               if (!file || typeof content !== "string") return null;
               return {
                 filename: file.filename,
@@ -15916,10 +15978,14 @@ function DesignEditor() {
     return true;
   }, [
     canvasFrameGeometryById,
+    designSourceType,
     files,
     getScreenContent,
     getSelectedLayerSnapshots,
+    liveScreenSnapshotsById,
     overviewSelectedScreenIds,
+    overviewScreens,
+    runtimeLayerSnapshotsById,
     t,
   ]);
 
@@ -16045,6 +16111,108 @@ function DesignEditor() {
       const managedStyleSnapshots = entries.map(
         (entry) => entry.managedStyleSnapshot,
       );
+      const targetFile = files.find((file) => file.id === targetFileId);
+      const targetStoredContent = targetFile?.content ?? baseContent;
+      if (isStandaloneHttpUrl(targetStoredContent)) {
+        const selectedAnchor =
+          !position &&
+          targetFileId === activeFile?.id &&
+          selectedElement?.selector &&
+          !["body", "html"].includes(
+            selectedElement.tagName?.toLowerCase() ?? "",
+          )
+            ? {
+                selector:
+                  selectedElement.runtimeSelector ??
+                  selectedCanvasSelector ??
+                  selectedElement.selector,
+                sourceId:
+                  selectedElement.runtimeSourceId ??
+                  selectedElement.sourceId ??
+                  undefined,
+              }
+            : null;
+        const sourcePositions = entries.map((entry) =>
+          extractLayerPosition(entry.html),
+        );
+        const positionedSources = sourcePositions.filter(
+          (source): source is { x: number; y: number } => Boolean(source),
+        );
+        const minSourceX = positionedSources.length
+          ? Math.min(...positionedSources.map((source) => source.x))
+          : 0;
+        const minSourceY = positionedSources.length
+          ? Math.min(...positionedSources.map((source) => source.y))
+          : 0;
+        const iframe =
+          canvasContainerRef.current?.querySelector<HTMLElement>(
+            "[data-design-preview-iframe]",
+          ) ?? null;
+        const iframeRect = iframe?.getBoundingClientRect();
+        const factor = zoom / 100;
+        const viewportCenter = iframeRect
+          ? {
+              x: Math.max(0, iframeRect.width / 2 / factor),
+              y: Math.max(0, iframeRect.height / 2 / factor),
+            }
+          : { x: 120, y: 120 };
+        const cascadeOffset = pasteCascadeRef.current * 16;
+        const pastingIntoSourceScreen = entries.every(
+          (entry) => entry.sourceFileId === targetFileId,
+        );
+        const positions = selectedAnchor
+          ? undefined
+          : entries.map((_, index) => {
+              const source = sourcePositions[index];
+              if (position) {
+                return source && positionedSources.length
+                  ? {
+                      x: position.x + source.x - minSourceX,
+                      y: position.y + source.y - minSourceY,
+                    }
+                  : {
+                      x: position.x + index * 16,
+                      y: position.y + index * 16,
+                    };
+              }
+              return source && pastingIntoSourceScreen
+                ? {
+                    x: source.x + 10 + cascadeOffset,
+                    y: source.y + 10 + cascadeOffset,
+                  }
+                : {
+                    x: viewportCenter.x + cascadeOffset + index * 16,
+                    y: viewportCenter.y + cascadeOffset + index * 16,
+                  };
+            });
+        const prepared = prepareClonedHtmlLayersForLiveInsert(
+          targetStoredContent,
+          layerHtmls,
+          {
+            stripRootPosition: Boolean(selectedAnchor),
+            positions,
+            styleSnapshots,
+          },
+        );
+        const firstHtml = prepared?.htmlFragments[0];
+        if (!prepared || !firstHtml) {
+          toast.error(t("designEditor.toasts.layerMoveFailed"), {
+            duration: 4000,
+          });
+          return;
+        }
+        pasteCascadeRef.current += 1;
+        runtimeStructureInsertRevisionRef.current += 1;
+        setRuntimeStructureInsertRequest({
+          requestId: runtimeStructureInsertRevisionRef.current,
+          screenId: targetFileId,
+          html: firstHtml,
+          additionalHtml: prepared.htmlFragments.slice(1),
+          anchor: selectedAnchor ?? { selector: "body" },
+          placement: selectedAnchor ? "after" : "inside",
+        });
+        return;
+      }
       const applyPasteContentUpdate = (nextContent: string) => {
         const clipboardMutation = publishAuthoritativeClipboardMutation({
           fileId: targetFileId,
@@ -16210,6 +16378,7 @@ function DesignEditor() {
       getCanvasScreenClipboardEntries,
       getFreshActiveContent,
       getScreenContent,
+      files,
       pasteCopiedScreens,
       publishAuthoritativeClipboardMutation,
       refreshClipboardFromSystemClipboard,
@@ -16217,6 +16386,7 @@ function DesignEditor() {
       selectInsertedLayers,
       selectedCanvasSelector,
       selectedElement,
+      t,
       clearRedoStacks,
       syncUndoRedoState,
       zoom,
@@ -16778,6 +16948,43 @@ function DesignEditor() {
     const targetPosition = selectedElement?.boundingRect;
     if (!targetSelector || !targetPosition) return;
     const baseContent = getFreshActiveContent();
+    const targetStoredContent = activeFile.content ?? baseContent;
+    if (isStandaloneHttpUrl(targetStoredContent)) {
+      const prepared = prepareClonedHtmlLayersForLiveInsert(
+        targetStoredContent,
+        [entries[0]!.html],
+        {
+          positions: [{ x: targetPosition.x, y: targetPosition.y }],
+          styleSnapshots: [entries[0]!.portableStyleSnapshot],
+        },
+      );
+      const html = prepared?.htmlFragments[0];
+      if (!prepared || !html) {
+        toast.error(t("designEditor.toasts.layerMoveFailed"), {
+          duration: 4000,
+        });
+        return;
+      }
+      runtimeStructureInsertRevisionRef.current += 1;
+      setRuntimeStructureInsertRequest({
+        requestId: runtimeStructureInsertRevisionRef.current,
+        screenId: activeFile.id,
+        html,
+        replaceAnchor: true,
+        anchor: {
+          selector:
+            selectedElement.runtimeSelector ??
+            selectedCanvasSelector ??
+            targetSelector,
+          sourceId:
+            selectedElement.runtimeSourceId ??
+            selectedElement.sourceId ??
+            undefined,
+        },
+        placement: "before",
+      });
+      return;
+    }
     const projection = buildCodeLayerProjection(baseContent);
     const targetNode = projection.nodes.find((node) =>
       node.selectors.includes(targetSelector),
@@ -16806,9 +17013,14 @@ function DesignEditor() {
     canEditDesign,
     getCanvasClipboardEntries,
     getFreshActiveContent,
+    selectedCanvasSelector,
     selectInsertedLayers,
     selectedElement?.boundingRect,
+    selectedElement?.runtimeSelector,
+    selectedElement?.runtimeSourceId,
     selectedElement?.selector,
+    selectedElement?.sourceId,
+    t,
   ]);
 
   const handleDuplicateSelection = useCallback(() => {
@@ -19628,7 +19840,6 @@ function DesignEditor() {
   );
 
   const handleCutSelection = useCallback(async () => {
-    if (!selectedElement?.selector) return;
     // Copy first (populates the internal clipboard ref even if the async
     // navigator.clipboard write is blocked — handleCopySelection swallows that
     // error and still returns true) then remove the element so a subsequent
@@ -19638,7 +19849,7 @@ function DesignEditor() {
     const copied = await handleCopySelection();
     if (!copied) return;
     handleDeleteSelection();
-  }, [handleCopySelection, handleDeleteSelection, selectedElement]);
+  }, [handleCopySelection, handleDeleteSelection]);
 
   const [pendingScreenDeletion, setPendingScreenDeletion] = useState<{
     files: DesignFile[];
@@ -21173,6 +21384,7 @@ function DesignEditor() {
           requestId: runtimeStructureInsertRevisionRef.current,
           screenId: pendingNonStyleRedo.edit.screenId,
           html: redoCommand.html,
+          replaceAnchor: redoCommand.replaceAnchor,
           anchor: {
             selector: pendingNonStyleRedo.edit.anchorSelector,
             sourceId: pendingNonStyleRedo.edit.anchorSourceId ?? undefined,
@@ -30477,7 +30689,7 @@ function DesignEditor() {
                   <ReadOnlyEditorPanel
                     title={"Tools require editor access" /* i18n-ignore */}
                     description={
-                      "Ask an owner for edit access before running tools or creating extensions for this design." /* i18n-ignore */
+                      "Ask an owner for edit access before running tools for this design." /* i18n-ignore */
                     }
                   />
                 )}
@@ -30510,7 +30722,7 @@ function DesignEditor() {
                   activeLeftPanel === "code" ? "flex" : "hidden",
                 )}
               >
-                {id && (activeLeftPanel === "code" || activeCodeFile) ? (
+                {id ? (
                   <CodeWorkbenchLoader
                     designId={id}
                     activeFileId={routeCodeFileId}
@@ -30909,7 +31121,7 @@ function DesignEditor() {
                     >
                       <div className="pointer-events-auto flex w-fit max-w-full items-center overflow-x-auto">
                         <Button
-                          className="h-11 min-w-0 shrink-0 cursor-pointer rounded-r-none bg-blue-500 px-4 text-sm font-semibold text-white hover:bg-blue-400 focus-visible:ring-blue-400"
+                          className="h-9 min-w-0 shrink-0 cursor-pointer rounded-r-none bg-blue-500 px-3.5 text-sm font-semibold text-white hover:bg-blue-400 focus-visible:ring-blue-400"
                           aria-label={t(
                             "designEditor.pendingVisualStyles.applyAria",
                           )}
@@ -30933,7 +31145,7 @@ function DesignEditor() {
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button
-                              className="h-11 w-8 shrink-0 cursor-pointer rounded-l-none border-l border-white/20 bg-blue-500 px-0 text-white hover:bg-blue-400 focus-visible:ring-blue-400"
+                              className="h-9 w-8 shrink-0 cursor-pointer rounded-l-none border-l border-white/20 bg-blue-500 px-0 text-white hover:bg-blue-400 focus-visible:ring-blue-400"
                               aria-label={t(
                                 "designEditor.pendingVisualStyles.previewLabel",
                               )}

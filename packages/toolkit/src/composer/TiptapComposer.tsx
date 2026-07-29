@@ -654,11 +654,17 @@ export interface TiptapComposerProps {
   onRemoveContextItem?: (key: string) => void;
   /**
    * Controls the "+" menu next to the composer. `"full"` (default) shows the
-   * normal Upload / Skill / Job / Automation / Tool / MCP picker. `"upload-only"`
-   * collapses it to a single button that opens the file picker directly.
-   * `"hidden"` hides attachment controls for text-only prompt surfaces.
+   * normal Upload / Skill / Job / Automation / MCP picker, plus Extension when
+   * `extensionTools` is true. `"upload-only"` collapses it to a single button
+   * that opens the file picker directly. `"hidden"` hides attachment controls
+   * for text-only prompt surfaces.
    */
   plusMenuMode?: "full" | "upload-only" | "hidden";
+  /**
+   * Include extension creation in the full "+" menu. Defaults to false so
+   * apps opt into the extension capability deliberately.
+   */
+  extensionTools?: boolean;
   /**
    * When true and the composer is running inside the Builder.io webview/iframe,
    * intercept "build me an app/agent" prompts and forward them to the parent
@@ -1526,6 +1532,7 @@ export function TiptapComposer({
   contextItems = [],
   onRemoveContextItem,
   plusMenuMode = "full",
+  extensionTools = false,
   interceptBuildRequestsForBuilder = false,
   onAttachmentError,
 }: TiptapComposerProps) {
@@ -2939,6 +2946,7 @@ export function TiptapComposer({
             <ComposerPlusMenu
               onSelectMode={handleSelectMode}
               mode={plusMenuMode}
+              extensionTools={extensionTools}
               onAttachmentError={onAttachmentError}
             />
           ))}

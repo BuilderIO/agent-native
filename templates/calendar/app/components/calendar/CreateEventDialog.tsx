@@ -13,7 +13,7 @@ import {
   IconUsers,
 } from "@tabler/icons-react";
 import { differenceInMinutes, format } from "date-fns";
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useId, useState, useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
 
 import {
@@ -210,6 +210,7 @@ interface CreateEventPopoverProps {
   draft?: CalendarEventDraft | null;
   onDraftChange?: (draft: CalendarEventDraft) => void;
   onDraftCreated?: (draftId: string) => void;
+  locationSuggestions?: string[];
 }
 
 export function CreateEventPopover({
@@ -221,6 +222,7 @@ export function CreateEventPopover({
   draft,
   onDraftChange,
   onDraftCreated,
+  locationSuggestions = [],
 }: CreateEventPopoverProps) {
   const t = useT();
   const today = defaultDate || new Date();
@@ -244,6 +246,7 @@ export function CreateEventPopover({
   const [startTime, setStartTime] = useState(defaultStart || fallbackStart);
   const [endTime, setEndTime] = useState(defaultEnd || fallbackEnd);
   const [location, setLocation] = useState("");
+  const locationSuggestionsId = useId();
   const [allDay, setAllDay] = useState(false);
   const [eventType, setEventType] = useState<EventType>("default");
   const [availability, setAvailability] = useState<Availability>("opaque");
@@ -1068,7 +1071,19 @@ export function CreateEventPopover({
                 onChange={(e) => setLocation(e.target.value)}
                 placeholder={t("eventForm.optionalLocation")}
                 className="h-8 text-sm"
+                list={
+                  locationSuggestions.length > 0
+                    ? locationSuggestionsId
+                    : undefined
+                }
               />
+              {locationSuggestions.length > 0 && (
+                <datalist id={locationSuggestionsId}>
+                  {locationSuggestions.map((suggestion) => (
+                    <option key={suggestion} value={suggestion} />
+                  ))}
+                </datalist>
+              )}
             </div>
 
             <div className="space-y-1.5">

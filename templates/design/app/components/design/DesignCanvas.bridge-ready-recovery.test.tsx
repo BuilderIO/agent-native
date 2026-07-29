@@ -79,6 +79,7 @@ describe("DesignCanvas one-shot bridge queue", () => {
         requestId: number;
         screenId: string;
         html: string;
+        additionalHtml?: string[];
         anchor: { selector: string; sourceId?: string };
         placement: "before" | "after" | "inside";
       } | null,
@@ -127,8 +128,9 @@ describe("DesignCanvas one-shot bridge queue", () => {
       requestId: 1,
       screenId: "screen-live",
       html: '<div data-agent-native-node-id="drop-1"></div>',
+      additionalHtml: ['<div data-agent-native-node-id="drop-2"></div>'],
       anchor: { selector: "#anchor", sourceId: "anchor-1" },
-      placement: "inside",
+      placement: "after",
     });
     expect(
       posted.filter(
@@ -157,11 +159,16 @@ describe("DesignCanvas one-shot bridge queue", () => {
         (message as { type?: string } | null)?.type ===
         "runtime-structure-insert",
     );
-    expect(inserts).toHaveLength(1);
+    expect(inserts).toHaveLength(2);
     expect(inserts[0]).toMatchObject({
       requestId: 1,
-      placement: "inside",
+      placement: "after",
       anchorSourceId: "anchor-1",
+    });
+    expect(inserts[1]).toMatchObject({
+      requestId: 1.001,
+      placement: "after",
+      anchorSourceId: "drop-1",
     });
   });
 

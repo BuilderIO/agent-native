@@ -116,6 +116,40 @@ describe("update-dashboard proof-of-done summary", () => {
     expect(updateDashboard.http).toEqual({ method: "POST" });
   });
 
+  it("does not mark frontend saves as AI edits", async () => {
+    mocks.hasCollabState.mockResolvedValue(true);
+    const config = { name: "Weekly", panels: [panel("a")] };
+
+    await updateDashboard.run(
+      { dashboardId: "weekly", config },
+      { caller: "frontend" },
+    );
+
+    expect(mocks.applyText).toHaveBeenCalledWith(
+      "dash-weekly",
+      JSON.stringify(config),
+      "content",
+      undefined,
+    );
+  });
+
+  it("marks agent tool edits as AI edits", async () => {
+    mocks.hasCollabState.mockResolvedValue(true);
+    const config = { name: "Weekly", panels: [panel("a")] };
+
+    await updateDashboard.run(
+      { dashboardId: "weekly", config },
+      { caller: "tool" },
+    );
+
+    expect(mocks.applyText).toHaveBeenCalledWith(
+      "dash-weekly",
+      JSON.stringify(config),
+      "content",
+      "agent",
+    );
+  });
+
   it("returns panelCount + summary on a full config replace", async () => {
     const result: any = await updateDashboard.run({
       dashboardId: "weekly",

@@ -145,7 +145,7 @@ export type SourceLocationMethod =
  */
 export interface ElementSourceLocation {
   status: "resolved";
-  framework?: "html" | "react" | "vue" | "svelte";
+  framework?: "html" | "react" | "vue" | "svelte" | "angular" | "lwc";
   method: SourceLocationMethod;
   sourceFile: string;
   line: number;

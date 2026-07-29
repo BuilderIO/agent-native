@@ -268,6 +268,21 @@ const messages = {
       chatAcrossAppsDescription: "在同一個地方分派工作、檢查狀態或建立新內容。",
       overviewPromptPlaceholder: "向 Dispatch 提問...",
       chatPromptPlaceholder: "詢問 Dispatch...",
+      browserChatUnavailableTitle: "瀏覽器聊天工作階段無法使用",
+      browserChatUnavailableDescription:
+        "請從 Agent-Native 瀏覽器擴充功能重新連線。",
+      browserChatPlaceholder: "詢問此頁面…",
+      browserChatAttachedPlaceholder: "詢問 {{page}}…",
+      browserConnectTitle: "連接瀏覽器聊天",
+      browserConnectDescription:
+        "允許 Agent-Native Chrome 擴充功能開啟此 Dispatch 聊天工作階段。連線使用一次性的短期票證。",
+      browserConnectInvalid: "此連線要求無效。請從擴充功能重新開始。",
+      browserConnectConnected: "瀏覽器聊天已連線。你可以關閉此分頁。",
+      browserConnectConnecting: "連線中…",
+      browserConnectButton: "連線",
+      browserConnectOpenFromExtension:
+        "請從 Agent-Native Chrome 擴充功能開啟此頁面。",
+      browserConnectFailed: "瀏覽器擴充功能未能連線。",
       suggestionWorkspaceHealth: "摘要目前的工作區狀態",
       suggestionOnboardingApp: "為新手引導要求建立應用程式",
       suggestionAnalyticsAgents: "查看哪些代理可以協助分析",
