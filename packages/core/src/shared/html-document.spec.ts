@@ -24,15 +24,18 @@ describe("injectDocumentMarkup", () => {
     expect(injectDocumentMarkup("screen", "$&")).toBe("screen$&");
   });
 
-  it("prefers the real head closer for head-targeted markup", () => {
+  it("prefers the real head closer over raw text and comments", () => {
+    const sourceScript =
+      '<script>const template = "</head>"; const money = "$&";</script>';
+    const comment = "<!-- a literal </head> in a comment -->";
     expect(
       injectDocumentMarkup(
-        '<html><head><title>screen</title></head><body><script>"</head>"</script></body></html>',
+        `<html><head>${sourceScript}${comment}<meta content="</head>"><title>screen</title></head><body></body></html>`,
         "<script>$&</script>",
         { target: "head" },
       ),
     ).toBe(
-      '<html><head><title>screen</title><script>$&</script></head><body><script>"</head>"</script></body></html>',
+      `<html><head>${sourceScript}${comment}<meta content="</head>"><title>screen</title><script>$&</script></head><body></body></html>`,
     );
   });
 });
