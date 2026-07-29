@@ -11,8 +11,23 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 
 vi.mock("@agent-native/toolkit/design-tweaks", () => ({
-  VisualColorPicker: ({ label }: { label: string }) => (
-    <span data-color-picker={label} />
+  VisualColorPicker: ({
+    label,
+    value,
+    mixed,
+    mixedLabel,
+  }: {
+    label: string;
+    value: string;
+    mixed?: boolean;
+    mixedLabel?: string;
+  }) => (
+    <span
+      data-testid={`color-${label}`}
+      data-value={value}
+      data-mixed={mixed || undefined}
+      data-mixed-label={mixedLabel}
+    />
   ),
   VisualControlRow: ({
     label,
@@ -61,27 +76,35 @@ vi.mock("@agent-native/toolkit/design-tweaks", () => ({
   VisualScrubInput: ({
     label,
     value,
+    mixed,
+    mixedLabel,
     onChange,
   }: {
     label: string;
     value: number;
+    mixed?: boolean;
+    mixedLabel?: string;
     onChange: (value: number) => void;
   }) => (
     <input
       aria-label={label}
       type="number"
       value={value}
+      data-mixed={mixed || undefined}
+      data-mixed-label={mixedLabel}
       onChange={(event) => onChange(Number(event.currentTarget.value))}
     />
   ),
   VisualSegmentedControl: ({
     options,
+    value,
     onChange,
   }: {
     options: { label: string; value: string }[];
+    value: string | null;
     onChange: (value: string) => void;
   }) => (
-    <div>
+    <div data-segmented-value={value ?? "mixed"}>
       {options.map((option) => (
         <button
           key={option.value}
@@ -195,5 +218,33 @@ describe("SlideStyleInspector", () => {
       },
     );
     expect(onChange).toHaveBeenLastCalledWith({ transform: "rotate(30deg)" });
+  });
+
+  it("shows honest mixed state for a multi-style text selection", () => {
+    render(
+      <SlideStyleInspector
+        snapshot={{
+          ...snapshot,
+          textStyleScope: "selection",
+          mixedTextStyles: ["color", "fontSize", "fontWeight"],
+        }}
+        onChange={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    const color = screen.getByTestId("color-styleInspector.textColor");
+    expect(color.getAttribute("data-mixed")).toBe("true");
+    expect(color.getAttribute("data-mixed-label")).toBe("styleInspector.mixed");
+
+    const size = screen.getByRole("spinbutton", {
+      name: "styleInspector.size",
+    });
+    expect(size.getAttribute("data-mixed")).toBe("true");
+    expect(
+      screen
+        .getByRole("button", { name: "styleInspector.regular" })
+        .parentElement?.getAttribute("data-segmented-value"),
+    ).toBe("mixed");
   });
 });

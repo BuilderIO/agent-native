@@ -72,6 +72,15 @@ import { enterSelectionMode } from "@/root";
 import type { DesignSystemData } from "../../../shared/api";
 import { BlockBubbleMenu } from "./BlockBubbleMenu";
 import ImageOverlay from "./ImageOverlay";
+import {
+  applyInlineTextStyle,
+  getInlineTextStyleSnapshot,
+  getInlineTextStyleSnapshotForRange,
+  restoreEditableTextRange,
+  snapshotEditableTextRange,
+  type InlineTextStylePatch,
+  type InlineTextStyleSnapshot,
+} from "./rich-text-selection";
 import { decideSlideEscape } from "./slide-escape-arbiter";
 import {
   clientPointToSlideCoordinates,
@@ -344,6 +353,38 @@ function stylePropertyName(property: string): string {
   return property.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
 }
 
+const INLINE_INSPECTOR_STYLE_KEYS = [
+  "color",
+  "fontSize",
+  "fontWeight",
+] as const satisfies readonly (keyof SlideStylePatch)[];
+
+function inlineInspectorStylePatch(
+  patch: SlideStylePatch,
+): InlineTextStylePatch {
+  return Object.fromEntries(
+    INLINE_INSPECTOR_STYLE_KEYS.flatMap((key) => {
+      const value = patch[key];
+      return value === undefined ? [] : [[key, value]];
+    }),
+  );
+}
+
+function applyDescendantTextStyle(
+  element: HTMLElement,
+  patch: InlineTextStylePatch,
+) {
+  for (const descendant of Array.from(
+    element.querySelectorAll<HTMLElement>("*"),
+  )) {
+    for (const [property, value] of Object.entries(patch)) {
+      if (value !== undefined) {
+        descendant.style.setProperty(stylePropertyName(property), value);
+      }
+    }
+  }
+}
+
 function elementPathFromRoot(
   root: HTMLElement,
   element: HTMLElement,
@@ -374,6 +415,7 @@ function resolveElementPath(
 function buildStyleSnapshot(
   element: HTMLElement,
   selector: string,
+  inlineTextStyle?: InlineTextStyleSnapshot,
 ): SlideStyleSnapshot {
   const computed = window.getComputedStyle(element);
   const fmdSlide = element.closest(".fmd-slide") as HTMLElement | null;
@@ -386,16 +428,22 @@ function buildStyleSnapshot(
       ? 0
       : Math.round((Math.atan2(matrix.b, matrix.a) * 180) / Math.PI);
   const textPreview = (element.textContent ?? "").trim().slice(0, 80);
-  const fontSize = cssPx(computed.fontSize);
+  const blockFontSize = cssPx(computed.fontSize);
   const rawLineHeight = cssPx(computed.lineHeight);
   const lineHeight =
-    rawLineHeight > 0 && fontSize > 0
-      ? Number((rawLineHeight / fontSize).toFixed(2))
+    rawLineHeight > 0 && blockFontSize > 0
+      ? Number((rawLineHeight / blockFontSize).toFixed(2))
       : 1.2;
   const paddingLeft = cssPx(computed.paddingLeft);
   const paddingRight = cssPx(computed.paddingRight);
   const paddingTop = cssPx(computed.paddingTop);
   const paddingBottom = cssPx(computed.paddingBottom);
+
+  const selectedTextStyle =
+    inlineTextStyle?.scope === "selection" ? inlineTextStyle : null;
+  const selectedColor = selectedTextStyle?.values.color;
+  const selectedFontSize = selectedTextStyle?.values.fontSize;
+  const selectedFontWeight = selectedTextStyle?.values.fontWeight;
 
   return {
     selector,
@@ -406,10 +454,19 @@ function buildStyleSnapshot(
       element.tagName !== "IMG" &&
       (!!textPreview || element.classList.contains("fmd-text-box")),
     isImage: element.tagName === "IMG",
-    color: normalizedColor(computed.color),
+    color:
+      selectedColor === null || selectedColor === undefined
+        ? normalizedColor(computed.color)
+        : normalizedColor(selectedColor),
     backgroundColor: normalizedColor(computed.backgroundColor),
-    fontSize,
-    fontWeight: normalizedFontWeight(computed.fontWeight),
+    fontSize:
+      selectedFontSize === null || selectedFontSize === undefined
+        ? blockFontSize
+        : cssPx(selectedFontSize),
+    fontWeight:
+      selectedFontWeight === null || selectedFontWeight === undefined
+        ? normalizedFontWeight(computed.fontWeight)
+        : normalizedFontWeight(selectedFontWeight),
     lineHeight,
     textAlign: normalizedTextAlign(computed.textAlign),
     opacity: Math.round(Number(computed.opacity || 1) * 100),
@@ -418,6 +475,8 @@ function buildStyleSnapshot(
     borderColor: normalizedColor(computed.borderTopColor),
     paddingX: Math.round((paddingLeft + paddingRight) / 2),
     paddingY: Math.round((paddingTop + paddingBottom) / 2),
+    textStyleScope: inlineTextStyle?.scope ?? "block",
+    mixedTextStyles: selectedTextStyle?.mixed ?? [],
     isAbsolute,
     x: Math.round(element.offsetLeft),
     y: Math.round(element.offsetTop),
@@ -1309,6 +1368,7 @@ export default function SlideEditor({
    * the parent's `onUpdateSlide` would update DeckProvider mid-render.
    */
   const editingElRef = useRef<HTMLElement | null>(null);
+  const richTextSelectionRef = useRef<Range | null>(null);
   /** Latest onUpdateSlide in a ref so blur handlers always see the current version */
   const onUpdateSlideRef = useRef(onUpdateSlide);
   useEffect(() => {
@@ -1444,6 +1504,7 @@ export default function SlideEditor({
   );
 
   const clearSelectedElement = useCallback(() => {
+    richTextSelectionRef.current = null;
     setSelectedElementPath(null);
     setSelectedObjectId(null);
     setSelectedElementSelector(null);
@@ -1481,6 +1542,7 @@ export default function SlideEditor({
     const el = editingElRef.current;
     if (!el) return;
     editingElRef.current = null;
+    richTextSelectionRef.current = null;
     el.contentEditable = "false";
     el.removeAttribute("data-editing-block");
 
@@ -1552,6 +1614,7 @@ export default function SlideEditor({
       editing.removeAttribute("data-editing-block");
     }
     editingElRef.current = null;
+    richTextSelectionRef.current = null;
     setEditingEl(null);
 
     if (draft?.slideId === previousSlideId) {
@@ -1576,6 +1639,44 @@ export default function SlideEditor({
     editingEl.addEventListener("input", handleInput);
     return () => editingEl.removeEventListener("input", handleInput);
   }, [captureInlineEditDraft, editingEl, slide.id]);
+
+  useEffect(() => {
+    if (!editingEl) return;
+
+    const updateInspectorTextStyle = () => {
+      const selection = window.getSelection();
+      if (!selection || selection.rangeCount !== 1) return;
+      const range = selection.getRangeAt(0);
+      if (
+        !editingEl.contains(range.startContainer) ||
+        !editingEl.contains(range.endContainer)
+      ) {
+        // Inspector and portalled picker interactions move browser focus away
+        // from the slide. Retain the last valid range until the user places a
+        // new caret or selection inside this editable.
+        return;
+      }
+
+      richTextSelectionRef.current = snapshotEditableTextRange(
+        editingEl,
+        selection,
+      );
+      const selector = selectedElementSelector ?? getBuilderSelector(editingEl);
+      if (!selector) return;
+      setSelectedStyleSnapshot(
+        buildStyleSnapshot(
+          editingEl,
+          selector,
+          getInlineTextStyleSnapshot(editingEl, selection),
+        ),
+      );
+    };
+
+    updateInspectorTextStyle();
+    document.addEventListener("selectionchange", updateInspectorTextStyle);
+    return () =>
+      document.removeEventListener("selectionchange", updateInspectorTextStyle);
+  }, [editingEl, selectedElementSelector]);
 
   // Global keyboard handling while inline-editing
   useEffect(() => {
@@ -1655,8 +1756,15 @@ export default function SlideEditor({
     const onDocMouseDown = (e: MouseEvent) => {
       const target = e.target as Node;
       if (editingEl.contains(target)) return;
-      // Ignore clicks on the bubble menu (it lives in a portal)
-      if ((target as HTMLElement).closest?.("[data-block-bubble-menu]")) return;
+      // Inspector controls and their popovers deliberately preserve the live
+      // edit session so a saved text range can receive the chosen formatting.
+      if (
+        (target as HTMLElement).closest?.(
+          "[data-block-bubble-menu], [data-slide-style-dock], [data-slide-inline-edit-surface]",
+        )
+      ) {
+        return;
+      }
       exitInlineEdit();
     };
     document.addEventListener("mousedown", onDocMouseDown);
@@ -1689,7 +1797,18 @@ export default function SlideEditor({
         syncSelectionToAppState(null);
         return;
       }
-      const snapshot = buildStyleSnapshot(element, selectedElementSelector);
+      const inlineTextStyle =
+        editingElRef.current === element
+          ? getInlineTextStyleSnapshotForRange(
+              element,
+              richTextSelectionRef.current,
+            )
+          : undefined;
+      const snapshot = buildStyleSnapshot(
+        element,
+        selectedElementSelector,
+        inlineTextStyle,
+      );
       setSelectedElementRect(element.getBoundingClientRect());
       setSelectedStyleSnapshot(snapshot);
       syncSelectionToAppState(
@@ -2852,13 +2971,62 @@ export default function SlideEditor({
     [showImageOverlay],
   );
 
+  const preserveRichTextSelection = useCallback(() => {
+    const editing = editingElRef.current;
+    const selection = window.getSelection();
+    if (!editing || !selection || selection.rangeCount !== 1) return;
+    const range = selection.getRangeAt(0);
+    if (
+      editing.contains(range.startContainer) &&
+      editing.contains(range.endContainer)
+    ) {
+      richTextSelectionRef.current = snapshotEditableTextRange(
+        editing,
+        selection,
+      );
+    }
+  }, []);
+
   const applySelectedStylePatch = useCallback(
     (patch: SlideStylePatch) => {
-      const element = resolveSelectedElement();
+      const editing = editingElRef.current;
+      const element = editing ?? resolveSelectedElement();
       if (!element || !selectedElementSelector) return;
+
+      const inlinePatch = inlineInspectorStylePatch(patch);
+      const inlineKeys = INLINE_INSPECTOR_STYLE_KEYS.filter(
+        (key) => patch[key] !== undefined,
+      );
+      let styledRange = false;
+      const savedRange =
+        richTextSelectionRef.current ??
+        (editing ? snapshotEditableTextRange(editing) : null);
+      if (
+        editing &&
+        inlineKeys.length > 0 &&
+        restoreEditableTextRange(editing, savedRange)
+      ) {
+        const result = applyInlineTextStyle(editing, inlinePatch);
+        if (result.scope === "selection" && result.range) {
+          richTextSelectionRef.current = result.range.cloneRange();
+          styledRange = true;
+        }
+      }
+
+      if (!styledRange && inlineKeys.length > 0) {
+        applyDescendantTextStyle(element, inlinePatch);
+      }
 
       for (const [property, value] of Object.entries(patch)) {
         if (value === undefined) continue;
+        if (
+          styledRange &&
+          INLINE_INSPECTOR_STYLE_KEYS.includes(
+            property as (typeof INLINE_INSPECTOR_STYLE_KEYS)[number],
+          )
+        ) {
+          continue;
+        }
         element.style.setProperty(stylePropertyName(property), value);
       }
 
@@ -2871,25 +3039,45 @@ export default function SlideEditor({
         element.style.borderStyle = "solid";
       }
 
-      const html = readCurrentSlideContentHtml();
-      if (html !== null) {
-        onUpdateSlideRef.current({ content: html });
+      if (editing) {
+        captureInlineEditDraft(slide.id);
+      } else {
+        const html = readCurrentSlideContentHtml();
+        if (html !== null) {
+          onUpdateSlideRef.current({ content: html });
+        }
       }
 
-      const snapshot = buildStyleSnapshot(element, selectedElementSelector);
-      setSelectedElementRect(element.getBoundingClientRect());
-      setSelectedStyleSnapshot(snapshot);
-      syncSelectionToAppState(
-        buildSelectionState(getSlideSelectionMode(snapshot), [
-          selectionItemForElement(element, selectedElementSelector, snapshot),
-        ]),
+      const inlineTextStyle = editing
+        ? getInlineTextStyleSnapshotForRange(
+            editing,
+            richTextSelectionRef.current,
+          )
+        : undefined;
+      const snapshot = buildStyleSnapshot(
+        element,
+        selectedElementSelector,
+        inlineTextStyle,
       );
+      if (!editing) {
+        setSelectedElementRect(element.getBoundingClientRect());
+      }
+      setSelectedStyleSnapshot(snapshot);
+      if (!editing) {
+        syncSelectionToAppState(
+          buildSelectionState(getSlideSelectionMode(snapshot), [
+            selectionItemForElement(element, selectedElementSelector, snapshot),
+          ]),
+        );
+      }
     },
     [
       buildSelectionState,
+      captureInlineEditDraft,
       readCurrentSlideContentHtml,
       resolveSelectedElement,
       selectedElementSelector,
+      slide.id,
     ],
   );
 
@@ -3115,6 +3303,7 @@ export default function SlideEditor({
           <div
             className="relative z-[70] hidden h-full w-[17rem] shrink-0 border-l border-border/70 bg-background/95 lg:block"
             data-slide-style-dock="true"
+            onPointerDownCapture={preserveRichTextSelection}
           >
             {selectedStyleSnapshot ? (
               <SlideStyleInspector
