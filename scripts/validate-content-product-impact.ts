@@ -22,9 +22,13 @@ import {
 const PRODUCT_ROOT = "templates/content/docs/product";
 const CONTENT_PRODUCT_SKILL_ROOT =
   "templates/content/.agents/skills/content-product-development";
-const REPOSITORY_ROOT = path.resolve(
+const CHECKER_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
+);
+const SOURCE_REPOSITORY_ROOT = path.resolve(
+  process.cwd(),
+  process.env.CONTENT_IMPACT_REPOSITORY ?? ".",
 );
 const LANES = [
   "contract_repair",
@@ -521,7 +525,7 @@ export function analyzeContentProductImpact(
 
 function git(args: string[]): string {
   return execFileSync("git", args, {
-    cwd: process.cwd(),
+    cwd: SOURCE_REPOSITORY_ROOT,
     encoding: "utf8",
     maxBuffer: 32 * 1024 * 1024,
   });
@@ -529,7 +533,7 @@ function git(args: string[]): string {
 
 function gitFile(sha: string, file: string): Buffer {
   return execFileSync("git", ["show", `${sha}:${file}`], {
-    cwd: process.cwd(),
+    cwd: SOURCE_REPOSITORY_ROOT,
     maxBuffer: 32 * 1024 * 1024,
   });
 }
@@ -665,7 +669,7 @@ export function runContentProductImpactCheck(): void {
   }
 
   const temporaryRoot = mkdtempSync(
-    path.join(REPOSITORY_ROOT, ".content-impact-"),
+    path.join(CHECKER_ROOT, ".content-impact-"),
   );
   try {
     const baseSnapshotRoot = path.join(temporaryRoot, "base");
