@@ -2,6 +2,7 @@ import { lazy, Suspense } from "react";
 
 import {
   ACTION_CHAT_UI_DATA_CHART_RENDERER,
+  ACTION_CHAT_UI_DOWNLOAD_ARTIFACT_RENDERER,
   ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER,
   ACTION_CHAT_UI_DATA_TABLE_RENDERER,
   ACTION_CHAT_UI_DATA_WIDGET_RENDERER,
@@ -21,6 +22,10 @@ import {
   normalizeDataWidgetResult,
   type DataWidgetResult,
 } from "./data-widget-types.js";
+import {
+  DownloadArtifactWidget,
+  normalizeArtifactData,
+} from "./DownloadArtifactWidget.js";
 import { normalizeInlineExtensionToolResult } from "./inline-extension-result.js";
 
 const LazyDataChartWidget = lazy(() =>
@@ -179,6 +184,14 @@ export function resolveBuiltinActionChatRenderer(
   return null;
 }
 
+const BuiltinDownloadArtifactRenderer: ToolRendererComponent = ({
+  context,
+}) => {
+  const artifact = normalizeArtifactData(context.resultJson);
+  if (!artifact) return null;
+  return <DownloadArtifactWidget artifact={artifact} />;
+};
+
 export function resolveBuiltinFallbackToolRenderer(
   context: ToolRendererContext,
 ): ToolRendererComponent | null {
@@ -199,6 +212,7 @@ for (const [id, renderer] of [
   ["core.data-insights", ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER],
   ["core.data-widget", ACTION_CHAT_UI_DATA_WIDGET_RENDERER],
   ["core.inline-extension", ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER],
+  ["core.download-artifact", ACTION_CHAT_UI_DOWNLOAD_ARTIFACT_RENDERER],
 ] as const) {
   registerReservedActionChatRenderer({
     id,
@@ -206,7 +220,9 @@ for (const [id, renderer] of [
     Component:
       renderer === ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER
         ? BuiltinInlineExtensionRenderer
-        : BuiltinDataWidgetRenderer,
+        : renderer === ACTION_CHAT_UI_DOWNLOAD_ARTIFACT_RENDERER
+          ? BuiltinDownloadArtifactRenderer
+          : BuiltinDataWidgetRenderer,
   });
 }
 

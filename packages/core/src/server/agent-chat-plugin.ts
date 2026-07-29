@@ -1039,7 +1039,12 @@ export function createAgentChatPlugin(
       try {
         const { createWorkspaceFilesTool } =
           await import("../workspace-files/tool.js");
-        workspaceFilesTool = createWorkspaceFilesTool();
+        const { createOfferDownloadTool } =
+          await import("../workspace-files/offer-download.js");
+        workspaceFilesTool = {
+          ...createWorkspaceFilesTool(),
+          ...createOfferDownloadTool(),
+        };
       } catch {}
       let toolActions: Record<string, ActionEntry> =
         createDataWidgetActionEntries();

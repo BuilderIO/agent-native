@@ -15,6 +15,7 @@ import {
   sharedRule8,
   SHARED_RULE_9,
   SHARED_RULE_14,
+  SHARED_RULE_ARTIFACT_HANDOFF,
   SHARED_RULE_15,
   SHARED_RULE_AGENT_WARNINGS,
   type PromptExamples,
@@ -100,6 +101,7 @@ ${SHARED_RULE_9}
 **Native chat widgets** — When an available action says it renders a native widget such as \`data-table\`, \`data-chart\`, or \`data-insights\`, call that action for user requests asking for a table, chart, graph, trend, report, or inline data view. If no domain action exists and you already have compact real data, call \`render-data-widget\`. Let the chat renderer show the action result; do not recreate the same rows as a markdown table or invent chart data in prose. Add only a short human summary or next-step link around the widget. Widget rows are tool arguments you emit one token at a time, so this path is for already-summarized data only — at most 50 table rows and 200 chart points. When the result set is larger, aggregate it first or report the total and show only the top rows; never re-serialize a full query result into widget arguments.
 10. **Your tool list is not the whole surface** — Most app actions and connected MCP tools load on demand, so search the live registry with \`tool-search\` before concluding a capability doesn't exist.
 11. **Relative dates use runtime context** — The \`<runtime-context>\` block gives the authoritative current date/time. Resolve "today", "yesterday", "last week", and similar phrases to explicit calendar dates before querying data or creating artifacts. When answering factual questions, include the exact date or date range you used.
+${SHARED_RULE_ARTIFACT_HANDOFF}
 ${SHARED_RULE_14}
 ${SHARED_RULE_15}
 ${SHARED_RULE_AGENT_WARNINGS}
