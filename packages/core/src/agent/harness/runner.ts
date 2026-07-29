@@ -88,7 +88,6 @@ export function startAgentHarnessRun(
       send({
         type: "activity",
         label: `Starting ${opts.adapter.label}`,
-        tool: "harness",
       });
 
       harnessSession ??= await opts.adapter.createSession({

@@ -92,7 +92,6 @@ describe("startAgentHarnessRun", () => {
       {
         type: "activity",
         label: "Starting Fake Harness",
-        tool: "harness",
       },
       { type: "text", text: "Hello" },
       { type: "tool_start", tool: "read", input: { path: "a.ts" } },
