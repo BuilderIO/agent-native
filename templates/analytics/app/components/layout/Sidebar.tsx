@@ -92,7 +92,7 @@ import {
   useActionMutation,
   useChangeVersions,
 } from "@agent-native/core/client/hooks";
-import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
@@ -2136,9 +2136,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       </TooltipContent>
     </Tooltip>
   );
-  const footerTranslate = (
-    <LanguagePicker variant="ghost-icon" label={t("settings.languageLabel")} />
-  );
   const footerCollapse = !mobile ? (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -2217,7 +2214,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
           <SidebarFooterActions
             collapsed
             feedback={footerFeedback}
-            translate={footerTranslate}
             search={footerSearch}
             collapse={footerCollapse}
           />
@@ -2590,7 +2586,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                 <TooltipProvider delayDuration={200}>
                   <SidebarFooterActions
                     feedback={footerFeedback}
-                    translate={footerTranslate}
                     search={footerSearch}
                     collapse={footerCollapse}
                     className="px-0 py-0"

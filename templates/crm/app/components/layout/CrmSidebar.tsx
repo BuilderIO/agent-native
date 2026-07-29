@@ -1,6 +1,6 @@
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { useActionQuery } from "@agent-native/core/client/hooks";
-import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
@@ -389,12 +389,6 @@ export function CrmSidebar({ onNavigate }: { onNavigate?: () => void }) {
                 variant={collapsed ? "icon" : "sidebar"}
                 side="right"
                 className={collapsed ? "size-8" : "min-w-0"}
-              />
-            }
-            translate={
-              <LanguagePicker
-                variant="ghost-icon"
-                label={t("navigation.settings")}
               />
             }
             search={searchButton}

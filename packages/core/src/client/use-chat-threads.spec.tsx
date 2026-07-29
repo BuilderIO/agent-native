@@ -5,7 +5,6 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
-  _resetSharedThreadListCacheForTests,
   useChatThreads,
   type ChatThreadScope,
   type ChatThreadSnapshot,
@@ -23,7 +22,6 @@ describe("useChatThreads", () => {
   let root: Root;
 
   beforeEach(() => {
-    _resetSharedThreadListCacheForTests();
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.stubGlobal("crypto", { randomUUID: () => "forked-thread" });
     window.localStorage.clear();
@@ -121,7 +119,7 @@ describe("useChatThreads", () => {
     ]);
   });
 
-  it("shares one initial thread-list request across chat consumers without sharing active-thread semantics", async () => {
+  it("loads thread history independently for each chat consumer", async () => {
     const existingThread: ChatThreadSummary = {
       id: "existing-thread",
       title: "Existing chat",
@@ -158,7 +156,7 @@ describe("useChatThreads", () => {
       await Promise.resolve();
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(mainHook!.activeThreadId).toBe("forked-thread");
     expect(mainHook!.threads.map((thread) => thread.id)).toEqual([
       "forked-thread",
@@ -175,10 +173,10 @@ describe("useChatThreads", () => {
       await Promise.resolve();
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
-  it("keeps completed chat history available when a sidebar remounts", async () => {
+  it("fetches fresh chat history when a sidebar remounts", async () => {
     let cachedTitle = "Cached chat";
     const existingThread: ChatThreadSummary = {
       id: "cached-thread",
@@ -232,19 +230,23 @@ describe("useChatThreads", () => {
     await act(async () => {
       root.render(<Harness visible={false} />);
     });
-    await act(async () => {
+    cachedTitle = "Current account chat";
+    act(() => {
       root.render(<Harness visible />);
     });
 
-    expect(hook!.isLoading).toBe(false);
-    expect(hook!.threads.map((thread) => thread.id)).toEqual(["cached-thread"]);
+    expect(hook!.isLoading).toBe(true);
+    expect(hook!.threads).toEqual([]);
 
     await act(async () => {
       await Promise.resolve();
       await Promise.resolve();
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(hook!.threads).toMatchObject([
+      { id: "cached-thread", title: "Current account chat" },
+    ]);
 
     await act(async () => {
       await hook!.saveThreadData("cached-thread", {
@@ -264,7 +266,7 @@ describe("useChatThreads", () => {
       await Promise.resolve();
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
   it("loads older chat history pages into All Chats", async () => {
