@@ -101,6 +101,9 @@ export function validateContentProductImpactWorkflow(
   }
 
   const jobs = workflow.jobs;
+  if (!isRecord(jobs) || Object.keys(jobs).some((key) => key !== "check")) {
+    issues.push("workflow must contain only the guarded check job");
+  }
   const check = isRecord(jobs) ? jobs.check : undefined;
   if (!isRecord(check)) {
     issues.push("workflow must define the check job");
@@ -134,11 +137,15 @@ export function validateContentProductImpactWorkflow(
       "workflow must not hide checker input or infrastructure failures",
     );
   }
-  const checkout = steps.find(
+  const checkoutSteps = steps.filter(
     (step) =>
       typeof step.uses === "string" &&
       step.uses.startsWith("actions/checkout@"),
   );
+  const checkout = checkoutSteps[0];
+  if (checkoutSteps.length !== 1) {
+    issues.push("check job must contain exactly one checkout step");
+  }
   if (!checkout || !isRecord(checkout.with)) {
     issues.push("workflow must check out the exact candidate revision");
   } else {

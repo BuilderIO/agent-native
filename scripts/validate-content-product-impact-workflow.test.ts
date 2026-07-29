@@ -122,4 +122,20 @@ describe("Content product conformance workflow boundary", () => {
       2,
     );
   });
+
+  it("rejects extra jobs and additional checkout steps", () => {
+    const unsafe = workflow
+      .replace(
+        "jobs:\n",
+        "jobs:\n  leak:\n    runs-on: ubuntu-latest\n    environment: production\n    steps: []\n",
+      )
+      .replace(
+        "      - uses: pnpm/action-setup@",
+        "      - uses: actions/checkout@unsafe\n\n      - uses: pnpm/action-setup@",
+      );
+    const result = validateContentProductImpactWorkflow(unsafe);
+    assert.equal(result.ok, false);
+    assert(result.issues.some((issue) => issue.includes("only")));
+    assert(result.issues.some((issue) => issue.includes("one checkout")));
+  });
 });
