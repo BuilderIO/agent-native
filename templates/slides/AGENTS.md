@@ -27,23 +27,17 @@ ladder.
   current layout is unclear.
 - Preserve deck structure and visual consistency. Prefer focused slide edits over
   regenerating whole decks unless requested.
-- Preserve manual freeform objects and their stable `data-slide-object-id`
-  values during targeted edits or regeneration. Freeform objects are
-  absolutely positioned children of `.fmd-slide`; keep generated flex/grid
-  layout in normal flow and mint a new object id only for a duplicate.
-- Build editable shapes from styled HTML elements such as `div`, not inline
-  SVG. The slide sanitizer intentionally removes inline SVG markup.
+- Preserve freeform objects and their `data-slide-object-id` values. They are
+  absolutely positioned `.fmd-slide` children; keep generated flex/grid in
+  normal flow and mint ids only for duplicates. Use styled HTML, not inline SVG.
 - Follow linked design-system tokens and custom instructions.
 - Build reusable design systems from Figma, code, GitHub, or `design.md` via
   Builder-backed DSI indexing, never a duplicate local copy. Read
   `design-systems` for the per-source actions.
-- Treat import/export actions as shortcuts, not capability limits. When the
-  exact Google Drive endpoint, file metadata field, export format, pagination
-  mode, or API version matters, use `provider-api-catalog`,
-  `provider-api-docs`, and `provider-api-request` against the real provider
-  API. Slides resolves Google Drive auth from the user's connected Google Docs
-  OAuth account. For large scans, stage results with `stageAs` and analyze them
-  with `query-staged-dataset`.
+- Import/export actions are shortcuts, not capability limits. For exact Google
+  Drive API needs, use `provider-api-catalog`, `provider-api-docs`, and
+  `provider-api-request`; auth comes from the user's Google Docs OAuth. Stage
+  large scans with `stageAs` and analyze them via `query-staged-dataset`.
 - Use image-generation and image-selection actions only when the deck genuinely
   needs imagery; keep citations/asset provenance when available.
 - Use framework sharing actions for deck visibility and grants.
@@ -54,15 +48,10 @@ ladder.
 - When the user names no reference deck or design system, call
   `get-workspace-defaults` first so a bare "make a deck about X" is still on
   brand.
-- Before generation, follow the creative-context reuse ladder in
-  `.agents/skills/creative-context/SKILL.md`: explicit request and current deck
-  first, then a pinned/current pack, then narrow library search. Respect
-  `creative-context.contextMode: "off"` without silently restoring a pack.
-- To submit a deck to a governed Creative Context, use the Context tab or
-  `manage-context-membership`; it captures one immutable deck version. Reuse
-  only a returned opaque native clone reference through the Slides clone action.
-  Use `operation="submit-latest"` with a Library membership id when its native
-  update status reports `update-available`.
+- Before generation, follow `.agents/skills/creative-context/SKILL.md`: explicit
+  request/current deck, then pinned/current pack, then narrow library search.
+  Respect `contextMode: "off"`. Submit governed context through the Context tab
+  or `manage-context-membership`; reuse only its opaque clone reference.
 
 ## Persistence Model
 
