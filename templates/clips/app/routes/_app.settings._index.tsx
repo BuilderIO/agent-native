@@ -402,8 +402,7 @@ export default function SettingsIndexRoute() {
   const storageStatus = useVideoStorageStatus();
   const builderStatus = useBuilderStatus();
   const builderConnect = useBuilderConnectFlow({
-    popupUrl:
-      builderStatus.status?.cliAuthUrl ?? builderStatus.status?.connectUrl,
+    popupUrl: builderStatus.status?.connectUrl,
     trackingSource: "clips_settings",
     trackingFlow: "clips_setup",
     onConnected: async () => {
