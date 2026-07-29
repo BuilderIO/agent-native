@@ -12,7 +12,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
-  AgentPresenceChip,
+  DEFAULT_AGENT_IDENTITY,
   RecentEditHighlights,
 } from "@agent-native/toolkit/collab-ui";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
@@ -869,6 +869,12 @@ export default function SlideEditor({
       d.paths.some((p) => p === `slides.${activeSlideId}`)
     );
   });
+  const passivePresentUsers = agentActive
+    ? presentUsers.filter(
+        (user) =>
+          user.email.trim().toLowerCase() !== DEFAULT_AGENT_IDENTITY.email,
+      )
+    : presentUsers;
   const resolveCanvasRect = useCallback(
     (): DOMRect | null =>
       slideCanvasRef.current?.getBoundingClientRect() ?? null,
@@ -2431,18 +2437,11 @@ export default function SlideEditor({
                           containerRef={slideCanvasRef}
                         />
                       )}
-                      {agentActive && (
-                        <div className="absolute top-2 right-2 z-10 pointer-events-none">
-                          <AgentPresenceChip active={agentActive} />
-                        </div>
-                      )}
-                      {presentUsers.length > 0 && (
-                        <div
-                          className={`absolute right-2 z-10 ${
-                            agentActive ? "top-11" : "top-2"
-                          }`}
-                        >
-                          <SameSlidePresenceIndicator users={presentUsers} />
+                      {passivePresentUsers.length > 0 && (
+                        <div className="absolute right-2 top-2 z-10">
+                          <SameSlidePresenceIndicator
+                            users={passivePresentUsers}
+                          />
                         </div>
                       )}
                       {overflowInfo && !readOnly && !agentActive && (

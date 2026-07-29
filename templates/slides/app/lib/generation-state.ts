@@ -12,10 +12,14 @@ export function shouldShowNewDeckGeneratingOverlay({
 
 export function shouldClearNewDeckGeneratingState({
   generating,
+  generationStarted,
   slideCount,
 }: {
   generating: boolean;
+  generationStarted: boolean;
   slideCount?: number | null;
 }): boolean {
-  return !generating || (slideCount ?? 0) > 0;
+  return (
+    (slideCount ?? 0) > 0 || (generationStarted && !generating)
+  );
 }
