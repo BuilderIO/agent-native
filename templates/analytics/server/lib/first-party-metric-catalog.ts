@@ -117,6 +117,7 @@ const TEMPLATE_EXPR =
   "COALESCE(NULLIF(template, ''), NULLIF(properties::jsonb ->> 'templateId', ''), NULLIF(properties::jsonb ->> 'agent_native_template', ''), NULLIF(properties::jsonb ->> 'agentNativeTemplate', ''), NULLIF(app, ''), NULLIF(properties::jsonb ->> 'agent_native_app', ''), NULLIF(properties::jsonb ->> 'agentNativeApp', ''), 'unknown')";
 const KNOWN_TEMPLATE_FILTER = `${TEMPLATE_EXPR} <> 'unknown'`;
 const PRODUCT_ACTIVITY_TEMPLATE_FILTER = `lower(${TEMPLATE_EXPR}) <> 'docs'`;
+const MARKETING_SITE_TEMPLATE_FILTER = `lower(${TEMPLATE_EXPR}) <> 'www'`;
 const KNOWN_PRODUCT_ACTIVITY_TEMPLATE_FILTER = `${KNOWN_TEMPLATE_FILTER} AND ${PRODUCT_ACTIVITY_TEMPLATE_FILTER}`;
 const EVENT_DATE_SQL = "event_date";
 const EVENT_DATE_FILTER_SQL = EVENT_DATE_SQL;
