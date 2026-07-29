@@ -3,17 +3,11 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import type { H3Event } from "h3";
 import { getHeader } from "h3";
 
-import { applyBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
-import {
-  getAuthSecret,
-  resolveSignupTrackingIdentity,
-} from "./better-auth-instance.js";
+import { getAuthSecret } from "./better-auth-instance.js";
 import { getAppBasePath, getOrigin } from "./google-oauth.js";
 
 const DEFAULT_BUILDER_APP_HOST = "https://builder.io";
 const DEFAULT_BUILDER_API_HOST = "https://api.builder.io";
-const BUILDER_BROWSER_HOST = "agent-native-browser";
-const BUILDER_BROWSER_CLIENT_ID = "Agent Native Browser";
 
 export const BUILDER_CALLBACK_PATH = "/_agent-native/builder/callback";
 
@@ -173,24 +167,6 @@ export function builderConnectTrackingProperties(
     properties.agent_native_template = tracking.agentNativeTemplate;
   }
   return properties;
-}
-
-function applyBuilderConnectTrackingParams(
-  params: URLSearchParams,
-  tracking: BuilderConnectTrackingParams,
-) {
-  params.set(
-    BUILDER_SIGNUP_SOURCE_PARAM,
-    cleanTrackingParam(tracking.signupSource) ?? BUILDER_SIGNUP_SOURCE,
-  );
-  const flow = cleanTrackingParam(tracking.agentNativeFlow);
-  if (flow) params.set(BUILDER_AGENT_NATIVE_FLOW_PARAM, flow);
-  const source = cleanTrackingParam(tracking.agentNativeConnectSource);
-  if (source) params.set(BUILDER_AGENT_NATIVE_CONNECT_SOURCE_PARAM, source);
-  const app = cleanTrackingParam(tracking.agentNativeApp);
-  if (app) params.set(BUILDER_AGENT_NATIVE_APP_PARAM, app);
-  const template = cleanTrackingParam(tracking.agentNativeTemplate);
-  if (template) params.set(BUILDER_AGENT_NATIVE_TEMPLATE_PARAM, template);
 }
 
 export interface BuilderBrowserStatus {

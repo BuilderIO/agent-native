@@ -7,6 +7,7 @@ import {
   startMcpOAuthAuthorization,
   validateMcpOAuthCallbackIssuer,
   type McpOAuthCredentialBundle,
+  type McpOAuthDiscoveryState,
 } from "../mcp-client/oauth-client.js";
 import { getOAuthTokens } from "../oauth-tokens/store.js";
 import { mutateSetting, putSetting } from "../settings/store.js";
@@ -64,7 +65,7 @@ function reconnectKey(ownerEmail: string): string {
   return `builder-oauth-reconnect:user:${ownerOptions(ownerEmail).scopeId}`;
 }
 
-function discoveryState() {
+function discoveryState(): McpOAuthDiscoveryState {
   return {
     authorizationServerUrl: BUILDER_OAUTH_ISSUER,
     authorizationServerMetadata: {
@@ -79,7 +80,7 @@ function discoveryState() {
       resource: BUILDER_OAUTH_RESOURCE,
       authorization_servers: [BUILDER_OAUTH_ISSUER],
     },
-  };
+  } as McpOAuthDiscoveryState;
 }
 
 function scopesFrom(credentials: McpOAuthCredentialBundle): string[] {
@@ -211,7 +212,7 @@ export async function getBuilderOAuthSession(
     typeof credentials.tokenExpiresAt === "number" &&
     credentials.tokenExpiresAt - Date.now() <= REFRESH_SKEW_MS
   ) {
-    return refreshBuilderOAuthSession(ownerEmail, credentials);
+    return refreshBuilderOAuthSession(ownerEmail);
   }
   return sessionFrom(credentials);
 }
@@ -244,7 +245,6 @@ export async function resolveBuilderOAuthRequestAccess(input: {
 
 async function refreshBuilderOAuthSession(
   ownerEmail: string,
-  credentials: McpOAuthCredentialBundle,
 ): Promise<BuilderOAuthSession | null> {
   const owner = crypto.randomUUID();
   const leaseKey = refreshLeaseKey(ownerEmail);

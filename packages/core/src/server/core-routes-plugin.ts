@@ -51,7 +51,6 @@ import {
   runDatabaseSchemaHealthCheck,
   type DatabaseSchemaHealthResult,
 } from "../db/runtime-diagnostics.js";
-import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import {
   uploadFile,
   getActiveFileUploadProviderForRequest,
@@ -76,7 +75,12 @@ import {
   createTestSecretHandler,
   createAdHocSecretHandler,
 } from "../secrets/routes.js";
-import { getSetting, putSetting, deleteSetting } from "../settings/store.js";
+import {
+  deleteSetting,
+  getSetting,
+  mutateSetting,
+  putSetting,
+} from "../settings/store.js";
 import {
   getUserSetting,
   putUserSetting,
@@ -794,13 +798,6 @@ async function submitBuilderWaitlistForm(
   } finally {
     clearTimeout(timeout);
   }
-}
-
-function parseBuilderCallbackBoolean(
-  value: string | null | undefined,
-): boolean | null {
-  if (value == null || value === "") return null;
-  return /^(1|true)$/i.test(value);
 }
 
 // Raster-only data-URI allowlist for avatar writes. SVG is deliberately absent:
