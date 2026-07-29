@@ -166,25 +166,25 @@ const AGENT_NATIVE_SENDER_DOMAIN = "agent-native.com";
  * EMAIL_FROM means we cannot prove the branded address is a verified sender,
  * so the deployment's own configuration is left untouched.
  */
-/**
- * Keyed by configured address rather than a single latch: one process can see
- * more than one sender configuration, and a global flag would mute every
- * config after the first, which is the opposite of what a diagnostic is for.
- */
-const warnedAppSenderAddresses = new Set<string>();
+let warnedAppSenderSuppressed = false;
 
 /**
- * Suppressing the branding is the correct outcome for a deployment we cannot
- * prove owns the domain, but it must not be invisible: without this an
- * operator sees generic senders and has nothing pointing at why.
+ * Suppressing the branding is correct for a sender we cannot prove we own,
+ * but it must not be invisible, or an operator sees generic senders with
+ * nothing pointing at why.
+ *
+ * EMAIL_FROM resolves per user/org/workspace through the scoped secret store,
+ * so the resolved address is tenant data and must never reach shared logs, and
+ * anything keyed by it would grow without bound in a warm worker. The message
+ * therefore carries no tenant values, which also makes it identical for every
+ * suppressed config — so emitting it once per process loses nothing.
  */
-function warnAppSenderSuppressed(configuredAddress: string | undefined): void {
-  const key = configuredAddress ?? "unset";
-  if (warnedAppSenderAddresses.has(key)) return;
-  warnedAppSenderAddresses.add(key);
+function warnAppSenderSuppressed(): void {
+  if (warnedAppSenderSuppressed) return;
+  warnedAppSenderSuppressed = true;
   console.warn(
-    `[agent-native:email] Per-app sender branding is off because EMAIL_FROM ` +
-      `(${configuredAddress ?? "unset"}) is not on ${AGENT_NATIVE_SENDER_DOMAIN}. ` +
+    `[agent-native:email] Per-app sender branding is off because the ` +
+      `configured EMAIL_FROM is not on ${AGENT_NATIVE_SENDER_DOMAIN}. ` +
       `Transactional email keeps the configured sender. Expected when self-hosting.`,
   );
 }
@@ -198,7 +198,7 @@ function resolveAppSender(
     ? parseSendGridFrom(configuredFrom).email.toLowerCase()
     : undefined;
   if (!address?.endsWith(`@${AGENT_NATIVE_SENDER_DOMAIN}`)) {
-    warnAppSenderSuppressed(address);
+    warnAppSenderSuppressed();
     return undefined;
   }
   return {

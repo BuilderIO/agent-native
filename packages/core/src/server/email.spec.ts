@@ -102,28 +102,33 @@ describe("sendEmail", () => {
     expect(body.reply_to).toBeUndefined();
   });
 
-  it("warns per distinct sender config when branding is suppressed", async () => {
+  it("warns once without leaking the tenant sender into logs", async () => {
+    // Fresh module: the suppression notice is process-scoped by design.
+    vi.resetModules();
+    const { sendEmail: freshSendEmail } = await import("./email");
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const fetchMock = vi.fn(async () => new Response(null, { status: 202 }));
     vi.stubGlobal("fetch", fetchMock);
     vi.stubEnv("SENDGRID_API_KEY", "sendgrid-example-key");
 
     const send = async () =>
-      sendEmail({
+      freshSendEmail({
         to: "reader@example.com",
         subject: "Verify your email",
         html: "<p>hi</p>",
         appSender: { name: "Agent-Native Clips", slug: "clips" },
       });
 
-    vi.stubEnv("EMAIL_FROM", `Acme <a-${Date.now()}@acme.com>`);
+    vi.stubEnv("EMAIL_FROM", "Tenant <ceo@tenant-one.example>");
     await send();
+    vi.stubEnv("EMAIL_FROM", "Other <owner@tenant-two.example>");
     await send();
-    expect(warn).toHaveBeenCalledTimes(1);
 
-    vi.stubEnv("EMAIL_FROM", `Other <b-${Date.now()}@other.com>`);
-    await send();
-    expect(warn).toHaveBeenCalledTimes(2);
+    expect(warn).toHaveBeenCalledTimes(1);
+    const logged = String(warn.mock.calls[0]?.[0]);
+    expect(logged).not.toContain("tenant-one.example");
+    expect(logged).not.toContain("tenant-two.example");
+    expect(logged).toContain("agent-native.com");
 
     warn.mockRestore();
   });
