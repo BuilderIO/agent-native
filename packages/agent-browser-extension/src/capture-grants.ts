@@ -22,6 +22,11 @@ export function captureOrigin(value: string | undefined): string | null {
   }
 }
 
+export function captureOriginPattern(value: string | undefined): string | null {
+  const origin = captureOrigin(value);
+  return origin ? `${origin}/*` : null;
+}
+
 export function isCaptureGrantValid(
   value: unknown,
   tabId: number,
@@ -42,6 +47,25 @@ export async function hasCaptureGrant(
   url: string,
 ): Promise<boolean> {
   const key = captureGrantKey(tabId);
-  const stored = await chrome.storage.session.get(key);
-  return isCaptureGrantValid(stored[key], tabId, url);
+  const [stored, hasHostAccess] = await Promise.all([
+    chrome.storage.session.get(key),
+    hasPersistentCaptureAccess(url),
+  ]);
+  return isCaptureGrantValid(stored[key], tabId, url) || hasHostAccess;
+}
+
+export async function hasPersistentCaptureAccess(url: string): Promise<boolean> {
+  const origin = captureOriginPattern(url);
+  return origin
+    ? chrome.permissions.contains({ origins: [origin] })
+    : Promise.resolve(false);
+}
+
+export async function requestPersistentCaptureAccess(
+  url: string,
+): Promise<boolean> {
+  const origin = captureOriginPattern(url);
+  return origin
+    ? chrome.permissions.request({ origins: [origin] })
+    : Promise.resolve(false);
 }

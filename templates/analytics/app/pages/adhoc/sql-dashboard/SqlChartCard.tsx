@@ -327,8 +327,7 @@ export function SqlChartCard({
                   )}
                   {onEdit && <DropdownMenuSeparator />}
                   <DropdownMenuItem
-                    onSelect={(e) => {
-                      e.preventDefault();
+                    onSelect={() => {
                       setConfirmOpen(true);
                     }}
                   >
@@ -477,8 +476,7 @@ export function SqlChartCard({
                     </DropdownMenuItem>
                   ) : null}
                   <DropdownMenuItem
-                    onSelect={(e) => {
-                      e.preventDefault();
+                    onSelect={() => {
                       setConfirmOpen(true);
                     }}
                   >
@@ -659,8 +657,7 @@ export function SqlChartCard({
                   </DropdownMenuItem>
                   {editable ? (
                     <DropdownMenuItem
-                      onSelect={(e) => {
-                        e.preventDefault();
+                      onSelect={() => {
                         setConfirmOpen(true);
                       }}
                     >
