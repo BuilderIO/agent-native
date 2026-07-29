@@ -507,6 +507,7 @@ function MermaidHtmlContent({
             <MermaidRenderer
               key={`mermaid-${i}`}
               definition={mermaidBlocks[idx]}
+              index={idx}
               className="my-4 w-full"
             />
           );

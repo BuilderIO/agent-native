@@ -100,6 +100,7 @@ export function MermaidRenderer({
   if (error) {
     return (
       <div
+        data-mermaid-index={index}
         className={`flex items-center justify-center p-4 text-xs text-red-400/70 ${className || ""}`}
       >
         <pre className="whitespace-pre-wrap">{error}</pre>
@@ -112,6 +113,7 @@ export function MermaidRenderer({
   return (
     <div
       ref={containerRef}
+      data-mermaid-index={index}
       className={`flex items-center justify-center [&_svg]:max-w-full [&_svg]:max-h-full ${className || ""}`}
       dangerouslySetInnerHTML={{ __html: svg }}
     />

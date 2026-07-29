@@ -1144,19 +1144,36 @@ export default function SlideEditor({
     // source of truth — before saving.
     const clone = slideContent.cloneNode(true) as HTMLElement;
     const placeholders = clone.querySelectorAll("[data-mermaid-index]");
+    // Swap each rendered node for a plain-text marker now, and splice the
+    // real `<div class="mermaid">` markup back in as a raw string AFTER
+    // stripBuilderIds() below. stripBuilderIds round-trips through
+    // DOMParser + innerHTML, which HTML-escapes `>` in text nodes (mangling
+    // `A --> B` into `A --&gt; B`) — the same reason SlideRenderer extracts
+    // mermaid blocks before its own sanitization pass. Doing the real
+    // substitution as a plain string replace, after all DOM round-trips,
+    // avoids that entirely.
+    const nonce = Math.random().toString(36).slice(2);
+    const markerFor = (idx: number) => `__mermaid_${nonce}_${idx}__`;
+    placeholders.forEach((placeholder) => {
+      const idx = Number(placeholder.getAttribute("data-mermaid-index"));
+      placeholder.replaceWith(
+        clone.ownerDocument.createTextNode(markerFor(idx)),
+      );
+    });
+    let html = stripBuilderIds(clone.innerHTML);
     if (placeholders.length > 0) {
       const { blocks } = extractMermaidBlocks(slide.content);
       placeholders.forEach((placeholder) => {
         const idx = Number(placeholder.getAttribute("data-mermaid-index"));
         const definition = blocks[idx];
         if (definition === undefined) return;
-        const restored = clone.ownerDocument.createElement("div");
-        restored.className = "mermaid";
-        restored.textContent = definition;
-        placeholder.replaceWith(restored);
+        html = html.replace(
+          markerFor(idx),
+          `<div class="mermaid">${definition}</div>`,
+        );
       });
     }
-    return stripBuilderIds(clone.innerHTML);
+    return html;
   }, [slide.content]);
 
   const captureInlineEditDraft = useCallback(
