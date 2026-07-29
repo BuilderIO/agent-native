@@ -855,6 +855,24 @@ describe("buildUserContentWithAttachments", () => {
       }),
       write: actionEntry({ readOnly: false }),
       bash: actionEntry({ readOnly: false }),
+      "call-agent": {
+        ...actionEntry({ readOnly: false }),
+        tool: {
+          description: "Call another app",
+          parameters: {
+            type: "object",
+            properties: {
+              agent: { type: "string" },
+              message: { type: "string" },
+              taskId: { type: "string" },
+              action: { type: "string" },
+              input: { type: "object" },
+              approvedActions: { type: "array" },
+            },
+            required: ["agent"],
+          },
+        },
+      },
       "set-url-path": actionEntry({ readOnly: true }),
       resources: actionEntry({
         actions: ["list", "read", "write", "delete"],
@@ -869,6 +887,7 @@ describe("buildUserContentWithAttachments", () => {
         .sort(),
     ).toEqual([
       "bash",
+      "call-agent",
       "read",
       "read-but-act-only",
       "resources",
@@ -899,6 +918,39 @@ describe("buildUserContentWithAttachments", () => {
     ).resolves.toContain("Plan mode blocked");
     await expect(
       planRegistry.bash.run({ command: "rg button; node -e '1'" }),
+    ).resolves.toContain("Plan mode blocked");
+    expect(
+      Object.keys(planRegistry["call-agent"].tool.parameters?.properties ?? {}),
+    ).toEqual(["agent", "action", "input"]);
+    expect(planRegistry["call-agent"].tool.parameters?.required).toEqual([
+      "agent",
+      "action",
+    ]);
+    await expect(
+      planRegistry["call-agent"].run({
+        agent: "clips",
+        action: "get-recording-player-data",
+        input: { recordingId: "clip-1" },
+      }),
+    ).resolves.toContain('"action":"get-recording-player-data"');
+    await expect(
+      planRegistry["call-agent"].run({
+        agent: "clips",
+        message: "Summarize this recording",
+      }),
+    ).resolves.toContain("Plan mode blocked");
+    await expect(
+      planRegistry["call-agent"].run({
+        agent: "clips",
+        taskId: "task-1",
+      }),
+    ).resolves.toContain("Plan mode blocked");
+    await expect(
+      planRegistry["call-agent"].run({
+        agent: "clips",
+        action: "get-recording-player-data",
+        approvedActions: [],
+      }),
     ).resolves.toContain("Plan mode blocked");
 
     const searchResult = await planRegistry["tool-search"].run({
@@ -1137,6 +1189,37 @@ describe("buildUserContentWithAttachments", () => {
         "bash",
         { command: "rg button; node -e '1'" },
         bashTool,
+      ),
+    ).toBe(false);
+
+    const callAgent = actionEntry({ readOnly: false });
+    expect(
+      isPlanModeToolCallAllowed(
+        "call-agent",
+        {
+          agent: "clips",
+          action: "get-recording-player-data",
+          input: { recordingId: "clip-1" },
+        },
+        callAgent,
+      ),
+    ).toBe(true);
+    expect(
+      isPlanModeToolCallAllowed(
+        "call-agent",
+        { agent: "clips", message: "Summarize this recording" },
+        callAgent,
+      ),
+    ).toBe(false);
+    expect(
+      isPlanModeToolCallAllowed(
+        "call-agent",
+        {
+          agent: "clips",
+          action: "get-recording-player-data",
+          approvedActions: [],
+        },
+        callAgent,
       ),
     ).toBe(false);
   });

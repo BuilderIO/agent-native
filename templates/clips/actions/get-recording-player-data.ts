@@ -110,6 +110,7 @@ export default defineAction({
     }),
   },
   http: { method: "GET" },
+  publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   run: async (args, ctx) => {
     const access = await resolveAccess("recording", args.recordingId);
     if (!access) {

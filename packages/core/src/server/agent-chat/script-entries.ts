@@ -803,6 +803,7 @@ export async function createCallAgentScriptEntry(
     entries["describe-workspace-apps"] = {
       tool: mod.tool,
       run: (args, context) => mod.run(args, context, selfAppId),
+      readOnly: true,
     };
   } catch {
     // A missing built-in leaves the rest of the toolset usable.

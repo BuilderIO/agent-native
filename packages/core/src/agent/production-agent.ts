@@ -666,7 +666,7 @@ export const PLAN_MODE_SYSTEM_PROMPT = `## Plan Mode Active
 You are in Plan mode. This turn is for research, clarification, and a proposed approach only.
 
 Hard rules:
-- Use only read-only tools. Do not edit files, write resources, run mutating bash commands, mutate SQL rows, navigate the UI, send notifications, create jobs, create tools, call external agents, or change external systems.
+- Use only read-only tools. Do not edit files, write resources, run mutating bash commands, mutate SQL rows, navigate the UI, send notifications, create jobs, create tools, call external agents with natural-language tasks, or change external systems. You may inspect another workspace app only through an exact authenticated read-only action.
 - If a needed detail is unclear, ask a concise clarifying question before proposing a plan.
 - When ready, present a concrete plan with the files/tools you expect to touch, the intended changes, validation steps, and notable risks.
 - Do not treat approval as implicit while Plan mode is still active. Tell the user to switch to Act mode with the mode selector or /act before implementation.`;
@@ -773,6 +773,10 @@ export function isPlanModeToolCallAllowed(
     return isPlanModeReadOnlyBashCall(input);
   }
 
+  if (name === "call-agent") {
+    return isPlanModeDirectAgentRead(input);
+  }
+
   const allowedActions = PLAN_MODE_ALLOWED_ACTIONS[name];
   if (allowedActions) {
     return allowedActions.includes(getToolAction(name, input));
@@ -786,6 +790,62 @@ function isPlanModeReadOnlyBashCall(input: unknown): boolean {
   const command = (input as Record<string, unknown>).command;
   if (typeof command !== "string") return false;
   return isReadOnlyShellCommand(command);
+}
+
+function isPlanModeDirectAgentRead(input: unknown): boolean {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return false;
+  const args = input as Record<string, unknown>;
+  const agent = typeof args.agent === "string" ? args.agent.trim() : "";
+  const action = typeof args.action === "string" ? args.action.trim() : "";
+  const message = typeof args.message === "string" ? args.message.trim() : "";
+  const taskId = typeof args.taskId === "string" ? args.taskId.trim() : "";
+
+  return (
+    agent.length > 0 &&
+    action.length > 0 &&
+    message.length === 0 &&
+    taskId.length === 0 &&
+    args.approvedActions == null
+  );
+}
+
+function restrictCallAgentToDirectReads(
+  parameters: ActionTool["parameters"] | undefined,
+): ActionTool["parameters"] | undefined {
+  if (!parameters) return parameters;
+  const properties = parameters.properties;
+  return {
+    ...parameters,
+    properties: {
+      ...(properties.agent ? { agent: properties.agent } : {}),
+      ...(properties.action ? { action: properties.action } : {}),
+      ...(properties.input ? { input: properties.input } : {}),
+    },
+    required: ["agent", "action"],
+  };
+}
+
+function createPlanModeCallAgentAction(entry: ActionEntry): ActionEntry {
+  return {
+    ...entry,
+    readOnly: true,
+    tool: {
+      ...entry.tool,
+      description:
+        `${entry.tool.description}\n\nPlan mode: only exact authenticated read-only actions may be called. ` +
+        "Pass agent, action, and input; natural-language messages, task polling, and approved side effects are blocked.",
+      parameters: restrictCallAgentToDirectReads(entry.tool.parameters),
+    },
+    run: async (args, context) => {
+      if (!isPlanModeDirectAgentRead(args)) {
+        return planModeBlockedMessage(
+          "call-agent",
+          "only exact authenticated read-only actions are available",
+        );
+      }
+      return entry.run(args, context);
+    },
+  };
 }
 
 function createPlanModeGuardedAction(
@@ -907,6 +967,11 @@ export function createPlanModeActionRegistry(
 
     if (name === "bash") {
       filtered[name] = createPlanModeBashAction(entry);
+      continue;
+    }
+
+    if (name === "call-agent") {
+      filtered[name] = createPlanModeCallAgentAction(entry);
       continue;
     }
 
