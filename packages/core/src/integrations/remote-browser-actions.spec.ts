@@ -137,7 +137,7 @@ describe("remote browser agent actions", () => {
     expect(mocks.createApproval).not.toHaveBeenCalled();
   });
 
-  it("binds an approved attach to the relay before enqueueing", async () => {
+  it("binds a human-approved attach to the relay before enqueueing", async () => {
     mocks.createApproval.mockResolvedValue({ id: "approval-1" });
     mocks.decideApproval.mockResolvedValue({ id: "approval-1" });
     const actions = await loadActions();
@@ -152,7 +152,12 @@ describe("remote browser agent actions", () => {
 
     await control.run(
       { action: "attach", sessionHandle: "bsn_example" },
-      { caller: "tool", threadId: "thread-1", runId: "run-1" },
+      {
+        caller: "tool",
+        threadId: "thread-1",
+        runId: "run-1",
+        approvedToolCallKey: "control-remote-browser:approved",
+      },
     );
 
     expect(mocks.createApproval).toHaveBeenCalledOnce();
@@ -172,5 +177,20 @@ describe("remote browser agent actions", () => {
       },
       approval: { id: "approval-1" },
     });
+  });
+
+  it("rejects control that did not pass through the human approval gate", async () => {
+    const actions = await loadActions();
+
+    await expect(
+      actions["control-remote-browser"]!.run(
+        { action: "attach", sessionHandle: "bsn_example" },
+        { caller: "tool", threadId: "thread-1", runId: "run-1" },
+      ),
+    ).rejects.toThrow("Browser control requires human approval");
+
+    expect(mocks.createApproval).not.toHaveBeenCalled();
+    expect(mocks.decideApproval).not.toHaveBeenCalled();
+    expect(mocks.enqueue).not.toHaveBeenCalled();
   });
 });

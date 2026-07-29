@@ -5350,6 +5350,7 @@ export async function runAgentLoop(opts: {
           // Audit attribution: the action name + the agent thread/turn that
           // triggered this call, so a mutation can be traced to its run.
           actionName: toolCall.name,
+          ...(wasApproved ? { approvedToolCallKey: approvalKey } : {}),
           ...(opts.threadId ? { threadId: opts.threadId } : {}),
           ...(opts.runId ? { runId: opts.runId } : {}),
           ...(opts.turnId ? { turnId: opts.turnId } : {}),

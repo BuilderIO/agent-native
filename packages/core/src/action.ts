@@ -121,6 +121,12 @@ export interface ActionRunContext {
   /** Concrete execution id for this agent-loop attempt. */
   runId?: string;
   turnId?: string;
+  /**
+   * Stable key for this exact tool call when the agent loop accepted a human
+   * approval grant. This is trusted loop metadata; action input can never set
+   * it.
+   */
+  approvedToolCallKey?: string;
 }
 
 /**

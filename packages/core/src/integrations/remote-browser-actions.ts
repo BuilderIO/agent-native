@@ -365,9 +365,13 @@ async function bindApprovedControl(input: {
   orgId: string | null;
   deviceId: string;
   envelope: ComputerCommandEnvelope;
+  approvedToolCallKey?: string;
 }): Promise<ComputerCommandEnvelope> {
   if (!computerOperationRequiresApproval(input.envelope.operationClass)) {
     return input.envelope;
+  }
+  if (!input.approvedToolCallKey) {
+    throw new Error("Browser control requires human approval");
   }
   const pending = await createComputerApprovalRequest(input);
   const approved = await decideComputerApproval({
@@ -423,6 +427,7 @@ async function enqueueBrowserAction(input: {
     orgId,
     deviceId: device.id,
     envelope,
+    approvedToolCallKey: input.context?.approvedToolCallKey,
   });
   const command = await enqueueComputerCommand({
     deviceId: device.id,

@@ -152,8 +152,19 @@ async function parseRelayCommand(value: unknown): Promise<RelayCommand> {
   };
 }
 
-async function attachCommand(sessionHandle: unknown) {
+export async function attachCommand(sessionHandle: unknown) {
   const session = await requirePageSession(sessionHandle);
+  const tab = await chrome.tabs.get(session.tabId);
+  if (!tab.active || !tab.url) {
+    throw new Error(
+      "The shared browser session is no longer the active Chrome tab.",
+    );
+  }
+  if (!(await hasCaptureGrant(session.tabId, tab.url))) {
+    throw new Error(
+      "Page access expired. Use the extension panel to share this page again.",
+    );
+  }
   return {
     type: "attach" as const,
     tabId: session.tabId,
