@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.131.1
+
+### Patch Changes
+
+- 49e7191: Export `mutateOrgSetting` from `@agent-native/core/settings` alongside the other org-scoped helpers, so app code can perform atomic read/merge/write updates on org settings instead of racing separate `getOrgSetting`/`putOrgSetting` calls.
+
 ## 0.131.0
 
 ### Minor Changes
