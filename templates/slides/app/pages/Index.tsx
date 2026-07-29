@@ -553,10 +553,48 @@ export default function Index() {
     [updateDeck],
   );
 
+  const applyWorkspaceDefaultDeck = useCallback(
+    async (deck: Deck) => {
+      try {
+        // A private deck is unreadable to everyone else, so share it through
+        // the audited sharing action first — it owns org binding and collab
+        // cache invalidation, which a direct visibility write here would skip.
+        if (deck.visibility === "private") {
+          await callAction("set-resource-visibility", {
+            resourceType: "deck",
+            resourceId: deck.id,
+            visibility: "org",
+          });
+          await reloadDecks();
+        }
+        await callAction("set-workspace-defaults", {
+          referenceDeckId: deck.id,
+        });
+        await refetchWorkspaceDefaults();
+        toast.success(t("home.workspaceDefaultSet"));
+      } catch (error) {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : t("home.workspaceDefaultFailed"),
+        );
+      }
+    },
+    [reloadDecks, refetchWorkspaceDefaults, t],
+  );
+
   const handleSetWorkspaceDefaultDeck = useCallback(
     async (id: string, isDefault: boolean) => {
       if (isDefault) {
-        setWorkspaceDefaultCandidate(decks.find((d) => d.id === id) ?? null);
+        const deck = decks.find((d) => d.id === id);
+        if (!deck) return;
+        // Setting the default is one click to undo. Publishing a private deck
+        // to the whole workspace is not, so that is the only part we confirm.
+        if (deck.visibility === "private") {
+          setWorkspaceDefaultCandidate(deck);
+          return;
+        }
+        await applyWorkspaceDefaultDeck(deck);
         return;
       }
       try {
@@ -571,38 +609,17 @@ export default function Index() {
         );
       }
     },
-    [decks, refetchWorkspaceDefaults, t],
+    [applyWorkspaceDefaultDeck, decks, refetchWorkspaceDefaults, t],
   );
 
-  const confirmWorkspaceDefaultDeck = useCallback(async () => {
-    // Capture, but do not clear: AlertDialogAction closes the dialog itself.
-    // Unmounting it here too would pre-empt Radix's close sequence and strand
+  const confirmWorkspaceDefaultDeck = useCallback(() => {
+    // Read but do not clear: AlertDialogAction closes the dialog itself, and
+    // unmounting it here too would pre-empt Radix's close sequence and strand
     // `pointer-events: none` on <body>. `onOpenChange` clears the candidate.
     const deck = workspaceDefaultCandidate;
     if (!deck) return;
-    try {
-      // A private deck is unreadable to everyone else, so share it through the
-      // audited sharing action first — it owns org binding and collab cache
-      // invalidation, which a direct visibility write here would skip.
-      if (deck.visibility === "private") {
-        await callAction("set-resource-visibility", {
-          resourceType: "deck",
-          resourceId: deck.id,
-          visibility: "org",
-        });
-        await reloadDecks();
-      }
-      await callAction("set-workspace-defaults", { referenceDeckId: deck.id });
-      await refetchWorkspaceDefaults();
-      toast.success(t("home.workspaceDefaultSet"));
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : t("home.workspaceDefaultFailed"),
-      );
-    }
-  }, [workspaceDefaultCandidate, reloadDecks, refetchWorkspaceDefaults, t]);
+    void applyWorkspaceDefaultDeck(deck);
+  }, [workspaceDefaultCandidate, applyWorkspaceDefaultDeck]);
 
   const handleDuplicate = useCallback(
     async (id: string) => {
@@ -781,13 +798,9 @@ export default function Index() {
               {t("home.workspaceDefaultConfirmTitle")}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {workspaceDefaultCandidate?.visibility === "private"
-                ? t("home.workspaceDefaultDeckShareBody", {
-                    title: workspaceDefaultCandidate.title,
-                  })
-                : t("home.workspaceDefaultDeckBody", {
-                    title: workspaceDefaultCandidate?.title ?? "",
-                  })}
+              {t("home.workspaceDefaultDeckShareBody", {
+                title: workspaceDefaultCandidate?.title ?? "",
+              })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

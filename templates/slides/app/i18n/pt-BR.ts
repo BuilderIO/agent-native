@@ -623,12 +623,8 @@ const messages = {
     workspaceDefaultFailed:
       "Não foi possível atualizar o padrão do espaço de trabalho",
     workspaceDefaultConfirmTitle: "Definir como padrão do espaço de trabalho?",
-    workspaceDefaultDeckBody:
-      'Todos os novos decks deste espaço de trabalho usarão "{{title}}" como referência de estilo. Os membros podem selecionar outro deck de referência, ou nenhum, ao criar um deck.',
     workspaceDefaultDeckShareBody:
       '"{{title}}" é privado. Defini-lo como padrão do espaço de trabalho o compartilha com todos os membros deste espaço de trabalho, e os novos decks o usarão como referência de estilo. Os membros podem selecionar outro deck de referência ao criar um deck.',
-    workspaceDefaultSystemBody:
-      'Todos os novos decks deste espaço de trabalho usarão o sistema de design "{{title}}". Os membros que definiram o próprio padrão o mantêm, e qualquer pessoa pode selecionar outro sistema de design ao criar um deck.',
     workspaceDefaultSystemShareBody:
       '"{{title}}" é privado. Defini-lo como padrão do espaço de trabalho o compartilha com todos os membros deste espaço de trabalho, e os novos decks o usarão. Os membros que definiram o próprio padrão o mantêm.',
     workspaceDefaultConfirmAction: "Definir como padrão",

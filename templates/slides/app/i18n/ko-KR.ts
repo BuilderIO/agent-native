@@ -599,12 +599,8 @@ const messages = {
     workspaceDefaultCleared: "워크스페이스 기본값을 해제했습니다",
     workspaceDefaultFailed: "워크스페이스 기본값을 업데이트하지 못했습니다",
     workspaceDefaultConfirmTitle: "워크스페이스 기본값으로 설정할까요?",
-    workspaceDefaultDeckBody:
-      '이 워크스페이스에서 만드는 모든 새 덱이 "{{title}}"을(를) 스타일 참고로 사용합니다. 멤버는 덱을 만들 때 다른 참고 덱을 선택하거나 참고 덱을 사용하지 않을 수 있습니다.',
     workspaceDefaultDeckShareBody:
       '"{{title}}"은(는) 비공개입니다. 워크스페이스 기본값으로 설정하면 이 워크스페이스의 모든 멤버와 공유되며, 새 덱이 이를 스타일 참고로 사용합니다. 멤버는 덱을 만들 때 다른 참고 덱을 선택할 수 있습니다.',
-    workspaceDefaultSystemBody:
-      '이 워크스페이스에서 만드는 모든 새 덱이 "{{title}}" 디자인 시스템을 사용합니다. 자신의 기본값을 설정한 멤버는 그 기본값을 그대로 유지하며, 누구나 덱을 만들 때 다른 디자인 시스템을 선택할 수 있습니다.',
     workspaceDefaultSystemShareBody:
       '"{{title}}"은(는) 비공개입니다. 워크스페이스 기본값으로 설정하면 이 워크스페이스의 모든 멤버와 공유되며, 새 덱이 이를 사용합니다. 자신의 기본값을 설정한 멤버는 그 기본값을 그대로 유지합니다.',
     workspaceDefaultConfirmAction: "기본값으로 설정",

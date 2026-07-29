@@ -60,27 +60,9 @@ export default function DesignSystems() {
     }
   };
 
-  const handleSetWorkspaceDefault = async (id: string, isDefault: boolean) => {
-    if (isDefault) {
-      setWorkspaceDefaultCandidate(designSystems.find((d) => d.id === id));
-      return;
-    }
-    try {
-      await callAction("set-workspace-defaults", { designSystemId: null });
-      await refetchWorkspaceDefaults();
-      toast.success(t("home.workspaceDefaultCleared"));
-    } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : t("home.workspaceDefaultFailed"),
-      );
-    }
-  };
-
-  const confirmWorkspaceDefault = async () => {
-    // AlertDialogAction closes the dialog; clearing it here as well would
-    // pre-empt Radix's cleanup and leave <body> at `pointer-events: none`.
-    const ds = workspaceDefaultCandidate;
-    if (!ds) return;
+  const applyWorkspaceDefault = async (
+    ds: (typeof designSystems)[number],
+  ) => {
     try {
       // Private means unreadable to teammates, which would make the workspace
       // default silently do nothing for them. Share through the audited action.
@@ -100,6 +82,39 @@ export default function DesignSystems() {
         err instanceof Error ? err.message : t("home.workspaceDefaultFailed"),
       );
     }
+  };
+
+  const handleSetWorkspaceDefault = async (id: string, isDefault: boolean) => {
+    if (isDefault) {
+      const ds = designSystems.find((d) => d.id === id);
+      if (!ds) return;
+      // Only publishing a private design system to the whole workspace is
+      // worth a confirmation; the default itself is one click to undo.
+      if (ds.visibility === "private") {
+        setWorkspaceDefaultCandidate(ds);
+        return;
+      }
+      await applyWorkspaceDefault(ds);
+      return;
+    }
+    try {
+      await callAction("set-workspace-defaults", { designSystemId: null });
+      await refetchWorkspaceDefaults();
+      toast.success(t("home.workspaceDefaultCleared"));
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : t("home.workspaceDefaultFailed"),
+      );
+    }
+  };
+
+  const confirmWorkspaceDefault = () => {
+    // Read but do not clear: AlertDialogAction closes the dialog, and clearing
+    // here too would pre-empt Radix's cleanup and leave <body> at
+    // `pointer-events: none`. `onOpenChange` clears the candidate.
+    const ds = workspaceDefaultCandidate;
+    if (!ds) return;
+    void applyWorkspaceDefault(ds);
   };
 
   const handleComplete = () => {
@@ -261,13 +276,9 @@ export default function DesignSystems() {
               {t("home.workspaceDefaultConfirmTitle")}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {workspaceDefaultCandidate?.visibility === "private"
-                ? t("home.workspaceDefaultSystemShareBody", {
-                    title: workspaceDefaultCandidate.title,
-                  })
-                : t("home.workspaceDefaultSystemBody", {
-                    title: workspaceDefaultCandidate?.title ?? "",
-                  })}
+              {t("home.workspaceDefaultSystemShareBody", {
+                title: workspaceDefaultCandidate?.title ?? "",
+              })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

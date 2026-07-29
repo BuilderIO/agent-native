@@ -622,12 +622,8 @@ const messages = {
     workspaceDefaultFailed:
       "Arbeitsbereichs-Standard konnte nicht aktualisiert werden",
     workspaceDefaultConfirmTitle: "Als Arbeitsbereichs-Standard festlegen?",
-    workspaceDefaultDeckBody:
-      "Jedes neue Deck in diesem Arbeitsbereich verwendet „{{title}}“ als Stilreferenz. Mitglieder können beim Erstellen eines Decks ein anderes Referenz-Deck oder keines auswählen.",
     workspaceDefaultDeckShareBody:
       "„{{title}}“ ist privat. Wird es als Arbeitsbereichs-Standard festgelegt, wird es mit allen Mitgliedern dieses Arbeitsbereichs geteilt, und neue Decks verwenden es als Stilreferenz. Mitglieder können beim Erstellen eines Decks ein anderes Referenz-Deck auswählen.",
-    workspaceDefaultSystemBody:
-      "Jedes neue Deck in diesem Arbeitsbereich verwendet das Designsystem „{{title}}“. Mitglieder, die einen eigenen Standard festgelegt haben, behalten diesen, und alle können beim Erstellen eines Decks ein anderes Designsystem auswählen.",
     workspaceDefaultSystemShareBody:
       "„{{title}}“ ist privat. Wird es als Arbeitsbereichs-Standard festgelegt, wird es mit allen Mitgliedern dieses Arbeitsbereichs geteilt, und neue Decks verwenden es. Mitglieder, die einen eigenen Standard festgelegt haben, behalten diesen.",
     workspaceDefaultConfirmAction: "Als Standard festlegen",

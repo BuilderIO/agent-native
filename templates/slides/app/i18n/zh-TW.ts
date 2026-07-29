@@ -586,12 +586,8 @@ const messages = {
     workspaceDefaultCleared: "已清除工作區預設",
     workspaceDefaultFailed: "無法更新工作區預設設定",
     workspaceDefaultConfirmTitle: "設為工作區預設？",
-    workspaceDefaultDeckBody:
-      "此工作區中新建的每份幻燈片都將以“{{title}}”作為樣式參考。成員在新建幻燈片時可以選擇其他參考幻燈片，也可以不使用參考。",
     workspaceDefaultDeckShareBody:
       "“{{title}}”目前為私密。將其設為工作區預設後，它會與此工作區的所有成員共用，新建的幻燈片將以它作為樣式參考。成員在新建幻燈片時可以選擇其他參考幻燈片。",
-    workspaceDefaultSystemBody:
-      "此工作區中新建的每份幻燈片都將使用“{{title}}”設計系統。已設定個人預設設計系統的成員將保留其個人預設設定，任何人在新建幻燈片時都可以選擇其他設計系統。",
     workspaceDefaultSystemShareBody:
       "“{{title}}”目前為私密。將其設為工作區預設後，它會與此工作區的所有成員共用，新建的幻燈片將使用它。已設定個人預設設計系統的成員將保留其個人預設設定。",
     workspaceDefaultConfirmAction: "設為預設",

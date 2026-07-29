@@ -610,12 +610,8 @@ const messages = {
     workspaceDefaultCleared: "Workspace default cleared",
     workspaceDefaultFailed: "Couldn't update the workspace default",
     workspaceDefaultConfirmTitle: "Set as workspace default?",
-    workspaceDefaultDeckBody:
-      'Every new deck in this workspace will use "{{title}}" as its style reference. Members can select a different reference deck, or none, when they create a deck.',
     workspaceDefaultDeckShareBody:
       '"{{title}}" is private. Setting it as the workspace default shares it with every member of this workspace, and new decks will use it as their style reference. Members can select a different reference deck when they create a deck.',
-    workspaceDefaultSystemBody:
-      'Every new deck in this workspace will use the "{{title}}" design system. Members who have set their own default keep it, and anyone can select a different design system when they create a deck.',
     workspaceDefaultSystemShareBody:
       '"{{title}}" is private. Setting it as the workspace default shares it with every member of this workspace, and new decks will use it. Members who have set their own default keep it.',
     workspaceDefaultConfirmAction: "Set as default",
