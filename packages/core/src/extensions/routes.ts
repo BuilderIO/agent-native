@@ -63,7 +63,14 @@ import {
   isBlockedExtensionUrlWithDns,
 } from "./url-safety.js";
 
-export function createExtensionsHandler() {
+export interface ExtensionsHandlerOptions {
+  /** Allow authenticated callers to create extensions through the collection route. */
+  extensionTools?: boolean;
+}
+
+export function createExtensionsHandler(
+  options: ExtensionsHandlerOptions = {},
+) {
   return defineEventHandler(async (event: H3Event) => {
     const method = getMethod(event);
     const pathname = (event.url?.pathname || "")
@@ -95,6 +102,14 @@ export function createExtensionsHandler() {
 
     try {
       return await runWithRequestContext({ userEmail, orgId }, async () => {
+        if (
+          method === "POST" &&
+          parts.length === 0 &&
+          options.extensionTools !== true
+        ) {
+          setResponseStatus(event, 403);
+          return { error: "Extension creation is disabled for this app" };
+        }
         await ensureExtensionsTables();
         return dispatch(event, method, parts, userEmail);
       });

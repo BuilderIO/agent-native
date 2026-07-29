@@ -1191,6 +1191,13 @@ function redactValues(text: string, values: Array<string | null | undefined>) {
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
 export interface CoreRoutesPluginOptions {
+  /**
+   * Allow authenticated extension creation through
+   * POST /_agent-native/extensions (and the legacy /tools alias).
+   * Existing extension runtime, read, edit, and deep-link routes stay mounted
+   * when this is false. Default: false.
+   */
+  extensionTools?: boolean;
   /** Route path for the SSE endpoint. Default: "/_agent-native/events" */
   sseRoute?: string;
   /** Disable the SSE endpoint entirely. */
@@ -3841,7 +3848,9 @@ export function createCoreRoutesPlugin(
           await import("../extensions/routes.js");
         ensureExtensionsTables().catch(() => {});
         registerExtensionsShareable();
-        const extensionsHandler = createExtensionsHandler();
+        const extensionsHandler = createExtensionsHandler({
+          extensionTools: options.extensionTools,
+        });
         getH3App(nitroApp).use(`${P}/extensions`, extensionsHandler);
         // Legacy alias — the previous public API was /_agent-native/tools/*.
         // Mounted in addition to /extensions/* so any deployed iframes mid-flight
