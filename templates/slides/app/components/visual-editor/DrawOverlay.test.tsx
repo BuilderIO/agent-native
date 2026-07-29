@@ -23,24 +23,10 @@ afterEach(() => {
 });
 
 describe("DrawOverlay", () => {
-  it("exits annotation mode when Escape is pressed anywhere", () => {
+  it("leaves Escape to the parent canvas arbiter", () => {
     const onClose = vi.fn();
     render(<DrawOverlay visible onClose={onClose} onSend={vi.fn()} />);
 
-    fireEvent.keyDown(window, { key: "Escape" });
-
-    expect(onClose).toHaveBeenCalledOnce();
-  });
-
-  it("removes the Escape listener when hidden", () => {
-    const onClose = vi.fn();
-    const { rerender } = render(
-      <DrawOverlay visible onClose={onClose} onSend={vi.fn()} />,
-    );
-
-    rerender(
-      <DrawOverlay visible={false} onClose={onClose} onSend={vi.fn()} />,
-    );
     fireEvent.keyDown(window, { key: "Escape" });
 
     expect(onClose).not.toHaveBeenCalled();

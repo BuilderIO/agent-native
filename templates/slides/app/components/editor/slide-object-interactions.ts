@@ -46,8 +46,9 @@ export function findSlideObjectById(
   return (
     Array.from(
       root.querySelectorAll<HTMLElement>("[data-slide-object-id]"),
-    ).find((element) => element.getAttribute("data-slide-object-id") === objectId) ??
-    null
+    ).find(
+      (element) => element.getAttribute("data-slide-object-id") === objectId,
+    ) ?? null
   );
 }
 
@@ -74,13 +75,9 @@ export function clientPointToSlideCoordinates(
   slideHeight: number,
 ): { x: number; y: number } {
   const x =
-    rect.width > 0
-      ? ((clientX - rect.left) / rect.width) * slideWidth
-      : 0;
+    rect.width > 0 ? ((clientX - rect.left) / rect.width) * slideWidth : 0;
   const y =
-    rect.height > 0
-      ? ((clientY - rect.top) / rect.height) * slideHeight
-      : 0;
+    rect.height > 0 ? ((clientY - rect.top) / rect.height) * slideHeight : 0;
   return {
     x: Math.round(Math.min(slideWidth, Math.max(0, x))),
     y: Math.round(Math.min(slideHeight, Math.max(0, y))),

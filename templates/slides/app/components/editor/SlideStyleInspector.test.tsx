@@ -1,4 +1,7 @@
 // @vitest-environment happy-dom
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -9,9 +12,86 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 
 vi.mock("@agent-native/toolkit/design-tweaks", () => ({
   VisualColorPicker: ({ label }: { label: string }) => (
-    <button type="button" aria-label={label}>
-      {label}
-    </button>
+    <span data-color-picker={label} />
+  ),
+  VisualControlRow: ({
+    label,
+    children,
+  }: {
+    label: React.ReactNode;
+    children: React.ReactNode;
+  }) => (
+    <div>
+      <span>{label}</span>
+      {children}
+    </div>
+  ),
+  VisualInspectorPanel: ({
+    title,
+    subtitle,
+    children,
+    headerAction,
+    className,
+  }: {
+    title: React.ReactNode;
+    subtitle: React.ReactNode;
+    children: React.ReactNode;
+    headerAction: React.ReactNode;
+    className?: string;
+  }) => (
+    <aside className={className}>
+      <h2>{title}</h2>
+      <p>{subtitle}</p>
+      {headerAction}
+      {children}
+    </aside>
+  ),
+  VisualInspectorSection: ({
+    title,
+    children,
+  }: {
+    title: React.ReactNode;
+    children: React.ReactNode;
+  }) => (
+    <section>
+      <h3>{title}</h3>
+      {children}
+    </section>
+  ),
+  VisualScrubInput: ({
+    label,
+    value,
+    onChange,
+  }: {
+    label: string;
+    value: number;
+    onChange: (value: number) => void;
+  }) => (
+    <input
+      aria-label={label}
+      type="number"
+      value={value}
+      onChange={(event) => onChange(Number(event.currentTarget.value))}
+    />
+  ),
+  VisualSegmentedControl: ({
+    options,
+    onChange,
+  }: {
+    options: { label: string; value: string }[];
+    onChange: (value: string) => void;
+  }) => (
+    <div>
+      {options.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          onClick={() => onChange(option.value)}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
   ),
 }));
 
@@ -60,72 +140,60 @@ function renderInspector(onChange = vi.fn()) {
   return onChange;
 }
 
-function sectionSummary(title: string) {
-  const summary = Array.from(document.querySelectorAll("summary")).find(
-    (element) => element.textContent?.includes(title),
-  );
-  if (!summary) throw new Error(`Missing ${title} section`);
-  return summary;
-}
-
 describe("SlideStyleInspector", () => {
   afterEach(cleanup);
 
-  it("uses filled, borderless local numeric fields", () => {
-    renderInspector();
+  it("scopes filled, borderless shared scrub inputs to the Slides inspector", () => {
+    const css = readFileSync(resolve(process.cwd(), "app/global.css"), "utf8");
 
-    for (const field of document.querySelectorAll<HTMLInputElement>(
-      "[data-inspector-field]",
-    )) {
-      expect(field.getAttribute("class")).toContain("border-0");
-      expect(field.getAttribute("class")).toContain("bg-transparent");
-      expect(field.parentElement?.getAttribute("class")).toContain(
-        "bg-muted/70",
-      );
-    }
+    expect(css).toContain(".slide-style-inspector input");
+    expect(css).toContain("border: 0;");
+    expect(css).toContain(
+      "background: var(--slides-inspector-control-background)",
+    );
   });
 
-  it("keeps each requested inspector section available through disclosure", () => {
+  it("renders the requested shared inspector sections", () => {
     renderInspector();
 
     [
-      "Position",
-      "Layout & dimensions",
-      "Appearance",
-      "Fill",
-      "Stroke",
-      "Typography",
-      "Spacing",
-    ].forEach((section) => expect(sectionSummary(section)).toBeTruthy());
-
-    fireEvent.click(sectionSummary("Stroke"));
-    expect(screen.getByRole("spinbutton", { name: "Weight" })).toBeTruthy();
-
-    fireEvent.click(sectionSummary("Spacing"));
-    expect(screen.getByRole("spinbutton", { name: "Horizontal" })).toBeTruthy();
+      "styleInspector.position",
+      "styleInspector.layoutDimensions",
+      "styleInspector.appearance",
+      "styleInspector.fill",
+      "styleInspector.stroke",
+      "styleInspector.typography",
+      "styleInspector.spacing",
+    ].forEach((section) => expect(screen.getByText(section)).toBeTruthy());
   });
 
-  it("emits pixel alignment and dimension patches", () => {
+  it("emits pixel alignment, dimensions, and rotation patches", () => {
     const onChange = renderInspector();
 
-    fireEvent.click(screen.getByRole("button", { name: "Align center" }));
-    expect(onChange).toHaveBeenLastCalledWith({
-      left: "400px",
-    });
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "styleInspector.center" })[0],
+    );
+    expect(onChange).toHaveBeenLastCalledWith({ left: "400px" });
 
-    fireEvent.click(screen.getByRole("button", { name: "Align bottom" }));
-    expect(onChange).toHaveBeenLastCalledWith({
-      top: "495px",
-    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "styleInspector.bottom" }),
+    );
+    expect(onChange).toHaveBeenLastCalledWith({ top: "495px" });
 
-    const width = screen.getByRole("spinbutton", { name: "W" });
-    fireEvent.change(width, { target: { value: "420" } });
-    fireEvent.blur(width);
+    fireEvent.change(
+      screen.getByRole("spinbutton", { name: "styleInspector.width" }),
+      {
+        target: { value: "420" },
+      },
+    );
     expect(onChange).toHaveBeenLastCalledWith({ width: "420px" });
 
-    const rotation = screen.getByRole("spinbutton", { name: "Rotation" });
-    fireEvent.change(rotation, { target: { value: "30" } });
-    fireEvent.blur(rotation);
+    fireEvent.change(
+      screen.getByRole("spinbutton", { name: "styleInspector.rotation" }),
+      {
+        target: { value: "30" },
+      },
+    );
     expect(onChange).toHaveBeenLastCalledWith({ transform: "rotate(30deg)" });
   });
 });

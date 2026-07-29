@@ -18,7 +18,7 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 
 vi.mock("../server/db/index.js", () => ({}));
 
-import { assertServerPptxExportable, fetchImageAsBase64 } from "./export-pptx";
+import { fetchImageAsBase64, parseSlideHtml } from "./export-pptx";
 
 describe("fetchImageAsBase64", () => {
   beforeEach(() => {
@@ -65,11 +65,12 @@ describe("fetchImageAsBase64", () => {
   });
 });
 
-describe("assertServerPptxExportable", () => {
+describe("parseSlideHtml", () => {
   it("allows normal-flow slide HTML", () => {
     expect(() =>
-      assertServerPptxExportable(
+      parseSlideHtml(
         '<div class="fmd-slide"><h1>Title</h1></div>',
+        undefined,
         1,
       ),
     ).not.toThrow();
@@ -77,13 +78,14 @@ describe("assertServerPptxExportable", () => {
 
   it("fails loudly instead of reflowing freeform objects", () => {
     expect(() =>
-      assertServerPptxExportable(
+      parseSlideHtml(
         `<div class="fmd-slide">
           <div
             data-slide-object-id="freeform-1"
             style="position: absolute; left: 120px; top: 80px"
           >Text</div>
         </div>`,
+        undefined,
         3,
       ),
     ).toThrowError(

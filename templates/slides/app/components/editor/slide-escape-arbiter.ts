@@ -14,6 +14,7 @@ export function decideSlideEscape({
   multiSelection,
   singleSelection,
   targetOwnsEscape,
+  overlayOwnsEscape,
 }: {
   editing: boolean;
   activeGesture: boolean;
@@ -21,8 +22,9 @@ export function decideSlideEscape({
   multiSelection: boolean;
   singleSelection: boolean;
   targetOwnsEscape: boolean;
+  overlayOwnsEscape: boolean;
 }): SlideEscapeAction {
-  if (targetOwnsEscape) return "none";
+  if (targetOwnsEscape || overlayOwnsEscape) return "none";
   if (editing) return "edit";
   if (activeGesture) return "gesture";
   if (activeMode) return "mode";

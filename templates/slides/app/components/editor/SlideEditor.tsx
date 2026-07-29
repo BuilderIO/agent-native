@@ -71,6 +71,7 @@ import { enterSelectionMode } from "@/root";
 import type { DesignSystemData } from "../../../shared/api";
 import { BlockBubbleMenu } from "./BlockBubbleMenu";
 import ImageOverlay from "./ImageOverlay";
+import { decideSlideEscape } from "./slide-escape-arbiter";
 import {
   clientPointToSlideCoordinates,
   cloneSlideObject,
@@ -81,7 +82,6 @@ import {
   type ResizeHandle,
   type SlideObjectGeometry,
 } from "./slide-object-interactions";
-import { decideSlideEscape } from "./slide-escape-arbiter";
 import { getPassiveSlidePresenceUsers } from "./slide-presence";
 import {
   SlideStyleInspector,
@@ -1233,7 +1233,7 @@ export default function SlideEditor({
           ? "pin"
           : textBoxMode
             ? "text"
-          : "select",
+            : "select",
     ): SlidesSelectionState => ({
       deckId,
       slideId: slide.id,
@@ -1279,17 +1279,17 @@ export default function SlideEditor({
                 ? "box-selected"
                 : "single"),
           [
-          {
-            selector,
-            kind: snapshot.isImage ? "image" : "element",
-            tagName: snapshot.tagName,
-            text: snapshot.textPreview,
-            imageSrc:
-              element instanceof HTMLImageElement
-                ? (element.getAttribute("src") ?? undefined)
-                : undefined,
-            style: snapshot,
-          },
+            {
+              selector,
+              kind: snapshot.isImage ? "image" : "element",
+              tagName: snapshot.tagName,
+              text: snapshot.textPreview,
+              imageSrc:
+                element instanceof HTMLImageElement
+                  ? (element.getAttribute("src") ?? undefined)
+                  : undefined,
+              style: snapshot,
+            },
           ],
         ),
       );
@@ -1633,6 +1633,94 @@ export default function SlideEditor({
     applyMultiSelection(new Set());
   }, [applyMultiSelection, multiSelection.size]);
 
+  // One Escape owner for the HTML editor. Radix dialogs/popovers and native
+  // form controls retain their own Escape behavior before we arbitrate canvas
+  // state. Gesture cancellation is deliberately ahead of selection clearing.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      const target = e.target instanceof Element ? e.target : null;
+      const editing = editingElRef.current;
+      const overlayOwnsEscape = Boolean(
+        document.querySelector(
+          '[role="dialog"]:not([data-state="closed"]), [role="menu"]:not([data-state="closed"]), [role="listbox"]:not([data-state="closed"]), [data-radix-popper-content-wrapper]:not([data-state="closed"])',
+        ),
+      );
+      const targetOwnsEscape = Boolean(
+        target?.closest(
+          '[role="dialog"], [data-radix-popper-content-wrapper], [data-radix-menu-content]',
+        ) ||
+        ((target instanceof HTMLInputElement ||
+          target instanceof HTMLTextAreaElement ||
+          target instanceof HTMLSelectElement ||
+          (target instanceof HTMLElement && target.isContentEditable)) &&
+          !editing?.contains(target)),
+      );
+      const action = decideSlideEscape({
+        editing: Boolean(editing),
+        activeGesture: activeGestureCancelRef.current !== null,
+        activeMode: Boolean(drawMode || pinMode || textBoxMode),
+        multiSelection: multiSelection.size > 0,
+        singleSelection: Boolean(selectedElementSelector),
+        targetOwnsEscape,
+        overlayOwnsEscape,
+      });
+      if (action === "none" || action === "canvas") return;
+
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      if (action === "edit") {
+        exitInlineEdit();
+      } else if (action === "gesture") {
+        activeGestureCancelRef.current?.();
+      } else if (action === "mode") {
+        if (drawMode) onExitDrawMode?.();
+        else if (pinMode) onExitPinMode?.();
+        else onExitTextBoxMode?.();
+      } else if (action === "multi-selection") {
+        clearMultiSelection();
+      } else {
+        clearSelectedElement();
+        syncSelectionToAppState(null);
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [
+    clearMultiSelection,
+    clearSelectedElement,
+    drawMode,
+    exitInlineEdit,
+    multiSelection.size,
+    onExitDrawMode,
+    onExitPinMode,
+    onExitTextBoxMode,
+    pinMode,
+    selectedElementSelector,
+    textBoxMode,
+  ]);
+
+  // Tool state is useful even before the user places an object. This keeps
+  // `view-screen` truthful while the text tool is armed and after it exits.
+  useEffect(() => {
+    if (editingEl || multiSelection.size > 0 || selectedElementSelector) {
+      return;
+    }
+    if (drawMode || pinMode || textBoxMode) {
+      syncSelectionToAppState(buildSelectionState("canvas", []));
+    } else {
+      syncSelectionToAppState(null);
+    }
+  }, [
+    buildSelectionState,
+    drawMode,
+    editingEl,
+    multiSelection.size,
+    pinMode,
+    selectedElementSelector,
+    textBoxMode,
+  ]);
+
   const getPlaceholderTarget = useCallback(
     (placeholder: HTMLElement): string => {
       const slideContent = getSlideContent();
@@ -1902,7 +1990,9 @@ export default function SlideEditor({
         window.removeEventListener("pointermove", onMove);
         window.removeEventListener("pointerup", onUp);
         window.removeEventListener("pointercancel", onCancel);
-        window.removeEventListener("keydown", onKeyDown, true);
+        if (activeGestureCancelRef.current === onCancel) {
+          activeGestureCancelRef.current = null;
+        }
       };
 
       const restore = () => {
@@ -1983,17 +2073,10 @@ export default function SlideEditor({
         restore();
       };
 
-      const onKeyDown = (keyEvent: KeyboardEvent) => {
-        if (keyEvent.key !== "Escape") return;
-        keyEvent.preventDefault();
-        keyEvent.stopPropagation();
-        onCancel();
-      };
-
       window.addEventListener("pointermove", onMove);
       window.addEventListener("pointerup", onUp);
       window.addEventListener("pointercancel", onCancel);
-      window.addEventListener("keydown", onKeyDown, true);
+      activeGestureCancelRef.current = onCancel;
     },
     [
       applyObjectGeometry,
@@ -2036,12 +2119,16 @@ export default function SlideEditor({
       const startClientX = e.clientX;
       const startClientY = e.clientY;
       let resized = false;
+      const selector = getBuilderSelector(element);
+      if (selector) selectElementForStyling(element, selector, "resizing");
 
       const stop = () => {
         window.removeEventListener("pointermove", onMove);
         window.removeEventListener("pointerup", onUp);
         window.removeEventListener("pointercancel", onCancel);
-        window.removeEventListener("keydown", onKeyDown, true);
+        if (activeGestureCancelRef.current === onCancel) {
+          activeGestureCancelRef.current = null;
+        }
       };
 
       const onMove = (moveEvent: PointerEvent) => {
@@ -2061,12 +2148,16 @@ export default function SlideEditor({
             preserveAspectRatio: moveEvent.shiftKey,
           }),
         );
-        const selector = getBuilderSelector(element);
-        if (selector) selectElementForStyling(element, selector);
+        const currentSelector = getBuilderSelector(element);
+        if (currentSelector) {
+          selectElementForStyling(element, currentSelector, "resizing");
+        }
       };
 
       const onUp = () => {
         stop();
+        const currentSelector = getBuilderSelector(element);
+        if (currentSelector) selectElementForStyling(element, currentSelector);
         if (!resized) return;
         const html = readCurrentSlideContentHtml();
         if (html !== null) onUpdateSlideRef.current({ content: html });
@@ -2084,17 +2175,10 @@ export default function SlideEditor({
         if (selector) selectElementForStyling(element, selector);
       };
 
-      const onKeyDown = (keyEvent: KeyboardEvent) => {
-        if (keyEvent.key !== "Escape") return;
-        keyEvent.preventDefault();
-        keyEvent.stopPropagation();
-        onCancel();
-      };
-
       window.addEventListener("pointermove", onMove);
       window.addEventListener("pointerup", onUp);
       window.addEventListener("pointercancel", onCancel);
-      window.addEventListener("keydown", onKeyDown, true);
+      activeGestureCancelRef.current = onCancel;
     },
     [
       applyObjectGeometry,

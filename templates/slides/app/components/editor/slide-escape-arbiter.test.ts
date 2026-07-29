@@ -12,6 +12,7 @@ describe("Slide Escape arbiter", () => {
         multiSelection: true,
         singleSelection: true,
         targetOwnsEscape: false,
+        overlayOwnsEscape: false,
       }),
     ).toBe("edit");
     expect(
@@ -22,6 +23,7 @@ describe("Slide Escape arbiter", () => {
         multiSelection: true,
         singleSelection: true,
         targetOwnsEscape: false,
+        overlayOwnsEscape: false,
       }),
     ).toBe("gesture");
     expect(
@@ -32,6 +34,7 @@ describe("Slide Escape arbiter", () => {
         multiSelection: true,
         singleSelection: true,
         targetOwnsEscape: false,
+        overlayOwnsEscape: false,
       }),
     ).toBe("multi-selection");
   });
@@ -45,6 +48,18 @@ describe("Slide Escape arbiter", () => {
         multiSelection: true,
         singleSelection: true,
         targetOwnsEscape: true,
+        overlayOwnsEscape: false,
+      }),
+    ).toBe("none");
+    expect(
+      decideSlideEscape({
+        editing: true,
+        activeGesture: true,
+        activeMode: true,
+        multiSelection: true,
+        singleSelection: true,
+        targetOwnsEscape: false,
+        overlayOwnsEscape: true,
       }),
     ).toBe("none");
   });

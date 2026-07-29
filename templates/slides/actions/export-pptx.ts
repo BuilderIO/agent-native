@@ -128,14 +128,16 @@ export function assertServerPptxExportable(
  * Parse slide HTML and extract text/image elements with positioning.
  * We know the exact HTML structure from the slide templates.
  */
-function parseSlideHtml(
+export function parseSlideHtml(
   html: string,
   aspectRatio?: AspectRatio,
+  slideNumber = 1,
 ): {
   texts: TextElement[];
   images: ImageElement[];
   bgColor: string;
 } {
+  assertServerPptxExportable(html, slideNumber);
   const texts: TextElement[] = [];
   const images: ImageElement[] = [];
   let bgColor = "000000";
@@ -404,10 +406,10 @@ export default defineAction({
         slide && typeof slide === "object" && typeof slide.content === "string"
           ? slide.content
           : "";
-      assertServerPptxExportable(slideContent, slideIndex + 1);
       const { texts, images, bgColor } = parseSlideHtml(
         slideContent,
         aspectRatio,
+        slideIndex + 1,
       );
 
       pptxSlide.background = { color: bgColor };

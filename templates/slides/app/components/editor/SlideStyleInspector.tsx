@@ -299,9 +299,7 @@ export function SlideStyleInspector({
             value={snapshot.width}
             min={0}
             unit="px"
-            onChange={(width) =>
-              onChange({ width: `${formatValue(width)}px` })
-            }
+            onChange={(width) => onChange({ width: `${formatValue(width)}px` })}
           />
           <VisualScrubInput
             label={t("styleInspector.height")}
@@ -363,7 +361,11 @@ export function SlideStyleInspector({
           className="slides-inspector-control"
         >
           <VisualColorPicker
-            label={snapshot.isImage ? t("styleInspector.tint") : t("styleInspector.fill")}
+            label={
+              snapshot.isImage
+                ? t("styleInspector.tint")
+                : t("styleInspector.fill")
+            }
             value={snapshot.backgroundColor}
             documentColors={documentColors}
             allowTransparent

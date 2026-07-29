@@ -112,18 +112,6 @@ export function DrawOverlay({ visible, onSend, onClose }: DrawOverlayProps) {
     }
   }, [visible]);
 
-  useEffect(() => {
-    if (!visible) return;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      event.stopPropagation();
-      onClose();
-    };
-    window.addEventListener("keydown", handleKeyDown, true);
-    return () => window.removeEventListener("keydown", handleKeyDown, true);
-  }, [visible, onClose]);
-
   // Redraw canvas whenever strokes change.
   useEffect(() => {
     const canvas = canvasRef.current;
