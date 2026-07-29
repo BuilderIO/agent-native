@@ -1656,6 +1656,7 @@ const ptBR = {
     formsOverview: "Visão geral",
     formsBuildingPublishing: "Construção e publicação",
     formsResponses: "Respostas e insights",
+    docsComponents: "Docs Components",
     formsDevelopers: "Guia do desenvolvedor",
   },
 } satisfies typeof enUS;
