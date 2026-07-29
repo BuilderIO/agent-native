@@ -1953,6 +1953,23 @@ export default function SlideEditor({
     [getPlaceholderTarget],
   );
 
+  // Browsers put the dragged element's outerHTML on the "text/html" data
+  // type. Sniffing specifically for an <img> tag there (rather than trusting
+  // any URL on text/uri-list or text/plain) matters because those same types
+  // are also populated when dragging a plain link — e.g. a citation or CTA
+  // button in the agent chat panel — and that URL is not an image. Without
+  // this check, dragging any link onto a slide would replace/insert a broken
+  // image.
+  const extractDraggedImageUrl = useCallback(
+    (dataTransfer: DataTransfer): string | null => {
+      const html = dataTransfer.getData("text/html");
+      const match = html && /<img[^>]+src=["']([^"']+)["']/i.exec(html);
+      const url = match?.[1] || null;
+      return url && /^https?:\/\//i.test(url) ? url : null;
+    },
+    [],
+  );
+
   const handleSlideDragOver = useCallback((e: React.DragEvent) => {
     const files = Array.from(e.dataTransfer.files ?? []);
     const items = Array.from(e.dataTransfer.items ?? []);
@@ -1964,9 +1981,10 @@ export default function SlideEditor({
         (item) => item.kind === "file" && item.type.startsWith("image/"),
       ) ||
       // Dragging a rendered <img> (e.g. a generated-image preview in the
-      // agent chat panel) rather than a native OS file: the browser puts the
-      // image's src on the uri-list/text types instead of Files.
-      types.includes("text/uri-list");
+      // agent chat panel) rather than a native OS file. dragover can't read
+      // getData() payloads (only types) in most browsers, so this is a
+      // best-effort signal; the drop handler does the real <img> check.
+      (types.includes("text/html") && types.includes("text/uri-list"));
     if (!hasImage) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "copy";
@@ -1987,21 +2005,27 @@ export default function SlideEditor({
         );
         return;
       }
-      // No native file — check for a dragged image URL instead (e.g. an
-      // <img> dragged out of the agent chat panel's generated-image preview).
-      const url =
-        e.dataTransfer.getData("text/uri-list") ||
-        e.dataTransfer.getData("text/plain");
-      if (!url || !/^https?:\/\//i.test(url.trim())) return;
+      // No native file — check for a dragged <img> instead (e.g. one dragged
+      // out of the agent chat panel's generated-image preview).
+      const url = extractDraggedImageUrl(e.dataTransfer);
+      if (!url) return;
       e.preventDefault();
       e.stopPropagation();
       onDropImageUrl?.(
         getImageReplacementTarget(e.target as HTMLElement),
-        url.trim(),
-        { x: e.clientX, y: e.clientY },
+        url,
+        {
+          x: e.clientX,
+          y: e.clientY,
+        },
       );
     },
-    [getImageReplacementTarget, onDropImage, onDropImageUrl],
+    [
+      extractDraggedImageUrl,
+      getImageReplacementTarget,
+      onDropImage,
+      onDropImageUrl,
+    ],
   );
 
   const handleSlideClick = useCallback(
