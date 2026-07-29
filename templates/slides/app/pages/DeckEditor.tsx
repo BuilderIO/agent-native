@@ -1013,78 +1013,76 @@ export default function DeckEditor() {
           </div>
         )}
 
-        {!showNewDeckGeneratingOverlay &&
-          !showQuestionFlow &&
-          currentSlide && (
-            <SlideEditor
-              slide={currentSlide}
-              deckId={id}
-              readOnly={!canEdit}
-              onUpdateSlide={(updates, slideIdOverride) =>
-                updateSlide(id, slideIdOverride ?? currentSlide.id, updates)
-              }
-              onInlineEditStart={() => markDeckDirty(id)}
-              onGenerateImage={() => setImageGenOpen(true)}
-              onOpenAssetLibrary={(src) => {
-                setReplaceImageSrc(src);
-                setAssetLibraryOpen(true);
-              }}
-              onUploadImage={(src) => {
-                setReplaceImageSrc(src);
-                uploadInputRef.current?.click();
-              }}
-              onSearchImage={(src) => {
-                setReplaceImageSrc(src);
-                setImageSearchOpen(true);
-              }}
-              onLogoSearch={(src) => {
-                setReplaceImageSrc(src);
-                setLogoSearchOpen(true);
-              }}
-              onDropImage={uploadAndApplyImage}
-              onDropImageUrl={dropImageUrlOnSlide}
-              onToggleObjectFit={toggleObjectFit}
-              slideIndex={currentIndex >= 0 ? currentIndex : 0}
-              slideCount={deck.slides.length}
-              designSystem={designSystem}
-              stylePanelOpen={styleOpen}
-              onCloseStylePanel={() => setSidePanel(null)}
-              aspectRatio={deck.aspectRatio}
-              collabUser={
-                currentUser
-                  ? { name: currentUser.name, color: currentUser.color }
-                  : undefined
-              }
-              agentActive={
-                slideAgentActive ||
-                (deckAgentActive && agentSlideId === currentSlide.id) ||
-                (isNewDeckGenerating &&
-                  currentSlide.id === deck.slides.at(-1)?.id)
-              }
-              recentEdits={deckRecentEdits}
-              onComment={(quotedText) => {
-                setPendingComment({ quotedText });
-                setSidePanel("comments");
-              }}
-              drawMode={drawMode}
-              onExitDrawMode={() => setDrawMode(false)}
-              pinMode={pinMode}
-              onExitPinMode={() => setPinMode(false)}
-              textBoxMode={textBoxMode}
-              onExitTextBoxMode={() => setTextBoxMode(false)}
-              slideId={currentSlide.id}
-              slideTitle={(() => {
-                const m = currentSlide.content?.match(
-                  /<h[12][^>]*>([^<]+)<\/h[12]>/i,
-                );
-                return (
-                  m?.[1]?.trim() ||
-                  `Slide ${(currentIndex >= 0 ? currentIndex : 0) + 1}`
-                );
-              })()}
-              presentUsers={slidePresence.get(currentSlide.id) ?? []}
-            />
-          )}
+        {!showNewDeckGeneratingOverlay && !showQuestionFlow && currentSlide && (
+          <SlideEditor
+            slide={currentSlide}
+            deckId={id}
+            readOnly={!canEdit}
+            onUpdateSlide={(updates, slideIdOverride) =>
+              updateSlide(id, slideIdOverride ?? currentSlide.id, updates)
+            }
+            onInlineEditStart={() => markDeckDirty(id)}
+            onGenerateImage={() => setImageGenOpen(true)}
+            onOpenAssetLibrary={(src) => {
+              setReplaceImageSrc(src);
+              setAssetLibraryOpen(true);
+            }}
+            onUploadImage={(src) => {
+              setReplaceImageSrc(src);
+              uploadInputRef.current?.click();
+            }}
+            onSearchImage={(src) => {
+              setReplaceImageSrc(src);
+              setImageSearchOpen(true);
+            }}
+            onLogoSearch={(src) => {
+              setReplaceImageSrc(src);
+              setLogoSearchOpen(true);
+            }}
+            onDropImage={uploadAndApplyImage}
+            onDropImageUrl={dropImageUrlOnSlide}
+            onToggleObjectFit={toggleObjectFit}
+            slideIndex={currentIndex >= 0 ? currentIndex : 0}
+            slideCount={deck.slides.length}
+            designSystem={designSystem}
+            stylePanelOpen={styleOpen}
+            onCloseStylePanel={() => setSidePanel(null)}
+            aspectRatio={deck.aspectRatio}
+            collabUser={
+              currentUser
+                ? { name: currentUser.name, color: currentUser.color }
+                : undefined
+            }
+            agentActive={
+              slideAgentActive ||
+              (deckAgentActive && agentSlideId === currentSlide.id) ||
+              (isNewDeckGenerating &&
+                currentSlide.id === deck.slides.at(-1)?.id)
+            }
+            recentEdits={deckRecentEdits}
+            onComment={(quotedText) => {
+              setPendingComment({ quotedText });
+              setSidePanel("comments");
+            }}
+            drawMode={drawMode}
+            onExitDrawMode={() => setDrawMode(false)}
+            pinMode={pinMode}
+            onExitPinMode={() => setPinMode(false)}
+            textBoxMode={textBoxMode}
+            onExitTextBoxMode={() => setTextBoxMode(false)}
+            slideId={currentSlide.id}
+            slideTitle={(() => {
+              const m = currentSlide.content?.match(
+                /<h[12][^>]*>([^<]+)<\/h[12]>/i,
+              );
+              return (
+                m?.[1]?.trim() ||
+                `Slide ${(currentIndex >= 0 ? currentIndex : 0) + 1}`
+              );
+            })()}
+            presentUsers={slidePresence.get(currentSlide.id) ?? []}
+          />
+        )}
 
         {commentsOpen && (
           <SlideCommentsPanel
