@@ -154,6 +154,9 @@ describe("SlideInner autofit", () => {
           this.hasAttribute("data-fmd-autofit-content") ||
           this.hasAttribute("data-slide-autofit-root")
         ) {
+          if (this.textContent?.includes("Horizontally fitted")) {
+            return 1000;
+          }
           return 740;
         }
         return this.clientWidth;
@@ -239,5 +242,34 @@ describe("SlideInner autofit", () => {
         expect.objectContaining({ verticalOverflow: 120 }),
       );
     });
+  });
+
+  it("keeps the current fit transform stable while a raw slide text block is edited", async () => {
+    const slide: Slide = {
+      id: "raw-editing",
+      layout: "blank",
+      notes: "",
+      content:
+        '<div class="fmd-slide" style="padding: 80px 110px;"><h2>Horizontally fitted title</h2></div>',
+    };
+
+    render(<SlideInner slide={slide} />);
+
+    const fitLayer = await waitFor(() => {
+      const layer = document.querySelector<HTMLElement>(
+        "[data-fmd-autofit-content]",
+      );
+      expect(layer?.style.getPropertyValue("--fmd-fit-scale")).toBe("0.74");
+      return layer;
+    });
+
+    const heading = fitLayer?.querySelector<HTMLElement>("h2");
+    expect(heading).toBeTruthy();
+    heading!.contentEditable = "true";
+
+    // The contenteditable mutation schedules another fit pass. It must retain
+    // the pre-edit transform rather than reset to 1 and visibly shift content.
+    await new Promise((resolve) => window.setTimeout(resolve, 20));
+    expect(fitLayer?.style.getPropertyValue("--fmd-fit-scale")).toBe("0.74");
   });
 });

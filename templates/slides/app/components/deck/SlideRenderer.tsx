@@ -316,7 +316,11 @@ function useSlideAutofit(
 
       for (const target of targets) {
         if (isEditing) {
-          resetTarget(target);
+          // Entering inline edit must not change the canvas geometry. The
+          // contenteditable attribute is observed below, so resetting the fit
+          // transform here made a horizontally fitted slide jump as soon as a
+          // user clicked its text. Freeze the most recent fit until the edit
+          // commits, then measure the saved HTML again.
           continue;
         }
 

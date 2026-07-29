@@ -79,6 +79,7 @@ import {
   ensureSlideObjectId,
   escapedEditingSelection,
   findSlideObjectById,
+  freezeSlideElementForFreeform,
   getSlideSelectionIdentity,
   getSlideSelectionMode,
   resizeSlideObject,
@@ -111,6 +112,7 @@ function ensureBuilderId(element: HTMLElement): string {
 function stampBuilderIds(container: HTMLElement) {
   const elements = container.querySelectorAll("*");
   elements.forEach((el) => {
+    if ((el as HTMLElement).classList.contains("fmd-layout-spacer")) return;
     ensureBuilderId(el as HTMLElement);
   });
 }
@@ -1229,6 +1231,72 @@ export default function SlideEditor({
     );
   }, []);
 
+  /**
+   * Turn a normal layout block into a freeform object at its current visual
+   * coordinates. A hidden same-size sibling retains the flex/grid slot, so
+   * the rest of the slide does not reflow when Escape selects the block.
+   */
+  const freezeElementForFreeformSelection = useCallback(
+    (element: HTMLElement): HTMLElement => {
+      if (window.getComputedStyle(element).position === "absolute") {
+        ensureSlideObjectId(element);
+        return element;
+      }
+
+      const fmdSlide = element.closest(".fmd-slide") as HTMLElement | null;
+      const positioningLayer = fmdSlide
+        ? (Array.from(fmdSlide.children).find(
+            (child): child is HTMLElement =>
+              child instanceof HTMLElement &&
+              child.hasAttribute("data-fmd-autofit-content"),
+          ) ?? fmdSlide)
+        : null;
+      if (!positioningLayer) return element;
+
+      const elementRect = element.getBoundingClientRect();
+      const layerRect = positioningLayer.getBoundingClientRect();
+      if (
+        !elementRect.width ||
+        !elementRect.height ||
+        !layerRect.width ||
+        !layerRect.height ||
+        !positioningLayer.offsetWidth ||
+        !positioningLayer.offsetHeight
+      ) {
+        return element;
+      }
+
+      const { x, y } = clientPointToSlideCoordinates(
+        elementRect.left,
+        elementRect.top,
+        layerRect,
+        positioningLayer.offsetWidth,
+        positioningLayer.offsetHeight,
+      );
+      const scaleX = positioningLayer.offsetWidth / layerRect.width;
+      const scaleY = positioningLayer.offsetHeight / layerRect.height;
+      const computed = window.getComputedStyle(element);
+      freezeSlideElementForFreeform(
+        element,
+        {
+          x,
+          y,
+          width: Math.round(elementRect.width * scaleX),
+          height: Math.round(elementRect.height * scaleY),
+        },
+        {
+          display: computed.display,
+          flexGrow: computed.flexGrow,
+          flexShrink: computed.flexShrink,
+          flexBasis: computed.flexBasis,
+          alignSelf: computed.alignSelf,
+        },
+      );
+      return element;
+    },
+    [],
+  );
+
   const resolveSelectedElement = useCallback((): HTMLElement | null => {
     const slideContent = getSlideContent();
     if (!slideContent) return null;
@@ -1297,17 +1365,19 @@ export default function SlideEditor({
   const exitInlineEdit = useCallback(() => {
     const el = editingElRef.current;
     if (!el) return;
-    const selector = getBuilderSelector(el);
     editingElRef.current = null;
     el.contentEditable = "false";
     el.removeAttribute("data-editing-block");
+
+    const selected = freezeElementForFreeformSelection(el);
+    const selector = getBuilderSelector(selected);
 
     const html = readCurrentSlideContentHtml();
     if (html !== null) {
       onUpdateSlideRef.current({ content: html });
     }
     inlineEditDraftRef.current = null;
-    const next = escapedEditingSelection(el, resolveSelectedElement());
+    const next = escapedEditingSelection(selected, resolveSelectedElement());
     setEditingEl(next.editing);
     if (next.selected && selector) {
       selectElementForStyling(next.selected, selector);
@@ -1318,6 +1388,7 @@ export default function SlideEditor({
     readCurrentSlideContentHtml,
     resolveSelectedElement,
     selectElementForStyling,
+    freezeElementForFreeformSelection,
   ]);
 
   /** Enter edit mode on a smart block (text leaf or smart group) */
@@ -1826,6 +1897,7 @@ export default function SlideEditor({
     (target: HTMLElement, slideContent: HTMLElement): string | null => {
       let el: HTMLElement | null = target;
       while (el && slideContent.contains(el) && el !== slideContent) {
+        if (el.classList.contains("fmd-layout-spacer")) return null;
         const id = el.getAttribute("data-builder-id");
         if (id) return id;
         el = el.parentElement;
@@ -1839,6 +1911,7 @@ export default function SlideEditor({
     (target: HTMLElement, slideContent: HTMLElement): HTMLElement | null => {
       let el: HTMLElement | null = target;
       while (el && slideContent.contains(el) && el !== slideContent) {
+        if (el.classList.contains("fmd-layout-spacer")) return null;
         if (el.getAttribute("data-builder-id")) return el;
         el = el.parentElement;
       }
@@ -2338,6 +2411,7 @@ export default function SlideEditor({
       const candidates = slideContent.querySelectorAll("[data-builder-id]");
       candidates.forEach((node) => {
         const el = node as HTMLElement;
+        if (el.classList.contains("fmd-layout-spacer")) return;
         const id = el.getAttribute("data-builder-id");
         if (!id) return;
         // Skip the slide-content root itself if it ever got stamped

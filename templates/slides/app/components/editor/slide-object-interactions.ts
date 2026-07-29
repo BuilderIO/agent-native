@@ -16,6 +16,14 @@ export interface SlideLayoutRect {
   height: number;
 }
 
+export interface SlideObjectLayoutSnapshot {
+  display: string;
+  flexGrow: string;
+  flexShrink: string;
+  flexBasis: string;
+  alignSelf: string;
+}
+
 export interface ResizeOptions {
   handle: ResizeHandle;
   dx: number;
@@ -151,6 +159,58 @@ export function cloneSlideObject(element: HTMLElement): HTMLElement {
   removeTransientBuilderIds(clone);
   clone.setAttribute("data-slide-object-id", createSlideObjectId());
   return clone;
+}
+
+/**
+ * Take an in-flow slide element out of layout without pulling the rest of the
+ * slide with it. The shallow, hidden copy keeps its original flex/grid slot;
+ * the live element can then become an independently movable canvas object.
+ */
+export function freezeSlideElementForFreeform(
+  element: HTMLElement,
+  geometry: SlideObjectGeometry,
+  layout: SlideObjectLayoutSnapshot,
+): HTMLElement {
+  const spacer = element.cloneNode(false) as HTMLElement;
+  removeTransientBuilderIds(spacer);
+  spacer.removeAttribute("id");
+  spacer.removeAttribute("data-slide-object-id");
+  spacer.removeAttribute("contenteditable");
+  spacer.removeAttribute("data-editing-block");
+  spacer.classList.add("fmd-layout-spacer");
+  spacer.setAttribute("aria-hidden", "true");
+  spacer.style.visibility = "hidden";
+  spacer.style.pointerEvents = "none";
+  spacer.style.userSelect = "none";
+  spacer.style.boxSizing = "border-box";
+  spacer.style.width = `${geometry.width}px`;
+  spacer.style.height = `${geometry.height}px`;
+  spacer.style.minWidth = "0";
+  spacer.style.minHeight = "0";
+  spacer.style.maxWidth = "none";
+  spacer.style.maxHeight = "none";
+  spacer.style.flexGrow = layout.flexGrow;
+  spacer.style.flexShrink = layout.flexShrink;
+  spacer.style.flexBasis = layout.flexBasis;
+  spacer.style.alignSelf = layout.alignSelf;
+  // An inline placeholder cannot reserve a measured block's height. Preserve
+  // inline text flow with inline-block while retaining block/grid displays.
+  spacer.style.display =
+    layout.display === "inline" ? "inline-block" : layout.display;
+
+  element.before(spacer);
+  element.classList.add("fmd-freeform-object");
+  ensureSlideObjectId(element);
+  element.style.position = "absolute";
+  element.style.left = `${geometry.x}px`;
+  element.style.top = `${geometry.y}px`;
+  element.style.width = `${geometry.width}px`;
+  element.style.height = `${geometry.height}px`;
+  element.style.boxSizing = "border-box";
+  // left/top describe the visible border box. Leaving flow margins on the
+  // absolute element would offset it from the measured pre-freeze rect.
+  element.style.margin = "0";
+  return spacer;
 }
 
 /** Convert a viewport click into the unscaled fmd-slide coordinate system. */
