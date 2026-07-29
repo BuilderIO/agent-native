@@ -49,8 +49,8 @@ describe("Content product conformance workflow boundary", () => {
   it("does not hide checker infrastructure failures", () => {
     for (const value of ["true", "${{ true }}"]) {
       const unsafe = workflow.replace(
-        "        run: pnpm content-product-impact",
-        `        continue-on-error: ${value}\n        run: pnpm content-product-impact`,
+        "        run: pnpm --dir controller exec tsx scripts/validate-content-product-impact.ts",
+        `        continue-on-error: ${value}\n        run: pnpm --dir controller exec tsx scripts/validate-content-product-impact.ts`,
       );
       const result = validateContentProductImpactWorkflow(unsafe);
       assert.equal(result.ok, false);
@@ -136,7 +136,7 @@ describe("Content product conformance workflow boundary", () => {
     const result = validateContentProductImpactWorkflow(unsafe);
     assert.equal(result.ok, false);
     assert(result.issues.some((issue) => issue.includes("only")));
-    assert(result.issues.some((issue) => issue.includes("one checkout")));
+    assert(result.issues.some((issue) => issue.includes("two checkout")));
   });
 
   it("rejects self-hosted runners and arbitrary additional steps", () => {
@@ -150,5 +150,21 @@ describe("Content product conformance workflow boundary", () => {
     assert.equal(result.ok, false);
     assert(result.issues.some((issue) => issue.includes("GitHub-hosted")));
     assert(result.issues.some((issue) => issue.includes("exactly match")));
+  });
+
+  it("rejects a candidate-controlled controller or package script", () => {
+    const unsafe = workflow
+      .replace(
+        "ref: 03caa13fd5bf6176ee01ab223452db9932b7ca8c",
+        "ref: ${{ github.event.pull_request.head.sha }}",
+      )
+      .replace(
+        "pnpm --dir controller exec tsx scripts/validate-content-product-impact.ts",
+        "pnpm --dir candidate content-product-impact",
+      );
+    const result = validateContentProductImpactWorkflow(unsafe);
+    assert.equal(result.ok, false);
+    assert(result.issues.some((issue) => issue.includes("trusted revision")));
+    assert(result.issues.some((issue) => issue.includes("standalone")));
   });
 });

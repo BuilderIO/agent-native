@@ -18,6 +18,7 @@ function permissionIsRead(value: unknown): boolean {
 const ALLOWED_GITHUB_EXPRESSIONS = new Set([
   "github.event.pull_request.number",
   "github.event.pull_request.base.sha",
+  "github.event.pull_request.head.repo.full_name",
   "github.event.pull_request.head.sha",
 ]);
 const CHECKOUT_ACTION =
@@ -26,6 +27,9 @@ const PNPM_ACTION =
   "pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320";
 const NODE_ACTION =
   "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020";
+const CONTROLLER_REVISION = "03caa13fd5bf6176ee01ab223452db9932b7ca8c";
+const CHECKER_COMMAND =
+  "pnpm --dir controller exec tsx scripts/validate-content-product-impact.ts";
 
 function hasExactKeys(
   value: Record<string, unknown>,
@@ -38,42 +42,73 @@ function hasExactKeys(
 }
 
 function hasExpectedSteps(steps: Array<Record<string, unknown>>): boolean {
-  if (steps.length !== 5) return false;
-  const [checkout, pnpm, node, install, checker] = steps;
+  if (steps.length !== 6) return false;
+  const [controller, candidate, pnpm, node, install, checker] = steps;
   return (
-    hasExactKeys(checkout, ["uses", "with"]) &&
-    checkout.uses === CHECKOUT_ACTION &&
-    isRecord(checkout.with) &&
-    hasExactKeys(checkout.with, [
+    hasExactKeys(controller, ["name", "uses", "with"]) &&
+    controller.name === "Check out immutable conformance controller" &&
+    controller.uses === CHECKOUT_ACTION &&
+    isRecord(controller.with) &&
+    hasExactKeys(controller.with, [
       "ref",
+      "path",
       "fetch-depth",
       "persist-credentials",
     ]) &&
-    checkout.with.ref === "${{ github.event.pull_request.head.sha }}" &&
-    checkout.with["fetch-depth"] === 0 &&
-    checkout.with["persist-credentials"] === false &&
-    hasExactKeys(pnpm, ["uses"]) &&
+    controller.with.ref === CONTROLLER_REVISION &&
+    controller.with.path === "controller" &&
+    controller.with["fetch-depth"] === 1 &&
+    controller.with["persist-credentials"] === false &&
+    hasExactKeys(candidate, ["name", "uses", "with"]) &&
+    candidate.name === "Check out candidate as inert data" &&
+    candidate.uses === CHECKOUT_ACTION &&
+    isRecord(candidate.with) &&
+    hasExactKeys(candidate.with, [
+      "repository",
+      "ref",
+      "path",
+      "fetch-depth",
+      "persist-credentials",
+    ]) &&
+    candidate.with.repository ===
+      "${{ github.event.pull_request.head.repo.full_name }}" &&
+    candidate.with.ref === "${{ github.event.pull_request.head.sha }}" &&
+    candidate.with.path === "candidate" &&
+    candidate.with["fetch-depth"] === 0 &&
+    candidate.with["persist-credentials"] === false &&
+    hasExactKeys(pnpm, ["uses", "with"]) &&
     pnpm.uses === PNPM_ACTION &&
+    isRecord(pnpm.with) &&
+    hasExactKeys(pnpm.with, ["package_json_file"]) &&
+    pnpm.with.package_json_file === "controller/package.json" &&
     hasExactKeys(node, ["uses", "with"]) &&
     node.uses === NODE_ACTION &&
     isRecord(node.with) &&
-    hasExactKeys(node.with, ["node-version", "cache"]) &&
+    hasExactKeys(node.with, [
+      "node-version",
+      "cache",
+      "cache-dependency-path",
+    ]) &&
     node.with["node-version"] === "22" &&
     node.with.cache === "pnpm" &&
+    node.with["cache-dependency-path"] === "controller/pnpm-lock.yaml" &&
     hasExactKeys(install, ["run"]) &&
-    install.run === "pnpm install --frozen-lockfile --ignore-scripts" &&
+    install.run ===
+      "pnpm --dir controller install --frozen-lockfile --ignore-scripts" &&
     hasExactKeys(checker, ["name", "env", "run"]) &&
     checker.name === "Check Content product impact" &&
     isRecord(checker.env) &&
     hasExactKeys(checker.env, [
+      "CONTENT_IMPACT_REPOSITORY",
       "CONTENT_IMPACT_BASE_SHA",
       "CONTENT_IMPACT_HEAD_SHA",
     ]) &&
+    checker.env.CONTENT_IMPACT_REPOSITORY === "../candidate" &&
     checker.env.CONTENT_IMPACT_BASE_SHA ===
       "${{ github.event.pull_request.base.sha }}" &&
     checker.env.CONTENT_IMPACT_HEAD_SHA ===
       "${{ github.event.pull_request.head.sha }}" &&
-    checker.run === "pnpm content-product-impact"
+    checker.run === CHECKER_COMMAND
   );
 }
 
@@ -206,31 +241,48 @@ export function validateContentProductImpactWorkflow(
       typeof step.uses === "string" &&
       step.uses.startsWith("actions/checkout@"),
   );
-  const checkout = checkoutSteps[0];
-  if (checkoutSteps.length !== 1) {
-    issues.push("check job must contain exactly one checkout step");
+  const controllerCheckout = checkoutSteps[0];
+  const candidateCheckout = checkoutSteps[1];
+  if (checkoutSteps.length !== 2) {
+    issues.push("check job must contain exactly two checkout steps");
   }
-  if (!checkout || !isRecord(checkout.with)) {
+  if (
+    !controllerCheckout ||
+    !isRecord(controllerCheckout.with) ||
+    controllerCheckout.with.ref !== CONTROLLER_REVISION
+  ) {
+    issues.push("controller checkout must use the immutable trusted revision");
+  }
+  if (!candidateCheckout || !isRecord(candidateCheckout.with)) {
     issues.push("workflow must check out the exact candidate revision");
   } else {
-    if (checkout.with.ref !== "${{ github.event.pull_request.head.sha }}") {
+    if (
+      candidateCheckout.with.repository !==
+        "${{ github.event.pull_request.head.repo.full_name }}" ||
+      candidateCheckout.with.ref !== "${{ github.event.pull_request.head.sha }}"
+    ) {
       issues.push("checkout ref must be the exact pull request head SHA");
     }
-    if (checkout.with["fetch-depth"] !== 0) {
+    if (candidateCheckout.with["fetch-depth"] !== 0) {
       issues.push("checkout must fetch base history");
     }
-    if (checkout.with["persist-credentials"] !== false) {
-      issues.push("checkout must not persist GitHub credentials");
-    }
   }
-  const runStep = steps.find(
-    (step) => step.run === "pnpm content-product-impact",
-  );
+  if (
+    checkoutSteps.some(
+      (checkout) =>
+        !isRecord(checkout.with) ||
+        checkout.with["persist-credentials"] !== false,
+    )
+  ) {
+    issues.push("checkout must not persist GitHub credentials");
+  }
+  const runStep = steps.find((step) => step.run === CHECKER_COMMAND);
   if (!runStep || !isRecord(runStep.env)) {
     issues.push("workflow must invoke the standalone impact checker");
   } else if ("if" in runStep) {
     issues.push("impact checker step must run unconditionally");
   } else if (
+    runStep.env.CONTENT_IMPACT_REPOSITORY !== "../candidate" ||
     runStep.env.CONTENT_IMPACT_BASE_SHA !==
       "${{ github.event.pull_request.base.sha }}" ||
     runStep.env.CONTENT_IMPACT_HEAD_SHA !==
