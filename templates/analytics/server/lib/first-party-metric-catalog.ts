@@ -1173,6 +1173,28 @@ const ENTRIES: FirstPartyMetric[] = [
     },
   },
   {
+    key: "signup-entry-pages-90d",
+    title: "Signup Entry Pages (90d)",
+    chartType: "table",
+    source: "first-party",
+    width: 1,
+    windowed: true,
+    buildSql: windowed(
+      `WITH signups AS (SELECT id AS signup_id, anonymous_id, timestamp AS signup_at FROM analytics_events WHERE event_name = 'signup' AND ${windowStartFilter(90)} AND anonymous_id IS NOT NULL AND anonymous_id <> ''), ranked_pageviews AS (SELECT signups.signup_id, COALESCE(NULLIF(pageviews.path, ''), '(unknown)') AS entry_path, ROW_NUMBER() OVER (PARTITION BY signups.signup_id ORDER BY pageviews.timestamp ASC, pageviews.id ASC) AS position FROM signups JOIN analytics_events AS pageviews ON pageviews.event_name = 'pageview' AND pageviews.anonymous_id = signups.anonymous_id AND pageviews.timestamp < signups.signup_at) SELECT entry_path, COUNT(*) AS signups FROM ranked_pageviews WHERE position = 1 GROUP BY entry_path ORDER BY signups DESC LIMIT 20`,
+    ),
+    config: {
+      timeScope: "cohort-history",
+      description:
+        "First tracked pageview before each signup in the window, joined through the browser anonymous id. Signups without a browser identity are intentionally excluded.",
+      sortable: true,
+      limit: 20,
+      columns: [
+        { key: "entry_path", label: "First pageview" },
+        { key: "signups", label: "Signups", format: "number" },
+      ],
+    },
+  },
+  {
     key: "referred-signups-over-time",
     title: "Referred Signups Over Time (90d)",
     chartType: "area",

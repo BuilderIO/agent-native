@@ -233,6 +233,18 @@ describe("compose-dashboard", () => {
     expect(referred.sql).toContain(
       "event_date >= to_char(CURRENT_DATE - INTERVAL '30 days'",
     );
+    const signupEntryPages = panels.find(
+      (p) => p.id === "signup-entry-pages-90d",
+    )!;
+    expect(signupEntryPages.sql).toContain(
+      "pageviews.anonymous_id = signups.anonymous_id",
+    );
+    expect(signupEntryPages.sql).toContain(
+      "pageviews.timestamp < signups.signup_at",
+    );
+    expect(signupEntryPages.config).toMatchObject({
+      timeScope: "cohort-history",
+    });
   });
 
   it("uses indexed event-date expressions for daily first-party panels", () => {

@@ -129,6 +129,7 @@ function installBrowser(url = "https://mail.agent-native.com/inbox") {
     ),
   };
   const gtag = vi.fn();
+  let cookie = "";
   const windowMock = {
     location,
     history,
@@ -142,6 +143,12 @@ function installBrowser(url = "https://mail.agent-native.com/inbox") {
   vi.stubGlobal("document", {
     referrer: "https://builder.io/start?token=secret&utm=ok",
     title: "Inbox",
+    get cookie() {
+      return cookie;
+    },
+    set cookie(value: string) {
+      cookie = value;
+    },
   });
   vi.stubGlobal("navigator", { sendBeacon: vi.fn(() => false) });
 
@@ -151,6 +158,7 @@ function installBrowser(url = "https://mail.agent-native.com/inbox") {
     history,
     listeners,
     location,
+    getCookie: () => cookie,
   };
 }
 
@@ -175,7 +183,7 @@ describe("browser analytics pageviews", () => {
   });
 
   it("emits a default pageview with useful browser context", async () => {
-    installBrowser();
+    const { getCookie } = installBrowser();
     const { analyticsCalls } = installFetch();
     vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
     vi.stubEnv(
@@ -215,6 +223,8 @@ describe("browser analytics pageviews", () => {
         llm_connection_source: "app_secrets",
       },
     });
+    expect(body.anonymousId).toMatch(/^[A-Za-z0-9_-]+$/);
+    expect(getCookie()).toContain(`an_aid=${body.anonymousId}`);
   });
 
   it("can skip the authenticated engine-status probe on public routes", async () => {
