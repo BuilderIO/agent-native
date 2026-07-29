@@ -1760,7 +1760,7 @@ export default function SlideEditor({
       // edit session so a saved text range can receive the chosen formatting.
       if (
         (target as HTMLElement).closest?.(
-          "[data-block-bubble-menu], [data-slide-style-dock], [data-slide-inline-edit-surface]",
+          "[data-block-bubble-menu], [data-slide-style-trigger], [data-slide-style-dock], [data-slide-inline-edit-surface]",
         )
       ) {
         return;

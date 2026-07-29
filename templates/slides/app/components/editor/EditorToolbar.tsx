@@ -940,6 +940,7 @@ graph TD
           <TooltipTrigger asChild>
             <button
               onClick={onToggleStyle}
+              data-slide-style-trigger="true"
               className={`relative flex-shrink-0 rounded-md p-2.5 transition-colors sm:p-1.5 ${
                 styleOpen
                   ? "bg-accent text-foreground"
