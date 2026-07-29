@@ -802,7 +802,8 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
       "Ainda não há organização. Crie uma no seletor de organização para começar.",
     description: "Administração da organização: marca, membros, convites.",
     adminsOnlyBranding: "Somente administradores podem editar a marca.",
-    brandingLoadFailed: "Não foi possível carregar a identidade da organização.",
+    brandingLoadFailed:
+      "Não foi possível carregar a identidade da organização.",
     members: "Membros",
     pendingInvites: "Convites pendentes",
     noPendingInvites: "Nenhum convite pendente.",

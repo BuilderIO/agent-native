@@ -158,7 +158,7 @@ export function BrandingEditor({
 
           <div className="space-y-1.5">
             <Label>{t("brandingEditor.brandColor")}</Label>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <input
                 type="color"
                 value={brandColor}

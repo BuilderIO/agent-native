@@ -36,7 +36,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/library/page-header";
-import { OrganizationIdentityCard } from "@/components/workspace/organization-identity-card";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -71,6 +70,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { OrganizationIdentityCard } from "@/components/workspace/organization-identity-card";
 import { useVideoStorageStatus } from "@/hooks/use-video-storage-status";
 import enMessages from "@/i18n/en-US";
 import { cn } from "@/lib/utils";
@@ -846,7 +846,7 @@ export default function SettingsIndexRoute() {
       <SettingsTabsPage
         account={<AccountSettingsCard />}
         whatsNewLabel={t("settings.whatsNew")}
-        extraTabs={agentSettingsTabs}
+        extraTabs={settingsTabs}
         generalSearchEntries={generalSearchEntries}
         general={
           <div className="mx-auto w-full max-w-4xl space-y-6">

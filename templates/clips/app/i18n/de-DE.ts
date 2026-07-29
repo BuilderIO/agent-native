@@ -812,7 +812,8 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
       "Noch keine Organisation. Erstelle eine über den Organisationswechsler, um zu beginnen.",
     description: "Organisationsverwaltung: Branding, Mitglieder, Einladungen.",
     adminsOnlyBranding: "Nur Administratoren können das Branding bearbeiten.",
-    brandingLoadFailed: "Das Branding der Organisation konnte nicht geladen werden.",
+    brandingLoadFailed:
+      "Das Branding der Organisation konnte nicht geladen werden.",
     members: "Mitglieder",
     pendingInvites: "Ausstehende Einladungen",
     noPendingInvites: "Keine ausstehenden Einladungen.",
