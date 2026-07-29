@@ -47,8 +47,17 @@ name === email  ||  name === email.split("@")[0]
 ```
 
 This has a known false positive: a user genuinely named `tim` at `tim@…` looks
-identical to one who never set a name. Task 3 adds a one-boolean marker so that
-person stops being asked after a single interaction.
+identical to one who never set a name.
+
+**That ambiguity only applies to returning users.** A brand-new signup's name is
+the local part *by construction* — core auth wires no social/OAuth provider, so
+`auth.ts:3332` and `:3568` are the only ways a user row is created. So the two
+surfaces use different predicates:
+
+| Surface | Predicate | Why |
+| --- | --- | --- |
+| Net-new (watch page) | `isAutoDerivedName()` — local part, full email, or blank | They cannot have chosen a name yet. Ask openly. |
+| Returning (library) | `matchesEmailLocalPart()` — exactly the local part | Narrower on purpose. Frame it as a confirmation, and never bother anyone whose name differs. |
 
 ### 2. There are two display-name stores, and one is dead
 
@@ -74,7 +83,9 @@ we want the shorter lifetime.
 
 - **One store.** Modal writes to core `update-user-profile`; the dead Clips
   Profile card is deleted.
-- **Returning users are prompted on the library index**, not the watch page.
+- **Returning users are prompted on the library index**, not the watch page,
+  and only when their name is exactly the email local part. The dialog is a
+  confirmation pre-filled with that value, not an empty ask.
 - **Skip is soft** — we ask again next browser session.
 
 ---
@@ -119,6 +130,11 @@ export type NamePromptVariant = "welcome" | "welcome-back";
 export interface NamePromptDialogProps {
   open: boolean;
   variant: NamePromptVariant;
+  /**
+   * Pre-filled field value. The `welcome-back` variant passes the email local
+   * part so the user can confirm it with one click; `welcome` passes nothing.
+   */
+  initialName?: string;
   /** Called with `true` after a successful save, `false` on skip/dismiss. */
   onResolved: (saved: boolean) => void;
 }
@@ -126,11 +142,21 @@ export interface NamePromptDialogProps {
 export function NamePromptDialog({
   open,
   variant,
+  initialName = "",
   onResolved,
 }: NamePromptDialogProps) {
   const t = useT();
   const queryClient = useQueryClient();
-  const [name, setName] = useState("");
+  const [name, setName] = useState(initialName);
+  const [seededFor, setSeededFor] = useState(initialName);
+
+  // `initialName` arrives after the profile query resolves, which is usually
+  // after first render. Seed the field once it changes rather than stranding
+  // the user with an empty confirm box.
+  if (initialName !== seededFor) {
+    setSeededFor(initialName);
+    setName(initialName);
+  }
 
   const updateProfile = useActionMutation<
     { email: string; name: string },
@@ -182,6 +208,7 @@ export function NamePromptDialog({
           <Input
             id="profile-name-prompt"
             autoFocus
+            onFocus={(e) => e.currentTarget.select()}
             value={name}
             maxLength={MAX_NAME_LENGTH}
             placeholder={t("namePrompt.placeholder")}
@@ -210,7 +237,9 @@ export function NamePromptDialog({
           <Button disabled={!canSubmit} onClick={handleSubmit}>
             {updateProfile.isPending
               ? t("namePrompt.saving")
-              : t("namePrompt.save")}
+              : variant === "welcome"
+                ? t("namePrompt.save")
+                : t("namePrompt.confirm")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -254,12 +283,13 @@ Insert as a new top-level key, alphabetically near `navigation`:
       "While it finishes processing: you can share it with a link, and anyone you send it to can watch it and leave comments. First though — what should we call you?",
     welcomeBackTitle: "Welcome back to Clips",
     welcomeBackBody:
-      "We added profiles since your last visit, but we never caught your name. What should we call you?",
+      "We've reconfigured how user profiles work since your last login. Is this the right username for you?",
     label: "Your name",
     placeholder: "e.g. Tim Milazzo",
     visibilityDisclaimer:
       "This name may be visible to anyone you share a clip with.",
     save: "Save",
+    confirm: "Looks right",
     saving: "Saving...",
     skip: "Not now",
     saved: "Thanks — we'll call you that from now on",
@@ -307,11 +337,17 @@ import { useCallback, useState } from "react";
 
 const SKIP_SESSION_KEY = "clips:profile-name-prompt-skipped";
 
+export function emailLocalPart(email: string): string {
+  return email.split("@")[0] ?? "";
+}
+
 /**
  * Signup writes `email.split("@")[0]` into the auth user's name
  * (packages/core/src/server/auth.ts:3332), and the profile reader substitutes
  * the full email when nothing is stored. So "no name" is never null — it is
  * one of those two derived values.
+ *
+ * Used for the net-new surface, where the user cannot yet have chosen a name.
  */
 export function isAutoDerivedName(
   name: string | null | undefined,
@@ -319,7 +355,22 @@ export function isAutoDerivedName(
 ): boolean {
   const trimmed = name?.trim();
   if (!trimmed) return true;
-  return trimmed === email || trimmed === email.split("@")[0];
+  return trimmed === email || trimmed === emailLocalPart(email);
+}
+
+/**
+ * Narrower predicate for returning users. Only the exact email local part
+ * qualifies, because that is the value signup wrote and the only one the
+ * confirmation dialog can sensibly pre-fill. Anyone whose name differs —
+ * including the rare full-email fallback — is left alone.
+ */
+export function matchesEmailLocalPart(
+  name: string | null | undefined,
+  email: string,
+): boolean {
+  const trimmed = name?.trim();
+  if (!trimmed) return false;
+  return trimmed === emailLocalPart(email);
 }
 
 function readSkipped(): boolean {
@@ -334,6 +385,8 @@ function readSkipped(): boolean {
 export interface ProfileNamePromptGate {
   /** True when this user should be asked for a display name right now. */
   shouldPrompt: boolean;
+  /** Value to pre-fill the field with. Empty for the net-new surface. */
+  initialName: string;
   /** Call with the dialog's `saved` result to close and remember the outcome. */
   resolve: (saved: boolean) => void;
 }
@@ -342,8 +395,12 @@ export interface ProfileNamePromptGate {
  * @param enabled Caller-supplied condition for the surface (e.g. "this is
  *   their first recording"). The hook still runs its queries when false so
  *   hook order stays stable; it just never reports `shouldPrompt`.
+ * @param surface Picks the predicate and whether the field is pre-filled.
  */
-export function useProfileNamePrompt(enabled: boolean): ProfileNamePromptGate {
+export function useProfileNamePrompt(
+  enabled: boolean,
+  surface: "new" | "returning",
+): ProfileNamePromptGate {
   const { session } = useSession();
   const email = session?.email ?? "";
   const [skipped, setSkipped] = useState(readSkipped);
@@ -368,15 +425,24 @@ export function useProfileNamePrompt(enabled: boolean): ProfileNamePromptGate {
     }
   }, []);
 
+  const nameQualifies =
+    surface === "new"
+      ? isAutoDerivedName(profileQ.data?.name, email)
+      : matchesEmailLocalPart(profileQ.data?.name, email);
+
   const shouldPrompt =
     enabled &&
     !skipped &&
     !savedThisMount &&
     Boolean(email) &&
     profileQ.isSuccess &&
-    isAutoDerivedName(profileQ.data?.name, email);
+    nameQualifies;
 
-  return { shouldPrompt, resolve };
+  return {
+    shouldPrompt,
+    initialName: surface === "returning" ? emailLocalPart(email) : "",
+    resolve,
+  };
 }
 ```
 
@@ -434,6 +500,7 @@ const isFirstRecording =
   recordingsCountQ.isSuccess && (recordingsCountQ.data ?? 0) <= 1;
 const namePrompt = useProfileNamePrompt(
   isFirstRecording && role === "owner" && recording?.status !== "ready",
+  "new",
 );
 ```
 
@@ -489,12 +556,16 @@ import { useProfileNamePrompt } from "@/hooks/use-profile-name-prompt";
 **Step 2: Add the gate inside `LibraryIndexRoute`**
 
 ```ts
-const namePrompt = useProfileNamePrompt(true);
+const namePrompt = useProfileNamePrompt(true, "returning");
 ```
 
 No recording-count condition here. Someone with zero recordings who lands on
 the library is still a returning user by every signal we have, and the net-new
 path only fires on the watch page — so the two surfaces cannot double-prompt.
+
+The `"returning"` surface narrows the predicate to an exact email-local-part
+match and supplies that value as the pre-filled field, turning the dialog into
+a one-click confirmation. Anyone whose stored name differs never sees it.
 
 **Step 3: Wrap the returned JSX**
 
@@ -507,6 +578,7 @@ return (
     <NamePromptDialog
       open={namePrompt.shouldPrompt}
       variant="welcome-back"
+      initialName={namePrompt.initialName}
       onResolved={namePrompt.resolve}
     />
   </>
@@ -610,9 +682,12 @@ feature if it drifts. Test it directly.
 ```ts
 import { describe, expect, it } from "vitest";
 
-import { isAutoDerivedName } from "./use-profile-name-prompt";
+import {
+  isAutoDerivedName,
+  matchesEmailLocalPart,
+} from "./use-profile-name-prompt";
 
-describe("isAutoDerivedName", () => {
+describe("isAutoDerivedName (net-new surface)", () => {
   it("treats the signup-derived local part as no name", () => {
     // packages/core/src/server/auth.ts:3332 seeds name with the local part.
     expect(isAutoDerivedName("tim", "tim@builder.io")).toBe(true);
@@ -633,6 +708,29 @@ describe("isAutoDerivedName", () => {
     expect(isAutoDerivedName("Tim Milazzo", "tim@builder.io")).toBe(false);
   });
 });
+
+describe("matchesEmailLocalPart (returning surface)", () => {
+  it("matches the exact local part", () => {
+    expect(matchesEmailLocalPart("tim", "tim@builder.io")).toBe(true);
+  });
+
+  it("does not match the full-email fallback", () => {
+    // Deliberately out of scope: the confirm dialog would pre-fill a whole
+    // email address, which is not a username anyone would accept.
+    expect(matchesEmailLocalPart("tim@builder.io", "tim@builder.io")).toBe(
+      false,
+    );
+  });
+
+  it("does not match blank or missing", () => {
+    expect(matchesEmailLocalPart("", "tim@builder.io")).toBe(false);
+    expect(matchesEmailLocalPart(null, "tim@builder.io")).toBe(false);
+  });
+
+  it("leaves a real name alone", () => {
+    expect(matchesEmailLocalPart("Tim Milazzo", "tim@builder.io")).toBe(false);
+  });
+});
 ```
 
 **Step 2: Run it**
@@ -641,7 +739,7 @@ describe("isAutoDerivedName", () => {
 cd code/templates/clips && npx vitest run app/hooks/use-profile-name-prompt.test.ts
 ```
 
-Expected: `Test Files 1 passed`, `Tests 4 passed`.
+Expected: `Test Files 1 passed`, `Tests 8 passed`.
 
 **Step 3: Commit**
 
@@ -694,8 +792,22 @@ console.log("after reload (same session, expect 0):", await p.getByRole("dialog"
 await b.close();
 ```
 
-Expected: the welcome-back copy on first load; `0` dialogs after skip; `0`
-after reload within the same browser session.
+Expected: the welcome-back copy on first load, **with the field pre-filled to
+`dev`**; `0` dialogs after skip; `0` after reload within the same browser
+session.
+
+**Step 2b: Verify a real name suppresses the returning prompt**
+
+```bash
+cd code/templates/clips && node --input-type=module -e "
+import {neon} from '@neondatabase/serverless';
+const sql=neon(process.env.CLIPS_DATABASE_URL);
+await sql\`update \\"user\\" set name='Tim Milazzo' where email='dev@local.test'\`;
+"
+```
+
+Reload `/clips/library` in a fresh context. Expected: `0` dialogs. Set the name
+back to `dev` before continuing.
 
 **Step 3: Verify save persists**
 
@@ -749,7 +861,9 @@ cd code/templates/clips && npx vitest run app/ actions/
 - [ ] `pnpm guard:i18n-catalogs` exits 0
 - [ ] `tsc` reports only the two pre-existing generated-file errors
 - [ ] Clips test suite passes
-- [ ] Welcome-back modal appears on `/clips/library` for a no-name user
+- [ ] Welcome-back modal appears on `/clips/library` when the name is the email
+      local part, pre-filled with that value
+- [ ] It does **not** appear once the name differs from the local part
 - [ ] Skip suppresses it for the rest of the browser session
 - [ ] Saving writes the name to the auth user row
 - [ ] Settings General tab no longer has a Profile card; Account tab still does
@@ -760,18 +874,28 @@ cd code/templates/clips && npx vitest run app/ actions/
 
 Call these out in the PR description; do not try to solve them here.
 
-1. **False positives.** A user genuinely named `tim` at `tim@…` is
-   indistinguishable from one who never set a name — signup writes exactly that
-   value, so no marker exists to tell them apart. They see the prompt once per
-   browser session until they interact with it. Accepted.
-2. **The disclaimer is currently true only for email.** The name reaches share
+1. **False positives on the returning surface only.** A user genuinely named
+   `tim` at `tim@…` is indistinguishable from one who never set a name — signup
+   writes exactly that value, so no marker exists to tell them apart. The
+   confirmation framing ("Is this the right username for you?", pre-filled with
+   `tim`) is written so that person can answer in one click rather than being
+   accused of having no name. The net-new surface has no such ambiguity: core
+   auth wires no social provider, so a fresh account's name is always the
+   derived local part.
+2. **Returning users whose profile resolves to the full email are never
+   prompted.** `matchesEmailLocalPart` deliberately excludes them, because a
+   confirm dialog pre-filled with `tim@builder.io` is not a username anyone
+   would accept. This only occurs when both the stored setting and the auth
+   user's name are blank — not reachable through the normal signup path. They
+   can still set a name in Settings.
+3. **The disclaimer is currently true only for email.** The name reaches share
    recipients as the sender name on notification emails
    (`server/jobs/transactional-emails.ts:410`). It does **not** yet appear on
    comments — `app/components/player/comments-panel.tsx:153` sends
    `authorName: null`, so comments fall back to the email local part. The copy
    in Task 2 says "may be visible", which is accurate today. Wiring the profile
    name into comment authorship is a separate change.
-3. **Net-new detection is a proxy.** `list-recordings --countOnly` with
+4. **Net-new detection is a proxy.** `list-recordings --countOnly` with
    `view: "library"` scopes to the current user's personal recordings in the
    active org (`actions/list-recordings.ts:159-171`). Someone who imports two
    Looms before their first native recording will get the returning-user copy.
