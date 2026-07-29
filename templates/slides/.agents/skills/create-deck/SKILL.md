@@ -15,8 +15,8 @@ description: How to create a new deck with slides from scratch. Read this before
    `get-workspace-defaults` and use what it returns. See "Workspace Defaults".
 3. Plan the slides (deck title, title slide, section dividers, content slides).
 4. Call `create-deck --title "..." --slides '[]'` with a concise, specific
-   title derived from the user's request. Never use `Untitled Deck` or another
-   placeholder title for a generated deck.
+   title derived from the user's request and source material. Never use
+   `Untitled Deck` or another placeholder title for a generated deck.
 5. Navigate to the new deck.
 6. Call `add-slide` once per slide in slide order, waiting for each result.
 

@@ -38,7 +38,7 @@ describe("new deck generation flow", () => {
 
   it("requires a generated title before the first slide", () => {
     const titleInstructionIndex = flow.indexOf(
-      "Before adding the first slide, choose a concise, specific deck title",
+      "After reading any requested or imported source material, but before adding the first slide",
     );
     const titlePatchIndex = flow.indexOf('"op": "patch-deck-fields"');
     const addSlideInstructionIndex = flow.indexOf(
