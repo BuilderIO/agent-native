@@ -890,6 +890,7 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     replyingTo: "正在回复",
     commentAt: "评论于",
     writeReply: "写回复...",
+    editComment: "编辑评论",
     commentButton: "评论",
     composerPlaceholder: "添加评论…",
     mentionSomeone: "提及某人",

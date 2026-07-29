@@ -938,6 +938,7 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     replyingTo: "返信先",
     commentAt: "コメント位置",
     writeReply: "返信を書く...",
+    editComment: "コメントを編集",
     commentButton: "コメント",
     composerPlaceholder: "コメントを追加…",
     mentionSomeone: "メンバーをメンション",

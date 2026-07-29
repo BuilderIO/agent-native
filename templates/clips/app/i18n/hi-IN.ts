@@ -919,6 +919,7 @@ Clips में उपयोगकर्ताओं को दिखने व�
     replyingTo: "जवाब दे रहे हैं",
     commentAt: "टिप्पणी करें",
     writeReply: "जवाब लिखें...",
+    editComment: "टिप्पणी संपादित करें",
     commentButton: "टिप्पणी",
     composerPlaceholder: "टिप्पणी जोड़ें…",
     mentionSomeone: "किसी का उल्लेख करें",

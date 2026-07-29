@@ -883,6 +883,7 @@ const messages = {
     replyingTo: "正在回覆",
     commentAt: "評論於",
     writeReply: "寫回覆...",
+    editComment: "編輯評論",
     commentButton: "留言",
     composerPlaceholder: "新增留言…",
     mentionSomeone: "提及某人",
