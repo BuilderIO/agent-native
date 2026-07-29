@@ -166,13 +166,35 @@ const AGENT_NATIVE_SENDER_DOMAIN = "agent-native.com";
  * EMAIL_FROM means we cannot prove the branded address is a verified sender,
  * so the deployment's own configuration is left untouched.
  */
+let warnedAppSenderSuppressed = false;
+
+/**
+ * Suppressing the branding is the correct outcome for a deployment we cannot
+ * prove owns the domain, but it must not be invisible: without this an
+ * operator sees generic senders and has nothing pointing at why.
+ */
+function warnAppSenderSuppressed(configuredAddress: string | undefined): void {
+  if (warnedAppSenderSuppressed) return;
+  warnedAppSenderSuppressed = true;
+  console.warn(
+    `[agent-native:email] Per-app sender branding is off because EMAIL_FROM ` +
+      `(${configuredAddress ?? "unset"}) is not on ${AGENT_NATIVE_SENDER_DOMAIN}. ` +
+      `Transactional email keeps the configured sender. Expected when self-hosting.`,
+  );
+}
+
 function resolveAppSender(
   configuredFrom: string | undefined,
   appSender: SendEmailArgs["appSender"],
 ): { address: string; name: string; replyTo?: string } | undefined {
-  if (!configuredFrom || !appSender) return undefined;
-  const address = parseSendGridFrom(configuredFrom).email.toLowerCase();
-  if (!address.endsWith(`@${AGENT_NATIVE_SENDER_DOMAIN}`)) return undefined;
+  if (!appSender) return undefined;
+  const address = configuredFrom
+    ? parseSendGridFrom(configuredFrom).email.toLowerCase()
+    : undefined;
+  if (!address?.endsWith(`@${AGENT_NATIVE_SENDER_DOMAIN}`)) {
+    warnAppSenderSuppressed(address);
+    return undefined;
+  }
   return {
     address: `${appSender.slug}@${AGENT_NATIVE_SENDER_DOMAIN}`,
     name: appSender.name,
