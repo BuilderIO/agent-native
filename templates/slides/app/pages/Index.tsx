@@ -445,6 +445,25 @@ export default function Index() {
     if (!deck) return;
     setNewDeckPromptOpen(false);
 
+    const persisted = await ensureDeckPersisted(deck.id);
+    if (!persisted) {
+      if (!savePromptForRetry(prompt)) {
+        setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
+      }
+      setNewDeckRetryFiles(filesForGeneration);
+      deleteDeck(deck.id);
+      toast.error(t("home.generationStartFailed"), {
+        description: t("home.generationStartFailedDescription"),
+      });
+      setShowNewDeckPrompt(true);
+      return;
+    }
+
+    clearPendingPromptForRetry();
+    setNewDeckInitialPrompt(null);
+    setNewDeckRetryFiles([]);
+    navigate(`/deck/${deck.id}`, { flushSync: true });
+
     // One quick, skippable decision so the agent doesn't guess the deck size.
     const deckLength = await askUserQuestion({
       question: t("home.deckLengthQuestion"),
@@ -532,28 +551,14 @@ export default function Index() {
       "Do NOT use create-deck (the deck already exists). Do NOT call db-schema, the resources tool, or search-files.",
     ].join("\n");
 
-    const persisted = await ensureDeckPersisted(deck.id);
-    if (!persisted) {
-      if (!savePromptForRetry(prompt)) {
-        setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
-      }
-      setNewDeckRetryFiles(filesForGeneration);
-      deleteDeck(deck.id);
-      toast.error(t("home.generationStartFailed"), {
-        description: t("home.generationStartFailedDescription"),
-      });
-      setShowNewDeckPrompt(true);
-      return;
-    }
-
-    clearPendingPromptForRetry();
-    setNewDeckInitialPrompt(null);
-    setNewDeckRetryFiles([]);
+    navigate(`/deck/${deck.id}?generating=1`, {
+      replace: true,
+      flushSync: true,
+    });
     agentSubmit(createDeckAgentMessage(trimmedPrompt), context, {
       newTab: true,
       openSidebar: true,
     });
-    navigate(`/deck/${deck.id}?generating=1`);
   };
 
   const handleConfirmDelete = () => {

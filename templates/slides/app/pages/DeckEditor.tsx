@@ -84,6 +84,8 @@ const Pinpoint = lazy<ComponentType<PinpointProps>>(() =>
   })),
 );
 
+type EditorSidePanel = "style" | "comments" | null;
+
 function MissingDeckAccessPane({
   hasTeamJoinOption,
   orgLoading,
@@ -174,9 +176,16 @@ export default function DeckEditor() {
   } = useDecks();
   const [activeSlideId, setActiveSlideId] = useState<string | null>(null);
   const { generating } = useAgentGenerating();
-  // Track new-deck-creation intent: set once on mount if ?generating=1.
-  // The editor reveals partial slides as soon as the first one lands.
+  // Generation intent can arrive after this route mounts because the user
+  // answers pre-generation questions from the empty editor.
   const wasNewDeckCreation = useRef(searchParams.get("generating") === "1");
+  const newDeckGenerationStarted = useRef(false);
+  if (searchParams.get("generating") === "1") {
+    wasNewDeckCreation.current = true;
+  }
+  if (wasNewDeckCreation.current && generating) {
+    newDeckGenerationStarted.current = true;
+  }
   const [sidebarOpen, setSidebarOpen] = useState(
     () => typeof window !== "undefined" && window.innerWidth >= 768,
   );
@@ -195,7 +204,7 @@ export default function DeckEditor() {
   const [logoSearchOpen, setLogoSearchOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const historyButtonRef = useRef<HTMLButtonElement>(null);
-  const [commentsOpen, setCommentsOpen] = useState(false);
+  const [sidePanel, setSidePanel] = useState<EditorSidePanel>(null);
   const [animationsOpen, setAnimationsOpen] = useState(false);
   const [tweaksOpen, setTweaksOpen] = useState(false);
   const [drawMode, setDrawMode] = useState(false);
@@ -241,9 +250,9 @@ export default function DeckEditor() {
     isNewDeckCreation: wasNewDeckCreation.current,
     slideCount,
   });
-  const { designSystem, designSystemTitle } = useDeckDesignSystem(
-    deck?.designSystemId,
-  );
+  const { designSystem } = useDeckDesignSystem(deck?.designSystemId);
+  const commentsOpen = sidePanel === "comments";
+  const styleOpen = sidePanel === "style";
 
   const {
     questions: questionFlowQuestions,
@@ -293,7 +302,13 @@ export default function DeckEditor() {
   // Clean up the generating URL param/ref when generation completes or when
   // the first slide lands, so partial progress is visible during long decks.
   useEffect(() => {
-    if (!shouldClearNewDeckGeneratingState({ generating, slideCount })) {
+    if (
+      !shouldClearNewDeckGeneratingState({
+        generating,
+        generationStarted: newDeckGenerationStarted.current,
+        slideCount,
+      })
+    ) {
       return;
     }
     wasNewDeckCreation.current = false;
@@ -839,7 +854,13 @@ export default function DeckEditor() {
         agentPresent={agentPresent}
         agentActive={agentActive}
         commentsOpen={commentsOpen}
-        onToggleComments={() => setCommentsOpen((o) => !o)}
+        onToggleComments={() =>
+          setSidePanel((panel) => (panel === "comments" ? null : "comments"))
+        }
+        styleOpen={styleOpen}
+        onToggleStyle={() =>
+          setSidePanel((panel) => (panel === "style" ? null : "style"))
+        }
         unresolvedCommentCount={unresolvedCommentCount}
         currentUserEmail={session?.email}
         animationsOpen={animationsOpen}
@@ -898,7 +919,6 @@ export default function DeckEditor() {
           return exportDeckToGoogleSlides(deck.title, slides, deck.aspectRatio);
         }}
         aspectRatio={deck.aspectRatio}
-        designSystemTitle={designSystemTitle}
         onSetAspectRatio={(ratio: AspectRatio) => {
           const previous = deck.aspectRatio;
           // Optimistic UI: update local cache immediately so canvas resizes.
@@ -1023,17 +1043,22 @@ export default function DeckEditor() {
               slideIndex={currentIndex >= 0 ? currentIndex : 0}
               slideCount={deck.slides.length}
               designSystem={designSystem}
+              stylePanelOpen={styleOpen}
+              onCloseStylePanel={() => setSidePanel(null)}
               aspectRatio={deck.aspectRatio}
               collabUser={
                 currentUser
                   ? { name: currentUser.name, color: currentUser.color }
                   : undefined
               }
-              agentActive={agentActive}
+              agentActive={
+                slideAgentActive ||
+                (deckAgentActive && agentSlideId === currentSlide.id)
+              }
               recentEdits={deckRecentEdits}
               onComment={(quotedText) => {
                 setPendingComment({ quotedText });
-                setCommentsOpen(true);
+                setSidePanel("comments");
               }}
               drawMode={drawMode}
               onExitDrawMode={() => setDrawMode(false)}
@@ -1062,7 +1087,7 @@ export default function DeckEditor() {
             pendingComment={pendingComment}
             onPendingDone={() => setPendingComment(null)}
             onClose={() => {
-              setCommentsOpen(false);
+              setSidePanel(null);
               setPendingComment(null);
             }}
           />

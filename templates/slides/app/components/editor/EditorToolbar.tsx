@@ -105,6 +105,10 @@ interface EditorToolbarProps {
   commentsOpen?: boolean;
   /** Toggle the comments panel */
   onToggleComments?: () => void;
+  /** Whether the style panel is open */
+  styleOpen?: boolean;
+  /** Toggle the style panel */
+  onToggleStyle?: () => void;
   /** Number of unresolved comments on the current slide */
   unresolvedCommentCount?: number;
   /** Current user email for avatar display */
@@ -141,8 +145,6 @@ interface EditorToolbarProps {
   aspectRatio?: AspectRatio;
   /** Change the deck's aspect ratio */
   onSetAspectRatio?: (ratio: AspectRatio) => void;
-  /** Title of the design system linked to this deck, if any */
-  designSystemTitle?: string | null;
 }
 
 const slideLayoutOptions: { value: SlideLayout; labelKey: string }[] = [
@@ -255,6 +257,8 @@ export default function EditorToolbar({
   agentActive,
   commentsOpen,
   onToggleComments,
+  styleOpen,
+  onToggleStyle,
   unresolvedCommentCount = 0,
   currentUserEmail,
   animationsOpen,
@@ -273,7 +277,6 @@ export default function EditorToolbar({
   onExportGoogleSlides,
   aspectRatio,
   onSetAspectRatio,
-  designSystemTitle,
   canEdit = true,
 }: EditorToolbarProps) {
   const t = useT();
@@ -461,26 +464,6 @@ export default function EditorToolbar({
       <span className="text-xs text-muted-foreground/70 flex-shrink-0 hidden sm:inline">
         {currentSlideIndex + 1}/{slideCount}
       </span>
-
-      {deck.designSystemId && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <div className="hidden max-w-[180px] items-center gap-1.5 rounded-md border border-border bg-accent/35 px-2 py-1 text-xs text-muted-foreground sm:flex">
-              <IconPalette className="h-3.5 w-3.5 shrink-0 text-[#609FF8]" />
-              <span className="truncate">
-                {designSystemTitle || t("editorToolbar.designSystem")}
-              </span>
-            </div>
-          </TooltipTrigger>
-          <TooltipContent>
-            {designSystemTitle
-              ? t("editorToolbar.usingDesignSystem", {
-                  title: designSystemTitle,
-                })
-              : t("editorToolbar.usingLinkedDesignSystem")}
-          </TooltipContent>
-        </Tooltip>
-      )}
 
       {/* Spacer */}
       <div className="flex-1 min-w-2" />
@@ -968,6 +951,26 @@ graph TD
         currentUserEmail={currentUserEmail}
         className="flex-shrink-0 mr-0.5"
       />
+
+      {/* Style toggle */}
+      {canEdit && onToggleStyle && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={onToggleStyle}
+              className={`relative flex-shrink-0 rounded-md p-2.5 transition-colors sm:p-1.5 ${
+                styleOpen
+                  ? "bg-accent text-foreground"
+                  : "text-muted-foreground hover:bg-accent hover:text-foreground/70"
+              }`}
+              aria-label={t("styleInspector.title")}
+            >
+              <IconPalette className="h-3.5 w-3.5" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>{t("styleInspector.title")}</TooltipContent>
+        </Tooltip>
+      )}
 
       {/* Comments toggle */}
       {onToggleComments && (
