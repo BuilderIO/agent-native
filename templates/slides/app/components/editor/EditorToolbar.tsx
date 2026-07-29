@@ -335,7 +335,7 @@ export default function EditorToolbar({
   // The secondary tools share an "active when something is on" indicator so
   // the dot on the consolidated button reflects any of them.
   const anyToolActive = Boolean(
-    animationsOpen || tweaksOpen || drawMode || pinMode || textBoxMode,
+    animationsOpen || tweaksOpen || drawMode || pinMode,
   );
 
   const closeAll = () => {
@@ -754,6 +754,31 @@ graph TD
         </>
       )}
 
+      {canEdit && onToggleTextBoxMode && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={onToggleTextBoxMode}
+              data-toolbar-textbox-button
+              aria-label={t("editorToolbar.addTextBox")}
+              aria-pressed={textBoxMode}
+              aria-keyshortcuts="T"
+              className={`flex-shrink-0 rounded p-1.5 ${
+                textBoxMode
+                  ? "bg-accent text-foreground"
+                  : "text-muted-foreground hover:bg-accent hover:text-foreground/70"
+              }`}
+            >
+              <IconLetterT className="size-4" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>
+            {t("editorToolbar.addTextBox")} (T)
+          </TooltipContent>
+        </Tooltip>
+      )}
+
       {/* Slide tools palette — animations, tweaks, draw, comment-pin all live
        * inside one popover so the toolbar doesn't drown in icons. Hidden in
        * view-only mode since none of these affordances apply. */}
@@ -761,8 +786,7 @@ graph TD
         (onToggleAnimations ||
           onToggleTweaks ||
           onToggleDrawMode ||
-          onTogglePinMode ||
-          onToggleTextBoxMode) && (
+          onTogglePinMode) && (
           <DropdownMenu
             open={toolsOpen}
             onOpenChange={(open) => {
@@ -840,20 +864,6 @@ graph TD
                   >
                     <IconPin className="size-4" />
                     {t("editorToolbar.pinComments")}
-                  </DropdownMenuItem>
-                )}
-                {onToggleTextBoxMode && (
-                  <DropdownMenuItem
-                    onSelect={onToggleTextBoxMode}
-                    data-toolbar-textbox-button
-                    className={
-                      textBoxMode
-                        ? "bg-accent text-accent-foreground"
-                        : undefined
-                    }
-                  >
-                    <IconLetterT className="size-4" />
-                    {t("editorToolbar.addTextBox")}
                   </DropdownMenuItem>
                 )}
               </DropdownMenuGroup>
