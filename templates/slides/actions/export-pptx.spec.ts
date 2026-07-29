@@ -18,7 +18,10 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 
 vi.mock("../server/db/index.js", () => ({}));
 
-import { fetchImageAsBase64 } from "./export-pptx";
+import {
+  assertServerPptxExportable,
+  fetchImageAsBase64,
+} from "./export-pptx";
 
 describe("fetchImageAsBase64", () => {
   beforeEach(() => {
@@ -62,5 +65,32 @@ describe("fetchImageAsBase64", () => {
     await expect(
       fetchImageAsBase64("http://127.0.0.1/image.png"),
     ).resolves.toBe(null);
+  });
+});
+
+describe("assertServerPptxExportable", () => {
+  it("allows normal-flow slide HTML", () => {
+    expect(() =>
+      assertServerPptxExportable(
+        '<div class="fmd-slide"><h1>Title</h1></div>',
+        1,
+      ),
+    ).not.toThrow();
+  });
+
+  it("fails loudly instead of reflowing freeform objects", () => {
+    expect(() =>
+      assertServerPptxExportable(
+        `<div class="fmd-slide">
+          <div
+            data-slide-object-id="freeform-1"
+            style="position: absolute; left: 120px; top: 80px"
+          >Text</div>
+        </div>`,
+        3,
+      ),
+    ).toThrowError(
+      /Slide 3 contains freeform positioned objects.*Export > PowerPoint.*stopped instead of silently reflowing/s,
+    );
   });
 });

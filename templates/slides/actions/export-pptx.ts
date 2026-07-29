@@ -108,6 +108,22 @@ interface ImageElement {
   h: number;
 }
 
+export function assertServerPptxExportable(
+  html: string,
+  slideNumber: number,
+): void {
+  const hasPersistedFreeformObject = /\bdata-slide-object-id\s*=/i.test(html);
+  const hasAbsolutePositioning =
+    /\bstyle\s*=\s*["'][^"']*\bposition\s*:\s*absolute\b/i.test(html);
+  if (!hasPersistedFreeformObject && !hasAbsolutePositioning) return;
+
+  const error = new Error(
+    `Slide ${slideNumber} contains freeform positioned objects. Export this deck from the Slides editor with Export > PowerPoint so browser-rendered geometry is preserved. The server export stopped instead of silently reflowing those objects.`,
+  );
+  error.name = "UnsupportedPositionedSlideExportError";
+  throw error;
+}
+
 /**
  * Parse slide HTML and extract text/image elements with positioning.
  * We know the exact HTML structure from the slide templates.
@@ -382,12 +398,13 @@ export default defineAction({
     pptx.author = "Agent Native Slides";
     pptx.title = row.title;
 
-    for (const slide of slides) {
+    for (const [slideIndex, slide] of slides.entries()) {
       const pptxSlide = pptx.addSlide();
       const slideContent =
         slide && typeof slide === "object" && typeof slide.content === "string"
           ? slide.content
           : "";
+      assertServerPptxExportable(slideContent, slideIndex + 1);
       const { texts, images, bgColor } = parseSlideHtml(
         slideContent,
         aspectRatio,

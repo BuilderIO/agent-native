@@ -27,6 +27,12 @@ ladder.
   current layout is unclear.
 - Preserve deck structure and visual consistency. Prefer focused slide edits over
   regenerating whole decks unless requested.
+- Preserve manual freeform objects and their stable `data-slide-object-id`
+  values during targeted edits or regeneration. Freeform objects are
+  absolutely positioned children of `.fmd-slide`; keep generated flex/grid
+  layout in normal flow and mint a new object id only for a duplicate.
+- Build editable shapes from styled HTML elements such as `div`, not inline
+  SVG. The slide sanitizer intentionally removes inline SVG markup.
 - Follow linked design-system tokens and custom instructions.
 - Build reusable design systems from Figma, code, GitHub, or `design.md` via
   Builder-backed DSI indexing, never a duplicate local copy. Read
@@ -88,6 +94,10 @@ extending the editor's save path, enqueue a granular op (`patch-slide`,
 - Browser PowerPoint export uses the rendered slide DOM to generate native,
   editable PPTX text/shapes/images. Do not replace it with full-slide images
   unless the user explicitly asks for non-editable visual snapshots.
+- The server-side `export-pptx` action cannot measure browser-rendered
+  freeform geometry. It must fail clearly for positioned objects and direct the
+  user to the editor's Export > PowerPoint path instead of silently reflowing
+  them.
 - Google Slides export is a PPTX import workflow: generate the same editable
   PPTX and have the user import it into Google Slides. Creating a native Google
   Slides file directly requires a separate Google Slides API batchUpdate path.

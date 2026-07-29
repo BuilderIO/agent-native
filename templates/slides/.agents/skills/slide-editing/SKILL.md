@@ -78,6 +78,8 @@ children of `.fmd-slide`. Give each one a stable `data-slide-object-id`:
 - Keep generated flex and grid content in normal flow. Do not silently
   absolute-position a nested layout child just to make it draggable; create a
   deliberate freeform object instead.
+- Build editable shapes with styled HTML elements such as `div`. Do not use
+  inline SVG, which the slide sanitizer removes.
 
 ## Image Placeholders
 
