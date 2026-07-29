@@ -40,6 +40,26 @@ Do not call `create-design-system` locally from `.fig` uploads. Do not call
 `import-document` for `.fig` files; it only handles metadata and will miss the
 Builder indexing flow.
 
+### Source: connected code, GitHub, or `design.md`
+
+For any other reusable source — connected code, a GitHub repo, local
+code/design files, or an optional `design.md` — use Builder-backed DSI
+indexing through `index-design-system-with-builder`. Pass readable `design.md`
+content as `designMd`, and use the returned local design system id in the rest
+of the Slides flow. Call `get-design-system` before generation so Builder docs
+and tokens are hydrated when available.
+
+Never create a duplicate local design system from raw Figma or code sources.
+Builder owns the indexed brand kit; a second local copy drifts from it and
+nothing records which one a deck was actually built from.
+
+### Source: workspace default
+
+A workspace admin can flag one design system as the workspace default, used by
+members who have not set their own. `create-deck` resolves it server-side, so
+call `get-workspace-defaults` only to name it or answer what the default is.
+See the `create-deck` skill.
+
 ## Deleting a Design System
 
 `delete-design-system` requires admin access or higher (owner or admin share
