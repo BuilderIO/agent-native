@@ -150,6 +150,18 @@ describe("Content impact applicability", () => {
     assert(directContentEvidence("templates/content/docs/product/roadmap.md"));
     assert(directContentEvidence("templates/content/parity/contract.test.ts"));
     assert(directContentEvidence("templates/content/vite.config.ts"));
+    assert(directContentEvidence("templates/content/tsconfig.json"));
+    assert(directContentEvidence("templates/content/vitest.config.ts"));
+    assert(directContentEvidence("templates/content/drizzle/0001_example.sql"));
+    assert(directContentEvidence("templates/content/public/example.svg"));
+    assert.equal(
+      directContentEvidence("templates/content/README.md"),
+      undefined,
+    );
+    assert.equal(
+      directContentEvidence("templates/content/.oxfmtrc.json"),
+      undefined,
+    );
     assert.equal(
       directContentEvidence("scripts/validate-content-product-impact.ts"),
       undefined,
@@ -501,6 +513,26 @@ describe("Content impact CLI boundary", () => {
     const missingResult = runCli(missingCatalog);
     assert.notEqual(missingResult.status, 0);
     assert.match(missingResult.stderr, /readable Content product records/);
+
+    const nestedCatalog = createCliRepository(
+      "nested-catalog-cli",
+      (root) => {
+        const productRoot = path.join(root, "templates/content/docs/product");
+        for (const directory of ["chapters", "features", "capabilities"]) {
+          rmSync(path.join(productRoot, directory), {
+            recursive: true,
+            force: true,
+          });
+        }
+        const archive = path.join(productRoot, "archive/capabilities");
+        mkdirSync(archive, { recursive: true });
+        writeFileSync(path.join(archive, "note.md"), "# Not a record\n");
+      },
+      "",
+    );
+    const nestedResult = runCli(nestedCatalog);
+    assert.notEqual(nestedResult.status, 0);
+    assert.match(nestedResult.stderr, /readable Content product records/);
 
     const invalidBase = createCliRepository(
       "invalid-base-cli",

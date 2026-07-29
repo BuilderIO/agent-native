@@ -250,14 +250,15 @@ export function parseContentImpactDeclaration(body: string): DeclarationResult {
     : { status: "malformed", errors: result.errors };
 }
 
-const CONTENT_ROOT_CONFIG = new Set([
-  "templates/content/agent-native.app-skill.json",
-  "templates/content/drizzle.config.ts",
-  "templates/content/netlify.toml",
-  "templates/content/package.json",
-  "templates/content/react-router.config.ts",
-  "templates/content/ssr-entry.ts",
-  "templates/content/vite.config.ts",
+const CONTENT_ROOT_EXCLUSIONS = new Set([
+  "templates/content/.dockerignore",
+  "templates/content/.gitignore",
+  "templates/content/.ignore",
+  "templates/content/.oxfmtrc.json",
+  "templates/content/CHANGELOG.md",
+  "templates/content/DEVELOPING.md",
+  "templates/content/README.md",
+  "templates/content/_gitignore",
 ]);
 
 export function directContentEvidence(file: string): string | undefined {
@@ -267,8 +268,11 @@ export function directContentEvidence(file: string): string | undefined {
     "templates/content/app/",
     "templates/content/data/",
     "templates/content/docs/product/",
+    "templates/content/drizzle/",
     "templates/content/e2e/",
     "templates/content/parity/",
+    "templates/content/public/",
+    "templates/content/scripts/",
     "templates/content/server/",
     "templates/content/shared/",
     "templates/content/.agents/skills/content-product-development/",
@@ -278,7 +282,10 @@ export function directContentEvidence(file: string): string | undefined {
   if (prefixes.some((prefix) => normalized.startsWith(prefix))) {
     return normalized;
   }
-  if (CONTENT_ROOT_CONFIG.has(normalized)) {
+  if (
+    /^templates\/content\/[^/]+$/.test(normalized) &&
+    !CONTENT_ROOT_EXCLUSIONS.has(normalized)
+  ) {
     return normalized;
   }
   if (
@@ -549,7 +556,9 @@ function materializeContentProductSnapshot(
   const productRecordFiles = files.filter(
     (file) =>
       file.endsWith(".md") &&
-      /\/(?:chapters|features|capabilities)\//.test(file),
+      new RegExp(
+        `^${PRODUCT_ROOT}/(?:chapters|features|capabilities)/[^/]+\\.md$`,
+      ).test(file),
   );
   if (productRecordFiles.length === 0) {
     throw new Error(`${sha} does not contain readable Content product records`);
