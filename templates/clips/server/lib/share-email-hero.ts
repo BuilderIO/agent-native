@@ -1,7 +1,9 @@
 import {
+  emailLink,
   getAppProductionUrl,
   withConfiguredAppBasePath,
 } from "@agent-native/core/server";
+import type { ShareEmailExtras } from "@agent-native/core/sharing";
 
 /**
  * Origin plus the configured mount path. Deployments served under
@@ -50,6 +52,37 @@ function isHttpUrl(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Clips-specific body for the share-notification email: the AI companion CTA,
+ * the copyable agent link, and the closing note that routes replies to the
+ * person who shared the clip.
+ */
+export function recordingShareEmailExtras(ctx: {
+  href: string;
+  senderEmail: string;
+}): ShareEmailExtras {
+  const summarizeUrl = new URL(ctx.href);
+  summarizeUrl.searchParams.set("panel", "agent");
+  return {
+    // The heading already says who shared what, so the clip thumbnail follows
+    // it directly.
+    paragraphs: [],
+    secondaryCta: { label: "Summarize with AI", url: summarizeUrl.toString() },
+    linkBlock: {
+      intro: "Copy and paste this link for your own AI agent to summarize:",
+      url: ctx.href,
+      placement: "after-cta",
+    },
+    closingParagraphs: [
+      "Clips is a 100% free, open-source, Agent-Native app for sharing screengrabs with friends and colleagues. No download required.",
+      `Just reply to this email if you want to get back to ${emailLink(
+        ctx.senderEmail,
+        `mailto:${ctx.senderEmail}`,
+      )} directly.`,
+    ],
+  };
 }
 
 export type ShareHeroRecording = {

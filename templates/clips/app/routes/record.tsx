@@ -93,6 +93,7 @@ async function writeAppState(key: string, value: unknown): Promise<void> {
 }
 
 import {
+  BUG_REPORT_POPUP_RESPONSE_HEADERS,
   bugReportTitle,
   parseBugReportContext,
   type BugReportContext,
@@ -129,6 +130,7 @@ export function headers() {
   return {
     "Permissions-Policy":
       "camera=(self), microphone=(self), display-capture=(self), geolocation=(), screen-wake-lock=()",
+    ...BUG_REPORT_POPUP_RESPONSE_HEADERS,
   };
 }
 

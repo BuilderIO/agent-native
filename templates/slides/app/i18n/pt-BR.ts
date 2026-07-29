@@ -162,6 +162,13 @@ const messages = {
   designSystems: {
     new: "Novo sistema de design",
     setupBrand: "Configure sua marca",
+    delete: "Excluir",
+    cancel: "Cancelar",
+    moreActions: "Mais ações",
+    deleteDialogTitle: "Excluir sistema de design?",
+    deleteDialogDescription:
+      "Isso exclui o sistema de design permanentemente. Os decks que o usam mantêm a aparência atual, mas deixam de estar vinculados a ele.",
+    deleteError: "Falha ao excluir o sistema de design",
     emptyTitle: "Configure sua identidade de marca",
     emptyDescription:
       "Crie um sistema de design com as cores, tipografia e logotipos da sua marca. Cada novo deck seguirá sua identidade visual.",

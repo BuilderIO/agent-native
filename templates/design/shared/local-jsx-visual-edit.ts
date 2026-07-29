@@ -1,8 +1,16 @@
+import type { SourcePositionPrecision } from "./source-mode.js";
 import { previewSourceDiff } from "./source-workspace.js";
 
 export interface LocalJsxSourceAnchor {
   line: number;
   column: number;
+  /**
+   * Whether line/column are authored coordinates. A "transformed" anchor is a
+   * position in the dev server's output (React 19's only tier), so seeking to
+   * it in the authored file lands on an unrelated line — usually no JSX at all,
+   * but occasionally the wrong element, which would edit silently.
+   */
+  positionPrecision?: SourcePositionPrecision;
   runtimeMultiplicity?: number;
   scope?:
     | "single-instance"
@@ -195,6 +203,13 @@ export function planLocalJsxVisualEdit(args: {
   intent: LocalJsxLeafIntent;
 }): LocalJsxVisualEditResult {
   const { content, anchor, intent } = args;
+  if (anchor.positionPrecision === "transformed") {
+    return fail(
+      content,
+      "needsAgent",
+      "The source anchor's line and column are the dev server's transformed coordinates (React 19 exposes no authored position), so they cannot be seeked in the authored file.",
+    );
+  }
   if (
     (anchor.runtimeMultiplicity ?? 1) !== 1 ||
     anchor.scope === "repeated-render" ||

@@ -125,6 +125,7 @@ import {
   getLoopLimitMetadata,
   getRunErrorMetadata,
   getRequestModeMetadata,
+  runErrorKey,
   type BuilderSetupCardLayout,
   type LoopLimitInfo,
   type RunErrorInfo,
@@ -5118,7 +5119,6 @@ const AssistantChatInner = forwardRef<
     () => ({ apiUrl, devMode: cpDevMode, threadId, checkpointRunIds }),
     [apiUrl, cpDevMode, threadId, checkpointRunIds],
   );
-  const messageActionsCtx = useMemo(() => ({ onForkChat }), [onForkChat]);
   const lastMessageLoopLimit = useMemo(() => {
     const last = messages[messages.length - 1];
     if (!last || last.role !== "assistant") return null;
@@ -5133,6 +5133,20 @@ const AssistantChatInner = forwardRef<
     () => latestNonRecoveryUserMessageText(messages),
     [messages],
   );
+  const retryAfterRunError = useCallback(() => {
+    setRunErrorInfo(null);
+    addToQueue(
+      lastUserText
+        ? `Retry the previous request from a clean approach. Do not rerun the exact same failed tool input unless the failure was transient or the user explicitly asked for an exact rerun. If a provider query failed because of schema, syntax, or type mismatch, diagnose the error and adjust the query first.\n\nOriginal request:\n\n${lastUserText}`
+        : "Retry the previous request from a clean approach. Do not rerun the exact same failed tool input unless the failure was transient or the user explicitly asked for an exact rerun. If a provider query failed because of schema, syntax, or type mismatch, diagnose the error and adjust the query first.",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "queued",
+      "retry",
+    );
+  }, [addToQueue, lastUserText]);
   const latestMessageRole = latestMessage?.role;
   const latestAssistantWasPlan =
     latestMessageRole === "assistant" &&
@@ -5166,7 +5180,7 @@ const AssistantChatInner = forwardRef<
     : lastMessageLoopLimit;
   const visibleRunError = runErrorInfo ?? lastMessageRunError;
   const visibleRunErrorKey = visibleRunError
-    ? `${visibleRunError.runId ?? ""}:${visibleRunError.errorCode ?? ""}:${visibleRunError.message}`
+    ? runErrorKey(visibleRunError)
     : null;
   const shouldShowRunError =
     !!visibleRunError &&
@@ -5179,6 +5193,16 @@ const AssistantChatInner = forwardRef<
         !visibleRunError.runId ||
         userStoppedRunRef.current.runId === visibleRunError.runId)
     );
+  // The banner covers one run; every failed turn it does not cover keeps its own
+  // inline marker, so a failure stays visible after the next prompt.
+  const messageActionsCtx = useMemo(
+    () => ({
+      onForkChat,
+      onRetryRunError: retryAfterRunError,
+      bannerRunErrorKey: shouldShowRunError ? visibleRunErrorKey : null,
+    }),
+    [onForkChat, retryAfterRunError, shouldShowRunError, visibleRunErrorKey],
+  );
   const hasActiveChatWork =
     showRunningInUI ||
     isAutoResuming ||
@@ -5549,20 +5573,7 @@ const AssistantChatInner = forwardRef<
                                         "continue",
                                       );
                                     }}
-                                    onRetry={() => {
-                                      setRunErrorInfo(null);
-                                      addToQueue(
-                                        lastUserText
-                                          ? `Retry the previous request from a clean approach. Do not rerun the exact same failed tool input unless the failure was transient or the user explicitly asked for an exact rerun. If a provider query failed because of schema, syntax, or type mismatch, diagnose the error and adjust the query first.\n\nOriginal request:\n\n${lastUserText}`
-                                          : "Retry the previous request from a clean approach. Do not rerun the exact same failed tool input unless the failure was transient or the user explicitly asked for an exact rerun. If a provider query failed because of schema, syntax, or type mismatch, diagnose the error and adjust the query first.",
-                                        undefined,
-                                        undefined,
-                                        undefined,
-                                        undefined,
-                                        "queued",
-                                        "retry",
-                                      );
-                                    }}
+                                    onRetry={retryAfterRunError}
                                     onFork={onForkChat}
                                     onDismiss={() => {
                                       if (visibleRunErrorKey) {

@@ -429,9 +429,12 @@ describe("Design HTML structural integrity", () => {
     const build = (count: number) =>
       `<!doctype html><html><head><meta charset="UTF-8"></head><body>${"<style>.a{color:red}</style><script>var a=1</script>".repeat(count)}</body></html>`;
     const time = (html: string) => {
-      const start = performance.now();
-      expect(inspectDesignHtmlDocumentIntegrity(html).valid).toBe(true);
-      return performance.now() - start;
+      const samples = Array.from({ length: 5 }, () => {
+        const start = performance.now();
+        expect(inspectDesignHtmlDocumentIntegrity(html).valid).toBe(true);
+        return performance.now() - start;
+      });
+      return Math.min(...samples);
     };
     time(build(400));
     const small = time(build(800));
@@ -445,9 +448,12 @@ describe("Design HTML structural integrity", () => {
     const build = (count: number) =>
       `<!doctype html><html><head><meta charset="UTF-8"></head><body>${"<div>x</div>".repeat(count)}</body></html>`;
     const time = (html: string) => {
-      const start = performance.now();
-      expect(inspectDesignHtmlDocumentIntegrity(html).valid).toBe(true);
-      return performance.now() - start;
+      const samples = Array.from({ length: 5 }, () => {
+        const start = performance.now();
+        expect(inspectDesignHtmlDocumentIntegrity(html).valid).toBe(true);
+        return performance.now() - start;
+      });
+      return Math.min(...samples);
     };
     time(build(1000));
     const small = time(build(2000));

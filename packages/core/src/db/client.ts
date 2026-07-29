@@ -335,6 +335,20 @@ export function safeJsonParse<T>(value: unknown, fallback: T): T {
  * Used during WAL initialization and migrations where a stale WAL from a
  * previous crash or HMR restart can briefly lock the database.
  */
+export function isSqliteBusyError(error: unknown): boolean {
+  const candidate = error as { code?: unknown; message?: unknown };
+  const code = typeof candidate?.code === "string" ? candidate.code : "";
+  const message =
+    typeof candidate?.message === "string"
+      ? candidate.message
+      : String(error ?? "");
+  return (
+    code === "SQLITE_BUSY" ||
+    code.startsWith("SQLITE_BUSY_") ||
+    /database is locked|SQLITE_BUSY/i.test(message)
+  );
+}
+
 export async function retrySqliteBusy<T>(
   fn: () => Promise<T>,
   opts: { maxAttempts?: number; baseDelayMs?: number; rethrow?: boolean } = {},
@@ -344,10 +358,9 @@ export async function retrySqliteBusy<T>(
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
       return await fn();
-    } catch (e: any) {
+    } catch (e) {
       last = e;
-      const msg = String(e?.message || e);
-      if (msg.includes("SQLITE_BUSY") && attempt < maxAttempts - 1) {
+      if (isSqliteBusyError(e) && attempt < maxAttempts - 1) {
         await new Promise((r) => setTimeout(r, baseDelayMs * (attempt + 1)));
       } else {
         break;
@@ -1588,7 +1601,18 @@ async function createDbExecInternal(
     const { default: Database } = await import("better-sqlite3");
     const sqlite = new Database(sqliteFilenameFromUrl(url));
     sqlite.pragma("busy_timeout = 10000");
-    sqlite.pragma("journal_mode = WAL");
+    try {
+      // Vite can start a replacement Nitro runtime while the previous instance
+      // is still releasing app.db. The 10s busy_timeout can expire during that
+      // handoff, so retry the idempotent WAL negotiation before declaring the
+      // whole auth/database bootstrap failed.
+      await retrySqliteBusy(async () => sqlite.pragma("journal_mode = WAL"), {
+        rethrow: true,
+      });
+    } catch (error) {
+      sqlite.close();
+      throw error;
+    }
     if (trackSingletonResources) _sqlite = sqlite;
     const execute: DbExec["execute"] = async (sql) => {
       const { rawSql, args } = sqlAndArgs(sql);

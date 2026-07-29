@@ -812,11 +812,14 @@ function DatabaseTable({
   const isLoadingMoreItems =
     database.isFetching && data?.pagination?.limit !== databaseRequestItemLimit;
   const databaseId = data?.database.id ?? expectedDatabaseId;
+  const personalViewDatabaseId = data?.database.id ?? null;
   const newDatabaseRowLabel = isWorkspaceCatalog
     ? t("sidebar.addWorkspace")
     : dbText("newPage");
-  const personalView = useContentDatabasePersonalView(databaseId);
-  const updatePersonalView = useUpdateContentDatabasePersonalView(databaseId);
+  const personalView = useContentDatabasePersonalView(personalViewDatabaseId);
+  const updatePersonalView = useUpdateContentDatabasePersonalView(
+    personalViewDatabaseId,
+  );
   const source = data?.source ?? null;
   const sources = useMemo(
     () => databaseAttachedSources(data?.sources, source),

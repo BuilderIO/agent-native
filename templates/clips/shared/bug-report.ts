@@ -1,4 +1,7 @@
 export const BUG_REPORT_QUERY_FLAG = "bugReport";
+export const BUG_REPORT_SUBMITTED_MESSAGE_TYPE =
+  "agent-native.clips.bug-report.submitted";
+export const BUG_REPORT_AGENT_ACCESS_TTL_SECONDS = 7 * 24 * 60 * 60;
 
 export const BUG_REPORT_SEVERITIES = [
   "low",
@@ -24,6 +27,27 @@ export interface BugReportContext {
   metadata: Record<string, unknown> | null;
   returnUrl: string | null;
 }
+
+export interface BugReportSubmissionMessage {
+  type: typeof BUG_REPORT_SUBMITTED_MESSAGE_TYPE;
+  recordingId: string;
+  recordingUrl: string;
+  embedUrl: string;
+  agentShareUrl: string | null;
+  agentContextUrl: string | null;
+  agentAccessExpiresAt: string | null;
+  agentAccessStatus: "ready" | "unavailable";
+}
+
+export interface BugReportAgentLink {
+  url?: string | null;
+  contextUrl?: string | null;
+  expiresAt?: string | null;
+}
+
+export const BUG_REPORT_POPUP_RESPONSE_HEADERS = {
+  "Cross-Origin-Opener-Policy": "unsafe-none",
+} as const;
 
 const PARAMS = {
   projectId: "projectId",
@@ -157,5 +181,80 @@ export function bugReportContextToSearchParams(
 export function bugReportTitle(context: BugReportContext | null): string {
   return (
     context?.title || context?.pageTitle || context?.sourceUrl || "Bug report"
+  );
+}
+
+function nonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+export function createBugReportSubmissionMessage(input: {
+  recordingId: string;
+  recordingUrl: string;
+  embedUrl: string;
+  agentLink: BugReportAgentLink | null;
+}): BugReportSubmissionMessage {
+  const agentShareUrl = nonEmptyString(input.agentLink?.url)
+    ? input.agentLink.url
+    : null;
+  const agentContextUrl = nonEmptyString(input.agentLink?.contextUrl)
+    ? input.agentLink.contextUrl
+    : null;
+  const agentAccessExpiresAt = nonEmptyString(input.agentLink?.expiresAt)
+    ? input.agentLink.expiresAt
+    : null;
+  const agentAccessReady =
+    agentShareUrl !== null &&
+    agentContextUrl !== null &&
+    agentAccessExpiresAt !== null;
+
+  return {
+    type: BUG_REPORT_SUBMITTED_MESSAGE_TYPE,
+    recordingId: input.recordingId,
+    recordingUrl: input.recordingUrl,
+    embedUrl: input.embedUrl,
+    agentShareUrl: agentAccessReady ? agentShareUrl : null,
+    agentContextUrl: agentAccessReady ? agentContextUrl : null,
+    agentAccessExpiresAt: agentAccessReady ? agentAccessExpiresAt : null,
+    agentAccessStatus: agentAccessReady ? "ready" : "unavailable",
+  };
+}
+
+export function bugReportSubmissionTargetOrigins(
+  clipsOrigin: string,
+  returnUrl: string | null,
+): string[] {
+  let returnOrigin: string | null = null;
+  if (returnUrl) {
+    try {
+      const parsed = new URL(returnUrl);
+      returnOrigin = parsed.origin === "null" ? null : parsed.origin;
+    } catch {
+      returnOrigin = null;
+    }
+  }
+  return [...new Set([clipsOrigin, returnOrigin].filter(nonEmptyString))];
+}
+
+export function isBugReportSubmissionMessage(
+  value: unknown,
+): value is BugReportSubmissionMessage {
+  if (!value || typeof value !== "object") return false;
+  const message = value as Record<string, unknown>;
+  const validAgentAccess =
+    (message.agentAccessStatus === "ready" &&
+      nonEmptyString(message.agentShareUrl) &&
+      nonEmptyString(message.agentContextUrl) &&
+      nonEmptyString(message.agentAccessExpiresAt)) ||
+    (message.agentAccessStatus === "unavailable" &&
+      message.agentShareUrl === null &&
+      message.agentContextUrl === null &&
+      message.agentAccessExpiresAt === null);
+  return (
+    message.type === BUG_REPORT_SUBMITTED_MESSAGE_TYPE &&
+    nonEmptyString(message.recordingId) &&
+    nonEmptyString(message.recordingUrl) &&
+    nonEmptyString(message.embedUrl) &&
+    validAgentAccess
   );
 }
