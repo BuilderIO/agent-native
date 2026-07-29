@@ -16,6 +16,7 @@ import {
   contentDatabaseQueryKey,
   invalidateBuilderBodyHydrationQueries,
   invalidateContentDatabaseSourceRefreshQueries,
+  moveOptimisticContentDatabaseItem,
   preserveScopedDatabasePlaceholder,
   readCachedContentDatabaseResponse,
   removeDocumentPropertyFromDatabaseResponse,
@@ -102,6 +103,29 @@ describe("optimistic Content database items", () => {
       totalItems: 0,
       returnedItems: 0,
     });
+  });
+
+  it("moves one exact membership immediately and keeps positions gapless", () => {
+    const current = {
+      ...databaseResponse(),
+      items: databaseResponse().items.slice(0, 3),
+    };
+
+    const moved = moveOptimisticContentDatabaseItem(
+      current,
+      current.items[2]!.id,
+      0,
+    );
+
+    expect(moved?.items.map((item) => item.id)).toEqual([
+      current.items[2]!.id,
+      current.items[0]!.id,
+      current.items[1]!.id,
+    ]);
+    expect(moved?.items.map((item) => item.position)).toEqual([0, 1, 2]);
+    expect(
+      moveOptimisticContentDatabaseItem(current, "another-membership", 0),
+    ).toBe(current);
   });
 });
 

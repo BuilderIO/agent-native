@@ -44,6 +44,11 @@ Read the matching skill before deeper work in that area:
   activation. Navigate the user to the recording view instead of a server action.
 - Native transcript first; cloud transcription is fallback-only. Never hide a
   usable native transcript behind failed metadata work.
+- Use `import-loom-recording` for Loom or direct MP4/WebM URLs. Loom media and
+  public transcripts import in the background; direct videos need
+  `request-transcript` afterward.
+- Internal transactional-email actions claim bounded two-Clip summary work and
+  complete it with one plain-text sentence after reviewing both context packets.
 - The `view-screen` transcript is a bounded preview: when `previewTruncated` is
   true it may end mid-sentence and says nothing about where transcription
   ended. Call `get-recording-player-data` before judging completeness or
@@ -82,7 +87,7 @@ Read the matching skill before deeper work in that area:
 | `list-recordings`, `search-recordings` | Library, trash, `--view=shared` |
 | `get-recording-player-data` | Full transcript, chapters, diagnostics |
 | `create-recording`, `finalize-recording` | Create row; finish upload |
-| `import-loom-recording` | Import a Loom share/embed URL |
+| `import-loom-recording` | Import Loom or direct MP4/WebM URL |
 | `update-recording` | Title, password, expiry, visibility |
 | `move-recording` | Move `id` or `ids` to a folder or root |
 | `archive-`, `trash-`, `restore-recording` | Lifecycle |

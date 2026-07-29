@@ -157,6 +157,38 @@ mod macos {
 
     const MEETING_AUDIO_OWNER: &str = "meeting-whisper";
 
+    /// Emit every Nth shared-bus buffer as a meter level. Buffers land every
+    /// ~10-20 ms; the overlay only needs ~20 Hz to look live.
+    const SHARED_LEVEL_EVERY: u32 = 3;
+
+    /// Meter levels for the shared-producer path. Each physical capture path
+    /// emits `voice:audio-level` from its own tap, but a meeting that subscribes
+    /// to the Rewind audio bus opens none of those taps — the samples arrive
+    /// already mixed. Without this the recording pill's waveform reports silence
+    /// for the entire call while transcription runs perfectly.
+    fn shared_level_tap(
+        app: AppHandle,
+        source: &'static str,
+    ) -> impl Fn(&[f32]) + Send + Sync + 'static {
+        let tick = Arc::new(AtomicU32::new(0));
+        move |samples: &[f32]| {
+            if tick.fetch_add(1, Ordering::Relaxed) % SHARED_LEVEL_EVERY != 0 {
+                return;
+            }
+            // Sparse peak — a meter does not need every frame.
+            let step = (samples.len() / 64).max(1);
+            let level = samples
+                .iter()
+                .step_by(step)
+                .fold(0.0f32, |peak, sample| peak.max(sample.abs()))
+                .min(1.0);
+            let _ = app.emit(
+                "voice:audio-level",
+                serde_json::json!({ "level": level, "source": source }),
+            );
+        }
+    }
+
     /// One transcript segment with real timestamps from whisper, already
     /// offset onto the meeting timeline (ms since capture start).
     #[derive(Serialize, Clone)]
@@ -1056,15 +1088,19 @@ mod macos {
         // RawMicCapture, or raw system capture is opened.
         let shared_audio = if owner == SessionOwner::Meeting {
             let mic_for_shared = mic_stream.clone();
+            let mic_level = shared_level_tap(app.clone(), "mic");
             let shared_mic = Arc::new(move |samples: &[f32], sample_rate: f64| {
                 mic_for_shared.set_src_rate(sample_rate);
                 mic_for_shared.push(samples);
+                mic_level(samples);
             });
             let shared_system = sys_stream.as_ref().map(|stream| {
                 let stream = stream.clone();
+                let system_level = shared_level_tap(app.clone(), "system");
                 Arc::new(move |samples: &[f32], sample_rate: f64| {
                     stream.set_src_rate(sample_rate);
                     stream.push(samples);
+                    system_level(samples);
                 }) as crate::capture_audio_bus::AudioCallback
             });
             match try_subscribe(

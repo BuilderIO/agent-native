@@ -35,6 +35,10 @@ const REACT_ROUTER_BUILD_DEPENDENCIES = [
   "vite",
 ] as const;
 const MINIMUM_RELEASE_AGE_EXCLUDES = [
+  '"@modelcontextprotocol/client"',
+  '"@modelcontextprotocol/core"',
+  '"@modelcontextprotocol/node"',
+  '"@modelcontextprotocol/server"',
   '"@typescript/*"',
   '"@sentry/*"',
   "fast-xml-parser",

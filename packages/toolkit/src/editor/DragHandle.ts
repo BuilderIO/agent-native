@@ -148,6 +148,8 @@ type DragSession = {
   sourceNodeSize: number;
   startX: number;
   startY: number;
+  pointerOffsetX: number;
+  pointerOffsetY: number;
   dragging: boolean;
   preview: HTMLElement | null;
   dropLine: HTMLElement | null;
@@ -193,6 +195,47 @@ let activeHoverRegistration: DragHandleRegistration | null = null;
 
 const clamp = (value: number, min: number, max: number) =>
   Math.min(Math.max(value, min), max);
+
+export const dragPreviewTransform = ({
+  clientX,
+  clientY,
+  pointerOffsetX,
+  pointerOffsetY,
+}: {
+  clientX: number;
+  clientY: number;
+  pointerOffsetX: number;
+  pointerOffsetY: number;
+}) =>
+  `translate3d(${clientX - pointerOffsetX}px, ${clientY - pointerOffsetY}px, 0)`;
+
+const collapseAndBlurEditorAfterDrop = (
+  view: EditorView,
+  preferredPos: number,
+) => {
+  const pos = clamp(preferredPos, 0, view.state.doc.content.size);
+  const selection = TextSelection.near(view.state.doc.resolve(pos), 1);
+  if (!view.state.selection.eq(selection)) {
+    view.dispatch(view.state.tr.setSelection(selection));
+  }
+
+  const nativeSelection = window.getSelection();
+  const selectionBelongsToEditor = [
+    nativeSelection?.anchorNode,
+    nativeSelection?.focusNode,
+  ].some((node) => node && (node === view.dom || view.dom.contains(node)));
+  if (selectionBelongsToEditor) {
+    nativeSelection?.removeAllRanges();
+  }
+  const activeElement = document.activeElement;
+  if (
+    activeElement instanceof HTMLElement &&
+    (activeElement === view.dom || view.dom.contains(activeElement))
+  ) {
+    activeElement.blur();
+  }
+  view.dom.blur();
+};
 
 const editorArea = (registration: DragHandleRegistration) => {
   const rect = registration.view.dom.getBoundingClientRect();
@@ -977,7 +1020,12 @@ export const DragHandle = Extension.create<DragHandleOptions>({
     ) => {
       if (!session.preview) return;
 
-      session.preview.style.transform = `translate3d(${clientX + 12}px, ${clientY + 10}px, 0)`;
+      session.preview.style.transform = dragPreviewTransform({
+        clientX,
+        clientY,
+        pointerOffsetX: session.pointerOffsetX,
+        pointerOffsetY: session.pointerOffsetY,
+      });
     };
 
     const updateDropLine = (
@@ -1174,6 +1222,7 @@ export const DragHandle = Extension.create<DragHandleOptions>({
         ) {
           const sourceNode = session.view.state.doc.nodeAt(sourceStart);
           if (sourceNode) {
+            let dropCommitted = false;
             const sourceRegistration = registrationForView(session.view);
             const transferData = sourceRegistration?.getDragTransferData?.({
               view: session.view,
@@ -1198,7 +1247,7 @@ export const DragHandle = Extension.create<DragHandleOptions>({
                 false);
 
             if (handled) {
-              target.view.focus();
+              dropCommitted = true;
             } else if (target.view === session.view) {
               const insertPos =
                 dropPos > sourceStart ? dropPos - sourceNode.nodeSize : dropPos;
@@ -1206,10 +1255,8 @@ export const DragHandle = Extension.create<DragHandleOptions>({
                 .delete(sourceStart, sourceEnd)
                 .insert(insertPos, sourceNode);
 
-              tr.setSelection(NodeSelection.create(tr.doc, insertPos));
-
               session.view.dispatch(tr.scrollIntoView());
-              session.view.focus();
+              dropCommitted = true;
             } else {
               try {
                 const targetNode = target.view.state.schema.nodeFromJSON(
@@ -1225,9 +1272,6 @@ export const DragHandle = Extension.create<DragHandleOptions>({
                   dropPos,
                   targetNode,
                 );
-                insertTr.setSelection(
-                  NodeSelection.create(insertTr.doc, dropPos),
-                );
                 target.view.dispatch(insertTr.scrollIntoView());
 
                 const deleteTr = session.view.state.tr.delete(
@@ -1235,10 +1279,17 @@ export const DragHandle = Extension.create<DragHandleOptions>({
                   sourceEnd,
                 );
                 session.view.dispatch(deleteTr);
-                target.view.focus();
+                dropCommitted = true;
               } catch {
                 // If the target schema cannot accept this node, leave the
                 // source document untouched.
+              }
+            }
+
+            if (dropCommitted) {
+              collapseAndBlurEditorAfterDrop(target.view, dropPos);
+              if (target.view !== session.view) {
+                collapseAndBlurEditorAfterDrop(session.view, sourceStart);
               }
             }
           }
@@ -1356,6 +1407,7 @@ export const DragHandle = Extension.create<DragHandleOptions>({
             if (!sourceNode) return;
 
             e.preventDefault();
+            const sourceRect = currentBlock.getBoundingClientRect();
             dragSession = {
               view: editorView,
               sourceBlock: currentBlock,
@@ -1363,6 +1415,8 @@ export const DragHandle = Extension.create<DragHandleOptions>({
               sourceNodeSize: sourceNode.nodeSize,
               startX: e.clientX,
               startY: e.clientY,
+              pointerOffsetX: e.clientX - sourceRect.left,
+              pointerOffsetY: e.clientY - sourceRect.top,
               dragging: false,
               preview: null,
               dropLine: null,

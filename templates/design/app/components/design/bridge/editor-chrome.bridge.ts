@@ -4646,6 +4646,11 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       return true;
     }
     if (/^Arrow/.test(key || "")) return !e.altKey;
+    // Figma's Shift+\ "Minimize UI" chord. Use the physical code because
+    // Shift+\ produces "|" on US keyboard layouts.
+    if (!primary && !e.altKey && e.shiftKey && e.code === "Backslash") {
+      return true;
+    }
     if (primary) {
       return (
         [
@@ -4672,8 +4677,9 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
           // Cmd/Ctrl+R rename / Cmd/Ctrl+Shift+R paste-to-replace (onRename /
           // onPasteToReplace) — both live under bare primary+r.
           "r",
-          // Cmd/Ctrl+\ — toggle UI (onToggleUi).
-          "\\",
+          // Cmd/Ctrl+K — open the host command menu even while the iframe has
+          // focus. DesignEditor routes this chord to openCommandMenu().
+          "k",
         ].indexOf(normalized) !== -1 ||
         e.code === "Digit1" ||
         e.code === "Digit2" ||
@@ -4687,8 +4693,7 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         (e.shiftKey && (normalized === "h" || normalized === "l")) ||
         // Cmd/Ctrl+Alt+B detach instance / Cmd/Ctrl+Alt+K create component
         // (onDetachInstance / onCreateComponent). Gated on altKey so bare
-        // Cmd+B / Cmd+K are left alone — the host has no bare-primary
-        // binding for either.
+        // Cmd+B is left alone — the host has no bare-primary binding for it.
         (e.altKey && (normalized === "b" || normalized === "k")) ||
         // Ctrl+Alt+H / Ctrl+Alt+T — distribute horizontal / tidy up
         // (onDistributeSelection / onTidyUp). useDesignHotkeys.ts keeps these
@@ -12154,6 +12159,89 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
   // bounding the per-frame cost regardless of the incoming event rate.
   window.addEventListener("scroll", scheduleRefreshOverlays, true);
   window.addEventListener("resize", scheduleRefreshOverlays);
+
+  // Document-level native-interaction net for the z-index race: the shield
+  // (z-index 99990) only wins pointer dispatch when nothing in the previewed
+  // app paints above it, and real running apps routinely do — portalled
+  // modals/toasts/menus at 99999+/2147483647, or any node appended to <body>
+  // after the shield at an equal z-index. When that happens the app element
+  // is the real e.target, not the shield, so none of the shield-bound
+  // listeners above ever see the event. `document` is still an ancestor of
+  // that element regardless of paint order, so a capture listener here still
+  // sees every such event. Registered LAST among this file's own
+  // document-level listeners (all of which sit above this line) so this net
+  // can never preempt them via stopImmediatePropagation — e.g. the
+  // click-away-commits-text-edit pointerdown listener above must still run
+  // first. `activeDragCancel` is truthy for the file's mouse-event-driven
+  // drags (move/resize/rotate/spacing/reorder), whose own document-level
+  // mousemove/mouseup listeners are attached later still (on the mousedown
+  // that starts the drag) and would otherwise be the same kind of race
+  // victim; deferring to them while a drag owns input avoids that.
+  function isNativeInteractionNetExempt(target: Element | null): boolean {
+    return (
+      isOverlayElement(target) ||
+      isEditorTypingTarget(target) ||
+      !!activeDragCancel
+    );
+  }
+
+  function interceptNativeInteractionNet(e: Event): void {
+    if (readOnly) return;
+    var target =
+      e.target && (e.target as Element).nodeType === 1
+        ? (e.target as Element)
+        : null;
+    if (isNativeInteractionNetExempt(target)) return;
+    stopNativeInteraction(e);
+  }
+
+  [
+    "click",
+    "auxclick",
+    "dblclick",
+    "mousedown",
+    "mouseup",
+    "pointerdown",
+    "pointerup",
+    "submit",
+  ].forEach(function (type) {
+    document.addEventListener(type, interceptNativeInteractionNet, true);
+  });
+
+  // Enter/Space activate a focused native control (link, button, or a
+  // role="button"/"link") through the keydown event's default action, which
+  // is dispatched straight to the focused element regardless of z-index —
+  // neither the shield nor the net above (both pointer-target-based) can see
+  // it. Scoped to just these two keys and only when the target is itself
+  // such a control: the file already has many other keydown handlers (move/
+  // resize/rotate/reorder/escape, the plain-paste hotkey) that a blanket
+  // keydown block would break.
+  function isFocusedActivationTarget(target: Element | null): boolean {
+    return !!(
+      target &&
+      target.closest &&
+      target.closest(
+        'a[href], button, summary, input[type="submit"], input[type="button"], input[type="reset"], input[type="image"], [role="button"], [role="link"]',
+      )
+    );
+  }
+
+  document.addEventListener(
+    "keydown",
+    function (e: KeyboardEvent) {
+      if (readOnly) return;
+      if (e.key !== "Enter" && !(e.key === " " && e.code === "Space")) return;
+      var target =
+        e.target && (e.target as Element).nodeType === 1
+          ? (e.target as Element)
+          : null;
+      if (isNativeInteractionNetExempt(target)) return;
+      if (!isFocusedActivationTarget(target)) return;
+      stopNativeInteraction(e);
+    },
+    true,
+  );
+
   applyEditorChromeScale();
 
   if (

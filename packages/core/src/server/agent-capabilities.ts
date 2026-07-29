@@ -1,6 +1,7 @@
 import { A2AClient } from "../a2a/client.js";
 import type { AgentCard, AgentSkill } from "../a2a/types.js";
 import { type DiscoveredAgent } from "./agent-discovery.js";
+import { getRequestUserEmail } from "./request-context.js";
 
 /** Matches the `<available-apps>` prompt block so both surfaces agree. */
 export const MAX_APPS = 30;
@@ -33,8 +34,27 @@ export async function loadCapabilities(
   agent: DiscoveredAgent,
 ): Promise<PeerCapabilities> {
   try {
+    // Discover as ourselves. An anonymous card lists only publicly-safe
+    // actions, which never overlap the set `actions/invoke` accepts, so an
+    // unauthenticated probe reports every sibling as having no callable
+    // actions and pushes the caller into open-ended delegation.
+    let token: string | undefined;
+    try {
+      const { signA2AToken } = await import("../a2a/client.js");
+      const email = getRequestUserEmail();
+      if (email) {
+        token = await signA2AToken(email, undefined, undefined, {
+          preferGlobalSecret: true,
+          audience: new URL(agent.url).origin,
+        });
+      }
+    } catch {
+      // No signable identity (no secret, no session) — fall back to the
+      // anonymous card rather than failing discovery outright.
+    }
     const card = await new A2AClient(agent.url).getAgentCard({
       timeoutMs: CARD_TIMEOUT_MS,
+      ...(token ? { token } : {}),
     });
     return {
       agent,

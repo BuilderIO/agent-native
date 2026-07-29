@@ -1270,6 +1270,7 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     importLoom: "Import Loom (ローカライズ済み)",
     importing: "Importing... (ローカライズ済み)",
     import: "Import (ローカライズ済み)",
+    recordNew: "新規録画",
   },
   playerSettings: {
     title: "Settings (ローカライズ済み)",
@@ -1349,6 +1350,26 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
       "次の画面でストレージを接続してください: Builder.io (無料プランのストレージ + AI) または S3 互換ストレージ。Clips が保存を完了します。",
     connectStorageToRetryLoom:
       "次の画面でストレージを接続してください: Builder.io (無料プランのストレージ + AI) または S3 互換ストレージ。Clips がインポートを再試行します。",
+  },
+  importRoute: {
+    pageTitle: "Loom をインポート — Clips",
+    title: "Loom をインポート",
+    urlPlaceholder: "https://www.loom.com/share/...",
+    cta: "インポート",
+    helperText:
+      "Loom で特に快適に使えます。他の画面録画や動画ファイルのリンクを貼り付けることもできます。",
+    stageFetching: "動画を取り込んでいます…",
+    stageUploading: "元の映像をアップロードしています…",
+    stageTranscript:
+      "音声と画面の映像をエージェントが読み取れるようにしています…",
+    stageFinalizing: "Agent-Native にしています…",
+    importingSubtitle:
+      "ただの録画を Agent-Native なプリミティブに変えています。",
+    doneHeading: "完了です！あなたの動画は今：",
+    benefitTranscript: "音声と画面の映像、すべて検索可能",
+    benefitQueryable: "エージェントが理解しクエリ可能",
+    benefitSummaries: "オンデマンドで即座に要約とクリップ",
+    benefitPrimitive: "第一級の Agent-Native プリミティブ",
   },
   dictateRoute: {
     pageTitle: "Dictate · Clips (ローカライズ済み)",

@@ -102,6 +102,7 @@ import type {
   MentionProvider,
 } from "../agent/types.js";
 import { readAppStateForCurrentTab } from "../application-state/script-helpers.js";
+import { runChatThreadDataMigrations } from "../chat-threads/migrations.js";
 import {
   createThread,
   forkThread,
@@ -280,6 +281,7 @@ import {
   runMCPAgentLoop,
   assembleA2AFinalResponse,
   buildPublicAgentA2ASkills,
+  buildAuthenticatedAgentA2ASkills,
   resolveArtifactBaseUrl,
 } from "./agent-chat/action-filters-a2a.js";
 import {
@@ -502,21 +504,9 @@ export function createAgentChatPlugin(
       const { awaitBootstrap } = await import("./framework-request-handler.js");
       await awaitBootstrap(nitroApp);
 
-      // Reap phantom runs left over from the previous process (HMR restart,
-      // process crash, isolate eviction). Any run whose heartbeat is already
-      // stale by startup time had a dead producer; mark it errored so the
-      // next /runs/active check returns a terminal status and reconnecting
-      // clients don't spin on "Thinking...". Runs owned by OTHER live
-      // isolates are protected by their fresh heartbeats.
-      try {
-        const { reapAllStaleRuns } = await import("../agent/run-store.js");
-        const reaped = await reapAllStaleRuns();
-        if (reaped > 0) {
-          console.log(`[agent-chat] reaped ${reaped} stale run(s) on startup`);
-        }
-      } catch {
-        // Best effort — don't block plugin init if SQL isn't ready yet.
-      }
+      // Never make route readiness wait on an org-global stale-run sweep.
+      // `/runs/active` reaps the requested run on demand, and the periodic
+      // recovery sweep below handles abandoned runs with no connected client.
 
       const env = process.env.NODE_ENV;
       // AGENT_MODE=production forces production agent constraints even in dev
@@ -561,44 +551,47 @@ export function createAgentChatPlugin(
         extensionTools: options?.extensionTools,
       });
 
-      // Initialize MCP client. Merges file/env config + auto-detected binaries
-      // + any remote servers users have added through the settings UI (persisted
-      // in the settings table, scanned across all scopes so we never drop
-      // another user's entries). Graceful-degrade: any failure yields zero MCP
-      // tools and agent-chat keeps working as before.
-      let mcpConfig = await buildMergedConfig().catch((err) => {
-        console.warn(
-          `[mcp-client] buildMergedConfig failed: ${err?.message ?? err}`,
-        );
-        return null;
-      });
-      if (!mcpConfig) {
-        const fileOrEnv = loadMcpConfig() ?? autoDetectMcpConfig();
-        mcpConfig = fileOrEnv;
-        if (mcpConfig?.source) {
-          console.log(
-            `[mcp-client] loaded config from ${mcpConfig.source} (${Object.keys(mcpConfig.servers).length} server(s))`,
+      // Route readiness must not wait on settings scans, remote hub fetches, or
+      // third-party MCP handshakes. Build the action surface against an empty
+      // manager, then hydrate it after every live action registry has subscribed
+      // to manager changes.
+      const mcpManager = new McpClientManager(null);
+      setGlobalMcpManager(mcpManager);
+      const mcpActionEntries: Record<string, ActionEntry> = {};
+      let mcpInitializationPromise: Promise<void> | null = null;
+      const initializeMcpManager = async (): Promise<void> => {
+        let mcpConfig = await buildMergedConfig().catch((err) => {
+          console.warn(
+            `[mcp-client] buildMergedConfig failed: ${err?.message ?? err}`,
           );
-        } else if (process.env.DEBUG) {
+          return null;
+        });
+        if (!mcpConfig) {
+          mcpConfig = loadMcpConfig() ?? autoDetectMcpConfig();
+          if (mcpConfig?.source) {
+            console.log(
+              `[mcp-client] loaded config from ${mcpConfig.source} (${Object.keys(mcpConfig.servers).length} server(s))`,
+            );
+          } else if (process.env.DEBUG) {
+            console.log(
+              "[mcp-client] no configured MCP servers — skipping MCP tools",
+            );
+          }
+        } else if (mcpConfig.source) {
           console.log(
-            "[mcp-client] no configured MCP servers — skipping MCP tools",
+            `[mcp-client] merged config (${Object.keys(mcpConfig.servers).length} server(s), source: ${mcpConfig.source})`,
           );
         }
-      } else if (mcpConfig.source) {
-        console.log(
-          `[mcp-client] merged config (${Object.keys(mcpConfig.servers).length} server(s), source: ${mcpConfig.source})`,
-        );
-      }
-      const mcpManager = new McpClientManager(mcpConfig);
-      try {
-        await mcpManager.start();
-      } catch (err: any) {
-        console.warn(
-          `[mcp-client] start() failed: ${err?.message ?? err}. Continuing without MCP tools.`,
-        );
-      }
-      setGlobalMcpManager(mcpManager);
-      const mcpActionEntries = mcpToolsToActionEntries(mcpManager);
+        try {
+          await mcpManager.reconfigure(mcpConfig);
+        } catch (err: any) {
+          console.warn(
+            `[mcp-client] initialization failed: ${err?.message ?? err}. Continuing without MCP tools.`,
+          );
+        } finally {
+          startMcpConfigRefresh(mcpManager);
+        }
+      };
       const getJobMcpActionEntries = (
         job?: RecurringJobContext,
       ): Record<string, ActionEntry> => {
@@ -619,8 +612,11 @@ export function createAgentChatPlugin(
       // Mount status + management routes so the settings UI can list / add /
       // remove remote MCP servers and hot-reload the running manager.
       mountMcpStatusRoute(nitroApp, mcpManager);
-      mountMcpServersRoutes(nitroApp, mcpManager);
-      startMcpConfigRefresh(mcpManager);
+      mountMcpServersRoutes(nitroApp, mcpManager, {
+        // Serialize an unusually early settings mutation behind the initial
+        // config snapshot so stale startup data cannot overwrite the write.
+        waitUntilReady: () => mcpInitializationPromise ?? Promise.resolve(),
+      });
       // Hub-serve: expose org-scope servers to other agent-native apps in the
       // workspace when `AGENT_NATIVE_MCP_HUB_TOKEN` is set (dispatch, by
       // convention). Gated by the env var so mounting is a no-op otherwise.
@@ -1324,6 +1320,10 @@ export function createAgentChatPlugin(
           : "Agent",
         description: `Agent-native ${options?.appId ?? "app"} agent`,
         skills: buildPublicAgentA2ASkills(allScripts),
+        authenticatedSkills: buildAuthenticatedAgentA2ASkills(
+          mcpFullActions ?? allScripts,
+          options ?? {},
+        ),
         publicSkillsOnly: true,
         streaming: true,
         durableBackgroundRuns: options?.durableBackgroundRuns,
@@ -5694,6 +5694,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         }
       }
 
+      mcpInitializationPromise = initializeMcpManager().catch((err) => {
+        console.warn(
+          `[mcp-client] deferred initialization failed: ${err?.message ?? err}`,
+        );
+      });
+      void mcpInitializationPromise;
+
       // ─── Agent Teams orphan sweep ─────────────────────────────────────
       // Re-fires stuck/queued dispatches when the browser is closed and the
       // RunsTray's per-user reconciliation never triggers. Runs every 2 minutes
@@ -5951,6 +5958,18 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         }, 20_000); // Start 20s after init (after the agent-teams sweep)
       })();
 
+      // ─── Legacy chat-thread message_count repair ──────────────────────
+      // Long-lived processes apply this name-tracked data migration once.
+      // Serverless isolates skip it: launching a full thread_data scan from
+      // every cold start would recreate the connection stampede this repair
+      // was extracted from table bootstrap to prevent.
+      void runChatThreadDataMigrations(nitroApp).catch((err: unknown) => {
+        console.error(
+          "[chat-threads] legacy message_count repair failed — retrying on the next long-lived boot:",
+          err,
+        );
+      });
+
       // ─── Trigger Dispatcher (event-based automations) ─────────────────
       if (disableRecurringJobsRuntime) {
         if (process.env.DEBUG) {
@@ -6001,7 +6020,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           });
           if (process.env.DEBUG)
             console.log("[triggers] Trigger dispatcher initialized");
-        } catch (err) {
+        } catch {
           // Triggers module not available — skip silently
         }
       }

@@ -99,4 +99,31 @@ describe("renderEmail", () => {
     expect(html).not.toContain("Or paste this link into your browser");
     expect(html).not.toMatch(/>https?:\/\//);
   });
+
+  it("renders a safe treated link block after the CTA", () => {
+    const url = "https://clips.example/r/rec-1?view=agent&mode=summary";
+    const { html, text } = renderEmail({
+      heading: "Your Clip is ready",
+      paragraphs: ["Open it below."],
+      cta: { label: "Open Clip", url },
+      linkBlock: {
+        intro: "Or feed this link to your AI agent:",
+        url,
+        placement: "after-cta",
+      },
+    });
+
+    expect(html).toContain(
+      'href="https://clips.example/r/rec-1?view=agent&amp;mode=summary"',
+    );
+    expect(html).toContain(
+      ">https://clips.example/r/rec-1?view=agent&amp;mode=summary</a>",
+    );
+    expect(html.indexOf("Or feed this link")).toBeGreaterThan(
+      html.indexOf("Open Clip"),
+    );
+    expect(text).toContain(
+      "Open Clip: https://clips.example/r/rec-1?view=agent&mode=summary\n\nOr feed this link to your AI agent:\nhttps://clips.example/r/rec-1?view=agent&mode=summary",
+    );
+  });
 });

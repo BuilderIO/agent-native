@@ -25,14 +25,55 @@ hosted Design MCP connector together. The open Skills CLI path
 (`npx skills@latest add BuilderIO/agent-native --skill visual-edit`) installs
 exported instructions only, with no MCP connector registration.
 
+## Put Design Beside The Chat
+
+Prefer the interactive MCP App returned by `open-visual-edit` when the coding
+host renders it. The user gets the Design canvas beside the conversation, and
+**Apply design updates** can submit the bounded source-edit handoff back to the
+current host conversation through the standard MCP Apps message bridge. The
+host may ask the user to confirm the current conversation or choose a new one.
+
+Otherwise, after `open-visual-edit` returns `openUrl`, open that URL in the
+coding host's inline browser when one is available. This still keeps Design
+beside the conversation, but an ordinary browser page has no trusted path into
+the host's current composer. In that fallback surface, **Apply design updates**
+uses Design's local agent; use **Copy prompt to your agent** to hand the same
+structured edit batch to the coding agent.
+
+- In Codex Desktop, use the in-app Browser tool to open `openUrl`. The built-in
+  browser is the right surface for localhost and public pages that should stay
+  inside the app.
+- In Claude Code Desktop's Code tab, open or preview `openUrl` in the Browser
+  pane. Ask Claude to preview it rather than opening the system browser.
+- In VS Code, use the Agent Native Design webview/deep link described below.
+- Inline browser availability is host-dependent. CLI, remote, or restricted
+  sessions may not expose one. If the inline surface is unavailable or disabled,
+  return the normal **Open design** link instead of claiming it opened.
+
+Prefer the MCP App surface for a connected Design plugin, then the host's
+browser/preview tool as the universal fallback. Keep the canvas beside chat
+when the host supports rearrangeable panes.
+
+Inside Design, use **Show/Hide UI** from the `Cmd+K` menu or press Figma's
+`Shift+\` shortcut to toggle all editing chrome so only the canvas remains.
+The same action is available from Design's empty-canvas context menu.
+
 ## Core Model
 
 - Each screen is a URL-backed iframe, not copied HTML.
 - Each screen keeps URL metadata: `connectionId`, `routeId`, `path`,
   `url`, `bridgeUrl`, title, and viewport size.
 - Localhost Edit mode renders the running app through the local bridge as a live
-  iframe with the same editor bridge used by HTML designs. It is not a frozen
-  static DOM snapshot.
+  iframe with the same editor bridge used by HTML designs. It is never a frozen
+  static DOM snapshot. Editing is direct DOM manipulation against that live
+  document; the parallel `/snapshot` fetch feeds the editable source model only
+  and must never be rendered in the frame.
+- A viewer holding the connection's `previewToken` gets the proxied
+  `/live-edit` document with editor chrome. A viewer without one — a signed-out
+  session, a public link, or an inline browser with no cookies — gets the plain
+  dev-server URL: still live, but with no editor chrome, no layers, and no
+  editing. If the canvas looks right but selection and the layers panel do
+  nothing, the frame is unbridged; sign in rather than assuming Design is broken.
 - The live editor is same-origin through the local bridge proxy. This boots
   CSR apps and root-relative assets, but it is still a localhost editing proxy:
   app-origin cookies, WebSockets/HMR, SSE, and non-GET app API calls may need a
@@ -53,6 +94,23 @@ exported instructions only, with no MCP connector registration.
   and create one screen per URL/path. Shorthand like
   `localhost:1234/onboarding/1` means
   `http://localhost:1234/onboarding/1`.
+
+## Useful Canvas Sets
+
+Translate the user's requested review into the smallest useful set of frames:
+
+- **Multi-step flow:** one ordered frame per route or query state, such as cart,
+  shipping, payment, and confirmation.
+- **Multiple pages:** one frame per meaningful route, such as home, pricing,
+  docs, and account settings.
+- **Responsive comparison:** repeat the same route at the requested desktop,
+  tablet, and mobile viewports so they align in one row.
+- **State review:** repeat a route for meaningful URL-addressable states such as
+  empty, loading, error, modal-open, or selected-item views.
+
+Do not expand every discovered route or every viewport unless the user asks for
+an exhaustive audit. Preserve the user's labels and sequence so the canvas reads
+like the workflow they described.
 
 ## Select And Reprompt
 
@@ -275,9 +333,9 @@ Fallback, only when `open-visual-edit` is unavailable:
 ## Open The Design Surface
 
 - Use the `link`, `deepLink`, or MCP App embed returned by Design actions so
-  the user sees the canvas. In Codex Desktop or VS Code, prefer opening that
-  Design URL in the available preview/webview panel; otherwise surface the
-  "Open design" link.
+  the user sees the canvas. Follow **Put Design Beside The Chat**: prefer the
+  host's inline Browser, preview, or webview panel; otherwise surface the
+  **Open design** link.
 - Return or open the `openUrl` / action link, not a hand-built
   `/design/:id?_session=...` URL.
 - If the user is working in VS Code, the Agent Native extension can open the
@@ -293,9 +351,11 @@ Fallback, only when `open-visual-edit` is unavailable:
 ## Applying Visual Edits Back To Source
 
 Canvas edits on a localhost screen do not write source as you make them. They
-accumulate as pending edits and the editor shows an "Apply with Design agent"
-button in the bottom-right corner of the canvas. Clicking it hands a structured
-prompt to the Design agent chat, which performs the real source write.
+accumulate as pending edits and the editor shows an **Apply design updates**
+button on the canvas. In an MCP App, clicking it hands the bounded structured
+prompt to the current host coding conversation. In an ordinary browser or
+standalone Design page, it falls back to the local Design agent. The dropdown's
+**Copy prompt to your agent** action is the universal manual fallback.
 
 - Style, text, and drag/drop structure edits all collect into the same pending
   batch, so the user can make several changes and apply once.
@@ -367,6 +427,9 @@ the connected app's text/code files through the bridge
 - The Design editor opens in overview mode.
 - Every requested screen renders the intended localhost URL, showing real app
   content rather than an endless loading spinner.
+- The screen iframe carries a `src`, not a `srcdoc`. A localhost screen with a
+  `srcdoc` is a bug, not a slow load — check it in the browser devtools before
+  reporting the canvas as working.
 - Alt-dragging a screen copies the URL-backed frame, not an inline HTML clone.
 - A query/path edit changes only the target screen's URL metadata and iframe.
 - The Code tab shows a local-files root for the connection and opens its files.

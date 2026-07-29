@@ -417,7 +417,10 @@ describe("AISDKEngine OpenAI model selection", () => {
     inputSchema: { type: "object" as const, properties: {} },
   };
 
-  it("drops the reasoning-effort override when tools are present on a forced Chat Completions base URL", async () => {
+  // Omitting the field is NOT enough: OpenAI applies the model's own default
+  // effort when `reasoning_effort` is absent and rejects the call identically.
+  // Only the explicit "none" clears it.
+  it("sends reasoning effort 'none' when tools are present on a forced Chat Completions base URL", async () => {
     const { streamText } = mockAiSdk();
     mockOpenAIProvider();
 
@@ -436,7 +439,7 @@ describe("AISDKEngine OpenAI model selection", () => {
     );
 
     const call = streamText.mock.calls[0]?.[0];
-    expect(call.providerOptions?.openai?.reasoningEffort).toBeUndefined();
+    expect(call.providerOptions?.openai?.reasoningEffort).toBe("none");
   });
 
   it("still applies reasoning effort on a forced Chat Completions base URL when there are no tools", async () => {

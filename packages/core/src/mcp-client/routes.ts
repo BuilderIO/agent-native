@@ -367,6 +367,9 @@ async function reconfigureManager(manager: McpClientManager): Promise<void> {
 export function mountMcpServersRoutes(
   nitroApp: any,
   manager: McpClientManager,
+  options: {
+    waitUntilReady?: () => Promise<void>;
+  } = {},
 ): void {
   const mountedApps: WeakSet<object> = ((
     globalThis as any
@@ -375,13 +378,17 @@ export function mountMcpServersRoutes(
   mountedApps.add(nitroApp);
 
   mountMcpOAuthRoutes(nitroApp, {
-    reconfigure: () => reconfigureManager(manager),
+    reconfigure: async () => {
+      await options.waitUntilReady?.();
+      await reconfigureManager(manager);
+    },
   });
 
   try {
     getH3App(nitroApp).use(
       "/_agent-native/mcp/servers",
       defineEventHandler(async (event: H3Event) => {
+        await options.waitUntilReady?.();
         const method = getMethod(event);
         const pathname = (event.url?.pathname || "")
           .replace(/^\/+/, "")
@@ -421,6 +428,7 @@ export function mountMcpServersRoutes(
     getH3App(nitroApp).use(
       "/_agent-native/mcp/builtin",
       defineEventHandler(async (event: H3Event) => {
+        await options.waitUntilReady?.();
         const method = getMethod(event);
         const pathname = (event.url?.pathname || "")
           .replace(/^\/+/, "")
@@ -442,6 +450,7 @@ export function mountMcpServersRoutes(
     getH3App(nitroApp).use(
       "/_agent-native/mcp/apps",
       defineEventHandler(async (event: H3Event) => {
+        await options.waitUntilReady?.();
         const method = getMethod(event);
         const pathname = (event.url?.pathname || "")
           .replace(/^\/+/, "")
@@ -1046,10 +1055,8 @@ async function tryConnect(
   | { ok: false; error: string }
 > {
   try {
-    const [{ Client }, { StreamableHTTPClientTransport }] = await Promise.all([
-      import("@modelcontextprotocol/sdk/client/index.js"),
-      import("@modelcontextprotocol/sdk/client/streamableHttp.js"),
-    ]);
+    const { Client, StreamableHTTPClientTransport } =
+      await import("@modelcontextprotocol/client");
     const requestInit: Record<string, unknown> = {};
     if (headers && Object.keys(headers).length > 0) {
       requestInit.headers = headers;
@@ -1059,7 +1066,10 @@ async function tryConnect(
     });
     const client = new Client(
       { name: "agent-native-mcp-client-test", version: "1.0.0" },
-      { capabilities: {} },
+      {
+        capabilities: {},
+        versionNegotiation: { mode: "auto" },
+      },
     );
     try {
       await client.connect(transport);

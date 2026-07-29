@@ -1,15 +1,24 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const ssrfSafeFetchMock = vi.hoisted(() => vi.fn());
+const { ssrfSafeFetchMock, urlSafetyFactory } = vi.hoisted(() => {
+  const fetchMock = vi.fn();
+  return {
+    ssrfSafeFetchMock: fetchMock,
+    // core maps `tools/url-safety` and `extensions/url-safety` to the same
+    // file, so once its dist exists both specifiers resolve to one path and
+    // only one of these registrations survives. Both must return the full
+    // export set, or the surviving factory leaves the other's imports
+    // undefined and the fetcher fails as if the URL were rejected.
+    urlSafetyFactory: () => ({
+      isBlockedToolUrl: () => false,
+      ssrfSafeFetch: fetchMock,
+    }),
+  };
+});
 
-vi.mock("@agent-native/core/extensions/url-safety", () => ({
-  ssrfSafeFetch: ssrfSafeFetchMock,
-}));
+vi.mock("@agent-native/core/extensions/url-safety", urlSafetyFactory);
 
-vi.mock("@agent-native/core/tools/url-safety", () => ({
-  isBlockedToolUrl: () => false,
-  ssrfSafeFetch: ssrfSafeFetchMock,
-}));
+vi.mock("@agent-native/core/tools/url-safety", urlSafetyFactory);
 
 import { fetchICalEvents } from "./ical-fetcher.js";
 
