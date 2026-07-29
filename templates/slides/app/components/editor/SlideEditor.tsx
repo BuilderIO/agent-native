@@ -1980,6 +1980,12 @@ export default function SlideEditor({
       const onUp = (upEvent: PointerEvent) => {
         stop();
         if (!moved) return;
+        // A drag does not always produce a click (for example when released
+        // outside the canvas), so do not leave the one-click suppression
+        // armed for the user's next unrelated action.
+        window.setTimeout(function clearDragClickSuppression() {
+          suppressNextClickRef.current = false;
+        }, 0);
         // Keeping Option pressed is the explicit duplicate commit. If it was
         // released before drop, turn the gesture back into a normal move.
         if (clone && !upEvent.altKey) {
@@ -1995,6 +2001,7 @@ export default function SlideEditor({
 
       const onCancel = () => {
         stop();
+        suppressNextClickRef.current = false;
         restore();
       };
 
