@@ -221,11 +221,9 @@ const messages = {
     slideTools: "슬라이드 도구",
     elementAnimations: "요소 애니메이션",
     tweaks: "조정",
-    drawOnSlide: "슬라이드에 그리기",
+    drawOnSlide: "슬라이드에 주석 달기",
     addTextBox: "텍스트 상자 추가",
     pinComments: "댓글 고정",
-    pinCommentsDescription:
-      "슬라이드의 지점을 클릭해 여러 편집을 대기열에 넣고 한 번에 보냅니다.",
     undo: "실행 취소",
     undoWithShortcut: "실행 취소 ({{shortcut}})",
     redo: "다시 실행",

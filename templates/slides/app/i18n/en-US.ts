@@ -221,11 +221,9 @@ const messages = {
     slideTools: "Slide tools",
     elementAnimations: "Element animations",
     tweaks: "Tweaks",
-    drawOnSlide: "Draw on slide",
+    drawOnSlide: "Annotate slide",
     addTextBox: "Add text box",
     pinComments: "Pin comments",
-    pinCommentsDescription:
-      "Click spots on the slide to queue several edits, then send them all at once.",
     undo: "Undo",
     undoWithShortcut: "Undo ({{shortcut}})",
     redo: "Redo",

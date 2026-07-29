@@ -224,11 +224,9 @@ const messages = {
     slideTools: "أدوات الشريحة",
     elementAnimations: "حركات العناصر",
     tweaks: "تعديلات",
-    drawOnSlide: "الرسم على الشريحة",
+    drawOnSlide: "إضافة تعليقات توضيحية إلى الشريحة",
     addTextBox: "إضافة مربع نص",
     pinComments: "تثبيت التعليقات",
-    pinCommentsDescription:
-      "انقر على مواضع في الشريحة لإضافة عدة تعديلات إلى الطابور، ثم أرسلها دفعة واحدة.",
     undo: "تراجع",
     undoWithShortcut: "تراجع ({{shortcut}})",
     redo: "إعادة",

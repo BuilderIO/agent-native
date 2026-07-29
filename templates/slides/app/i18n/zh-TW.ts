@@ -212,11 +212,9 @@ const messages = {
     slideTools: "幻燈片工具",
     elementAnimations: "元素動畫",
     tweaks: "微調",
-    drawOnSlide: "在幻燈片上繪製",
+    drawOnSlide: "註解投影片",
     addTextBox: "新增文字方塊",
     pinComments: "固定評論",
-    pinCommentsDescription:
-      "點選幻燈片上的位置來排隊多個編輯，然後一次性傳送。",
     undo: "撤銷",
     undoWithShortcut: "撤銷 ({{shortcut}})",
     redo: "重做",

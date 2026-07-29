@@ -112,6 +112,18 @@ export function DrawOverlay({ visible, onSend, onClose }: DrawOverlayProps) {
     }
   }, [visible]);
 
+  useEffect(() => {
+    if (!visible) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
+  }, [visible, onClose]);
+
   // Redraw canvas whenever strokes change.
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -296,7 +308,6 @@ export function DrawOverlay({ visible, onSend, onClose }: DrawOverlayProps) {
                 e.preventDefault();
                 commitTextAnnotation();
               }
-              if (e.key === "Escape") setTextInput(null);
             }}
             className="h-7 w-48 border-primary bg-background text-sm"
             autoFocus
@@ -414,7 +425,6 @@ export function DrawOverlay({ visible, onSend, onClose }: DrawOverlayProps) {
           onChange={(e) => setInstruction(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && hasContent) send();
-            if (e.key === "Escape") onClose();
           }}
           placeholder={t("raw.tellAgentDo")}
           className="h-7 w-48 border-border bg-background text-xs sm:w-56"

@@ -222,11 +222,9 @@ const messages = {
     slideTools: "Ferramentas do slide",
     elementAnimations: "Animações de elementos",
     tweaks: "Ajustes",
-    drawOnSlide: "Desenhar no slide",
+    drawOnSlide: "Anotar slide",
     addTextBox: "Adicionar caixa de texto",
     pinComments: "Fixar comentários",
-    pinCommentsDescription:
-      "Clique em pontos no slide para enfileirar várias edições e enviá-las de uma vez.",
     undo: "Desfazer",
     undoWithShortcut: "Desfazer ({{shortcut}})",
     redo: "Refazer",

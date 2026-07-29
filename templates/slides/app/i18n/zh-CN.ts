@@ -217,11 +217,9 @@ const messages = {
     slideTools: "幻灯片工具",
     elementAnimations: "元素动画",
     tweaks: "微调",
-    drawOnSlide: "在幻灯片上绘制",
+    drawOnSlide: "批注幻灯片",
     addTextBox: "添加文本框",
     pinComments: "固定评论",
-    pinCommentsDescription:
-      "点击幻灯片上的位置来排队多个编辑，然后一次性发送。",
     undo: "撤销",
     undoWithShortcut: "撤销 ({{shortcut}})",
     redo: "重做",

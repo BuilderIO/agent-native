@@ -220,11 +220,9 @@ const messages = {
     slideTools: "स्लाइड टूल्स",
     elementAnimations: "एलिमेंट एनिमेशन",
     tweaks: "ट्वीक्स",
-    drawOnSlide: "स्लाइड पर ड्रॉ करें",
+    drawOnSlide: "स्लाइड पर टिप्पणी करें",
     addTextBox: "टेक्स्ट बॉक्स जोड़ें",
     pinComments: "टिप्पणियां पिन करें",
-    pinCommentsDescription:
-      "कई एडिट कतार में डालने के लिए स्लाइड पर जगहों पर क्लिक करें, फिर उन्हें एक साथ भेजें।",
     undo: "पूर्ववत करें",
     undoWithShortcut: "पूर्ववत करें ({{shortcut}})",
     redo: "फिर से करें",

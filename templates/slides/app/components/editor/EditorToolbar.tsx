@@ -30,7 +30,7 @@ import {
   IconPencilPlus,
   IconPin,
   IconLetterT,
-  IconWand,
+  IconTool,
   IconDownload,
   IconSun,
   IconMoon,
@@ -47,6 +47,7 @@ import { toast } from "sonner";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuTrigger,
   DropdownMenuSeparator,
@@ -325,7 +326,6 @@ export default function EditorToolbar({
     setLayoutOpen(false);
   };
   const [toolsOpen, setToolsOpen] = useState(false);
-  const toolsRef = useRef<HTMLButtonElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const { setTheme, resolvedTheme } = useTheme();
@@ -763,128 +763,102 @@ graph TD
           onToggleDrawMode ||
           onTogglePinMode ||
           onToggleTextBoxMode) && (
-          <>
+          <DropdownMenu
+            open={toolsOpen}
+            onOpenChange={(open) => {
+              if (open) setLayoutOpen(false);
+              setToolsOpen(open);
+            }}
+          >
             <Tooltip>
               <TooltipTrigger asChild>
-                <button
-                  ref={toolsRef}
-                  onClick={() => {
-                    closeAll();
-                    setToolsOpen(!toolsOpen);
-                  }}
-                  className={`relative p-1.5 rounded cursor-pointer flex-shrink-0 ${
-                    anyToolActive || toolsOpen
-                      ? "bg-accent text-foreground"
-                      : "text-muted-foreground hover:text-foreground/70 hover:bg-accent"
-                  }`}
-                  aria-label={t("editorToolbar.slideTools")}
-                >
-                  <IconWand className="w-4 h-4" />
-                  {anyToolActive && !toolsOpen && (
-                    <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-[#609FF8]" />
-                  )}
-                </button>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    className={`relative p-1.5 rounded cursor-pointer flex-shrink-0 ${
+                      anyToolActive || toolsOpen
+                        ? "bg-accent text-foreground"
+                        : "text-muted-foreground hover:text-foreground/70 hover:bg-accent"
+                    }`}
+                    aria-label={t("editorToolbar.slideTools")}
+                  >
+                    <IconTool className="w-4 h-4" />
+                    {anyToolActive && !toolsOpen && (
+                      <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-[#609FF8]" />
+                    )}
+                  </button>
+                </DropdownMenuTrigger>
               </TooltipTrigger>
               <TooltipContent>{t("editorToolbar.slideTools")}</TooltipContent>
             </Tooltip>
-            <ToolbarPopover
-              open={toolsOpen}
-              anchorRef={toolsRef}
-              onClose={() => setToolsOpen(false)}
-              width={200}
-            >
-              <div className="py-1.5">
+            <DropdownMenuContent align="end" className="w-52">
+              <DropdownMenuGroup>
                 {currentSlide && onToggleAnimations && (
-                  <button
-                    onClick={() => {
-                      onToggleAnimations();
-                      setToolsOpen(false);
-                    }}
-                    className={`flex items-center gap-2 w-full px-3 py-1.5 text-xs transition-colors ${
+                  <DropdownMenuItem
+                    onSelect={onToggleAnimations}
+                    className={
                       animationsOpen
-                        ? "text-[#609FF8] bg-accent/50"
-                        : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
-                    }`}
+                        ? "bg-accent text-accent-foreground"
+                        : undefined
+                    }
                   >
-                    <IconBolt className="w-3.5 h-3.5" />
+                    <IconBolt className="size-4" />
                     {t("editorToolbar.elementAnimations")}
-                  </button>
+                  </DropdownMenuItem>
                 )}
                 {onToggleTweaks && (
-                  <button
-                    onClick={() => {
-                      onToggleTweaks();
-                      setToolsOpen(false);
-                    }}
-                    className={`flex items-center gap-2 w-full px-3 py-1.5 text-xs transition-colors ${
+                  <DropdownMenuItem
+                    onSelect={onToggleTweaks}
+                    className={
                       tweaksOpen
-                        ? "text-foreground bg-accent/50"
-                        : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
-                    }`}
+                        ? "bg-accent text-accent-foreground"
+                        : undefined
+                    }
                   >
-                    <IconAdjustments className="w-3.5 h-3.5" />
+                    <IconAdjustments className="size-4" />
                     {t("editorToolbar.tweaks")}
-                  </button>
+                  </DropdownMenuItem>
                 )}
                 {onToggleDrawMode && (
-                  <button
-                    onClick={() => {
-                      onToggleDrawMode();
-                      setToolsOpen(false);
-                    }}
+                  <DropdownMenuItem
+                    onSelect={onToggleDrawMode}
                     data-toolbar-draw-button
-                    className={`flex items-center gap-2 w-full px-3 py-1.5 text-xs transition-colors ${
-                      drawMode
-                        ? "text-foreground bg-accent/50"
-                        : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
-                    }`}
+                    className={
+                      drawMode ? "bg-accent text-accent-foreground" : undefined
+                    }
                   >
-                    <IconPencilPlus className="w-3.5 h-3.5" />
+                    <IconPencilPlus className="size-4" />
                     {t("editorToolbar.drawOnSlide")}
-                  </button>
+                  </DropdownMenuItem>
                 )}
                 {onTogglePinMode && (
-                  <button
-                    onClick={() => {
-                      onTogglePinMode();
-                      setToolsOpen(false);
-                    }}
+                  <DropdownMenuItem
+                    onSelect={onTogglePinMode}
                     data-toolbar-pin-button
-                    className={`flex items-start gap-2 w-full px-3 py-1.5 text-xs transition-colors ${
-                      pinMode
-                        ? "text-foreground bg-accent/50"
-                        : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
-                    }`}
+                    className={
+                      pinMode ? "bg-accent text-accent-foreground" : undefined
+                    }
                   >
-                    <IconPin className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
-                    <span className="flex flex-col items-start min-w-0">
-                      <span>{t("editorToolbar.pinComments")}</span>
-                      <span className="text-[10px] text-muted-foreground/80 leading-tight mt-0.5">
-                        {t("editorToolbar.pinCommentsDescription")}
-                      </span>
-                    </span>
-                  </button>
+                    <IconPin className="size-4" />
+                    {t("editorToolbar.pinComments")}
+                  </DropdownMenuItem>
                 )}
                 {onToggleTextBoxMode && (
-                  <button
-                    onClick={() => {
-                      onToggleTextBoxMode();
-                      setToolsOpen(false);
-                    }}
+                  <DropdownMenuItem
+                    onSelect={onToggleTextBoxMode}
                     data-toolbar-textbox-button
-                    className={`flex items-center gap-2 w-full px-3 py-1.5 text-xs transition-colors ${
+                    className={
                       textBoxMode
-                        ? "text-foreground bg-accent/50"
-                        : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
-                    }`}
+                        ? "bg-accent text-accent-foreground"
+                        : undefined
+                    }
                   >
-                    <IconLetterT className="w-3.5 h-3.5" />
+                    <IconLetterT className="size-4" />
                     {t("editorToolbar.addTextBox")}
-                  </button>
+                  </DropdownMenuItem>
                 )}
-              </div>
-            </ToolbarPopover>
-          </>
+              </DropdownMenuGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
         )}
 
       {/* Edit-only cluster — undo/redo */}

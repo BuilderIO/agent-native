@@ -225,11 +225,9 @@ const messages = {
     slideTools: "Folienwerkzeuge",
     elementAnimations: "Elementanimationen",
     tweaks: "Feinabstimmung",
-    drawOnSlide: "Auf Folie zeichnen",
+    drawOnSlide: "Folie annotieren",
     addTextBox: "Textfeld hinzufügen",
     pinComments: "Kommentare anheften",
-    pinCommentsDescription:
-      "Klicke auf Stellen auf der Folie, um mehrere Änderungen vorzubereiten und sie dann gesammelt zu senden.",
     undo: "Rückgängig",
     undoWithShortcut: "Rückgängig ({{shortcut}})",
     redo: "Wiederholen",

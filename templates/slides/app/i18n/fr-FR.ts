@@ -229,11 +229,9 @@ const messages = {
     slideTools: "Outils de diapositive",
     elementAnimations: "Animations d’éléments",
     tweaks: "Réglages",
-    drawOnSlide: "Dessiner sur la diapositive",
+    drawOnSlide: "Annoter la diapositive",
     addTextBox: "Ajouter une zone de texte",
     pinComments: "Épingler des commentaires",
-    pinCommentsDescription:
-      "Cliquez sur des zones de la diapositive pour préparer plusieurs modifications, puis envoyez-les ensemble.",
     undo: "Annuler",
     undoWithShortcut: "Annuler ({{shortcut}})",
     redo: "Rétablir",
