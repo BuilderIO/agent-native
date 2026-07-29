@@ -973,7 +973,9 @@ export default function RecordingPage() {
               hasPassword={Boolean(recording.hasPassword)}
             >
               <Button className="shrink-0 gap-1.5" size="sm">
-                <IconShare3 className="h-4 w-4" />
+                {recording.visibility !== "public" ? (
+                  <IconShare3 className="h-4 w-4" />
+                ) : null}
                 {t("recordingPage.share")}
               </Button>
             </ShareRecordingPopover>
@@ -1547,7 +1549,9 @@ export default function RecordingPage() {
                 className="shrink-0 gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90"
                 size="sm"
               >
-                <IconShare3 className="h-4 w-4" />
+                {recording.visibility !== "public" ? (
+                  <IconShare3 className="h-4 w-4" />
+                ) : null}
                 {t("recordingPage.share")}
               </Button>
             </ShareRecordingPopover>

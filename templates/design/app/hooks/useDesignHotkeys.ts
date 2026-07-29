@@ -203,8 +203,8 @@ export interface UseDesignHotkeysProps {
    * modifiers held) or SHIFT_TOOL_SHORTCUTS (which has no "a" entry).
    */
   onAddAutoLayout?: DesignHotkeyHandler;
-  /** Figma's Cmd/Ctrl+Shift+\ "Minimize UI" shortcut, applied here to the
-   *  full Design chrome (left rail, right panel, and bottom toolbar). */
+  /** Figma's Shift+\ "Minimize UI" shortcut, applied here to the full Design
+   *  chrome (left rail, right panel, and bottom toolbar). */
   onToggleUi?: DesignHotkeyHandler;
   /** Figma's Shift+C — toggle Show/Hide comments (comment pins). */
   onToggleComments?: DesignHotkeyHandler;
@@ -725,13 +725,14 @@ export function handleDesignHotkey(
     return run(props.onAddAutoLayout);
   }
 
-  // Figma's "Minimize UI" chord avoids the bare Cmd+\ shortcut that desktop
-  // coding hosts can reserve for closing their focused pane.
+  // Figma's Shift+\ "Minimize UI" chord avoids the bare Cmd+\ shortcut that
+  // desktop coding hosts can reserve for closing their focused pane. Use the
+  // physical key code because Shift+\ produces "|" on US keyboard layouts.
   if (
-    isPlatformPrimaryModifier(event) &&
+    !primary &&
     !event.altKey &&
     event.shiftKey &&
-    key === "\\"
+    event.code === "Backslash"
   ) {
     return run(props.onToggleUi);
   }

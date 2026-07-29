@@ -42,6 +42,10 @@ import {
   type ChatHistorySection,
 } from "./chat/ChatHistoryList.js";
 import {
+  fetchBuilderStatus,
+  fetchEnvironmentStatus,
+} from "./client-status-requests.js";
+import {
   Popover,
   PopoverAnchor,
   PopoverContent,
@@ -1114,14 +1118,10 @@ export function MultiTabAssistantChat({
       callAction("manage-agent-engine" as any, { action: "list" } as any).catch(
         () => null,
       ),
-      fetch(agentNativePath("/_agent-native/env-status"))
-        .then((r) => (r.ok ? r.json() : []))
-        .catch(() => []),
-      fetch(agentNativePath("/_agent-native/builder/status"))
-        .then((r) => (r.ok ? r.json() : null))
-        .catch(() => null),
+      fetchEnvironmentStatus<Array<{ key: string; configured: boolean }>>(),
+      fetchBuilderStatus<{ configured?: boolean }>(),
     ])
-      .then(([enginesData, envKeys, builderStatus]) => {
+      .then(([enginesData, envResult, builderResult]) => {
         if (!enginesData?.engines) {
           // Leaves `availableModels` empty for the session, so an override with
           // no engine of its own has nothing to resolve against.
@@ -1130,10 +1130,16 @@ export function MultiTabAssistantChat({
           );
           return;
         }
+        if (
+          envResult.state !== "available" ||
+          builderResult.state !== "available"
+        ) {
+          return;
+        }
+        const envKeys = envResult.value;
+        const builderStatus = builderResult.value;
         const configuredKeys = new Set(
-          (envKeys as Array<{ key: string; configured: boolean }>)
-            .filter((k) => k.configured)
-            .map((k) => k.key),
+          envKeys.filter((k) => k.configured).map((k) => k.key),
         );
         const builderConnected = builderStatus?.configured === true;
         const currentEngineName: string | undefined =

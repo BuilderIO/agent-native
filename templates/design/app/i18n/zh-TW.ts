@@ -5,6 +5,7 @@ import {
   keyboardKeyLabels,
   keyboardShortcutLabels,
 } from "../i18n-keyboard-shortcuts";
+import { responsiveInteractOverrides } from "../i18n-responsive-interact";
 import { designTemplateFeatureOverrides } from "../i18n-template-feature";
 
 const messages = {
@@ -424,6 +425,7 @@ const messages = {
   },
   designEditor: {
     ...designTemplateFeatureOverrides["zh-TW"].designEditor,
+    ...responsiveInteractOverrides["zh-TW"].designEditor,
     askAgent: "詢問代理",
     nodeRewrite: {
       composerTitle: "詢問或變更所選內容",
@@ -885,6 +887,8 @@ const messages = {
       abortPreview: "放棄預覽並進入互動",
       agentMessage: "將待處理的視覺樣式編輯套用到來源。",
       sentToast: "樣式編輯已傳送給 Design 代理",
+      agentHandoffFailedToast:
+        "無法連線到代理。預覽已保留，您可以重試或複製提示。",
       verifiedToast: "已驗證來源與執行階段結構",
       conflictToast:
         "重新載入的執行階段與待處理的結構編輯不符。預覽仍可復原；請解決來源衝突後重試。",

@@ -161,6 +161,7 @@ pub async fn audio_transcription_reset_timeline() -> Result<(), String> {
 pub(crate) mod macos {
     use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
     use std::sync::Arc;
+    use std::time::Duration;
 
     use objc2::rc::Retained;
     use objc2::AnyThread;
@@ -314,6 +315,15 @@ pub(crate) mod macos {
         }
     }
 
+    /// `SCStream::stop_capture()` occasionally never returns when the stream's
+    /// underlying connection was already interrupted (same ScreenCaptureKit
+    /// flakiness `native_screen::run_bounded_capture_stop` bounds for the video
+    /// stream). This capture has no delegate to observe that ahead of time, so
+    /// bound the stop call itself — otherwise a hung stop blocks the
+    /// `audio_transcription_stop` Tauri command, which blocks the recorder's
+    /// finalize await, forever.
+    const SYSTEM_AUDIO_SCK_STOP_TIMEOUT: Duration = Duration::from_secs(3);
+
     /// Handle for a running raw SCK audio capture. A meeting capture can carry
     /// both system and microphone output handlers on this one stream.
     pub(crate) struct RawSckAudioCapture {
@@ -328,7 +338,17 @@ pub(crate) mod macos {
     impl RawSckAudioCapture {
         pub(crate) fn stop(self) {
             self.cancelled.store(true, Ordering::SeqCst);
-            let _ = self.stream.stop_capture();
+            let stream = self.stream;
+            if let Err(err) = crate::native_screen::run_bounded_capture_stop(
+                move || {
+                    stream
+                        .stop_capture()
+                        .map_err(|e| format!("system audio SCStream stop failed: {e:?}"))
+                },
+                SYSTEM_AUDIO_SCK_STOP_TIMEOUT,
+            ) {
+                eprintln!("[system-audio] bounded stop_capture: {err}");
+            }
         }
     }
 

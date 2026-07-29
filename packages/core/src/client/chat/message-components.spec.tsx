@@ -397,6 +397,7 @@ describe("shouldShowAssistantWorkSummary", () => {
         isComplete: false,
         hasCollapsibleWork: true,
         hasUnresolvedTool: false,
+        chatRunning: true,
       }),
     ).toBe(true);
   });
@@ -408,19 +409,45 @@ describe("shouldShowAssistantWorkSummary", () => {
         isComplete: false,
         hasCollapsibleWork: true,
         hasUnresolvedTool: false,
+        chatRunning: true,
       }),
     ).toBe(false);
   });
 
-  it("does not group work that still has an unresolved tool", () => {
+  it("does not group the running turn whose tool is still in flight", () => {
+    expect(
+      shouldShowAssistantWorkSummary({
+        isLast: true,
+        isComplete: false,
+        hasCollapsibleWork: true,
+        hasUnresolvedTool: true,
+        chatRunning: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("still shows the duration summary for a stalled turn that is not running", () => {
+    expect(
+      shouldShowAssistantWorkSummary({
+        isLast: true,
+        isComplete: false,
+        hasCollapsibleWork: true,
+        hasUnresolvedTool: true,
+        chatRunning: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("groups historical work with a dangling tool", () => {
     expect(
       shouldShowAssistantWorkSummary({
         isLast: false,
         isComplete: false,
         hasCollapsibleWork: true,
         hasUnresolvedTool: true,
+        chatRunning: true,
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 });
 

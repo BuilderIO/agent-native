@@ -1,5 +1,108 @@
 # @agent-native/core
 
+## 0.129.2
+
+### Patch Changes
+
+- 21e33c7: Keep asynchronous `ask_app` task handles and exact polling arguments visible to MCP callers so they can retrieve the same cross-app task without resubmitting it.
+
+## 0.129.1
+
+### Patch Changes
+
+- 8c4b44e: Keep the create organization and invite member popovers compact instead of allowing long helper text to expand their width.
+
+## 0.129.0
+
+### Minor Changes
+
+- 0aada94: Serve the stateless MCP 2026-07-28 protocol natively while preserving stateless
+  legacy clients, automatically negotiate the newest supported protocol from
+  outbound clients and stdio bridges, and harden MCP OAuth issuer, client type,
+  scope, credential binding, and Client ID Metadata Document behavior. Require
+  durable, single-use MCP 2026 approval elicitation before running actions marked
+  `needsApproval`.
+
+  Update the Pinpoint MCP server example to use the stable split MCP v2 packages.
+
+### Patch Changes
+
+- 0aada94: Stop telling sibling agents that an app has no callable actions when it does.
+  The public agent card could only advertise actions with `requiresAuth !== true`,
+  while `actions/invoke` only ever executes actions with `requiresAuth === true` —
+  two disjoint sets. Every app whose A2A actions were authenticated therefore
+  published an empty skills list, and `describe-workspace-apps` reported
+  "exposes no directly callable actions" about an app the caller could in fact
+  call directly. Callers took that at face value and fell back to open-ended
+  `call-agent` delegation, which hands schema discovery to a second model; in
+  practice that model shelled out through `bash`, failed to find the data, and
+  looped until the repetition guard stopped the run.
+
+  The card now serves the invocable set to a caller with a verified A2A identity,
+  and sibling capability discovery signs its probe so it sees that set. Anonymous
+  card fetches are unchanged and still expose only the publicly-safe list, so no
+  capability is disclosed to an unauthenticated reader that was not disclosed
+  before.
+
+- 0aada94: Let Design MCP App canvases hand pending visual source edits back to the host coding conversation while preserving the local Design-agent and copy-prompt fallbacks for ordinary browser panes.
+
+  Teach visual-edit users to minimize Design chrome with Figma's `Shift+\` shortcut or the command menu without claiming the host-reserved `Cmd+\` chord.
+
+- 0aada94: Keep client status timeouts isolated to their own endpoint and preserve the last known model readiness when a status probe is temporarily unavailable.
+- 0aada94: Visual edit: never render a source snapshot in place of the running app. A localhost screen now always loads a live document — the proxied `/live-edit` frame for viewers holding the connection's `previewToken`, and the plain dev-server URL for everyone else. Previously a viewer without a token (signed-out session, public link, inline browser with no cookies) got the `/snapshot` HTML as `srcdoc`: a frozen copy that looked exactly like the app but had no live DOM behind it, so selection, the layers panel, and edits all silently addressed stale markup.
+- 0aada94: Show relative cost per model in the composer's model picker. Each row now
+  carries a quiet `$`/`$$`/`$$$` suffix so a user can tell an entry model from a
+  flagship one before selecting it, rather than discovering the difference in
+  their bill. The tier reuses the token list the picker already sorts by
+  (`MODEL_COST_ORDER`) and reflects each provider's own entry/mid/flagship ladder
+  — it is not a cross-provider price claim. Models outside that list render with
+  no label at all; a guessed tier would read as fact.
+- 0aada94: Send `reasoning_effort: "none"` instead of omitting it when a custom OpenAI base
+  URL forces Chat Completions with tools present. Omitting the field let OpenAI
+  apply the model's own default effort, so GPT-5.6 runs kept failing with
+  "Function tools with reasoning_effort are not supported for <model> in
+  /v1/chat/completions" even after the field was dropped.
+- 0aada94: Use OpenAI's current `gpt-transcribe` model for direct OpenAI voice dictation uploads.
+- 0aada94: Refuse to replace symlinked project skill folders during built-in skill installs.
+- 0aada94: Queued chat messages now run under the model, engine, and reasoning effort they
+  were composed with instead of whatever the picker happens to be set to when the
+  queue flushes. Queued bubbles also gain a "Send now" control that interrupts the
+  active run, and the pending group is labelled with its count.
+- 0aada94: Restore a reachable path for the legacy chat-thread `message_count` repair. Databases predating the column left rows at 0, and both `listThreads` and `searchThreads` filter `message_count > 0` in SQL, so those threads never appeared in the sidebar and nothing called the repair anymore.
+
+  `repairLegacyChatThreadMessageCounts` now runs as a name-tracked migration (`_chat_threads_migrations`) in long-lived app processes, so the `thread_data` scan happens once per database and is skipped entirely on every later boot. Serverless isolates do not launch the repair during cold start; operators can run a long-lived maintenance process against an older hosted database without making concurrent functions race the same full-data scan. `MigrationEntry` gained an optional `run` hook for backfills SQL cannot express; it executes before the bookkeeping row is written, so a failed repair stays unrecorded and retries instead of being marked applied against work that never happened.
+
+- 0aada94: Tell the model the expected parameter signature when a raw-JSON-schema action
+  rejects its arguments. Previously only Zod-backed actions echoed the expected
+  shape, so a model that guessed a wrong enum or type on a raw-schema action got
+  no new information, re-sent the same arguments, and tripped the identical-error
+  breaker with the write never executed. The repeated-error stop message is now
+  written for the user instead of instructing them to fix the tool arguments.
+- 0aada94: Report failed batched schema introspection as an error instead of silently treating the database as up to date.
+- 0aada94: Reduce agent-chat startup request fan-out by sharing concurrent status, session, model-discovery, and thread-list reads.
+- 0aada94: Stop timed-out Neon database statements on the server instead of only abandoning the client request.
+- 0aada94: Stop the chat from claiming a tool is running when nothing is running, and stop
+  recording interrupted actions as failures. A tool card only spins while a chat is
+  actually running — an activity placeholder alone no longer resurrects a spinner
+  on rehydrated history, which is how an email that WAS delivered showed as
+  perpetually "sending". When a stream ends with a tool still in flight the card is
+  now marked with a distinct unknown outcome ("it may or may not have completed")
+  instead of a red failure, both live and in the persisted transcript, because
+  "absent" and "unreadable" are not the same answer. The alternate runtime path now
+  settles its pending tool calls on `done` and on error like the main SSE path does,
+  and a turn whose tool never resolved keeps its "Worked for Xm Ys" summary instead
+  of rendering a permanent "Thinking" indicator with nothing behind it.
+- Updated dependencies [0aada94]
+- Updated dependencies [0aada94]
+  - @agent-native/toolkit@0.10.11
+
+## 0.128.4
+
+### Patch Changes
+
+- e22b660: Render a best-effort inline chart when an agent emits a hallucinated `/word ... labels=[...] data=[...]` line in chat instead of the documented ```embed fence. Previously that line rendered as inert literal text with no chart. Detection is generic (not tied to any single template's tool name), rejects malformed input (mismatched lengths, negative values, oversized arrays) by falling back to plain text, and correctly skips content inside fenced/indented code blocks.
+- f261c10: Warn in the `update-extension` tool description against inlining large static datasets into extension HTML/JS and against oversized single edit/replace payloads, since a payload over roughly 8KB risks the model truncating its own `payloadJson` mid-generation and arriving as an empty or malformed call that stalls the run.
+
 ## 0.128.3
 
 ### Patch Changes

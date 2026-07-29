@@ -4,6 +4,7 @@
 import type { ToolCallMessagePartProps } from "@assistant-ui/react";
 import {
   IconLoader2,
+  IconAlertTriangle,
   IconCircleX,
   IconCheck,
   IconChevronRight,
@@ -583,6 +584,7 @@ export function ToolCallDisplay({
   mcpApp,
   chatUI,
   isRunning,
+  outcome,
   structuredMeta,
   approval,
   repeatCount,
@@ -596,6 +598,8 @@ export function ToolCallDisplay({
   mcpApp?: AgentMcpAppPayload;
   chatUI?: ActionChatUIConfig;
   isRunning: boolean;
+  /** "unknown": the stream ended mid-flight, so the side effect may have landed. */
+  outcome?: "unknown";
   structuredMeta?: Record<string, unknown>;
   approval?: { approvalKey: string; dismissed?: boolean };
   repeatCount?: number;
@@ -661,6 +665,7 @@ export function ToolCallDisplay({
       mcpApp={mcpApp}
       chatUI={chatUI}
       isRunning={isRunning}
+      outcome={outcome}
       isActiveTail={showActiveTail}
       structuredMeta={structuredMeta}
       approval={approval}
@@ -677,6 +682,7 @@ function ToolCallDisplayGeneric({
   mcpApp,
   chatUI,
   isRunning,
+  outcome,
   isActiveTail,
   structuredMeta,
   approval,
@@ -689,6 +695,7 @@ function ToolCallDisplayGeneric({
   mcpApp?: AgentMcpAppPayload;
   chatUI?: ActionChatUIConfig;
   isRunning: boolean;
+  outcome?: "unknown";
   isActiveTail: boolean;
   structuredMeta?: Record<string, unknown>;
   approval?: { approvalKey: string; dismissed?: boolean };
@@ -704,6 +711,7 @@ function ToolCallDisplayGeneric({
       ? args.agent
       : null;
   const isAgentError = isAgentCall && result === "Error calling agent";
+  const isUnknownOutcome = !isRunning && outcome === "unknown";
   const agentStreamText = isRawCallAgent
     ? (result ?? "")
     : isAgentCall
@@ -865,6 +873,8 @@ function ToolCallDisplayGeneric({
             <IconLoader2 className="size-3.5 animate-spin" />
           ) : isAgentError ? (
             <IconCircleX className="size-3.5 text-destructive" />
+          ) : isUnknownOutcome ? (
+            <IconAlertTriangle className="size-3.5 text-muted-foreground" />
           ) : (
             <>
               <ToolIcon
@@ -929,6 +939,12 @@ function ToolCallDisplayGeneric({
           )}
         </div>
       </AnimatedCollapse>
+      {isUnknownOutcome && (
+        <p role="status" className="ps-5 text-xs text-muted-foreground">
+          Interrupted before this finished reporting — it may or may not have
+          completed. Check before retrying.
+        </p>
+      )}
       {approval && (
         <ApprovalAffordance toolName={toolName} approval={approval} />
       )}
@@ -1149,14 +1165,19 @@ export function ToolCallFallback({
   chatUI?: ActionChatUIConfig;
   structuredMeta?: Record<string, unknown>;
   activity?: boolean;
+  outcome?: "unknown";
   approval?: { approvalKey: string; dismissed?: boolean };
   repeatCount?: number;
   isLatestRunning?: boolean;
   isActiveTail?: boolean;
 }) {
   const chatRunning = React.useContext(ChatRunningContext);
-  const isRunning =
-    result === undefined && (chatRunning || rest.activity === true);
+  // A spinner is a claim that something is running right now, so it needs an
+  // actually-running chat. `chatRunning` already stays true across
+  // auto-continuation gaps and server-active runs (resolveAssistantChatRunningState),
+  // so an activity placeholder alone must never resurrect one on rehydrated
+  // history.
+  const isRunning = result === undefined && chatRunning;
   return (
     <ToolCallDisplay
       toolName={toolName}
@@ -1173,6 +1194,7 @@ export function ToolCallFallback({
       chatUI={rest.chatUI}
       structuredMeta={rest.structuredMeta}
       isRunning={isRunning}
+      outcome={rest.outcome}
       isActiveTail={rest.isActiveTail}
       isLatestRunning={rest.isLatestRunning}
       approval={rest.approval}
@@ -1247,6 +1269,7 @@ export function ReconnectStreamMessage({
         mcpApp={part.mcpApp}
         chatUI={part.chatUI}
         structuredMeta={part.structuredMeta}
+        outcome={part.outcome}
         isRunning={
           part.result === undefined && (chatRunning || part.activity === true)
         }

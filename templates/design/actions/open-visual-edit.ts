@@ -303,7 +303,8 @@ export default defineAction({
     compactCatalog: true,
     resource: embedApp({
       title: "Local visual edit",
-      description: "Open local URL-backed screens in Design overview mode.",
+      description:
+        "Review local URL-backed screens and hand pending source edits back to the host coding agent.",
       iframeTitle: "Agent-Native Design",
       openLabel: "Open overview",
       height: 680,

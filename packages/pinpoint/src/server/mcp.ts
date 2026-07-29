@@ -8,7 +8,7 @@ import { FileStore } from "../storage/file-store.js";
  * These can be registered with an MCP server instance.
  *
  * ```ts
- * import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+ * import { Server } from '@modelcontextprotocol/server';
  * import { createPinpointMCPTools } from '@agent-native/pinpoint/server';
  *
  * const server = new Server({ name: 'pinpoint', version: '1.0.0' }, { capabilities: { tools: {} } });
