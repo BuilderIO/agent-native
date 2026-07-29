@@ -17,7 +17,14 @@
  *   });
  */
 
+import type { EmailCta, EmailLinkBlock } from "../server/email-template.js";
 import type { UserProfile } from "../user-profile/shared.js";
+
+export interface ShareEmailExtras {
+  secondaryCta?: EmailCta;
+  linkBlock?: EmailLinkBlock;
+  closingParagraphs?: string[];
+}
 
 export interface ShareableResourceRegistration {
   /** Stable identifier used across actions, UI, and analytics. e.g. "document". */
@@ -85,6 +92,17 @@ export interface ShareableResourceRegistration {
     resource: any,
     ctx: { href: string; alt?: string },
   ) => string | undefined | Promise<string | undefined>;
+  /**
+   * Optional resolver for app-specific content in the share-notification
+   * email: a second button beside the primary CTA, a treated copyable link,
+   * and closing paragraphs beneath it. Closing paragraphs are injected
+   * verbatim (use `emailLink` / `emailStrong` for inline markup), so escape
+   * any dynamic values.
+   */
+  getShareEmailExtras?: (
+    resource: any,
+    ctx: { href: string; sender: UserProfile; recipientEmail: string },
+  ) => ShareEmailExtras | undefined | Promise<ShareEmailExtras | undefined>;
   /**
    * Drizzle DB accessor from the template's server/db/index.ts. Required —
    * the framework-level share actions and access helpers call this to reach
