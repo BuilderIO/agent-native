@@ -8876,9 +8876,6 @@ function installWebviewOAuthNavigationHandler(contents: Electron.WebContents) {
     }
   };
 
-  // Belt-and-suspenders for existing deployed app bundles that may still
-  // fall back to assigning window.location when Electron reports a manually
-  // handled popup as null. Keep Builder/Google OAuth out of the app webview.
   installWebviewNavigationListeners(contents, handleNavigation);
 }
 
