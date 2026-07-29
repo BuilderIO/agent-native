@@ -519,6 +519,16 @@ interface EventDetailPopoverProps {
   onDraftDiscard?: (eventId: string) => void;
 }
 
+function getInitialEditableTitle(
+  event: Pick<CalendarEvent, "title" | "eventType">,
+  isDraft: boolean,
+) {
+  if (isDraft && isOutOfOfficeEvent(event) && event.title === "Out of office") {
+    return "";
+  }
+  return getEditableEventTitle(event.title);
+}
+
 export function EventDetailPopover({
   event,
   children,
@@ -537,7 +547,7 @@ export function EventDetailPopover({
   const isMobile = useIsMobile();
   const [open, setOpen] = useState(defaultOpen);
   const [editingTitle, setEditingTitle] = useState(
-    defaultOpen ? getEditableEventTitle(event.title) : "",
+    defaultOpen ? getInitialEditableTitle(event, isDraft) : "",
   );
   const [isEditingTitle, setIsEditingTitle] = useState(defaultOpen);
   const isNewEventRef = useRef(defaultOpen);
@@ -676,12 +686,12 @@ export function EventDetailPopover({
       setIsEditingTitle(true);
       isNewEventRef.current = true;
       setEditingTitle((current) => {
-        const eventTitle = getEditableEventTitle(event.title);
+        const eventTitle = getInitialEditableTitle(event, isDraft);
         if (current.trim() && current !== eventTitle) return current;
         return eventTitle;
       });
     }
-  }, [defaultOpen, event.title]);
+  }, [defaultOpen, event.eventType, event.title, isDraft]);
 
   // Focus title input when editing starts
   useEffect(() => {

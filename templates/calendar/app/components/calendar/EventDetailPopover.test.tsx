@@ -67,8 +67,18 @@ vi.mock("@/hooks/use-events", () => ({
   useUpdateEvent: () => ({ mutate: updateEventMutate, isPending: false }),
 }));
 
+vi.mock("@/hooks/use-google-auth", () => ({
+  useGoogleAuthStatus: () => ({ data: { accounts: [] } }),
+}));
+
 vi.mock("@/hooks/use-mobile", () => ({
   useIsMobile: () => false,
+}));
+
+vi.mock("@/hooks/use-view-preferences", () => ({
+  useViewPreferences: () => ({
+    prefs: { accountColors: {}, singleColor: undefined },
+  }),
 }));
 
 vi.mock("@/hooks/use-zoom-auth", () => ({
@@ -306,6 +316,42 @@ describe("EventDetailPopover characterization", () => {
       "(No title)",
       undefined,
     );
+  });
+
+  it("dismisses a blank out-of-office draft without saving its generated title", () => {
+    const onTitleSave = vi.fn();
+    const onDismissNew = vi.fn();
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={baseEvent({
+            title: "Out of office",
+            eventType: "outOfOffice",
+          })}
+          isDraft
+          defaultOpen
+          onDelete={() => undefined}
+          onTitleSave={onTitleSave}
+          onDismissNew={onDismissNew}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    const titleInput = document.querySelector<HTMLInputElement>(
+      'input[placeholder="eventForm.addTitle"]',
+    );
+    expect(titleInput).toBeTruthy();
+    expect(titleInput!.value).toBe("");
+
+    const closeButton = findByExactText("button", "Mock close popover");
+    act(() => {
+      (closeButton as HTMLElement).click();
+    });
+
+    expect(onTitleSave).not.toHaveBeenCalled();
+    expect(onDismissNew).toHaveBeenCalledWith("event-1", undefined);
   });
 
   it("does not show the event timezone as a standalone row", () => {
