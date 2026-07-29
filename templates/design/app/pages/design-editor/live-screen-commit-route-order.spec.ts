@@ -31,16 +31,37 @@ function commitVisualStylesSection(): string {
 
 describe("localhost style commit route order", () => {
   const LOCALHOST_ROUTE = 'if (activeCanvasSourceType === "localhost") {';
-  const RUNTIME_ONLY_REFUSAL =
-    "if (!targetNode && elementInfoIsRuntimeOnly(targetInfo)) {";
+  const RESOLUTION_REFUSAL = "if (commitTargetCannotResolve) {";
 
-  it("routes a localhost commit to the agent queue before the runtime-only refusal", () => {
+  it("routes a localhost commit to the agent queue before the resolution refusal", () => {
     const section = commitVisualStylesSection();
 
     expect(section).toContain(LOCALHOST_ROUTE);
-    expect(section).toContain(RUNTIME_ONLY_REFUSAL);
+    expect(section).toContain(RESOLUTION_REFUSAL);
     expect(section.indexOf(LOCALHOST_ROUTE)).toBeLessThan(
-      section.indexOf(RUNTIME_ONLY_REFUSAL),
+      section.indexOf(RESOLUTION_REFUSAL),
+    );
+  });
+
+  it("refuses an ambiguous target whether or not it is runtime-only", () => {
+    const section = commitVisualStylesSection();
+    const gate = section.slice(
+      section.indexOf("const commitTargetCannotResolve ="),
+      section.indexOf(RESOLUTION_REFUSAL),
+    );
+
+    // Gating solely on elementInfoIsRuntimeOnly let a source-backed element
+    // with a repeated selector fall through to the writers, which both refuse
+    // it anyway — after the preview had already painted the value.
+    expect(gate).toContain('targetResolution.status === "ambiguous"');
+    expect(gate).toContain("elementInfoIsRuntimeOnly(targetInfo)");
+  });
+
+  it("refuses before the runtime preview paints an edit that cannot persist", () => {
+    const section = commitVisualStylesSection();
+
+    expect(section.indexOf(RESOLUTION_REFUSAL)).toBeLessThan(
+      section.indexOf("sendRuntimeStylePreview();"),
     );
   });
 
@@ -72,7 +93,7 @@ describe("localhost style commit route order", () => {
 
   it("never blames the element when the projection is a mount shell", () => {
     const section = commitVisualStylesSection();
-    const refusal = section.slice(section.indexOf(RUNTIME_ONLY_REFUSAL));
+    const refusal = section.slice(section.indexOf(RESOLUTION_REFUSAL));
 
     // "no app markup to patch" and "element no longer exists" are different
     // facts with different remedies; a mount shell is the former.

@@ -13507,7 +13507,14 @@ function DesignEditor() {
         typeof crypto !== "undefined" && "randomUUID" in crypto
           ? crypto.randomUUID()
           : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-      if (!targetNode && elementInfoIsRuntimeOnly(targetInfo)) {
+      // Ambiguity is terminal for both writers below (each demands a unique
+      // match), but `absent` is not: the legacy DOM query still resolves
+      // selectors the projection missed, so it must fall through.
+      const commitTargetCannotResolve =
+        !targetNode &&
+        (targetResolution.status === "ambiguous" ||
+          elementInfoIsRuntimeOnly(targetInfo));
+      if (commitTargetCannotResolve) {
         // Fail LOUD (same contract as the resolveVisualStyleCommitContent
         // error branch below): patch-proof state alone is too quiet for a
         // user-initiated edit that will never persist.
