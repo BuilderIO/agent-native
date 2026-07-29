@@ -111,13 +111,62 @@ describe("slide object interactions", () => {
     expect(findSlideObjectById(root, "missing")).toBeNull();
   });
 
-  it("anchors the opposite corner and enforces a usable resize minimum", () => {
+  it.each([
+    ["nw", { x: 140, y: 80, width: 160, height: 70 }],
+    ["n", { x: 100, y: 80, width: 200, height: 70 }],
+    ["ne", { x: 100, y: 80, width: 240, height: 70 }],
+    ["w", { x: 140, y: 50, width: 160, height: 100 }],
+    ["e", { x: 100, y: 50, width: 240, height: 100 }],
+    ["sw", { x: 140, y: 50, width: 160, height: 130 }],
+    ["s", { x: 100, y: 50, width: 200, height: 130 }],
+    ["se", { x: 100, y: 50, width: 240, height: 130 }],
+  ] as const)(
+    "resizes and anchors the opposite edge for the %s handle",
+    (handle, expected) => {
+      expect(
+        resizeSlideObject(
+          { x: 100, y: 50, width: 200, height: 100 },
+          { handle, dx: 40, dy: 30, preserveAspectRatio: false },
+        ),
+      ).toEqual(expected);
+    },
+  );
+
+  it.each([
+    ["nw", 500, 500, { x: 276, y: 126, width: 24, height: 24 }],
+    ["n", 0, 500, { x: 100, y: 126, width: 200, height: 24 }],
+    ["ne", -500, 500, { x: 100, y: 126, width: 24, height: 24 }],
+    ["w", 500, 0, { x: 276, y: 50, width: 24, height: 100 }],
+    ["e", -500, 0, { x: 100, y: 50, width: 24, height: 100 }],
+    ["sw", 500, -500, { x: 276, y: 50, width: 24, height: 24 }],
+    ["s", 0, -500, { x: 100, y: 50, width: 200, height: 24 }],
+    ["se", -500, -500, { x: 100, y: 50, width: 24, height: 24 }],
+  ] as const)(
+    "keeps the opposite edge anchored when the %s handle reaches the minimum",
+    (handle, dx, dy, expected) => {
+      expect(
+        resizeSlideObject(
+          { x: 100, y: 50, width: 200, height: 100 },
+          { handle, dx, dy, preserveAspectRatio: false },
+        ),
+      ).toEqual(expected);
+    },
+  );
+
+  it("uses Shift aspect locking for corners while midpoint handles remain axis-only", () => {
     expect(
       resizeSlideObject(
         { x: 100, y: 50, width: 200, height: 100 },
-        { handle: "nw", dx: 250, dy: 150, preserveAspectRatio: false },
+        { handle: "nw", dx: 30, dy: 10, preserveAspectRatio: true },
       ),
-    ).toEqual({ x: 276, y: 126, width: 24, height: 24 });
+    ).toEqual({ x: 130, y: 65, width: 170, height: 85 });
+
+    expect(
+      resizeSlideObject(
+        { x: 100, y: 50, width: 200, height: 100 },
+        { handle: "w", dx: 30, dy: 99, preserveAspectRatio: true },
+      ),
+    ).toEqual({ x: 130, y: 50, width: 170, height: 100 });
   });
 
   it("preserves the edited object as the selected object after Escape", () => {

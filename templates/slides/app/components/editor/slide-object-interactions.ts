@@ -1,6 +1,6 @@
 export const MIN_SLIDE_OBJECT_SIZE = 24;
 
-export type ResizeHandle = "nw" | "ne" | "sw" | "se";
+export type ResizeHandle = "nw" | "n" | "ne" | "w" | "e" | "sw" | "s" | "se";
 
 export interface SlideObjectGeometry {
   x: number;
@@ -258,12 +258,24 @@ export function resizeSlideObject(
     minSize = MIN_SLIDE_OBJECT_SIZE,
   }: ResizeOptions,
 ): SlideObjectGeometry {
-  const fromWest = handle === "nw" || handle === "sw";
-  const fromNorth = handle === "nw" || handle === "ne";
-  let width = start.width + (fromWest ? -dx : dx);
-  let height = start.height + (fromNorth ? -dy : dy);
+  const fromWest = handle === "nw" || handle === "w" || handle === "sw";
+  const fromEast = handle === "ne" || handle === "e" || handle === "se";
+  const fromNorth = handle === "nw" || handle === "n" || handle === "ne";
+  const fromSouth = handle === "sw" || handle === "s" || handle === "se";
+  const resizesHorizontally = fromWest || fromEast;
+  const resizesVertically = fromNorth || fromSouth;
+  let width = start.width + (fromWest ? -dx : fromEast ? dx : 0);
+  let height = start.height + (fromNorth ? -dy : fromSouth ? dy : 0);
 
-  if (preserveAspectRatio && start.width > 0 && start.height > 0) {
+  // Midpoint handles intentionally resize a single axis, even with Shift.
+  // Their opposing edge remains fixed and no implied perpendicular resize occurs.
+  if (
+    preserveAspectRatio &&
+    resizesHorizontally &&
+    resizesVertically &&
+    start.width > 0 &&
+    start.height > 0
+  ) {
     const ratio = start.width / start.height;
     const horizontalScale = width / start.width;
     const verticalScale = height / start.height;
