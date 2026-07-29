@@ -71,7 +71,10 @@ import {
 } from "@/lib/generation-state";
 import { isMissingUploadProviderError } from "@/lib/image-drop-to-agent";
 import { imageFileLooksSupported } from "@/lib/slide-image-replacement";
-import { replaceImageTargetInSlideHtml } from "@/lib/slide-image-replacement";
+import {
+  insertImageIntoSlideHtml,
+  replaceImageTargetInSlideHtml,
+} from "@/lib/slide-image-replacement";
 import { TAB_ID } from "@/lib/tab-id";
 import { shortcutLabel } from "@/lib/utils";
 
@@ -419,15 +422,22 @@ export default function DeckEditor() {
     (replaceSrc: string | null, url: string) => {
       if (!id || !currentSlideRef.current) return;
       if (!replaceSrc) {
-        toast.info(t("deckEditor.dropOntoImageHint"), {
-          description: t("deckEditor.dropOntoImageHintDescription"),
-        });
+        // No existing image/placeholder under the drop point (e.g. an empty
+        // slide) — the URL is already a known, hosted asset (unlike an
+        // arbitrary local file), so just add it to the slide directly
+        // instead of routing through the agent-prompt popover.
+        const targetSlide = currentSlideRef.current;
+        const updatedContent = insertImageIntoSlideHtml(targetSlide.content, url);
+        if (updatedContent !== targetSlide.content) {
+          updateSlide(id, targetSlide.id, { content: updatedContent });
+        }
+        toast.success(t("deckEditor.imageAdded"));
         return;
       }
       replaceImageInSlide(replaceSrc, url);
       toast.success(t("deckEditor.imageAdded"));
     },
-    [id, replaceImageInSlide, t],
+    [id, replaceImageInSlide, t, updateSlide],
   );
 
   // Toggle object-fit on an image in the current slide

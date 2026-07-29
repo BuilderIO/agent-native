@@ -503,9 +503,6 @@ const messages = {
       "Connect Builder.io from the agent composer model menu to upload images onto slides. Dropping an image onto empty canvas can still send it to the agent without a provider.",
     imageAdded: "Image added",
     imageUploadError: "Something went wrong uploading this image.",
-    dropOntoImageHint: "Drop onto an image to replace it",
-    dropOntoImageHintDescription:
-      "Drag the image onto an existing picture or placeholder on the slide.",
     exportFailed: "Export failed",
     deckHasNoSlides: "Deck has no slides.",
     pdfRenderFailed: "Could not render PDF.",
