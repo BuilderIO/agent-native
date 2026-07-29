@@ -427,7 +427,10 @@ export default function DeckEditor() {
         // arbitrary local file), so just add it to the slide directly
         // instead of routing through the agent-prompt popover.
         const targetSlide = currentSlideRef.current;
-        const updatedContent = insertImageIntoSlideHtml(targetSlide.content, url);
+        const updatedContent = insertImageIntoSlideHtml(
+          targetSlide.content,
+          url,
+        );
         if (updatedContent !== targetSlide.content) {
           updateSlide(id, targetSlide.id, { content: updatedContent });
         }
