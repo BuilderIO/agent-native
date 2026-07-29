@@ -411,6 +411,25 @@ export default function DeckEditor() {
     [id, updateSlide, uploadImageAsset],
   );
 
+  // Drag an already-hosted image (e.g. dragged out of a generated-image
+  // preview in the agent chat panel) onto the slide canvas. Unlike
+  // uploadAndApplyImage there's nothing to upload — the URL is already a
+  // live asset — so this just swaps it into the target image/placeholder.
+  const dropImageUrlOnSlide = useCallback(
+    (replaceSrc: string | null, url: string) => {
+      if (!id || !currentSlideRef.current) return;
+      if (!replaceSrc) {
+        toast.info(t("deckEditor.dropOntoImageHint"), {
+          description: t("deckEditor.dropOntoImageHintDescription"),
+        });
+        return;
+      }
+      replaceImageInSlide(replaceSrc, url);
+      toast.success(t("deckEditor.imageAdded"));
+    },
+    [id, replaceImageInSlide, t],
+  );
+
   // Toggle object-fit on an image in the current slide
   const toggleObjectFit = useCallback(
     (imgSrc: string, newFit: string) => {
@@ -986,6 +1005,7 @@ export default function DeckEditor() {
                 setLogoSearchOpen(true);
               }}
               onDropImage={uploadAndApplyImage}
+              onDropImageUrl={dropImageUrlOnSlide}
               onToggleObjectFit={toggleObjectFit}
               slideIndex={currentIndex >= 0 ? currentIndex : 0}
               slideCount={deck.slides.length}

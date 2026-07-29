@@ -416,6 +416,14 @@ interface SlideEditorProps {
     file: File,
     position?: { x: number; y: number },
   ) => void;
+  /** Fired when an image is dragged from elsewhere in the app (e.g. a
+   *  generated-image preview in the agent chat panel) and dropped on the
+   *  slide canvas, instead of a native OS file drop. */
+  onDropImageUrl?: (
+    replaceSrc: string | null,
+    url: string,
+    position?: { x: number; y: number },
+  ) => void;
   onToggleObjectFit: (imgSrc: string, newFit: string) => void;
   /** Current user display info for cursor caret */
   collabUser?: { name: string; color: string };
@@ -800,6 +808,7 @@ export default function SlideEditor({
   onSearchImage,
   onLogoSearch,
   onDropImage,
+  onDropImageUrl,
   onToggleObjectFit,
   agentActive,
   slideIndex = 0,
@@ -1953,7 +1962,11 @@ export default function SlideEditor({
       files.some(imageFileLooksSupported) ||
       items.some(
         (item) => item.kind === "file" && item.type.startsWith("image/"),
-      );
+      ) ||
+      // Dragging a rendered <img> (e.g. a generated-image preview in the
+      // agent chat panel) rather than a native OS file: the browser puts the
+      // image's src on the uri-list/text types instead of Files.
+      types.includes("text/uri-list");
     if (!hasImage) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "copy";
@@ -1963,16 +1976,32 @@ export default function SlideEditor({
     (e: React.DragEvent) => {
       const files = Array.from(e.dataTransfer.files ?? []);
       const file = files.find(imageFileLooksSupported);
-      if (files.length === 0) return;
+      if (files.length > 0) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!file) return;
+        onDropImage?.(
+          getImageReplacementTarget(e.target as HTMLElement),
+          file,
+          { x: e.clientX, y: e.clientY },
+        );
+        return;
+      }
+      // No native file — check for a dragged image URL instead (e.g. an
+      // <img> dragged out of the agent chat panel's generated-image preview).
+      const url =
+        e.dataTransfer.getData("text/uri-list") ||
+        e.dataTransfer.getData("text/plain");
+      if (!url || !/^https?:\/\//i.test(url.trim())) return;
       e.preventDefault();
       e.stopPropagation();
-      if (!file) return;
-      onDropImage?.(getImageReplacementTarget(e.target as HTMLElement), file, {
-        x: e.clientX,
-        y: e.clientY,
-      });
+      onDropImageUrl?.(
+        getImageReplacementTarget(e.target as HTMLElement),
+        url.trim(),
+        { x: e.clientX, y: e.clientY },
+      );
     },
-    [getImageReplacementTarget, onDropImage],
+    [getImageReplacementTarget, onDropImage, onDropImageUrl],
   );
 
   const handleSlideClick = useCallback(
