@@ -380,13 +380,13 @@ cache-control: public, max-age=600, stale-while-revalidate=604800, stale-if-erro
 
 ### 构建/运行时 {#env-runtime}
 
-| 变量                                        | 描述                                                                                                                                                                                                                                                                                  |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `PORT`                                      | 服务器端口（仅限Node.js）                                                                                                                                                                                                                                                             |
-| `NITRO_PRESET`                              | 在构建时覆盖构建预设                                                                                                                                                                                                                                                                  |
-| `APP_BASE_PATH`                             | 将应用程序安装在前缀下（例如 `/mail`）。由`npx @agent-native/core@latest deploy`自动设置；保持未设置为独立。                                                                                                                                                                          |
-| `AGENT_PROD_CODE_EXECUTION`                 | 可选的生产代码执行模式：`off`（默认）、`sandboxed` 或 `trusted`。参见[Production Code Execution](#production-code-execution)。                                                                                                                                                        |
-| `AGENT_NATIVE_SSR_CACHE`                    | 部署范围的 SSR 外壳缓存策略：未设置/`on` 保持默认硬缓存，`off` 发送 `no-store`，或使用一个时长（例如 `30s` / `5m`）设置更短的新鲜度。参见 [SSR Caching](#ssr-caching)。                                                                                                               |
+| 变量                        | 描述                                                                                                                                                                    |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PORT`                      | 服务器端口（仅限Node.js）                                                                                                                                               |
+| `NITRO_PRESET`              | 在构建时覆盖构建预设                                                                                                                                                    |
+| `APP_BASE_PATH`             | 将应用程序安装在前缀下（例如 `/mail`）。由`npx @agent-native/core@latest deploy`自动设置；保持未设置为独立。                                                            |
+| `AGENT_PROD_CODE_EXECUTION` | 可选的生产代码执行模式：`off`（默认）、`sandboxed` 或 `trusted`。参见[Production Code Execution](#production-code-execution)。                                          |
+| `AGENT_NATIVE_SSR_CACHE`    | 部署范围的 SSR 外壳缓存策略：未设置/`on` 保持默认硬缓存，`off` 发送 `no-store`，或使用一个时长（例如 `30s` / `5m`）设置更短的新鲜度。参见 [SSR Caching](#ssr-caching)。 |
 
 数据库连接变量（`DATABASE_URL`、`DATABASE_AUTH_TOKEN`、每个应用程序 `<APP_NAME>_DATABASE_URL`）位于 [Database](/docs/database#production) 中。
 
