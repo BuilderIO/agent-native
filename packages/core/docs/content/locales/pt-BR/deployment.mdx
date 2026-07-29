@@ -446,6 +446,13 @@ export default createAgentChatPlugin({
 });
 ```
 
+```ts
+// server/plugins/core-routes.ts
+export default createCoreRoutesPlugin({
+  extensionTools: true,
+});
+```
+
 - `databaseTools: "read"` — padrão. Registra apenas `db-schema` e `db-query`;
   os agentes inspecionam dados com SQL, mas devem usar actions tipadas do app para gravar.
 - `databaseTools: "write"` ou `true` — também registra `db-exec` e `db-patch`
@@ -454,7 +461,8 @@ export default createAgentChatPlugin({
 - `databaseTools: "off"` ou `false` — remove ferramentas de banco de dados brutos do
   superfície do agente para que o actions do aplicativo seja o único caminho de acesso aos dados.
 - `extensionTools: true` — habilita no aplicativo as actions e orientações de
-  gerenciamento de extensões (`create-extension`, `update-extension` etc.). As
+  gerenciamento de extensões (`create-extension`, `update-extension` etc.).
+  Defina-o nos dois plugins para permitir também a criação REST autenticada. As
   extensões ficam desativadas por padrão.
 
 ## Execução de código de produção {#production-code-execution}

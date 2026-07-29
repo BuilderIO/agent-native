@@ -31,10 +31,8 @@ vi.mock("../server/h3-helpers.js", () => ({
 
 vi.mock("../server/request-context.js", () => ({
   getRequestOrgId: () => "org-1",
-  runWithRequestContext: (
-    _context: unknown,
-    run: () => Promise<unknown>,
-  ) => run(),
+  runWithRequestContext: (_context: unknown, run: () => Promise<unknown>) =>
+    run(),
 }));
 
 vi.mock("./local.js", () => ({

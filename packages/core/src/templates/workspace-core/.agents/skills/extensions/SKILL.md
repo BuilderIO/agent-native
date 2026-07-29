@@ -215,6 +215,12 @@ POST /_agent-native/extensions
 { "name": "GitHub PR Dashboard", "description": "Shows open PRs", "content": "<div ...>...</div>" }
 ```
 
+HTTP creation is disabled by default. The host app must set
+`extensionTools: true` on `createCoreRoutesPlugin()` as well as
+`createAgentChatPlugin()`; otherwise authenticated collection `POST` requests
+return `403` while existing extension runtime, read, edit, and deep-link routes
+remain available for compatibility.
+
 The action accepts:
 
 | Field                  | Type     | Required | Purpose                                            |

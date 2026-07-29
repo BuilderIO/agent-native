@@ -446,6 +446,13 @@ export default createAgentChatPlugin({
 });
 ```
 
+```ts
+// server/plugins/core-routes.ts
+export default createCoreRoutesPlugin({
+  extensionTools: true,
+});
+```
+
 - `databaseTools: "read"` — 預設。僅註冊 `db-schema` 和 `db-query`；
   代理使用 SQL 檢查資料，但必須使用型別化應用程式 actions 進行寫入。
 - `databaseTools: "write"` 或 `true` — 也會註冊 `db-exec` 和 `db-patch`
@@ -453,7 +460,8 @@ export default createAgentChatPlugin({
 - `databaseTools: "off"` 或 `false` — 從
   代理表面，因此應用程式的 actions 是唯一的資料存取路徑。
 - `extensionTools: true` — 為應用啟用框架擴充功能管理 actions 與提示
-  指引（`create-extension`、`update-extension` 等）。擴充功能預設關閉。
+  指引（`create-extension`、`update-extension` 等）。在兩個 plugins 上都
+  設定此選項，也可允許已驗證的 REST 建立。擴充功能預設關閉。
 
 ## 正式環境程式碼執行 {#production-code-execution}
 

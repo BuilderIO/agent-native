@@ -446,6 +446,13 @@ export default createAgentChatPlugin({
 });
 ```
 
+```ts
+// server/plugins/core-routes.ts
+export default createCoreRoutesPlugin({
+  extensionTools: true,
+});
+```
+
 - `databaseTools: "read"` — 기본값. `db-schema`와 `db-query`만 등록합니다.
   에이전트는 SQL로 데이터를 검사하지만 쓰기에는 typed app actions를 사용해야 합니다.
 - `databaseTools: "write"` 또는 `true` — 의도적인 raw SQL 유지보수를 위해
@@ -454,8 +461,9 @@ export default createAgentChatPlugin({
 - `databaseTools: "off"` 또는 `false` — 원시 데이터베이스 도구를 제거합니다.
   에이전트 표면이므로 앱의 actions가 유일한 데이터 액세스 경로입니다.
 - `extensionTools: true` — 앱에서 프레임워크 확장 관리 actions와 안내
-  (`create-extension`, `update-extension` 등)를 활성화합니다. 확장
-  프로그램은 기본적으로 비활성화됩니다.
+  (`create-extension`, `update-extension` 등)를 활성화합니다. 인증된
+  REST 생성도 허용하려면 두 plugins 모두에 설정하세요. 확장 프로그램은
+  기본적으로 비활성화됩니다.
 
 ## 생산 코드 실행 {#production-code-execution}
 
