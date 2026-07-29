@@ -345,6 +345,7 @@ export default defineAction({
         spaceIds: parseSpaceIds(rec.spaceIds),
         createdAt: rec.createdAt,
         updatedAt: rec.updatedAt,
+        archivedAt: rec.archivedAt,
       },
       transcript: transcript
         ? {

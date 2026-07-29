@@ -292,11 +292,18 @@ export async function exportMp4(
  * picker's "Animated GIF" tab. Keeps GIF small by scaling to 320px wide and
  * 15fps — more than enough for a library thumbnail.
  */
+export interface GifOptions {
+  /** Output width in pixels; height follows the source aspect ratio. */
+  width?: number;
+  fps?: number;
+}
+
 export async function exportGif(
   recording: ExportRecording,
   startMs: number,
   durationMs: number,
   onProgress?: (p: ExportProgress) => void,
+  options?: GifOptions,
 ): Promise<Blob> {
   if (!recording.videoUrl) throw new Error("Recording has no videoUrl");
 
@@ -325,7 +332,7 @@ export async function exportGif(
       "-i",
       inputName,
       "-vf",
-      "fps=15,scale=320:-2:flags=lanczos",
+      `fps=${options?.fps ?? 15},scale=${options?.width ?? 320}:-2:flags=lanczos`,
       "-loop",
       "0",
       outputName,
