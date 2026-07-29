@@ -584,6 +584,22 @@ const messages = {
     referenceDeckNone: "不使用参考",
     referenceDeckStarredGroup: "已加星标",
     referenceDeckOtherGroup: "其他幻灯片",
+    workspaceDefaultBadge: "工作区默认",
+    setWorkspaceDefault: "设为工作区默认",
+    clearWorkspaceDefault: "清除工作区默认",
+    workspaceDefaultSet: "已设为工作区默认",
+    workspaceDefaultCleared: "已清除工作区默认",
+    workspaceDefaultFailed: "无法更新工作区默认设置",
+    workspaceDefaultConfirmTitle: "设为工作区默认？",
+    workspaceDefaultDeckBody:
+      "此工作区中新建的每份幻灯片都将以“{{title}}”作为样式参考。成员在新建幻灯片时可以选择其他参考幻灯片，也可以不使用参考。",
+    workspaceDefaultDeckShareBody:
+      "“{{title}}”当前为私密。将其设为工作区默认后，它会与此工作区的所有成员共享，新建的幻灯片将以它作为样式参考。成员在新建幻灯片时可以选择其他参考幻灯片。",
+    workspaceDefaultSystemBody:
+      "此工作区中新建的每份幻灯片都将使用“{{title}}”设计系统。已设置个人默认设计系统的成员将保留其个人默认设置，任何人在新建幻灯片时都可以选择其他设计系统。",
+    workspaceDefaultSystemShareBody:
+      "“{{title}}”当前为私密。将其设为工作区默认后，它会与此工作区的所有成员共享，新建的幻灯片将使用它。已设置个人默认设计系统的成员将保留其个人默认设置。",
+    workspaceDefaultConfirmAction: "设为默认",
     starDeck: "加星标",
     unstarDeck: "取消星标",
     none: "无",

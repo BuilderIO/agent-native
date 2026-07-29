@@ -11,10 +11,12 @@ description: How to create a new deck with slides from scratch. Read this before
 
 1. Read the `creative-context` skill and retrieve factual evidence separately
    from presentation structure. Respect `contextMode: "off"`.
-2. Plan the slides (title, section dividers, content slides).
-3. Call `create-deck --title "..." --slides '[]'` to create an empty deck.
-4. Navigate to the new deck.
-5. Call `add-slide` once per slide in slide order, waiting for each result.
+2. Unless the user named a reference deck or design system, call
+   `get-workspace-defaults` and use what it returns. See "Workspace Defaults".
+3. Plan the slides (title, section dividers, content slides).
+4. Call `create-deck --title "..." --slides '[]'` to create an empty deck.
+5. Navigate to the new deck.
+6. Call `add-slide` once per slide in slide order, waiting for each result.
 
 Follow the creative-context reuse ladder before inventing a slide language:
 reuse an approved native template unchanged, compose approved pieces, lightly
@@ -64,6 +66,25 @@ composition and markup idiom. Apply both when both are present.
 Decks the user has starred are their intended reference decks. `list-decks`
 reports `starred` so you can offer them when the user asks for something "like
 our usual deck".
+
+## Workspace Defaults
+
+A workspace admin can flag one deck and one design system as the workspace
+default, so a bare "make a deck about X" still comes out on brand. When the user
+did not name a reference deck or design system, call `get-workspace-defaults`
+before planning slides.
+
+- `referenceDeck` — call `get-deck-reference-context --id <id>` and treat the
+  result exactly like a user-picked reference deck.
+- `designSystem` — pass its id as `designSystemId` to `create-deck`, unless the
+  caller already has a personal default, which `create-deck` applies on its own.
+- Either field can come back `{ unavailable: true }`. That means the default
+  exists but this user cannot open it, which is a misconfiguration, not an
+  absent default. Generate without it and tell the user their workspace default
+  is not shared with them, rather than silently producing an off-brand deck.
+
+An explicit request always wins over the workspace default. Do not re-apply a
+workspace default to an existing deck the user is editing.
 
 If the user provides a Google Docs URL as source material, call
 `import-google-doc --url <url>` first and build from the returned text. If the

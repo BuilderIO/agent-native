@@ -598,6 +598,22 @@ const messages = {
     referenceDeckNone: "使用しない",
     referenceDeckStarredGroup: "スター付き",
     referenceDeckOtherGroup: "その他のデッキ",
+    workspaceDefaultBadge: "ワークスペースのデフォルト",
+    setWorkspaceDefault: "ワークスペースのデフォルトに設定",
+    clearWorkspaceDefault: "ワークスペースのデフォルトを解除",
+    workspaceDefaultSet: "ワークスペースのデフォルトに設定しました",
+    workspaceDefaultCleared: "ワークスペースのデフォルトを解除しました",
+    workspaceDefaultFailed: "ワークスペースのデフォルトを更新できませんでした",
+    workspaceDefaultConfirmTitle: "ワークスペースのデフォルトに設定しますか？",
+    workspaceDefaultDeckBody:
+      "このワークスペースで作成されるすべての新しいデッキが「{{title}}」をスタイルの参考として使用します。メンバーはデッキの作成時に別の参考デッキを選択すること、または参考デッキを使用しないことを選べます。",
+    workspaceDefaultDeckShareBody:
+      "「{{title}}」は非公開です。ワークスペースのデフォルトに設定すると、このワークスペースの全メンバーに共有され、新しいデッキがこれをスタイルの参考として使用します。メンバーはデッキの作成時に別の参考デッキを選択できます。",
+    workspaceDefaultSystemBody:
+      "このワークスペースで作成されるすべての新しいデッキが「{{title}}」デザインシステムを使用します。独自のデフォルトを設定しているメンバーはそのデフォルトを維持し、誰でもデッキの作成時に別のデザインシステムを選択できます。",
+    workspaceDefaultSystemShareBody:
+      "「{{title}}」は非公開です。ワークスペースのデフォルトに設定すると、このワークスペースの全メンバーに共有され、新しいデッキがこれを使用します。独自のデフォルトを設定しているメンバーはそのデフォルトを維持します。",
+    workspaceDefaultConfirmAction: "デフォルトに設定",
     starDeck: "デッキにスターを付ける",
     unstarDeck: "スターを外す",
     none: "なし",

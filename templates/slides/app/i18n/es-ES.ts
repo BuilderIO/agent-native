@@ -620,6 +620,27 @@ const messages = {
     referenceDeckNone: "No usar ninguno",
     referenceDeckStarredGroup: "Destacados",
     referenceDeckOtherGroup: "Otros decks",
+    workspaceDefaultBadge: "Predeterminado del espacio de trabajo",
+    setWorkspaceDefault:
+      "Establecer como predeterminado del espacio de trabajo",
+    clearWorkspaceDefault: "Quitar el predeterminado del espacio de trabajo",
+    workspaceDefaultSet:
+      "Establecido como predeterminado del espacio de trabajo",
+    workspaceDefaultCleared:
+      "Se quitó el predeterminado del espacio de trabajo",
+    workspaceDefaultFailed:
+      "No se pudo actualizar el predeterminado del espacio de trabajo",
+    workspaceDefaultConfirmTitle:
+      "¿Establecer como predeterminado del espacio de trabajo?",
+    workspaceDefaultDeckBody:
+      'Todos los decks nuevos de este espacio de trabajo usarán "{{title}}" como referencia de estilo. Los miembros pueden seleccionar otro deck de referencia, o ninguno, al crear un deck.',
+    workspaceDefaultDeckShareBody:
+      '"{{title}}" es privado. Al establecerlo como predeterminado del espacio de trabajo, se compartirá con todos los miembros de este espacio de trabajo y los decks nuevos lo usarán como referencia de estilo. Los miembros pueden seleccionar otro deck de referencia al crear un deck.',
+    workspaceDefaultSystemBody:
+      'Todos los decks nuevos de este espacio de trabajo usarán el sistema de diseño "{{title}}". Los miembros que hayan establecido su propio sistema predeterminado lo conservarán, y cualquiera puede seleccionar otro sistema de diseño al crear un deck.',
+    workspaceDefaultSystemShareBody:
+      '"{{title}}" es privado. Al establecerlo como predeterminado del espacio de trabajo, se compartirá con todos los miembros de este espacio de trabajo y los decks nuevos lo usarán. Los miembros que hayan establecido su propio sistema predeterminado lo conservarán.',
+    workspaceDefaultConfirmAction: "Establecer como predeterminado",
     starDeck: "Destacar deck",
     unstarDeck: "Quitar de destacados",
     none: "Ninguno",

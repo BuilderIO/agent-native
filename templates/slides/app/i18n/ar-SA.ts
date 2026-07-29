@@ -623,6 +623,22 @@ const messages = {
     referenceDeckNone: "بدون مرجع",
     referenceDeckStarredGroup: "المميّزة بنجمة",
     referenceDeckOtherGroup: "عروض أخرى",
+    workspaceDefaultBadge: "افتراضي مساحة العمل",
+    setWorkspaceDefault: "التعيين كافتراضي لمساحة العمل",
+    clearWorkspaceDefault: "إزالة افتراضي مساحة العمل",
+    workspaceDefaultSet: "تم التعيين كافتراضي لمساحة العمل",
+    workspaceDefaultCleared: "تمت إزالة افتراضي مساحة العمل",
+    workspaceDefaultFailed: "تعذّر تحديث افتراضي مساحة العمل",
+    workspaceDefaultConfirmTitle: "التعيين كافتراضي لمساحة العمل؟",
+    workspaceDefaultDeckBody:
+      'سيستخدم كل عرض جديد في مساحة العمل هذه "{{title}}" كمرجع للأسلوب. يمكن للأعضاء اختيار عرض مرجعي آخر أو عدم استخدام أي مرجع عند إنشاء عرض.',
+    workspaceDefaultDeckShareBody:
+      '"{{title}}" خاص. تعيينه كافتراضي لمساحة العمل يشاركه مع جميع أعضاء مساحة العمل هذه، وستستخدمه العروض الجديدة كمرجع للأسلوب. يمكن للأعضاء اختيار عرض مرجعي آخر عند إنشاء عرض.',
+    workspaceDefaultSystemBody:
+      'سيستخدم كل عرض جديد في مساحة العمل هذه نظام التصميم "{{title}}". يحتفظ الأعضاء الذين عيّنوا نظامًا افتراضيًا خاصًا بهم بنظامهم، ويمكن لأي عضو اختيار نظام تصميم آخر عند إنشاء عرض.',
+    workspaceDefaultSystemShareBody:
+      '"{{title}}" خاص. تعيينه كافتراضي لمساحة العمل يشاركه مع جميع أعضاء مساحة العمل هذه، وستستخدمه العروض الجديدة. يحتفظ الأعضاء الذين عيّنوا نظامًا افتراضيًا خاصًا بهم بنظامهم.',
+    workspaceDefaultConfirmAction: "التعيين كافتراضي",
     starDeck: "تمييز العرض بنجمة",
     unstarDeck: "إزالة النجمة",
     none: "لا شيء",

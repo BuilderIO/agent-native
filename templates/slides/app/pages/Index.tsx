@@ -43,9 +43,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import type { Deck } from "@/context/DeckContext";
 import { useDecks } from "@/context/DeckContext";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { useDesignSystems } from "@/hooks/use-design-systems";
+import { useWorkspaceDefaults } from "@/hooks/use-workspace-defaults";
 import { createDeckAgentMessage } from "@/lib/agent-visible-message";
 import { savePromptToComposerDraft } from "@/lib/composer-draft";
 
@@ -200,10 +202,18 @@ export default function Index() {
     reloadDecks,
   } = useDecks();
   const { designSystems, defaultSystem } = useDesignSystems();
+  const {
+    referenceDeck: workspaceReferenceDeck,
+    designSystem: workspaceDesignSystem,
+    canManage: canManageWorkspaceDefaults,
+    refetch: refetchWorkspaceDefaults,
+  } = useWorkspaceDefaults();
   const { session } = useSession();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [deckToDelete, setDeckToDelete] = useState<string | null>(null);
+  const [workspaceDefaultCandidate, setWorkspaceDefaultCandidate] =
+    useState<Deck | null>(null);
   const [showNewDeckPrompt, setShowNewDeckPrompt] = useState(false);
   const [newDeckInitialPrompt, setNewDeckInitialPrompt] = useState<{
     text: string;
@@ -235,6 +245,27 @@ export default function Index() {
     () => decks.filter((deck) => !deck.starred),
     [decks],
   );
+  // A workspace default the caller cannot open is reported by the action as
+  // `unavailable` rather than absent; preselecting it would send every new
+  // prompt at a deck that 404s, so fall back to no reference instead.
+  const workspaceReferenceDeckId =
+    workspaceReferenceDeck && !workspaceReferenceDeck.unavailable
+      ? workspaceReferenceDeck.id
+      : null;
+  const workspaceDesignSystemId =
+    workspaceDesignSystem && !workspaceDesignSystem.unavailable
+      ? workspaceDesignSystem.id
+      : null;
+  // Same precedence the server uses in `create-deck`: an explicit personal
+  // default, then the workspace default, then whatever exists. `defaultSystem`
+  // already collapses the first and last of those, so match it deliberately.
+  const personalDefaultDesignSystemId =
+    designSystems.find((ds) => ds.isDefault)?.id ?? null;
+  const initialDesignSystemId =
+    personalDefaultDesignSystemId ??
+    workspaceDesignSystemId ??
+    defaultSystem?.id ??
+    null;
   const deckFilter = searchParams.get("createdBy") === "me" ? "mine" : "all";
   const visibleDecks = useMemo(
     () =>
@@ -263,11 +294,11 @@ export default function Index() {
   const openNewDeck = useCallback(
     (e: React.MouseEvent<HTMLElement>) => {
       anchorElRef.current = e.currentTarget;
-      setSelectedDesignSystemId(defaultSystem?.id ?? "");
-      setSelectedReferenceDeckId("none");
+      setSelectedDesignSystemId(initialDesignSystemId ?? "");
+      setSelectedReferenceDeckId(workspaceReferenceDeckId ?? "none");
       setShowNewDeckPrompt(true);
     },
-    [defaultSystem?.id],
+    [initialDesignSystemId, workspaceReferenceDeckId],
   );
 
   const setNewDeckPromptOpen = useCallback(
@@ -307,13 +338,13 @@ export default function Index() {
 
   useEffect(() => {
     if (!showNewDeckPrompt || selectedDesignSystemId) return;
-    if (defaultSystem?.id) {
-      setSelectedDesignSystemId(defaultSystem.id);
+    if (initialDesignSystemId) {
+      setSelectedDesignSystemId(initialDesignSystemId);
     } else if (designSystems.length > 0) {
       setSelectedDesignSystemId("none");
     }
   }, [
-    defaultSystem?.id,
+    initialDesignSystemId,
     designSystems.length,
     selectedDesignSystemId,
     showNewDeckPrompt,
@@ -338,10 +369,10 @@ export default function Index() {
       clearPendingPromptForRetry();
       setNewDeckInitialPrompt({ text: saved, key: Date.now() });
     }
-    setSelectedDesignSystemId(defaultSystem?.id ?? "none");
-    setSelectedReferenceDeckId("none");
+    setSelectedDesignSystemId(initialDesignSystemId ?? "none");
+    setSelectedReferenceDeckId(workspaceReferenceDeckId ?? "none");
     setShowNewDeckPrompt(true);
-  }, [defaultSystem?.id, session]);
+  }, [initialDesignSystemId, workspaceReferenceDeckId, session]);
 
   const handleCreateDeckBlank = () => {
     const selectedDesignSystem =
@@ -522,6 +553,57 @@ export default function Index() {
     [updateDeck],
   );
 
+  const handleSetWorkspaceDefaultDeck = useCallback(
+    async (id: string, isDefault: boolean) => {
+      if (isDefault) {
+        setWorkspaceDefaultCandidate(decks.find((d) => d.id === id) ?? null);
+        return;
+      }
+      try {
+        await callAction("set-workspace-defaults", { referenceDeckId: null });
+        await refetchWorkspaceDefaults();
+        toast.success(t("home.workspaceDefaultCleared"));
+      } catch (error) {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : t("home.workspaceDefaultFailed"),
+        );
+      }
+    },
+    [decks, refetchWorkspaceDefaults, t],
+  );
+
+  const confirmWorkspaceDefaultDeck = useCallback(async () => {
+    // Capture, but do not clear: AlertDialogAction closes the dialog itself.
+    // Unmounting it here too would pre-empt Radix's close sequence and strand
+    // `pointer-events: none` on <body>. `onOpenChange` clears the candidate.
+    const deck = workspaceDefaultCandidate;
+    if (!deck) return;
+    try {
+      // A private deck is unreadable to everyone else, so share it through the
+      // audited sharing action first — it owns org binding and collab cache
+      // invalidation, which a direct visibility write here would skip.
+      if (deck.visibility === "private") {
+        await callAction("set-resource-visibility", {
+          resourceType: "deck",
+          resourceId: deck.id,
+          visibility: "org",
+        });
+        await reloadDecks();
+      }
+      await callAction("set-workspace-defaults", { referenceDeckId: deck.id });
+      await refetchWorkspaceDefaults();
+      toast.success(t("home.workspaceDefaultSet"));
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("home.workspaceDefaultFailed"),
+      );
+    }
+  }, [workspaceDefaultCandidate, reloadDecks, refetchWorkspaceDefaults, t]);
+
   const handleDuplicate = useCallback(
     async (id: string) => {
       if (duplicatingRef.current) return;
@@ -674,6 +756,9 @@ export default function Index() {
                       ? designSystemTitleById.get(deck.designSystemId)
                       : null
                   }
+                  isWorkspaceDefault={workspaceReferenceDeck?.id === deck.id}
+                  canSetWorkspaceDefault={canManageWorkspaceDefaults}
+                  onSetWorkspaceDefault={handleSetWorkspaceDefaultDeck}
                 />
               ))}
               {visibleDecks.length === 0 && (
@@ -685,6 +770,34 @@ export default function Index() {
           </div>
         </>
       )}
+
+      <AlertDialog
+        open={!!workspaceDefaultCandidate}
+        onOpenChange={(open) => !open && setWorkspaceDefaultCandidate(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("home.workspaceDefaultConfirmTitle")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {workspaceDefaultCandidate?.visibility === "private"
+                ? t("home.workspaceDefaultDeckShareBody", {
+                    title: workspaceDefaultCandidate.title,
+                  })
+                : t("home.workspaceDefaultDeckBody", {
+                    title: workspaceDefaultCandidate?.title ?? "",
+                  })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("home.cancel")}</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmWorkspaceDefaultDeck}>
+              {t("home.workspaceDefaultConfirmAction")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog
@@ -746,7 +859,9 @@ export default function Index() {
                 {designSystems.map((ds) => (
                   <SelectItem key={ds.id} value={ds.id}>
                     {ds.title}
-                    {ds.isDefault ? t("home.defaultSuffix") : ""}
+                    {ds.isDefault || ds.id === workspaceDesignSystemId
+                      ? t("home.defaultSuffix")
+                      : ""}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -777,6 +892,9 @@ export default function Index() {
                     {starredDecks.map((deck) => (
                       <SelectItem key={deck.id} value={deck.id}>
                         {deck.title}
+                        {deck.id === workspaceReferenceDeckId
+                          ? t("home.defaultSuffix")
+                          : ""}
                       </SelectItem>
                     ))}
                   </SelectGroup>
@@ -791,6 +909,9 @@ export default function Index() {
                     {unstarredDecks.map((deck) => (
                       <SelectItem key={deck.id} value={deck.id}>
                         {deck.title}
+                        {deck.id === workspaceReferenceDeckId
+                          ? t("home.defaultSuffix")
+                          : ""}
                       </SelectItem>
                     ))}
                   </SelectGroup>

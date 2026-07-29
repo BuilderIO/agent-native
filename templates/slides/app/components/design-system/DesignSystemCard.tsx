@@ -1,6 +1,11 @@
 import { ShareButton } from "@agent-native/core/client/sharing";
 import { VisibilityBadge } from "@agent-native/toolkit/sharing";
-import { IconPalette, IconStar, IconStarFilled } from "@tabler/icons-react";
+import {
+  IconBuildingCommunity,
+  IconPalette,
+  IconStar,
+  IconStarFilled,
+} from "@tabler/icons-react";
 
 import {
   Tooltip,
@@ -18,6 +23,9 @@ interface DesignSystemCardProps {
   visibility?: "private" | "org" | "public" | null;
   onClick: () => void;
   onSetDefault: () => void;
+  isWorkspaceDefault?: boolean;
+  canSetWorkspaceDefault?: boolean;
+  onSetWorkspaceDefault?: (isDefault: boolean) => void;
 }
 
 function firstFontName(stack: string): string {
@@ -32,6 +40,9 @@ export function DesignSystemCard({
   visibility,
   onClick,
   onSetDefault,
+  isWorkspaceDefault = false,
+  canSetWorkspaceDefault = false,
+  onSetWorkspaceDefault,
 }: DesignSystemCardProps) {
   const swatchColors = [
     { label: "Primary", color: data.colors.primary },
@@ -88,6 +99,29 @@ export function DesignSystemCard({
               {isDefault ? "Default design system" : "Set as default"}
             </TooltipContent>
           </Tooltip>
+          {canSetWorkspaceDefault && onSetWorkspaceDefault && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => onSetWorkspaceDefault(!isWorkspaceDefault)}
+                  className="h-9 w-9 inline-flex items-center justify-center rounded-md bg-background/80 backdrop-blur-sm border border-border/40 hover:bg-background cursor-pointer"
+                >
+                  <IconBuildingCommunity
+                    className={`w-4 h-4 ${
+                      isWorkspaceDefault
+                        ? "text-[#609FF8]"
+                        : "text-muted-foreground group-hover:text-foreground/70"
+                    }`}
+                  />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {isWorkspaceDefault
+                  ? "Workspace default — click to clear"
+                  : "Set as workspace default"}
+              </TooltipContent>
+            </Tooltip>
+          )}
           <ShareButton
             resourceType="design-system"
             resourceId={id}

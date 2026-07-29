@@ -11,11 +11,23 @@ import {
   IconRefresh,
 } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
+import { toast } from "sonner";
 
 import { DesignSystemCard } from "@/components/design-system/DesignSystemCard";
 import { DesignSystemSetup } from "@/components/design-system/DesignSystemSetup";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { useDesignSystems } from "@/hooks/use-design-systems";
+import { useWorkspaceDefaults } from "@/hooks/use-workspace-defaults";
 
 import type { DesignSystemData } from "../../shared/api";
 import { missingDesignSystemDataFields } from "../../shared/design-system-validation";
@@ -23,8 +35,16 @@ import { missingDesignSystemDataFields } from "../../shared/design-system-valida
 export default function DesignSystems() {
   const t = useT();
   const { designSystems, isLoading, error, refetch } = useDesignSystems();
+  const {
+    designSystem: workspaceDesignSystem,
+    canManage: canManageWorkspaceDefaults,
+    refetch: refetchWorkspaceDefaults,
+  } = useWorkspaceDefaults();
   const [showSetup, setShowSetup] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [workspaceDefaultCandidate, setWorkspaceDefaultCandidate] = useState<
+    (typeof designSystems)[number] | undefined
+  >(undefined);
 
   const handleCardClick = (id: string) => {
     setEditingId(id);
@@ -37,6 +57,48 @@ export default function DesignSystems() {
       refetch();
     } catch (err) {
       console.error("Failed to set default design system:", err);
+    }
+  };
+
+  const handleSetWorkspaceDefault = async (id: string, isDefault: boolean) => {
+    if (isDefault) {
+      setWorkspaceDefaultCandidate(designSystems.find((d) => d.id === id));
+      return;
+    }
+    try {
+      await callAction("set-workspace-defaults", { designSystemId: null });
+      await refetchWorkspaceDefaults();
+      toast.success(t("home.workspaceDefaultCleared"));
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : t("home.workspaceDefaultFailed"),
+      );
+    }
+  };
+
+  const confirmWorkspaceDefault = async () => {
+    // AlertDialogAction closes the dialog; clearing it here as well would
+    // pre-empt Radix's cleanup and leave <body> at `pointer-events: none`.
+    const ds = workspaceDefaultCandidate;
+    if (!ds) return;
+    try {
+      // Private means unreadable to teammates, which would make the workspace
+      // default silently do nothing for them. Share through the audited action.
+      if (ds.visibility === "private") {
+        await callAction("set-resource-visibility", {
+          resourceType: "design-system",
+          resourceId: ds.id,
+          visibility: "org",
+        });
+        refetch();
+      }
+      await callAction("set-workspace-defaults", { designSystemId: ds.id });
+      await refetchWorkspaceDefaults();
+      toast.success(t("home.workspaceDefaultSet"));
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : t("home.workspaceDefaultFailed"),
+      );
     }
   };
 
@@ -174,6 +236,11 @@ export default function DesignSystems() {
                     visibility={ds.visibility}
                     onClick={() => handleCardClick(ds.id)}
                     onSetDefault={() => handleSetDefault(ds.id)}
+                    isWorkspaceDefault={workspaceDesignSystem?.id === ds.id}
+                    canSetWorkspaceDefault={canManageWorkspaceDefaults}
+                    onSetWorkspaceDefault={(isDefault) =>
+                      handleSetWorkspaceDefault(ds.id, isDefault)
+                    }
                   />
                 );
               })}
@@ -181,6 +248,36 @@ export default function DesignSystems() {
           </>
         )}
       </main>
+
+      <AlertDialog
+        open={!!workspaceDefaultCandidate}
+        onOpenChange={(open) =>
+          !open && setWorkspaceDefaultCandidate(undefined)
+        }
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("home.workspaceDefaultConfirmTitle")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {workspaceDefaultCandidate?.visibility === "private"
+                ? t("home.workspaceDefaultSystemShareBody", {
+                    title: workspaceDefaultCandidate.title,
+                  })
+                : t("home.workspaceDefaultSystemBody", {
+                    title: workspaceDefaultCandidate?.title ?? "",
+                  })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("home.cancel")}</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmWorkspaceDefault}>
+              {t("home.workspaceDefaultConfirmAction")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Setup/Edit Dialog */}
       <DesignSystemSetup

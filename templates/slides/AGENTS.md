@@ -49,6 +49,10 @@ ladder.
   and `input` (or `invokeAgentAction`) instead of starting the sibling agent's
   model loop. In Analytics, use `gong-native-insights` for provider-synthesized
   briefs and `gong-calls` for quotes, counts, transcripts, and coverage claims.
+- When creating a deck and the user named no reference deck or design system,
+  call `get-workspace-defaults` first and generate from what it returns. A
+  bare "make a deck about X" should still come out on brand. See
+  `.agents/skills/create-deck/SKILL.md`.
 - Before generation, follow the creative-context reuse ladder in
   `.agents/skills/creative-context/SKILL.md`: explicit request and current deck
   first, then a pinned/current pack, then narrow library search. Respect
