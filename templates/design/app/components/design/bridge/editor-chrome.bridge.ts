@@ -168,6 +168,11 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       '[data-agent-native-empty-text-editing="true"] [data-agent-native-edit-overlay="selection"]{display:none!important}' +
       "[data-agent-native-text-editing]{outline:none!important;outline-offset:0!important}" +
       "[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}" +
+      // Locked layers get a neutral dashed hairline instead of an accent one:
+      // accent means "selected" everywhere else in the canvas chrome, and a
+      // locked layer is usually neither selected nor selectable. The width
+      // rides the chrome line scale so it stays one screen pixel at any zoom.
+      '[data-agent-native-runtime-locked="true"]{outline:calc(1px * var(--agent-native-editor-chrome-line-scale, 1)) dashed rgba(148,163,184,0.9)!important;outline-offset:0!important;cursor:not-allowed!important}' +
       "[data-agent-native-spacing-line]{position:absolute;display:none;pointer-events:none;border-radius:999px}" +
       "[data-agent-native-spacing-region]{position:absolute;display:none;box-sizing:border-box;pointer-events:auto;background-size:6px 6px}" +
       '[data-agent-native-spacing-region][data-orientation="vertical"]{cursor:ew-resize}' +
@@ -2891,7 +2896,12 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     );
   }
 
-  function applyHiddenSelectors(): void {
+  // Both layer states are painted here, from the one `layer-states` message,
+  // so every call site that re-runs after a runtime document swap restores
+  // hide AND lock together. Locked paints an attribute only; the hairline
+  // treatment lives in the editor chrome stylesheet so it is stripped from
+  // runtimeHeadHtmlWithoutEditorChrome and never reaches source or export.
+  function applyLayerStateSelectors(): void {
     document
       .querySelectorAll("[data-agent-native-runtime-hidden]")
       .forEach(function (el: HTMLElement) {
@@ -2915,6 +2925,18 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
           }
           el.setAttribute("data-agent-native-runtime-hidden", "true");
           el.style.display = "none";
+        });
+      } catch (_err) {}
+    });
+    document
+      .querySelectorAll("[data-agent-native-runtime-locked]")
+      .forEach(function (el) {
+        el.removeAttribute("data-agent-native-runtime-locked");
+      });
+    lockedSelectors.forEach(function (selector) {
+      try {
+        document.querySelectorAll(selector).forEach(function (el) {
+          el.setAttribute("data-agent-native-runtime-locked", "true");
         });
       } catch (_err) {}
     });
@@ -2951,7 +2973,7 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
           ? selectorCandidates
           : [],
       };
-      applyHiddenSelectors();
+      applyLayerStateSelectors();
       refreshOverlays();
       return;
     }
@@ -3059,7 +3081,7 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
             currentMatch.remove();
           }
         }
-        applyHiddenSelectors();
+        applyLayerStateSelectors();
         selectedEl = null;
         if (nextMatch) {
           try {
@@ -3097,7 +3119,7 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     persistentNodes.forEach(function (node) {
       document.body.appendChild(node);
     });
-    applyHiddenSelectors();
+    applyLayerStateSelectors();
 
     selectedEl = null;
     clearHoverGate();
@@ -12127,7 +12149,7 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         clearHoverGate();
         highlightOverlay.style.display = "none";
       }
-      applyHiddenSelectors();
+      applyLayerStateSelectors();
       return;
     }
     if (e.data.type === "runtime-structure-move") {

@@ -77,7 +77,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         "data-agent-native-editor-chrome-style",
         ""
       );
-      chromeTransitionStyle.textContent = 'html{overflow:clip}[data-agent-native-edit-overlay="selection"]{transition:border-width 150ms ease-out}[data-agent-native-empty-text-editing="true"] [data-agent-native-edit-overlay="selection"]{display:none!important}[data-agent-native-text-editing]{outline:none!important;outline-offset:0!important}[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}[data-agent-native-spacing-line]{position:absolute;display:none;pointer-events:none;border-radius:999px}[data-agent-native-spacing-region]{position:absolute;display:none;box-sizing:border-box;pointer-events:auto;background-size:6px 6px}[data-agent-native-spacing-region][data-orientation="vertical"]{cursor:ew-resize}[data-agent-native-spacing-region][data-orientation="horizontal"]{cursor:ns-resize}';
+      chromeTransitionStyle.textContent = 'html{overflow:clip}[data-agent-native-edit-overlay="selection"]{transition:border-width 150ms ease-out}[data-agent-native-empty-text-editing="true"] [data-agent-native-edit-overlay="selection"]{display:none!important}[data-agent-native-text-editing]{outline:none!important;outline-offset:0!important}[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}[data-agent-native-runtime-locked="true"]{outline:calc(1px * var(--agent-native-editor-chrome-line-scale, 1)) dashed rgba(148,163,184,0.9)!important;outline-offset:0!important;cursor:not-allowed!important}[data-agent-native-spacing-line]{position:absolute;display:none;pointer-events:none;border-radius:999px}[data-agent-native-spacing-region]{position:absolute;display:none;box-sizing:border-box;pointer-events:auto;background-size:6px 6px}[data-agent-native-spacing-region][data-orientation="vertical"]{cursor:ew-resize}[data-agent-native-spacing-region][data-orientation="horizontal"]{cursor:ns-resize}';
       (document.head || document.documentElement).appendChild(
         chromeTransitionStyle
       );
@@ -380,7 +380,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         sourceFile: elementLocation.sourceFile,
         line: elementLocation.line,
         column: elementLocation.column,
-        component: componentName
+        component: componentName,
+        method: elementLocation.structured ? "debug-source" : "debug-stack"
       };
       if (componentFiber) {
         var ownerLocation = fiberDebugLocation(componentFiber);
@@ -555,6 +556,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (provenance.sourceFile) {
           cloneNode.setAttribute("data-source-file", provenance.sourceFile);
           cloneNode.setAttribute("data-source-line", String(provenance.line));
+          if (provenance.method) {
+            cloneNode.setAttribute("data-source-method", provenance.method);
+          }
           if (provenance.column) {
             cloneNode.setAttribute(
               "data-source-column",
@@ -1211,6 +1215,10 @@ export const editorChromeBridgeScript: string = `"use strict";
           if (!isNaN(col)) provenance.column = col;
         }
         if (dataComponentName) provenance.component = dataComponentName;
+        if (dataSourceFile) {
+          var declaredMethod = el.getAttribute("data-source-method");
+          provenance.method = declaredMethod === "debug-source" || declaredMethod === "debug-stack" ? declaredMethod : reactProvenance?.method || "data-attribute";
+        }
         if (reactProvenance?.ownerSourceFile) {
           provenance.ownerSourceFile = reactProvenance.ownerSourceFile;
           provenance.ownerLine = reactProvenance.ownerLine;
@@ -1950,7 +1958,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return matchesSelectorList(el, lockedSelectors) || matchesSelectorList(el, hiddenSelectors);
     }
-    function applyHiddenSelectors() {
+    function applyLayerStateSelectors() {
       document.querySelectorAll("[data-agent-native-runtime-hidden]").forEach(function(el) {
         var previous = el.getAttribute("data-agent-native-previous-display");
         if (previous === null) {
@@ -1976,6 +1984,17 @@ export const editorChromeBridgeScript: string = `"use strict";
         } catch (_err) {
         }
       });
+      document.querySelectorAll("[data-agent-native-runtime-locked]").forEach(function(el) {
+        el.removeAttribute("data-agent-native-runtime-locked");
+      });
+      lockedSelectors.forEach(function(selector) {
+        try {
+          document.querySelectorAll(selector).forEach(function(el) {
+            el.setAttribute("data-agent-native-runtime-locked", "true");
+          });
+        } catch (_err) {
+        }
+      });
     }
     function replaceRuntimeDocument(html, preferredSelector, selectorCandidates, forceFullDocument, preserveTextEditingSession) {
       if (typeof html !== "string") return;
@@ -1986,7 +2005,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           preferredSelector,
           selectorCandidates: Array.isArray(selectorCandidates) ? selectorCandidates : []
         };
-        applyHiddenSelectors();
+        applyLayerStateSelectors();
         refreshOverlays();
         return;
       }
@@ -2060,7 +2079,7 @@ export const editorChromeBridgeScript: string = `"use strict";
               currentMatch.remove();
             }
           }
-          applyHiddenSelectors();
+          applyLayerStateSelectors();
           selectedEl = null;
           if (nextMatch) {
             try {
@@ -2095,7 +2114,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       persistentNodes.forEach(function(node) {
         document.body.appendChild(node);
       });
-      applyHiddenSelectors();
+      applyLayerStateSelectors();
       selectedEl = null;
       clearHoverGate();
       for (var i = 0; i < activeCandidates.length && !selectedEl; i += 1) {
@@ -3963,10 +3982,22 @@ export const editorChromeBridgeScript: string = `"use strict";
         return null;
       }
     }
-    function removeRuntimeTarget(selector, selectorCandidates) {
+    function removeRuntimeTarget(selector, selectorCandidates, requestId) {
       var target = findRuntimeTarget(selector, selectorCandidates);
       if (!target || target === document.body || target === document.documentElement)
         return false;
+      if (typeof requestId === "string" && requestId && target.parentElement) {
+        pendingStructureMoves[requestId] = {
+          requestId,
+          el: target,
+          target: null,
+          origin: {
+            removed: true,
+            prevParent: target.parentElement,
+            prevNextSibling: target.nextSibling
+          }
+        };
+      }
       if (target.parentElement) target.parentElement.removeChild(target);
       exitStaleTextEditSession();
       if (selectedEl === target || !document.documentElement.contains(selectedEl)) {
@@ -8209,7 +8240,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           clearHoverGate();
           highlightOverlay.style.display = "none";
         }
-        applyHiddenSelectors();
+        applyLayerStateSelectors();
         return;
       }
       if (e.data.type === "runtime-structure-move") {
@@ -8366,8 +8397,26 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (!move) return;
         delete pendingStructureMoves[e.data.requestId];
         var moveWasInsert = Boolean(move.origin && "inserted" in move.origin);
+        var moveWasRemoval = Boolean(move.origin && "removed" in move.origin);
+        if (moveWasRemoval) {
+          if (!e.data.applied && move.origin && "removed" in move.origin) {
+            var removedParent = move.origin.prevParent;
+            var removedNextSibling = move.origin.prevNextSibling;
+            if (removedParent && removedParent.isConnected && !move.el.isConnected) {
+              removedParent.insertBefore(
+                move.el,
+                removedNextSibling && removedNextSibling.parentNode === removedParent ? removedNextSibling : null
+              );
+              selectedEl = move.el;
+              positionOverlay(selectionOverlay, selectedEl);
+              postElementSelect(selectedEl);
+            }
+          }
+          refreshOverlays();
+          return;
+        }
         if (e.data.applied) {
-          if (!moveWasInsert && move.el && move.el.isConnected) {
+          if (!moveWasInsert && move.el && move.el.isConnected && move.target) {
             applyRuntimeReorder(move.el, move.target);
             selectedEl = move.el;
             positionOverlay(selectionOverlay, selectedEl);
@@ -8419,7 +8468,11 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       if (e.data.type === "delete-element") {
-        removeRuntimeTarget(e.data.selector, e.data.selectorCandidates);
+        removeRuntimeTarget(
+          e.data.selector,
+          e.data.selectorCandidates,
+          e.data.requestId
+        );
         return;
       }
       if (e.data.type === "set-text-content") {
