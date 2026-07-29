@@ -196,6 +196,7 @@ export function createFetchToolEntry(
           return args.saveToFile == null ? "read" : "write";
         },
         allowedValues: { method: ["GET", "HEAD"] },
+        omittedProperties: ["saveToFile"],
         description:
           "Plan mode allows GET and HEAD requests that return their response without saving it.",
       },

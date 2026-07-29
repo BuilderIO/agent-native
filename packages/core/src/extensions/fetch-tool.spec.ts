@@ -33,6 +33,7 @@ describe("createFetchToolEntry", () => {
     expect(entry.planMode?.allowedValues).toEqual({
       method: ["GET", "HEAD"],
     });
+    expect(entry.planMode?.omittedProperties).toEqual(["saveToFile"]);
   });
 
   it.each([

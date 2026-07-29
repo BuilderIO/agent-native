@@ -696,37 +696,74 @@ function getToolAction(name: string, args: unknown): string {
   return String(raw ?? "").toLowerCase();
 }
 
-function restrictPlanModeAllowedValues(
+function projectPlanModeParameters(
   parameters: ActionTool["parameters"] | undefined,
-  allowedValues: Record<string, readonly string[]> | undefined,
+  planMode: import("../action.js").ActionPlanModeConfig<any> | undefined,
 ): ActionTool["parameters"] | undefined {
-  if (!parameters || !allowedValues) return parameters;
-  const properties = { ...parameters.properties };
+  if (!parameters || !planMode) return parameters;
+  const allowedProperties = planMode.allowedProperties
+    ? new Set(planMode.allowedProperties)
+    : undefined;
+  const omittedProperties = new Set(planMode.omittedProperties ?? []);
+  const properties = Object.fromEntries(
+    Object.entries(parameters.properties).filter(
+      ([key]) =>
+        (!allowedProperties || allowedProperties.has(key)) &&
+        !omittedProperties.has(key),
+    ),
+  ) as typeof parameters.properties;
   let changed = false;
-  for (const [key, values] of Object.entries(allowedValues)) {
+  for (const [key, values] of Object.entries(planMode.allowedValues ?? {})) {
     const parameter = properties[key];
     if (!parameter) continue;
     properties[key] = { ...parameter, enum: [...values] };
     changed = true;
   }
-  if (!changed) return parameters;
+  if (!changed && !allowedProperties && omittedProperties.size === 0) {
+    return parameters;
+  }
+  const required = parameters.required?.filter((key) => key in properties);
   return {
     ...parameters,
     properties,
+    ...(required ? { required } : {}),
   };
 }
 
-function matchesPlanModeAllowedValues(
+function matchesPlanModeInputPolicy(
   input: unknown,
-  allowedValues: Record<string, readonly string[]> | undefined,
+  planMode: import("../action.js").ActionPlanModeConfig<any>,
 ): boolean {
-  if (!allowedValues) return true;
-  if (!input || typeof input !== "object" || Array.isArray(input)) return false;
+  const hasPropertyPolicy =
+    planMode.allowedProperties !== undefined ||
+    (planMode.omittedProperties?.length ?? 0) > 0 ||
+    planMode.allowedValues !== undefined;
+  if (!hasPropertyPolicy) return true;
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return false;
+  }
   const values = input as Record<string, unknown>;
-  return Object.entries(allowedValues).every(([key, allowed]) => {
-    const value = values[key];
-    return value == null || (typeof value === "string" && allowed.includes(value));
-  });
+  const allowedProperties = planMode.allowedProperties
+    ? new Set(planMode.allowedProperties)
+    : undefined;
+  const omittedProperties = new Set(planMode.omittedProperties ?? []);
+  if (
+    Object.keys(values).some(
+      (key) =>
+        (allowedProperties && !allowedProperties.has(key)) ||
+        omittedProperties.has(key),
+    )
+  ) {
+    return false;
+  }
+  return Object.entries(planMode.allowedValues ?? {}).every(
+    ([key, allowed]) => {
+      const value = values[key];
+      return (
+        value == null || (typeof value === "string" && allowed.includes(value))
+      );
+    },
+  );
 }
 
 function planModeBlockedMessage(toolName: string, reason?: string): string {
@@ -750,9 +787,7 @@ export function isPlanModeToolCallAllowed(
   }
 
   if (entry.planMode) {
-    if (
-      !matchesPlanModeAllowedValues(input, entry.planMode.allowedValues)
-    ) {
+    if (!matchesPlanModeInputPolicy(input, entry.planMode)) {
       return false;
     }
     try {
@@ -799,11 +834,10 @@ function createPlanModeGuardedAction(
     readOnly: true,
     tool: {
       ...entry.tool,
-      description:
-        `${entry.tool.description}\n\nPlan mode: ${guidance}`,
-      parameters: restrictPlanModeAllowedValues(
+      description: `${entry.tool.description}\n\nPlan mode: ${guidance}`,
+      parameters: projectPlanModeParameters(
         entry.tool.parameters,
-        allowedValues,
+        entry.planMode,
       ),
     },
     run: async (args, context) => {

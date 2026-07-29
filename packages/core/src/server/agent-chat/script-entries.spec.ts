@@ -55,6 +55,11 @@ describe("cross-app script entries", () => {
         message: "summarize this clip",
       }),
     ).toBe("write");
+    expect(entry.planMode?.allowedProperties).toEqual([
+      "agent",
+      "action",
+      "input",
+    ]);
   });
 });
 

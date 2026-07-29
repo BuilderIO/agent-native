@@ -350,6 +350,7 @@ export function createProviderApiRequestAction<
         return "read";
       },
       allowedValues: { method: ["GET", "HEAD"] },
+      omittedProperties: ["stageAs", "saveToFile"],
       description:
         "Plan mode allows GET and HEAD provider reads that do not stage data or save files.",
     },

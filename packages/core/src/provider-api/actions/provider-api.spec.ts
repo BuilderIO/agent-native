@@ -91,6 +91,10 @@ describe("provider API action factories", () => {
     expect(action.planMode?.allowedValues).toEqual({
       method: ["GET", "HEAD"],
     });
+    expect(action.planMode?.omittedProperties).toEqual([
+      "stageAs",
+      "saveToFile",
+    ]);
   });
 
   it("keeps custom provider registration opt-in", () => {

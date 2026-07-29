@@ -212,15 +212,19 @@ export type ActionPlanModeEffect = "read" | "write" | "unknown";
  * is allowed. Classifier errors and `"unknown"` fail closed.
  */
 export interface ActionPlanModeConfig<TInput = unknown> {
-  effect:
-    | ActionPlanModeEffect
-    | ((args: TInput) => ActionPlanModeEffect);
+  effect: ActionPlanModeEffect | ((args: TInput) => ActionPlanModeEffect);
   /**
    * Optional argument values advertised and accepted in Plan mode. This keeps
    * mixed-tool schemas focused on their read variants while the runtime gate
    * independently rechecks every invocation.
    */
   allowedValues?: Record<string, readonly string[]>;
+  /** Optional Plan-mode input-property allowlist. Other properties are hidden
+   *  from the advertised schema and rejected by the runtime gate. */
+  allowedProperties?: readonly string[];
+  /** Properties hidden and rejected in Plan mode (for example persistence or
+   *  notification options on an otherwise read-only request). */
+  omittedProperties?: readonly string[];
   /** Additional Plan-mode guidance appended to the tool description. */
   description?: string;
 }
