@@ -1365,11 +1365,13 @@ export function buildPanel(
       : metric.title);
   const config = { ...metric.config };
   if (metric.windowed) {
-    config.timeScope = window === "all" ? "all-time" : "fixed-window";
     if (window === "all") {
+      config.timeScope = "all-time";
       const description =
         typeof config.description === "string" ? config.description.trim() : "";
       config.description = `${description ? `${description} ` : ""}This panel is explicitly configured for an all-time window.`;
+    } else if (config.timeScope === undefined) {
+      config.timeScope = "fixed-window";
     }
   }
   return {

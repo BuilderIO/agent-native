@@ -233,18 +233,30 @@ describe("compose-dashboard", () => {
     expect(referred.sql).toContain(
       "event_date >= to_char(CURRENT_DATE - INTERVAL '30 days'",
     );
-    const signupEntryPages = panels.find(
-      (p) => p.id === "signup-entry-pages-90d",
-    )!;
-    expect(signupEntryPages.sql).toContain(
+  });
+
+  it("composes the anonymous pageview-to-signup bridge metric", async () => {
+    const result: any = await composeDashboard.run(
+      {
+        dashboardId: "signup-bridge",
+        metrics: ["signup-entry-pages-90d"],
+      },
+      { userEmail: "alice@example.com", orgId: null, caller: "tool" },
+    );
+
+    expect(result.invalidMetrics).toEqual([]);
+    expect(result.createdMetrics).toEqual(["signup-entry-pages-90d"]);
+
+    const panel = (
+      store.get("signup-bridge")!.config.panels as Array<
+        Record<string, unknown>
+      >
+    )[0]!;
+    expect(panel.sql).toContain(
       "pageviews.anonymous_id = signups.anonymous_id",
     );
-    expect(signupEntryPages.sql).toContain(
-      "pageviews.timestamp < signups.signup_at",
-    );
-    expect(signupEntryPages.config).toMatchObject({
-      timeScope: "cohort-history",
-    });
+    expect(panel.sql).toContain("pageviews.timestamp < signups.signup_at");
+    expect(panel.config).toMatchObject({ timeScope: "cohort-history" });
   });
 
   it("uses indexed event-date expressions for daily first-party panels", () => {
