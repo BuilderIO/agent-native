@@ -806,8 +806,8 @@ function validateCapabilityMiniSpec(
 function validateLinksAndPrivacy(catalog: ProductCatalog, errors: string[]) {
   const files = collectMarkdownFiles(catalog.root);
   const skillRoot = join(
-    repositoryRoot,
-    "templates/content/.agents/skills/content-product-development",
+    resolve(catalog.root, "../.."),
+    ".agents/skills/content-product-development",
   );
   if (existsSync(skillRoot)) files.push(...collectMarkdownFiles(skillRoot));
 

@@ -20,6 +20,8 @@ import {
 } from "./validate-content-product-docs.ts";
 
 const PRODUCT_ROOT = "templates/content/docs/product";
+const CONTENT_PRODUCT_SKILL_ROOT =
+  "templates/content/.agents/skills/content-product-development";
 const REPOSITORY_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
@@ -525,7 +527,10 @@ function assertSha(value: string, name: string): void {
   git(["cat-file", "-e", `${value}^{commit}`]);
 }
 
-function materializeProductRoot(sha: string, destination: string): string {
+function materializeContentProductSnapshot(
+  sha: string,
+  destination: string,
+): string {
   const root = path.join(destination, PRODUCT_ROOT);
   for (const directory of ["chapters", "features", "capabilities"]) {
     mkdirSync(path.join(root, directory), { recursive: true });
@@ -538,6 +543,7 @@ function materializeProductRoot(sha: string, destination: string): string {
     sha,
     "--",
     PRODUCT_ROOT,
+    CONTENT_PRODUCT_SKILL_ROOT,
   ]);
   const files = output.split("\0").filter(Boolean);
   const productRecordFiles = files.filter(
@@ -643,11 +649,11 @@ export function runContentProductImpactCheck(): void {
     path.join(REPOSITORY_ROOT, ".content-impact-"),
   );
   try {
-    const baseRoot = materializeProductRoot(
+    const baseRoot = materializeContentProductSnapshot(
       baseSha,
       path.join(temporaryRoot, "base"),
     );
-    const headRoot = materializeProductRoot(
+    const headRoot = materializeContentProductSnapshot(
       headSha,
       path.join(temporaryRoot, "head"),
     );

@@ -324,7 +324,12 @@ function createCliRepository(
   git(root, ["config", "user.name", "Content Conformance Test"]);
   if (withCatalog) {
     const productRoot = path.join(root, "templates/content/docs/product");
+    const skillRoot = path.join(
+      root,
+      "templates/content/.agents/skills/content-product-development",
+    );
     mkdirSync(productRoot, { recursive: true });
+    mkdirSync(skillRoot, { recursive: true });
     cpSync(path.join(repositoryRoot, fixture), productRoot, {
       recursive: true,
     });
@@ -335,6 +340,10 @@ function createCliRepository(
     writeFileSync(
       path.join(productRoot, "README.md"),
       "Read the [architecture](architecture.md).\n",
+    );
+    writeFileSync(
+      path.join(skillRoot, "SKILL.md"),
+      "# Content product skill\n",
     );
   } else {
     writeFileSync(path.join(root, "README.md"), "base\n");
@@ -406,6 +415,27 @@ describe("Content impact CLI boundary", () => {
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /Not applicable/);
     assert.doesNotMatch(result.stdout, /::warning/);
+  });
+
+  it("validates the base and head developer skills from their own revisions", () => {
+    const repository = createCliRepository(
+      "head-skill-cli",
+      (root) => {
+        writeFileSync(
+          path.join(
+            root,
+            "templates/content/.agents/skills/content-product-development/SKILL.md",
+          ),
+          "# Content product skill\n\nDo not use [private files](file:///private/example).\n",
+        );
+      },
+      "",
+    );
+    const result = runCli(repository);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /head-catalog-invalid/);
+    assert.match(result.stdout, /remove file URL/);
+    assert.doesNotMatch(result.stderr, /base Content product catalog/);
   });
 
   it("fails loudly for mismatched event revisions and missing catalogs", () => {
