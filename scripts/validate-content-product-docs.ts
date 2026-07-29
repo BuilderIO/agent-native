@@ -424,6 +424,13 @@ function validateCatalog(
       capabilityIds,
       errors,
     );
+    for (const capabilityId of [...required, ...enhancing]) {
+      if (recordsById.get(capabilityId)?.data.state === "superseded") {
+        errors.push(
+          `${displayPath(feature.file)}: Feature capability references must target active Capabilities, not superseded ${capabilityId}`,
+        );
+      }
+    }
     if (required.some((id) => enhancing.includes(id))) {
       errors.push(
         `${displayPath(feature.file)}: a capability cannot be both required and enhancing`,
@@ -488,6 +495,15 @@ function validateCatalog(
       errors.push(
         `${displayPath(capability.file)}: dependencies cannot include itself`,
       );
+    }
+    if (capability.data.state !== "superseded") {
+      for (const dependency of dependencies) {
+        if (recordsById.get(dependency)?.data.state === "superseded") {
+          errors.push(
+            `${displayPath(capability.file)}: active Capability dependencies must target active Capabilities, not superseded ${dependency}`,
+          );
+        }
+      }
     }
     if (
       relatedFeatures.length === 0 &&
@@ -555,6 +571,18 @@ function validateCatalog(
   }
 
   for (const feature of catalog.features) {
+    const chapter = recordsById.get(stringField(feature, "chapter"));
+    if (
+      chapter &&
+      !stringArrayField(chapter, "features").includes(feature.id)
+    ) {
+      errors.push(
+        `${displayPath(chapter.file)}: features must include ${feature.id} because the Feature declares chapter ${chapter.id}`,
+      );
+    }
+  }
+
+  for (const feature of catalog.features) {
     for (const capabilityId of [
       ...stringArrayField(feature, "required_capabilities"),
       ...stringArrayField(feature, "enhancing_capabilities"),
@@ -566,6 +594,23 @@ function validateCatalog(
       ) {
         errors.push(
           `${displayPath(capability.file)}: related_features must include ${feature.id} because the Feature references this capability`,
+        );
+      }
+    }
+  }
+
+  for (const capability of catalog.capabilities) {
+    for (const featureId of stringArrayField(capability, "related_features")) {
+      const feature = recordsById.get(featureId);
+      if (
+        feature &&
+        ![
+          ...stringArrayField(feature, "required_capabilities"),
+          ...stringArrayField(feature, "enhancing_capabilities"),
+        ].includes(capability.id)
+      ) {
+        errors.push(
+          `${displayPath(feature.file)}: required_capabilities or enhancing_capabilities must include ${capability.id} because the Capability declares related Feature ${feature.id}`,
         );
       }
     }
@@ -770,7 +815,7 @@ function validateLinksAndPrivacy(catalog: ProductCatalog, errors: string[]) {
     const source = readFileSync(file, "utf8");
     const privacyFindings: Array<[RegExp, string]> = [
       [
-        /(?:^|[\s('"`])\/(?:Users|home|private|Volumes)\//m,
+        /(?:^|[\s('"`:<>=])\/(?:Users|home|private|Volumes)\//m,
         "absolute filesystem path",
       ],
       [/\b[A-Za-z]:\\(?:Users|Documents|Desktop)\\/i, "absolute Windows path"],
@@ -786,7 +831,7 @@ function validateLinksAndPrivacy(catalog: ProductCatalog, errors: string[]) {
         "private Notion-shaped URL",
       ],
       [
-        /https?:\/\/[^\s)]+\.slack\.com\/archives\//i,
+        /https?:\/\/[^\s)>]+\.slack\.com\/(?:archives|client)\//i,
         "private Slack-shaped URL",
       ],
       [

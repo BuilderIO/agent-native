@@ -86,6 +86,104 @@ test("rejects private paths and vault metadata", () => {
   );
 });
 
+test("rejects private reference links and Slack client permalinks", () => {
+  const root = copyFixture();
+  const file = join(root, "capabilities/content.test.alpha.md");
+  writeFileSync(
+    file,
+    `${readFileSync(file, "utf8")}\n[private-notes]:/Users/example/private-notes.md\n[private-thread]: https://workspace.slack.com/client/T123/C456/thread\n`,
+  );
+
+  const result = validateContentProductDocs(root, {
+    strictCatalog: false,
+    checkProjections: false,
+  });
+
+  assert(
+    result.errors.some((error) =>
+      error.includes("remove absolute filesystem path"),
+    ),
+  );
+  assert(
+    result.errors.some((error) =>
+      error.includes("remove private Slack-shaped URL"),
+    ),
+  );
+});
+
+test("requires Chapter and Feature membership to agree in both directions", () => {
+  const root = copyFixture();
+  replace(
+    join(root, "chapters/content.chapter.test.md"),
+    'features: ["content.feature.test"]',
+    "features: []",
+  );
+
+  const result = validateContentProductDocs(root, {
+    strictCatalog: false,
+    checkProjections: false,
+  });
+
+  assert(
+    result.errors.some((error) =>
+      error.includes(
+        "features must include content.feature.test because the Feature declares chapter content.chapter.test",
+      ),
+    ),
+  );
+});
+
+test("requires Feature and Capability membership to agree in both directions", () => {
+  const root = copyFixture();
+  replace(
+    join(root, "features/content.feature.test.md"),
+    'enhancing_capabilities: ["content.test.beta"]',
+    "enhancing_capabilities: []",
+  );
+
+  const result = validateContentProductDocs(root, {
+    strictCatalog: false,
+    checkProjections: false,
+  });
+
+  assert(
+    result.errors.some((error) =>
+      error.includes(
+        "required_capabilities or enhancing_capabilities must include content.test.beta because the Capability declares related Feature content.feature.test",
+      ),
+    ),
+  );
+});
+
+test("rejects active graph edges to superseded Capabilities", () => {
+  const root = copyFixture();
+  const alpha = join(root, "capabilities/content.test.alpha.md");
+  const beta = join(root, "capabilities/content.test.beta.md");
+  replace(beta, 'state: "approved_shape"', 'state: "superseded"');
+  replace(beta, "superseded_by: null", 'superseded_by: "content.test.alpha"');
+  replace(alpha, "dependencies: []", 'dependencies: ["content.test.beta"]');
+
+  const result = validateContentProductDocs(root, {
+    strictCatalog: false,
+    checkProjections: false,
+  });
+
+  assert(
+    result.errors.some((error) =>
+      error.includes(
+        "active Capability dependencies must target active Capabilities, not superseded content.test.beta",
+      ),
+    ),
+  );
+  assert(
+    result.errors.some((error) =>
+      error.includes(
+        "Feature capability references must target active Capabilities, not superseded content.test.beta",
+      ),
+    ),
+  );
+});
+
 test("requires complete proof before a Feature becomes available", () => {
   const root = copyFixture();
   replace(
