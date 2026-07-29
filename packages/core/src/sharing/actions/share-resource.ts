@@ -4,7 +4,7 @@ import { z } from "zod";
 import { defineAction } from "../../action.js";
 import { getDbExec } from "../../db/client.js";
 import { getAppProductionUrl } from "../../server/app-url.js";
-import { renderEmail } from "../../server/email-template.js";
+import { emailStrong, renderEmail } from "../../server/email-template.js";
 import { sendEmail, isEmailConfigured } from "../../server/email.js";
 import { invalidateCollabAccessCache } from "../../server/poll.js";
 import { getRequestUserEmail } from "../../server/request-context.js";
@@ -376,13 +376,16 @@ export default defineAction({
           brandLogoUrl,
           preheader: subject,
           heading: `${senderDisplayName} shared "${resourceTitle}" with you`,
-          paragraphs: [],
+          paragraphs: extras?.paragraphs ?? [
+            `${emailStrong(actor)} has shared the ${reg.displayName} ${emailStrong(resourceTitle)} with you as a ${emailStrong(args.role)}.`,
+            `Use the button below to open it. If prompted, sign in with ${emailStrong(principalId)}.`,
+          ],
           heroHtml,
           cta: { label: `Open ${reg.displayName}`, url: notificationUrl },
           secondaryCta: extras?.secondaryCta,
           linkBlock: extras?.linkBlock,
           closingParagraphs: extras?.closingParagraphs,
-          footer: `You received this because ${actor} granted you ${args.role} access. If prompted, sign in with ${principalId}.`,
+          footer: `You received this because ${actor} granted you ${args.role} access.`,
         });
         await sendEmail({
           to: principalId,

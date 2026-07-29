@@ -21,6 +21,11 @@ import type { EmailCta, EmailLinkBlock } from "../server/email-template.js";
 import type { UserProfile } from "../user-profile/shared.js";
 
 export interface ShareEmailExtras {
+  /**
+   * Replaces the default body paragraphs between the heading and the preview.
+   * Pass `[]` to send none. Omit to keep the default copy.
+   */
+  paragraphs?: string[];
   secondaryCta?: EmailCta;
   linkBlock?: EmailLinkBlock;
   closingParagraphs?: string[];
