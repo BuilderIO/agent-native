@@ -67,7 +67,8 @@ import {
 import { runWithRequestContext } from "../server/request-context.js";
 import { normalizeReasoningEffortForRequest } from "../shared/reasoning-effort.js";
 import { A2A_CONTINUATION_QUEUED_MARKER } from "./a2a-continuation-marker.js";
-import { hasActiveA2AContinuationsForIntegrationTask } from "./a2a-continuations-store.js";
+import { reconcileTerminalA2AParentIfDisabled } from "./a2a-continuation-processor.js";
+import { getA2AContinuationTaskOutcome } from "./a2a-continuations-store.js";
 import {
   clearIntegrationAwaitingInput,
   setIntegrationAwaitingInput,
@@ -1086,10 +1087,22 @@ async function processIncomingMessage(
           JSON.parse(campaign.row.checkpoint).waitingForA2A === true;
       } catch {}
       if (waitingForA2A) {
-        const activeA2A = await hasActiveA2AContinuationsForIntegrationTask(
-          opts.taskId,
-        );
-        if (activeA2A) {
+        const a2aOutcome = await getA2AContinuationTaskOutcome(opts.taskId);
+        if (a2aOutcome !== "terminal-delivered") {
+          if (
+            a2aOutcome === "terminal-without-delivery" &&
+            (await reconcileTerminalA2AParentIfDisabled(opts.taskId))
+          ) {
+            await releaseApplicableIntegrationBudgets(
+              budgetReservations.reservations,
+            );
+            return { status: "campaign-failed" };
+          }
+          if (a2aOutcome !== "active") {
+            console.warn(
+              `[integrations] Waiting campaign ${campaign.row.id} has A2A outcome ${a2aOutcome} without terminal delivery proof`,
+            );
+          }
           const waiting = await waitForA2AIntegrationCampaign(campaign.row.id, {
             runId: campaign.runId,
             leaseToken: campaign.leaseToken,

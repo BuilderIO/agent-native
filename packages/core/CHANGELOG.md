@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.130.1
+
+### Patch Changes
+
+- 2ff153b: Keep verified downstream mutation receipts and delivered integration replies in durable custody until provider delivery and conversation history are confirmed.
+
 ## 0.130.0
 
 ### Minor Changes
