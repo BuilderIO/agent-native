@@ -51,6 +51,13 @@ export default defineAction({
 
 The legacy `parameters:` field (plain JSON Schema) has no runtime validation — do not use it for new code.
 
+## Large Payloads
+
+Do not accept or persist unbounded base64/file blobs through actions, SQL writes,
+or `application_state`. Route uploads through the file-upload provider and store
+references. This prevents database bloat, slow hot paths, and accidental secret
+or customer-data embedding inside binary payloads.
+
 ## SQL Injection
 
 Never concatenate user input into SQL strings. Use Drizzle ORM's query builder (always safe) or parameterized queries:
@@ -120,6 +127,8 @@ Two more CI guards (also wired into `pnpm prep`) target the 2026-04 cross-tenant
 - `scripts/guard-no-env-mutation.mjs` — bans `process.env.<KEY> = …` (and bracket / compound forms) anywhere in production code. On serverless, every warm container handles many concurrent requests in one Node process, so `process.env` mutation leaks across in-flight requests (the "restore" line at the end of a handler races and never helps — most recently the Zoom webhook). Use `runWithRequestContext({ userEmail, orgId, timezone }, fn)` from `@agent-native/core/server` instead — it's AsyncLocalStorage-backed and per-request safe. Allowlisted paths: `scripts/`, `*.spec.ts` / `*.test.ts`, `packages/core/src/dev**`, `templates/*/test/`, anything under `/cli/` or `/scaffold/`. Per-line opt-out: `process.env.X = y // guard:allow-env-mutation — <reason>`.
 - `scripts/guard-no-localhost-fallback.mjs` — bans the literal `"local@localhost"` / `'local@localhost'` / `` `local@localhost` `` in production code. The bug class: `getRequestUserEmail() ?? "local@localhost"` silently pools every unauthenticated request into a single shared tenant, leaking credentials, tools, and `application_state` rows between accounts. The right behavior is to throw / 401 when there's no session. Allowlisted paths: the dev-mode auth shim (`packages/core/src/server/auth.ts`), `packages/core/src/dev**`, tests, `scripts/`, `seed/` / `seeds/`, plus a few framework helpers that intentionally inspect or migrate the dev identity. SQL DDL `DEFAULT 'local@localhost'` and the Drizzle helper `.default('local@localhost')` are skipped per-line — schema column defaults are intentional dev fixtures, not the dangerous fallback pattern. Per-line opt-out: `email ?? "local@localhost" // guard:allow-localhost-fallback — <reason>`.
 
+  The same guard also bans the **ambient process identity** as a request-scoped fallback: `?? process.env.AGENT_USER_EMAIL`, `|| process.env.WORKSPACE_OWNER_EMAIL`, and `?? getAmbientUserEmail()`. Those name the identity of the *deployment*, not the caller, so a handler reading one authorizes whoever the deploy env names rather than whoever signed in — it fails open toward more privilege. Exempt paths are the ones with no request by construction: `scripts/` (including `templates/*/scripts/`), `src/cli/`, `src/scripts/`, `script-helpers.ts` / `script-entries.ts`, tests, and seeds. It deliberately matches only the `??` / `||` fallback position, so reading the same env var to build an admin allowlist (`envEmails("WORKSPACE_OWNER_EMAIL").includes(email)`) is untouched. Known gaps, both requiring dataflow analysis the guard does not do: an env read aliased through a local (`const fallback = process.env.AGENT_USER_EMAIL; … ?? fallback`) and a destructured `const { AGENT_USER_EMAIL } = process.env`.
+
 ## Auth
 
 - All actions are protected by the auth guard automatically.
@@ -139,6 +148,16 @@ export default defineEventHandler(async (event) => {
 ```
 
 - Never create unprotected routes that modify data.
+
+**Exception — the SSR HTML/`.data` catch-all is deliberately session-blind.**
+The rule above is for routes that read or mutate user data. The SSR page
+render and React Router `.data` route are different: they serve one
+impersonal, public-cacheable shell to every visitor by design, and loaders on
+that path render no user data. Do not "fix" this by adding `getSession`,
+`private`, or `no-store` to it — that regresses the CDN cache contract for the
+whole site. Data scoping lives in actions and API routes; the client gates
+private UI after the shell loads. See the `authentication` skill and
+`guard:ssr-cache-shell` / `ssr-handler.spec.ts`.
 
 ## Human-in-the-Loop Approval for High-Consequence Actions
 

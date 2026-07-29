@@ -6,6 +6,10 @@ against compliance `rules` — Schengen 90/180 rolling windows, 183-day
 calendar-year tax residency, visa stay caps, and PR presence minimums — then
 surfaces traffic-light statuses, countdowns, and proactive alerts.
 
+Before building common workspace or agent UI, read `agent-native-toolkit`; use
+`customizing-agent-native` for the configure → compose → eject → propose
+ladder.
+
 ## Domain Model
 
 - **Stay** — one continuous stay in a country: `countryCode`, optional `city`,
@@ -41,8 +45,6 @@ surfaces traffic-light statuses, countdowns, and proactive alerts.
 | `delete-rule`       | POST   | Stop tracking a rule (ledger untouched).                                                                     |
 | `upsert-visa`       | POST   | Create or patch a visa/permit with optional `validFrom` and hard `expiresOn`. Scope with `countryCode` or `zone: "schengen"`. When a user mentions a visa and its dates, log it. |
 | `delete-visa`       | POST   | Remove a visa; exit projections stop being capped by it.                                                     |
-| `upsert-visa`       | POST   | Create or patch a visa/permit with optional `validFrom` and hard `expiresOn`. Scope with `countryCode` or `zone: "schengen"`. When a user mentions a visa and its dates, log it. |
-| `delete-visa`       | POST   | Remove a visa; exit projections stop being capped by it.                                                     |
 | `update-profile`    | POST   | Patch profile fields; seeds well-known preset rules for tracked countries idempotently.                      |
 | `scan-inbox`        | POST   | Run the inbox scan now; returns pending stays awaiting confirmation. Booking parsing is a stub until a Mail app is connected over A2A. |
 | `view-screen`       | —      | Navigation state + compact compliance summary. Call first.                                                  |
@@ -56,21 +58,6 @@ Rules of thumb:
   Combine it with recorded visas (check `validFrom`/`expiresOn`) and statuses
   to reason about entry access; use your own knowledge for visa-free lists and
   recommend official verification for consequential plans.
-- Never assume today's date — `view-screen` and `compliance-status` return
-  `today`; read it before any date reasoning.
-- The profile's `citizenshipCountry` is the passport the user travels on.
-  Combine it with recorded visas (check `validFrom`/`expiresOn`) and statuses
-  to reason about entry access; use your own knowledge for visa-free lists and
-  recommend official verification for consequential plans.
-- Fiscal-residency tracking: use `presence-minimum` with `windowDays: null`
-  for per-calendar-year minimums (e.g. "≥183 home-country days/yr"). The
-  engine adds feasibility: at-risk when the target is mathematically
-  unreachable by Dec 31, close when nearly every remaining day is required.
-  Caveats the agent must carry: residency is ties-based, not day-count-based;
-  183+ sojourn days can DEEM a non-resident resident (the rule cuts both
-  ways); provincial regimes (e.g. RAMQ) have their own day floors; ceasing
-  residency triggers exit formalities (departure tax). Day counters are
-  heuristics — recommend professional verification.
 - Fiscal-residency tracking: use `presence-minimum` with `windowDays: null`
   for per-calendar-year minimums (e.g. "≥183 home-country days/yr"). The
   engine adds feasibility: at-risk when the target is mathematically
@@ -115,27 +102,6 @@ inbox-scan step. Every step is skippable and Continue is never blocked;
 finishing merges (never replaces) tracked countries and re-runs are prefilled
 from the existing profile.
 
-## Countries & Inclusivity
-
-Every ISO 3166-1 country is first-class everywhere: stays, rules, tracked
-countries, the map, and all pickers accept any alpha-2 code. Names come from
-`Intl.DisplayNames` (localized), flags are computed from the code, and
-`presetsForCountry()` in `shared/countries.ts` returns curated rule presets
-where known plus a generic 183-day tax counter for everywhere else. The
-cockpit map is a real world map (world-atlas 110m TopoJSON + d3-geo): every
-country is clickable and resolves to `/countries/<ISO2>`; untracked country
-pages offer a one-tap "Track" that seeds presets via update-profile.
-
-## Onboarding
-
-`/onboarding` follows a Wispr-Flow-style flow: a "what brings you here?"
-goals step (stored on the profile as `goals`), searchable fiscal home,
-immigration status, destinations with a live armed-rules preview, a
-"where are you right now?" step that logs a real day-1 stay, and an optional
-inbox-scan step. Every step is skippable and Continue is never blocked;
-finishing merges (never replaces) tracked countries and re-runs are prefilled
-from the existing profile.
-
 ## Data isolation (sensitive data)
 
 Stays, rules, visas, and the profile are per-user: every table carries
@@ -149,28 +115,6 @@ are sensitive. Never add an unscoped query; run
 `pnpm action db-check-scoping` after schema changes. Demo seed rows belong to
 the dev sentinel owner, so authenticated deployments start each user empty
 (onboarding is the first-run experience).
-
-## Data isolation (sensitive data)
-
-Stays, rules, visas, and the profile are per-user: every table carries
-`owner_email`, every action resolves the authenticated user via
-`requireOwner()` (`server/lib/owner.ts`) and scopes reads/writes with it, and
-the profile lives under the user-scoped settings key `u:<email>:nomad-profile`.
-Chat threads are per-user via the framework (`chat_threads.owner_email`);
-`application_state` is session-scoped. There is no org/workspace sharing of
-compliance data — this is deliberate: travel history, citizenship, and visas
-are sensitive. Never add an unscoped query; run
-`pnpm action db-check-scoping` after schema changes. Demo seed rows belong to
-the dev sentinel owner, so authenticated deployments start each user empty
-(onboarding is the first-run experience).
-
-## Demo mode
-
-The framework demo mode (agent sidebar → Settings → Demo mode) is a
-browser-local presentation preference: core anonymizes displayed emails in
-GET responses, and this template additionally hides identifying free text —
-city names in the timeline/ledger and the passport chip. Backend, agent, and
-exports always operate on real data; never make actions consult demo mode.
 
 ## Demo mode
 
@@ -239,6 +183,7 @@ When wiring it up, keep the contract: detected trips are inserted as
 ## Skills
 
 Read the relevant root skill before implementation: `adding-a-feature`,
-`actions`, `agent-native-docs`, `storing-data`, `real-time-sync`, `security`,
-`delegate-to-agent`, `frontend-design`, `shadcn-ui`, and
-`self-modifying-code`.
+`actions`, `agent-native-docs`, `agent-native-toolkit`,
+`customizing-agent-native`, `storing-data`, `real-time-sync`, `security`,
+`delegate-to-agent`, `frontend-design`, `shadcn-ui`, `feature-flags`,
+`sharing`, `upgrade-agent-native`, and `self-modifying-code`.

@@ -14,6 +14,8 @@ metadata:
 
 Every new feature MUST update all four areas. Skipping any one breaks the agent-native contract — the agent and UI must always be equal partners.
 
+Scope check first: this is the checklist for a feature that adds app data or a new capability. A restyle, a copy change, or a screen with no new data model and no new agent-visible operation only needs the areas it actually touches — do not manufacture actions, state keys, or a skill for it.
+
 ## Why
 
 Agent-native apps are defined by parity: everything the UI can do, the agent can do, and vice versa. A feature that only has UI is invisible to the agent. A feature that only has scripts is invisible to the user. A feature without app-state sync means the agent is blind to what the user is doing.
@@ -32,7 +34,7 @@ Build the user-facing interface — a page, component, dialog, or route. Use `us
 - **Raw `useQuery` with custom keys** — needs explicit wiring. Fold `useChangeVersions([<source>, "action"])` from `@agent-native/core/client` into the `queryKey` and set `placeholderData: (prev) => prev`. The `action` source is the reliable signal (the agent runner emits it after every successful tool call); the resource-specific source (`"dashboards"`, `"analyses"`, `"settings"`, etc.) is bonus when emitted. Without this wiring, agent writes will be invisible until manual refresh — that breaks the framework's #1 promise.
 
   ```tsx
-  import { useChangeVersions } from "@agent-native/core/client";
+  import { useChangeVersions } from "@agent-native/core/client/hooks";
   import { useQuery } from "@tanstack/react-query";
 
   const v = useChangeVersions(["dashboards", "action"]);
@@ -73,6 +75,11 @@ Never hardcode API keys, tokens, webhook URLs, signing secrets, private
 Builder/internal data, or customer data in the action, UI, seed data, fixtures,
 docs, prompts, or generated extension/app content. Register required secrets,
 use OAuth helpers, or read scoped values from the vault/credential store.
+
+If the feature involves attachments, images, recordings, screenshots, exports,
+or other file-like payloads, design the upload path in the same change:
+provider upload first, then URL/id/blob handle in SQL. Do not add base64/binary
+columns or stuff files into `application_state`.
 
 **If the action produces or lists a navigable resource**, add a `link` builder that returns `{ url: buildDeepLink({ app, view, params }), label }`. External coding agents and MCP hosts (Claude / ChatGPT / Claude Code / Cowork / Codex, over MCP/A2A) then surface an "Open in … →" deep link that drops the user back into the running UI focused on the record — for free. If a compatible MCP host should render an inline review/edit surface, also add `mcpApp` with `embedApp()` so the action embeds the real React app route instead of a one-off HTML UI. The `link` builder and `mcpApp` metadata must be pure and synchronous (no I/O). Any external-agent read/ingest action must be `http: { method: "GET" }` + `readOnly: true` + `publicAgent: { expose: true, readOnly: true, requiresAuth: true }`. See the `external-agents` skill.
 
