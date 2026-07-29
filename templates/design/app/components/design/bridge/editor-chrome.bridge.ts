@@ -6881,13 +6881,7 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     if (!el || !property) return false;
     var cssProperty = normalizeCssPropertyName(property);
     if (!cssProperty) return false;
-    var nextValue = value == null ? "" : String(value);
-    // setProperty(prop, "") is a spec no-op, not a removal. An empty value is
-    // how a pending edit says "drop the inline override so the stylesheet
-    // applies again" (originalStylesForPendingVisualEdit), so routing it
-    // through setProperty leaves the edited value in place and reports success.
-    if (nextValue === "") el.style.removeProperty(cssProperty);
-    else el.style.setProperty(cssProperty, nextValue);
+    el.style.setProperty(cssProperty, String(value));
     return true;
   }
 

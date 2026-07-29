@@ -4711,9 +4711,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!el || !property) return false;
       var cssProperty = normalizeCssPropertyName(property);
       if (!cssProperty) return false;
-      var nextValue = value == null ? "" : String(value);
-      if (nextValue === "") el.style.removeProperty(cssProperty);
-      else el.style.setProperty(cssProperty, nextValue);
+      el.style.setProperty(cssProperty, String(value));
       return true;
     }
     function exactCoverSpanForRange(range) {
