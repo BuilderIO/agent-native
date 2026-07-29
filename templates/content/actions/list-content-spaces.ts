@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -65,7 +65,8 @@ export default defineAction({
           ),
           isNull(schema.contentSpaces.archivedAt),
         ),
-      );
+      )
+      .orderBy(asc(schema.contentDatabaseItems.position));
     const filesDatabaseIds = rows.map((row) => row.space.filesDatabaseId);
     const databaseIds = [...filesDatabaseIds, favoritesIds.databaseId];
     const filesDatabases = databaseIds.length
@@ -90,6 +91,7 @@ export default defineAction({
       role: string;
       catalogItemId: string;
       catalogDocumentId: string;
+      catalogPosition: number;
     }>;
     for (const row of rows) {
       if (
@@ -117,6 +119,7 @@ export default defineAction({
         role,
         catalogItemId: row.mapping.databaseItemId,
         catalogDocumentId: row.mapping.documentId,
+        catalogPosition: row.item.position,
       });
     }
     return {

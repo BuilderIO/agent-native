@@ -154,6 +154,13 @@ const messages = {
   designSystems: {
     new: "新建設計系統",
     setupBrand: "設定你的品牌",
+    delete: "刪除",
+    cancel: "取消",
+    moreActions: "更多操作",
+    deleteDialogTitle: "刪除設計系統？",
+    deleteDialogDescription:
+      "此操作會永久刪除該設計系統。使用它的簡報會保留目前外觀，但不再與其連結。",
+    deleteError: "刪除設計系統失敗",
     emptyTitle: "設定你的品牌識別",
     emptyDescription:
       "使用你的品牌顏色、字型和徽標建立設計系統。每個新簡報都會遵循你的視覺識別。",
@@ -517,6 +524,7 @@ const messages = {
     builderDesignSystemId: "設計系統",
     builderJobId: "Job",
     openInBuilder: "在 Builder 中開啟",
+    decodeFailed: "解碼失敗：{{error}}",
     websiteUrl: "網站 URL",
     websitePlaceholder: "example.com 或 Nike",
     add: "新增",

@@ -161,6 +161,13 @@ const messages = {
   designSystems: {
     new: "नया डिज़ाइन सिस्टम",
     setupBrand: "अपना ब्रांड सेट करें",
+    delete: "हटाएं",
+    cancel: "रद्द करें",
+    moreActions: "अधिक क्रियाएं",
+    deleteDialogTitle: "डिज़ाइन सिस्टम हटाएं?",
+    deleteDialogDescription:
+      "इससे डिज़ाइन सिस्टम स्थायी रूप से हट जाएगा। इसका उपयोग करने वाले डेक अपना मौजूदा रूप बनाए रखेंगे, लेकिन उनसे लिंक नहीं रहेंगे।",
+    deleteError: "डिज़ाइन सिस्टम हटाने में विफल",
     emptyTitle: "अपनी ब्रांड पहचान सेट करें",
     emptyDescription:
       "अपने ब्रांड रंगों, टाइपोग्राफी और लोगो के साथ डिज़ाइन सिस्टम बनाएं। हर नया डेक आपकी विज़ुअल पहचान का पालन करेगा।",
@@ -530,6 +537,7 @@ const messages = {
     builderDesignSystemId: "डिज़ाइन सिस्टम",
     builderJobId: "Job",
     openInBuilder: "Builder में खोलें",
+    decodeFailed: "डिकोडिंग विफल: {{error}}",
     websiteUrl: "वेबसाइट URL",
     websitePlaceholder: "example.com या Nike",
     add: "जोड़ें",

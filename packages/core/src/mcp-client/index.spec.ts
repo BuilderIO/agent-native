@@ -59,11 +59,12 @@ class FakeStdio {
   close() {}
 }
 
-vi.mock("@modelcontextprotocol/sdk/client/index.js", () => ({
+vi.doMock("@modelcontextprotocol/client", () => ({
   Client: FakeClient,
+  StreamableHTTPClientTransport: FakeStdio,
 }));
 
-vi.mock("@modelcontextprotocol/sdk/client/stdio.js", () => ({
+vi.doMock("@modelcontextprotocol/client/stdio", () => ({
   StdioClientTransport: FakeStdio,
 }));
 

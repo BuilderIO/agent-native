@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -395,5 +397,35 @@ describe("dashboard report sweep", () => {
     releaseClaim([sub]);
     const firstResult = await firstRun;
     expect(firstResult).toEqual({ processed: 1, failed: 0, remaining: 0 });
+  });
+
+  it("marks generated Netlify workers as background before loading the shared server", () => {
+    const source = readFileSync(
+      new URL(
+        "../../scripts/emit-netlify-dashboard-report-cron.ts",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    const workerSections = [
+      ["emitBackgroundWorker", "emitAlertScheduledTrigger"],
+      ["emitAlertBackgroundWorker", "emitUptimeScheduledTrigger"],
+      ["emitUptimeBackgroundWorker", "isDirectRun"],
+    ] as const;
+
+    for (const [startName, endName] of workerSections) {
+      const start = source.indexOf(`function ${startName}`);
+      const end = source.indexOf(`function ${endName}`, start);
+      const workerSource = source.slice(start, end);
+      const marker = workerSource.indexOf(
+        "globalThis.__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true",
+      );
+      const serverImport = workerSource.indexOf('await import("./main.mjs")');
+
+      expect(start).toBeGreaterThan(-1);
+      expect(end).toBeGreaterThan(start);
+      expect(marker).toBeGreaterThan(-1);
+      expect(serverImport).toBeGreaterThan(marker);
+    }
   });
 });

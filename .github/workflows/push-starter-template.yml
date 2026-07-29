@@ -1,0 +1,127 @@
+name: Push chat template to starter
+
+# Vendor-branch mirror: materialize the post-processed templates/chat and push it
+# to builder-agent-native-starter's `template` branch. The starter's own
+# `sync.yml` (on that branch) then git-merges it into `main`. This workflow only
+# ever handles pristine, public template output — no private starter content.
+on:
+  push:
+    branches: [main]
+    # Template-only changes mirror promptly on push. Changes that also touch a
+    # template-pinned package (core / creative-context / toolkit) are deferred to
+    # the publish dispatch by the `decide` gate below — mirroring them now would
+    # pin the previously-published version (the bump lands only when the Version
+    # Packages PR merges). Post-processor (CLI) changes go out that way too.
+    paths:
+      - "templates/chat/**"
+      - ".github/workflows/push-starter-template.yml"
+  # Fired by "Publish packages" only on an actual npm publish (published == true)
+  # of a package the template pins — not on every successful release run (a run
+  # that merely opens the Version Packages PR publishes nothing). Carries the
+  # published commit sha in client_payload.
+  repository_dispatch:
+    types: [agent-native-packages-published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: push-starter-template
+  cancel-in-progress: false
+
+jobs:
+  # A push that touches a template-pinned package will publish and re-mirror via
+  # repository_dispatch with the correct pin. Mirroring on that push would emit
+  # new template source pinned to the *old* published version, leaving the
+  # starter temporarily inconsistent until the dispatch. Defer those pushes.
+  decide:
+    name: Decide whether to mirror this push
+    runs-on: ubuntu-latest
+    outputs:
+      skip: ${{ steps.gate.outputs.skip }}
+    steps:
+      - id: gate
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" != "push" ]; then
+            # Dispatch/manual runs always mirror.
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          files=$(jq -r '.commits[]? | (.added // [])[], (.modified // [])[], (.removed // [])[]' "$GITHUB_EVENT_PATH")
+          if printf '%s\n' "$files" | grep -qE '^packages/(core|creative-context|toolkit)/'; then
+            echo "Template-pinned package changed; deferring to the post-publish dispatch."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  push:
+    name: Materialize and push template branch
+    needs: [decide]
+    if: needs.decide.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          # On a publish dispatch, materialize the exact commit that was just
+          # published (carried in client_payload) rather than whatever main's
+          # HEAD happens to be — so the pinned version matches what's on npm.
+          ref: >-
+            ${{ github.event_name == 'repository_dispatch'
+            && github.event.client_payload.sha || github.sha }}
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24"
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Materialize post-processed templates/chat
+        run: >-
+          pnpm exec tsx packages/core/src/cli/index.ts template materialize
+          --template chat --out ./dist/template
+
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1
+        with:
+          app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
+          private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
+          owner: BuilderIO
+          repositories: builder-agent-native-starter
+
+      - name: Push to starter template branch
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          # Capture the source commit before cd'ing into the starter clone.
+          SRC_SHA="$(git rev-parse --short HEAD)"
+          git clone --depth 1 --branch template \
+            "https://x-access-token:${GH_TOKEN}@github.com/BuilderIO/builder-agent-native-starter.git" \
+            /tmp/starter
+          # Mirror the materialized tree onto the template branch. Preserve
+          # .github (the starter-side sync workflow lives there) and never send
+          # a .git dir. Skills flow through (they compose with skills update on
+          # the starter side).
+          rsync -a --delete \
+            --exclude '.git/' \
+            --exclude '.github/' \
+            ./dist/template/ /tmp/starter/
+          cd /tmp/starter
+          git config user.name "builder-bot"
+          git config user.email "noreply@builder.io"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "template branch already up to date."
+            exit 0
+          fi
+          git commit -m "chore: sync template from templates/chat@${SRC_SHA}"
+          git push origin template

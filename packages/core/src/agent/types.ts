@@ -135,6 +135,8 @@ export interface AgentChatScope {
 
 export interface AgentChatRequest {
   message: string;
+  /** Stable identity of a durable queued message, used to reject replayed delivery. */
+  queuedMessageId?: string;
   /**
    * User-visible text to persist in chat history. `message` may be normalized
    * for the model (for example mention markup or internal continuation text).

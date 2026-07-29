@@ -34,6 +34,13 @@ export type ContentPart =
       args: Record<string, string>;
       result?: string;
       isError?: boolean;
+      /**
+       * Set when the stream ended while this tool was still in flight. We know
+       * it started and NOT whether its side effect landed, so it is deliberately
+       * separate from `isError` — an email that WAS delivered must never render
+       * as a failure just because the transport dropped before `tool_done`.
+       */
+      outcome?: "unknown";
       completedSideEffect?: boolean;
       mcpApp?: AgentMcpAppPayload;
       chatUI?: ActionChatUIConfig;
@@ -155,7 +162,10 @@ export function settleInterruptedToolCalls(
         part.activity === true
           ? (options?.activityResult ?? INTERRUPTED_ACTIVITY_RESULT)
           : result;
-      part.isError = true;
+      // Interrupted is not failed: the side effect may well have landed. Never
+      // set `isError` here — that is reserved for a result the server told us
+      // failed.
+      part.outcome = "unknown";
       changed = true;
     }
   }
@@ -1029,7 +1039,8 @@ function completedToolNamesAfterLastAssistantText(
       part.type === "tool-call" &&
       part.activity !== true &&
       part.result !== undefined &&
-      part.isError !== true
+      part.isError !== true &&
+      part.outcome !== "unknown"
     ) {
       names.add(part.toolName);
     }
@@ -1053,7 +1064,8 @@ function hasCompletedCustomUi(content: ContentPart[]): boolean {
       part?.type !== "tool-call" ||
       part.activity === true ||
       part.result === undefined ||
-      part.isError === true
+      part.isError === true ||
+      part.outcome === "unknown"
     ) {
       continue;
     }

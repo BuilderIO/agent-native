@@ -342,6 +342,74 @@ describe("AISDKEngine error tagging", () => {
     expect(stopEvent?.statusCode).toBe(429);
     expect(stopEvent?.providerRetryable).toBe(true);
   });
+
+  it("tags a retry-wrapped Cannot connect to API failure as a provider network error", async () => {
+    const lastError = Object.assign(
+      new Error(
+        "Cannot connect to API: ERR_SSL_TLSV1_ALERT_INTERNAL_ERROR tlsv1 alert internal error",
+      ),
+      { isRetryable: true },
+    );
+    const retryError = Object.assign(
+      new Error(`Failed after 2 attempts. Last error: ${lastError.message}`),
+      { lastError },
+    );
+    const streamText = vi.fn().mockReturnValue({
+      fullStream: (async function* () {
+        throw retryError;
+      })(),
+    });
+    vi.doMock("ai", () => ({ streamText, jsonSchema: (s: unknown) => s }));
+    mockOpenAIProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("openai", { apiKey: "sk-test" });
+
+    const events: any[] = [];
+    await expect(async () => {
+      for await (const event of engine.stream(BASE_STREAM_OPTIONS)) {
+        events.push(event);
+      }
+    }).rejects.toThrow(retryError.message);
+
+    const stopEvent = events.find((event) => event.type === "stop");
+    expect(stopEvent?.error).toBe(retryError.message);
+    expect(stopEvent?.errorCode).toBe("provider_network_error");
+    expect(stopEvent?.providerRetryable).toBe(true);
+  });
+
+  it("preserves status fields from a retry wrapper's last provider error", async () => {
+    const lastError = Object.assign(new Error("Too Many Requests"), {
+      statusCode: 429,
+      isRetryable: true,
+    });
+    const retryError = Object.assign(
+      new Error("Failed after 2 attempts. Last error: Too Many Requests"),
+      { lastError },
+    );
+    const streamText = vi.fn().mockReturnValue({
+      fullStream: (async function* () {
+        throw retryError;
+      })(),
+    });
+    vi.doMock("ai", () => ({ streamText, jsonSchema: (s: unknown) => s }));
+    mockOpenAIProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("openai", { apiKey: "sk-test" });
+
+    const events: any[] = [];
+    await expect(async () => {
+      for await (const event of engine.stream(BASE_STREAM_OPTIONS)) {
+        events.push(event);
+      }
+    }).rejects.toThrow(retryError.message);
+
+    const stopEvent = events.find((event) => event.type === "stop");
+    expect(stopEvent?.errorCode).toBe("http_429");
+    expect(stopEvent?.statusCode).toBe(429);
+    expect(stopEvent?.providerRetryable).toBe(true);
+  });
 });
 
 describe("AISDKEngine OpenAI model selection", () => {
@@ -417,7 +485,10 @@ describe("AISDKEngine OpenAI model selection", () => {
     inputSchema: { type: "object" as const, properties: {} },
   };
 
-  it("drops the reasoning-effort override when tools are present on a forced Chat Completions base URL", async () => {
+  // Omitting the field is NOT enough: OpenAI applies the model's own default
+  // effort when `reasoning_effort` is absent and rejects the call identically.
+  // Only the explicit "none" clears it.
+  it("sends reasoning effort 'none' when tools are present on a forced Chat Completions base URL", async () => {
     const { streamText } = mockAiSdk();
     mockOpenAIProvider();
 
@@ -436,7 +507,7 @@ describe("AISDKEngine OpenAI model selection", () => {
     );
 
     const call = streamText.mock.calls[0]?.[0];
-    expect(call.providerOptions?.openai?.reasoningEffort).toBeUndefined();
+    expect(call.providerOptions?.openai?.reasoningEffort).toBe("none");
   });
 
   it("still applies reasoning effort on a forced Chat Completions base URL when there are no tools", async () => {

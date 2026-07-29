@@ -161,6 +161,13 @@ const messages = {
   designSystems: {
     new: "نظام تصميم جديد",
     setupBrand: "إعداد علامتك التجارية",
+    delete: "حذف",
+    cancel: "إلغاء",
+    moreActions: "إجراءات إضافية",
+    deleteDialogTitle: "حذف نظام التصميم؟",
+    deleteDialogDescription:
+      "سيؤدي هذا إلى حذف نظام التصميم نهائيًا. تحتفظ العروض التي تستخدمه بمظهرها الحالي لكنها لن تبقى مرتبطة به.",
+    deleteError: "تعذّر حذف نظام التصميم",
     emptyTitle: "إعداد هوية علامتك التجارية",
     emptyDescription:
       "أنشئ نظام تصميم بألوان علامتك وخطوطها وشعاراتها. سيتبع كل عرض جديد هويتك البصرية.",
@@ -552,6 +559,7 @@ const messages = {
     builderDesignSystemId: "نظام التصميم",
     builderJobId: "Job",
     openInBuilder: "فتح في Builder",
+    decodeFailed: "فشل فك الترميز: {{error}}",
     websiteUrl: "رابط الموقع",
     websitePlaceholder: "example.com أو Nike",
     add: "إضافة",

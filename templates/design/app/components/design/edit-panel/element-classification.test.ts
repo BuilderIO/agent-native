@@ -16,6 +16,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ElementInfo } from "../types";
 import {
   commitElementMinMax,
+  componentNameForElementInfo,
   isContainerElement,
   isTextElement,
 } from "./element-classification";
@@ -127,6 +128,52 @@ describe("isTextElement — B5-12 nested board text regression", () => {
       isFlexContainer: true,
     });
     expect(isTextElement(element)).toBe(true);
+  });
+});
+
+describe("componentNameForElementInfo", () => {
+  it("uses React source provenance when the DOM payload has no explicit component name", () => {
+    expect(
+      componentNameForElementInfo(
+        makeElement({
+          provenance: {
+            sourceFile: "src/components/Card.tsx",
+            line: 7,
+            column: 9,
+            component: "Card",
+            method: "debug-source",
+          },
+        }),
+      ),
+    ).toBe("Card");
+  });
+
+  it("uses React source provenance when an explicit component annotation is blank", () => {
+    expect(
+      componentNameForElementInfo(
+        makeElement({
+          componentName: "   ",
+          provenance: { component: "Card" },
+        }),
+      ),
+    ).toBe("Card");
+  });
+
+  it("keeps an explicit component annotation authoritative", () => {
+    expect(
+      componentNameForElementInfo(
+        makeElement({
+          componentName: "AnnotatedCard",
+          provenance: {
+            sourceFile: "src/components/Card.tsx",
+            line: 7,
+            column: 9,
+            component: "Card",
+            method: "debug-source",
+          },
+        }),
+      ),
+    ).toBe("AnnotatedCard");
   });
 });
 

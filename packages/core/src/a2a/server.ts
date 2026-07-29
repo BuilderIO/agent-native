@@ -222,7 +222,7 @@ export function mountA2A(
   // /tmp/security-audit/12-mcp-a2a-agent.md.
   getH3App(nitroApp).use(
     "/.well-known/agent-card.json",
-    defineEventHandler((event) => {
+    defineEventHandler(async (event) => {
       if (getMethod(event) !== "GET") {
         setResponseStatus(event, 405);
         return { error: "Method not allowed" };
@@ -233,10 +233,26 @@ export function mountA2A(
       const host = getRequestHeader(event, "host") ?? "localhost";
       const baseUrl = `${protocol}://${host}`;
 
-      const filteredSkills = filterPublicAgentCardSkills(config);
+      // The anonymous card may only advertise actions safe to disclose
+      // publicly (`requiresAuth !== true`), but `actions/invoke` only ever
+      // runs the opposite set (`requiresAuth === true`). Those are disjoint,
+      // so an unauthenticated card said "no directly callable actions" about
+      // an app whose actions a verified sibling can call — and callers fell
+      // back to open-ended delegation. Show a verified caller what it can
+      // actually invoke; anonymous fetches keep the public list unchanged.
+      let skills = filterPublicAgentCardSkills(config);
+      if (config.authenticatedSkills?.length) {
+        const bearer = extractBearerToken(
+          getRequestHeader(event, "authorization"),
+        );
+        if (bearer) {
+          const payload = await verifyA2AToken(bearer, event);
+          if (payload.email) skills = config.authenticatedSkills;
+        }
+      }
 
       return generateAgentCard(
-        { ...config, skills: filteredSkills },
+        { ...config, skills },
         baseUrl,
         `${routePrefix}/a2a`,
       );

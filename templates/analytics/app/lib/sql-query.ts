@@ -1,6 +1,9 @@
 import { callAction } from "@agent-native/core/client/hooks";
 import { DASHBOARD_REPORT_ACTION_TIMEOUT_MS } from "@shared/dashboard-report-timeouts";
-import { MAX_CONCURRENT_SQL_QUERIES } from "@shared/sql-query-limits";
+import {
+  MAX_CONCURRENT_FIRST_PARTY_SQL_QUERIES,
+  MAX_CONCURRENT_SQL_QUERIES,
+} from "@shared/sql-query-limits";
 import { useQuery } from "@tanstack/react-query";
 
 import type { DataSourceType } from "@/pages/adhoc/sql-dashboard/types";
@@ -22,8 +25,30 @@ type PendingSqlQuerySlot = {
   onAbort: () => void;
 };
 
-let activeSqlQueries = 0;
-const pendingSqlQuerySlots: PendingSqlQuerySlot[] = [];
+type SqlQueryLane = "first-party" | "external";
+
+type SqlQuerySlotPool = {
+  active: number;
+  limit: number;
+  pending: PendingSqlQuerySlot[];
+};
+
+const sqlQuerySlotPools: Record<SqlQueryLane, SqlQuerySlotPool> = {
+  "first-party": {
+    active: 0,
+    limit: MAX_CONCURRENT_FIRST_PARTY_SQL_QUERIES,
+    pending: [],
+  },
+  external: {
+    active: 0,
+    limit: MAX_CONCURRENT_SQL_QUERIES,
+    pending: [],
+  },
+};
+
+function sqlQueryLane(source: DataSourceType): SqlQueryLane {
+  return source === "first-party" ? "first-party" : "external";
+}
 
 function createAbortError(): Error {
   if (typeof DOMException !== "undefined") {
@@ -34,49 +59,50 @@ function createAbortError(): Error {
   return error;
 }
 
-function createSqlQueryRelease(): () => void {
+function createSqlQueryRelease(pool: SqlQuerySlotPool): () => void {
   let released = false;
   return () => {
     if (released) return;
     released = true;
-    activeSqlQueries = Math.max(0, activeSqlQueries - 1);
-    drainSqlQuerySlots();
+    pool.active = Math.max(0, pool.active - 1);
+    drainSqlQuerySlots(pool);
   };
 }
 
-function drainSqlQuerySlots(): void {
-  while (
-    activeSqlQueries < MAX_CONCURRENT_SQL_QUERIES &&
-    pendingSqlQuerySlots.length > 0
-  ) {
-    const pending = pendingSqlQuerySlots.shift();
+function drainSqlQuerySlots(pool: SqlQuerySlotPool): void {
+  while (pool.active < pool.limit && pool.pending.length > 0) {
+    const pending = pool.pending.shift();
     if (!pending) return;
     pending.signal?.removeEventListener("abort", pending.onAbort);
     if (pending.signal?.aborted) {
       pending.reject(createAbortError());
       continue;
     }
-    activeSqlQueries += 1;
-    pending.resolve(createSqlQueryRelease());
+    pool.active += 1;
+    pending.resolve(createSqlQueryRelease(pool));
   }
 }
 
-async function acquireSqlQuerySlot(signal?: AbortSignal): Promise<() => void> {
+async function acquireSqlQuerySlot(
+  source: DataSourceType,
+  signal?: AbortSignal,
+): Promise<() => void> {
   if (signal?.aborted) throw createAbortError();
+  const pool = sqlQuerySlotPools[sqlQueryLane(source)];
   return new Promise((resolve, reject) => {
     const pending: PendingSqlQuerySlot = {
       resolve,
       reject,
       signal,
       onAbort: () => {
-        const index = pendingSqlQuerySlots.indexOf(pending);
-        if (index >= 0) pendingSqlQuerySlots.splice(index, 1);
+        const index = pool.pending.indexOf(pending);
+        if (index >= 0) pool.pending.splice(index, 1);
         reject(createAbortError());
       },
     };
     signal?.addEventListener("abort", pending.onAbort, { once: true });
-    pendingSqlQuerySlots.push(pending);
-    drainSqlQuerySlots();
+    pool.pending.push(pending);
+    drainSqlQuerySlots(pool);
   });
 }
 
@@ -91,7 +117,7 @@ export async function executeSqlQuery(
   signal?: AbortSignal,
   options?: { reportScreenshot?: boolean },
 ): Promise<SqlQueryResult> {
-  const release = await acquireSqlQuerySlot(signal);
+  const release = await acquireSqlQuerySlot(source, signal);
   let data: DashboardPanelQueryResponse;
   try {
     data = await callAction<DashboardPanelQueryResponse>(

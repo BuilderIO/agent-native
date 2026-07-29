@@ -490,6 +490,125 @@ describe("resolveRuntimeStructureMoveExecutionMode", () => {
       ).toBe("semantic-handoff");
     }
   });
+
+  // The insert path copies markup into the running DOM and leaves the subject
+  // where it was, which is only correct for a board primitive. Applying it to
+  // any stored screen turns an ordinary move into a silent duplicate.
+  it("reinterprets a drop into a live screen as an insert only from the board", () => {
+    expect(
+      resolveRuntimeStructureMoveExecutionMode({
+        subjectRuntimeOnly: false,
+        targetRuntimeOnly: false,
+        sourceScreenId: "board",
+        targetScreenId: "live",
+        sourceScreenIsBoard: true,
+        targetScreenIsLive: true,
+      }),
+    ).toBe("screen-bridge-insert");
+
+    expect(
+      resolveRuntimeStructureMoveExecutionMode({
+        subjectRuntimeOnly: false,
+        targetRuntimeOnly: false,
+        sourceScreenId: "stored-screen",
+        targetScreenId: "live",
+        targetScreenIsLive: true,
+      }),
+    ).toBe("semantic-handoff");
+  });
+
+  it("pins which source/target combinations resolve to which mode", () => {
+    const cases: Array<
+      [Parameters<typeof resolveRuntimeStructureMoveExecutionMode>[0], string]
+    > = [
+      // Stored → stored stays a plain source edit, live-ness unset.
+      [
+        {
+          subjectRuntimeOnly: false,
+          targetRuntimeOnly: false,
+          sourceScreenId: "screen-a",
+          targetScreenId: "screen-b",
+        },
+        "source-edit",
+      ],
+      // A board drop onto a stored screen is still a stored move, not an insert.
+      [
+        {
+          subjectRuntimeOnly: false,
+          targetRuntimeOnly: false,
+          sourceScreenId: "board",
+          targetScreenId: "screen-b",
+          sourceScreenIsBoard: true,
+        },
+        "source-edit",
+      ],
+      // Board → live is the one insert route.
+      [
+        {
+          subjectRuntimeOnly: false,
+          targetRuntimeOnly: false,
+          sourceScreenId: "board",
+          targetScreenId: "live",
+          sourceScreenIsBoard: true,
+          targetScreenIsLive: true,
+        },
+        "screen-bridge-insert",
+      ],
+      // Board → live where the subject is itself a runtime node is a move
+      // between two running apps, not new markup.
+      [
+        {
+          subjectRuntimeOnly: true,
+          targetRuntimeOnly: false,
+          sourceScreenId: "board",
+          targetScreenId: "live",
+          sourceScreenIsBoard: true,
+          targetScreenIsLive: true,
+        },
+        "semantic-handoff",
+      ],
+      // Stored → live: the destination has no editable stored document, so it
+      // may never fall back to the source-edit path.
+      [
+        {
+          subjectRuntimeOnly: false,
+          targetRuntimeOnly: false,
+          sourceScreenId: "screen-a",
+          targetScreenId: "live",
+          targetScreenIsLive: true,
+        },
+        "semantic-handoff",
+      ],
+      // Live → live, same screen: the fast in-iframe bridge still owns it.
+      [
+        {
+          subjectRuntimeOnly: true,
+          targetRuntimeOnly: true,
+          sourceScreenId: "live",
+          targetScreenId: "live",
+          targetScreenIsLive: true,
+        },
+        "screen-bridge",
+      ],
+      // Live → different live screen: one screen-scoped bridge cannot span it.
+      [
+        {
+          subjectRuntimeOnly: true,
+          targetRuntimeOnly: true,
+          sourceScreenId: "live-a",
+          targetScreenId: "live-b",
+          targetScreenIsLive: true,
+        },
+        "semantic-handoff",
+      ],
+    ];
+    for (const [input, expected] of cases) {
+      expect([input, resolveRuntimeStructureMoveExecutionMode(input)]).toEqual([
+        input,
+        expected,
+      ]);
+    }
+  });
 });
 
 describe("pending React source anchors", () => {
@@ -932,5 +1051,114 @@ describe("pending localhost structure history", () => {
         dropMode: "absolute-container",
       }),
     ).toBe(false);
+  });
+});
+
+// The owner call site is the whole point of distinguishing `.map()` siblings:
+// their own JSX line is identical, and only the owner location names the file
+// and line a coding agent has to open. The handoff used to carry ownerKey
+// alone, which says WHICH instance without saying where it comes from.
+describe("owner provenance survives the coding-agent handoff", () => {
+  const mappedInfo = {
+    provenance: {
+      sourceFile: "/Users/example/project/src/components/Card.jsx",
+      line: 25,
+      column: 32,
+      component: "Card",
+      method: "debug-stack" as const,
+      ownerSourceFile: "/Users/example/project/src/App.jsx",
+      ownerLine: 55,
+      ownerColumn: 51,
+      ownerComponentName: "Card",
+      ownerMethod: "debug-stack" as const,
+      ownerKey: "b",
+    },
+    sourceId: "runtime-card",
+    selector: ".card",
+  };
+
+  it("carries the owner location from bridge provenance into the anchor", () => {
+    expect(
+      reactSourceAnchorForPendingEdit({
+        info: mappedInfo,
+        rootPath: "/Users/example/project",
+      }),
+    ).toMatchObject({
+      relPath: "src/components/Card.jsx",
+      line: 25,
+      ownerRelPath: "src/App.jsx",
+      ownerSourceFile: "/Users/example/project/src/App.jsx",
+      ownerLine: 55,
+      ownerColumn: 51,
+      ownerComponent: "Card",
+      ownerMethod: "debug-stack",
+      ownerKey: "b",
+    });
+  });
+
+  it("redacts the absolute owner path and labels the owner position honestly", () => {
+    const anchor = reactSourceAnchorForPendingEdit({
+      info: mappedInfo,
+      rootPath: "/Users/example/project",
+    });
+    const redacted = redactReactSourceAnchor(anchor);
+    expect(redacted).toMatchObject({
+      ownerRelPath: "src/App.jsx",
+      ownerSourceFile: "src/App.jsx",
+      ownerLine: 55,
+      ownerPositionPrecision: "transformed",
+    });
+    expect(JSON.stringify(redacted)).not.toContain("/Users/example");
+
+    // No safe project-relative owner path yet: drop the owner LOCATION rather
+    // than leak the Fiber path, but keep the identity fields that are not
+    // locations — the key is still what separates the siblings.
+    const unresolved = redactReactSourceAnchor(
+      reactSourceAnchorForPendingEdit({ info: mappedInfo }),
+    );
+    expect(unresolved?.ownerRelPath).toBeUndefined();
+    expect(unresolved?.ownerLine).toBeUndefined();
+    expect(unresolved?.ownerKey).toBe("b");
+    expect(JSON.stringify(unresolved)).not.toContain("/Users/example");
+  });
+
+  it("emits the owner site on the exact anchor with its own precision", () => {
+    const result = buildReactSemanticHandoff({
+      operation: "move",
+      desiredChange: "Move the mapped card above its sibling.",
+      sourceAnchors: [
+        {
+          ...reactSourceAnchorForPendingEdit({
+            info: mappedInfo,
+            rootPath: "/Users/example/project",
+          })!,
+          id: "subject",
+          // An authored element position with a transformed owner position:
+          // one shared precision field would overstate one of the two.
+          method: "data-attribute",
+        },
+      ],
+      runtimeRelationship: { kind: "before", subjectAnchorIds: ["subject"] },
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.handoff.sourceAnchors[0]).toMatchObject({
+      relPath: "src/components/Card.jsx",
+      positionPrecision: "authored",
+      ownerRelPath: "src/App.jsx",
+      ownerLine: 55,
+      ownerColumn: 51,
+      ownerComponent: "Card",
+      ownerPositionPrecision: "transformed",
+      ownerKey: "b",
+    });
+    expect(
+      result.handoff.instructions.some((line) =>
+        line.includes("ownerPositionPrecision"),
+      ),
+    ).toBe(true);
+    expect(
+      result.handoff.instructions.some((line) => line.includes("ownerRelPath")),
+    ).toBe(true);
   });
 });

@@ -1,9 +1,9 @@
-import { useActionQuery } from "@agent-native/core/client/hooks";
+import { useActionQuery, useAvatarUrl } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { IconTerminal2, IconUser } from "@tabler/icons-react";
 import { useState } from "react";
 
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -284,8 +284,12 @@ export function ViewerAvatar({
   className?: string;
 }) {
   const anonymous = !viewer.viewerName && !viewer.viewerEmail;
+  const avatarUrl = useAvatarUrl(viewer.viewerEmail);
+  const label = viewer.viewerName || viewer.viewerEmail || "";
+
   return (
     <Avatar className={cn("h-6 w-6 shrink-0", className)}>
+      {avatarUrl ? <AvatarImage src={avatarUrl} alt={label} /> : null}
       <AvatarFallback className="bg-primary text-[10px] text-primary-foreground">
         {anonymous ? (
           <IconUser className="h-3 w-3" />

@@ -239,6 +239,11 @@ export async function runAgentLoopDirectWithSoftTimeout(
     usage.cacheReadTokens += next.cacheReadTokens;
     usage.cacheWriteTokens += next.cacheWriteTokens;
     usage.model = next.model;
+    // Without these, a retry that never got a usage report merges its zeros
+    // over an earlier attempt's real numbers, and telemetry reports an
+    // unmeasured run as a measured empty one.
+    if (next.usageReported) usage.usageReported = true;
+    usage.firstEngineEventAtMs ??= next.firstEngineEventAtMs;
   };
 
   const localTurnEvents: AgentChatEvent[] = [];

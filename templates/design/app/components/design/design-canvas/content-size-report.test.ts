@@ -39,4 +39,21 @@ describe("appendContentSizeReporter", () => {
     expect(out).toContain("window.innerWidth");
     expect(out).toContain("scrollHeight");
   });
+
+  // Regression: html already carries earlier bridge scripts (e.g. editor-chrome's
+  // compiled escapeIdent helper contains a literal "$&") by the time this runs.
+  // A string second argument to String.replace treats "$&", "$'", "$`" as
+  // special substitution patterns instead of literal text, splicing the
+  // matched "</body>" into the middle of that prior script and truncating its
+  // <script> tag early — which silently killed selection/hover for every
+  // embedded screen. The reporter must insert its own text verbatim.
+  it("does not treat $-patterns in preceding script content as replacement directives", () => {
+    const priorScript = '<script>var re = "\\\\$&-$\'-$`";</script>';
+    const out = appendContentSizeReporter(
+      `<html><body>${priorScript}</body></html>`,
+    );
+    expect(out).toContain(priorScript);
+    // Only one real </body> should remain — none minted mid-script.
+    expect(out.match(/<\/body>/g)?.length).toBe(1);
+  });
 });

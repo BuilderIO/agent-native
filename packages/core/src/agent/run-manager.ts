@@ -395,6 +395,20 @@ export interface StartRunOptions {
    * callers use it to describe who owns continuation at hosted chunk boundaries.
    */
   dispatchMode?: "foreground" | "foreground-self-chain" | "background";
+  /**
+   * Optional context forwarded onto the terminal-outcome analytics event
+   * (see `emitRunTerminalTrackingEvent`) so run cutoffs can be broken down
+   * by model/engine/user. Run-manager has no way to know these on its own —
+   * the caller (production-agent.ts) knows them but does not thread them
+   * through yet; omitted fields are simply left off the event rather than
+   * defaulted to a placeholder.
+   */
+  model?: string;
+  engineName?: string;
+  userId?: string;
+  /** Continuation/redispatch attempt number for this logical turn, if the
+   *  caller is tracking one. */
+  attemptCount?: number;
 }
 
 export interface ResolveRunSoftTimeoutOptions {
@@ -533,6 +547,80 @@ function terminalReasonForRun(
   if (completionError) return "completion_error";
   if (finalStatus === "errored") return "error:unknown";
   return "done";
+}
+
+const MAX_RUN_ERROR_DETAIL_LENGTH = 500;
+
+/**
+ * Emit one analytics event per terminal run — the seam that makes cutoffs
+ * (`run_budget_exhausted`, `loop_limit`, aborts, `truncated` continuation
+ * boundaries) queryable in the same pipeline as `$ai_generation`
+ * (see observability/traces.ts). Same mechanism: dynamic import of
+ * `track()` with every failure swallowed, so a missing/broken tracking
+ * provider can never affect the run or its persisted status. Must be called
+ * AFTER the atomic-complete SQL writes in the `.finally()` boundary above —
+ * never before, and never awaited by it.
+ *
+ * Operational metadata only: no message content, no prompt/response text,
+ * no user email. `errorDetail` carries engine/gateway error strings (e.g.
+ * "context_length_exceeded"), not user-authored text.
+ */
+function emitRunTerminalTrackingEvent(args: {
+  runId: string;
+  threadId: string;
+  turnId: string;
+  status: "completed" | "errored" | "aborted" | "truncated";
+  terminalReason: string;
+  errorCode?: string;
+  errorDetail?: string;
+  dispatchMode?: string;
+  abortReason?: string;
+  durationMs: number;
+  model?: string;
+  engineName?: string;
+  userId?: string;
+  attemptCount?: number;
+}): void {
+  const properties: Record<string, unknown> = {
+    source: "agent_run_manager",
+    run_id: args.runId,
+    thread_id: args.threadId,
+    turn_id: args.turnId,
+    status: args.status,
+    terminal_reason: args.terminalReason,
+    error_code: args.errorCode,
+    error_detail: args.errorDetail
+      ? args.errorDetail.length > MAX_RUN_ERROR_DETAIL_LENGTH
+        ? `${args.errorDetail.slice(0, MAX_RUN_ERROR_DETAIL_LENGTH)}…`
+        : args.errorDetail
+      : undefined,
+    dispatch_mode: args.dispatchMode ?? "foreground",
+    abort_reason: args.abortReason,
+    duration_ms: args.durationMs,
+    model: args.model,
+    engine: args.engineName,
+    attempt_count: args.attemptCount,
+  };
+  for (const key of Object.keys(properties)) {
+    if (properties[key] === undefined) delete properties[key];
+  }
+
+  try {
+    void Promise.all([
+      import("../tracking/registry.js"),
+      import("../observability/tracking-identity.js"),
+    ])
+      .then(([{ track }, { trackingIdentityProperties }]) => {
+        track(
+          "agent_run_terminal",
+          { ...properties, ...trackingIdentityProperties() },
+          { userId: args.userId },
+        );
+      })
+      .catch(() => {});
+  } catch {
+    // Tracking must never affect the agent run or its persisted status.
+  }
 }
 
 function abortInMemoryRun(run: ActiveRun, reason: string = "user") {
@@ -1101,6 +1189,11 @@ export function startRun(
       //    /runs/active check while we wait for SQL writes to land.
       let completionError: unknown = null;
       let terminalPersistenceError: unknown = null;
+      // Populated in step 5b for errored runs; read by the terminal tracking
+      // emission below so it doesn't have to re-walk diagnosticEvents.
+      let runTerminalErrorCode: string | undefined;
+      let runTerminalErrorDetail: string | undefined;
+      let terminalPersistenceEstablished = false;
       const resolveTerminalEventForCompletion = () => {
         const continuationTerminalEvent = run.continuationTerminalEvent
           ? {
@@ -1278,9 +1371,11 @@ export function startRun(
             statusUpdated = false;
           }
           if (statusUpdated) {
+            terminalPersistenceEstablished = true;
             await setRunTerminalReason(runId, terminalReason);
           } else {
-            await reconcileTerminalRunFromEvents(runId).catch(() => false);
+            terminalPersistenceEstablished =
+              await reconcileTerminalRunFromEvents(runId).catch(() => false);
           }
         }
       } catch {
@@ -1324,6 +1419,8 @@ export function startRun(
               ? completionError.message
               : String(completionError));
         }
+        runTerminalErrorCode = errorCode ?? "unknown";
+        runTerminalErrorDetail = errorDetail;
         await setRunError(runId, errorCode ?? "unknown", errorDetail);
       }
 
@@ -1332,6 +1429,34 @@ export function startRun(
           () => false,
         );
         if (!reconciled) throw terminalPersistenceError;
+        terminalPersistenceEstablished = true;
+      }
+
+      // 5c. Emit a terminal-outcome analytics event, reusing the same
+      // best-effort tracking seam as $ai_generation (dynamic import + a
+      // swallowed catch so a broken/absent provider can never affect the
+      // run). Fired AFTER the atomic-complete SQL writes above so it never
+      // races the thread_data-before-status invariant those steps exist to
+      // protect. `persistedStatus` (not `finalStatus`) is used so a
+      // continuation boundary reports as "truncated" rather than a false
+      // "completed" — that distinction is the whole point of this event.
+      if (terminalPersistenceEstablished) {
+        emitRunTerminalTrackingEvent({
+          runId,
+          threadId,
+          turnId: run.turnId,
+          status: persistedStatus,
+          terminalReason,
+          errorCode: runTerminalErrorCode,
+          errorDetail: runTerminalErrorDetail,
+          dispatchMode: options?.dispatchMode,
+          abortReason: run.abortReason,
+          durationMs: Date.now() - run.startedAt,
+          model: options?.model,
+          engineName: options?.engineName,
+          userId: options?.userId,
+          attemptCount: options?.attemptCount,
+        });
       }
 
       // 6. Schedule in-memory cleanup + opportunistic old-run pruning.

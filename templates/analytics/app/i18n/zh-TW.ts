@@ -414,6 +414,9 @@ const messages = {
     githubOAuthUnavailable:
       "此部署中未設定 OAuth 應用程式憑證。使用下面的個人存取權杖欄位。",
     sharedIntegration: "共用整合",
+    workspaceAdminRequiredTitle: "組織連線需要管理員",
+    workspaceAdminRequiredDescription:
+      "請組織擁有者或管理員為組織中的所有人連線 {{name}}。",
     sharedReady:
       "Analytics 可以透過 Dispatch 授予的工作空間連線來使用此提供者。",
     sharedNeedsGrant: "存在工作區連線。開啟Dispatch，授予Analytics存取權限。",
@@ -448,6 +451,9 @@ const messages = {
     sharedCredentials: "共用憑證：{{credentials}}",
     ready: "準備好",
     notConfigured: "未設定",
+    statusUnknown: "無法檢查連線狀態",
+    statusUnknownDescription:
+      "無法讀取連線狀態，此資料來源可能已連線。請重新載入頁面確認後再新增憑證。",
     back: "後退",
     continue: "繼續",
     saveCredentials: "儲存憑證",

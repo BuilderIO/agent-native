@@ -383,6 +383,85 @@ describe("createAgentChatAdapter", () => {
     );
   });
 
+  it("prefers a queued turn's snapshotted model over the live picker", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-queue-model",
+      threadId: "thread-queue-model",
+      // The picker has already moved on while the message sat in the queue.
+      modelRef: { current: "claude-sonnet-4-6" },
+      engineRef: { current: "builder" },
+      effortRef: { current: "low" as const },
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Queued under the old model" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+        runConfig: {
+          custom: {
+            agentNativeQueuedMessageId: "queued-model-1",
+            model: "claude-opus-4-6",
+            engine: "anthropic",
+            effort: "high",
+          },
+        },
+      } as any),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body).toMatchObject({
+      queuedMessageId: "queued-model-1",
+      model: "claude-opus-4-6",
+      engine: "anthropic",
+      effort: "high",
+    });
+  });
+
+  it("falls back to the live picker for queue entries without a model snapshot", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-queue-legacy",
+      threadId: "thread-queue-legacy",
+      modelRef: { current: "claude-sonnet-4-6" },
+      engineRef: { current: "builder" },
+      effortRef: { current: "low" as const },
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "Queued before snapshots existed" },
+            ],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+        runConfig: { custom: { agentNativeQueuedMessageId: "queued-legacy" } },
+      } as any),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body).toMatchObject({
+      model: "claude-sonnet-4-6",
+      engine: "builder",
+      effort: "low",
+    });
+  });
+
   it("uses an explicit fallback prompt when the user sends only attachments", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
@@ -2172,7 +2251,7 @@ describe("createAgentChatAdapter", () => {
           toolName: "run-code",
           activity: true,
           result: "Stopped before this action started.",
-          isError: true,
+          outcome: "unknown",
         }),
       ]),
     );
@@ -7164,6 +7243,94 @@ describe("createAgentChatAdapter", () => {
     const last = results.at(-1) as any;
     expect(last.status).toEqual({ type: "incomplete", reason: "error" });
     expect(last.content.at(-1).text).toContain("repeating the same response");
+  });
+
+  it("gives a budget message, not a connection-failure message, when a progressing turn exhausts the total continuation cap", async () => {
+    // A turn that keeps completing a DIFFERENT tool every round never trips
+    // the empty/stalled/repeat/action-prep guards — it is "making real
+    // progress" the whole time, exactly what MAX_TOTAL_TRANSIENT_CONTINUATIONS
+    // (12) exists to bound. Reported bug: hitting that whole-turn ceiling was
+    // told to the user as "the agent connection kept failing", which is not
+    // what happened — nothing failed, the turn ran out of continuation budget.
+    vi.useFakeTimers();
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method !== "POST") {
+        return jsonResponse({ active: false, status: "idle" });
+      }
+      postCount += 1;
+      const tool = `update-step-${postCount}`;
+      return sseResponse([
+        { type: "tool_start", tool, input: { step: String(postCount) } },
+        { type: "tool_done", tool, result: `saved step ${postCount}` },
+        { type: "auto_continue", reason: "run_timeout" },
+      ]);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-total-transient-budget",
+      threadId: "thread-total-transient-budget",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "keep applying these updates" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(15_000);
+    const results = await promise;
+
+    // 13 continuations trips MAX_TOTAL_TRANSIENT_CONTINUATIONS (12) even
+    // though every single round made real, distinct progress.
+    expect(postCount).toBe(13);
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:run-error",
+        detail: expect.objectContaining({
+          errorCode: "connection_error",
+          message: expect.stringContaining(
+            "reached the limit on how many times it can be automatically continued",
+          ),
+          details: expect.stringContaining("total_transient_continuations: 13"),
+        }),
+      }),
+    );
+    const dispatchedRunError = dispatchEvent.mock.calls.find(
+      ([event]) => event?.type === "agent-chat:run-error",
+    )?.[0] as CustomEvent<{ message?: string }> | undefined;
+    expect(dispatchedRunError?.detail.message).not.toContain(
+      "connection kept failing",
+    );
+    expect(dispatchedRunError?.detail.message).not.toContain("connection");
+
+    const last = results.at(-1) as any;
+    expect(last.status).toEqual({ type: "incomplete", reason: "error" });
+    expect(last.content.at(-1).text).toContain(
+      "reached the limit on how many times it can be automatically continued",
+    );
+    expect(last.content.at(-1).text).not.toContain("connection kept failing");
   });
 });
 

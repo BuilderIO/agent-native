@@ -277,12 +277,26 @@ export class A2AClient {
     throw lastError ?? new Error("No A2A endpoint candidates available");
   }
 
-  async getAgentCard(options?: { timeoutMs?: number }): Promise<AgentCard> {
+  async getAgentCard(options?: {
+    timeoutMs?: number;
+    /**
+     * Identity token for the card fetch. The anonymous card can only advertise
+     * publicly-safe actions, which is a disjoint set from what `actions/invoke`
+     * runs — so a sibling that discovers anonymously is told there is nothing
+     * callable. Pass a token to see the invocable set.
+     */
+    token?: string;
+  }): Promise<AgentCard> {
     const res = await ssrfSafeFetch(
       `${this.baseUrl}/.well-known/agent-card.json`,
-      options?.timeoutMs
-        ? { signal: AbortSignal.timeout(options.timeoutMs) }
-        : {},
+      {
+        ...(options?.timeoutMs
+          ? { signal: AbortSignal.timeout(options.timeoutMs) }
+          : {}),
+        ...(options?.token
+          ? { headers: { Authorization: `Bearer ${options.token}` } }
+          : {}),
+      },
       { maxRedirects: 3, allowedPrivateOrigins: workspacePrivateOrigins() },
     );
     if (!res.ok) {

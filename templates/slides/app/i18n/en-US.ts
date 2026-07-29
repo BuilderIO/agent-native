@@ -162,6 +162,13 @@ const messages = {
   designSystems: {
     new: "New Design System",
     setupBrand: "Set up your brand",
+    delete: "Delete",
+    cancel: "Cancel",
+    moreActions: "More actions",
+    deleteDialogTitle: "Delete design system?",
+    deleteDialogDescription:
+      "This permanently deletes the design system. Decks using it keep their current look but are no longer linked to it.",
+    deleteError: "Failed to delete design system",
     emptyTitle: "Set up your brand identity",
     emptyDescription:
       "Create a design system with your brand colors, typography, and logos. Every new deck will follow your visual identity.",
@@ -537,6 +544,7 @@ const messages = {
     builderDesignSystemId: "Design system",
     builderJobId: "Job",
     openInBuilder: "Open in Builder",
+    decodeFailed: "Decoding failed: {{error}}",
     websiteUrl: "Website URL",
     websitePlaceholder: "example.com or Nike",
     add: "Add",

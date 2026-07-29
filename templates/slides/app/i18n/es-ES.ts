@@ -164,6 +164,13 @@ const messages = {
   designSystems: {
     new: "Nuevo sistema de diseño",
     setupBrand: "Configura tu marca",
+    delete: "Eliminar",
+    cancel: "Cancelar",
+    moreActions: "Más acciones",
+    deleteDialogTitle: "¿Eliminar el sistema de diseño?",
+    deleteDialogDescription:
+      "Esto elimina el sistema de diseño de forma permanente. Las presentaciones que lo usan mantienen su aspecto actual, pero dejan de estar vinculadas a él.",
+    deleteError: "No se pudo eliminar el sistema de diseño",
     emptyTitle: "Configura la identidad de tu marca",
     emptyDescription:
       "Crea un sistema de diseño con los colores, la tipografía y los logotipos de tu marca. Cada nueva presentación seguirá tu identidad visual.",
@@ -551,6 +558,7 @@ const messages = {
     builderDesignSystemId: "Sistema de diseño",
     builderJobId: "Job",
     openInBuilder: "Abrir en Builder",
+    decodeFailed: "Error al decodificar: {{error}}",
     websiteUrl: "URL del sitio web",
     websitePlaceholder: "example.com o Nike",
     add: "Añadir",

@@ -159,6 +159,13 @@ const messages = {
   designSystems: {
     new: "新建设计系统",
     setupBrand: "设置你的品牌",
+    delete: "删除",
+    cancel: "取消",
+    moreActions: "更多操作",
+    deleteDialogTitle: "删除设计系统？",
+    deleteDialogDescription:
+      "此操作将永久删除该设计系统。使用它的演示文稿会保留当前外观，但不再与其关联。",
+    deleteError: "删除设计系统失败",
     emptyTitle: "设置你的品牌标识",
     emptyDescription:
       "使用你的品牌颜色、字体和徽标创建设计系统。每个新演示文稿都会遵循你的视觉标识。",
@@ -522,6 +529,7 @@ const messages = {
     builderDesignSystemId: "设计系统",
     builderJobId: "Job",
     openInBuilder: "在 Builder 中打开",
+    decodeFailed: "解码失败：{{error}}",
     websiteUrl: "网站 URL",
     websitePlaceholder: "example.com 或 Nike",
     add: "添加",

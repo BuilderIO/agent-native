@@ -10,15 +10,17 @@
 import {
   auth,
   refreshAuthorization,
+  validateAuthorizationResponseIssuer,
+  type AuthorizationServerMetadata,
+  type OAuthClientInformationContext,
+  type OAuthClientMetadata,
   type OAuthClientProvider,
-} from "@modelcontextprotocol/sdk/client/auth.js";
-import type {
-  AuthorizationServerMetadata,
-  OAuthClientInformationMixed,
-  OAuthClientMetadata,
+  type OAuthDiscoveryState,
   OAuthProtectedResourceMetadata,
+  type StoredOAuthClientInformation,
+  type StoredOAuthTokens,
   OAuthTokens,
-} from "@modelcontextprotocol/sdk/shared/auth.js";
+} from "@modelcontextprotocol/client";
 
 import {
   deleteOAuthTokens,
@@ -131,18 +133,13 @@ function credentialOwner(options: { scope: "user" | "org"; scopeId: string }) {
   return `${options.scope}:${options.scopeId}`;
 }
 
-export interface McpOAuthDiscoveryState {
-  authorizationServerUrl: string;
-  authorizationServerMetadata?: AuthorizationServerMetadata;
-  resourceMetadata?: OAuthProtectedResourceMetadata;
-  resourceMetadataUrl?: string;
-}
+export type McpOAuthDiscoveryState = OAuthDiscoveryState;
 
 export interface McpOAuthCredentialBundle {
   serverUrl: string;
-  clientInformation: OAuthClientInformationMixed;
+  clientInformation: StoredOAuthClientInformation;
   discoveryState?: McpOAuthDiscoveryState;
-  tokens: OAuthTokens;
+  tokens: StoredOAuthTokens;
   tokenExpiresAt?: number;
 }
 
@@ -150,7 +147,7 @@ export interface McpOAuthStartResult {
   authorizationUrl: URL;
   codeVerifier: string;
   state: string;
-  clientInformation: OAuthClientInformationMixed;
+  clientInformation: StoredOAuthClientInformation;
   discoveryState?: McpOAuthDiscoveryState;
 }
 
@@ -162,9 +159,48 @@ export interface McpOAuthProviderOptions {
   serverUrl: string;
   redirectUrl: string;
   state: string;
-  clientInformation?: OAuthClientInformationMixed;
+  clientInformation?: StoredOAuthClientInformation;
   codeVerifier?: string;
   discoveryState?: McpOAuthDiscoveryState;
+}
+
+function issuerForDiscovery(
+  discovery: McpOAuthDiscoveryState | undefined,
+): string | undefined {
+  const issuer = discovery?.authorizationServerMetadata?.issuer;
+  return typeof issuer === "string" && issuer ? issuer : undefined;
+}
+
+function withIssuer<T extends { issuer?: string }>(
+  value: T,
+  context: OAuthClientInformationContext | undefined,
+): T {
+  if (value.issuer && context?.issuer && value.issuer !== context.issuer) {
+    throw new Error("MCP OAuth credential issuer does not match discovery");
+  }
+  const issuer = context?.issuer ?? value.issuer;
+  return issuer ? { ...value, issuer } : value;
+}
+
+function isBoundToIssuer(
+  value: { issuer?: string } | undefined,
+  context: OAuthClientInformationContext | undefined,
+): boolean {
+  return !context?.issuer || value?.issuer === context.issuer;
+}
+
+function applicationTypeForRedirect(redirectUrl: string): "native" | "web" {
+  const url = new URL(redirectUrl);
+  if (
+    url.protocol !== "https:" ||
+    url.hostname === "localhost" ||
+    url.hostname === "127.0.0.1" ||
+    url.hostname === "::1" ||
+    url.hostname === "[::1]"
+  ) {
+    return "native";
+  }
+  return "web";
 }
 
 /**
@@ -176,8 +212,8 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
   private readonly redirectUrlValue: string;
   private readonly stateValue: string;
   private readonly metadata: OAuthClientMetadata;
-  private clientInfo?: OAuthClientInformationMixed;
-  private savedTokens?: OAuthTokens;
+  private clientInfo?: StoredOAuthClientInformation;
+  private savedTokens?: StoredOAuthTokens;
   private savedCodeVerifier?: string;
   private savedDiscovery?: McpOAuthDiscoveryState;
   private authorizationUrl?: URL;
@@ -188,11 +224,24 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
     this.clientInfo = options.clientInformation;
     this.savedCodeVerifier = options.codeVerifier;
     this.savedDiscovery = options.discoveryState;
+    const recordedIssuer = issuerForDiscovery(this.savedDiscovery);
+    if (
+      this.clientInfo &&
+      !this.clientInfo.issuer &&
+      recordedIssuer &&
+      this.savedCodeVerifier
+    ) {
+      // A callback flow persists registration, discovery, PKCE, and state in
+      // one encrypted cookie. Binding that pre-v2 in-flight registration to
+      // its recorded issuer is safe; durable credentials are never inferred.
+      this.clientInfo = { ...this.clientInfo, issuer: recordedIssuer };
+    }
     this.metadata = {
       redirect_uris: [options.redirectUrl],
       token_endpoint_auth_method: "none",
-      grant_types: ["authorization_code"],
+      grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
+      application_type: applicationTypeForRedirect(options.redirectUrl),
       client_name: "Agent Native MCP connector",
     };
   }
@@ -209,20 +258,34 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
     return this.stateValue;
   }
 
-  clientInformation(): OAuthClientInformationMixed | undefined {
-    return this.clientInfo;
+  clientInformation(
+    context?: OAuthClientInformationContext,
+  ): StoredOAuthClientInformation | undefined {
+    return isBoundToIssuer(this.clientInfo, context)
+      ? this.clientInfo
+      : undefined;
   }
 
-  saveClientInformation(info: OAuthClientInformationMixed): void {
-    this.clientInfo = info;
+  saveClientInformation(
+    info: StoredOAuthClientInformation,
+    context?: OAuthClientInformationContext,
+  ): void {
+    this.clientInfo = withIssuer(info, context);
   }
 
-  tokens(): OAuthTokens | undefined {
-    return this.savedTokens;
+  tokens(
+    context?: OAuthClientInformationContext,
+  ): StoredOAuthTokens | undefined {
+    return isBoundToIssuer(this.savedTokens, context)
+      ? this.savedTokens
+      : undefined;
   }
 
-  saveTokens(tokens: OAuthTokens): void {
-    this.savedTokens = tokens;
+  saveTokens(
+    tokens: StoredOAuthTokens,
+    context?: OAuthClientInformationContext,
+  ): void {
+    this.savedTokens = withIssuer(tokens, context);
   }
 
   redirectToAuthorization(authorizationUrl: URL): void {
@@ -269,7 +332,7 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
     return this.savedTokens;
   }
 
-  get savedClientInformation(): OAuthClientInformationMixed | undefined {
+  get savedClientInformation(): StoredOAuthClientInformation | undefined {
     return this.clientInfo;
   }
 }
@@ -301,13 +364,17 @@ export async function startMcpOAuthAuthorization(
 }
 
 export async function finishMcpOAuthAuthorization(
-  options: McpOAuthProviderOptions & { authorizationCode: string },
+  options: McpOAuthProviderOptions & {
+    authorizationCode: string;
+    iss?: string;
+  },
 ): Promise<McpOAuthCallbackResult> {
   checkedRemoteUrl(options.serverUrl, "server");
   const provider = new McpOAuthClientProvider(options);
   const result = await auth(provider, {
     serverUrl: options.serverUrl,
     authorizationCode: options.authorizationCode,
+    iss: options.iss,
     fetchFn: guardedOAuthFetch(),
   });
   if (result !== "AUTHORIZED" || !provider.savedTokensValue) {
@@ -323,6 +390,19 @@ export async function finishMcpOAuthAuthorization(
       tokenExpiresAt: tokenExpiresAt(tokens),
     },
   };
+}
+
+export function validateMcpOAuthCallbackIssuer(
+  discoveryState: McpOAuthDiscoveryState | undefined,
+  iss: string | undefined,
+): void {
+  validateAuthorizationResponseIssuer({
+    iss,
+    expectedIssuer: issuerForDiscovery(discoveryState),
+    issParameterSupported:
+      discoveryState?.authorizationServerMetadata
+        ?.authorization_response_iss_parameter_supported === true,
+  });
 }
 
 export function tokenExpiresAt(tokens: OAuthTokens): number | undefined {
@@ -406,20 +486,30 @@ export async function getMcpOAuthAccessToken(options: {
   if (!credentials || credentials.serverUrl !== options.serverUrl) return null;
 
   const accessToken = credentials.tokens.access_token;
+  const now = Date.now();
   if (
     typeof credentials.tokenExpiresAt !== "number" ||
-    credentials.tokenExpiresAt - Date.now() > TOKEN_EXPIRY_SKEW_MS
+    credentials.tokenExpiresAt - now > TOKEN_EXPIRY_SKEW_MS
   ) {
     return accessToken;
   }
+  const tokenIsExpired = credentials.tokenExpiresAt <= now;
 
   const refreshToken = credentials.tokens.refresh_token;
   const discovery = credentials.discoveryState;
   if (!refreshToken || !discovery?.authorizationServerUrl) {
-    return accessToken;
+    return tokenIsExpired ? null : accessToken;
   }
 
   try {
+    const expectedIssuer = issuerForDiscovery(discovery);
+    if (
+      !expectedIssuer ||
+      credentials.clientInformation.issuer !== expectedIssuer ||
+      credentials.tokens.issuer !== expectedIssuer
+    ) {
+      return null;
+    }
     const resource = discovery.resourceMetadata?.resource
       ? checkedRemoteUrl(discovery.resourceMetadata.resource, "resource")
       : undefined;
@@ -434,9 +524,10 @@ export async function getMcpOAuthAccessToken(options: {
       resource,
       fetchFn: guardedOAuthFetch(),
     });
-    const nextTokens: OAuthTokens = {
+    const nextTokens: StoredOAuthTokens = {
       ...credentials.tokens,
       ...refreshed,
+      issuer: expectedIssuer,
       ...(refreshed.refresh_token
         ? { refresh_token: refreshed.refresh_token }
         : credentials.tokens.refresh_token
@@ -454,9 +545,9 @@ export async function getMcpOAuthAccessToken(options: {
     });
     return nextTokens.access_token;
   } catch {
-    // Keep the old token so the MCP request can return the provider's normal
-    // auth error. A single expired connector must not remove every server from
-    // the process-wide manager during a config refresh.
-    return accessToken;
+    // A still-valid token can survive a transient refresh failure. Once it has
+    // expired, omit it so callers surface reauthorization instead of retrying
+    // a credential that can never authenticate.
+    return tokenIsExpired ? null : accessToken;
   }
 }

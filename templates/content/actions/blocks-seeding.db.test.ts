@@ -240,6 +240,7 @@ describe("seedDefaultBlocksField — single-primary invariant (findings 1, 2)", 
         });
         const propertyResult = await configureDocumentPropertyAction.run({
           documentId: database.database.documentId,
+          databaseId: database.database.id,
           name: "Status",
           description: "The current workflow state",
           type: "status",

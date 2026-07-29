@@ -1,5 +1,28 @@
 # @agent-native/dispatch
 
+## 0.15.29
+
+### Patch Changes
+
+- 279e855: Return a typed forbidden response when non-admin organization members request workspace usage metrics.
+- Updated dependencies [279e855]
+  - @agent-native/toolkit@0.10.12
+
+## 0.15.28
+
+### Patch Changes
+
+- Updated dependencies [0aada94]
+- Updated dependencies [0aada94]
+  - @agent-native/toolkit@0.10.11
+
+## 0.15.27
+
+### Patch Changes
+
+- Updated dependencies [16a9d1a]
+  - @agent-native/toolkit@0.10.10
+
 ## 0.15.26
 
 ### Patch Changes

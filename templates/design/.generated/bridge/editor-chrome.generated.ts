@@ -77,7 +77,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         "data-agent-native-editor-chrome-style",
         ""
       );
-      chromeTransitionStyle.textContent = 'html{overflow:clip}[data-agent-native-edit-overlay="selection"]{transition:border-width 150ms ease-out}[data-agent-native-empty-text-editing="true"] [data-agent-native-edit-overlay="selection"]{display:none!important}[data-agent-native-text-editing]{outline:none!important;outline-offset:0!important}[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}[data-agent-native-spacing-line]{position:absolute;display:none;pointer-events:none;border-radius:999px}[data-agent-native-spacing-region]{position:absolute;display:none;box-sizing:border-box;pointer-events:auto;background-size:6px 6px}[data-agent-native-spacing-region][data-orientation="vertical"]{cursor:ew-resize}[data-agent-native-spacing-region][data-orientation="horizontal"]{cursor:ns-resize}';
+      chromeTransitionStyle.textContent = 'html{overflow:clip}[data-agent-native-edit-overlay="selection"]{transition:border-width 150ms ease-out}[data-agent-native-empty-text-editing="true"] [data-agent-native-edit-overlay="selection"]{display:none!important}[data-agent-native-text-editing]{outline:none!important;outline-offset:0!important}[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}[data-agent-native-runtime-locked="true"]{outline:calc(1px * var(--agent-native-editor-chrome-line-scale, 1)) dashed rgba(148,163,184,0.9)!important;outline-offset:0!important;cursor:not-allowed!important}[data-agent-native-spacing-line]{position:absolute;display:none;pointer-events:none;border-radius:999px}[data-agent-native-spacing-region]{position:absolute;display:none;box-sizing:border-box;pointer-events:auto;background-size:6px 6px}[data-agent-native-spacing-region][data-orientation="vertical"]{cursor:ew-resize}[data-agent-native-spacing-region][data-orientation="horizontal"]{cursor:ns-resize}';
       (document.head || document.documentElement).appendChild(
         chromeTransitionStyle
       );
@@ -264,45 +264,220 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!el || !el.getAttribute) return "";
       return el.getAttribute("data-agent-native-node-id") || el.getAttribute("data-code-layer-id") || el.getAttribute("data-layer-id") || el.getAttribute("data-builder-id") || el.getAttribute("data-loc") || el.id || "";
     }
+    var PROVENANCE_NOISE_SEGMENTS = {
+      node_modules: true,
+      dist: true,
+      build: true,
+      ".next": true,
+      public: true
+    };
+    function isProvenanceNoisePath(path) {
+      var segments = path.split("/");
+      for (var i = 0; i < segments.length; i += 1) {
+        if (PROVENANCE_NOISE_SEGMENTS[segments[i]]) return true;
+        if (segments[i] === "_next" && segments[i + 1] === "static") return true;
+      }
+      return false;
+    }
+    function resolveProvenanceFrameUrl(rawUrl) {
+      if (rawUrl.indexOf("webpack-internal:///") === 0) {
+        var webpackPath = rawUrl.slice("webpack-internal:///".length).replace(/^\\.\\//, "");
+        return webpackPath || null;
+      }
+      try {
+        var url = new URL(rawUrl);
+        var path = decodeURIComponent(url.pathname);
+        if (path.indexOf("/@fs/") === 0) {
+          path = path.slice("/@fs".length);
+        } else if (url.protocol !== "file:") {
+          path = path.replace(/^\\/+/, "");
+        }
+        return path || null;
+      } catch (_error) {
+        return null;
+      }
+    }
+    var PROVENANCE_STACK_FRAME_RE = /^\\s*at\\s+(?:([^\\s(]+)\\s+\\()?([^()\\s][^()]*?):(\\d+):(\\d+)\\)?\\s*$/;
+    function parseProvenanceStackFrame(lineText) {
+      var match = PROVENANCE_STACK_FRAME_RE.exec(lineText);
+      if (!match) return null;
+      var sourceFile = resolveProvenanceFrameUrl(match[2]);
+      if (!sourceFile || isProvenanceNoisePath(sourceFile)) return null;
+      var line = parseInt(match[3], 10);
+      var column = parseInt(match[4], 10);
+      if (!isFinite(line) || !isFinite(column)) return null;
+      return {
+        sourceFile,
+        line,
+        column,
+        functionName: match[1] || void 0
+      };
+    }
+    function fiberDebugLocation(fiber) {
+      var source = fiber._debugSource || fiber._debugInfo && fiber._debugInfo.source || fiber.stateNode && fiber.stateNode._debugSource || fiber.elementType && fiber.elementType._debugSource;
+      if (source && source.fileName) {
+        return {
+          sourceFile: source.fileName,
+          line: source.lineNumber,
+          column: source.columnNumber,
+          structured: true
+        };
+      }
+      var stack = fiber._debugStack && fiber._debugStack.stack || fiber._debugInfo && fiber._debugInfo.stack || fiber.stateNode && fiber.stateNode._debugStack && fiber.stateNode._debugStack.stack;
+      if (!stack) return null;
+      var lines = String(stack).split("\\n");
+      for (var index = 0; index < lines.length; index += 1) {
+        var parsed = parseProvenanceStackFrame(lines[index]);
+        if (parsed) {
+          return {
+            sourceFile: parsed.sourceFile,
+            line: parsed.line,
+            column: parsed.column,
+            functionName: parsed.functionName,
+            structured: false
+          };
+        }
+      }
+      return null;
+    }
     var reactDebugProvenanceCache = typeof WeakMap !== "undefined" ? /* @__PURE__ */ new WeakMap() : null;
+    var REACT_FIBER_KEY_PREFIXES = [
+      "__reactFiber$",
+      "__reactInternalInstance$",
+      "__reactInternalFiberCurrent$",
+      "__reactInternalFiber$"
+    ];
+    function reactFiberOf(el) {
+      var keys = Object.keys(el);
+      for (var i = 0; i < keys.length; i += 1) {
+        for (var j = 0; j < REACT_FIBER_KEY_PREFIXES.length; j += 1) {
+          if (keys[i].indexOf(REACT_FIBER_KEY_PREFIXES[j]) === 0) {
+            return el[keys[i]];
+          }
+        }
+      }
+      return null;
+    }
     function reactDebugProvenance(el) {
       var cached = reactDebugProvenanceCache?.get(el);
       if (cached !== void 0) return cached;
-      var fiberKey = Object.keys(el).find(function(key) {
-        return key.indexOf("__reactFiber$") === 0;
-      });
-      if (!fiberKey) return void 0;
-      var fiber = el[fiberKey];
+      var leafFiber = reactFiberOf(el);
+      if (!leafFiber) return { unavailableReason: "not-framework" };
+      var elementLocation = null;
+      var componentFiber = null;
+      var fiber = leafFiber;
       for (var depth = 0; fiber && depth < 12; depth += 1) {
-        var stack = String(fiber._debugStack?.stack || "");
-        var lines = stack.split("\\n");
-        for (var index = 0; index < lines.length; index += 1) {
-          var lineText = lines[index];
-          var match = lineText.match(
-            /(?:\\(|\\s)(https?:\\/\\/[^\\s)]+?):(\\d+):(\\d+)\\)?\\s*$/
-          );
-          if (!match) continue;
-          try {
-            var sourceUrl = new URL(match[1]);
-            var pathname = decodeURIComponent(sourceUrl.pathname);
-            if (pathname.indexOf("/node_modules/") >= 0) continue;
-            var sourceFile = pathname.indexOf("/@fs/") === 0 ? pathname.slice("/@fs".length) : pathname.replace(/^\\/+/, "");
-            if (!sourceFile) continue;
-            var componentMatch = lineText.match(/\\bat\\s+([^\\s(]+)\\s*\\(/);
-            var provenance = {
-              sourceFile,
-              line: parseInt(match[2], 10),
-              column: parseInt(match[3], 10),
-              component: componentMatch ? componentMatch[1] : void 0
-            };
-            reactDebugProvenanceCache?.set(el, provenance);
-            return provenance;
-          } catch (_error) {
-          }
+        if (!elementLocation) elementLocation = fiberDebugLocation(fiber);
+        if (!componentFiber && fiber !== leafFiber && typeof fiber.type === "function") {
+          componentFiber = fiber;
         }
+        if (elementLocation && componentFiber) break;
         fiber = fiber.return;
       }
-      return void 0;
+      if (!elementLocation) {
+        return { framework: "react", unavailableReason: "no-debug-info" };
+      }
+      var componentName = componentFiber && componentFiber.type && (componentFiber.type.displayName || componentFiber.type.name) || elementLocation.functionName || void 0;
+      var provenance = {
+        framework: "react",
+        sourceFile: elementLocation.sourceFile,
+        line: elementLocation.line,
+        column: elementLocation.column,
+        component: componentName,
+        method: elementLocation.structured ? "debug-source" : "debug-stack"
+      };
+      if (componentFiber) {
+        var ownerLocation = fiberDebugLocation(componentFiber);
+        if (ownerLocation) {
+          provenance.ownerSourceFile = ownerLocation.sourceFile;
+          provenance.ownerLine = ownerLocation.line;
+          provenance.ownerColumn = ownerLocation.column;
+          provenance.ownerComponentName = componentName;
+          provenance.ownerMethod = ownerLocation.structured ? "debug-source" : "debug-stack";
+        }
+        if (typeof componentFiber.key === "string" && componentFiber.key) {
+          provenance.ownerKey = componentFiber.key;
+        }
+      }
+      reactDebugProvenanceCache?.set(el, provenance);
+      return provenance;
+    }
+    function parseFrameworkDataLoc(value) {
+      var lastColon = value.lastIndexOf(":");
+      if (lastColon < 0) return null;
+      var lastPart = value.slice(lastColon + 1);
+      if (!/^\\d+$/.test(lastPart)) return null;
+      var beforeLast = value.slice(0, lastColon);
+      var previousColon = beforeLast.lastIndexOf(":");
+      var previousPart = previousColon >= 0 ? beforeLast.slice(previousColon + 1) : "";
+      var hasColumn = /^\\d+$/.test(previousPart);
+      var sourceFile = (hasColumn ? beforeLast.slice(0, previousColon) : beforeLast).trim();
+      var line = parseInt(hasColumn ? previousPart : lastPart, 10);
+      var column = hasColumn ? parseInt(lastPart, 10) : void 0;
+      if (!sourceFile || !isFinite(line)) return null;
+      if (column !== void 0 && !isFinite(column)) return null;
+      return { sourceFile, line, column };
+    }
+    function vueDebugProvenance(el) {
+      var node = el;
+      var sawVue = false;
+      for (var depth = 0; node && depth < 8; depth += 1) {
+        var vnode = node.__vnode;
+        var component = node.__vueParentComponent;
+        if (vnode || component) sawVue = true;
+        var inspector = vnode && vnode.props && typeof vnode.props.__v_inspector === "string" ? vnode.props.__v_inspector : null;
+        if (inspector) {
+          var parsed = parseFrameworkDataLoc(inspector);
+          if (parsed) {
+            var componentType = component && component.type || vnode && vnode.type;
+            return {
+              framework: "vue",
+              sourceFile: parsed.sourceFile,
+              line: parsed.line,
+              column: parsed.column,
+              component: componentType && (componentType.name || componentType.__name || componentType.displayName),
+              method: "vue-inspector"
+            };
+          }
+        }
+        node = node.parentElement;
+      }
+      return sawVue ? { framework: "vue", unavailableReason: "no-debug-info" } : null;
+    }
+    function svelteDebugProvenance(el) {
+      var node = el;
+      var sawSvelte = false;
+      for (var depth = 0; node && depth < 8; depth += 1) {
+        var meta = node.__svelte_meta;
+        if (meta) sawSvelte = true;
+        var loc = meta && meta.loc;
+        var sourceFile = loc && (loc.file || loc.filename);
+        var line = loc && Number(loc.line);
+        var column = loc && Number(loc.column);
+        if (sourceFile && isFinite(line)) {
+          return {
+            framework: "svelte",
+            sourceFile: String(sourceFile),
+            line,
+            column: isFinite(column) ? column : void 0,
+            component: typeof meta.component === "string" ? meta.component : typeof meta.name === "string" ? meta.name : void 0,
+            method: "svelte-meta"
+          };
+        }
+        node = node.parentElement;
+      }
+      return sawSvelte ? { framework: "svelte", unavailableReason: "no-debug-info" } : null;
+    }
+    function frameworkDebugProvenance(el) {
+      var react = reactDebugProvenance(el);
+      if (react.sourceFile || react.unavailableReason === "no-debug-info") {
+        return react;
+      }
+      var vue = vueDebugProvenance(el);
+      if (vue) return vue;
+      var svelte = svelteDebugProvenance(el);
+      if (svelte) return svelte;
+      return { unavailableReason: "not-framework" };
     }
     var runtimeLayerSnapshotTimer = null;
     var runtimeLayerSnapshotMaxTimer = null;
@@ -339,8 +514,8 @@ export const editorChromeBridgeScript: string = `"use strict";
     function ensureRuntimeLayerNodeId(el) {
       var existing = el.getAttribute("data-agent-native-node-id")?.trim();
       if (existing) return existing;
-      var provenance = reactDebugProvenance(el);
-      var provenanceKey = provenance ? [
+      var provenance = frameworkDebugProvenance(el);
+      var provenanceKey = provenance.sourceFile ? [
         provenance.sourceFile,
         provenance.line,
         provenance.column || 0,
@@ -458,10 +633,16 @@ export const editorChromeBridgeScript: string = `"use strict";
           ensureRuntimeLayerNodeId(sourceNode)
         );
         inlineSnapshotComputedStyle(sourceNode, cloneNode);
-        var provenance = reactDebugProvenance(sourceNode);
-        if (provenance) {
+        var provenance = frameworkDebugProvenance(sourceNode);
+        if (provenance.sourceFile) {
+          if (provenance.framework) {
+            cloneNode.setAttribute("data-source-framework", provenance.framework);
+          }
           cloneNode.setAttribute("data-source-file", provenance.sourceFile);
           cloneNode.setAttribute("data-source-line", String(provenance.line));
+          if (provenance.method) {
+            cloneNode.setAttribute("data-source-method", provenance.method);
+          }
           if (provenance.column) {
             cloneNode.setAttribute(
               "data-source-column",
@@ -471,6 +652,42 @@ export const editorChromeBridgeScript: string = `"use strict";
           if (provenance.component) {
             cloneNode.setAttribute("data-component-name", provenance.component);
           }
+          if (provenance.ownerSourceFile) {
+            cloneNode.setAttribute(
+              "data-source-owner-file",
+              provenance.ownerSourceFile
+            );
+            cloneNode.setAttribute(
+              "data-source-owner-line",
+              String(provenance.ownerLine)
+            );
+            if (provenance.ownerColumn) {
+              cloneNode.setAttribute(
+                "data-source-owner-column",
+                String(provenance.ownerColumn)
+              );
+            }
+            if (provenance.ownerComponentName) {
+              cloneNode.setAttribute(
+                "data-source-owner-component",
+                provenance.ownerComponentName
+              );
+            }
+            if (provenance.ownerMethod) {
+              cloneNode.setAttribute(
+                "data-source-owner-method",
+                provenance.ownerMethod
+              );
+            }
+          }
+          if (provenance.ownerKey) {
+            cloneNode.setAttribute("data-source-owner-key", provenance.ownerKey);
+          }
+        } else if (provenance.unavailableReason) {
+          cloneNode.setAttribute(
+            "data-source-unavailable",
+            provenance.unavailableReason
+          );
         }
         nodeCount += 1;
       }
@@ -1052,6 +1269,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var dataSourceLine = el.getAttribute("data-source-line");
       var dataSourceColumn = el.getAttribute("data-source-column");
       var dataComponentName = el.getAttribute("data-component-name");
+      var dataSourceFramework = el.getAttribute("data-source-framework");
       var dataLoc = el.getAttribute("data-loc");
       if (!dataSourceFile && dataLoc) {
         var lastColonIndex = dataLoc.lastIndexOf(":");
@@ -1066,16 +1284,15 @@ export const editorChromeBridgeScript: string = `"use strict";
           if (hasColumn) dataSourceColumn = lastPart;
         }
       }
-      if (!dataSourceFile) {
-        var reactProvenance = reactDebugProvenance(el);
-        if (reactProvenance) {
-          dataSourceFile = reactProvenance.sourceFile;
-          dataSourceLine = String(reactProvenance.line);
-          dataSourceColumn = reactProvenance.column ? String(reactProvenance.column) : null;
-          dataComponentName = dataComponentName || reactProvenance.component || null;
-        }
+      var hadDataSourceFile = !!dataSourceFile;
+      var frameworkProvenance = frameworkDebugProvenance(el);
+      if (!hadDataSourceFile && frameworkProvenance.sourceFile) {
+        dataSourceFile = frameworkProvenance.sourceFile;
+        dataSourceLine = String(frameworkProvenance.line);
+        dataSourceColumn = frameworkProvenance.column ? String(frameworkProvenance.column) : null;
+        dataComponentName = dataComponentName || frameworkProvenance.component || null;
       }
-      if (dataSourceFile || dataSourceLine || dataSourceColumn || dataComponentName) {
+      if (dataSourceFile || dataSourceLine || dataSourceColumn || dataComponentName || frameworkProvenance.unavailableReason) {
         provenance = {};
         if (dataSourceFile) provenance.sourceFile = dataSourceFile;
         if (dataSourceLine) {
@@ -1087,6 +1304,24 @@ export const editorChromeBridgeScript: string = `"use strict";
           if (!isNaN(col)) provenance.column = col;
         }
         if (dataComponentName) provenance.component = dataComponentName;
+        if (dataSourceFile) {
+          var declaredMethod = el.getAttribute("data-source-method");
+          provenance.method = declaredMethod === "debug-source" || declaredMethod === "debug-stack" || declaredMethod === "vue-inspector" || declaredMethod === "svelte-meta" ? declaredMethod : hadDataSourceFile ? "data-attribute" : frameworkProvenance.method || "data-attribute";
+        }
+        provenance.framework = dataSourceFramework === "react" || dataSourceFramework === "vue" || dataSourceFramework === "svelte" || dataSourceFramework === "html" ? dataSourceFramework : hadDataSourceFile ? frameworkProvenance.framework || "html" : frameworkProvenance.framework;
+        if (frameworkProvenance.ownerSourceFile) {
+          provenance.ownerSourceFile = frameworkProvenance.ownerSourceFile;
+          provenance.ownerLine = frameworkProvenance.ownerLine;
+          provenance.ownerColumn = frameworkProvenance.ownerColumn;
+          provenance.ownerComponentName = frameworkProvenance.ownerComponentName;
+          provenance.ownerMethod = frameworkProvenance.ownerMethod;
+        }
+        if (frameworkProvenance.ownerKey) {
+          provenance.ownerKey = frameworkProvenance.ownerKey;
+        }
+        if (!dataSourceFile && frameworkProvenance.unavailableReason) {
+          provenance.unavailableReason = frameworkProvenance.unavailableReason;
+        }
       }
       return {
         tagName: el.tagName.toLowerCase(),
@@ -1814,7 +2049,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return matchesSelectorList(el, lockedSelectors) || matchesSelectorList(el, hiddenSelectors);
     }
-    function applyHiddenSelectors() {
+    function applyLayerStateSelectors() {
       document.querySelectorAll("[data-agent-native-runtime-hidden]").forEach(function(el) {
         var previous = el.getAttribute("data-agent-native-previous-display");
         if (previous === null) {
@@ -1840,6 +2075,17 @@ export const editorChromeBridgeScript: string = `"use strict";
         } catch (_err) {
         }
       });
+      document.querySelectorAll("[data-agent-native-runtime-locked]").forEach(function(el) {
+        el.removeAttribute("data-agent-native-runtime-locked");
+      });
+      lockedSelectors.forEach(function(selector) {
+        try {
+          document.querySelectorAll(selector).forEach(function(el) {
+            el.setAttribute("data-agent-native-runtime-locked", "true");
+          });
+        } catch (_err) {
+        }
+      });
     }
     function replaceRuntimeDocument(html, preferredSelector, selectorCandidates, forceFullDocument, preserveTextEditingSession) {
       if (typeof html !== "string") return;
@@ -1850,7 +2096,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           preferredSelector,
           selectorCandidates: Array.isArray(selectorCandidates) ? selectorCandidates : []
         };
-        applyHiddenSelectors();
+        applyLayerStateSelectors();
         refreshOverlays();
         return;
       }
@@ -1924,7 +2170,7 @@ export const editorChromeBridgeScript: string = `"use strict";
               currentMatch.remove();
             }
           }
-          applyHiddenSelectors();
+          applyLayerStateSelectors();
           selectedEl = null;
           if (nextMatch) {
             try {
@@ -1959,7 +2205,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       persistentNodes.forEach(function(node) {
         document.body.appendChild(node);
       });
-      applyHiddenSelectors();
+      applyLayerStateSelectors();
       selectedEl = null;
       clearHoverGate();
       for (var i = 0; i < activeCandidates.length && !selectedEl; i += 1) {
@@ -3152,6 +3398,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         return true;
       }
       if (/^Arrow/.test(key || "")) return !e.altKey;
+      if (!primary && !e.altKey && e.shiftKey && e.code === "Backslash") {
+        return true;
+      }
       if (primary) {
         return [
           "z",
@@ -3177,8 +3426,9 @@ export const editorChromeBridgeScript: string = `"use strict";
           // Cmd/Ctrl+R rename / Cmd/Ctrl+Shift+R paste-to-replace (onRename /
           // onPasteToReplace) — both live under bare primary+r.
           "r",
-          // Cmd/Ctrl+\\ — toggle UI (onToggleUi).
-          "\\\\"
+          // Cmd/Ctrl+K — open the host command menu even while the iframe has
+          // focus. DesignEditor routes this chord to openCommandMenu().
+          "k"
         ].indexOf(normalized) !== -1 || e.code === "Digit1" || e.code === "Digit2" || key === "1" || key === "2" || // Cmd/Ctrl+Shift+H / +L — toggle hidden / toggle locked
         // (onToggleHidden / onToggleLocked). Gated on shiftKey so bare
         // Cmd+H / Cmd+L — common OS "Hide app" / browser "focus address bar"
@@ -3186,8 +3436,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         // alone (see useDesignHotkeys.ts: both require event.shiftKey).
         e.shiftKey && (normalized === "h" || normalized === "l") || // Cmd/Ctrl+Alt+B detach instance / Cmd/Ctrl+Alt+K create component
         // (onDetachInstance / onCreateComponent). Gated on altKey so bare
-        // Cmd+B / Cmd+K are left alone — the host has no bare-primary
-        // binding for either.
+        // Cmd+B is left alone — the host has no bare-primary binding for it.
         e.altKey && (normalized === "b" || normalized === "k") || // Ctrl+Alt+H / Ctrl+Alt+T — distribute horizontal / tidy up
         // (onDistributeSelection / onTidyUp). useDesignHotkeys.ts keeps these
         // on LITERAL Control on every platform (never remapped to Cmd), so
@@ -3622,6 +3871,13 @@ export const editorChromeBridgeScript: string = `"use strict";
         } catch (_err) {
         }
       }
+      if (selectedEl && document.documentElement.contains(selectedEl)) {
+        try {
+          ensureRuntimeLayerNodeId(selectedEl);
+          if (matchesExactSelectorList(selectedEl, candidates)) return selectedEl;
+        } catch (_err) {
+        }
+      }
       return null;
     }
     function parseNodeHtmlPreviewElement(html) {
@@ -3772,8 +4028,22 @@ export const editorChromeBridgeScript: string = `"use strict";
       refreshOverlays();
       postNodeHtmlPreviewApplied(proposalId);
     }
-    function findUniqueRuntimeStructureTarget(selector, sourceId) {
+    function findUniqueRuntimeStructureTarget(selector, sourceId, pendingId) {
       var matches = /* @__PURE__ */ new Set();
+      if (typeof pendingId === "string" && pendingId) {
+        try {
+          var pendingMatches = document.querySelectorAll(
+            '[data-an-pending-node-id="' + escapeAttribute(pendingId) + '"]'
+          );
+          if (pendingMatches.length === 1) {
+            var pendingMatch = pendingMatches[0];
+            if (pendingMatch !== document.body && pendingMatch !== document.documentElement && !isOverlayElement(pendingMatch) && !isLayerInteractionBlocked(pendingMatch)) {
+              return pendingMatch;
+            }
+          }
+        } catch (_err) {
+        }
+      }
       if (typeof sourceId === "string" && sourceId) {
         var attributes = [
           "data-agent-native-node-id",
@@ -3810,10 +4080,22 @@ export const editorChromeBridgeScript: string = `"use strict";
         return null;
       }
     }
-    function removeRuntimeTarget(selector, selectorCandidates) {
+    function removeRuntimeTarget(selector, selectorCandidates, requestId) {
       var target = findRuntimeTarget(selector, selectorCandidates);
       if (!target || target === document.body || target === document.documentElement)
         return false;
+      if (typeof requestId === "string" && requestId && target.parentElement) {
+        pendingStructureMoves[requestId] = {
+          requestId,
+          el: target,
+          target: null,
+          origin: {
+            removed: true,
+            prevParent: target.parentElement,
+            prevNextSibling: target.nextSibling
+          }
+        };
+      }
       if (target.parentElement) target.parentElement.removeChild(target);
       exitStaleTextEditSession();
       if (selectedEl === target || !document.documentElement.contains(selectedEl)) {
@@ -5432,7 +5714,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       correctAbsoluteMemberClientPosition(el, desiredDropPoint);
     }
-    function postVisualStructureChange(el, target, origin) {
+    function postVisualStructureChange(el, target, origin, insertedHtml) {
       if (!el || !target || !target.anchor) return;
       dndLog("post:structure-change", {
         el: getSelector(el),
@@ -5458,6 +5740,10 @@ export const editorChromeBridgeScript: string = `"use strict";
           placement: target.placement,
           dropMode: target.dropMode || "flow-insert",
           forceFlowPositionOverride: Boolean(target.forceFlowPositionOverride),
+          // Present only when this node did not exist in the running app before
+          // the change. The host must NOT tell the coding agent to relocate an
+          // element the source file has never contained.
+          insertedHtml: typeof insertedHtml === "string" ? insertedHtml : void 0,
           sourceRect: rectInfoForElement(el),
           anchorRect: rectInfoForElement(target.anchor),
           payload: getElementInfo(el),
@@ -8052,7 +8338,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           clearHoverGate();
           highlightOverlay.style.display = "none";
         }
-        applyHiddenSelectors();
+        applyLayerStateSelectors();
         return;
       }
       if (e.data.type === "runtime-structure-move") {
@@ -8094,6 +8380,112 @@ export const editorChromeBridgeScript: string = `"use strict";
         postVisualStructureChange(runtimeSubject, runtimeTarget, runtimeOrigin);
         return;
       }
+      if (e.data.type === "runtime-structure-insert") {
+        var insertRequestId = e.data.requestId;
+        var rejectInsert = function(reason) {
+          window.parent.postMessage(
+            {
+              type: "runtime-structure-insert-rejected",
+              screenId: designCanvasScreenId,
+              requestId: insertRequestId,
+              reason
+            },
+            "*"
+          );
+        };
+        if (readOnly) {
+          rejectInsert("read-only");
+          return;
+        }
+        var insertPlacement = String(e.data.placement || "");
+        if (insertPlacement !== "before" && insertPlacement !== "after" && insertPlacement !== "inside") {
+          rejectInsert("placement");
+          return;
+        }
+        var insertAnchor = findUniqueRuntimeStructureTarget(
+          String(e.data.anchorSelector || ""),
+          typeof e.data.anchorSourceId === "string" ? e.data.anchorSourceId : "",
+          typeof e.data.anchorPendingNodeId === "string" ? e.data.anchorPendingNodeId : ""
+        );
+        if (!insertAnchor) {
+          rejectInsert("anchor-unresolved");
+          return;
+        }
+        if (insertPlacement === "inside" && !isContainerDropTarget(insertAnchor) || insertPlacement !== "inside" && !insertAnchor.parentElement) {
+          rejectInsert("placement-unavailable");
+          return;
+        }
+        var parsedInsertEl = parseNodeHtmlPreviewElement(
+          typeof e.data.html === "string" ? e.data.html : ""
+        );
+        if (!parsedInsertEl || parsedInsertEl === document.body || parsedInsertEl.tagName === "BODY") {
+          rejectInsert("html");
+          return;
+        }
+        var insertNodeId = parsedInsertEl.getAttribute(
+          "data-agent-native-node-id"
+        );
+        var existingInsertEl = null;
+        if (insertNodeId) {
+          try {
+            existingInsertEl = document.querySelector(
+              '[data-agent-native-node-id="' + escapeAttribute(insertNodeId) + '"]'
+            );
+          } catch (_err) {
+          }
+        }
+        if (existingInsertEl === insertAnchor) {
+          rejectInsert("anchor-is-subject");
+          return;
+        }
+        var insertTarget = {
+          anchor: insertAnchor,
+          placement: insertPlacement,
+          axis: parentFlowAxis(
+            insertPlacement === "inside" ? insertAnchor : insertAnchor.parentElement
+          ),
+          dropMode: insertPlacement === "inside" && isAbsolutePrimitiveContainer(insertAnchor) ? "absolute-container" : "flow-insert"
+        };
+        if (existingInsertEl) {
+          if (existingInsertEl.contains(insertAnchor)) {
+            rejectInsert("anchor-inside-subject");
+            return;
+          }
+          var reinsertOrigin = {
+            prevParent: existingInsertEl.parentElement,
+            prevNextSibling: existingInsertEl.nextSibling,
+            prevInlinePositionStyles: snapshotInlinePositionStyles(existingInsertEl)
+          };
+          applyRuntimeReorder(existingInsertEl, insertTarget);
+          selectedEl = existingInsertEl;
+          positionOverlay(selectionOverlay, selectedEl);
+          refreshOverlays();
+          postVisualStructureChange(
+            existingInsertEl,
+            insertTarget,
+            reinsertOrigin
+          );
+          return;
+        }
+        if (insertPlacement === "inside") {
+          insertAnchor.appendChild(parsedInsertEl);
+        } else {
+          insertAnchor.parentElement.insertBefore(
+            parsedInsertEl,
+            insertPlacement === "before" ? insertAnchor : insertAnchor.nextSibling
+          );
+        }
+        selectedEl = parsedInsertEl;
+        positionOverlay(selectionOverlay, selectedEl);
+        refreshOverlays();
+        postVisualStructureChange(
+          parsedInsertEl,
+          insertTarget,
+          { inserted: true },
+          parsedInsertEl.outerHTML
+        );
+        return;
+      }
       if (e.data.type === "visual-structure-ack") {
         dndLog("ack", {
           requestId: e.data.requestId,
@@ -8102,15 +8494,41 @@ export const editorChromeBridgeScript: string = `"use strict";
         var move = pendingStructureMoves[e.data.requestId];
         if (!move) return;
         delete pendingStructureMoves[e.data.requestId];
+        var moveWasInsert = Boolean(move.origin && "inserted" in move.origin);
+        var moveWasRemoval = Boolean(move.origin && "removed" in move.origin);
+        if (moveWasRemoval) {
+          if (!e.data.applied && move.origin && "removed" in move.origin) {
+            var removedParent = move.origin.prevParent;
+            var removedNextSibling = move.origin.prevNextSibling;
+            if (removedParent && removedParent.isConnected && !move.el.isConnected) {
+              removedParent.insertBefore(
+                move.el,
+                removedNextSibling && removedNextSibling.parentNode === removedParent ? removedNextSibling : null
+              );
+              selectedEl = move.el;
+              positionOverlay(selectionOverlay, selectedEl);
+              postElementSelect(selectedEl);
+            }
+          }
+          refreshOverlays();
+          return;
+        }
         if (e.data.applied) {
-          if (move.el && move.el.isConnected) {
+          if (!moveWasInsert && move.el && move.el.isConnected && move.target) {
             applyRuntimeReorder(move.el, move.target);
             selectedEl = move.el;
             positionOverlay(selectionOverlay, selectedEl);
             postElementSelect(selectedEl);
           }
         } else {
-          if (move.el && move.el.isConnected && move.origin && move.origin.prevParent && move.origin.prevParent.isConnected) {
+          if (moveWasInsert) {
+            if (move.el && move.el.isConnected) move.el.remove();
+            if (selectedEl === move.el) selectedEl = null;
+            if (hoveredEl === move.el) hoveredEl = null;
+            refreshOverlays();
+            return;
+          }
+          if (move.el && move.el.isConnected && move.origin && "prevParent" in move.origin && move.origin.prevParent && move.origin.prevParent.isConnected) {
             move.origin.prevParent.insertBefore(
               move.el,
               move.origin.prevNextSibling
@@ -8148,7 +8566,11 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       if (e.data.type === "delete-element") {
-        removeRuntimeTarget(e.data.selector, e.data.selectorCandidates);
+        removeRuntimeTarget(
+          e.data.selector,
+          e.data.selectorCandidates,
+          e.data.requestId
+        );
         return;
       }
       if (e.data.type === "set-text-content") {
@@ -8243,6 +8665,44 @@ export const editorChromeBridgeScript: string = `"use strict";
     });
     window.addEventListener("scroll", scheduleRefreshOverlays, true);
     window.addEventListener("resize", scheduleRefreshOverlays);
+    function isNativeInteractionNetExempt(target) {
+      return isOverlayElement(target) || isEditorTypingTarget(target) || !!activeDragCancel;
+    }
+    function interceptNativeInteractionNet(e) {
+      if (readOnly) return;
+      var target = e.target && e.target.nodeType === 1 ? e.target : null;
+      if (isNativeInteractionNetExempt(target)) return;
+      stopNativeInteraction(e);
+    }
+    [
+      "click",
+      "auxclick",
+      "dblclick",
+      "mousedown",
+      "mouseup",
+      "pointerdown",
+      "pointerup",
+      "submit"
+    ].forEach(function(type) {
+      document.addEventListener(type, interceptNativeInteractionNet, true);
+    });
+    function isFocusedActivationTarget(target) {
+      return !!(target && target.closest && target.closest(
+        'a[href], button, summary, input[type="submit"], input[type="button"], input[type="reset"], input[type="image"], [role="button"], [role="link"]'
+      ));
+    }
+    document.addEventListener(
+      "keydown",
+      function(e) {
+        if (readOnly) return;
+        if (e.key !== "Enter" && !(e.key === " " && e.code === "Space")) return;
+        var target = e.target && e.target.nodeType === 1 ? e.target : null;
+        if (isNativeInteractionNetExempt(target)) return;
+        if (!isFocusedActivationTarget(target)) return;
+        stopNativeInteraction(e);
+      },
+      true
+    );
     applyEditorChromeScale();
     if (runtimeLayerSnapshotEnabled && typeof MutationObserver !== "undefined" && document.body) {
       var runtimeLayerObserver = new MutationObserver(function(mutations) {

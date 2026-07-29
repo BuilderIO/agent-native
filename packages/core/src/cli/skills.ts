@@ -1173,6 +1173,7 @@ function writeSkillFolder(
       `${JSON.stringify(metadata, null, 2)}\n`,
       "utf-8",
     );
+    assertSkillFolderIsNotSymlink(dir);
     fs.rmSync(dir, { recursive: true, force: true });
     fs.renameSync(tempDir, dir);
   } catch (error: any) {
@@ -1182,6 +1183,21 @@ function writeSkillFolder(
     throw new Error(
       `Cannot write Agent Native skill folder ${dir}: ${error?.message ?? error}`,
       { cause: error },
+    );
+  }
+}
+
+function assertSkillFolderIsNotSymlink(dir: string): void {
+  let stat: fs.Stats;
+  try {
+    stat = fs.lstatSync(dir);
+  } catch (error: any) {
+    if (error?.code === "ENOENT") return;
+    throw error;
+  }
+  if (stat.isSymbolicLink()) {
+    throw new Error(
+      `Refusing to replace symlinked Agent Native skill folder ${dir}. Update the linked source or remove the symlink before installing.`,
     );
   }
 }

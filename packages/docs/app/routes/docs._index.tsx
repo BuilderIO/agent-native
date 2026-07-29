@@ -5,7 +5,7 @@ import {
 } from "react-router";
 
 import DocContent from "../components/DocContent";
-import { getDoc, loadDoc, type DocEntry } from "../components/docs-content";
+import { loadDoc, type DocEntry } from "../components/docs-content";
 import { DEFAULT_DOCS_LOCALE, isDocsLocale } from "../components/docs-locale";
 import { docsMarkdownPathForDoc } from "../components/docs-seo";
 import DocsLayout from "../components/DocsLayout";
@@ -29,7 +29,7 @@ export const meta = ({
   data,
   loaderData,
 }: { data?: DocEntry; loaderData?: DocEntry } = {}) => {
-  const doc = data ?? loaderData ?? getDoc(GETTING_STARTED_SLUG);
+  const doc = data ?? loaderData;
   if (!doc) {
     return withDefaultSocialImage([{ title: "Not Found — Agent-Native" }]);
   }

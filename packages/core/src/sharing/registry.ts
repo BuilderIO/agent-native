@@ -124,7 +124,11 @@ export interface ShareableResourceRegistration {
     | "admin"
     | ((
         resource: any,
-        ctx: { userEmail?: string; orgId?: string },
+        ctx: {
+          userEmail?: string;
+          orgId?: string;
+          authCapability?: string;
+        },
       ) =>
         | "viewer"
         | "editor"
@@ -148,9 +152,14 @@ export interface ShareableResourceRegistration {
    * identity can normalize here so the generic framework sharing actions and
    * access helpers stay in sync with template-owned actions.
    */
-  resolveAccessContext?: (ctx: { userEmail?: string; orgId?: string }) => {
+  resolveAccessContext?: (ctx: {
     userEmail?: string;
     orgId?: string;
+    authCapability?: string;
+  }) => {
+    userEmail?: string;
+    orgId?: string;
+    authCapability?: string;
   };
   /**
    * When true, direct ownership is recognized by owner_email regardless of the

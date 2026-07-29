@@ -119,6 +119,63 @@ describe("useChatThreads", () => {
     ]);
   });
 
+  it("shares one initial thread-list request across chat consumers without sharing active-thread semantics", async () => {
+    const existingThread: ChatThreadSummary = {
+      id: "existing-thread",
+      title: "Existing chat",
+      preview: "show weekly signups",
+      messageCount: 2,
+      createdAt: 1,
+      updatedAt: 2,
+      scope: null,
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [existingThread] });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let mainHook: ReturnType<typeof useChatThreads> | null = null;
+    let sidebarHook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      mainHook = useChatThreads("/chat", "analytics-project");
+      sidebarHook = useChatThreads("/chat", "analytics-project", undefined, {
+        autoCreate: false,
+        restoreActiveThread: false,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(mainHook!.activeThreadId).toBe("forked-thread");
+    expect(mainHook!.threads.map((thread) => thread.id)).toEqual([
+      "forked-thread",
+      "existing-thread",
+    ]);
+    expect(sidebarHook!.activeThreadId).toBeNull();
+    expect(sidebarHook!.threads.map((thread) => thread.id)).toEqual([
+      "existing-thread",
+    ]);
+
+    await act(async () => {
+      mainHook!.refreshThreads();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("loads older chat history pages into All Chats", async () => {
     const firstPage: ChatThreadSummary[] = Array.from(
       { length: 50 },
