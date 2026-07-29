@@ -395,14 +395,20 @@ describe("integrations plugin routes", () => {
     resourceGetByPathMock.mockImplementation(async () => null);
   });
 
-  it("does not start recurring integration jobs in a background agent worker", async () => {
-    vi.stubGlobal("__AGENT_NATIVE_BACKGROUND_RUNTIME__", true);
-    const nitroApp = createNitroApp();
+  it.each([
+    "__AGENT_NATIVE_BACKGROUND_RUNTIME__",
+    "__AGENT_NATIVE_INTEGRATION_RECOVERY_RUNTIME__",
+  ])(
+    "does not start recurring integration jobs in the %s worker",
+    async (key) => {
+      vi.stubGlobal(key, true);
+      const nitroApp = createNitroApp();
 
-    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+      await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
 
-    expect(startPendingTasksRetryJobMock).not.toHaveBeenCalled();
-  });
+      expect(startPendingTasksRetryJobMock).not.toHaveBeenCalled();
+    },
+  );
 
   it("requires a session for integration status", async () => {
     getSessionMock.mockResolvedValueOnce(null);

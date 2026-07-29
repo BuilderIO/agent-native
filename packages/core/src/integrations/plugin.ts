@@ -92,6 +92,7 @@ import {
   INTEGRATION_CAMPAIGN_PROCESSOR_FIELD,
   INTEGRATION_RETRY_SWEEP_TOKEN_SUBJECT,
   integrationDispatchScopeValue,
+  isInIntegrationRecoveryRuntime,
   isIntegrationDurableDispatchConfigured,
   isIntegrationDurableDispatchEnabledForTask,
 } from "./integration-durable-dispatch.js";
@@ -3415,12 +3416,12 @@ export function createIntegrationsPlugin(
       }),
     );
 
-    // Background agent functions mount the same Nitro app, but they are
-    // short-lived workers rather than hosts for recurring integration jobs.
-    // Starting these timers in every worker multiplies recovery sweeps and
-    // pollers across concurrent runs, exhausting the shared database precisely
-    // while those runs are trying to checkpoint and deliver replies.
-    if (!isInBackgroundFunctionRuntime()) {
+    // Background agent and scheduled recovery functions mount the same Nitro
+    // app, but they are workers rather than hosts for recurring integration
+    // jobs. Starting these timers in every worker multiplies recovery sweeps
+    // and pollers across concurrent runs, exhausting the shared database
+    // precisely while those runs are trying to checkpoint and deliver replies.
+    if (!isInBackgroundFunctionRuntime() && !isInIntegrationRecoveryRuntime()) {
       // ─── Start pending-tasks retry sweeper ────────────────────────
       // Sweeps the integration_pending_tasks queue every 60s and re-fires the
       // processor for any tasks that got stuck (initial dispatch lost or
