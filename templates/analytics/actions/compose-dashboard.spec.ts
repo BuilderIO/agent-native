@@ -256,6 +256,9 @@ describe("compose-dashboard", () => {
       "pageviews.anonymous_id = signups.anonymous_id",
     );
     expect(panel.sql).toContain("pageviews.timestamp < signups.signup_at");
+    expect(panel.sql).toContain(
+      "pageviews.timestamp >= signups.signup_at - INTERVAL '400 days'",
+    );
     expect(panel.config).toMatchObject({ timeScope: "cohort-history" });
   });
 
