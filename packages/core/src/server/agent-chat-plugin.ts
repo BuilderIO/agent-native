@@ -90,8 +90,10 @@ import {
 import {
   buildAssistantMessage,
   buildUserMessage,
+  claimQueuedMessage,
   extractThreadMeta,
   foldAssistantTurn,
+  hasClaimedQueuedMessage,
   mergeThreadDataForClientSave,
   upsertUserMessage,
 } from "../agent/thread-data-builder.js";
@@ -2485,6 +2487,7 @@ export function createAgentChatPlugin(
         threadId: string | undefined;
         message: string;
         attachments?: AgentChatAttachment[];
+        queuedMessageId?: string;
       }) => {
         const threadId = details.threadId;
         if (!threadId) return;
@@ -2527,12 +2530,23 @@ export function createAgentChatPlugin(
             repo = {};
           }
 
+          if (details.queuedMessageId) {
+            if (hasClaimedQueuedMessage(repo, details.queuedMessageId)) {
+              throw createError({
+                statusCode: 409,
+                statusMessage: "Queued message was already submitted",
+              });
+            }
+            repo = claimQueuedMessage(repo, details.queuedMessageId);
+          }
+
           repo = upsertUserMessage(
             repo,
             buildUserMessage({
               text: details.message,
               attachments: details.attachments,
               runId: details.runId,
+              queuedMessageId: details.queuedMessageId,
             }),
           );
 

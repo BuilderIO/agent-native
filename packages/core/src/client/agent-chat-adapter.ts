@@ -1611,6 +1611,14 @@ export function createAgentChatAdapter(
         typeof runConfig.custom === "object" &&
         (runConfig.custom as { trackInRunsTray?: unknown }).trackInRunsTray ===
           true;
+      const queuedMessageId = (() => {
+        const raw =
+          runConfig?.custom && typeof runConfig.custom === "object"
+            ? (runConfig.custom as { agentNativeQueuedMessageId?: unknown })
+                .agentNativeQueuedMessageId
+            : undefined;
+        return typeof raw === "string" && raw.trim() ? raw.trim() : undefined;
+      })();
       // Human-in-the-loop approval keys (opt-in `needsApproval` actions). When
       // the user approves a paused tool call, the turn is re-issued with the
       // approval key so the server lets that specific call run.
@@ -3205,6 +3213,7 @@ export function createAgentChatAdapter(
                 body: JSON.stringify({
                   message: currentMessageText,
                   displayMessage: userMessageText,
+                  ...(queuedMessageId ? { queuedMessageId } : {}),
                   history: currentHistory,
                   structuredHistory: currentStructuredHistory,
                   turnId,

@@ -408,6 +408,7 @@ describe("createAgentChatAdapter", () => {
         abortSignal: new AbortController().signal,
         runConfig: {
           custom: {
+            agentNativeQueuedMessageId: "queued-model-1",
             model: "claude-opus-4-6",
             engine: "anthropic",
             effort: "high",
@@ -418,6 +419,7 @@ describe("createAgentChatAdapter", () => {
 
     const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
     expect(body).toMatchObject({
+      queuedMessageId: "queued-model-1",
       model: "claude-opus-4-6",
       engine: "anthropic",
       effort: "high",
