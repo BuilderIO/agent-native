@@ -6,6 +6,7 @@ import {
   useState,
   type KeyboardEvent,
   type PointerEvent,
+  type ComponentPropsWithoutRef,
   type ReactNode,
 } from "react";
 
@@ -362,6 +363,7 @@ export function VisualColorPicker({
   documentColorsLabel = "Document colors",
   transparentLabel = "Transparent",
   className,
+  contentProps,
 }: {
   label: string;
   value: string;
@@ -372,6 +374,10 @@ export function VisualColorPicker({
   documentColorsLabel?: string;
   transparentLabel?: string;
   className?: string;
+  contentProps?: Omit<
+    ComponentPropsWithoutRef<typeof PopoverContent>,
+    "children"
+  >;
 }) {
   const [open, setOpen] = useState(false);
   const color = parseCssColor(value) ?? FALLBACK_RGBA;
@@ -438,6 +444,8 @@ export function VisualColorPicker({
       ? transparentLabel
       : colorHex.replace(/^#/, "");
   const hsv = rgbaToHsv(color);
+  const { className: contentClassName, ...popoverContentProps } =
+    contentProps ?? {};
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -467,8 +475,12 @@ export function VisualColorPicker({
         side="left"
         align="start"
         sideOffset={8}
-        className="z-[10000] w-[252px] p-0 text-[11px] shadow-xl"
+        className={cn(
+          "z-[10000] w-[252px] p-0 text-[11px] shadow-xl",
+          contentClassName,
+        )}
         onFocusOutside={(event) => event.preventDefault()}
+        {...popoverContentProps}
       >
         <div className="rounded-md bg-popover text-popover-foreground">
           <VisualSaturationBrightnessField
