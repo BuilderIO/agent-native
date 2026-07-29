@@ -12,16 +12,28 @@ import {
 } from "./slide-object-interactions";
 
 describe("slide object interactions", () => {
-  it("places boxes in unscaled slide pixels instead of transformed percentages", () => {
+  it("places boxes in the autofit layer's unscaled layout coordinates", () => {
     expect(
       clientPointToSlideCoordinates(
-        350,
-        225,
-        { left: 100, top: 75, width: 960, height: 540 },
-        1920,
-        1080,
+        820,
+        500,
+        { left: 226, top: 80, width: 1700, height: 920 },
+        1700,
+        920,
       ),
-    ).toEqual({ x: 500, y: 300 });
+    ).toEqual({ x: 594, y: 420 });
+  });
+
+  it("preserves negative coordinates when a slide click is outside its padded layer", () => {
+    expect(
+      clientPointToSlideCoordinates(
+        80,
+        40,
+        { left: 110, top: 80, width: 1700, height: 920 },
+        1700,
+        920,
+      ),
+    ).toEqual({ x: -30, y: -40 });
   });
 
   it("gives clones a distinct persisted identity and drops runtime ids", () => {

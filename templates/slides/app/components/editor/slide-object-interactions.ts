@@ -79,8 +79,8 @@ export function clientPointToSlideCoordinates(
   const y =
     rect.height > 0 ? ((clientY - rect.top) / rect.height) * slideHeight : 0;
   return {
-    x: Math.round(Math.min(slideWidth, Math.max(0, x))),
-    y: Math.round(Math.min(slideHeight, Math.max(0, y))),
+    x: Math.round(x),
+    y: Math.round(y),
   };
 }
 
