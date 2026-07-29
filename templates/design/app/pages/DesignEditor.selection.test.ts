@@ -1506,9 +1506,10 @@ describe("DesignEditor URL state", () => {
         screenId: "screen-123",
         selectionId: "node-456",
         zoom: 100,
+        mode: "interact",
       }),
     ).toBe(
-      "?design_host=builder&view=single&screen=screen-123&selection=node-456&zoom=100",
+      "?design_host=builder&view=single&screen=screen-123&selection=node-456&zoom=100&mode=interact",
     );
   });
 
@@ -1557,6 +1558,18 @@ describe("DesignEditor URL state", () => {
         tool: "move",
       }),
     ).toBe("?view=single&screen=screen-123");
+  });
+
+  it("removes stale Interact mode after returning to the overview", () => {
+    expect(
+      getDesignEditorStateUrlSearch({
+        currentSearch: "?view=single&screen=screen-123&mode=interact&zoom=100",
+        viewMode: "overview",
+        screenId: "screen-123",
+        mode: "edit",
+        zoom: 100,
+      }),
+    ).toBe("?view=overview&screen=screen-123&zoom=100");
   });
 });
 

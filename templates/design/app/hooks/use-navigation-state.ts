@@ -54,6 +54,7 @@ export interface DesignEditorCommand {
   designId: string;
   editorView?: "single" | "overview";
   viewMode?: "single" | "overview";
+  mode?: "edit" | "annotate" | "interact";
   inspectorTab?: "design" | "comments" | "tweaks" | "code" | "extensions";
   inspector?: "design" | "comments" | "tweaks" | "code" | "extensions";
   leftPanel?:

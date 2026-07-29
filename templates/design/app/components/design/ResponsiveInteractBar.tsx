@@ -237,7 +237,7 @@ export function ResponsiveInteractBar({
         />
       </div>
 
-      <div className="flex min-w-0 flex-1 items-center justify-end gap-1">
+      <div className="flex shrink-0 items-center justify-end gap-1">
         {MODE_EXITS.filter((exit) => exit.mode === "edit" || canAnnotate).map(
           (exit) => (
             <Tooltip key={exit.mode}>
@@ -247,7 +247,7 @@ export function ResponsiveInteractBar({
                   size="icon"
                   onClick={() => onModeChange(exit.mode)}
                   aria-label={t(exit.labelKey)}
-                  className="size-7 cursor-pointer rounded-md text-muted-foreground hover:text-foreground"
+                  className="size-7 shrink-0 cursor-pointer rounded-md text-muted-foreground hover:text-foreground"
                 >
                   <exit.Icon className="size-4" />
                 </Button>
@@ -269,7 +269,7 @@ export function ResponsiveInteractBar({
             <Button
               variant="ghost"
               size="sm"
-              className="h-7 cursor-pointer gap-0.5 rounded-md px-2 !text-[12px] tabular-nums text-muted-foreground hover:text-foreground"
+              className="h-7 shrink-0 cursor-pointer gap-0.5 rounded-md px-2 !text-[12px] tabular-nums text-muted-foreground hover:text-foreground"
             >
               {formattedZoom}%
               <IconChevronDown className="size-3 opacity-60" />
@@ -360,7 +360,7 @@ export function ResponsiveInteractBar({
               size="icon"
               onClick={onClose}
               aria-label={t("designEditor.responsiveInteract.exit")}
-              className="size-7 cursor-pointer rounded-md text-muted-foreground hover:text-foreground"
+              className="size-7 shrink-0 cursor-pointer rounded-md text-muted-foreground hover:text-foreground"
             >
               <IconX className="size-4" />
             </Button>

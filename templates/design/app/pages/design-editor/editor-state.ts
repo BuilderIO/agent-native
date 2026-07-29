@@ -2,6 +2,7 @@ import {
   type DesignFile,
   type DesignLeftPanel,
   type DesignTool,
+  type EditorMode,
   SHOW_DESIGN_CODE_LEFT_PANEL,
 } from "./types";
 
@@ -117,6 +118,7 @@ export function getDesignEditorStateUrlSearch(args: {
   leftPanel?: DesignLeftPanel | null;
   zoom?: number | null;
   tool?: DesignTool | null;
+  mode?: EditorMode | null;
 }) {
   const params = new URLSearchParams(args.currentSearch);
   const leftPanel =
@@ -161,6 +163,11 @@ export function getDesignEditorStateUrlSearch(args: {
     params.set("tool", args.tool);
   } else {
     params.delete("tool");
+  }
+  if (args.viewMode === "single" && args.mode === "interact") {
+    params.set("mode", "interact");
+  } else {
+    params.delete("mode");
   }
   const query = params.toString();
   return query ? `?${query}` : "";

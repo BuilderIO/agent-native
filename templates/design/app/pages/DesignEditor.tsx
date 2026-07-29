@@ -6493,6 +6493,8 @@ function DesignEditor() {
       if (leftPanel) setActiveLeftPanel(leftPanel);
 
       const commandTool = normalizeDesignTool(command.tool);
+      const commandMode =
+        commandRecord.mode === "interact" ? "interact" : undefined;
       const effectiveCommandTool =
         editorView === "overview" &&
         commandTool &&
@@ -6551,6 +6553,47 @@ function DesignEditor() {
         viewModeRef.current = "single";
         if (!selectionId) setSelectedElement(null);
         applyCommandTool("move");
+        if (commandMode === "interact") {
+          const targetScreen = targetFile
+            ? overviewScreens.find((screen) => screen.id === targetFile.id)
+            : undefined;
+          const targetMetadataSize = targetScreen
+            ? {
+                width:
+                  targetScreen.width ?? DEFAULT_INTERACT_DEVICE_PRESET.width,
+                height:
+                  targetScreen.height ?? DEFAULT_INTERACT_DEVICE_PRESET.height,
+              }
+            : undefined;
+          const targetViewport =
+            targetFile && targetMetadataSize
+              ? getScreenPreviewViewport(targetMetadataSize, {
+                  width:
+                    canvasFrameGeometryById[targetFile.id]?.width ??
+                    targetMetadataSize.width,
+                  height:
+                    canvasFrameGeometryById[targetFile.id]?.height ??
+                    targetMetadataSize.height,
+                })
+              : undefined;
+          const interactDevice = resolveInteractDeviceForScreen(
+            targetViewport
+              ? {
+                  width: targetViewport.viewportWidth,
+                  height: targetViewport.viewportHeight,
+                }
+              : undefined,
+          );
+          setInteractDeviceName(interactDevice.name);
+          setInteractDeviceSize({
+            width: interactDevice.width,
+            height: interactDevice.height,
+          });
+          setActiveTool("move");
+          setDrawMode(false);
+          setPinMode(false);
+          setMode("interact");
+        }
         if (commandZoom === null) {
           setScreenZoom(FOCUSED_SCREEN_ZOOM);
         }
@@ -6561,7 +6604,14 @@ function DesignEditor() {
 
       return true;
     },
-    [canEditDesign, files, id, setZoomForView],
+    [
+      canEditDesign,
+      canvasFrameGeometryById,
+      files,
+      id,
+      overviewScreens,
+      setZoomForView,
+    ],
   );
 
   // Agent→editor commands (navigate/select/zoom) follow edit access, not
@@ -25202,6 +25252,7 @@ function DesignEditor() {
         selectionId: selectedUrlSelectionId,
         zoom,
         tool: activeTool,
+        mode,
       });
       if (nextSearch === location.search) return;
       navigate(
@@ -25222,6 +25273,7 @@ function DesignEditor() {
       location.search,
       navigate,
       selectedUrlSelectionId,
+      mode,
       viewMode,
       zoom,
     ],
@@ -25322,6 +25374,7 @@ function DesignEditor() {
         (preserveInitialRouteSelection ? initialRouteSelectionId : null),
       zoom,
       tool: activeTool,
+      mode,
     });
     if (nextSearch === location.search) return;
     // Item 11 (URL sync): `zoom` is a dependency here, and zoom changes
@@ -25371,6 +25424,7 @@ function DesignEditor() {
     initialRouteScreenTarget,
     initialRouteSelectionId,
     selectedUrlSelectionId,
+    mode,
     viewMode,
     zoom,
   ]);

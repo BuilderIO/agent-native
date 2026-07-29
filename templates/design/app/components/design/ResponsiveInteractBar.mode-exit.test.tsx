@@ -80,4 +80,19 @@ describe("ResponsiveInteractBar mode exits", () => {
     expect(markup).toContain('aria-label="Edit"');
     expect(markup).not.toContain('aria-label="Annotate"');
   });
+
+  it("keeps every right-side action at its clickable width", () => {
+    const markup = renderBar();
+
+    for (const label of ["Edit", "Annotate", "Exit responsive preview"]) {
+      expect(markup).toMatch(
+        new RegExp(
+          `<button[^>]*class="[^"]*shrink-0[^"]*"[^>]*aria-label="${label}"`,
+        ),
+      );
+    }
+    expect(markup).toMatch(
+      /<button[^>]*class="[^"]*shrink-0[^"]*"[^>]*>100\.0%/,
+    );
+  });
 });
