@@ -396,6 +396,7 @@ const messages = {
     cornerRadius: "모서리 반경",
     strokeWeight: "두께",
     typography: "타이포그래피",
+    mixed: "혼합",
     textColor: "텍스트 색상",
     primary: "Primary",
     secondary: "Secondary",

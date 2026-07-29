@@ -71,7 +71,10 @@ function elementAttributesMatch(a: HTMLSpanElement, b: HTMLSpanElement) {
 }
 
 /** Removes only markup that cannot affect the resulting rich text. */
-export function normalizeInlineTextSpans(editable: HTMLElement) {
+export function normalizeInlineTextSpans(
+  editable: HTMLElement,
+  preserve?: HTMLSpanElement,
+) {
   const spans = Array.from(editable.querySelectorAll("span"));
   for (const span of spans.reverse()) {
     if (!span.isConnected) continue;
@@ -91,6 +94,8 @@ export function normalizeInlineTextSpans(editable: HTMLElement) {
       const next = span.nextSibling;
       if (
         next instanceof HTMLSpanElement &&
+        span !== preserve &&
+        next !== preserve &&
         elementAttributesMatch(span, next)
       ) {
         span.append(...Array.from(next.childNodes));
@@ -163,7 +168,9 @@ export function applyInlineTextStyle(
   }
   wrapper.append(fragment);
   range.insertNode(wrapper);
-  normalizeInlineTextSpans(editable);
+  // The active wrapper must survive normalization so the returned Range stays
+  // connected to the editable. A later edit may merge older adjacent runs.
+  normalizeInlineTextSpans(editable, wrapper);
 
   const nextRange = document.createRange();
   nextRange.selectNodeContents(wrapper);
@@ -208,7 +215,16 @@ export function getInlineTextStyleSnapshot(
   selection: Selection | null = window.getSelection(),
 ): InlineTextStyleSnapshot {
   const range = getEditableTextRange(editable, selection);
-  const targets = range ? selectionTextElements(editable, range) : [];
+  return getInlineTextStyleSnapshotForRange(editable, range);
+}
+
+export function getInlineTextStyleSnapshotForRange(
+  editable: HTMLElement,
+  range: Range | null,
+): InlineTextStyleSnapshot {
+  const safeRange =
+    range && !range.collapsed && hasRangeInside(editable, range) ? range : null;
+  const targets = safeRange ? selectionTextElements(editable, safeRange) : [];
   const styles = (targets.length > 0 ? targets : [editable]).map(
     computedStyleValues,
   );
@@ -224,5 +240,5 @@ export function getInlineTextStyleSnapshot(
       values[key] = first;
     }
   }
-  return { scope: range ? "selection" : "block", values, mixed };
+  return { scope: safeRange ? "selection" : "block", values, mixed };
 }

@@ -404,6 +404,7 @@ const messages = {
     cornerRadius: "Radio de esquina",
     strokeWeight: "Grosor",
     typography: "Tipografía",
+    mixed: "Mezclado",
     textColor: "Color del texto",
     primary: "Primary",
     secondary: "Secondary",

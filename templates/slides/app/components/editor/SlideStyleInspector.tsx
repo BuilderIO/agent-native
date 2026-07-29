@@ -21,6 +21,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
+import type { InlineTextStyleKey } from "./rich-text-selection";
+
 export interface SlideStyleSnapshot {
   selector: string;
   label: string;
@@ -48,6 +50,8 @@ export interface SlideStyleSnapshot {
   borderColor: string;
   paddingX: number;
   paddingY: number;
+  textStyleScope?: "block" | "selection";
+  mixedTextStyles?: InlineTextStyleKey[];
 }
 
 export type SlideStylePatch = Partial<{
@@ -160,6 +164,10 @@ export function SlideStyleInspector({
   const t = useT();
   const palette = tokenPalette(designSystem, t);
   const documentColors = palette.map((option) => option.value);
+  const mixedTextStyles = snapshot.mixedTextStyles ?? [];
+  const inlineEditSurfaceProps = {
+    "data-slide-inline-edit-surface": "true",
+  };
   const targetLabel =
     snapshot.textPreview || snapshot.label || snapshot.tagName.toUpperCase();
   const horizontalAlignment =
@@ -369,6 +377,7 @@ export function SlideStyleInspector({
             value={snapshot.backgroundColor}
             documentColors={documentColors}
             allowTransparent
+            contentProps={inlineEditSurfaceProps}
             onChange={(value) => onChange({ backgroundColor: value })}
           />
         </VisualControlRow>
@@ -401,6 +410,7 @@ export function SlideStyleInspector({
             label={t("styleInspector.strokeColor")}
             value={snapshot.borderColor}
             documentColors={documentColors}
+            contentProps={inlineEditSurfaceProps}
             onChange={(value) => onChange({ borderColor: value })}
           />
         </VisualControlRow>
@@ -424,6 +434,9 @@ export function SlideStyleInspector({
               label={t("styleInspector.textColor")}
               value={snapshot.color}
               documentColors={documentColors}
+              mixed={mixedTextStyles.includes("color")}
+              mixedLabel={t("styleInspector.mixed")}
+              contentProps={inlineEditSurfaceProps}
               onChange={(value) => onChange({ color: value })}
             />
           </VisualControlRow>
@@ -434,6 +447,8 @@ export function SlideStyleInspector({
               min={8}
               max={160}
               unit="px"
+              mixed={mixedTextStyles.includes("fontSize")}
+              mixedLabel={t("styleInspector.mixed")}
               onChange={(fontSize) =>
                 onChange({ fontSize: `${formatValue(fontSize)}px` })
               }
@@ -450,7 +465,11 @@ export function SlideStyleInspector({
             />
           </div>
           <VisualSegmentedControl
-            value={snapshot.fontWeight}
+            value={
+              mixedTextStyles.includes("fontWeight")
+                ? null
+                : snapshot.fontWeight
+            }
             onChange={(fontWeight) => onChange({ fontWeight })}
             className="slides-inspector-segment"
             options={[

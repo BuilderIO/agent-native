@@ -399,6 +399,7 @@ const messages = {
     cornerRadius: "Raio do canto",
     strokeWeight: "Espessura",
     typography: "Tipografia",
+    mixed: "Misto",
     textColor: "Cor do texto",
     primary: "Primary",
     secondary: "Secondary",

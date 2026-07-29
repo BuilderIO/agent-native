@@ -391,6 +391,7 @@ const messages = {
     cornerRadius: "圆角半径",
     strokeWeight: "描边粗细",
     typography: "排版",
+    mixed: "混合",
     textColor: "文本颜色",
     primary: "Primary",
     secondary: "Secondary",

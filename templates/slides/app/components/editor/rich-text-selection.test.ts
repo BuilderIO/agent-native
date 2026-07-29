@@ -6,6 +6,7 @@ import {
   applyInlineTextStyle,
   getEditableTextRange,
   getInlineTextStyleSnapshot,
+  getInlineTextStyleSnapshotForRange,
   restoreEditableTextRange,
   snapshotEditableTextRange,
 } from "./rich-text-selection";
@@ -110,6 +111,24 @@ describe("rich text selection", () => {
     expect(window.getSelection()!.toString()).toBe("ell");
   });
 
+  it("keeps the returned range connected across adjacent matching styles", () => {
+    const block = editable("one two");
+    const text = block.firstChild as Text;
+    rangeFor(text, 0, text, 3);
+    applyInlineTextStyle(block, { color: "#609ff8" });
+
+    const trailingText = block.lastChild as Text;
+    rangeFor(trailingText, 1, trailingText, 4);
+    const result = applyInlineTextStyle(block, { color: "#609ff8" });
+
+    expect(result.scope).toBe("selection");
+    expect(
+      result.range && block.contains(result.range.commonAncestorContainer),
+    ).toBe(true);
+    expect(restoreEditableTextRange(block, result.range ?? null)).toBe(true);
+    expect(window.getSelection()!.toString()).toBe("two");
+  });
+
   it("reports a single inline value and null for mixed selected runs", () => {
     const block = editable(
       '<span style="color: rgb(96, 159, 248); font-size: 20px">blue</span><span style="color: rgb(239, 68, 68); font-size: 20px">red</span>',
@@ -129,5 +148,11 @@ describe("rich text selection", () => {
     expect(mixed.values.color).toBeNull();
     expect(mixed.mixed).toContain("color");
     expect(mixed.values.fontSize).toBe("20px");
+
+    const savedMixed = window.getSelection()!.getRangeAt(0).cloneRange();
+    window.getSelection()!.removeAllRanges();
+    expect(
+      getInlineTextStyleSnapshotForRange(block, savedMixed).mixed,
+    ).toContain("color");
   });
 });

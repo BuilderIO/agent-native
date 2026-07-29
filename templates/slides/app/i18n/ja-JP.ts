@@ -399,6 +399,7 @@ const messages = {
     cornerRadius: "角の半径",
     strokeWeight: "太さ",
     typography: "文字設定",
+    mixed: "混在",
     textColor: "文字色",
     primary: "Primary",
     secondary: "Secondary",

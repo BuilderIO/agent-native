@@ -399,6 +399,7 @@ const messages = {
     cornerRadius: "نصف قطر الزاوية",
     strokeWeight: "السُمك",
     typography: "الطباعة",
+    mixed: "مختلط",
     textColor: "لون النص",
     primary: "Primary",
     secondary: "Secondary",

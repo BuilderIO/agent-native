@@ -408,6 +408,7 @@ const messages = {
     cornerRadius: "Rayon des coins",
     strokeWeight: "Épaisseur",
     typography: "Typographie",
+    mixed: "Mixte",
     textColor: "Couleur du texte",
     primary: "Primary",
     secondary: "Secondary",

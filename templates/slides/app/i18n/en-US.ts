@@ -397,6 +397,7 @@ const messages = {
     cornerRadius: "Corner radius",
     strokeWeight: "Weight",
     typography: "Typography",
+    mixed: "Mixed",
     textColor: "Text color",
     primary: "Primary",
     secondary: "Secondary",
