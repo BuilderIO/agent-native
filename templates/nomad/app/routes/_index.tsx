@@ -1,4 +1,5 @@
-import { useActionMutation, useT } from "@agent-native/core/client";
+import { useActionMutation } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconMapPin, IconPlus, IconRadar2, IconX } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 import { Navigate, useNavigate } from "react-router";

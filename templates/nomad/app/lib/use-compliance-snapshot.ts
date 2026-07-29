@@ -1,10 +1,9 @@
-import { useActionQuery } from "@agent-native/core/client";
+import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useDemoModeStatus } from "@agent-native/core/client/hooks";
 import { useMemo } from "react";
 
-import { getDemoComplianceSnapshot } from "./demo-snapshot";
-
 import type { ComplianceSnapshot } from "../../shared/types";
+import { getDemoComplianceSnapshot } from "./demo-snapshot";
 
 /**
  * Wraps the real `compliance-status` query. When demo mode is on, the

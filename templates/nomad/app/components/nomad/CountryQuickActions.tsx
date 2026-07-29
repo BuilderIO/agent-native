@@ -1,9 +1,6 @@
-import {
-  sendToAgentChat,
-  useActionMutation,
-  useLocale,
-  useT,
-} from "@agent-native/core/client";
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { useActionMutation } from "@agent-native/core/client/hooks";
+import { useLocale, useT } from "@agent-native/core/client/i18n";
 import {
   IconArrowRight,
   IconId,

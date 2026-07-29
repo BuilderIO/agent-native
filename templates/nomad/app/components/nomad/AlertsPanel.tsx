@@ -1,4 +1,5 @@
-import { useActionMutation, useT } from "@agent-native/core/client";
+import { useActionMutation } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconAlertTriangle,
   IconCircleCheck,
@@ -152,7 +153,9 @@ export function AlertsPanel({
                       size="sm"
                       className="h-7 px-2.5 text-xs"
                       disabled={disabled || confirmStay.isPending}
-                      title={disabled ? t("nomad.demo.disabledHint") : undefined}
+                      title={
+                        disabled ? t("nomad.demo.disabledHint") : undefined
+                      }
                       onClick={() =>
                         alert.stayId &&
                         confirmStay.mutate({
@@ -168,7 +171,9 @@ export function AlertsPanel({
                       variant="ghost"
                       className="h-7 px-2.5 text-xs text-muted-foreground"
                       disabled={disabled || discardStay.isPending}
-                      title={disabled ? t("nomad.demo.disabledHint") : undefined}
+                      title={
+                        disabled ? t("nomad.demo.disabledHint") : undefined
+                      }
                       onClick={() =>
                         alert.stayId && discardStay.mutate({ id: alert.stayId })
                       }
