@@ -134,9 +134,13 @@ export function shouldAllowMcpEmbedCredentials(
   );
 }
 
+// These paths are served straight off the CDN, so the security-headers h3
+// middleware never runs for them — anything it sets that must also hold for
+// static assets has to be repeated here.
 export const MCP_EMBED_STATIC_ASSET_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Cross-Origin-Resource-Policy": "cross-origin",
+  "X-Content-Type-Options": "nosniff",
 } as const;
 
 const STATIC_ASSET_PATTERNS = [

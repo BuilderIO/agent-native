@@ -161,6 +161,13 @@ const messages = {
   designSystems: {
     new: "نظام تصميم جديد",
     setupBrand: "إعداد علامتك التجارية",
+    delete: "حذف",
+    cancel: "إلغاء",
+    moreActions: "إجراءات إضافية",
+    deleteDialogTitle: "حذف نظام التصميم؟",
+    deleteDialogDescription:
+      "سيؤدي هذا إلى حذف نظام التصميم نهائيًا. تحتفظ العروض التي تستخدمه بمظهرها الحالي لكنها لن تبقى مرتبطة به.",
+    deleteError: "تعذّر حذف نظام التصميم",
     emptyTitle: "إعداد هوية علامتك التجارية",
     emptyDescription:
       "أنشئ نظام تصميم بألوان علامتك وخطوطها وشعاراتها. سيتبع كل عرض جديد هويتك البصرية.",
@@ -258,7 +265,10 @@ const messages = {
     downloadHtml: "تنزيل بصيغة HTML",
     exportPdf: "تصدير بصيغة PDF",
     exportPptx: "تصدير بصيغة PPTX",
-    downloadGoogleSlides: "تنزيل من أجل Google Slides",
+    openInGoogleSlides: "فتح في Google Slides",
+    googleSlidesCreated: "تم الفتح في Google Slides",
+    googleSlidesCreatedHint:
+      "تم إنشاء نسخة من هذا العرض في Google Drive الخاص بك.",
     duplicateDeck: "تكرار العرض",
   },
   share: {
@@ -479,6 +489,12 @@ const messages = {
     slides: "Diapositivas",
   },
   presentation: {
+    presenterView: "عرض مقدّم العرض",
+    speakerNotes: "ملاحظات المتحدث",
+    noNotesForSlide: "لا توجد ملاحظات لهذه الشريحة",
+    upNext: "التالي",
+    endOfDeck: "نهاية العرض",
+    closePresenterView: "إغلاق عرض مقدّم العرض",
     noSlides: "No hay diapositivas para presentar",
     previousSlide: "Diapositiva anterior",
     nextSlide: "Siguiente diapositiva",
@@ -543,6 +559,7 @@ const messages = {
     builderDesignSystemId: "نظام التصميم",
     builderJobId: "Job",
     openInBuilder: "فتح في Builder",
+    decodeFailed: "فشل فك الترميز: {{error}}",
     websiteUrl: "رابط الموقع",
     websitePlaceholder: "example.com أو Nike",
     add: "إضافة",

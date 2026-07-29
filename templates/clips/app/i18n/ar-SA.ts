@@ -935,6 +935,7 @@ const messages = {
     replyingTo: "الرد على",
     commentAt: "تعليق عند",
     writeReply: "اكتب ردًا...",
+    editComment: "تحرير التعليق",
     commentButton: "تعليق",
     composerPlaceholder: "أضف تعليقًا…",
     mentionSomeone: "أذكر شخصًا",
@@ -1264,6 +1265,7 @@ const messages = {
     importLoom: "Import Loom (مترجم)",
     importing: "Importing... (مترجم)",
     import: "Import (مترجم)",
+    recordNew: "تسجيل جديد",
   },
   playerSettings: {
     title: "Settings (مترجم)",
@@ -1335,12 +1337,30 @@ const messages = {
     downloadDesktopApp: "Download desktop app (مترجم)",
     technicalDetails: "Technical details (مترجم)",
     whatToCheck: "What to check (مترجم)",
-    downloadRecording: "Download recording (مترجم)",
+    downloadRecording: "Download (مترجم)",
     openRecorderInTab: "Open recorder in tab (مترجم)",
     connectStorageToFinish:
       "صِل التخزين في الشاشة التالية: Builder.io (تخزين + ذكاء اصطناعي في الخطة المجانية) أو تخزين متوافق مع S3. سيكمل Clips الحفظ.",
     connectStorageToRetryLoom:
       "صِل التخزين في الشاشة التالية: Builder.io (تخزين + ذكاء اصطناعي في الخطة المجانية) أو تخزين متوافق مع S3. سيعيد Clips محاولة الاستيراد.",
+  },
+  importRoute: {
+    pageTitle: "استيراد Loom — Clips",
+    title: "استيراد Loom",
+    urlPlaceholder: "https://www.loom.com/share/...",
+    cta: "استيراد",
+    helperText:
+      "يعمل بشكل رائع مع Loom. يمكنك أيضًا لصق رابط لأي تسجيل شاشة أو ملف فيديو آخر.",
+    stageFetching: "جارٍ سحب الفيديو…",
+    stageUploading: "جارٍ رفع اللقطات الأصلية…",
+    stageTranscript: "جعل الكلام والعناصر المرئية على الشاشة قابلة لفهم الوكيل…",
+    stageFinalizing: "جارٍ جعله أصيلًا للوكيل…",
+    importingSubtitle: "تحويل تسجيل عادي إلى عنصر أصيل للوكيل.",
+    doneHeading: "وانتهينا! الفيديو الآن:",
+    benefitTranscript: "الكلام والعناصر المرئية على الشاشة، قابلة للبحث بالكامل",
+    benefitQueryable: "مفهوم وقابل للاستعلام من وكيلك",
+    benefitSummaries: "ملخصات ومقاطع فورية عند الطلب",
+    benefitPrimitive: "عنصر أصيل للوكيل من الدرجة الأولى",
   },
   dictateRoute: {
     pageTitle: "Dictate · Clips (مترجم)",

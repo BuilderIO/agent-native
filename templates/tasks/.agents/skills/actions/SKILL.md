@@ -305,6 +305,38 @@ export default defineAction({
 
 On success the validated value is returned, so coercion/defaults on `outputSchema` apply. Omit `outputSchema` and behavior is byte-for-byte unchanged (no wrapping).
 
+### Authorization (`authorize`)
+
+`authorize` decides whether the caller may run the action at all. It wraps
+`run`, so it holds at **all six dispatch sites** — agent tool, HTTP, frontend
+hook, MCP, A2A, CLI — unlike `needsApproval`, which is honoured only in the
+agent loop. Use `authorize` for "not everyone may do this"; use `needsApproval`
+to ask a human to bless one call a permitted caller is already allowed to make.
+
+```ts
+import { coachAccess } from "../lib/access.js"; // defineAppRoles(...)
+
+export default defineAction({
+  description: "Archive a client roster.",
+  schema: z.object({ id: z.string() }),
+  authorize: coachAccess.requireAny("coach-admin"),
+  run: async (args) => {
+    /* ... */
+  },
+});
+```
+
+The wrappers compose as `validate input -> authorize -> run -> validate output
+-> audit`: the gate sits inside input validation, so a guard reading `args` gets
+the parsed, coerced value, and auditing is outermost, so denials are recorded.
+
+A guard that throws denies with its own message; returning `false` denies
+generically; anything else (including `undefined`) allows. A guarded action
+needs a user identity, so an unattended CLI/cron caller with no user email is
+denied. `authorize` gates the operation; `accessFilter` / `assertAccess` still
+scope which rows a permitted caller may touch. See the `authentication` skill
+for `defineAppRoles` and the `sharing` skill for row scoping.
+
 ### Human-in-the-Loop Approval (`needsApproval`)
 
 For high-consequence, outward-facing, hard-to-undo actions (sending an email, charging a card, deleting an account), set `needsApproval` so the agent **cannot** run the action without a human approving the specific call:

@@ -162,6 +162,13 @@ const messages = {
   designSystems: {
     new: "新しいデザインシステム",
     setupBrand: "ブランドを設定",
+    delete: "削除",
+    cancel: "キャンセル",
+    moreActions: "その他の操作",
+    deleteDialogTitle: "デザインシステムを削除しますか？",
+    deleteDialogDescription:
+      "デザインシステムを完全に削除します。使用中のデッキは現在の見た目を保ちますが、リンクは解除されます。",
+    deleteError: "デザインシステムを削除できませんでした",
     emptyTitle: "ブランドアイデンティティを設定",
     emptyDescription:
       "ブランドカラー、タイポグラフィ、ロゴを使ってデザインシステムを作成します。新しいデッキはすべてそのビジュアルアイデンティティに従います。",
@@ -257,7 +264,10 @@ const messages = {
     downloadHtml: "HTML としてダウンロード",
     exportPdf: "PDF としてエクスポート",
     exportPptx: "PPTX としてエクスポート",
-    downloadGoogleSlides: "Google Slides 用にダウンロード",
+    openInGoogleSlides: "Google Slides で開く",
+    googleSlidesCreated: "Google Slides で開きました",
+    googleSlidesCreatedHint:
+      "このデッキのコピーを Google ドライブに作成しました。",
     duplicateDeck: "デッキを複製",
   },
   share: {
@@ -463,6 +473,12 @@ const messages = {
     slides: "幻灯片",
   },
   presentation: {
+    presenterView: "発表者ビュー",
+    speakerNotes: "発表者ノート",
+    noNotesForSlide: "このスライドのノートはありません",
+    upNext: "次のスライド",
+    endOfDeck: "スライドの最後です",
+    closePresenterView: "発表者ビューを閉じる",
     noSlides: "没有可演示的幻灯片",
     previousSlide: "上一张幻灯片",
     nextSlide: "下一张幻灯片",
@@ -523,6 +539,7 @@ const messages = {
     builderDesignSystemId: "デザインシステム",
     builderJobId: "Job",
     openInBuilder: "Builder で開く",
+    decodeFailed: "デコードに失敗しました: {{error}}",
     websiteUrl: "Web サイト URL",
     websitePlaceholder: "example.com または Nike",
     add: "追加",

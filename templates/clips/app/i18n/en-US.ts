@@ -926,6 +926,7 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     replyingTo: "Replying to",
     commentAt: "Comment at",
     writeReply: "Write a reply...",
+    editComment: "Edit comment",
     commentButton: "Comment",
     composerPlaceholder: "Add a comment…",
     mentionSomeone: "Mention someone",
@@ -1254,6 +1255,7 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     importLoom: "Import Loom",
     importing: "Importing...",
     import: "Import",
+    recordNew: "Record new",
   },
   playerSettings: {
     title: "Settings",
@@ -1321,12 +1323,31 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     downloadDesktopApp: "Download desktop app",
     technicalDetails: "Technical details",
     whatToCheck: "What to check",
-    downloadRecording: "Download recording",
+    downloadRecording: "Download",
     openRecorderInTab: "Open recorder in tab",
     connectStorageToFinish:
       "Connect storage on the next screen: Builder.io (free tier storage + AI) or S3-compatible storage. Clips will finish saving it.",
     connectStorageToRetryLoom:
       "Connect storage on the next screen: Builder.io (free tier storage + AI) or S3-compatible storage. Clips will retry the import.",
+  },
+  importRoute: {
+    pageTitle: "Import Loom — Clips",
+    title: "Import Loom",
+    urlPlaceholder: "https://www.loom.com/share/...",
+    cta: "Import",
+    helperText:
+      "Works great with Loom. You can also paste a link to any other screen recording or video file.",
+    stageFetching: "Pulling in your video…",
+    stageUploading: "Uploading the raw footage…",
+    stageTranscript: "Making speech and on-screen visuals agent-readable…",
+    stageFinalizing: "Making it Agent-Native…",
+    importingSubtitle:
+      "Turning a flat recording into an Agent-Native primitive.",
+    doneHeading: "And we're done! Your video is now:",
+    benefitTranscript: "Speech & on-screen visuals, fully searchable",
+    benefitQueryable: "Understood & queryable by your agent",
+    benefitSummaries: "Instant summaries and clips on demand",
+    benefitPrimitive: "A first-class Agent-Native primitive",
   },
   dictateRoute: {
     pageTitle: "Dictate · Clips",

@@ -366,7 +366,7 @@ const enUS = {
       uiSurfaces: "UI surfaces",
       i18n: "i18n",
       mcpAuth: "MCP Auth",
-      battleTestedComponents: "Battle-tested building blocks",
+      battleTestedComponents: "Built-in building blocks",
       mcpA2a: "MCP + A2A",
       externalAgents: "External agents",
       a2aHandoffs: "A2A handoffs",
@@ -424,6 +424,18 @@ const enUS = {
     community:
       "Want a blank app instead? Start from scratch with the framework guide.",
     createYourOwn: "Start from scratch",
+    communityTitle: "Community templates",
+    communityDescription:
+      "Independent apps maintained by their authors. Install from a public GitHub repository, or try a hosted version when one is available.",
+    submitCommunityTemplate: "Submit your template",
+    communityEmpty:
+      "Community listings are open. Publish a focused Agent Native app in a public repository and submit it for the catalog.",
+    publishGuide: "Read the publishing guide",
+    communityTrust:
+      "Community templates are third-party code. Review the repository, license, dependencies, and install scripts before running it.",
+    copyCommunityInstallCommand: "Copy install command",
+    viewRepository: "View repository",
+    tryCommunityDemo: "Try demo",
   },
   buildFromScratch: {
     title: "Build from scratch",

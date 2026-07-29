@@ -1496,7 +1496,7 @@ function roundedRectPath(
   h: number,
   r: number,
 ): string {
-  const rad = Math.max(0, Math.min(r, w / 2, h / 2));
+  const rad = Math.max(0, Math.min(Number.isFinite(r) ? r : 0, w / 2, h / 2));
   return [
     `M${x + rad},${y}`,
     `H${x + w - rad}`,
@@ -1522,6 +1522,21 @@ export function hasDrawableRoughBounds(
     Number.isFinite(height) &&
     width > inset * 2 &&
     height > inset * 2
+  );
+}
+
+/** Rough.js recursively flattens paths, so every coordinate must be finite. */
+export function hasDrawableRoughGeometry(
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  inset: number,
+): boolean {
+  return (
+    Number.isFinite(x) &&
+    Number.isFinite(y) &&
+    hasDrawableRoughBounds(width, height, inset)
   );
 }
 
@@ -1661,7 +1676,7 @@ function build(
     const y = (r.top - base.top) / zoom;
     const w = r.width / zoom;
     const h = r.height / zoom;
-    if (!hasDrawableRoughBounds(w, h, 1)) return;
+    if (!hasDrawableRoughGeometry(x, y, w, h, 1)) return;
     const kind = inferRoughKind(node);
     const rawStroke = elementStroke(node, sketch);
     const stroke =

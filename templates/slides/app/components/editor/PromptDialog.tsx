@@ -16,6 +16,20 @@ export interface UploadedFile {
   size: number;
 }
 
+/**
+ * Radix popovers portal to `document.body`, so a mousedown inside the model
+ * picker or attachment menu reads as "outside" any panel that hosts a composer.
+ * Closing on it unmounts the popover before its own click fires, which looks
+ * exactly like a dead button.
+ */
+export function isInsidePortaledLayer(target: EventTarget | null): boolean {
+  return Boolean(
+    (target as Element | null)?.closest?.(
+      "[data-radix-popper-content-wrapper]",
+    ),
+  );
+}
+
 interface PromptPopoverProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -98,6 +112,7 @@ export default function PromptPopover({
   useEffect(() => {
     if (!open) return;
     const handleClick = (e: MouseEvent) => {
+      if (isInsidePortaledLayer(e.target)) return;
       if (
         panelRef.current &&
         !panelRef.current.contains(e.target as Node) &&

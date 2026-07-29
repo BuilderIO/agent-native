@@ -117,3 +117,7 @@ packages/core/corpus.tmp-*/
 
 # Temporary trusted document exports can contain internal workspace content.
 /.tmp-docs-trusted-*/
+
+# Local output of `preview-dashboard-report.ts` — contains real internal
+# analytics data and is meant for local inspection only, never committed.
+.report-preview/

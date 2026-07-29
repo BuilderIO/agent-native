@@ -360,18 +360,22 @@ class AISDKEngine implements AgentEngine {
         // `createProviderModel` forces Chat Completions specifically when
         // `this.baseUrl` is set (many OpenAI-compatible gateways/proxies
         // don't implement Responses — see that comment). In that exact
-        // combination — forced Chat Completions AND tools present — drop
-        // the explicit override and let the model use its default reasoning
-        // behavior instead of hard-failing the whole request; Responses-API
-        // calls (no baseUrl) are unaffected and keep full effort control.
+        // combination — forced Chat Completions AND tools present — send
+        // `"none"` rather than our resolved effort; Responses-API calls (no
+        // baseUrl) are unaffected and keep full effort control.
+        //
+        // Omitting the field does NOT work: OpenAI then applies the model's
+        // own default effort, which is not "none", and rejects the request
+        // exactly the same way. Only the explicit "none" clears it — the
+        // error text spells this out ("or set reasoning_effort to 'none'").
         const forcedChatCompletionsWithTools =
           Boolean(this.baseUrl) && aiSdkTools !== undefined;
-        if (!forcedChatCompletionsWithTools) {
-          providerOpts.openai = {
-            ...((providerOpts.openai as object) ?? {}),
-            reasoningEffort,
-          };
-        }
+        providerOpts.openai = {
+          ...((providerOpts.openai as object) ?? {}),
+          reasoningEffort: forcedChatCompletionsWithTools
+            ? "none"
+            : reasoningEffort,
+        };
       } else if (this.provider === "openrouter") {
         providerOpts.openrouter = {
           ...((providerOpts.openrouter as object) ?? {}),
@@ -494,22 +498,32 @@ class AISDKEngine implements AgentEngine {
       yield bufferedStop ?? { type: "stop", reason: "end_turn" };
     } catch (err: any) {
       const timedOut = firstEventAbort.didTimeout();
+      // AI SDK wraps exhausted retries in RetryError and keeps the final
+      // APICallError on `lastError`. Read classification fields from that
+      // provider error so the retry wrapper does not erase transport status.
+      const providerError =
+        err?.lastError instanceof Error ? err.lastError : err;
       // Surface structured fields from AI SDK's APICallError so
       // isRetryableError can check statusCode/providerRetryable directly
       // rather than keyword-matching the message string.
       const statusCode: number | undefined =
-        typeof err?.statusCode === "number" ? err.statusCode : undefined;
-      const rawMessage: string = err?.message ?? String(err);
+        typeof providerError?.statusCode === "number"
+          ? providerError.statusCode
+          : undefined;
+      const rawMessage: string =
+        providerError?.message ?? String(providerError);
       // Classify on the bare message — the recorded `errorMessage` carries the
       // cause chain, which is where the real transport failure lives.
       const errorMessage = describeErrorWithCauses(err);
+      const normalizedRawMessage = rawMessage.trim().toLowerCase();
       const isConnectionError =
         !timedOut &&
         statusCode === undefined &&
-        rawMessage.trim().toLowerCase() === "connection error.";
+        (normalizedRawMessage === "connection error." ||
+          normalizedRawMessage.startsWith("cannot connect to api:"));
       const providerRetryable: boolean | undefined =
-        typeof err?.isRetryable === "boolean"
-          ? err.isRetryable
+        typeof providerError?.isRetryable === "boolean"
+          ? providerError.isRetryable
           : isConnectionError || timedOut
             ? true
             : undefined;

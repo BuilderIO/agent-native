@@ -1,8 +1,12 @@
 import { createGetDb, getDbExec } from "@agent-native/core/db";
-import { getAppProductionUrl } from "@agent-native/core/server";
+import { organizations } from "@agent-native/core/org";
 import { registerShareableResource } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 
+import {
+  absoluteUrl,
+  recordingShareHeroHtml,
+} from "../lib/share-email-hero.js";
 import * as schema from "./schema.js";
 
 export const getDb = createGetDb(schema);
@@ -22,9 +26,20 @@ async function orgBrandLogoUrl(
     .from(schema.organizationSettings)
     .where(eq(schema.organizationSettings.organizationId, organizationId))
     .limit(1);
-  const logo = row?.brandLogoUrl?.trim();
-  if (!logo) return undefined;
-  return logo.startsWith("/") ? `${getAppProductionUrl()}${logo}` : logo;
+  return absoluteUrl(row?.brandLogoUrl);
+}
+
+/** Show the sharing org's name beside the logo instead of the app name. */
+async function orgBrandName(
+  organizationId: string | undefined,
+): Promise<string | undefined> {
+  if (!organizationId) return undefined;
+  const [row] = await getDb()
+    .select({ name: organizations.name })
+    .from(organizations)
+    .where(eq(organizations.id, organizationId))
+    .limit(1);
+  return row?.name?.trim() || undefined;
 }
 
 registerShareableResource({
@@ -34,8 +49,15 @@ registerShareableResource({
   displayName: "Recording",
   titleColumn: "title",
   getResourcePath: (recording) => `/r/${recording.id}`,
-  getShareEmailLogoUrl: (recording) =>
-    orgBrandLogoUrl(recording.organizationId),
+  getLogoUrl: (recording) => orgBrandLogoUrl(recording.organizationId),
+  getBrandName: (recording) => orgBrandName(recording.organizationId),
+  // Replies reach the person who shared the clip; the sending address stays
+  // the verified one so SPF/DKIM still pass.
+  getSender: (_recording, ctx) => ({
+    fromName: `${ctx.sender.name} via Clips`,
+    replyTo: ctx.sender.email,
+  }),
+  getHeroHtml: (recording, ctx) => recordingShareHeroHtml(recording, ctx),
   getDb,
   ownerAccessIgnoresOrg: true,
 });

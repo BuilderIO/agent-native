@@ -14,6 +14,10 @@ import {
   markDefaultPluginProvided,
 } from "../server/framework-request-handler.js";
 import {
+  listAppRolesHandler,
+  setAppRoleHandler,
+} from "./app-roles-handlers.js";
+import {
   getMyOrgHandler,
   createOrgHandler,
   updateOrgHandler,
@@ -27,6 +31,7 @@ import {
   acceptInvitationHandler,
   joinByDomainHandler,
   setDomainHandler,
+  setWorkspaceUrlHandler,
   revealA2ASecretHandler,
   setA2ASecretHandler,
   syncA2ASecretHandler,
@@ -50,11 +55,14 @@ const ORG_PREFIX = `${FRAMEWORK_PREFIX}/org`;
  *   PUT    /_agent-native/org/switch                      — switch active org
  *   GET    /_agent-native/org/members                     — list members of active org
  *   DELETE /_agent-native/org/members/:email              — remove member (owner/admin only)
+ *   GET    /_agent-native/org/app-roles?appId=X           — app role vocabulary + assignments
+ *   PUT    /_agent-native/org/app-roles/:email            — assign/clear app role (owner/admin)
  *   GET    /_agent-native/org/invitations                 — list pending invites
  *   POST   /_agent-native/org/invitations                 — invite by email
  *   POST   /_agent-native/org/invitations/:id/accept      — accept an invitation
  *   POST   /_agent-native/org/join-by-domain              — join org via email domain match
  *   PUT    /_agent-native/org/domain                      — set/clear allowed email domain (owner/admin)
+ *   PUT    /_agent-native/org/workspace-url               — set/clear the org's workspace origin (owner/admin)
  *   GET    /_agent-native/org/a2a-secret                  — reveal A2A secret on demand (owner/admin)
  *   PUT    /_agent-native/org/a2a-secret                  — regenerate or set A2A secret (owner/admin)
  *   POST   /_agent-native/org/a2a-secret/sync             — push secret to all connected apps (owner/admin)
@@ -79,6 +87,27 @@ export function createOrgPlugin(): NitroPluginDef {
           return { error: "Method not allowed" };
         }
         return getMyOrgHandler(event);
+      }),
+    );
+
+    // /app-roles and /app-roles/:email — per-app role overlay on the roster.
+    app.use(
+      `${ORG_PREFIX}/app-roles`,
+      defineEventHandler(async (event: H3Event) => {
+        const tail = getRequestURL(event).pathname || "/";
+        const method = getMethod(event);
+        if (tail === "" || tail === "/") {
+          if (method !== "GET") {
+            setResponseStatus(event, 405);
+            return { error: "Method not allowed" };
+          }
+          return listAppRolesHandler(event);
+        }
+        if (method !== "PUT") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        return setAppRoleHandler(event);
       }),
     );
 
@@ -221,6 +250,18 @@ export function createOrgPlugin(): NitroPluginDef {
           return { error: "Method not allowed" };
         }
         return setDomainHandler(event);
+      }),
+    );
+
+    // PUT /workspace-url
+    app.use(
+      `${ORG_PREFIX}/workspace-url`,
+      defineEventHandler(async (event: H3Event) => {
+        if (getMethod(event) !== "PUT") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        return setWorkspaceUrlHandler(event);
       }),
     );
 

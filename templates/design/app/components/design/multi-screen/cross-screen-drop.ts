@@ -28,6 +28,41 @@ export function isPortableStyleSnapshot(
   return snapshot.version === 1 && Array.isArray(snapshot.nodes);
 }
 
+export function captureCrossScreenSourceHtmlSnapshot(
+  sourceDocument: Document | null,
+  sourceNodeId: string | undefined,
+): string | undefined {
+  if (!sourceDocument || !sourceNodeId) return undefined;
+  const matches = sourceDocument.querySelectorAll(
+    `[data-agent-native-node-id="${CSS.escape(sourceNodeId)}"]`,
+  );
+  if (matches.length !== 1) return undefined;
+  return matches.item(0)?.outerHTML;
+}
+
+export function validateCrossScreenSourceHtmlSnapshot(
+  snapshot: string,
+  sourceNodeId: string,
+): string | undefined {
+  if (typeof document === "undefined") return undefined;
+  const template = document.createElement("template");
+  template.innerHTML = snapshot.trim();
+  const meaningfulNodes = Array.from(template.content.childNodes).filter(
+    (node) => node.nodeType !== Node.TEXT_NODE || node.textContent?.trim(),
+  );
+  if (
+    meaningfulNodes.length !== 1 ||
+    meaningfulNodes[0]?.nodeType !== Node.ELEMENT_NODE
+  ) {
+    return undefined;
+  }
+  const root = meaningfulNodes[0] as Element;
+  if (root.getAttribute("data-agent-native-node-id") !== sourceNodeId) {
+    return undefined;
+  }
+  return root.outerHTML;
+}
+
 export function isCrossScreenDropPlacement(
   value: unknown,
 ): value is CrossScreenDropPlacement {

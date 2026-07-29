@@ -2,7 +2,7 @@ import type { ActionMcpAppResourceConfig } from "../action.js";
 import { MCP_APP_CHAT_BRIDGE_QUERY_PARAM } from "../shared/embed-auth.js";
 
 const MCP_APP_IMPORT =
-  "https://esm.sh/@modelcontextprotocol/ext-apps@1.7.2/app-with-deps";
+  "https://esm.sh/@modelcontextprotocol/ext-apps@1.7.5/app-with-deps";
 
 export const MCP_APP_REQUEST_ORIGIN_CSP_SOURCE = "$requestOrigin";
 const MCP_APP_WRAPPER_CHROME_HEIGHT = 44;

@@ -38,6 +38,29 @@ describe("renderEmail", () => {
     expect(html).toContain('src="cid:agent-native-logo"');
   });
 
+  it("injects trusted heroHtml above the CTA", () => {
+    const marker = '<div id="custom-hero">preview</div>';
+    const { html } = renderEmail({
+      heading: "Access granted",
+      paragraphs: ["Watch the recording below."],
+      heroHtml: marker,
+      cta: { label: "Open", url: "https://clips.example.com/r/abc" },
+    });
+
+    expect(html).toContain(marker);
+    expect(html.indexOf(marker)).toBeLessThan(
+      html.indexOf("https://clips.example.com/r/abc"),
+    );
+  });
+
+  it("omits the hero when no heroHtml is provided", () => {
+    const { html } = renderEmail({
+      heading: "Access granted",
+      paragraphs: ["No preview here."],
+    });
+
+    expect(html).not.toContain("custom-hero");
+  });
   it("renders CTA buttons without visible fallback URLs", () => {
     const { html } = renderEmail({
       heading: "Your meeting is booked",
@@ -57,5 +80,32 @@ describe("renderEmail", () => {
     expect(html).toMatch(/>\s*Manage booking\s*<\/a>/);
     expect(html).not.toContain("Or paste this link into your browser");
     expect(html).not.toMatch(/>https?:\/\//);
+  });
+
+  it("renders a safe treated link block after the CTA", () => {
+    const url = "https://clips.example/r/rec-1?view=agent&mode=summary";
+    const { html, text } = renderEmail({
+      heading: "Your Clip is ready",
+      paragraphs: ["Open it below."],
+      cta: { label: "Open Clip", url },
+      linkBlock: {
+        intro: "Or feed this link to your AI agent:",
+        url,
+        placement: "after-cta",
+      },
+    });
+
+    expect(html).toContain(
+      'href="https://clips.example/r/rec-1?view=agent&amp;mode=summary"',
+    );
+    expect(html).toContain(
+      ">https://clips.example/r/rec-1?view=agent&amp;mode=summary</a>",
+    );
+    expect(html.indexOf("Or feed this link")).toBeGreaterThan(
+      html.indexOf("Open Clip"),
+    );
+    expect(text).toContain(
+      "Open Clip: https://clips.example/r/rec-1?view=agent&mode=summary\n\nOr feed this link to your AI agent:\nhttps://clips.example/r/rec-1?view=agent&mode=summary",
+    );
   });
 });

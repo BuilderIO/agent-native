@@ -5,6 +5,7 @@ import {
   IconApps,
   IconArrowUpRight,
   IconChevronDown,
+  IconClockHour4,
   IconEyeOff,
   IconPlus,
   IconStack2,
@@ -46,6 +47,7 @@ interface WorkspaceInfo {
 
 export default function AppsRoute() {
   const t = useT();
+  const [showPending, setShowPending] = useState(false);
   const [showHidden, setShowHidden] = useState(false);
   const appsQuery = useActionQuery("list-workspace-apps", {
     includeAgentCards: false,
@@ -68,6 +70,8 @@ export default function AppsRoute() {
     (app) => !app.isDispatch,
   );
   const visibleApps = allApps.filter((app) => !app.archived);
+  const activeApps = visibleApps.filter((app) => app.status !== "pending");
+  const pendingApps = visibleApps.filter((app) => app.status === "pending");
   const archivedApps = allApps.filter((app) => app.archived);
   const otherApps = filterOtherApps(
     (connectedAppsQuery.data || []) as ConnectedAppSummary[],
@@ -118,8 +122,13 @@ export default function AppsRoute() {
                 </h2>
                 <p className="mt-0.5 text-xs text-muted-foreground">
                   {t("dispatch.pages.activeCount", {
-                    count: visibleApps.length,
+                    count: activeApps.length,
                   })}
+                  {pendingApps.length > 0
+                    ? ` · ${t("dispatch.pages.pendingCount", {
+                        count: pendingApps.length,
+                      })}`
+                    : ""}
                   {archivedApps.length > 0
                     ? ` · ${t("dispatch.pages.hiddenCount", {
                         count: archivedApps.length,
@@ -128,7 +137,7 @@ export default function AppsRoute() {
                 </p>
               </div>
             </div>
-            {visibleApps.length > 0 ? (
+            {activeApps.length > 0 || pendingApps.length > 0 ? (
               <CreateAppPopover
                 align="end"
                 trigger={
@@ -148,16 +157,73 @@ export default function AppsRoute() {
             />
           ) : showAppSkeletons ? (
             <AppsSkeletonGrid />
-          ) : visibleApps.length > 0 ? (
+          ) : activeApps.length > 0 ? (
             <div className="grid auto-rows-fr gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {visibleApps.map((app) => (
+              {activeApps.map((app) => (
                 <WorkspaceAppCard key={app.id} app={app} className="h-full" />
               ))}
             </div>
+          ) : pendingApps.length > 0 ? (
+            <EmptyActiveAppsState />
           ) : (
             <EmptyAppsState />
           )}
         </section>
+
+        {pendingApps.length > 0 ? (
+          <Collapsible open={showPending} onOpenChange={setShowPending}>
+            <section className="space-y-3 border-t pt-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-2">
+                  <IconClockHour4
+                    size={16}
+                    className="shrink-0 text-muted-foreground"
+                  />
+                  <div className="min-w-0">
+                    <h2 className="text-sm font-semibold text-foreground">
+                      {t("dispatch.pages.pendingApps")}
+                    </h2>
+                    <p className="text-xs text-muted-foreground">
+                      {t("dispatch.pages.pendingAppsDescription", {
+                        count: pendingApps.length,
+                      })}
+                    </p>
+                  </div>
+                </div>
+                <CollapsibleTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5"
+                  >
+                    {showPending
+                      ? t("dispatch.pages.hidePendingApps")
+                      : t("dispatch.pages.showPendingApps")}
+                    <IconChevronDown
+                      size={14}
+                      className={cn(
+                        "transition-transform",
+                        showPending && "rotate-180",
+                      )}
+                    />
+                  </Button>
+                </CollapsibleTrigger>
+              </div>
+              <CollapsibleContent>
+                <div className="grid auto-rows-fr gap-3 md:grid-cols-2 xl:grid-cols-3">
+                  {pendingApps.map((app) => (
+                    <WorkspaceAppCard
+                      key={app.id}
+                      app={app}
+                      className="h-full"
+                    />
+                  ))}
+                </div>
+              </CollapsibleContent>
+            </section>
+          </Collapsible>
+        ) : null}
 
         {curatedTemplatesQuery.isError ? (
           <section className="space-y-3 border-t pt-4">
@@ -397,6 +463,20 @@ function EmptyAppsState() {
           }
         />
       </div>
+    </div>
+  );
+}
+
+function EmptyActiveAppsState() {
+  const t = useT();
+  return (
+    <div className="rounded-lg border border-dashed bg-card px-4 py-10 text-center">
+      <p className="text-sm font-medium text-foreground">
+        {t("dispatch.pages.noActiveWorkspaceApps")}
+      </p>
+      <p className="mx-auto mt-1 max-w-md text-xs text-muted-foreground">
+        {t("dispatch.pages.noActiveWorkspaceAppsDescription")}
+      </p>
     </div>
   );
 }

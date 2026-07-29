@@ -28,7 +28,10 @@ import { toast } from "sonner";
 
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import { GoogleDocImportHint } from "@/components/editor/GoogleDocImportHint";
-import type { UploadedFile } from "@/components/editor/PromptDialog";
+import {
+  isInsidePortaledLayer,
+  type UploadedFile,
+} from "@/components/editor/PromptDialog";
 import {
   Tooltip,
   TooltipContent,
@@ -366,6 +369,7 @@ function AddSlidePopover({
   useEffect(() => {
     if (!open) return;
     const handleClick = (e: MouseEvent) => {
+      if (isInsidePortaledLayer(e.target)) return;
       if (
         panelRef.current &&
         !panelRef.current.contains(e.target as Node) &&

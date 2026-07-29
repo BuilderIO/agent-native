@@ -3,6 +3,7 @@ import { Outlet, useNavigate } from "react-router";
 
 import { LibraryLayout } from "@/components/library/library-layout";
 import { useAutoTitleBridge } from "@/hooks/use-auto-title";
+import { useTransactionalEmailBridge } from "@/hooks/use-transactional-email-bridge";
 
 function useGlobalSequenceShortcuts() {
   const navigate = useNavigate();
@@ -67,6 +68,7 @@ export default function AppLayoutRoute() {
   // directly; this bridge is how `request-transcript`'s "auto-title when the
   // clip still has the default title" hand-off actually reaches the agent.
   useAutoTitleBridge();
+  useTransactionalEmailBridge();
   // G+L/S/A/T sequence shortcuts for library navigation
   useGlobalSequenceShortcuts();
 

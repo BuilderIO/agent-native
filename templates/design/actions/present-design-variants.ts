@@ -19,6 +19,7 @@ import {
   type CanvasFramePlacement,
 } from "../shared/canvas-frames.js";
 import { isUniqueConstraintViolation } from "../shared/db-conflict.js";
+import { assertDesignHtmlWellFormed } from "../shared/html-integrity.js";
 import { widthToPrefix } from "../shared/responsive-classes.js";
 import {
   getResponsiveGroupWidth,
@@ -867,6 +868,21 @@ export default defineAction({
   },
   run: async ({ designId, prompt, variants, deleteSupersededSetIds }) => {
     await assertAccess("design", designId, "editor");
+
+    // Before any mutation. These are model-authored screens created by raw
+    // insert, so they need the same well-formedness gate as generate-design —
+    // though not its document-shape rules, since a variant may be a sketch with
+    // `<html>`/`<body>` implied. Ordering is the load-bearing part: the
+    // supersession and deletion below are irreversible, so throwing after them
+    // would destroy existing variant sets and create nothing to replace them.
+    for (const variant of variants) {
+      const candidate = variant.content?.trim();
+      if (!candidate) continue;
+      assertDesignHtmlWellFormed({
+        content: annotateScreenHtmlForPersist(candidate, "html"),
+        filename: `variant-${slugify(variant.label.trim(), "option")}.html`,
+      });
+    }
 
     // Non-destructive bookkeeping: flag earlier still-complete variant sets
     // as superseded. Files are NEVER deleted automatically — a user's pick

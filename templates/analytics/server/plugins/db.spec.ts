@@ -177,4 +177,10 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
       /CREATE INDEX IF NOT EXISTS analytics_alert_rules_enabled_eval_idx ON analytics_alert_rules \(enabled, last_status, last_evaluated_at, created_at\)/,
     );
   });
+
+  it("does not scan every dashboard during serverless startup", () => {
+    expect(dbTsSource).not.toContain(
+      "repairUnboundedFirstPartyPanelsAcrossDashboards",
+    );
+  });
 });

@@ -858,6 +858,9 @@ const enUS = {
     githubOAuthUnavailable:
       "OAuth app credentials are not configured on this deployment. Use the personal access token field below.",
     sharedIntegration: "Shared integration",
+    workspaceAdminRequiredTitle: "Organization connection requires an admin",
+    workspaceAdminRequiredDescription:
+      "Ask an organization owner or admin to connect {{name}} for everyone in this organization.",
     sharedReady:
       "Analytics can use this provider through a workspace connection granted from Dispatch.",
     sharedNeedsGrant:
@@ -893,6 +896,9 @@ const enUS = {
     sharedCredentials: "Shared credentials: {{credentials}}",
     ready: "Ready",
     notConfigured: "Not configured",
+    statusUnknown: "Couldn't check connection status",
+    statusUnknownDescription:
+      "The connection status couldn't be read, so this source may already be connected. Reload to check again before adding credentials.",
     back: "Back",
     continue: "Continue",
     saveCredentials: "Save Credentials",
@@ -1322,6 +1328,9 @@ const analyticsSliceTranslations: {
       githubOAuthUnavailable:
         "此部署中未配置 OAuth 应用程序凭据。使用下面的个人访问令牌字段。",
       sharedIntegration: "共享集成",
+      workspaceAdminRequiredTitle: "组织连接需要管理员",
+      workspaceAdminRequiredDescription:
+        "请让组织所有者或管理员为此组织中的所有人连接 {{name}}。",
       sharedReady:
         "Analytics 可以通过 Dispatch 授予的工作空间连接来使用此提供程序。",
       sharedNeedsGrant: "存在工作区连接。打开Dispatch，授予Analytics访问权限。",
@@ -1356,6 +1365,9 @@ const analyticsSliceTranslations: {
       sharedCredentials: "共享凭证：{{credentials}}",
       ready: "准备好",
       notConfigured: "未配置",
+      statusUnknown: "无法检查连接状态",
+      statusUnknownDescription:
+        "无法读取连接状态，此数据源可能已连接。请重新加载页面确认后再添加凭据。",
       back: "后退",
       continue: "继续",
       saveCredentials: "保存凭证",
@@ -1612,6 +1624,10 @@ const analyticsSliceTranslations: {
       githubOAuthUnavailable:
         "Las credenciales de la aplicación OAuth no están configuradas en esta implementación. Utilice el campo de token de acceso personal a continuación.",
       sharedIntegration: "Integración compartida",
+      workspaceAdminRequiredTitle:
+        "La conexión de la organización requiere un administrador",
+      workspaceAdminRequiredDescription:
+        "Pide a un propietario o administrador de la organización que conecte {{name}} para todos.",
       sharedReady:
         "Analytics puede utilizar este proveedor a través de una conexión de espacio de trabajo otorgada por Dispatch.",
       sharedNeedsGrant:
@@ -1648,6 +1664,9 @@ const analyticsSliceTranslations: {
       sharedCredentials: "Credenciales compartidas: {{credentials}}",
       ready: "Listo",
       notConfigured: "No configurado",
+      statusUnknown: "No se pudo comprobar el estado de la conexión",
+      statusUnknownDescription:
+        "No se pudo leer el estado de la conexión, así que esta fuente puede estar ya conectada. Vuelve a cargar la página para comprobarlo antes de añadir credenciales.",
       back: "Atrás",
       continue: "Continuar",
       saveCredentials: "Guardar credenciales",
@@ -1921,6 +1940,10 @@ const analyticsSliceTranslations: {
       githubOAuthUnavailable:
         "Les informations d'identification de l'application OAuth ne sont pas configurées sur ce déploiement. Utilisez le champ du jeton d'accès personnel ci-dessous.",
       sharedIntegration: "Intégration partagée",
+      workspaceAdminRequiredTitle:
+        "La connexion de l’organisation nécessite un administrateur",
+      workspaceAdminRequiredDescription:
+        "Demandez à un propriétaire ou administrateur de l’organisation de connecter {{name}} pour tous.",
       sharedReady:
         "Analytics peut utiliser ce fournisseur via une connexion à l'espace de travail accordée par Dispatch.",
       sharedNeedsGrant:
@@ -1957,6 +1980,9 @@ const analyticsSliceTranslations: {
       sharedCredentials: "Identifiants partagés : {{credentials}}",
       ready: "Prêt",
       notConfigured: "Non configuré",
+      statusUnknown: "Impossible de vérifier l'état de la connexion",
+      statusUnknownDescription:
+        "L'état de la connexion n'a pas pu être lu ; cette source est peut-être déjà connectée. Rechargez la page pour vérifier avant d'ajouter des identifiants.",
       back: "Dos",
       continue: "Continuer",
       saveCredentials: "Enregistrer les informations d'identification",
@@ -2228,6 +2254,10 @@ const analyticsSliceTranslations: {
       githubOAuthUnavailable:
         "Die Anmeldeinformationen für die OAuth-App sind in dieser Bereitstellung nicht konfiguriert. Verwenden Sie das Feld für das persönliche Zugriffstoken unten.",
       sharedIntegration: "Gemeinsame Integration",
+      workspaceAdminRequiredTitle:
+        "Für die Organisationsverbindung ist ein Administrator erforderlich",
+      workspaceAdminRequiredDescription:
+        "Bitte einen Organisationsinhaber oder Administrator, {{name}} für alle zu verbinden.",
       sharedReady:
         "Analytics kann diesen Anbieter über eine von Dispatch gewährte Workspace-Verbindung nutzen.",
       sharedNeedsGrant:
@@ -2264,6 +2294,9 @@ const analyticsSliceTranslations: {
       sharedCredentials: "Gemeinsame Anmeldeinformationen: {{credentials}}",
       ready: "Bereit",
       notConfigured: "Nicht konfiguriert",
+      statusUnknown: "Verbindungsstatus konnte nicht geprüft werden",
+      statusUnknownDescription:
+        "Der Verbindungsstatus konnte nicht gelesen werden, diese Quelle ist möglicherweise bereits verbunden. Lade die Seite neu, um erneut zu prüfen, bevor du Zugangsdaten hinzufügst.",
       back: "Zurück",
       continue: "Weitermachen",
       saveCredentials: "Anmeldeinformationen speichern",
@@ -2533,6 +2566,9 @@ const analyticsSliceTranslations: {
       githubOAuthUnavailable:
         "OAuth アプリの資格情報は、この展開では構成されていません。以下の個人アクセス トークン フィールドを使用してください。",
       sharedIntegration: "共有統合",
+      workspaceAdminRequiredTitle: "組織の接続には管理者が必要です",
+      workspaceAdminRequiredDescription:
+        "組織の所有者または管理者に、組織全体で {{name}} を接続するよう依頼してください。",
       sharedReady:
         "Analytics は、Dispatch から付与されたワークスペース接続を通じてこのプロバイダーを使用できます。",
       sharedNeedsGrant:
@@ -2568,6 +2604,9 @@ const analyticsSliceTranslations: {
       sharedCredentials: "共有資格情報: {{credentials}}",
       ready: "準備ができて",
       notConfigured: "未設定",
+      statusUnknown: "接続状態を確認できませんでした",
+      statusUnknownDescription:
+        "接続状態を読み取れなかったため、このソースはすでに接続されている可能性があります。認証情報を追加する前に、再読み込みして確認してください。",
       back: "戻る",
       continue: "続く",
       saveCredentials: "認証情報の保存",
@@ -2832,6 +2871,9 @@ const analyticsSliceTranslations: {
       githubOAuthUnavailable:
         "이 배포에서는 OAuth 앱 자격 증명이 구성되지 않습니다. 아래의 개인 액세스 토큰 필드를 사용하세요.",
       sharedIntegration: "공유 통합",
+      workspaceAdminRequiredTitle: "조직 연결에는 관리자가 필요합니다",
+      workspaceAdminRequiredDescription:
+        "조직 소유자 또는 관리자에게 조직의 모든 사용자를 위해 {{name}} 연결을 요청하세요.",
       sharedReady:
         "Analytics는 Dispatch에서 부여된 작업 공간 연결을 통해 이 공급자를 사용할 수 있습니다.",
       sharedNeedsGrant:
@@ -2867,6 +2909,9 @@ const analyticsSliceTranslations: {
       sharedCredentials: "공유 자격 증명: {{credentials}}",
       ready: "준비가 된",
       notConfigured: "구성되지 않음",
+      statusUnknown: "연결 상태를 확인할 수 없습니다",
+      statusUnknownDescription:
+        "연결 상태를 읽을 수 없어 이 소스가 이미 연결되어 있을 수 있습니다. 자격 증명을 추가하기 전에 새로 고쳐 다시 확인하세요.",
       back: "뒤쪽에",
       continue: "계속하다",
       saveCredentials: "자격 증명 저장",
@@ -3128,6 +3173,10 @@ const analyticsSliceTranslations: {
       githubOAuthUnavailable:
         "As credenciais do aplicativo OAuth não estão configuradas nesta implantação. Use o campo de token de acesso pessoal abaixo.",
       sharedIntegration: "Integração compartilhada",
+      workspaceAdminRequiredTitle:
+        "A conexão da organização requer um administrador",
+      workspaceAdminRequiredDescription:
+        "Peça a um proprietário ou administrador da organização para conectar {{name}} para todos.",
       sharedReady:
         "Analytics pode usar este provedor por meio de uma conexão de espaço de trabalho concedida pelo Dispatch.",
       sharedNeedsGrant:
@@ -3163,6 +3212,9 @@ const analyticsSliceTranslations: {
       sharedCredentials: "Credenciais compartilhadas: {{credentials}}",
       ready: "Preparar",
       notConfigured: "Não configurado",
+      statusUnknown: "Não foi possível verificar o status da conexão",
+      statusUnknownDescription:
+        "Não foi possível ler o status da conexão, então esta fonte pode já estar conectada. Recarregue a página para verificar antes de adicionar credenciais.",
       back: "Voltar",
       continue: "Continuar",
       saveCredentials: "Salvar credenciais",
@@ -3429,6 +3481,9 @@ const analyticsSliceTranslations: {
       githubOAuthUnavailable:
         "इस परिनियोजन पर OAuth ऐप क्रेडेंशियल कॉन्फ़िगर नहीं किए गए हैं। नीचे व्यक्तिगत एक्सेस टोकन फ़ील्ड का उपयोग करें।",
       sharedIntegration: "साझा एकीकरण",
+      workspaceAdminRequiredTitle: "संगठन कनेक्शन के लिए एडमिन आवश्यक है",
+      workspaceAdminRequiredDescription:
+        "संगठन के मालिक या एडमिन से सभी के लिए {{name}} कनेक्ट करने को कहें।",
       sharedReady:
         "Analytics इस प्रदाता का उपयोग Dispatch से दिए गए कार्यक्षेत्र कनेक्शन के माध्यम से कर सकता है।",
       sharedNeedsGrant:
@@ -3464,6 +3519,9 @@ const analyticsSliceTranslations: {
       sharedCredentials: "साझा क्रेडेंशियल: {{credentials}}",
       ready: "तैयार",
       notConfigured: "कॉन्फ़िगर नहीं किया गया",
+      statusUnknown: "कनेक्शन स्थिति जाँची नहीं जा सकी",
+      statusUnknownDescription:
+        "कनेक्शन स्थिति पढ़ी नहीं जा सकी, इसलिए हो सकता है कि यह स्रोत पहले से जुड़ा हो। क्रेडेंशियल जोड़ने से पहले पेज फिर से लोड करके जाँचें।",
       back: "पीछे",
       continue: "जारी रखना",
       saveCredentials: "क्रेडेंशियल सहेजें",
@@ -3721,6 +3779,9 @@ const analyticsSliceTranslations: {
       githubOAuthUnavailable:
         "لم يتم تكوين بيانات اعتماد تطبيق OAuth في هذا النشر. استخدم حقل رمز الوصول الشخصي أدناه.",
       sharedIntegration: "التكامل المشترك",
+      workspaceAdminRequiredTitle: "يتطلب اتصال المؤسسة مشرفًا",
+      workspaceAdminRequiredDescription:
+        "اطلب من مالك المؤسسة أو أحد المشرفين ربط {{name}} لجميع أعضاء المؤسسة.",
       sharedReady:
         "يمكن لـ Analytics استخدام هذا الموفر من خلال اتصال مساحة العمل الممنوح من Dispatch.",
       sharedNeedsGrant:
@@ -3756,6 +3817,9 @@ const analyticsSliceTranslations: {
       sharedCredentials: "بيانات الاعتماد المشتركة: {{credentials}}",
       ready: "مستعد",
       notConfigured: "لم يتم تكوينه",
+      statusUnknown: "تعذّر التحقق من حالة الاتصال",
+      statusUnknownDescription:
+        "تعذّرت قراءة حالة الاتصال، لذا قد يكون هذا المصدر متصلاً بالفعل. أعد تحميل الصفحة للتحقق قبل إضافة بيانات الاعتماد.",
       back: "خلف",
       continue: "يكمل",
       saveCredentials: "حفظ بيانات الاعتماد",

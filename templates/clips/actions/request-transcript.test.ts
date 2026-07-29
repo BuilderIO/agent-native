@@ -170,6 +170,7 @@ vi.mock("./lib/loom-transcript.js", () => ({
   loomTranscriptUnavailableMessage: () => "Loom transcript unavailable.",
 }));
 
+import { PENDING_TRANSCRIPT_HEARTBEAT_MS } from "../shared/transcript-status";
 import {
   builderTranscriptionTimeoutMs,
   importLoomTranscriptForRecording,
@@ -617,6 +618,77 @@ describe("requestTranscript regeneration", () => {
         failureReason: null,
       }),
     );
+  });
+
+  it("keeps a still-running transcription marked live instead of going stale", async () => {
+    vi.useFakeTimers();
+    try {
+      let finishBuilder: (() => void) | undefined;
+      mockTranscribeWithBuilder.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            finishBuilder = () =>
+              resolve({
+                text: "Long recording transcript.",
+                language: "en",
+                segments: [
+                  {
+                    startMs: 0,
+                    endMs: 1200,
+                    text: "Long recording transcript.",
+                  },
+                ],
+              });
+          }),
+      );
+      mockSelectRows.queue = [
+        [
+          {
+            status: "failed",
+            fullText: "",
+            segmentsJson: "[]",
+            updatedAt: "2026-07-09T00:00:00.000Z",
+            language: "en",
+            retryCount: 0,
+          },
+        ],
+        [{ recordingId: "rec_slow" }],
+        [
+          {
+            videoUrl: "https://cdn.example.com/recording.webm",
+            videoFormat: "webm",
+            hasAudio: true,
+            durationMs: 45 * 60_000,
+            title: "Human title",
+          },
+        ],
+        [{ status: "pending", fullText: "", segmentsJson: "[]" }],
+        [{ recordingId: "rec_slow" }],
+        [{ title: "Human title", titleSource: "manual", description: "Saved" }],
+      ];
+
+      const runPromise = requestTranscript.run({
+        recordingId: "rec_slow",
+        force: true,
+      });
+
+      await vi.advanceTimersByTimeAsync(
+        PENDING_TRANSCRIPT_HEARTBEAT_MS + 1_000,
+      );
+
+      expect(finishBuilder).toBeDefined();
+      expect(
+        mockUpdateSet.mock.calls.some(([patch]) => {
+          const keys = Object.keys(patch as Record<string, unknown>);
+          return keys.length === 1 && keys[0] === "updatedAt";
+        }),
+      ).toBe(true);
+
+      finishBuilder?.();
+      await runPromise;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

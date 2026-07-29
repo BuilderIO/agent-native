@@ -660,12 +660,14 @@ export async function queryFirstPartyAnalytics(
   // org_id/owner_email (see scopeClause) — a cache hit can only ever return
   // rows the same tenant was already entitled to query.
   const cacheKey = firstPartyCacheKey(wrappedSql, scoped.args);
-  const compute = async (): Promise<AnalyticsQueryResult> => {
+  const compute = async (
+    queryTimeoutMs = timeoutMs,
+  ): Promise<AnalyticsQueryResult> => {
     const exec = getDbExec();
     const result = await exec.execute({
       sql: wrappedSql,
       args: scoped.args,
-      timeoutMs,
+      timeoutMs: queryTimeoutMs,
       maxAttempts: 1,
     });
     const rows = result.rows as Record<string, unknown>[];

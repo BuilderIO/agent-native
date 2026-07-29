@@ -162,6 +162,13 @@ const messages = {
   designSystems: {
     new: "Novo sistema de design",
     setupBrand: "Configure sua marca",
+    delete: "Excluir",
+    cancel: "Cancelar",
+    moreActions: "Mais ações",
+    deleteDialogTitle: "Excluir sistema de design?",
+    deleteDialogDescription:
+      "Isso exclui o sistema de design permanentemente. Os decks que o usam mantêm a aparência atual, mas deixam de estar vinculados a ele.",
+    deleteError: "Falha ao excluir o sistema de design",
     emptyTitle: "Configure sua identidade de marca",
     emptyDescription:
       "Crie um sistema de design com as cores, tipografia e logotipos da sua marca. Cada novo deck seguirá sua identidade visual.",
@@ -258,7 +265,10 @@ const messages = {
     downloadHtml: "Baixar como HTML",
     exportPdf: "Exportar como PDF",
     exportPptx: "Exportar como PPTX",
-    downloadGoogleSlides: "Baixar para Google Slides",
+    openInGoogleSlides: "Abrir no Google Slides",
+    googleSlidesCreated: "Aberto no Google Slides",
+    googleSlidesCreatedHint:
+      "Uma cópia desta apresentação foi criada no seu Google Drive.",
     duplicateDeck: "Duplicar deck",
   },
   share: {
@@ -473,6 +483,12 @@ const messages = {
     slides: "Diapositivas",
   },
   presentation: {
+    presenterView: "Modo apresentador",
+    speakerNotes: "Notas do apresentador",
+    noNotesForSlide: "Sem notas para este slide",
+    upNext: "A seguir",
+    endOfDeck: "Fim da apresentação",
+    closePresenterView: "Fechar o modo apresentador",
     noSlides: "No hay diapositivas para presentar",
     previousSlide: "Diapositiva anterior",
     nextSlide: "Siguiente diapositiva",
@@ -537,6 +553,7 @@ const messages = {
     builderDesignSystemId: "Sistema de design",
     builderJobId: "Job",
     openInBuilder: "Abrir no Builder",
+    decodeFailed: "Falha na decodificação: {{error}}",
     websiteUrl: "URL do site",
     websitePlaceholder: "example.com ou Nike",
     add: "Adicionar",

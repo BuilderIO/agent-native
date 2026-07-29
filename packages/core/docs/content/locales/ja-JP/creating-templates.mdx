@@ -495,11 +495,23 @@ export default defineNitroPlugin(() => {
 4. 必要な環境変数とオンボーディング手順を文書化します。
 5. 追跡されるランタイム データ ファイルではなく、追加的な移行を通じてサンプルまたはシード行を含めます。
 
-コミュニティ テンプレートは、GitHub リポジトリから作成できます。
+コミュニティテンプレートは公開 GitHub リポジトリから直接インストールします。Agent Native アプリをリポジトリのルートに配置してください。
 
 ```bash
-npx @agent-native/core@latest create my-app --template github:user/repo
+npx @agent-native/core@latest create my-app --template community:owner/repo
 ```
+
+特定のリビジョンを固定するには `#branch`、`#tag`、または `#commit` を追加します。
+
+```bash
+npx @agent-native/core@latest create my-app --template community:owner/repo#v1.0.0
+```
+
+CLI はソースだけをダウンロードし、依存関係のインストールやテンプレートのスクリプト実行は行いません。コミュニティテンプレートは第三者のコードです。`pnpm install` の前にリポジトリ、ライセンス、依存関係、インストールスクリプトを確認してください。
+
+カタログ掲載には、ルートにある完成したアプリ、ライセンスとセットアップ README のある公開リポジトリ、`@agent-native/core` への依存、成功する型チェックとテストが必要です。ホスト版デモとスクリーンショットは任意です。
+
+リポジトリの準備ができたら[コミュニティテンプレートを申請](https://github.com/BuilderIO/agent-native/issues/new?template=community-template.yml)してください。コミュニティ掲載は公式カタログと分けられ、作者が管理します。
 
 ## フレームワークモノリポジトリへの貢献 {#contributing}
 

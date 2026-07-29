@@ -162,6 +162,13 @@ const messages = {
   designSystems: {
     new: "새 디자인 시스템",
     setupBrand: "브랜드 설정",
+    delete: "삭제",
+    cancel: "취소",
+    moreActions: "추가 작업",
+    deleteDialogTitle: "디자인 시스템을 삭제할까요?",
+    deleteDialogDescription:
+      "디자인 시스템이 영구적으로 삭제됩니다. 이를 사용하는 덱은 현재 모양을 유지하지만 더 이상 연결되지 않습니다.",
+    deleteError: "디자인 시스템을 삭제하지 못했습니다",
     emptyTitle: "브랜드 아이덴티티 설정",
     emptyDescription:
       "브랜드 색상, 타이포그래피, 로고로 디자인 시스템을 만드세요. 새 덱은 모두 이 시각적 정체성을 따릅니다.",
@@ -255,7 +262,9 @@ const messages = {
     downloadHtml: "HTML로 다운로드",
     exportPdf: "PDF로 내보내기",
     exportPptx: "PPTX로 내보내기",
-    downloadGoogleSlides: "Google Slides용 다운로드",
+    openInGoogleSlides: "Google Slides에서 열기",
+    googleSlidesCreated: "Google Slides에서 열었습니다",
+    googleSlidesCreatedHint: "이 덱의 사본이 Google 드라이브에 생성되었습니다.",
     duplicateDeck: "덱 복제",
   },
   share: {
@@ -461,6 +470,12 @@ const messages = {
     slides: "幻灯片",
   },
   presentation: {
+    presenterView: "발표자 보기",
+    speakerNotes: "발표자 노트",
+    noNotesForSlide: "이 슬라이드에는 노트가 없습니다",
+    upNext: "다음 순서",
+    endOfDeck: "덱의 끝",
+    closePresenterView: "발표자 보기 닫기",
     noSlides: "没有可演示的幻灯片",
     previousSlide: "上一张幻灯片",
     nextSlide: "下一张幻灯片",
@@ -519,6 +534,7 @@ const messages = {
     builderDesignSystemId: "디자인 시스템",
     builderJobId: "Job",
     openInBuilder: "Builder에서 열기",
+    decodeFailed: "디코딩 실패: {{error}}",
     websiteUrl: "웹사이트 URL",
     websitePlaceholder: "example.com 또는 Nike",
     add: "추가",

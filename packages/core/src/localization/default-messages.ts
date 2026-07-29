@@ -4,6 +4,9 @@
 // templates ship as verbatim copy-only scaffolding (.ts), so their compiled
 // .js never exists in dist.
 const messages = {
+  workspaceFile: {
+    download: "Download",
+  },
   home: {
     settingsTitle: "Settings",
     settingsDescription: "Language and agent preferences",
@@ -206,6 +209,7 @@ const messages = {
       otherAppsDescription: "Open other apps available to you.",
       availableCount: "{{count}} available",
       activeCount: "{{count}} active",
+      pendingCount: "{{count}} pending",
       hiddenCount: "{{count}} hidden",
       createApp: "Create app",
       templates: "Templates",
@@ -215,6 +219,16 @@ const messages = {
       show: "Show",
       hiddenApps: "Hidden apps",
       hiddenAppCount: "{{count}} hidden apps",
+      pendingApps: "Pending apps",
+      pendingAppsDescription:
+        "{{count}} pending apps are hidden by default. Show them only when you need to inspect work in progress.",
+      showPendingApps: "Show pending apps",
+      hidePendingApps: "Hide pending apps",
+      noActiveWorkspaceApps: "No active workspace apps yet",
+      noActiveWorkspaceAppsDescription:
+        "Pending apps are hidden by default. Expand Pending apps below to inspect them.",
+      appMetadataOwner: "Owner",
+      appMetadataTeams: "Teams",
       workspaceAppFallback: "Workspace App",
       workspaceAppDescription:
         "Open a deployed app or check the status of an app being created.",
@@ -856,8 +870,6 @@ const messages = {
       "This provider usually requires an OAuth setup. Follow the provider docs, or add an Authorization header if your endpoint supports token-based access.",
     personal: "Personal",
     organization: "Organization",
-    orgNoOrg: "Join an organization to share MCP servers",
-    orgAdminOnly: "Only owners and admins can add org-scope servers",
     serverNameRequired: "Enter a server name before connecting with OAuth.",
     serverName: "Server name",
     url: "URL",

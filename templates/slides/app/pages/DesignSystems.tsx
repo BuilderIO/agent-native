@@ -1,4 +1,4 @@
-import { callAction } from "@agent-native/core/client/hooks";
+import { callAction, useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   useSetHeaderActions,
@@ -11,9 +11,20 @@ import {
   IconRefresh,
 } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
+import { toast } from "sonner";
 
 import { DesignSystemCard } from "@/components/design-system/DesignSystemCard";
 import { DesignSystemSetup } from "@/components/design-system/DesignSystemSetup";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { useDesignSystems } from "@/hooks/use-design-systems";
 
@@ -25,6 +36,8 @@ export default function DesignSystems() {
   const { designSystems, isLoading, error, refetch } = useDesignSystems();
   const [showSetup, setShowSetup] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const deleteMutation = useActionMutation("delete-design-system");
 
   const handleCardClick = (id: string) => {
     setEditingId(id);
@@ -49,6 +62,21 @@ export default function DesignSystems() {
   const handleClose = () => {
     setShowSetup(false);
     setEditingId(null);
+  };
+
+  const handleConfirmDelete = () => {
+    if (deleteId === null) return;
+    const id = deleteId;
+    setDeleteId(null);
+    deleteMutation.mutate({ id } as never, {
+      onSuccess: () => refetch(),
+      onError: (err: unknown) => {
+        void refetch();
+        toast.error(t("designSystems.deleteError"), {
+          description: err instanceof Error ? err.message : undefined,
+        });
+      },
+    });
   };
 
   const parseDesignData = (dataStr: string): DesignSystemData | null => {
@@ -172,8 +200,10 @@ export default function DesignSystems() {
                     data={parsed}
                     isDefault={ds.isDefault}
                     visibility={ds.visibility}
+                    canManage={ds.canManage}
                     onClick={() => handleCardClick(ds.id)}
                     onSetDefault={() => handleSetDefault(ds.id)}
+                    onDelete={() => setDeleteId(ds.id)}
                   />
                 );
               })}
@@ -181,6 +211,31 @@ export default function DesignSystems() {
           </>
         )}
       </main>
+
+      <AlertDialog
+        open={deleteId !== null}
+        onOpenChange={(open) => !open && setDeleteId(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("designSystems.deleteDialogTitle")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("designSystems.deleteDialogDescription")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("designSystems.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {t("designSystems.delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Setup/Edit Dialog */}
       <DesignSystemSetup

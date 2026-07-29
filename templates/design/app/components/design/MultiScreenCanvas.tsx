@@ -46,7 +46,6 @@ import {
   type PenPath,
 } from "@shared/pen-path";
 import {
-  IconArrowsMaximize,
   IconCopy,
   IconDots,
   IconHandClick,
@@ -213,6 +212,7 @@ import {
   getActiveScreenIframeId,
   getBreakpointIframeId,
   isBreakpointSelectionTarget,
+  shouldSuppressFrameSelectionBox,
 } from "./multi-screen/iframe-targeting";
 import {
   boardPointToBoardSurfaceLocalPoint,
@@ -266,6 +266,7 @@ import {
   screenLocalRectToBoardGeometry,
 } from "./multi-screen/coordinate-transforms";
 import {
+  captureCrossScreenSourceHtmlSnapshot,
   getCrossScreenDropGuideForHitTest,
   getCrossScreenDropGuideStyle,
   isCrossScreenDropAxis,
@@ -407,6 +408,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   zoom,
   activeId,
   selectedScreenIds,
+  selectedElementScreenId = null,
   hiddenScreenIds = EMPTY_SCREEN_IDS,
   lockedScreenIds = EMPTY_SCREEN_IDS,
   fullViewScreenIds,
@@ -862,6 +864,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     sourceId?: string;
     sourcePointerOffset?: Point;
     sourceElementSize?: { width: number; height: number };
+    sourceHtmlSnapshot?: string;
     styleSnapshot?: PortableStyleSnapshot;
   } | null>(null);
   const crossScreenParentDragCleanupRef = useRef<(() => void) | null>(null);
@@ -2071,6 +2074,38 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       });
     };
 
+    /**
+     * Board-space point for a drag message's own pointer position. Every
+     * phase carries it, so a drop never has to trust a ref that a mid-gesture
+     * re-render or an interleaved message may have cleared — losing the board
+     * point silently loses the whole drop.
+     */
+    const boardPointFromDragMessage = (
+      sourceScreenId: string,
+      iframeX: number,
+      iframeY: number,
+      viewportW: number,
+      viewportH: number,
+    ): Point | null => {
+      if (sourceScreenId === boardFileId) {
+        if (!boardSurfaceRenderGeometry) return null;
+        return boardSurfaceLocalPointToBoardPoint(
+          { x: iframeX, y: iframeY },
+          boardSurfaceRenderGeometry,
+        );
+      }
+      const sourceScreen = screensRef.current.find(
+        (s) => s.id === sourceScreenId,
+      );
+      const sourceGeometry = frameGeometryRef.current[sourceScreenId];
+      if (!sourceScreen || !sourceGeometry) return null;
+      return screenLocalPointToBoardPoint(
+        { x: iframeX, y: iframeY },
+        sourceGeometry,
+        { width: viewportW, height: viewportH },
+      );
+    };
+
     const updateCrossScreenTargetFromBoardPoint = (
       boardPoint: Point,
       sourceScreenId: string,
@@ -2135,10 +2170,17 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         selector: string;
         sourceId?: string;
         sourcePointerOffset?: Point;
+        sourceHtmlSnapshot?: string;
         styleSnapshot?: PortableStyleSnapshot;
       },
       lastBoardPoint: Point | null,
     ) => {
+      dndHostLog("overview:finalize", {
+        sourceScreenId,
+        candidate: candidate?.id ?? null,
+        lastBoardPoint,
+        selector: payload.selector,
+      });
       clearCrossScreenDrag();
       crossScreenLastBoardPointRef.current = null;
       const hasIdentifier = !!(payload.selector || payload.sourceId);
@@ -2187,6 +2229,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                     )
                   : lastBoardPoint,
               sourcePointerOffset: payload.sourcePointerOffset,
+              sourceHtmlSnapshot: payload.sourceHtmlSnapshot,
               styleSnapshot: payload.styleSnapshot,
             });
           },
@@ -2228,6 +2271,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             targetCanvasPoint: lastBoardPoint,
             targetLocalPoint: targetLocalPoint ?? undefined,
             sourcePointerOffset: payload.sourcePointerOffset,
+            sourceHtmlSnapshot: payload.sourceHtmlSnapshot,
             styleSnapshot: payload.styleSnapshot,
           });
         },
@@ -2317,6 +2361,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         clearCrossScreenDrag();
         return;
       }
+      const sourceHtmlSnapshot =
+        sourceScreenId === boardFileId
+          ? captureCrossScreenSourceHtmlSnapshot(
+              sourcePreviewIframe.contentDocument,
+              msg.sourceId,
+            )
+          : undefined;
 
       if (msg.phase !== "move") {
         dndHostLog("overview:cross-screen", {
@@ -2332,11 +2383,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           sourceId: msg.sourceId,
           sourcePointerOffset,
           sourceElementSize,
+          sourceHtmlSnapshot,
           styleSnapshot,
         };
         stopParentCrossScreenDrag();
         const restorePreviewPointerEvents = mutePreviewIframePointerEvents(
           surfaceRef.current,
+          sourcePreviewIframe,
         );
         let didCleanup = false;
         const cancelPendingParentDrag = () => {
@@ -2391,6 +2444,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             sourceId: msg.sourceId,
             sourcePointerOffset,
             sourceElementSize,
+            sourceHtmlSnapshot,
             styleSnapshot,
           };
           const lastBoardPoint = crossScreenLastBoardPointRef.current;
@@ -2455,13 +2509,16 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         // path where "start" itself didn't have one yet.
         crossScreenDragMsgRef.current = {
           selector: selector ?? "",
-          sourceId,
+          sourceId: sourceId ?? crossScreenDragMsgRef.current?.sourceId,
           sourcePointerOffset:
             crossScreenDragMsgRef.current?.sourcePointerOffset ??
             sourcePointerOffset,
           sourceElementSize:
             sourceElementSize ??
             crossScreenDragMsgRef.current?.sourceElementSize,
+          sourceHtmlSnapshot:
+            sourceHtmlSnapshot ??
+            crossScreenDragMsgRef.current?.sourceHtmlSnapshot,
           styleSnapshot:
             styleSnapshot ?? crossScreenDragMsgRef.current?.styleSnapshot,
         };
@@ -2492,44 +2549,26 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         // viewport from the bridge. In overview, the iframe viewport may be the
         // frame geometry rather than the screen metadata width.
 
-        let boardX: number;
-        let boardY: number;
-
-        if (sourceScreenId === boardFileId && boardSurfaceRenderGeometry) {
-          // The board iframe is pixel-exact: 1 iframe pixel == 1 canvas unit.
-          // Its finite paint window can start anywhere within the much larger
-          // logical board, so add the render origin (not the logical board's
-          // fixed -65536 origin) to recover persisted canvas coordinates.
-          const boardPoint = boardSurfaceLocalPointToBoardPoint(
-            { x: iframeX, y: iframeY },
-            boardSurfaceRenderGeometry,
-          );
-          boardX = boardPoint.x;
-          boardY = boardPoint.y;
-        } else {
-          const sourceScreen = screensRef.current.find(
-            (s) => s.id === sourceScreenId,
-          );
-          const sourceGeometry = frameGeometryRef.current[sourceScreenId];
-          if (!sourceScreen || !sourceGeometry) {
-            clearCrossScreenDrag();
-            return;
-          }
-          const boardPoint = screenLocalPointToBoardPoint(
-            { x: iframeX, y: iframeY },
-            sourceGeometry,
-            { width: viewportW, height: viewportH },
-          );
-          boardX = boardPoint.x;
-          boardY = boardPoint.y;
+        // The board iframe is pixel-exact: 1 iframe pixel == 1 canvas unit.
+        // Its finite paint window can start anywhere within the much larger
+        // logical board, so the helper adds the render origin (not the logical
+        // board's fixed -65536 origin) to recover persisted canvas coords.
+        const boardPoint = boardPointFromDragMessage(
+          sourceScreenId,
+          iframeX,
+          iframeY,
+          viewportW,
+          viewportH,
+        );
+        if (!boardPoint) {
+          clearCrossScreenDrag();
+          return;
         }
-        const boardPoint = { x: boardX, y: boardY };
         updateCrossScreenTargetFromBoardPoint(boardPoint, sourceScreenId);
         return;
       }
 
       if (msg.phase === "end") {
-        const candidate = crossScreenTargetRef.current;
         // Use the saved payload from the last "move" as the primary source of
         // truth; fall back to the "end" message's own fields in case the ref
         // was cleared (e.g. a brief re-entry into the source iframe nulled it
@@ -2539,9 +2578,31 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           sourceId: msg.sourceId,
           sourcePointerOffset,
           sourceElementSize,
+          sourceHtmlSnapshot,
           styleSnapshot,
         };
-        const lastBoardPoint = crossScreenLastBoardPointRef.current;
+        // Derive the release point from THIS message before falling back to
+        // the refs the "move" phase maintained. The refs are cleared by any
+        // cancel/blur/re-render that lands between the last move and the
+        // release, and a drop that reads them empty returns silently — the
+        // whole gesture vanishes with the element back on the board and no
+        // error anywhere. The end message always describes its own pointer.
+        const lastBoardPoint =
+          boardPointFromDragMessage(
+            sourceScreenId,
+            msg.iframeX ?? 0,
+            msg.iframeY ?? 0,
+            msg.viewportW ?? 0,
+            msg.viewportH ?? 0,
+          ) ?? crossScreenLastBoardPointRef.current;
+        const targetAtRelease = lastBoardPoint
+          ? getFrameEntryAtPoint(lastBoardPoint)
+          : null;
+        const candidate =
+          crossScreenTargetRef.current ??
+          (targetAtRelease && targetAtRelease.id !== sourceScreenId
+            ? { id: targetAtRelease.id, geometry: targetAtRelease.geometry }
+            : null);
         finalizeCrossScreenDrop(
           sourceScreenId,
           candidate,
@@ -2553,7 +2614,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
     window.addEventListener("message", handleMessage);
     return () => {
-      stopParentCrossScreenDrag();
       window.removeEventListener("message", handleMessage);
     };
   }, [
@@ -2566,6 +2626,21 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     getResolvedMetadata,
     onCrossScreenElementDrop,
   ]);
+
+  // Unmount only — deliberately NOT part of the message effect's cleanup
+  // above. That effect re-subscribes whenever its deps change, which happens
+  // several times during a single drag, and running the parent-drag teardown
+  // there restores the preview iframes' pointer-events mid-gesture. The
+  // pointer then falls into a live cross-origin screen iframe, the source
+  // bridge stops receiving the drag, and the gesture dies with nothing
+  // dropped and no error.
+  useEffect(
+    () => () => {
+      crossScreenParentDragCleanupRef.current?.();
+      crossScreenParentDragCleanupRef.current = null;
+    },
+    [],
+  );
 
   const deleteSelectedItems = useCallback(() => {
     if (readOnly) return false;
@@ -7569,9 +7644,17 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     ? canvasFrames.find((entry) => entry.screen.id === singleSelectedFrame.id)
         ?.screen
     : undefined;
+  // Overview element selection (a Layers-panel row or an in-canvas click
+  // resolving to a specific node) also suppresses the frame box: the parent
+  // still carries the screen in `selectedIds` (other UI — z-order, "topmost
+  // screen" — depends on that), but the frame's own bounds are the wrong
+  // outline for an element selection. See shouldSuppressFrameSelectionBox.
   const suppressBaseSelectionBox = Boolean(
     singleSelectedFrameScreen &&
-    isBreakpointSelectionTarget(singleSelectedFrameScreen),
+    shouldSuppressFrameSelectionBox(
+      singleSelectedFrameScreen,
+      selectedElementScreenId,
+    ),
   );
   const singleSelectedDraft =
     selectedDraftEntries.length === 1 && !selectedDraftGroupBounds
@@ -7817,7 +7900,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               showFullView={fullViewIdSet.has(screen.id)}
               pendingReview={pendingReviewScreenIdSet.has(screen.id)}
               onReviewPendingScreen={onReviewPendingScreen}
-              interactMode={interactMode}
               isDirectlyHovered={screen.id === directlyHoveredScreenId}
               isFileDragOver={
                 fileDragOverFrameId !== null &&
@@ -9126,7 +9208,6 @@ interface ScreenProps {
   showFullView: boolean;
   pendingReview: boolean;
   onReviewPendingScreen?: (screenId: string) => void;
-  interactMode: boolean;
   readOnly: boolean;
   isDirectlyHovered: boolean;
   /** True while a native OS file drag is hovering this frame (Figma parity §1). */
@@ -9198,7 +9279,6 @@ const Screen = memo(function Screen({
   showFullView,
   pendingReview,
   onReviewPendingScreen,
-  interactMode,
   readOnly,
   isDirectlyHovered,
   isFileDragOver,
@@ -9304,9 +9384,7 @@ const Screen = memo(function Screen({
   // cover one another. Narrow frames collapse the action to its familiar icon;
   // the accessible name and native tooltip preserve the action's meaning.
   const compactFullView = frameScreenWidth < FRAME_HEADER_BUTTON_COMPACT_WIDTH;
-  const frameActionLabel = interactMode
-    ? t("multiScreenCanvas.fullView")
-    : t("designEditor.modes.interact");
+  const frameActionLabel = t("designEditor.modes.interact");
   const labelInfoMaxWidth = Math.max(
     64,
     frameScreenWidth -
@@ -9474,11 +9552,7 @@ const Screen = memo(function Screen({
           onMouseEnter={() => updateDirectHover(true)}
           onMouseLeave={() => updateDirectHover(false)}
         >
-          {interactMode ? (
-            <IconArrowsMaximize className="size-3 shrink-0" />
-          ) : (
-            <IconHandClick className="size-3 shrink-0" />
-          )}
+          <IconHandClick className="size-3 shrink-0" />
           <span className={cn("truncate", compactFullView && "sr-only")}>
             {frameActionLabel}
           </span>
@@ -9715,7 +9789,6 @@ const Screen = memo(function Screen({
           renderBreakpointContent={renderBreakpointContent}
           activeBreakpointWidth={screen.activeBreakpointWidth}
           isScreenSelected={isSelected}
-          interactMode={interactMode}
           penActive={penActive}
           creationToolActive={creationToolActive}
           cullTier={cullTier}
@@ -9861,7 +9934,6 @@ function BreakpointPreviewRow({
   renderBreakpointContent,
   activeBreakpointWidth,
   isScreenSelected,
-  interactMode,
   penActive,
   creationToolActive,
   cullTier,
@@ -9905,7 +9977,6 @@ function BreakpointPreviewRow({
    *  mirrors `Screen`'s own `isSelected`, used so a breakpoint frame's chrome
    *  reads as "part of a selected group" the same way the base frame does. */
   isScreenSelected: boolean;
-  interactMode: boolean;
   penActive: boolean;
   creationToolActive: boolean;
   /** Uses the owning screen's exact culling lifecycle: never-seen/evicted
@@ -9942,9 +10013,7 @@ function BreakpointPreviewRow({
   canEdit?: boolean;
 }) {
   const t = useT();
-  const frameActionLabel = interactMode
-    ? t("multiScreenCanvas.fullView")
-    : t("designEditor.modes.interact");
+  const frameActionLabel = t("designEditor.modes.interact");
   const breakpointWidths = visibleBreakpointWidths(
     screen.breakpointWidths,
     // Immutable device width, not the resizable box width (see frame-geometry).
@@ -10263,11 +10332,7 @@ function BreakpointPreviewRow({
                     e.stopPropagation();
                   }}
                 >
-                  {interactMode ? (
-                    <IconArrowsMaximize className="size-3" />
-                  ) : (
-                    <IconHandClick className="size-3" />
-                  )}
+                  <IconHandClick className="size-3" />
                 </button>
               ) : null}
               <span
@@ -10916,12 +10981,24 @@ function isInteractiveScreenContentTarget(target: EventTarget | null) {
   );
 }
 
-function mutePreviewIframePointerEvents(root: HTMLElement | null) {
+/**
+ * `except` (the iframe a cross-screen drag STARTED in) must keep its pointer
+ * events: its bridge owns the gesture — the lift visual, the move/end posts
+ * this canvas finalizes on — and muting it hands the whole event stream to the
+ * parent mid-drag, which silently drops the drop. Every OTHER preview iframe
+ * still gets muted, which is the point: an unmuted cross-origin screen frame
+ * swallows the pointer the moment the drag crosses into it.
+ */
+function mutePreviewIframePointerEvents(
+  root: HTMLElement | null,
+  except?: HTMLIFrameElement | null,
+) {
   if (!root) return () => {};
   const previous = new Map<HTMLIFrameElement, string>();
   root
     .querySelectorAll<HTMLIFrameElement>("[data-design-preview-iframe]")
     .forEach((iframe) => {
+      if (iframe === except) return;
       previous.set(iframe, iframe.style.pointerEvents);
       iframe.style.pointerEvents = "none";
     });
