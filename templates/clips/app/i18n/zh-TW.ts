@@ -883,6 +883,7 @@ const messages = {
     replyingTo: "正在回覆",
     commentAt: "評論於",
     writeReply: "寫回覆...",
+    editComment: "編輯評論",
     commentButton: "留言",
     composerPlaceholder: "新增留言…",
     mentionSomeone: "提及某人",
@@ -1266,7 +1267,7 @@ const messages = {
     downloadDesktopApp: "下載桌面應用程式",
     technicalDetails: "技術詳細資料",
     whatToCheck: "檢查項目",
-    downloadRecording: "下載錄製",
+    downloadRecording: "下載",
     openRecorderInTab: "在分頁中開啟錄製工具",
     connectStorageToFinish:
       "在下一個畫面連線儲存：Builder.io（免費方案儲存 + AI）或 S3 相容儲存。Clips 將完成儲存。",

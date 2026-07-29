@@ -890,6 +890,7 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     replyingTo: "正在回复",
     commentAt: "评论于",
     writeReply: "写回复...",
+    editComment: "编辑评论",
     commentButton: "评论",
     composerPlaceholder: "添加评论…",
     mentionSomeone: "提及某人",
@@ -1287,7 +1288,7 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     downloadDesktopApp: "Download desktop app (已本地化)",
     technicalDetails: "Technical details (已本地化)",
     whatToCheck: "What to check (已本地化)",
-    downloadRecording: "Download recording (已本地化)",
+    downloadRecording: "Download (已本地化)",
     openRecorderInTab: "Open recorder in tab (已本地化)",
     connectStorageToFinish:
       "在下一屏连接存储：Builder.io（免费套餐存储 + AI）或 S3 兼容存储。Clips 将完成保存。",

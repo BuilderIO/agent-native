@@ -11,6 +11,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { oauthRedirectUri } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
+import { useOrgRole } from "@agent-native/core/client/org";
 import {
   IconCheck,
   IconChevronDown,
@@ -33,6 +34,7 @@ import {
 } from "@tabler/icons-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import { Link, useSearchParams } from "react-router";
 
 import {
   AlertDialog,
@@ -68,11 +70,17 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { getIdToken } from "@/lib/auth";
 import {
+  dataSourceOAuthReturnPath,
+  focusedDataSourceFromSearchParams,
   getOptionalCredentialKeys,
   getSharedConnectionStatus,
   getGoogleDriveConnection,
+  isWorkspaceOAuthSource,
   isSourceReady,
   isSourceLocallyConfigured,
+  shouldOfferWorkspaceOAuthReconnect,
+  shouldShowWorkspaceOAuthAdminNotice,
+  shouldShowWorkspaceOAuthSetup,
   credentialRowsFromStatus,
   type DataSourceStatusResponse,
   type EnvKeyStatus,
@@ -432,27 +440,30 @@ function GitHubOAuthView({
   );
 }
 
+function startWorkspaceOAuth(provider: string, returnPath: string): void {
+  const params = new URLSearchParams({
+    appId: "analytics",
+    return: returnPath,
+  });
+  window.location.assign(
+    agentNativePath(
+      `/_agent-native/connections/oauth/${provider}/start?${params.toString()}`,
+    ),
+  );
+}
+
 function WorkspaceOAuthView({
   provider,
   label,
   connected,
+  returnPath = "/data-sources",
 }: {
   provider: string;
   label: string;
   connected: boolean;
+  returnPath?: string;
 }) {
   const t = useT();
-  const connect = () => {
-    const params = new URLSearchParams({
-      appId: "analytics",
-      return: "/data-sources",
-    });
-    window.location.assign(
-      agentNativePath(
-        `/_agent-native/connections/oauth/${provider}/start?${params.toString()}`,
-      ),
-    );
-  };
 
   return (
     <div className="space-y-3 rounded-md border border-border/50 bg-muted/20 p-3">
@@ -471,7 +482,7 @@ function WorkspaceOAuthView({
         <Button
           size="sm"
           variant={connected ? "outline" : "default"}
-          onClick={connect}
+          onClick={() => startWorkspaceOAuth(provider, returnPath)}
           className="shrink-0 text-xs"
         >
           {connected ? t("dataSources.reconnect") : t("dataSources.connect")}
@@ -574,10 +585,16 @@ function SharedConnectionStatusRow({
 
 function WorkspaceReadyView({
   source,
+  sharedConnectionStatus,
+  canManageOrg,
+  oauthReturnPath,
   onSaved,
   onAddLocalCredentials,
 }: {
   source: DataSource;
+  sharedConnectionStatus: SharedConnectionStatus | null;
+  canManageOrg: boolean;
+  oauthReturnPath: string;
   onSaved: () => void;
   onAddLocalCredentials: () => void;
 }) {
@@ -594,6 +611,12 @@ function WorkspaceReadyView({
       onSaved();
     },
   });
+  const canReconnect = shouldOfferWorkspaceOAuthReconnect(
+    source,
+    sharedConnectionStatus,
+    canManageOrg,
+    testResult?.ok === false,
+  );
 
   return (
     <div className="space-y-3">
@@ -628,6 +651,16 @@ function WorkspaceReadyView({
         >
           {t("dataSources.addLocalCredentials")}
         </Button>
+        {canReconnect && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => startWorkspaceOAuth(source.id, oauthReturnPath)}
+            className="text-xs"
+          >
+            {t("dataSources.reconnect")}
+          </Button>
+        )}
         {source.docsUrl && (
           <a
             href={source.docsUrl}
@@ -1101,6 +1134,12 @@ function DataSourceCard({
   envStatus,
   isStatusLoading,
   statusUnknown,
+  canManageOrg,
+  orgLoaded,
+  hasOrg,
+  focused,
+  oauthReturnPath,
+  showAskContinuation,
   onSaved,
 }: {
   source: DataSource;
@@ -1110,10 +1149,16 @@ function DataSourceCard({
   envStatus: EnvKeyStatus[];
   isStatusLoading: boolean;
   statusUnknown: boolean;
+  canManageOrg: boolean;
+  orgLoaded: boolean;
+  hasOrg: boolean;
+  focused: boolean;
+  oauthReturnPath: string;
+  showAskContinuation: boolean;
   onSaved: () => void;
 }) {
   const t = useT();
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(focused);
   const [currentStep, setCurrentStep] = useState(0);
   const [inputValues, setInputValues] = useState<Record<string, string>>({});
   const [showLocalCredentials, setShowLocalCredentials] = useState(false);
@@ -1138,12 +1183,26 @@ function DataSourceCard({
   const readyViaWorkspace = sharedConnectionStatus?.kind === "ready";
   const showCredentialSetup =
     !locallyConfigured && (!readyViaWorkspace || showLocalCredentials);
+  const preferWorkspaceSetup =
+    isWorkspaceOAuthSource(source) &&
+    !locallyConfigured &&
+    !readyViaWorkspace &&
+    !showLocalCredentials;
+  const workspaceRoleLoading =
+    isWorkspaceOAuthSource(source) && !ready && !orgLoaded;
   // An unreadable status cannot tell this source apart from an unconfigured
   // one, so the setup walkthrough would be guessing.
   const showUnknownStatus = statusUnknown && !ready && !showLocalCredentials;
 
+  useEffect(() => {
+    if (focused) setExpanded(true);
+  }, [focused]);
+
   return (
-    <Card className="data-source-card bg-card border-border/50">
+    <Card
+      id={`data-source-${source.id}`}
+      className="data-source-card bg-card border-border/50"
+    >
       <button
         onClick={() => setExpanded(!expanded)}
         className="w-full rounded-t-lg text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
@@ -1220,6 +1279,17 @@ function DataSourceCard({
 
       {expanded && !showUnknownStatus && (
         <CardContent className="border-t border-border/50 px-5 py-4">
+          {focused && ready && showAskContinuation && (
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3">
+              <span className="flex items-center gap-2 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                <IconCheck className="h-3.5 w-3.5" />
+                {t("dataSources.connectionSuccessful")}
+              </span>
+              <Button asChild size="sm" className="text-xs">
+                <Link to="/ask">{t("navigation.ask")}</Link>
+              </Button>
+            </div>
+          )}
           {source.id === "github" && (
             <div className="mb-4">
               <GitHubOAuthView
@@ -1228,20 +1298,50 @@ function DataSourceCard({
               />
             </div>
           )}
-          {(["notion", "hubspot", "jira", "sentry"] as const).includes(
-            source.id as "notion" | "hubspot" | "jira" | "sentry",
+          {shouldShowWorkspaceOAuthSetup(
+            source,
+            sharedConnectionStatus,
+            canManageOrg,
           ) && (
             <div className="mb-4">
               <WorkspaceOAuthView
                 provider={source.id}
                 label={source.name}
-                connected={readyViaWorkspace}
+                connected={sharedConnectionStatus?.kind === "needs_grant"}
+                returnPath={oauthReturnPath}
               />
             </div>
           )}
-          {sharedConnectionStatus && (
-            <SharedConnectionStatusRow status={sharedConnectionStatus} />
+          {shouldShowWorkspaceOAuthAdminNotice(
+            source,
+            ready,
+            canManageOrg,
+            orgLoaded,
+            hasOrg,
+          ) && (
+            <div className="mb-4 rounded-md border border-border/50 bg-muted/20 p-3">
+              <div className="flex items-start gap-3">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-background text-muted-foreground">
+                  <IconPlugConnected className="h-4 w-4" />
+                </div>
+                <div className="min-w-0 space-y-1">
+                  <p className="text-xs font-medium text-foreground">
+                    {t("dataSources.workspaceAdminRequiredTitle")}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {t("dataSources.workspaceAdminRequiredDescription", {
+                      name: source.name,
+                    })}
+                  </p>
+                </div>
+              </div>
+            </div>
           )}
+          {sharedConnectionStatus &&
+            sharedConnectionStatus.kind !== "needs_credentials" &&
+            sharedConnectionStatus.kind !== "needs_grant" && (
+              <SharedConnectionStatusRow status={sharedConnectionStatus} />
+            )}
           {locallyConfigured ? (
             <ConnectedView
               source={source}
@@ -1251,9 +1351,23 @@ function DataSourceCard({
           ) : readyViaWorkspace && !showCredentialSetup ? (
             <WorkspaceReadyView
               source={source}
+              sharedConnectionStatus={sharedConnectionStatus}
+              canManageOrg={canManageOrg}
+              oauthReturnPath={oauthReturnPath}
               onSaved={onSaved}
               onAddLocalCredentials={() => setShowLocalCredentials(true)}
             />
+          ) : workspaceRoleLoading ? (
+            <Skeleton className="h-9 w-full rounded-md" />
+          ) : preferWorkspaceSetup ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setShowLocalCredentials(true)}
+              className="text-xs"
+            >
+              {t("dataSources.addLocalCredentials")}
+            </Button>
           ) : (
             <>
               {/* Step progress */}
@@ -1726,8 +1840,34 @@ function FirstPartyAnalyticsCard() {
 
 export default function DataSources() {
   const t = useT();
+  const { canManageOrg, isLoading: isOrgRoleLoading, org } = useOrgRole();
+  const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
-  const [search, setSearch] = useState("");
+  const focusedSourceResolution =
+    focusedDataSourceFromSearchParams(searchParams);
+  const focusedSource =
+    focusedSourceResolution.status === "found"
+      ? focusedSourceResolution.source
+      : undefined;
+  const unknownFocusedSourceId =
+    focusedSourceResolution.status === "unknown"
+      ? focusedSourceResolution.requestedId
+      : null;
+  const focusedSourceId = focusedSource?.id ?? "";
+  const showAskContinuation = searchParams.get("returnTo") === "ask";
+  const [search, setSearch] = useState(() => focusedSource?.name ?? "");
+  const oauthReturnPath = dataSourceOAuthReturnPath(
+    focusedSource,
+    showAskContinuation,
+  );
+
+  useEffect(() => {
+    if (focusedSource) {
+      setSearch(focusedSource.name);
+    } else if (unknownFocusedSourceId) {
+      setSearch("");
+    }
+  }, [focusedSource, unknownFocusedSourceId]);
 
   const {
     data: rawStatusData,
@@ -1798,6 +1938,18 @@ export default function DataSources() {
 
       <GoogleSheetsExportCard statusData={statusData} />
 
+      {unknownFocusedSourceId && (
+        <div
+          role="status"
+          className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300"
+        >
+          <IconAlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>
+            {t("dataSources.noMatch", { search: unknownFocusedSourceId })}
+          </span>
+        </div>
+      )}
+
       {/* Search bar + Add Data Source */}
       <div className="data-sources-toolbar">
         <div className="relative min-w-0 flex-1">
@@ -1836,6 +1988,12 @@ export default function DataSources() {
                 envStatus={envStatus}
                 isStatusLoading={isStatusLoading}
                 statusUnknown={statusUnknown}
+                canManageOrg={canManageOrg}
+                orgLoaded={!isOrgRoleLoading}
+                hasOrg={Boolean(org?.orgId)}
+                focused={source.id === focusedSourceId}
+                oauthReturnPath={oauthReturnPath}
+                showAskContinuation={showAskContinuation}
                 onSaved={handleSaved}
               />
             ))}
@@ -1874,6 +2032,12 @@ export default function DataSources() {
                     envStatus={envStatus}
                     isStatusLoading={isStatusLoading}
                     statusUnknown={statusUnknown}
+                    canManageOrg={canManageOrg}
+                    orgLoaded={!isOrgRoleLoading}
+                    hasOrg={Boolean(org?.orgId)}
+                    focused={source.id === focusedSourceId}
+                    oauthReturnPath={oauthReturnPath}
+                    showAskContinuation={showAskContinuation}
                     onSaved={handleSaved}
                   />
                 ))}

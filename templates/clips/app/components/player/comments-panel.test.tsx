@@ -9,6 +9,7 @@ import { type Comment, CommentsPanel } from "./comments-panel";
 
 const actionMocks = vi.hoisted(() => ({
   addComment: vi.fn(),
+  updateComment: vi.fn(),
   otherMutation: vi.fn(),
 }));
 
@@ -19,7 +20,9 @@ vi.mock("@agent-native/core/client/hooks", () => ({
     mutate:
       name === "add-comment"
         ? actionMocks.addComment
-        : actionMocks.otherMutation,
+        : name === "update-comment"
+          ? actionMocks.updateComment
+          : actionMocks.otherMutation,
   }),
 }));
 
@@ -53,19 +56,27 @@ function setTextareaValue(element: HTMLTextAreaElement, value: string) {
   );
 }
 
+async function openMenu(trigger: HTMLButtonElement | null) {
+  expect(trigger).not.toBeNull();
+  trigger?.focus();
+  await act(async () => {
+    trigger?.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "ArrowDown",
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await Promise.resolve();
+  });
+}
+
 describe("CommentsPanel reply composer", () => {
   let container: HTMLDivElement;
   let root: Root;
+  let queryClient: QueryClient;
 
-  beforeEach(() => {
-    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-    container = document.createElement("div");
-    document.body.appendChild(container);
-    root = createRoot(container);
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    });
-
+  function renderPanel(currentUserEmail = "viewer@example.com") {
     act(() => {
       root.render(
         <QueryClientProvider client={queryClient}>
@@ -73,7 +84,7 @@ describe("CommentsPanel reply composer", () => {
             recordingId="recording-1"
             comments={[rootComment]}
             currentMs={34_000}
-            currentUserEmail="viewer@example.com"
+            currentUserEmail={currentUserEmail}
             enableComments
             onSeek={vi.fn()}
             queryKey={["recording", "recording-1"]}
@@ -82,6 +93,17 @@ describe("CommentsPanel reply composer", () => {
         </QueryClientProvider>,
       );
     });
+  }
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    renderPanel();
   });
 
   afterEach(() => {
@@ -169,5 +191,81 @@ describe("CommentsPanel reply composer", () => {
       threadId: "thread-1",
       parentId: "comment-1",
     });
+  });
+
+  it("only offers comment editing to the comment author", () => {
+    expect(container.querySelector('[aria-haspopup="menu"]')).toBeNull();
+
+    renderPanel("AUTHOR@example.com");
+
+    expect(container.querySelector('[aria-haspopup="menu"]')).not.toBeNull();
+  });
+
+  it("prefills and saves an author's comment inline", async () => {
+    renderPanel("author@example.com");
+
+    const menuTrigger = container.querySelector<HTMLButtonElement>(
+      '[aria-haspopup="menu"]',
+    );
+    await openMenu(menuTrigger);
+
+    const editItem = Array.from(
+      document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent?.trim() === "commentsPanel.editComment");
+    expect(editItem).toBeDefined();
+
+    await act(async () => {
+      editItem?.click();
+      await Promise.resolve();
+    });
+
+    const editor = container.querySelector<HTMLTextAreaElement>(
+      'textarea[aria-label="commentsPanel.editComment"]',
+    );
+    expect(editor?.value).toBe(rootComment.content);
+    expect(document.activeElement).toBe(editor);
+
+    act(() => {
+      if (!editor) return;
+      setTextareaValue(editor, "Updated comment");
+    });
+
+    const save = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "common.save",
+    );
+    act(() => save?.click());
+
+    expect(actionMocks.updateComment).toHaveBeenCalledWith({
+      id: "comment-1",
+      content: "Updated comment",
+    });
+  });
+
+  it("cancels comment editing without saving", async () => {
+    renderPanel("author@example.com");
+
+    const menuTrigger = container.querySelector<HTMLButtonElement>(
+      '[aria-haspopup="menu"]',
+    );
+    await openMenu(menuTrigger);
+    const editItem = Array.from(
+      document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent?.trim() === "commentsPanel.editComment");
+    await act(async () => {
+      editItem?.click();
+      await Promise.resolve();
+    });
+
+    const cancel = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "common.cancel",
+    );
+    act(() => cancel?.click());
+
+    expect(
+      container.querySelector(
+        'textarea[aria-label="commentsPanel.editComment"]',
+      ),
+    ).toBeNull();
+    expect(actionMocks.updateComment).not.toHaveBeenCalled();
   });
 });

@@ -11,6 +11,8 @@ description: "agent-native template récupère les modifications ultérieures ap
 
 `agent-native template` est la moitié manquante. Il récupère à nouveau le modèle dans une version plus récente, réapplique exactement les transformations que `create` a appliquées, et fusionne le résultat dans votre application fichier par fichier.
 
+Les modèles communautaires sont volontairement exclus de ce flux de synchronisation. Leurs métadonnées `agent-native.communityTemplate` enregistrent uniquement la source installée ; `agent-native template sync` ne récupère pas les changements de ce dépôt. Installez une révision épinglée pour un point de départ stable, puis portez manuellement les changements ultérieurs après vérification.
+
 ## Démarrage rapide {#quick-start}
 
 ```bash

@@ -141,6 +141,20 @@ describe("data-source-status", () => {
     });
   });
 
+  it("uses the canonical PostgreSQL source id in focused setup links", async () => {
+    const result = (await dataSourceStatus.run({ key: "postgres" })) as any;
+    const postgresql = result.providers.find(
+      (provider: any) => provider.provider === "postgresql",
+    );
+
+    expect(postgresql).toMatchObject({
+      label: "PostgreSQL",
+      configured: false,
+      setupLink:
+        "/_agent-native/open?app=analytics&view=data-sources&to=%2Fdata-sources%3Fsource%3Dpostgresql%26returnTo%3Dask",
+    });
+  });
+
   it("treats a HubSpot private app token as configured", async () => {
     mocks.hasCredential.mockImplementation(async (key: string) =>
       key === "HUBSPOT_PRIVATE_APP_TOKEN" ? true : false,
@@ -155,6 +169,8 @@ describe("data-source-status", () => {
       configured: true,
       configuredKeys: ["HUBSPOT_PRIVATE_APP_TOKEN"],
       missingRequiredKeys: [],
+      setupLink:
+        "/_agent-native/open?app=analytics&view=data-sources&to=%2Fdata-sources%3Fsource%3Dhubspot%26returnTo%3Dask",
     });
     expect(result).toMatchObject({
       hasConfiguredDataSources: true,
@@ -234,6 +250,8 @@ describe("data-source-status", () => {
     expect(hubspot).toMatchObject({
       configured: true,
       configuredKeys: [],
+      setupLink:
+        "/_agent-native/open?app=analytics&view=data-sources&to=%2Fdata-sources%3Fsource%3Dhubspot%26returnTo%3Dask",
       workspaceConnection: {
         grantState: "connected",
         connectionCount: 1,

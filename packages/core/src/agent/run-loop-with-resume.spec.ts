@@ -377,6 +377,67 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     expect(continuationText).toContain("smaller `edit-design` payload");
   });
 
+  it("does not report an unmeasured run as a measured empty one", async () => {
+    mockRunAgentLoop.mockResolvedValue({
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      model: "test-model",
+    });
+
+    const usage = await runAgentLoopDirectWithSoftTimeout(
+      makeOpts(
+        [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        new AbortController().signal,
+      ),
+      60_000,
+    );
+
+    expect(usage.usageReported).toBeFalsy();
+    expect(usage.firstEngineEventAtMs).toBeUndefined();
+  });
+
+  it("keeps a reported attempt's usage flag and first-event timing across a continuation", async () => {
+    let attempts = 0;
+    mockRunAgentLoop.mockImplementation(async (opts) => {
+      attempts++;
+      if (attempts === 1) {
+        opts.send({ type: "auto_continue", reason: "no_progress" });
+        return {
+          inputTokens: 7,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "test-model",
+          usageReported: true,
+          firstEngineEventAtMs: 1234,
+        };
+      }
+      return {
+        inputTokens: 100,
+        outputTokens: 50,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "test-model",
+      };
+    });
+
+    const usage = await runAgentLoopDirectWithSoftTimeout(
+      makeOpts(
+        [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        new AbortController().signal,
+        () => {},
+        "thread-1",
+      ),
+      60_000,
+    );
+
+    expect(attempts).toBe(2);
+    expect(usage.usageReported).toBe(true);
+    expect(usage.firstEngineEventAtMs).toBe(1234);
+  });
+
   it("allows direct callers to use the background-function timeout regime", async () => {
     vi.useFakeTimers();
     try {

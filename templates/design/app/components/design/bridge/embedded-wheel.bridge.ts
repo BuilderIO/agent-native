@@ -280,6 +280,14 @@ declare var __EDITING_SAFETY_ENABLED__: boolean;
     if (e.data.type === "embedded-canvas-gesture-mode") {
       wheelEnabled = !!e.data.wheelEnabled;
       spaceKeyForwardingEnabled = !!e.data.spaceKeyForwardingEnabled;
+      // Live-updatable so entering/leaving Interact does not change this
+      // script's text. The host keys its bridge registration on a hash of the
+      // script, so baking the mode in meant every Interact toggle minted a new
+      // key, forced a re-register, and left the canvas on "Preparing editable
+      // preview..." until that round trip finished.
+      if (typeof e.data.editingSafetyEnabled === "boolean") {
+        editingSafetyEnabled = e.data.editingSafetyEnabled;
+      }
     }
   }
 

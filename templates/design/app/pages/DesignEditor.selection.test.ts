@@ -62,7 +62,7 @@ import {
   findScreenFrameAtCanvasPoint,
 } from "./design-editor/overview-camera";
 import {
-  getPendingVisualStylePropertyCount,
+  getPendingVisualEditCount,
   shouldBlockPendingVisualStyleNavigation,
   resolveOverviewScreenSourceType,
   shouldPreferRuntimeLayerProjection,
@@ -422,7 +422,7 @@ describe("DesignEditor pending visual style edits", () => {
       color: "",
       backgroundColor: "",
     });
-    expect(getPendingVisualStylePropertyCount(edits)).toBe(2);
+    expect(getPendingVisualEditCount(edits)).toBe(1);
   });
 
   it("keeps repeated same-target style undo scoped to the latest gesture", () => {
@@ -636,7 +636,7 @@ describe("DesignEditor pending visual style edits", () => {
       ],
     });
 
-    expect(prompt).toContain("Pending text/structure edits:");
+    expect(prompt).toContain("Pending text/layer-state/structure edits:");
     expect(prompt).toContain('"kind": "text"');
     expect(prompt).toContain('"value": "New headline"');
     expect(prompt).toContain('"kind": "structure"');
@@ -1024,7 +1024,7 @@ describe("DesignEditor sidebar code layer selection", () => {
     });
   });
 
-  it("leaves single-screen selection state alone", () => {
+  it("returns sidebar code-layer selection to the editing canvas", () => {
     expect(
       getSidebarCodeLayerSelectionState({
         currentViewMode: "single",
@@ -1033,8 +1033,8 @@ describe("DesignEditor sidebar code layer selection", () => {
         screenFileIds: ["screen-a"],
       }),
     ).toEqual({
-      viewMode: "single",
-      overviewSelectedScreenIds: ["screen-a"],
+      viewMode: "overview",
+      overviewSelectedScreenIds: [],
     });
   });
 });
@@ -1506,9 +1506,10 @@ describe("DesignEditor URL state", () => {
         screenId: "screen-123",
         selectionId: "node-456",
         zoom: 100,
+        mode: "interact",
       }),
     ).toBe(
-      "?design_host=builder&view=single&screen=screen-123&selection=node-456&zoom=100",
+      "?design_host=builder&view=single&screen=screen-123&selection=node-456&zoom=100&mode=interact",
     );
   });
 
@@ -1536,7 +1537,9 @@ describe("DesignEditor URL state", () => {
         codeFileId: "code-file",
         codeFilename: "app/routes/home.tsx",
       }),
-    ).toBe("?view=single&panel=code&fileId=code-file&screen=screen-123");
+    ).toBe(
+      "?view=single&panel=code&fileId=code-file&screen=screen-123&mode=interact",
+    );
   });
 
   it("tracks the live non-default tool and removes a stale tool after returning to move", () => {
@@ -1547,7 +1550,7 @@ describe("DesignEditor URL state", () => {
         screenId: "screen-123",
         tool: "pen",
       }),
-    ).toBe("?view=single&screen=screen-123&tool=pen");
+    ).toBe("?view=single&screen=screen-123&tool=pen&mode=interact");
 
     expect(
       getDesignEditorStateUrlSearch({
@@ -1556,7 +1559,19 @@ describe("DesignEditor URL state", () => {
         screenId: "screen-123",
         tool: "move",
       }),
-    ).toBe("?view=single&screen=screen-123");
+    ).toBe("?view=single&screen=screen-123&mode=interact");
+  });
+
+  it("removes stale Interact mode after returning to the overview", () => {
+    expect(
+      getDesignEditorStateUrlSearch({
+        currentSearch: "?view=single&screen=screen-123&mode=interact&zoom=100",
+        viewMode: "overview",
+        screenId: "screen-123",
+        mode: "edit",
+        zoom: 100,
+      }),
+    ).toBe("?view=overview&screen=screen-123&zoom=100");
   });
 });
 
