@@ -15,6 +15,7 @@ import {
   utilityStem,
 } from "@shared/responsive-classes";
 import {
+  type ElementProvenanceUnavailableReason,
   normalizeDesignSourceType,
   type DesignSourceType,
 } from "@shared/source-mode";
@@ -156,6 +157,12 @@ export interface PendingLiveStructureEdit {
   forceFlowPositionOverride?: boolean;
   sourceRect?: { x: number; y: number; width: number; height: number };
   anchorRect?: { x: number; y: number; width: number; height: number };
+  /**
+   * Markup this edit ADDED to the running app. Present only for a drop whose
+   * subject had no counterpart in the screen's source, so the coding agent
+   * must insert this markup rather than relocate an existing element.
+   */
+  insertedHtml?: string;
   requestId?: string;
   updatedAt: number;
 }
@@ -292,11 +299,31 @@ export function reactSourceAnchorForPendingEdit(args: {
     line: provenance.line,
     column: provenance.column,
     component: provenance.component,
+    // Every `.map()` sibling shares one call site, so runtimeMultiplicity alone
+    // cannot say WHICH instance was selected; the React key can.
+    ...(provenance.ownerKey ? { ownerKey: provenance.ownerKey } : {}),
     runtimeMultiplicity,
     ...(args.reason?.trim() ? { reason: args.reason.trim() } : {}),
     scope:
       args.scope ?? (runtimeMultiplicity > 1 ? "repeated-render" : "unknown"),
   };
+}
+
+/**
+ * Why an anchor could not be built: a runtime that reports it exposes no
+ * source locations at all is a permanent answer, not a slow one. Returns
+ * undefined when nothing has reported a reason yet — that case is still
+ * "loading", and callers must not present it as unsupported.
+ */
+export function reactSourceAnchorUnavailableReason(
+  infos: ReadonlyArray<Pick<ElementInfo, "provenance"> | null | undefined>,
+): ElementProvenanceUnavailableReason | undefined {
+  for (const info of infos) {
+    const provenance = info?.provenance;
+    if (provenance?.sourceFile) continue;
+    if (provenance?.unavailableReason) return provenance.unavailableReason;
+  }
+  return undefined;
 }
 
 export type PendingLiveNonStyleEdit =
@@ -469,6 +496,22 @@ export function shouldBlockPendingVisualStyleNavigation(args: {
   );
 }
 
+/**
+ * Inserted markup is the only unbounded field in the pending-edit payload, and
+ * that payload is JSON.stringified straight into an agent prompt. Truncation is
+ * reported so the agent never mistakes a cut-off tree for the whole node.
+ */
+const MAX_INSERTED_HTML_LENGTH = 4_000;
+
+function boundedInsertedHtml(html: string): {
+  value: string;
+  truncated: boolean;
+} {
+  return html.length > MAX_INSERTED_HTML_LENGTH
+    ? { value: html.slice(0, MAX_INSERTED_HTML_LENGTH), truncated: true }
+    : { value: html, truncated: false };
+}
+
 export function formatPendingVisualStylePrompt(args: {
   designId?: string | null;
   designTitle?: string | null;
@@ -534,8 +577,45 @@ export function formatPendingVisualStylePrompt(args: {
     const targetAnchor = edit.anchorSourceAnchor
       ? { ...edit.anchorSourceAnchor, id: "target" }
       : undefined;
-    const semanticHandoff =
-      subjectAnchor && targetAnchor
+    // An insert's subject is markup that does not exist in the program yet, so
+    // it has no source anchor and cannot be described as a move. Telling the
+    // agent to relocate an element the file has never contained is worse than
+    // reporting nothing.
+    const insertedHtml = edit.insertedHtml
+      ? boundedInsertedHtml(edit.insertedHtml)
+      : undefined;
+    const semanticHandoff = insertedHtml
+      ? targetAnchor
+        ? buildReactSemanticHandoff({
+            operation: "insert",
+            desiredChange: [
+              `Add the new markup in insertedHtml ${edit.placement} the target runtime element.`,
+              insertedHtml.truncated
+                ? "The markup below was truncated for prompt size; read the running preview or ask before writing it verbatim."
+                : "The markup is already positioned for the drop point.",
+              edit.dropMode === "absolute-container"
+                ? "The target is an absolute-positioning container; keep the inline left/top offsets."
+                : "This is a flow/auto-layout insertion; the markup carries no absolute positioning.",
+            ].join(" "),
+            sourceAnchors: [targetAnchor],
+            runtimeRelationship: {
+              kind: edit.placement,
+              subjectAnchorIds: [],
+              targetAnchorId: "target",
+              screenId: edit.screenId,
+              description: `insert ${edit.selector} ${edit.placement} ${edit.anchorSelector}`,
+            },
+            versionHashes: [],
+          })
+        : {
+            ok: false as const,
+            rejection: {
+              code: "missing-source-provenance" as const,
+              reason:
+                "The insertion target's source anchor was not available for this runtime insert.",
+            },
+          }
+      : subjectAnchor && targetAnchor
         ? buildReactSemanticHandoff({
             operation: edit.placement === "inside" ? "reparent" : "move",
             desiredChange: [
@@ -584,6 +664,12 @@ export function formatPendingVisualStylePrompt(args: {
         : {}),
       ...(edit.sourceRect ? { sourceRect: edit.sourceRect } : {}),
       ...(edit.anchorRect ? { anchorRect: edit.anchorRect } : {}),
+      ...(insertedHtml
+        ? {
+            insertedHtml: insertedHtml.value,
+            ...(insertedHtml.truncated ? { insertedHtmlTruncated: true } : {}),
+          }
+        : {}),
       ...(semanticHandoff.ok
         ? { semanticHandoff: semanticHandoff.handoff }
         : { semanticHandoffFailure: semanticHandoff.rejection }),

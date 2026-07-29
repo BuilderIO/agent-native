@@ -1,4 +1,5 @@
 import {
+  type DesignFile,
   type DesignLeftPanel,
   type DesignTool,
   SHOW_DESIGN_CODE_LEFT_PANEL,
@@ -490,4 +491,23 @@ export function shouldSendKeepalive(
   collabLive: boolean,
 ): boolean {
   return hashKnown || !collabLive;
+}
+
+const EMPTY_DESIGN_FILES: DesignFile[] = [];
+
+/**
+ * Identity-stable `design.files` read for the editor render body.
+ *
+ * `design` is null until the `get-design` query resolves, and a literal `??
+ * []` there mints a new array on every render of that window. That identity
+ * feeds `files` → `proposalFileIds` → the pending-node-rewrite effect, whose
+ * empty-files branch commits a fresh `[]` — a passive-effect update that
+ * re-renders, remints the array, and re-fires itself until the query lands
+ * ("Maximum update depth exceeded" on cold loads). Return the shared empty
+ * array so the no-files render is stable.
+ */
+export function resolveServerFiles(
+  design: { files?: DesignFile[] } | null | undefined,
+): DesignFile[] {
+  return design?.files ?? EMPTY_DESIGN_FILES;
 }

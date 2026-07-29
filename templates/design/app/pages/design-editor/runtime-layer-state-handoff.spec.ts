@@ -42,6 +42,14 @@ describe("DesignEditor runtime layer state handoff", () => {
       expect(section).not.toMatch(
         /if \(owner\?\.runtimeOnly\) \{\s*return;\s*\}/,
       );
+      // A target with no React source to write into returns "preview-only",
+      // which must still apply the visual layer state — only an outright
+      // false (source exists but the anchor is unresolvable) may bail.
+      expect(section).toMatch(
+        new RegExp(
+          `sendRuntimeLayerStateSemanticHandoff\\(\\s*layerId,\\s*"${state}",\\s*${state},?\\s*\\)\\s*===\\s*false`,
+        ),
+      );
     },
   );
 

@@ -83,6 +83,44 @@ export function codeLayerSelectorAliases(
   );
 }
 
+/**
+ * Selector candidate groups for a host-initiated removal in the LIVE iframe
+ * (the bridge's `delete-element`), one group per node to remove.
+ *
+ * A live/localhost screen runs two different node-id namespaces: the document
+ * carries the ids the injected bridge assigned there, while every host-side
+ * projection is built from the fetched source snapshot that
+ * `ensureCodeLayerNodeIdsInHtml` stamped separately. A selector taken from the
+ * source projection therefore matches nothing in the running document — and
+ * `delete-element` is fire-and-forget, so the editor reported success and
+ * cleared the selection while the element stayed on screen.
+ *
+ * Order of trust: the runtime layer model's aliases (Layers-panel selection on
+ * a runtime-projected screen), then the source-projection selectors carrying
+ * the bridge-reported identities as extra candidates, then those identities
+ * alone. `findRuntimeTarget` in the bridge takes the first candidate that
+ * resolves, so a group may safely mix namespaces.
+ */
+export function liveDeleteSelectorGroups(args: {
+  runtimeAliasGroups: readonly (readonly string[])[];
+  liveSelectionSelectors: readonly string[];
+  fallbackSelectors: readonly string[];
+}): string[][] {
+  const runtimeGroups = args.runtimeAliasGroups
+    .map((aliases) => aliases.filter(Boolean))
+    .filter((aliases) => aliases.length > 0);
+  if (runtimeGroups.length > 0) return runtimeGroups;
+  const liveSelectors = Array.from(
+    new Set(args.liveSelectionSelectors.filter(Boolean)),
+  );
+  if (args.fallbackSelectors.length > 0) {
+    return args.fallbackSelectors.map((selector) =>
+      Array.from(new Set([selector, ...liveSelectors])),
+    );
+  }
+  return liveSelectors.length > 0 ? [liveSelectors] : [];
+}
+
 export function normalizeCodeLayerSelector(selector: string): string {
   return (
     selector
@@ -326,12 +364,46 @@ function provenanceForCodeLayerNode(
     node.dataAttributes["data-source-column"],
   );
   const component = node.dataAttributes["data-component-name"]?.trim();
-  if (!sourceFile && !line && !column && !component) return undefined;
+  const ownerSourceFile = node.dataAttributes["data-source-owner-file"]?.trim();
+  const ownerLine = positiveIntegerDataAttribute(
+    node.dataAttributes["data-source-owner-line"],
+  );
+  const ownerColumn = positiveIntegerDataAttribute(
+    node.dataAttributes["data-source-owner-column"],
+  );
+  const ownerComponentName =
+    node.dataAttributes["data-source-owner-component"]?.trim();
+  const ownerKey = node.dataAttributes["data-source-owner-key"]?.trim();
+  const unavailable = node.dataAttributes["data-source-unavailable"]?.trim();
+  // The bridge only stamps a reason when the node resolved to no location, so
+  // a resolved anchor must never carry one back out of the projection.
+  const unavailableReason =
+    !sourceFile &&
+    (unavailable === "not-react" || unavailable === "no-debug-info")
+      ? unavailable
+      : undefined;
+  if (
+    !sourceFile &&
+    !line &&
+    !column &&
+    !component &&
+    !ownerSourceFile &&
+    !ownerKey &&
+    !unavailableReason
+  ) {
+    return undefined;
+  }
   return {
     ...(sourceFile ? { sourceFile } : {}),
     ...(line ? { line } : {}),
     ...(column ? { column } : {}),
     ...(component ? { component } : {}),
+    ...(ownerSourceFile ? { ownerSourceFile } : {}),
+    ...(ownerLine ? { ownerLine } : {}),
+    ...(ownerColumn ? { ownerColumn } : {}),
+    ...(ownerComponentName ? { ownerComponentName } : {}),
+    ...(ownerKey ? { ownerKey } : {}),
+    ...(unavailableReason ? { unavailableReason } : {}),
   };
 }
 
@@ -554,6 +626,11 @@ export function canonicalElementInfoForCodeLayerNode(
 ): ElementInfo {
   return {
     ...info,
+    // Keep the bridge's own identity before overwriting it — it is the only
+    // one that resolves in a live document. Idempotent: re-canonicalizing an
+    // already-canonicalized info must not overwrite it with the source id.
+    runtimeSelector: info.runtimeSelector ?? info.selector,
+    runtimeSourceId: info.runtimeSourceId ?? info.sourceId,
     sourceId: bridgeSourceIdForCodeLayerNode(node),
     selector: preferredCodeLayerSelector(node),
     classes: node.classes,
@@ -618,6 +695,28 @@ export function isCodeLayerNodeRuntimeOnly(args: {
   if (!args.fileIsRuntimeProjected) return false;
   if (!args.nodeIdAttr) return true;
   return !args.sourceNodeIdAttrs.has(args.nodeIdAttr);
+}
+
+/**
+ * Whether a Layers-panel hide/lock toggle on a runtime (localhost-hydrated)
+ * node can be handed off to the agent to make durable in React source.
+ *
+ * The handoff is about DURABILITY — writing `data-agent-native-hidden` /
+ * `-locked` into JSX. The visual effect is host state that DesignCanvas
+ * mirrors into the iframe as a `layer-states` message; the source attribute
+ * has no rendering power of its own. A localhost target with no React
+ * debug-source provenance (plain HTML, or a React build without the source
+ * plugin) can never resolve an anchor, so gating the preview on the handoff
+ * made hide/lock a total no-op there and reported "source anchors still
+ * loading" for a load that will never happen. "Nothing to write into" and
+ * "source not loaded yet" must stay different answers.
+ */
+export function runtimeLayerStateHandoffMode(args: {
+  runtimeOnly: boolean;
+  provenanceSourceFile: string | null | undefined;
+}): "handoff" | "preview-only" {
+  if (!args.runtimeOnly) return "preview-only";
+  return args.provenanceSourceFile?.trim() ? "handoff" : "preview-only";
 }
 
 export function codeLayerPatchMessage(

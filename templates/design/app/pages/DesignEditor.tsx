@@ -328,6 +328,7 @@ import type {
   ElementSelectionIntent,
   DeviceFrameType,
   PortableStyleSnapshot,
+  RuntimeStructureInsertRequest,
   RuntimeStructureMoveRequest,
 } from "@/components/design/types";
 import { DEVICE_FRAME_VIEWPORTS } from "@/components/design/types";
@@ -538,6 +539,7 @@ import {
   findCodeLayerSiblingOrder,
   findMovedCodeLayerNodeInProjection,
   isCodeLayerNodeRuntimeOnly,
+  liveDeleteSelectorGroups,
   preferredCodeLayerSelector,
   refreshElementInfoFromContent,
   refreshSelectedLayerIdsFromContent,
@@ -545,6 +547,7 @@ import {
   renameFilenamePreservingExtension,
   resolveCodeLayerNodeFromBridge,
   resolveCodeLayerNodeFromElementInfo,
+  runtimeLayerStateHandoffMode,
   type SelectedLayerTarget,
 } from "./design-editor/code-layer-state";
 import {
@@ -610,6 +613,7 @@ import {
   removeUndoRedoOrderKind,
   resolveLocalhostSourceWriteContent,
   resolveOptimisticTextDecorationLine,
+  resolveServerFiles,
   shouldClearLatestUnloadSave,
   shouldReplacePreviewAfterVisualStyleCommit,
   shouldSendKeepalive,
@@ -734,6 +738,7 @@ import {
   originalStylesForPendingVisualEdit,
   pendingLiveStructureEditsMatch,
   reactSourceAnchorForPendingEdit,
+  reactSourceAnchorUnavailableReason,
   type PendingLiveNonStyleEdit,
   type PendingLiveNonStyleUndoEntry,
   type PendingLiveStructureEdit,
@@ -809,6 +814,7 @@ import {
   getSidebarCodeLayerSelectionState,
   hasSelectableCodeLayerParent,
   isScreenRootElementInfo,
+  overviewDeleteTargetsElement,
   pendingEditTargetsSelectedElement,
   resolveAvailableActiveFileId,
   resolveEscapePopSelectionAction,
@@ -2164,6 +2170,11 @@ function DesignEditor() {
   const [runtimeStructureMoveRequest, setRuntimeStructureMoveRequest] =
     useState<(RuntimeStructureMoveRequest & { screenId: string }) | null>(null);
   const runtimeStructureMoveRevisionRef = useRef(0);
+  const [runtimeStructureInsertRequest, setRuntimeStructureInsertRequest] =
+    useState<(RuntimeStructureInsertRequest & { screenId: string }) | null>(
+      null,
+    );
+  const runtimeStructureInsertRevisionRef = useRef(0);
   const [
     runtimeStructureVerificationRequest,
     setRuntimeStructureVerificationRequest,
@@ -4915,7 +4926,7 @@ function DesignEditor() {
     [commitTitleEdit],
   );
 
-  const serverFiles = design?.files ?? [];
+  const serverFiles = resolveServerFiles(design);
   useEffect(() => {
     if (pendingLocalFileContentsRef.current.size === 0) return;
     let changed = false;
@@ -8847,6 +8858,9 @@ function DesignEditor() {
         forceFlowPositionOverride?: boolean;
         sourceRect?: { x: number; y: number; width: number; height: number };
         anchorRect?: { x: number; y: number; width: number; height: number };
+        /** Markup this change introduced; the subject does not exist in the
+         * screen's source yet, so it must be added rather than relocated. */
+        insertedHtml?: string;
       },
     ) => {
       if (!canEditDesign) return;
@@ -8899,6 +8913,7 @@ function DesignEditor() {
         forceFlowPositionOverride: details?.forceFlowPositionOverride,
         sourceRect: details?.sourceRect,
         anchorRect: details?.anchorRect,
+        insertedHtml: details?.insertedHtml,
         requestId: details?.requestId,
         updatedAt: Date.now(),
       };
@@ -9694,13 +9709,16 @@ function DesignEditor() {
   );
 
   const deleteRuntimeElement = useCallback(
-    (selector?: string | null) => {
+    (selector?: string | null, candidates?: readonly string[]) => {
       const deleteElement = (window as any).__designCanvasDeleteElement;
       if (typeof deleteElement !== "function") return false;
       return Boolean(
         deleteElement(
           selector ?? selectedCanvasSelector,
-          selectedCanvasSelectorCandidates,
+          // Candidates default to the CURRENT selection's aliases, which are
+          // only the right fallbacks when `selector` describes that same
+          // element. A caller deleting a different node must pass its own.
+          candidates ?? selectedCanvasSelectorCandidates,
         ),
       );
     },
@@ -14232,6 +14250,9 @@ function DesignEditor() {
         forceFlowPositionOverride?: boolean;
         sourceRect?: { x: number; y: number; width: number; height: number };
         anchorRect?: { x: number; y: number; width: number; height: number };
+        /** Markup this change introduced; the subject does not exist in the
+         * screen's source yet, so it must be added rather than relocated. */
+        insertedHtml?: string;
       },
     ) => {
       dndHostLog("persist:begin", {
@@ -14734,6 +14755,9 @@ function DesignEditor() {
         forceFlowPositionOverride?: boolean;
         sourceRect?: { x: number; y: number; width: number; height: number };
         anchorRect?: { x: number; y: number; width: number; height: number };
+        /** Markup this change introduced; the subject does not exist in the
+         * screen's source yet, so it must be added rather than relocated. */
+        insertedHtml?: string;
       },
     ) => {
       if (screenId === activeFile?.id) {
@@ -16534,6 +16558,30 @@ function DesignEditor() {
     // U19: delete is a discrete one-shot action — see the matching note in
     // handlePasteSelection.
     undoManagerRef.current?.stopCapturing();
+    // BUG-DELETE-LIVE-NAMESPACE: the projections below are built from the
+    // fetched source snapshot, whose node ids are a different namespace from
+    // the live document's — see liveDeleteSelectorGroups for why a selector
+    // taken from them silently removed nothing in the iframe.
+    const runtimeAliasGroups = selectedLayerIdsState
+      .map((layerId) => codeLayerOwnerByNodeIdRef.current.get(layerId))
+      .filter((owner) => owner?.runtimeOnly)
+      .map((owner) => codeLayerSelectorAliases(owner!.node));
+    const liveSelectionSelectors = [
+      selectedElement?.runtimeSelector,
+      selectedElement?.runtimeSourceId
+        ? `[data-agent-native-node-id="${selectedElement.runtimeSourceId}"]`
+        : undefined,
+      selectedElement?.selector,
+    ].filter((selector): selector is string => Boolean(selector));
+    const hasLiveDeleteTarget =
+      runtimeAliasGroups.length > 0 || liveSelectionSelectors.length > 0;
+    const deleteFromLiveDom = (fallbackSelectors: readonly string[]) => {
+      liveDeleteSelectorGroups({
+        runtimeAliasGroups,
+        liveSelectionSelectors,
+        fallbackSelectors,
+      }).forEach((aliases) => deleteRuntimeElement(aliases[0], aliases));
+    };
     const snapshots = getSelectedLayerSnapshots();
     if (snapshots.length > 0) {
       const activeRuntimeSelectors: string[] = [];
@@ -16684,7 +16732,10 @@ function DesignEditor() {
           });
         }
       }
-      if (!didDelete) return;
+      // A live screen's snapshot rewrite can come up empty (different id
+      // namespace) while the live-DOM delete is still the real, visible
+      // operation — bail only when NEITHER has anything to remove.
+      if (!didDelete && !hasLiveDeleteTarget) return;
       if (orphanedTrackNodeIds) {
         const idsToRemove = orphanedTrackNodeIds;
         // U14 fix: mark motion dirty when a track is actually pruned so the
@@ -16696,9 +16747,7 @@ function DesignEditor() {
         // autosave revision, which the autosave effect dedupes.
         pruneMotionTracksByNodeId(idsToRemove);
       }
-      activeRuntimeSelectors.forEach((selector) =>
-        deleteRuntimeElement(selector),
-      );
+      deleteFromLiveDom(activeRuntimeSelectors);
       setSelectedElement(null);
       setSelectedLayerIdsState([]);
       if (viewModeRef.current === "overview") {
@@ -16743,7 +16792,7 @@ function DesignEditor() {
           })
         : null;
       if (patch && patch.result.status === "applied") {
-        deleteRuntimeElement(selectedElement.selector);
+        deleteFromLiveDom([selectedElement.selector]);
         if (activeLiveSnapshot) {
           updateLiveScreenSnapshotContent(activeFile!.id, patch.content);
         } else {
@@ -16787,7 +16836,7 @@ function DesignEditor() {
         pruneMotionTracksByNodeId(subtreeIds);
       }
     }
-    deleteRuntimeElement(selectedElement.selector);
+    deleteFromLiveDom([selectedElement.selector]);
     if (activeLiveSnapshot) {
       updateLiveScreenSnapshotContent(activeFile!.id, nextContent);
     } else {
@@ -16809,6 +16858,7 @@ function DesignEditor() {
     liveScreenSnapshotsById,
     pruneMotionTracksByNodeId,
     selectedElement,
+    selectedLayerIdsState,
     updateLiveScreenSnapshotContent,
   ]);
 
@@ -16841,9 +16891,11 @@ function DesignEditor() {
       const rootPath = connectionId
         ? localhostConnectionRootPathByIdRef.current.get(connectionId)
         : undefined;
-      const sourceAnchors = owners.map((owner, index) => {
-        const info = elementInfoFromCodeLayerNode(owner.node);
-        return reactSourceAnchorForPendingEdit({
+      const infos = owners.map((owner) =>
+        elementInfoFromCodeLayerNode(owner.node),
+      );
+      const sourceAnchors = infos.map((info, index) =>
+        reactSourceAnchorForPendingEdit({
           info,
           id: `subject-${index + 1}`,
           rootPath,
@@ -16851,10 +16903,14 @@ function DesignEditor() {
             runtimeLayerSnapshotsById,
             info,
           ),
-        });
-      });
+        }),
+      );
       if (sourceAnchors.some((anchor) => !anchor)) {
-        toast.error(t("designEditor.toasts.reactSourceAnchorsLoading"));
+        toast.error(
+          reactSourceAnchorUnavailableReason(infos)
+            ? t("designEditor.toasts.reactSourceAnchorsUnavailable")
+            : t("designEditor.toasts.reactSourceAnchorsLoading"),
+        );
         return true;
       }
       const subjectAnchorIds = sourceAnchors.map(
@@ -16956,7 +17012,14 @@ function DesignEditor() {
         // Mixed runtime/source moves are only safe when BOTH endpoints carry
         // exact compiler provenance. Never fall back to selectors or a generic
         // source/AST move for the missing side.
-        toast.error(t("designEditor.toasts.reactSourceAnchorsLoading"));
+        toast.error(
+          reactSourceAnchorUnavailableReason([
+            elementInfoFromCodeLayerNode(subjectOwner.node),
+            elementInfoFromCodeLayerNode(targetOwner.node),
+          ])
+            ? t("designEditor.toasts.reactSourceAnchorsUnavailable")
+            : t("designEditor.toasts.reactSourceAnchorsLoading"),
+        );
         return true;
       }
 
@@ -16995,9 +17058,9 @@ function DesignEditor() {
       layerId: string,
       state: "locked" | "hidden",
       enabled: boolean,
-    ): boolean => {
+    ): true | "preview-only" | false => {
       const owner = codeLayerOwnerByNodeIdRef.current.get(layerId);
-      if (!owner?.runtimeOnly) return false;
+      if (!owner) return "preview-only";
 
       const screen = overviewScreens.find(
         (candidate) => candidate.id === owner.fileId,
@@ -17006,6 +17069,14 @@ function DesignEditor() {
         ? localhostConnectionRootPathByIdRef.current.get(screen.connectionId)
         : undefined;
       const info = elementInfoFromCodeLayerNode(owner.node);
+      if (
+        runtimeLayerStateHandoffMode({
+          runtimeOnly: owner.runtimeOnly,
+          provenanceSourceFile: info.provenance?.sourceFile,
+        }) === "preview-only"
+      ) {
+        return "preview-only";
+      }
       const subjectAnchor = reactSourceAnchorForPendingEdit({
         info,
         id: "subject",
@@ -17017,7 +17088,11 @@ function DesignEditor() {
         reason: `Runtime Layers-panel ${state} state for layer ${layerId} in screen ${owner.fileId}.`,
       });
       if (!subjectAnchor) {
-        toast.error(t("designEditor.toasts.reactSourceAnchorsLoading"));
+        toast.error(
+          reactSourceAnchorUnavailableReason([info])
+            ? t("designEditor.toasts.reactSourceAnchorsUnavailable")
+            : t("designEditor.toasts.reactSourceAnchorsLoading"),
+        );
         return false;
       }
 
@@ -18614,6 +18689,116 @@ function DesignEditor() {
         targetAnchorNodeId,
         targetAnchorSelector,
       );
+      // A live localhost destination has no editable stored document — its
+      // stored "content" is the bridge URL — so the source-edit path below
+      // would write a whole HTML document over that URL and never reach the
+      // running app. Key off the destination SCREEN's source type: a live
+      // anchor normally has no stored layer owner at all, so both runtimeOnly
+      // flags read false and the drop looks like an ordinary source move.
+      if (
+        resolveRuntimeStructureMoveExecutionMode({
+          subjectRuntimeOnly: Boolean(sourceOwnerEntry?.[1].runtimeOnly),
+          targetRuntimeOnly: Boolean(targetOwnerEntry?.[1].runtimeOnly),
+          sourceScreenId,
+          targetScreenId,
+          targetScreenIsLive: (() => {
+            // overviewScreens deliberately excludes the board file, and
+            // resolveOverviewScreenSourceType answers with the DESIGN-level
+            // fallback for an unknown screen. Trusting that fallback would
+            // route a live→board drop into the board's own preview DOM, where
+            // nothing is persisted and the node disappears on next render.
+            // An unresolved screen is not a live screen.
+            const targetScreen = overviewScreens.find(
+              (screen) => screen.id === targetScreenId,
+            );
+            return (
+              Boolean(targetScreen) &&
+              resolveOverviewScreenSourceType(
+                targetScreen,
+                designSourceType,
+              ) === "localhost"
+            );
+          })(),
+        }) === "screen-bridge-insert"
+      ) {
+        const boardContent = getScreenContent(sourceScreenId);
+        if (!boardContent) return;
+        const boardProjection = buildCodeLayerProjection(boardContent);
+        const subjectNode = sourceNodeId
+          ? (boardProjection.nodes.find(
+              (node) =>
+                node.dataAttributes["data-agent-native-node-id"] ===
+                  sourceNodeId || node.id === sourceNodeId,
+            ) ??
+            resolveCodeLayerNodeFromBridge(
+              boardProjection,
+              sourceSelector,
+              sourceNodeId,
+            ))
+          : resolveCodeLayerNodeFromBridge(boardProjection, sourceSelector);
+        const subjectNodeId =
+          subjectNode?.dataAttributes["data-agent-native-node-id"];
+        // Reuse the stored-document transforms instead of slicing the source
+        // span: they already own absolute/flow semantics. The portable style
+        // snapshot is always inlined (no sourceContent argument) — a live app
+        // never shares the board's stylesheet head, so the node would land
+        // unstyled otherwise.
+        const insertedHtml = subjectNodeId
+          ? (() => {
+              const styled = applyPortableStyleSnapshotToHtml(
+                boardContent,
+                subjectNodeId,
+                styleSnapshot,
+              );
+              const positioned =
+                targetDropMode === "absolute-container" &&
+                targetLocalPoint &&
+                targetAnchorRect
+                  ? setAbsolutePositioningForNodeInHtml(
+                      styled,
+                      subjectNodeId,
+                      {
+                        x: targetLocalPoint.x - targetAnchorRect.left,
+                        y: targetLocalPoint.y - targetAnchorRect.top,
+                      },
+                      sourcePointerOffset,
+                    )
+                  : removeAbsolutePositioningFromNodeInHtml(
+                      styled,
+                      subjectNodeId,
+                    );
+              return new DOMParser()
+                .parseFromString(positioned, "text/html")
+                .querySelector(
+                  `[data-agent-native-node-id="${CSS.escape(subjectNodeId)}"]`,
+                )?.outerHTML;
+            })()
+          : undefined;
+        if (!insertedHtml) {
+          toast.error(t("designEditor.toasts.layerMoveFailed"), {
+            duration: 4000,
+          });
+          return;
+        }
+        runtimeStructureInsertRevisionRef.current += 1;
+        setRuntimeStructureInsertRequest({
+          requestId: runtimeStructureInsertRevisionRef.current,
+          screenId: targetScreenId,
+          html: insertedHtml,
+          anchor: {
+            selector: targetAnchorSelector ?? "",
+            sourceId: targetAnchorNodeId,
+            pendingNodeId: targetAnchorPendingNodeId,
+          },
+          placement: targetAnchorPlacement ?? "inside",
+        });
+        // The board keeps its copy until the pending live edit is applied.
+        // Removing it here would commit the board file immediately while the
+        // destination is still only a pending live edit, and undo pops whichever
+        // stack is newer — one Cmd+Z would revert half the gesture, and a drop
+        // that is never applied would lose the primitive entirely.
+        return;
+      }
       if (
         sourceOwnerEntry?.[1].runtimeOnly ||
         targetOwnerEntry?.[1].runtimeOnly
@@ -18880,8 +19065,23 @@ function DesignEditor() {
       id,
       recordContentHistoryEntry,
       sendRuntimeLayerMoveSemanticHandoff,
+      designSourceType,
+      overviewScreens,
       t,
     ],
+  );
+
+  const handleRuntimeStructureInsertRejected = useCallback(
+    (reason: string) => {
+      // Never swallow this: a rejected insert leaves nothing on screen and
+      // nothing in the pending list, so a silent return is indistinguishable
+      // from the drop never having happened.
+      if (DESIGN_EDITOR_DEBUG_LOGS) {
+        console.warn("[design] runtime structure insert rejected", { reason });
+      }
+      toast.error(t("designEditor.toasts.layerMoveFailed"), { duration: 4000 });
+    },
+    [t],
   );
 
   const handleCutSelection = useCallback(async () => {
@@ -19197,6 +19397,22 @@ function DesignEditor() {
   const handleDeleteOverviewSelection = useCallback(
     (selectedIds: string[]) => {
       if (!canEditDesign) return false;
+      // BUG-DELETE-OVERVIEW-COLLISION: MultiScreenCanvas consumes Delete in
+      // the capture phase whenever a frame is selected, and an in-screen
+      // element selection keeps its screen there — so deleting one node in a
+      // screen offered to delete the whole screen and the editor's own
+      // onDelete hotkey never ran. Route to the element delete instead; the
+      // screen-delete confirmation is only for a real frame selection.
+      if (
+        overviewDeleteTargetsElement({
+          selectedElement,
+          selectedLayerIds: selectedLayerIdsState,
+          fileIds: files.map((file) => file.id),
+        })
+      ) {
+        handleDeleteSelection();
+        return false;
+      }
       if (!selectedIds.length || files.length <= 1) return false;
 
       const selectedIdSet = new Set(selectedIds);
@@ -19213,7 +19429,13 @@ function DesignEditor() {
       setPendingScreenDeletion({ files: filesToDelete });
       return false;
     },
-    [canEditDesign, files],
+    [
+      canEditDesign,
+      files,
+      handleDeleteSelection,
+      selectedElement,
+      selectedLayerIdsState,
+    ],
   );
 
   const handleCancelScreenDeletion = useCallback(() => {
@@ -20352,6 +20574,32 @@ function DesignEditor() {
     if (pendingNonStyleRedo?.kind === "structure") {
       if (pendingStructureRedoReplayRef.current) return;
       pendingStructureRedoReplayRef.current = pendingNonStyleRedo;
+      // Undoing an insert REMOVES the node, so replaying it as a move would
+      // address an element that is no longer in the document and the bridge
+      // would return silently — a redo that reports success and does nothing.
+      if (pendingNonStyleRedo.edit.insertedHtml) {
+        runtimeStructureInsertRevisionRef.current += 1;
+        setRuntimeStructureInsertRequest({
+          requestId: runtimeStructureInsertRevisionRef.current,
+          screenId: pendingNonStyleRedo.edit.screenId,
+          html: pendingNonStyleRedo.edit.insertedHtml,
+          anchor: {
+            selector: pendingNonStyleRedo.edit.anchorSelector,
+            sourceId: pendingNonStyleRedo.edit.anchorSourceId ?? undefined,
+          },
+          placement: pendingNonStyleRedo.edit.placement,
+        });
+        if (pendingStructureRedoReplayTimerRef.current !== undefined) {
+          window.clearTimeout(pendingStructureRedoReplayTimerRef.current);
+        }
+        pendingStructureRedoReplayTimerRef.current = window.setTimeout(() => {
+          pendingStructureRedoReplayRef.current = undefined;
+          pendingStructureRedoReplayTimerRef.current = undefined;
+          syncUndoRedoState();
+        }, 1_000);
+        syncUndoRedoState();
+        return;
+      }
       runtimeStructureMoveRevisionRef.current += 1;
       setRuntimeStructureMoveRequest({
         requestId: runtimeStructureMoveRevisionRef.current,
@@ -27241,7 +27489,10 @@ function DesignEditor() {
       };
       const owner = codeLayerOwnerByNodeId.get(layerId);
       if (owner?.runtimeOnly) {
-        if (!sendRuntimeLayerStateSemanticHandoff(layerId, "locked", locked)) {
+        if (
+          sendRuntimeLayerStateSemanticHandoff(layerId, "locked", locked) ===
+          false
+        ) {
           return;
         }
         layerStateOverridesRef.current.set(layerId, {
@@ -27339,7 +27590,10 @@ function DesignEditor() {
       };
       const owner = codeLayerOwnerByNodeId.get(layerId);
       if (owner?.runtimeOnly) {
-        if (!sendRuntimeLayerStateSemanticHandoff(layerId, "hidden", hidden)) {
+        if (
+          sendRuntimeLayerStateSemanticHandoff(layerId, "hidden", hidden) ===
+          false
+        ) {
           return;
         }
         layerStateOverridesRef.current.set(layerId, {
@@ -27708,6 +27962,14 @@ function DesignEditor() {
               ? runtimeStructureMoveRequest
               : null
           }
+          runtimeStructureInsertRequest={
+            runtimeStructureInsertRequest?.screenId === screen.id
+              ? runtimeStructureInsertRequest
+              : null
+          }
+          onRuntimeStructureInsertRejected={
+            handleRuntimeStructureInsertRejected
+          }
           runtimeVerificationRequest={
             runtimeStructureVerificationRequest?.screenIds.includes(screen.id)
               ? {
@@ -27912,6 +28174,8 @@ function DesignEditor() {
       pendingTextRevertRequest,
       pendingStructureAckRequest,
       runtimeStructureMoveRequest,
+      runtimeStructureInsertRequest,
+      handleRuntimeStructureInsertRejected,
       runtimeStructureVerificationRequest,
       contentRenderRevision,
       handleScreenExternalContentSnapshot,
@@ -30201,6 +30465,15 @@ function DesignEditor() {
                           activeFile.id
                             ? runtimeStructureMoveRequest
                             : null
+                        }
+                        runtimeStructureInsertRequest={
+                          runtimeStructureInsertRequest?.screenId ===
+                          activeFile.id
+                            ? runtimeStructureInsertRequest
+                            : null
+                        }
+                        onRuntimeStructureInsertRejected={
+                          handleRuntimeStructureInsertRejected
                         }
                         runtimeVerificationRequest={
                           runtimeStructureVerificationRequest?.screenIds.includes(

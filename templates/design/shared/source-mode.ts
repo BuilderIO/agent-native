@@ -61,7 +61,26 @@ export interface ElementProvenance {
   line?: number;
   column?: number;
   component?: string;
+  /**
+   * Where the nearest enclosing component was instantiated (`<Card …>` in the
+   * parent), as opposed to the element's own authoring site above. All
+   * `.map()`-produced siblings share one owner site, so `ownerKey` — their
+   * React key — is the only source-derived signal that separates them.
+   */
+  ownerSourceFile?: string;
+  ownerLine?: number;
+  ownerColumn?: number;
+  ownerComponentName?: string;
+  ownerKey?: string;
+  /**
+   * Set when the element resolved to NO location, so callers can tell "this
+   * app never exposes source locations" from "the runtime has not reported
+   * yet". Never set alongside a resolved `sourceFile`.
+   */
+  unavailableReason?: ElementProvenanceUnavailableReason;
 }
+
+export type ElementProvenanceUnavailableReason = "not-react" | "no-debug-info";
 
 export function parseDataLocProvenance(
   dataLoc: string,

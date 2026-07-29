@@ -21,6 +21,12 @@ export interface ReactSourceAnchor {
   line?: number;
   column?: number;
   component?: string;
+  /**
+   * React key of the nearest component instance. `.map()`-produced siblings
+   * share one authored call site, so line/column plus runtimeMultiplicity says
+   * "one of N instances" while this says WHICH one.
+   */
+  ownerKey?: string;
   runtimeMultiplicity?: number;
   reason?: string;
   scope?: ReactSourceScope;
@@ -33,6 +39,7 @@ export interface ExactReactSourceAnchor {
   line: number;
   column: number;
   component?: string;
+  ownerKey?: string;
   runtimeMultiplicity: number;
   reason?: string;
   scope: ReactSourceScope;
@@ -175,6 +182,7 @@ export interface BuildRuntimeReactLayerStateHandoffInput {
 export type RuntimeStructureMoveExecutionMode =
   | "source-edit"
   | "screen-bridge"
+  | "screen-bridge-insert"
   | "semantic-handoff";
 
 export function resolveRuntimeStructureMoveExecutionMode(input: {
@@ -182,7 +190,23 @@ export function resolveRuntimeStructureMoveExecutionMode(input: {
   targetRuntimeOnly: boolean;
   sourceScreenId: string;
   targetScreenId: string;
+  /**
+   * The DESTINATION screen renders a live localhost app. Node-level
+   * `runtimeOnly` cannot stand in for this: a live drop anchor usually has no
+   * stored layer owner at all, so both `runtimeOnly` flags read false and the
+   * move looks like an ordinary source edit — except the destination's stored
+   * "content" is the bridge URL, so that edit writes an HTML document over the
+   * URL and never reaches the running DOM.
+   */
+  targetScreenIsLive?: boolean;
 }): RuntimeStructureMoveExecutionMode {
+  if (
+    input.targetScreenIsLive &&
+    input.sourceScreenId !== input.targetScreenId &&
+    !input.subjectRuntimeOnly
+  ) {
+    return "screen-bridge-insert";
+  }
   if (!input.subjectRuntimeOnly && !input.targetRuntimeOnly)
     return "source-edit";
   if (
@@ -250,6 +274,9 @@ export function redactReactSourceAnchor(
     ...(bounded(anchor.component, MAX_COMPONENT_LENGTH)
       ? { component: bounded(anchor.component, MAX_COMPONENT_LENGTH) }
       : {}),
+    ...(bounded(anchor.ownerKey, MAX_ID_LENGTH)
+      ? { ownerKey: bounded(anchor.ownerKey, MAX_ID_LENGTH) }
+      : {}),
     ...(Number.isInteger(anchor.runtimeMultiplicity) &&
     (anchor.runtimeMultiplicity ?? 0) > 0
       ? { runtimeMultiplicity: anchor.runtimeMultiplicity }
@@ -309,6 +336,9 @@ function exactAnchor(
     column: anchor.column!,
     ...(bounded(anchor.component, MAX_COMPONENT_LENGTH)
       ? { component: bounded(anchor.component, MAX_COMPONENT_LENGTH) }
+      : {}),
+    ...(bounded(anchor.ownerKey, MAX_ID_LENGTH)
+      ? { ownerKey: bounded(anchor.ownerKey, MAX_ID_LENGTH) }
       : {}),
     runtimeMultiplicity:
       Number.isInteger(anchor.runtimeMultiplicity) &&
@@ -392,8 +422,11 @@ export function buildReactSemanticHandoff(
     input.runtimeRelationship.targetAnchorId,
     MAX_ID_LENGTH,
   );
+  // An insert's subject is new markup, not an existing runtime node, so it has
+  // no source anchor to reference. Every other operation acts on something
+  // that already exists in the program and must name it.
   if (
-    subjectAnchorIds.length === 0 ||
+    (input.operation !== "insert" && subjectAnchorIds.length === 0) ||
     subjectAnchorIds.some((id) => !id || !anchorIds.has(id)) ||
     (targetAnchorId !== undefined && !anchorIds.has(targetAnchorId))
   ) {
@@ -502,6 +535,11 @@ export function buildReactSemanticHandoff(
         "Obtain human write consent and write through the local bridge with expectedVersionHash from the corresponding read and requireExpectedVersionHash: true.",
         "If a version hash conflicts, re-read the source and re-plan instead of overwriting it.",
         "Keep the live preview pending until HMR renders and confirms the intended runtime relationship.",
+        ...(sourceAnchors.some((anchor) => anchor.ownerKey)
+          ? [
+              "An anchor's ownerKey is the React key of the selected instance, not a second location: its `.map()` siblings share that one call site, so decide whether the change belongs to the data behind that key or to every instance.",
+            ]
+          : []),
       ],
     },
   };

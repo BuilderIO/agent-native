@@ -264,45 +264,138 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!el || !el.getAttribute) return "";
       return el.getAttribute("data-agent-native-node-id") || el.getAttribute("data-code-layer-id") || el.getAttribute("data-layer-id") || el.getAttribute("data-builder-id") || el.getAttribute("data-loc") || el.id || "";
     }
+    var PROVENANCE_NOISE_SEGMENTS = {
+      node_modules: true,
+      dist: true,
+      build: true,
+      ".next": true,
+      public: true
+    };
+    function isProvenanceNoisePath(path) {
+      var segments = path.split("/");
+      for (var i = 0; i < segments.length; i += 1) {
+        if (PROVENANCE_NOISE_SEGMENTS[segments[i]]) return true;
+        if (segments[i] === "_next" && segments[i + 1] === "static") return true;
+      }
+      return false;
+    }
+    function resolveProvenanceFrameUrl(rawUrl) {
+      if (rawUrl.indexOf("webpack-internal:///") === 0) {
+        var webpackPath = rawUrl.slice("webpack-internal:///".length).replace(/^\\.\\//, "");
+        return webpackPath || null;
+      }
+      try {
+        var url = new URL(rawUrl);
+        var path = decodeURIComponent(url.pathname);
+        if (path.indexOf("/@fs/") === 0) {
+          path = path.slice("/@fs".length);
+        } else if (url.protocol !== "file:") {
+          path = path.replace(/^\\/+/, "");
+        }
+        return path || null;
+      } catch (_error) {
+        return null;
+      }
+    }
+    var PROVENANCE_STACK_FRAME_RE = /^\\s*at\\s+(?:([^\\s(]+)\\s+\\()?([^()\\s][^()]*?):(\\d+):(\\d+)\\)?\\s*$/;
+    function parseProvenanceStackFrame(lineText) {
+      var match = PROVENANCE_STACK_FRAME_RE.exec(lineText);
+      if (!match) return null;
+      var sourceFile = resolveProvenanceFrameUrl(match[2]);
+      if (!sourceFile || isProvenanceNoisePath(sourceFile)) return null;
+      var line = parseInt(match[3], 10);
+      var column = parseInt(match[4], 10);
+      if (!isFinite(line) || !isFinite(column)) return null;
+      return {
+        sourceFile,
+        line,
+        column,
+        functionName: match[1] || void 0
+      };
+    }
+    function fiberDebugLocation(fiber) {
+      var source = fiber._debugSource || fiber._debugInfo && fiber._debugInfo.source || fiber.stateNode && fiber.stateNode._debugSource || fiber.elementType && fiber.elementType._debugSource;
+      if (source && source.fileName) {
+        return {
+          sourceFile: source.fileName,
+          line: source.lineNumber,
+          column: source.columnNumber,
+          structured: true
+        };
+      }
+      var stack = fiber._debugStack && fiber._debugStack.stack || fiber._debugInfo && fiber._debugInfo.stack || fiber.stateNode && fiber.stateNode._debugStack && fiber.stateNode._debugStack.stack;
+      if (!stack) return null;
+      var lines = String(stack).split("\\n");
+      for (var index = 0; index < lines.length; index += 1) {
+        var parsed = parseProvenanceStackFrame(lines[index]);
+        if (parsed) {
+          return {
+            sourceFile: parsed.sourceFile,
+            line: parsed.line,
+            column: parsed.column,
+            functionName: parsed.functionName,
+            structured: false
+          };
+        }
+      }
+      return null;
+    }
     var reactDebugProvenanceCache = typeof WeakMap !== "undefined" ? /* @__PURE__ */ new WeakMap() : null;
+    var REACT_FIBER_KEY_PREFIXES = [
+      "__reactFiber$",
+      "__reactInternalInstance$",
+      "__reactInternalFiberCurrent$",
+      "__reactInternalFiber$"
+    ];
+    function reactFiberOf(el) {
+      var keys = Object.keys(el);
+      for (var i = 0; i < keys.length; i += 1) {
+        for (var j = 0; j < REACT_FIBER_KEY_PREFIXES.length; j += 1) {
+          if (keys[i].indexOf(REACT_FIBER_KEY_PREFIXES[j]) === 0) {
+            return el[keys[i]];
+          }
+        }
+      }
+      return null;
+    }
     function reactDebugProvenance(el) {
       var cached = reactDebugProvenanceCache?.get(el);
       if (cached !== void 0) return cached;
-      var fiberKey = Object.keys(el).find(function(key) {
-        return key.indexOf("__reactFiber$") === 0;
-      });
-      if (!fiberKey) return void 0;
-      var fiber = el[fiberKey];
+      var leafFiber = reactFiberOf(el);
+      if (!leafFiber) return { unavailableReason: "not-react" };
+      var elementLocation = null;
+      var componentFiber = null;
+      var fiber = leafFiber;
       for (var depth = 0; fiber && depth < 12; depth += 1) {
-        var stack = String(fiber._debugStack?.stack || "");
-        var lines = stack.split("\\n");
-        for (var index = 0; index < lines.length; index += 1) {
-          var lineText = lines[index];
-          var match = lineText.match(
-            /(?:\\(|\\s)(https?:\\/\\/[^\\s)]+?):(\\d+):(\\d+)\\)?\\s*$/
-          );
-          if (!match) continue;
-          try {
-            var sourceUrl = new URL(match[1]);
-            var pathname = decodeURIComponent(sourceUrl.pathname);
-            if (pathname.indexOf("/node_modules/") >= 0) continue;
-            var sourceFile = pathname.indexOf("/@fs/") === 0 ? pathname.slice("/@fs".length) : pathname.replace(/^\\/+/, "");
-            if (!sourceFile) continue;
-            var componentMatch = lineText.match(/\\bat\\s+([^\\s(]+)\\s*\\(/);
-            var provenance = {
-              sourceFile,
-              line: parseInt(match[2], 10),
-              column: parseInt(match[3], 10),
-              component: componentMatch ? componentMatch[1] : void 0
-            };
-            reactDebugProvenanceCache?.set(el, provenance);
-            return provenance;
-          } catch (_error) {
-          }
+        if (!elementLocation) elementLocation = fiberDebugLocation(fiber);
+        if (!componentFiber && fiber !== leafFiber && typeof fiber.type === "function") {
+          componentFiber = fiber;
         }
+        if (elementLocation && componentFiber) break;
         fiber = fiber.return;
       }
-      return void 0;
+      if (!elementLocation) return { unavailableReason: "no-debug-info" };
+      var componentName = componentFiber && componentFiber.type && (componentFiber.type.displayName || componentFiber.type.name) || elementLocation.functionName || void 0;
+      var provenance = {
+        sourceFile: elementLocation.sourceFile,
+        line: elementLocation.line,
+        column: elementLocation.column,
+        component: componentName
+      };
+      if (componentFiber) {
+        var ownerLocation = fiberDebugLocation(componentFiber);
+        if (ownerLocation) {
+          provenance.ownerSourceFile = ownerLocation.sourceFile;
+          provenance.ownerLine = ownerLocation.line;
+          provenance.ownerColumn = ownerLocation.column;
+          provenance.ownerComponentName = componentName;
+        }
+        if (typeof componentFiber.key === "string" && componentFiber.key) {
+          provenance.ownerKey = componentFiber.key;
+        }
+      }
+      reactDebugProvenanceCache?.set(el, provenance);
+      return provenance;
     }
     var runtimeLayerSnapshotTimer = null;
     var runtimeLayerSnapshotMaxTimer = null;
@@ -340,7 +433,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var existing = el.getAttribute("data-agent-native-node-id")?.trim();
       if (existing) return existing;
       var provenance = reactDebugProvenance(el);
-      var provenanceKey = provenance ? [
+      var provenanceKey = provenance.sourceFile ? [
         provenance.sourceFile,
         provenance.line,
         provenance.column || 0,
@@ -459,7 +552,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         );
         inlineSnapshotComputedStyle(sourceNode, cloneNode);
         var provenance = reactDebugProvenance(sourceNode);
-        if (provenance) {
+        if (provenance.sourceFile) {
           cloneNode.setAttribute("data-source-file", provenance.sourceFile);
           cloneNode.setAttribute("data-source-line", String(provenance.line));
           if (provenance.column) {
@@ -471,6 +564,36 @@ export const editorChromeBridgeScript: string = `"use strict";
           if (provenance.component) {
             cloneNode.setAttribute("data-component-name", provenance.component);
           }
+          if (provenance.ownerSourceFile) {
+            cloneNode.setAttribute(
+              "data-source-owner-file",
+              provenance.ownerSourceFile
+            );
+            cloneNode.setAttribute(
+              "data-source-owner-line",
+              String(provenance.ownerLine)
+            );
+            if (provenance.ownerColumn) {
+              cloneNode.setAttribute(
+                "data-source-owner-column",
+                String(provenance.ownerColumn)
+              );
+            }
+            if (provenance.ownerComponentName) {
+              cloneNode.setAttribute(
+                "data-source-owner-component",
+                provenance.ownerComponentName
+              );
+            }
+          }
+          if (provenance.ownerKey) {
+            cloneNode.setAttribute("data-source-owner-key", provenance.ownerKey);
+          }
+        } else if (provenance.unavailableReason) {
+          cloneNode.setAttribute(
+            "data-source-unavailable",
+            provenance.unavailableReason
+          );
         }
         nodeCount += 1;
       }
@@ -1066,16 +1189,17 @@ export const editorChromeBridgeScript: string = `"use strict";
           if (hasColumn) dataSourceColumn = lastPart;
         }
       }
+      var reactProvenance = void 0;
       if (!dataSourceFile) {
-        var reactProvenance = reactDebugProvenance(el);
-        if (reactProvenance) {
+        reactProvenance = reactDebugProvenance(el);
+        if (reactProvenance.sourceFile) {
           dataSourceFile = reactProvenance.sourceFile;
           dataSourceLine = String(reactProvenance.line);
           dataSourceColumn = reactProvenance.column ? String(reactProvenance.column) : null;
           dataComponentName = dataComponentName || reactProvenance.component || null;
         }
       }
-      if (dataSourceFile || dataSourceLine || dataSourceColumn || dataComponentName) {
+      if (dataSourceFile || dataSourceLine || dataSourceColumn || dataComponentName || reactProvenance?.unavailableReason) {
         provenance = {};
         if (dataSourceFile) provenance.sourceFile = dataSourceFile;
         if (dataSourceLine) {
@@ -1087,6 +1211,18 @@ export const editorChromeBridgeScript: string = `"use strict";
           if (!isNaN(col)) provenance.column = col;
         }
         if (dataComponentName) provenance.component = dataComponentName;
+        if (reactProvenance?.ownerSourceFile) {
+          provenance.ownerSourceFile = reactProvenance.ownerSourceFile;
+          provenance.ownerLine = reactProvenance.ownerLine;
+          provenance.ownerColumn = reactProvenance.ownerColumn;
+          provenance.ownerComponentName = reactProvenance.ownerComponentName;
+        }
+        if (reactProvenance?.ownerKey) {
+          provenance.ownerKey = reactProvenance.ownerKey;
+        }
+        if (reactProvenance?.unavailableReason) {
+          provenance.unavailableReason = reactProvenance.unavailableReason;
+        }
       }
       return {
         tagName: el.tagName.toLowerCase(),
@@ -3775,8 +3911,22 @@ export const editorChromeBridgeScript: string = `"use strict";
       refreshOverlays();
       postNodeHtmlPreviewApplied(proposalId);
     }
-    function findUniqueRuntimeStructureTarget(selector, sourceId) {
+    function findUniqueRuntimeStructureTarget(selector, sourceId, pendingId) {
       var matches = /* @__PURE__ */ new Set();
+      if (typeof pendingId === "string" && pendingId) {
+        try {
+          var pendingMatches = document.querySelectorAll(
+            '[data-an-pending-node-id="' + escapeAttribute(pendingId) + '"]'
+          );
+          if (pendingMatches.length === 1) {
+            var pendingMatch = pendingMatches[0];
+            if (pendingMatch !== document.body && pendingMatch !== document.documentElement && !isOverlayElement(pendingMatch) && !isLayerInteractionBlocked(pendingMatch)) {
+              return pendingMatch;
+            }
+          }
+        } catch (_err) {
+        }
+      }
       if (typeof sourceId === "string" && sourceId) {
         var attributes = [
           "data-agent-native-node-id",
@@ -5435,7 +5585,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       correctAbsoluteMemberClientPosition(el, desiredDropPoint);
     }
-    function postVisualStructureChange(el, target, origin) {
+    function postVisualStructureChange(el, target, origin, insertedHtml) {
       if (!el || !target || !target.anchor) return;
       dndLog("post:structure-change", {
         el: getSelector(el),
@@ -5461,6 +5611,10 @@ export const editorChromeBridgeScript: string = `"use strict";
           placement: target.placement,
           dropMode: target.dropMode || "flow-insert",
           forceFlowPositionOverride: Boolean(target.forceFlowPositionOverride),
+          // Present only when this node did not exist in the running app before
+          // the change. The host must NOT tell the coding agent to relocate an
+          // element the source file has never contained.
+          insertedHtml: typeof insertedHtml === "string" ? insertedHtml : void 0,
           sourceRect: rectInfoForElement(el),
           anchorRect: rectInfoForElement(target.anchor),
           payload: getElementInfo(el),
@@ -8097,6 +8251,112 @@ export const editorChromeBridgeScript: string = `"use strict";
         postVisualStructureChange(runtimeSubject, runtimeTarget, runtimeOrigin);
         return;
       }
+      if (e.data.type === "runtime-structure-insert") {
+        var insertRequestId = e.data.requestId;
+        var rejectInsert = function(reason) {
+          window.parent.postMessage(
+            {
+              type: "runtime-structure-insert-rejected",
+              screenId: designCanvasScreenId,
+              requestId: insertRequestId,
+              reason
+            },
+            "*"
+          );
+        };
+        if (readOnly) {
+          rejectInsert("read-only");
+          return;
+        }
+        var insertPlacement = String(e.data.placement || "");
+        if (insertPlacement !== "before" && insertPlacement !== "after" && insertPlacement !== "inside") {
+          rejectInsert("placement");
+          return;
+        }
+        var insertAnchor = findUniqueRuntimeStructureTarget(
+          String(e.data.anchorSelector || ""),
+          typeof e.data.anchorSourceId === "string" ? e.data.anchorSourceId : "",
+          typeof e.data.anchorPendingNodeId === "string" ? e.data.anchorPendingNodeId : ""
+        );
+        if (!insertAnchor) {
+          rejectInsert("anchor-unresolved");
+          return;
+        }
+        if (insertPlacement === "inside" && !isContainerDropTarget(insertAnchor) || insertPlacement !== "inside" && !insertAnchor.parentElement) {
+          rejectInsert("placement-unavailable");
+          return;
+        }
+        var parsedInsertEl = parseNodeHtmlPreviewElement(
+          typeof e.data.html === "string" ? e.data.html : ""
+        );
+        if (!parsedInsertEl || parsedInsertEl === document.body || parsedInsertEl.tagName === "BODY") {
+          rejectInsert("html");
+          return;
+        }
+        var insertNodeId = parsedInsertEl.getAttribute(
+          "data-agent-native-node-id"
+        );
+        var existingInsertEl = null;
+        if (insertNodeId) {
+          try {
+            existingInsertEl = document.querySelector(
+              '[data-agent-native-node-id="' + escapeAttribute(insertNodeId) + '"]'
+            );
+          } catch (_err) {
+          }
+        }
+        if (existingInsertEl === insertAnchor) {
+          rejectInsert("anchor-is-subject");
+          return;
+        }
+        var insertTarget = {
+          anchor: insertAnchor,
+          placement: insertPlacement,
+          axis: parentFlowAxis(
+            insertPlacement === "inside" ? insertAnchor : insertAnchor.parentElement
+          ),
+          dropMode: insertPlacement === "inside" && isAbsolutePrimitiveContainer(insertAnchor) ? "absolute-container" : "flow-insert"
+        };
+        if (existingInsertEl) {
+          if (existingInsertEl.contains(insertAnchor)) {
+            rejectInsert("anchor-inside-subject");
+            return;
+          }
+          var reinsertOrigin = {
+            prevParent: existingInsertEl.parentElement,
+            prevNextSibling: existingInsertEl.nextSibling,
+            prevInlinePositionStyles: snapshotInlinePositionStyles(existingInsertEl)
+          };
+          applyRuntimeReorder(existingInsertEl, insertTarget);
+          selectedEl = existingInsertEl;
+          positionOverlay(selectionOverlay, selectedEl);
+          refreshOverlays();
+          postVisualStructureChange(
+            existingInsertEl,
+            insertTarget,
+            reinsertOrigin
+          );
+          return;
+        }
+        if (insertPlacement === "inside") {
+          insertAnchor.appendChild(parsedInsertEl);
+        } else {
+          insertAnchor.parentElement.insertBefore(
+            parsedInsertEl,
+            insertPlacement === "before" ? insertAnchor : insertAnchor.nextSibling
+          );
+        }
+        selectedEl = parsedInsertEl;
+        positionOverlay(selectionOverlay, selectedEl);
+        refreshOverlays();
+        postVisualStructureChange(
+          parsedInsertEl,
+          insertTarget,
+          { inserted: true },
+          parsedInsertEl.outerHTML
+        );
+        return;
+      }
       if (e.data.type === "visual-structure-ack") {
         dndLog("ack", {
           requestId: e.data.requestId,
@@ -8105,15 +8365,23 @@ export const editorChromeBridgeScript: string = `"use strict";
         var move = pendingStructureMoves[e.data.requestId];
         if (!move) return;
         delete pendingStructureMoves[e.data.requestId];
+        var moveWasInsert = Boolean(move.origin && "inserted" in move.origin);
         if (e.data.applied) {
-          if (move.el && move.el.isConnected) {
+          if (!moveWasInsert && move.el && move.el.isConnected) {
             applyRuntimeReorder(move.el, move.target);
             selectedEl = move.el;
             positionOverlay(selectionOverlay, selectedEl);
             postElementSelect(selectedEl);
           }
         } else {
-          if (move.el && move.el.isConnected && move.origin && move.origin.prevParent && move.origin.prevParent.isConnected) {
+          if (moveWasInsert) {
+            if (move.el && move.el.isConnected) move.el.remove();
+            if (selectedEl === move.el) selectedEl = null;
+            if (hoveredEl === move.el) hoveredEl = null;
+            refreshOverlays();
+            return;
+          }
+          if (move.el && move.el.isConnected && move.origin && "prevParent" in move.origin && move.origin.prevParent && move.origin.prevParent.isConnected) {
             move.origin.prevParent.insertBefore(
               move.el,
               move.origin.prevNextSibling

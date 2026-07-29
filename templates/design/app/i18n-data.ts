@@ -1096,6 +1096,8 @@ const enUS = {
       autoLayoutScreensUnsupported: "Add auto layout doesn't apply to screens",
       reactSourceAnchorsLoading:
         "Can't locate this layer in the source. Try again once the app finishes loading, or ask the agent to make the change.",
+      reactSourceAnchorsUnavailable:
+        "This app doesn't expose source locations to the editor, so this layer can't be traced back to a line. Ask the agent to make the change.",
     },
   },
   layersPanel: {
@@ -14431,6 +14433,8 @@ const designRuntimeIdentityAndBridgeOverrides = {
       toasts: {
         reactSourceAnchorsLoading:
           "无法在源码中定位该图层。请等应用加载完成后重试，或请代理帮你完成此更改。",
+        reactSourceAnchorsUnavailable:
+          "该应用未向编辑器提供源码位置，因此无法把该图层追溯到具体代码行。请让代理完成此更改。",
       },
     },
     layersPanel: { dragGhostCount: "{{count}} 个图层" },
@@ -14457,6 +14461,8 @@ const designRuntimeIdentityAndBridgeOverrides = {
       toasts: {
         reactSourceAnchorsLoading:
           "No se puede localizar esta capa en el código fuente. Vuelve a intentarlo cuando la aplicación termine de cargar, o pide al agente que haga el cambio.",
+        reactSourceAnchorsUnavailable:
+          "Esta aplicación no expone ubicaciones de código al editor, así que esta capa no se puede rastrear hasta una línea. Pide al agente que haga el cambio.",
       },
     },
     layersPanel: { dragGhostCount: "{{count}} capas" },
@@ -14484,6 +14490,8 @@ const designRuntimeIdentityAndBridgeOverrides = {
       toasts: {
         reactSourceAnchorsLoading:
           "Impossible de localiser ce calque dans le code source. Réessayez une fois le chargement de l’application terminé, ou demandez à l’agent d’effectuer ce changement.",
+        reactSourceAnchorsUnavailable:
+          "Cette application n’expose pas les emplacements du code source à l’éditeur : ce calque ne peut donc pas être relié à une ligne. Demandez à l’agent d’effectuer ce changement.",
       },
     },
     layersPanel: { dragGhostCount: "{{count}} calques" },
@@ -14510,6 +14518,8 @@ const designRuntimeIdentityAndBridgeOverrides = {
       toasts: {
         reactSourceAnchorsLoading:
           "Diese Ebene lässt sich im Quellcode nicht finden. Versuche es erneut, sobald die App vollständig geladen ist, oder lass die Änderung vom Agenten vornehmen.",
+        reactSourceAnchorsUnavailable:
+          "Diese App stellt dem Editor keine Quellcode-Positionen bereit, daher lässt sich diese Ebene keiner Zeile zuordnen. Lass die Änderung vom Agenten vornehmen.",
       },
     },
     layersPanel: { dragGhostCount: "{{count}} Ebenen" },
@@ -14537,6 +14547,8 @@ const designRuntimeIdentityAndBridgeOverrides = {
       toasts: {
         reactSourceAnchorsLoading:
           "このレイヤーのソースが見つかりません。アプリの読み込みが完了してから再度お試しいただくか、エージェントに変更を依頼してください。",
+        reactSourceAnchorsUnavailable:
+          "このアプリはエディターにソース位置を提供していないため、このレイヤーを行にひも付けできません。エージェントに変更を依頼してください。",
       },
     },
     layersPanel: { dragGhostCount: "{{count}} 個のレイヤー" },
@@ -14563,6 +14575,8 @@ const designRuntimeIdentityAndBridgeOverrides = {
       toasts: {
         reactSourceAnchorsLoading:
           "이 레이어를 소스에서 찾을 수 없습니다. 앱 로딩이 끝난 후 다시 시도하거나, 에이전트에게 변경을 요청하세요.",
+        reactSourceAnchorsUnavailable:
+          "이 앱은 편집기에 소스 위치를 제공하지 않아 이 레이어를 코드 줄과 연결할 수 없습니다. 에이전트에게 변경을 요청하세요.",
       },
     },
     layersPanel: { dragGhostCount: "레이어 {{count}}개" },
@@ -14589,6 +14603,8 @@ const designRuntimeIdentityAndBridgeOverrides = {
       toasts: {
         reactSourceAnchorsLoading:
           "Não foi possível localizar esta camada no código-fonte. Tente novamente quando o app terminar de carregar, ou peça ao agente para fazer essa alteração.",
+        reactSourceAnchorsUnavailable:
+          "Este app não expõe localizações de código ao editor, então esta camada não pode ser associada a uma linha. Peça ao agente para fazer essa alteração.",
       },
     },
     layersPanel: { dragGhostCount: "{{count}} camadas" },
@@ -14616,6 +14632,8 @@ const designRuntimeIdentityAndBridgeOverrides = {
       toasts: {
         reactSourceAnchorsLoading:
           "यह लेयर सोर्स में नहीं मिली। ऐप लोड होने के बाद फिर से कोशिश करें, या एजेंट से यह बदलाव करने को कहें।",
+        reactSourceAnchorsUnavailable:
+          "यह ऐप एडिटर को सोर्स लोकेशन नहीं देता, इसलिए इस लेयर को किसी लाइन से नहीं जोड़ा जा सकता। यह बदलाव एजेंट से कराएँ।",
       },
     },
     layersPanel: { dragGhostCount: "{{count}} लेयर" },
@@ -14642,6 +14660,8 @@ const designRuntimeIdentityAndBridgeOverrides = {
       toasts: {
         reactSourceAnchorsLoading:
           "تعذر تحديد موقع هذه الطبقة في المصدر. أعد المحاولة بعد اكتمال تحميل التطبيق، أو اطلب من الوكيل إجراء هذا التغيير.",
+        reactSourceAnchorsUnavailable:
+          "لا يوفّر هذا التطبيق مواقع المصدر للمحرر، لذا لا يمكن ربط هذه الطبقة بسطر معيّن. اطلب من الوكيل إجراء هذا التغيير.",
       },
     },
     layersPanel: { dragGhostCount: "{{count}} طبقات" },

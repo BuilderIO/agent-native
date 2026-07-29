@@ -426,13 +426,155 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
   }
 
   /**
-   * React 19 development builds keep the exact jsxDEV call site on the host
-   * element's Fiber `_debugStack`, even though React does not emit that source
-   * location as a DOM attribute. Recover it without depending on React internals
-   * for mutations: this is read-only provenance used to identify the selected
-   * source file and line. Explicit data-source-* / data-loc attributes still
-   * win below, and production builds simply return undefined.
+   * Resolve a DOM element to the JSX call site that created it, read-only, so
+   * the editor and the coding agent anchor to a real source line instead of a
+   * selector guess. Explicit data-source-* / data-loc attributes still win at
+   * the call sites below.
+   *
+   * Three tiers, in the order React makes them available:
+   *   • React <=18 — the structured `_debugSource` fiber field (authored file,
+   *     line and column, emitted by the dev JSX transform).
+   *   • React 19 — `_debugSource` is gone; parse the `_debugStack` owner stack
+   *     captured at element creation.
+   *   • Neither — report WHY (`unavailableReason`), never a guessed location.
+   *
+   * `sourceFile`/`line`/`column` are the element's OWN authoring site (a button
+   * inside Card.jsx always resolves to Card.jsx). `owner*` is where the nearest
+   * enclosing component was instantiated — `<Card …>` in the parent — which is
+   * what separates a directly-authored instance from `.map()`-produced ones.
+   * All `.map()` siblings share one owner site, so `ownerKey` (their React key)
+   * is the only source-derived signal that tells them apart.
+   *
+   * TRAP: a `_debugStack` frame points into the file the dev server SERVES, so
+   * under a transforming dev server (Vite's React plugin, Next.js) its line is
+   * the transformed line, not the authored one — `_debugSource` and
+   * data-source-* attributes are authored coordinates. Callers must treat a
+   * stack-derived line as approximate and re-verify before writing source.
+   *
+   * Keep in sync with ../../../pages/design-editor/source-location.ts (the
+   * unit-tested parser) and source-location.bridge.ts; bridge files may not
+   * import, so the parsing is duplicated by hand.
    */
+  var PROVENANCE_NOISE_SEGMENTS: Record<string, true> = {
+    node_modules: true,
+    dist: true,
+    build: true,
+    ".next": true,
+    public: true,
+  };
+
+  function isProvenanceNoisePath(path: string): boolean {
+    var segments = path.split("/");
+    for (var i = 0; i < segments.length; i += 1) {
+      if (PROVENANCE_NOISE_SEGMENTS[segments[i]!]) return true;
+      if (segments[i] === "_next" && segments[i + 1] === "static") return true;
+    }
+    return false;
+  }
+
+  // webpack-internal:/// (webpack/Next.js/CRA), Vite's /@fs/ absolute serving,
+  // plain http(s) dev-server paths and file: URLs all reduce to one path here.
+  function resolveProvenanceFrameUrl(rawUrl: string): string | null {
+    if (rawUrl.indexOf("webpack-internal:///") === 0) {
+      var webpackPath = rawUrl
+        .slice("webpack-internal:///".length)
+        .replace(/^\.\//, "");
+      return webpackPath || null;
+    }
+    try {
+      var url = new URL(rawUrl);
+      var path = decodeURIComponent(url.pathname);
+      if (path.indexOf("/@fs/") === 0) {
+        path = path.slice("/@fs".length);
+      } else if (url.protocol !== "file:") {
+        path = path.replace(/^\/+/, "");
+      }
+      return path || null;
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  var PROVENANCE_STACK_FRAME_RE =
+    /^\s*at\s+(?:([^\s(]+)\s+\()?([^()\s][^()]*?):(\d+):(\d+)\)?\s*$/;
+
+  function parseProvenanceStackFrame(lineText: string): {
+    sourceFile: string;
+    line: number;
+    column: number;
+    functionName?: string;
+  } | null {
+    var match = PROVENANCE_STACK_FRAME_RE.exec(lineText);
+    if (!match) return null;
+    var sourceFile = resolveProvenanceFrameUrl(match[2]!);
+    if (!sourceFile || isProvenanceNoisePath(sourceFile)) return null;
+    var line = parseInt(match[3]!, 10);
+    var column = parseInt(match[4]!, 10);
+    if (!isFinite(line) || !isFinite(column)) return null;
+    return {
+      sourceFile: sourceFile,
+      line: line,
+      column: column,
+      functionName: match[1] || undefined,
+    };
+  }
+
+  function fiberDebugLocation(fiber: any): {
+    sourceFile: string;
+    line: number;
+    column?: number;
+    functionName?: string;
+    structured: boolean;
+  } | null {
+    var source =
+      fiber._debugSource ||
+      (fiber._debugInfo && fiber._debugInfo.source) ||
+      (fiber.stateNode && fiber.stateNode._debugSource) ||
+      (fiber.elementType && fiber.elementType._debugSource);
+    if (source && source.fileName) {
+      return {
+        sourceFile: source.fileName,
+        line: source.lineNumber,
+        column: source.columnNumber,
+        structured: true,
+      };
+    }
+    var stack =
+      (fiber._debugStack && fiber._debugStack.stack) ||
+      (fiber._debugInfo && fiber._debugInfo.stack) ||
+      (fiber.stateNode &&
+        fiber.stateNode._debugStack &&
+        fiber.stateNode._debugStack.stack);
+    if (!stack) return null;
+    var lines = String(stack).split("\n");
+    for (var index = 0; index < lines.length; index += 1) {
+      var parsed = parseProvenanceStackFrame(lines[index]!);
+      if (parsed) {
+        return {
+          sourceFile: parsed.sourceFile,
+          line: parsed.line,
+          column: parsed.column,
+          functionName: parsed.functionName,
+          structured: false,
+        };
+      }
+    }
+    return null;
+  }
+
+  type ReactDebugProvenance = {
+    sourceFile?: string;
+    line?: number;
+    column?: number;
+    component?: string;
+    ownerSourceFile?: string;
+    ownerLine?: number;
+    ownerColumn?: number;
+    ownerComponentName?: string;
+    ownerKey?: string;
+    unavailableReason?: "not-react" | "no-debug-info";
+  };
+
   // Fiber debug stacks are immutable for the lifetime of a mounted host node.
   // Keep the relatively expensive Object.keys + owner walk off the snapshot
   // hot path after the first successful read. A WeakMap also means React can
@@ -440,58 +582,80 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
   // before a slow/Suspense hydration attaches Fiber to an existing DOM node.
   var reactDebugProvenanceCache =
     typeof WeakMap !== "undefined"
-      ? new WeakMap<Element, ReturnType<typeof reactDebugProvenance>>()
+      ? new WeakMap<Element, ReactDebugProvenance>()
       : null;
 
-  function reactDebugProvenance(el: Element):
-    | {
-        sourceFile: string;
-        line: number;
-        column?: number;
-        component?: string;
-      }
-    | undefined {
-    var cached = reactDebugProvenanceCache?.get(el);
-    if (cached !== undefined) return cached;
-    var fiberKey = Object.keys(el).find(function (key) {
-      return key.indexOf("__reactFiber$") === 0;
-    });
-    if (!fiberKey) return undefined;
-    var fiber = (el as unknown as Record<string, any>)[fiberKey];
-    for (var depth = 0; fiber && depth < 12; depth += 1) {
-      var stack = String(fiber._debugStack?.stack || "");
-      var lines = stack.split("\n");
-      for (var index = 0; index < lines.length; index += 1) {
-        var lineText = lines[index];
-        var match = lineText.match(
-          /(?:\(|\s)(https?:\/\/[^\s)]+?):(\d+):(\d+)\)?\s*$/,
-        );
-        if (!match) continue;
-        try {
-          var sourceUrl = new URL(match[1]);
-          var pathname = decodeURIComponent(sourceUrl.pathname);
-          if (pathname.indexOf("/node_modules/") >= 0) continue;
-          var sourceFile =
-            pathname.indexOf("/@fs/") === 0
-              ? pathname.slice("/@fs".length)
-              : pathname.replace(/^\/+/, "");
-          if (!sourceFile) continue;
-          var componentMatch = lineText.match(/\bat\s+([^\s(]+)\s*\(/);
-          var provenance = {
-            sourceFile: sourceFile,
-            line: parseInt(match[2], 10),
-            column: parseInt(match[3], 10),
-            component: componentMatch ? componentMatch[1] : undefined,
-          };
-          reactDebugProvenanceCache?.set(el, provenance);
-          return provenance;
-        } catch (_error) {
-          // Ignore malformed/non-URL debug frames and keep walking owners.
+  var REACT_FIBER_KEY_PREFIXES = [
+    "__reactFiber$",
+    "__reactInternalInstance$",
+    "__reactInternalFiberCurrent$",
+    "__reactInternalFiber$",
+  ];
+
+  function reactFiberOf(el: Element): any {
+    var keys = Object.keys(el);
+    for (var i = 0; i < keys.length; i += 1) {
+      for (var j = 0; j < REACT_FIBER_KEY_PREFIXES.length; j += 1) {
+        if (keys[i]!.indexOf(REACT_FIBER_KEY_PREFIXES[j]!) === 0) {
+          return (el as unknown as Record<string, any>)[keys[i]!];
         }
       }
+    }
+    return null;
+  }
+
+  function reactDebugProvenance(el: Element): ReactDebugProvenance {
+    var cached = reactDebugProvenanceCache?.get(el);
+    if (cached !== undefined) return cached;
+    // Deliberately no climb to an ancestor's fiber: this runs over every node
+    // in the runtime snapshot, and borrowing a parent's location would stamp a
+    // non-React node with a source line that is not its own.
+    var leafFiber = reactFiberOf(el);
+    if (!leafFiber) return { unavailableReason: "not-react" };
+
+    var elementLocation: ReturnType<typeof fiberDebugLocation> = null;
+    var componentFiber: any = null;
+    var fiber = leafFiber;
+    for (var depth = 0; fiber && depth < 12; depth += 1) {
+      if (!elementLocation) elementLocation = fiberDebugLocation(fiber);
+      if (
+        !componentFiber &&
+        fiber !== leafFiber &&
+        typeof fiber.type === "function"
+      ) {
+        componentFiber = fiber;
+      }
+      if (elementLocation && componentFiber) break;
       fiber = fiber.return;
     }
-    return undefined;
+    if (!elementLocation) return { unavailableReason: "no-debug-info" };
+
+    var componentName =
+      (componentFiber &&
+        componentFiber.type &&
+        (componentFiber.type.displayName || componentFiber.type.name)) ||
+      elementLocation.functionName ||
+      undefined;
+    var provenance: ReactDebugProvenance = {
+      sourceFile: elementLocation.sourceFile,
+      line: elementLocation.line,
+      column: elementLocation.column,
+      component: componentName,
+    };
+    if (componentFiber) {
+      var ownerLocation = fiberDebugLocation(componentFiber);
+      if (ownerLocation) {
+        provenance.ownerSourceFile = ownerLocation.sourceFile;
+        provenance.ownerLine = ownerLocation.line;
+        provenance.ownerColumn = ownerLocation.column;
+        provenance.ownerComponentName = componentName;
+      }
+      if (typeof componentFiber.key === "string" && componentFiber.key) {
+        provenance.ownerKey = componentFiber.key;
+      }
+    }
+    reactDebugProvenanceCache?.set(el, provenance);
+    return provenance;
   }
 
   var runtimeLayerSnapshotTimer: number | null = null;
@@ -534,7 +698,7 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     var existing = el.getAttribute("data-agent-native-node-id")?.trim();
     if (existing) return existing;
     var provenance = reactDebugProvenance(el);
-    var provenanceKey = provenance
+    var provenanceKey = provenance.sourceFile
       ? [
           provenance.sourceFile,
           provenance.line,
@@ -693,7 +857,7 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       );
       inlineSnapshotComputedStyle(sourceNode, cloneNode);
       var provenance = reactDebugProvenance(sourceNode);
-      if (provenance) {
+      if (provenance.sourceFile) {
         cloneNode.setAttribute("data-source-file", provenance.sourceFile);
         cloneNode.setAttribute("data-source-line", String(provenance.line));
         if (provenance.column) {
@@ -705,6 +869,40 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         if (provenance.component) {
           cloneNode.setAttribute("data-component-name", provenance.component);
         }
+        if (provenance.ownerSourceFile) {
+          cloneNode.setAttribute(
+            "data-source-owner-file",
+            provenance.ownerSourceFile,
+          );
+          cloneNode.setAttribute(
+            "data-source-owner-line",
+            String(provenance.ownerLine),
+          );
+          if (provenance.ownerColumn) {
+            cloneNode.setAttribute(
+              "data-source-owner-column",
+              String(provenance.ownerColumn),
+            );
+          }
+          if (provenance.ownerComponentName) {
+            cloneNode.setAttribute(
+              "data-source-owner-component",
+              provenance.ownerComponentName,
+            );
+          }
+        }
+        // The only source-derived signal that separates `.map()` siblings,
+        // which all share one owner call site.
+        if (provenance.ownerKey) {
+          cloneNode.setAttribute("data-source-owner-key", provenance.ownerKey);
+        }
+      } else if (provenance.unavailableReason) {
+        // Absent must stay distinguishable from not-loaded-yet downstream, so
+        // record why this node has no location instead of dropping the fact.
+        cloneNode.setAttribute(
+          "data-source-unavailable",
+          provenance.unavailableReason,
+        );
       }
       nodeCount += 1;
     }
@@ -1503,14 +1701,7 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     }
     // --- provenance: read explicit source-location attributes when present,
     // then fall back to React's development-only jsxDEV Fiber stack. ---
-    var provenance:
-      | {
-          sourceFile?: string;
-          line?: number;
-          column?: number;
-          component?: string;
-        }
-      | undefined = undefined;
+    var provenance: ReactDebugProvenance | undefined = undefined;
     var dataSourceFile = el.getAttribute("data-source-file");
     var dataSourceLine = el.getAttribute("data-source-line");
     var dataSourceColumn = el.getAttribute("data-source-column");
@@ -1537,9 +1728,10 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         if (hasColumn) dataSourceColumn = lastPart;
       }
     }
+    var reactProvenance: ReactDebugProvenance | undefined = undefined;
     if (!dataSourceFile) {
-      var reactProvenance = reactDebugProvenance(el);
-      if (reactProvenance) {
+      reactProvenance = reactDebugProvenance(el);
+      if (reactProvenance.sourceFile) {
         dataSourceFile = reactProvenance.sourceFile;
         dataSourceLine = String(reactProvenance.line);
         dataSourceColumn = reactProvenance.column
@@ -1553,7 +1745,8 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       dataSourceFile ||
       dataSourceLine ||
       dataSourceColumn ||
-      dataComponentName
+      dataComponentName ||
+      reactProvenance?.unavailableReason
     ) {
       provenance = {};
       if (dataSourceFile) provenance.sourceFile = dataSourceFile;
@@ -1566,6 +1759,20 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         if (!isNaN(col)) provenance.column = col;
       }
       if (dataComponentName) provenance.component = dataComponentName;
+      if (reactProvenance?.ownerSourceFile) {
+        provenance.ownerSourceFile = reactProvenance.ownerSourceFile;
+        provenance.ownerLine = reactProvenance.ownerLine;
+        provenance.ownerColumn = reactProvenance.ownerColumn;
+        provenance.ownerComponentName = reactProvenance.ownerComponentName;
+      }
+      if (reactProvenance?.ownerKey) {
+        provenance.ownerKey = reactProvenance.ownerKey;
+      }
+      // Why there is no location, so the editor can say "this app exposes no
+      // debug info" instead of "still loading".
+      if (reactProvenance?.unavailableReason) {
+        provenance.unavailableReason = reactProvenance.unavailableReason;
+      }
     }
     return {
       tagName: el.tagName.toLowerCase(),
@@ -2431,19 +2638,26 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       requestId: string;
       el: Element;
       target: { anchor: Element; placement: string; axis?: string };
-      origin: {
-        prevParent: Element;
-        prevNextSibling: Node | null;
-        // Inline position/left/top/right/bottom VALUES captured right before
-        // the optimistic reorder's stripAbsolutePositioningForFlowInsert ran
-        // (absent/undefined when that strip did not apply — e.g. an
-        // absolute-container drop, or a flow-reorder of an already-flow
-        // element with nothing to strip). Restored by the visual-structure-ack
-        // failure branch alongside the parent/sibling revert so a rejected
-        // move-node round-trip cannot leave the element stripped of its
-        // absolute positioning while stuck in the wrong parent.
-        prevInlinePositionStyles?: Record<string, string> | null;
-      } | null;
+      origin:
+        | {
+            prevParent: Element;
+            prevNextSibling: Node | null;
+            // Inline position/left/top/right/bottom VALUES captured right before
+            // the optimistic reorder's stripAbsolutePositioningForFlowInsert ran
+            // (absent/undefined when that strip did not apply — e.g. an
+            // absolute-container drop, or a flow-reorder of an already-flow
+            // element with nothing to strip). Restored by the visual-structure-ack
+            // failure branch alongside the parent/sibling revert so a rejected
+            // move-node round-trip cannot leave the element stripped of its
+            // absolute positioning while stuck in the wrong parent.
+            prevInlinePositionStyles?: Record<string, string> | null;
+          }
+        // A host-driven insert has no previous position to restore: the
+        // element did not exist before this request, so a rejected/undone
+        // round-trip must REMOVE it. Restoring a prevParent it never had is
+        // what would leave an orphan node behind after Cmd+Z.
+        | { inserted: true }
+        | null;
     }
   > = {};
   var pendingShieldDrag: {
@@ -5464,8 +5678,30 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
   // is only safe when it identifies exactly one live element. Prefer the
   // runtime projection's stable source id and fall back to the selector only
   // when that id has no match at all.
-  function findUniqueRuntimeStructureTarget(selector, sourceId) {
+  function findUniqueRuntimeStructureTarget(selector, sourceId, pendingId?) {
     var matches = new Set<Element>();
+    // Pending ids are deliberately NOT part of the stable-id list below: they
+    // are minted per hit-test and only ever stamped on the live DOM, so they
+    // must not participate in stored-id resolution. They are still the only
+    // handle a cross-screen drop has on an id-less live anchor.
+    if (typeof pendingId === "string" && pendingId) {
+      try {
+        var pendingMatches = document.querySelectorAll(
+          '[data-an-pending-node-id="' + escapeAttribute(pendingId) + '"]',
+        );
+        if (pendingMatches.length === 1) {
+          var pendingMatch = pendingMatches[0];
+          if (
+            pendingMatch !== document.body &&
+            pendingMatch !== document.documentElement &&
+            !isOverlayElement(pendingMatch) &&
+            !isLayerInteractionBlocked(pendingMatch)
+          ) {
+            return pendingMatch;
+          }
+        }
+      } catch (_err) {}
+    }
     if (typeof sourceId === "string" && sourceId) {
       var attributes = [
         "data-agent-native-node-id",
@@ -8165,7 +8401,7 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     correctAbsoluteMemberClientPosition(el, desiredDropPoint);
   }
 
-  function postVisualStructureChange(el, target, origin) {
+  function postVisualStructureChange(el, target, origin, insertedHtml?) {
     if (!el || !target || !target.anchor) return;
     dndLog("post:structure-change", {
       el: getSelector(el),
@@ -8192,6 +8428,11 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         placement: target.placement,
         dropMode: target.dropMode || "flow-insert",
         forceFlowPositionOverride: Boolean(target.forceFlowPositionOverride),
+        // Present only when this node did not exist in the running app before
+        // the change. The host must NOT tell the coding agent to relocate an
+        // element the source file has never contained.
+        insertedHtml:
+          typeof insertedHtml === "string" ? insertedHtml : undefined,
         sourceRect: rectInfoForElement(el),
         anchorRect: rectInfoForElement(target.anchor),
         payload: getElementInfo(el),
@@ -11949,6 +12190,147 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       postVisualStructureChange(runtimeSubject, runtimeTarget, runtimeOrigin);
       return;
     }
+    if (e.data.type === "runtime-structure-insert") {
+      var insertRequestId = e.data.requestId;
+      // An insert that silently returns loses the whole gesture with nothing
+      // on screen and nothing in the pending list — strictly worse than a
+      // no-op move, which at least leaves the element where it was. Always
+      // answer the host so it can surface the failure.
+      var rejectInsert = function (reason: string): void {
+        (window.parent as Window).postMessage(
+          {
+            type: "runtime-structure-insert-rejected",
+            screenId: designCanvasScreenId,
+            requestId: insertRequestId,
+            reason: reason,
+          },
+          "*",
+        );
+      };
+      if (readOnly) {
+        rejectInsert("read-only");
+        return;
+      }
+      var insertPlacement = String(e.data.placement || "");
+      if (
+        insertPlacement !== "before" &&
+        insertPlacement !== "after" &&
+        insertPlacement !== "inside"
+      ) {
+        rejectInsert("placement");
+        return;
+      }
+      var insertAnchor = findUniqueRuntimeStructureTarget(
+        String(e.data.anchorSelector || ""),
+        typeof e.data.anchorSourceId === "string" ? e.data.anchorSourceId : "",
+        typeof e.data.anchorPendingNodeId === "string"
+          ? e.data.anchorPendingNodeId
+          : "",
+      );
+      if (!insertAnchor) {
+        rejectInsert("anchor-unresolved");
+        return;
+      }
+      if (
+        (insertPlacement === "inside" &&
+          !isContainerDropTarget(insertAnchor)) ||
+        (insertPlacement !== "inside" && !insertAnchor.parentElement)
+      ) {
+        rejectInsert("placement-unavailable");
+        return;
+      }
+      var parsedInsertEl = parseNodeHtmlPreviewElement(
+        typeof e.data.html === "string" ? e.data.html : "",
+      );
+      if (
+        !parsedInsertEl ||
+        parsedInsertEl === document.body ||
+        parsedInsertEl.tagName === "BODY"
+      ) {
+        rejectInsert("html");
+        return;
+      }
+      var insertNodeId = parsedInsertEl.getAttribute(
+        "data-agent-native-node-id",
+      );
+      // Repeat drops of the same board primitive must not mint a second live
+      // element carrying the same node id: findUniqueRuntimeStructureTarget
+      // returns null on a duplicate id, which silently breaks every later
+      // move, ack, and undo for BOTH copies. Re-drag the existing node instead.
+      var existingInsertEl: Element | null = null;
+      if (insertNodeId) {
+        try {
+          existingInsertEl = document.querySelector(
+            '[data-agent-native-node-id="' +
+              escapeAttribute(insertNodeId) +
+              '"]',
+          );
+        } catch (_err) {}
+      }
+      if (existingInsertEl === insertAnchor) {
+        rejectInsert("anchor-is-subject");
+        return;
+      }
+      var insertTarget = {
+        anchor: insertAnchor,
+        placement: insertPlacement,
+        axis: parentFlowAxis(
+          insertPlacement === "inside"
+            ? insertAnchor
+            : insertAnchor.parentElement!,
+        ),
+        dropMode:
+          insertPlacement === "inside" &&
+          isAbsolutePrimitiveContainer(insertAnchor)
+            ? "absolute-container"
+            : "flow-insert",
+      };
+      if (existingInsertEl) {
+        if (existingInsertEl.contains(insertAnchor)) {
+          rejectInsert("anchor-inside-subject");
+          return;
+        }
+        var reinsertOrigin = {
+          prevParent: existingInsertEl.parentElement!,
+          prevNextSibling: existingInsertEl.nextSibling,
+          prevInlinePositionStyles:
+            snapshotInlinePositionStyles(existingInsertEl),
+        };
+        applyRuntimeReorder(existingInsertEl, insertTarget);
+        selectedEl = existingInsertEl;
+        positionOverlay(selectionOverlay, selectedEl);
+        refreshOverlays();
+        postVisualStructureChange(
+          existingInsertEl,
+          insertTarget,
+          reinsertOrigin,
+        );
+        return;
+      }
+      // The host bakes flow/absolute positioning into the markup before it
+      // gets here (it owns the drop point and the anchor rect), so the node
+      // goes in verbatim — no reorder rebasing on a never-laid-out element.
+      if (insertPlacement === "inside") {
+        insertAnchor.appendChild(parsedInsertEl);
+      } else {
+        insertAnchor.parentElement!.insertBefore(
+          parsedInsertEl,
+          insertPlacement === "before"
+            ? insertAnchor
+            : insertAnchor.nextSibling,
+        );
+      }
+      selectedEl = parsedInsertEl;
+      positionOverlay(selectionOverlay, selectedEl);
+      refreshOverlays();
+      postVisualStructureChange(
+        parsedInsertEl,
+        insertTarget,
+        { inserted: true },
+        parsedInsertEl.outerHTML,
+      );
+      return;
+    }
     if (e.data.type === "visual-structure-ack") {
       dndLog("ack", {
         requestId: e.data.requestId,
@@ -11957,8 +12339,12 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       var move = pendingStructureMoves[e.data.requestId];
       if (!move) return;
       delete pendingStructureMoves[e.data.requestId];
+      var moveWasInsert = Boolean(move.origin && "inserted" in move.origin);
       if (e.data.applied) {
-        if (move.el && move.el.isConnected) {
+        // An inserted node is already exactly where the host asked for it and
+        // has no pre-insert geometry to rebase; replaying the reorder would
+        // re-run the absolute/flow correction against its own current rect.
+        if (!moveWasInsert && move.el && move.el.isConnected) {
           applyRuntimeReorder(move.el, move.target);
           selectedEl = move.el;
           positionOverlay(selectionOverlay, selectedEl);
@@ -11974,10 +12360,18 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         // stripped of its absolute positioning — worse than doing nothing,
         // since it now renders at the flow position of a detached style
         // instead of either its original spot or the intended drop slot.
+        if (moveWasInsert) {
+          if (move.el && move.el.isConnected) move.el.remove();
+          if (selectedEl === move.el) selectedEl = null;
+          if (hoveredEl === move.el) hoveredEl = null;
+          refreshOverlays();
+          return;
+        }
         if (
           move.el &&
           move.el.isConnected &&
           move.origin &&
+          "prevParent" in move.origin &&
           move.origin.prevParent &&
           move.origin.prevParent.isConnected
         ) {

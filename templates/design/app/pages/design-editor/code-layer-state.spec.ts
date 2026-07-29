@@ -4,12 +4,15 @@ import { describe, expect, it } from "vitest";
 import type { ElementInfo } from "@/components/design/types";
 
 import {
+  canonicalElementInfoForCodeLayerNode,
   codeLayerNodeMatchesBridgeTarget,
   elementInfoFromCodeLayerNode,
   isCodeLayerNodeRuntimeOnly,
+  liveDeleteSelectorGroups,
   refreshedBoundingRectSize,
   refreshedComputedStyles,
   resolveCodeLayerNodeFromBridge,
+  runtimeLayerStateHandoffMode,
 } from "./code-layer-state";
 
 function makeElementInfo(overrides: Partial<ElementInfo> = {}): ElementInfo {
@@ -119,6 +122,58 @@ describe("elementInfoFromCodeLayerNode provenance", () => {
     );
 
     expect(info.provenance).toBeUndefined();
+  });
+
+  it("keeps the owner instantiation site and React key the bridge stamped for .map() siblings", () => {
+    const info = elementInfoFromCodeLayerNode(
+      makeNode({
+        dataAttributes: {
+          "data-source-file": "src/components/Card.jsx",
+          "data-source-line": "25",
+          "data-source-column": "32",
+          "data-component-name": "Card",
+          "data-source-owner-file": "src/App.jsx",
+          "data-source-owner-line": "55",
+          "data-source-owner-column": "51",
+          "data-source-owner-component": "Card",
+          "data-source-owner-key": "b",
+        },
+      }),
+    );
+
+    expect(info.provenance).toEqual({
+      sourceFile: "src/components/Card.jsx",
+      line: 25,
+      column: 32,
+      component: "Card",
+      ownerSourceFile: "src/App.jsx",
+      ownerLine: 55,
+      ownerColumn: 51,
+      ownerComponentName: "Card",
+      ownerKey: "b",
+    });
+  });
+
+  it("carries WHY a node has no location, so absent stays distinct from not-loaded-yet", () => {
+    const info = elementInfoFromCodeLayerNode(
+      makeNode({ dataAttributes: { "data-source-unavailable": "not-react" } }),
+    );
+
+    expect(info.provenance).toEqual({ unavailableReason: "not-react" });
+  });
+
+  it("ignores an unavailable reason that contradicts a resolved location", () => {
+    const info = elementInfoFromCodeLayerNode(
+      makeNode({
+        dataAttributes: {
+          "data-source-file": "src/App.jsx",
+          "data-source-line": "12",
+          "data-source-unavailable": "no-debug-info",
+        },
+      }),
+    );
+
+    expect(info.provenance).toEqual({ sourceFile: "src/App.jsx", line: 12 });
   });
 });
 
@@ -422,5 +477,134 @@ describe("isCodeLayerNodeRuntimeOnly", () => {
         sourceNodeIdAttrs: new Set(["an-abc123"]),
       }),
     ).toBe(true);
+  });
+});
+
+describe("runtimeLayerStateHandoffMode", () => {
+  it("is preview-only for a runtime node with no React source provenance (fail-before case)", () => {
+    // Before the fix this case was indistinguishable from an unresolvable
+    // anchor: hide/lock bailed with "React source anchors still loading" and
+    // never set hiddenLayerIds/lockedLayerIds, so DesignCanvas's layer-states
+    // message stayed empty and nothing hid in the live iframe. A plain-HTML
+    // localhost target never produces provenance, so that load never comes.
+    expect(
+      runtimeLayerStateHandoffMode({
+        runtimeOnly: true,
+        provenanceSourceFile: undefined,
+      }),
+    ).toBe("preview-only");
+    expect(
+      runtimeLayerStateHandoffMode({
+        runtimeOnly: true,
+        provenanceSourceFile: "   ",
+      }),
+    ).toBe("preview-only");
+  });
+
+  it("hands off when a runtime node carries a React source file to make the state durable in", () => {
+    expect(
+      runtimeLayerStateHandoffMode({
+        runtimeOnly: true,
+        provenanceSourceFile: "/repo/app/routes/home.tsx",
+      }),
+    ).toBe("handoff");
+  });
+
+  it("is preview-only for a node that is not runtime-only", () => {
+    expect(
+      runtimeLayerStateHandoffMode({
+        runtimeOnly: false,
+        provenanceSourceFile: "/repo/app/routes/home.tsx",
+      }),
+    ).toBe("preview-only");
+  });
+});
+
+describe("canonicalElementInfoForCodeLayerNode runtime identity", () => {
+  const sourceNode = makeNode({
+    id: "html:source",
+    selectors: ['[data-agent-native-node-id="an-abc"]'],
+    selector: '[data-agent-native-node-id="an-abc"]',
+    dataAttributes: { "data-agent-native-node-id": "an-abc" },
+  });
+
+  it("keeps the bridge's live-document selector after canonicalizing onto the source projection", () => {
+    const canonical = canonicalElementInfoForCodeLayerNode(
+      makeElementInfo({
+        selector: '[data-agent-native-node-id="runtime-xyz"]',
+        sourceId: "runtime-xyz",
+      }),
+      sourceNode,
+    );
+
+    expect(canonical.selector).toBe('[data-agent-native-node-id="an-abc"]');
+    expect(canonical.sourceId).toBe("an-abc");
+    expect(canonical.runtimeSelector).toBe(
+      '[data-agent-native-node-id="runtime-xyz"]',
+    );
+    expect(canonical.runtimeSourceId).toBe("runtime-xyz");
+  });
+
+  it("does not let a second canonicalization overwrite the live identity", () => {
+    const once = canonicalElementInfoForCodeLayerNode(
+      makeElementInfo({
+        selector: '[data-agent-native-node-id="runtime-xyz"]',
+        sourceId: "runtime-xyz",
+      }),
+      sourceNode,
+    );
+    const twice = canonicalElementInfoForCodeLayerNode(once, sourceNode);
+
+    expect(twice.runtimeSelector).toBe(
+      '[data-agent-native-node-id="runtime-xyz"]',
+    );
+    expect(twice.runtimeSourceId).toBe("runtime-xyz");
+  });
+});
+
+describe("liveDeleteSelectorGroups", () => {
+  it("keeps the bridge-reported identity as a candidate beside the source selector", () => {
+    expect(
+      liveDeleteSelectorGroups({
+        runtimeAliasGroups: [],
+        liveSelectionSelectors: ['[data-agent-native-node-id="runtime-xyz"]'],
+        fallbackSelectors: ['[data-agent-native-node-id="an-abc"]'],
+      }),
+    ).toEqual([
+      [
+        '[data-agent-native-node-id="an-abc"]',
+        '[data-agent-native-node-id="runtime-xyz"]',
+      ],
+    ]);
+  });
+
+  it("prefers the runtime layer model's aliases, one group per node", () => {
+    expect(
+      liveDeleteSelectorGroups({
+        runtimeAliasGroups: [["#a"], ["#b"], []],
+        liveSelectionSelectors: ["#selected"],
+        fallbackSelectors: ["#fallback"],
+      }),
+    ).toEqual([["#a"], ["#b"]]);
+  });
+
+  it("still targets the live selection when there is no source selector at all", () => {
+    expect(
+      liveDeleteSelectorGroups({
+        runtimeAliasGroups: [],
+        liveSelectionSelectors: ['[data-agent-native-node-id="runtime-xyz"]'],
+        fallbackSelectors: [],
+      }),
+    ).toEqual([['[data-agent-native-node-id="runtime-xyz"]']]);
+  });
+
+  it("has nothing to delete when no identity is known", () => {
+    expect(
+      liveDeleteSelectorGroups({
+        runtimeAliasGroups: [],
+        liveSelectionSelectors: [],
+        fallbackSelectors: [],
+      }),
+    ).toEqual([]);
   });
 });

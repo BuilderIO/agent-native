@@ -148,6 +148,38 @@ export function isScreenRootElementInfo(info: ElementInfo | null | undefined) {
   return tagName === "BODY" || tagName === "HTML";
 }
 
+/**
+ * Whether a plain Delete in overview mode targets an ELEMENT inside a screen
+ * rather than the screen frames themselves. MultiScreenCanvas keeps the owning
+ * screen in its `selectedIds` while an element inside it is selected (frame
+ * z-order and "topmost screen" depend on that), so Delete reaches the editor as
+ * "delete these screens" even when the real selection is one node. The more
+ * specific target wins — the same precedence shouldSuppressFrameSelectionBox
+ * already applies to the selection chrome.
+ *
+ * Layer ids are filtered the way getSelectedLayerSnapshots filters its
+ * candidates: a screen's own file-id row and the `__`-prefixed pseudo rows are
+ * screen/frame selections, not element selections.
+ */
+export function overviewDeleteTargetsElement(args: {
+  selectedElement: ElementInfo | null | undefined;
+  selectedLayerIds: readonly string[];
+  fileIds: readonly string[];
+}): boolean {
+  const fileIds = new Set(args.fileIds);
+  if (
+    args.selectedLayerIds.some(
+      (layerId) =>
+        layerId && !layerId.startsWith("__") && !fileIds.has(layerId),
+    )
+  ) {
+    return true;
+  }
+  return Boolean(
+    args.selectedElement && !isScreenRootElementInfo(args.selectedElement),
+  );
+}
+
 export function shouldMirrorSelectedElementToAgentChat(
   info: ElementInfo | null | undefined,
 ): info is ElementInfo {

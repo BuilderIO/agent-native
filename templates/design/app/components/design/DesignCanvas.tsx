@@ -117,6 +117,7 @@ import type {
   ElementInfo,
   ElementSelectionIntent,
   DeviceFrameType,
+  RuntimeStructureInsertRequest,
   RuntimeStructureMoveRequest,
   RuntimeVerificationRequest,
 } from "./types";
@@ -442,6 +443,10 @@ interface DesignCanvasProps {
   } | null;
   /** One-shot host request to optimistically move a runtime-only layer. */
   runtimeStructureMoveRequest?: RuntimeStructureMoveRequest | null;
+  /** One-shot host request to insert new markup into the running DOM. */
+  runtimeStructureInsertRequest?: RuntimeStructureInsertRequest | null;
+  /** The bridge could not honor a runtimeStructureInsertRequest. */
+  onRuntimeStructureInsertRejected?: (reason: string) => void;
   /** Mounts a separate hidden runtime only after a guarded source hash
    * changes. The editable iframe remains untouched and fully undoable. */
   runtimeVerificationRequest?: RuntimeVerificationRequest | null;
@@ -501,6 +506,9 @@ interface DesignCanvasProps {
       sourceRect?: { x: number; y: number; width: number; height: number };
       anchorRect?: { x: number; y: number; width: number; height: number };
       anchorElementInfo?: ElementInfo;
+      /** Set when the subject is markup this change introduced, not an
+       * element the running app already had. */
+      insertedHtml?: string;
     },
   ) => boolean | "pending" | void;
   onVisualDuplicateChange?: (
@@ -1042,6 +1050,8 @@ export function DesignCanvas({
   textRevertRequest,
   structureAckRequest,
   runtimeStructureMoveRequest,
+  runtimeStructureInsertRequest,
+  onRuntimeStructureInsertRejected,
   runtimeVerificationRequest,
   embeddedFrameBackground,
   transparentBackground = false,
@@ -2540,6 +2550,10 @@ export function DesignCanvas({
         }
         return;
       }
+      if (e.data.type === "runtime-structure-insert-rejected") {
+        onRuntimeStructureInsertRejected?.(String(e.data.reason || "unknown"));
+        return;
+      }
       if (e.data.type === "visual-structure-change") {
         const selector = String(e.data.selector || "");
         const anchorSelector = String(e.data.anchorSelector || "");
@@ -2615,6 +2629,10 @@ export function DesignCanvas({
               anchorElementInfo: isElementInfoPayload(e.data.anchorPayload)
                 ? e.data.anchorPayload
                 : undefined,
+              insertedHtml:
+                typeof e.data.insertedHtml === "string"
+                  ? e.data.insertedHtml
+                  : undefined,
             },
           );
           dndHostLog("persist:result", {
@@ -2948,6 +2966,7 @@ export function DesignCanvas({
     onIframeContextMenu,
     onEditorDragStateChange,
     onVisualStructureChange,
+    onRuntimeStructureInsertRejected,
     onVisualDuplicateChange,
     onZoomChange,
     deviceFrame,
@@ -3667,6 +3686,28 @@ export function DesignCanvas({
       placement: runtimeStructureMoveRequest.placement,
     });
   }, [postOneShotBridgeMessage, runtimeStructureMoveRequest]);
+
+  const lastRuntimeStructureInsertRequestIdRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!runtimeStructureInsertRequest) return;
+    if (
+      lastRuntimeStructureInsertRequestIdRef.current ===
+      runtimeStructureInsertRequest.requestId
+    ) {
+      return;
+    }
+    lastRuntimeStructureInsertRequestIdRef.current =
+      runtimeStructureInsertRequest.requestId;
+    postOneShotBridgeMessage({
+      type: "runtime-structure-insert",
+      requestId: runtimeStructureInsertRequest.requestId,
+      html: runtimeStructureInsertRequest.html,
+      anchorSelector: runtimeStructureInsertRequest.anchor.selector,
+      anchorSourceId: runtimeStructureInsertRequest.anchor.sourceId,
+      anchorPendingNodeId: runtimeStructureInsertRequest.anchor.pendingNodeId,
+      placement: runtimeStructureInsertRequest.placement,
+    });
+  }, [postOneShotBridgeMessage, runtimeStructureInsertRequest]);
 
   /**
    * Send a motion-preview scrub tick to the iframe.  `t` is the normalised
