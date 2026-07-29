@@ -483,3 +483,26 @@ export function appendCanvasPrimitiveToHtml(
     return null;
   }
 }
+
+/**
+ * Extract one newly-created primitive from a temporary document as markup the
+ * live iframe bridge can insert. URL-backed screens keep their route URL in the
+ * Design file, so their creation path must serialize a node without ever
+ * rewriting that file content.
+ */
+export function extractCanvasPrimitiveHtml(
+  content: string,
+  nodeId: string,
+): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const doc = new DOMParser().parseFromString(content, "text/html");
+    const safeNodeId = nodeId.replace(/["\\]/g, "\\$&");
+    return (
+      doc.querySelector(`[data-agent-native-node-id="${safeNodeId}"]`)
+        ?.outerHTML ?? null
+    );
+  } catch {
+    return null;
+  }
+}

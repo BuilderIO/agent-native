@@ -7,6 +7,7 @@ import type { CanvasPrimitiveInsert } from "@/components/design/multi-screen/typ
 import {
   appendCanvasPrimitiveToHtml,
   blankScreenHtml,
+  extractCanvasPrimitiveHtml,
 } from "./canvas-primitive-insert";
 
 describe("blankScreenHtml", () => {
@@ -56,5 +57,53 @@ describe("appendCanvasPrimitiveToHtml on a URL-backed live screen", () => {
       rect,
     );
     expect(inserted).toContain('data-agent-native-node-id="rect-1"');
+  });
+});
+
+describe("extractCanvasPrimitiveHtml", () => {
+  it.each([
+    ["rectangle", "div"],
+    ["ellipse", "div"],
+    ["frame", "div"],
+    ["text", "div"],
+    ["line", "svg"],
+    ["arrow", "svg"],
+    ["polygon", "svg"],
+    ["star", "svg"],
+    ["path", "svg"],
+  ] as const)(
+    "serializes a %s as one bridge-insertable %s root",
+    (kind, expectedTag) => {
+      const nodeId = `new-${kind}`;
+      const content = appendCanvasPrimitiveToHtml(
+        blankScreenHtml("Temporary live insert"),
+        {
+          kind,
+          nodeId,
+          geometry: { x: 12, y: 24, width: 96, height: 48 },
+          ...(kind === "line" || kind === "arrow" || kind === "path"
+            ? {
+                points: [
+                  { x: 12, y: 24 },
+                  { x: 108, y: 72 },
+                ],
+              }
+            : {}),
+        },
+      );
+
+      expect(content).not.toBeNull();
+      const html = extractCanvasPrimitiveHtml(content!, nodeId);
+      expect(html).toMatch(new RegExp(`^<${expectedTag}\\b`));
+      expect(html).toContain(`data-agent-native-node-id="${nodeId}"`);
+      expect(html).not.toContain("<!DOCTYPE");
+      expect(html).not.toContain("<body");
+    },
+  );
+
+  it("returns null when the requested primitive is absent", () => {
+    expect(
+      extractCanvasPrimitiveHtml(blankScreenHtml("Empty"), "missing"),
+    ).toBeNull();
   });
 });

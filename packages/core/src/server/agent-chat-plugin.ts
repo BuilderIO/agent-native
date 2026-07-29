@@ -1043,6 +1043,12 @@ export function createAgentChatPlugin(
           await import("../workspace-files/tool.js");
         workspaceFilesTool = createWorkspaceFilesTool();
       } catch {}
+      let workspaceFileActions: Record<string, ActionEntry> = {};
+      try {
+        const { createWorkspaceFileActionEntries } =
+          await import("../workspace-files/actions.js");
+        workspaceFileActions = createWorkspaceFileActionEntries();
+      } catch {}
       let toolActions: Record<string, ActionEntry> =
         createDataWidgetActionEntries();
       if (extensionToolsEnabled) {
@@ -1238,6 +1244,7 @@ export function createAgentChatPlugin(
               ...fetchTool,
               ...webSearchTool,
               ...workspaceFilesTool,
+              ...workspaceFileActions,
               ...toolActions,
               ...browserSessionTools,
               ...coreEmailTools,
@@ -1263,6 +1270,7 @@ export function createAgentChatPlugin(
               ...fetchTool,
               ...webSearchTool,
               ...workspaceFilesTool,
+              ...workspaceFileActions,
               ...toolActions,
               ...browserSessionTools,
               ...coreEmailTools,
@@ -1302,6 +1310,7 @@ export function createAgentChatPlugin(
             ...fetchTool,
             ...webSearchTool,
             ...workspaceFilesTool,
+            ...workspaceFileActions,
             ...toolActions,
             ...browserSessionTools,
             ...coreEmailTools,
@@ -1630,6 +1639,7 @@ export function createAgentChatPlugin(
                   ...fetchTool,
                   ...webSearchTool,
                   ...workspaceFilesTool,
+                  ...workspaceFileActions,
                   ...toolActions,
                   ...browserSessionTools,
                   ...coreEmailTools,
@@ -1651,6 +1661,7 @@ export function createAgentChatPlugin(
                   ...fetchTool,
                   ...webSearchTool,
                   ...workspaceFilesTool,
+                  ...workspaceFileActions,
                   ...toolActions,
                   ...browserSessionTools,
                   ...coreEmailTools,
@@ -2030,6 +2041,7 @@ export function createAgentChatPlugin(
                     ...fetchTool,
                     ...webSearchTool,
                     ...workspaceFilesTool,
+                    ...workspaceFileActions,
                     ...toolActions,
                     ...mcpActionEntries,
                     ...devScriptsForA2A,
@@ -2047,6 +2059,7 @@ export function createAgentChatPlugin(
                     ...fetchTool,
                     ...webSearchTool,
                     ...workspaceFilesTool,
+                    ...workspaceFileActions,
                     ...toolActions,
                     ...mcpActionEntries,
                     ...(resolvedProdCodeExec !== "off" ? runCodeTool : {}),
@@ -2654,6 +2667,7 @@ export function createAgentChatPlugin(
         ...fetchTool,
         ...webSearchTool,
         ...workspaceFilesTool,
+        ...workspaceFileActions,
         ...toolActions,
         ...browserSessionTools,
         ...coreEmailTools,
@@ -3193,6 +3207,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   ...fetchTool,
                   ...webSearchTool,
                   ...workspaceFilesTool,
+                  ...workspaceFileActions,
                   ...toolActions,
                   ...browserSessionTools,
                   ...coreEmailTools,

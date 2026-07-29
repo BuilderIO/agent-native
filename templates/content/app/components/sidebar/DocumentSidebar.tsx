@@ -99,6 +99,7 @@ import {
 import {
   applyOptimisticItemToContentDatabase,
   contentDatabaseByIdQueryKey,
+  isContentDatabaseUnavailable,
   removeOptimisticItemFromContentDatabase,
   useContentDatabaseById,
   useContentDatabasePersonalView,
@@ -350,15 +351,19 @@ function WorkspaceSidebarItem({
   const t = useT();
   const activeFilesDatabaseId = expanded ? space.filesDatabaseId : null;
   const filesDatabase = useContentDatabaseById(activeFilesDatabaseId);
+  const filesDatabaseData = isContentDatabaseUnavailable(filesDatabase.data)
+    ? undefined
+    : filesDatabase.data;
+  const resolvedFilesDatabaseId = filesDatabaseData?.database.id ?? null;
   const filesPersonalView = useContentDatabasePersonalView(
-    activeFilesDatabaseId,
+    resolvedFilesDatabaseId,
   );
   const updateFilesPersonalView = useUpdateContentDatabasePersonalView(
-    activeFilesDatabaseId,
+    resolvedFilesDatabaseId,
   );
   const failed = filesDatabase.isError || filesPersonalView.isError;
   const { activeViewId, order: sidebarOrder } = personalSidebarOrderForDatabase(
-    filesDatabase.data,
+    filesDatabaseData,
     filesPersonalView.data?.overrides,
   );
   const reorderLabels: SidebarReorderLabels = {
@@ -380,7 +385,7 @@ function WorkspaceSidebarItem({
       {
         databaseId: space.filesDatabaseId,
         overrides: withPersonalSidebarOrder(
-          filesDatabase.data,
+          filesDatabaseData,
           filesPersonalView.data?.overrides,
           activeViewId,
           order,
@@ -525,7 +530,7 @@ function WorkspaceSidebarItem({
             />
           ) : (
             <ContentFilesSidebarView
-              data={filesDatabase.data}
+              data={filesDatabaseData}
               overrides={filesPersonalView.data?.overrides}
               isLoading={filesDatabase.isLoading || filesPersonalView.isLoading}
               activeDocumentId={activeDocumentId}
@@ -631,11 +636,18 @@ export function DocumentSidebar({
   const workspaceCatalogDatabase = useContentDatabaseById(
     workspaceCatalogDatabaseId,
   );
+  const workspaceCatalogDatabaseData = isContentDatabaseUnavailable(
+    workspaceCatalogDatabase.data,
+  )
+    ? undefined
+    : workspaceCatalogDatabase.data;
+  const resolvedWorkspaceCatalogDatabaseId =
+    workspaceCatalogDatabaseData?.database.id ?? null;
   const workspaceCatalogPersonalView = useContentDatabasePersonalView(
-    workspaceCatalogDatabaseId,
+    resolvedWorkspaceCatalogDatabaseId,
   );
   const updateWorkspaceCatalogPersonalView =
-    useUpdateContentDatabasePersonalView(workspaceCatalogDatabaseId);
+    useUpdateContentDatabasePersonalView(resolvedWorkspaceCatalogDatabaseId);
   const movePinnedItem = useMoveDatabaseItem(favoritesDocumentId ?? "");
   const moveWorkspaceItem = useMoveDatabaseItem(
     workspaceCatalogDocumentId ?? "",
@@ -1817,7 +1829,7 @@ export function DocumentSidebar({
             />
           ) : (
             <ContentFilesSidebarView
-              data={workspaceCatalogDatabase.data}
+              data={workspaceCatalogDatabaseData}
               overrides={workspaceCatalogPersonalView.data?.overrides}
               isLoading={
                 workspaceCatalogDatabase.isLoading ||

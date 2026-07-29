@@ -8,6 +8,7 @@ import {
 import { isComponentInstance } from "@shared/component-model";
 import {
   ELEMENT_PROVENANCE_METHODS,
+  type ElementProvenanceFramework,
   type ElementProvenanceMethod,
 } from "@shared/source-mode";
 export {
@@ -393,6 +394,15 @@ function provenanceForCodeLayerNode(
     node.dataAttributes["data-source-column"],
   );
   const component = node.dataAttributes["data-component-name"]?.trim();
+  const declaredFramework =
+    node.dataAttributes["data-source-framework"]?.trim();
+  const framework =
+    declaredFramework === "html" ||
+    declaredFramework === "react" ||
+    declaredFramework === "vue" ||
+    declaredFramework === "svelte"
+      ? (declaredFramework as ElementProvenanceFramework)
+      : undefined;
   const ownerSourceFile = node.dataAttributes["data-source-owner-file"]?.trim();
   const ownerLine = positiveIntegerDataAttribute(
     node.dataAttributes["data-source-owner-line"],
@@ -431,7 +441,9 @@ function provenanceForCodeLayerNode(
   // a resolved anchor must never carry one back out of the projection.
   const unavailableReason =
     !sourceFile &&
-    (unavailable === "not-react" || unavailable === "no-debug-info")
+    (unavailable === "not-framework" ||
+      unavailable === "not-react" ||
+      unavailable === "no-debug-info")
       ? unavailable
       : undefined;
   if (
@@ -439,6 +451,7 @@ function provenanceForCodeLayerNode(
     !line &&
     !column &&
     !component &&
+    !framework &&
     !ownerSourceFile &&
     !ownerKey &&
     !unavailableReason
@@ -446,6 +459,7 @@ function provenanceForCodeLayerNode(
     return undefined;
   }
   return {
+    ...(framework ? { framework } : {}),
     ...(sourceFile ? { sourceFile } : {}),
     ...(line ? { line } : {}),
     ...(column ? { column } : {}),

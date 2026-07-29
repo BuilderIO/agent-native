@@ -495,11 +495,23 @@ export default defineNitroPlugin(() => {
 4. 记录所需的环境变量和入门步骤。
 5. 通过附加迁移包含示例或种子行，而不是跟踪的运行时数据文件。
 
-可以从 GitHub 存储库创建社区模板：
+社区模板可直接从公开 GitHub 仓库安装。请将 Agent Native 应用放在仓库根目录：
 
 ```bash
-npx @agent-native/core@latest create my-app --template github:user/repo
+npx @agent-native/core@latest create my-app --template community:owner/repo
 ```
+
+如需固定特定版本，可添加 `#branch`、`#tag` 或 `#commit`：
+
+```bash
+npx @agent-native/core@latest create my-app --template community:owner/repo#v1.0.0
+```
+
+CLI 只下载源代码，不会安装依赖或运行模板脚本。社区模板属于第三方代码；运行 `pnpm install` 前请检查仓库、许可证、依赖项和安装脚本。
+
+申请目录收录时，请确保仓库根目录包含完整应用，公开仓库带有许可证和设置 README，根 `package.json` 依赖 `@agent-native/core`，并且类型检查和测试均通过。托管演示和截图为可选项。
+
+仓库准备好后，[提交社区模板](https://github.com/BuilderIO/agent-native/issues/new?template=community-template.yml)。社区条目与较小的第一方目录分开，并由作者维护。
 
 ## 为框架 monorepo 做出贡献 {#contributing}
 

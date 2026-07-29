@@ -556,6 +556,24 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     // an added branch, not a replacement.
     expect(handler).toContain("removeCodeLayerNodeFromHtml");
     expect(handler).toContain("removeElementFromHtml");
+
+    const singleElementStart = handler.indexOf(
+      "// Item 7b — same breakpoint-scoped display:none routing",
+    );
+    const singleElementEnd = handler.indexOf(
+      "const nextContent = removeElementFromHtml",
+      singleElementStart,
+    );
+    const singleElementBranch = handler.slice(
+      singleElementStart,
+      singleElementEnd,
+    );
+    expect(singleElementStart).toBeGreaterThanOrEqual(0);
+    expect(singleElementEnd).toBeGreaterThan(singleElementStart);
+    expect(singleElementBranch).not.toContain("deleteFromLiveDom(");
+    expect(singleElementBranch).toContain(
+      "syncLiveScreenSnapshotPreview(activeFile!.id, patch.content)",
+    );
   });
 
   it("item 8b: overview breakpoint frame '…' menu and full-view callbacks are wired to MultiScreenCanvas", () => {

@@ -62,7 +62,7 @@ import {
   findScreenFrameAtCanvasPoint,
 } from "./design-editor/overview-camera";
 import {
-  getPendingVisualStylePropertyCount,
+  getPendingVisualEditCount,
   shouldBlockPendingVisualStyleNavigation,
   resolveOverviewScreenSourceType,
   shouldPreferRuntimeLayerProjection,
@@ -422,7 +422,7 @@ describe("DesignEditor pending visual style edits", () => {
       color: "",
       backgroundColor: "",
     });
-    expect(getPendingVisualStylePropertyCount(edits)).toBe(2);
+    expect(getPendingVisualEditCount(edits)).toBe(1);
   });
 
   it("keeps repeated same-target style undo scoped to the latest gesture", () => {

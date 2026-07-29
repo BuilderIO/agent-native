@@ -1318,7 +1318,7 @@ Clips में उपयोगकर्ताओं को दिखने व�
     downloadDesktopApp: "Download desktop app (स्थानीयकृत)",
     technicalDetails: "Technical details (स्थानीयकृत)",
     whatToCheck: "What to check (स्थानीयकृत)",
-    downloadRecording: "Download recording (स्थानीयकृत)",
+    downloadRecording: "Download (स्थानीयकृत)",
     openRecorderInTab: "Open recorder in tab (स्थानीयकृत)",
     connectStorageToFinish:
       "अगली स्क्रीन पर स्टोरेज कनेक्ट करें: Builder.io (free tier storage + AI) या S3-संगत स्टोरेज. Clips सेव पूरा करेगा.",

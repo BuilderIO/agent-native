@@ -11,6 +11,8 @@ description: "agent-native template incorpora los cambios posteriores upstream d
 
 `agent-native template` es la mitad que falta. Vuelve a obtener la plantilla en una versión más reciente, vuelve a aplicar exactamente las transformaciones que `create` aplicó, y fusiona el resultado en su aplicación archivo por archivo.
 
+Las plantillas de la comunidad quedan fuera de este flujo de sincronización. Sus metadatos `agent-native.communityTemplate` solo registran el origen instalado; `agent-native template sync` no obtiene cambios de ese repositorio. Instala una revisión fija para tener un punto de partida estable y porta manualmente los cambios posteriores tras revisarlos.
+
 ## Inicio rápido {#quick-start}
 
 ```bash

@@ -968,6 +968,90 @@ export default {
     });
   });
 
+  it("accepts frontend mutation RPCs without widening direct HTTP action methods", async () => {
+    const dir = makeTempDir();
+    const actionPath = path.join(dir, "delete-action.mjs");
+    fs.writeFileSync(
+      actionPath,
+      `
+export default {
+  run: async (params, context) => ({
+    ok: true,
+    echo: params,
+    caller: context?.caller,
+  }),
+};
+`,
+    );
+    const worker = await importGeneratedWorker(
+      generateWorkerEntry(
+        [],
+        [],
+        [],
+        [{ name: "delete-item", absPath: actionPath, method: "delete" }],
+      ),
+    );
+
+    const frontendPost = await worker.fetch(
+      new Request("https://app.test/_agent-native/actions/delete-item", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-agent-native-frontend": "1",
+        },
+        body: JSON.stringify({ id: "item-1" }),
+      }),
+      {},
+      {},
+    );
+    expect(frontendPost.status).toBe(200);
+    await expect(frontendPost.json()).resolves.toEqual({
+      ok: true,
+      echo: { id: "item-1" },
+      caller: "frontend",
+    });
+
+    const directPost = await worker.fetch(
+      new Request("https://app.test/_agent-native/actions/delete-item", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: "item-2" }),
+      }),
+      {},
+      {},
+    );
+    expect(directPost.status).toBe(405);
+    await expect(directPost.json()).resolves.toEqual({
+      error: "Method not allowed. Use DELETE.",
+    });
+
+    const directDelete = await worker.fetch(
+      new Request("https://app.test/_agent-native/actions/delete-item", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: "item-3" }),
+      }),
+      {},
+      {},
+    );
+    expect(directDelete.status).toBe(200);
+    await expect(directDelete.json()).resolves.toEqual({
+      ok: true,
+      echo: { id: "item-3" },
+      caller: "http",
+    });
+
+    const strictSource = generateWorkerEntry(
+      [],
+      [],
+      [],
+      [{ name: "head-item", absPath: actionPath, method: "head" }],
+    );
+    expect(strictSource).not.toContain(
+      'app.on("POST", "/_agent-native/actions/head-item"',
+    );
+  });
+
   it("allows browser action-client headers in generated worker preflight responses", async () => {
     const worker = await importGeneratedWorker(generateWorkerEntry([], []));
 

@@ -1362,7 +1362,7 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     downloadDesktopApp: "Download desktop app (Lokalisiert)",
     technicalDetails: "Technical details (Lokalisiert)",
     whatToCheck: "What to check (Lokalisiert)",
-    downloadRecording: "Download recording (Lokalisiert)",
+    downloadRecording: "Download (Lokalisiert)",
     openRecorderInTab: "Open recorder in tab (Lokalisiert)",
     connectStorageToFinish:
       "Verbinde Speicher im nächsten Bildschirm: Builder.io (Speicher + KI im kostenlosen Tarif) oder S3-kompatibler Speicher. Clips schließt das Speichern ab.",

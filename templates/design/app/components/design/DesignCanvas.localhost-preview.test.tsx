@@ -47,6 +47,84 @@ afterEach(async () => {
 });
 
 describe("DesignCanvas authenticated localhost source hydration", () => {
+  it("waits for registration without mounting srcdoc, then mounts one real live iframe", async () => {
+    iframeServer = http.createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      response.end("<!doctype html><html><body>Runtime</body></html>");
+    });
+    const iframePort = await new Promise<number>((resolve, reject) => {
+      iframeServer!.once("error", reject);
+      iframeServer!.listen(0, "127.0.0.1", () => {
+        const address = iframeServer!.address();
+        resolve(typeof address === "object" && address ? address.port : 0);
+      });
+    });
+    const bridgeUrl = `http://127.0.0.1:${iframePort}`;
+    let resolveRegistration!: (response: Response) => void;
+    const registration = new Promise<Response>((resolve) => {
+      resolveRegistration = resolve;
+    });
+    vi.stubGlobal("fetch", vi.fn(() => registration));
+
+    await act(async () => {
+      root.render(
+        <DesignCanvas
+          content="http://localhost:5173/account"
+          contentKey="screen-account"
+          screenId="screen-account"
+          sourceType="localhost"
+          bridgeUrl={bridgeUrl}
+          previewToken="registration-preview-token"
+          zoom={100}
+          deviceFrame="none"
+          editMode
+          interactMode={false}
+          onElementSelect={() => {}}
+          onElementHover={() => {}}
+          tweakValues={{}}
+        />,
+      );
+    });
+
+    expect(
+      container.querySelector("iframe[data-design-preview-iframe]"),
+    ).toBeNull();
+    expect(container.innerHTML.toLowerCase()).not.toContain("srcdoc");
+    expect(container.textContent).toContain("Preparing live editor");
+
+    resolveRegistration(
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    await vi.waitFor(() => {
+      expect(
+        container.querySelector<HTMLIFrameElement>(
+          "iframe[data-design-preview-iframe]",
+        )?.src,
+      ).toContain("/live-edit?");
+    });
+    const liveIframe = container.querySelector<HTMLIFrameElement>(
+      "iframe[data-design-preview-iframe]",
+    );
+    expect(liveIframe?.hasAttribute("srcdoc")).toBe(false);
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "agent-native:editor-chrome-ready" },
+          origin: bridgeUrl,
+          source: liveIframe?.contentWindow,
+        }),
+      );
+    });
+    expect(
+      container.querySelector("iframe[data-design-preview-iframe]"),
+    ).toBe(liveIframe);
+  });
+
   it("mounts source verification in a separate hidden runtime without replacing the editable iframe", async () => {
     iframeServer = http.createServer((_request, response) => {
       response.writeHead(200, { "content-type": "text/html; charset=utf-8" });

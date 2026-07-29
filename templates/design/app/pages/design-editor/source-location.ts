@@ -7,14 +7,13 @@
  * builder-internal/packages/app/models/fusion-editor.model.ts) to one regex
  * instead of two branches: both webpack-internal:/// frames (webpack/Next.js/
  * CRA dev servers) and Vite dev-server frames (incl. `/@fs/` absolute-path
- * serving, which `editor-chrome.bridge.ts`'s narrower `reactDebugProvenance`
- * handles but webpack-internal:/// does not) are the same V8
+ * serving, which `editor-chrome.bridge.ts` also handles) are the same V8
  * "at Name (url:line:col)" shape once the URL is resolved.
  *
  * Kept framework/DOM-free so it runs in a plain Node test environment. The
- * `source-location.bridge.ts` IIFE that walks real Fiber objects duplicates
- * this parsing logic inline (bridge files may not import anything — see that
- * file's header) — keep the two in sync by hand if this file changes.
+ * `source-location.bridge.ts` IIFE duplicates this React parsing logic and adds
+ * Vue/Svelte compiler metadata handling inline (bridge files may not import
+ * anything) — keep the two in sync by hand if this file changes.
  */
 
 export interface ParsedStackFrame {
@@ -122,7 +121,9 @@ export function extractSourceFromDebugStack(
 export type SourceLocationMethod =
   | "data-attribute" // pre-existing data-source-file/data-loc (build-time transform)
   | "debug-source" // React <=18 structured _debugSource field
-  | "debug-stack"; // React 19 _debugStack owner-stack (this file's parser)
+  | "debug-stack" // React 19 _debugStack owner-stack (this file's parser)
+  | "vue-inspector" // Vue dev compiler's __v_inspector vnode prop
+  | "svelte-meta"; // Svelte dev compiler's __svelte_meta.loc
 
 /**
  * A resolved element source location.
@@ -142,8 +143,9 @@ export type SourceLocationMethod =
  * mapped siblings apart — this module does not invent DOM-instance identity
  * beyond that; that's `data-agent-native-node-id`'s job elsewhere.
  */
-export interface ReactElementSourceLocation {
+export interface ElementSourceLocation {
   status: "resolved";
+  framework?: "html" | "react" | "vue" | "svelte";
   method: SourceLocationMethod;
   sourceFile: string;
   line: number;
@@ -164,8 +166,8 @@ export interface ReactElementSourceLocation {
 }
 
 export type SourceLocationUnavailableReason =
-  | "not-react" // no React fiber keys found on any ancestor
-  | "no-debug-info" // React found, but no _debugSource/_debugStack anywhere
+  | "not-framework" // no supported framework metadata found on any ancestor
+  | "no-debug-info" // framework found, but its dev source metadata is absent
   | "element-not-found"; // the requested node/selector didn't resolve to a live element
 
 export interface SourceLocationUnavailable {
@@ -174,5 +176,5 @@ export interface SourceLocationUnavailable {
 }
 
 export type SourceLocationOutcome =
-  | ReactElementSourceLocation
+  | ElementSourceLocation
   | SourceLocationUnavailable;

@@ -897,11 +897,11 @@ const messages = {
       copiedToast: "樣式提示已複製",
       abortedToast: "已捨棄待處理的預覽",
       interactBlocked: "切換到互動前，請先套用或放棄待處理的即時編輯。",
-      leaveTitle: "離開前要套用樣式嗎？",
+      leaveTitle: "離開前要套用設計更新嗎？",
       leaveDescriptionOne:
-        "即時預覽中有 {{count}} 個待處理的視覺樣式編輯。現在離開會捨棄該未套用的樣式變更。",
+        "即時預覽中有 {{count}} 個僅限此工作階段的設計更新。現在離開或重新載入會捨棄它。",
       leaveDescriptionOther:
-        "即時預覽中有 {{count}} 個待處理的視覺樣式編輯。現在離開會捨棄這些未套用的樣式變更。",
+        "即時預覽中有 {{count}} 個僅限此工作階段的設計更新。現在離開或重新載入會捨棄它們。",
       stay: "留在這裡",
       leave: "不套用並離開",
     },
@@ -979,8 +979,6 @@ const messages = {
         "無法在原始碼中定位此圖層。請等應用程式載入完成後重試，或請代理程式協助完成此變更。",
       reactSourceAnchorsUnavailable:
         "此應用程式未向編輯器提供原始碼位置，因此無法將此圖層對應到特定行。請讓代理程式完成此變更。",
-      primitiveInsertLiveScreen:
-        "無法直接在即時畫面中繪製 — 請先在畫板上繪製，再拖曳進來。",
       designStateLiveScreen:
         "即時畫面無法預覽設計狀態 — 其內容是執行中的應用程式，而非文件。",
     },

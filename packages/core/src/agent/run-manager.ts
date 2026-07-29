@@ -1193,6 +1193,7 @@ export function startRun(
       // emission below so it doesn't have to re-walk diagnosticEvents.
       let runTerminalErrorCode: string | undefined;
       let runTerminalErrorDetail: string | undefined;
+      let terminalPersistenceEstablished = false;
       const resolveTerminalEventForCompletion = () => {
         const continuationTerminalEvent = run.continuationTerminalEvent
           ? {
@@ -1370,9 +1371,11 @@ export function startRun(
             statusUpdated = false;
           }
           if (statusUpdated) {
+            terminalPersistenceEstablished = true;
             await setRunTerminalReason(runId, terminalReason);
           } else {
-            await reconcileTerminalRunFromEvents(runId).catch(() => false);
+            terminalPersistenceEstablished =
+              await reconcileTerminalRunFromEvents(runId).catch(() => false);
           }
         }
       } catch {
@@ -1426,6 +1429,7 @@ export function startRun(
           () => false,
         );
         if (!reconciled) throw terminalPersistenceError;
+        terminalPersistenceEstablished = true;
       }
 
       // 5c. Emit a terminal-outcome analytics event, reusing the same
@@ -1436,22 +1440,24 @@ export function startRun(
       // protect. `persistedStatus` (not `finalStatus`) is used so a
       // continuation boundary reports as "truncated" rather than a false
       // "completed" — that distinction is the whole point of this event.
-      emitRunTerminalTrackingEvent({
-        runId,
-        threadId,
-        turnId: run.turnId,
-        status: persistedStatus,
-        terminalReason,
-        errorCode: runTerminalErrorCode,
-        errorDetail: runTerminalErrorDetail,
-        dispatchMode: options?.dispatchMode,
-        abortReason: run.abortReason,
-        durationMs: Date.now() - run.startedAt,
-        model: options?.model,
-        engineName: options?.engineName,
-        userId: options?.userId,
-        attemptCount: options?.attemptCount,
-      });
+      if (terminalPersistenceEstablished) {
+        emitRunTerminalTrackingEvent({
+          runId,
+          threadId,
+          turnId: run.turnId,
+          status: persistedStatus,
+          terminalReason,
+          errorCode: runTerminalErrorCode,
+          errorDetail: runTerminalErrorDetail,
+          dispatchMode: options?.dispatchMode,
+          abortReason: run.abortReason,
+          durationMs: Date.now() - run.startedAt,
+          model: options?.model,
+          engineName: options?.engineName,
+          userId: options?.userId,
+          attemptCount: options?.attemptCount,
+        });
+      }
 
       // 6. Schedule in-memory cleanup + opportunistic old-run pruning.
       setTimeout(() => {

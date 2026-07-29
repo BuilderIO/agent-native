@@ -16,6 +16,7 @@
 import { and, eq, or, sql, type SQL } from "drizzle-orm";
 
 import {
+  getRequestAuthCapability,
   getRequestUserEmail,
   getRequestOrgId,
 } from "../server/request-context.js";
@@ -54,6 +55,7 @@ export class ForbiddenError extends Error {
 export interface AccessContext {
   userEmail?: string;
   orgId?: string;
+  authCapability?: string;
 }
 
 /** Current request's access context. Pulls from request-context ALS. */
@@ -61,6 +63,7 @@ export function currentAccess(): AccessContext {
   return {
     userEmail: getRequestUserEmail(),
     orgId: getRequestOrgId(),
+    authCapability: getRequestAuthCapability(),
   };
 }
 
@@ -68,7 +71,11 @@ export function resolveRegisteredAccessContext(
   reg: ShareableResourceRegistration | undefined,
   ctx: AccessContext,
 ): AccessContext {
-  return reg?.resolveAccessContext ? reg.resolveAccessContext(ctx) : ctx;
+  if (!reg?.resolveAccessContext) return ctx;
+  const resolved = reg.resolveAccessContext(ctx);
+  return ctx.authCapability
+    ? { ...resolved, authCapability: ctx.authCapability }
+    : resolved;
 }
 
 function normalizeEmailForAccess(email: string | undefined): string | null {

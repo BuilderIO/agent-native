@@ -32,12 +32,13 @@ describe("DesignEditor runtime layer state handoff", () => {
     (state, start, end) => {
       const section = sourceSection(start, end);
       const handoffCall = `sendRuntimeLayerStateSemanticHandoff(layerId, "${state}", ${state})`;
+      const previewCall = `applyLayerStatePreview(layerScreenId, layerId, "${state}", ${state})`;
 
       expect(section).toContain("if (owner?.runtimeOnly)");
       expect(section).toContain(handoffCall);
-      expect(section).toContain("layerStateOverridesRef.current.set(layerId");
+      expect(section).toContain(previewCall);
       expect(section.indexOf(handoffCall)).toBeLessThan(
-        section.indexOf("layerStateOverridesRef.current.set(layerId"),
+        section.lastIndexOf(previewCall),
       );
       expect(section).not.toMatch(
         /if \(owner\?\.runtimeOnly\) \{\s*return;\s*\}/,

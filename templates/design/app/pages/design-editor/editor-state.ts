@@ -154,7 +154,7 @@ export function getDesignEditorStateUrlSearch(args: {
   } else {
     params.delete("tool");
   }
-  if (args.viewMode === "single" && args.mode === "interact") {
+  if (args.viewMode === "single") {
     params.set("mode", "interact");
   } else {
     params.delete("mode");

@@ -34,8 +34,10 @@ import {
 const SCREEN_ID = "live-screen";
 const ANCHOR_SELECTOR = '[data-agent-native-node-id="card"]';
 const PRIMITIVE_SELECTOR = '[data-agent-native-node-id="primitive-1"]';
+const PRIMITIVE_CHILD_SELECTOR =
+  '[data-agent-native-node-id="primitive-child"]';
 const PRIMITIVE_HTML =
-  '<div data-agent-native-node-id="primitive-1" style="width:40px;height:40px;background:#111">Primitive</div>';
+  '<div data-agent-native-node-id="primitive-1" style="width:40px;height:40px;background:#111">Primitive<div data-agent-native-node-id="primitive-child">Nested child</div></div>';
 
 function hydratedEditorChromeBridgeScript(): string {
   return editorChromeBridgeScript
@@ -202,9 +204,16 @@ describe("live insert lifecycle", () => {
         );
         const insertEcho = await nextStructureChange(page, 0);
         expect(insertEcho.insertedHtml).toContain("primitive-1");
+        expect(insertEcho.insertedHtml).toContain("primitive-child");
         expect(await page.locator(PRIMITIVE_SELECTOR).count()).toBe(1);
+        expect(await page.locator(PRIMITIVE_CHILD_SELECTOR).count()).toBe(1);
         expect(
           await page.locator(`#card > ${PRIMITIVE_SELECTOR}`).count(),
+        ).toBe(1);
+        expect(
+          await page
+            .locator(`${PRIMITIVE_SELECTOR} > ${PRIMITIVE_CHILD_SELECTOR}`)
+            .count(),
         ).toBe(1);
 
         const insertEdit = pendingEditFromEcho(insertEcho);
@@ -288,6 +297,7 @@ describe("live insert lifecycle", () => {
         );
         const redoEcho = await nextStructureChange(page, 1);
         expect(await page.locator(PRIMITIVE_SELECTOR).count()).toBe(1);
+        expect(await page.locator(PRIMITIVE_CHILD_SELECTOR).count()).toBe(1);
         record(pendingEditFromEcho(redoEcho));
         expect(queue()).toHaveLength(1);
         expect([undoStack.length, redoStack.length]).toEqual([1, 0]);
@@ -353,6 +363,7 @@ describe("live insert lifecycle", () => {
           );
         });
         await page.waitForSelector(PRIMITIVE_SELECTOR);
+        await page.waitForSelector(PRIMITIVE_CHILD_SELECTOR);
         const restoredQueue = queue();
         expect(restoredQueue).toHaveLength(1);
         expect(

@@ -958,7 +958,7 @@ const enUS = {
       applyAria: "Apply design updates",
       applyButton: "Apply styles",
       previewLabel: "Pending visual preview",
-      applyDesignUpdates: "Apply design updates",
+      applyDesignUpdates: "Apply design update",
       verifying: "Verifying source and runtime…",
       retryWithAgent: "Retry source verification",
       copyPrompt: "Copy prompt to your agent",
@@ -976,11 +976,11 @@ const enUS = {
       abortedToast: "Pending preview discarded",
       interactBlocked:
         "Apply or abort pending live edits before switching to Interact.",
-      leaveTitle: "Apply styles before leaving?",
+      leaveTitle: "Apply design updates before leaving?",
       leaveDescriptionOne:
-        "You have {{count}} pending visual style edit in the live preview. Leaving now will discard that unapplied style change.",
+        "You have {{count}} session-only design update in the live preview. Leaving or reloading now will discard it.",
       leaveDescriptionOther:
-        "You have {{count}} pending visual style edits in the live preview. Leaving now will discard those unapplied style changes.",
+        "You have {{count}} session-only design updates in the live preview. Leaving or reloading now will discard them.",
       stay: "Stay here",
       leave: "Leave without applying",
     },
@@ -1078,8 +1078,6 @@ const enUS = {
       propsCopied: "Properties copied",
       propsPasted: "Properties pasted",
       primitiveInsertFailed: "Could not add that layer to the screen",
-      primitiveInsertLiveScreen:
-        "Can't draw directly into a live screen — draw it on the board, then drag it in.",
       designStateLiveScreen:
         "Design states can't preview on a live screen — its content is the running app, not a document.",
       layerMoveFailed: "Could not move that layer",
@@ -11172,11 +11170,11 @@ const designPendingVisualStyleOverrides = {
         copiedToast: "樣式提示已複製",
         abortedToast: "待處理的預覽已捨棄",
         interactBlocked: "請先套用或中止待處理的即時編輯，再切換到互動模式。",
-        leaveTitle: "離開前要套用樣式嗎？",
+        leaveTitle: "離開前要套用設計更新嗎？",
         leaveDescriptionOne:
-          "即時預覽中有 {{count}} 個待處理的視覺樣式編輯。現在離開會捨棄該未套用的樣式變更。",
+          "即時預覽中有 {{count}} 個僅限此工作階段的設計更新。現在離開或重新載入會捨棄它。",
         leaveDescriptionOther:
-          "即時預覽中有 {{count}} 個待處理的視覺樣式編輯。現在離開會捨棄這些未套用的樣式變更。",
+          "即時預覽中有 {{count}} 個僅限此工作階段的設計更新。現在離開或重新載入會捨棄它們。",
         stay: "留在這裡",
         leave: "不套用並離開",
       },
@@ -11205,11 +11203,11 @@ const designPendingVisualStyleOverrides = {
         copiedToast: "样式提示已复制",
         abortedToast: "待处理的预览已丢弃",
         interactBlocked: "请先应用或中止待处理的实时编辑，再切换到互动模式。",
-        leaveTitle: "离开前应用样式？",
+        leaveTitle: "离开前应用设计更新？",
         leaveDescriptionOne:
-          "实时预览中有 {{count}} 个待处理的视觉样式编辑。现在离开会丢弃这个未应用的样式更改。",
+          "实时预览中有 {{count}} 个仅限此会话的设计更新。现在离开或重新加载会将其丢弃。",
         leaveDescriptionOther:
-          "实时预览中有 {{count}} 个待处理的视觉样式编辑。现在离开会丢弃这些未应用的样式更改。",
+          "实时预览中有 {{count}} 个仅限此会话的设计更新。现在离开或重新加载会将它们丢弃。",
         stay: "留在这里",
         leave: "不应用并离开",
       },
@@ -11240,11 +11238,11 @@ const designPendingVisualStyleOverrides = {
         abortedToast: "Vista previa pendiente descartada",
         interactBlocked:
           "Aplica o cancela las ediciones en vivo pendientes antes de cambiar a Interactuar.",
-        leaveTitle: "¿Aplicar estilos antes de salir?",
+        leaveTitle: "¿Aplicar las actualizaciones de diseño antes de salir?",
         leaveDescriptionOne:
-          "Tienes {{count}} edición visual de estilo pendiente en la vista previa en vivo. Si sales ahora, se descartará ese cambio de estilo sin aplicar.",
+          "Tienes {{count}} actualización de diseño solo para esta sesión en la vista previa en vivo. Si sales o recargas ahora, se descartará.",
         leaveDescriptionOther:
-          "Tienes {{count}} ediciones visuales de estilo pendientes en la vista previa en vivo. Si sales ahora, se descartarán esos cambios de estilo sin aplicar.",
+          "Tienes {{count}} actualizaciones de diseño solo para esta sesión en la vista previa en vivo. Si sales o recargas ahora, se descartarán.",
         stay: "Quedarse aquí",
         leave: "Salir sin aplicar",
       },
@@ -11275,11 +11273,11 @@ const designPendingVisualStyleOverrides = {
         abortedToast: "Aperçu en attente supprimé",
         interactBlocked:
           "Appliquez ou annulez les modifications en direct en attente avant de passer à Interagir.",
-        leaveTitle: "Appliquer les styles avant de quitter ?",
+        leaveTitle: "Appliquer les mises à jour avant de quitter ?",
         leaveDescriptionOne:
-          "Vous avez {{count}} modification visuelle de style en attente dans l’aperçu en direct. Quitter maintenant supprimera cette modification non appliquée.",
+          "Vous avez {{count}} mise à jour de design limitée à cette session dans l’aperçu en direct. Quitter ou recharger maintenant la supprimera.",
         leaveDescriptionOther:
-          "Vous avez {{count}} modifications visuelles de style en attente dans l’aperçu en direct. Quitter maintenant supprimera ces modifications non appliquées.",
+          "Vous avez {{count}} mises à jour de design limitées à cette session dans l’aperçu en direct. Quitter ou recharger maintenant les supprimera.",
         stay: "Rester ici",
         leave: "Quitter sans appliquer",
       },
@@ -11310,11 +11308,11 @@ const designPendingVisualStyleOverrides = {
         abortedToast: "Ausstehende Vorschau verworfen",
         interactBlocked:
           "Wende ausstehende Live-Änderungen an oder brich sie ab, bevor du zu Interagieren wechselst.",
-        leaveTitle: "Stile vor dem Verlassen anwenden?",
+        leaveTitle: "Design-Updates vor dem Verlassen anwenden?",
         leaveDescriptionOne:
-          "In der Live-Vorschau gibt es {{count}} ausstehende visuelle Stiländerung. Wenn du jetzt gehst, wird diese nicht angewendete Stiländerung verworfen.",
+          "In der Live-Vorschau gibt es {{count}} Design-Update nur für diese Sitzung. Verlassen oder Neuladen verwirft es.",
         leaveDescriptionOther:
-          "In der Live-Vorschau gibt es {{count}} ausstehende visuelle Stiländerungen. Wenn du jetzt gehst, werden diese nicht angewendeten Stiländerungen verworfen.",
+          "In der Live-Vorschau gibt es {{count}} Design-Updates nur für diese Sitzung. Verlassen oder Neuladen verwirft sie.",
         stay: "Hier bleiben",
         leave: "Ohne Anwenden verlassen",
       },
@@ -11345,11 +11343,11 @@ const designPendingVisualStyleOverrides = {
         abortedToast: "保留中のプレビューを破棄しました",
         interactBlocked:
           "操作モードに切り替える前に、保留中のライブ編集を適用するか中止してください。",
-        leaveTitle: "離れる前にスタイルを適用しますか？",
+        leaveTitle: "離れる前にデザインの更新を適用しますか？",
         leaveDescriptionOne:
-          "ライブプレビューに {{count}} 件の保留中のビジュアルスタイル編集があります。今離れると、未適用のスタイル変更は破棄されます。",
+          "ライブプレビューにこのセッション限定のデザイン更新が {{count}} 件あります。今離れるか再読み込みすると破棄されます。",
         leaveDescriptionOther:
-          "ライブプレビューに {{count}} 件の保留中のビジュアルスタイル編集があります。今離れると、未適用のスタイル変更は破棄されます。",
+          "ライブプレビューにこのセッション限定のデザイン更新が {{count}} 件あります。今離れるか再読み込みすると破棄されます。",
         stay: "ここに留まる",
         leave: "適用せずに離れる",
       },
@@ -11379,11 +11377,11 @@ const designPendingVisualStyleOverrides = {
         abortedToast: "보류 중인 미리보기를 버렸습니다",
         interactBlocked:
           "상호작용 모드로 전환하기 전에 보류 중인 라이브 편집을 적용하거나 중단하세요.",
-        leaveTitle: "나가기 전에 스타일을 적용할까요?",
+        leaveTitle: "나가기 전에 디자인 업데이트를 적용할까요?",
         leaveDescriptionOne:
-          "라이브 미리보기에 보류 중인 시각 스타일 편집이 {{count}}개 있습니다. 지금 나가면 적용되지 않은 스타일 변경이 삭제됩니다.",
+          "라이브 미리보기에 이 세션에서만 유지되는 디자인 업데이트가 {{count}}개 있습니다. 지금 나가거나 다시 로드하면 삭제됩니다.",
         leaveDescriptionOther:
-          "라이브 미리보기에 보류 중인 시각 스타일 편집이 {{count}}개 있습니다. 지금 나가면 적용되지 않은 스타일 변경이 삭제됩니다.",
+          "라이브 미리보기에 이 세션에서만 유지되는 디자인 업데이트가 {{count}}개 있습니다. 지금 나가거나 다시 로드하면 삭제됩니다.",
         stay: "여기에 머물기",
         leave: "적용하지 않고 나가기",
       },
@@ -11414,11 +11412,11 @@ const designPendingVisualStyleOverrides = {
         abortedToast: "Prévia pendente descartada",
         interactBlocked:
           "Aplique ou cancele as edições ao vivo pendentes antes de mudar para Interagir.",
-        leaveTitle: "Aplicar estilos antes de sair?",
+        leaveTitle: "Aplicar as atualizações de design antes de sair?",
         leaveDescriptionOne:
-          "Você tem {{count}} edição visual de estilo pendente na prévia ao vivo. Sair agora descartará essa alteração de estilo não aplicada.",
+          "Você tem {{count}} atualização de design somente desta sessão na prévia ao vivo. Sair ou recarregar agora a descartará.",
         leaveDescriptionOther:
-          "Você tem {{count}} edições visuais de estilo pendentes na prévia ao vivo. Sair agora descartará essas alterações de estilo não aplicadas.",
+          "Você tem {{count}} atualizações de design somente desta sessão na prévia ao vivo. Sair ou recarregar agora as descartará.",
         stay: "Ficar aqui",
         leave: "Sair sem aplicar",
       },
@@ -11447,11 +11445,11 @@ const designPendingVisualStyleOverrides = {
         copiedToast: "Style prompt कॉपी हुआ",
         abortedToast: "लंबित preview हटा दिया गया",
         interactBlocked: "Interact पर जाने से पहले लंबित live edits लागू करें या रोकें।",
-        leaveTitle: "छोड़ने से पहले styles लागू करें?",
+        leaveTitle: "छोड़ने से पहले design updates लागू करें?",
         leaveDescriptionOne:
-          "Live preview में {{count}} लंबित visual style edit है। अभी छोड़ने पर वह unapplied style change हट जाएगा।",
+          "Live preview में {{count}} design update केवल इस session के लिए है। अभी छोड़ने या reload करने पर यह हट जाएगा।",
         leaveDescriptionOther:
-          "Live preview में {{count}} लंबित visual style edits हैं। अभी छोड़ने पर वे unapplied style changes हट जाएंगे।",
+          "Live preview में {{count}} design updates केवल इस session के लिए हैं। अभी छोड़ने या reload करने पर ये हट जाएंगे।",
         stay: "यहीं रहें",
         leave: "बिना लागू किए छोड़ें",
       },
@@ -11481,11 +11479,11 @@ const designPendingVisualStyleOverrides = {
         abortedToast: "تم تجاهل المعاينة المعلقة",
         interactBlocked:
           "طبّق التعديلات المباشرة المعلقة أو ألغها قبل الانتقال إلى التفاعل.",
-        leaveTitle: "تطبيق الأنماط قبل المغادرة؟",
+        leaveTitle: "تطبيق تحديثات التصميم قبل المغادرة؟",
         leaveDescriptionOne:
-          "لديك {{count}} تعديل نمط مرئي معلق في المعاينة المباشرة. ستؤدي المغادرة الآن إلى تجاهل تغيير النمط غير المطبق.",
+          "لديك {{count}} تحديث تصميم خاص بهذه الجلسة في المعاينة المباشرة. ستؤدي المغادرة أو إعادة التحميل الآن إلى تجاهله.",
         leaveDescriptionOther:
-          "لديك {{count}} تعديلات نمط مرئية معلقة في المعاينة المباشرة. ستؤدي المغادرة الآن إلى تجاهل تغييرات النمط غير المطبقة.",
+          "لديك {{count}} تحديثات تصميم خاصة بهذه الجلسة في المعاينة المباشرة. ستؤدي المغادرة أو إعادة التحميل الآن إلى تجاهلها.",
         stay: "البقاء هنا",
         leave: "المغادرة دون تطبيق",
       },
@@ -14439,8 +14437,6 @@ const designRuntimeIdentityAndBridgeOverrides = {
           "无法在源码中定位该图层。请等应用加载完成后重试，或请代理帮你完成此更改。",
         reactSourceAnchorsUnavailable:
           "该应用未向编辑器提供源码位置，因此无法把该图层追溯到具体代码行。请让代理完成此更改。",
-        primitiveInsertLiveScreen:
-          "无法直接在实时画面中绘制 — 请先在画板上绘制，然后拖入。",
         designStateLiveScreen:
           "实时画面无法预览设计状态 — 它的内容是正在运行的应用，而不是文档。",
       },
@@ -14471,8 +14467,6 @@ const designRuntimeIdentityAndBridgeOverrides = {
           "No se puede localizar esta capa en el código fuente. Vuelve a intentarlo cuando la aplicación termine de cargar, o pide al agente que haga el cambio.",
         reactSourceAnchorsUnavailable:
           "Esta aplicación no expone ubicaciones de código al editor, así que esta capa no se puede rastrear hasta una línea. Pide al agente que haga el cambio.",
-        primitiveInsertLiveScreen:
-          "No se puede dibujar directamente en una pantalla en vivo: dibújalo en el tablero y arrástralo dentro.",
         designStateLiveScreen:
           "Los estados de diseño no se pueden previsualizar en una pantalla en vivo: su contenido es la app en ejecución, no un documento.",
       },
@@ -14504,8 +14498,6 @@ const designRuntimeIdentityAndBridgeOverrides = {
           "Impossible de localiser ce calque dans le code source. Réessayez une fois le chargement de l’application terminé, ou demandez à l’agent d’effectuer ce changement.",
         reactSourceAnchorsUnavailable:
           "Cette application n’expose pas les emplacements du code source à l’éditeur : ce calque ne peut donc pas être relié à une ligne. Demandez à l’agent d’effectuer ce changement.",
-        primitiveInsertLiveScreen:
-          "Impossible de dessiner directement dans un écran en direct — dessinez-le sur le plan de travail, puis faites-le glisser dedans.",
         designStateLiveScreen:
           "Les états de design ne peuvent pas être prévisualisés sur un écran en direct — son contenu est l'application en cours d'exécution, pas un document.",
       },
@@ -14536,8 +14528,6 @@ const designRuntimeIdentityAndBridgeOverrides = {
           "Diese Ebene lässt sich im Quellcode nicht finden. Versuche es erneut, sobald die App vollständig geladen ist, oder lass die Änderung vom Agenten vornehmen.",
         reactSourceAnchorsUnavailable:
           "Diese App stellt dem Editor keine Quellcode-Positionen bereit, daher lässt sich diese Ebene keiner Zeile zuordnen. Lass die Änderung vom Agenten vornehmen.",
-        primitiveInsertLiveScreen:
-          "Direktes Zeichnen in einem Live-Screen ist nicht möglich — zeichne es auf dem Board und ziehe es dann hinein.",
         designStateLiveScreen:
           "Design-Zustände lassen sich in einem Live-Screen nicht vorschauen — sein Inhalt ist die laufende App, kein Dokument.",
       },
@@ -14569,8 +14559,6 @@ const designRuntimeIdentityAndBridgeOverrides = {
           "このレイヤーのソースが見つかりません。アプリの読み込みが完了してから再度お試しいただくか、エージェントに変更を依頼してください。",
         reactSourceAnchorsUnavailable:
           "このアプリはエディターにソース位置を提供していないため、このレイヤーを行にひも付けできません。エージェントに変更を依頼してください。",
-        primitiveInsertLiveScreen:
-          "ライブ画面に直接描画することはできません。ボードに描いてからドラッグして入れてください。",
         designStateLiveScreen:
           "ライブ画面ではデザイン状態をプレビューできません。その内容はドキュメントではなく実行中のアプリです。",
       },
@@ -14601,8 +14589,6 @@ const designRuntimeIdentityAndBridgeOverrides = {
           "이 레이어를 소스에서 찾을 수 없습니다. 앱 로딩이 끝난 후 다시 시도하거나, 에이전트에게 변경을 요청하세요.",
         reactSourceAnchorsUnavailable:
           "이 앱은 편집기에 소스 위치를 제공하지 않아 이 레이어를 코드 줄과 연결할 수 없습니다. 에이전트에게 변경을 요청하세요.",
-        primitiveInsertLiveScreen:
-          "라이브 화면에 직접 그릴 수 없습니다. 보드에 그린 뒤 끌어다 놓으세요.",
         designStateLiveScreen:
           "라이브 화면에서는 디자인 상태를 미리 볼 수 없습니다. 콘텐츠가 문서가 아니라 실행 중인 앱입니다.",
       },
@@ -14633,8 +14619,6 @@ const designRuntimeIdentityAndBridgeOverrides = {
           "Não foi possível localizar esta camada no código-fonte. Tente novamente quando o app terminar de carregar, ou peça ao agente para fazer essa alteração.",
         reactSourceAnchorsUnavailable:
           "Este app não expõe localizações de código ao editor, então esta camada não pode ser associada a uma linha. Peça ao agente para fazer essa alteração.",
-        primitiveInsertLiveScreen:
-          "Não é possível desenhar diretamente em uma tela ao vivo — desenhe no quadro e arraste para dentro.",
         designStateLiveScreen:
           "Estados de design não podem ser visualizados em uma tela ao vivo — o conteúdo dela é o app em execução, não um documento.",
       },
@@ -14666,8 +14650,6 @@ const designRuntimeIdentityAndBridgeOverrides = {
           "यह लेयर सोर्स में नहीं मिली। ऐप लोड होने के बाद फिर से कोशिश करें, या एजेंट से यह बदलाव करने को कहें।",
         reactSourceAnchorsUnavailable:
           "यह ऐप एडिटर को सोर्स लोकेशन नहीं देता, इसलिए इस लेयर को किसी लाइन से नहीं जोड़ा जा सकता। यह बदलाव एजेंट से कराएँ।",
-        primitiveInsertLiveScreen:
-          "लाइव स्क्रीन में सीधे नहीं बनाया जा सकता — इसे बोर्ड पर बनाएँ, फिर खींचकर अंदर लाएँ।",
         designStateLiveScreen:
           "लाइव स्क्रीन पर डिज़ाइन स्टेट का पूर्वावलोकन नहीं हो सकता — इसकी सामग्री चल रहा ऐप है, दस्तावेज़ नहीं।",
       },
@@ -14698,8 +14680,6 @@ const designRuntimeIdentityAndBridgeOverrides = {
           "تعذر تحديد موقع هذه الطبقة في المصدر. أعد المحاولة بعد اكتمال تحميل التطبيق، أو اطلب من الوكيل إجراء هذا التغيير.",
         reactSourceAnchorsUnavailable:
           "لا يوفّر هذا التطبيق مواقع المصدر للمحرر، لذا لا يمكن ربط هذه الطبقة بسطر معيّن. اطلب من الوكيل إجراء هذا التغيير.",
-        primitiveInsertLiveScreen:
-          "لا يمكن الرسم مباشرة داخل شاشة حيّة — ارسمه على اللوح ثم اسحبه إلى الداخل.",
         designStateLiveScreen:
           "لا يمكن معاينة حالات التصميم على شاشة حيّة — محتواها هو التطبيق قيد التشغيل، وليس مستندًا.",
       },

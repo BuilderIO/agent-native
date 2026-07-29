@@ -362,7 +362,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var cached = reactDebugProvenanceCache?.get(el);
       if (cached !== void 0) return cached;
       var leafFiber = reactFiberOf(el);
-      if (!leafFiber) return { unavailableReason: "not-react" };
+      if (!leafFiber) return { unavailableReason: "not-framework" };
       var elementLocation = null;
       var componentFiber = null;
       var fiber = leafFiber;
@@ -374,9 +374,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (elementLocation && componentFiber) break;
         fiber = fiber.return;
       }
-      if (!elementLocation) return { unavailableReason: "no-debug-info" };
+      if (!elementLocation) {
+        return { framework: "react", unavailableReason: "no-debug-info" };
+      }
       var componentName = componentFiber && componentFiber.type && (componentFiber.type.displayName || componentFiber.type.name) || elementLocation.functionName || void 0;
       var provenance = {
+        framework: "react",
         sourceFile: elementLocation.sourceFile,
         line: elementLocation.line,
         column: elementLocation.column,
@@ -398,6 +401,83 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       reactDebugProvenanceCache?.set(el, provenance);
       return provenance;
+    }
+    function parseFrameworkDataLoc(value) {
+      var lastColon = value.lastIndexOf(":");
+      if (lastColon < 0) return null;
+      var lastPart = value.slice(lastColon + 1);
+      if (!/^\\d+$/.test(lastPart)) return null;
+      var beforeLast = value.slice(0, lastColon);
+      var previousColon = beforeLast.lastIndexOf(":");
+      var previousPart = previousColon >= 0 ? beforeLast.slice(previousColon + 1) : "";
+      var hasColumn = /^\\d+$/.test(previousPart);
+      var sourceFile = (hasColumn ? beforeLast.slice(0, previousColon) : beforeLast).trim();
+      var line = parseInt(hasColumn ? previousPart : lastPart, 10);
+      var column = hasColumn ? parseInt(lastPart, 10) : void 0;
+      if (!sourceFile || !isFinite(line)) return null;
+      if (column !== void 0 && !isFinite(column)) return null;
+      return { sourceFile, line, column };
+    }
+    function vueDebugProvenance(el) {
+      var node = el;
+      var sawVue = false;
+      for (var depth = 0; node && depth < 8; depth += 1) {
+        var vnode = node.__vnode;
+        var component = node.__vueParentComponent;
+        if (vnode || component) sawVue = true;
+        var inspector = vnode && vnode.props && typeof vnode.props.__v_inspector === "string" ? vnode.props.__v_inspector : null;
+        if (inspector) {
+          var parsed = parseFrameworkDataLoc(inspector);
+          if (parsed) {
+            var componentType = component && component.type || vnode && vnode.type;
+            return {
+              framework: "vue",
+              sourceFile: parsed.sourceFile,
+              line: parsed.line,
+              column: parsed.column,
+              component: componentType && (componentType.name || componentType.__name || componentType.displayName),
+              method: "vue-inspector"
+            };
+          }
+        }
+        node = node.parentElement;
+      }
+      return sawVue ? { framework: "vue", unavailableReason: "no-debug-info" } : null;
+    }
+    function svelteDebugProvenance(el) {
+      var node = el;
+      var sawSvelte = false;
+      for (var depth = 0; node && depth < 8; depth += 1) {
+        var meta = node.__svelte_meta;
+        if (meta) sawSvelte = true;
+        var loc = meta && meta.loc;
+        var sourceFile = loc && (loc.file || loc.filename);
+        var line = loc && Number(loc.line);
+        var column = loc && Number(loc.column);
+        if (sourceFile && isFinite(line)) {
+          return {
+            framework: "svelte",
+            sourceFile: String(sourceFile),
+            line,
+            column: isFinite(column) ? column : void 0,
+            component: typeof meta.component === "string" ? meta.component : typeof meta.name === "string" ? meta.name : void 0,
+            method: "svelte-meta"
+          };
+        }
+        node = node.parentElement;
+      }
+      return sawSvelte ? { framework: "svelte", unavailableReason: "no-debug-info" } : null;
+    }
+    function frameworkDebugProvenance(el) {
+      var react = reactDebugProvenance(el);
+      if (react.sourceFile || react.unavailableReason === "no-debug-info") {
+        return react;
+      }
+      var vue = vueDebugProvenance(el);
+      if (vue) return vue;
+      var svelte = svelteDebugProvenance(el);
+      if (svelte) return svelte;
+      return { unavailableReason: "not-framework" };
     }
     var runtimeLayerSnapshotTimer = null;
     var runtimeLayerSnapshotMaxTimer = null;
@@ -434,7 +514,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     function ensureRuntimeLayerNodeId(el) {
       var existing = el.getAttribute("data-agent-native-node-id")?.trim();
       if (existing) return existing;
-      var provenance = reactDebugProvenance(el);
+      var provenance = frameworkDebugProvenance(el);
       var provenanceKey = provenance.sourceFile ? [
         provenance.sourceFile,
         provenance.line,
@@ -553,8 +633,11 @@ export const editorChromeBridgeScript: string = `"use strict";
           ensureRuntimeLayerNodeId(sourceNode)
         );
         inlineSnapshotComputedStyle(sourceNode, cloneNode);
-        var provenance = reactDebugProvenance(sourceNode);
+        var provenance = frameworkDebugProvenance(sourceNode);
         if (provenance.sourceFile) {
+          if (provenance.framework) {
+            cloneNode.setAttribute("data-source-framework", provenance.framework);
+          }
           cloneNode.setAttribute("data-source-file", provenance.sourceFile);
           cloneNode.setAttribute("data-source-line", String(provenance.line));
           if (provenance.method) {
@@ -1186,6 +1269,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var dataSourceLine = el.getAttribute("data-source-line");
       var dataSourceColumn = el.getAttribute("data-source-column");
       var dataComponentName = el.getAttribute("data-component-name");
+      var dataSourceFramework = el.getAttribute("data-source-framework");
       var dataLoc = el.getAttribute("data-loc");
       if (!dataSourceFile && dataLoc) {
         var lastColonIndex = dataLoc.lastIndexOf(":");
@@ -1201,14 +1285,14 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
       }
       var hadDataSourceFile = !!dataSourceFile;
-      var reactProvenance = reactDebugProvenance(el);
-      if (!hadDataSourceFile && reactProvenance.sourceFile) {
-        dataSourceFile = reactProvenance.sourceFile;
-        dataSourceLine = String(reactProvenance.line);
-        dataSourceColumn = reactProvenance.column ? String(reactProvenance.column) : null;
-        dataComponentName = dataComponentName || reactProvenance.component || null;
+      var frameworkProvenance = frameworkDebugProvenance(el);
+      if (!hadDataSourceFile && frameworkProvenance.sourceFile) {
+        dataSourceFile = frameworkProvenance.sourceFile;
+        dataSourceLine = String(frameworkProvenance.line);
+        dataSourceColumn = frameworkProvenance.column ? String(frameworkProvenance.column) : null;
+        dataComponentName = dataComponentName || frameworkProvenance.component || null;
       }
-      if (dataSourceFile || dataSourceLine || dataSourceColumn || dataComponentName || reactProvenance.unavailableReason) {
+      if (dataSourceFile || dataSourceLine || dataSourceColumn || dataComponentName || frameworkProvenance.unavailableReason) {
         provenance = {};
         if (dataSourceFile) provenance.sourceFile = dataSourceFile;
         if (dataSourceLine) {
@@ -1222,20 +1306,21 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (dataComponentName) provenance.component = dataComponentName;
         if (dataSourceFile) {
           var declaredMethod = el.getAttribute("data-source-method");
-          provenance.method = declaredMethod === "debug-source" || declaredMethod === "debug-stack" ? declaredMethod : hadDataSourceFile ? "data-attribute" : reactProvenance.method || "data-attribute";
+          provenance.method = declaredMethod === "debug-source" || declaredMethod === "debug-stack" || declaredMethod === "vue-inspector" || declaredMethod === "svelte-meta" ? declaredMethod : hadDataSourceFile ? "data-attribute" : frameworkProvenance.method || "data-attribute";
         }
-        if (reactProvenance.ownerSourceFile) {
-          provenance.ownerSourceFile = reactProvenance.ownerSourceFile;
-          provenance.ownerLine = reactProvenance.ownerLine;
-          provenance.ownerColumn = reactProvenance.ownerColumn;
-          provenance.ownerComponentName = reactProvenance.ownerComponentName;
-          provenance.ownerMethod = reactProvenance.ownerMethod;
+        provenance.framework = dataSourceFramework === "react" || dataSourceFramework === "vue" || dataSourceFramework === "svelte" || dataSourceFramework === "html" ? dataSourceFramework : hadDataSourceFile ? frameworkProvenance.framework || "html" : frameworkProvenance.framework;
+        if (frameworkProvenance.ownerSourceFile) {
+          provenance.ownerSourceFile = frameworkProvenance.ownerSourceFile;
+          provenance.ownerLine = frameworkProvenance.ownerLine;
+          provenance.ownerColumn = frameworkProvenance.ownerColumn;
+          provenance.ownerComponentName = frameworkProvenance.ownerComponentName;
+          provenance.ownerMethod = frameworkProvenance.ownerMethod;
         }
-        if (reactProvenance.ownerKey) {
-          provenance.ownerKey = reactProvenance.ownerKey;
+        if (frameworkProvenance.ownerKey) {
+          provenance.ownerKey = frameworkProvenance.ownerKey;
         }
-        if (!dataSourceFile && reactProvenance.unavailableReason) {
-          provenance.unavailableReason = reactProvenance.unavailableReason;
+        if (!dataSourceFile && frameworkProvenance.unavailableReason) {
+          provenance.unavailableReason = frameworkProvenance.unavailableReason;
         }
       }
       return {

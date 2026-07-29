@@ -301,6 +301,8 @@ export interface MultiScreenCanvasProps {
     targetLocalPoint?: Point;
     /** Pointer offset from the dragged element's top-left in source iframe px. */
     sourcePointerOffset?: Point;
+    /** Host-captured HTML for a board root, including its current DOM subtree. */
+    sourceHtmlSnapshot?: string;
     /** Portable computed styles captured in the source iframe before the move. */
     styleSnapshot?: PortableStyleSnapshot;
   }) => void;

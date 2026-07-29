@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-chrome.generated";
 
 /**
- * Exercises the REAL `reactDebugProvenance` shipped inside
+ * Exercises the REAL `frameworkDebugProvenance` shipped inside
  * `editor-chrome.bridge.ts`, pulled out of the compiled bridge string the same
  * way editor-chrome-bridge.snap.test.ts isolates the snap math — the function
  * only reads `Object.keys(el)` and the fiber graph, so a plain object stands in
@@ -17,7 +17,8 @@ import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-c
  * authored directly plus three from ITEMS.map()).
  */
 
-interface ReactDebugProvenance {
+interface FrameworkDebugProvenance {
+  framework?: "react" | "vue" | "svelte";
   sourceFile?: string;
   line?: number;
   column?: number;
@@ -27,15 +28,17 @@ interface ReactDebugProvenance {
   ownerColumn?: number;
   ownerComponentName?: string;
   ownerKey?: string;
-  method?: "debug-source" | "debug-stack";
+  method?: "debug-source" | "debug-stack" | "vue-inspector" | "svelte-meta";
   ownerMethod?: "debug-source" | "debug-stack";
-  unavailableReason?: "not-react" | "no-debug-info";
+  unavailableReason?: "not-framework" | "no-debug-info";
 }
 
-function loadReactDebugProvenance(): (el: object) => ReactDebugProvenance {
+function loadFrameworkDebugProvenance(): (
+  el: object,
+) => FrameworkDebugProvenance {
   const source = editorChromeBridgeScript;
   const start = source.indexOf("var PROVENANCE_NOISE_SEGMENTS");
-  const fnStart = source.indexOf("function reactDebugProvenance(", start);
+  const fnStart = source.indexOf("function frameworkDebugProvenance(", start);
   if (start === -1 || fnStart === -1) {
     throw new Error(
       "provenance block not found in compiled editor-chrome bridge",
@@ -57,13 +60,13 @@ function loadReactDebugProvenance(): (el: object) => ReactDebugProvenance {
       }
     }
   }
-  if (end === -1) throw new Error("unbalanced reactDebugProvenance body");
+  if (end === -1) throw new Error("unbalanced frameworkDebugProvenance body");
   return new Function(
-    `${source.slice(start, end)}; return reactDebugProvenance;`,
-  )() as (el: object) => ReactDebugProvenance;
+    `${source.slice(start, end)}; return frameworkDebugProvenance;`,
+  )() as (el: object) => FrameworkDebugProvenance;
 }
 
-const reactDebugProvenance = loadReactDebugProvenance();
+const frameworkDebugProvenance = loadFrameworkDebugProvenance();
 
 function Card() {}
 
@@ -104,7 +107,7 @@ function mappedCardButton(key: string | null) {
   });
 }
 
-describe("editor-chrome bridge — reactDebugProvenance", () => {
+describe("editor-chrome bridge — frameworkDebugProvenance", () => {
   it("reads React <=18 structured _debugSource, which the React 19 stack path cannot see", () => {
     const cardFiber = {
       type: Card,
@@ -116,7 +119,7 @@ describe("editor-chrome bridge — reactDebugProvenance", () => {
       },
       return: null,
     };
-    const provenance = reactDebugProvenance(
+    const provenance = frameworkDebugProvenance(
       elementWithFiber({
         type: "button",
         key: null,
@@ -143,7 +146,7 @@ describe("editor-chrome bridge — reactDebugProvenance", () => {
   });
 
   it("resolves webpack-internal:/// frames from Next.js/CRA dev servers", () => {
-    const provenance = reactDebugProvenance(
+    const provenance = frameworkDebugProvenance(
       elementWithFiber({
         type: "button",
         key: null,
@@ -167,7 +170,7 @@ describe("editor-chrome bridge — reactDebugProvenance", () => {
   });
 
   it("resolves Vite /@fs/ absolute-path frames", () => {
-    const provenance = reactDebugProvenance(
+    const provenance = frameworkDebugProvenance(
       elementWithFiber({
         type: "button",
         key: null,
@@ -186,9 +189,9 @@ describe("editor-chrome bridge — reactDebugProvenance", () => {
   });
 
   it("separates a directly-authored instance from .map() siblings by owner line and ownerKey", () => {
-    const direct = reactDebugProvenance(mappedCardButton(null));
+    const direct = frameworkDebugProvenance(mappedCardButton(null));
     const mapped = ["a", "b", "c"].map((key) =>
-      reactDebugProvenance(mappedCardButton(key)),
+      frameworkDebugProvenance(mappedCardButton(key)),
     );
 
     // Own location is the button's line in Card.jsx for every instance.
@@ -209,7 +212,7 @@ describe("editor-chrome bridge — reactDebugProvenance", () => {
   });
 
   it("labels which tier produced the position, so a React 19 stack line is not read as authored", () => {
-    const structured = reactDebugProvenance(
+    const structured = frameworkDebugProvenance(
       elementWithFiber({
         type: "button",
         key: null,
@@ -224,7 +227,7 @@ describe("editor-chrome bridge — reactDebugProvenance", () => {
     expect(structured.method).toBe("debug-source");
 
     // The React 19 case: the line is Vite's transformed output, not line 7.
-    const fromStack = reactDebugProvenance(
+    const fromStack = frameworkDebugProvenance(
       elementWithFiber({
         type: "button",
         key: null,
@@ -238,10 +241,10 @@ describe("editor-chrome bridge — reactDebugProvenance", () => {
 
     // The owner site is labelled separately: the two tiers can differ on one
     // element, so a single `method` would misreport one of them.
-    const mapped = reactDebugProvenance(mappedCardButton("b"));
+    const mapped = frameworkDebugProvenance(mappedCardButton("b"));
     expect(mapped.ownerMethod).toBe("debug-stack");
     expect(
-      reactDebugProvenance(
+      frameworkDebugProvenance(
         elementWithFiber({
           type: "button",
           key: null,
@@ -264,13 +267,70 @@ describe("editor-chrome bridge — reactDebugProvenance", () => {
   });
 
   it("reports why a location is missing instead of returning nothing", () => {
-    expect(reactDebugProvenance({ id: "plain-dom-node" })).toEqual({
-      unavailableReason: "not-react",
+    expect(frameworkDebugProvenance({ id: "plain-dom-node" })).toEqual({
+      unavailableReason: "not-framework",
     });
     expect(
-      reactDebugProvenance(
+      frameworkDebugProvenance(
         elementWithFiber({ type: "button", key: null, return: null }),
       ),
-    ).toEqual({ unavailableReason: "no-debug-info" });
+    ).toEqual({ framework: "react", unavailableReason: "no-debug-info" });
+  });
+
+  it("reads Vue compiler inspector locations from the selected vnode", () => {
+    const provenance = frameworkDebugProvenance({
+      __vnode: {
+        type: { __name: "SettingsCard" },
+        props: { __v_inspector: "src/components/SettingsCard.vue:12:7" },
+      },
+      parentElement: null,
+    });
+
+    expect(provenance).toEqual({
+      framework: "vue",
+      sourceFile: "src/components/SettingsCard.vue",
+      line: 12,
+      column: 7,
+      component: "SettingsCard",
+      method: "vue-inspector",
+    });
+  });
+
+  it("walks to the closest Vue compiler-tracked ancestor", () => {
+    const provenance = frameworkDebugProvenance({
+      parentElement: {
+        __vnode: {
+          props: { __v_inspector: "C:/app/src/App.vue:24:5" },
+        },
+        parentElement: null,
+      },
+    });
+
+    expect(provenance).toMatchObject({
+      framework: "vue",
+      sourceFile: "C:/app/src/App.vue",
+      line: 24,
+      column: 5,
+      method: "vue-inspector",
+    });
+  });
+
+  it("reads Svelte compiler metadata and keeps it authored", () => {
+    const provenance = frameworkDebugProvenance({
+      __svelte_meta: {
+        loc: { file: "src/routes/+page.svelte", line: 9, column: 3 },
+        component: "Page",
+      },
+      parentElement: null,
+    });
+
+    expect(provenance).toEqual({
+      framework: "svelte",
+      sourceFile: "src/routes/+page.svelte",
+      line: 9,
+      column: 3,
+      component: "Page",
+      method: "svelte-meta",
+    });
   });
 });

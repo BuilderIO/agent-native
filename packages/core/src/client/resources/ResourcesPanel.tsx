@@ -12,6 +12,7 @@ import {
   IconClock,
   IconHierarchy2,
   IconPlugConnected,
+  IconDownload,
 } from "@tabler/icons-react";
 import React, {
   useState,
@@ -70,6 +71,7 @@ import {
   useCreateResource,
   useUpdateResource,
   useDeleteResource,
+  resourceDownloadUrl,
   withMcpServersFolder,
   withAgentScratchFolder,
   type ResourceScope,
@@ -1815,6 +1817,25 @@ export function ResourcesPanel({
                     </Tooltip>
                   </TooltipProvider>
                 </div>
+              )}
+            {!selectedMcpServer &&
+              resourceQuery.data &&
+              (resourceQuery.data.mimeType.startsWith("text/") ||
+                resourceQuery.data.mimeType === "application/json") && (
+                <TooltipProvider delayDuration={200}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <a
+                        href={resourceDownloadUrl(resourceQuery.data.id)}
+                        aria-label="Download resource"
+                        className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                      >
+                        <IconDownload className="h-3.5 w-3.5" />
+                      </a>
+                    </TooltipTrigger>
+                    <TooltipContent>Download resource</TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               )}
             {!selectedBuiltinCapability && !selectedResourceReadOnly && (
               <TooltipProvider delayDuration={200}>

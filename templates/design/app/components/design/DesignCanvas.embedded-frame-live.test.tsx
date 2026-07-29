@@ -385,8 +385,8 @@ describe("DesignCanvas live embedded-frame offset", () => {
     const container = document.createElement("div");
     document.body.append(container);
     const root = createRoot(container);
-    const content =
-      '<!doctype html><html><head></head><body><div id="target">Click me</div></body></html>';
+    const sourceScript = '<script>const template = "</body>";</script>';
+    const content = `<!doctype html><html><head></head><body>${sourceScript}<div id="target">Click me</div></body></html>`;
 
     try {
       await act(async () =>
@@ -416,8 +416,12 @@ describe("DesignCanvas live embedded-frame offset", () => {
       );
       const srcdoc = iframe?.srcdoc ?? "";
 
-      // Exactly one real </body> — none minted mid-script by a $-pattern.
-      expect(srcdoc.match(/<\/body>/g)?.length).toBe(1);
+      // The literal closer in the screen's own script stays intact, and the
+      // generated bridge follows that script rather than being nested inside it.
+      expect(srcdoc).toContain(sourceScript);
+      expect(
+        srcdoc.indexOf("agent-native:editor-chrome-ready"),
+      ).toBeGreaterThan(srcdoc.indexOf(sourceScript));
       // The bridge's own closing handshake must survive intact, proving its
       // <script> tag was never prematurely closed partway through.
       expect(srcdoc).toContain("agent-native:editor-chrome-ready");

@@ -799,6 +799,7 @@ describe("Neon foreground statement budgets", () => {
   });
 
   it("sets and resets a server-side timeout for an explicitly budgeted query", async () => {
+    vi.useFakeTimers();
     vi.stubEnv("NETLIFY", "true");
     const query = vi.fn(async (sql: string) =>
       sql === "SELECT 1"

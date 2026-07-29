@@ -226,8 +226,9 @@ export default defineAction({
       );
     }
 
-    // Token for a new row: explicit, else existing, else mint. The authenticated
-    // action owning the mint is what lets the CLI skip its own auth (the 401 gap).
+    // Token for a new row: explicit, else existing, else mint. The account or
+    // trusted local-CLI principal owning the row is what lets the bridge skip a
+    // separate browser sign-in without making the token ambient.
     const explicitToken = args.bridgeToken?.trim() || undefined;
     const nextBridgeToken =
       explicitToken ||

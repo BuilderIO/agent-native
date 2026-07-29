@@ -197,25 +197,39 @@ describe("DesignCanvas one-shot bridge queue", () => {
       ),
     );
 
-    await act(async () => {
-      root.render(
-        <DesignCanvas
-          content="http://localhost:5173/"
-          contentKey="screen-live"
-          screenId="screen-live"
-          sourceType="localhost"
-          bridgeUrl={bridgeUrl}
-          previewToken="style-probe-preview-token"
-          zoom={100}
-          deviceFrame="none"
-          editMode
-          interactMode={false}
-          onElementSelect={() => {}}
-          onElementHover={() => {}}
-          tweakValues={{}}
-        />,
-      );
-    });
+    const render = async (
+      screenId: string,
+      contentKey: string,
+      pendingStylePreviewPatches?: Array<{
+        screenId: string;
+        selector: string;
+        sourceId?: string;
+        styles: Record<string, string>;
+      }>,
+    ) => {
+      await act(async () => {
+        root.render(
+          <DesignCanvas
+            content="http://localhost:5173/"
+            contentKey={contentKey}
+            screenId={screenId}
+            sourceType="localhost"
+            bridgeUrl={bridgeUrl}
+            previewToken="style-probe-preview-token"
+            pendingStylePreviewPatches={pendingStylePreviewPatches}
+            zoom={100}
+            deviceFrame="none"
+            editMode
+            interactMode={false}
+            onElementSelect={() => {}}
+            onElementHover={() => {}}
+            tweakValues={{}}
+          />,
+        );
+      });
+    };
+
+    await render("screen-live", "screen-live");
     await vi.waitFor(() => {
       expect(
         container.querySelector<HTMLIFrameElement>(
@@ -236,23 +250,40 @@ describe("DesignCanvas one-shot bridge queue", () => {
         (message) => (message as { type?: string } | null)?.type === type,
       );
 
-    const sendStyleChange = (
+    const sendStyleChangeForScreen = (
       window as unknown as {
-        __designCanvasSendStyle?: (
+        __designCanvasSendStyleForScreen?: (
+          screenId: string,
           selector: string,
           property: string,
           value: string,
           options?: { selectorCandidates?: string[]; nodeId?: string | null },
-        ) => void;
+        ) => boolean;
       }
-    ).__designCanvasSendStyle;
-    expect(typeof sendStyleChange).toBe("function");
+    ).__designCanvasSendStyleForScreen;
+    expect(typeof sendStyleChangeForScreen).toBe("function");
 
     const probesBefore = typesOf("agent-native:text-edit-status").length;
     await act(async () => {
-      sendStyleChange!("#card", "borderRadius", "24px", {
-        selectorCandidates: ["#card"],
-      });
+      expect(
+        sendStyleChangeForScreen!(
+          "another-screen",
+          "#card",
+          "borderRadius",
+          "8px",
+        ),
+      ).toBe(false);
+      expect(
+        sendStyleChangeForScreen!(
+          "screen-live",
+          "#card",
+          "borderRadius",
+          "24px",
+          {
+            selectorCandidates: ["#card"],
+          },
+        ),
+      ).toBe(true);
     });
     expect(typesOf("style-change")).toHaveLength(0);
     expect(typesOf("agent-native:text-edit-status").length).toBeGreaterThan(
@@ -284,5 +315,53 @@ describe("DesignCanvas one-shot bridge queue", () => {
         nodeId: "",
       },
     ]);
+
+    posted.length = 0;
+    const pendingPatch = {
+      screenId: "screen-live",
+      selector: "#card",
+      sourceId: "card",
+      styles: { color: "red" },
+    };
+    await render("screen-live", "screen-live-remount", [pendingPatch]);
+    expect(typesOf("style-change")).toHaveLength(0);
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agent-native:text-edit-status-result",
+            correlationId: "",
+            status: false,
+          },
+          origin: bridgeUrl,
+          source: iframeWindow,
+        }),
+      );
+    });
+    expect(typesOf("style-change")).toContainEqual({
+      type: "style-change",
+      selector: "#card",
+      property: "color",
+      value: "red",
+      selectorCandidates: ["#card", '[data-agent-native-node-id="card"]'],
+      nodeId: "card",
+    });
+
+    posted.length = 0;
+    await render("screen-other", "screen-other-remount", [pendingPatch]);
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agent-native:text-edit-status-result",
+            correlationId: "",
+            status: false,
+          },
+          origin: bridgeUrl,
+          source: iframeWindow,
+        }),
+      );
+    });
+    expect(typesOf("style-change")).toHaveLength(0);
   });
 });

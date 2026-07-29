@@ -20,6 +20,7 @@ export {
   type SignInJourneyInput,
 } from "./sign-in-journey.js";
 export { truncate } from "./truncate.js";
+export { injectDocumentMarkup } from "./html-document.js";
 export { withBuilderUtmTrackingParams } from "./builder-link-tracking.js";
 export {
   llmConnectionTrackingProperties,

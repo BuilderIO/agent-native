@@ -1336,7 +1336,7 @@ const messages = {
     downloadDesktopApp: "Download desktop app (مترجم)",
     technicalDetails: "Technical details (مترجم)",
     whatToCheck: "What to check (مترجم)",
-    downloadRecording: "Download recording (مترجم)",
+    downloadRecording: "Download (مترجم)",
     openRecorderInTab: "Open recorder in tab (مترجم)",
     connectStorageToFinish:
       "صِل التخزين في الشاشة التالية: Builder.io (تخزين + ذكاء اصطناعي في الخطة المجانية) أو تخزين متوافق مع S3. سيكمل Clips الحفظ.",

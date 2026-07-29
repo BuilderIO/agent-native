@@ -57,6 +57,8 @@ export const DESIGN_SOURCE_TYPES = ["inline", "localhost", "fusion"] as const;
  * read (same-origin policy), and inline screens may not carry these attrs.
  */
 export interface ElementProvenance {
+  /** Runtime/compiler family that exposed this location. */
+  framework?: ElementProvenanceFramework;
   sourceFile?: string;
   line?: number;
   column?: number;
@@ -93,18 +95,27 @@ export interface ElementProvenance {
   unavailableReason?: ElementProvenanceUnavailableReason;
 }
 
-export type ElementProvenanceUnavailableReason = "not-react" | "no-debug-info";
+export type ElementProvenanceUnavailableReason =
+  | "not-framework"
+  | "not-react" // legacy bridge payload
+  | "no-debug-info";
 
 /** Which tier produced a provenance position. */
 export type ElementProvenanceMethod =
   | "data-attribute" // build-time transform's data-source-*/data-loc attributes
   | "debug-source" // React <=18 structured `_debugSource` fiber field
-  | "debug-stack"; // React 19 `_debugStack` owner stack
+  | "debug-stack" // React 19 `_debugStack` owner stack
+  | "vue-inspector" // Vue dev compiler's `__v_inspector` vnode prop
+  | "svelte-meta"; // Svelte dev compiler's `__svelte_meta.loc`
+
+export type ElementProvenanceFramework = "html" | "react" | "vue" | "svelte";
 
 export const ELEMENT_PROVENANCE_METHODS: readonly ElementProvenanceMethod[] = [
   "data-attribute",
   "debug-source",
   "debug-stack",
+  "vue-inspector",
+  "svelte-meta",
 ];
 
 export type SourcePositionPrecision = "authored" | "transformed" | "unknown";

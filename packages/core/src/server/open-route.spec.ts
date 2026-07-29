@@ -27,6 +27,8 @@ vi.mock("./auth.js", () => ({
     const headers = new Headers({ Location: location });
     const staged = event.res?.headers?.getSetCookie?.() ?? [];
     for (const cookie of staged) headers.append("set-cookie", cookie);
+    const referrerPolicy = event.res?.headers?.get?.("Referrer-Policy");
+    if (referrerPolicy) headers.set("Referrer-Policy", referrerPolicy);
     return new Response("", { status, headers });
   },
 }));
@@ -56,14 +58,24 @@ import { createOpenRouteHandler } from "./open-route.js";
 function fakeEvent(
   url: string,
   method = "GET",
-  opts: { stagedSetCookies?: string[] } = {},
+  opts: {
+    stagedSetCookies?: string[];
+    stagedReferrerPolicy?: string;
+  } = {},
 ) {
+  const responseHeaders = new Headers();
+  for (const cookie of opts.stagedSetCookies ?? []) {
+    responseHeaders.append("set-cookie", cookie);
+  }
+  if (opts.stagedReferrerPolicy) {
+    responseHeaders.set("Referrer-Policy", opts.stagedReferrerPolicy);
+  }
   return {
     method,
     node: { req: { url } },
     path: url,
-    ...(opts.stagedSetCookies
-      ? { res: { headers: { getSetCookie: () => opts.stagedSetCookies } } }
+    ...(opts.stagedSetCookies || opts.stagedReferrerPolicy
+      ? { res: { headers: responseHeaders } }
       : {}),
   } as any;
 }
@@ -127,6 +139,27 @@ describe("createOpenRouteHandler", () => {
 
     expect(res.status).toBe(302);
     expect(res.headers.get("set-cookie")).toContain("an_session=some-token");
+  });
+
+  it("carries the no-referrer policy staged with a promoted query session onto the redirect", async () => {
+    getSession.mockResolvedValue({ email: "user@example.com" });
+    const handler = createOpenRouteHandler();
+
+    const res: Response = await handler(
+      fakeEvent(
+        "/_agent-native/open?app=design&view=editor&designId=design_1&to=%2Fdesign%2Fdesign_1&_session=some-token",
+        "GET",
+        {
+          stagedSetCookies: [
+            "an_session=some-token; Path=/; HttpOnly; SameSite=Lax",
+          ],
+          stagedReferrerPolicy: "no-referrer",
+        },
+      ),
+    );
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Referrer-Policy")).toBe("no-referrer");
   });
 
   it("never persists a `_session` bridge token into the navigate application-state payload", async () => {

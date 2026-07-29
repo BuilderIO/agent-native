@@ -150,6 +150,7 @@ export const sourceLocationBridgeScript: string = `"use strict";
       var column = columnAttr ? Number(columnAttr) : void 0;
       return {
         status: "resolved",
+        framework: "html",
         method: "data-attribute",
         sourceFile,
         line,
@@ -159,7 +160,7 @@ export const sourceLocationBridgeScript: string = `"use strict";
     }
     function resolveFromFiber(el) {
       var leafFiber = findNearestFiber(el);
-      if (!leafFiber) return { status: "unavailable", reason: "not-react" };
+      if (!leafFiber) return { status: "unavailable", reason: "not-framework" };
       var elementSource = null;
       var elementMethod = null;
       var componentFiber = null;
@@ -186,6 +187,7 @@ export const sourceLocationBridgeScript: string = `"use strict";
       }
       var result = {
         status: "resolved",
+        framework: "react",
         method: elementMethod,
         sourceFile: elementSource.sourceFile,
         line: elementSource.line,
@@ -207,9 +209,88 @@ export const sourceLocationBridgeScript: string = `"use strict";
       }
       return result;
     }
+    function parseFrameworkDataLoc(value) {
+      var lastColon = value.lastIndexOf(":");
+      if (lastColon < 0) return null;
+      var lastPart = value.slice(lastColon + 1);
+      if (!/^\\d+$/.test(lastPart)) return null;
+      var beforeLast = value.slice(0, lastColon);
+      var previousColon = beforeLast.lastIndexOf(":");
+      var previousPart = previousColon >= 0 ? beforeLast.slice(previousColon + 1) : "";
+      var hasColumn = /^\\d+$/.test(previousPart);
+      var sourceFile = (hasColumn ? beforeLast.slice(0, previousColon) : beforeLast).trim();
+      var line = Number(hasColumn ? previousPart : lastPart);
+      var column = hasColumn ? Number(lastPart) : void 0;
+      if (!sourceFile || !isFinite(line)) return null;
+      if (column !== void 0 && !isFinite(column)) return null;
+      return { sourceFile, line, column };
+    }
+    function resolveFromVue(el) {
+      var node = el;
+      var sawVue = false;
+      for (var depth = 0; node && depth < 8; depth += 1) {
+        var vnode = node.__vnode;
+        var component = node.__vueParentComponent;
+        if (vnode || component) sawVue = true;
+        var inspector = vnode && vnode.props && typeof vnode.props.__v_inspector === "string" ? vnode.props.__v_inspector : null;
+        if (inspector) {
+          var parsed = parseFrameworkDataLoc(inspector);
+          if (parsed) {
+            var type = component && component.type || vnode && vnode.type;
+            return {
+              status: "resolved",
+              framework: "vue",
+              method: "vue-inspector",
+              sourceFile: parsed.sourceFile,
+              line: parsed.line,
+              column: parsed.column,
+              componentName: type && (type.name || type.__name || type.displayName)
+            };
+          }
+        }
+        node = node.parentElement;
+      }
+      return sawVue ? { status: "unavailable", reason: "no-debug-info" } : null;
+    }
+    function resolveFromSvelte(el) {
+      var node = el;
+      var sawSvelte = false;
+      for (var depth = 0; node && depth < 8; depth += 1) {
+        var meta = node.__svelte_meta;
+        if (meta) sawSvelte = true;
+        var loc = meta && meta.loc;
+        var sourceFile = loc && (loc.file || loc.filename);
+        var line = loc && Number(loc.line);
+        var column = loc && Number(loc.column);
+        if (sourceFile && isFinite(line)) {
+          return {
+            status: "resolved",
+            framework: "svelte",
+            method: "svelte-meta",
+            sourceFile: String(sourceFile),
+            line,
+            column: isFinite(column) ? column : void 0,
+            componentName: typeof meta.component === "string" ? meta.component : typeof meta.name === "string" ? meta.name : void 0
+          };
+        }
+        node = node.parentElement;
+      }
+      return sawSvelte ? { status: "unavailable", reason: "no-debug-info" } : null;
+    }
+    function resolveFromFramework(el) {
+      var react = resolveFromFiber(el);
+      if (react.status === "resolved" || react.reason === "no-debug-info") {
+        return react;
+      }
+      var vue = resolveFromVue(el);
+      if (vue) return vue;
+      var svelte = resolveFromSvelte(el);
+      if (svelte) return svelte;
+      return { status: "unavailable", reason: "not-framework" };
+    }
     function resolveSourceLocation(el) {
       var fromAttributes = resolveFromDataAttributes(el);
-      if (!fromAttributes) return resolveFromFiber(el);
+      if (!fromAttributes) return resolveFromFramework(el);
       var fromFiber = resolveFromFiber(el);
       if (fromAttributes.status === "resolved" && fromFiber.status === "resolved") {
         if (fromFiber.ownerSourceFile) {
@@ -223,6 +304,7 @@ export const sourceLocationBridgeScript: string = `"use strict";
         if (!fromAttributes.componentName) {
           fromAttributes.componentName = fromFiber.componentName;
         }
+        fromAttributes.framework = fromFiber.framework;
       }
       return fromAttributes;
     }

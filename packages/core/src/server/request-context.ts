@@ -133,6 +133,12 @@ export interface RequestContext {
   userEmail?: string;
   userName?: string;
   orgId?: string;
+  /**
+   * Narrow authorization capability verified from an embed session. This is
+   * deliberately separate from user identity: capability-only sessions must
+   * not satisfy account-backed auth or inherit the ticket owner's privileges.
+   */
+  authCapability?: string;
   timezone?: string;
   /**
    * Set when code reads authenticated request context. Public SSR shell/data
@@ -400,6 +406,14 @@ export function getRequestOrgId(): string | undefined {
   return processEnv("AGENT_ORG_ID");
 }
 
+/** Return the verified capability for this request, without implying identity. */
+export function getRequestAuthCapability(): string | undefined {
+  const store = als.getStore();
+  if (!store) return undefined;
+  if (store.authCapability) markAuthContextAccess(store);
+  return store.authCapability;
+}
+
 /**
  * Whether the current request came from a loopback socket peer. Fails closed:
  * outside a request store (CLI, background job, agent run) there is no peer to
@@ -411,7 +425,7 @@ export function getRequestIsLoopback(): boolean {
 
 function markAuthContextAccess(ctx: RequestContext | undefined) {
   if (!ctx) return;
-  if (ctx.userEmail || ctx.userName || ctx.orgId) {
+  if (ctx.userEmail || ctx.userName || ctx.orgId || ctx.authCapability) {
     ctx.authContextAccessed = true;
   }
 }

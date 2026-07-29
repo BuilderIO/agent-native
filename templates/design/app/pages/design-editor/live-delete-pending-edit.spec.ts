@@ -18,7 +18,7 @@ import { describe, expect, it } from "vitest";
 import { shouldDeleteThroughLiveScreen } from "./code-layer-state";
 import {
   formatPendingVisualStylePrompt,
-  getPendingVisualStylePropertyCount,
+  getPendingVisualEditCount,
   type PendingLiveStructureEdit,
 } from "./pending-edits";
 import { verifyPendingStructureRuntime } from "./pending-structure-verification";
@@ -96,7 +96,7 @@ describe("shouldDeleteThroughLiveScreen", () => {
 
 describe("pending live removal reaches source", () => {
   it("counts the deletion on the Apply bar instead of reporting nothing to apply", () => {
-    expect(getPendingVisualStylePropertyCount([], [removalEdit()])).toBe(1);
+    expect(getPendingVisualEditCount([], [removalEdit()])).toBe(1);
   });
 
   it("hands the deletion to the coding agent as a remove, not a half-captured move", () => {

@@ -46,7 +46,10 @@ describe("commitVisualStyles on a localhost screen", () => {
 
   it("pushes the value into the live frame unless the gesture already did", () => {
     expect(commitVisualStyles).toContain(
-      "const sendStyleToLiveFrame = (window as any).__designCanvasSendStyle",
+      'typeof (window as any).__designCanvasSendStyleForScreen === "function"',
+    );
+    expect(commitVisualStyles).toContain(
+      "replayPendingVisualStyleRuntimePatch(",
     );
     expect(commitVisualStyles).toContain("!options.runtimeApplied &&");
     expect(commitVisualStyles).toContain(

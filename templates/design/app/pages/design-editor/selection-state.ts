@@ -340,7 +340,6 @@ export function getSidebarCodeLayerSelectionState(args: {
   screenFileIds?: string[];
 }) {
   const {
-    currentViewMode,
     ownerFileId,
     overviewSelectedScreenIds,
     screenFileIds,
@@ -350,11 +349,14 @@ export function getSidebarCodeLayerSelectionState(args: {
       ? ownerFileId
       : null;
   return {
-    viewMode: currentViewMode,
+    // Layer selection is an editing action, so it always targets the infinite
+    // canvas. Keeping `single` here let the Layers rail turn Interact into the
+    // removed focused Edit view when the handler subsequently set mode=edit.
+    viewMode: "overview" as const,
     overviewSelectedScreenIds:
-      currentViewMode === "overview" && ownerScreenId
+      ownerScreenId
         ? [ownerScreenId]
-        : currentViewMode === "overview" && ownerFileId
+        : ownerFileId
           ? []
           : overviewSelectedScreenIds,
   };

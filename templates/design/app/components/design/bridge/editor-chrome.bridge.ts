@@ -431,17 +431,20 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
   }
 
   /**
-   * Resolve a DOM element to the JSX call site that created it, read-only, so
-   * the editor and the coding agent anchor to a real source line instead of a
-   * selector guess. Explicit data-source-* / data-loc attributes still win at
-   * the call sites below.
+   * Resolve a DOM element to the authored source site exposed by its framework
+   * dev runtime, read-only, so the editor and coding agent anchor to evidence
+   * instead of a selector guess. Explicit data-source-* / data-loc attributes
+   * still win at the call sites below.
    *
-   * Three tiers, in the order React makes them available:
+   * React tiers:
    *   • React <=18 — the structured `_debugSource` fiber field (authored file,
    *     line and column, emitted by the dev JSX transform).
    *   • React 19 — `_debugSource` is gone; parse the `_debugStack` owner stack
    *     captured at element creation.
-   *   • Neither — report WHY (`unavailableReason`), never a guessed location.
+   * Vue's dev compiler exposes `vnode.props.__v_inspector`; Svelte's dev
+   * compiler exposes `element.__svelte_meta.loc`. Both are authored compiler
+   * coordinates. When a runtime omits its dev metadata, report WHY
+   * (`unavailableReason`) instead of guessing.
    *
    * `sourceFile`/`line`/`column` are the element's OWN authoring site (a button
    * inside Card.jsx always resolves to Card.jsx). `owner*` is where the nearest
@@ -570,7 +573,8 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     return null;
   }
 
-  type ReactDebugProvenance = {
+  type FrameworkDebugProvenance = {
+    framework?: "react" | "vue" | "svelte";
     sourceFile?: string;
     line?: number;
     column?: number;
@@ -581,12 +585,12 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     ownerComponentName?: string;
     ownerKey?: string;
     // Which tier produced line/column. "debug-stack" is a TRANSFORMED position.
-    method?: "debug-source" | "debug-stack";
+    method?: "debug-source" | "debug-stack" | "vue-inspector" | "svelte-meta";
     // Which tier produced ownerLine/ownerColumn. Tracked separately because an
     // element can carry an authored data-source-* position while its owner site
     // is only reachable through the (transformed) owner stack.
     ownerMethod?: "debug-source" | "debug-stack";
-    unavailableReason?: "not-react" | "no-debug-info";
+    unavailableReason?: "not-framework" | "no-debug-info";
   };
 
   // Fiber debug stacks are immutable for the lifetime of a mounted host node.
@@ -596,7 +600,7 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
   // before a slow/Suspense hydration attaches Fiber to an existing DOM node.
   var reactDebugProvenanceCache =
     typeof WeakMap !== "undefined"
-      ? new WeakMap<Element, ReactDebugProvenance>()
+      ? new WeakMap<Element, FrameworkDebugProvenance>()
       : null;
 
   var REACT_FIBER_KEY_PREFIXES = [
@@ -618,14 +622,14 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     return null;
   }
 
-  function reactDebugProvenance(el: Element): ReactDebugProvenance {
+  function reactDebugProvenance(el: Element): FrameworkDebugProvenance {
     var cached = reactDebugProvenanceCache?.get(el);
     if (cached !== undefined) return cached;
     // Deliberately no climb to an ancestor's fiber: this runs over every node
     // in the runtime snapshot, and borrowing a parent's location would stamp a
     // non-React node with a source line that is not its own.
     var leafFiber = reactFiberOf(el);
-    if (!leafFiber) return { unavailableReason: "not-react" };
+    if (!leafFiber) return { unavailableReason: "not-framework" };
 
     var elementLocation: ReturnType<typeof fiberDebugLocation> = null;
     var componentFiber: any = null;
@@ -642,7 +646,9 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       if (elementLocation && componentFiber) break;
       fiber = fiber.return;
     }
-    if (!elementLocation) return { unavailableReason: "no-debug-info" };
+    if (!elementLocation) {
+      return { framework: "react", unavailableReason: "no-debug-info" };
+    }
 
     var componentName =
       (componentFiber &&
@@ -650,7 +656,8 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         (componentFiber.type.displayName || componentFiber.type.name)) ||
       elementLocation.functionName ||
       undefined;
-    var provenance: ReactDebugProvenance = {
+    var provenance: FrameworkDebugProvenance = {
+      framework: "react",
       sourceFile: elementLocation.sourceFile,
       line: elementLocation.line,
       column: elementLocation.column,
@@ -674,6 +681,109 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     }
     reactDebugProvenanceCache?.set(el, provenance);
     return provenance;
+  }
+
+  function parseFrameworkDataLoc(
+    value: string,
+  ): { sourceFile: string; line: number; column?: number } | null {
+    var lastColon = value.lastIndexOf(":");
+    if (lastColon < 0) return null;
+    var lastPart = value.slice(lastColon + 1);
+    if (!/^\d+$/.test(lastPart)) return null;
+    var beforeLast = value.slice(0, lastColon);
+    var previousColon = beforeLast.lastIndexOf(":");
+    var previousPart =
+      previousColon >= 0 ? beforeLast.slice(previousColon + 1) : "";
+    var hasColumn = /^\d+$/.test(previousPart);
+    var sourceFile = (
+      hasColumn ? beforeLast.slice(0, previousColon) : beforeLast
+    ).trim();
+    var line = parseInt(hasColumn ? previousPart : lastPart, 10);
+    var column = hasColumn ? parseInt(lastPart, 10) : undefined;
+    if (!sourceFile || !isFinite(line)) return null;
+    if (column !== undefined && !isFinite(column)) return null;
+    return { sourceFile: sourceFile, line: line, column: column };
+  }
+
+  function vueDebugProvenance(el: Element): FrameworkDebugProvenance | null {
+    var node: any = el;
+    var sawVue = false;
+    for (var depth = 0; node && depth < 8; depth += 1) {
+      var vnode = node.__vnode;
+      var component = node.__vueParentComponent;
+      if (vnode || component) sawVue = true;
+      var inspector =
+        vnode && vnode.props && typeof vnode.props.__v_inspector === "string"
+          ? vnode.props.__v_inspector
+          : null;
+      if (inspector) {
+        var parsed = parseFrameworkDataLoc(inspector);
+        if (parsed) {
+          var componentType =
+            (component && component.type) || (vnode && vnode.type);
+          return {
+            framework: "vue",
+            sourceFile: parsed.sourceFile,
+            line: parsed.line,
+            column: parsed.column,
+            component:
+              componentType &&
+              (componentType.name ||
+                componentType.__name ||
+                componentType.displayName),
+            method: "vue-inspector",
+          };
+        }
+      }
+      node = node.parentElement;
+    }
+    return sawVue
+      ? { framework: "vue", unavailableReason: "no-debug-info" }
+      : null;
+  }
+
+  function svelteDebugProvenance(el: Element): FrameworkDebugProvenance | null {
+    var node: any = el;
+    var sawSvelte = false;
+    for (var depth = 0; node && depth < 8; depth += 1) {
+      var meta = node.__svelte_meta;
+      if (meta) sawSvelte = true;
+      var loc = meta && meta.loc;
+      var sourceFile = loc && (loc.file || loc.filename);
+      var line = loc && Number(loc.line);
+      var column = loc && Number(loc.column);
+      if (sourceFile && isFinite(line)) {
+        return {
+          framework: "svelte",
+          sourceFile: String(sourceFile),
+          line: line,
+          column: isFinite(column) ? column : undefined,
+          component:
+            typeof meta.component === "string"
+              ? meta.component
+              : typeof meta.name === "string"
+                ? meta.name
+                : undefined,
+          method: "svelte-meta",
+        };
+      }
+      node = node.parentElement;
+    }
+    return sawSvelte
+      ? { framework: "svelte", unavailableReason: "no-debug-info" }
+      : null;
+  }
+
+  function frameworkDebugProvenance(el: Element): FrameworkDebugProvenance {
+    var react = reactDebugProvenance(el);
+    if (react.sourceFile || react.unavailableReason === "no-debug-info") {
+      return react;
+    }
+    var vue = vueDebugProvenance(el);
+    if (vue) return vue;
+    var svelte = svelteDebugProvenance(el);
+    if (svelte) return svelte;
+    return { unavailableReason: "not-framework" };
   }
 
   var runtimeLayerSnapshotTimer: number | null = null;
@@ -715,7 +825,7 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
   function ensureRuntimeLayerNodeId(el: Element): string {
     var existing = el.getAttribute("data-agent-native-node-id")?.trim();
     if (existing) return existing;
-    var provenance = reactDebugProvenance(el);
+    var provenance = frameworkDebugProvenance(el);
     var provenanceKey = provenance.sourceFile
       ? [
           provenance.sourceFile,
@@ -874,8 +984,11 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         ensureRuntimeLayerNodeId(sourceNode),
       );
       inlineSnapshotComputedStyle(sourceNode, cloneNode);
-      var provenance = reactDebugProvenance(sourceNode);
+      var provenance = frameworkDebugProvenance(sourceNode);
       if (provenance.sourceFile) {
+        if (provenance.framework) {
+          cloneNode.setAttribute("data-source-framework", provenance.framework);
+        }
         cloneNode.setAttribute("data-source-file", provenance.sourceFile);
         cloneNode.setAttribute("data-source-line", String(provenance.line));
         // Without this the projection would read a stack-derived (transformed)
@@ -1731,12 +1844,13 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       });
     }
     // --- provenance: read explicit source-location attributes when present,
-    // then fall back to React's development-only jsxDEV Fiber stack. ---
-    var provenance: ReactDebugProvenance | undefined = undefined;
+    // then fall back to framework dev-runtime metadata. ---
+    var provenance: FrameworkDebugProvenance | undefined = undefined;
     var dataSourceFile = el.getAttribute("data-source-file");
     var dataSourceLine = el.getAttribute("data-source-line");
     var dataSourceColumn = el.getAttribute("data-source-column");
     var dataComponentName = el.getAttribute("data-component-name");
+    var dataSourceFramework = el.getAttribute("data-source-framework");
     var dataLoc = el.getAttribute("data-loc");
     // data-loc may encode "file:line:col" (Babel source plugin convention).
     // Only parse it when data-source-file is absent, to avoid double-reads.
@@ -1759,27 +1873,28 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         if (hasColumn) dataSourceColumn = lastPart;
       }
     }
-    // Always consult Fiber, even when a source plugin already stamped
-    // data-source-*: those attributes describe the element's OWN site and
-    // never the owner call site, which is the only thing that separates
-    // `.map()` siblings. The attribute tier still wins for line/column below.
+    // Always consult runtime metadata, even when a source plugin already
+    // stamped data-source-*. For React those attributes describe the element's
+    // OWN site and never the owner call site, which is the only thing that
+    // separates `.map()` siblings. The attribute tier still wins below.
     var hadDataSourceFile = !!dataSourceFile;
-    var reactProvenance: ReactDebugProvenance = reactDebugProvenance(el);
-    if (!hadDataSourceFile && reactProvenance.sourceFile) {
-      dataSourceFile = reactProvenance.sourceFile;
-      dataSourceLine = String(reactProvenance.line);
-      dataSourceColumn = reactProvenance.column
-        ? String(reactProvenance.column)
+    var frameworkProvenance: FrameworkDebugProvenance =
+      frameworkDebugProvenance(el);
+    if (!hadDataSourceFile && frameworkProvenance.sourceFile) {
+      dataSourceFile = frameworkProvenance.sourceFile;
+      dataSourceLine = String(frameworkProvenance.line);
+      dataSourceColumn = frameworkProvenance.column
+        ? String(frameworkProvenance.column)
         : null;
       dataComponentName =
-        dataComponentName || reactProvenance.component || null;
+        dataComponentName || frameworkProvenance.component || null;
     }
     if (
       dataSourceFile ||
       dataSourceLine ||
       dataSourceColumn ||
       dataComponentName ||
-      reactProvenance.unavailableReason
+      frameworkProvenance.unavailableReason
     ) {
       provenance = {};
       if (dataSourceFile) provenance.sourceFile = dataSourceFile;
@@ -1798,30 +1913,42 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       if (dataSourceFile) {
         var declaredMethod = el.getAttribute("data-source-method");
         provenance.method =
-          declaredMethod === "debug-source" || declaredMethod === "debug-stack"
+          declaredMethod === "debug-source" ||
+          declaredMethod === "debug-stack" ||
+          declaredMethod === "vue-inspector" ||
+          declaredMethod === "svelte-meta"
             ? declaredMethod
             : hadDataSourceFile
               ? "data-attribute"
-              : reactProvenance.method || "data-attribute";
+              : frameworkProvenance.method || "data-attribute";
       }
-      if (reactProvenance.ownerSourceFile) {
-        provenance.ownerSourceFile = reactProvenance.ownerSourceFile;
-        provenance.ownerLine = reactProvenance.ownerLine;
-        provenance.ownerColumn = reactProvenance.ownerColumn;
-        provenance.ownerComponentName = reactProvenance.ownerComponentName;
+      provenance.framework =
+        dataSourceFramework === "react" ||
+        dataSourceFramework === "vue" ||
+        dataSourceFramework === "svelte" ||
+        dataSourceFramework === "html"
+          ? dataSourceFramework
+          : hadDataSourceFile
+            ? frameworkProvenance.framework || "html"
+            : frameworkProvenance.framework;
+      if (frameworkProvenance.ownerSourceFile) {
+        provenance.ownerSourceFile = frameworkProvenance.ownerSourceFile;
+        provenance.ownerLine = frameworkProvenance.ownerLine;
+        provenance.ownerColumn = frameworkProvenance.ownerColumn;
+        provenance.ownerComponentName = frameworkProvenance.ownerComponentName;
         // The owner's own tier: on a source-plugin element `method` is the
         // attribute's authored position while this one is the owner stack's
         // transformed line, so they must not share a single field.
-        provenance.ownerMethod = reactProvenance.ownerMethod;
+        provenance.ownerMethod = frameworkProvenance.ownerMethod;
       }
-      if (reactProvenance.ownerKey) {
-        provenance.ownerKey = reactProvenance.ownerKey;
+      if (frameworkProvenance.ownerKey) {
+        provenance.ownerKey = frameworkProvenance.ownerKey;
       }
       // Why there is no location, so the editor can say "this app exposes no
       // debug info" instead of "still loading". Never alongside a resolved
       // location — a plugin-stamped element on a non-React page has one.
-      if (!dataSourceFile && reactProvenance.unavailableReason) {
-        provenance.unavailableReason = reactProvenance.unavailableReason;
+      if (!dataSourceFile && frameworkProvenance.unavailableReason) {
+        provenance.unavailableReason = frameworkProvenance.unavailableReason;
       }
     }
     return {

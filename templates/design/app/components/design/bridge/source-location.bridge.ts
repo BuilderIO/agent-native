@@ -1,16 +1,11 @@
 /**
- * Source-location bridge — injected into a localhost React dev-server iframe
- * to resolve a DOM element to its exact JSX source location (file, line,
+ * Source-location bridge — injected into a localhost dev-server iframe to
+ * resolve a DOM element to authored framework source evidence (file, line,
  * column, component name), for precise agent edits instead of guesswork.
  *
- * This is a standalone extraction path. `editor-chrome.bridge.ts` already has
- * a narrower `reactDebugProvenance()` (Vite-only stack URLs, React 19
- * `_debugStack` only, no React <=18 `_debugSource` fallback, no
- * component-instantiation-site distinction) wired into the live selection
- * pipeline — see this repo's source-location integration notes for the exact
- * call sites another change would need to touch to replace/extend it with
- * this implementation. Kept separate here to avoid colliding with concurrent
- * edits to that file.
+ * This is the standalone request/reply extraction path. Keep its framework
+ * metadata parsing aligned with `editor-chrome.bridge.ts`, which wires the same
+ * provenance tiers into live selection and runtime-layer snapshots.
  *
  * Protocol (parent → iframe via postMessage):
  *   { type: 'agent-native:source-location-request', correlationId: string,
@@ -43,8 +38,8 @@
  * does not invent per-instance DOM identity beyond that — that's
  * `data-agent-native-node-id`'s job elsewhere in the bridge.
  *
- * React version support
- * ----------------------
+ * Framework/version support
+ * -------------------------
  * - React <=18: reads the structured `fiber._debugSource` field directly
  *   (`method: 'debug-source'`) — populated by the dev JSX transform
  *   (`jsxDEV`/classic pragma + `@babel/plugin-transform-react-jsx-source`),
@@ -56,6 +51,8 @@
  *   enabled (the Vite/Next.js/CRA dev default) — a production build strips
  *   this entirely and this bridge reports `unavailable`/`no-debug-info`
  *   rather than guess.
+ * - Vue: reads the dev compiler's `vnode.props.__v_inspector` location.
+ * - Svelte: reads the dev compiler's `element.__svelte_meta.loc` location.
  * - Pre-existing `data-source-file`/`data-loc` attributes (a build-time
  *   transform's convention, not something this bridge writes) are read first
  *   and always win (`method: 'data-attribute'`) when present.
@@ -236,7 +233,13 @@
   type SourceLocationOutcome =
     | {
         status: "resolved";
-        method: "data-attribute" | "debug-source" | "debug-stack";
+        framework?: "html" | "react" | "vue" | "svelte";
+        method:
+          | "data-attribute"
+          | "debug-source"
+          | "debug-stack"
+          | "vue-inspector"
+          | "svelte-meta";
         sourceFile: string;
         line: number;
         column?: number;
@@ -252,7 +255,7 @@
       }
     | {
         status: "unavailable";
-        reason: "not-react" | "no-debug-info" | "element-not-found";
+        reason: "not-framework" | "no-debug-info" | "element-not-found";
       };
 
   function resolveFromDataAttributes(
@@ -282,6 +285,7 @@
     var column = columnAttr ? Number(columnAttr) : undefined;
     return {
       status: "resolved",
+      framework: "html",
       method: "data-attribute",
       sourceFile: sourceFile,
       line: line,
@@ -292,7 +296,7 @@
 
   function resolveFromFiber(el: Element): SourceLocationOutcome {
     var leafFiber = findNearestFiber(el);
-    if (!leafFiber) return { status: "unavailable", reason: "not-react" };
+    if (!leafFiber) return { status: "unavailable", reason: "not-framework" };
 
     var elementSource: {
       sourceFile: string;
@@ -331,6 +335,7 @@
 
     var result: SourceLocationOutcome = {
       status: "resolved",
+      framework: "react",
       method: elementMethod,
       sourceFile: elementSource.sourceFile,
       line: elementSource.line,
@@ -357,9 +362,108 @@
     return result;
   }
 
+  function parseFrameworkDataLoc(
+    value: string,
+  ): { sourceFile: string; line: number; column?: number } | null {
+    var lastColon = value.lastIndexOf(":");
+    if (lastColon < 0) return null;
+    var lastPart = value.slice(lastColon + 1);
+    if (!/^\d+$/.test(lastPart)) return null;
+    var beforeLast = value.slice(0, lastColon);
+    var previousColon = beforeLast.lastIndexOf(":");
+    var previousPart =
+      previousColon >= 0 ? beforeLast.slice(previousColon + 1) : "";
+    var hasColumn = /^\d+$/.test(previousPart);
+    var sourceFile = (
+      hasColumn ? beforeLast.slice(0, previousColon) : beforeLast
+    ).trim();
+    var line = Number(hasColumn ? previousPart : lastPart);
+    var column = hasColumn ? Number(lastPart) : undefined;
+    if (!sourceFile || !isFinite(line)) return null;
+    if (column !== undefined && !isFinite(column)) return null;
+    return { sourceFile: sourceFile, line: line, column: column };
+  }
+
+  function resolveFromVue(el: Element): SourceLocationOutcome | null {
+    var node: any = el;
+    var sawVue = false;
+    for (var depth = 0; node && depth < 8; depth += 1) {
+      var vnode = node.__vnode;
+      var component = node.__vueParentComponent;
+      if (vnode || component) sawVue = true;
+      var inspector =
+        vnode && vnode.props && typeof vnode.props.__v_inspector === "string"
+          ? vnode.props.__v_inspector
+          : null;
+      if (inspector) {
+        var parsed = parseFrameworkDataLoc(inspector);
+        if (parsed) {
+          var type = (component && component.type) || (vnode && vnode.type);
+          return {
+            status: "resolved",
+            framework: "vue",
+            method: "vue-inspector",
+            sourceFile: parsed.sourceFile,
+            line: parsed.line,
+            column: parsed.column,
+            componentName:
+              type && (type.name || type.__name || type.displayName),
+          };
+        }
+      }
+      node = node.parentElement;
+    }
+    return sawVue ? { status: "unavailable", reason: "no-debug-info" } : null;
+  }
+
+  function resolveFromSvelte(el: Element): SourceLocationOutcome | null {
+    var node: any = el;
+    var sawSvelte = false;
+    for (var depth = 0; node && depth < 8; depth += 1) {
+      var meta = node.__svelte_meta;
+      if (meta) sawSvelte = true;
+      var loc = meta && meta.loc;
+      var sourceFile = loc && (loc.file || loc.filename);
+      var line = loc && Number(loc.line);
+      var column = loc && Number(loc.column);
+      if (sourceFile && isFinite(line)) {
+        return {
+          status: "resolved",
+          framework: "svelte",
+          method: "svelte-meta",
+          sourceFile: String(sourceFile),
+          line: line,
+          column: isFinite(column) ? column : undefined,
+          componentName:
+            typeof meta.component === "string"
+              ? meta.component
+              : typeof meta.name === "string"
+                ? meta.name
+                : undefined,
+        };
+      }
+      node = node.parentElement;
+    }
+    return sawSvelte
+      ? { status: "unavailable", reason: "no-debug-info" }
+      : null;
+  }
+
+  function resolveFromFramework(el: Element): SourceLocationOutcome {
+    var react = resolveFromFiber(el);
+    if (react.status === "resolved" || react.reason === "no-debug-info") {
+      return react;
+    }
+    var vue = resolveFromVue(el);
+    if (vue) return vue;
+    var svelte = resolveFromSvelte(el);
+    if (svelte) return svelte;
+    return { status: "unavailable", reason: "not-framework" };
+  }
+
   function resolveSourceLocation(el: Element): SourceLocationOutcome {
     var fromAttributes = resolveFromDataAttributes(el);
-    if (!fromAttributes) return resolveFromFiber(el);
+    if (!fromAttributes) return resolveFromFramework(el);
     // A build-time source plugin stamps the element's OWN location and never
     // the owner call site, so keep walking Fiber for owner provenance instead
     // of short-circuiting — the owner site is what separates `.map()` siblings.
@@ -379,6 +483,7 @@
       if (!fromAttributes.componentName) {
         fromAttributes.componentName = fromFiber.componentName;
       }
+      fromAttributes.framework = fromFiber.framework;
     }
     return fromAttributes;
   }

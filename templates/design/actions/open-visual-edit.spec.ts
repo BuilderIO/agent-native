@@ -2,11 +2,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   addLocalhostScreensRun: vi.fn(),
-  addSession: vi.fn(),
+  createEmbedSessionTicket: vi.fn(),
   connectLocalhostRun: vi.fn(),
   createDesignRun: vi.fn(),
+  getRequestContext: vi.fn(),
+  getRequestOrgId: vi.fn(),
   getRequestUserEmail: vi.fn(),
   navigateRun: vi.fn(),
+  runWithRequestContext: vi.fn(),
   writeAppState: vi.fn(),
 }));
 
@@ -20,7 +23,8 @@ vi.mock("@agent-native/core/application-state", () => ({
 }));
 
 vi.mock("@agent-native/core/server", () => ({
-  addSession: mocks.addSession,
+  buildEmbedStartPath: (ticket: string) =>
+    `/_agent-native/embed/start?ticket=${ticket}`,
   buildDeepLink: ({
     to,
   }: {
@@ -29,10 +33,14 @@ vi.mock("@agent-native/core/server", () => ({
     params: Record<string, unknown>;
     to: string;
   }) => `agent-native://open${to}`,
+  createEmbedSessionTicket: mocks.createEmbedSessionTicket,
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestContext: mocks.getRequestContext,
+  getRequestOrgId: mocks.getRequestOrgId,
   getRequestUserEmail: mocks.getRequestUserEmail,
+  runWithRequestContext: mocks.runWithRequestContext,
 }));
 
 vi.mock("./connect-localhost.js", () => ({
@@ -68,13 +76,43 @@ import action from "./open-visual-edit.js";
 describe("open-visual-edit", () => {
   beforeEach(() => {
     mocks.addLocalhostScreensRun.mockReset();
-    mocks.addSession.mockReset();
-    mocks.addSession.mockResolvedValue(undefined);
+    mocks.createEmbedSessionTicket.mockReset();
+    mocks.createEmbedSessionTicket.mockResolvedValue({
+      ticket: "visual-edit-example-ticket",
+      ticketHash: "visual-edit-example-ticket-hash",
+      expiresAt: 123_456,
+    });
     mocks.connectLocalhostRun.mockReset();
     mocks.createDesignRun.mockReset();
+    mocks.createDesignRun.mockResolvedValue({ id: "design_created" });
+    mocks.getRequestContext.mockReset();
+    mocks.getRequestContext.mockReturnValue({
+      userEmail: undefined,
+      orgId: undefined,
+    });
+    mocks.getRequestOrgId.mockReset();
+    mocks.getRequestOrgId.mockReturnValue("org_1");
     mocks.getRequestUserEmail.mockReset();
     mocks.getRequestUserEmail.mockReturnValue("owner@example.com");
     mocks.navigateRun.mockReset();
+    mocks.runWithRequestContext.mockReset();
+    mocks.runWithRequestContext.mockImplementation(
+      async (
+        requestContext: { userEmail?: string; orgId?: string },
+        run: () => Promise<unknown>,
+      ) => {
+        const previousUserEmail = mocks.getRequestUserEmail();
+        const previousOrgId = mocks.getRequestOrgId();
+        mocks.getRequestUserEmail.mockReturnValue(requestContext.userEmail);
+        mocks.getRequestOrgId.mockReturnValue(requestContext.orgId);
+        try {
+          return await run();
+        } finally {
+          mocks.getRequestUserEmail.mockReturnValue(previousUserEmail);
+          mocks.getRequestOrgId.mockReturnValue(previousOrgId);
+        }
+      },
+    );
     mocks.writeAppState.mockReset();
 
     mocks.connectLocalhostRun.mockResolvedValue({
@@ -280,7 +318,7 @@ describe("open-visual-edit", () => {
     expect(parsed.success).toBe(true);
   });
 
-  it("mints a caller session and embeds it in openUrl so an anonymous /visual-edit browser signs in as the caller", async () => {
+  it("returns a single-use, resource-scoped handoff for an account caller", async () => {
     const result = await action.run({
       designId: "design_1",
       devServerUrl: "http://localhost:5173",
@@ -288,33 +326,159 @@ describe("open-visual-edit", () => {
       navigate: false,
     });
 
-    expect(mocks.addSession).toHaveBeenCalledTimes(1);
-    const [token, email] = mocks.addSession.mock.calls[0]!;
-    expect(email).toBe("owner@example.com");
-    expect(typeof token).toBe("string");
-    expect(token.length).toBeGreaterThan(0);
+    expect(mocks.createEmbedSessionTicket).toHaveBeenCalledWith({
+      ownerEmail: "owner@example.com",
+      orgId: "org_1",
+      targetPath: "/visual-edit/design_1?editorView=overview",
+      scope: "capability:visual-edit:design:design_1",
+      ttlSeconds: 300,
+    });
 
     expect(result.openUrl).toBe(
-      `agent-native://open/design/design_1?editorView=overview&_session=${token}`,
+      "agent-native://open/visual-edit/design_1?editorView=overview",
     );
-    // The agent-surfaced "Open overview" link reuses the same session-bearing
-    // URL rather than a bare read-only deep link.
-    expect(action.link!({ args: {}, result }).url).toBe(result.openUrl);
+    expect(result.embedStartUrl).toBe(
+      "/_agent-native/embed/start?ticket=visual-edit-example-ticket",
+    );
+    expect(Object.keys(result)).not.toContain("embedStartUrl");
+    expect(JSON.stringify(result)).not.toContain("visual-edit-example-ticket");
+    expect(result.openUrl).not.toContain("ticket");
+    expect(result.openUrl).not.toContain("_session");
+    expect(action.link!({ args: {}, result }).url).toBe(
+      "agent-native://open/visual-edit/design_1?editorView=overview",
+    );
   });
 
-  it("does not mint or attach a session when the action has no authenticated caller", async () => {
+  it("uses a non-account workspace principal for the signed-out local skill entry", async () => {
     mocks.getRequestUserEmail.mockReturnValue(undefined);
 
+    const result = await action.run(
+      {
+        devServerUrl: "http://localhost:5173",
+        paths: ["/"],
+        navigate: false,
+      },
+      {
+        actionName: "open-visual-edit",
+        caller: "cli",
+        userEmail: undefined,
+        orgId: null,
+      },
+    );
+
+    expect(mocks.runWithRequestContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userEmail: expect.stringMatching(
+          /^workspace\+[a-f0-9]{24}@local\.visual-edit\.agent-native\.invalid$/,
+        ),
+        orgId: undefined,
+      }),
+      expect.any(Function),
+    );
+    expect(mocks.createDesignRun).toHaveBeenCalledOnce();
+    expect(mocks.createEmbedSessionTicket).toHaveBeenCalledWith({
+      ownerEmail: expect.stringMatching(
+        /^workspace\+[a-f0-9]{24}@local\.visual-edit\.agent-native\.invalid$/,
+      ),
+      orgId: undefined,
+      targetPath: "/visual-edit/design_created?editorView=overview",
+      scope: "capability:visual-edit:design:design_created",
+      ttlSeconds: 300,
+    });
+    expect(result.openUrl).toBe(
+      "agent-native://open/visual-edit/design_created?editorView=overview",
+    );
+    expect(result.embedStartUrl).toBe(
+      "/_agent-native/embed/start?ticket=visual-edit-example-ticket",
+    );
+    expect(mocks.getRequestUserEmail()).toBeUndefined();
+  });
+
+  it("rejects a signed-out non-CLI caller before touching local Design data", async () => {
+    mocks.getRequestUserEmail.mockReturnValue(undefined);
+
+    await expect(
+      action.run(
+        {
+          devServerUrl: "http://localhost:5173",
+          paths: ["/"],
+          navigate: false,
+        },
+        {
+          actionName: "open-visual-edit",
+          caller: "http",
+          userEmail: undefined,
+          orgId: null,
+        },
+      ),
+    ).rejects.toThrow(/only through the local CLI/);
+
+    expect(mocks.connectLocalhostRun).not.toHaveBeenCalled();
+    expect(mocks.createDesignRun).not.toHaveBeenCalled();
+    expect(mocks.createEmbedSessionTicket).not.toHaveBeenCalled();
+  });
+
+  it("rejects a signed-out CLI caller for a non-loopback target", async () => {
+    mocks.getRequestUserEmail.mockReturnValue(undefined);
+
+    await expect(
+      action.run(
+        {
+          devServerUrl: "https://preview.example.com",
+          paths: ["/"],
+          navigate: false,
+        },
+        {
+          actionName: "open-visual-edit",
+          caller: "cli",
+          userEmail: undefined,
+          orgId: null,
+        },
+      ),
+    ).rejects.toThrow(/only through the local CLI for a loopback app/);
+
+    expect(mocks.connectLocalhostRun).not.toHaveBeenCalled();
+    expect(mocks.createEmbedSessionTicket).not.toHaveBeenCalled();
+  });
+
+  it("rejects signed-out private mode before creating Design data or a ticket", async () => {
+    mocks.getRequestUserEmail.mockReturnValue(undefined);
+
+    await expect(
+      action.run(
+        {
+          devServerUrl: "http://localhost:5173",
+          paths: ["/"],
+          navigate: false,
+          publicReadOnly: false,
+        },
+        {
+          actionName: "open-visual-edit",
+          caller: "cli",
+          userEmail: undefined,
+          orgId: null,
+        },
+      ),
+    ).rejects.toThrow(/requires publicReadOnly/);
+
+    expect(mocks.connectLocalhostRun).not.toHaveBeenCalled();
+    expect(mocks.createDesignRun).not.toHaveBeenCalled();
+    expect(mocks.addLocalhostScreensRun).not.toHaveBeenCalled();
+    expect(mocks.createEmbedSessionTicket).not.toHaveBeenCalled();
+  });
+
+  it("does not mint a local-editor capability for a non-loopback target", async () => {
     const result = await action.run({
       designId: "design_1",
-      devServerUrl: "http://localhost:5173",
+      devServerUrl: "https://preview.example.com",
       paths: ["/"],
       navigate: false,
     });
 
-    expect(mocks.addSession).not.toHaveBeenCalled();
+    expect(mocks.createEmbedSessionTicket).not.toHaveBeenCalled();
     expect(result.openUrl).toBe(
-      "agent-native://open/design/design_1?editorView=overview",
+      "agent-native://open/visual-edit/design_1?editorView=overview",
     );
+    expect(result).not.toHaveProperty("embedStartUrl");
   });
 });

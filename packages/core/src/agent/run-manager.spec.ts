@@ -3451,6 +3451,61 @@ describe("run manager soft timeout", () => {
   });
 
   describe("terminal tracking event", () => {
+    it("does not emit when status persistence and reconciliation both fail", async () => {
+      vi.mocked(updateRunStatusIfRunning).mockRejectedValueOnce(
+        new Error("status persistence failed"),
+      );
+      vi.mocked(reconcileTerminalRunFromEvents).mockResolvedValueOnce(false);
+
+      const run = startRun(
+        "run-tracking-persistence-failed",
+        "thread-tracking-persistence-failed",
+        async (send) => {
+          send({ type: "text", text: "fast answer" });
+        },
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+
+      await run.finalized;
+
+      expect(reconcileTerminalRunFromEvents).toHaveBeenCalledWith(
+        "run-tracking-persistence-failed",
+      );
+      expect(track).not.toHaveBeenCalled();
+    });
+
+    it("emits after reconciliation positively confirms terminal persistence", async () => {
+      vi.mocked(updateRunStatusIfRunning).mockResolvedValueOnce(false);
+      vi.mocked(reconcileTerminalRunFromEvents).mockResolvedValueOnce(true);
+
+      const run = startRun(
+        "run-tracking-reconciled",
+        "thread-tracking-reconciled",
+        async (send) => {
+          send({ type: "text", text: "fast answer" });
+        },
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+
+      await run.finalized;
+      await vi.waitFor(() => expect(track).toHaveBeenCalledTimes(1));
+
+      expect(reconcileTerminalRunFromEvents).toHaveBeenCalledWith(
+        "run-tracking-reconciled",
+      );
+      expect(track).toHaveBeenCalledWith(
+        "agent_run_terminal",
+        expect.objectContaining({
+          run_id: "run-tracking-reconciled",
+          status: "completed",
+          terminal_reason: "done",
+        }),
+        expect.anything(),
+      );
+    });
+
     it("emits exactly one agent_run_terminal event on a normal completion", async () => {
       startRun(
         "run-tracking-done",

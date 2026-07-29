@@ -1329,7 +1329,7 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     downloadDesktopApp: "Download desktop app (현지화됨)",
     technicalDetails: "Technical details (현지화됨)",
     whatToCheck: "What to check (현지화됨)",
-    downloadRecording: "Download recording (현지화됨)",
+    downloadRecording: "Download (현지화됨)",
     openRecorderInTab: "Open recorder in tab (현지화됨)",
     connectStorageToFinish:
       "다음 화면에서 스토리지를 연결하세요: Builder.io(무료 티어 스토리지 + AI) 또는 S3 호환 스토리지. Clips가 저장을 완료합니다.",

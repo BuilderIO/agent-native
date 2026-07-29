@@ -15,6 +15,7 @@ import {
   EMBED_MODE_QUERY_PARAM,
   EMBED_SESSION_COOKIE,
   EMBED_TARGET_HEADER,
+  EMBED_TARGET_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
 } from "../shared/embed-auth.js";
 import { normalizeAppPath } from "../shared/sign-in-journey.js";
@@ -24,6 +25,7 @@ import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 const TOKEN_KIND = "agent-native-embed-session";
 const DEFAULT_TOKEN_TTL_SECONDS = 60 * 60;
 const DEFAULT_TICKET_TTL_SECONDS = 5 * 60;
+const EMBED_CAPABILITY_SCOPE_PREFIX = "capability:";
 const CONTROL_CHARS = new RegExp("[\\u0000-\\u001f\\u007f]");
 const OPEN_ROUTE_PATH = "/_agent-native/open";
 const OPEN_ROUTE_VIEW_PATHS: Record<string, string> = {
@@ -113,6 +115,34 @@ export type ResolvedEmbedSession = {
   targetPath: string;
   scope?: string;
 };
+
+/**
+ * Capability embed scopes authorize one narrow, non-identity operation. They
+ * must never be promoted into the ticket owner's authenticated browser
+ * session: the owner claim only records who minted the capability.
+ */
+export function isEmbedCapabilityScope(
+  scope: string | undefined | null,
+): boolean {
+  return (
+    typeof scope === "string" && scope.startsWith(EMBED_CAPABILITY_SCOPE_PREFIX)
+  );
+}
+
+export function resolvedEmbedCapabilityScope(
+  session: ResolvedEmbedSession | null,
+): string | undefined {
+  const scope = session?.scope;
+  if (
+    !isEmbedCapabilityScope(scope) ||
+    !scope ||
+    scope.length > 512 ||
+    CONTROL_CHARS.test(scope)
+  ) {
+    return undefined;
+  }
+  return scope;
+}
 
 async function ensureTable(): Promise<void> {
   if (!_initPromise) {
@@ -394,7 +424,12 @@ function headerTargetPathname(event: H3Event): string | null {
   if (typeof direct === "string") return pathnameFromPath(direct);
   try {
     const raw = getHeader(event, EMBED_TARGET_HEADER);
-    return typeof raw === "string" ? pathnameFromPath(raw) : null;
+    if (typeof raw === "string") return pathnameFromPath(raw);
+    const queryValue = getQuery(event)?.[EMBED_TARGET_QUERY_PARAM];
+    const queryTarget = Array.isArray(queryValue) ? queryValue[0] : queryValue;
+    return typeof queryTarget === "string"
+      ? pathnameFromPath(queryTarget)
+      : null;
   } catch {
     return null;
   }
@@ -471,6 +506,17 @@ function isEmbedRuntimeRequest(event: H3Event): boolean {
       pathname.startsWith("/packages/") ||
       pathname === "/_agent-native" ||
       pathname.startsWith("/_agent-native/"))
+  );
+}
+
+function isEmbedStaticRuntimeRequest(event: H3Event): boolean {
+  const pathname = requestPathname(event);
+  return (
+    !!pathname &&
+    (pathname.startsWith("/@") ||
+      pathname.startsWith("/app/") ||
+      pathname.startsWith("/node_modules/") ||
+      pathname.startsWith("/packages/"))
   );
 }
 
@@ -751,7 +797,14 @@ export async function resolveEmbedSessionFromRequest(
       candidate.source === "cookie" && isRuntimeRequest;
     const isRuntimeQueryRequest =
       candidate.source === "query" && isRuntimeRequest;
-    if (!matchesTarget && !isRuntimeCookieRequest && !isRuntimeQueryRequest) {
+    const capabilityScope = isEmbedCapabilityScope(verified.claims.scope);
+    const allowsUnboundRuntimeRequest =
+      !capabilityScope || isEmbedStaticRuntimeRequest(event);
+    if (
+      !matchesTarget &&
+      (!allowsUnboundRuntimeRequest ||
+        (!isRuntimeCookieRequest && !isRuntimeQueryRequest))
+    ) {
       continue;
     }
     if (candidate.source === "query" && candidate.token) {
@@ -789,10 +842,16 @@ export function requestHasEmbedAuthMarker(event: H3Event): boolean {
     const runtimeRequest = isEmbedRuntimeRequest(event);
     for (const candidate of candidates) {
       const verified = verifyEmbedSessionToken(candidate.token);
+      const allowsUnboundRuntimeRequest =
+        verified.ok &&
+        (!isEmbedCapabilityScope(verified.claims.scope) ||
+          isEmbedStaticRuntimeRequest(event));
       if (
         verified.ok &&
         (requestMatchesEmbedTarget(event, verified.claims.targetPath) ||
-          (candidate.allowRuntime && runtimeRequest))
+          (candidate.allowRuntime &&
+            runtimeRequest &&
+            allowsUnboundRuntimeRequest))
       ) {
         return true;
       }

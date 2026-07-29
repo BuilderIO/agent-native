@@ -4,6 +4,9 @@
 // templates ship as verbatim copy-only scaffolding (.ts), so their compiled
 // .js never exists in dist.
 const messages = {
+  workspaceFile: {
+    download: "Download",
+  },
   home: {
     settingsTitle: "Settings",
     settingsDescription: "Language and agent preferences",

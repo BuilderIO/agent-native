@@ -1356,7 +1356,7 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     downloadDesktopApp: "Download desktop app (Localisé)",
     technicalDetails: "Technical details (Localisé)",
     whatToCheck: "What to check (Localisé)",
-    downloadRecording: "Download recording (Localisé)",
+    downloadRecording: "Download (Localisé)",
     openRecorderInTab: "Open recorder in tab (Localisé)",
     connectStorageToFinish:
       "Connectez le stockage sur l’écran suivant : Builder.io (stockage + IA sur l’offre gratuite) ou stockage compatible S3. Clips terminera l’enregistrement.",

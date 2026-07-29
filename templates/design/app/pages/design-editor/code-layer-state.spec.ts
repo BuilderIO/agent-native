@@ -199,12 +199,56 @@ describe("elementInfoFromCodeLayerNode provenance", () => {
     expect(info.provenance?.method).toBe("debug-stack");
   });
 
+  it("preserves Vue and Svelte compiler provenance through the code-layer projection", () => {
+    const vue = elementInfoFromCodeLayerNode(
+      makeNode({
+        dataAttributes: {
+          "data-source-framework": "vue",
+          "data-source-file": "src/App.vue",
+          "data-source-line": "12",
+          "data-source-column": "7",
+          "data-source-method": "vue-inspector",
+        },
+      }),
+    );
+    const svelte = elementInfoFromCodeLayerNode(
+      makeNode({
+        dataAttributes: {
+          "data-source-framework": "svelte",
+          "data-source-file": "src/routes/+page.svelte",
+          "data-source-line": "9",
+          "data-source-column": "3",
+          "data-source-method": "svelte-meta",
+        },
+      }),
+    );
+
+    expect(vue.provenance).toMatchObject({
+      framework: "vue",
+      method: "vue-inspector",
+    });
+    expect(svelte.provenance).toMatchObject({
+      framework: "svelte",
+      method: "svelte-meta",
+    });
+  });
+
   it("carries WHY a node has no location, so absent stays distinct from not-loaded-yet", () => {
     const info = elementInfoFromCodeLayerNode(
       makeNode({ dataAttributes: { "data-source-unavailable": "not-react" } }),
     );
 
     expect(info.provenance).toEqual({ unavailableReason: "not-react" });
+  });
+
+  it("preserves the framework-neutral unavailable reason", () => {
+    const info = elementInfoFromCodeLayerNode(
+      makeNode({
+        dataAttributes: { "data-source-unavailable": "not-framework" },
+      }),
+    );
+
+    expect(info.provenance).toEqual({ unavailableReason: "not-framework" });
   });
 
   it("ignores an unavailable reason that contradicts a resolved location", () => {

@@ -266,6 +266,7 @@ import {
   screenLocalRectToBoardGeometry,
 } from "./multi-screen/coordinate-transforms";
 import {
+  captureCrossScreenSourceHtmlSnapshot,
   getCrossScreenDropGuideForHitTest,
   getCrossScreenDropGuideStyle,
   isCrossScreenDropAxis,
@@ -862,6 +863,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     sourceId?: string;
     sourcePointerOffset?: Point;
     sourceElementSize?: { width: number; height: number };
+    sourceHtmlSnapshot?: string;
     styleSnapshot?: PortableStyleSnapshot;
   } | null>(null);
   const crossScreenParentDragCleanupRef = useRef<(() => void) | null>(null);
@@ -2167,6 +2169,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         selector: string;
         sourceId?: string;
         sourcePointerOffset?: Point;
+        sourceHtmlSnapshot?: string;
         styleSnapshot?: PortableStyleSnapshot;
       },
       lastBoardPoint: Point | null,
@@ -2225,6 +2228,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                     )
                   : lastBoardPoint,
               sourcePointerOffset: payload.sourcePointerOffset,
+              sourceHtmlSnapshot: payload.sourceHtmlSnapshot,
               styleSnapshot: payload.styleSnapshot,
             });
           },
@@ -2266,6 +2270,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             targetCanvasPoint: lastBoardPoint,
             targetLocalPoint: targetLocalPoint ?? undefined,
             sourcePointerOffset: payload.sourcePointerOffset,
+            sourceHtmlSnapshot: payload.sourceHtmlSnapshot,
             styleSnapshot: payload.styleSnapshot,
           });
         },
@@ -2355,6 +2360,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         clearCrossScreenDrag();
         return;
       }
+      const sourceHtmlSnapshot =
+        sourceScreenId === boardFileId
+          ? captureCrossScreenSourceHtmlSnapshot(
+              sourcePreviewIframe.contentDocument,
+              msg.sourceId,
+            )
+          : undefined;
 
       if (msg.phase !== "move") {
         dndHostLog("overview:cross-screen", {
@@ -2370,6 +2382,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           sourceId: msg.sourceId,
           sourcePointerOffset,
           sourceElementSize,
+          sourceHtmlSnapshot,
           styleSnapshot,
         };
         stopParentCrossScreenDrag();
@@ -2430,6 +2443,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             sourceId: msg.sourceId,
             sourcePointerOffset,
             sourceElementSize,
+            sourceHtmlSnapshot,
             styleSnapshot,
           };
           const lastBoardPoint = crossScreenLastBoardPointRef.current;
@@ -2494,13 +2508,16 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         // path where "start" itself didn't have one yet.
         crossScreenDragMsgRef.current = {
           selector: selector ?? "",
-          sourceId,
+          sourceId: sourceId ?? crossScreenDragMsgRef.current?.sourceId,
           sourcePointerOffset:
             crossScreenDragMsgRef.current?.sourcePointerOffset ??
             sourcePointerOffset,
           sourceElementSize:
             sourceElementSize ??
             crossScreenDragMsgRef.current?.sourceElementSize,
+          sourceHtmlSnapshot:
+            sourceHtmlSnapshot ??
+            crossScreenDragMsgRef.current?.sourceHtmlSnapshot,
           styleSnapshot:
             styleSnapshot ?? crossScreenDragMsgRef.current?.styleSnapshot,
         };
@@ -2560,6 +2577,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           sourceId: msg.sourceId,
           sourcePointerOffset,
           sourceElementSize,
+          sourceHtmlSnapshot,
           styleSnapshot,
         };
         // Derive the release point from THIS message before falling back to
