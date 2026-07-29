@@ -2168,6 +2168,56 @@ describe("Brain knowledge quality gates", () => {
     expect(mocks.dbExec.execute).toHaveBeenCalledOnce();
   });
 
+  it("bounds distillation work while draining a larger deterministic batch", async () => {
+    const now = "2026-05-15T12:00:00.000Z";
+    const source = seedSource();
+    const captures = [
+      seedCapture({ id: "capture-batch-1" }),
+      seedCapture({ id: "capture-batch-2" }),
+    ];
+    for (const [index, capture] of captures.entries()) {
+      mocks.rows.ingestQueue.push({
+        id: `queue-batch-${index + 1}`,
+        sourceId: source.id,
+        captureId: capture.id,
+        operation: "distill",
+        status: "queued",
+        priority: 50,
+        attempts: 0,
+        payloadJson: "{}",
+        error: null,
+        runAfter: null,
+        leaseToken: null,
+        leaseExpiresAt: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
+    const seen: string[] = [];
+    const result = await processBrainIngestQueueOnce({
+      limit: 10,
+      runDistillation: true,
+      maxDistillations: 1,
+      distillationRunner: async (context) => {
+        seen.push(context.capture.id);
+        await markCaptureDistilledAction.run({
+          captureId: context.capture.id,
+          queueId: context.queue.id,
+          claimToken: context.claimToken,
+        });
+      },
+    });
+
+    expect(seen).toEqual(["capture-batch-1"]);
+    expect(result.processed).toEqual(["queue-batch-1"]);
+    expect(mocks.rows.ingestQueue[1]).toMatchObject({
+      id: "queue-batch-2",
+      status: "queued",
+      attempts: 0,
+    });
+  });
+
   it("reclaims stale processing work in a fresh worker execution", async () => {
     const source = seedSource();
     const capture = seedCapture({ sourceId: source.id, status: "distilling" });
