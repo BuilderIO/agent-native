@@ -71,6 +71,11 @@ describe("BrowserConnectRoute", () => {
       startPath: "/_agent-native/embed/start?ticket=one-time-ticket",
       expiresAt: 1_900_000_000_000,
       parentOrigin: `chrome-extension://${extensionId}`,
+      remoteDevice: {
+        id: "remote-device-example",
+        token: "anr_example",
+      },
+      relayBaseUrl: "https://dispatch.example.com",
     });
 
     await act(async () => {
@@ -102,6 +107,11 @@ describe("BrowserConnectRoute", () => {
         startPath: "/_agent-native/embed/start?ticket=one-time-ticket",
         dispatchOrigin: window.location.origin,
         expiresAt: "2030-03-17T17:46:40.000Z",
+        remoteDevice: {
+          id: "remote-device-example",
+          token: "anr_example",
+        },
+        relayBaseUrl: "https://dispatch.example.com",
       },
       expect.any(Function),
     );

@@ -61,6 +61,7 @@ export {
 } from "./plugin.js";
 
 export {
+  createRemoteDevice,
   getRemoteComputerCapabilities,
   listRemoteDevicesForOwner,
   revokeRemoteDeviceForOwner,

@@ -26,7 +26,7 @@ export class RemoteRelayExecutor {
 
   async execute(
     rawCommand: unknown,
-    nativeHostConnected: boolean,
+    relayOwnsControl: boolean,
   ): Promise<{ commandId: string; result: Record<string, unknown> }> {
     const command = await parseRelayCommand(rawCommand);
     const envelope = command.envelope;
@@ -36,9 +36,9 @@ export class RemoteRelayExecutor {
     if (envelope.sequence <= lastSequence) {
       throw new Error("Remote browser command sequence was replayed.");
     }
-    if (nativeHostConnected && envelope.operationClass === "browser.control") {
+    if (!relayOwnsControl && envelope.operationClass === "browser.control") {
       throw new Error(
-        "Agent Native Desktop currently owns the browser-control upstream.",
+        "The direct relay does not own the browser-control upstream.",
       );
     }
     const bridgeResult = await this.executeAction(envelope);
@@ -106,13 +106,13 @@ export class RemoteRelayExecutor {
 }
 
 export function relayCapabilities(
-  nativeHostConnected: boolean,
+  relayOwnsControl: boolean,
   version = chrome.runtime.getManifest().version,
 ) {
   return {
     browser: {
       observe: true,
-      control: !nativeHostConnected,
+      control: relayOwnsControl,
       provider: "agent-native-chrome-extension",
       version,
     },

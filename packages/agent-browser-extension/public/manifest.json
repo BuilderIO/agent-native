@@ -32,12 +32,7 @@
     "storage",
     "tabs"
   ],
-  "optional_host_permissions": [
-    "https://*/*",
-    "http://*/*",
-    "http://localhost/*",
-    "http://127.0.0.1/*"
-  ],
+  "optional_host_permissions": ["https://*/*", "http://*/*"],
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'; frame-src https: http://localhost:* http://127.0.0.1:*"
   },

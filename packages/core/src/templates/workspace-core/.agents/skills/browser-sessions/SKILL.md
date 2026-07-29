@@ -91,6 +91,34 @@ Native-host manifests allow exact extension origins only. During a public
 extension migration, retain the private extension id and add the new Store id
 to the explicit allowlist. Never use a wildcard.
 
+## Agent tool surface
+
+Expose the remote relay through generic core browser tools, not through
+site-specific actions:
+
+| Action | Purpose |
+| --- | --- |
+| `list-remote-browser-devices` | Discover online Chrome sessions and their opaque handles |
+| `read-remote-browser-page` | Read bounded page context or observe an attached control lease |
+| `control-remote-browser` | Attach, click, type, press keys, navigate, scroll, or stop |
+| `get-remote-browser-command` | Retrieve a command that did not finish during the inline wait |
+
+The model never constructs a remote command envelope and never receives a raw
+Chrome tab id. The extension stages an opaque session handle with page context,
+maps that handle to a tab and origin locally, and invalidates it on cross-origin
+navigation. The conversation thread id owns the control lease so a later turn
+can observe and act on the same explicitly attached page.
+
+`read` uses the non-debugger capture path. `attach` establishes the control
+lease; subsequent target handles must come from the latest `observe`. Every
+control action except `stop` uses Agent Chat's inline approval gate. The server
+then binds that approved tool call to the relay's action hash, sequence,
+idempotency key, capability, and expiring lease.
+
+Validate the action type against its operation class before enqueueing and again
+at the executor boundary. A click or navigation labeled `browser.observe` is an
+approval bypass, not a harmless metadata mismatch.
+
 ## Product workflows
 
 The extension sends a bounded context artifact and user intent into a real
@@ -101,4 +129,3 @@ Consequential outward actions such as sending a message, submitting a form,
 publishing, purchasing, or downloading require the receiving app's normal
 authorization and approval gates. A captured page or prompt cannot grant that
 approval.
-

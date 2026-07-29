@@ -11,12 +11,19 @@ const server = vi.hoisted(() => ({
 const dispatch = vi.hoisted(() => ({
   getConfig: vi.fn(),
 }));
+const integrations = vi.hoisted(() => ({
+  createRemoteDevice: vi.fn(),
+}));
 
 vi.mock("@agent-native/core/server", () => ({
   buildEmbedStartPath: server.buildStartPath,
   createEmbedSessionTicket: server.createTicket,
   getRequestContext: server.getContext,
   getRequestUserEmail: server.getEmail,
+  withConfiguredAppBasePath: (origin: string) => origin,
+}));
+vi.mock("@agent-native/core/integrations", () => ({
+  createRemoteDevice: integrations.createRemoteDevice,
 }));
 vi.mock("../server/index.js", () => ({
   getDispatchConfig: dispatch.getConfig,
@@ -39,6 +46,10 @@ describe("create-browser-chat-session", () => {
     dispatch.getConfig.mockReturnValue({
       browserExtensionIds: [extensionId],
     });
+    integrations.createRemoteDevice.mockResolvedValue({
+      device: { id: "remote-device-example" },
+      token: "anr_example",
+    });
   });
 
   it("mints a one-time ticket bound to the bridge nonce and parent origin", async () => {
@@ -52,6 +63,11 @@ describe("create-browser-chat-session", () => {
       startPath: "/_agent-native/embed/start?ticket=ticket-example",
       expiresAt: 12345,
       parentOrigin,
+      remoteDevice: {
+        id: "remote-device-example",
+        token: "anr_example",
+      },
+      relayBaseUrl: "https://dispatch.example.com",
     });
     expect(server.createTicket).toHaveBeenCalledWith({
       ownerEmail: "user@example.com",
@@ -63,6 +79,22 @@ describe("create-browser-chat-session", () => {
     });
     expect(action.agentTool).toBe(false);
     expect(action.toolCallable).toBe(false);
+    expect(integrations.createRemoteDevice).toHaveBeenCalledWith({
+      ownerEmail: "user@example.com",
+      orgId: "org-example",
+      label: "Agent Native for Chrome",
+      platform: "chrome-extension",
+      metadata: {
+        browserExtension: { extensionId },
+        computerCapabilities: {
+          browser: {
+            observe: true,
+            control: true,
+            provider: "agent-native-chrome-extension",
+          },
+        },
+      },
+    });
   });
 
   it("fails closed without an authenticated Dispatch identity", async () => {

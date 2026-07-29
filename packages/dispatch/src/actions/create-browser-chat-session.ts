@@ -1,9 +1,11 @@
 import { defineAction } from "@agent-native/core";
+import { createRemoteDevice } from "@agent-native/core/integrations";
 import {
   buildEmbedStartPath,
   createEmbedSessionTicket,
   getRequestContext,
   getRequestUserEmail,
+  withConfiguredAppBasePath,
 } from "@agent-native/core/server";
 import { z } from "zod";
 
@@ -54,6 +56,10 @@ export default defineAction({
     }
 
     const parentOrigin = `chrome-extension://${extensionId}`;
+    const requestOrigin = requestContext?.requestOrigin;
+    if (!requestOrigin) {
+      throw new Error("Dispatch could not resolve its browser relay URL.");
+    }
     const query = new URLSearchParams({
       [BROWSER_CHAT_NONCE_QUERY_PARAM]: nonce,
       [BROWSER_CHAT_PARENT_ORIGIN_QUERY_PARAM]: parentOrigin,
@@ -65,11 +71,29 @@ export default defineAction({
       scope: "browser-chat",
       ttlSeconds: 60,
     });
+    const remote = await createRemoteDevice({
+      ownerEmail,
+      orgId: requestContext?.orgId ?? null,
+      label: "Agent Native for Chrome",
+      platform: "chrome-extension",
+      metadata: {
+        browserExtension: { extensionId },
+        computerCapabilities: {
+          browser: {
+            observe: true,
+            control: true,
+            provider: "agent-native-chrome-extension",
+          },
+        },
+      },
+    });
 
     return {
       startPath: buildEmbedStartPath(session.ticket),
       expiresAt: session.expiresAt,
       parentOrigin,
+      remoteDevice: { id: remote.device.id, token: remote.token },
+      relayBaseUrl: withConfiguredAppBasePath(requestOrigin),
     };
   },
 });

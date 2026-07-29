@@ -8,12 +8,12 @@ import {
 } from "./remote-relay";
 
 describe("direct browser relay contract", () => {
-  it("advertises observation always and control only without native messaging", () => {
-    expect(relayCapabilities(false, "0.1.0").browser).toMatchObject({
+  it("advertises control only while the relay owns the single upstream", () => {
+    expect(relayCapabilities(true, "0.1.0").browser).toMatchObject({
       observe: true,
       control: true,
     });
-    expect(relayCapabilities(true, "0.1.0").browser).toMatchObject({
+    expect(relayCapabilities(false, "0.1.0").browser).toMatchObject({
       observe: true,
       control: false,
     });

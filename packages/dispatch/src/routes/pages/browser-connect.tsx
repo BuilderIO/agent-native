@@ -14,6 +14,11 @@ interface BrowserChatSessionResult {
   startPath: string;
   expiresAt: number;
   parentOrigin: string;
+  remoteDevice: {
+    id: string;
+    token: string;
+  };
+  relayBaseUrl: string;
 }
 
 interface ChromeRuntimeApi {
@@ -84,6 +89,8 @@ export default function BrowserConnectRoute() {
         startPath: session.startPath,
         dispatchOrigin: window.location.origin,
         expiresAt: new Date(session.expiresAt).toISOString(),
+        remoteDevice: session.remoteDevice,
+        relayBaseUrl: session.relayBaseUrl,
       });
       setConnected(true);
     } catch (cause) {
