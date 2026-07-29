@@ -289,6 +289,13 @@ describe("DesignCanvas one-shot bridge queue", () => {
     expect(typesOf("agent-native:text-edit-status").length).toBeGreaterThan(
       probesBefore,
     );
+    const probesAfterQueue = typesOf("agent-native:text-edit-status").length;
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 300));
+    });
+    expect(typesOf("agent-native:text-edit-status").length).toBeGreaterThan(
+      probesAfterQueue,
+    );
 
     // The bridge answers the probe — that reply is the readiness proof.
     await act(async () => {
@@ -315,6 +322,13 @@ describe("DesignCanvas one-shot bridge queue", () => {
         nodeId: "",
       },
     ]);
+    const probesAfterReady = typesOf("agent-native:text-edit-status").length;
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 300));
+    });
+    expect(typesOf("agent-native:text-edit-status")).toHaveLength(
+      probesAfterReady,
+    );
 
     posted.length = 0;
     const pendingPatch = {
@@ -363,5 +377,134 @@ describe("DesignCanvas one-shot bridge queue", () => {
       );
     });
     expect(typesOf("style-change")).toHaveLength(0);
+  });
+
+  /**
+   * The probe above is only a recovery if it repeats. A frame that is
+   * mid-navigation (or has not attached its bridge listener yet) silently
+   * drops the first probe, and an otherwise-idle frame never speaks again —
+   * so a single fire-and-forget probe strands the queue permanently while
+   * every queued command still reports success. Undo of a live style edit is
+   * the visible case: handleUndo runs, the revert reports sent, and the
+   * running app never changes.
+   */
+  it("keeps probing when the frame ignores the first probe, and delivers once it answers", async () => {
+    iframeServer = http.createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      response.end("<!doctype html><html><body>Runtime</body></html>");
+    });
+    const iframePort = await new Promise<number>((resolve, reject) => {
+      iframeServer!.once("error", reject);
+      iframeServer!.listen(0, "127.0.0.1", () => {
+        const address = iframeServer!.address();
+        resolve(typeof address === "object" && address ? address.port : 0);
+      });
+    });
+    const bridgeUrl = `http://127.0.0.1:${iframePort}`;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ ok: true }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        ),
+      ),
+    );
+
+    await act(async () => {
+      root.render(
+        <DesignCanvas
+          content="http://localhost:5173/"
+          contentKey="silent-frame"
+          screenId="screen-live"
+          sourceType="localhost"
+          bridgeUrl={bridgeUrl}
+          previewToken="silent-frame-preview-token"
+          zoom={100}
+          deviceFrame="none"
+          editMode
+          interactMode={false}
+          onElementSelect={() => {}}
+          onElementHover={() => {}}
+          tweakValues={{}}
+        />,
+      );
+    });
+    await vi.waitFor(() => {
+      expect(
+        container.querySelector<HTMLIFrameElement>(
+          "iframe[data-design-preview-iframe]",
+        )?.src,
+      ).toContain("/live-edit?");
+    });
+    const iframe = container.querySelector<HTMLIFrameElement>(
+      "iframe[data-design-preview-iframe]",
+    )!;
+    const iframeWindow = iframe.contentWindow as Window;
+    const posted: unknown[] = [];
+    iframeWindow.postMessage = ((message: unknown) => {
+      posted.push(message);
+    }) as Window["postMessage"];
+    const typesOf = (type: string) =>
+      posted.filter(
+        (message) => (message as { type?: string } | null)?.type === type,
+      );
+
+    const sendStyleChangeForScreen = (
+      window as unknown as {
+        __designCanvasSendStyleForScreen?: (
+          screenId: string,
+          selector: string,
+          property: string,
+          value: string,
+          options?: { selectorCandidates?: string[]; nodeId?: string | null },
+        ) => boolean;
+      }
+    ).__designCanvasSendStyleForScreen!;
+
+    // An undo revert: empty value means "drop the inline override".
+    await act(async () => {
+      sendStyleChangeForScreen("screen-live", "#card", "borderRadius", "", {
+        selectorCandidates: ["#card"],
+      });
+    });
+    expect(typesOf("style-change")).toHaveLength(0);
+
+    // The frame stays silent. The probe must repeat rather than give up.
+    await vi.waitFor(
+      () => {
+        expect(typesOf("agent-native:text-edit-status").length).toBeGreaterThan(
+          1,
+        );
+      },
+      { timeout: 4000 },
+    );
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agent-native:text-edit-status-result",
+            correlationId: "",
+            status: false,
+          },
+          origin: bridgeUrl,
+          source: iframeWindow,
+        }),
+      );
+    });
+
+    expect(typesOf("style-change")).toEqual([
+      {
+        type: "style-change",
+        selector: "#card",
+        property: "borderRadius",
+        value: "",
+        selectorCandidates: ["#card"],
+        nodeId: "",
+      },
+    ]);
   });
 });

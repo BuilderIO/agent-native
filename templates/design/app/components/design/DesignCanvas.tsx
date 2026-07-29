@@ -1204,43 +1204,82 @@ export function DesignCanvas({
     pendingOneShotMessagesRef.current = [];
     queued.forEach((message) => win.postMessage(message, "*"));
   }, []);
-  const postOneShotBridgeMessage = useCallback((message: unknown) => {
-    const iframe = iframeRef.current;
-    const win = iframe?.contentWindow;
-    // A one-shot prop can arrive in the same render that first creates the
-    // iframe. Keep it queued even when the ref/contentWindow is not attached
-    // yet; otherwise the effect records its request id as handled and the
-    // command is lost permanently before the bridge can announce readiness.
-    if (!win || !bridgeReadyRef.current) {
-      pendingOneShotMessagesRef.current.push(message);
-      // The readiness recovery in the message handler below is PASSIVE: it
-      // waits for the frame to say something first. A live-edit screen keeps
-      // its already-loaded iframe across a canvas remount, so a replacement
-      // instance never sees `editor-chrome-ready`, and an idle frame says
-      // nothing on its own — every inspector style commit then sat here
-      // reporting success while the running app never changed, until some
-      // unrelated hover/selection happened to talk and flushed the backlog.
-      // Ask instead of waiting: `agent-native:text-edit-status` is the
-      // cheapest bridge round trip (no DOM walk with an empty nodeId), its
-      // reply is a trusted message from the current frame, and that reply is
-      // what marks the bridge ready and drains this queue. A frame with no
-      // bridge attached simply never answers, so the queue keeps its original
-      // meaning.
-      if (win) {
-        win.postMessage(
-          {
-            type: "agent-native:text-edit-status",
-            correlationId: "",
-            nodeId: "",
-          },
-          "*",
-        );
+  const bridgeReadinessProbeTimerRef = useRef<number | undefined>(undefined);
+  const probeBridgeReadinessUntilDrained = useCallback(() => {
+    if (bridgeReadinessProbeTimerRef.current !== undefined) return;
+    let attempts = 0;
+    const probe = () => {
+      const win = iframeRef.current?.contentWindow;
+      const drained = pendingOneShotMessagesRef.current.length === 0;
+      // 20 x 250ms covers a frame still finishing navigation without leaving a
+      // timer running against a frame that has no bridge at all (interact-mode
+      // documents never inject one, and must keep queueing as before).
+      if (!win || drained || attempts >= 20) {
+        window.clearInterval(bridgeReadinessProbeTimerRef.current);
+        bridgeReadinessProbeTimerRef.current = undefined;
+        return;
       }
-      return true;
-    }
-    win.postMessage(message, "*");
-    return true;
+      attempts += 1;
+      win.postMessage(
+        {
+          type: "agent-native:text-edit-status",
+          correlationId: "",
+          nodeId: "",
+        },
+        "*",
+      );
+    };
+    probe();
+    if (pendingOneShotMessagesRef.current.length === 0) return;
+    bridgeReadinessProbeTimerRef.current = window.setInterval(probe, 250);
   }, []);
+  useEffect(
+    () => () => {
+      if (bridgeReadinessProbeTimerRef.current !== undefined) {
+        window.clearInterval(bridgeReadinessProbeTimerRef.current);
+        bridgeReadinessProbeTimerRef.current = undefined;
+      }
+    },
+    [],
+  );
+  const postOneShotBridgeMessage = useCallback(
+    (message: unknown) => {
+      const iframe = iframeRef.current;
+      const win = iframe?.contentWindow;
+      // A one-shot prop can arrive in the same render that first creates the
+      // iframe. Keep it queued even when the ref/contentWindow is not attached
+      // yet; otherwise the effect records its request id as handled and the
+      // command is lost permanently before the bridge can announce readiness.
+      if (!win || !bridgeReadyRef.current) {
+        pendingOneShotMessagesRef.current.push(message);
+        // The readiness recovery in the message handler below is PASSIVE: it
+        // waits for the frame to say something first. A live-edit screen keeps
+        // its already-loaded iframe across a canvas remount, so a replacement
+        // instance never sees `editor-chrome-ready`, and an idle frame says
+        // nothing on its own — every inspector style commit then sat here
+        // reporting success while the running app never changed, until some
+        // unrelated hover/selection happened to talk and flushed the backlog.
+        // Ask instead of waiting: `agent-native:text-edit-status` is the
+        // cheapest bridge round trip (no DOM walk with an empty nodeId), its
+        // reply is a trusted message from the current frame, and that reply is
+        // what marks the bridge ready and drains this queue. A frame with no
+        // bridge attached simply never answers, so the queue keeps its original
+        // meaning.
+        // ...and keep asking. A single probe is fire-and-forget: if it lands
+        // while the frame is mid-navigation (or before its bridge listener is
+        // attached) nothing answers, and because the frame is otherwise idle
+        // nothing ever asks again — the queue strands and every queued command
+        // keeps reporting success. Undo of a live style edit is the visible
+        // case: the revert never reaches the running app. Retry on a bounded
+        // schedule and stop as soon as the queue drains.
+        if (win) probeBridgeReadinessUntilDrained();
+        return true;
+      }
+      win.postMessage(message, "*");
+      return true;
+    },
+    [probeBridgeReadinessUntilDrained],
+  );
   const [renderedContent, setRenderedContent] = useState(content);
   // True while a drawing send is capturing/compositing/uploading the
   // annotated screenshot (see design-canvas/annotation-snapshot.ts). Drives
