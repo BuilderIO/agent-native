@@ -84,6 +84,7 @@ import { prepareRewindRecordingStart } from "./rewind-recording-start";
 import { singleFlight } from "./single-flight";
 import {
   startTranscriptionCapture,
+  shouldStartLocalRecordingTranscription,
   type CapturedTranscript,
   type TranscriptionCapture,
 } from "./transcription-capture";
@@ -2539,6 +2540,8 @@ async function startNativeFullscreenRecording(
   let nativeTranscriptFailureSaved = false;
   const wantsSystemAudio = params.systemAudioOn !== false;
   const wantsRecordedAudio = wantsAudio || wantsSystemAudio;
+  const canTranscribeLocally =
+    shouldStartLocalRecordingTranscription(wantsAudio);
   let micDeviceLabel: string | null = params.micLabel || null;
   const saveTranscriptFailure = async (
     failureReason: string,
@@ -2554,7 +2557,7 @@ async function startNativeFullscreenRecording(
     );
   };
   const startNativeTranscriptionBeforeRecording = async () => {
-    if (localOnly || !wantsRecordedAudio || transcriptionCapture) return;
+    if (localOnly || !canTranscribeLocally || transcriptionCapture) return;
     transcriptionCapture = await startTranscriptionCapture(
       {
         deviceId: params.micId,
@@ -2564,7 +2567,7 @@ async function startNativeFullscreenRecording(
       { voiceProcessing: false },
     );
     if (
-      wantsRecordedAudio &&
+      canTranscribeLocally &&
       !transcriptionCapture &&
       shouldSaveLocalTranscriptionStartupFailure()
     ) {
@@ -3387,6 +3390,8 @@ async function startRecordingInner(
   const wantsAudio = params.micOn;
   const wantsSystemAudio = wantsScreen && params.systemAudioOn !== false;
   const wantsRecordedAudio = wantsAudio || wantsSystemAudio;
+  const canTranscribeLocally =
+    shouldStartLocalRecordingTranscription(wantsAudio);
   const audioCue = createAudioCue();
   const captureSource = params.source ?? "window";
   const localRecordingMode = params.localRecordingMode ?? "off";
@@ -4203,7 +4208,7 @@ async function startRecordingInner(
     // delaying capture, so the first ~1s the user expected to record was lost
     // (and the recording felt cut at the end). It's a separate capture from the
     // recorded audio tracks, so starting it slightly late is safe.
-    transcriptionCapture = wantsRecordedAudio
+    transcriptionCapture = canTranscribeLocally
       ? await startTranscriptionCapture(
           {
             deviceId: params.micId,
@@ -4228,7 +4233,7 @@ async function startRecordingInner(
       );
       void transcriptionCapture.pause().catch(() => {});
     } else if (
-      wantsRecordedAudio &&
+      canTranscribeLocally &&
       !transcriptionCapture &&
       shouldSaveLocalTranscriptionStartupFailure()
     ) {
