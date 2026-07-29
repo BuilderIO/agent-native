@@ -39,7 +39,7 @@ describe("live screen URL preview guard", () => {
     expect(isStandaloneHttpUrl("<html><body>real</body></html>")).toBe(false);
   });
 
-  it("refuses to push a route URL into the live document before reaching the bridge", () => {
+  it("skips a route URL without treating the intentional refusal as a render failure", () => {
     const section = sourceSection(
       "const replacePreviewContent = useCallback(",
       "const syncLiveScreenSnapshotPreview",
@@ -52,13 +52,19 @@ describe("live screen URL preview guard", () => {
     // report "not replaced" so no caller mistakes it for an applied update.
     expect(section.indexOf(guard)).toBeLessThan(section.indexOf(bridgeLookup));
     expect(section).toMatch(
-      /if \(isStandaloneHttpUrl\(nextContent\)\) \{[\s\S]*?return false;\s*\}/,
+      /if \(isStandaloneHttpUrl\(nextContent\)\) \{[\s\S]*?return "skipped-live-route";\s*\}/,
     );
-    // Loud, not silent: this shape only ever arrives from a caller that
-    // mistook a route marker for a document.
-    expect(section).toMatch(
+    expect(section).not.toMatch(
       /if \(isStandaloneHttpUrl\(nextContent\)\) \{[\s\S]*?console\.error\(/,
     );
+
+    const fallback = sourceSection(
+      "export function previewContentReplaceNeedsRenderFallback",
+      "const OVERVIEW_ZOOM_THRESHOLD",
+    );
+    expect(fallback).toContain('return result === "unavailable"');
+    expect(fallback).not.toContain("skipped-live-route");
+    expect(editorSource).not.toContain("!replacePreviewContent(");
   });
 
   it("refuses design-state preview and restore on a live screen", () => {

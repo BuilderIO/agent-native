@@ -902,6 +902,18 @@ function designSelectionStateKeys(): string[] {
 const MAX_GENERATION_ATTEMPTS = 3;
 const AUTO_RETRY_DELAY_MS = 1200;
 const STORED_RUN_LIVENESS_GRACE_MS = 20_000;
+
+export type PreviewContentReplaceResult =
+  | "applied"
+  | "skipped-live-route"
+  | "unavailable";
+
+export function previewContentReplaceNeedsRenderFallback(
+  result: PreviewContentReplaceResult,
+): boolean {
+  return result === "unavailable";
+}
+
 const OVERVIEW_ZOOM_THRESHOLD = 60;
 const MOTION_DOCK_TRANSITION_MS = 200;
 const MOTION_DOCK_EXIT_SETTLE_MS = 80;
@@ -7298,9 +7310,11 @@ function DesignEditor() {
       lastLocalContentRef.current = pendingLocalContent;
       latestActiveContentRef.current = pendingLocalContent;
       if (
-        !replacePreviewContent(pendingLocalContent, null, {
-          forceFullDocument: true,
-        })
+        previewContentReplaceNeedsRenderFallback(
+          replacePreviewContent(pendingLocalContent, null, {
+            forceFullDocument: true,
+          }),
+        )
       ) {
         setContentRenderRevision((revision) => revision + 1);
       }
@@ -7342,9 +7356,11 @@ function DesignEditor() {
           lastAppliedFileUpdatedAtRef.current = activeFile.updatedAt;
         }
         if (
-          !replacePreviewContent(storedContent, null, {
-            forceFullDocument: true,
-          })
+          previewContentReplaceNeedsRenderFallback(
+            replacePreviewContent(storedContent, null, {
+              forceFullDocument: true,
+            }),
+          )
         ) {
           setContentRenderRevision((revision) => revision + 1);
         }
@@ -7378,7 +7394,11 @@ function DesignEditor() {
         setCollabContent(text);
         setCollabContentFileId(fileId);
         latestActiveContentRef.current = text;
-        if (!replacePreviewContent(text, null, { forceFullDocument: true })) {
+        if (
+          previewContentReplaceNeedsRenderFallback(
+            replacePreviewContent(text, null, { forceFullDocument: true }),
+          )
+        ) {
           setContentRenderRevision((revision) => revision + 1);
         }
       }
@@ -7454,9 +7474,11 @@ function DesignEditor() {
         lastLocalContentRef.current = pendingLocalContent;
         latestActiveContentRef.current = pendingLocalContent;
         if (
-          !replacePreviewContent(pendingLocalContent, null, {
-            forceFullDocument: true,
-          })
+          previewContentReplaceNeedsRenderFallback(
+            replacePreviewContent(pendingLocalContent, null, {
+              forceFullDocument: true,
+            }),
+          )
         ) {
           setContentRenderRevision((revision) => revision + 1);
         }
@@ -7487,7 +7509,11 @@ function DesignEditor() {
         // navigation) first; only fall back to an actual srcdoc rebuild when
         // the bridge can't apply it (e.g. this screen's iframe isn't mounted/
         // registered right now).
-        if (!replacePreviewContent(next, null, { forceFullDocument: true })) {
+        if (
+          previewContentReplaceNeedsRenderFallback(
+            replacePreviewContent(next, null, { forceFullDocument: true }),
+          )
+        ) {
           setContentRenderRevision((revision) => revision + 1);
         }
       }
@@ -7624,7 +7650,11 @@ function DesignEditor() {
         sourceContentHash(dbContent);
       if (dbUpdatedAt) lastAppliedFileUpdatedAtRef.current = dbUpdatedAt;
       if (
-        !replacePreviewContent(dbContent, null, { forceFullDocument: true })
+        previewContentReplaceNeedsRenderFallback(
+          replacePreviewContent(dbContent, null, {
+            forceFullDocument: true,
+          }),
+        )
       ) {
         setContentRenderRevision((revision) => revision + 1);
       }
@@ -7699,9 +7729,11 @@ function DesignEditor() {
               sourceContentHash(expectedContent);
             lastAppliedFileUpdatedAtRef.current = expectedUpdatedAt;
             if (
-              !replacePreviewContent(expectedContent, null, {
-                forceFullDocument: true,
-              })
+              previewContentReplaceNeedsRenderFallback(
+                replacePreviewContent(expectedContent, null, {
+                  forceFullDocument: true,
+                }),
+              )
             ) {
               setContentRenderRevision((revision) => revision + 1);
             }
@@ -7769,7 +7801,11 @@ function DesignEditor() {
     lastAckedFileContentHashRef.current[activeFile.id] =
       sourceContentHash(dbContent);
     if (dbUpdatedAt) lastAppliedFileUpdatedAtRef.current = dbUpdatedAt;
-    if (!replacePreviewContent(dbContent, null, { forceFullDocument: true })) {
+    if (
+      previewContentReplaceNeedsRenderFallback(
+        replacePreviewContent(dbContent, null, { forceFullDocument: true }),
+      )
+    ) {
       setContentRenderRevision((revision) => revision + 1);
     }
 
@@ -9918,35 +9954,31 @@ function DesignEditor() {
       nextContent: string,
       selector?: string | null,
       options: { forceFullDocument?: boolean } = {},
-    ) => {
+    ): PreviewContentReplaceResult => {
       // A localhost screen's `design_files.content` IS its route URL, so any
       // caller that treats stored/collab content as a document (the collab
       // seed, the SQL reconcile passes, undo/redo replay) can hand this
       // callback the bare URL. The bridge would parse it as a document and
       // replace the running app with the text "http://localhost:8210/" — a
-      // wrong-but-plausible state with no error anywhere. Refuse here, the one
-      // point every host push funnels through. Returning false is safe: the
-      // callers' contentRenderRevision fallback can't rebuild a live screen
-      // either (its iframe identity is `src:`, not srcdoc).
+      // wrong-but-plausible state with no error anywhere. Skip it here, the one
+      // point every host push funnels through. This is deliberately distinct
+      // from an unavailable bridge: rebuilding a live screen from its route
+      // marker cannot help and can strand bridge registration after reload.
       if (isStandaloneHttpUrl(nextContent)) {
-        console.error(
-          "[design] refused to replace live preview content with a route URL",
-          { content: nextContent.trim().slice(0, 120) },
-        );
-        return false;
+        return "skipped-live-route";
       }
       const replaceContent = (window as any).__designCanvasReplaceContent;
-      if (typeof replaceContent !== "function") return false;
-      return Boolean(
-        replaceContent(
-          nextContent,
-          selector ?? selectedCanvasSelector,
-          selectedCanvasSelectorCandidates,
-          {
-            forceFullDocument: options.forceFullDocument === true,
-          },
-        ),
-      );
+      if (typeof replaceContent !== "function") return "unavailable";
+      return replaceContent(
+        nextContent,
+        selector ?? selectedCanvasSelector,
+        selectedCanvasSelectorCandidates,
+        {
+          forceFullDocument: options.forceFullDocument === true,
+        },
+      )
+        ? "applied"
+        : "unavailable";
     },
     [selectedCanvasSelector, selectedCanvasSelectorCandidates, selectedElement],
   );
@@ -9967,7 +9999,11 @@ function DesignEditor() {
   const syncLiveScreenSnapshotPreview = useCallback(
     (screenId: string, html: string) => {
       if (screenId !== activeFile?.id) return;
-      if (!replacePreviewContent(html, null, { forceFullDocument: true })) {
+      if (
+        previewContentReplaceNeedsRenderFallback(
+          replacePreviewContent(html, null, { forceFullDocument: true }),
+        )
+      ) {
         setContentRenderRevision((revision) => revision + 1);
       }
     },
@@ -10198,9 +10234,9 @@ function DesignEditor() {
       // couldn't run (bridge not registered for this surface yet, or an
       // explicit forceRefresh request).
       const replacedPreview = options.skipPreview
-        ? true
+        ? "applied"
         : forceRefresh
-          ? false
+          ? "unavailable"
           : replacePreviewContent(
               nextContent,
               null,
@@ -10208,7 +10244,10 @@ function DesignEditor() {
                 ? { forceFullDocument: true }
                 : undefined,
             );
-      if (forceRefresh || !replacedPreview) {
+      if (
+        forceRefresh ||
+        previewContentReplaceNeedsRenderFallback(replacedPreview)
+      ) {
         setContentRenderRevision((revision) => revision + 1);
       }
       if (ydoc && isSynced) {
@@ -13751,7 +13790,9 @@ function DesignEditor() {
             runtimeApplied: options.runtimeApplied,
             runtimeStyleApplied,
           }) &&
-          !replacePreviewContent(resolvedNextContent, selector)
+          previewContentReplaceNeedsRenderFallback(
+            replacePreviewContent(resolvedNextContent, selector),
+          )
         ) {
           setContentRenderRevision((revision) => revision + 1);
         }
@@ -20610,7 +20651,13 @@ function DesignEditor() {
           // bumping contentRenderRevision unconditionally right after a
           // successful in-place replace was a redundant second reload and the
           // dominant cause of "undo/redo flashes heavily".
-          if (!replacePreviewContent(next, null, { forceFullDocument: true })) {
+          if (
+            previewContentReplaceNeedsRenderFallback(
+              replacePreviewContent(next, null, {
+                forceFullDocument: true,
+              }),
+            )
+          ) {
             setContentRenderRevision((revision) => revision + 1);
           }
           // Clear stale selection if the undo removed the selected element.
@@ -21366,7 +21413,13 @@ function DesignEditor() {
           // only fall back to a full srcdoc rebuild when the in-place bridge
           // patch genuinely failed, instead of always reloading the iframe on
           // top of an already-successful in-place replace.
-          if (!replacePreviewContent(next, null, { forceFullDocument: true })) {
+          if (
+            previewContentReplaceNeedsRenderFallback(
+              replacePreviewContent(next, null, {
+                forceFullDocument: true,
+              }),
+            )
+          ) {
             setContentRenderRevision((revision) => revision + 1);
           }
           // Clear stale selection if the redo removed the selected element.
