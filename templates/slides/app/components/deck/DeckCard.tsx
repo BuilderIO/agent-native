@@ -165,24 +165,28 @@ export default function DeckCard({
 
       {/* Star + menu buttons - always visible on touch devices */}
       <div className="absolute top-2 end-2 flex items-center gap-1">
-        <button
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            onToggleStar(deck.id, !deck.starred);
-          }}
-          className={`rounded-md border border-border bg-black/60 p-2 backdrop-blur-sm hover:bg-black/80 sm:p-1.5 ${
-            deck.starred ? "" : "sm:opacity-0 sm:group-hover:opacity-100"
-          }`}
-          aria-label={deck.starred ? t("home.unstarDeck") : t("home.starDeck")}
-          aria-pressed={Boolean(deck.starred)}
-        >
-          {deck.starred ? (
-            <IconStarFilled className="h-3.5 w-3.5 text-[#F5C451]" />
-          ) : (
-            <IconStar className="h-3.5 w-3.5 text-foreground/70" />
-          )}
-        </button>
+        {deck.createdByMe !== false && (
+          <button
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onToggleStar(deck.id, !deck.starred);
+            }}
+            className={`rounded-md border border-border bg-black/60 p-2 backdrop-blur-sm hover:bg-black/80 sm:p-1.5 ${
+              deck.starred ? "" : "sm:opacity-0 sm:group-hover:opacity-100"
+            }`}
+            aria-label={
+              deck.starred ? t("home.unstarDeck") : t("home.starDeck")
+            }
+            aria-pressed={Boolean(deck.starred)}
+          >
+            {deck.starred ? (
+              <IconStarFilled className="h-3.5 w-3.5 text-[#F5C451]" />
+            ) : (
+              <IconStar className="h-3.5 w-3.5 text-foreground/70" />
+            )}
+          </button>
+        )}
         <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
           <DropdownMenuTrigger asChild>
             <button

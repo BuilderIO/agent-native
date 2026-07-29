@@ -3,7 +3,7 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
-import { getOrgSetting, putOrgSetting } from "@agent-native/core/settings";
+import { getOrgSetting, mutateOrgSetting } from "@agent-native/core/settings";
 import { and, eq, sql } from "drizzle-orm";
 
 import { getDb, schema } from "./db/index.js";
@@ -87,18 +87,32 @@ export async function writeWorkspaceDefaults(
   patch: Partial<WorkspaceDefaults>,
 ): Promise<WorkspaceDefaults> {
   const orgId = await assertWorkspaceAdmin();
-  const next: WorkspaceDefaults = {
-    ...(await getWorkspaceDefaults()),
-    ...patch,
+  const next = await mutateOrgSetting(
+    orgId,
+    WORKSPACE_DEFAULTS_KEY,
+    (raw: Record<string, unknown> | null) => {
+      const current: WorkspaceDefaults = raw
+        ? {
+            referenceDeckId: readId(raw.referenceDeckId),
+            designSystemId: readId(raw.designSystemId),
+          }
+        : EMPTY_DEFAULTS;
+      return { ...current, ...patch };
+    },
+  );
+  return {
+    referenceDeckId: readId(next.referenceDeckId),
+    designSystemId: readId(next.designSystemId),
   };
-  await putOrgSetting(orgId, WORKSPACE_DEFAULTS_KEY, { ...next });
-  return next;
 }
 
 /**
  * A default nobody else can open is worse than no default: every teammate's
  * first prompt would 404 on the reference lookup and silently produce an
- * off-brand deck. Refuse to set one that is still private.
+ * off-brand deck. Refuse to set one that is still private, and refuse an
+ * `org`-visible resource that belongs to a different org than the one it is
+ * being set as the default for — an individual viewer share on the caller's
+ * side must not make a foreign org's resource resolvable workspace-wide.
  */
 export async function assertWorkspaceVisible(
   kind: "deck" | "design-system",
@@ -106,17 +120,26 @@ export async function assertWorkspaceVisible(
 ): Promise<void> {
   const t = kind === "deck" ? schema.decks : schema.designSystems;
   const rows = await getDb()
-    .select({ visibility: t.visibility })
+    .select({ visibility: t.visibility, orgId: t.orgId })
     .from(t)
     .where(eq(t.id, id))
     .limit(1);
   if (rows.length === 0) {
     throw Object.assign(new Error(`${kind} not found`), { statusCode: 404 });
   }
-  if (rows[0].visibility === "private") {
+  const { visibility, orgId } = rows[0];
+  if (visibility === "private") {
     throw Object.assign(
       new Error(
         `This ${kind} is private, so nobody else in the workspace could use it. Share it with the workspace first, then set it as the default.`,
+      ),
+      { statusCode: 400 },
+    );
+  }
+  if (visibility === "org" && orgId !== getRequestOrgId()) {
+    throw Object.assign(
+      new Error(
+        `This ${kind} belongs to a different organization, so this workspace's members could not use it. Share it with this workspace first, then set it as the default.`,
       ),
       { statusCode: 400 },
     );

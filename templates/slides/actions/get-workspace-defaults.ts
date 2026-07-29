@@ -1,9 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { resolveAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
 import { z } from "zod";
 
-import { getDb, schema } from "../server/db/index.js";
 import {
   canManageWorkspaceDefaults,
   getWorkspaceDefaults,
@@ -39,13 +37,12 @@ export default defineAction({
 
     let designSystem: DefaultRef = null;
     if (defaults.designSystemId) {
-      const rows = await getDb()
-        .select({ title: schema.designSystems.title })
-        .from(schema.designSystems)
-        .where(eq(schema.designSystems.id, defaults.designSystemId))
-        .limit(1);
-      designSystem = rows[0]
-        ? { id: defaults.designSystemId, title: rows[0].title }
+      const access = await resolveAccess(
+        "design-system",
+        defaults.designSystemId,
+      );
+      designSystem = access
+        ? { id: defaults.designSystemId, title: access.resource.title }
         : { id: defaults.designSystemId, title: null, unavailable: true };
     }
 

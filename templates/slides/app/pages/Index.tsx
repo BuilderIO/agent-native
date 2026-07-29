@@ -225,6 +225,14 @@ export default function Index() {
   const [signInPromptHadFiles, setSignInPromptHadFiles] = useState(false);
   const [selectedDesignSystemId, setSelectedDesignSystemId] = useState("");
   const [selectedReferenceDeckId, setSelectedReferenceDeckId] = useState("");
+  // True while the picker still reflects an auto-applied default rather than
+  // an explicit user choice. `useWorkspaceDefaults()`/`useDesignSystems()`
+  // resolve asynchronously, so the initial value set on dialog open can be a
+  // placeholder ("none", or the first-loaded design system) — these stay
+  // true so the hydration effects below can overwrite it once the real
+  // default arrives, and flip to false the moment the user picks explicitly.
+  const designSystemAutoRef = useRef(true);
+  const referenceDeckAutoRef = useRef(true);
   const [showSignInDialog, setShowSignInDialog] = useState(false);
   const [duplicating, setDuplicating] = useState<string | null>(null);
   const duplicatingRef = useRef<string | null>(null);
@@ -294,6 +302,8 @@ export default function Index() {
   const openNewDeck = useCallback(
     (e: React.MouseEvent<HTMLElement>) => {
       anchorElRef.current = e.currentTarget;
+      designSystemAutoRef.current = true;
+      referenceDeckAutoRef.current = true;
       setSelectedDesignSystemId(initialDesignSystemId ?? "");
       setSelectedReferenceDeckId(workspaceReferenceDeckId ?? "none");
       setShowNewDeckPrompt(true);
@@ -336,19 +346,30 @@ export default function Index() {
     }
   }, []);
 
+  // Re-syncs the design-system picker whenever the resolved default changes
+  // while the dialog is open, not just on the first render after it opens.
+  // `useWorkspaceDefaults()` and `useDesignSystems()` load asynchronously and
+  // can settle in either order, so `initialDesignSystemId` may go from a
+  // provisional value to the real one after the picker already has a
+  // selection — guarding on `designSystemAutoRef` (instead of on whether
+  // `selectedDesignSystemId` is already set) lets that later value win as
+  // long as the user hasn't explicitly chosen something.
   useEffect(() => {
-    if (!showNewDeckPrompt || selectedDesignSystemId) return;
+    if (!showNewDeckPrompt || !designSystemAutoRef.current) return;
     if (initialDesignSystemId) {
       setSelectedDesignSystemId(initialDesignSystemId);
     } else if (designSystems.length > 0) {
       setSelectedDesignSystemId("none");
     }
-  }, [
-    initialDesignSystemId,
-    designSystems.length,
-    selectedDesignSystemId,
-    showNewDeckPrompt,
-  ]);
+  }, [initialDesignSystemId, designSystems.length, showNewDeckPrompt]);
+
+  // Same as above for the reference-deck picker: `workspaceReferenceDeckId`
+  // can still be loading when the dialog opens, so re-apply it once it
+  // resolves unless the user already picked a reference deck.
+  useEffect(() => {
+    if (!showNewDeckPrompt || !referenceDeckAutoRef.current) return;
+    setSelectedReferenceDeckId(workspaceReferenceDeckId ?? "none");
+  }, [workspaceReferenceDeckId, showNewDeckPrompt]);
 
   // Restore a prompt that was held back when the user wasn't signed in:
   // we wrote the text to sessionStorage before redirecting to sign-in,
@@ -369,6 +390,8 @@ export default function Index() {
       clearPendingPromptForRetry();
       setNewDeckInitialPrompt({ text: saved, key: Date.now() });
     }
+    designSystemAutoRef.current = true;
+    referenceDeckAutoRef.current = true;
     setSelectedDesignSystemId(initialDesignSystemId ?? "none");
     setSelectedReferenceDeckId(workspaceReferenceDeckId ?? "none");
     setShowNewDeckPrompt(true);
@@ -862,7 +885,10 @@ export default function Index() {
             </label>
             <Select
               value={selectedDesignSystemId || "none"}
-              onValueChange={setSelectedDesignSystemId}
+              onValueChange={(value) => {
+                designSystemAutoRef.current = false;
+                setSelectedDesignSystemId(value);
+              }}
             >
               <SelectTrigger className="h-8 w-full bg-accent/40 text-xs">
                 <SelectValue placeholder={t("raw.chooseDesignSystem")} />
@@ -888,7 +914,10 @@ export default function Index() {
             </label>
             <Select
               value={selectedReferenceDeckId || "none"}
-              onValueChange={setSelectedReferenceDeckId}
+              onValueChange={(value) => {
+                referenceDeckAutoRef.current = false;
+                setSelectedReferenceDeckId(value);
+              }}
             >
               <SelectTrigger className="h-8 w-full bg-accent/40 text-xs">
                 <SelectValue placeholder={t("home.referenceDeckPlaceholder")} />
