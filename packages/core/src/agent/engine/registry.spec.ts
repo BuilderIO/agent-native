@@ -1588,7 +1588,6 @@ describe("AgentEngine registry", () => {
       vi.doMock("../../db/client.js", () => ({
         isLocalDatabase: () => false,
       }));
-
       const { registerAgentEngine, resolveEngine } =
         await import("./registry.js");
 
@@ -1708,6 +1707,11 @@ describe("AgentEngine registry", () => {
       }));
       vi.doMock("../../db/client.js", () => ({
         isLocalDatabase: () => false,
+      }));
+      vi.doMock("../../server/builder-oauth.js", () => ({
+        BUILDER_OAUTH_SCOPE: "builder:ai:invoke",
+        hasBuilderOAuthSession: vi.fn().mockResolvedValue(false),
+        resolveBuilderOAuthRequestAccess: vi.fn().mockResolvedValue(null),
       }));
 
       const { registerAgentEngine, resolveEngine } =
