@@ -1,3 +1,5 @@
+import { isStandaloneHttpUrl } from "@shared/html-content";
+
 import {
   type DesignFile,
   type DesignLeftPanel,
@@ -6,22 +8,10 @@ import {
   SHOW_DESIGN_CODE_LEFT_PANEL,
 } from "./types";
 
-/**
- * A URL-backed screen's `design_files.content` is the route URL itself, not a
- * document. Any transform that parses stored content as HTML must refuse this
- * shape: `DOMParser` happily turns the URL into body text, so the "edited"
- * document that comes back out has silently replaced the route.
- */
-export function isStandaloneHttpUrl(value: string): boolean {
-  const trimmed = value.trim();
-  if (!/^https?:\/\//i.test(trimmed)) return false;
-  try {
-    const parsed = new URL(trimmed);
-    return parsed.protocol === "http:" || parsed.protocol === "https:";
-  } catch {
-    return false;
-  }
-}
+// Definition moved to shared/ so the server write path and code-layer's
+// document transforms guard on the same predicate. Re-exported here because
+// the editor's URL-backed-screen refusals all import it from this module.
+export { isStandaloneHttpUrl };
 
 /**
  * Resolve the source payload behind a localhost-backed Design screen.
