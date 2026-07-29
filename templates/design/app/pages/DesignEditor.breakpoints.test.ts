@@ -560,6 +560,19 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     const singleElementStart = handler.indexOf(
       "// Item 7b — same breakpoint-scoped display:none routing",
     );
+    const multiElementBranch = handler.slice(0, singleElementStart);
+    expect(multiElementBranch).toContain(
+      "file.id === activeFile?.id && !useBreakpointScopedDelete",
+    );
+    expect(multiElementBranch).toContain(
+      "if (updated && useBreakpointScopedDelete)",
+    );
+    expect(multiElementBranch).toContain(
+      "syncLiveScreenSnapshotPreview(file.id, content)",
+    );
+    expect(multiElementBranch).toContain(
+      "if (shouldDeleteActiveLiveDom) {\n        deleteFromLiveDom(activeRuntimeSelectors);",
+    );
     const singleElementEnd = handler.indexOf(
       "const nextContent = removeElementFromHtml",
       singleElementStart,

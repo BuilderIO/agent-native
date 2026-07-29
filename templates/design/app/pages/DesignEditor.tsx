@@ -17023,6 +17023,7 @@ function DesignEditor() {
     const snapshots = getSelectedLayerSnapshots();
     if (snapshots.length > 0) {
       const activeRuntimeSelectors: string[] = [];
+      let shouldDeleteActiveLiveDom = false;
       let didDelete = false;
       // U14: motion tracks left targeting a deleted node's id would animate
       // nothing. Collected across every deleted subtree in the active file
@@ -17145,8 +17146,9 @@ function DesignEditor() {
             formerParentAttrIds,
           );
         }
-        if (file.id === activeFile?.id) {
+        if (file.id === activeFile?.id && !useBreakpointScopedDelete) {
           activeRuntimeSelectors.push(...removedSelectors);
+          shouldDeleteActiveLiveDom = true;
         }
         didDelete = true;
         if (liveSnapshot) {
@@ -17155,7 +17157,10 @@ function DesignEditor() {
           // entry that now also re-syncs the live iframe (see
           // syncLiveScreenSnapshotPreview) instead of only updating the
           // model liveScreenSnapshotsById state.
-          updateLiveScreenSnapshotContent(file.id, content);
+          const updated = updateLiveScreenSnapshotContent(file.id, content);
+          if (updated && useBreakpointScopedDelete) {
+            syncLiveScreenSnapshotPreview(file.id, content);
+          }
         } else {
           // Item 5 (edit-flash) parity: a breakpoint-scoped write can become a
           // width-scoped class OR a managed @media rule (planBreakpointStyleWrite),
@@ -17185,7 +17190,9 @@ function DesignEditor() {
         // autosave revision, which the autosave effect dedupes.
         pruneMotionTracksByNodeId(idsToRemove);
       }
-      deleteFromLiveDom(activeRuntimeSelectors);
+      if (shouldDeleteActiveLiveDom) {
+        deleteFromLiveDom(activeRuntimeSelectors);
+      }
       setSelectedElement(null);
       setSelectedLayerIdsState([]);
       if (viewModeRef.current === "overview") {
