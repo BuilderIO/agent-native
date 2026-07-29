@@ -92,6 +92,29 @@ describe("live screen URL preview guard", () => {
     );
   });
 
+  it("refuses to PROJECT a route URL as the edit source when the snapshot is missing", () => {
+    // Read-direction counterpart of the guards above. Observed: a commit with no
+    // snapshot yet projected "http://localhost:3000/" as its source document, so
+    // the selection resolved `absent` and a load-timing miss was reported as an
+    // element with no editable source.
+    const section = sourceSection(
+      "const commitVisualStyles = useCallback(",
+      "const commitStylesToSelectedLayers = useCallback(",
+    );
+    const guard = "if (isStandaloneHttpUrl(baseContent))";
+
+    expect(section).toContain(guard);
+    // Must refuse BEFORE the projection is built, or the doomed 3-node parse
+    // still happens and the misleading "no editable match" wins the race.
+    expect(section.indexOf(guard)).toBeLessThan(
+      section.indexOf("buildCodeLayerProjection(baseContent)"),
+    );
+    // Named as a load-timing failure, not as a missing element.
+    expect(section).toMatch(
+      /if \(isStandaloneHttpUrl\(baseContent\)\) \{[\s\S]*?snapshotNotLoaded[\s\S]*?return;\s*\}/,
+    );
+  });
+
   it("refuses design-state preview and restore on a live screen", () => {
     const section = sourceSection(
       "const handleDesignStateSelect = useCallback(",
