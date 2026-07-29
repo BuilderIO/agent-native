@@ -116,9 +116,7 @@
   var STACK_FRAME_RE =
     /^\s*at\s+(?:([^\s(]+)\s+\()?([^()\s][^()]*?):(\d+):(\d+)\)?\s*$/;
 
-  function parseStackFrame(
-    line: string,
-  ): {
+  function parseStackFrame(line: string): {
     sourceFile: string;
     line: number;
     column: number;
@@ -141,9 +139,7 @@
     };
   }
 
-  function extractFromDebugStack(
-    stack: string,
-  ): {
+  function extractFromDebugStack(stack: string): {
     sourceFile: string;
     line: number;
     column: number;
