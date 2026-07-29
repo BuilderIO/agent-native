@@ -547,6 +547,8 @@ const messages = {
     useColor: "Use {{color}}",
     logo: "Logo",
     logoPreview: "Logo preview",
+    logoUsage: "Shown to recipients in share emails and on public clip pages.",
+    emailHeaderPreview: "Share email header",
     dropReplace: "Drop a new image to replace",
     dropHere: "Drop a PNG / JPG / SVG here",
     uploading: "Uploading…",
@@ -643,10 +645,6 @@ All notable user-facing changes to Clips are documented here. Open it any time f
 ### Added
 
 - See what's new right inside Clips. A changelog now lives in the command menu (Cmd+K) and in Settings.`,
-    profile: "Profile",
-    email: "Email",
-    displayName: "Display name",
-    displayNamePlaceholder: "Your name",
     playback: "Playback",
     defaultPlaybackSpeed: "Default playback speed",
     playbackDescription: "Applied automatically when you open a recording.",
@@ -786,6 +784,7 @@ All notable user-facing changes to Clips are documented here. Open it any time f
       "No organization yet. Create one from the organization switcher to get started.",
     description: "Organization admin: branding, members, invites.",
     adminsOnlyBranding: "Only admins can edit branding.",
+    brandingLoadFailed: "Couldn't load organization branding.",
     members: "Members",
     pendingInvites: "Pending invites",
     noPendingInvites: "No pending invites.",
