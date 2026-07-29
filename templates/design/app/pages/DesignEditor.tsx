@@ -6651,8 +6651,7 @@ function DesignEditor() {
           : undefined;
         const targetMetadataSize = targetScreen
           ? {
-              width:
-                targetScreen.width ?? DEFAULT_INTERACT_DEVICE_PRESET.width,
+              width: targetScreen.width ?? DEFAULT_INTERACT_DEVICE_PRESET.width,
               height:
                 targetScreen.height ?? DEFAULT_INTERACT_DEVICE_PRESET.height,
             }
@@ -12520,11 +12519,13 @@ function DesignEditor() {
       selector?: string;
       title?: string;
     }) => {
+      if (viewModeRef.current === "single") {
+        viewModeRef.current = "overview";
+        setViewMode("overview");
+      }
       if (selection.fileId) {
         setActiveFileId(selection.fileId);
-        if (viewModeRef.current === "overview") {
-          setOverviewSelectedScreenIds([selection.fileId]);
-        }
+        setOverviewSelectedScreenIds([selection.fileId]);
       }
       if (selection.nodeId) {
         setSelectedLayerIdsState([selection.nodeId]);
@@ -23022,7 +23023,10 @@ function DesignEditor() {
   }, [handleShowLayersPanel]);
 
   useDesignHotkeys({
-    enabled: !embedded && !(pendingQuestions && pendingQuestions.length > 0),
+    enabled:
+      !embedded &&
+      !responsiveInteractActive &&
+      !(pendingQuestions && pendingQuestions.length > 0),
     shouldHandleEvent: shouldHandleEditorHotkey,
     onMoveTool: canEditDesign ? handleMoveTool : undefined,
     onFrameTool: canEditDesign ? handleFrameTool : undefined,
@@ -25580,6 +25584,12 @@ function DesignEditor() {
     }
     const owner = codeLayerOwnerByNodeId.get(initialRouteSelectionId);
     if (!owner) return;
+    // Interact owns the running app and must not hydrate a host-editor
+    // selection that switches the shell back to Edit on the focused screen.
+    if (viewModeRef.current === "single") {
+      initialUrlSelectionHydratedForIdRef.current = id;
+      return;
+    }
     const selectionBlocked =
       effectiveCodeLayerState.lockedIds.has(owner.fileId) ||
       effectiveCodeLayerState.hiddenIds.has(owner.fileId) ||

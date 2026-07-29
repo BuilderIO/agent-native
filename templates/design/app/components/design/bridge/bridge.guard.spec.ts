@@ -6524,6 +6524,7 @@ it(
       });
 
       expect(provenance).toEqual({
+        framework: "react",
         sourceFile: "app/routes/_index.tsx",
         line: 78,
         column: 35,

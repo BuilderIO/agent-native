@@ -606,9 +606,7 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     );
     expect(modeHandler).toContain("resolveModeChangeView({");
     expect(modeHandler).toContain('if (routing === "enter-single-interact")');
-    expect(modeHandler).toContain(
-      'enterSingleScreen(nextActiveFile?.id, "interact")',
-    );
+    expect(modeHandler).toContain("enterSingleScreen(nextActiveFile?.id)");
     // The other direction: Edit/Annotate picked from a focused screen must
     // route back to the canvas, never fall through to a bare setMode that
     // leaves viewMode "single" (the forbidden single-screen editing state).

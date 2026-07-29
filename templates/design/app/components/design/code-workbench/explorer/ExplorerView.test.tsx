@@ -9,12 +9,17 @@ import { ExplorerView } from "./ExplorerView";
 
 const mocks = vi.hoisted(() => ({
   fileTree: vi.fn(),
+  t: (key: string) => key,
   useActionQuery: vi.fn(),
   useWorkbench: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
   useActionQuery: (...args: unknown[]) => mocks.useActionQuery(...args),
+}));
+
+vi.mock("@agent-native/core/client/i18n", () => ({
+  useT: () => mocks.t,
 }));
 
 vi.mock("../store", () => ({

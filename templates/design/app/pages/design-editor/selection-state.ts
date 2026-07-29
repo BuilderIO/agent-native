@@ -339,11 +339,7 @@ export function getSidebarCodeLayerSelectionState(args: {
   overviewSelectedScreenIds: string[];
   screenFileIds?: string[];
 }) {
-  const {
-    ownerFileId,
-    overviewSelectedScreenIds,
-    screenFileIds,
-  } = args;
+  const { ownerFileId, overviewSelectedScreenIds, screenFileIds } = args;
   const ownerScreenId =
     ownerFileId && (!screenFileIds || screenFileIds.includes(ownerFileId))
       ? ownerFileId
@@ -353,12 +349,11 @@ export function getSidebarCodeLayerSelectionState(args: {
     // canvas. Keeping `single` here let the Layers rail turn Interact into the
     // removed focused Edit view when the handler subsequently set mode=edit.
     viewMode: "overview" as const,
-    overviewSelectedScreenIds:
-      ownerScreenId
-        ? [ownerScreenId]
-        : ownerFileId
-          ? []
-          : overviewSelectedScreenIds,
+    overviewSelectedScreenIds: ownerScreenId
+      ? [ownerScreenId]
+      : ownerFileId
+        ? []
+        : overviewSelectedScreenIds,
   };
 }
 

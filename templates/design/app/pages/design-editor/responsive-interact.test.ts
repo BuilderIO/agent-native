@@ -157,8 +157,8 @@ describe("responsive Interact wiring", () => {
   });
 
   it("routes every Interact request into the responsive view", () => {
-    expect(source).toContain('enterSingleScreen(screenId, "interact")');
-    expect(source).toContain('enterSingleScreen(activeFileId, "interact")');
+    expect(source).toContain("enterSingleScreen(screenId)");
+    expect(source).toContain("enterSingleScreen(activeFileId)");
     expect(source).toContain("resolveModeChangeView({");
     // Interact is the only mode that lives on a focused screen, so the bottom
     // toolbar's tools and mode tabs are hidden while it owns the surface.
@@ -168,6 +168,32 @@ describe("responsive Interact wiring", () => {
       "utf8",
     );
     expect(frames).not.toContain('t("multiScreenCanvas.fullView")');
+  });
+
+  it("keeps editor-shell editing paths inert while Interact owns the screen", () => {
+    const hotkeys = source.slice(
+      source.indexOf("useDesignHotkeys({"),
+      source.indexOf("const startRetryGeneration"),
+    );
+    expect(hotkeys).toContain("!responsiveInteractActive");
+
+    const selectionHydration = source.slice(
+      source.indexOf("const selectedLayerIdsRef"),
+      source.indexOf("initialUrlSelectionHydratedForIdRef.current !== id"),
+    );
+    expect(selectionHydration).toContain(
+      'if (viewModeRef.current === "single")',
+    );
+    expect(selectionHydration).toContain(
+      "initialUrlSelectionHydratedForIdRef.current = id",
+    );
+
+    const assetInsertion = source.slice(
+      source.indexOf("const handleAssetInserted"),
+      source.indexOf("const designExtensionContext"),
+    );
+    expect(assetInsertion).toContain('viewModeRef.current = "overview"');
+    expect(assetInsertion).toContain('setViewMode("overview")');
   });
 
   it("keeps a way out of Interact into Edit/Annotate on the one canvas path", () => {

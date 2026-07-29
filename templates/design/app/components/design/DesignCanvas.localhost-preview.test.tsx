@@ -64,7 +64,10 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
     const registration = new Promise<Response>((resolve) => {
       resolveRegistration = resolve;
     });
-    vi.stubGlobal("fetch", vi.fn(() => registration));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => registration),
+    );
 
     await act(async () => {
       root.render(
@@ -120,9 +123,9 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
         }),
       );
     });
-    expect(
-      container.querySelector("iframe[data-design-preview-iframe]"),
-    ).toBe(liveIframe);
+    expect(container.querySelector("iframe[data-design-preview-iframe]")).toBe(
+      liveIframe,
+    );
   });
 
   it("mounts source verification in a separate hidden runtime without replacing the editable iframe", async () => {

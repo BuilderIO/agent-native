@@ -1,4 +1,5 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { prettyScreenName } from "@/lib/screen-names";
@@ -34,6 +35,7 @@ export function ExplorerView({
   explorerFocusToken,
   onRequestLocalWriteConsent,
 }: ExplorerViewProps) {
+  const t = useT();
   const { state, api, providers } = useWorkbench();
 
   const inlineProviderKey = `inline:${designId}`;
@@ -113,14 +115,12 @@ export function ExplorerView({
             files: current[providerKey]?.files ?? [],
             loading: false,
             error:
-              error instanceof Error
-                ? error.message
-                : "Could not load local files" /* i18n-ignore */,
+              error instanceof Error ? error.message : t("common.genericError"),
           },
         }));
       }
     },
-    [providers],
+    [providers, t],
   );
 
   useEffect(() => {
