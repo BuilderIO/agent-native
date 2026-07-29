@@ -15,6 +15,7 @@ export {
   useSwitchOrg,
   useJoinByDomain,
   useSetOrgDomain,
+  useSetOrgWorkspaceUrl,
   useRevealA2ASecret,
   useSetA2ASecret,
   useSyncA2ASecret,
@@ -43,6 +44,7 @@ export {
   InvitationBanner,
   type InvitationBannerProps,
 } from "./InvitationBanner.js";
+export { WorkspaceNotice } from "./WorkspaceNotice.js";
 export { TeamPage, type TeamPageProps } from "./TeamPage.js";
 export {
   RequireActiveOrg,

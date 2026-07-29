@@ -1,12 +1,23 @@
-import * as monaco from "monaco-editor";
-import { typescript as monacoTypescript } from "monaco-editor";
+import * as monaco from "monaco-editor/esm/vs/editor/editor.api.js";
+import EditorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 
 import "monaco-editor/min/vs/editor/editor.main.css";
-import EditorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
+import "monaco-editor/esm/vs/basic-languages/javascript/javascript.contribution.js";
+import "monaco-editor/esm/vs/basic-languages/markdown/markdown.contribution.js";
+import "monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution.js";
+import "monaco-editor/esm/vs/basic-languages/xml/xml.contribution.js";
+import "monaco-editor/esm/vs/basic-languages/yaml/yaml.contribution.js";
 import CssWorker from "monaco-editor/esm/vs/language/css/css.worker?worker";
+import "monaco-editor/esm/vs/language/css/monaco.contribution.js";
 import HtmlWorker from "monaco-editor/esm/vs/language/html/html.worker?worker";
+import "monaco-editor/esm/vs/language/html/monaco.contribution.js";
 import JsonWorker from "monaco-editor/esm/vs/language/json/json.worker?worker";
+import "monaco-editor/esm/vs/language/json/monaco.contribution.js";
+import * as monacoTypescriptRuntime from "monaco-editor/esm/vs/language/typescript/monaco.contribution.js";
 import TypeScriptWorker from "monaco-editor/esm/vs/language/typescript/ts.worker?worker";
+
+const monacoTypescript =
+  monacoTypescriptRuntime as unknown as (typeof import("monaco-editor"))["typescript"];
 
 /**
  * Global Monaco environment + language-service wiring, adopted from the old

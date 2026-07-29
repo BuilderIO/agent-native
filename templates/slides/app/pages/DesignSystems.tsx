@@ -1,4 +1,4 @@
-import { callAction } from "@agent-native/core/client/hooks";
+import { callAction, useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   useSetHeaderActions,
@@ -45,6 +45,8 @@ export default function DesignSystems() {
   const [workspaceDefaultCandidate, setWorkspaceDefaultCandidate] = useState<
     (typeof designSystems)[number] | undefined
   >(undefined);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const deleteMutation = useActionMutation("delete-design-system");
 
   const handleCardClick = (id: string) => {
     setEditingId(id);
@@ -60,9 +62,7 @@ export default function DesignSystems() {
     }
   };
 
-  const applyWorkspaceDefault = async (
-    ds: (typeof designSystems)[number],
-  ) => {
+  const applyWorkspaceDefault = async (ds: (typeof designSystems)[number]) => {
     try {
       // Private means unreadable to teammates, which would make the workspace
       // default silently do nothing for them. Share through the audited action.
@@ -126,6 +126,21 @@ export default function DesignSystems() {
   const handleClose = () => {
     setShowSetup(false);
     setEditingId(null);
+  };
+
+  const handleConfirmDelete = () => {
+    if (deleteId === null) return;
+    const id = deleteId;
+    setDeleteId(null);
+    deleteMutation.mutate({ id } as never, {
+      onSuccess: () => refetch(),
+      onError: (err: unknown) => {
+        void refetch();
+        toast.error(t("designSystems.deleteError"), {
+          description: err instanceof Error ? err.message : undefined,
+        });
+      },
+    });
   };
 
   const parseDesignData = (dataStr: string): DesignSystemData | null => {
@@ -249,8 +264,10 @@ export default function DesignSystems() {
                     data={parsed}
                     isDefault={ds.isDefault}
                     visibility={ds.visibility}
+                    canManage={ds.canManage}
                     onClick={() => handleCardClick(ds.id)}
                     onSetDefault={() => handleSetDefault(ds.id)}
+                    onDelete={() => setDeleteId(ds.id)}
                     isWorkspaceDefault={workspaceDesignSystem?.id === ds.id}
                     canSetWorkspaceDefault={canManageWorkspaceDefaults}
                     onSetWorkspaceDefault={(isDefault) =>
@@ -285,6 +302,31 @@ export default function DesignSystems() {
             <AlertDialogCancel>{t("home.cancel")}</AlertDialogCancel>
             <AlertDialogAction onClick={confirmWorkspaceDefault}>
               {t("home.workspaceDefaultConfirmAction")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={deleteId !== null}
+        onOpenChange={(open) => !open && setDeleteId(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("designSystems.deleteDialogTitle")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("designSystems.deleteDialogDescription")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("designSystems.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {t("designSystems.delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -5,10 +5,6 @@ import {
   seedFromText,
 } from "@agent-native/core/collab";
 import { buildDeepLink } from "@agent-native/core/server";
-import {
-  getRequestOrgId,
-  getRequestUserEmail,
-} from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
@@ -19,6 +15,7 @@ import {
   mutateDesignData,
   type DesignDataRecord,
 } from "../server/lib/design-data-mutation.js";
+import { resolveLocalhostConnectionScope } from "../server/lib/localhost-connection.js";
 import {
   mergeCanvasFramePlacements,
   parseCanvasFrameGeometryById,
@@ -366,9 +363,7 @@ export default defineAction({
     gap,
   }) => {
     await assertAccess("design", designId, "editor");
-    const ownerEmail = getRequestUserEmail();
-    if (!ownerEmail) throw new Error("no authenticated user");
-    const orgId = getRequestOrgId() ?? null;
+    const { ownerEmail, orgId } = await resolveLocalhostConnectionScope();
     const db = getDb();
 
     const connectionClauses = [

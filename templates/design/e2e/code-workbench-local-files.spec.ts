@@ -63,6 +63,22 @@ test.beforeAll(async ({ request }, workerInfo) => {
     path.join(rootPath, "src", "App.tsx"),
     "export function App() { return <main>Original local source</main>; }\n",
   );
+  fs.writeFileSync(
+    path.join(rootPath, "src", "Component.jsx"),
+    'export const Component = () => <section className="card">JSX</section>;\n',
+  );
+  fs.writeFileSync(
+    path.join(rootPath, "src", "Component.vue"),
+    '<template><section class="card">{{ title }}</section></template>\n<script setup>const title = "Vue"</script>\n<style>.card { color: blue; }</style>\n',
+  );
+  fs.writeFileSync(
+    path.join(rootPath, "src", "Component.svelte"),
+    '<script>const title = "Svelte";</script>\n<section class="card">{title}</section>\n<style>.card { color: green; }</style>\n',
+  );
+  fs.writeFileSync(
+    path.join(rootPath, "src", "Component.astro"),
+    '---\nconst title = "Astro";\n---\n<section class="card">{title}</section>\n',
+  );
   fs.writeFileSync(path.join(rootPath, "Dockerfile"), "FROM scratch\n");
   fs.writeFileSync(path.join(rootPath, ".prettierrc"), '{"semi":true}\n');
   fs.writeFileSync(path.join(rootPath, ".env"), "EXAMPLE_SECRET=blocked\n");
@@ -137,6 +153,39 @@ test("lists the spawned folder, preserves dirty buffers, and saves a local file"
   await page.getByText("App.tsx", { exact: true }).click();
   await expect(page.getByTestId("design-code-monaco-editor")).toBeVisible();
 
+  for (const [filename, language] of [
+    ["App.tsx", "typescript"],
+    ["Component.jsx", "javascript"],
+    ["Component.vue", "html"],
+    ["Component.svelte", "html"],
+    ["Component.astro", "html"],
+  ] as const) {
+    await page.getByText(filename, { exact: true }).click();
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const workbench = (
+            window as typeof window & { __designCodeWorkbench?: any }
+          ).__designCodeWorkbench;
+          const uri = workbench?.api.getState().activeUri;
+          return uri
+            ? workbench?.modelRegistry.get(uri)?.model.getLanguageId()
+            : null;
+        }),
+      )
+      .toBe(language);
+    await expect
+      .poll(() =>
+        page
+          .locator(
+            '[data-testid="design-code-monaco-editor"] .view-line span[class*="mtk"]',
+          )
+          .count(),
+      )
+      .toBeGreaterThan(3);
+  }
+
+  await page.getByText("App.tsx", { exact: true }).click();
   const localUri = await page.evaluate(async () => {
     const workbench = (
       window as typeof window & {

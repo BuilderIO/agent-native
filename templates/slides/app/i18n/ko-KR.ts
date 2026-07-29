@@ -162,6 +162,13 @@ const messages = {
   designSystems: {
     new: "새 디자인 시스템",
     setupBrand: "브랜드 설정",
+    delete: "삭제",
+    cancel: "취소",
+    moreActions: "추가 작업",
+    deleteDialogTitle: "디자인 시스템을 삭제할까요?",
+    deleteDialogDescription:
+      "디자인 시스템이 영구적으로 삭제됩니다. 이를 사용하는 덱은 현재 모양을 유지하지만 더 이상 연결되지 않습니다.",
+    deleteError: "디자인 시스템을 삭제하지 못했습니다",
     emptyTitle: "브랜드 아이덴티티 설정",
     emptyDescription:
       "브랜드 색상, 타이포그래피, 로고로 디자인 시스템을 만드세요. 새 덱은 모두 이 시각적 정체성을 따릅니다.",

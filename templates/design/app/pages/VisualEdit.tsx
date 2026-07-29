@@ -8,6 +8,7 @@ import {
   IconDeviceFloppy,
   IconLayoutGrid,
 } from "@tabler/icons-react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router";
 
 import { Button } from "@/components/ui/button";
@@ -16,10 +17,22 @@ export default function VisualEditPage() {
   const t = useT();
   const { session } = useSession();
   const hasSession = Boolean(session?.email);
-  const primaryHref = hasSession
-    ? "/"
-    : buildSignInReturnHref({ returnTo: "/visual-edit?intent=save" });
-  const primaryAriaLabel = hasSession
+  const [hasHydrated, setHasHydrated] = useState(false);
+  const [signInHref, setSignInHref] = useState<string | null>(null);
+
+  useEffect(() => {
+    setHasHydrated(true);
+    if (hasSession) return;
+    setSignInHref(
+      buildSignInReturnHref({ returnTo: "/visual-edit?intent=save" }),
+    );
+  }, [hasSession]);
+
+  // Server shells are intentionally anonymous; defer session-specific chrome
+  // until after hydration so the public entry never reconciles different links.
+  const isSignedIn = hasHydrated && hasSession;
+  const primaryHref = isSignedIn ? "/" : (signInHref ?? undefined);
+  const primaryAriaLabel = isSignedIn
     ? t("visualEdit.openDesign")
     : t("designEditor.signUpToSave");
 
@@ -35,7 +48,7 @@ export default function VisualEditPage() {
           </Link>
           <Button asChild variant="outline" size="sm">
             <a href={primaryHref} aria-label={primaryAriaLabel}>
-              {hasSession
+              {isSignedIn
                 ? t("visualEdit.openDesign")
                 : t("designEditor.signUpToSave")}
               <IconArrowUpRight className="size-4" />
@@ -59,7 +72,7 @@ export default function VisualEditPage() {
               <Button asChild size="lg" className="gap-2">
                 <a href={primaryHref} aria-label={primaryAriaLabel}>
                   <IconDeviceFloppy className="size-4" />
-                  {hasSession
+                  {isSignedIn
                     ? t("visualEdit.openDesign")
                     : t("designEditor.signUpToSave")}
                 </a>

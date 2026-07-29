@@ -30,6 +30,7 @@ export type DistillationAgentRunner = (
 export interface ProcessBrainIngestQueueOptions {
   limit?: number;
   runDistillation?: boolean;
+  maxDistillations?: number;
   distillationRunner?: DistillationAgentRunner;
 }
 
@@ -331,9 +332,20 @@ export async function processBrainIngestQueueOnce(
     const processed: string[] = [];
     const deferred: string[] = [];
     const failed: string[] = [];
+    const maxDistillations = Math.max(
+      0,
+      Math.floor(options.maxDistillations ?? Number.POSITIVE_INFINITY),
+    );
+    let distillationsStarted = 0;
     for (const row of rows) {
       const payload = parseJson<Record<string, unknown>>(row.payloadJson, {});
       if (row.operation === "distill") {
+        if (
+          options.runDistillation &&
+          distillationsStarted >= maxDistillations
+        ) {
+          continue;
+        }
         if (!options.runDistillation) {
           const claimToken = await claimForHeadlessRunner(row, payload);
           if (!claimToken) continue;
@@ -367,6 +379,7 @@ export async function processBrainIngestQueueOnce(
         };
         const claimToken = await claimForHeadlessRunner(row, nextPayload);
         if (!claimToken) continue;
+        distillationsStarted += 1;
 
         try {
           const runner =

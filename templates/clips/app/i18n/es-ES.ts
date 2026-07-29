@@ -950,6 +950,7 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     replyingTo: "Respondiendo a",
     commentAt: "Comentar en",
     writeReply: "Escribe una respuesta...",
+    editComment: "Editar comentario",
     commentButton: "Comentar",
     composerPlaceholder: "Añadir un comentario…",
     mentionSomeone: "Mencionar a alguien",
@@ -1355,7 +1356,7 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     downloadDesktopApp: "Download desktop app (Localizado)",
     technicalDetails: "Technical details (Localizado)",
     whatToCheck: "What to check (Localizado)",
-    downloadRecording: "Download recording (Localizado)",
+    downloadRecording: "Download (Localizado)",
     openRecorderInTab: "Open recorder in tab (Localizado)",
     connectStorageToFinish:
       "Conecta almacenamiento en la siguiente pantalla: Builder.io (almacenamiento + IA en el plan gratuito) o almacenamiento compatible con S3. Clips terminará de guardarlo.",

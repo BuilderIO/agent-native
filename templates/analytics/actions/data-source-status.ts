@@ -29,6 +29,15 @@ const DATA_SOURCES_SETUP_LINK = buildDeepLink({
   to: "/data-sources",
 });
 
+function dataSourceSetupLink(provider: string): string {
+  const source = encodeURIComponent(provider);
+  return buildDeepLink({
+    app: APP_ID,
+    view: "data-sources",
+    to: `/data-sources?source=${source}&returnTo=ask`,
+  });
+}
+
 const BUILT_IN_FIRST_PARTY_PROVIDER = {
   provider: "first-party",
   label: "First-party Analytics",
@@ -74,7 +83,7 @@ async function listWorkspaceConnectionsForStatus(): Promise<{
 
 export default defineAction({
   description:
-    "List which analytics data sources are available without revealing secret values. This always includes the built-in first-party Analytics event store, which is queried with `query-agent-native-analytics`; it also reports configured credentials and granted workspace connections. The result includes `hasConnectedExternalDataSources`, `connectedExternalDataSourceCount`, and `dataSourcesSetupLink`; when a requested provider is unavailable, use that link for contextual setup guidance. The `key` arg accepts exact credential names like JIRA_API_TOKEN and provider aliases like jira, pylon, bigquery, github, hubspot, gong, or slack.",
+    "List which analytics data sources are available without revealing secret values. This always includes the built-in first-party Analytics event store, which is queried with `query-agent-native-analytics`; it also reports configured credentials and granted workspace connections. The result includes `hasConnectedExternalDataSources`, `connectedExternalDataSourceCount`, and `dataSourcesSetupLink`; each provider also includes a focused `setupLink`. When a requested provider is unavailable, use its focused link for contextual setup guidance. The `key` arg accepts exact credential names like JIRA_API_TOKEN and provider aliases like jira, pylon, bigquery, github, hubspot, gong, or slack.",
   schema: z.object({
     key: z
       .string()
@@ -198,6 +207,7 @@ export default defineAction({
         return {
           provider: provider.provider,
           label: provider.label,
+          setupLink: dataSourceSetupLink(provider.provider),
           // A failed workspace-connection lookup cannot prove a provider is
           // disconnected — a workspace-held connection lives in exactly the
           // data we could not read. Report null, never false.

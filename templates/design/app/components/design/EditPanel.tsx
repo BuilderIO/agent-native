@@ -217,6 +217,7 @@ import {
 } from "./edit-panel/fill-gradient-helpers";
 import { FillProperties } from "./edit-panel/fill-properties";
 import { FramePresetsPanel } from "./edit-panel/frame-presets-panel";
+import type { InspectCodeSourceLocation } from "./edit-panel/inspect-code-source";
 import {
   InspectorIconButton,
   InspectorSegment,
@@ -687,14 +688,91 @@ export interface InspectCodeData {
    * Resolved source file for real-app sources (localhost / fusion), when the
    * resolveNodeToFile capability is available.
    */
-  sourceLocation?: {
-    /** Absolute path on disk — used to build the vscode:// deep link. */
-    absolutePath: string;
-    line?: number;
-    column?: number;
-    /** Optional snippet to show above the Open-in-VS-Code button. */
-    snippet?: string;
-  } | null;
+  sourceLocation?:
+    | (InspectCodeSourceLocation & {
+        /** Optional snippet to show above the Open-in-VS-Code button. */
+        snippet?: string;
+      })
+    | null;
+}
+
+function sourcePositionLabel(
+  source: Pick<InspectCodeSourceLocation, "filePath" | "line" | "column">,
+): string {
+  if (source.line == null) return source.filePath;
+  return `${source.filePath}:${source.line}${
+    source.column == null ? "" : `:${source.column}`
+  }`;
+}
+
+function sourcePrecisionLabel(
+  method: InspectCodeSourceLocation["method"],
+): string | null {
+  if (method === "debug-stack") return "Runtime-transformed location"; // i18n-ignore design inspector technical provenance label
+  if (method === "debug-source" || method === "data-attribute") {
+    return "Authored source location"; // i18n-ignore design inspector technical provenance label
+  }
+  return null;
+}
+
+function SourceLocationSummary({
+  source,
+}: {
+  source: InspectCodeSourceLocation;
+}) {
+  const precision = sourcePrecisionLabel(source.method);
+  const ownerPrecision = source.owner
+    ? sourcePrecisionLabel(source.owner.method)
+    : null;
+  return (
+    <div className="space-y-1">
+      <div
+        className="rounded bg-[var(--design-editor-control-bg)] px-2 py-1.5"
+        title={sourcePositionLabel(source)}
+      >
+        <div className="flex min-w-0 items-center gap-1">
+          <IconCode className="size-3 shrink-0 text-muted-foreground/60" />
+          {source.componentName ? (
+            <span className="shrink-0 font-medium text-foreground">
+              {source.componentName}
+            </span>
+          ) : null}
+          <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-muted-foreground">
+            {sourcePositionLabel(source)}
+          </span>
+        </div>
+        {precision ? (
+          <div className="mt-0.5 pl-4 text-[9px] text-muted-foreground/70">
+            {precision}
+          </div>
+        ) : null}
+      </div>
+      {source.owner ? (
+        <div
+          className="rounded border border-border/60 px-2 py-1 text-[10px] text-muted-foreground"
+          title={sourcePositionLabel(source.owner)}
+        >
+          <div className="truncate">
+            <span className="mr-1 font-medium text-foreground/80">
+              {"Owner" /* i18n-ignore design inspector provenance label */}
+            </span>
+            {source.owner.componentName
+              ? `${source.owner.componentName} · `
+              : ""}
+            <span className="font-mono">
+              {sourcePositionLabel(source.owner)}
+            </span>
+            {source.owner.key ? ` · key ${source.owner.key}` : ""}
+          </div>
+          {ownerPrecision ? (
+            <div className="mt-0.5 text-[9px] text-muted-foreground/70">
+              {ownerPrecision}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 /**
@@ -882,18 +960,7 @@ function InspectCodePopover({ data }: { data: InspectCodeData }) {
           </Button>
         </div>
 
-        {source && (
-          <div
-            className="flex items-center gap-1 rounded bg-[var(--design-editor-control-bg)] px-2 py-1"
-            title={source.absolutePath}
-          >
-            <IconCode className="size-3 shrink-0 text-muted-foreground/60" />
-            <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-muted-foreground">
-              {source.absolutePath}
-              {source.line != null ? `:${source.line}` : ""}
-            </span>
-          </div>
-        )}
+        {source ? <SourceLocationSummary source={source} /> : null}
 
         {snippet ? (
           <pre className="max-h-64 overflow-auto rounded bg-[var(--design-editor-control-bg)] p-2 font-mono text-[10px] leading-relaxed text-foreground">
@@ -907,7 +974,7 @@ function InspectCodePopover({ data }: { data: InspectCodeData }) {
           </p>
         )}
 
-        {source && (
+        {source?.absolutePath ? (
           <a
             href={vscodeDeepLink(
               source.absolutePath,
@@ -926,7 +993,7 @@ function InspectCodePopover({ data }: { data: InspectCodeData }) {
               {"Open in VS Code" /* i18n-ignore design inspector action */}
             </Button>
           </a>
-        )}
+        ) : null}
       </PopoverContent>
     </Popover>
   );
@@ -1040,6 +1107,11 @@ function CodeInspectPanel({
       ) : null}
 
       <PanelSection title={"Code" /* i18n-ignore design inspector section */}>
+        {data?.sourceLocation ? (
+          <div className="mb-2">
+            <SourceLocationSummary source={data.sourceLocation} />
+          </div>
+        ) : null}
         {snippet ? (
           <pre className="max-h-80 overflow-auto rounded bg-[var(--design-editor-control-bg)] p-2 font-mono text-[10px] leading-relaxed text-foreground">
             <code>{highlightedHtml(snippet)}</code>
