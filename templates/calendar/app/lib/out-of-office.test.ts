@@ -48,6 +48,21 @@ describe("out-of-office display", () => {
     ).toBe(true);
   });
 
+  it("recognizes a full-day event when DST skips local midnight", () => {
+    const event = {
+      eventType: "outOfOffice" as const,
+      allDay: false,
+      start: "2026-09-06T04:00:00.000Z",
+      end: "2026-09-07T03:00:00.000Z",
+      startTimeZone: "America/Santiago",
+    };
+
+    expect(isFullDayOutOfOfficeEvent(event)).toBe(true);
+    expect(fullDayOutOfOfficeCoversDate(event, new Date(2026, 8, 6))).toBe(
+      true,
+    );
+  });
+
   it("keeps partial-day and ordinary midnight events out of the all-day lane", () => {
     expect(
       isFullDayOutOfOfficeEvent({

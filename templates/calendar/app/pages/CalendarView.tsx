@@ -698,14 +698,15 @@ export default function CalendarView() {
       const payload: Parameters<typeof createEvent.mutate>[0] = {
         _tempId: eventId,
         title,
-        description: draft.description ?? "",
+        description:
+          eventType === "outOfOffice" ? "" : (draft.description ?? ""),
         start: semanticFullDay ? draft.start! : start.toISOString(),
         end: semanticFullDay ? draft.end! : end.toISOString(),
         startTimeZone: draft.allDay ? undefined : timezone,
         endTimeZone: draft.allDay
           ? undefined
           : (draft.endTimeZone ?? draft.startTimeZone ?? timezone),
-        location,
+        location: eventType === "outOfOffice" ? "" : location,
         accountEmail,
         allDay: draft.allDay ?? false,
         fullDay: draft.fullDay,
@@ -720,15 +721,16 @@ export default function CalendarView() {
         reminders: draft.reminders,
         remindersUseDefault: draft.remindersUseDefault,
         ...statusPatch,
-        addGoogleMeet: draft.addGoogleMeet,
-        addZoom: draft.addZoom,
+        addGoogleMeet:
+          eventType === "outOfOffice" ? undefined : draft.addGoogleMeet,
+        addZoom: eventType === "outOfOffice" ? undefined : draft.addZoom,
         color: draft.colorId
           ? getGoogleEventColorHex(draft.colorId)
           : undefined,
         colorId: draft.colorId,
         recurrence: draft.recurrence,
         attachments: draft.attachments,
-        attendees: draft.attendees,
+        attendees: eventType === "outOfOffice" ? undefined : draft.attendees,
       };
 
       deletePersistedCalendarDraft(draftId);

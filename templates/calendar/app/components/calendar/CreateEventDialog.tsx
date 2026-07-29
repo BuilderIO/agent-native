@@ -456,12 +456,12 @@ export function CreateEventPopover({
       id: draftId,
       createdAt: draft?.createdAt,
       title,
-      description,
+      description: isOutOfOffice ? "" : description,
       start: startValue,
       end: endValue,
       startTimeZone: effectiveAllDay ? undefined : timezone,
       endTimeZone: effectiveAllDay ? undefined : timezone,
-      location,
+      location: isOutOfOffice ? "" : location,
       allDay: effectiveAllDay,
       fullDay: fullDayOutOfOffice,
       eventType,
@@ -483,14 +483,16 @@ export function CreateEventPopover({
           ? undefined
           : attachmentResult.attachments,
       attendees:
-        attendees.length > 0
+        !isOutOfOffice && attendees.length > 0
           ? attendees.map((attendee) => ({
               email: attendee.email,
               displayName: attendee.displayName,
               ...(attendee.optional === true ? { optional: true } : {}),
             }))
           : undefined,
-      ...buildVideoProviderPatch(videoProvider, videoProviderTouched),
+      ...(!isOutOfOffice
+        ? buildVideoProviderPatch(videoProvider, videoProviderTouched)
+        : {}),
       accountEmail,
       workingLocationType,
       workingLocationLabel:

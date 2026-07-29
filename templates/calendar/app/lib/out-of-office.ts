@@ -7,6 +7,8 @@ import {
   startOfDay,
 } from "date-fns";
 
+import { dateTimeInTimezoneToIso } from "@/lib/event-form-utils";
+
 export interface OutOfOfficeSegment {
   topMinutes: number;
   durationMinutes: number;
@@ -71,10 +73,14 @@ export function getFullDayOutOfOfficeDateRange(
   const isFullDay =
     start !== null &&
     end !== null &&
-    start.hour === "00" &&
-    start.minute === "00" &&
-    end.hour === "00" &&
-    end.minute === "00" &&
+    new Date(event.start).getTime() ===
+      new Date(
+        dateTimeInTimezoneToIso(start.date, "00:00", timeZone),
+      ).getTime() &&
+    new Date(event.end).getTime() ===
+      new Date(
+        dateTimeInTimezoneToIso(end.date, "00:00", timeZone),
+      ).getTime() &&
     end.date > start.date;
   return isFullDay
     ? { startDate: start.date, endDateExclusive: end.date }

@@ -223,6 +223,22 @@ describe("normalizeCreateEventInput", () => {
     });
   });
 
+  it("normalizes full-day OOO across a skipped local midnight", () => {
+    expect(
+      normalizeCreateEventInput({
+        eventType: "outOfOffice",
+        start: "2026-09-06",
+        end: "2026-09-06",
+        startTimeZone: "America/Santiago",
+        fullDay: true,
+      }),
+    ).toMatchObject({
+      start: "2026-09-06T04:00:00.000Z",
+      end: "2026-09-07T03:00:00.000Z",
+      allDay: false,
+    });
+  });
+
   it("requires dates in order and an explicit timezone for full-day OOO", () => {
     expect(() =>
       normalizeCreateEventInput({
