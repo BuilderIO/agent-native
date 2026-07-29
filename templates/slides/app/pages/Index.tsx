@@ -443,6 +443,12 @@ export default function Index() {
     });
     if (!deck) return;
     setNewDeckPromptOpen(false);
+    // Switch to the new deck's own page/chat thread before the interactive
+    // question below or any other async setup runs. askUserQuestion() and
+    // agentSubmit() both target whatever chat thread is currently displayed,
+    // so asking beforehand rendered the deck-length question (and later the
+    // generation prompt) in the previously viewed deck's chat, not this one.
+    navigate("/deck/" + deck.id + "?generating=1");
 
     // One quick, skippable decision so the agent doesn't guess the deck size.
     const deckLength = await askUserQuestion({
@@ -541,6 +547,9 @@ export default function Index() {
       toast.error(t("home.generationStartFailed"), {
         description: t("home.generationStartFailedDescription"),
       });
+      // We already navigated to the (now-deleted) deck's page above; the
+      // retry prompt dialog only renders on this Decks page, so go back to it.
+      navigate("/");
       setShowNewDeckPrompt(true);
       return;
     }
@@ -552,7 +561,6 @@ export default function Index() {
       newTab: true,
       openSidebar: true,
     });
-    navigate(`/deck/${deck.id}?generating=1`);
   };
 
   const handleConfirmDelete = () => {

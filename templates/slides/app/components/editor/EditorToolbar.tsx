@@ -682,7 +682,7 @@ graph TD
                         console.error("Mermaid to Excalidraw failed:", err);
                       }
                     }}
-                    className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[#00E5FF]/80 hover:text-[#00E5FF] hover:bg-accent/50 transition-colors"
+                    className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[hsl(var(--accent-cyan))]/80 hover:text-[hsl(var(--accent-cyan))] hover:bg-accent/50 transition-colors"
                   >
                     <IconTransform className="w-3 h-3" />
                     {t("editorToolbar.convertMermaidToExcalidraw")}
@@ -736,8 +736,8 @@ graph TD
               {/* Aspect Ratio section (deck-level) */}
               {onSetAspectRatio && (
                 <>
-                  <div className="mx-2 my-1.5 border-t border-white/[0.06]" />
-                  <div className="px-3 py-1.5 text-[10px] font-medium text-white/30 uppercase tracking-wider">
+                  <div className="mx-2 my-1.5 border-t border-border" />
+                  <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
                     {t("editorToolbar.aspectRatio")}
                   </div>
                   <div className="px-3 pb-2.5 grid grid-cols-4 gap-1">
@@ -751,7 +751,7 @@ graph TD
                               className={`px-1.5 py-1 rounded text-[10px] font-medium border ${
                                 active
                                   ? "bg-[#609FF8]/20 text-[#609FF8] border-[#609FF8]/30"
-                                  : "text-white/40 hover:text-white/70 hover:bg-white/[0.04] border-transparent"
+                                  : "text-muted-foreground hover:text-foreground hover:bg-accent/50 border-transparent"
                               }`}
                             >
                               {r}

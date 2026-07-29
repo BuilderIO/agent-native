@@ -61,6 +61,7 @@ import {
   MAX_CANVAS_ZOOM,
   MIN_CANVAS_ZOOM,
 } from "@/lib/canvas-zoom";
+import { extractMermaidBlocks } from "@/lib/mermaid-blocks";
 import {
   createPlaceholderImageTarget,
   imageFileLooksSupported,
@@ -1131,8 +1132,32 @@ export default function SlideEditor({
     const slideContent = containerRef.current?.querySelector(
       ".slide-content",
     ) as HTMLElement | null;
-    return slideContent ? stripBuilderIds(slideContent.innerHTML) : null;
-  }, []);
+    if (!slideContent) return null;
+    // SlideRenderer swaps each `<div class="mermaid">` for a
+    // `data-mermaid-index` placeholder and renders the diagram as SVG via
+    // MermaidRenderer — the live DOM never contains the original mermaid
+    // syntax. Serializing it as-is here would permanently bake the rendered
+    // SVG into slide.content and turn a diagram edited or moved alongside
+    // (e.g. another text block on the same slide) into inert markup that can
+    // never be resized, edited, or re-rendered again. Restore the original
+    // `<div class="mermaid">` markup from slide.content — the untouched
+    // source of truth — before saving.
+    const clone = slideContent.cloneNode(true) as HTMLElement;
+    const placeholders = clone.querySelectorAll("[data-mermaid-index]");
+    if (placeholders.length > 0) {
+      const { blocks } = extractMermaidBlocks(slide.content);
+      placeholders.forEach((placeholder) => {
+        const idx = Number(placeholder.getAttribute("data-mermaid-index"));
+        const definition = blocks[idx];
+        if (definition === undefined) return;
+        const restored = clone.ownerDocument.createElement("div");
+        restored.className = "mermaid";
+        restored.textContent = definition;
+        placeholder.replaceWith(restored);
+      });
+    }
+    return stripBuilderIds(clone.innerHTML);
+  }, [slide.content]);
 
   const captureInlineEditDraft = useCallback(
     (slideId = slide.id) => {

@@ -46,11 +46,13 @@ let idCounter = 0;
 interface MermaidRendererProps {
   definition: string;
   className?: string;
+  index?: number;
 }
 
 export function MermaidRenderer({
   definition,
   className,
+  index,
 }: MermaidRendererProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [svg, setSvg] = useState<string>("");
