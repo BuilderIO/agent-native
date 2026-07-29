@@ -3793,6 +3793,40 @@ describe("Brain connector smoke coverage", () => {
     expect(result.captures[0]?.metadata).not.toHaveProperty("sourceUrl");
   });
 
+  it("restores an errored source after a successful connector retry", async () => {
+    const source = seedSource({
+      id: "retrying-granola-source",
+      title: "Granola",
+      provider: "granola",
+      status: "error",
+      lastError: "Temporary provider failure",
+      configJson: JSON.stringify({
+        transcripts: [
+          {
+            externalId: "retry-note-1",
+            title: "Recovered note",
+            text: "Decision: retry failed sources after a bounded delay.",
+          },
+        ],
+      }),
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result).toMatchObject({
+      provider: "granola",
+      status: "success",
+      capturesCreated: 1,
+    });
+    expect(
+      mocks.rows.sources.find((row) => row.id === "retrying-granola-source"),
+    ).toMatchObject({
+      status: "active",
+      lastError: null,
+      lastSyncedAt: expect.any(String),
+    });
+  });
+
   it("renews configured-item leases while capture processing is in flight", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-15T12:00:00.000Z"));

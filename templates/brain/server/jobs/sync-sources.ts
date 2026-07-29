@@ -1,10 +1,10 @@
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
 import { accessFilter } from "@agent-native/core/sharing";
-import { and, eq, ne } from "drizzle-orm";
+import { and, inArray, ne } from "drizzle-orm";
 
 import type { BrainSourceProvider } from "../../shared/types.js";
 import { getDb, schema } from "../db/index.js";
-import { nowIso, parseJson } from "../lib/brain.js";
+import { parseJson } from "../lib/brain.js";
 import { runConnectorSync } from "../lib/connectors.js";
 
 const DEFAULT_POLL_MINUTES = 60;
@@ -13,6 +13,7 @@ let skippingLogged = false;
 let running = false;
 
 type SourceRow = typeof schema.brainSources.$inferSelect;
+const RETRYABLE_SOURCE_STATUSES: SourceRow["status"][] = ["active", "error"];
 
 function configuredPollMinutes(source: SourceRow): number {
   const config = parseJson<Record<string, unknown>>(source.configJson, {});
@@ -56,30 +57,34 @@ function retryAfterAt(source: SourceRow): number | null {
   return Number.isFinite(retryAt) ? retryAt : null;
 }
 
+function sourceSyncDueAt(source: SourceRow, nowMs: number): number | null {
+  if (!RETRYABLE_SOURCE_STATUSES.includes(source.status)) return null;
+  if (!isAutoSyncEnabled(source)) return null;
+
+  const pollIntervalMs = configuredPollMinutes(source) * 60 * 1000;
+  let pollAt = nowMs;
+  if (source.status === "error") {
+    const failedAt = Date.parse(source.updatedAt);
+    if (Number.isFinite(failedAt)) pollAt = failedAt + pollIntervalMs;
+  } else if (source.lastSyncedAt) {
+    const lastSynced = Date.parse(source.lastSyncedAt);
+    if (Number.isFinite(lastSynced)) pollAt = lastSynced + pollIntervalMs;
+  }
+
+  return Math.max(pollAt, retryAfterAt(source) ?? Number.NEGATIVE_INFINITY);
+}
+
 export function isBrainSourceDue(
   source: SourceRow,
   nowMs = Date.now(),
 ): boolean {
-  if (source.status !== "active") return false;
-  if (!isAutoSyncEnabled(source)) return false;
-  const retryAt = retryAfterAt(source);
-  if (retryAt && retryAt > nowMs) return false;
-  if (!source.lastSyncedAt) return true;
-  const lastSynced = Date.parse(source.lastSyncedAt);
-  if (!Number.isFinite(lastSynced)) return true;
-  return nowMs - lastSynced >= configuredPollMinutes(source) * 60 * 1000;
+  const dueAt = sourceSyncDueAt(source, nowMs);
+  return dueAt !== null && dueAt <= nowMs;
 }
 
 export function nextBrainSourceSyncAt(source: SourceRow): string | null {
-  if (source.status !== "active" || !isAutoSyncEnabled(source)) return null;
-  const retryAt = retryAfterAt(source);
-  if (retryAt) return new Date(retryAt).toISOString();
-  if (!source.lastSyncedAt) return nowIso();
-  const lastSynced = Date.parse(source.lastSyncedAt);
-  if (!Number.isFinite(lastSynced)) return nowIso();
-  return new Date(
-    lastSynced + configuredPollMinutes(source) * 60 * 1000,
-  ).toISOString();
+  const dueAt = sourceSyncDueAt(source, Date.now());
+  return dueAt === null ? null : new Date(dueAt).toISOString();
 }
 
 export async function listDueBrainSources(
@@ -90,15 +95,15 @@ export async function listDueBrainSources(
 ) {
   const db = getDb();
   const where = options.system
-    ? // guard:allow-unscoped — system scheduler enumerates active sources,
+    ? // guard:allow-unscoped — system scheduler enumerates retryable sources,
       // then re-enters each row's owner/org context before syncing.
       and(
-        eq(schema.brainSources.status, "active"),
+        inArray(schema.brainSources.status, RETRYABLE_SOURCE_STATUSES),
         ne(schema.brainSources.provider, "manual"),
       )
     : and(
         accessFilter(schema.brainSources, schema.brainSourceShares),
-        eq(schema.brainSources.status, "active"),
+        inArray(schema.brainSources.status, RETRYABLE_SOURCE_STATUSES),
         ne(schema.brainSources.provider, "manual"),
       );
   const rows = await db
