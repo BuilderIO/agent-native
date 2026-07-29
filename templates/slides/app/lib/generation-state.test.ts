@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   shouldClearNewDeckGeneratingState,
   shouldShowNewDeckGeneratingOverlay,
+  shouldShowNewDeckGeneratingProgress,
 } from "./generation-state";
 
 describe("new deck generation state", () => {
@@ -37,34 +38,39 @@ describe("new deck generation state", () => {
       shouldClearNewDeckGeneratingState({
         generating: false,
         generationStarted: false,
-        slideCount: 0,
       }),
     ).toBe(false);
   });
 
-  it("clears new-deck generating state when observed work finishes or a slide lands", () => {
+  it("keeps progress visible after the first slide lands", () => {
     expect(
-      shouldClearNewDeckGeneratingState({
+      shouldShowNewDeckGeneratingProgress({
         generating: true,
-        generationStarted: true,
-        slideCount: 0,
+        isNewDeckCreation: true,
       }),
-    ).toBe(false);
+    ).toBe(true);
 
     expect(
       shouldClearNewDeckGeneratingState({
         generating: true,
         generationStarted: true,
-        slideCount: 1,
+      }),
+    ).toBe(false);
+  });
+
+  it("clears new-deck generating state only when observed work finishes", () => {
+    expect(
+      shouldClearNewDeckGeneratingState({
+        generating: false,
+        generationStarted: true,
       }),
     ).toBe(true);
 
     expect(
       shouldClearNewDeckGeneratingState({
         generating: false,
-        generationStarted: true,
-        slideCount: 0,
+        generationStarted: false,
       }),
-    ).toBe(true);
+    ).toBe(false);
   });
 });

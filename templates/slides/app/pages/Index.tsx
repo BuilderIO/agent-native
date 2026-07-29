@@ -557,6 +557,7 @@ export default function Index() {
     });
     agentSubmit(createDeckAgentMessage(trimmedPrompt), context, {
       newTab: true,
+      reuseEmptyTab: true,
       openSidebar: true,
     });
   };

@@ -30,6 +30,11 @@ const messages = {
     pageExtension: "الإضافة",
     pageExtensions: "الإضافات",
   },
+  settings: {
+    languageTitle: "اللغة",
+    languageDescription: "اختر لغة الواجهة. يتم حفظ هذا التفضيل في حسابك.",
+    languageLabel: "لغة الواجهة",
+  },
   agent: {
     emptyState: "اطلب من الوكيل فحص هذا التطبيق أو تعديله.",
     suggestionCalendar: "تحقق من تقويمي ورسائلي - هل هناك أي مهام لليوم؟",

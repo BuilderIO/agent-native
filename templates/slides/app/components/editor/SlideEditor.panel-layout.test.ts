@@ -26,7 +26,9 @@ describe("editor side panels", () => {
     expect(pageSource).toContain(
       'type EditorSidePanel = "style" | "comments" | null',
     );
-    expect(pageSource).toContain('const commentsOpen = sidePanel === "comments"');
+    expect(pageSource).toContain(
+      'const commentsOpen = sidePanel === "comments"',
+    );
     expect(pageSource).toContain('const styleOpen = sidePanel === "style"');
     expect(pageSource).toContain("stylePanelOpen={styleOpen}");
   });

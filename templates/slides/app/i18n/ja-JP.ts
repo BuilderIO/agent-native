@@ -44,6 +44,7 @@ const messages = {
   },
   agent: {
     emptyState: "プレゼンテーションについて何でも聞いてください",
+    thisDeck: "このデッキ",
     suggestionPitch: "このドキュメントから 10 枚のピッチ資料を作成",
     suggestionBrand: "このデッキにブランドを適用",
     suggestionHero: "このスライド用のヒーロー画像を生成",

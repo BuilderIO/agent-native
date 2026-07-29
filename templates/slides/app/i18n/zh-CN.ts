@@ -41,6 +41,7 @@ const messages = {
   },
   agent: {
     emptyState: "可以询问我任何关于演示文稿的问题",
+    thisDeck: "此幻灯片",
     suggestionPitch: "根据这份文档制作 10 页推介幻灯片",
     suggestionBrand: "将我们的品牌应用到这份幻灯片",
     suggestionHero: "为这页幻灯片生成主视觉图片",

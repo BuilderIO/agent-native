@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import { AgentWorkIndicator } from "./AgentWorkIndicator";
 import { Header } from "./Header";
 import {
+  getDeckChatScopeLabel,
   getEffectiveSlidesSidebarCollapsed,
   isSlidesEditorRoute,
 } from "./layout-route-policy";
@@ -60,8 +61,12 @@ export function Layout({ children }: LayoutProps) {
     const deckId = match?.[1];
     if (!deckId) return null;
     const deck = getDeck(deckId);
-    return { type: "deck" as const, id: deckId, label: deck?.title || "" };
-  }, [location.pathname, getDeck]);
+    return {
+      type: "deck" as const,
+      id: deckId,
+      label: getDeckChatScopeLabel(deck?.title, t("agent.thisDeck")),
+    };
+  }, [location.pathname, getDeck, t]);
 
   useEffect(() => {
     setSidebarOpen(false);

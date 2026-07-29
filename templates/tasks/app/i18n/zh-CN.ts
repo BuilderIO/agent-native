@@ -30,6 +30,11 @@ const messages = {
     pageExtension: "扩展",
     pageExtensions: "扩展",
   },
+  settings: {
+    languageTitle: "语言",
+    languageDescription: "选择界面语言。此偏好会保存到你的账户。",
+    languageLabel: "界面语言",
+  },
   agent: {
     emptyState: "让智能体查看或修改这个应用。",
     suggestionCalendar: "帮我看看日历和邮件——今天有什么任务？",

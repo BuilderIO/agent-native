@@ -10,6 +10,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 // framework can broadcast it stopped — callers would otherwise spin forever.
 const MAX_GENERATING_MS = 3 * 60 * 1000;
 
+type AgentGeneratingSubmitOptions = Pick<
+  AgentChatMessage,
+  "newTab" | "openSidebar"
+> & {
+  reuseEmptyTab?: boolean;
+};
+
 /**
  * Tracks whether an agent chat submission is in progress.
  * Wraps @agent-native/core's useAgentChatGenerating hook, with a timeout
@@ -39,7 +46,7 @@ export function useAgentGenerating() {
     (
       message: string,
       context: string,
-      options?: Pick<AgentChatMessage, "newTab" | "openSidebar">,
+      options?: AgentGeneratingSubmitOptions,
     ) => {
       setTimedOut(false);
       clearWatchdog();

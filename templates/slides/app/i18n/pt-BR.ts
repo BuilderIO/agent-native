@@ -44,6 +44,7 @@ const messages = {
   },
   agent: {
     emptyState: "Pergunte qualquer coisa sobre suas apresentações",
+    thisDeck: "Este deck",
     suggestionPitch: "Crie um pitch de 10 slides a partir deste doc",
     suggestionBrand: "Aplique nossa marca a este deck",
     suggestionHero: "Gere uma imagem hero para este slide",

@@ -68,6 +68,7 @@ import { exportDeckAsPptx } from "@/lib/export-pptx-client";
 import {
   shouldClearNewDeckGeneratingState,
   shouldShowNewDeckGeneratingOverlay,
+  shouldShowNewDeckGeneratingProgress,
 } from "@/lib/generation-state";
 import { isMissingUploadProviderError } from "@/lib/image-drop-to-agent";
 import { imageFileLooksSupported } from "@/lib/slide-image-replacement";
@@ -245,7 +246,11 @@ export default function DeckEditor() {
   // disabled (rather than a separate "viewer" route). Owners/Editors/Admins
   // get the full editor.
   const { canEdit } = useDeckRole(id);
-  const isNewDeckGenerating = shouldShowNewDeckGeneratingOverlay({
+  const isNewDeckGenerating = shouldShowNewDeckGeneratingProgress({
+    generating,
+    isNewDeckCreation: wasNewDeckCreation.current,
+  });
+  const showNewDeckGeneratingOverlay = shouldShowNewDeckGeneratingOverlay({
     generating,
     isNewDeckCreation: wasNewDeckCreation.current,
     slideCount,
@@ -306,7 +311,6 @@ export default function DeckEditor() {
       !shouldClearNewDeckGeneratingState({
         generating,
         generationStarted: newDeckGenerationStarted.current,
-        slideCount,
       })
     ) {
       return;
@@ -322,7 +326,7 @@ export default function DeckEditor() {
         { replace: true },
       );
     }
-  }, [generating, searchParams, setSearchParams, slideCount]);
+  }, [generating, searchParams, setSearchParams]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -759,8 +763,8 @@ export default function DeckEditor() {
   // The agent is "present"/"active" if EITHER the deck presence doc (action
   // edits) or the slide-content doc (Yjs edits) says so — a single unified
   // signal for the toolbar/slide chips.
-  const agentPresent = deckAgentPresent || slideAgentPresent;
-  const agentActive = deckAgentActive || slideAgentActive;
+  const agentPresent = generating || deckAgentPresent || slideAgentPresent;
+  const agentActive = generating || deckAgentActive || slideAgentActive;
 
   // Comments for the current slide (for badge count)
   const currentSlideCommentsQuery = useSlideComments(id ?? null, activeSlideId);
@@ -996,7 +1000,7 @@ export default function DeckEditor() {
           />
         )}
 
-        {isNewDeckGenerating &&
+        {showNewDeckGeneratingOverlay &&
           deck.slides.length === 0 &&
           !showQuestionFlow && <GeneratingOverlay />}
 
@@ -1009,7 +1013,7 @@ export default function DeckEditor() {
           </div>
         )}
 
-        {!(isNewDeckGenerating && deck.slides.length === 0) &&
+        {!showNewDeckGeneratingOverlay &&
           !showQuestionFlow &&
           currentSlide && (
             <SlideEditor
@@ -1053,7 +1057,9 @@ export default function DeckEditor() {
               }
               agentActive={
                 slideAgentActive ||
-                (deckAgentActive && agentSlideId === currentSlide.id)
+                (deckAgentActive && agentSlideId === currentSlide.id) ||
+                (isNewDeckGenerating &&
+                  currentSlide.id === deck.slides.at(-1)?.id)
               }
               recentEdits={deckRecentEdits}
               onComment={(quotedText) => {

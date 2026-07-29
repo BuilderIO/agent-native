@@ -953,7 +953,7 @@ graph TD
       />
 
       {/* Style toggle */}
-      {canEdit && onToggleStyle && (
+      {canEdit && currentSlide && onToggleStyle && (
         <Tooltip>
           <TooltipTrigger asChild>
             <button

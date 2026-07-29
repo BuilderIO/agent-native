@@ -44,6 +44,7 @@ const messages = {
   },
   agent: {
     emptyState: "프레젠테이션에 대해 무엇이든 물어보세요",
+    thisDeck: "이 덱",
     suggestionPitch: "이 문서로 10장짜리 피치덱 만들기",
     suggestionBrand: "이 덱에 우리 브랜드 적용",
     suggestionHero: "이 슬라이드의 히어로 이미지 생성",

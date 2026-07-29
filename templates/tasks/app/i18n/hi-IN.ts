@@ -30,6 +30,11 @@ const messages = {
     pageExtension: "एक्सटेंशन",
     pageExtensions: "एक्सटेंशन्स",
   },
+  settings: {
+    languageTitle: "भाषा",
+    languageDescription: "इंटरफ़ेस भाषा चुनें। यह पसंद आपके खाते में सहेजी जाती है।",
+    languageLabel: "इंटरफ़ेस भाषा",
+  },
   agent: {
     emptyState: "इस ऐप का निरीक्षण करने या इसे बदलने के लिए एजेंट से पूछें।",
     suggestionCalendar: "मेरा कैलेंडर और मेल जांचें - क्या आज के लिए कोई कार्य हैं?",

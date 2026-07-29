@@ -30,6 +30,12 @@ const messages = {
     pageExtension: "Extension",
     pageExtensions: "Extensions",
   },
+  settings: {
+    languageTitle: "Langue",
+    languageDescription:
+      "Choisissez la langue de l’interface. Cette préférence est enregistrée dans votre compte.",
+    languageLabel: "Langue de l’interface",
+  },
   agent: {
     emptyState:
       "Demandez à l'agent d'inspecter ou de modifier cette application.",

@@ -43,6 +43,7 @@ const messages = {
   },
   agent: {
     emptyState: "اسألني أي شيء عن عروضك التقديمية",
+    thisDeck: "هذا العرض التقديمي",
     suggestionPitch: "أنشئ عرضا من 10 شرائح من هذا المستند",
     suggestionBrand: "طبّق علامتنا على هذا العرض",
     suggestionHero: "أنشئ صورة رئيسية لهذه الشريحة",

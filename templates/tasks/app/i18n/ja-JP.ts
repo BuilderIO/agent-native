@@ -30,6 +30,12 @@ const messages = {
     pageExtension: "拡張機能",
     pageExtensions: "拡張機能",
   },
+  settings: {
+    languageTitle: "言語",
+    languageDescription:
+      "インターフェース言語を選択します。この設定はアカウントに保存されます。",
+    languageLabel: "インターフェース言語",
+  },
   agent: {
     emptyState: "エージェントにこのアプリの確認や変更を依頼してください。",
     suggestionCalendar:

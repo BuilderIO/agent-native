@@ -11,10 +11,7 @@ import {
   useAvatarUrl,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  DEFAULT_AGENT_IDENTITY,
-  RecentEditHighlights,
-} from "@agent-native/toolkit/collab-ui";
+import { RecentEditHighlights } from "@agent-native/toolkit/collab-ui";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import {
   IconAlertTriangle,
@@ -72,6 +69,7 @@ import { enterSelectionMode } from "@/root";
 import type { DesignSystemData } from "../../../shared/api";
 import { BlockBubbleMenu } from "./BlockBubbleMenu";
 import ImageOverlay from "./ImageOverlay";
+import { getPassiveSlidePresenceUsers } from "./slide-presence";
 import {
   SlideStyleInspector,
   type SlideStylePatch,
@@ -869,12 +867,10 @@ export default function SlideEditor({
       d.paths.some((p) => p === `slides.${activeSlideId}`)
     );
   });
-  const passivePresentUsers = agentActive
-    ? presentUsers.filter(
-        (user) =>
-          user.email.trim().toLowerCase() !== DEFAULT_AGENT_IDENTITY.email,
-      )
-    : presentUsers;
+  const passivePresentUsers = getPassiveSlidePresenceUsers(
+    presentUsers,
+    agentActive,
+  );
   const resolveCanvasRect = useCallback(
     (): DOMRect | null =>
       slideCanvasRef.current?.getBoundingClientRect() ?? null,

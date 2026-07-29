@@ -23,6 +23,7 @@ import {
   parseSubmitChatMessage,
   removeAgentChatContextItem,
   reportAgentChatSubmitResult,
+  reportAgentChatSubmitTarget,
   setAgentChatContextItem,
   type AgentChatContextItem,
 } from "./agent-chat.js";
@@ -1616,6 +1617,7 @@ export function MultiTabAssistantChat({
         engine,
         effort,
         newTab,
+        reuseEmptyTab,
         background,
         submit,
         images,
@@ -1682,6 +1684,7 @@ export function MultiTabAssistantChat({
 
       const sendToTab = (threadId: string) => {
         if (isAgentChatSubmitCancelled(submitMessageId)) return;
+        reportAgentChatSubmitTarget(submitMessageId, threadId);
         if (modelOverride) {
           threadModelRef.current.set(threadId, modelOverride);
           bumpModelSelectionVersion();
@@ -1703,9 +1706,12 @@ export function MultiTabAssistantChat({
         // A blank active chat is already an isolated destination. Reuse it for
         // foreground creation requests so the action does not leave a ghost tab.
         if (
+          reuseEmptyTab &&
           !background &&
           previousTabId &&
           previousChat &&
+          (newThreadIds.current.has(previousTabId) ||
+            isNewThread(previousTabId)) &&
           previousChat.exportThreadSnapshot() === null
         ) {
           sendToTab(previousTabId);
@@ -1766,6 +1772,7 @@ export function MultiTabAssistantChat({
     bumpModelSelectionVersion,
     clearContextInTab,
     createThread,
+    isNewThread,
     postMessageSubmissionsDisabled,
     props.execMode,
     removeContextInTab,
