@@ -1,6 +1,6 @@
 import {
   getBuilderImageGenerationBaseUrl,
-  resolveBuilderCredentials,
+  resolveBuilderCredentialsDetailed,
 } from "@agent-native/core/server";
 
 import type {
@@ -48,7 +48,8 @@ export class BuilderProvider implements ImageProvider {
   }
 
   async isConfiguredForRequest(): Promise<boolean> {
-    const creds = await resolveBuilderCredentials();
+    const creds = await resolveBuilderCredentialsDetailed();
+    if (creds.lookupFailed) return true;
     return !!(creds.privateKey && creds.publicKey);
   }
 
@@ -58,7 +59,12 @@ export class BuilderProvider implements ImageProvider {
     _context?: { slideContent?: string; deckText?: string },
     config?: ImageProviderConfig,
   ): Promise<ImageGenerationResult> {
-    const creds = await resolveBuilderCredentials();
+    const creds = await resolveBuilderCredentialsDetailed();
+    if (creds.lookupFailed) {
+      throw new Error(
+        "Could not verify your Builder.io connection right now. Please try again.",
+      );
+    }
     if (!creds.privateKey || !creds.publicKey) {
       throw new Error(
         "Builder.io is not fully connected for managed image generation.",
@@ -82,6 +88,7 @@ export class BuilderProvider implements ImageProvider {
         baseUrl,
         privateKey: creds.privateKey,
         publicKey: creds.publicKey,
+        userId: creds.userId,
         model,
         prompt,
         references,
@@ -105,6 +112,7 @@ async function requestModel(args: {
   baseUrl: string;
   privateKey: string;
   publicKey: string;
+  userId: string | null;
   model: string;
   prompt: string;
   references: Array<{
@@ -115,8 +123,16 @@ async function requestModel(args: {
   }>;
   config?: ImageProviderConfig;
 }): Promise<ModelOutcome> {
-  const { baseUrl, privateKey, publicKey, model, prompt, references, config } =
-    args;
+  const {
+    baseUrl,
+    privateKey,
+    publicKey,
+    userId,
+    model,
+    prompt,
+    references,
+    config,
+  } = args;
   // Stable idempotency key: retries reuse it so a client-side timeout
   // replays the in-progress/finished result instead of starting (and
   // billing) a second generation.
@@ -148,6 +164,7 @@ async function requestModel(args: {
           Authorization: `Bearer ${privateKey}`,
           "x-builder-api-key": publicKey,
           "Content-Type": "application/json",
+          ...(userId ? { "x-builder-user-id": userId } : {}),
         },
         body: JSON.stringify(requestBody),
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
@@ -173,7 +190,15 @@ async function requestModel(args: {
       return { kind: "permanent", error: lastError };
     }
 
-    const body = (await response.json()) as BuilderImageGenerationResponse;
+    let body: BuilderImageGenerationResponse;
+    try {
+      body = (await response.json()) as BuilderImageGenerationResponse;
+    } catch {
+      lastError = new Error(
+        "Builder-managed image generation returned a malformed response.",
+      );
+      continue;
+    }
     const output = body.outputs?.[0];
     const sourceUrl = output?.downloadUrl ?? output?.url;
     if (!sourceUrl) {
@@ -185,16 +210,28 @@ async function requestModel(args: {
       };
     }
 
-    const imageResponse = await fetch(sourceUrl, {
-      signal: AbortSignal.timeout(30_000),
-    });
+    let imageResponse: Response;
+    try {
+      imageResponse = await fetch(sourceUrl, {
+        signal: AbortSignal.timeout(30_000),
+      });
+    } catch (err) {
+      // Network blip / CDN timeout downloading the already-generated image:
+      // retryable (and falls through to the next model in the chain if
+      // every attempt here is exhausted), not a permanent failure.
+      const name = (err as Error)?.name;
+      lastError =
+        name === "AbortError" || name === "TimeoutError"
+          ? new Error("Timed out downloading the Builder-generated image.")
+          : (err as Error);
+      continue;
+    }
     if (!imageResponse.ok) {
-      return {
-        kind: "permanent",
-        error: new Error(
-          `Could not download Builder-generated image (${imageResponse.status}).`,
-        ),
-      };
+      lastError = new Error(
+        `Could not download Builder-generated image (${imageResponse.status}).`,
+      );
+      if (isTransientError(imageResponse.status)) continue;
+      return { kind: "permanent", error: lastError };
     }
 
     return {

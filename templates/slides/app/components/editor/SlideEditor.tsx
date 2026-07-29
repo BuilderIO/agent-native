@@ -1963,8 +1963,17 @@ export default function SlideEditor({
   const extractDraggedImageUrl = useCallback(
     (dataTransfer: DataTransfer): string | null => {
       const html = dataTransfer.getData("text/html");
-      const match = html && /<img[^>]+src=["']([^"']+)["']/i.exec(html);
-      const url = match?.[1] || null;
+      if (!html) return null;
+      // Parse instead of regex-matching the raw src attribute text: the
+      // browser HTML-entity-escapes "&" (and other characters) when
+      // serializing outerHTML for the drag payload, so a signed CDN URL like
+      // "...?format=webp&width=800&height=1200" would come through as
+      // "...&amp;width=..." if read verbatim. getAttribute() returns the
+      // already-decoded value.
+      const img = new DOMParser()
+        .parseFromString(html, "text/html")
+        .querySelector("img");
+      const url = img?.getAttribute("src") || null;
       return url && /^https?:\/\//i.test(url) ? url : null;
     },
     [],

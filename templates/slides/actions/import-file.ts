@@ -23,6 +23,7 @@ import {
   type AspectRatio,
 } from "../shared/aspect-ratios.js";
 import { readUserUploadedFile } from "./_uploaded-files.js";
+import { withDeckLock } from "./patch-deck.js";
 
 const DEFAULT_MAX_SOURCE_CHARS = 60_000;
 
@@ -608,46 +609,55 @@ async function appendDeckSlides(
 ) {
   await assertAccess("deck", deckId, "editor");
 
-  const db = getDb();
-  const existing = await db
-    .select()
-    .from(schema.decks)
-    .where(eq(schema.decks.id, deckId))
-    .limit(1);
+  // Read-modify-write under the shared per-deck lock used by patch-deck /
+  // add-slide / update-slide. Without it, an import running concurrently
+  // with another import or an editor/agent slide mutation on the same deck
+  // could read stale data and clobber the other write when both save the
+  // whole decks.data blob back.
+  const now = await withDeckLock(deckId, async () => {
+    const db = getDb();
+    const existing = await db
+      .select()
+      .from(schema.decks)
+      .where(eq(schema.decks.id, deckId))
+      .limit(1);
 
-  if (!existing.length) {
-    throw new Error(`Deck ${deckId} not found`);
-  }
+    if (!existing.length) {
+      throw new Error(`Deck ${deckId} not found`);
+    }
 
-  const now = new Date().toISOString();
-  const previousData = safeParseDeckData(existing[0].data);
-  const previousSlides = Array.isArray(
-    (previousData as { slides?: unknown }).slides,
-  )
-    ? ((previousData as { slides: unknown[] }).slides as typeof slides)
-    : [];
-  // Appending onto an existing deck keeps that deck's own title and canvas
-  // shape — the imported file's title/aspect ratio only apply when the deck
-  // had no slides yet, otherwise resizing the canvas mid-deck would distort
-  // every slide already on it.
-  const hadExistingSlides = previousSlides.length > 0;
-  const nextTitle = hadExistingSlides ? (existing[0].title ?? title) : title;
-  const data = {
-    ...previousData,
-    title: nextTitle,
-    slides: [...previousSlides, ...slides],
-    ...(!hadExistingSlides && aspectRatio ? { aspectRatio } : {}),
-    updatedAt: now,
-  };
-
-  await db
-    .update(schema.decks)
-    .set({
+    const writeNow = new Date().toISOString();
+    const previousData = safeParseDeckData(existing[0].data);
+    const previousSlides = Array.isArray(
+      (previousData as { slides?: unknown }).slides,
+    )
+      ? ((previousData as { slides: unknown[] }).slides as typeof slides)
+      : [];
+    // Appending onto an existing deck keeps that deck's own title and canvas
+    // shape — the imported file's title/aspect ratio only apply when the deck
+    // had no slides yet, otherwise resizing the canvas mid-deck would distort
+    // every slide already on it.
+    const hadExistingSlides = previousSlides.length > 0;
+    const nextTitle = hadExistingSlides ? (existing[0].title ?? title) : title;
+    const data = {
+      ...previousData,
       title: nextTitle,
-      data: JSON.stringify(data),
-      updatedAt: now,
-    })
-    .where(eq(schema.decks.id, deckId));
+      slides: [...previousSlides, ...slides],
+      ...(!hadExistingSlides && aspectRatio ? { aspectRatio } : {}),
+      updatedAt: writeNow,
+    };
+
+    await db
+      .update(schema.decks)
+      .set({
+        title: nextTitle,
+        data: JSON.stringify(data),
+        updatedAt: writeNow,
+      })
+      .where(eq(schema.decks.id, deckId));
+
+    return writeNow;
+  });
 
   notifyClients(deckId);
   await writeAppState("refresh-signal", { ts: now, source });
