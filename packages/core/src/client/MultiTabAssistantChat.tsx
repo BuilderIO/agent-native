@@ -1697,6 +1697,20 @@ export function MultiTabAssistantChat({
 
       if (newTab) {
         const previousTabId = activeThreadIdRef.current;
+        const previousChat = previousTabId
+          ? chatRefs.current.get(previousTabId)
+          : undefined;
+        // A blank active chat is already an isolated destination. Reuse it for
+        // foreground creation requests so the action does not leave a ghost tab.
+        if (
+          !background &&
+          previousTabId &&
+          previousChat &&
+          previousChat.exportThreadSnapshot() === null
+        ) {
+          sendToTab(previousTabId);
+          return;
+        }
         createThread(requestedTabId)
           .then((newId) => {
             if (isAgentChatSubmitCancelled(submitMessageId)) return;

@@ -16,6 +16,7 @@ const messages = {
     navInbox: "इनबॉक्स",
     navTasks: "कार्य",
     navFields: "फ़ील्ड्स",
+    search: "खोजें",
     collapseSidebar: "साइडबार संक्षिप्त करें",
     expandSidebar: "साइडबार विस्तृत करें",
     navigationTitle: "नेविगेशन",

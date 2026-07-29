@@ -14,10 +14,19 @@ import { cn } from "@/lib/utils";
 
 import { AgentWorkIndicator } from "./AgentWorkIndicator";
 import { Header } from "./Header";
+import {
+  getEffectiveSlidesSidebarCollapsed,
+  isSlidesEditorRoute,
+} from "./layout-route-policy";
 import { Sidebar } from "./Sidebar";
 
 interface LayoutProps {
   children: React.ReactNode;
+}
+
+interface EditorSidebarOverride {
+  locationKey: string;
+  collapsed: boolean;
 }
 
 /** Routes whose pages render their own toolbar — Layout still renders chrome
@@ -35,6 +44,8 @@ export function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const t = useT();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [editorSidebarOverride, setEditorSidebarOverride] =
+    useState<EditorSidebarOverride | null>(null);
   const { collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed } =
     useSidebarCollapsed();
   const { getDeck } = useDecks();
@@ -65,6 +76,25 @@ export function Layout({ children }: LayoutProps) {
   }, []);
 
   const ownToolbar = pageHasOwnToolbar(location.pathname);
+  const editorSidebarOverrideForLocation =
+    editorSidebarOverride?.locationKey === location.key
+      ? editorSidebarOverride.collapsed
+      : undefined;
+  const effectiveSidebarCollapsed = getEffectiveSlidesSidebarCollapsed({
+    pathname: location.pathname,
+    persistedCollapsed: sidebarCollapsed,
+    editorOverride: editorSidebarOverrideForLocation,
+  });
+  const toggleSidebarCollapsed = () => {
+    if (isSlidesEditorRoute(location.pathname)) {
+      setEditorSidebarOverride({
+        locationKey: location.key,
+        collapsed: !effectiveSidebarCollapsed,
+      });
+      return;
+    }
+    void setSidebarCollapsed((prev) => !prev);
+  };
 
   return (
     <HeaderActionsProvider>
@@ -98,15 +128,13 @@ export function Layout({ children }: LayoutProps) {
             )}
           >
             <Sidebar
-              collapsed={sidebarCollapsed && !sidebarOpen}
+              collapsed={effectiveSidebarCollapsed && !sidebarOpen}
               // In the mobile drawer the sidebar is forced expanded, so the
               // desktop collapse toggle would be a silent no-op (worse: it'd
               // mutate the desktop preference). Hide it while the drawer is
               // open.
               onToggleCollapsed={
-                sidebarOpen
-                  ? undefined
-                  : () => setSidebarCollapsed((prev) => !prev)
+                sidebarOpen ? undefined : toggleSidebarCollapsed
               }
             />
           </div>

@@ -16,6 +16,7 @@ const messages = {
     navInbox: "Caixa de entrada",
     navTasks: "Tarefas",
     navFields: "Campos",
+    search: "Pesquisar",
     collapseSidebar: "Recolher barra lateral",
     expandSidebar: "Expandir barra lateral",
     navigationTitle: "Navegação",

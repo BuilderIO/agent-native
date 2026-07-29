@@ -560,6 +560,48 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     );
   });
 
+  it("reuses an empty active chat for foreground new-tab sends", () => {
+    act(() => {
+      dispatchSubmitChat({
+        message: "Create a presentation",
+        submit: true,
+        newTab: true,
+        tabId: "unused-new-thread",
+      });
+    });
+
+    expect(threadMocks.createThread).not.toHaveBeenCalled();
+    expect(chatHandleMocks.sendMessage).toHaveBeenCalledWith(
+      "Create a presentation",
+      undefined,
+    );
+  });
+
+  it("creates a foreground tab when the active chat has messages", async () => {
+    chatHandleMocks.exportThreadSnapshot.mockReturnValueOnce({
+      threadData: "{}",
+      title: "Existing chat",
+      preview: "Existing request",
+      messageCount: 1,
+    });
+
+    act(() => {
+      dispatchSubmitChat({
+        message: "Create another presentation",
+        submit: true,
+        newTab: true,
+        tabId: "thread-foreground",
+      });
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(threadMocks.createThread).toHaveBeenCalledWith("thread-foreground");
+  });
+
   it("starts background new-tab sends without focusing the new tab", async () => {
     act(() => {
       dispatchSubmitChat({

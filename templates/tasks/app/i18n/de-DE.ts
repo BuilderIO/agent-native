@@ -16,6 +16,7 @@ const messages = {
     navInbox: "Posteingang",
     navTasks: "Aufgaben",
     navFields: "Felder",
+    search: "Suchen",
     collapseSidebar: "Seitenleiste einklappen",
     expandSidebar: "Seitenleiste ausklappen",
     navigationTitle: "Navigation",

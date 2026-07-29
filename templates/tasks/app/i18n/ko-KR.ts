@@ -16,6 +16,7 @@ const messages = {
     navInbox: "수신함",
     navTasks: "할 일",
     navFields: "필드",
+    search: "검색",
     collapseSidebar: "사이드바 접기",
     expandSidebar: "사이드바 펼치기",
     navigationTitle: "탐색",

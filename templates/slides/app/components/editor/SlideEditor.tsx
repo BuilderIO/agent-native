@@ -20,6 +20,7 @@ import {
   IconAlertTriangle,
   IconArrowsMove,
   IconMaximize,
+  IconX,
   IconZoomIn,
   IconZoomOut,
 } from "@tabler/icons-react";
@@ -442,6 +443,10 @@ interface SlideEditorProps {
   designSystem?: DesignSystemData;
   /** Deck aspect ratio (defaults to 16:9 when omitted) */
   aspectRatio?: AspectRatio;
+  /** Whether the right-side style inspector is visible */
+  stylePanelOpen?: boolean;
+  /** Close the right-side style inspector */
+  onCloseStylePanel?: () => void;
   /** Whether the draw-to-prompt overlay is visible */
   drawMode?: boolean;
   /** Called when the draw overlay should exit (Esc, Send, close button) */
@@ -815,6 +820,8 @@ export default function SlideEditor({
   slideCount = 1,
   designSystem,
   aspectRatio,
+  stylePanelOpen = false,
+  onCloseStylePanel,
   drawMode,
   onExitDrawMode,
   pinMode,
@@ -834,7 +841,6 @@ export default function SlideEditor({
     content.includes('class="fmd-slide"') ||
     ["blank", "section", "statement", "full-image"].includes(slide.layout);
 
-  const [isHoveringText, setIsHoveringText] = useState(false);
   const [canvasZoom, setCanvasZoom] = useState(100);
   const [imageOverlay, setImageOverlay] = useState<{
     rect: DOMRect;
@@ -2408,12 +2414,10 @@ export default function SlideEditor({
                       onPointerDown={handleSlidePointerDown}
                       onDragOver={handleSlideDragOver}
                       onDrop={handleSlideDrop}
-                      onMouseEnter={() => setIsHoveringText(true)}
-                      onMouseLeave={() => setIsHoveringText(false)}
                     >
                       <SlideRenderer
                         slide={slide}
-                        className={`shadow-2xl shadow-black/40 ${isHoveringText ? "ring-2 ring-[#609FF8]/60" : ""}`}
+                        className="shadow-2xl shadow-black/40"
                         designSystem={designSystem}
                         aspectRatio={aspectRatio}
                         onOverflowChange={handleOverflowChange}
@@ -2426,12 +2430,6 @@ export default function SlideEditor({
                           resolveRect={resolveCanvasRect}
                           containerRef={slideCanvasRef}
                         />
-                      )}
-                      {/* Double-click hint — only shown for HTML slides that support inline editing */}
-                      {isHoveringText && !editingEl && isHtmlSlide && (
-                        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 rounded bg-black/60 px-2 py-0.5 text-xs text-white/40 pointer-events-none select-none">
-                          {t("raw.doubleClickEdit")}
-                        </div>
                       )}
                       {agentActive && (
                         <div className="absolute top-2 right-2 z-10 pointer-events-none">
@@ -2476,7 +2474,7 @@ export default function SlideEditor({
           )}
         </div>
 
-        {!readOnly && (
+        {!readOnly && stylePanelOpen && (
           <div
             className="relative z-[70] hidden h-full w-[17rem] shrink-0 border-l border-border/70 bg-background/95 lg:block"
             data-slide-style-dock="true"
@@ -2490,13 +2488,31 @@ export default function SlideEditor({
                 onClose={() => {
                   clearSelectedElement();
                   syncSelectionToAppState(null);
+                  onCloseStylePanel?.();
                 }}
               />
             ) : (
-              <div className="flex h-11 items-center border-b border-border/70 px-3">
+              <div className="flex h-11 items-center justify-between border-b border-border/70 px-3">
                 <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/70">
                   {t("styleInspector.title")}
                 </span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="size-7 cursor-pointer text-muted-foreground hover:text-foreground"
+                      onClick={onCloseStylePanel}
+                      aria-label={t("styleInspector.close")}
+                    >
+                      <IconX className="size-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {t("styleInspector.close")}
+                  </TooltipContent>
+                </Tooltip>
               </div>
             )}
           </div>

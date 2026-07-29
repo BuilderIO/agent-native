@@ -16,6 +16,7 @@ const messages = {
     navInbox: "受信箱",
     navTasks: "タスク",
     navFields: "フィールド",
+    search: "検索",
     collapseSidebar: "サイドバーを折りたたむ",
     expandSidebar: "サイドバーを展開",
     navigationTitle: "ナビゲーション",

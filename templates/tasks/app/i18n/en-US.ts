@@ -16,6 +16,7 @@ const messages = {
     navInbox: "Inbox",
     navTasks: "Tasks",
     navFields: "Fields",
+    search: "Search",
     collapseSidebar: "Collapse sidebar",
     expandSidebar: "Expand sidebar",
     navigationTitle: "Navigation",

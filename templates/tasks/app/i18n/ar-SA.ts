@@ -16,6 +16,7 @@ const messages = {
     navInbox: "الوارد",
     navTasks: "المهام",
     navFields: "الحقول",
+    search: "بحث",
     collapseSidebar: "طي الشريط الجانبي",
     expandSidebar: "توسيع الشريط الجانبي",
     navigationTitle: "التنقل",

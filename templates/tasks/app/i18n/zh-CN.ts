@@ -16,6 +16,7 @@ const messages = {
     navInbox: "收件箱",
     navTasks: "任务",
     navFields: "字段",
+    search: "搜索",
     collapseSidebar: "收起侧边栏",
     expandSidebar: "展开侧边栏",
     navigationTitle: "导航",
