@@ -10,8 +10,10 @@ summary: "Compose responsive Views, Charts, expressions, controls, and prose int
 example_workflow: "A go-to-market lead assembles a responsive Page with pipeline Charts, filtered account Views, explanatory prose, and personal controls so people and agents can inspect the same operating picture and discuss it in context."
 works_today: "Pages can already combine prose, Blocks, references, expressions, and embedded Database Views, while saved Views provide reusable filtered presentations."
 remains: "Responsive Page columns, resizable View and Chart Blocks, dashboard controls, chart conformance, personal interaction state, presentation behavior, and export fidelity still need implementation."
-required_capabilities: ["content.layout.responsive","content.view.chart","content.embed.surface"]
-enhancing_capabilities: ["content.presentation.mode","content.expression.language"]
+required_capabilities:
+  ["content.layout.responsive", "content.view.chart", "content.embed.surface"]
+enhancing_capabilities:
+  ["content.presentation.mode", "content.expression.language"]
 increments: []
 feature_proof: null
 publicness: "public"

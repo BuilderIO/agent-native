@@ -10,8 +10,23 @@ summary: "Pages, Blocks, Databases, Search, history, and recovery form one trust
 example_workflow: "A teammate creates a project brief, turns its action items into Database records with owners and due dates, closes the app, finds the work again through Search, restores an accidentally deleted Block, and asks an agent to continue from the same durable context."
 works_today: "Content already has SQL-backed Pages, rich Blocks, Databases, Search, document snapshots, and a broad agent Action surface. People and agents can perform much of the ordinary creation and editing loop on the same durable objects."
 remains: "Stable Block identity, actor-aware history, dependable recovery across every object type, and complete end-to-end action parity still need to become one polished foundation."
-required_capabilities: ["content.object.page","content.object.block","content.object.blocks-field","content.object.database","content.knowledge.search","content.event.committed","content.history.queryable","content.agent.action-parity"]
-enhancing_capabilities: ["content.version.field-history","content.property.actor","content.author.document-editor"]
+required_capabilities:
+  [
+    "content.object.page",
+    "content.object.block",
+    "content.object.blocks-field",
+    "content.object.database",
+    "content.knowledge.search",
+    "content.event.committed",
+    "content.history.queryable",
+    "content.agent.action-parity",
+  ]
+enhancing_capabilities:
+  [
+    "content.version.field-history",
+    "content.property.actor",
+    "content.author.document-editor",
+  ]
 increments: []
 feature_proof: null
 publicness: "public"

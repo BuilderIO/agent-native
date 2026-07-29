@@ -10,8 +10,15 @@ summary: "Accept or reject proposed human and agent changes in the ordinary Cont
 example_workflow: "An agent revises a live article and its metadata; the editor reviews the rendered Page, accepts the stronger passages, rejects an incorrect Property change, and leaves the remaining suggestions pending for another pass."
 works_today: "Source change sets, Builder review machinery, audit records, and document snapshots prove several parts of the review loop and provide useful donor implementations."
 remains: "Content needs one generic typed diff and suggestion system that reviews bodies, Properties, Blocks, and filtered record sets directly in their ordinary renderers."
-required_capabilities: ["content.diff.in-place","content.diff.filtered-review","content.revision.suggestions","content.event.committed","content.history.queryable"]
-enhancing_capabilities: ["content.diff.ai-assist","content.review.code"]
+required_capabilities:
+  [
+    "content.diff.in-place",
+    "content.diff.filtered-review",
+    "content.revision.suggestions",
+    "content.event.committed",
+    "content.history.queryable",
+  ]
+enhancing_capabilities: ["content.diff.ai-assist", "content.review.code"]
 increments: []
 feature_proof: null
 publicness: "public"

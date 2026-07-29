@@ -10,8 +10,13 @@ summary: "Mount and edit the same canonical Content object inside an authorized 
 example_workflow: "A planner mounts the canonical project brief inside another Agent Native app, edits it through the same Actions, and sees the change, history, and permissions remain identical when opening it later in Content."
 works_today: "Agent Native toolkits already share Content components across sibling apps, and Content exposes reusable Actions and object identities that hosts can call without duplicating business logic."
 remains: "A canonical embeddable surface needs host grants, viewer-scoped authorization, shared editing and history, stable mounting contracts, responsive presentation, and later MCP App compatibility."
-required_capabilities: ["content.embed.surface","content.embed.host-grant","content.agent.action-parity"]
-enhancing_capabilities: ["content.embed.mcp-app","content.layout.responsive"]
+required_capabilities:
+  [
+    "content.embed.surface",
+    "content.embed.host-grant",
+    "content.agent.action-parity",
+  ]
+enhancing_capabilities: ["content.embed.mcp-app", "content.layout.responsive"]
 increments: []
 feature_proof: null
 publicness: "public"

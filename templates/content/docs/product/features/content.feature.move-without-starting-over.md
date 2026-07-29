@@ -10,8 +10,13 @@ summary: "Import or migrate a foreign corpus with resumable progress, provenance
 example_workflow: "A team imports a large Notion workspace, closes the browser halfway through, resumes without duplicate Pages, and reviews a conversion report showing transformed Properties and unresolved assets."
 works_today: "Markdown and MDX import, Notion workflows, Builder pulls, local-folder synchronization, provenance, and provider identities already support several bounded migration paths."
 remains: "Large migrations need durable server-side orchestration, checkpoints, idempotent deduplication, broader schema fidelity, conversion reports, asset repair, resumability, and explicit partial-failure recovery."
-required_capabilities: ["content.job.durable","content.source.adapters","content.portability.roundtrip"]
-enhancing_capabilities: ["content.source.catalog","content.event.committed"]
+required_capabilities:
+  [
+    "content.job.durable",
+    "content.source.adapters",
+    "content.portability.roundtrip",
+  ]
+enhancing_capabilities: ["content.source.catalog", "content.event.committed"]
 increments: []
 feature_proof: null
 publicness: "public"

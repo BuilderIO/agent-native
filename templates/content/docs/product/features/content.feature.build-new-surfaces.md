@@ -10,8 +10,9 @@ summary: "Create a one-off artifact, then promote it into a governed reusable Cu
 example_workflow: "An agent creates a one-off interactive calculator inside a Page; its owner inspects the source and rendered result, then promotes it to an approved Custom Block that coworkers can insert from the slash menu."
 works_today: "Sandboxed Extensions, local MDX components, HTML artifacts, executable-code foundations, and shared component toolkits already demonstrate several rendering and execution modes."
 remains: "These pieces need one Custom Block lifecycle with inspectable source, secure sandboxing, optional typed props, one-off artifacts, promotion, governed catalogs, source-backed origins, and slash-command discovery."
-required_capabilities: ["content.renderer.artifact-block","content.renderer.custom-block"]
-enhancing_capabilities: ["content.author.code","content.renderer.typed"]
+required_capabilities:
+  ["content.renderer.artifact-block", "content.renderer.custom-block"]
+enhancing_capabilities: ["content.author.code", "content.renderer.typed"]
 increments: []
 feature_proof: null
 publicness: "public"

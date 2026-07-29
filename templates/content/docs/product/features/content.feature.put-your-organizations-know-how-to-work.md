@@ -10,8 +10,14 @@ summary: "Govern reusable Skills so the agent offers the right instructions for 
 example_workflow: "A writer selects a paragraph and opens Ask Agent; Content prioritizes the organization's approved voice-and-style Skill, explains that it will propose a replacement, and records the resulting edits when invoked."
 works_today: "The Agent Native framework already loads governed developer Skills, and Content provides selection context and the shared Agent chat for carrying out authorized work."
 remains: "Content needs a user-manageable Skills catalog, scope and compatibility rules, contextual discovery, specific-over-general ranking, clear mutation previews, and shared invocation for people and agents."
-required_capabilities: ["content.expression.catalog","content.agent.skill-catalog","content.agent.expression-authoring"]
-enhancing_capabilities: ["content.template.governance","content.command.fabric"]
+required_capabilities:
+  [
+    "content.expression.catalog",
+    "content.agent.skill-catalog",
+    "content.agent.expression-authoring",
+  ]
+enhancing_capabilities:
+  ["content.template.governance", "content.command.fabric"]
 increments: []
 feature_proof: null
 publicness: "public"

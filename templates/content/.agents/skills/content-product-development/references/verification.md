@@ -8,18 +8,18 @@ actually usable.
 
 Verify the applicable rows:
 
-| Surface | Proof question |
-| --- | --- |
-| UI | Can a person complete the Feature's example workflow through the real interface? |
-| Actions | Can an agent perform the same authorized operations without a second mutation path? |
-| Application state | Does the agent receive the focused object, View, selection, and temporary filters the person sees? |
-| Access | Do reads, writes, direct links, derived results, public output, and embeds preserve authority? |
-| Persistence | Does the result survive reload, retry, interruption, and process boundaries appropriate to the Capability? |
-| History | Does the record name the actual human, agent, automation, or integration actor and remain recoverable? |
-| Sources | Does identity survive refresh and write-back without dropping unknown provider data? |
-| Portability | Does import, export, or static rendering preserve the accepted meaning or report explicit degradation? |
-| Accessibility | Do keyboard and assistive-technology paths support the primary workflow? |
-| Performance | Does the workflow stay inside its declared scale, time, memory, and output limits? |
+| Surface           | Proof question                                                                                             |
+| ----------------- | ---------------------------------------------------------------------------------------------------------- |
+| UI                | Can a person complete the Feature's example workflow through the real interface?                           |
+| Actions           | Can an agent perform the same authorized operations without a second mutation path?                        |
+| Application state | Does the agent receive the focused object, View, selection, and temporary filters the person sees?         |
+| Access            | Do reads, writes, direct links, derived results, public output, and embeds preserve authority?             |
+| Persistence       | Does the result survive reload, retry, interruption, and process boundaries appropriate to the Capability? |
+| History           | Does the record name the actual human, agent, automation, or integration actor and remain recoverable?     |
+| Sources           | Does identity survive refresh and write-back without dropping unknown provider data?                       |
+| Portability       | Does import, export, or static rendering preserve the accepted meaning or report explicit degradation?     |
+| Accessibility     | Do keyboard and assistive-technology paths support the primary workflow?                                   |
+| Performance       | Does the workflow stay inside its declared scale, time, memory, and output limits?                         |
 
 ## Status evidence
 

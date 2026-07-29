@@ -10,8 +10,9 @@ summary: "Resolve or create one canonical Page in the chosen Database, preserve 
 example_workflow: "Someone shares a customer interview URL from their phone to the Research Database; Content reuses the canonical Source Page, preserves the transcript and provenance, and lets the Database's Rules extract companies and open questions."
 works_today: "Content can already import or create Pages from files, URLs, providers, local Sources, and Agent Actions, with useful provenance and Database destinations in several paths."
 remains: "Every entrance needs one Capture contract with remembered destination, canonical deduplication, idempotency, snapshot handling, Template application, receipts, and clean downstream enrichment."
-required_capabilities: ["content.capture.enrich","content.source.catalog","content.job.durable"]
-enhancing_capabilities: ["content.rule.deterministic","content.template.graph"]
+required_capabilities:
+  ["content.capture.enrich", "content.source.catalog", "content.job.durable"]
+enhancing_capabilities: ["content.rule.deterministic", "content.template.graph"]
 increments: []
 feature_proof: null
 publicness: "public"

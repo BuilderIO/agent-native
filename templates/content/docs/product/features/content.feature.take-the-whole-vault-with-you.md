@@ -10,8 +10,14 @@ summary: "Export the complete authorized vault into open, understandable formats
 example_workflow: "An organization exports every object the acting administrator can access into an open Markdown, CSV, assets, and manifest vault plus a lossless Content archive, then verifies the package without Content."
 works_today: "Content exports Page bodies as Markdown, HTML, and PDF-shaped output and can export editable Markdown or MDX source, with local-file workflows already proving part of the portability model."
 remains: "Whole-vault export needs CSV, assets, an open manifest, a lossless Content archive, Notion-compatible packaging, authorized dependency closure, resumable jobs, verification, and Desktop backup."
-required_capabilities: ["content.portability.vault-export","content.portability.roundtrip","content.job.durable"]
-enhancing_capabilities: ["content.portability.pdf-export","content.source.local-bridge"]
+required_capabilities:
+  [
+    "content.portability.vault-export",
+    "content.portability.roundtrip",
+    "content.job.durable",
+  ]
+enhancing_capabilities:
+  ["content.portability.pdf-export", "content.source.local-bridge"]
 increments: []
 feature_proof: null
 publicness: "public"

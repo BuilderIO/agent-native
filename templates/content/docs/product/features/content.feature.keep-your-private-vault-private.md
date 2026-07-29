@@ -10,8 +10,14 @@ summary: "Add user-controlled encrypted custody without abandoning collaboration
 example_workflow: "A person enrolls a trusted laptop, opens an encrypted private vault locally, grants a local agent bounded access for one task, then revokes the device without exposing the vault to the service."
 works_today: "The private-vault lane has substantial research and fork implementation history around enrollment, encrypted custody, device authorization, fail-closed behavior, and cross-architecture verification."
 remains: "The complete user product still needs audited cryptographic integration, understandable recovery and revocation, collaboration, agent access boundaries, portable exit, current-main reconciliation, and production proof. Work remains deliberately paused."
-required_capabilities: ["content.security.private-vault","content.agent.resource-consent","content.portability.vault-export"]
-enhancing_capabilities: ["content.source.local-bridge","content.agent.audience-safe"]
+required_capabilities:
+  [
+    "content.security.private-vault",
+    "content.agent.resource-consent",
+    "content.portability.vault-export",
+  ]
+enhancing_capabilities:
+  ["content.source.local-bridge", "content.agent.audience-safe"]
 increments: []
 feature_proof: null
 publicness: "public"

@@ -10,8 +10,14 @@ summary: "Review upstream changes to adopted systems, keep local work intact, an
 example_workflow: "A new version of the editorial Template adds one Property and changes a Rule; each Database owner sees the impact, accepts the Property, declines the Rule, preserves local changes, and stops seeing the same declined update."
 works_today: "Version history, diff donors, stable identifiers, Templates, and source change-review machinery provide the pieces needed to compare evolving systems."
 remains: "Governed building blocks need version pinning, affected-object previews, owner-scoped adoption, selective apply and reset, remembered declines, deprecation, and safe permanent divergence."
-required_capabilities: ["content.template.update","content.property.catalog","content.diff.in-place"]
-enhancing_capabilities: ["content.template.governance","content.event.committed"]
+required_capabilities:
+  [
+    "content.template.update",
+    "content.property.catalog",
+    "content.diff.in-place",
+  ]
+enhancing_capabilities:
+  ["content.template.governance", "content.event.committed"]
 increments: []
 feature_proof: null
 publicness: "public"

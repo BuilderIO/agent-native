@@ -10,8 +10,14 @@ summary: "Govern reusable Templates, Properties, Expressions, and Custom Blocks 
 example_workflow: "An administrator publishes an approved editorial Template with governed Properties and Expressions; any team can inspect and adopt it, customize the local system, or detach without losing its existing records."
 works_today: "Content already has Templates and several reusable configuration surfaces, while source Properties and local components demonstrate governed and source-backed reuse patterns."
 remains: "Templates, Custom Properties, Expressions, and Custom Blocks need one understandable catalog model with ownership scope, inspection, adoption, local aliasing, provenance, and faithful detachment."
-required_capabilities: ["content.template.graph","content.template.governance","content.template.item-body"]
-enhancing_capabilities: ["content.property.catalog","content.organization.teams"]
+required_capabilities:
+  [
+    "content.template.graph",
+    "content.template.governance",
+    "content.template.item-body",
+  ]
+enhancing_capabilities:
+  ["content.property.catalog", "content.organization.teams"]
 increments: []
 feature_proof: null
 publicness: "public"

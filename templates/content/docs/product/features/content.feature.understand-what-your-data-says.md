@@ -10,8 +10,14 @@ summary: "Use Charts, Pivots, grouping, measures, and drill-down without creatin
 example_workflow: "A marketing analyst groups campaigns by channel, compares spend and conversions in a Chart and Pivot, then drills into one surprising aggregate to inspect the canonical campaigns behind it."
 works_today: "Database calculations, grouping, rollup foundations, and chart tooling elsewhere in the Agent Native framework provide useful implementation donors."
 remains: "Content needs typed aggregations, multi-dimensional grouping, Pivot, a shared Chart specification and renderer library, saved Chart Views, embeddable Chart Blocks, and drill-down to canonical records."
-required_capabilities: ["content.view.grouping-aggregation","content.view.pivot","content.view.chart","content.access.safe-aggregate"]
-enhancing_capabilities: ["content.renderer.typed","content.view.query"]
+required_capabilities:
+  [
+    "content.view.grouping-aggregation",
+    "content.view.pivot",
+    "content.view.chart",
+    "content.access.safe-aggregate",
+  ]
+enhancing_capabilities: ["content.renderer.typed", "content.view.query"]
 increments: []
 feature_proof: null
 publicness: "public"

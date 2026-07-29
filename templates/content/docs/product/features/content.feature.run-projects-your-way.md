@@ -10,8 +10,19 @@ summary: "Use an editable Task and Project system built from ordinary Content ra
 example_workflow: "A product team installs the blessed project Template, captures tasks from the keyboard, assigns owners, links subtasks and dependencies, and uses My Tasks while every task remains an ordinary editable Page."
 works_today: "Pages, Databases, status and person Properties, relations, Board and Calendar Views, Templates, Comments, and agent Actions already let teams assemble useful project systems."
 remains: "The blessed Template needs fast capture, polished defaults, task and subtask Views, My Tasks, activity, dependencies, permissions, and end-to-end Builder dogfooding without introducing a separate task engine."
-required_capabilities: ["content.system.task-project","content.system.my-tasks","content.system.dependencies","content.system.project-status"]
-enhancing_capabilities: ["content.view.fast-capture","content.relationship.edge","content.notification.source"]
+required_capabilities:
+  [
+    "content.system.task-project",
+    "content.system.my-tasks",
+    "content.system.dependencies",
+    "content.system.project-status",
+  ]
+enhancing_capabilities:
+  [
+    "content.view.fast-capture",
+    "content.relationship.edge",
+    "content.notification.source",
+  ]
 increments: []
 feature_proof: null
 publicness: "public"

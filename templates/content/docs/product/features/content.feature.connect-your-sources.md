@@ -10,8 +10,14 @@ summary: "Choose governed native and provider Sources, preserve their identity, 
 example_workflow: "A content lead connects Builder blog articles and resources, aligns their compatible fields in one Query, and works from a shared editorial View without losing which provider owns each record."
 works_today: "Content already models source-backed Databases, source fields and rows, provenance, multi-source composition, and adapters for Builder, Notion, and local material."
 remains: "Sources need one governed catalog, Queries need to replace the confusing multi-source configuration surface, and field alignment, write routing, and access behavior need end-to-end proof."
-required_capabilities: ["content.source.catalog","content.source.adapters","content.view.source-query","content.query.object"]
-enhancing_capabilities: ["content.source.page-link","content.property.catalog"]
+required_capabilities:
+  [
+    "content.source.catalog",
+    "content.source.adapters",
+    "content.view.source-query",
+    "content.query.object",
+  ]
+enhancing_capabilities: ["content.source.page-link", "content.property.catalog"]
 increments: []
 feature_proof: null
 publicness: "public"

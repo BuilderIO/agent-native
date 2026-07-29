@@ -10,8 +10,18 @@ summary: "Publish one chosen revision faithfully while private collaborative wor
 example_workflow: "An editor publishes the current approved article revision, continues working privately on a new Version, previews exactly what public readers can see, and updates the stable URL only when the replacement is ready."
 works_today: "Content already supports sharing, public Pages, stable links, several exports, access checks, and server-rendered public surfaces."
 remains: "Publication must bind to an exact revision or named Version, preview the real audience closure, render every Block faithfully, isolate private collaboration, preserve lifecycle history, and become polished enough for dependable CMS use."
-required_capabilities: ["content.publish.public","content.publish.reading","content.access.visibility-closure"]
-enhancing_capabilities: ["content.version.branching","content.portability.pdf-export","content.property.guarded-change"]
+required_capabilities:
+  [
+    "content.publish.public",
+    "content.publish.reading",
+    "content.access.visibility-closure",
+  ]
+enhancing_capabilities:
+  [
+    "content.version.branching",
+    "content.portability.pdf-export",
+    "content.property.guarded-change",
+  ]
 increments: []
 feature_proof: null
 publicness: "public"

@@ -10,8 +10,14 @@ summary: "Build Forms over the same schema, validation, and submission Actions a
 example_workflow: "A research team publishes an intake Form that validates required fields, lets an external participant submit without reading the Database, creates exactly one record, and triggers the Database's enrichment Rule."
 works_today: "Content already has a Form View, ordered and required questions, schema-backed controls, and an atomic Action that creates and verifies an ordinary Database record."
 remains: "Content and Agent Native Forms need one shared engine, with polished public submission, richer validation, conditional behavior, permissions, spam protection, receipts, and dependable downstream Rule handoff."
-required_capabilities: ["content.form.shared-engine","content.property.constraints","content.agent.action-parity","content.event.committed"]
-enhancing_capabilities: ["content.rule.deterministic","content.job.durable"]
+required_capabilities:
+  [
+    "content.form.shared-engine",
+    "content.property.constraints",
+    "content.agent.action-parity",
+    "content.event.committed",
+  ]
+enhancing_capabilities: ["content.rule.deterministic", "content.job.durable"]
 increments: []
 feature_proof: null
 publicness: "public"

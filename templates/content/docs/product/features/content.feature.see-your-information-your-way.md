@@ -10,8 +10,19 @@ summary: "Move among compatible Database and Query Views without changing the re
 example_workflow: "A marketing team edits its editorial Database as a Table, plans work on a Board and Calendar, then gives executives a compact List of the same canonical articles."
 works_today: "Table, List, Board, Gallery, Calendar, Timeline, and Form renderers already exist, along with shared filters, sorts, grouping, calculations, and visible-field controls."
 remains: "Every renderer needs the same proven permissions, Actions, agent context, accessibility, persistence, performance, keyboard behavior, and recovery. Incomplete Views should remain gated until they pass that contract."
-required_capabilities: ["content.renderer.typed","content.view.query","content.view.renderer-conformance","content.view.scale"]
-enhancing_capabilities: ["content.view.fast-capture","content.view.grouping-aggregation","content.view.timeline"]
+required_capabilities:
+  [
+    "content.renderer.typed",
+    "content.view.query",
+    "content.view.renderer-conformance",
+    "content.view.scale",
+  ]
+enhancing_capabilities:
+  [
+    "content.view.fast-capture",
+    "content.view.grouping-aggregation",
+    "content.view.timeline",
+  ]
 increments: []
 feature_proof: null
 publicness: "public"

@@ -10,8 +10,14 @@ summary: "Arrange canonical Content on a Canvas, sketch possible connections, an
 example_workflow: "A researcher arranges Sources, claims, and Annotations on a Canvas, draws tentative lines while thinking, and promotes only the strongest line into a typed Supports relationship that Queries and agents can use."
 works_today: "Canonical Pages, Blocks, references, relation Properties, Queries, and embeddable Views provide the objects and edges a spatial surface can eventually arrange."
 remains: "Canvas, view-local connectors, promotion into typed Relationships, semantic Graph editing, mind maps, force-directed layouts, and graph traversal remain planned capabilities."
-required_capabilities: ["content.view.canvas","content.view.graph","content.knowledge.graph","content.relationship.edge"]
-enhancing_capabilities: ["content.query.object","content.research.annotation"]
+required_capabilities:
+  [
+    "content.view.canvas",
+    "content.view.graph",
+    "content.knowledge.graph",
+    "content.relationship.edge",
+  ]
+enhancing_capabilities: ["content.query.object", "content.research.annotation"]
 increments: []
 feature_proof: null
 publicness: "public"

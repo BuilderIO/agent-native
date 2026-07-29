@@ -10,8 +10,16 @@ summary: "Personal arrangements and private Views reshape shared work without ch
 example_workflow: "A sales leader privately filters and groups the shared customer Database around this quarter's accounts, saves that arrangement as an Only-me View, and never changes what the rest of the company sees."
 works_today: "Saved Database Views already support filtering, sorting, grouping, density, and several renderers, while the data model supports Pages belonging to multiple Databases."
 remains: "Automatic personal overrides, named Only-me Views, reusable typed Queries, and predictable pinning and sharing behavior need complete product surfaces."
-required_capabilities: ["content.view.query","content.query.object","content.view.personal-state","content.share.views","content.object.multi-membership"]
-enhancing_capabilities: ["content.navigation.sidebar","content.expression.language"]
+required_capabilities:
+  [
+    "content.view.query",
+    "content.query.object",
+    "content.view.personal-state",
+    "content.share.views",
+    "content.object.multi-membership",
+  ]
+enhancing_capabilities:
+  ["content.navigation.sidebar", "content.expression.language"]
 increments: []
 feature_proof: null
 publicness: "public"

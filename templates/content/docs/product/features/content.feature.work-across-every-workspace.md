@@ -10,8 +10,13 @@ summary: "Search and save Queries across Personal and organization contexts with
 example_workflow: "A person searches their current Workspace, deliberately expands to all accessible contexts, saves a Query spanning Personal and two organizations, and shares it with someone who sees only their own authorized intersection."
 works_today: "Content has Personal and organization spaces, Workspace membership, scoped access checks, and the beginnings of cross-space navigation and search."
 remains: "Active working context must separate cleanly from retrieval scope, while global Home, cross-context Queries, counts, aggregates, and viewer-specific evaluation need complete implementation."
-required_capabilities: ["content.workspace.multi-scope","content.query.object","content.access.visibility-closure"]
-enhancing_capabilities: ["content.home.global","content.organization.teams"]
+required_capabilities:
+  [
+    "content.workspace.multi-scope",
+    "content.query.object",
+    "content.access.visibility-closure",
+  ]
+enhancing_capabilities: ["content.home.global", "content.organization.teams"]
 increments: []
 feature_proof: null
 publicness: "public"

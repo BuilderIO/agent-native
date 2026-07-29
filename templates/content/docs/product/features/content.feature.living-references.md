@@ -10,8 +10,14 @@ summary: "Reuse canonical Pages and Blocks without producing copies that quietly
 example_workflow: "The Docs team maintains one canonical product-description Block that appears across several guides and blog posts, edits it from any occurrence, and sees every authorized location update without copy and paste."
 works_today: "Content can reference Pages, embed ordinary Database Views, and preserve multi-membership without copying canonical records. Existing reference Blocks and source-aware identities provide useful substrate."
 remains: "Stable Block references, editable Synced Blocks, canonical Page embeds, a complete Connections surface, and typed relationship behavior still need to converge."
-required_capabilities: ["content.object.reference","content.object.transclusion","content.knowledge.links","content.relationship.edge"]
-enhancing_capabilities: ["content.object.block","content.version.branching"]
+required_capabilities:
+  [
+    "content.object.reference",
+    "content.object.transclusion",
+    "content.knowledge.links",
+    "content.relationship.edge",
+  ]
+enhancing_capabilities: ["content.object.block", "content.version.branching"]
 increments: []
 feature_proof: null
 publicness: "public"

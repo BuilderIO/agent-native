@@ -10,8 +10,15 @@ summary: "Comments, Discussion, messages, notifications, and history stay anchor
 example_workflow: "A teammate comments on an unclear paragraph, discusses the larger issue in the Page's Discussion, links the conversation to Slack, and returns later to see the Comment, replies, and resulting changes together."
 works_today: "Content supports anchored Comment threads, replies, resolution, mentions, notifications substrate, and document history. These already keep precise feedback closer to the artifact than an external chat can."
 remains: "Every Page and Database needs its universal Discussion, rich Blocks-field messages, stable permalinks, access-safe Slack continuation, and clearly attributable message revisions."
-required_capabilities: ["content.discussion.page","content.comment.page-owned","content.object.blocks-field","content.notification.source","content.event.committed"]
-enhancing_capabilities: ["content.agent.presence","content.feedback.signal"]
+required_capabilities:
+  [
+    "content.discussion.page",
+    "content.comment.page-owned",
+    "content.object.blocks-field",
+    "content.notification.source",
+    "content.event.committed",
+  ]
+enhancing_capabilities: ["content.agent.presence", "content.feedback.signal"]
 increments: ["decide-together"]
 feature_proof: null
 publicness: "public"

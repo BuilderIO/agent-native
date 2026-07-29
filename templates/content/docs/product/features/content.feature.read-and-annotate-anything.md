@@ -10,8 +10,13 @@ summary: "Read comfortably, mark exact material, preserve revision context, and 
 example_workflow: "A researcher opens a PDF, adjusts the reading layout, highlights an exact passage, adds a durable Annotation, and later finds it from the Annotations rail even after the source receives a new revision."
 works_today: "Content already renders rich documents and media Blocks, supports anchored Comments, stores source representations, and has ordinary reading and export foundations."
 remains: "The dedicated Reader experience, durable Annotation object and rail, precise selectors across media, revision-aware anchoring, carry-forward, reading preferences, progress, dictation, and read-aloud are still planned."
-required_capabilities: ["content.reader.surface","content.research.annotation","content.author.media"]
-enhancing_capabilities: ["content.version.branching","content.source.adapters"]
+required_capabilities:
+  [
+    "content.reader.surface",
+    "content.research.annotation",
+    "content.author.media",
+  ]
+enhancing_capabilities: ["content.version.branching", "content.source.adapters"]
 increments: []
 feature_proof: null
 publicness: "public"

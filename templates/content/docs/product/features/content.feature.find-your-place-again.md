@@ -10,8 +10,16 @@ summary: "Content makes arrival, navigation, and resumption feel dependable inst
 example_workflow: "A new teammate follows an invitation, lands in the correct organization and Workspace, pins the project they care about, and later returns directly to the exact Database View they were using."
 works_today: "Content has Personal and organization-backed spaces, Workspace navigation, invitations, sidebar structure, and saved location state in varying degrees of maturity."
 remains: "Global Home, clearer context switching, intentional pinning and dynamic sidebar sections, and reliable resumption into the exact focused View need to work as one arrival experience."
-required_capabilities: ["content.source.spaces-files","content.workspace.multi-scope","content.home.global","content.navigation.sidebar","content.workspace.session-restore"]
-enhancing_capabilities: ["content.workspace.working-set","content.workspace.view-instance"]
+required_capabilities:
+  [
+    "content.source.spaces-files",
+    "content.workspace.multi-scope",
+    "content.home.global",
+    "content.navigation.sidebar",
+    "content.workspace.session-restore",
+  ]
+enhancing_capabilities:
+  ["content.workspace.working-set", "content.workspace.view-instance"]
 increments: []
 feature_proof: null
 publicness: "public"

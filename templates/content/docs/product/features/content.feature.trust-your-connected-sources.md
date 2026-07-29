@@ -10,8 +10,15 @@ summary: "Keep supported edits synchronized according to one plain-language poli
 example_workflow: "An editor updates a Builder article from Content; the supported changes synchronize, an unknown Builder component survives untouched, and changing Draft to Published remains a separate guarded action."
 works_today: "Builder change sets, guarded writes, raw sidecars, local-folder synchronization, and source metadata already preserve several difficult round-trip and conflict boundaries."
 remains: "Every adapter needs certification against one plain-language sync policy, seamless automatic synchronization where safe, faithful unknown-content preservation, explicit lifecycle changes, and dependable receipts."
-required_capabilities: ["content.source.sync-policy","content.portability.roundtrip","content.source.adapters","content.source.builder-codec"]
-enhancing_capabilities: ["content.property.guarded-change","content.event.committed"]
+required_capabilities:
+  [
+    "content.source.sync-policy",
+    "content.portability.roundtrip",
+    "content.source.adapters",
+    "content.source.builder-codec",
+  ]
+enhancing_capabilities:
+  ["content.property.guarded-change", "content.event.committed"]
 increments: []
 feature_proof: null
 publicness: "public"

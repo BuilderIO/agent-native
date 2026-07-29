@@ -10,8 +10,15 @@ summary: "Create named Versions, compare them, selectively merge them, and promo
 example_workflow: "A team keeps the published article canonical while creating a private rewrite, compares the two Versions in the normal editor, selectively merges the best changes, and promotes the rewrite only when it is ready."
 works_today: "Content preserves whole-document snapshots and can restore earlier revisions, while the broader event and diff architecture establishes the lower-level history foundation."
 remains: "Named Page Versions, Version-specific access, in-place comparison, selective merge, canonical promotion, and Version-aware collaboration are still planned."
-required_capabilities: ["content.version.branching","content.version.field-history","content.diff.in-place","content.access.row-private"]
-enhancing_capabilities: ["content.diff.filtered-review","content.research.annotation"]
+required_capabilities:
+  [
+    "content.version.branching",
+    "content.version.field-history",
+    "content.diff.in-place",
+    "content.access.row-private",
+  ]
+enhancing_capabilities:
+  ["content.diff.filtered-review", "content.research.annotation"]
 increments: []
 feature_proof: null
 publicness: "public"
