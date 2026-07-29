@@ -3152,6 +3152,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         return true;
       }
       if (/^Arrow/.test(key || "")) return !e.altKey;
+      if (!primary && !e.altKey && e.shiftKey && e.code === "Backslash") {
+        return true;
+      }
       if (primary) {
         return [
           "z",
@@ -3185,9 +3188,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         // Cmd+H / Cmd+L — common OS "Hide app" / browser "focus address bar"
         // shortcuts the host has no bare-primary binding for — are left
         // alone (see useDesignHotkeys.ts: both require event.shiftKey).
-        e.shiftKey && (normalized === "h" || normalized === "l") || // Cmd/Ctrl+Shift+\\ — minimize UI (onToggleUi). Keep the Shift gate
-        // here so the iframe never intercepts a desktop host's bare Cmd/Ctrl+\\.
-        e.shiftKey && normalized === "\\\\" || // Cmd/Ctrl+Alt+B detach instance / Cmd/Ctrl+Alt+K create component
+        e.shiftKey && (normalized === "h" || normalized === "l") || // Cmd/Ctrl+Alt+B detach instance / Cmd/Ctrl+Alt+K create component
         // (onDetachInstance / onCreateComponent). Gated on altKey so bare
         // Cmd+B is left alone — the host has no bare-primary binding for it.
         e.altKey && (normalized === "b" || normalized === "k") || // Ctrl+Alt+H / Ctrl+Alt+T — distribute horizontal / tidy up
@@ -8245,6 +8246,44 @@ export const editorChromeBridgeScript: string = `"use strict";
     });
     window.addEventListener("scroll", scheduleRefreshOverlays, true);
     window.addEventListener("resize", scheduleRefreshOverlays);
+    function isNativeInteractionNetExempt(target) {
+      return isOverlayElement(target) || isEditorTypingTarget(target) || !!activeDragCancel;
+    }
+    function interceptNativeInteractionNet(e) {
+      if (readOnly) return;
+      var target = e.target && e.target.nodeType === 1 ? e.target : null;
+      if (isNativeInteractionNetExempt(target)) return;
+      stopNativeInteraction(e);
+    }
+    [
+      "click",
+      "auxclick",
+      "dblclick",
+      "mousedown",
+      "mouseup",
+      "pointerdown",
+      "pointerup",
+      "submit"
+    ].forEach(function(type) {
+      document.addEventListener(type, interceptNativeInteractionNet, true);
+    });
+    function isFocusedActivationTarget(target) {
+      return !!(target && target.closest && target.closest(
+        'a[href], button, summary, input[type="submit"], input[type="button"], input[type="reset"], input[type="image"], [role="button"], [role="link"]'
+      ));
+    }
+    document.addEventListener(
+      "keydown",
+      function(e) {
+        if (readOnly) return;
+        if (e.key !== "Enter" && !(e.key === " " && e.code === "Space")) return;
+        var target = e.target && e.target.nodeType === 1 ? e.target : null;
+        if (isNativeInteractionNetExempt(target)) return;
+        if (!isFocusedActivationTarget(target)) return;
+        stopNativeInteraction(e);
+      },
+      true
+    );
     applyEditorChromeScale();
     if (runtimeLayerSnapshotEnabled && typeof MutationObserver !== "undefined" && document.body) {
       var runtimeLayerObserver = new MutationObserver(function(mutations) {

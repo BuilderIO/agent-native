@@ -102,6 +102,7 @@ import type {
   MentionProvider,
 } from "../agent/types.js";
 import { readAppStateForCurrentTab } from "../application-state/script-helpers.js";
+import { runChatThreadDataMigrations } from "../chat-threads/migrations.js";
 import {
   createThread,
   forkThread,
@@ -280,6 +281,7 @@ import {
   runMCPAgentLoop,
   assembleA2AFinalResponse,
   buildPublicAgentA2ASkills,
+  buildAuthenticatedAgentA2ASkills,
   resolveArtifactBaseUrl,
 } from "./agent-chat/action-filters-a2a.js";
 import {
@@ -1318,6 +1320,10 @@ export function createAgentChatPlugin(
           : "Agent",
         description: `Agent-native ${options?.appId ?? "app"} agent`,
         skills: buildPublicAgentA2ASkills(allScripts),
+        authenticatedSkills: buildAuthenticatedAgentA2ASkills(
+          mcpFullActions ?? allScripts,
+          options ?? {},
+        ),
         publicSkillsOnly: true,
         streaming: true,
         durableBackgroundRuns: options?.durableBackgroundRuns,
@@ -5951,6 +5957,18 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           }, 30_000); // Check every 30s but only sweep once per 2min
         }, 20_000); // Start 20s after init (after the agent-teams sweep)
       })();
+
+      // ─── Legacy chat-thread message_count repair ──────────────────────
+      // Long-lived processes apply this name-tracked data migration once.
+      // Serverless isolates skip it: launching a full thread_data scan from
+      // every cold start would recreate the connection stampede this repair
+      // was extracted from table bootstrap to prevent.
+      void runChatThreadDataMigrations(nitroApp).catch((err: unknown) => {
+        console.error(
+          "[chat-threads] legacy message_count repair failed — retrying on the next long-lived boot:",
+          err,
+        );
+      });
 
       // ─── Trigger Dispatcher (event-based automations) ─────────────────
       if (disableRecurringJobsRuntime) {

@@ -2,13 +2,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const authMock = vi.hoisted(() => vi.fn());
 const refreshAuthorizationMock = vi.hoisted(() => vi.fn());
+const validateAuthorizationResponseIssuerMock = vi.hoisted(() => vi.fn());
 const deleteOAuthTokensMock = vi.hoisted(() => vi.fn());
 const getOAuthTokensMock = vi.hoisted(() => vi.fn());
 const saveOAuthTokensMock = vi.hoisted(() => vi.fn());
 
-vi.mock("@modelcontextprotocol/sdk/client/auth.js", () => ({
+vi.mock("@modelcontextprotocol/client", () => ({
   auth: authMock,
   refreshAuthorization: refreshAuthorizationMock,
+  validateAuthorizationResponseIssuer: validateAuthorizationResponseIssuerMock,
 }));
 
 vi.mock("../oauth-tokens/store.js", () => ({
@@ -26,11 +28,13 @@ import {
   saveMcpOAuthCredentials,
   startMcpOAuthAuthorization,
   tokenExpiresAt,
+  validateMcpOAuthCallbackIssuer,
 } from "./oauth-client.js";
 
 const clientInformation = {
   client_id: "mcp-client-test",
   redirect_uris: ["https://app.example.com/callback"],
+  issuer: "https://auth.example.com",
 };
 
 const credentials = {
@@ -38,11 +42,19 @@ const credentials = {
   clientInformation,
   discoveryState: {
     authorizationServerUrl: "https://auth.example.com",
+    authorizationServerMetadata: {
+      issuer: "https://auth.example.com",
+      authorization_endpoint: "https://auth.example.com/authorize",
+      token_endpoint: "https://auth.example.com/token",
+      response_types_supported: ["code"],
+      authorization_response_iss_parameter_supported: true,
+    },
   },
   tokens: {
     access_token: "<ACCESS_TOKEN>",
     refresh_token: "<REFRESH_TOKEN>",
     token_type: "bearer",
+    issuer: "https://auth.example.com",
   },
   tokenExpiresAt: Date.now() + 3_600_000,
 };
@@ -53,6 +65,7 @@ beforeEach(() => {
   deleteOAuthTokensMock.mockReset();
   getOAuthTokensMock.mockReset();
   saveOAuthTokensMock.mockReset();
+  validateAuthorizationResponseIssuerMock.mockReset();
 });
 
 describe("MCP OAuth client", () => {
@@ -79,6 +92,26 @@ describe("MCP OAuth client", () => {
     );
     expect(result.codeVerifier).toBe("<CODE_VERIFIER>");
     expect(result.clientInformation).toEqual(clientInformation);
+    expect(
+      new McpOAuthClientProvider({
+        serverUrl: "https://mcp.example.com/mcp",
+        redirectUrl: "https://app.example.com/callback",
+        state: "<STATE>",
+      }).clientMetadata,
+    ).toMatchObject({
+      application_type: "web",
+      grant_types: ["authorization_code", "refresh_token"],
+    });
+  });
+
+  it("derives native application_type for loopback callbacks", () => {
+    const provider = new McpOAuthClientProvider({
+      serverUrl: "https://mcp.example.com/mcp",
+      redirectUrl: "http://localhost:54545/callback",
+      state: "<STATE>",
+    });
+
+    expect(provider.clientMetadata.application_type).toBe("native");
   });
 
   it("guards SDK OAuth requests and persisted discovery URLs", async () => {
@@ -186,13 +219,15 @@ describe("MCP OAuth client", () => {
 
   it("finishes the code exchange without exposing the token to the flow result", async () => {
     authMock.mockImplementationOnce(
-      async (provider: McpOAuthClientProvider) => {
+      async (provider: McpOAuthClientProvider, options: any) => {
         provider.saveClientInformation(clientInformation as any);
         provider.saveTokens({
           access_token: "<ACCESS_TOKEN>",
           refresh_token: "<REFRESH_TOKEN>",
           token_type: "bearer",
+          issuer: "https://auth.example.com",
         });
+        expect(options.iss).toBe("https://auth.example.com");
         return "AUTHORIZED";
       },
     );
@@ -204,11 +239,56 @@ describe("MCP OAuth client", () => {
       codeVerifier: "<CODE_VERIFIER>",
       clientInformation: clientInformation as any,
       authorizationCode: "<AUTHORIZATION_CODE>",
+      iss: "https://auth.example.com",
     });
 
     expect(result.credentials.serverUrl).toBe("https://mcp.example.com/mcp");
     expect(result.credentials.tokens.access_token).toBe("<ACCESS_TOKEN>");
     expect(result.credentials.clientInformation).toEqual(clientInformation);
+  });
+
+  it("binds provider credentials to their authorization-server issuer", () => {
+    const provider = new McpOAuthClientProvider({
+      serverUrl: "https://mcp.example.com/mcp",
+      redirectUrl: "https://app.example.com/callback",
+      state: "<STATE>",
+    });
+    provider.saveClientInformation(
+      {
+        client_id: "mcp-client-test",
+      },
+      { issuer: "https://auth.example.com" },
+    );
+    provider.saveTokens(
+      {
+        access_token: "<ACCESS_TOKEN>",
+        token_type: "bearer",
+      },
+      { issuer: "https://auth.example.com" },
+    );
+
+    expect(
+      provider.clientInformation({ issuer: "https://auth.example.com" }),
+    ).toMatchObject({ issuer: "https://auth.example.com" });
+    expect(
+      provider.clientInformation({ issuer: "https://other.example.com" }),
+    ).toBeUndefined();
+    expect(provider.tokens({ issuer: "https://other.example.com" })).toBe(
+      undefined,
+    );
+  });
+
+  it("validates callback iss against the recorded authorization server", () => {
+    validateMcpOAuthCallbackIssuer(
+      credentials.discoveryState as any,
+      "https://auth.example.com",
+    );
+
+    expect(validateAuthorizationResponseIssuerMock).toHaveBeenCalledWith({
+      iss: "https://auth.example.com",
+      expectedIssuer: "https://auth.example.com",
+      issParameterSupported: true,
+    });
   });
 
   it("stores the credential bundle in the encrypted OAuth-token store", async () => {
@@ -255,6 +335,67 @@ describe("MCP OAuth client", () => {
     expect(
       (saveOAuthTokensMock.mock.calls[0]?.[2] as any).tokens.refresh_token,
     ).toBe("<REFRESH_TOKEN>");
+    expect((saveOAuthTokensMock.mock.calls[0]?.[2] as any).tokens.issuer).toBe(
+      "https://auth.example.com",
+    );
+  });
+
+  it("requires reauthorization for expiring legacy credentials without issuer binding", async () => {
+    getOAuthTokensMock.mockResolvedValueOnce({
+      ...credentials,
+      clientInformation: {
+        client_id: "legacy-client",
+      },
+      tokenExpiresAt: Date.now() - 1,
+    });
+
+    await expect(
+      getMcpOAuthAccessToken({
+        key: "mcp_oauth:test",
+        scope: "user",
+        scopeId: "alice@example.com",
+        serverUrl: "https://mcp.example.com/mcp",
+      }),
+    ).resolves.toBeNull();
+    expect(refreshAuthorizationMock).not.toHaveBeenCalled();
+  });
+
+  it("does not return an expired token when refresh fails", async () => {
+    getOAuthTokensMock.mockResolvedValueOnce({
+      ...credentials,
+      tokenExpiresAt: Date.now() - 1,
+    });
+    refreshAuthorizationMock.mockRejectedValueOnce(
+      new Error("authorization server unavailable"),
+    );
+
+    await expect(
+      getMcpOAuthAccessToken({
+        key: "mcp_oauth:test",
+        scope: "user",
+        scopeId: "alice@example.com",
+        serverUrl: "https://mcp.example.com/mcp",
+      }),
+    ).resolves.toBeNull();
+  });
+
+  it("keeps a still-valid token when an early refresh fails", async () => {
+    getOAuthTokensMock.mockResolvedValueOnce({
+      ...credentials,
+      tokenExpiresAt: Date.now() + 30_000,
+    });
+    refreshAuthorizationMock.mockRejectedValueOnce(
+      new Error("authorization server unavailable"),
+    );
+
+    await expect(
+      getMcpOAuthAccessToken({
+        key: "mcp_oauth:test",
+        scope: "user",
+        scopeId: "alice@example.com",
+        serverUrl: "https://mcp.example.com/mcp",
+      }),
+    ).resolves.toBe("<ACCESS_TOKEN>");
   });
 
   it("rejects malformed stored bundles", async () => {

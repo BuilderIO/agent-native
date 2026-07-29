@@ -770,12 +770,21 @@ importers:
       '@libsql/client':
         specifier: ^0.15.0
         version: 0.15.15
+      '@modelcontextprotocol/client':
+        specifier: 2.0.0
+        version: 2.0.0
+      '@modelcontextprotocol/core':
+        specifier: 2.0.0
+        version: 2.0.0
       '@modelcontextprotocol/ext-apps':
-        specifier: 1.7.2
-        version: 1.7.2(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.4.3)
+        specifier: 1.7.5
+        version: 1.7.5(@modelcontextprotocol/sdk@1.30.0(zod@4.4.3))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.4.3)
       '@modelcontextprotocol/sdk':
-        specifier: ^1.29.0
-        version: 1.29.0(zod@4.4.3)
+        specifier: 1.30.0
+        version: 1.30.0(zod@4.4.3)
+      '@modelcontextprotocol/server':
+        specifier: 2.0.0
+        version: 2.0.0
       '@mozilla/readability':
         specifier: 0.6.0
         version: 0.6.0
@@ -796,10 +805,10 @@ importers:
         version: 1.2.12(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       '@react-router/dev':
         specifier: ^8.1.0
-        version: 8.1.0(babel-plugin-macros@3.1.0)(react-router@8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(typescript@7.0.2)(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))(wrangler@4.81.0)
+        version: 8.1.0(babel-plugin-macros@3.1.0)(react-router@8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(typescript@6.0.3)(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))(wrangler@4.81.0)
       '@react-router/fs-routes':
         specifier: ^8.1.0
-        version: 8.1.0(@react-router/dev@8.1.0(babel-plugin-macros@3.1.0)(react-router@8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(typescript@7.0.2)(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))(wrangler@4.81.0))(typescript@7.0.2)
+        version: 8.1.0(@react-router/dev@8.1.0(babel-plugin-macros@3.1.0)(react-router@8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(typescript@6.0.3)(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))(wrangler@4.81.0))(typescript@6.0.3)
       '@resvg/resvg-js':
         specifier: ^2.6.2
         version: 2.6.2
@@ -865,7 +874,7 @@ importers:
         version: 11.11.1
       i18next:
         specifier: 26.3.1
-        version: 26.3.1(typescript@7.0.2)
+        version: 26.3.1(typescript@6.0.3)
       isbot:
         specifier: ^5
         version: 5.1.44
@@ -907,7 +916,7 @@ importers:
         version: 3.8.3
       react-i18next:
         specifier: 17.0.8
-        version: 17.0.8(i18next@26.3.1(typescript@7.0.2))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(typescript@7.0.2)
+        version: 17.0.8(i18next@26.3.1(typescript@6.0.3))(react-dom@19.2.7(react@19.2.7))(react-native@0.86.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7))(react@19.2.7)(typescript@6.0.3)
       react-markdown:
         specifier: ^10.1.0
         version: 10.1.0(@types/react@19.2.17)(react@19.2.7)
@@ -946,7 +955,7 @@ importers:
         version: 1.0.3
       typescript:
         specifier: '>=5'
-        version: 7.0.2
+        version: 6.0.3
       y-protocols:
         specifier: 'catalog:'
         version: 1.0.7(yjs@13.6.31)
@@ -1158,9 +1167,18 @@ importers:
       '@agent-native/toolkit':
         specifier: workspace:*
         version: link:../toolkit
-      '@modelcontextprotocol/sdk':
-        specifier: ^1.29.0
-        version: 1.29.0(zod@4.4.3)
+      '@modelcontextprotocol/client':
+        specifier: 2.0.0
+        version: 2.0.0
+      '@modelcontextprotocol/core':
+        specifier: 2.0.0
+        version: 2.0.0
+      '@modelcontextprotocol/node':
+        specifier: 2.0.0
+        version: 2.0.0(@modelcontextprotocol/server@2.0.0)(hono@4.12.27)
+      '@modelcontextprotocol/server':
+        specifier: 2.0.0
+        version: 2.0.0
       '@sentry/electron':
         specifier: ^7.14.0
         version: 7.14.0
@@ -1777,9 +1795,6 @@ importers:
       '@agent-native/core':
         specifier: workspace:*
         version: link:../core
-      '@modelcontextprotocol/sdk':
-        specifier: ^1.0.0
-        version: 1.29.0(zod@4.4.3)
       '@types/express':
         specifier: ^5.0.3
         version: 5.0.6
@@ -2445,7 +2460,7 @@ importers:
         version: 5.2.8
       '@google/genai':
         specifier: ^1.52.0
-        version: 1.52.0(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))
+        version: 1.52.0(@modelcontextprotocol/sdk@1.30.0(zod@4.4.3))
       '@libsql/client':
         specifier: ^0.15.8
         version: 0.15.15
@@ -5226,7 +5241,7 @@ importers:
         version: 5.2.7
       '@google/genai':
         specifier: ^1.42.0
-        version: 1.52.0(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))
+        version: 1.52.0(@modelcontextprotocol/sdk@1.30.0(zod@4.4.3))
       '@libsql/client':
         specifier: ^0.15.0
         version: 0.15.15
@@ -8674,8 +8689,16 @@ packages:
   '@mixmark-io/domino@2.2.0':
     resolution: {integrity: sha512-Y28PR25bHXUg88kCV7nivXrP2Nj2RueZ3/l/jdx6J9f8J4nsEGcgX0Qe6lt7Pa+J79+kPiJU3LguR6O/6zrLOw==}
 
-  '@modelcontextprotocol/ext-apps@1.7.2':
-    resolution: {integrity: sha512-OOWKDxdAjYDcgHkmzVzccyyag3FK+jBWPaWu4WvTxFsU4R/cgOX4eep66zPRA5n4v6WfxUNibPyvX4iJ7egYTg==}
+  '@modelcontextprotocol/client@2.0.0':
+    resolution: {integrity: sha512-8f1OghQ2rjzIOfqgUCP+8GiUWqRs89njoWLNqAe8kWmDePv3s1fZXseej+QXemssEuuOvLLmLO/kqM3IQHtISw==}
+    engines: {node: '>=20'}
+
+  '@modelcontextprotocol/core@2.0.0':
+    resolution: {integrity: sha512-pJCEwGG7Lfr/+PQp9ZTwKXNeO5wzbfKL7H3MYpCorM4oFBoQrdjnBgEoqG+RjhsvS1FKrDbKux+M1HhlnGWqcA==}
+    engines: {node: '>=20'}
+
+  '@modelcontextprotocol/ext-apps@1.7.5':
+    resolution: {integrity: sha512-TjPH2S2y5UEGKhmI6+XGFuqfqOV4ppe1x6DA3txnUaEWkgtA4G5vo14jGKFZmegdkZ1H4QMLyujLvoU1BEdnAg==}
     engines: {node: '>=20'}
     peerDependencies:
       '@modelcontextprotocol/sdk': ^1.29.0
@@ -8688,8 +8711,18 @@ packages:
       react-dom:
         optional: true
 
-  '@modelcontextprotocol/sdk@1.29.0':
-    resolution: {integrity: sha512-zo37mZA9hJWpULgkRpowewez1y6ML5GsXJPY8FI0tBBCd77HEvza4jDqRKOXgHNn867PVGCyTdzqpz0izu5ZjQ==}
+  '@modelcontextprotocol/node@2.0.0':
+    resolution: {integrity: sha512-Y4hAC2XdGDUdDOCbLDOCA4+aL3NUldjsOWlDL/YwpAxrPhRm1xHd7lZ+mLacvZ9t3PaH28wgNoaLQGrIk1P2pg==}
+    engines: {node: '>=20'}
+    peerDependencies:
+      '@modelcontextprotocol/server': ^2.0.0
+      hono: '>=4.12.4'
+    peerDependenciesMeta:
+      hono:
+        optional: true
+
+  '@modelcontextprotocol/sdk@1.30.0':
+    resolution: {integrity: sha512-xKd8OIzlqNzcqcNumGAa6g+PW2kjD5vrpcKOnfldAUPP3j7lnqMPwlTXQm8gF+UwH72z0lqaRbjr9hqGz0eITA==}
     engines: {node: '>=18'}
     peerDependencies:
       '@cfworker/json-schema': ^4.1.1
@@ -8697,6 +8730,10 @@ packages:
     peerDependenciesMeta:
       '@cfworker/json-schema':
         optional: true
+
+  '@modelcontextprotocol/server@2.0.0':
+    resolution: {integrity: sha512-YhHWdHfpFMQfd0prsEnxKeS3Qz3ytIGmsS0sth4KDjnacIT7hxk6hXHkJ9KysxlkvTM+WZAtQbbcUhdoP4Hvtw==}
+    engines: {node: '>=20'}
 
   '@monogrid/gainmap-js@3.4.0':
     resolution: {integrity: sha512-2Z0FATFHaoYJ8b+Y4y4Hgfn3FRFwuU5zRrk+9dFWp4uGAdHGqVEdP7HP+gLA3X469KXHmfupJaUbKo1b/aDKIg==}
@@ -23688,14 +23725,14 @@ snapshots:
 
   '@fontsource/poppins@5.2.7': {}
 
-  '@google/genai@1.52.0(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))':
+  '@google/genai@1.52.0(@modelcontextprotocol/sdk@1.30.0(zod@4.4.3))':
     dependencies:
       google-auth-library: 10.7.0
       p-retry: 4.6.2
       protobufjs: 7.6.4
       ws: 8.18.0
     optionalDependencies:
-      '@modelcontextprotocol/sdk': 1.29.0(zod@4.4.3)
+      '@modelcontextprotocol/sdk': 1.30.0(zod@4.4.3)
     transitivePeerDependencies:
       - bufferutil
       - supports-color
@@ -24101,16 +24138,37 @@ snapshots:
 
   '@mixmark-io/domino@2.2.0': {}
 
-  '@modelcontextprotocol/ext-apps@1.7.2(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.4.3)':
+  '@modelcontextprotocol/client@2.0.0':
     dependencies:
-      '@modelcontextprotocol/sdk': 1.29.0(zod@4.4.3)
+      '@modelcontextprotocol/core': 2.0.0
+      cross-spawn: 7.0.6
+      eventsource: 3.0.7
+      eventsource-parser: 3.1.0
+      jose: 6.2.3
+      pkce-challenge: 5.0.1
+      zod: 4.4.3
+
+  '@modelcontextprotocol/core@2.0.0':
+    dependencies:
+      zod: 4.4.3
+
+  '@modelcontextprotocol/ext-apps@1.7.5(@modelcontextprotocol/sdk@1.30.0(zod@4.4.3))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.4.3)':
+    dependencies:
+      '@modelcontextprotocol/sdk': 1.30.0(zod@4.4.3)
       '@standard-schema/spec': 1.1.0
       zod: 4.4.3
     optionalDependencies:
       react: 19.2.7
       react-dom: 19.2.7(react@19.2.7)
 
-  '@modelcontextprotocol/sdk@1.29.0(zod@4.4.3)':
+  '@modelcontextprotocol/node@2.0.0(@modelcontextprotocol/server@2.0.0)(hono@4.12.27)':
+    dependencies:
+      '@hono/node-server': 1.19.14(hono@4.12.27)
+      '@modelcontextprotocol/server': 2.0.0
+    optionalDependencies:
+      hono: 4.12.27
+
+  '@modelcontextprotocol/sdk@1.30.0(zod@4.4.3)':
     dependencies:
       '@hono/node-server': 1.19.14(hono@4.12.27)
       ajv: 8.20.0
@@ -24131,6 +24189,11 @@ snapshots:
       zod-to-json-schema: 3.25.2(zod@4.4.3)
     transitivePeerDependencies:
       - supports-color
+
+  '@modelcontextprotocol/server@2.0.0':
+    dependencies:
+      '@modelcontextprotocol/core': 2.0.0
+      zod: 4.4.3
 
   '@monogrid/gainmap-js@3.4.0(three@0.176.0)':
     dependencies:
@@ -27971,43 +28034,6 @@ snapshots:
       - babel-plugin-macros
       - supports-color
 
-  '@react-router/dev@8.1.0(babel-plugin-macros@3.1.0)(react-router@8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(typescript@7.0.2)(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))(wrangler@4.81.0)':
-    dependencies:
-      '@babel/core': 7.29.7
-      '@babel/generator': 7.29.7
-      '@babel/parser': 7.29.7
-      '@babel/plugin-syntax-jsx': 7.29.7(@babel/core@7.29.7)
-      '@babel/preset-typescript': 7.29.7(@babel/core@7.29.7)
-      '@babel/traverse': 7.29.7
-      '@babel/types': 7.29.7
-      '@react-router/node': 8.1.0(react-router@8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(typescript@7.0.2)
-      '@remix-run/node-fetch-server': 0.13.3
-      babel-dead-code-elimination: 1.0.12
-      chokidar: 5.0.0
-      dedent: 1.7.2(babel-plugin-macros@3.1.0)
-      es-module-lexer: 2.1.0
-      exit-hook: 5.1.0
-      isbot: 5.1.44
-      jsesc: 3.1.0
-      lodash: 4.18.1
-      p-map: 7.0.4
-      pathe: 2.0.3
-      picocolors: 1.1.1
-      pkg-types: 2.3.1
-      prettier: 3.9.4
-      react-refresh: 0.18.0
-      react-router: 8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
-      semver: 7.8.5
-      tinyglobby: 0.2.17
-      valibot: 1.4.1(typescript@7.0.2)
-      vite: 8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0)
-    optionalDependencies:
-      typescript: 7.0.2
-      wrangler: 4.81.0
-    transitivePeerDependencies:
-      - babel-plugin-macros
-      - supports-color
-
   '@react-router/fs-routes@8.1.0(@react-router/dev@8.1.0(@typescript/typescript6@6.0.2)(babel-plugin-macros@3.1.0)(react-router@8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.27.7)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))(wrangler@4.81.0))(@typescript/typescript6@6.0.2)':
     dependencies:
       '@react-router/dev': 8.1.0(@typescript/typescript6@6.0.2)(babel-plugin-macros@3.1.0)(react-router@8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.27.7)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))(wrangler@4.81.0)
@@ -28050,13 +28076,6 @@ snapshots:
     optionalDependencies:
       typescript: 6.0.3
 
-  '@react-router/fs-routes@8.1.0(@react-router/dev@8.1.0(babel-plugin-macros@3.1.0)(react-router@8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(typescript@7.0.2)(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))(wrangler@4.81.0))(typescript@7.0.2)':
-    dependencies:
-      '@react-router/dev': 8.1.0(babel-plugin-macros@3.1.0)(react-router@8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(typescript@7.0.2)(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))(wrangler@4.81.0)
-      minimatch: 10.2.5
-    optionalDependencies:
-      typescript: 7.0.2
-
   '@react-router/node@8.1.0(@typescript/typescript6@6.0.2)(react-router@8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7))':
     dependencies:
       '@remix-run/node-fetch-server': 0.13.3
@@ -28070,13 +28089,6 @@ snapshots:
       react-router: 8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
     optionalDependencies:
       typescript: 6.0.3
-
-  '@react-router/node@8.1.0(react-router@8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(typescript@7.0.2)':
-    dependencies:
-      '@remix-run/node-fetch-server': 0.13.3
-      react-router: 8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
-    optionalDependencies:
-      typescript: 7.0.2
 
   '@react-three/drei@10.7.7(@react-three/fiber@9.6.1(@types/react@19.2.17)(expo-asset@57.0.5(expo@57.0.6)(react-native@0.86.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7))(react@19.2.7)(typescript@6.0.3))(expo-file-system@57.0.1(expo@57.0.6)(react-native@0.86.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7)))(expo@57.0.6)(immer@11.1.8)(react-dom@19.2.7(react@19.2.7))(react-native@0.86.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7))(react@19.2.7)(three@0.176.0))(@types/react@19.2.17)(@types/three@0.176.0)(immer@11.1.8)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(three@0.176.0)':
     dependencies:
@@ -33024,10 +33036,6 @@ snapshots:
     optionalDependencies:
       typescript: 6.0.3
 
-  i18next@26.3.1(typescript@7.0.2):
-    optionalDependencies:
-      typescript: 7.0.2
-
   iceberg-js@0.8.1: {}
 
   iconv-lite@0.6.3:
@@ -35508,17 +35516,6 @@ snapshots:
       react-native: 0.86.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7)
       typescript: 6.0.3
 
-  react-i18next@17.0.8(i18next@26.3.1(typescript@7.0.2))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(typescript@7.0.2):
-    dependencies:
-      '@babel/runtime': 7.29.2
-      html-parse-stringify: 3.0.1
-      i18next: 26.3.1(typescript@7.0.2)
-      react: 19.2.7
-      use-sync-external-store: 1.6.0(react@19.2.7)
-    optionalDependencies:
-      react-dom: 19.2.7(react@19.2.7)
-      typescript: 7.0.2
-
   react-is@16.13.1: {}
 
   react-is@17.0.2: {}
@@ -37153,10 +37150,6 @@ snapshots:
   valibot@1.4.1(typescript@6.0.3):
     optionalDependencies:
       typescript: 6.0.3
-
-  valibot@1.4.1(typescript@7.0.2):
-    optionalDependencies:
-      typescript: 7.0.2
 
   validate-npm-package-name@5.0.1: {}
 

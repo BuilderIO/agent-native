@@ -27,10 +27,18 @@ exported instructions only, with no MCP connector registration.
 
 ## Put Design Beside The Chat
 
-After `open-visual-edit` returns `openUrl`, open that URL in the coding host's
-inline browser when one is available. This is the preferred working surface:
-the user can keep Design's canvas beside the conversation, inspect the same
-screens as the agent, and iterate without switching apps.
+Prefer the interactive MCP App returned by `open-visual-edit` when the coding
+host renders it. The user gets the Design canvas beside the conversation, and
+**Apply design updates** can submit the bounded source-edit handoff back to the
+current host conversation through the standard MCP Apps message bridge. The
+host may ask the user to confirm the current conversation or choose a new one.
+
+Otherwise, after `open-visual-edit` returns `openUrl`, open that URL in the
+coding host's inline browser when one is available. This still keeps Design
+beside the conversation, but an ordinary browser page has no trusted path into
+the host's current composer. In that fallback surface, **Apply design updates**
+uses Design's local agent; use **Copy prompt to your agent** to hand the same
+structured edit batch to the coding agent.
 
 - In Codex Desktop, use the in-app Browser tool to open `openUrl`. The built-in
   browser is the right surface for localhost and public pages that should stay
@@ -42,14 +50,13 @@ screens as the agent, and iterate without switching apps.
   sessions may not expose one. If the inline surface is unavailable or disabled,
   return the normal **Open design** link instead of claiming it opened.
 
-Prefer the host's browser/preview tool over telling the user to press a keyboard
-shortcut. Keep the canvas pane beside chat when the host supports rearrangeable
-panes.
+Prefer the MCP App surface for a connected Design plugin, then the host's
+browser/preview tool as the universal fallback. Keep the canvas beside chat
+when the host supports rearrangeable panes.
 
-Inside Design, use **Show/Hide UI** from the `Cmd+K` menu or press
-`Cmd+Shift+\` on Apple platforms / `Ctrl+Shift+\` elsewhere to toggle all
-editing chrome so only the canvas remains. The same action is available from
-Design's empty-canvas context menu.
+Inside Design, use **Show/Hide UI** from the `Cmd+K` menu or press Figma's
+`Shift+\` shortcut to toggle all editing chrome so only the canvas remains.
+The same action is available from Design's empty-canvas context menu.
 
 ## Core Model
 
@@ -57,8 +64,16 @@ Design's empty-canvas context menu.
 - Each screen keeps URL metadata: `connectionId`, `routeId`, `path`,
   `url`, `bridgeUrl`, title, and viewport size.
 - Localhost Edit mode renders the running app through the local bridge as a live
-  iframe with the same editor bridge used by HTML designs. It is not a frozen
-  static DOM snapshot.
+  iframe with the same editor bridge used by HTML designs. It is never a frozen
+  static DOM snapshot. Editing is direct DOM manipulation against that live
+  document; the parallel `/snapshot` fetch feeds the editable source model only
+  and must never be rendered in the frame.
+- A viewer holding the connection's `previewToken` gets the proxied
+  `/live-edit` document with editor chrome. A viewer without one — a signed-out
+  session, a public link, or an inline browser with no cookies — gets the plain
+  dev-server URL: still live, but with no editor chrome, no layers, and no
+  editing. If the canvas looks right but selection and the layers panel do
+  nothing, the frame is unbridged; sign in rather than assuming Design is broken.
 - The live editor is same-origin through the local bridge proxy. This boots
   CSR apps and root-relative assets, but it is still a localhost editing proxy:
   app-origin cookies, WebSockets/HMR, SSE, and non-GET app API calls may need a
@@ -336,9 +351,11 @@ Fallback, only when `open-visual-edit` is unavailable:
 ## Applying Visual Edits Back To Source
 
 Canvas edits on a localhost screen do not write source as you make them. They
-accumulate as pending edits and the editor shows an "Apply with Design agent"
-button in the bottom-right corner of the canvas. Clicking it hands a structured
-prompt to the Design agent chat, which performs the real source write.
+accumulate as pending edits and the editor shows an **Apply design updates**
+button on the canvas. In an MCP App, clicking it hands the bounded structured
+prompt to the current host coding conversation. In an ordinary browser or
+standalone Design page, it falls back to the local Design agent. The dropdown's
+**Copy prompt to your agent** action is the universal manual fallback.
 
 - Style, text, and drag/drop structure edits all collect into the same pending
   batch, so the user can make several changes and apply once.
@@ -410,6 +427,9 @@ the connected app's text/code files through the bridge
 - The Design editor opens in overview mode.
 - Every requested screen renders the intended localhost URL, showing real app
   content rather than an endless loading spinner.
+- The screen iframe carries a `src`, not a `srcdoc`. A localhost screen with a
+  `srcdoc` is a bug, not a slow load — check it in the browser devtools before
+  reporting the canvas as working.
 - Alt-dragging a screen copies the URL-backed frame, not an inline HTML clone.
 - A query/path edit changes only the target screen's URL metadata and iframe.
 - The Code tab shows a local-files root for the connection and opens its files.

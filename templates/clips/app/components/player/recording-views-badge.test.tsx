@@ -4,10 +4,12 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { RecordingViewsBadge } from "./recording-views-badge";
+import { RecordingViewsBadge, ViewerAvatar } from "./recording-views-badge";
 
 const queryMocks = vi.hoisted(() => ({
   calls: [] as string[],
+  avatarEmails: [] as Array<string | null | undefined>,
+  avatarUrl: null as string | null,
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -19,11 +21,30 @@ vi.mock("@agent-native/core/client/hooks", () => ({
     if (options?.enabled !== false) queryMocks.calls.push(name);
     return { data: undefined, isLoading: false };
   },
+  useAvatarUrl: (email: string | null | undefined) => {
+    queryMocks.avatarEmails.push(email);
+    return queryMocks.avatarUrl;
+  },
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, values?: Record<string, unknown>) =>
     values ? `${key}:${JSON.stringify(values)}` : key,
+}));
+
+vi.mock("@/components/ui/avatar", () => ({
+  Avatar: ({ children, ...props }: React.HTMLAttributes<HTMLSpanElement>) => (
+    <span {...props}>{children}</span>
+  ),
+  AvatarImage: (props: React.ImgHTMLAttributes<HTMLImageElement>) => (
+    <img {...props} />
+  ),
+  AvatarFallback: ({
+    children,
+    ...props
+  }: React.HTMLAttributes<HTMLSpanElement>) => (
+    <span {...props}>{children}</span>
+  ),
 }));
 
 describe("RecordingViewsBadge", () => {
@@ -33,6 +54,8 @@ describe("RecordingViewsBadge", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     queryMocks.calls = [];
+    queryMocks.avatarEmails = [];
+    queryMocks.avatarUrl = null;
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -101,5 +124,23 @@ describe("RecordingViewsBadge", () => {
     expect(button).not.toBeNull();
     expect(button?.textContent).toContain("recordingInsights.viewsCount");
     expect(queryMocks.calls).toEqual(["list-viewers"]);
+  });
+
+  it("resolves the stored profile image for an identified viewer", () => {
+    queryMocks.avatarUrl = "data:image/jpeg;base64,avatar";
+
+    render(
+      <ViewerAvatar
+        viewer={{
+          viewerEmail: "viewer@example.com",
+          viewerName: "Viewer Name",
+        }}
+      />,
+    );
+
+    expect(queryMocks.avatarEmails).toEqual(["viewer@example.com"]);
+    const image = container.querySelector("img");
+    expect(image?.getAttribute("src")).toBe(queryMocks.avatarUrl);
+    expect(image?.getAttribute("alt")).toBe("Viewer Name");
   });
 });

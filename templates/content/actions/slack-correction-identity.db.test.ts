@@ -172,6 +172,7 @@ describe("Content identity supporting Slack Design Ask corrections", () => {
     const corrected = await runWithRequestContext({ userEmail: OWNER }, () =>
       setDocumentProperty.run({
         documentId: originalDocumentId,
+        databaseId: seeded.databaseId,
         propertyId: seeded.priorityId,
         value: "p1",
       }),

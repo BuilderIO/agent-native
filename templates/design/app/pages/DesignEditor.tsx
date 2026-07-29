@@ -314,6 +314,7 @@ import { isWheelCameraGestureActive } from "@/components/design/multi-screen/whe
 import { MultiScreenCanvas } from "@/components/design/MultiScreenCanvas";
 import { QuestionFlow } from "@/components/design/QuestionFlow";
 import { ReadOnlyDesignBanner } from "@/components/design/ReadOnlyDesignBanner";
+import { ResponsiveInteractBar } from "@/components/design/ResponsiveInteractBar";
 import {
   ReviewCommentsPanel,
   type ReviewCommentsPanelProps,
@@ -417,6 +418,7 @@ import {
 } from "@/hooks/useDesignHotkeys";
 import {
   DESIGN_CHAT_STORAGE_KEY,
+  sendDesignSourceHandoffAndConfirm,
   sendToDesignAgentChat,
   sendToDesignAgentChatAndConfirm,
 } from "@/lib/agent-chat";
@@ -769,6 +771,13 @@ import {
   buildRuntimeReactStructureMoveHandoff,
   resolveRuntimeStructureMoveExecutionMode,
 } from "./design-editor/react-semantic-handoff";
+import {
+  computeInteractZoomToFit,
+  DEFAULT_INTERACT_DEVICE_PRESET,
+  findInteractDevicePreset,
+  INTERACT_CUSTOM_DEVICE_NAME,
+  RESPONSIVE_INTERACT_BAR_HEIGHT,
+} from "./design-editor/responsive-interact";
 import {
   classifyDesignSaveFailure,
   designSaveErrorMessage,
@@ -2090,6 +2099,16 @@ function DesignEditor() {
     number | null
   >(null);
   const [deviceFrame, setDeviceFrame] = useState<DeviceFrameType>("none");
+  // Full-screen Interact device box. Kept separate from `zoom` (the canvas
+  // camera) because this scales a literal device viewport, not the canvas.
+  const [interactDeviceName, setInteractDeviceName] = useState(
+    DEFAULT_INTERACT_DEVICE_PRESET.name,
+  );
+  const [interactDeviceSize, setInteractDeviceSize] = useState({
+    width: DEFAULT_INTERACT_DEVICE_PRESET.width,
+    height: DEFAULT_INTERACT_DEVICE_PRESET.height,
+  });
+  const [interactZoom, setInteractZoom] = useState(100);
   const [viewMode, setViewMode] = useState<"single" | "overview">("overview");
   const viewModeRef = useRef<"single" | "overview">("overview");
   // Trusted parent origin captured from the first validated inbound message.
@@ -2151,6 +2170,8 @@ function DesignEditor() {
     pendingStructureVerificationStatus,
     setPendingStructureVerificationStatus,
   ] = useState<PendingStructureVerificationStatus>("idle");
+  const [pendingAgentHandoffBusy, setPendingAgentHandoffBusy] = useState(false);
+  const pendingAgentHandoffBusyRef = useRef(false);
   const pendingStructureVerificationRevisionRef = useRef(0);
   const pendingStructureVerificationSessionRef = useRef<
     PendingStructureVerificationSession | undefined
@@ -21131,6 +21152,29 @@ function DesignEditor() {
     [enterSingleScreen],
   );
 
+  // Interact presents the screen full-screen in a device box with its own
+  // chrome bar, so the editor's panels and inspector step aside. Embedded
+  // hosts keep their own chrome and are left alone.
+  const responsiveInteractActive =
+    mode === "interact" && viewMode === "single" && !!activeFile && !embedded;
+  const handleInteractDeviceChange = useCallback((name: string) => {
+    setInteractDeviceName(name);
+    const preset = findInteractDevicePreset(name);
+    if (preset) {
+      setInteractDeviceSize({ width: preset.width, height: preset.height });
+    }
+  }, []);
+  // Typing a dimension is what makes a size "custom" — the preset it no longer
+  // matches would otherwise keep claiming the device dropdown.
+  const handleInteractWidthChange = useCallback((width: number) => {
+    setInteractDeviceSize((size) => ({ ...size, width }));
+    setInteractDeviceName(INTERACT_CUSTOM_DEVICE_NAME);
+  }, []);
+  const handleInteractHeightChange = useCallback((height: number) => {
+    setInteractDeviceSize((size) => ({ ...size, height }));
+    setInteractDeviceName(INTERACT_CUSTOM_DEVICE_NAME);
+  }, []);
+
   // BP-DEEP v2 item 2 — edge-triggered zoom-out-to-overview. See
   // shouldPopToOverviewOnZoomOut's doc comment: the pop must only fire when
   // the user crosses the threshold from above while already in single view,
@@ -21243,6 +21287,29 @@ function DesignEditor() {
     },
     [enterSingleScreenInteract, handleModeChange, mode],
   );
+  const handleExitResponsiveInteract = useCallback(
+    () => handleModeChange("edit"),
+    [handleModeChange],
+  );
+  // Fit the device box on entry and whenever the device changes, matching
+  // builder-internal: only ever zooms DOWN, so a device smaller than the
+  // viewport still renders at true 1:1.
+  useEffect(() => {
+    if (!responsiveInteractActive) return;
+    setInteractZoom(
+      computeInteractZoomToFit({
+        availableWidth: window.innerWidth - 96,
+        availableHeight:
+          window.innerHeight - RESPONSIVE_INTERACT_BAR_HEIGHT - 96,
+        deviceWidth: interactDeviceSize.width,
+        deviceHeight: interactDeviceSize.height,
+      }),
+    );
+  }, [
+    responsiveInteractActive,
+    interactDeviceSize.width,
+    interactDeviceSize.height,
+  ]);
 
   useEffect(() => {
     if (
@@ -22501,225 +22568,251 @@ function DesignEditor() {
       return;
     }
     if (
+      pendingAgentHandoffBusyRef.current ||
       pendingStructureVerificationStatus === "checking-source" ||
       pendingStructureVerificationStatus === "awaiting-source" ||
       pendingStructureVerificationStatus === "awaiting-runtime"
     ) {
       return;
     }
-    const preservePreviewPatches = pendingVisualStyleEdits
-      .map((edit) => ({
-        screenId: edit.screenId,
-        selector: edit.selector,
-        sourceId: edit.sourceId,
-        styles: edit.styles,
-        ...(edit.interactionState
-          ? { interactionState: edit.interactionState }
-          : {}),
-      }))
-      .filter((patch) => Object.keys(patch.styles).length > 0);
-    const structureEdits = pendingLiveNonStyleEdits.filter(
-      (edit): edit is PendingLiveStructureEdit => edit.kind === "structure",
-    );
-    const structureAcks = structureEdits
-      .filter((edit) => Boolean(edit.requestId))
-      .map((edit) => ({
-        screenId: edit.screenId,
-        requestId: edit.requestId!,
-        applied: true,
-      }));
+    pendingAgentHandoffBusyRef.current = true;
+    setPendingAgentHandoffBusy(true);
+    try {
+      const preservePreviewPatches = pendingVisualStyleEdits
+        .map((edit) => ({
+          screenId: edit.screenId,
+          selector: edit.selector,
+          sourceId: edit.sourceId,
+          styles: edit.styles,
+          ...(edit.interactionState
+            ? { interactionState: edit.interactionState }
+            : {}),
+        }))
+        .filter((patch) => Object.keys(patch.styles).length > 0);
+      const structureEdits = pendingLiveNonStyleEdits.filter(
+        (edit): edit is PendingLiveStructureEdit => edit.kind === "structure",
+      );
+      const structureAcks = structureEdits
+        .filter((edit) => Boolean(edit.requestId))
+        .map((edit) => ({
+          screenId: edit.screenId,
+          requestId: edit.requestId!,
+          applied: true,
+        }));
 
-    const finalizeWithoutStructureVerification = () => {
-      clearPendingLiveEditState();
-      const previewRequestId = Date.now() + Math.random();
-      window.setTimeout(() => {
-        if (preservePreviewPatches.length > 0) {
-          setPendingVisualStyleRevertRequest({
-            requestId: previewRequestId,
-            patches: preservePreviewPatches,
-          });
+      const finalizeWithoutStructureVerification = () => {
+        clearPendingLiveEditState();
+        const previewRequestId = Date.now() + Math.random();
+        window.setTimeout(() => {
+          if (preservePreviewPatches.length > 0) {
+            setPendingVisualStyleRevertRequest({
+              requestId: previewRequestId,
+              patches: preservePreviewPatches,
+            });
+          }
+          setPendingVisualStyleBaselineResetRequest(previewRequestId);
+        }, 50);
+      };
+
+      if (structureEdits.length === 0) {
+        const delivery = await sendDesignSourceHandoffAndConfirm(
+          {
+            message: t("designEditor.pendingVisualStyles.agentMessage"),
+            context: pendingVisualStylePrompt,
+            submit: true,
+            openSidebar: true,
+          },
+          { timeoutMs: 10_000 },
+        );
+        if (!delivery.delivered) {
+          toast.error(
+            t("designEditor.pendingVisualStyles.agentHandoffFailedToast"),
+          );
+          return;
         }
-        setPendingVisualStyleBaselineResetRequest(previewRequestId);
-      }, 50);
-    };
-
-    if (structureEdits.length === 0) {
-      sendToDesignAgentChat({
-        message: t("designEditor.pendingVisualStyles.agentMessage"),
-        context: pendingVisualStylePrompt,
-        submit: true,
-        openSidebar: true,
-      });
-      finalizeWithoutStructureVerification();
-      setActiveLeftPanel("agent");
-      toast.success(t("designEditor.pendingVisualStyles.sentToast"));
-      return;
-    }
-
-    if (!id) return;
-    pendingStructureVerificationRevisionRef.current += 1;
-    const requestId = pendingStructureVerificationRevisionRef.current;
-    const session: PendingStructureVerificationSession = {
-      requestId,
-      cancelled: false,
-      edits: structureEdits,
-      sources: [],
-    };
-    pendingStructureVerificationSessionRef.current = session;
-    pendingStructureVerificationSnapshotsRef.current.set(requestId, {});
-    setPendingStructureVerificationStatus("checking-source");
-
-    const sourceTargets = new Map<
-      string,
-      { connectionId: string; path: string }
-    >();
-    for (const edit of structureEdits) {
-      const connectionId = overviewScreens.find(
-        (screen) => screen.id === edit.screenId,
-      )?.connectionId;
-      const paths = [
-        edit.sourceAnchor?.relPath,
-        edit.anchorSourceAnchor?.relPath,
-      ];
-      if (!connectionId || paths.some((path) => !path)) {
-        cancelPendingStructureVerification("conflict");
-        toast.error(t("designEditor.toasts.reactSourceAnchorsLoading"));
+        finalizeWithoutStructureVerification();
+        if (delivery.target === "local") setActiveLeftPanel("agent");
+        toast.success(t("designEditor.pendingVisualStyles.sentToast"));
         return;
       }
-      for (const path of paths) {
-        const safePath = path!;
-        sourceTargets.set(`${connectionId}:${safePath}`, {
-          connectionId,
-          path: safePath,
-        });
-      }
-    }
 
-    try {
-      session.sources = await Promise.all(
-        Array.from(sourceTargets.values()).map(async (source) => {
-          const result = (await callAction("read-local-file", {
-            designId: id,
-            connectionId: source.connectionId,
-            path: source.path,
-          })) as { versionHash?: string } | undefined;
-          if (!result?.versionHash) {
-            throw new Error(`Missing version hash for ${source.path}`);
-          }
-          return {
-            ...source,
-            baselineVersionHash: result.versionHash,
-          };
-        }),
-      );
-      if (session.cancelled) return;
+      if (!id) return;
+      pendingStructureVerificationRevisionRef.current += 1;
+      const requestId = pendingStructureVerificationRevisionRef.current;
+      const session: PendingStructureVerificationSession = {
+        requestId,
+        cancelled: false,
+        edits: structureEdits,
+        sources: [],
+      };
+      pendingStructureVerificationSessionRef.current = session;
+      pendingStructureVerificationSnapshotsRef.current.set(requestId, {});
+      setPendingStructureVerificationStatus("checking-source");
 
-      const delivery = await sendToDesignAgentChatAndConfirm(
-        {
-          message: t("designEditor.pendingVisualStyles.agentMessage"),
-          context: pendingVisualStylePrompt,
-          submit: true,
-          openSidebar: true,
-        },
-        { timeoutMs: 10_000 },
-      );
-      if (session.cancelled) return;
-      if (!delivery.delivered) {
-        throw new Error(delivery.reason ?? "agent message was not delivered");
+      const sourceTargets = new Map<
+        string,
+        { connectionId: string; path: string }
+      >();
+      for (const edit of structureEdits) {
+        const connectionId = overviewScreens.find(
+          (screen) => screen.id === edit.screenId,
+        )?.connectionId;
+        const paths = [
+          edit.sourceAnchor?.relPath,
+          edit.anchorSourceAnchor?.relPath,
+        ];
+        if (!connectionId || paths.some((path) => !path)) {
+          cancelPendingStructureVerification("conflict");
+          toast.error(t("designEditor.toasts.reactSourceAnchorsLoading"));
+          return;
+        }
+        for (const path of paths) {
+          const safePath = path!;
+          sourceTargets.set(`${connectionId}:${safePath}`, {
+            connectionId,
+            path: safePath,
+          });
+        }
       }
 
-      const screenIds = Array.from(
-        new Set(structureEdits.map((edit) => edit.screenId)),
-      );
-      setPendingStructureVerificationStatus("awaiting-source");
-      setActiveLeftPanel("agent");
-      toast.success(t("designEditor.pendingVisualStyles.sentToast"));
-
-      let deadline = Date.now() + PENDING_STRUCTURE_VERIFICATION_TIMEOUT_MS;
-      let nextSourcePollAt = 0;
-      let sourceChanged = false;
-      let verificationRuntimeMounted = false;
-      while (!session.cancelled && Date.now() < deadline) {
-        const runtimeSnapshots =
-          pendingStructureVerificationSnapshotsRef.current.get(requestId) ?? {};
-        if (
-          verificationRuntimeMounted &&
-          screenIds.every((screenId) => runtimeSnapshots[screenId])
-        ) {
-          const runtimeResult = verifyPendingStructuresRuntime(
-            runtimeSnapshots,
-            structureEdits,
-          );
-          if (runtimeResult.ok) {
-            if (structureAcks.length > 0) {
-              setPendingStructureAckRequest({
-                requestId: Date.now() + Math.random(),
-                acks: structureAcks,
-              });
+      try {
+        session.sources = await Promise.all(
+          Array.from(sourceTargets.values()).map(async (source) => {
+            const result = (await callAction("read-local-file", {
+              designId: id,
+              connectionId: source.connectionId,
+              path: source.path,
+            })) as { versionHash?: string } | undefined;
+            if (!result?.versionHash) {
+              throw new Error(`Missing version hash for ${source.path}`);
             }
-            clearPendingLiveEditState();
-            toast.success(t("designEditor.pendingVisualStyles.verifiedToast"));
-            return;
-          }
+            return {
+              ...source,
+              baselineVersionHash: result.versionHash,
+            };
+          }),
+        );
+        if (session.cancelled) return;
+
+        const delivery = await sendDesignSourceHandoffAndConfirm(
+          {
+            message: t("designEditor.pendingVisualStyles.agentMessage"),
+            context: pendingVisualStylePrompt,
+            submit: true,
+            openSidebar: true,
+          },
+          { timeoutMs: 10_000 },
+        );
+        if (session.cancelled) return;
+        if (!delivery.delivered) {
+          cancelPendingStructureVerification();
+          toast.error(
+            t("designEditor.pendingVisualStyles.agentHandoffFailedToast"),
+          );
+          return;
         }
 
-        if (Date.now() >= nextSourcePollAt) {
-          nextSourcePollAt = Date.now() + PENDING_STRUCTURE_SOURCE_POLL_MS;
-          try {
-            const currentVersions = await Promise.all(
-              session.sources.map(async (source) => {
-                const result = (await callAction("read-local-file", {
-                  designId: id,
-                  connectionId: source.connectionId,
-                  path: source.path,
-                })) as { versionHash?: string } | undefined;
-                return result?.versionHash;
-              }),
+        const screenIds = Array.from(
+          new Set(structureEdits.map((edit) => edit.screenId)),
+        );
+        setPendingStructureVerificationStatus("awaiting-source");
+        if (delivery.target === "local") setActiveLeftPanel("agent");
+        toast.success(t("designEditor.pendingVisualStyles.sentToast"));
+
+        let deadline = Date.now() + PENDING_STRUCTURE_VERIFICATION_TIMEOUT_MS;
+        let nextSourcePollAt = 0;
+        let sourceChanged = false;
+        let verificationRuntimeMounted = false;
+        while (!session.cancelled && Date.now() < deadline) {
+          const runtimeSnapshots =
+            pendingStructureVerificationSnapshotsRef.current.get(requestId) ??
+            {};
+          if (
+            verificationRuntimeMounted &&
+            screenIds.every((screenId) => runtimeSnapshots[screenId])
+          ) {
+            const runtimeResult = verifyPendingStructuresRuntime(
+              runtimeSnapshots,
+              structureEdits,
             );
-            if (session.cancelled) return;
-            sourceChanged = currentVersions.some(
-              (versionHash, index) =>
-                Boolean(versionHash) &&
-                versionHash !== session.sources[index]?.baselineVersionHash,
-            );
-            if (sourceChanged) {
-              if (!verificationRuntimeMounted) {
-                verificationRuntimeMounted = true;
-                deadline = Math.min(
-                  deadline,
-                  Date.now() + PENDING_STRUCTURE_RUNTIME_TIMEOUT_MS,
-                );
-                pendingStructureVerificationSnapshotsRef.current.set(
-                  requestId,
-                  {},
-                );
-                setRuntimeStructureVerificationRequest({
-                  requestId,
-                  screenIds,
+            if (runtimeResult.ok) {
+              if (structureAcks.length > 0) {
+                setPendingStructureAckRequest({
+                  requestId: Date.now() + Math.random(),
+                  acks: structureAcks,
                 });
               }
-              setPendingStructureVerificationStatus("awaiting-runtime");
+              clearPendingLiveEditState();
+              toast.success(
+                t("designEditor.pendingVisualStyles.verifiedToast"),
+              );
+              return;
             }
-          } catch {
-            // A transient bridge read must not discard the still-undoable
-            // preview. Keep polling until the bounded deadline.
           }
+
+          if (Date.now() >= nextSourcePollAt) {
+            nextSourcePollAt = Date.now() + PENDING_STRUCTURE_SOURCE_POLL_MS;
+            try {
+              const currentVersions = await Promise.all(
+                session.sources.map(async (source) => {
+                  const result = (await callAction("read-local-file", {
+                    designId: id,
+                    connectionId: source.connectionId,
+                    path: source.path,
+                  })) as { versionHash?: string } | undefined;
+                  return result?.versionHash;
+                }),
+              );
+              if (session.cancelled) return;
+              sourceChanged = currentVersions.some(
+                (versionHash, index) =>
+                  Boolean(versionHash) &&
+                  versionHash !== session.sources[index]?.baselineVersionHash,
+              );
+              if (sourceChanged) {
+                if (!verificationRuntimeMounted) {
+                  verificationRuntimeMounted = true;
+                  deadline = Math.min(
+                    deadline,
+                    Date.now() + PENDING_STRUCTURE_RUNTIME_TIMEOUT_MS,
+                  );
+                  pendingStructureVerificationSnapshotsRef.current.set(
+                    requestId,
+                    {},
+                  );
+                  setRuntimeStructureVerificationRequest({
+                    requestId,
+                    screenIds,
+                  });
+                }
+                setPendingStructureVerificationStatus("awaiting-runtime");
+              }
+            } catch {
+              // A transient bridge read must not discard the still-undoable
+              // preview. Keep polling until the bounded deadline.
+            }
+          }
+          await new Promise((resolve) =>
+            window.setTimeout(resolve, PENDING_STRUCTURE_RUNTIME_POLL_MS),
+          );
         }
-        await new Promise((resolve) =>
-          window.setTimeout(resolve, PENDING_STRUCTURE_RUNTIME_POLL_MS),
+        if (session.cancelled) return;
+        cancelPendingStructureVerification("conflict");
+        toast.error(t("designEditor.pendingVisualStyles.conflictToast"));
+      } catch (error) {
+        if (session.cancelled) return;
+        console.error(
+          "[DesignEditor] pending structure verification failed:",
+          error,
+        );
+        cancelPendingStructureVerification("conflict");
+        toast.error(
+          t("designEditor.pendingVisualStyles.sourceCheckFailedToast"),
         );
       }
-      if (session.cancelled) return;
-      cancelPendingStructureVerification("conflict");
-      toast.error(t("designEditor.pendingVisualStyles.conflictToast"));
-    } catch (error) {
-      if (session.cancelled) return;
-      console.error(
-        "[DesignEditor] pending structure verification failed:",
-        error,
-      );
-      cancelPendingStructureVerification("conflict");
-      toast.error(t("designEditor.pendingVisualStyles.sourceCheckFailedToast"));
+    } finally {
+      pendingAgentHandoffBusyRef.current = false;
+      setPendingAgentHandoffBusy(false);
     }
   }, [
     cancelPendingStructureVerification,
@@ -28935,9 +29028,22 @@ function DesignEditor() {
           />
         </div>
       )}
+      {responsiveInteractActive ? (
+        <ResponsiveInteractBar
+          deviceName={interactDeviceName}
+          width={interactDeviceSize.width}
+          height={interactDeviceSize.height}
+          zoom={interactZoom}
+          onDeviceChange={handleInteractDeviceChange}
+          onWidthChange={handleInteractWidthChange}
+          onHeightChange={handleInteractHeightChange}
+          onZoomChange={setInteractZoom}
+          onClose={handleExitResponsiveInteract}
+        />
+      ) : null}
       {/* Main canvas area */}
       <div className="flex-1 flex overflow-hidden relative">
-        {!embedded && !uiHidden ? (
+        {!embedded && !uiHidden && !responsiveInteractActive ? (
           <div className="relative flex min-h-0 shrink-0 bg-[var(--design-editor-panel-bg)]">
             <DesignWorkspaceRail
               activePanel={activeLeftPanel}
@@ -29550,7 +29656,10 @@ function DesignEditor() {
                           aria-label={t(
                             "designEditor.pendingVisualStyles.applyAria",
                           )}
-                          disabled={pendingStructureVerificationBusy}
+                          disabled={
+                            pendingAgentHandoffBusy ||
+                            pendingStructureVerificationBusy
+                          }
                           onClick={handleApplyPendingVisualStylesWithAgent}
                         >
                           <span className="truncate">
@@ -29856,8 +29965,10 @@ function DesignEditor() {
                               }
                             : null
                         }
-                        zoom={zoom}
-                        onZoomChange={setZoom}
+                        zoom={responsiveInteractActive ? interactZoom : zoom}
+                        onZoomChange={
+                          responsiveInteractActive ? setInteractZoom : setZoom
+                        }
                         deviceFrame={deviceFrame}
                         sourceType={activeCanvasSourceType}
                         bridgeUrl={activeScreenBridgeUrl}
@@ -29888,7 +29999,11 @@ function DesignEditor() {
                             : undefined
                         }
                         fusionUrl={designFusionUrl}
-                        previewWidthPx={activeBreakpointWidthState}
+                        previewWidthPx={
+                          responsiveInteractActive
+                            ? interactDeviceSize.width
+                            : activeBreakpointWidthState
+                        }
                         shaderFillPreview={shaderFillPreview}
                         onComponentSourceJump={handleComponentSourceJump}
                         motionTracks={motionTracksWire}
@@ -30154,7 +30269,10 @@ function DesignEditor() {
         )}
 
         {/* Right rail */}
-        {!embedded && !uiHidden && !initialGenerationChromeLimited ? (
+        {!embedded &&
+        !uiHidden &&
+        !initialGenerationChromeLimited &&
+        !responsiveInteractActive ? (
           <div
             ref={rightSidebarContentRef}
             className="relative hidden h-full min-h-0 shrink-0 flex-col border-l border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)] md:flex"

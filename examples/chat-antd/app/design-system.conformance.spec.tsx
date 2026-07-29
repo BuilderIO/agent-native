@@ -26,12 +26,20 @@ describe("Ant Design adapter", () => {
     vi.unstubAllGlobals();
   });
 
-  it("passes the complete toolkit conformance suite", async () => {
-    const report = await assertDesignSystemConformance({
-      adapterName: "Ant Design example",
-      components: designSystem.components!,
-      contractVersion: DESIGN_SYSTEM_CONTRACT_VERSION,
-    });
-    expect(report.passed).toBe(true);
-  });
+  // This single assertion mounts and exercises the complete adapter surface.
+  // During workspace prep its React transforms share CPU with every package
+  // suite, so use a bounded integration-test budget instead of Vitest's generic
+  // unit-test default.
+  it(
+    "passes the complete toolkit conformance suite",
+    { timeout: 15_000 },
+    async () => {
+      const report = await assertDesignSystemConformance({
+        adapterName: "Ant Design example",
+        components: designSystem.components!,
+        contractVersion: DESIGN_SYSTEM_CONTRACT_VERSION,
+      });
+      expect(report.passed).toBe(true);
+    },
+  );
 });
