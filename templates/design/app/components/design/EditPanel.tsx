@@ -48,6 +48,7 @@ import {
   IconChevronRight,
   IconCode,
   IconComponents,
+  IconDeviceMobile,
   IconExternalLink,
   IconDroplet,
   IconEye,
@@ -398,10 +399,27 @@ export function mergeOptimisticInteractionStateStyles(
 
 export type InspectorTab = "design" | "tweaks" | "comments" | "code";
 
+/** Floor for a typed/preset frame size. Matches the frame tool's own minimum
+ *  so a frame cannot be typed smaller than it can be drawn. */
+const MIN_SCREEN_FRAME_SIZE_PX = 24;
+
 interface EditPanelProps {
   selectedElement: ElementInfo | null;
   selectedElements?: ElementInfo[];
   selectedScreenGeometry?: ScreenGeometrySelection | null;
+  /**
+   * Resizes/moves the selected screen frame. When omitted the geometry fields
+   * stay read-only, which is what read-only viewers and non-editable designs
+   * get. Supplying it also reveals the size-preset picker: the frame tool's
+   * full-panel preset list is only reachable *before* a frame exists, so
+   * without this an existing frame could never be set to a device size.
+   */
+  onScreenGeometryChange?: (
+    screenId: string,
+    next: Partial<
+      Pick<ScreenGeometrySelection, "x" | "y" | "width" | "height">
+    >,
+  ) => void;
   pageStyles?: Record<string, string>;
   zoom?: number;
   headerTrailing?: ReactNode;
@@ -417,6 +435,9 @@ interface EditPanelProps {
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
   onExport?: (settings: ExportSettingsValue[]) => void;
+  /** Rasterizes the current selection for the export preview. Must go through
+   *  the same renderer as `onExport`, or the preview lies about the output. */
+  onRenderExportPreview?: () => Promise<Blob>;
   exporting?: boolean;
   /** Active file id — used for component prop editing context. */
   fileId?: string;
@@ -1162,13 +1183,72 @@ function ScreenSelectionHeader({
   );
 }
 
+/** Preset picker for a selected frame's size. Kept behind a popover on the
+ *  Size label rather than an always-visible list: the frame tool's full-panel
+ *  preset list only exists before a frame is drawn, so a selected frame had no
+ *  way to reach the same sizes. */
+function ScreenSizePresetPicker({
+  onPick,
+}: {
+  onPick: (preset: FrameSizePreset) => void;
+}) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const label = t("editPanel.framePresets.applyToFrame");
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className="flex size-4 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-[var(--design-editor-control-hover-bg)] hover:text-foreground"
+              aria-label={label}
+            >
+              <IconDeviceMobile className="size-3.5" />
+            </button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent side="left">{label}</TooltipContent>
+      </Tooltip>
+      <PopoverContent align="end" side="left" className="w-56 p-0">
+        <div className="flex max-h-80 flex-col overflow-hidden">
+          <FramePresetsPanel
+            onPick={(preset) => {
+              onPick(preset);
+              setOpen(false);
+            }}
+          />
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function ScreenGeometryProperties({
   screen,
+  onGeometryChange,
 }: {
   screen: ScreenGeometrySelection;
+  onGeometryChange?: (
+    screenId: string,
+    next: Partial<
+      Pick<ScreenGeometrySelection, "x" | "y" | "width" | "height">
+    >,
+  ) => void;
 }) {
   const t = useT();
   const noop = useCallback(() => {}, []);
+  const editable = Boolean(onGeometryChange);
+  const commit = useCallback(
+    (
+      next: Partial<
+        Pick<ScreenGeometrySelection, "x" | "y" | "width" | "height">
+      >,
+    ) => onGeometryChange?.(screen.id, next),
+    [onGeometryChange, screen.id],
+  );
 
   return (
     <PanelSection title={t("editPanel.sections.positionLayout")}>
@@ -1178,40 +1258,51 @@ function ScreenGeometryProperties({
           <ScrubInput
             label="X"
             value={Math.round(screen.x)}
-            onChange={noop}
+            onChange={editable ? (value) => commit({ x: value }) : noop}
             unit="px"
-            disabled
+            disabled={!editable}
             inputClassName="h-6"
           />
           <ScrubInput
             label="Y"
             value={Math.round(screen.y)}
-            onChange={noop}
+            onChange={editable ? (value) => commit({ y: value }) : noop}
             unit="px"
-            disabled
+            disabled={!editable}
             inputClassName="h-6"
           />
         </div>
       </div>
       <div className="space-y-1.5">
-        <SubsectionLabel>
-          {"Size" /* i18n-ignore design inspector label */}
-        </SubsectionLabel>
+        <div className="flex items-center justify-between gap-2">
+          <SubsectionLabel>
+            {"Size" /* i18n-ignore design inspector label */}
+          </SubsectionLabel>
+          {editable ? (
+            <ScreenSizePresetPicker
+              onPick={(preset) =>
+                commit({ width: preset.width, height: preset.height })
+              }
+            />
+          ) : null}
+        </div>
         <div className="grid grid-cols-2 gap-2">
           <ScrubInput
             label="W"
             value={Math.round(screen.width)}
-            onChange={noop}
+            onChange={editable ? (value) => commit({ width: value }) : noop}
             unit="px"
-            disabled
+            min={MIN_SCREEN_FRAME_SIZE_PX}
+            disabled={!editable}
             inputClassName="h-6"
           />
           <ScrubInput
             label="H"
             value={Math.round(screen.height)}
-            onChange={noop}
+            onChange={editable ? (value) => commit({ height: value }) : noop}
             unit="px"
-            disabled
+            min={MIN_SCREEN_FRAME_SIZE_PX}
+            disabled={!editable}
             inputClassName="h-6"
           />
         </div>
@@ -1376,32 +1467,77 @@ function PageProperties({
  * frame above the export rows). Renders a proportional placeholder reflecting
  * the selected element's aspect ratio, fill, radius and dimensions.
  */
-function ExportPreview({ element }: { element: ElementInfo | null }) {
+/** Rasterizes through the same path the export actions use, so the preview
+ *  cannot disagree with the file. A failed render must stay visibly failed —
+ *  never substitute a synthesized stand-in for the real content. */
+function ExportPreview({
+  element,
+  onRender,
+}: {
+  element: ElementInfo | null;
+  onRender?: () => Promise<Blob>;
+}) {
+  const t = useT();
   const rect = element?.boundingRect;
   const width = rect?.width ?? 0;
   const height = rect?.height ?? 0;
   const aspect = width > 0 && height > 0 ? width / height : 1;
-  const styles = element?.computedStyles ?? {};
-  const fill = cssColorOrFallback(
-    styles.backgroundColor || styles.color,
-    "var(--design-editor-control-bg)",
-  );
-  const radius = Math.min(8, cssLengthNumber(styles.borderRadius || "0"));
+  const [state, setState] = useState<
+    | { status: "idle" }
+    | { status: "loading" }
+    | { status: "ready"; url: string }
+    | { status: "failed" }
+  >({ status: "idle" });
+
+  useEffect(() => {
+    if (!onRender) {
+      setState({ status: "idle" });
+      return;
+    }
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    setState({ status: "loading" });
+    void onRender()
+      .then((blob) => {
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setState({ status: "ready", url: objectUrl });
+      })
+      .catch(() => {
+        if (!cancelled) setState({ status: "failed" });
+      });
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [onRender]);
 
   return (
     <div className="mt-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] p-3">
       <div
-        className="mx-auto flex max-h-28 items-center justify-center"
+        className="mx-auto flex max-h-28 items-center justify-center overflow-hidden"
         style={{
           aspectRatio: aspect,
           width: aspect >= 1 ? "100%" : "auto",
           height: aspect < 1 ? "7rem" : "auto",
         }}
       >
-        <div
-          className="size-full border border-[var(--design-editor-control-border)] shadow-sm"
-          style={{ background: fill, borderRadius: radius }}
-        />
+        {state.status === "ready" ? (
+          <img
+            src={state.url}
+            alt=""
+            className="size-full object-contain"
+            style={{
+              imageRendering: "auto",
+            }}
+          />
+        ) : (
+          <div className="flex size-full items-center justify-center rounded border border-[var(--design-editor-control-border)] bg-[var(--design-editor-panel-bg)] px-2 text-center !text-[10px] text-muted-foreground">
+            {state.status === "failed"
+              ? t("editPanel.exportPreview.failed")
+              : t("editPanel.exportPreview.rendering")}
+          </div>
+        )}
       </div>
       <p className="mt-2 text-center text-[10px] tabular-nums text-muted-foreground">
         {Math.round(width)} × {Math.round(height)}
@@ -1519,6 +1655,7 @@ export const EditPanel = memo(function EditPanel({
   selectedElement,
   selectedElements,
   selectedScreenGeometry,
+  onScreenGeometryChange,
   pageStyles = {},
   headerTrailing,
   width = 256,
@@ -1532,6 +1669,7 @@ export const EditPanel = memo(function EditPanel({
   onStyleChange: onStyleChangeProp,
   onStylesChange: onStylesChangeProp,
   onExport,
+  onRenderExportPreview,
   exporting = false,
   fileId,
   activeContent,
@@ -2034,7 +2172,12 @@ export const EditPanel = memo(function EditPanel({
               ) : null}
 
               {!inspectorElement && selectedScreenGeometry ? (
-                <ScreenGeometryProperties screen={selectedScreenGeometry} />
+                <ScreenGeometryProperties
+                  screen={selectedScreenGeometry}
+                  onGeometryChange={
+                    readOnly ? undefined : onScreenGeometryChange
+                  }
+                />
               ) : null}
 
               {!inspectorElement && !selectedScreenGeometry && (
@@ -2160,7 +2303,10 @@ export const EditPanel = memo(function EditPanel({
                     onExport={onExport}
                   />
                   {showExportPreview ? (
-                    <ExportPreview element={inspectorElement} />
+                    <ExportPreview
+                      element={inspectorElement}
+                      onRender={onRenderExportPreview}
+                    />
                   ) : null}
                 </PanelSection>
               ) : null}

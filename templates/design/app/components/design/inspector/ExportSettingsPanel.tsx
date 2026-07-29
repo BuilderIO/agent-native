@@ -11,6 +11,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 export type ExportFormat = "png" | "jpg" | "svg" | "pdf" | "webp";
@@ -399,16 +404,23 @@ function ExportRow({
         aria-label={labels.suffix}
       />
 
-      {/* Remove row button — matches the design editor's × on each export entry */}
-      <button
-        type="button"
-        aria-label={labels.removeExport}
-        disabled={isDisabled || !canRemove}
-        className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
-        onClick={() => onRemoveRow(row.id)}
-      >
-        <IconX className="size-3" />
-      </button>
+      {/* Remove row button — matches the design editor's × on each export
+          entry. Tooltip, not just aria-label: a bare × in an inspector row
+          reads as ambiguous to sighted users too. */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            aria-label={labels.removeExport}
+            disabled={isDisabled || !canRemove}
+            className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+            onClick={() => onRemoveRow(row.id)}
+          >
+            <IconX className="size-3" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="left">{labels.removeExport}</TooltipContent>
+      </Tooltip>
     </div>
   );
 }

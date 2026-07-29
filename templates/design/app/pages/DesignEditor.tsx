@@ -293,6 +293,7 @@ import { getBoardSurfaceContentBounds } from "@/components/design/multi-screen/b
 import {
   getCanonicalScreenStack,
   getInitialFrameGeometry,
+  getResponsiveScreenGroupSize,
   reorderCanonicalScreenStack,
 } from "@/components/design/multi-screen/frame-geometry";
 import {
@@ -821,6 +822,7 @@ import {
   shouldUseOverviewRuntimeReplacement,
 } from "./design-editor/selection-state";
 import {
+  isTextEditSessionOutcome,
   postShaderFillPreviewClearToPreviewIframes,
   removeElementFromHtml,
   sanitizeEditableInnerHtml,
@@ -877,6 +879,12 @@ const MOTION_DOCK_EXIT_SETTLE_MS = 80;
 const MOTION_DOCK_EXIT_FALLBACK_MS = MOTION_DOCK_TRANSITION_MS * 2 + 600;
 const MOTION_AUTOSAVE_DELAY_MS = 500;
 const DESIGN_SELECTION_ZOOM_SAVE_DELAY_MS = 150;
+/** Retry window for dropping an untouched text node whose screen content has
+ *  not caught up with the insert yet — see removeEmptyTextNodeWithRetry. */
+const EMPTY_TEXT_CLEANUP_RETRY_MS = 400;
+/** Floor for an inspector-typed frame size, matching the frame tool's own
+ *  drawing minimum (see getDraftGeometryForTool). */
+const MIN_FRAME_SIZE_PX = 24;
 const BOARD_SURFACE_SIZE = 131_072;
 /** Gates non-essential diagnostic console.warn calls (e.g. the cross-screen
  * anchor-stamp fallback warning) so production consoles stay quiet while
@@ -6691,10 +6699,14 @@ function DesignEditor() {
         {
           onSuccess: (result: any) => {
             const nextId = typeof result?.id === "string" ? result.id : null;
-            queryClient.invalidateQueries({
-              queryKey: ["action", "get-design"],
-            });
-            if (nextId) {
+            // Refetch only when there is no created id to insert optimistically:
+            // a whole-design refetch re-downloads every screen's HTML, which is
+            // what made adding a frame feel slow.
+            if (!nextId) {
+              queryClient.invalidateQueries({
+                queryKey: ["action", "get-design"],
+              });
+            } else {
               optimisticallyInsertCreatedFile({
                 fileId: nextId,
                 filename,
@@ -6843,9 +6855,14 @@ function DesignEditor() {
               geometry: nextGeometry,
             });
           }
-          queryClient.invalidateQueries({
-            queryKey: ["action", "get-design"],
-          });
+          // Refetch only when there is no created id to insert optimistically:
+          // a whole-design refetch re-downloads every screen's HTML, which is
+          // what made adding a frame feel slow.
+          if (!nextId) {
+            queryClient.invalidateQueries({
+              queryKey: ["action", "get-design"],
+            });
+          }
         },
         onError: (error) => {
           toast.error(
@@ -6912,9 +6929,14 @@ function DesignEditor() {
                 geometry: nextGeometry,
               });
             }
-            queryClient.invalidateQueries({
-              queryKey: ["action", "get-design"],
-            });
+            // Refetch only when there is no created id to insert optimistically:
+            // a whole-design refetch re-downloads every screen's HTML, which is
+            // what made adding a frame feel slow.
+            if (!nextId) {
+              queryClient.invalidateQueries({
+                queryKey: ["action", "get-design"],
+              });
+            }
           },
           onError: (error) => {
             toast.error(
@@ -10913,22 +10935,41 @@ function DesignEditor() {
   // content actually CHANGES, so a node the user never typed into (or
   // Escaped out of immediately) would otherwise persist forever as an
   // invisible empty layer with nothing to select or clean it up.
+  /**
+   * Drops a text node the user never typed into. Returns why it did or did not
+   * act: "node-absent" and "content-unavailable" are races worth one retry
+   * (the insert may not have reached `getScreenContent` yet), while
+   * "kept-has-content" and "removed" are settled answers. Reporting these
+   * separately is the point — every one of them used to be a bare `return`,
+   * so an empty text box that survived because its screen content had not
+   * propagated was indistinguishable from one deliberately kept, and the box
+   * stayed on the canvas invisibly forever.
+   */
   const removeEmptyTextNodeIfUntouched = useCallback(
-    (screenId: string | null, nodeId: string) => {
-      if (!screenId) return;
+    (
+      screenId: string | null,
+      nodeId: string,
+    ):
+      | "removed"
+      | "kept-has-content"
+      | "node-absent"
+      | "content-unavailable"
+      | "no-screen"
+      | "remove-failed" => {
+      if (!screenId) return "no-screen";
       const content = getScreenContent(screenId);
-      if (!content) return;
+      if (!content) return "content-unavailable";
       const projection = buildCodeLayerProjection(content);
       const node = projection.nodes.find(
         (n) =>
           n.dataAttributes["data-agent-native-node-id"] === nodeId ||
           n.id === nodeId,
       );
-      if (!node) return;
+      if (!node) return "node-absent";
       const hasContent = (node.textSnippet ?? "").trim().length > 0;
-      if (hasContent) return;
+      if (hasContent) return "kept-has-content";
       const nextContent = removeCodeLayerNodeFromHtml(content, node);
-      if (!nextContent || nextContent === content) return;
+      if (!nextContent || nextContent === content) return "remove-failed";
       const finalizedCreation = finalizePendingTextCreation(
         screenId,
         [nodeId, node.id, node.dataAttributes["data-agent-native-node-id"]],
@@ -10944,8 +10985,30 @@ function DesignEditor() {
       setSelectedElement((current) =>
         current?.sourceId === nodeId || current?.id === nodeId ? null : current,
       );
+      return "removed";
     },
     [applyFileContentUpdate, finalizePendingTextCreation, getScreenContent],
+  );
+
+  /** Cleanup for an untouched text node, retried once past the insert→content
+   *  propagation gap. Without the retry an empty box created while its screen
+   *  content was still settling stayed on the canvas as an invisible node. */
+  const removeEmptyTextNodeWithRetry = useCallback(
+    (screenId: string | null, nodeId: string) => {
+      const outcome = removeEmptyTextNodeIfUntouched(screenId, nodeId);
+      if (outcome !== "node-absent" && outcome !== "content-unavailable") {
+        return;
+      }
+      window.setTimeout(() => {
+        const retried = removeEmptyTextNodeIfUntouched(screenId, nodeId);
+        if (retried === "node-absent" || retried === "content-unavailable") {
+          console.warn(
+            `[design] could not resolve empty text node ${screenId}/${nodeId} to clean up (${retried})`,
+          );
+        }
+      }, EMPTY_TEXT_CLEANUP_RETRY_MS);
+    },
+    [removeEmptyTextNodeIfUntouched],
   );
 
   const handlePrimitiveCreated = useCallback(
@@ -11027,28 +11090,35 @@ function DesignEditor() {
         // different surface, its iframe no-ops on the unknown nodeId while
         // the buffer still swallows destructive shortcuts, and the
         // screen-id-scoped scheduleBeginTextEditForScreen loop below remains
-        // the authoritative per-iframe (data-screen-iframe-id targeted)
-        // fallback.
+        // the authoritative per-iframe fallback (resolved through
+        // findCanvasIframeForScreen, so board-space text works too).
         if (typeof window !== "undefined") {
           const beginTextEditNow = (window as any).__designCanvasBeginTextEdit;
           if (typeof beginTextEditNow === "function") {
             beginTextEditNow(textNodeId, { afterPointerGesture: true });
           }
         }
-        const cancel = scheduleBeginTextEditForScreen(
-          screenId,
-          textNodeId,
-          (finalStatus) => {
+        const cancel = scheduleBeginTextEditForScreen(screenId, textNodeId, {
+          boardFileId,
+          onExhausted: (finalStatus) => {
             const pending = pendingEmptyTextEditRef.current;
             if (!pending || pending.nodeId !== textNodeId || pending.settled) {
               return;
             }
             pending.settled = true;
-            if (finalStatus !== "active" && finalStatus !== "done") {
-              removeEmptyTextNodeIfUntouched(screenId, textNodeId);
+            if (isTextEditSessionOutcome(finalStatus)) return;
+            if (finalStatus === "no-iframe" || finalStatus === "no-reply") {
+              // Never reached an editing surface at all. That is a targeting
+              // defect, not the user declining to type, so make it audible —
+              // but the persisted document, not this outcome, still decides
+              // whether the node is empty and should go.
+              console.warn(
+                `[design] text edit never reached a surface for ${screenId}/${textNodeId} (${finalStatus})`,
+              );
             }
+            removeEmptyTextNodeWithRetry(screenId, textNodeId);
           },
-        );
+        });
         pendingEmptyTextEditRef.current = {
           screenId,
           nodeId: textNodeId,
@@ -11060,7 +11130,7 @@ function DesignEditor() {
     [
       boardFileId,
       clearPendingOverviewLayerSelectionTimer,
-      removeEmptyTextNodeIfUntouched,
+      removeEmptyTextNodeWithRetry,
     ],
   );
 
@@ -17502,6 +17572,109 @@ function DesignEditor() {
     ],
   );
 
+  /**
+   * On-canvas footprint of a screen including the breakpoint frames drawn to
+   * its right, so packing/tidy reserves the space they actually occupy.
+   * Breakpoint frames render inside the screen's own container and never appear
+   * in `canvasFrames`, so packing against the base geometry alone dropped every
+   * new breakpoint on top of the next screen.
+   *
+   * Widths are exact (`widthPx * primaryScale`); the height falls back to the
+   * renderer's own pre-measurement aspect projection, since measured breakpoint
+   * iframe heights live inside MultiScreenCanvas.
+   */
+  const getScreenGroupFootprint = useCallback(
+    (
+      screenId: string,
+      geometry: CanvasFrameGeometry,
+      /** Widths to assume instead of the screen's current ones — used right
+       *  after an add-breakpoint mutation, before the query round-trips. */
+      breakpointWidthsOverride?: readonly number[],
+    ): { x: number; y: number; width: number; height: number } => {
+      const x = geometry.x ?? 0;
+      const y = geometry.y ?? 0;
+      const width = geometry.width ?? 0;
+      const height = geometry.height ?? 0;
+      const screen = overviewScreens.find((item) => item.id === screenId);
+      const widths = breakpointWidthsOverride ?? screen?.breakpointWidths;
+      if (!screen || !widths?.length) return { x, y, width, height };
+      // Same size function viewport culling already uses for a screen plus its
+      // responsive row, so packing and culling cannot disagree about how wide a
+      // breakpoint group is.
+      const size = getResponsiveScreenGroupSize(
+        {
+          id: screenId,
+          metadata: {
+            width: screen.width ?? width,
+            height: screen.height ?? height,
+          },
+          breakpointWidths: widths,
+        },
+        { x, y, width, height },
+      );
+      return { x, y, width: size.width, height: size.height };
+    },
+    [overviewScreens],
+  );
+
+  /**
+   * Re-packs the whole board when breakpoint frames have grown a screen's
+   * footprint into its neighbour. Adding a breakpoint widens every screen at
+   * once, and nothing previously moved, so the new frames rendered straight over
+   * the next screen. Runs only on an actual collision (so a deliberately
+   * arranged, non-overlapping board is left alone), and commits through
+   * handleGeometryCommit, which makes it one undo step.
+   */
+  const reflowOverviewScreensForBreakpoints = useCallback(
+    (breakpointWidths: readonly number[]) => {
+      if (!canEditDesignRef.current) return;
+      const before = getCanvasFrameGeometry(designDataJsonRef.current);
+      const rects: AlignableRect[] = [];
+      overviewScreens.forEach((screen, index) => {
+        const geometry = {
+          ...getInitialFrameGeometry(index, {
+            width: screen.width ?? 1280,
+            height: screen.height ?? 2560,
+          }),
+          ...before[screen.id],
+        };
+        const footprint = getScreenGroupFootprint(
+          screen.id,
+          geometry,
+          breakpointWidths,
+        );
+        rects.push({
+          id: screen.id,
+          x: footprint.x,
+          y: footprint.y,
+          width: footprint.width,
+          height: footprint.height,
+        });
+      });
+      if (rects.length < 2) return;
+      const overlaps = rects.some((a, i) =>
+        rects.some(
+          (b, j) =>
+            i !== j &&
+            a.x < b.x + b.width &&
+            b.x < a.x + a.width &&
+            a.y < b.y + b.height &&
+            b.y < a.y + a.height,
+        ),
+      );
+      if (!overlaps) return;
+      const positions = computeTidyPositions(rects);
+      if (positions.size === 0) return;
+      const after = cloneCanvasFrameGeometry(before);
+      positions.forEach((position, screenId) => {
+        if (!after[screenId]) return;
+        after[screenId] = { ...after[screenId], ...position };
+      });
+      handleGeometryCommit(before, after);
+    },
+    [getScreenGroupFootprint, handleGeometryCommit, overviewScreens],
+  );
+
   // Item 4: Figma's Ctrl+Alt+T — Tidy up: arrange the selection into a
   // compact grid with uniform gaps (see computeTidyPositions' doc comment for
   // the exact packing heuristic chosen).
@@ -17529,12 +17702,16 @@ function DesignEditor() {
               : undefined;
         if (!fallbackGeometry) return;
         const geometry = { ...fallbackGeometry, ...before[screenId] };
+        // Pack against the breakpoint group's footprint, not just the base
+        // frame — otherwise tidy leaves every breakpoint row overlapping the
+        // neighbouring screen.
+        const footprint = getScreenGroupFootprint(screenId, geometry);
         screenRects.push({
           id: screenId,
-          x: geometry.x,
-          y: geometry.y,
-          width: geometry.width,
-          height: geometry.height,
+          x: footprint.x,
+          y: footprint.y,
+          width: footprint.width,
+          height: footprint.height,
         });
       });
       if (screenRects.length === 0) return;
@@ -17569,6 +17746,7 @@ function DesignEditor() {
     commitNodePositions,
     getActiveFileSelectedNodeIds,
     getFreshActiveContent,
+    getScreenGroupFootprint,
     handleGeometryCommit,
     overviewScreens,
     overviewSelectedScreenIds,
@@ -21666,7 +21844,7 @@ function DesignEditor() {
   // T22: Enter with a selected TEXT layer in single mode begins inline
   // editing on it (Figma: Enter drills into the selected layer), reusing the
   // same begin-text-edit machinery a newly-created text primitive uses
-  // (postBeginTextEditToPreviewIframes/scheduleBeginTextEditForScreen).
+  // (scheduleBeginTextEditForScreen).
   // Text-tag elements (TEXT_LAYER_TAGS in shared/code-layer.ts) and T-tool
   // primitive text (a plain div marked data-an-primitive="text") both
   // qualify — replicated here as a small inline check since those
@@ -21758,7 +21936,9 @@ function DesignEditor() {
             const nodeAttrId =
               owner.node.dataAttributes["data-agent-native-node-id"] ??
               owner.node.id;
-            scheduleBeginTextEditForScreen(owner.fileId, nodeAttrId);
+            scheduleBeginTextEditForScreen(owner.fileId, nodeAttrId, {
+              boardFileId,
+            });
             return;
           }
           const childNodes = owner.node.children
@@ -21804,7 +21984,9 @@ function DesignEditor() {
           const nodeAttrId =
             owner.node.dataAttributes["data-agent-native-node-id"] ??
             owner.node.id;
-          scheduleBeginTextEditForScreen(owner.fileId, nodeAttrId);
+          scheduleBeginTextEditForScreen(owner.fileId, nodeAttrId, {
+            boardFileId,
+          });
           return;
         }
         const childNodes = owner.node.children
@@ -21843,6 +22025,7 @@ function DesignEditor() {
     SINGLE_MODE_TEXT_TAGS,
     activeFile?.id,
     activeFileId,
+    boardFileId,
     enterSingleScreen,
     enterVectorEditForSelection,
     getProjectionContentForScreen,
@@ -23751,6 +23934,14 @@ function DesignEditor() {
     ],
   );
 
+  /** Thumbnail for the inspector's export preview. Deliberately the same
+   *  renderer the export itself uses, at scale 1 since it paints into a ~7rem
+   *  box. Rejections propagate so the preview can show a failure. */
+  const handleRenderExportPreview = useCallback(
+    () => renderPngBlob({ selectionOnly: true, settings: { scale: 1 } }),
+    [renderPngBlob],
+  );
+
   const handleInspectorExport = useCallback(
     async (settingsList: ExportSettingsValue[]) => {
       for (const settings of settingsList) {
@@ -24798,6 +24989,36 @@ function DesignEditor() {
     selectedInspectorElements.length,
     viewMode,
   ]);
+
+  /** Applies a typed or preset frame size/position from the inspector. Routed
+   *  through handleGeometryCommit so it lands in the same undo entry, viewport
+   *  metadata sync, and persist guard that a pointer resize uses. */
+  const handleScreenGeometryChange = useCallback(
+    (
+      screenId: string,
+      next: Partial<{ x: number; y: number; width: number; height: number }>,
+    ) => {
+      const before = getCanvasFrameGeometry(designDataJsonRef.current);
+      const current = before[screenId] ?? canvasFrameGeometryById[screenId];
+      if (!current) return;
+      const after = {
+        ...before,
+        [screenId]: {
+          ...current,
+          ...(next.x !== undefined ? { x: next.x } : {}),
+          ...(next.y !== undefined ? { y: next.y } : {}),
+          ...(next.width !== undefined
+            ? { width: Math.max(MIN_FRAME_SIZE_PX, next.width) }
+            : {}),
+          ...(next.height !== undefined
+            ? { height: Math.max(MIN_FRAME_SIZE_PX, next.height) }
+            : {}),
+        },
+      };
+      handleGeometryCommit(before, after);
+    },
+    [canvasFrameGeometryById, handleGeometryCommit],
+  );
 
   const layerPanelSelectedIds = useMemo(
     () =>
@@ -28038,18 +28259,37 @@ function DesignEditor() {
     ],
   );
 
+  /**
+   * Adds a breakpoint to the DESIGN, not to one screen. A design has a single
+   * active breakpoint set in v1, so every screen renders the same widths — the
+   * old `(screenId, widthPx)` signature accepted a screen id it then ignored,
+   * which is why adding a breakpoint "to a frame" silently applied it to all of
+   * them. The parameter is gone so the call sites cannot imply scoping the
+   * action does not have.
+   */
   const handleOverviewAddBreakpoint = useCallback(
-    (screenId: string, widthPx: number) => {
+    (widthPx: number) => {
       if (!id) return;
       const breakpointLabel =
         widthPx <= 480 ? "Mobile" : widthPx <= 1024 ? "Tablet" : "Desktop";
-      void addBreakpointMutation.mutateAsync({
-        designId: id,
-        label: breakpointLabel,
+      const nextWidths = [
+        ...(overviewScreens[0]?.breakpointWidths ?? []),
         widthPx,
-      });
+      ];
+      void addBreakpointMutation
+        .mutateAsync({
+          designId: id,
+          label: breakpointLabel,
+          widthPx,
+        })
+        .then(() => reflowOverviewScreensForBreakpoints(nextWidths));
     },
-    [id, addBreakpointMutation],
+    [
+      addBreakpointMutation,
+      id,
+      overviewScreens,
+      reflowOverviewScreensForBreakpoints,
+    ],
   );
   const handleOverviewActiveBreakpointChange = useCallback(
     (_screenId: string, widthPx: number | undefined) => {
@@ -30293,6 +30533,9 @@ function DesignEditor() {
                   readOnly={!canEditDesign}
                   selectedElements={selectedInspectorElements}
                   selectedScreenGeometry={selectedScreenGeometry}
+                  onScreenGeometryChange={
+                    canEditDesign ? handleScreenGeometryChange : undefined
+                  }
                   pageStyles={pageStyles}
                   files={documentColorFiles}
                   activeTool={activeTool}
@@ -30322,6 +30565,7 @@ function DesignEditor() {
                   }
                   breakpointContext={breakpointContext}
                   onExport={handleInspectorExport}
+                  onRenderExportPreview={handleRenderExportPreview}
                   exporting={pngExporting || svgExporting}
                   designId={id}
                   fileId={activeFile?.id}
@@ -30384,6 +30628,9 @@ function DesignEditor() {
                 readOnly={!canEditDesign}
                 selectedElements={selectedInspectorElements}
                 selectedScreenGeometry={selectedScreenGeometry}
+                onScreenGeometryChange={
+                  canEditDesign ? handleScreenGeometryChange : undefined
+                }
                 pageStyles={pageStyles}
                 files={documentColorFiles}
                 activeTool={activeTool}
@@ -30413,6 +30660,7 @@ function DesignEditor() {
                 }
                 breakpointContext={breakpointContext}
                 onExport={handleInspectorExport}
+                onRenderExportPreview={handleRenderExportPreview}
                 exporting={pngExporting || svgExporting}
                 designId={id}
                 fileId={activeFile?.id}

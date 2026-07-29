@@ -11658,7 +11658,11 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         typeof e.data.correlationId === "string" ? e.data.correlationId : "";
       var textEditStatusNodeId: string =
         typeof e.data.nodeId === "string" ? e.data.nodeId : "";
-      var textEditStatus: "active" | "done" | false = false;
+      // "missing" (this document has no such node) stays distinct from a bare
+      // `false` (node is here, just not being edited). The host's retry ladder
+      // needs the difference: the first is a still-propagating insert or the
+      // wrong iframe, the second means the user has not typed yet.
+      var textEditStatus: "active" | "done" | "missing" | false = "missing";
       if (textEditStatusNodeId) {
         var escapedTextEditStatusNodeId = textEditStatusNodeId
           .replace(/\\/g, "\\\\")
@@ -11682,6 +11686,8 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
           (textEditStatusNode.textContent ?? "").trim().length > 0
         ) {
           textEditStatus = "done";
+        } else if (textEditStatusNode) {
+          textEditStatus = false;
         }
       }
       (window.parent as Window).postMessage(

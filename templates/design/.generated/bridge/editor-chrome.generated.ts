@@ -7893,7 +7893,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (e.data.type === "agent-native:text-edit-status") {
         var textEditStatusCorrelationId = typeof e.data.correlationId === "string" ? e.data.correlationId : "";
         var textEditStatusNodeId = typeof e.data.nodeId === "string" ? e.data.nodeId : "";
-        var textEditStatus = false;
+        var textEditStatus = "missing";
         if (textEditStatusNodeId) {
           var escapedTextEditStatusNodeId = textEditStatusNodeId.replace(/\\\\/g, "\\\\\\\\").replace(/"/g, '\\\\"');
           var textEditStatusNode = document.querySelector(
@@ -7906,6 +7906,8 @@ export const editorChromeBridgeScript: string = `"use strict";
             textEditStatus = "active";
           } else if (textEditStatusNode && (textEditStatusNode.textContent ?? "").trim().length > 0) {
             textEditStatus = "done";
+          } else if (textEditStatusNode) {
+            textEditStatus = false;
           }
         }
         window.parent.postMessage(

@@ -136,7 +136,7 @@ const messages = {
     pageHelpDescription:
       "編輯您選取的任何版式、間距、大小、邊框和填充。頁面預設如下。",
     sections: {
-      page: "頁面",
+      page: "畫面",
       typography: "版式",
       flexLayout: "彈性布局",
       autoLayout: "自動布局",
@@ -409,8 +409,13 @@ const messages = {
       dotted: "點線",
       double: "雙線",
     },
+    exportPreview: {
+      rendering: "正在產生預覽…",
+      failed: "無法產生預覽",
+    },
     framePresets: {
       title: "外框",
+      applyToFrame: "調整為預設尺寸",
       categories: {
         phone: "手機",
         tablet: "平板",
@@ -1023,6 +1028,7 @@ const messages = {
     },
   },
   multiScreenCanvas: {
+    addBreakpointToAllScreens: "為所有畫面新增 {{label}} 中斷點（{{width}}px）",
     duplicate: "複製",
     fork: "分支",
     fullView: "互動",
