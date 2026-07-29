@@ -97,6 +97,7 @@ import { cn } from "@/lib/utils";
 const CALENDAR_DRAFT_EVENT_PREFIX = "calendar-draft-event:";
 
 type DraftEventPatch = Partial<CalendarEvent> & {
+  fullDay?: boolean;
   addGoogleMeet?: boolean;
   addZoom?: boolean;
   workingLocationType?: "homeOffice" | "officeLocation" | "customLocation";
@@ -169,8 +170,28 @@ function addMinutesToDateTimeParts(
 
 function draftRange(draft: CalendarEventDraft, fallbackDate: Date) {
   const fallback = fallbackDraftRange(fallbackDate);
-  const start = parseValidDate(draft.start) ?? fallback.start;
-  const parsedEnd = parseValidDate(draft.end);
+  const fullDayTimezone = draft.startTimeZone ?? draft.endTimeZone;
+  const fullDayDatePattern = /^\d{4}-\d{2}-\d{2}$/;
+  const semanticFullDay =
+    draft.eventType === "outOfOffice" &&
+    draft.fullDay &&
+    fullDayTimezone &&
+    draft.start &&
+    draft.end &&
+    fullDayDatePattern.test(draft.start) &&
+    fullDayDatePattern.test(draft.end);
+  const start = semanticFullDay
+    ? new Date(dateTimeInTimezoneToIso(draft.start!, "00:00", fullDayTimezone!))
+    : (parseValidDate(draft.start) ?? fallback.start);
+  const parsedEnd = semanticFullDay
+    ? new Date(
+        dateTimeInTimezoneToIso(
+          format(addDays(parseISO(draft.end!), 1), "yyyy-MM-dd"),
+          "00:00",
+          fullDayTimezone!,
+        ),
+      )
+    : parseValidDate(draft.end);
   const end =
     parsedEnd && parsedEnd.getTime() > start.getTime()
       ? parsedEnd
@@ -185,14 +206,19 @@ function draftToCalendarEvent(
   const { start, end } = draftRange(draft, fallbackDate);
   return {
     id: calendarDraftEventId(draft.id),
-    title: draft.title?.trim() || "(No title)",
+    title:
+      draft.title?.trim() ||
+      (draft.eventType === "outOfOffice" ? "Out of office" : "(No title)"),
     description: draft.description ?? "",
     start: start.toISOString(),
     end: end.toISOString(),
     startTimeZone: draft.startTimeZone,
     endTimeZone: draft.endTimeZone ?? draft.startTimeZone,
     location: draft.location ?? draft.workingLocationLabel ?? "",
-    allDay: draft.allDay ?? false,
+    allDay:
+      draft.eventType === "outOfOffice" && draft.fullDay
+        ? false
+        : (draft.allDay ?? false),
     source: "local",
     accountEmail: draft.accountEmail,
     colorId: draft.colorId,
@@ -200,6 +226,7 @@ function draftToCalendarEvent(
     transparency: draft.transparency,
     visibility: draft.visibility,
     eventType: draft.eventType ?? "default",
+    outOfOfficeProperties: draft.outOfOfficeProperties,
     recurrence: draft.recurrence,
     attendees: draft.attendees,
     reminders: draft.reminders,
@@ -237,7 +264,9 @@ function applyDraftPatch(
   copy("endTimeZone");
   copy("location");
   copy("allDay");
+  copy("fullDay");
   copy("eventType");
+  copy("outOfOfficeProperties");
   copy("transparency");
   copy("visibility");
   copy("colorId");
@@ -622,8 +651,13 @@ export default function CalendarView() {
         persistCalendarDraft(draft);
       }
       const trimmedTitle = draft.title?.trim();
+      const eventType = draft.eventType ?? "default";
       const title =
-        trimmedTitle && trimmedTitle !== "(No title)" ? trimmedTitle : "";
+        trimmedTitle && trimmedTitle !== "(No title)"
+          ? trimmedTitle
+          : eventType === "outOfOffice"
+            ? "Out of office"
+            : "";
       if (!title && !isSlotDraftId(draftId)) {
         committingDraftIdsRef.current.delete(draftId);
         toast.error(t("calendarView.addTitleBeforeCreate"));
@@ -637,9 +671,13 @@ export default function CalendarView() {
         return;
       }
 
-      const eventType = draft.eventType ?? "default";
       const location = draft.location ?? draft.workingLocationLabel ?? "";
       const timezone = draft.startTimeZone ?? getLocalTimezone();
+      const semanticFullDay =
+        eventType === "outOfOffice" &&
+        draft.fullDay === true &&
+        /^\d{4}-\d{2}-\d{2}$/.test(draft.start ?? "") &&
+        /^\d{4}-\d{2}-\d{2}$/.test(draft.end ?? "");
       const statusPatch =
         eventType === "default"
           ? {}
@@ -652,21 +690,31 @@ export default function CalendarView() {
                 "customLocation"
                   ? location
                   : draft.workingLocationLabel,
+              autoDeclineMode:
+                eventType === "outOfOffice"
+                  ? draft.outOfOfficeProperties?.autoDeclineMode
+                  : undefined,
+              declineMessage:
+                eventType === "outOfOffice"
+                  ? draft.outOfOfficeProperties?.declineMessage
+                  : undefined,
             };
 
       const payload: Parameters<typeof createEvent.mutate>[0] = {
         _tempId: eventId,
         title,
-        description: draft.description ?? "",
-        start: start.toISOString(),
-        end: end.toISOString(),
+        description:
+          eventType === "outOfOffice" ? "" : (draft.description ?? ""),
+        start: semanticFullDay ? draft.start! : start.toISOString(),
+        end: semanticFullDay ? draft.end! : end.toISOString(),
         startTimeZone: draft.allDay ? undefined : timezone,
         endTimeZone: draft.allDay
           ? undefined
           : (draft.endTimeZone ?? draft.startTimeZone ?? timezone),
-        location,
+        location: eventType === "outOfOffice" ? "" : location,
         accountEmail,
         allDay: draft.allDay ?? false,
+        fullDay: draft.fullDay,
         transparency:
           eventType === "workingLocation"
             ? "transparent"
@@ -678,15 +726,16 @@ export default function CalendarView() {
         reminders: draft.reminders,
         remindersUseDefault: draft.remindersUseDefault,
         ...statusPatch,
-        addGoogleMeet: draft.addGoogleMeet,
-        addZoom: draft.addZoom,
+        addGoogleMeet:
+          eventType === "outOfOffice" ? undefined : draft.addGoogleMeet,
+        addZoom: eventType === "outOfOffice" ? undefined : draft.addZoom,
         color: draft.colorId
           ? getGoogleEventColorHex(draft.colorId)
           : undefined,
         colorId: draft.colorId,
         recurrence: draft.recurrence,
         attachments: draft.attachments,
-        attendees: draft.attendees,
+        attendees: eventType === "outOfOffice" ? undefined : draft.attendees,
       };
 
       deletePersistedCalendarDraft(draftId);

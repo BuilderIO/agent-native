@@ -2,12 +2,21 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildRecurrenceRules,
+  dateTimeInTimezoneToIso,
   formatRecurrenceText,
   getEventEndValidationMessage,
   getRecurrencePreset,
   normalizeAllDayEditEndDate,
   resolveTimeEditScope,
 } from "./event-form-utils";
+
+describe("dateTimeInTimezoneToIso", () => {
+  it("uses the first valid instant when a timezone skips local midnight", () => {
+    expect(
+      dateTimeInTimezoneToIso("2026-09-06", "00:00", "America/Santiago"),
+    ).toBe("2026-09-06T04:00:00.000Z");
+  });
+});
 
 describe("getEventEndValidationMessage", () => {
   it("clarifies equal timed start and end values", () => {
