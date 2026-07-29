@@ -166,27 +166,98 @@ test("lists the spawned folder, preserves dirty buffers, and saves a local file"
   ] as const) {
     await localTree.getByText(filename, { exact: true }).click();
     await expect
-      .poll(() =>
-        page.evaluate(() => {
-          const workbench = (
-            window as typeof window & { __designCodeWorkbench?: any }
-          ).__designCodeWorkbench;
-          const uri = workbench?.api.getState().activeUri;
-          return uri
-            ? workbench?.modelRegistry.get(uri)?.model.getLanguageId()
-            : null;
-        }),
+      .poll(
+        () =>
+          page.evaluate((expectedFilename) => {
+            const workbench = (
+              window as typeof window & { __designCodeWorkbench?: any }
+            ).__designCodeWorkbench;
+            const state = workbench?.api.getState();
+            const uri = state?.activeUri;
+            const tab = state?.tabs.find(
+              (entry: { uri: string }) => entry.uri === uri,
+            );
+            const buffer = uri ? state?.buffers[uri] : null;
+            return {
+              path: tab?.path ?? null,
+              loading: buffer?.loading ?? null,
+              error: buffer?.error ?? null,
+              language: uri
+                ? (workbench?.modelRegistry.get(uri)?.model.getLanguageId() ??
+                  null)
+                : null,
+              expectedFilename,
+            };
+          }, filename),
+        { message: `${filename} loads into the expected Monaco language` },
       )
-      .toBe(language);
+      .toEqual({
+        path: `src/${filename}`,
+        loading: false,
+        error: null,
+        language,
+        expectedFilename: filename,
+      });
     await expect
-      .poll(() =>
-        page
-          .locator(
-            '[data-testid="design-code-monaco-editor"] .view-line span[class*="mtk"]',
-          )
-          .count(),
+      .poll(
+        () =>
+          page.evaluate(() => {
+            const host = document.querySelector(
+              '[data-testid="design-code-monaco-editor"]',
+            );
+            const visibleTokens = [
+              ...(host?.querySelectorAll<HTMLElement>(
+                ".view-lines .view-line span",
+              ) ?? []),
+            ].filter(
+              (element) =>
+                element.childElementCount === 0 &&
+                Boolean(element.textContent?.trim()),
+            );
+            return {
+              count: visibleTokens.length,
+              colors: [
+                ...new Set(
+                  visibleTokens.map(
+                    (element) => getComputedStyle(element).color,
+                  ),
+                ),
+              ],
+            };
+          }),
+        {
+          message: `${filename} renders visible syntax colors in Monaco`,
+        },
       )
-      .toBeGreaterThan(3);
+      .toMatchObject({
+        count: expect.any(Number),
+        colors: expect.arrayContaining([expect.any(String)]),
+      });
+    await expect
+      .poll(
+        () =>
+          page.evaluate(() => {
+            const host = document.querySelector(
+              '[data-testid="design-code-monaco-editor"]',
+            );
+            const visibleTokens = [
+              ...(host?.querySelectorAll<HTMLElement>(
+                ".view-lines .view-line span",
+              ) ?? []),
+            ].filter(
+              (element) =>
+                element.childElementCount === 0 &&
+                Boolean(element.textContent?.trim()),
+            );
+            return new Set(
+              visibleTokens.map((element) => getComputedStyle(element).color),
+            ).size;
+          }),
+        {
+          message: `${filename} renders more than one syntax color in Monaco`,
+        },
+      )
+      .toBeGreaterThan(1);
   }
 
   await localTree.getByText("App.tsx", { exact: true }).click();

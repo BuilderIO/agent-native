@@ -21,6 +21,12 @@ describe("public browser extension manifest", () => {
     ]);
     expect(manifest).not.toHaveProperty("key");
     expect(manifest).not.toHaveProperty("host_permissions");
+    expect(manifest.optional_host_permissions).toEqual([
+      "https://*/*",
+      "http://*/*",
+      "http://localhost/*",
+      "http://127.0.0.1/*",
+    ]);
     expect(manifest).not.toHaveProperty("content_scripts");
     expect(manifest.default_locale).toBe("en");
   });

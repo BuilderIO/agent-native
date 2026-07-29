@@ -138,7 +138,7 @@ export function acceptBrowserChatSession(
   sender: chrome.runtime.MessageSender,
   pending: PendingBrowserChatPairing | null,
   now = Date.now(),
-): BrowserChatSession | null {
+): AcceptedBrowserChatPairing | null {
   const message = parseSessionMessage(value);
   const origin = senderOrigin(sender);
   if (

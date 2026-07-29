@@ -1,37 +1,43 @@
 # Agent Native for Chrome
 
-Public Manifest V3 side-panel shell for attaching an explicitly captured browser
-page to a Dispatch conversation.
+Public Manifest V3 side panel for page-aware Agent Native chat and
+origin-scoped browser control.
 
-## MVP behavior
+## Product behavior
 
-- Clicking the extension action opens the side panel.
-- The panel tracks the active tab's title and origin, but never reads page
-  content automatically.
-- **Capture page** injects a one-shot Tier-0 extractor under `activeTab`. It
-  returns one canonical `browser-context.v1` readable projection containing a
-  bounded page URL, title, visible main text, selection, semantic blocks, and
-  links.
+- Dispatch chat is the primary surface. The packaged side panel owns Chrome
+  APIs and embeds a short-lived, nonce-bound Dispatch chat session.
+- The compact page bar follows the active tab without reading it. **Use page**
+  requests access for that exact site, captures one bounded
+  `browser-context.v1` readable projection, and stages an opaque
+  `browserSession` handle with the context.
+- The handle maps to the tab only inside `chrome.storage.session`. Cross-origin
+  navigation invalidates it, and neither chat nor Dispatch receives a Chrome
+  tab id.
 - Hidden content, form values, editable drafts, full DOM, cookies, headers,
   request bodies, and arbitrary JavaScript results are never captured.
-- The panel pairs through a top-level
-  `/browser-connect?extensionId=…&nonce=…` page. The extension accepts only an
-  exact configured Dispatch origin, matching nonce, root-relative one-time
-  embed start path, and bounded future expiry. It stores that start path only
-  in `chrome.storage.session` and clears it as soon as the iframe reports ready.
-- Captured context is staged with an exact-origin, iframe-source, nonce-bound
-  `postMessage`. On LinkedIn profile-like URLs, **Draft outreach** submits a
-  review-only drafting prompt to Dispatch; the extension never sends or posts
-  on LinkedIn.
+- Desktop Native Messaging is the preferred browser-control upstream. When
+  Desktop is absent, the extension can use the scoped remote-device credential
+  delivered through Dispatch pairing to poll the Agent Native relay directly.
+- The direct relay always advertises `browser.observe`. It advertises
+  `browser.control` only while Native Messaging is disconnected, so one
+  upstream owns mutations.
 
-`debugger` and `nativeMessaging` are declared from the first Store manifest
-because Chrome does not support adding `debugger` as an optional permission and
-the existing Desktop control transport uses Native Messaging. Tier-0 capture
-does not call either API. A separate background adapter runs the shared reviewed
-browser-control engine and reports its live connection state in the panel. It
-becomes available when Desktop allowlists the public Store extension ID. The
-engine has no arbitrary CDP method, expression, function-call, or
-`Runtime.evaluate` surface.
+## Relay action contract
+
+The extension handles only versioned, lease-bound `computer-operation`
+envelopes whose approval hash passes the core supervision parser:
+
+- `browser.read` resolves `target.sessionHandle` and performs Tier-0 bounded
+  capture on the active, user-granted page.
+- `browser.attach` resolves `target.sessionHandle` locally, then attaches the
+  shared `BrowserControlService` under `envelope.runId`.
+- `browser.observe`, `browser.click`, `browser.type`, `browser.key`,
+  `browser.navigate`, `browser.scroll`, and `browser.stop` use that same
+  reviewed service and lease.
+
+Control observations exclude screenshots from relay results. There is no
+arbitrary CDP method, expression, function-call, or `Runtime.evaluate` surface.
 
 ## Development
 

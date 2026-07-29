@@ -15,6 +15,7 @@ import {
 import { BROWSER_CONTROL_STATUS_KEY } from "./control-status";
 import {
   invalidatePageSessionsForTab,
+  PAGE_SESSIONS_KEY,
   readCurrentPageSession,
 } from "./page-session";
 import {
@@ -379,6 +380,12 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   void invalidatePageSessionsForTab(tabId).then(restartRelayPoller);
 });
 chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (
+    areaName === "session" &&
+    Object.prototype.hasOwnProperty.call(changes, PAGE_SESSIONS_KEY)
+  ) {
+    restartRelayPoller();
+  }
   if (
     areaName === "local" &&
     Object.prototype.hasOwnProperty.call(changes, REMOTE_DEVICE_CONFIG_KEY)

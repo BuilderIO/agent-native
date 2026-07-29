@@ -6,7 +6,6 @@ import {
   BROWSER_CHAT_RESULT_MESSAGE_TYPE,
   createStageMessage,
   createSubmitMessage,
-  isLinkedInProfileUrl,
   parseBrowserChatEvent,
 } from "./browser-chat-protocol";
 
@@ -15,9 +14,9 @@ const context: BrowserContextV1 = {
   captureId: "capture-example",
   capturedAt: "2026-07-29T18:00:00.000Z",
   page: {
-    url: "https://www.linkedin.com/in/example-person/",
-    origin: "https://www.linkedin.com",
-    title: "Example Person",
+    url: "https://example.com/projects/launch",
+    origin: "https://example.com",
+    title: "Launch plan",
   },
   outcome: {
     state: "complete",
@@ -25,30 +24,41 @@ const context: BrowserContextV1 = {
       {
         type: "readable",
         status: { state: "complete" },
-        text: "Example Person",
+        text: "Launch plan",
       },
     ],
   },
 };
+const browserSession = {
+  version: 1 as const,
+  handle: "bsn_12345678-1234-4123-8123-123456789abc",
+  origin: "https://example.com",
+  title: "Launch plan",
+};
 
 describe("browser chat postMessage protocol", () => {
-  it("creates typed stage and review-only submit envelopes", () => {
-    expect(createStageMessage("nonce-example-123456789012", context)).toEqual({
+  it("stages a bounded context with an opaque browser session", () => {
+    expect(
+      createStageMessage("nonce-example-123456789012", context, browserSession),
+    ).toEqual({
       type: "browser-context.v1",
       nonce: "nonce-example-123456789012",
       intent: "stage",
       context,
+      browserSession,
     });
     expect(
       createSubmitMessage(
         "nonce-example-123456789012",
-        "Draft only. Do not send.",
+        "Summarize the current page.",
         context,
+        browserSession,
       ),
     ).toMatchObject({
       type: "browser-context.v1",
       intent: "submit",
-      prompt: "Draft only. Do not send.",
+      prompt: "Summarize the current page.",
+      browserSession,
     });
   });
 
@@ -86,7 +96,7 @@ describe("browser chat postMessage protocol", () => {
     ).toBeNull();
   });
 
-  it("strictly validates result messages and LinkedIn profile URLs", () => {
+  it("strictly validates result messages", () => {
     const frameWindow = {} as WindowProxy;
     const binding = {
       frameWindow,
@@ -109,8 +119,5 @@ describe("browser chat postMessage protocol", () => {
         binding,
       ),
     ).toMatchObject({ ok: true, intent: "stage" });
-    expect(isLinkedInProfileUrl(context.page.url)).toBe(true);
-    expect(isLinkedInProfileUrl("https://linkedin.com/feed/")).toBe(false);
-    expect(isLinkedInProfileUrl("https://example.com/in/person")).toBe(false);
   });
 });

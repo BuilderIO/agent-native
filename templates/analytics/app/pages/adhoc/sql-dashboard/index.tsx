@@ -1,5 +1,5 @@
 import { generateTabId } from "@agent-native/core/client/agent-chat";
-import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
+import { appPath } from "@agent-native/core/client/api-path";
 import {
   useCollaborativeDoc,
   emailToColor,
@@ -143,6 +143,7 @@ import {
   sameDropSlot,
   type DashboardDropSlot,
 } from "./dashboard-layout";
+import { createDashboardSaveQueue } from "./dashboard-save-queue";
 import {
   createDashboardAdoptionHold,
   dashboardPrefetchInitialData,
@@ -603,6 +604,10 @@ function SqlDashboardPageContent({
   );
   const viewedDashboardIdRef = useRef<string | null>(null);
   const pendingConfigRef = useRef<DashboardAdoptionHold | null>(null);
+  const dashboardSaveQueueRef = useRef<{
+    dashboardId: string;
+    queue: ReturnType<typeof createDashboardSaveQueue<SqlDashboardConfig>>;
+  } | null>(null);
   const revisionRestoreInFlightRef = useRef(false);
   const canEdit = !reportScreenshot && resourceCanEdit(resourceAccess);
   const canManage = !reportScreenshot && resourceCanManage(resourceAccess);
@@ -1020,23 +1025,19 @@ function SqlDashboardPageContent({
     reportScreenshot,
   ]);
 
-  /**
-   * Push a config update through the collab layer so other tabs/users
-   * receive the change in real time.
-   */
-  const pushToCollab = useCallback(
-    (updated: SqlDashboardConfig) => {
-      if (!collabDocId) return;
-      const body = JSON.stringify(updated);
-      fetch(agentNativePath(`/_agent-native/collab/${collabDocId}/text`), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: body, requestSource: TAB_ID }),
-      }).catch(() => {
-        // Best-effort — the HTTP save is the source of truth
-      });
+  const enqueueDashboardSave = useCallback(
+    (id: string, updated: SqlDashboardConfig) => {
+      if (dashboardSaveQueueRef.current?.dashboardId !== id) {
+        dashboardSaveQueueRef.current = {
+          dashboardId: id,
+          queue: createDashboardSaveQueue((config) =>
+            saveDashboard(id, config),
+          ),
+        };
+      }
+      return dashboardSaveQueueRef.current.queue.enqueue(updated);
     },
-    [collabDocId],
+    [],
   );
 
   /**
@@ -1056,9 +1057,9 @@ function SqlDashboardPageContent({
       holdDashboardConfig();
       setDashboard(updated);
       updateCachedDashboardConfig(updated);
-      pushToCollab(updated);
-      saveDashboard(dashboardId, updated)
-        .then(() => {
+      void enqueueDashboardSave(dashboardId, updated)
+        .then(({ isLatest }) => {
+          if (!isLatest) return;
           queryClient.removeQueries({
             queryKey: sqlDashboardPrefetchKey(dashboardId),
           });
@@ -1085,9 +1086,9 @@ function SqlDashboardPageContent({
     [
       dashboardId,
       canEdit,
+      enqueueDashboardSave,
       holdDashboardConfig,
       queryClient,
-      pushToCollab,
       resetRevisionNavigation,
       t,
       updateCachedDashboardConfig,
@@ -1106,10 +1107,10 @@ function SqlDashboardPageContent({
       }
       resetRevisionNavigation();
       holdDashboardConfig();
-      await saveDashboard(dashboardId, updated);
+      const { isLatest } = await enqueueDashboardSave(dashboardId, updated);
+      if (!isLatest) return;
       setDashboard(updated);
       updateCachedDashboardConfig(updated);
-      pushToCollab(updated);
       queryClient.removeQueries({
         queryKey: sqlDashboardPrefetchKey(dashboardId),
       });
@@ -1122,9 +1123,9 @@ function SqlDashboardPageContent({
     [
       dashboardId,
       canEdit,
+      enqueueDashboardSave,
       holdDashboardConfig,
       queryClient,
-      pushToCollab,
       resetRevisionNavigation,
       t,
       updateCachedDashboardConfig,

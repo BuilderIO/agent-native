@@ -24,6 +24,11 @@ function sessionMessage(overrides: Record<string, unknown> = {}) {
     startPath: "/_agent-native/embed/start?ticket=example-ticket",
     dispatchOrigin: origin,
     expiresAt: new Date(now + 60_000).toISOString(),
+    remoteDevice: {
+      id: "remote-device-example",
+      token: "example-scoped-device-token",
+    },
+    relayBaseUrl: origin,
     ...overrides,
   };
 }
@@ -33,12 +38,21 @@ describe("browser chat secure pairing", () => {
     expect(
       acceptBrowserChatSession(sessionMessage(), sender, pending, now),
     ).toEqual({
-      nonce: pending.nonce,
-      dispatchOrigin: origin,
-      startUrl:
-        "https://dispatch.agent-native.com/_agent-native/embed/start?ticket=example-ticket",
-      expiresAt: new Date(now + 60_000).toISOString(),
-      receivedAt: now,
+      session: {
+        nonce: pending.nonce,
+        dispatchOrigin: origin,
+        startUrl:
+          "https://dispatch.agent-native.com/_agent-native/embed/start?ticket=example-ticket",
+        expiresAt: new Date(now + 60_000).toISOString(),
+        receivedAt: now,
+      },
+      remote: {
+        remoteDevice: {
+          id: "remote-device-example",
+          token: "example-scoped-device-token",
+        },
+        relayBaseUrl: origin,
+      },
     });
   });
 
@@ -96,5 +110,34 @@ describe("browser chat secure pairing", () => {
         now,
       ),
     ).toBeNull();
+  });
+
+  it("requires a secure scoped remote-device descriptor", () => {
+    expect(
+      acceptBrowserChatSession(
+        sessionMessage({ remoteDevice: { id: "" } }),
+        sender,
+        pending,
+        now,
+      ),
+    ).toBeNull();
+    expect(
+      acceptBrowserChatSession(
+        sessionMessage({ relayBaseUrl: "http://relay.example" }),
+        sender,
+        pending,
+        now,
+      ),
+    ).toBeNull();
+    expect(
+      acceptBrowserChatSession(
+        sessionMessage({
+          remoteDevice: { id: "remote-device-example" },
+        }),
+        sender,
+        pending,
+        now,
+      ),
+    ).not.toBeNull();
   });
 });

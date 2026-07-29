@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   captureGrantKey,
   captureOrigin,
+  captureOriginPattern,
   isCaptureGrantValid,
 } from "./capture-grants";
 
@@ -21,11 +22,15 @@ describe("activeTab capture grants", () => {
       false,
     );
     expect(isCaptureGrantValid(grant, 7, "https://example.com/")).toBe(false);
+    expect(captureOriginPattern("https://example.com/path")).toBe(
+      "https://example.com/*",
+    );
   });
 
   it("rejects restricted and unreadable URLs", () => {
     expect(captureOrigin("chrome://extensions")).toBeNull();
     expect(captureOrigin("file:///tmp/example")).toBeNull();
     expect(captureOrigin("not a URL")).toBeNull();
+    expect(captureOriginPattern("chrome://extensions")).toBeNull();
   });
 });

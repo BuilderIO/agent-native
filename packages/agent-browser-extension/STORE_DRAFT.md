@@ -4,7 +4,7 @@
 
 Name: Agent Native for Chrome
 
-Summary: Capture the page you choose and work with it in Agent Native.
+Summary: Chat with the page you choose and let Agent Native work alongside you.
 
 Category: Productivity
 
@@ -12,39 +12,43 @@ The Store item ID is intentionally unset until the first upload creates it.
 
 ## Single purpose
 
-Agent Native for Chrome lets a user explicitly attach the current webpage to an
-Agent Native conversation, then review work produced from that context.
+Agent Native for Chrome places an Agent Native conversation beside the current
+webpage. Users can explicitly share bounded page context and, when connected,
+let Agent Native operate an assigned tab through an origin-scoped control
+session.
 
 ## Permission justification
 
-- `activeTab` and `scripting`: run one bounded readable-context extraction only
-  after the user presses **Capture page**.
+- `activeTab` and `scripting`: run one bounded readable-context extraction after
+  an explicit extension gesture.
+- `optional_host_permissions`: request one exact site only when the user chooses
+  **Use page**, or the exact paired relay origin when enabling browser tools.
 - `sidePanel`: keeps the Agent Native conversation beside the webpage.
-- `storage`: remembers the configured Dispatch URL and keeps short-lived pairing
-  state in session-only extension storage.
-- `debugger`: used only by the shared origin-scoped Tier-1 control engine after
-  Desktop explicitly assigns a tab. It is not used by Tier-0 capture.
-- `nativeMessaging`: connects that shared control engine to Agent Native
-  Desktop. If Desktop has not allowlisted the public Store ID, the panel reports
-  control unavailable.
-- `alarms`: retries the Desktop Native Messaging connection after disconnects.
-- `tabs`: revalidates the exact origin of a user-assigned control tab.
+- `storage`: remembers the Dispatch URL, scoped remote-device credential, and
+  session-only pairing/page-handle state.
+- `debugger`: powers the reviewed origin-scoped control engine; Tier-0 capture
+  never uses it.
+- `nativeMessaging`: connects the same engine to Agent Native Desktop.
+- `alarms`: retries Desktop and wakes the direct relay fallback.
+- `tabs`: follows the selected page and revalidates an assigned control origin.
 
-The extension has no persistent content script and requests no broad host
-permission. Its externally-connectable pairing listener accepts only a
-user-configured exact Dispatch origin plus a fresh nonce and expiring one-time
-embed path.
+There is no persistent content script and no install-time host access. The
+externally-connectable listener accepts only the configured Dispatch origin
+with a fresh nonce and expiring one-time embed path.
 
 ## Data handling
 
-On explicit capture, the extension may process the page URL/title, selected
+On explicit page sharing, the extension may process the URL/title, selected
 text, visible main text, headings, and bounded HTTP(S) links. It excludes form
 values, editable content, hidden text, full DOM markup, cookies, headers,
 network bodies, and credentials. Sensitive-looking URL query values are
-redacted. Context is sent only to the Dispatch origin the user connected.
+redacted. Context is sent only to the Dispatch conversation the user connected.
 
-LinkedIn's **Draft outreach** action creates a reviewable draft in Dispatch. It
-does not send, post, connect, or message on LinkedIn.
+A scoped remote-device token may be stored in Chrome extension storage so the
+browser-only relay fallback can poll for approved computer operations. It is
+sent only to the paired HTTPS relay origin or an explicit loopback development
+origin. Native Messaging remains the preferred control transport, and the
+extension never advertises relay control while Desktop is connected.
 
 ## Package
 

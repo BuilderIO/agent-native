@@ -105,13 +105,16 @@ export class RemoteRelayExecutor {
   }
 }
 
-export function relayCapabilities(nativeHostConnected: boolean) {
+export function relayCapabilities(
+  nativeHostConnected: boolean,
+  version = chrome.runtime.getManifest().version,
+) {
   return {
     browser: {
       observe: true,
       control: !nativeHostConnected,
       provider: "agent-native-chrome-extension",
-      version: chrome.runtime.getManifest().version,
+      version,
     },
   };
 }
@@ -158,7 +161,7 @@ async function attachCommand(sessionHandle: unknown) {
   };
 }
 
-function controlCommand(
+export function controlCommand(
   actionType: string,
   input: Record<string, unknown>,
   target: Record<string, unknown>,
@@ -202,15 +205,36 @@ function assertOperationClass(
   actionType: string,
   operationClass: string,
 ): void {
-  const expected =
-    actionType === "browser.read" || actionType === "browser.observe"
-      ? "browser.observe"
-      : "browser.control";
+  const expected = relayOperationClass(actionType);
+  if (!expected)
+    throw new Error(`Unsupported remote browser action: ${actionType}`);
   if (operationClass !== expected) {
     throw new Error(
       `${actionType} cannot run as operation class ${operationClass}.`,
     );
   }
+}
+
+export function relayOperationClass(
+  actionType: string,
+): "browser.observe" | "browser.control" | null {
+  if (
+    actionType === "browser.read" ||
+    actionType === "browser.observe" ||
+    actionType === "browser.stop"
+  ) {
+    return "browser.observe";
+  }
+  return [
+    "browser.attach",
+    "browser.click",
+    "browser.type",
+    "browser.key",
+    "browser.navigate",
+    "browser.scroll",
+  ].includes(actionType)
+    ? "browser.control"
+    : null;
 }
 
 async function requirePageSession(handle: unknown) {

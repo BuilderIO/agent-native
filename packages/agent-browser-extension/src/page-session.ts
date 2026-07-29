@@ -1,6 +1,6 @@
 import { captureOrigin } from "./capture-grants";
 
-const PAGE_SESSIONS_KEY = "agentNativeBrowserPageSessions";
+export const PAGE_SESSIONS_KEY = "agentNativeBrowserPageSessions";
 const MAX_PAGE_SESSIONS = 64;
 
 export interface BrowserPageSessionV1 {

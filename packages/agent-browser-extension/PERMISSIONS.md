@@ -1,37 +1,42 @@
 # Permission model
 
-## User-facing capture
+## Page context
 
-- `activeTab`: temporary access only after the user invokes the extension.
-- `scripting`: injects the one-shot readable-context extractor after the user
-  presses **Capture page**. There is no persistent content script.
-- `storage`: keeps the configured Dispatch URL in `storage.local`; pending
-  nonces and short-lived one-time embed start paths use `storage.session`.
-- `sidePanel`: hosts the persistent Agent Native chat surface.
+- `activeTab`: temporary access after the user invokes the toolbar action.
+- `optional_host_permissions`: the panel may request access for one exact
+  HTTP(S) site when the user presses **Use page**. This keeps page-aware chat
+  working after the side panel remains open across tab changes without granting
+  every site at install time.
+- `scripting`: injects the packaged one-shot readable-context extractor. There
+  is no persistent content script.
+- `storage`: stores the Dispatch URL and scoped remote-device credential in
+  `storage.local`; pending nonces, embed tickets, page handles, and tab mappings
+  use `storage.session`.
+- `sidePanel`: keeps Dispatch chat beside the webpage.
 
-## Separate Tier-1 control transport
+## Browser control
 
-- `debugger`: used only by the shared reviewed Tier-1 browser-control engine
-  after Desktop assigns a tab and exact allowed origin. Chrome does not support
-  this as an optional permission. Tier-0 never attaches the debugger.
-- `nativeMessaging`: connects the shared engine to the existing Agent Native
-  Desktop transport. The panel reports the real connection state; control stays
-  unavailable until Desktop allowlists the public Store ID.
-- `alarms`: retries the Native Messaging connection after Desktop disconnects.
-- `tabs`: lets the shared control engine revalidate the assigned tab's exact
-  origin before debugger attachment and every mutation.
+- `debugger`: used only by the shared reviewed browser-control engine after an
+  opaque page handle resolves to an exact tab and origin. Tier-0 read capture
+  never attaches the debugger.
+- `nativeMessaging`: connects the shared engine to Agent Native Desktop, the
+  preferred control upstream.
+- `alarms`: retries Desktop and wakes the direct relay fallback.
+- `tabs`: follows the current page, resolves user-shared page handles, and
+  revalidates an assigned control tab's exact origin.
 
-## Pairing surface
+When Desktop is connected, the direct relay continues to advertise read and
+observation but sets `browser.control` to false. Competing control attachment
+fails visibly in the shared service rather than preempting a task.
 
-`externally_connectable` permits HTTPS and loopback pages to reach the pairing
-listener because the Dispatch URL is configurable. The listener still fails
-closed unless all of these match:
+## Pairing and relay
 
-1. `sender.origin` equals the exact user-configured Dispatch origin.
-2. The message has the strict `browser-chat.session.v1` shape.
-3. Its nonce matches a pending, unexpired user-initiated pairing.
-4. Its `dispatchOrigin` matches both the sender and configured origin.
-5. Its `startPath` is root-relative on that origin.
-6. Its `expiresAt` is in the future and within the short pairing window.
+`externally_connectable` permits HTTPS and loopback Dispatch pages to reach the
+pairing listener. The listener still requires an exact configured origin, fresh
+nonce, expiring root-relative embed start path, scoped `remoteDevice` descriptor,
+and secure `relayBaseUrl`.
 
-The extension never receives or stores a bearer token.
+The relay device token is distinct from the short-lived chat embed ticket. It
+is stored only in extension-local storage and sent only as a bearer credential
+to its paired HTTPS relay origin (or explicit loopback development origin).
+Cross-origin relay access is requested from the user for that exact origin.
