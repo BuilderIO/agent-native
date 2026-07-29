@@ -55,6 +55,10 @@ ladder.
 "workingLocation"`). Sync and display them as working locations, keep them
   transparent/non-blocking, and preserve `workingLocationProperties` instead of
   treating the summary as a generic all-day event title.
+- Full-day out-of-office creation uses inclusive human dates plus an IANA
+  timezone. `create-event` translates them to local-midnight timed bounds and
+  sends provider `allDay: false`; do not expose Google's timed-only constraint
+  as a required pair of time inputs in the UI.
 - When updating one visible occurrence in a recurring working-location series,
   pass that occurrence's event `id` with `scope: "single"` by default. Use the
   series scope only when the user explicitly chooses all days.
