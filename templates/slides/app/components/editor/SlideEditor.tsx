@@ -722,9 +722,9 @@ function ElementSelectionOutline({
   const pad = 2;
   const handle = 7;
   const handleClass =
-    "absolute size-[7px] rounded-sm border border-background bg-[#609FF8] shadow-sm";
+    "absolute size-[7px] touch-none rounded-sm border border-background bg-[#609FF8] shadow-sm";
   const edgeHandleClass =
-    "absolute flex items-center justify-center bg-transparent p-0";
+    "absolute flex touch-none items-center justify-center bg-transparent p-0";
   const edgeBarClass =
     "rounded-sm border border-background bg-[#609FF8] shadow-sm";
   return (
@@ -752,6 +752,7 @@ function ElementSelectionOutline({
             top: -handle / 2,
             pointerEvents: "auto",
             cursor: "nwse-resize",
+            zIndex: 2,
           }}
         />
         <span
@@ -763,6 +764,7 @@ function ElementSelectionOutline({
             top: -handle / 2,
             pointerEvents: "auto",
             cursor: "nesw-resize",
+            zIndex: 2,
           }}
         />
         <span
@@ -774,6 +776,7 @@ function ElementSelectionOutline({
             bottom: -handle / 2,
             pointerEvents: "auto",
             cursor: "nesw-resize",
+            zIndex: 2,
           }}
         />
         <span
@@ -785,11 +788,11 @@ function ElementSelectionOutline({
             bottom: -handle / 2,
             pointerEvents: "auto",
             cursor: "nwse-resize",
+            zIndex: 2,
           }}
         />
         <span
           data-slide-resize-handle="n"
-          aria-label="Resize from top edge"
           onPointerDown={(e) => onResizeStart?.("n", e)}
           className={edgeHandleClass}
           style={{
@@ -800,13 +803,13 @@ function ElementSelectionOutline({
             transform: "translateX(-50%)",
             pointerEvents: "auto",
             cursor: "ns-resize",
+            zIndex: 1,
           }}
         >
           <span className={`${edgeBarClass} h-1 w-3.5`} />
         </span>
         <span
           data-slide-resize-handle="e"
-          aria-label="Resize from right edge"
           onPointerDown={(e) => onResizeStart?.("e", e)}
           className={edgeHandleClass}
           style={{
@@ -817,13 +820,13 @@ function ElementSelectionOutline({
             transform: "translateY(-50%)",
             pointerEvents: "auto",
             cursor: "ew-resize",
+            zIndex: 1,
           }}
         >
           <span className={`${edgeBarClass} h-3.5 w-1`} />
         </span>
         <span
           data-slide-resize-handle="s"
-          aria-label="Resize from bottom edge"
           onPointerDown={(e) => onResizeStart?.("s", e)}
           className={edgeHandleClass}
           style={{
@@ -834,13 +837,13 @@ function ElementSelectionOutline({
             transform: "translateX(-50%)",
             pointerEvents: "auto",
             cursor: "ns-resize",
+            zIndex: 1,
           }}
         >
           <span className={`${edgeBarClass} h-1 w-3.5`} />
         </span>
         <span
           data-slide-resize-handle="w"
-          aria-label="Resize from left edge"
           onPointerDown={(e) => onResizeStart?.("w", e)}
           className={edgeHandleClass}
           style={{
@@ -851,6 +854,7 @@ function ElementSelectionOutline({
             transform: "translateY(-50%)",
             pointerEvents: "auto",
             cursor: "ew-resize",
+            zIndex: 1,
           }}
         >
           <span className={`${edgeBarClass} h-3.5 w-1`} />

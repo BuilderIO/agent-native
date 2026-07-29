@@ -2734,7 +2734,7 @@ test("rectangle drawn left of the first screen persists on the board", async ({
     page.locator(
       "[data-board-surface-layer] iframe[data-design-preview-iframe]",
     ),
-  ).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  ).toHaveCSS("background-color", "rgb(26, 26, 26)");
   await expect
     .poll(async () => {
       const positions = await primitiveLeftPositions(

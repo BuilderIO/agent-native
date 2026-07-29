@@ -7776,7 +7776,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                 pointerEvents: "none",
                 transform: `scale(${boardFrameGeometry.width / boardStaticPreviewViewport.width}, ${boardFrameGeometry.height / boardStaticPreviewViewport.height})`,
                 transformOrigin: "top left",
-                background: "transparent",
+                background: BOARD_SURFACE_BACKGROUND,
               }}
             />
           </div>
@@ -7828,7 +7828,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                   deviceFrame="none"
                   boardSurface
                   embeddedFrameBackground={BOARD_SURFACE_BACKGROUND}
-                  transparentBackground
                   embeddedFrame={{
                     viewportWidth: Math.max(1, Math.round(boardW)),
                     viewportHeight: Math.max(1, Math.round(boardH)),

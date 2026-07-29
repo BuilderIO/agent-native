@@ -30,6 +30,7 @@ import {
   type RefObject,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -2198,15 +2199,17 @@ export function App() {
     mode !== "camera" && shouldUseNativeFullscreenRecording(source);
   // Ref mirror of `isRecording || recordingFlowActive` so cleanup (which
   // captures the dep-snapshot value) can still see the current flow state.
-  // Assign during render: passive effect cleanup runs before passive effect
-  // setup, so mirroring this in an effect leaves cleanup one render behind.
+  // Update it in a layout effect: passive effect cleanup runs before passive
+  // effect setup, so mirroring this in a passive effect leaves cleanup behind.
   const recordingFlowGateRef = useRef(false);
   // Stop detaches the recorder state before optimization/upload finishes so a
   // fresh camera session can recover immediately. Keep that post-stop phase
   // separate so React cleanup does not close the finalizing progress window.
   const recordingStopFinalizingRef = useRef(false);
   const recordingInFlight = isRecording || recordingFlowActive;
-  recordingFlowGateRef.current = recordingInFlight;
+  useLayoutEffect(() => {
+    recordingFlowGateRef.current = recordingInFlight;
+  }, [recordingInFlight]);
   const bubbleActive = shouldKeepBubbleSession({
     wantsCamera,
     popoverVisible,
