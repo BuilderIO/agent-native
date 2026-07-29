@@ -5,7 +5,11 @@ description: How to edit individual slides -- content formatting, HTML styling r
 
 # Slide Editing
 
-Slides are HTML content stored inside the deck JSON. Each slide's `content` field is a self-contained HTML string that renders at 1920x1080 resolution.
+Slides are HTML content stored inside the deck JSON. Each slide's `content`
+field is a self-contained HTML string rendered at the intrinsic dimensions for
+its aspect ratio: 16:9 is 960x540, 1:1 is 1080x1080, 9:16 is 540x960, and 4:5
+is 864x1080. These canonical dimensions come from the shared aspect-ratio
+registry; do not assume a fixed 1920x1080 canvas.
 
 ## Slide HTML Structure
 

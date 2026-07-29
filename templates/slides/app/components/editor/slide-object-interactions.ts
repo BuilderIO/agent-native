@@ -24,6 +24,93 @@ export interface ResizeOptions {
   minSize?: number;
 }
 
+export type SlidesSelectionMode =
+  | "single"
+  | "multi"
+  | "image"
+  | "editing"
+  | "box-selected"
+  | "resizing"
+  | "canvas";
+
+export type SlidesSelectionTool = "select" | "draw" | "pin" | "text";
+
+export interface SlidesSelectionState<TItem> {
+  deckId?: string;
+  slideId: string;
+  slideIndex: number;
+  slideNumber: number;
+  mode: SlidesSelectionMode;
+  activeTool: SlidesSelectionTool;
+  items: TItem[];
+}
+
+export interface SlideSelectionIdentity {
+  selector: string;
+  runtimeSelector?: string;
+  objectId?: string;
+}
+
+function escapeAttributeValue(value: string): string {
+  return value.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
+}
+
+export function getSlideSelectionIdentity(
+  element: HTMLElement,
+  runtimeSelector: string,
+): SlideSelectionIdentity {
+  const objectId = element.getAttribute("data-slide-object-id");
+  if (!objectId) return { selector: runtimeSelector };
+  return {
+    selector: `[data-slide-object-id="${escapeAttributeValue(objectId)}"]`,
+    runtimeSelector,
+    objectId,
+  };
+}
+
+export function getSlideSelectionMode(
+  element: { isImage: boolean; isAbsolute: boolean },
+  override?: SlidesSelectionMode,
+): SlidesSelectionMode {
+  if (override) return override;
+  if (element.isImage) return "image";
+  return element.isAbsolute ? "box-selected" : "single";
+}
+
+export function createSlidesSelectionState<TItem>({
+  deckId,
+  slideId,
+  slideIndex,
+  mode,
+  items,
+  drawMode,
+  pinMode,
+  textBoxMode,
+  activeTool,
+}: {
+  deckId?: string;
+  slideId: string;
+  slideIndex: number;
+  mode: SlidesSelectionMode;
+  items: TItem[];
+  drawMode: boolean;
+  pinMode: boolean;
+  textBoxMode: boolean;
+  activeTool?: SlidesSelectionTool;
+}): SlidesSelectionState<TItem> {
+  return {
+    deckId,
+    slideId,
+    slideIndex,
+    slideNumber: slideIndex + 1,
+    mode,
+    activeTool:
+      activeTool ??
+      (drawMode ? "draw" : pinMode ? "pin" : textBoxMode ? "text" : "select"),
+    items,
+  };
+}
+
 export function createSlideObjectId(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
     return crypto.randomUUID();

@@ -75,12 +75,18 @@ import { decideSlideEscape } from "./slide-escape-arbiter";
 import {
   clientPointToSlideCoordinates,
   cloneSlideObject,
+  createSlidesSelectionState,
   ensureSlideObjectId,
   escapedEditingSelection,
   findSlideObjectById,
+  getSlideSelectionIdentity,
+  getSlideSelectionMode,
   resizeSlideObject,
   type ResizeHandle,
   type SlideObjectGeometry,
+  type SlidesSelectionMode,
+  type SlidesSelectionState as BaseSlidesSelectionState,
+  type SlidesSelectionTool,
 } from "./slide-object-interactions";
 import { getPassiveSlidePresenceUsers } from "./slide-presence";
 import {
@@ -390,6 +396,8 @@ function buildStyleSnapshot(
 
 interface SlideSelectionItem {
   selector: string;
+  runtimeSelector?: string;
+  objectId?: string;
   text?: string;
   kind?: string;
   tagName?: string;
@@ -397,21 +405,30 @@ interface SlideSelectionItem {
   style?: Partial<SlideStyleSnapshot>;
 }
 
-interface SlidesSelectionState {
-  deckId?: string;
-  slideId: string;
-  slideIndex: number;
-  slideNumber: number;
-  mode:
-    | "single"
-    | "multi"
-    | "image"
-    | "editing"
-    | "box-selected"
-    | "resizing"
-    | "canvas";
-  activeTool?: "select" | "draw" | "pin" | "text";
-  items: SlideSelectionItem[];
+type SlidesSelectionState = BaseSlidesSelectionState<SlideSelectionItem>;
+
+function selectionItemForElement(
+  element: HTMLElement,
+  runtimeSelector: string,
+  snapshot?: SlideStyleSnapshot,
+): SlideSelectionItem {
+  const identity = getSlideSelectionIdentity(element, runtimeSelector);
+  return {
+    ...identity,
+    kind: snapshot?.isImage
+      ? "image"
+      : element.tagName === "IMG"
+        ? "image"
+        : "element",
+    tagName: snapshot?.tagName ?? element.tagName.toLowerCase(),
+    text:
+      snapshot?.textPreview ?? (element.textContent || "").trim().slice(0, 200),
+    imageSrc:
+      element instanceof HTMLImageElement
+        ? (element.getAttribute("src") ?? undefined)
+        : undefined,
+    style: snapshot ? { ...snapshot, selector: identity.selector } : undefined,
+  };
 }
 
 function syncSelectionToAppState(state: SlidesSelectionState | null) {
@@ -1225,24 +1242,21 @@ export default function SlideEditor({
 
   const buildSelectionState = useCallback(
     (
-      mode: SlidesSelectionState["mode"],
+      mode: SlidesSelectionMode,
       items: SlideSelectionItem[],
-      activeTool: SlidesSelectionState["activeTool"] = drawMode
-        ? "draw"
-        : pinMode
-          ? "pin"
-          : textBoxMode
-            ? "text"
-            : "select",
-    ): SlidesSelectionState => ({
-      deckId,
-      slideId: slide.id,
-      slideIndex,
-      slideNumber: slideIndex + 1,
-      mode,
-      activeTool,
-      items,
-    }),
+      activeTool?: SlidesSelectionTool,
+    ): SlidesSelectionState =>
+      createSlidesSelectionState({
+        deckId,
+        slideId: slide.id,
+        slideIndex,
+        mode,
+        items,
+        drawMode: Boolean(drawMode),
+        pinMode: Boolean(pinMode),
+        textBoxMode: Boolean(textBoxMode),
+        activeTool,
+      }),
     [deckId, drawMode, pinMode, slide.id, slideIndex, textBoxMode],
   );
 
@@ -1258,7 +1272,7 @@ export default function SlideEditor({
     (
       element: HTMLElement,
       selector: string,
-      selectionMode?: SlidesSelectionState["mode"],
+      selectionMode?: SlidesSelectionMode,
     ) => {
       const slideContent = getSlideContent();
       if (!slideContent) return;
@@ -1271,27 +1285,9 @@ export default function SlideEditor({
       setSelectedElementRect(element.getBoundingClientRect());
       setSelectedStyleSnapshot(snapshot);
       syncSelectionToAppState(
-        buildSelectionState(
-          selectionMode ??
-            (snapshot.isImage
-              ? "image"
-              : snapshot.isAbsolute
-                ? "box-selected"
-                : "single"),
-          [
-            {
-              selector,
-              kind: snapshot.isImage ? "image" : "element",
-              tagName: snapshot.tagName,
-              text: snapshot.textPreview,
-              imageSrc:
-                element instanceof HTMLImageElement
-                  ? (element.getAttribute("src") ?? undefined)
-                  : undefined,
-              style: snapshot,
-            },
-          ],
-        ),
+        buildSelectionState(getSlideSelectionMode(snapshot, selectionMode), [
+          selectionItemForElement(element, selector, snapshot),
+        ]),
       );
     },
     [buildSelectionState, getSlideContent],
@@ -1348,15 +1344,9 @@ export default function SlideEditor({
       editingElRef.current = el;
       setEditingEl(el);
       if (selector) {
+        const item = selectionItemForElement(el, selector);
         syncSelectionToAppState(
-          buildSelectionState("editing", [
-            {
-              selector,
-              kind: "text",
-              tagName: el.tagName.toLowerCase(),
-              text: (el.textContent ?? "").trim().slice(0, 200),
-            },
-          ]),
+          buildSelectionState("editing", [{ ...item, kind: "text" }]),
         );
       }
     },
@@ -1516,18 +1506,8 @@ export default function SlideEditor({
       setSelectedElementRect(element.getBoundingClientRect());
       setSelectedStyleSnapshot(snapshot);
       syncSelectionToAppState(
-        buildSelectionState(snapshot.isImage ? "image" : "single", [
-          {
-            selector: selectedElementSelector,
-            kind: snapshot.isImage ? "image" : "element",
-            tagName: snapshot.tagName,
-            text: snapshot.textPreview,
-            imageSrc:
-              element instanceof HTMLImageElement
-                ? (element.getAttribute("src") ?? undefined)
-                : undefined,
-            style: snapshot,
-          },
+        buildSelectionState(getSlideSelectionMode(snapshot), [
+          selectionItemForElement(element, selectedElementSelector, snapshot),
         ]),
       );
     };
@@ -1605,12 +1585,7 @@ export default function SlideEditor({
           const selector = `[data-builder-id="${id}"]`;
           const text = (el.textContent || "").trim().slice(0, 200);
           rects.set(id, { rect: el.getBoundingClientRect(), text, selector });
-          items.push({
-            selector,
-            text,
-            kind: el.tagName === "IMG" ? "image" : "element",
-            tagName: el.tagName.toLowerCase(),
-          });
+          items.push(selectionItemForElement(el, selector));
         });
       }
       setMultiSelection(ids);
@@ -2640,18 +2615,8 @@ export default function SlideEditor({
       setSelectedElementRect(element.getBoundingClientRect());
       setSelectedStyleSnapshot(snapshot);
       syncSelectionToAppState(
-        buildSelectionState(snapshot.isImage ? "image" : "single", [
-          {
-            selector: selectedElementSelector,
-            kind: snapshot.isImage ? "image" : "element",
-            tagName: snapshot.tagName,
-            text: snapshot.textPreview,
-            imageSrc:
-              element instanceof HTMLImageElement
-                ? (element.getAttribute("src") ?? undefined)
-                : undefined,
-            style: snapshot,
-          },
+        buildSelectionState(getSlideSelectionMode(snapshot), [
+          selectionItemForElement(element, selectedElementSelector, snapshot),
         ]),
       );
     },

@@ -5,9 +5,12 @@ import { describe, expect, it } from "vitest";
 import {
   clientPointToSlideCoordinates,
   cloneSlideObject,
+  createSlidesSelectionState,
   ensureSlideObjectId,
   escapedEditingSelection,
   findSlideObjectById,
+  getSlideSelectionIdentity,
+  getSlideSelectionMode,
   resizeSlideObject,
 } from "./slide-object-interactions";
 
@@ -47,6 +50,49 @@ describe("slide object interactions", () => {
     expect(clone.dataset.slideObjectId).not.toBe(object.dataset.slideObjectId);
     expect(clone.querySelectorAll("[data-builder-id]")).toHaveLength(0);
     expect(ensureSlideObjectId(object)).toBe("original");
+  });
+
+  it("publishes persisted freeform identity while retaining the runtime selector", () => {
+    const object = document.createElement("div");
+    object.dataset.slideObjectId = "freeform-1";
+
+    expect(
+      getSlideSelectionIdentity(object, '[data-builder-id="b-1"]'),
+    ).toEqual({
+      selector: '[data-slide-object-id="freeform-1"]',
+      runtimeSelector: '[data-builder-id="b-1"]',
+      objectId: "freeform-1",
+    });
+  });
+
+  it("keeps absolute objects in box-selected and honors resizing mode", () => {
+    const absoluteObject = { isImage: false, isAbsolute: true };
+
+    expect(getSlideSelectionMode(absoluteObject)).toBe("box-selected");
+    expect(getSlideSelectionMode(absoluteObject, "resizing")).toBe("resizing");
+  });
+
+  it("publishes canvas text-tool state while the tool is armed", () => {
+    expect(
+      createSlidesSelectionState({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        slideIndex: 2,
+        mode: "canvas",
+        items: [],
+        drawMode: false,
+        pinMode: false,
+        textBoxMode: true,
+      }),
+    ).toEqual({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      slideIndex: 2,
+      slideNumber: 3,
+      mode: "canvas",
+      activeTool: "text",
+      items: [],
+    });
   });
 
   it("resolves a persisted object after its DOM path changes", () => {
