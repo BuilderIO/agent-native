@@ -94,14 +94,14 @@ apparaître en arrière-plan/sous-agent avec [Custom Agents & Teams](/docs/agent
 | ---------------------------- | ----------- | ----------- | ------------ |
 | `ai-sdk-harness:claude-code` | Code Claude | oui         | oui          |
 | `ai-sdk-harness:codex`       | Codex       | oui         | non          |
-| `ai-sdk-harness:pi`          | Pi          | non         | oui          |
+| `ai-sdk-harness:pi`          | Pi          | oui         | oui          |
+| `pi:local`                   | Pi local    | non         | non          |
 
-Leurs packages d'exécution sont des **dépendances homologues facultatives** et se chargent paresseusement, donc
-une application qui n'utilise jamais de harnais ne paie pas pour cela. Chaque adaptateur porte un
-Indice `installPackage` (par exemple `@ai-sdk/harness@canary
-@ai-sdk/harness-codex@canary`); `resolveAgentHarness` lance une installation claire
-erreur si les packages sont manquants, et `isAgentHarnessPackageInstalled(entry)`
-vous permet de vérifier en premier.
+Leurs paquets d’exécution sont des **dépendances homologues facultatives** chargées à la demande. `resolveAgentHarness` fournit une indication d’installation lorsqu’un paquet manque.
+
+### Pi local dans le chat de l’application {#local-pi-app-chat}
+
+`pi:local` exécute `@earendil-works/pi-coding-agent` dans le processus Node local et utilise par défaut le répertoire Pi normal, `~/.pi/agent`. Pi reste propriétaire du choix du modèle et d’OAuth ; Agent-Native ne lit, ne copie et ne stocke jamais le fichier d’authentification, et SQL ne conserve que la référence de session opaque. Activez-le uniquement avec une garde explicite et fermée par défaut pour le développement et le loopback. Il fonctionne seulement au premier plan, refuse encore les pièces jointes et les actions `needsApproval` échouent de façon sûre. `ai-sdk-harness:pi` reste l’adaptateur sandboxé et ne réutilise pas automatiquement la connexion Pi locale.
 
 `registerBuiltinAgentHarnesses()` enregistre également les harnais [ACP](#acp)
 (`acp`, `acp:gemini`, `acp:claude-code`).

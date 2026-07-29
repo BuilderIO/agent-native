@@ -94,14 +94,14 @@ UI と [`AgentChatRuntime`](/docs/native-chat-ui#byo-agent-runtimes);させて
 | ---------------------------- | ------------- | -------------- | ------ |
 | `ai-sdk-harness:claude-code` | Claude コード | はい           | はい   |
 | `ai-sdk-harness:codex`       | Codex         | はい           | いいえ |
-| `ai-sdk-harness:pi`          | 円周率        | いいえ         | はい   |
+| `ai-sdk-harness:pi`          | Pi            | はい           | はい   |
+| `pi:local`                   | ローカル Pi   | いいえ         | いいえ |
 
-それらのランタイム パッケージは **オプションのピア依存関係**であり、遅延ロードされるため、
-ハーネスを使用しないアプリには料金がかかりません。各アダプターには、
-`installPackage` ヒント (例: `@ai-sdk/harness@canary
-@ai-sdk/harness-codex@canary`); `resolveAgentHarness` はクリア インストールをスローします
-パッケージが見つからない場合のエラー、および `isAgentHarnessPackageInstalled(entry)`
-最初に確認できます。
+ランタイム パッケージは遅延ロードされる**オプションのピア依存関係**です。パッケージがない場合、`resolveAgentHarness` はインストール方法を示します。
+
+### アプリチャットのローカル Pi {#local-pi-app-chat}
+
+`pi:local` はローカル Node プロセスで `@earendil-works/pi-coding-agent` を実行し、既定で通常の Pi ディレクトリ `~/.pi/agent` を使用します。モデル選択と OAuth は Pi が所有し、Agent-Native は認証ファイルを読み取り、コピー、保存しません。SQL には不透明なセッション参照だけを保存します。開発環境と loopback を検証する、明示的でフェイルクローズなガードがある場合だけ有効にしてください。フォアグラウンド専用で、添付ファイルはまだ拒否され、`needsApproval` アクションは安全に失敗します。`ai-sdk-harness:pi` は sandbox 用で、ローカル Pi ログインを自動再利用しません。
 
 `registerBuiltinAgentHarnesses()` は [ACP](#acp) ハーネスも登録します
 (`acp`, `acp:gemini`, `acp:claude-code`).

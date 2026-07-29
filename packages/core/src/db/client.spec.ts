@@ -718,6 +718,8 @@ describe("Neon foreground statement budgets", () => {
   });
 
   it("sets and resets a server-side timeout for an explicitly budgeted query", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
     vi.stubEnv("NETLIFY", "true");
     const query = vi.fn(async (sql: string) =>
       sql === "SELECT 1"

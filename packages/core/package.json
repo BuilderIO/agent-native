@@ -460,6 +460,7 @@
     "@ai-sdk/groq": ">=3",
     "@ai-sdk/mistral": ">=3",
     "@ai-sdk/openai": ">=3",
+    "@earendil-works/pi-coding-agent": ">=0.82.1",
     "@excalidraw/excalidraw": ">=0.18",
     "@excalidraw/mermaid-to-excalidraw": ">=2",
     "@openrouter/ai-sdk-provider": ">=2",
@@ -495,6 +496,9 @@
       "optional": true
     },
     "@ai-sdk/openai": {
+      "optional": true
+    },
+    "@earendil-works/pi-coding-agent": {
       "optional": true
     },
     "@openrouter/ai-sdk-provider": {

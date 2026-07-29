@@ -94,14 +94,14 @@ search: "हार्नेस एजेंट एजेंटहार्ने
 | ---------------------------- | ---------- | --------- | ------- |
 | `ai-sdk-harness:claude-code` | Claude कोड | हां       | हां     |
 | `ai-sdk-harness:codex`       | Codex      | हाँ       | नहीं    |
-| `ai-sdk-harness:pi`          | पी         | नहीं      | हाँ     |
+| `ai-sdk-harness:pi`          | Pi         | हाँ       | हाँ     |
+| `pi:local`                   | स्थानीय Pi | नहीं      | नहीं    |
 
-उनके रनटाइम पैकेज **वैकल्पिक सहकर्मी निर्भरता** हैं और आलस्य से लोड होते हैं, इसलिए एक
-ऐप जो कभी भी हार्नेस का उपयोग नहीं करता वह इसके लिए भुगतान नहीं करता है। प्रत्येक एडॉप्टर में एक
-`installPackage` संकेत (उदाहरण के लिए `@ai-sdk/harness@canary
-@ai-sdk/harness-codex@canary`); `resolveAgentHarness` एक स्पष्ट इंस्टॉल फेंकता है
-यदि पैकेज गायब हैं तो त्रुटि, और `isAgentHarnessPackageInstalled(entry)`
-आपको पहले जांच करने देता है।
+रनटाइम पैकेज मांग पर लोड होने वाली **वैकल्पिक पीयर निर्भरताएँ** हैं। पैकेज न मिलने पर `resolveAgentHarness` इंस्टॉल संकेत देता है।
+
+### ऐप चैट में स्थानीय Pi {#local-pi-app-chat}
+
+`pi:local` स्थानीय Node प्रक्रिया में `@earendil-works/pi-coding-agent` चलाता है और डिफ़ॉल्ट रूप से Pi की सामान्य डायरेक्टरी `~/.pi/agent` का उपयोग करता है। मॉडल चयन और OAuth Pi के नियंत्रण में रहते हैं; Agent-Native auth फ़ाइल को पढ़ता, कॉपी या संग्रहीत नहीं करता और SQL में केवल अपारदर्शी सत्र संदर्भ रहता है। इसे केवल विकास और loopback जाँचने वाले स्पष्ट fail-closed guard के साथ सक्षम करें। यह केवल foreground में चलता है, अभी attachments अस्वीकार करता है और `needsApproval` actions सुरक्षित रूप से विफल होते हैं। `ai-sdk-harness:pi` sandbox adapter है और स्थानीय Pi login को स्वतः पुनः उपयोग नहीं करता।
 
 `registerBuiltinAgentHarnesses()` [ACP](#acp) हार्नेस को भी पंजीकृत करता है
 (`acp`, `acp:gemini`, `acp:claude-code`).

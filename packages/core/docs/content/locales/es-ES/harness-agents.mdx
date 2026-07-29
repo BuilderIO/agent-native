@@ -94,14 +94,14 @@ El fondo generado/el subagente se ejecuta con [Custom Agents & Teams](/docs/agen
 | ---------------------------- | ------------------- | ------------- | ------------ |
 | `ai-sdk-harness:claude-code` | Código Claude       | sí            | sí           |
 | `ai-sdk-harness:codex`       | Codex               | sí            | no           |
-| `ai-sdk-harness:pi`          | Pi                  | no            | sí           |
+| `ai-sdk-harness:pi`          | Pi                  | sí            | sí           |
+| `pi:local`                   | Pi local            | no            | no           |
 
-Sus paquetes de tiempo de ejecución son **dependencias de pares opcionales** y se cargan con pereza, por lo que
-la aplicación que nunca usa un arnés no paga por ello. Cada adaptador lleva un
-Pista `installPackage` (por ejemplo `@ai-sdk/harness@canary
-@ai-sdk/harness-codex@canary`); `resolveAgentHarness` genera una instalación clara
-error si faltan los paquetes y `isAgentHarnessPackageInstalled(entry)`
-te permite comprobarlo primero.
+Sus paquetes de ejecución son **dependencias opcionales** y se cargan de forma diferida. `resolveAgentHarness` devuelve una indicación de instalación cuando falta un paquete.
+
+### Pi local en el chat de la aplicación {#local-pi-app-chat}
+
+`pi:local` ejecuta `@earendil-works/pi-coding-agent` en el proceso Node local y usa de forma predeterminada el directorio normal de Pi, `~/.pi/agent`. Pi conserva la selección de modelo y OAuth; Agent-Native nunca lee, copia ni almacena el archivo de autenticación y SQL solo guarda la referencia opaca de sesión. Actívalo únicamente con una protección explícita y cerrada por defecto para desarrollo y loopback. Solo funciona en primer plano, todavía rechaza adjuntos y las acciones con `needsApproval` fallan de forma segura. `ai-sdk-harness:pi` sigue siendo el adaptador con sandbox y no reutiliza automáticamente la sesión local de Pi.
 
 `registerBuiltinAgentHarnesses()` también registra los arneses [ACP](#acp)
 (`acp`, `acp:gemini`, `acp:claude-code`).

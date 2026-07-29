@@ -33,6 +33,24 @@ export interface AgentHarnessAdapter {
   ): Promise<AgentHarnessSession>;
 }
 
+export interface AgentHarnessHostToolContext {
+  toolCallId: string;
+  abortSignal?: AbortSignal;
+  /** Set only by an adapter after its human-approval flow authorized this call. */
+  approved?: boolean;
+}
+
+export interface AgentHarnessHostTool {
+  description: string;
+  inputSchema: Record<string, unknown>;
+  readOnly?: boolean;
+  needsApproval?: (input: unknown) => boolean | Promise<boolean>;
+  execute(
+    input: unknown,
+    context: AgentHarnessHostToolContext,
+  ): unknown | Promise<unknown>;
+}
+
 export interface AgentHarnessCreateSessionOptions {
   /** Agent Native session id. Adapters may map this to a native runtime id. */
   sessionId?: string;
@@ -41,7 +59,7 @@ export interface AgentHarnessCreateSessionOptions {
   cwd?: string;
   instructions?: string;
   skills?: unknown[];
-  tools?: Record<string, unknown>;
+  tools?: Record<string, AgentHarnessHostTool>;
   permissionMode?: AgentHarnessPermissionMode;
   sandbox?: unknown;
   /**

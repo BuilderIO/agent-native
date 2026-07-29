@@ -94,14 +94,14 @@ gerar execução de segundo plano/subagente com [Custom Agents & Teams](/docs/ag
 | ---------------------------- | ----------------- | -------------- | ---------- |
 | `ai-sdk-harness:claude-code` | Código Claude     | sim            | sim        |
 | `ai-sdk-harness:codex`       | Codex             | sim            | não        |
-| `ai-sdk-harness:pi`          | Pi                | não            | sim        |
+| `ai-sdk-harness:pi`          | Pi                | sim            | sim        |
+| `pi:local`                   | Pi local          | não            | não        |
 
-Seus pacotes de tempo de execução são **dependências de pares opcionais** e carregam lentamente, portanto,
-aplicativo que nunca usa arnês não paga por isso. Cada adaptador carrega um
-Dica `installPackage` (por exemplo `@ai-sdk/harness@canary
-@ai-sdk/harness-codex@canary`); `resolveAgentHarness` lança uma instalação clara
-erro se os pacotes estiverem faltando e `isAgentHarnessPackageInstalled(entry)`
-permite verificar primeiro.
+Os pacotes de execução são **dependências opcionais** carregadas sob demanda. `resolveAgentHarness` fornece uma dica de instalação quando um pacote está ausente.
+
+### Pi local no chat do aplicativo {#local-pi-app-chat}
+
+`pi:local` executa `@earendil-works/pi-coding-agent` no processo Node local e usa por padrão o diretório normal do Pi, `~/.pi/agent`. O Pi continua responsável pela escolha do modelo e pelo OAuth; o Agent-Native nunca lê, copia ou armazena o arquivo de autenticação, e o SQL guarda apenas a referência opaca da sessão. Ative somente com uma proteção explícita que negue por padrão fora de desenvolvimento e loopback. Ele funciona apenas em primeiro plano, ainda rejeita anexos e ações com `needsApproval` falham com segurança. `ai-sdk-harness:pi` continua sendo o adaptador em sandbox e não reutiliza automaticamente o login local do Pi.
 
 `registerBuiltinAgentHarnesses()` também registra os chicotes [ACP](#acp)
 (`acp`, `acp:gemini`, `acp:claude-code`).

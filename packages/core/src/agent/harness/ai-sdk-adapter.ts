@@ -8,6 +8,7 @@ import type {
   AgentHarnessContinueInput,
   AgentHarnessCreateSessionOptions,
   AgentHarnessEvent,
+  AgentHarnessHostTool,
   AgentHarnessSession,
   AgentHarnessTurnInput,
 } from "./types.js";
@@ -93,7 +94,7 @@ const RUNTIME_IMPORTS: Record<
     packageName: "@ai-sdk/harness-pi",
     exportNames: ["pi", "createPi"],
     label: "Pi",
-    sandbox: false,
+    sandbox: true,
   },
 };
 
@@ -124,9 +125,10 @@ export function createAiSdkHarnessAdapter(
     installPackage: `@ai-sdk/harness@canary ${runtime.packageName}@canary`,
     capabilities,
     async createSession(sessionOptions) {
-      const [{ HarnessAgent }, runtimeModule] = await Promise.all([
+      const [{ HarnessAgent }, runtimeModule, aiModule] = await Promise.all([
         dynamicImport("@ai-sdk/harness/agent"),
         dynamicImport(runtime.packageName),
+        sessionOptions.tools ? dynamicImport("ai") : Promise.resolve(null),
       ]);
       const exportName = runtime.exportNames.find(
         (name) => runtimeModule[name],
@@ -146,6 +148,10 @@ export function createAiSdkHarnessAdapter(
           ? harnessFactory(options.harnessOptions)
           : harnessFactory;
       const agentOptions = agentOptionsWithCodexCliAuth(options);
+      const tools =
+        sessionOptions.tools && aiModule
+          ? toAiSdkHarnessTools(sessionOptions.tools, aiModule)
+          : undefined;
       const agent = new HarnessAgent({
         ...agentOptions,
         harness,
@@ -154,7 +160,7 @@ export function createAiSdkHarnessAdapter(
           ? { instructions: sessionOptions.instructions }
           : {}),
         ...(sessionOptions.skills ? { skills: sessionOptions.skills } : {}),
-        ...(sessionOptions.tools ? { tools: sessionOptions.tools } : {}),
+        ...(tools ? { tools } : {}),
         permissionMode:
           sessionOptions.permissionMode ??
           options.permissionMode ??
@@ -165,6 +171,55 @@ export function createAiSdkHarnessAdapter(
       return new AiSdkHarnessSession(agent, nativeSession);
     },
   };
+}
+
+export function toAiSdkHarnessTools(
+  tools: Record<string, AgentHarnessHostTool>,
+  ai: {
+    tool: (definition: Record<string, unknown>) => unknown;
+    jsonSchema: (schema: Record<string, unknown>) => unknown;
+  },
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(tools).map(([name, hostTool]) => {
+      const approvalRequiredCallIds = new Set<string>();
+      return [
+        name,
+        ai.tool({
+          description: hostTool.description,
+          inputSchema: ai.jsonSchema(hostTool.inputSchema),
+          ...(hostTool.needsApproval
+            ? {
+                needsApproval: async (
+                  input: unknown,
+                  context: { toolCallId?: string } = {},
+                ) => {
+                  const required = await hostTool.needsApproval!(input);
+                  if (context.toolCallId) {
+                    if (required)
+                      approvalRequiredCallIds.add(context.toolCallId);
+                    else approvalRequiredCallIds.delete(context.toolCallId);
+                  }
+                  return required;
+                },
+              }
+            : {}),
+          execute: (
+            input: unknown,
+            context: { toolCallId?: string; abortSignal?: AbortSignal } = {},
+          ) => {
+            const toolCallId = context.toolCallId ?? `${name}-call`;
+            const approved = approvalRequiredCallIds.delete(toolCallId);
+            return hostTool.execute(input, {
+              toolCallId,
+              abortSignal: context.abortSignal,
+              approved,
+            });
+          },
+        }),
+      ];
+    }),
+  );
 }
 
 function agentOptionsWithCodexCliAuth(

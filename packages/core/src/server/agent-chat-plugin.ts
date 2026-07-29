@@ -304,6 +304,10 @@ import {
   generateCorpusToolsPrompt,
 } from "./agent-chat/framework-prompts.js";
 import {
+  createAgentHarnessChatHandler,
+  type AgentChatHarnessConfig,
+} from "./agent-chat/harness-handler.js";
+import {
   type AgentChatPluginOptions,
   type NitroPluginDef,
 } from "./agent-chat/plugin-options.js";
@@ -334,7 +338,7 @@ export { loadResourcesForPrompt };
 export { _agentChatPromptSectionsForTests };
 export { buildPublicAgentA2ASkills };
 export { assembleA2AFinalResponse };
-export type { AgentChatPluginOptions };
+export type { AgentChatHarnessConfig, AgentChatPluginOptions };
 export { runA2AAgentLoop };
 export { runMCPAgentLoop };
 export { createA2AEngineToolSurface };
@@ -3106,6 +3110,73 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         resolveOwnerEmail: isHostedProd ? getOwnerFromEvent : undefined,
       });
 
+      const harnessHandler = options?.harness
+        ? createAgentHarnessChatHandler({
+            harness: options.harness,
+            actions: leanPrompt ? leanActions : prodActions,
+            resolveOwnerEmail: getOwnerFromEvent,
+            resolveOrgId: getOrgIdFromEvent,
+            systemPrompt: async (event) => {
+              const { owner, extra } = await prepareRun(event);
+              const runtimeContext = runtimeContextForEvent(event);
+              const codeEditingSurfaceRestriction =
+                shouldBlockInProductCodeEditing(event)
+                  ? APP_RENDERED_CHAT_NO_DIRECT_CODE_PROMPT
+                  : "";
+              if (leanPrompt) {
+                return (
+                  leanBasePrompt +
+                  buildLeanRunPolicyPrompt(
+                    codeEditingSurfaceRestriction,
+                    prodCodeExecPromptNote,
+                  ) +
+                  extra +
+                  runtimeContext
+                );
+              }
+              const resources = await loadResourcesForPrompt(
+                owner,
+                lazyContext,
+                options?.appId,
+              );
+              const schemaBlock = lazyContext
+                ? ""
+                : await buildSchemaBlock(owner, databaseToolsMode);
+              return (
+                basePrompt +
+                resources +
+                schemaBlock +
+                codeEditingSurfaceRestriction +
+                prodCodeExecPromptNote +
+                extra +
+                runtimeContext
+              );
+            },
+            prepareRequest: async (details) => {
+              if (details.threadId) {
+                const existingThread = await getThread(details.threadId);
+                if (existingThread) {
+                  const access = await resolveThreadAccess(
+                    details.ownerEmail,
+                    details.threadId,
+                    "editor",
+                    { orgId: await getOrgIdFromEvent(details.event) },
+                  );
+                  if (!access) {
+                    throw createError({
+                      statusCode: 404,
+                      statusMessage: "Thread not found",
+                    });
+                  }
+                }
+              }
+              return options?.prepareRequest?.(details);
+            },
+            onRunPrepared: persistSubmittedUserMessage,
+            onRunComplete,
+          })
+        : null;
+
       const anonymousHandler =
         options?.anonymousOwner && options.anonymousReadOnly !== false
           ? createProductionAgentHandler({
@@ -5362,9 +5433,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             const handler =
               ownerContext.anonymous && anonymousHandler
                 ? anonymousHandler
-                : !blockInProductCodeEditing && currentDevMode && devHandler
-                  ? devHandler
-                  : prodHandler;
+                : (harnessHandler ??
+                  (!blockInProductCodeEditing && currentDevMode && devHandler
+                    ? devHandler
+                    : prodHandler));
             return handler(event);
           },
         );

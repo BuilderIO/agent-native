@@ -4,6 +4,8 @@ import type { AgentChatEvent } from "../types.js";
 import {
   registerLiveAgentHarnessSession,
   releaseLiveAgentHarnessSession,
+  resolveAgentHarnessApproval,
+  type AgentHarnessOwnerScope,
 } from "./lifecycle.js";
 import {
   getAgentHarnessSession,
@@ -14,6 +16,7 @@ import {
 import { agentHarnessEventToAgentChatEvents } from "./translate.js";
 import type {
   AgentHarnessAdapter,
+  AgentHarnessApproval,
   AgentHarnessCreateSessionOptions,
   AgentHarnessEvent,
   AgentHarnessSession,
@@ -36,6 +39,42 @@ export interface StartAgentHarnessRunOptions {
   onRunComplete?: (run: ActiveRun) => void | Promise<void>;
 }
 
+export interface StartAgentHarnessApprovalRunOptions {
+  runId: string;
+  harnessRunId: string;
+  threadId: string;
+  turnId?: string;
+  approval: AgentHarnessApproval;
+  scope: AgentHarnessOwnerScope;
+  runOptions?: StartRunOptions;
+  onRunComplete?: (run: ActiveRun) => void | Promise<void>;
+}
+
+export function startAgentHarnessApprovalRun(
+  opts: StartAgentHarnessApprovalRunOptions,
+): ActiveRun {
+  return startRun(
+    opts.runId,
+    opts.threadId,
+    async (send) => {
+      const result = await resolveAgentHarnessApproval({
+        runId: opts.harnessRunId,
+        approval: opts.approval,
+        scope: opts.scope,
+        onHarnessEvent: (event) => sendAgentHarnessEvent(send, event),
+      });
+      if (!result.ok) {
+        throw new Error(result.error ?? "Harness approval failed");
+      }
+    },
+    opts.onRunComplete,
+    {
+      ...(opts.runOptions ?? {}),
+      turnId: opts.turnId ?? opts.runOptions?.turnId,
+    },
+  );
+}
+
 export function startAgentHarnessRun(
   opts: StartAgentHarnessRunOptions,
 ): ActiveRun {
@@ -49,7 +88,6 @@ export function startAgentHarnessRun(
       send({
         type: "activity",
         label: `Starting ${opts.adapter.label}`,
-        tool: "harness",
       });
 
       harnessSession ??= await opts.adapter.createSession({

@@ -25,16 +25,18 @@ describe("agentHarnessEventToAgentChatEvents", () => {
     ).toEqual([{ type: "activity", label: "Starting", tool: "harness" }]);
   });
 
-  it("normalizes tool input and result payloads", () => {
+  it("normalizes tool input and preserves tool ids", () => {
     expect(
       agentHarnessEventToAgentChatEvents({
         type: "tool-start",
+        id: "tool-1",
         name: "read_file",
         input: { path: "app.tsx", options: { lines: 20 } },
       }),
     ).toEqual([
       {
         type: "tool_start",
+        id: "tool-1",
         tool: "read_file",
         input: { path: "app.tsx", options: '{\n  "lines": 20\n}' },
       },
@@ -43,6 +45,7 @@ describe("agentHarnessEventToAgentChatEvents", () => {
     expect(
       agentHarnessEventToAgentChatEvents({
         type: "tool-done",
+        id: "tool-1",
         name: "read_file",
         input: { path: "app.tsx", options: { lines: 20 } },
         result: { ok: true },
@@ -50,9 +53,30 @@ describe("agentHarnessEventToAgentChatEvents", () => {
     ).toEqual([
       {
         type: "tool_done",
+        id: "tool-1",
         tool: "read_file",
         input: { path: "app.tsx", options: '{\n  "lines": 20\n}' },
         result: '{\n  "ok": true\n}',
+      },
+    ]);
+  });
+
+  it("maps harness approvals to the native approval contract", () => {
+    expect(
+      agentHarnessEventToAgentChatEvents({
+        type: "approval-request",
+        id: "approval-1",
+        tool: "write_file",
+        message: "Allow this write?",
+        input: { path: "app.tsx" },
+      }),
+    ).toEqual([
+      {
+        type: "approval_required",
+        tool: "write_file",
+        input: { path: "app.tsx" },
+        approvalKey: "approval-1",
+        toolCallId: "approval-1",
       },
     ]);
   });

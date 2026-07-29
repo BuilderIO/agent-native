@@ -94,14 +94,14 @@ UI 與 [`AgentChatRuntime`](/docs/native-chat-ui#byo-agent-runtimes)；讓一個
 | ---------------------------- | ------------- | ---- | ---- |
 | `ai-sdk-harness:claude-code` | Claude 程式碼 | 是的 | 是的 |
 | `ai-sdk-harness:codex`       | Codex         | 是的 | 沒有 |
-| `ai-sdk-harness:pi`          | 圓週率        | 沒有 | 是的 |
+| `ai-sdk-harness:pi`          | Pi            | 是   | 是   |
+| `pi:local`                   | 本機 Pi       | 否   | 否   |
 
-它們的執行時包是**可選的對等依賴項**並且延遲載入，因此
-從不使用安全帶的應用程式無需付費。每個轉接器都帶有一個
-`installPackage` 提示（例如`@ai-sdk/harness@canary
-@ai-sdk/harness-codex@canary`); `resolveAgentHarness`拋出一個明確的安裝
-如果缺少包，則會出現錯誤，並且 `isAgentHarnessPackageInstalled(entry)`
-讓您先檢查。
+執行時套件是按需載入的**可選對等依賴項**。缺少套件時，`resolveAgentHarness` 會提供安裝提示。
+
+### 應用程式聊天中的本機 Pi {#local-pi-app-chat}
+
+`pi:local` 在本機 Node 程序中執行 `@earendil-works/pi-coding-agent`，預設使用 Pi 的一般目錄 `~/.pi/agent`。模型選擇與 OAuth 仍由 Pi 管理；Agent-Native 不會讀取、複製或儲存認證檔案，SQL 只保存不透明的工作階段參照。僅在明確、預設拒絕且驗證開發模式與 loopback 的守衛下啟用。它僅支援 foreground，目前拒絕附件，含 `needsApproval` 的操作會安全失敗。`ai-sdk-harness:pi` 仍是 sandbox 轉接器，不會自動重用本機 Pi 登入。
 
 `registerBuiltinAgentHarnesses()` 還註冊了 [ACP](#acp) 線束
 (`acp`, `acp:gemini`, `acp:claude-code`).
