@@ -1,6 +1,7 @@
 import type {
   BuilderCmsModelSummary,
   ContentDatabaseResponse,
+  ContentDatabaseTableQuery,
 } from "@shared/api";
 // @vitest-environment happy-dom
 //
@@ -111,12 +112,16 @@ vi.mock("@agent-native/core/client/settings", () => ({
 
 vi.mock("@/hooks/use-content-database", () => ({
   isContentDatabaseUnavailable: () => false,
-  useContentDatabase: (documentId: string, limit: number) => {
-    contentDatabaseQueryMock(documentId, limit);
+  useContentDatabase: (
+    documentId: string,
+    limit: number,
+    tableQuery?: ContentDatabaseTableQuery,
+  ) => {
+    contentDatabaseQueryMock(documentId, limit, tableQuery);
     return {
       data: databaseResponse,
       isLoading: false,
-      isFetching: limit !== databasePagination.limit,
+      isFetching: limit !== databasePagination.limit || Boolean(tableQuery),
     };
   },
   useAddDatabaseItem: () => addItemMutation,
@@ -353,7 +358,7 @@ describe("DatabaseView UI regressions", () => {
     );
   });
 
-  it("requests the whole bounded search window and hides the partial no-match state", async () => {
+  it("keeps search page-bounded and hides the partial no-match state", async () => {
     databasePagination.totalItems = 571;
     databasePagination.hasMore = true;
     await renderDatabaseView();
@@ -379,7 +384,11 @@ describe("DatabaseView UI regressions", () => {
       await Promise.resolve();
     });
 
-    expect(contentDatabaseQueryMock).toHaveBeenCalledWith("document-1", 571);
+    expect(contentDatabaseQueryMock).toHaveBeenCalledWith(
+      "document-1",
+      100,
+      expect.objectContaining({ search: "Quiet Comet" }),
+    );
     expect(container.textContent).toContain(
       messagesByLocale["en-US"].database.loadingDatabase,
     );

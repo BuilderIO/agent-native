@@ -55,7 +55,8 @@ import {
   type DocumentPropertyOptionColor,
 } from "../shared/properties.js";
 import { sanitizeNormalizationFormula } from "../shared/properties.js";
-import { chunks } from "./_batch-utils.js";
+import { bulkChunkSizeForColumnCount, chunks } from "./_batch-utils.js";
+export { bulkChunkSizeForColumnCount } from "./_batch-utils.js";
 import {
   readBuilderCmsContentEntry,
   readBuilderCmsContentEntries,
@@ -965,16 +966,6 @@ const BUILDER_BODY_HYDRATION_CODEC_VERSION =
   "readable-native-images-authoritative-raw-baseline-v9";
 const BUILDER_CMS_REFRESH_INITIAL_PAGES = 1;
 const BUILDER_BODY_NOT_AVAILABLE_ERROR = "body not yet available from Builder";
-
-export function bulkChunkSizeForColumnCount(
-  columnCount: number,
-  dialect: Dialect = getDialect(),
-) {
-  // D1 rejects statements with more than 100 bound params, so derive every
-  // bulk chunk from the statement's column count instead of a fixed row count.
-  const budget = dialect === "d1" ? 90 : 900;
-  return Math.max(1, Math.floor(budget / Math.max(1, columnCount)));
-}
 
 function idChunkSize() {
   return bulkChunkSizeForColumnCount(1);
@@ -3514,6 +3505,7 @@ export async function getContentDatabaseSourceSnapshotForReview(
  */
 export async function getAllContentDatabaseSourceSnapshots(
   database: ContentDatabaseRow | ContentDatabase,
+  options: { documentIds?: string[] } = {},
 ): Promise<ContentDatabaseSource[]> {
   if ("deletedAt" in database && database.deletedAt) {
     throw new Error(`Database "${database.id}" not found`);
@@ -3527,15 +3519,31 @@ export async function getAllContentDatabaseSourceSnapshots(
       asc(schema.contentDatabaseSources.createdAt),
       asc(schema.contentDatabaseSources.id),
     );
-  const snapshots: ContentDatabaseSource[] = [];
-  for (const source of sources) {
-    snapshots.push(
-      await loadSourceSnapshot(source, database, {
+  return Promise.all(
+    sources.map((source) => {
+      return loadSourceSnapshot(source, database, {
         includeHeavyBuilderBodyValues: false,
-      }),
-    );
-  }
-  return snapshots;
+        documentIds: sourceSnapshotPageDocumentIds({
+          sourceType: source.sourceType,
+          metadataJson: source.metadataJson,
+          documentIds: options.documentIds,
+        }),
+      });
+    }),
+  );
+}
+
+export function sourceSnapshotPageDocumentIds(args: {
+  sourceType: string;
+  metadataJson: string | null;
+  documentIds?: string[];
+}) {
+  const metadata = parseObject<SourceMetadataRecord>(args.metadataJson);
+  const federation = normalizeSourceFederation(metadata?.federation);
+  return normalizeSourceType(args.sourceType) === "builder-cms" &&
+    federation?.role !== "secondary"
+    ? args.documentIds
+    : undefined;
 }
 
 async function readSourceSnapshotRowsOnce(args: {
@@ -3546,9 +3554,7 @@ async function readSourceSnapshotRowsOnce(args: {
   documentIds?: string[];
 }) {
   const db = getDb();
-  const documentScope = args.documentIds?.length
-    ? new Set(args.documentIds)
-    : null;
+  const documentScope = args.documentIds ? new Set(args.documentIds) : null;
   const rowRows = await db
     .select(
       sourceSnapshotRowSelection({
@@ -3660,9 +3666,7 @@ async function sourceSnapshotConsistencyMarker(args: {
   documentIds?: string[];
 }) {
   const db = getDb();
-  const documentScope = args.documentIds?.length
-    ? new Set(args.documentIds)
-    : null;
+  const documentScope = args.documentIds ? new Set(args.documentIds) : null;
   const [rows] = await db
     .select({
       count: sql<number>`COUNT(*)`,
@@ -3737,9 +3741,14 @@ async function loadSourceSnapshotRowsOptimistically(args: {
     const before = await sourceSnapshotConsistencyMarker(args);
     latest = await readSourceSnapshotRowsOnce(args);
     const after = await sourceSnapshotConsistencyMarker(args);
-    if (sourceSnapshotConsistencyMarkersEqual(before, after)) return latest;
+    if (sourceSnapshotConsistencyMarkersEqual(before, after)) {
+      return { ...latest, consistencyAttempts: attempt + 1 };
+    }
   }
-  return latest ?? (await readSourceSnapshotRowsOnce(args));
+  return {
+    ...(latest ?? (await readSourceSnapshotRowsOnce(args))),
+    consistencyAttempts: 3,
+  };
 }
 
 async function loadSourceSnapshot(
@@ -3748,50 +3757,76 @@ async function loadSourceSnapshot(
   options: { includeHeavyBuilderBodyValues: boolean; documentIds?: string[] },
 ): Promise<ContentDatabaseSource> {
   const db = getDb();
-  const [fieldRows, changeRows, reviewRows, executionRows, propertyDefs] =
-    await Promise.all([
-      db
-        .select()
-        .from(schema.contentDatabaseSourceFields)
-        .where(eq(schema.contentDatabaseSourceFields.sourceId, source.id))
-        .orderBy(asc(schema.contentDatabaseSourceFields.createdAt)),
-      db
-        .select()
-        .from(schema.contentDatabaseSourceChangeSets)
-        .where(
-          options.documentIds?.length
-            ? and(
-                eq(schema.contentDatabaseSourceChangeSets.sourceId, source.id),
-                inArray(
-                  schema.contentDatabaseSourceChangeSets.documentId,
-                  options.documentIds,
+  const [fieldRows, changeRows, propertyDefs] = await Promise.all([
+    db
+      .select()
+      .from(schema.contentDatabaseSourceFields)
+      .where(eq(schema.contentDatabaseSourceFields.sourceId, source.id))
+      .orderBy(asc(schema.contentDatabaseSourceFields.createdAt)),
+    db
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(
+        options.documentIds !== undefined
+          ? and(
+              eq(schema.contentDatabaseSourceChangeSets.sourceId, source.id),
+              inArray(
+                schema.contentDatabaseSourceChangeSets.documentId,
+                options.documentIds,
+              ),
+            )
+          : eq(schema.contentDatabaseSourceChangeSets.sourceId, source.id),
+      )
+      .orderBy(asc(schema.contentDatabaseSourceChangeSets.createdAt)),
+    db
+      .select({
+        id: schema.documentPropertyDefinitions.id,
+        name: schema.documentPropertyDefinitions.name,
+        type: schema.documentPropertyDefinitions.type,
+        optionsJson: schema.documentPropertyDefinitions.optionsJson,
+      })
+      .from(schema.documentPropertyDefinitions)
+      .where(eq(schema.documentPropertyDefinitions.databaseId, database.id)),
+  ]);
+  const scopedChangeSetIds = changeRows.map((changeSet) => changeSet.id);
+  const [reviewRows, executionRows] =
+    options.documentIds !== undefined && scopedChangeSetIds.length === 0
+      ? [[], []]
+      : await Promise.all([
+          db
+            .select()
+            .from(schema.contentDatabaseSourceChangeReviews)
+            .where(
+              and(
+                eq(
+                  schema.contentDatabaseSourceChangeReviews.sourceId,
+                  source.id,
                 ),
-              )
-            : eq(schema.contentDatabaseSourceChangeSets.sourceId, source.id),
-        )
-        .orderBy(asc(schema.contentDatabaseSourceChangeSets.createdAt)),
-      db
-        .select()
-        .from(schema.contentDatabaseSourceChangeReviews)
-        .where(
-          eq(schema.contentDatabaseSourceChangeReviews.sourceId, source.id),
-        )
-        .orderBy(asc(schema.contentDatabaseSourceChangeReviews.createdAt)),
-      db
-        .select()
-        .from(schema.contentDatabaseSourceExecutions)
-        .where(eq(schema.contentDatabaseSourceExecutions.sourceId, source.id))
-        .orderBy(asc(schema.contentDatabaseSourceExecutions.createdAt)),
-      db
-        .select({
-          id: schema.documentPropertyDefinitions.id,
-          name: schema.documentPropertyDefinitions.name,
-          type: schema.documentPropertyDefinitions.type,
-          optionsJson: schema.documentPropertyDefinitions.optionsJson,
-        })
-        .from(schema.documentPropertyDefinitions)
-        .where(eq(schema.documentPropertyDefinitions.databaseId, database.id)),
-    ]);
+                options.documentIds !== undefined
+                  ? inArray(
+                      schema.contentDatabaseSourceChangeReviews.changeSetId,
+                      scopedChangeSetIds,
+                    )
+                  : undefined,
+              ),
+            )
+            .orderBy(asc(schema.contentDatabaseSourceChangeReviews.createdAt)),
+          db
+            .select()
+            .from(schema.contentDatabaseSourceExecutions)
+            .where(
+              and(
+                eq(schema.contentDatabaseSourceExecutions.sourceId, source.id),
+                options.documentIds !== undefined
+                  ? inArray(
+                      schema.contentDatabaseSourceExecutions.changeSetId,
+                      scopedChangeSetIds,
+                    )
+                  : undefined,
+              ),
+            )
+            .orderBy(asc(schema.contentDatabaseSourceExecutions.createdAt)),
+        ]);
 
   const propertyNameById = new Map(
     propertyDefs.map((row) => [row.id, row.name]),
@@ -3844,6 +3879,7 @@ async function loadSourceSnapshot(
     allDocumentIds,
     rowDocuments,
     propertyValueRows,
+    consistencyAttempts,
   } = await loadSourceSnapshotRowsOptimistically({
     source,
     database,
@@ -4224,6 +4260,10 @@ async function loadSourceSnapshot(
     fields,
     rows,
     changeSets,
+    projection:
+      options.documentIds !== undefined
+        ? { rows: "page", changeSets: "page" }
+        : { rows: "complete", changeSets: "complete" },
     bodyHydration,
   };
 }
@@ -6971,15 +7011,24 @@ export async function getSourceRows(sourceId: string) {
     .where(eq(schema.contentDatabaseSourceRows.sourceId, sourceId));
 }
 
-export async function listDatabasePropertiesAndItems(databaseId: string) {
+export async function listDatabasePropertiesAndItems(
+  databaseId: string,
+  options: { limit?: number; offset?: number; documentIds?: string[] } = {},
+) {
   const { getContentDatabaseResponse } = await import("./_database-utils.js");
-  return getContentDatabaseResponse(databaseId);
+  return getContentDatabaseResponse(databaseId, {
+    ...options,
+    includeSources: false,
+  });
 }
 
-export async function sourceSetupPayload(databaseId: string) {
+export async function sourceSetupPayload(
+  databaseId: string,
+  options: { limit?: number; offset?: number; documentIds?: string[] } = {},
+) {
   const [properties, response] = await Promise.all([
     listPropertiesForDatabase(databaseId),
-    listDatabasePropertiesAndItems(databaseId),
+    listDatabasePropertiesAndItems(databaseId, options),
   ]);
   return { properties, response };
 }

@@ -213,8 +213,20 @@ export default defineAction({
       // SQLite writer briefly blocks this best-effort refresh hint.
     });
 
+    const response = await getContentDatabaseResponse(databaseId, {
+      limit: 100,
+      offset: 0,
+    });
+    const createdPage = response.items.some((item) => item.id === itemId)
+      ? null
+      : await getContentDatabaseResponse(databaseId, {
+          limit: 1,
+          offset: Math.max(0, (response.pagination?.totalItems ?? 1) - 1),
+        });
+    const createdItem = createdPage?.items.find((item) => item.id === itemId);
     return {
-      ...(await getContentDatabaseResponse(databaseId)),
+      ...response,
+      createdItem,
       createdItemId: itemId,
       createdDocumentId: documentId,
       createdDocumentUpdatedAt: now,

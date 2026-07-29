@@ -34,6 +34,7 @@ import {
   type ContentDatabaseRowDensity,
   type ContentDatabaseSort,
   type ContentDatabaseSortDirection,
+  type ContentDatabaseTableQuery,
   type ContentDatabaseViewType,
   type Document,
   type DocumentProperty,
@@ -42,6 +43,7 @@ import {
   type DocumentPropertyValue,
 } from "@shared/api";
 import { contentDatabaseFormQuestions } from "@shared/database-form";
+import { applyContentDatabaseTableQuery } from "@shared/database-query";
 import {
   type DocumentPropertyOptionColor,
   countWords,
@@ -441,6 +443,7 @@ export function databaseCreatedItemForImmediatePreview(
     now?: string;
   },
 ): ContentDatabaseItem | null {
+  if (response.createdItem) return response.createdItem;
   const returnedItem = response.items.find(
     (item) => item.id === response.createdItemId,
   );
@@ -769,13 +772,43 @@ function DatabaseTable({
     SELECTED_CONTENT_SPACE_STORAGE_KEY,
     null,
   );
+  const [searchQuery, setSearchQuery] = useState("");
+  const [viewConfig, setViewConfig] = useState<ContentDatabaseViewConfig>(
+    defaultDatabaseViewConfig(),
+  );
+  const activeView = useMemo(
+    () => activeDatabaseView(viewConfig),
+    [viewConfig],
+  );
+  const tableQuery = useMemo<ContentDatabaseTableQuery | undefined>(() => {
+    if (
+      activeView.type !== "table" ||
+      activeDatabaseConstraintCount(
+        searchQuery,
+        activeView.sorts,
+        activeView.filters,
+      ) === 0
+    ) {
+      return undefined;
+    }
+    return {
+      search: searchQuery,
+      filters: activeView.filters,
+      sorts: activeView.sorts,
+      filterMode: activeView.filterMode ?? "and",
+    };
+  }, [activeView, searchQuery]);
   const [manualDatabaseItemLimit, setManualDatabaseItemLimit] = useState(
     CONTENT_DATABASE_PAGE_SIZE,
   );
   const [databaseRequestItemLimit, setDatabaseRequestItemLimit] = useState(
     CONTENT_DATABASE_PAGE_SIZE,
   );
-  const database = useContentDatabase(document.id, databaseRequestItemLimit);
+  const database = useContentDatabase(
+    document.id,
+    databaseRequestItemLimit,
+    tableQuery,
+  );
   const addItem = useAddDatabaseItem(document.id);
   const attachSource = useAttachContentDatabaseSource(document.id);
   const changeSourceRole = useChangeContentDatabaseSourceRole(document.id);
@@ -841,7 +874,6 @@ function DatabaseTable({
     string | null
   >(null);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [inlineFilterControlsOpen, setInlineFilterControlsOpen] =
     useState(false);
@@ -876,18 +908,11 @@ function DatabaseTable({
     useState<Record<string, string> | null>(null);
   const [settingsPanel, setSettingsPanel] =
     useState<DatabaseSettingsPanel>("main");
-  const [viewConfig, setViewConfig] = useState<ContentDatabaseViewConfig>(
-    defaultDatabaseViewConfig(),
-  );
   const [savedViewConfig, setSavedViewConfig] =
     useState<ContentDatabaseViewConfig>(defaultDatabaseViewConfig());
   const [personalQueryDirty, setPersonalQueryDirty] = useState(false);
   const [dateViewMonth, setDateViewMonth] = useState(() =>
     startOfMonth(new Date()),
-  );
-  const activeView = useMemo(
-    () => activeDatabaseView(viewConfig),
-    [viewConfig],
   );
   const orderedProperties = useMemo(
     () => orderDatabasePropertiesForView(properties, activeView),
@@ -996,10 +1021,12 @@ function DatabaseTable({
     visibleFilters,
   );
   const requiresCompleteClientDataset =
-    activeConstraintCount > 0 ||
-    !!databaseGroupProperty ||
-    activeView.type === "calendar" ||
-    activeView.type === "timeline";
+    databaseViewRequiresCompleteClientDataset({
+      viewType: activeView.type,
+      activeConstraintCount,
+      grouped: !!databaseGroupProperty,
+      tableQueryMode: data?.tableQueryMode,
+    });
   const clientQueryExpandedItemLimit = databaseClientQueryExpandedItemLimit(
     requiresCompleteClientDataset,
     manualDatabaseItemLimit,
@@ -1011,7 +1038,19 @@ function DatabaseTable({
     data?.pagination?.limit ?? items.length,
   );
   const isDatabaseViewLoading =
-    isDatabaseInitialLoading || isClientQueryExpansionPending;
+    isDatabaseInitialLoading ||
+    isClientQueryExpansionPending ||
+    (database.isFetching && Boolean(tableQuery));
+  useEffect(() => {
+    if (isDatabaseViewLoading) return;
+    window.document.documentElement.dataset.contentDatabaseRowsVisibleDocumentId =
+      document.id;
+    window.dispatchEvent(
+      new CustomEvent("content-database-rows-visible", {
+        detail: { documentId: document.id },
+      }),
+    );
+  }, [document.id, isDatabaseViewLoading]);
   useEffect(() => {
     if (clientQueryExpandedItemLimit === databaseRequestItemLimit) return;
     setDatabaseRequestItemLimit(clientQueryExpandedItemLimit);
@@ -1072,6 +1111,8 @@ function DatabaseTable({
     () => builderReviewableChangeSets(builderReviewSource),
     [builderReviewSource],
   );
+  const builderReviewCountIsComplete =
+    databaseSourceChangeSetsAreComplete(builderReviewSource);
   const builderReviewPreview = useMemo(
     () =>
       builderReviewSource && builderReviewChangeSets.length > 0
@@ -1082,11 +1123,12 @@ function DatabaseTable({
         : null,
     [builderReviewChangeSets, builderReviewSource],
   );
-  const activeBuilderReview =
-    builderReviewResult ??
-    (builderReviewOpen
-      ? (completeBuilderReviewPreview?.review ?? null)
-      : builderReviewPreview);
+  const activeBuilderReview = databaseActiveBuilderReview({
+    prepared: builderReviewResult,
+    complete: completeBuilderReviewPreview?.review ?? null,
+    page: builderReviewPreview,
+    open: builderReviewOpen,
+  });
   const sourcePendingOperations: DatabaseSourcePendingOperations = {
     attach: attachSource.isPending,
     changeRole: changeSourceRole.isPending,
@@ -2460,12 +2502,16 @@ function DatabaseTable({
             size="sm"
             aria-label={
               builderReviewChangeSets.length > 0
-                ? `Database settings, ${builderReviewChangeSets.length} Builder update pending`
+                ? builderReviewCountIsComplete
+                  ? `Database settings, ${builderReviewChangeSets.length} Builder update pending`
+                  : "Database settings, Builder updates pending"
                 : "Database settings"
             }
             title={
               builderReviewChangeSets.length > 0
-                ? `${builderReviewChangeSets.length} Builder update pending`
+                ? builderReviewCountIsComplete
+                  ? `${builderReviewChangeSets.length} Builder update pending`
+                  : "Builder updates pending"
                 : "Database settings"
             }
             className={cn(
@@ -2485,9 +2531,13 @@ function DatabaseTable({
           >
             <IconAdjustmentsHorizontal className="size-3.5" />
             {builderReviewChangeSets.length > 0 ? (
-              <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 shrink-0 items-center justify-center rounded-full bg-foreground px-1 text-[9px] leading-none text-background">
-                {formatCompactCountBadge(builderReviewChangeSets.length)}
-              </span>
+              builderReviewCountIsComplete ? (
+                <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 shrink-0 items-center justify-center rounded-full bg-foreground px-1 text-[9px] leading-none text-background">
+                  {formatCompactCountBadge(builderReviewChangeSets.length)}
+                </span>
+              ) : (
+                <span className="absolute right-0 top-0 size-2 rounded-full bg-foreground" />
+              )
             ) : null}
           </Button>
           {canEdit && isWorkspaceCatalog ? (
@@ -3896,13 +3946,18 @@ export function databaseBulkScalarInputState(
 type DuplicatedDatabaseItemResponse = {
   items: ContentDatabaseResponse["items"];
   duplicatedItemId?: ContentDatabaseResponse["duplicatedItemId"];
+  duplicatedItems?: ContentDatabaseResponse["duplicatedItems"];
 };
 
 export function databaseDuplicatedItemFromResponse(
   response: DuplicatedDatabaseItemResponse,
 ) {
   return (
-    response.items.find((item) => item.id === response.duplicatedItemId) ?? null
+    response.duplicatedItems?.find(
+      (item) => item.id === response.duplicatedItemId,
+    ) ??
+    response.items.find((item) => item.id === response.duplicatedItemId) ??
+    null
   );
 }
 
@@ -5697,7 +5752,7 @@ function DatabaseTableView({
           ) : null}
         </div>
 
-        {isLoading ? (
+        {databaseTableShouldShowBlockingLoader(isLoading, items.length) ? (
           <div className="flex h-16 items-center gap-2 border-t border-border px-2 text-sm text-muted-foreground">
             <Spinner className="size-4" />
             {dbText("loadingDatabase")}
@@ -5860,6 +5915,29 @@ function DatabaseTableView({
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  );
+}
+
+export function databaseTableShouldShowBlockingLoader(
+  isLoading: boolean,
+  itemCount: number,
+) {
+  return isLoading && itemCount === 0;
+}
+
+export function databaseViewRequiresCompleteClientDataset(args: {
+  viewType: ContentDatabaseViewType;
+  activeConstraintCount: number;
+  grouped: boolean;
+  tableQueryMode?: ContentDatabaseResponse["tableQueryMode"];
+}) {
+  return (
+    (args.viewType === "table" && args.tableQueryMode === "client-required") ||
+    (args.viewType !== "table" &&
+      (args.activeConstraintCount > 0 ||
+        args.grouped ||
+        args.viewType === "calendar" ||
+        args.viewType === "timeline"))
   );
 }
 
@@ -7488,7 +7566,9 @@ function DatabaseSettingsMainPanel({
   onPanelChange: (panel: DatabaseSettingsPanel) => void;
 }) {
   const groupLabel = activeView.groupByPropertyId ? "On" : "";
-  const sourceBadgeCount = builderReviewableChangeSets(source).length;
+  const sourceBadgeCount = databaseSourceChangeSetsAreComplete(source)
+    ? builderReviewableChangeSets(source).length
+    : undefined;
   return (
     <div className="grid gap-3">
       <div className="flex h-9 items-center gap-2 rounded-md border border-border bg-background px-2">
@@ -7548,6 +7628,23 @@ export function builderReviewableChangeSets(
         changeSet.state === "staged_revision" ||
         changeSet.state === "approved"),
   );
+}
+
+export function databaseActiveBuilderReview(args: {
+  prepared: ContentDatabaseSourceReviewPayload | null;
+  complete: ContentDatabaseSourceReviewPayload | null;
+  page: ContentDatabaseSourceReviewPayload | null;
+  open: boolean;
+}) {
+  return (
+    args.prepared ?? (args.open ? (args.complete ?? args.page) : args.page)
+  );
+}
+
+export function databaseSourceChangeSetsAreComplete(
+  source: ContentDatabaseSource | null,
+) {
+  return source?.projection?.changeSets !== "page";
 }
 
 function sourceReviewRiskRank(
@@ -7873,11 +7970,15 @@ function DatabaseSettingsSourcePanel({
         sources={sources}
         builderConfigured={builderConfigured}
         builderSpaceLabel={builderSpaceLabel}
-        reviewableCount={builderSources.reduce(
-          (total, candidate) =>
-            total + builderReviewableChangeSets(candidate).length,
-          0,
-        )}
+        reviewableCount={
+          builderSources.every(databaseSourceChangeSetsAreComplete)
+            ? builderSources.reduce(
+                (total, candidate) =>
+                  total + builderReviewableChangeSets(candidate).length,
+                0,
+              )
+            : undefined
+        }
         onOpenBuilder={(builderSource) =>
           onNavPush(
             builderSource
@@ -8195,6 +8296,8 @@ function DatabaseSettingsSourcePanel({
   }
 
   const selectedSource = selectedBuilderSource;
+  const selectedSourceChangeSetsComplete =
+    databaseSourceChangeSetsAreComplete(selectedSource);
   const reviewableBuilderChangeSets =
     builderReviewableChangeSets(selectedSource);
   const outboundChangeSets = reviewableBuilderChangeSets;
@@ -8408,11 +8511,13 @@ function DatabaseSettingsSourcePanel({
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <div className="text-sm font-medium">
-                {conflictChangeSets.length > 0
+                {selectedSourceChangeSetsComplete &&
+                conflictChangeSets.length > 0
                   ? `${conflictChangeSets.length} change${
                       conflictChangeSets.length === 1 ? "" : "s"
                     } need review`
-                  : reviewableBuilderChangeSets.length > 0
+                  : selectedSourceChangeSetsComplete &&
+                      reviewableBuilderChangeSets.length > 0
                     ? `${reviewableBuilderChangeSets.length} change${
                         reviewableBuilderChangeSets.length === 1 ? "" : "s"
                       } ready to push`
@@ -8562,7 +8667,7 @@ function SourcesListView({
   sources: ContentDatabaseSource[];
   builderConfigured: boolean;
   builderSpaceLabel: string | null;
-  reviewableCount: number;
+  reviewableCount?: number;
   onOpenBuilder: (source?: ContentDatabaseSource) => void;
   onOpenNotion: () => void;
   onOpenLocalFolder: () => void;
@@ -16362,37 +16467,11 @@ export function applyDatabaseView(
   sorts: DatabaseSort[],
   filterMode: DatabaseFilterMode = "and",
 ) {
-  const query = searchQuery.trim().toLowerCase();
-  const searched = query
-    ? items.filter((item) =>
-        databaseItemSearchText(item, properties).toLowerCase().includes(query),
-      )
-    : items;
-  const activeFilters = filters.filter(isActiveFilter);
-  const filtered = activeFilters.length
-    ? searched.filter((item) =>
-        databaseItemMatchesFilterTree(
-          item,
-          properties,
-          activeFilters,
-          filterMode,
-        ),
-      )
-    : searched;
-
-  if (sorts.length === 0) return filtered;
-
-  return [...filtered].sort((a, b) => {
-    for (const sort of sorts) {
-      const comparison = compareDatabaseSortValues(
-        databaseItemSortValue(a, properties, sort.key),
-        databaseItemSortValue(b, properties, sort.key),
-      );
-      if (comparison !== 0) {
-        return sort.direction === "asc" ? comparison : -comparison;
-      }
-    }
-    return 0;
+  return applyContentDatabaseTableQuery(items, properties, {
+    search: searchQuery,
+    filters,
+    sorts,
+    filterMode,
   });
 }
 

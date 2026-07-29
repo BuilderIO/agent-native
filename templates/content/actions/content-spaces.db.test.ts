@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const TEST_DB_PATH = join(
@@ -40,6 +40,7 @@ const OWNER = "owner@example.com";
 const MEMBER = "member@example.com";
 const OUTSIDER = "outsider@example.com";
 const WORKSPACE_OWNER = "workspace-owner@example.com";
+const LARGE_DATABASE_OWNER = "large-database-owner@example.com";
 
 beforeAll(async () => {
   process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
@@ -112,6 +113,49 @@ async function addMember(
 }
 
 describe("Content space provisioning", () => {
+  it("batches Files reconciliation for databases with 5,000 row documents", async () => {
+    const provisioned = await runWithRequestContext(
+      { userEmail: LARGE_DATABASE_OWNER },
+      () => provisionContentSpaces(getDb(), LARGE_DATABASE_OWNER),
+    );
+    const now = new Date().toISOString();
+    const documents = Array.from({ length: 5_000 }, (_, index) => ({
+      id: `large-database-document-${index}`,
+      ownerEmail: LARGE_DATABASE_OWNER,
+      orgId: null,
+      spaceId: provisioned.personalSpaceId,
+      parentId: null,
+      title: `Large database row ${index}`,
+      content: "Synthetic row",
+      position: index,
+      visibility: "private" as const,
+      createdAt: now,
+      updatedAt: now,
+    }));
+    for (let start = 0; start < documents.length; start += 250) {
+      await getDb()
+        .insert(schema.documents)
+        .values(documents.slice(start, start + 250));
+    }
+
+    await expect(
+      runWithRequestContext({ userEmail: LARGE_DATABASE_OWNER }, () =>
+        ensureContentSpacesAction.run({}),
+      ),
+    ).resolves.toBeDefined();
+
+    const [membershipCount] = await getDb()
+      .select({ count: sql<number>`count(*)` })
+      .from(schema.contentDatabaseItems)
+      .where(
+        eq(
+          schema.contentDatabaseItems.databaseId,
+          provisioned.personalFilesDatabaseId,
+        ),
+      );
+    expect(Number(membershipCount.count)).toBe(5_000);
+  });
+
   it("creates an idempotent private named workspace with canonical Files", async () => {
     const provisioned = await runWithRequestContext(
       { userEmail: WORKSPACE_OWNER },

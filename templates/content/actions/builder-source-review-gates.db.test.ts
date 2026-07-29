@@ -689,7 +689,7 @@ describe("Builder source review execution gates", () => {
     expect(heavySnapshotReads).toMatchObject({
       review: 1,
       target: 1,
-      allSources: 1,
+      allSources: 0,
     });
     expect(persistedChangeSet.state).toBe("approved");
     expect(response.review.rows[0]?.fieldChanges).toEqual(persistedFields);

@@ -13,6 +13,7 @@ import {
   applyOptimisticSourceFieldPropertyToDatabaseResponse,
   applySourceFieldPropertyToDatabaseResponse,
   clearDeletedContentDatabaseFromCache,
+  contentDatabaseResponseCanSeedQuery,
   contentDatabaseQueryKey,
   invalidateBuilderBodyHydrationQueries,
   invalidateContentDatabaseSourceRefreshQueries,
@@ -644,7 +645,17 @@ describe("writeContentDatabaseResponseToCache", () => {
       items: [],
       source: null,
     };
-    const attached = databaseResponse();
+    const attached = {
+      ...databaseResponse(),
+      items: databaseResponse().items.slice(0, 100),
+      pagination: {
+        offset: 0,
+        limit: 100,
+        totalItems: 500,
+        returnedItems: 100,
+        hasMore: true,
+      },
+    };
     const queryClient = new QueryClient();
     const visibleQueryKey = [
       "action",
@@ -661,7 +672,40 @@ describe("writeContentDatabaseResponseToCache", () => {
     const visibleCache =
       queryClient.getQueryData<ContentDatabaseResponse>(visibleQueryKey);
     expect(visibleCache?.source?.sourceTable).toBe("blog-article");
-    expect(visibleCache?.items).toHaveLength(500);
+    expect(visibleCache?.items).toHaveLength(100);
+  });
+
+  it("does not overwrite a constrained cache with an unconstrained response", () => {
+    const response = {
+      ...databaseResponse(),
+      pagination: {
+        offset: 0,
+        limit: 100,
+        totalItems: 500,
+        returnedItems: 100,
+        hasMore: true,
+      },
+    };
+    expect(
+      contentDatabaseResponseCanSeedQuery(
+        [
+          "action",
+          "get-content-database",
+          {
+            documentId: "database-page",
+            limit: 100,
+            tableQuery: {
+              search: "alpha",
+              filters: [],
+              sorts: [],
+              filterMode: "and",
+            },
+          },
+        ],
+        "database-page",
+        response,
+      ),
+    ).toBe(false);
   });
 });
 

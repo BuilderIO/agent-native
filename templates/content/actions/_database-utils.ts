@@ -20,7 +20,12 @@ import type {
   ContentDatabaseBodyHydration,
   ContentDatabaseMembership,
   ContentDatabaseResponse,
+  ContentDatabaseTableQuery,
 } from "../shared/api.js";
+import {
+  applyContentDatabaseTableQuery,
+  contentDatabaseTableQueryUsesProperties,
+} from "../shared/database-query.js";
 import { favoriteDocumentIds } from "./_content-favorites.js";
 import {
   listContentOrganizationMemberships,
@@ -43,6 +48,44 @@ import {
 export { getDocumentContextPath };
 
 export const CONTENT_DATABASE_MAX_READ_LIMIT = 5_000;
+
+async function contentDatabaseTableQueryMode(
+  databaseId: string,
+  query: ContentDatabaseTableQuery | undefined,
+) {
+  if (!query) return undefined;
+  const sourceFields = await getDb()
+    .select({
+      metadataJson: schema.contentDatabaseSources.metadataJson,
+      propertyId: schema.contentDatabaseSourceFields.propertyId,
+    })
+    .from(schema.contentDatabaseSourceFields)
+    .innerJoin(
+      schema.contentDatabaseSources,
+      eq(
+        schema.contentDatabaseSources.id,
+        schema.contentDatabaseSourceFields.sourceId,
+      ),
+    )
+    .where(eq(schema.contentDatabaseSources.databaseId, databaseId));
+  const secondaryPropertyIds = new Set<string>();
+  for (const field of sourceFields) {
+    let role: unknown = null;
+    try {
+      role = JSON.parse(field.metadataJson || "{}").federation?.role;
+    } catch {
+      role = null;
+    }
+    if (role === "secondary" && field.propertyId) {
+      secondaryPropertyIds.add(field.propertyId);
+    }
+  }
+  const usesSecondaryField = contentDatabaseTableQueryUsesProperties(
+    query,
+    secondaryPropertyIds,
+  );
+  return usesSecondaryField ? "client-required" : "server";
+}
 
 function canManageRole(role: string) {
   return role === "owner" || role === "admin";
@@ -279,7 +322,13 @@ function serializeDocument(
 
 export async function getContentDatabaseResponse(
   databaseId: string,
-  options: { limit?: number; offset?: number } = {},
+  options: {
+    limit?: number;
+    offset?: number;
+    tableQuery?: ContentDatabaseTableQuery;
+    includeSources?: boolean;
+    documentIds?: string[];
+  } = {},
 ): Promise<ContentDatabaseResponse> {
   const db = getDb();
   const [database] = await db
@@ -304,6 +353,12 @@ export async function getContentDatabaseResponse(
   // shared one a viewer is opening) must not mutate schema.
 
   const { limit, offset } = normalizeContentDatabasePageOptions(options);
+  const tableQuery = options.tableQuery;
+  const tableQueryMode = await contentDatabaseTableQueryMode(
+    databaseId,
+    tableQuery,
+  );
+  const serverTableQuery = tableQueryMode === "server" ? tableQuery : undefined;
   const userEmail = getRequestUserEmail();
   const normalizedUserEmail = userEmail
     ? normalizeContentSpaceEmail(userEmail)
@@ -401,6 +456,11 @@ export async function getContentDatabaseResponse(
       : undefined;
   const visibleItemFilter = and(
     eq(schema.contentDatabaseItems.databaseId, databaseId),
+    options.documentIds !== undefined
+      ? options.documentIds.length > 0
+        ? inArray(schema.contentDatabaseItems.documentId, options.documentIds)
+        : sql`1 = 0`
+      : undefined,
     sql`exists (
       select 1 from ${schema.documents}
       where ${schema.documents.id} = ${schema.contentDatabaseItems.documentId}
@@ -428,6 +488,12 @@ export async function getContentDatabaseResponse(
     .select({ count: sql<number>`COUNT(*)` })
     .from(schema.contentDatabaseItems)
     .where(visibleItemFilter);
+  const totalVisibleItems = Number(itemCount?.count ?? 0);
+  if (tableQuery && totalVisibleItems > CONTENT_DATABASE_MAX_READ_LIMIT) {
+    throw new Error(
+      `Table constraints support up to ${CONTENT_DATABASE_MAX_READ_LIMIT} rows; this database has ${totalVisibleItems}.`,
+    );
+  }
 
   let itemsQuery = db
     .select()
@@ -435,7 +501,9 @@ export async function getContentDatabaseResponse(
     .where(visibleItemFilter)
     .orderBy(asc(schema.contentDatabaseItems.position))
     .$dynamic();
-  if (limit !== null) {
+  if (serverTableQuery) {
+    itemsQuery = itemsQuery.limit(CONTENT_DATABASE_MAX_READ_LIMIT);
+  } else if (limit !== null) {
     itemsQuery = itemsQuery.limit(limit).offset(offset);
   }
   const items = await itemsQuery;
@@ -586,12 +654,12 @@ export async function getContentDatabaseResponse(
         )
       : new Set<string>();
 
-  const serializedItems = [];
+  const serializedCandidateItems = [];
   for (const item of items) {
     const document = documentById.get(item.documentId);
     if (!document) continue;
     const bodyHydrationQueued = queuedBodyHydrationItemIds.has(item.id);
-    serializedItems.push({
+    serializedCandidateItems.push({
       id: item.id,
       databaseId: item.databaseId,
       document: serializeDocument(
@@ -612,7 +680,27 @@ export async function getContentDatabaseResponse(
     });
   }
 
-  const sourceSnapshots = await getAllContentDatabaseSourceSnapshots(database);
+  const constrainedItems = serverTableQuery
+    ? applyContentDatabaseTableQuery(
+        serializedCandidateItems,
+        responseProperties,
+        serverTableQuery,
+      )
+    : serializedCandidateItems;
+  const serializedItems =
+    serverTableQuery && limit !== null
+      ? constrainedItems.slice(offset, offset + limit)
+      : constrainedItems;
+
+  const serializedDocumentIds = new Set(
+    serializedItems.map((item) => item.document.id),
+  );
+  const sourceSnapshots =
+    options.includeSources === false
+      ? []
+      : await getAllContentDatabaseSourceSnapshots(database, {
+          documentIds: limit !== null ? [...serializedDocumentIds] : undefined,
+        });
   const organizationVisibleDocumentIds = organizationFilesItemFilter
     ? new Set(
         (
@@ -631,25 +719,26 @@ export async function getContentDatabaseResponse(
         ),
       )
     : sourceSnapshots;
-  const serializedDocumentIds = new Set(
-    serializedItems.map((item) => item.document.id),
-  );
-  // When paginating, scope every DOCUMENT-BACKED source's rows to the visible
-  // page, plus the small set referenced by actionable reviews. The dialog gets
-  // change sets independently of the item page and needs those rows to retain
-  // the linked provider target instead of misclassifying an off-page update as
-  // a create. Federated join rows carry no document (empty documentId), so
-  // they're kept intact — only matched ones overlay anyway.
+  // Keep the returned source overlay aligned to the visible item page.
+  // Secondary federation sources stay complete until their join-key lookup can
+  // be bounded independently; only matched rows overlay the returned items.
   const pagedSources =
     limit !== null
-      ? sources.map((source) => ({
-          ...source,
-          rows: filterContentDatabaseSourceRowsForPage({
+      ? sources.map((source) => {
+          const rows = filterContentDatabaseSourceRowsForPage({
             rows: source.rows,
             changeSets: source.changeSets,
             visibleDocumentIds: serializedDocumentIds,
-          }),
-        }))
+          });
+          return {
+            ...source,
+            rows,
+            projection: {
+              rows: "page" as const,
+              changeSets: source.projection?.changeSets ?? "complete",
+            },
+          };
+        })
       : sources;
   const pagedPrimary = pagedSources[0] ?? null;
 
@@ -660,12 +749,13 @@ export async function getContentDatabaseResponse(
   // Opt-in federated columns (a secondary field the user added via the picker)
   // get their per-row values from the matched overlay at read time.
   const itemsWithOverlay = applyFederatedOverlayValues(federatedItems);
+  const contextPath = databaseDocument
+    ? await getDocumentContextPath(databaseDocument)
+    : [];
 
   return {
     database: serializeDatabase(database, databaseDocument?.description ?? ""),
-    contextPath: databaseDocument
-      ? await getDocumentContextPath(databaseDocument)
-      : [],
+    contextPath,
     properties: responseProperties,
     items: itemsWithOverlay,
     source: pagedPrimary,
@@ -675,12 +765,16 @@ export async function getContentDatabaseResponse(
         ? {
             offset,
             limit,
-            totalItems: Number(itemCount?.count ?? 0),
+            totalItems: serverTableQuery
+              ? constrainedItems.length
+              : totalVisibleItems,
             returnedItems: serializedItems.length,
             hasMore:
-              offset + serializedItems.length < Number(itemCount?.count ?? 0),
+              offset + serializedItems.length <
+              (serverTableQuery ? constrainedItems.length : totalVisibleItems),
           }
         : undefined,
+    tableQueryMode,
   };
 }
 

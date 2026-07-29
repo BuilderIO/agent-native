@@ -12,7 +12,6 @@ import { resolveContentSpaceAccess } from "./_content-space-access.js";
 import {
   CONTENT_DATABASE_MAX_READ_LIMIT,
   getContentDatabaseResponse,
-  getDocumentContextPath,
 } from "./_database-utils.js";
 
 export default defineAction({
@@ -28,6 +27,46 @@ export default defineAction({
       .max(CONTENT_DATABASE_MAX_READ_LIMIT)
       .optional(),
     offset: z.coerce.number().int().min(0).optional(),
+    tableQuery: z
+      .object({
+        search: z.string().max(500),
+        filters: z
+          .array(
+            z.object({
+              key: z.string(),
+              label: z.string(),
+              operator: z.enum([
+                "contains",
+                "equals",
+                "does_not_equal",
+                "greater_than",
+                "less_than",
+                "before",
+                "after",
+                "between",
+                "is_checked",
+                "is_unchecked",
+                "is_empty",
+                "is_not_empty",
+              ]),
+              value: z.string(),
+              filterGroupId: z.string().optional(),
+              parentFilterGroupId: z.string().optional(),
+            }),
+          )
+          .max(50),
+        sorts: z
+          .array(
+            z.object({
+              key: z.string(),
+              label: z.string(),
+              direction: z.enum(["asc", "desc"]),
+            }),
+          )
+          .max(20),
+        filterMode: z.enum(["and", "or"]),
+      })
+      .optional(),
   }),
   http: { method: "GET" },
   readOnly: true,
@@ -36,6 +75,7 @@ export default defineAction({
     documentId,
     limit,
     offset,
+    tableQuery,
   }): Promise<ContentDatabaseResponse | ContentDatabaseUnavailableResponse> => {
     const db = getDb();
     let resolvedDatabaseId = databaseId;
@@ -88,17 +128,10 @@ export default defineAction({
       };
     }
 
-    const response = await getContentDatabaseResponse(resolvedDatabaseId, {
+    return getContentDatabaseResponse(resolvedDatabaseId, {
       limit,
       offset,
+      tableQuery,
     });
-    const [document] = await db
-      .select()
-      .from(schema.documents)
-      .where(eq(schema.documents.id, database.documentId));
-    return {
-      ...response,
-      contextPath: document ? await getDocumentContextPath(document) : [],
-    };
   },
 });

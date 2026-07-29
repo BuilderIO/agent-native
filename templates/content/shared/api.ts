@@ -276,6 +276,13 @@ export interface ContentDatabaseFilter {
   parentFilterGroupId?: string;
 }
 
+export interface ContentDatabaseTableQuery {
+  search: string;
+  filters: ContentDatabaseFilter[];
+  sorts: ContentDatabaseSort[];
+  filterMode: ContentDatabaseFilterMode;
+}
+
 export type ContentDatabaseColumnCalculation =
   | "count_all"
   | "count_values"
@@ -707,6 +714,10 @@ export interface ContentDatabaseSource {
   fields: ContentDatabaseSourceFieldMapping[];
   rows: ContentDatabaseSourceRow[];
   changeSets: ContentDatabaseSourceChangeSet[];
+  projection?: {
+    rows: "complete" | "page";
+    changeSets: "complete" | "page";
+  };
   bodyHydration?: ContentDatabaseBodyHydrationSummary;
 }
 
@@ -774,15 +785,18 @@ export interface ContentDatabaseResponse {
     hasMore: boolean;
   };
   createdItemId?: string;
+  createdItem?: ContentDatabaseItem;
   createdDocumentId?: string;
   createdDocumentUpdatedAt?: string;
   duplicatedItemId?: string;
   duplicatedDocumentId?: string;
   duplicatedItemIds?: string[];
+  duplicatedItems?: ContentDatabaseItem[];
   duplicatedDocumentIds?: string[];
   deletedItemIds?: string[];
   deletedDocumentIds?: string[];
   timings?: BuilderActionTiming[];
+  tableQueryMode?: "server" | "client-required";
 }
 
 export interface BuilderActionTiming {
@@ -1256,13 +1270,10 @@ export interface PreviewBuilderSourceReviewResponse {
   sourceTable: string;
   changeSetIds: string[];
   review: ContentDatabaseSourceReviewPayload | null;
+  timings?: BuilderActionTiming[];
 }
 
 export interface PrepareBuilderSourceReviewResponse {
-  database: ContentDatabase;
-  properties: DocumentProperty[];
-  items: ContentDatabaseItem[];
-  source: ContentDatabaseSource | null;
   review: ContentDatabaseSourceReviewPayload;
   /**
    * Maps the operator-selected diff identities to the immutable change-set

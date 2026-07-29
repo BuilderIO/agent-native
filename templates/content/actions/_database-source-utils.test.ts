@@ -51,6 +51,7 @@ import {
   serializeSourceMetadataRecord,
   sourceSnapshotValuesJsonProjectionSql,
   sourceSnapshotDocumentSelection,
+  sourceSnapshotPageDocumentIds,
   sourceValuesForSnapshot,
   sourceValuesForSeededSourceRow,
   sourceChangeSetKey,
@@ -103,6 +104,52 @@ function item(id: string, title: string): ContentDatabaseItem {
 }
 
 describe("database source helpers", () => {
+  it("page-scopes primary Builder rows without truncating secondary federation", () => {
+    expect(
+      sourceSnapshotPageDocumentIds({
+        sourceType: "builder-cms",
+        metadataJson: "{}",
+        documentIds: ["doc-1", "doc-2"],
+      }),
+    ).toEqual(["doc-1", "doc-2"]);
+    expect(
+      sourceSnapshotPageDocumentIds({
+        sourceType: "builder-cms",
+        metadataJson: "{}",
+        documentIds: [],
+      }),
+    ).toEqual([]);
+
+    expect(
+      sourceSnapshotPageDocumentIds({
+        sourceType: "builder-cms",
+        metadataJson: JSON.stringify({
+          federation: {
+            role: "secondary",
+            keyField: "slug",
+            normalizationFormula: "lower(trim(value))",
+            join: {
+              kind: "identity",
+              collection: null,
+              localExpr: "{Slug}",
+              remoteKeyField: "slug",
+              normalizationFormula: "lower(trim(value))",
+            },
+          },
+        }),
+        documentIds: ["doc-1"],
+      }),
+    ).toBeUndefined();
+
+    expect(
+      sourceSnapshotPageDocumentIds({
+        sourceType: "local-table",
+        metadataJson: "{}",
+        documentIds: ["doc-1"],
+      }),
+    ).toBeUndefined();
+  });
+
   it("keeps the provider-bound property when duplicate local labels collide", () => {
     const existingFields = [
       {

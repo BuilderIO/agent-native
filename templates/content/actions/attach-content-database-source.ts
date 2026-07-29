@@ -1,7 +1,9 @@
 import { defineAction } from "@agent-native/core";
 import { assertAccess } from "@agent-native/core/sharing";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 
+import { getDb, schema } from "../server/db/index.js";
 import type {
   BuilderCmsModelFieldSummary,
   ContentDatabaseResponse,
@@ -445,11 +447,14 @@ export default defineAction({
         sourceTable,
         now,
       });
-      // Snapshot existing items BEFORE importing so we can bind the new source
-      // to ONLY the rows it imports — never the primary's existing rows.
-      const beforeSetup = await sourceSetupPayload(database.id);
+      // Snapshot membership IDs before importing so the new source binds only
+      // its own rows without serializing the existing database.
+      const priorItems = await getDb()
+        .select({ documentId: schema.contentDatabaseItems.documentId })
+        .from(schema.contentDatabaseItems)
+        .where(eq(schema.contentDatabaseItems.databaseId, database.id));
       const priorDocumentIds = new Set(
-        beforeSetup.response.items.map((item) => item.document.id),
+        priorItems.map((item) => item.documentId),
       );
       let importedEntriesByDocumentId = new Map<
         string,
@@ -466,7 +471,12 @@ export default defineAction({
         });
         importedEntriesByDocumentId = importResult.importedEntriesByDocumentId;
       }
-      const additionalSetup = await sourceSetupPayload(database.id);
+      const importedDocumentIds = [...importedEntriesByDocumentId.keys()];
+      const additionalSetup = await sourceSetupPayload(database.id, {
+        documentIds: importedDocumentIds,
+        limit: Math.max(1, importedDocumentIds.length),
+        offset: 0,
+      });
       // Only the items this collection just created — exclude the primary's.
       const importedItems = additionalSetup.response.items.filter(
         (item) => !priorDocumentIds.has(item.document.id),
@@ -576,7 +586,15 @@ export default defineAction({
       importedEntriesByDocumentId = importResult.importedEntriesByDocumentId;
     }
 
-    const refreshedSetup = await sourceSetupPayload(database.id);
+    const everyInitialEntryWasImported =
+      builderRead?.state === "live" &&
+      importedEntriesByDocumentId.size === builderEntries.length;
+    const refreshedSetup = await sourceSetupPayload(
+      database.id,
+      everyInitialEntryWasImported
+        ? { limit: args.limit, offset: args.offset }
+        : undefined,
+    );
     const builderEntriesByDocumentId =
       builderRead?.state === "live"
         ? mapBuilderCmsEntriesToLocalItems({

@@ -176,8 +176,22 @@ export default defineAction({
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
+    const response = await getContentDatabaseResponse(row.item.databaseId, {
+      limit: 100,
+      offset: 0,
+    });
+    const duplicatedPage = response.items.some((item) => item.id === nextItemId)
+      ? null
+      : await getContentDatabaseResponse(row.item.databaseId, {
+          limit: 1,
+          offset: nextPosition,
+        });
+    const duplicatedItem = duplicatedPage?.items.find(
+      (item) => item.id === nextItemId,
+    );
     return {
-      ...(await getContentDatabaseResponse(row.item.databaseId)),
+      ...response,
+      duplicatedItems: duplicatedItem ? [duplicatedItem] : [],
       duplicatedItemId: nextItemId,
       duplicatedDocumentId: nextDocumentId,
     };
