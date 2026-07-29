@@ -24,6 +24,16 @@ describe("code workbench shell", () => {
     expect(CODE_WORKBENCH_SHELL_CLASSNAME).toContain("shadow-[4px_0_12px");
   });
 
+  it("keeps the per-design workbench mounted while another panel is visible", () => {
+    const source = readFileSync("app/pages/DesignEditor.tsx", "utf8");
+    const workbenchIndex = source.indexOf("<CodeWorkbenchLoader");
+    expect(workbenchIndex).toBeGreaterThan(0);
+    const mountGate = source.slice(workbenchIndex - 120, workbenchIndex);
+    expect(mountGate).toContain("{id ? (");
+    expect(mountGate).not.toContain('activeLeftPanel === "code"');
+    expect(mountGate).not.toContain("activeCodeFile");
+  });
+
   it("normalizes computed CSS colors before passing them to Monaco", () => {
     expect(normalizeMonacoThemeColor("rgb(230, 230, 230)")).toBe("#e6e6e6");
     expect(normalizeMonacoThemeColor("rgba(14, 165, 233, 0.4)")).toBe(

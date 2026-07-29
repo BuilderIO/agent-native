@@ -30722,7 +30722,7 @@ function DesignEditor() {
                   activeLeftPanel === "code" ? "flex" : "hidden",
                 )}
               >
-                {id && (activeLeftPanel === "code" || activeCodeFile) ? (
+                {id ? (
                   <CodeWorkbenchLoader
                     designId={id}
                     activeFileId={routeCodeFileId}
