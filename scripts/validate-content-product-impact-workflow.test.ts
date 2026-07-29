@@ -73,4 +73,38 @@ describe("Content product conformance workflow boundary", () => {
       assert(result.issues.some((issue) => issue.includes("secrets")));
     }
   });
+
+  it("rejects job-level permission overrides and explicit GitHub tokens", () => {
+    const unsafe = workflow
+      .replace(
+        "    name: Advisory Content product impact",
+        "    name: Advisory Content product impact\n    permissions:\n      contents: write",
+      )
+      .replace(
+        "    timeout-minutes:",
+        `    env:\n      GH_TOKEN: "\${{ github['token'] }}"\n    timeout-minutes:`,
+      );
+    const result = validateContentProductImpactWorkflow(unsafe);
+    assert.equal(result.ok, false);
+    assert(result.issues.some((issue) => issue.includes("permissions")));
+    assert(result.issues.some((issue) => issue.includes("credentials")));
+  });
+
+  it("requires the check job and impact checker step to be unconditional", () => {
+    const unsafe = workflow
+      .replace(
+        "    name: Advisory Content product impact",
+        "    name: Advisory Content product impact\n    if: false",
+      )
+      .replace(
+        "      - name: Check Content product impact",
+        "      - name: Check Content product impact\n        if: false",
+      );
+    const result = validateContentProductImpactWorkflow(unsafe);
+    assert.equal(result.ok, false);
+    assert.equal(
+      result.issues.filter((issue) => issue.includes("unconditionally")).length,
+      2,
+    );
+  });
 });

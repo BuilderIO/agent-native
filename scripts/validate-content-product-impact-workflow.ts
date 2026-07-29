@@ -15,12 +15,16 @@ function permissionIsRead(value: unknown): boolean {
   return value === "read";
 }
 
-function containsSecretContext(value: unknown): boolean {
+function containsCredentialContext(value: unknown): boolean {
   if (typeof value === "string") {
-    return /\$\{\{[\s\S]*?\bsecrets\b/i.test(value);
+    return /\$\{\{[\s\S]*?(?:\bsecrets\b|\bgithub\s*(?:\.\s*token|\[\s*["']token["']\s*\]))/i.test(
+      value,
+    );
   }
-  if (Array.isArray(value)) return value.some(containsSecretContext);
-  return isRecord(value) && Object.values(value).some(containsSecretContext);
+  if (Array.isArray(value)) return value.some(containsCredentialContext);
+  return (
+    isRecord(value) && Object.values(value).some(containsCredentialContext)
+  );
 }
 
 export function validateContentProductImpactWorkflow(
@@ -88,8 +92,18 @@ export function validateContentProductImpactWorkflow(
     issues.push("workflow must define the check job");
     return { ok: false, issues };
   }
-  if ("environment" in check || containsSecretContext(workflow)) {
-    issues.push("advisory check must not receive an environment or secrets");
+  if ("permissions" in check) {
+    issues.push(
+      "check job must inherit the exact read-only workflow permissions",
+    );
+  }
+  if ("environment" in check || containsCredentialContext(workflow)) {
+    issues.push(
+      "advisory check must not receive an environment, secrets, or explicit credentials",
+    );
+  }
+  if ("if" in check || "needs" in check) {
+    issues.push("check job must run unconditionally");
   }
   if (typeof check["timeout-minutes"] !== "number") {
     issues.push("check job must have an explicit timeout");
@@ -129,6 +143,8 @@ export function validateContentProductImpactWorkflow(
   );
   if (!runStep || !isRecord(runStep.env)) {
     issues.push("workflow must invoke the standalone impact checker");
+  } else if ("if" in runStep) {
+    issues.push("impact checker step must run unconditionally");
   } else if (
     runStep.env.CONTENT_IMPACT_BASE_SHA !==
       "${{ github.event.pull_request.base.sha }}" ||
