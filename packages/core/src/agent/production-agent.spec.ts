@@ -50,6 +50,7 @@ import {
   runAgentLoopWithMainChatInternalContinuations,
   shouldChainBackgroundContinuation,
   MAX_IDENTICAL_TOOL_CALLS,
+  PLAN_MODE_SYSTEM_PROMPT,
   shouldGuardRepeatedSourceSweep,
   structuredHistoryToEngineMessages,
   trimOldToolResults,
@@ -965,6 +966,15 @@ describe("buildUserContentWithAttachments", () => {
     expect(writeTool.description).toContain("Plan mode blocked");
   });
 
+  it("allows only exact authenticated cross-app reads in Plan mode", () => {
+    expect(PLAN_MODE_SYSTEM_PROMPT).toContain(
+      "call external agents with natural-language tasks",
+    );
+    expect(PLAN_MODE_SYSTEM_PROMPT).toContain(
+      "exact authenticated read-only action",
+    );
+  });
+
   it("keeps the default initial catalog to discovery/runtime tools", () => {
     const tools = actionsToEngineTools(
       attachToolSearch({
@@ -1218,6 +1228,28 @@ describe("buildUserContentWithAttachments", () => {
           agent: "clips",
           action: "get-recording-player-data",
           approvedActions: [],
+        },
+        callAgent,
+      ),
+    ).toBe(false);
+    expect(
+      isPlanModeToolCallAllowed(
+        "call-agent",
+        {
+          agent: "clips",
+          action: "get-recording-player-data",
+          message: {},
+        },
+        callAgent,
+      ),
+    ).toBe(false);
+    expect(
+      isPlanModeToolCallAllowed(
+        "call-agent",
+        {
+          agent: "clips",
+          action: "get-recording-player-data",
+          input: "not-an-object",
         },
         callAgent,
       ),

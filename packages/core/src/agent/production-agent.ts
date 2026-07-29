@@ -797,15 +797,16 @@ function isPlanModeDirectAgentRead(input: unknown): boolean {
   const args = input as Record<string, unknown>;
   const agent = typeof args.agent === "string" ? args.agent.trim() : "";
   const action = typeof args.action === "string" ? args.action.trim() : "";
-  const message = typeof args.message === "string" ? args.message.trim() : "";
-  const taskId = typeof args.taskId === "string" ? args.taskId.trim() : "";
+  const allowedKeys = new Set(["agent", "action", "input"]);
+  const hasOnlyDirectReadKeys = Object.keys(args).every((key) =>
+    allowedKeys.has(key),
+  );
+  const validInput =
+    args.input == null ||
+    (typeof args.input === "object" && !Array.isArray(args.input));
 
   return (
-    agent.length > 0 &&
-    action.length > 0 &&
-    message.length === 0 &&
-    taskId.length === 0 &&
-    args.approvedActions == null
+    agent.length > 0 && action.length > 0 && hasOnlyDirectReadKeys && validInput
   );
 }
 

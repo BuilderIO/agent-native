@@ -448,6 +448,13 @@ export function repairFirstPartyObservedRetentionPanels(
         sql: WAU_BY_TEMPLATE_SQL,
       },
     ],
+    [
+      "repeat-users",
+      {
+        legacySql: [PRE_MARKETING_SITE_REPEAT_USERS_SQL],
+        sql: REPEAT_USERS_SQL,
+      },
+    ],
     ...additionalReplacements.map(
       (replacement) => [replacement.id, replacement] as const,
     ),
