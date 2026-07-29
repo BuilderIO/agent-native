@@ -20,12 +20,6 @@ function truncate(value: string, maxChars: number): string {
   return `${value.slice(0, maxChars).trimEnd()}\n[truncated]`;
 }
 
-/**
- * One exemplar per distinct layout, deliberately unordered and unnumbered.
- * Handing the agent the deck's slide sequence makes it reproduce that sequence
- * with substituted copy; a bare set of patterns leaves the ordering decision
- * where it belongs — with the content being written.
- */
 export function pickLayoutPatterns(
   slides: ReferenceSlide[],
   limit = MAX_PATTERNS,
