@@ -65,9 +65,10 @@ export function resizeSlideObject(
     const ratio = start.width / start.height;
     const horizontalScale = width / start.width;
     const verticalScale = height / start.height;
-    const scale = Math.abs(horizontalScale - 1) >= Math.abs(verticalScale - 1)
-      ? horizontalScale
-      : verticalScale;
+    const scale =
+      Math.abs(horizontalScale - 1) >= Math.abs(verticalScale - 1)
+        ? horizontalScale
+        : verticalScale;
     width = start.width * scale;
     height = width / ratio;
   }

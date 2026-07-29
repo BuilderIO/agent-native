@@ -77,6 +77,7 @@ import {
   replaceImageTargetInSlideHtml,
 } from "@/lib/slide-image-replacement";
 import { TAB_ID } from "@/lib/tab-id";
+import { shouldActivateTextTool } from "@/lib/text-tool-shortcut";
 import { shortcutLabel } from "@/lib/utils";
 
 const Pinpoint = lazy<ComponentType<PinpointProps>>(() =>
@@ -211,6 +212,30 @@ export default function DeckEditor() {
   const [drawMode, setDrawMode] = useState(false);
   const [pinMode, setPinMode] = useState(false);
   const [textBoxMode, setTextBoxMode] = useState(false);
+  const toggleDrawMode = useCallback(() => {
+    const next = !drawMode;
+    if (next) {
+      setPinMode(false);
+      setTextBoxMode(false);
+    }
+    setDrawMode(next);
+  }, [drawMode]);
+  const togglePinMode = useCallback(() => {
+    const next = !pinMode;
+    if (next) {
+      setDrawMode(false);
+      setTextBoxMode(false);
+    }
+    setPinMode(next);
+  }, [pinMode]);
+  const toggleTextBoxMode = useCallback(() => {
+    const next = !textBoxMode;
+    if (next) {
+      setDrawMode(false);
+      setPinMode(false);
+    }
+    setTextBoxMode(next);
+  }, [textBoxMode]);
   const [pendingComment, setPendingComment] = useState<{
     quotedText: string;
   } | null>(null);
@@ -542,6 +567,33 @@ export default function DeckEditor() {
     [deck, deleteSlide, undo],
   );
 
+  useEffect(() => {
+    const handleTextToolShortcut = (event: KeyboardEvent) => {
+      if (
+        !shouldActivateTextTool(event, {
+          canEdit,
+          activeElement: document.activeElement,
+          blockingSurfaceOpen: Boolean(
+            document.querySelector(
+              "[role='dialog'], [role='menu'], [role='listbox']",
+            ),
+          ),
+        })
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      setDrawMode(false);
+      setPinMode(false);
+      setTextBoxMode(true);
+    };
+
+    document.addEventListener("keydown", handleTextToolShortcut);
+    return () =>
+      document.removeEventListener("keydown", handleTextToolShortcut);
+  }, [canEdit]);
+
   // Delete key deletes the current slide
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -872,11 +924,11 @@ export default function DeckEditor() {
         tweaksOpen={tweaksOpen}
         onToggleTweaks={() => setTweaksOpen((o) => !o)}
         drawMode={drawMode}
-        onToggleDrawMode={() => setDrawMode((v) => !v)}
+        onToggleDrawMode={toggleDrawMode}
         pinMode={pinMode}
-        onTogglePinMode={() => setPinMode((v) => !v)}
+        onTogglePinMode={togglePinMode}
         textBoxMode={textBoxMode}
-        onToggleTextBoxMode={() => setTextBoxMode((v) => !v)}
+        onToggleTextBoxMode={toggleTextBoxMode}
         onDuplicateDeck={() => {
           const newId = `deck-${nanoid()}`;
           const optimistic = duplicateDeck(id, newId);

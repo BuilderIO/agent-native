@@ -56,6 +56,29 @@ If retrieval produces a new immutable context pack, keep its `contextPackId`
 and reuse labels with the deck provenance. Existing slide HTML is not proof of
 which source version influenced it.
 
+## Freeform Canvas Objects
+
+Manual text boxes and other freeform canvas objects are absolutely positioned
+children of `.fmd-slide`. Give each one a stable `data-slide-object-id`:
+
+```html
+<div
+  class="fmd-text-box"
+  data-slide-object-id="slide-object-unique-id"
+  style="position: absolute; left: 160px; top: 120px; width: 420px;"
+>
+  Editable text
+</div>
+```
+
+- Preserve `data-slide-object-id` when updating, moving, resizing, or styling an
+  existing object.
+- Mint a new unique object ID when duplicating an object.
+- Do not use runtime-only `data-builder-id` values in saved slide HTML.
+- Keep generated flex and grid content in normal flow. Do not silently
+  absolute-position a nested layout child just to make it draggable; create a
+  deliberate freeform object instead.
+
 ## Image Placeholders
 
 For visual elements (diagrams, charts, photos), use placeholder divs:

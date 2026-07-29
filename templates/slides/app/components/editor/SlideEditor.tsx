@@ -90,13 +90,19 @@ import { SpeakerNotesPanel } from "./SpeakerNotesPanel";
 let builderIdCounter = 0;
 const CANVAS_ZOOM_PRESETS = [10, 25, 50, 75, 100, 125, 150, 200] as const;
 
+function ensureBuilderId(element: HTMLElement): string {
+  const existing = element.getAttribute("data-builder-id");
+  if (existing) return existing;
+  const id = `b-${++builderIdCounter}`;
+  element.setAttribute("data-builder-id", id);
+  return id;
+}
+
 /** Stamp all elements inside a container with unique data-builder-id attributes */
 function stampBuilderIds(container: HTMLElement) {
   const elements = container.querySelectorAll("*");
   elements.forEach((el) => {
-    if (!el.getAttribute("data-builder-id")) {
-      el.setAttribute("data-builder-id", `b-${++builderIdCounter}`);
-    }
+    ensureBuilderId(el as HTMLElement);
   });
 }
 
@@ -1278,7 +1284,11 @@ export default function SlideEditor({
     } else {
       syncSelectionToAppState(null);
     }
-  }, [readCurrentSlideContentHtml, resolveSelectedElement, selectElementForStyling]);
+  }, [
+    readCurrentSlideContentHtml,
+    resolveSelectedElement,
+    selectElementForStyling,
+  ]);
 
   /** Enter edit mode on a smart block (text leaf or smart group) */
   const enterInlineEdit = useCallback(
@@ -1683,6 +1693,28 @@ export default function SlideEditor({
     return () => window.removeEventListener("keydown", onKey);
   }, [multiSelection.size, editingEl, clearMultiSelection]);
 
+  // Escape after an inline-edit Escape clears the retained single selection.
+  // Inputs outside the canvas keep their native Escape behavior.
+  useEffect(() => {
+    if (editingEl || !selectedElementSelector) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      const active = document.activeElement;
+      if (
+        active?.tagName === "INPUT" ||
+        active?.tagName === "TEXTAREA" ||
+        (active instanceof HTMLElement && active.isContentEditable)
+      ) {
+        return;
+      }
+      e.preventDefault();
+      clearSelectedElement();
+      syncSelectionToAppState(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [clearSelectedElement, editingEl, selectedElementSelector]);
+
   // Delete/Backspace removes the selected shape/text box (single or
   // multi-select) from the slide. Only active when something is selected for
   // styling (not while inline-editing text, where Backspace should delete a
@@ -1808,7 +1840,8 @@ export default function SlideEditor({
 
       const box = document.createElement("div");
       box.className = "fmd-text-box";
-      box.setAttribute("data-slide-object-id", ensureSlideObjectId(box));
+      ensureSlideObjectId(box);
+      ensureBuilderId(box);
       box.style.position = "absolute";
       box.style.left = `${xPct}%`;
       box.style.top = `${yPct}%`;
@@ -1860,6 +1893,7 @@ export default function SlideEditor({
 
   const startElementDrag = useCallback(
     (e: React.PointerEvent, element: HTMLElement) => {
+      if (readOnly) return;
       const fmdSlide = element.closest(".fmd-slide") as HTMLElement | null;
       if (!fmdSlide || getComputedStyle(element).position !== "absolute") {
         return;
@@ -1868,11 +1902,17 @@ export default function SlideEditor({
       const slideRect = fmdSlide.getBoundingClientRect();
       const slideWidth = fmdSlide.offsetWidth;
       const slideHeight = fmdSlide.offsetHeight;
-      if (!slideRect.width || !slideRect.height || !slideWidth || !slideHeight) {
+      if (
+        !slideRect.width ||
+        !slideRect.height ||
+        !slideWidth ||
+        !slideHeight
+      ) {
         return;
       }
 
       const origin = getObjectGeometry(element);
+      const originalObjectId = element.getAttribute("data-slide-object-id");
       const startClientX = e.clientX;
       const startClientY = e.clientY;
       const duplicateRequested = e.altKey;
@@ -1893,7 +1933,13 @@ export default function SlideEditor({
         } else {
           applyObjectGeometry(element, origin);
         }
-        selectElementForStyling(element, getBuilderSelector(element) ?? "");
+        if (originalObjectId) {
+          element.setAttribute("data-slide-object-id", originalObjectId);
+        } else {
+          element.removeAttribute("data-slide-object-id");
+        }
+        const selector = getBuilderSelector(element);
+        if (selector) selectElementForStyling(element, selector);
       };
 
       const onMove = (moveEvent: PointerEvent) => {
@@ -1908,14 +1954,20 @@ export default function SlideEditor({
         }
         if (!moved) {
           moved = true;
+          // React still receives a click after a pointer drag. Suppress that
+          // trailing click so a moved text box does not immediately reopen
+          // inline editing.
+          suppressNextClickRef.current = true;
           ensureSlideObjectId(element);
           if (duplicateRequested && moveEvent.altKey) {
             clone = cloneSlideObject(element);
             element.after(clone);
+            ensureBuilderId(clone);
             stampBuilderIds(clone);
             activeElement = clone;
           }
         }
+        moveEvent.preventDefault();
         applyObjectGeometry(activeElement, {
           ...origin,
           x: origin.x + dx,
@@ -1962,15 +2014,21 @@ export default function SlideEditor({
       applyObjectGeometry,
       getObjectGeometry,
       readCurrentSlideContentHtml,
+      readOnly,
       selectElementForStyling,
     ],
   );
 
   const startElementResize = useCallback(
     (handle: ResizeHandle, e: React.PointerEvent) => {
+      if (readOnly) return;
       const element = resolveSelectedElement();
       const fmdSlide = element?.closest(".fmd-slide") as HTMLElement | null;
-      if (!element || !fmdSlide || getComputedStyle(element).position !== "absolute") {
+      if (
+        !element ||
+        !fmdSlide ||
+        getComputedStyle(element).position !== "absolute"
+      ) {
         return;
       }
       e.preventDefault();
@@ -1979,11 +2037,17 @@ export default function SlideEditor({
       const slideRect = fmdSlide.getBoundingClientRect();
       const slideWidth = fmdSlide.offsetWidth;
       const slideHeight = fmdSlide.offsetHeight;
-      if (!slideRect.width || !slideRect.height || !slideWidth || !slideHeight) {
+      if (
+        !slideRect.width ||
+        !slideRect.height ||
+        !slideWidth ||
+        !slideHeight
+      ) {
         return;
       }
 
       const origin = getObjectGeometry(element);
+      const originalObjectId = element.getAttribute("data-slide-object-id");
       const startClientX = e.clientX;
       const startClientY = e.clientY;
       let resized = false;
@@ -2026,6 +2090,11 @@ export default function SlideEditor({
       const onCancel = () => {
         stop();
         applyObjectGeometry(element, origin);
+        if (originalObjectId) {
+          element.setAttribute("data-slide-object-id", originalObjectId);
+        } else {
+          element.removeAttribute("data-slide-object-id");
+        }
         const selector = getBuilderSelector(element);
         if (selector) selectElementForStyling(element, selector);
       };
@@ -2046,10 +2115,65 @@ export default function SlideEditor({
       applyObjectGeometry,
       getObjectGeometry,
       readCurrentSlideContentHtml,
+      readOnly,
       resolveSelectedElement,
       selectElementForStyling,
     ],
   );
+
+  useEffect(() => {
+    if (
+      readOnly ||
+      editingEl ||
+      multiSelection.size > 0 ||
+      !selectedElementSelector
+    ) {
+      return;
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.key.startsWith("Arrow")) return;
+      const active = document.activeElement;
+      if (
+        active?.tagName === "INPUT" ||
+        active?.tagName === "TEXTAREA" ||
+        active?.tagName === "SELECT" ||
+        (active instanceof HTMLElement && active.isContentEditable)
+      ) {
+        return;
+      }
+      const element = resolveSelectedElement();
+      if (!element || getComputedStyle(element).position !== "absolute") {
+        return;
+      }
+      const amount = e.shiftKey ? 10 : 1;
+      const geometry = getObjectGeometry(element);
+      if (e.key === "ArrowLeft") geometry.x -= amount;
+      else if (e.key === "ArrowRight") geometry.x += amount;
+      else if (e.key === "ArrowUp") geometry.y -= amount;
+      else if (e.key === "ArrowDown") geometry.y += amount;
+      else return;
+
+      e.preventDefault();
+      ensureSlideObjectId(element);
+      applyObjectGeometry(element, geometry);
+      const html = readCurrentSlideContentHtml();
+      if (html !== null) onUpdateSlideRef.current({ content: html });
+      const selector = getBuilderSelector(element);
+      if (selector) selectElementForStyling(element, selector);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [
+    applyObjectGeometry,
+    editingEl,
+    getObjectGeometry,
+    multiSelection.size,
+    readCurrentSlideContentHtml,
+    readOnly,
+    resolveSelectedElement,
+    selectElementForStyling,
+    selectedElementSelector,
+  ]);
 
   // --- Marquee drag handlers (attached to slide-content via React props) ---
 
@@ -2741,7 +2865,9 @@ export default function SlideEditor({
           rect={selectedElementRect}
           viewportRect={selectionViewportRect}
           onResizeStart={
-            isSelectedElementDraggable ? startElementResize : undefined
+            !readOnly && isSelectedElementDraggable
+              ? startElementResize
+              : undefined
           }
         />
       )}

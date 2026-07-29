@@ -60,16 +60,49 @@ function renderInspector(onChange = vi.fn()) {
   return onChange;
 }
 
+function sectionSummary(title: string) {
+  const summary = Array.from(document.querySelectorAll("summary")).find(
+    (element) => element.textContent?.includes(title),
+  );
+  if (!summary) throw new Error(`Missing ${title} section`);
+  return summary;
+}
+
 describe("SlideStyleInspector", () => {
   afterEach(cleanup);
 
   it("uses filled, borderless local numeric fields", () => {
     renderInspector();
 
-    const width = screen.getByRole("spinbutton", { name: "W" });
-    expect(width.getAttribute("class")).toContain("border-0");
-    expect(width.getAttribute("class")).toContain("bg-transparent");
-    expect(width.parentElement?.getAttribute("class")).toContain("bg-muted/70");
+    for (const field of document.querySelectorAll<HTMLInputElement>(
+      "[data-inspector-field]",
+    )) {
+      expect(field.getAttribute("class")).toContain("border-0");
+      expect(field.getAttribute("class")).toContain("bg-transparent");
+      expect(field.parentElement?.getAttribute("class")).toContain(
+        "bg-muted/70",
+      );
+    }
+  });
+
+  it("keeps each requested inspector section available through disclosure", () => {
+    renderInspector();
+
+    [
+      "Position",
+      "Layout & dimensions",
+      "Appearance",
+      "Fill",
+      "Stroke",
+      "Typography",
+      "Spacing",
+    ].forEach((section) => expect(sectionSummary(section)).toBeTruthy());
+
+    fireEvent.click(sectionSummary("Stroke"));
+    expect(screen.getByRole("spinbutton", { name: "Weight" })).toBeTruthy();
+
+    fireEvent.click(sectionSummary("Spacing"));
+    expect(screen.getByRole("spinbutton", { name: "Horizontal" })).toBeTruthy();
   });
 
   it("emits pixel alignment and dimension patches", () => {
@@ -78,18 +111,21 @@ describe("SlideStyleInspector", () => {
     fireEvent.click(screen.getByRole("button", { name: "Align center" }));
     expect(onChange).toHaveBeenLastCalledWith({
       left: "400px",
-      transform: "rotate(15deg)",
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Align bottom" }));
     expect(onChange).toHaveBeenLastCalledWith({
       top: "495px",
-      transform: "rotate(15deg)",
     });
 
     const width = screen.getByRole("spinbutton", { name: "W" });
     fireEvent.change(width, { target: { value: "420" } });
     fireEvent.blur(width);
     expect(onChange).toHaveBeenLastCalledWith({ width: "420px" });
+
+    const rotation = screen.getByRole("spinbutton", { name: "Rotation" });
+    fireEvent.change(rotation, { target: { value: "30" } });
+    fireEvent.blur(rotation);
+    expect(onChange).toHaveBeenLastCalledWith({ transform: "rotate(30deg)" });
   });
 });

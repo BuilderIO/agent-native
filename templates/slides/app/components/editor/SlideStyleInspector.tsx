@@ -389,7 +389,6 @@ export function SlideStyleInspector({
           : available;
     onChange({
       left: `${formatValue(x)}px`,
-      transform: rotationTransform(snapshot.rotation),
     });
   };
   const alignVertical = (alignment: "left" | "center" | "right") => {
@@ -402,7 +401,6 @@ export function SlideStyleInspector({
           : available;
     onChange({
       top: `${formatValue(y)}px`,
-      transform: rotationTransform(snapshot.rotation),
     });
   };
 
