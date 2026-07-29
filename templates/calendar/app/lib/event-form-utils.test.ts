@@ -3,11 +3,24 @@ import { describe, expect, it } from "vitest";
 import {
   buildRecurrenceRules,
   formatRecurrenceText,
+  getEditableEventTitle,
   getEventEndValidationMessage,
   getRecurrencePreset,
   normalizeAllDayEditEndDate,
   resolveTimeEditScope,
 } from "./event-form-utils";
+
+describe("getEditableEventTitle", () => {
+  it("keeps the display-only unnamed label out of editable state", () => {
+    expect(getEditableEventTitle("(No title)")).toBe("");
+  });
+
+  it("preserves a real event title", () => {
+    expect(getEditableEventTitle("Dinner with Sierra")).toBe(
+      "Dinner with Sierra",
+    );
+  });
+});
 
 describe("getEventEndValidationMessage", () => {
   it("clarifies equal timed start and end values", () => {

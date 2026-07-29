@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/tooltip";
 import { useUpdateEvent } from "@/hooks/use-events";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
+import { getEditableEventTitle } from "@/lib/event-form-utils";
 import { isOutOfOfficeEvent } from "@/lib/out-of-office";
 import { cn } from "@/lib/utils";
 import {
@@ -337,8 +338,12 @@ export function EventDetailPanel({
                     onKeyDown={(e) => {
                       if (e.key === "Enter") {
                         e.preventDefault();
-                        const trimmed = editingTitle.trim();
-                        if (trimmed && trimmed !== event.title) {
+                        const trimmed =
+                          getEditableEventTitle(editingTitle).trim();
+                        if (
+                          trimmed &&
+                          trimmed !== getEditableEventTitle(event.title)
+                        ) {
                           onTitleSave?.(event.id, trimmed, event.accountEmail);
                         }
                         setIsEditingTitle(false);
@@ -349,8 +354,12 @@ export function EventDetailPanel({
                       e.stopPropagation();
                     }}
                     onBlur={() => {
-                      const trimmed = editingTitle.trim();
-                      if (trimmed && trimmed !== event.title) {
+                      const trimmed =
+                        getEditableEventTitle(editingTitle).trim();
+                      if (
+                        trimmed &&
+                        trimmed !== getEditableEventTitle(event.title)
+                      ) {
                         onTitleSave?.(event.id, trimmed, event.accountEmail);
                       }
                       setIsEditingTitle(false);
@@ -366,7 +375,7 @@ export function EventDetailPanel({
                     )}
                     onClick={() => {
                       if (isWorkingLocation) return;
-                      setEditingTitle(event.title);
+                      setEditingTitle(getEditableEventTitle(event.title));
                       setIsEditingTitle(true);
                     }}
                   >

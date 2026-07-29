@@ -224,6 +224,56 @@ describe("EventDetailPopover characterization", () => {
     vi.restoreAllMocks();
   });
 
+  it("shows the add-title placeholder instead of editable fallback text for a new unnamed event", () => {
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={baseEvent({ title: "(No title)" })}
+          defaultOpen
+          onDelete={() => undefined}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    const titleInput = document.querySelector<HTMLInputElement>(
+      'input[placeholder="eventForm.addTitle"]',
+    );
+    expect(titleInput).toBeTruthy();
+    expect(titleInput!.value).toBe("");
+  });
+
+  it("keeps the fallback label out of the input when renaming an unnamed event", () => {
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={baseEvent({ title: "(No title)" })}
+          onDelete={() => undefined}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    const openButton = findByExactText("button", "Mock open popover");
+    act(() => {
+      (openButton as HTMLElement).click();
+    });
+
+    const fallbackTitle = findByExactText("h2", "(No title)");
+    expect(fallbackTitle).toBeTruthy();
+    act(() => {
+      (fallbackTitle as HTMLElement).click();
+    });
+
+    const titleInput = document.querySelector<HTMLInputElement>(
+      'input[placeholder="eventForm.addTitle"]',
+    );
+    expect(titleInput).toBeTruthy();
+    expect(titleInput!.value).toBe("");
+  });
+
   it("does not show the event timezone as a standalone row", () => {
     const event = baseEvent({ startTimeZone: "America/Halifax" });
 

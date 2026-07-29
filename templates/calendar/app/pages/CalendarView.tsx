@@ -87,7 +87,9 @@ import { resolveEventAccountEmail } from "@/lib/event-account-selection";
 import { getGoogleEventColorHex } from "@/lib/event-colors";
 import {
   dateTimeInTimezoneToIso,
+  getEditableEventTitle,
   getLocalTimezone,
+  UNNAMED_EVENT_TITLE,
 } from "@/lib/event-form-utils";
 import { buildDeleteEventMutationInput } from "@/lib/event-mutation-inputs";
 import { getLocationSuggestions } from "@/lib/location-suggestions";
@@ -185,7 +187,7 @@ function draftToCalendarEvent(
   const { start, end } = draftRange(draft, fallbackDate);
   return {
     id: calendarDraftEventId(draft.id),
-    title: draft.title?.trim() || "(No title)",
+    title: draft.title?.trim() || UNNAMED_EVENT_TITLE,
     description: draft.description ?? "",
     start: start.toISOString(),
     end: end.toISOString(),
@@ -621,9 +623,7 @@ export default function CalendarView() {
         setEventDraft(draft);
         persistCalendarDraft(draft);
       }
-      const trimmedTitle = draft.title?.trim();
-      const title =
-        trimmedTitle && trimmedTitle !== "(No title)" ? trimmedTitle : "";
+      const title = getEditableEventTitle(draft.title ?? "").trim();
       if (!title && !isSlotDraftId(draftId)) {
         committingDraftIdsRef.current.delete(draftId);
         toast.error(t("calendarView.addTitleBeforeCreate"));
@@ -1310,8 +1310,9 @@ export default function CalendarView() {
   const handleQuickEditSave = useCallback(
     async (eventId: string, title: string, accountEmail?: string) => {
       setQuickEditEventId(null);
+      const trimmedTitle = getEditableEventTitle(title).trim();
       if (calendarDraftIdFromEventId(eventId)) {
-        updateDraftEvent(eventId, { title: title.trim() });
+        updateDraftEvent(eventId, { title: trimmedTitle });
         return;
       }
       setQuickEditTempIds((current) => {
@@ -1319,9 +1320,9 @@ export default function CalendarView() {
         const { [eventId]: _removed, ...next } = current;
         return next;
       });
-      if (title.trim() && title.trim() !== "(No title)") {
+      if (trimmedTitle) {
         const event = events.find((e) => e.id === eventId);
-        const updates = { title: title.trim() };
+        const updates = { title: trimmedTitle };
         const guestNotification = event
           ? await promptGuestNotification({
               event,
@@ -1343,12 +1344,14 @@ export default function CalendarView() {
 
   const handleTitleSave = useCallback(
     async (eventId: string, title: string, accountEmail?: string) => {
+      const trimmedTitle = getEditableEventTitle(title).trim();
+      if (!trimmedTitle) return;
       if (calendarDraftIdFromEventId(eventId)) {
-        updateDraftEvent(eventId, { title });
+        updateDraftEvent(eventId, { title: trimmedTitle });
         return;
       }
       const event = events.find((e) => e.id === eventId);
-      const updates = { title };
+      const updates = { title: trimmedTitle };
       const guestNotification = event
         ? await promptGuestNotification({
             event,
@@ -1381,7 +1384,7 @@ export default function CalendarView() {
       });
       // Delete the event if title was never set
       const ev = events.find((e) => e.id === eventId);
-      if (!ev || ev.title === "(No title)") {
+      if (!ev || !getEditableEventTitle(ev.title).trim()) {
         deleteEvent.mutate(
           buildDeleteEventMutationInput(
             {

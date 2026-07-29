@@ -83,6 +83,7 @@ import {
   buildReminderPayload,
   dateTimeInTimezoneToIso,
   formatReminderText,
+  getEditableEventTitle,
   getEventEndValidationMessage,
   getLocalTimezone,
   getRecurrencePreset,
@@ -536,7 +537,7 @@ export function EventDetailPopover({
   const isMobile = useIsMobile();
   const [open, setOpen] = useState(defaultOpen);
   const [editingTitle, setEditingTitle] = useState(
-    defaultOpen ? event.title : "",
+    defaultOpen ? getEditableEventTitle(event.title) : "",
   );
   const [isEditingTitle, setIsEditingTitle] = useState(defaultOpen);
   const isNewEventRef = useRef(defaultOpen);
@@ -675,9 +676,9 @@ export function EventDetailPopover({
       setIsEditingTitle(true);
       isNewEventRef.current = true;
       setEditingTitle((current) => {
-        const hasDraft = current.trim().length > 0 && current !== "(No title)";
-        if (hasDraft && current !== event.title) return current;
-        return event.title === "(No title)" ? "" : event.title;
+        const eventTitle = getEditableEventTitle(event.title);
+        if (current.trim() && current !== eventTitle) return current;
+        return eventTitle;
       });
     }
   }, [defaultOpen, event.title]);
@@ -1326,10 +1327,8 @@ export function EventDetailPopover({
 
   const handleCreateDraft = useCallback(() => {
     if (!onDraftCreate) return;
-    const updates =
-      isEditingTitle && editingTitle.trim()
-        ? { title: editingTitle.trim() }
-        : undefined;
+    const title = getEditableEventTitle(editingTitle).trim();
+    const updates = isEditingTitle && title ? { title } : undefined;
     if (updates) {
       onTitleSave?.(event.id, updates.title, event.accountEmail);
       setIsEditingTitle(false);
@@ -1366,11 +1365,11 @@ export function EventDetailPopover({
         eventDetailSidebar && !isNewEventRef.current && !isDraft;
       if (newOpen && isPopoverSuppressed) return;
       if (!newOpen && open) {
-        const trimmedTitle = editingTitle.trim();
+        const trimmedTitle = getEditableEventTitle(editingTitle).trim();
         let savedPendingChange = false;
         // Popover is closing — handle saves
         if (isEditingTitle) {
-          if (trimmedTitle && trimmedTitle !== "(No title)") {
+          if (trimmedTitle) {
             onTitleSave?.(event.id, trimmedTitle, event.accountEmail);
             isNewEventRef.current = false;
             savedPendingChange = true;
@@ -1393,7 +1392,7 @@ export function EventDetailPopover({
         if (
           isNewEventRef.current &&
           !savedPendingChange &&
-          (!trimmedTitle || trimmedTitle === "(No title)") &&
+          !trimmedTitle &&
           onDismissNew
         ) {
           onDismissNew(event.id, event.accountEmail);
@@ -1537,8 +1536,9 @@ export function EventDetailPopover({
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       e.preventDefault();
-                      const trimmed = editingTitle.trim();
-                      if (trimmed && trimmed !== "(No title)") {
+                      const trimmed =
+                        getEditableEventTitle(editingTitle).trim();
+                      if (trimmed) {
                         onTitleSave?.(event.id, trimmed, event.accountEmail);
                         isNewEventRef.current = false;
                       }
@@ -1548,7 +1548,7 @@ export function EventDetailPopover({
                       if (isNewEventRef.current && onDismissNew) {
                         handleOpenChange(false);
                       } else {
-                        setEditingTitle(event.title);
+                        setEditingTitle(getEditableEventTitle(event.title));
                         setIsEditingTitle(false);
                       }
                     } else if (
@@ -1563,11 +1563,10 @@ export function EventDetailPopover({
                     e.stopPropagation();
                   }}
                   onBlur={() => {
-                    const trimmed = editingTitle.trim();
+                    const trimmed = getEditableEventTitle(editingTitle).trim();
                     if (
                       trimmed &&
-                      trimmed !== "(No title)" &&
-                      trimmed !== event.title
+                      trimmed !== getEditableEventTitle(event.title)
                     ) {
                       onTitleSave?.(event.id, trimmed, event.accountEmail);
                       isNewEventRef.current = false;
@@ -1582,7 +1581,7 @@ export function EventDetailPopover({
                   className={`mb-4 -mx-0.5 rounded px-0.5 text-lg font-semibold leading-tight text-foreground ${!isOverlay && !isWorkingLocation ? "cursor-text hover:bg-muted/50" : ""}`}
                   onClick={() => {
                     if (isOverlay || isWorkingLocation) return;
-                    setEditingTitle(event.title);
+                    setEditingTitle(getEditableEventTitle(event.title));
                     setIsEditingTitle(true);
                   }}
                 >
