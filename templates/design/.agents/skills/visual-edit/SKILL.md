@@ -419,13 +419,24 @@ the connected app's text/code files through the bridge
 - Use compiler/debug provenance (project-relative file, line, column,
   component, and runtime multiplicity) to locate React/TSX source. Treat it as
   evidence, not as permission for a generic AST structural transform.
+- Read `positionPrecision` on every anchor before you trust `line`/`column`.
+  `authored` means those are the real JSX coordinates. `transformed` means they
+  are the dev server's own output coordinates — React 19 removed `_debugSource`
+  and exposes only an owner stack, so this is the normal case on a Vite/Next
+  dev server, and the line will not match the file. `unknown` means no tier was
+  reported. On anything but `authored`, use the file and component to find the
+  element by its JSX shape and re-derive the line from the file you read; never
+  edit at the reported line.
 - A single-instance leaf text edit, literal `className`/`class` edit, or flat
   literal `style={{ ... }}` property may use `apply-visual-edit` with a
-  `local-file` source and exact `target.sourceAnchor`. Preview first (omit
-  `persist`), inspect `proposedDiff`, then call with `persist: true`.
+  `local-file` source and a complete `target.sourceAnchor`. Forward the
+  anchor's `positionPrecision` with it — the action refuses a `transformed`
+  anchor with `status: "needsAgent"` instead of seeking to a line that means
+  something else in the authored file. Preview first (omit `persist`), inspect
+  `proposedDiff`, then call with `persist: true`.
 - Reparenting, grouping/ungrouping, wrappers, dynamic expressions, repeated
   `.map()` instances, shared components, breakpoint-scoped edits, and
-  cross-file changes go through the coding agent with exact subject/target
+  cross-file changes go through the coding agent with complete subject/target
   anchors and their runtime relationship. `apply-visual-edit` refuses these
   with `status: "needsAgent"` rather than guessing.
 - Before each write, read the file and pass its exact `versionHash` to

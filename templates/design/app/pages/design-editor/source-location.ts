@@ -153,6 +153,13 @@ export interface ReactElementSourceLocation {
   ownerLine?: number;
   ownerColumn?: number;
   ownerComponentName?: string;
+  /**
+   * Which tier produced `ownerLine`/`ownerColumn`. Separate from `method`
+   * because they routinely differ: a source plugin's attributes give the
+   * element an authored position while the owner site is only reachable
+   * through a React 19 owner stack (transformed).
+   */
+  ownerMethod?: SourceLocationMethod;
   ownerKey?: string;
 }
 

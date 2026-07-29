@@ -2381,6 +2381,19 @@ export function DesignCanvas({
         }
         return;
       }
+      // Any other trusted message from the CURRENT frame proves the chrome
+      // bridge is live in the document that is in the iframe right now.
+      // Readiness must follow the document, not the one-time handshake: a
+      // live-edit screen keeps its already-loaded iframe across a canvas
+      // remount, so a later instance never sees `editor-chrome-ready` and
+      // `bridgeReadyRef` stays false forever. Every one-shot command then
+      // lands in `pendingOneShotMessagesRef` and nothing ever flushes it —
+      // the drop, the text edit, the delete all report success and do
+      // nothing. Re-derive readiness here so the queue always drains.
+      if (trustedCurrentFrame && !bridgeReadyRef.current) {
+        bridgeReadyRef.current = true;
+        flushPendingOneShotMessages();
+      }
       if (e.data.type === "agent-native:runtime-layer-snapshot") {
         const payload = e.data.payload;
         if (
@@ -3913,13 +3926,21 @@ export function DesignCanvas({
   }, [replaceRuntimeContentInPlace, runtimeReplacementEnabled]);
 
   const deleteRuntimeElement = useCallback(
-    (selector?: string | null, candidates?: string[]) => {
+    (
+      selector?: string | null,
+      candidates?: string[],
+      // Present when the host queued this deletion as a pending live edit; the
+      // bridge keeps the detached node under this id so a later
+      // visual-structure-ack with applied:false can put it back.
+      requestId?: string,
+    ) => {
       const iframe = iframeRef.current;
       if (!iframe?.contentWindow) return false;
       return postOneShotBridgeMessage({
         type: "delete-element",
         selector: selector ?? "",
         selectorCandidates: candidates ?? [],
+        requestId,
       });
     },
     [postOneShotBridgeMessage],

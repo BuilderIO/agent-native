@@ -115,6 +115,9 @@ export const sourceLocationBridgeScript: string = `"use strict";
       }
       return null;
     }
+    function hasStructuredDebugSource(fiber) {
+      return !!(fiber._debugSource || fiber._debugInfo && fiber._debugInfo.source || fiber.stateNode && fiber.stateNode._debugSource || fiber.elementType && fiber.elementType._debugSource);
+    }
     function isComponentFiber(fiber) {
       return typeof fiber.type === "function";
     }
@@ -164,7 +167,7 @@ export const sourceLocationBridgeScript: string = `"use strict";
       var depth = 0;
       while (current && depth < 12) {
         if (!elementSource) {
-          var hasStructured = !!(current._debugSource || current._debugInfo && current._debugInfo.source || current.stateNode && current.stateNode._debugSource || current.elementType && current.elementType._debugSource);
+          var hasStructured = hasStructuredDebugSource(current);
           var found = debugSourceOf(current);
           if (found) {
             elementSource = found;
@@ -196,6 +199,7 @@ export const sourceLocationBridgeScript: string = `"use strict";
           result.ownerLine = ownerSource.line;
           result.ownerColumn = ownerSource.column;
           result.ownerComponentName = result.componentName;
+          result.ownerMethod = hasStructuredDebugSource(componentFiber) ? "debug-source" : "debug-stack";
         }
         if (typeof componentFiber.key === "string" && componentFiber.key) {
           result.ownerKey = componentFiber.key;
@@ -205,8 +209,22 @@ export const sourceLocationBridgeScript: string = `"use strict";
     }
     function resolveSourceLocation(el) {
       var fromAttributes = resolveFromDataAttributes(el);
-      if (fromAttributes) return fromAttributes;
-      return resolveFromFiber(el);
+      if (!fromAttributes) return resolveFromFiber(el);
+      var fromFiber = resolveFromFiber(el);
+      if (fromAttributes.status === "resolved" && fromFiber.status === "resolved") {
+        if (fromFiber.ownerSourceFile) {
+          fromAttributes.ownerSourceFile = fromFiber.ownerSourceFile;
+          fromAttributes.ownerLine = fromFiber.ownerLine;
+          fromAttributes.ownerColumn = fromFiber.ownerColumn;
+          fromAttributes.ownerComponentName = fromFiber.ownerComponentName;
+          fromAttributes.ownerMethod = fromFiber.ownerMethod;
+        }
+        if (fromFiber.ownerKey) fromAttributes.ownerKey = fromFiber.ownerKey;
+        if (!fromAttributes.componentName) {
+          fromAttributes.componentName = fromFiber.componentName;
+        }
+      }
+      return fromAttributes;
     }
     function findTarget(nodeId, selector) {
       if (nodeId) {

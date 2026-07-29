@@ -390,6 +390,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           provenance.ownerLine = ownerLocation.line;
           provenance.ownerColumn = ownerLocation.column;
           provenance.ownerComponentName = componentName;
+          provenance.ownerMethod = ownerLocation.structured ? "debug-source" : "debug-stack";
         }
         if (typeof componentFiber.key === "string" && componentFiber.key) {
           provenance.ownerKey = componentFiber.key;
@@ -587,6 +588,12 @@ export const editorChromeBridgeScript: string = `"use strict";
               cloneNode.setAttribute(
                 "data-source-owner-component",
                 provenance.ownerComponentName
+              );
+            }
+            if (provenance.ownerMethod) {
+              cloneNode.setAttribute(
+                "data-source-owner-method",
+                provenance.ownerMethod
               );
             }
           }
@@ -1193,17 +1200,15 @@ export const editorChromeBridgeScript: string = `"use strict";
           if (hasColumn) dataSourceColumn = lastPart;
         }
       }
-      var reactProvenance = void 0;
-      if (!dataSourceFile) {
-        reactProvenance = reactDebugProvenance(el);
-        if (reactProvenance.sourceFile) {
-          dataSourceFile = reactProvenance.sourceFile;
-          dataSourceLine = String(reactProvenance.line);
-          dataSourceColumn = reactProvenance.column ? String(reactProvenance.column) : null;
-          dataComponentName = dataComponentName || reactProvenance.component || null;
-        }
+      var hadDataSourceFile = !!dataSourceFile;
+      var reactProvenance = reactDebugProvenance(el);
+      if (!hadDataSourceFile && reactProvenance.sourceFile) {
+        dataSourceFile = reactProvenance.sourceFile;
+        dataSourceLine = String(reactProvenance.line);
+        dataSourceColumn = reactProvenance.column ? String(reactProvenance.column) : null;
+        dataComponentName = dataComponentName || reactProvenance.component || null;
       }
-      if (dataSourceFile || dataSourceLine || dataSourceColumn || dataComponentName || reactProvenance?.unavailableReason) {
+      if (dataSourceFile || dataSourceLine || dataSourceColumn || dataComponentName || reactProvenance.unavailableReason) {
         provenance = {};
         if (dataSourceFile) provenance.sourceFile = dataSourceFile;
         if (dataSourceLine) {
@@ -1217,18 +1222,19 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (dataComponentName) provenance.component = dataComponentName;
         if (dataSourceFile) {
           var declaredMethod = el.getAttribute("data-source-method");
-          provenance.method = declaredMethod === "debug-source" || declaredMethod === "debug-stack" ? declaredMethod : reactProvenance?.method || "data-attribute";
+          provenance.method = declaredMethod === "debug-source" || declaredMethod === "debug-stack" ? declaredMethod : hadDataSourceFile ? "data-attribute" : reactProvenance.method || "data-attribute";
         }
-        if (reactProvenance?.ownerSourceFile) {
+        if (reactProvenance.ownerSourceFile) {
           provenance.ownerSourceFile = reactProvenance.ownerSourceFile;
           provenance.ownerLine = reactProvenance.ownerLine;
           provenance.ownerColumn = reactProvenance.ownerColumn;
           provenance.ownerComponentName = reactProvenance.ownerComponentName;
+          provenance.ownerMethod = reactProvenance.ownerMethod;
         }
-        if (reactProvenance?.ownerKey) {
+        if (reactProvenance.ownerKey) {
           provenance.ownerKey = reactProvenance.ownerKey;
         }
-        if (reactProvenance?.unavailableReason) {
+        if (!dataSourceFile && reactProvenance.unavailableReason) {
           provenance.unavailableReason = reactProvenance.unavailableReason;
         }
       }

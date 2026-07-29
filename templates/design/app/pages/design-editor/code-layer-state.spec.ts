@@ -59,7 +59,7 @@ function makeNode(overrides: Partial<CodeLayerNode> = {}): CodeLayerNode {
 }
 
 describe("elementInfoFromCodeLayerNode provenance", () => {
-  it("preserves exact React source anchors from runtime projection attributes", () => {
+  it("preserves complete React source anchors from runtime projection attributes", () => {
     const info = elementInfoFromCodeLayerNode(
       makeNode({
         dataAttributes: {
@@ -76,6 +76,7 @@ describe("elementInfoFromCodeLayerNode provenance", () => {
       line: 18,
       column: 7,
       component: "Card",
+      method: "data-attribute",
     });
   });
 
@@ -92,7 +93,10 @@ describe("elementInfoFromCodeLayerNode provenance", () => {
         }),
       );
 
-      expect(info.provenance).toEqual({ sourceFile: "app/Card.tsx" });
+      expect(info.provenance).toEqual({
+        sourceFile: "app/Card.tsx",
+        method: "data-attribute",
+      });
     },
   );
 
@@ -151,7 +155,48 @@ describe("elementInfoFromCodeLayerNode provenance", () => {
       ownerColumn: 51,
       ownerComponentName: "Card",
       ownerKey: "b",
+      method: "data-attribute",
     });
+  });
+
+  it("labels the owner position with its own tier, which can differ from the element's", () => {
+    const info = elementInfoFromCodeLayerNode(
+      makeNode({
+        dataAttributes: {
+          "data-source-file": "src/components/Card.jsx",
+          "data-source-line": "7",
+          "data-source-column": "9",
+          "data-source-owner-file": "src/App.jsx",
+          "data-source-owner-line": "55",
+          "data-source-owner-method": "debug-stack",
+        },
+      }),
+    );
+
+    // The element's attribute position is authored; the owner line came from a
+    // transformed React 19 owner stack. One shared tier would misreport one.
+    expect(info.provenance).toMatchObject({
+      method: "data-attribute",
+      ownerMethod: "debug-stack",
+    });
+  });
+
+  it("keeps a stack-derived position labelled transformed instead of laundering it through data-source-*", () => {
+    // The bridge writes the projection's data-source-* from React 19's owner
+    // stack. Without the tier attribute those coordinates would read back as a
+    // build-time transform's authored ones.
+    const info = elementInfoFromCodeLayerNode(
+      makeNode({
+        dataAttributes: {
+          "data-source-file": "src/App.jsx",
+          "data-source-line": "26",
+          "data-source-column": "20",
+          "data-source-method": "debug-stack",
+        },
+      }),
+    );
+
+    expect(info.provenance?.method).toBe("debug-stack");
   });
 
   it("carries WHY a node has no location, so absent stays distinct from not-loaded-yet", () => {
@@ -173,7 +218,11 @@ describe("elementInfoFromCodeLayerNode provenance", () => {
       }),
     );
 
-    expect(info.provenance).toEqual({ sourceFile: "src/App.jsx", line: 12 });
+    expect(info.provenance).toEqual({
+      sourceFile: "src/App.jsx",
+      line: 12,
+      method: "data-attribute",
+    });
   });
 });
 

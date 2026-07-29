@@ -6486,6 +6486,11 @@ it(
       expect(runtimeSnapshot.html).toContain(
         'data-source-file="app/routes/_index.tsx"',
       );
+      // The projection reads these attributes back as a source location, so the
+      // tier has to travel with them or a stack line reads as an authored one.
+      expect(runtimeSnapshot.html).toContain(
+        'data-source-method="debug-stack"',
+      );
       expect(runtimeSnapshot.html).not.toMatch(
         /<iframe|\sonerror=|\ssrcdoc=|javascript:/i,
       );
@@ -6523,6 +6528,9 @@ it(
         line: 78,
         column: 35,
         component: "ChatRoute",
+        // The stack tier is React 19's only one, and its line is the dev
+        // server's transformed output — the selection must say so.
+        method: "debug-stack",
       });
       expect(pageErrors).toEqual([]);
     } finally {
@@ -9887,6 +9895,97 @@ it(
       // 0.1: guide alive + shown during the drag.
       expect(guideMidDrag.connected).toBe(true);
       expect(guideMidDrag.display).not.toBe("none");
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+// A build-time source plugin stamps data-source-* for the element's OWN JSX
+// line and never for the owner call site. The provenance read used to skip the
+// Fiber walk entirely whenever those attributes were present, so a
+// plugin-instrumented app handed the agent no owner location and no ownerKey —
+// exactly the data that separates `.map()` siblings.
+it(
+  "editor chrome bridge reads Fiber owner provenance even when a source plugin already stamped data-source-*",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+      await page.setContent(`<!doctype html>
+<html>
+  <head><style>html,body{margin:0;width:100%;height:100%}#target{position:absolute;left:40px;top:40px;width:120px;height:60px}</style></head>
+  <body><button id="target" data-agent-native-node-id="target" data-source-file="src/components/Card.jsx" data-source-line="7" data-source-column="9">Buy</button></body>
+</html>`);
+      await page.locator("#target").evaluate((element) => {
+        Object.defineProperty(element, "__reactFiber$bridgeguard", {
+          configurable: true,
+          enumerable: true,
+          value: {
+            type: "button",
+            key: null,
+            _debugStack: {
+              stack:
+                "Error\n    at Card (http://localhost:8220/src/components/Card.jsx:25:32)",
+            },
+            return: {
+              type: function Card() {},
+              key: "b",
+              _debugStack: {
+                stack: "Error\n    at http://localhost:8220/src/App.jsx:55:51",
+              },
+              return: null,
+            },
+          },
+        });
+      });
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+      await page.evaluate(() => {
+        window.postMessage(
+          {
+            type: "select-element",
+            selector: "#target",
+            selectorCandidates: ["#target"],
+          },
+          "*",
+        );
+      });
+      await page.waitForFunction(() =>
+        ((window as any).__bridgeMessages ?? []).some(
+          (message: any) => message.type === "element-select",
+        ),
+      );
+      const messages = await readBridgeMessages(page);
+      const provenance = (
+        messages.find((message) => message.type === "element-select") as
+          | { payload?: { provenance?: Record<string, unknown> } }
+          | undefined
+      )?.payload?.provenance;
+
+      expect(provenance).toMatchObject({
+        // The attribute tier still owns the element's own position...
+        sourceFile: "src/components/Card.jsx",
+        line: 7,
+        column: 9,
+        method: "data-attribute",
+        // ...while the owner call site can only come from the Fiber walk.
+        ownerSourceFile: "src/App.jsx",
+        ownerLine: 55,
+        ownerColumn: 51,
+        ownerKey: "b",
+        // Separate tier: the authored attribute position above must not lend
+        // its precision to a line parsed out of a transformed owner stack.
+        ownerMethod: "debug-stack",
+      });
+      expect(provenance?.unavailableReason).toBeUndefined();
       expect(pageErrors).toEqual([]);
     } finally {
       await browser.close();

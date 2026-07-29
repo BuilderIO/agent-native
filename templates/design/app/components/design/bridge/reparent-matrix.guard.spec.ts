@@ -876,15 +876,28 @@ describe("cross-screen source and runtime matrix", () => {
         targetRuntimeOnly: false,
         sourceScreenId: "board",
         targetScreenId: "live",
+        sourceScreenIsBoard: true,
         targetScreenIsLive: true,
       }),
     ).toBe("screen-bridge-insert");
+    // Only the board may be reinterpreted as an insert — a stored screen's
+    // element moved into a live app would otherwise be silently duplicated.
+    expect(
+      resolveRuntimeStructureMoveExecutionMode({
+        subjectRuntimeOnly: false,
+        targetRuntimeOnly: false,
+        sourceScreenId: "screen-a",
+        targetScreenId: "live",
+        targetScreenIsLive: true,
+      }),
+    ).toBe("semantic-handoff");
     expect(
       resolveRuntimeStructureMoveExecutionMode({
         subjectRuntimeOnly: false,
         targetRuntimeOnly: false,
         sourceScreenId: "board",
         targetScreenId: "live",
+        sourceScreenIsBoard: true,
       }),
     ).toBe("source-edit");
     // Same-screen live reorders keep the existing bridge move path.

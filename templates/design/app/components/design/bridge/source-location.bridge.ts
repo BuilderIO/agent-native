@@ -215,6 +215,15 @@
     return null;
   }
 
+  function hasStructuredDebugSource(fiber: any): boolean {
+    return !!(
+      fiber._debugSource ||
+      (fiber._debugInfo && fiber._debugInfo.source) ||
+      (fiber.stateNode && fiber.stateNode._debugSource) ||
+      (fiber.elementType && fiber.elementType._debugSource)
+    );
+  }
+
   function isComponentFiber(fiber: any): boolean {
     return typeof fiber.type === "function";
   }
@@ -236,6 +245,9 @@
         ownerLine?: number;
         ownerColumn?: number;
         ownerComponentName?: string;
+        // The owner site's own tier — an authored data-attribute element can
+        // still owe its owner line to a transformed React 19 owner stack.
+        ownerMethod?: "debug-source" | "debug-stack";
         ownerKey?: string;
       }
     | {
@@ -294,12 +306,7 @@
     var depth = 0;
     while (current && depth < 12) {
       if (!elementSource) {
-        var hasStructured = !!(
-          current._debugSource ||
-          (current._debugInfo && current._debugInfo.source) ||
-          (current.stateNode && current.stateNode._debugSource) ||
-          (current.elementType && current.elementType._debugSource)
-        );
+        var hasStructured = hasStructuredDebugSource(current);
         var found = debugSourceOf(current);
         if (found) {
           elementSource = found;
@@ -338,6 +345,9 @@
         (result as any).ownerLine = ownerSource.line;
         (result as any).ownerColumn = ownerSource.column;
         (result as any).ownerComponentName = (result as any).componentName;
+        (result as any).ownerMethod = hasStructuredDebugSource(componentFiber)
+          ? "debug-source"
+          : "debug-stack";
       }
       if (typeof componentFiber.key === "string" && componentFiber.key) {
         (result as any).ownerKey = componentFiber.key;
@@ -349,8 +359,28 @@
 
   function resolveSourceLocation(el: Element): SourceLocationOutcome {
     var fromAttributes = resolveFromDataAttributes(el);
-    if (fromAttributes) return fromAttributes;
-    return resolveFromFiber(el);
+    if (!fromAttributes) return resolveFromFiber(el);
+    // A build-time source plugin stamps the element's OWN location and never
+    // the owner call site, so keep walking Fiber for owner provenance instead
+    // of short-circuiting — the owner site is what separates `.map()` siblings.
+    var fromFiber = resolveFromFiber(el);
+    if (
+      fromAttributes.status === "resolved" &&
+      fromFiber.status === "resolved"
+    ) {
+      if (fromFiber.ownerSourceFile) {
+        fromAttributes.ownerSourceFile = fromFiber.ownerSourceFile;
+        fromAttributes.ownerLine = fromFiber.ownerLine;
+        fromAttributes.ownerColumn = fromFiber.ownerColumn;
+        fromAttributes.ownerComponentName = fromFiber.ownerComponentName;
+        fromAttributes.ownerMethod = fromFiber.ownerMethod;
+      }
+      if (fromFiber.ownerKey) fromAttributes.ownerKey = fromFiber.ownerKey;
+      if (!fromAttributes.componentName) {
+        fromAttributes.componentName = fromFiber.componentName;
+      }
+    }
+    return fromAttributes;
   }
 
   function findTarget(nodeId?: string, selector?: string): Element | null {

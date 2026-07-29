@@ -5,7 +5,13 @@ import {
   SHOW_DESIGN_CODE_LEFT_PANEL,
 } from "./types";
 
-function isStandaloneHttpUrl(value: string): boolean {
+/**
+ * A URL-backed screen's `design_files.content` is the route URL itself, not a
+ * document. Any transform that parses stored content as HTML must refuse this
+ * shape: `DOMParser` happily turns the URL into body text, so the "edited"
+ * document that comes back out has silently replaced the route.
+ */
+export function isStandaloneHttpUrl(value: string): boolean {
   const trimmed = value.trim();
   if (!/^https?:\/\//i.test(trimmed)) return false;
   try {

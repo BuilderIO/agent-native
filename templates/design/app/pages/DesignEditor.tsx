@@ -549,6 +549,7 @@ import {
   resolveCodeLayerNodeFromElementInfo,
   runtimeLayerStateHandoffMode,
   type SelectedLayerTarget,
+  shouldDeleteThroughLiveScreen,
 } from "./design-editor/code-layer-state";
 import {
   resolveScreenCollabSyncTarget,
@@ -610,6 +611,7 @@ import {
   getLayerMoveSourceContent,
   getLocalhostRouteSourceFile,
   getPersistedContentHostSyncOptions,
+  isStandaloneHttpUrl,
   removeUndoRedoOrderKind,
   resolveLocalhostSourceWriteContent,
   resolveOptimisticTextDecorationLine,
@@ -745,6 +747,8 @@ import {
   type PendingLiveStructureUndoEntry,
   type PendingLiveTextEdit,
   pendingLiveTextUndoRevertValue,
+  pendingStructureEditSourcePaths,
+  pendingStructureRedoCommand,
   type PendingVisualStyleEdit,
   type PendingVisualStyleUndoEntry,
   pendingVisualStyleUndoRevertStyles,
@@ -844,6 +848,7 @@ import {
   MOVE_GROUP_TOOL_PRESENTATIONS,
   normalizeDesignLeftPanel,
   normalizeDesignTool,
+  resolveModeChangeView,
   shouldAutoEnableDrawOverlay,
 } from "./design-editor/tool-state";
 import {
@@ -8861,6 +8866,8 @@ function DesignEditor() {
         /** Markup this change introduced; the subject does not exist in the
          * screen's source yet, so it must be added rather than relocated. */
         insertedHtml?: string;
+        /** This change DELETED the subject; it has no anchor. */
+        removed?: true;
       },
     ) => {
       if (!canEditDesign) return;
@@ -8914,6 +8921,7 @@ function DesignEditor() {
         sourceRect: details?.sourceRect,
         anchorRect: details?.anchorRect,
         insertedHtml: details?.insertedHtml,
+        ...(details?.removed ? { removed: true as const } : {}),
         requestId: details?.requestId,
         updatedAt: Date.now(),
       };
@@ -9084,6 +9092,16 @@ function DesignEditor() {
 
   const handleDesignStateSelect = useCallback(
     (stateId: string | null, row?: DesignStatePreviewRow) => {
+      // Same hazard as replacePreviewContent's guard, on the one host push
+      // that bypasses it: restoring "no state" posts `activeContent`, which on
+      // a localhost screen is the route URL. Refuse the whole interaction —
+      // entering a state preview here has no way back out.
+      if (isStandaloneHttpUrl(activeContent)) {
+        toast.error(t("designEditor.toasts.designStateLiveScreen"), {
+          duration: 5000,
+        });
+        return;
+      }
       setSelectedStateId(stateId);
       const win = canvasIframeRef.current?.contentWindow;
       if (!win) return;
@@ -9669,6 +9687,22 @@ function DesignEditor() {
       selector?: string | null,
       options: { forceFullDocument?: boolean } = {},
     ) => {
+      // A localhost screen's `design_files.content` IS its route URL, so any
+      // caller that treats stored/collab content as a document (the collab
+      // seed, the SQL reconcile passes, undo/redo replay) can hand this
+      // callback the bare URL. The bridge would parse it as a document and
+      // replace the running app with the text "http://localhost:8210/" — a
+      // wrong-but-plausible state with no error anywhere. Refuse here, the one
+      // point every host push funnels through. Returning false is safe: the
+      // callers' contentRenderRevision fallback can't rebuild a live screen
+      // either (its iframe identity is `src:`, not srcdoc).
+      if (isStandaloneHttpUrl(nextContent)) {
+        console.error(
+          "[design] refused to replace live preview content with a route URL",
+          { content: nextContent.trim().slice(0, 120) },
+        );
+        return false;
+      }
       const replaceContent = (window as any).__designCanvasReplaceContent;
       if (typeof replaceContent !== "function") return false;
       return Boolean(
@@ -9709,7 +9743,11 @@ function DesignEditor() {
   );
 
   const deleteRuntimeElement = useCallback(
-    (selector?: string | null, candidates?: readonly string[]) => {
+    (
+      selector?: string | null,
+      candidates?: readonly string[],
+      requestId?: string,
+    ) => {
       const deleteElement = (window as any).__designCanvasDeleteElement;
       if (typeof deleteElement !== "function") return false;
       return Boolean(
@@ -9719,6 +9757,7 @@ function DesignEditor() {
           // only the right fallbacks when `selector` describes that same
           // element. A caller deleting a different node must pass its own.
           candidates ?? selectedCanvasSelectorCandidates,
+          requestId,
         ),
       );
     },
@@ -10843,6 +10882,18 @@ function DesignEditor() {
                 : storedContent;
             })()
           : storedContent);
+      // Drawing straight into a live screen has no correct outcome yet: its
+      // stored content is the bridge URL, so persisting an edited document
+      // destroys the route, and writing only to the running DOM persists
+      // nothing. appendCanvasPrimitiveToHtml already fails closed on this
+      // shape — name the reason here so the refusal points at the path that
+      // does work (draw on the board, then drag it in).
+      if (isStandaloneHttpUrl(baseContent)) {
+        toast.error(t("designEditor.toasts.primitiveInsertLiveScreen"), {
+          duration: 5000,
+        });
+        return false;
+      }
       const insertedContent = appendCanvasPrimitiveToHtml(
         baseContent,
         primitive,
@@ -16582,6 +16633,74 @@ function DesignEditor() {
         fallbackSelectors,
       }).forEach((aliases) => deleteRuntimeElement(aliases[0], aliases));
     };
+    // BUG-DELETE-LIVE-PENDING: a live screen's source is the running app, so
+    // the delete cannot be written into DesignFile.content the way an inline
+    // screen's is. It removes the node from the running DOM and queues a
+    // pending live edit for the coding agent — the same split
+    // handleVisualStructureChange already makes for a localhost drag-move.
+    // Recording it is also what makes Cmd+Z work: undo pops this entry and the
+    // requestId it carries tells the bridge to re-attach the node it detached.
+    if (
+      activeFile &&
+      shouldDeleteThroughLiveScreen({
+        screenSourceType: activeCanvasSourceType,
+        runtimeAliasGroups,
+        liveSelectionSelectors,
+      })
+    ) {
+      // Only the active screen's canvas registers the runtime bridge, so its
+      // is the only live DOM a host-driven delete can reach.
+      const runtimeTargets = selectedLayerIdsState
+        .map((layerId) => codeLayerOwnerByNodeIdRef.current.get(layerId))
+        .filter((owner) => owner?.runtimeOnly && owner.fileId === activeFile.id)
+        .map((owner) => ({
+          aliases: codeLayerSelectorAliases(owner!.node),
+          info: elementInfoFromCodeLayerNode(owner!.node),
+          sourceId:
+            owner!.node.dataAttributes["data-agent-native-node-id"] ??
+            owner!.node.id,
+        }));
+      const targets =
+        runtimeTargets.length > 0
+          ? runtimeTargets
+          : [
+              {
+                aliases: Array.from(new Set(liveSelectionSelectors)),
+                info: selectedElement ?? undefined,
+                sourceId:
+                  selectedElement?.runtimeSourceId ??
+                  selectedElement?.sourceId ??
+                  undefined,
+              },
+            ];
+      let deletedAny = false;
+      for (const target of targets) {
+        const primary = target.aliases[0];
+        if (!primary) continue;
+        const requestId = `delete-${Date.now().toString(36)}-${Math.random()
+          .toString(16)
+          .slice(2)}`;
+        if (!deleteRuntimeElement(primary, target.aliases, requestId)) continue;
+        deletedAny = true;
+        recordPendingLiveStructureEdit(
+          activeFile.id,
+          primary,
+          // A removal has no anchor; `placement` is carried only because the
+          // pending-edit shape is shared with moves and inserts.
+          "",
+          "after",
+          target.info,
+          { sourceId: target.sourceId, requestId, removed: true },
+        );
+      }
+      if (!deletedAny) return;
+      setSelectedElement(null);
+      setSelectedLayerIdsState([]);
+      if (viewModeRef.current === "overview") {
+        setOverviewSelectedScreenIds([]);
+      }
+      return;
+    }
     const snapshots = getSelectedLayerSnapshots();
     if (snapshots.length > 0) {
       const activeRuntimeSelectors: string[] = [];
@@ -16846,11 +16965,13 @@ function DesignEditor() {
     setSelectedLayerIdsState([]);
   }, [
     activeBreakpointUpperBoundPx,
+    activeCanvasSourceType,
     activeFile,
     applyFileContentUpdate,
     applyLocalContentUpdate,
     canEditDesign,
     deleteRuntimeElement,
+    recordPendingLiveStructureEdit,
     files,
     getFreshActiveContent,
     getScreenContent,
@@ -16956,7 +17077,7 @@ function DesignEditor() {
         context: [
           options.commandContext ??
             "Apply this runtime Layers-panel command to the connected React source.",
-          "The compiler metadata is for exact source anchoring and validation only; do not use a generic AST structural transform.",
+          "The compiler metadata is for source anchoring and validation only; do not use a generic AST structural transform. Respect each anchor's positionPrecision — a non-authored line is the dev server's, not the file's.",
           "Read every target file, obtain human write consent, write with expectedVersionHash and requireExpectedVersionHash: true, then verify the resulting HMR/runtime relationship.",
           JSON.stringify(handoff.handoff, null, 2),
         ].join("\n\n"),
@@ -17040,7 +17161,7 @@ function DesignEditor() {
         context: [
           "Apply this runtime Layers-panel move/reparent to the connected React source.",
           `The exact subject belongs to screen ${subjectOwner.fileId}; the exact target belongs to screen ${targetOwner.fileId}.`,
-          "Compiler provenance is for exact anchoring and validation only. Never apply a generic AST reparent or structure transform.",
+          "Compiler provenance is for anchoring and validation only, and only as precise as each anchor's positionPrecision says. Never apply a generic AST reparent or structure transform.",
           "Read every affected file first, obtain human write consent, write with each read's expectedVersionHash and requireExpectedVersionHash: true, re-read/re-plan on conflict, and keep any optimistic preview pending only until HMR confirms the intended runtime relationship.",
           JSON.stringify(handoff.handoff, null, 2),
         ].join("\n\n"),
@@ -17112,8 +17233,8 @@ function DesignEditor() {
         message: t("designEditor.pendingVisualStyles.agentMessage"),
         context: [
           `Apply this runtime Layers-panel ${state} change to the connected React source.`,
-          `Use the exact compiler anchor to ${enabled ? `set ${attributeName}=\"true\" on` : `remove ${attributeName} from`} the existing JSX host element. The runtime Layers snapshot recognizes this durable source metadata; do not replace it with CSS, a transient DOM mutation, or a wrapper.`,
-          "Compiler provenance is for exact anchoring and validation only. Never apply a generic AST transform.",
+          `Use the compiler anchor to ${enabled ? `set ${attributeName}=\"true\" on` : `remove ${attributeName} from`} the existing JSX host element. The runtime Layers snapshot recognizes this durable source metadata; do not replace it with CSS, a transient DOM mutation, or a wrapper.`,
+          "Compiler provenance is for anchoring and validation only, and only as precise as each anchor's positionPrecision says. Never apply a generic AST transform.",
           "Read the affected file first, obtain human write consent, write with that read's expectedVersionHash and requireExpectedVersionHash: true, re-read/re-plan on conflict, and keep the optimistic layer-state preview only until HMR confirms the source metadata.",
           JSON.stringify(handoff.handoff, null, 2),
         ].join("\n\n"),
@@ -18695,12 +18816,17 @@ function DesignEditor() {
       // running app. Key off the destination SCREEN's source type: a live
       // anchor normally has no stored layer owner at all, so both runtimeOnly
       // flags read false and the drop looks like an ordinary source move.
-      if (
-        resolveRuntimeStructureMoveExecutionMode({
+      const crossScreenExecutionMode = resolveRuntimeStructureMoveExecutionMode(
+        {
           subjectRuntimeOnly: Boolean(sourceOwnerEntry?.[1].runtimeOnly),
           targetRuntimeOnly: Boolean(targetOwnerEntry?.[1].runtimeOnly),
           sourceScreenId,
           targetScreenId,
+          // Only a board primitive may be reinterpreted as an insert; a real
+          // screen's element dropped into a live app is a move, and inserting it
+          // would leave a duplicate behind in its own screen.
+          sourceScreenIsBoard:
+            Boolean(boardFileId) && sourceScreenId === boardFileId,
           targetScreenIsLive: (() => {
             // overviewScreens deliberately excludes the board file, and
             // resolveOverviewScreenSourceType answers with the DESIGN-level
@@ -18719,8 +18845,9 @@ function DesignEditor() {
               ) === "localhost"
             );
           })(),
-        }) === "screen-bridge-insert"
-      ) {
+        },
+      );
+      if (crossScreenExecutionMode === "screen-bridge-insert") {
         const boardContent = getScreenContent(sourceScreenId);
         if (!boardContent) return;
         const boardProjection = buildCodeLayerProjection(boardContent);
@@ -18799,10 +18926,7 @@ function DesignEditor() {
         // that is never applied would lose the primitive entirely.
         return;
       }
-      if (
-        sourceOwnerEntry?.[1].runtimeOnly ||
-        targetOwnerEntry?.[1].runtimeOnly
-      ) {
+      if (crossScreenExecutionMode === "semantic-handoff") {
         if (!sourceOwnerEntry || !targetOwnerEntry) {
           // A runtime/source cross-screen drop without an exact target (for
           // example, dropping on the bare screen root) cannot satisfy the
@@ -20572,17 +20696,46 @@ function DesignEditor() {
     const pendingNonStyleRedo =
       pendingNonStyleRedoStack[pendingNonStyleRedoStack.length - 1];
     if (pendingNonStyleRedo?.kind === "structure") {
+      const redoCommand = pendingStructureRedoCommand(pendingNonStyleRedo.edit);
+      // A removal has no bridge echo to wait for: re-issuing the delete under
+      // the same requestId is the whole replay, so move the entry back onto
+      // the undo stack here instead of arming pendingStructureRedoReplayRef
+      // for a `visual-structure-change` that will never arrive.
+      if (redoCommand.kind === "delete") {
+        const redoneEdit = pendingNonStyleRedo.edit;
+        if (
+          !deleteRuntimeElement(
+            redoneEdit.selector,
+            [redoneEdit.selector],
+            redoneEdit.requestId,
+          )
+        ) {
+          return;
+        }
+        pendingLiveNonStyleRedoStackRef.current =
+          pendingNonStyleRedoStack.slice(0, -1);
+        pendingLiveNonStyleUndoStackRef.current = [
+          ...pendingLiveNonStyleUndoStackRef.current.slice(
+            -(MAX_DESIGN_UNDO_STACK - 1),
+          ),
+          pendingNonStyleRedo,
+        ];
+        const nextPending = mergePendingLiveNonStyleEdits(
+          pendingLiveNonStyleUndoStackRef.current.map((entry) => entry.edit),
+        );
+        pendingLiveNonStyleEditsRef.current = nextPending;
+        setPendingLiveNonStyleEdits(nextPending);
+        syncUndoRedoState();
+        return;
+      }
       if (pendingStructureRedoReplayRef.current) return;
       pendingStructureRedoReplayRef.current = pendingNonStyleRedo;
-      // Undoing an insert REMOVES the node, so replaying it as a move would
-      // address an element that is no longer in the document and the bridge
-      // would return silently — a redo that reports success and does nothing.
-      if (pendingNonStyleRedo.edit.insertedHtml) {
+      if (redoCommand.kind === "insert") {
         runtimeStructureInsertRevisionRef.current += 1;
         setRuntimeStructureInsertRequest({
           requestId: runtimeStructureInsertRevisionRef.current,
           screenId: pendingNonStyleRedo.edit.screenId,
-          html: pendingNonStyleRedo.edit.insertedHtml,
+          html: redoCommand.html,
           anchor: {
             selector: pendingNonStyleRedo.edit.anchorSelector,
             sourceId: pendingNonStyleRedo.edit.anchorSourceId ?? undefined,
@@ -21235,6 +21388,7 @@ function DesignEditor() {
     applyLocalContentUpdate,
     canEditDesign,
     createFileMutation,
+    deleteRuntimeElement,
     files,
     focusCreatedScreen,
     getFreshActiveContent,
@@ -21393,36 +21547,42 @@ function DesignEditor() {
     return activeFileId && fileIds.has(activeFileId) ? [activeFileId] : [];
   }, [activeFileId, files]);
 
-  const enterOverviewFromZoom = useCallback(() => {
-    if (viewModeRef.current === "overview") return;
-    viewModeRef.current = "overview";
-    pendingOverviewScreenSelectionRef.current = null;
-    pendingOverviewLayerSelectionRef.current = null;
-    clearPendingOverviewLayerSelectionTimer();
-    setCreatedOverviewLayerSelection(null);
-    const restoredOverviewSelection = getRestoredOverviewSelection();
-    runEditorViewTransition(() => {
-      setDrawMode(false);
-      setPinMode(false);
-      // The infinite canvas IS the editing view, so Interact never survives
-      // the trip back to overview — that pairing was the old third state.
-      // Annotate is a tool overlay on the same canvas, not a view, so it
-      // stays.
-      setMode((currentMode) =>
-        currentMode === "annotate" ? "annotate" : "edit",
-      );
-      setSelectedElement(null);
-      setHoveredElement(null);
-      setActiveTool("move");
-      setOverviewSelectedScreenIds(restoredOverviewSelection);
-      setSelectedLayerIdsState(restoredOverviewSelection);
-      setViewMode("overview");
-    });
-  }, [
-    clearPendingOverviewLayerSelectionTimer,
-    getRestoredOverviewSelection,
-    runEditorViewTransition,
-  ]);
+  // `nextMode` is a mode the user explicitly picked on the way out of a
+  // focused screen (see handleModeChange); without it the mode is derived.
+  const enterOverviewFromZoom = useCallback(
+    (nextMode?: EditorMode) => {
+      if (viewModeRef.current === "overview") return;
+      viewModeRef.current = "overview";
+      pendingOverviewScreenSelectionRef.current = null;
+      pendingOverviewLayerSelectionRef.current = null;
+      clearPendingOverviewLayerSelectionTimer();
+      setCreatedOverviewLayerSelection(null);
+      const restoredOverviewSelection = getRestoredOverviewSelection();
+      runEditorViewTransition(() => {
+        setDrawMode(nextMode === "annotate");
+        setPinMode(false);
+        // The infinite canvas IS the editing view, so Interact never survives
+        // the trip back to overview — that pairing was the old third state.
+        // Annotate is a tool overlay on the same canvas, not a view, so it
+        // stays.
+        setMode(
+          (currentMode) =>
+            nextMode ?? (currentMode === "annotate" ? "annotate" : "edit"),
+        );
+        setSelectedElement(null);
+        setHoveredElement(null);
+        setActiveTool(nextMode === "annotate" ? "draw" : "move");
+        setOverviewSelectedScreenIds(restoredOverviewSelection);
+        setSelectedLayerIdsState(restoredOverviewSelection);
+        setViewMode("overview");
+      });
+    },
+    [
+      clearPendingOverviewLayerSelectionTimer,
+      getRestoredOverviewSelection,
+      runEditorViewTransition,
+    ],
+  );
 
   const enterSingleScreen = useCallback(
     // Focusing a screen means the responsive interactive view — there is no
@@ -21633,8 +21793,17 @@ function DesignEditor() {
         clearPendingLiveEditState();
       }
 
-      if (next === "interact" && viewModeRef.current === "overview") {
+      const routing = resolveModeChangeView({
+        next,
+        viewMode: viewModeRef.current,
+      });
+      if (routing === "enter-single-interact") {
         enterSingleScreen(nextActiveFile?.id, "interact");
+        return;
+      }
+      if (routing === "enter-overview") {
+        if (options?.targetFileId) setActiveFileId(options.targetFileId);
+        enterOverviewFromZoom(next);
         return;
       }
       if (options?.targetFileId) setActiveFileId(options.targetFileId);
@@ -21661,6 +21830,7 @@ function DesignEditor() {
       pendingLiveNonStyleEdits,
       pendingVisualStyleEdits,
       clearPendingLiveEditState,
+      enterOverviewFromZoom,
       enterSingleScreen,
       requestPendingLiveNonStyleRevert,
       requestPendingVisualStyleRevert,
@@ -22925,8 +23095,12 @@ function DesignEditor() {
   ]);
 
   const pendingVisualStylePropertyCount = useMemo(
-    () => getPendingVisualStylePropertyCount(pendingVisualStyleEdits),
-    [pendingVisualStyleEdits],
+    () =>
+      getPendingVisualStylePropertyCount(
+        pendingVisualStyleEdits,
+        pendingLiveNonStyleEdits,
+      ),
+    [pendingLiveNonStyleEdits, pendingVisualStyleEdits],
   );
   const pendingVisualStyleScreenSourceTypes = useMemo(
     () =>
@@ -23076,20 +23250,16 @@ function DesignEditor() {
         const connectionId = overviewScreens.find(
           (screen) => screen.id === edit.screenId,
         )?.connectionId;
-        const paths = [
-          edit.sourceAnchor?.relPath,
-          edit.anchorSourceAnchor?.relPath,
-        ];
-        if (!connectionId || paths.some((path) => !path)) {
+        const paths = pendingStructureEditSourcePaths(edit);
+        if (!connectionId || !paths) {
           cancelPendingStructureVerification("conflict");
           toast.error(t("designEditor.toasts.reactSourceAnchorsLoading"));
           return;
         }
         for (const path of paths) {
-          const safePath = path!;
-          sourceTargets.set(`${connectionId}:${safePath}`, {
+          sourceTargets.set(`${connectionId}:${path}`, {
             connectionId,
-            path: safePath,
+            path,
           });
         }
       }
@@ -23097,11 +23267,18 @@ function DesignEditor() {
       try {
         session.sources = await Promise.all(
           Array.from(sourceTargets.values()).map(async (source) => {
-            const result = (await callAction("read-local-file", {
-              designId: id,
-              connectionId: source.connectionId,
-              path: source.path,
-            })) as { versionHash?: string } | undefined;
+            // read-local-file declares `http: { method: "GET" }`, so a
+            // default POST is refused with 405 and every Apply preflight
+            // fails before it reads a single baseline hash.
+            const result = (await callAction(
+              "read-local-file",
+              {
+                designId: id,
+                connectionId: source.connectionId,
+                path: source.path,
+              },
+              { method: "GET" },
+            )) as { versionHash?: string } | undefined;
             if (!result?.versionHash) {
               throw new Error(`Missing version hash for ${source.path}`);
             }
@@ -23174,11 +23351,15 @@ function DesignEditor() {
             try {
               const currentVersions = await Promise.all(
                 session.sources.map(async (source) => {
-                  const result = (await callAction("read-local-file", {
-                    designId: id,
-                    connectionId: source.connectionId,
-                    path: source.path,
-                  })) as { versionHash?: string } | undefined;
+                  const result = (await callAction(
+                    "read-local-file",
+                    {
+                      designId: id,
+                      connectionId: source.connectionId,
+                      path: source.path,
+                    },
+                    { method: "GET" },
+                  )) as { versionHash?: string } | undefined;
                   return result?.versionHash;
                 }),
               );
@@ -26160,11 +26341,15 @@ function DesignEditor() {
             // downgrade to an unguarded overwrite when the read fails: the
             // semantic React path is agent-driven, and this legacy whole-file
             // path is intentionally limited to directly writable HTML/CSS.
-            const readResult = (await callAction("read-local-file", {
-              designId: id,
-              connectionId,
-              path: relPath,
-            })) as { versionHash?: string } | undefined;
+            const readResult = (await callAction(
+              "read-local-file",
+              {
+                designId: id,
+                connectionId,
+                path: relPath,
+              },
+              { method: "GET" },
+            )) as { versionHash?: string } | undefined;
             const expectedVersionHash = readResult?.versionHash;
             if (!expectedVersionHash) {
               throw new Error(
@@ -29798,8 +29983,13 @@ function DesignEditor() {
           </div>
         ) : null}
 
+        {/* Interact owns the running app's surface (same reasoning as the
+            Escape hotkey gate): its canvas tools and mode tabs belong to the
+            infinite canvas, and ResponsiveInteractBar's Close is the way
+            back. */}
         {!embedded &&
           !uiHidden &&
+          !responsiveInteractActive &&
           designBottomToolbarMode === "editor" &&
           activeFile &&
           !questionFlowActive && (

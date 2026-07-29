@@ -27,6 +27,8 @@ interface ReactDebugProvenance {
   ownerColumn?: number;
   ownerComponentName?: string;
   ownerKey?: string;
+  method?: "debug-source" | "debug-stack";
+  ownerMethod?: "debug-source" | "debug-stack";
   unavailableReason?: "not-react" | "no-debug-info";
 }
 
@@ -204,6 +206,61 @@ describe("editor-chrome bridge — reactDebugProvenance", () => {
       "b",
       "c",
     ]);
+  });
+
+  it("labels which tier produced the position, so a React 19 stack line is not read as authored", () => {
+    const structured = reactDebugProvenance(
+      elementWithFiber({
+        type: "button",
+        key: null,
+        _debugSource: {
+          fileName: "src/components/Card.jsx",
+          lineNumber: 7,
+          columnNumber: 9,
+        },
+        return: null,
+      }),
+    );
+    expect(structured.method).toBe("debug-source");
+
+    // The React 19 case: the line is Vite's transformed output, not line 7.
+    const fromStack = reactDebugProvenance(
+      elementWithFiber({
+        type: "button",
+        key: null,
+        _debugStack: viteStack(
+          "    at Card (http://localhost:8220/src/components/Card.jsx:25:32)",
+        ),
+        return: null,
+      }),
+    );
+    expect(fromStack.method).toBe("debug-stack");
+
+    // The owner site is labelled separately: the two tiers can differ on one
+    // element, so a single `method` would misreport one of them.
+    const mapped = reactDebugProvenance(mappedCardButton("b"));
+    expect(mapped.ownerMethod).toBe("debug-stack");
+    expect(
+      reactDebugProvenance(
+        elementWithFiber({
+          type: "button",
+          key: null,
+          _debugStack: viteStack(
+            "    at Card (http://localhost:8220/src/components/Card.jsx:25:32)",
+          ),
+          return: {
+            type: Card,
+            key: "b",
+            _debugSource: {
+              fileName: "src/App.jsx",
+              lineNumber: 55,
+              columnNumber: 51,
+            },
+            return: null,
+          },
+        }),
+      ),
+    ).toMatchObject({ method: "debug-stack", ownerMethod: "debug-source" });
   });
 
   it("reports why a location is missing instead of returning nothing", () => {

@@ -979,6 +979,10 @@ const messages = {
         "無法在原始碼中定位此圖層。請等應用程式載入完成後重試，或請代理程式協助完成此變更。",
       reactSourceAnchorsUnavailable:
         "此應用程式未向編輯器提供原始碼位置，因此無法將此圖層對應到特定行。請讓代理程式完成此變更。",
+      primitiveInsertLiveScreen:
+        "無法直接在即時畫面中繪製 — 請先在畫板上繪製，再拖曳進來。",
+      designStateLiveScreen:
+        "即時畫面無法預覽設計狀態 — 其內容是執行中的應用程式，而非文件。",
     },
   },
   layersPanel: {

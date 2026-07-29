@@ -13,6 +13,7 @@ import {
 } from "./canvas-primitives";
 import { BOARD_TEXT_AUTO_COLOR_MARKER } from "./cross-screen-text-color";
 import { escapeHtmlAttributeValue, escapeHtmlText } from "./dom-utils";
+import { isStandaloneHttpUrl } from "./editor-state";
 import type { DesignFile } from "./types";
 
 export function nextDuplicatedFilename(
@@ -188,6 +189,11 @@ export function appendCanvasPrimitiveToHtml(
   options?: { preserveNegativePosition?: boolean; isBoardTarget?: boolean },
 ): string | null {
   if (typeof window === "undefined") return null;
+  // A live/localhost screen stores its route URL here, not a document.
+  // Appending to it parses the URL as body text and returns a whole HTML file,
+  // which the caller then persists OVER the URL — the screen stops being live
+  // and the route is gone. There is no correct append for this shape.
+  if (isStandaloneHttpUrl(content)) return null;
   try {
     const doc = new DOMParser().parseFromString(content, "text/html");
     if (!doc.body) return null;

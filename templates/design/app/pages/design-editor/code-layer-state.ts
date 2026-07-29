@@ -6,6 +6,10 @@ import {
   removeCodeLayerNodeFromHtml,
 } from "@shared/code-layer";
 import { isComponentInstance } from "@shared/component-model";
+import {
+  ELEMENT_PROVENANCE_METHODS,
+  type ElementProvenanceMethod,
+} from "@shared/source-mode";
 export {
   renameFilenamePreservingExtension,
   replaceDataScreenReferences,
@@ -119,6 +123,31 @@ export function liveDeleteSelectorGroups(args: {
     );
   }
   return liveSelectors.length > 0 ? [liveSelectors] : [];
+}
+
+/**
+ * Whether Delete must run the LIVE-screen removal path (delete the running
+ * DOM node + queue a pending live edit for the coding agent) instead of
+ * rewriting the screen's stored source, mirroring the `localhost` branch
+ * handleVisualStructureChange already takes for a drag-move.
+ *
+ * Deliberately does NOT require a source-snapshot node: a Layers-panel
+ * selection on a runtime-projected screen only exists in the runtime id
+ * namespace, so gating the delete on a resolved source snapshot meant such a
+ * row could be selected and never deleted at all. The runtime alias groups
+ * ARE the target here.
+ */
+export function shouldDeleteThroughLiveScreen(args: {
+  screenSourceType: string | null | undefined;
+  runtimeAliasGroups: readonly (readonly string[])[];
+  liveSelectionSelectors: readonly string[];
+}): boolean {
+  if (args.screenSourceType !== "localhost") return false;
+  return (
+    args.runtimeAliasGroups.some((aliases) =>
+      aliases.some((alias) => Boolean(alias)),
+    ) || args.liveSelectionSelectors.some((selector) => Boolean(selector))
+  );
 }
 
 export function normalizeCodeLayerSelector(selector: string): string {
@@ -374,6 +403,29 @@ function provenanceForCodeLayerNode(
   const ownerComponentName =
     node.dataAttributes["data-source-owner-component"]?.trim();
   const ownerKey = node.dataAttributes["data-source-owner-key"]?.trim();
+  const declaredMethod = node.dataAttributes["data-source-method"]?.trim();
+  const declaredOwnerMethod =
+    node.dataAttributes["data-source-owner-method"]?.trim();
+  // The owner site has its own tier: an authored `data-attribute` element can
+  // still owe its owner line to a transformed React 19 owner stack. Unlike
+  // `method` below there is no build-time convention to fall back on — this
+  // bridge is the only writer of data-source-owner-*, and it always labels the
+  // tier — so an unlabelled owner position stays "unknown" rather than
+  // inheriting a claim of authored coordinates.
+  const ownerMethod = ELEMENT_PROVENANCE_METHODS.includes(
+    declaredOwnerMethod as ElementProvenanceMethod,
+  )
+    ? (declaredOwnerMethod as ElementProvenanceMethod)
+    : undefined;
+  // The bridge stamps the tier alongside the position; a projection carrying a
+  // position with no tier came from a build-time transform's own attributes.
+  const method = ELEMENT_PROVENANCE_METHODS.includes(
+    declaredMethod as ElementProvenanceMethod,
+  )
+    ? (declaredMethod as ElementProvenanceMethod)
+    : sourceFile
+      ? "data-attribute"
+      : undefined;
   const unavailable = node.dataAttributes["data-source-unavailable"]?.trim();
   // The bridge only stamps a reason when the node resolved to no location, so
   // a resolved anchor must never carry one back out of the projection.
@@ -403,6 +455,8 @@ function provenanceForCodeLayerNode(
     ...(ownerColumn ? { ownerColumn } : {}),
     ...(ownerComponentName ? { ownerComponentName } : {}),
     ...(ownerKey ? { ownerKey } : {}),
+    ...(method ? { method } : {}),
+    ...(ownerMethod ? { ownerMethod } : {}),
     ...(unavailableReason ? { unavailableReason } : {}),
   };
 }

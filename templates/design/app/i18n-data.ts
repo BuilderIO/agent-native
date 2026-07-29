@@ -1078,6 +1078,10 @@ const enUS = {
       propsCopied: "Properties copied",
       propsPasted: "Properties pasted",
       primitiveInsertFailed: "Could not add that layer to the screen",
+      primitiveInsertLiveScreen:
+        "Can't draw directly into a live screen — draw it on the board, then drag it in.",
+      designStateLiveScreen:
+        "Design states can't preview on a live screen — its content is the running app, not a document.",
       layerMoveFailed: "Could not move that layer",
       layerMoveRedirected:
         "Moved next to its original spot — the exact drop target isn't editable",
@@ -14435,6 +14439,10 @@ const designRuntimeIdentityAndBridgeOverrides = {
           "无法在源码中定位该图层。请等应用加载完成后重试，或请代理帮你完成此更改。",
         reactSourceAnchorsUnavailable:
           "该应用未向编辑器提供源码位置，因此无法把该图层追溯到具体代码行。请让代理完成此更改。",
+        primitiveInsertLiveScreen:
+          "无法直接在实时画面中绘制 — 请先在画板上绘制，然后拖入。",
+        designStateLiveScreen:
+          "实时画面无法预览设计状态 — 它的内容是正在运行的应用，而不是文档。",
       },
     },
     layersPanel: { dragGhostCount: "{{count}} 个图层" },
@@ -14463,6 +14471,10 @@ const designRuntimeIdentityAndBridgeOverrides = {
           "No se puede localizar esta capa en el código fuente. Vuelve a intentarlo cuando la aplicación termine de cargar, o pide al agente que haga el cambio.",
         reactSourceAnchorsUnavailable:
           "Esta aplicación no expone ubicaciones de código al editor, así que esta capa no se puede rastrear hasta una línea. Pide al agente que haga el cambio.",
+        primitiveInsertLiveScreen:
+          "No se puede dibujar directamente en una pantalla en vivo: dibújalo en el tablero y arrástralo dentro.",
+        designStateLiveScreen:
+          "Los estados de diseño no se pueden previsualizar en una pantalla en vivo: su contenido es la app en ejecución, no un documento.",
       },
     },
     layersPanel: { dragGhostCount: "{{count}} capas" },
@@ -14492,6 +14504,10 @@ const designRuntimeIdentityAndBridgeOverrides = {
           "Impossible de localiser ce calque dans le code source. Réessayez une fois le chargement de l’application terminé, ou demandez à l’agent d’effectuer ce changement.",
         reactSourceAnchorsUnavailable:
           "Cette application n’expose pas les emplacements du code source à l’éditeur : ce calque ne peut donc pas être relié à une ligne. Demandez à l’agent d’effectuer ce changement.",
+        primitiveInsertLiveScreen:
+          "Impossible de dessiner directement dans un écran en direct — dessinez-le sur le plan de travail, puis faites-le glisser dedans.",
+        designStateLiveScreen:
+          "Les états de design ne peuvent pas être prévisualisés sur un écran en direct — son contenu est l'application en cours d'exécution, pas un document.",
       },
     },
     layersPanel: { dragGhostCount: "{{count}} calques" },
@@ -14520,6 +14536,10 @@ const designRuntimeIdentityAndBridgeOverrides = {
           "Diese Ebene lässt sich im Quellcode nicht finden. Versuche es erneut, sobald die App vollständig geladen ist, oder lass die Änderung vom Agenten vornehmen.",
         reactSourceAnchorsUnavailable:
           "Diese App stellt dem Editor keine Quellcode-Positionen bereit, daher lässt sich diese Ebene keiner Zeile zuordnen. Lass die Änderung vom Agenten vornehmen.",
+        primitiveInsertLiveScreen:
+          "Direktes Zeichnen in einem Live-Screen ist nicht möglich — zeichne es auf dem Board und ziehe es dann hinein.",
+        designStateLiveScreen:
+          "Design-Zustände lassen sich in einem Live-Screen nicht vorschauen — sein Inhalt ist die laufende App, kein Dokument.",
       },
     },
     layersPanel: { dragGhostCount: "{{count}} Ebenen" },
@@ -14549,6 +14569,10 @@ const designRuntimeIdentityAndBridgeOverrides = {
           "このレイヤーのソースが見つかりません。アプリの読み込みが完了してから再度お試しいただくか、エージェントに変更を依頼してください。",
         reactSourceAnchorsUnavailable:
           "このアプリはエディターにソース位置を提供していないため、このレイヤーを行にひも付けできません。エージェントに変更を依頼してください。",
+        primitiveInsertLiveScreen:
+          "ライブ画面に直接描画することはできません。ボードに描いてからドラッグして入れてください。",
+        designStateLiveScreen:
+          "ライブ画面ではデザイン状態をプレビューできません。その内容はドキュメントではなく実行中のアプリです。",
       },
     },
     layersPanel: { dragGhostCount: "{{count}} 個のレイヤー" },
@@ -14577,6 +14601,10 @@ const designRuntimeIdentityAndBridgeOverrides = {
           "이 레이어를 소스에서 찾을 수 없습니다. 앱 로딩이 끝난 후 다시 시도하거나, 에이전트에게 변경을 요청하세요.",
         reactSourceAnchorsUnavailable:
           "이 앱은 편집기에 소스 위치를 제공하지 않아 이 레이어를 코드 줄과 연결할 수 없습니다. 에이전트에게 변경을 요청하세요.",
+        primitiveInsertLiveScreen:
+          "라이브 화면에 직접 그릴 수 없습니다. 보드에 그린 뒤 끌어다 놓으세요.",
+        designStateLiveScreen:
+          "라이브 화면에서는 디자인 상태를 미리 볼 수 없습니다. 콘텐츠가 문서가 아니라 실행 중인 앱입니다.",
       },
     },
     layersPanel: { dragGhostCount: "레이어 {{count}}개" },
@@ -14605,6 +14633,10 @@ const designRuntimeIdentityAndBridgeOverrides = {
           "Não foi possível localizar esta camada no código-fonte. Tente novamente quando o app terminar de carregar, ou peça ao agente para fazer essa alteração.",
         reactSourceAnchorsUnavailable:
           "Este app não expõe localizações de código ao editor, então esta camada não pode ser associada a uma linha. Peça ao agente para fazer essa alteração.",
+        primitiveInsertLiveScreen:
+          "Não é possível desenhar diretamente em uma tela ao vivo — desenhe no quadro e arraste para dentro.",
+        designStateLiveScreen:
+          "Estados de design não podem ser visualizados em uma tela ao vivo — o conteúdo dela é o app em execução, não um documento.",
       },
     },
     layersPanel: { dragGhostCount: "{{count}} camadas" },
@@ -14634,6 +14666,10 @@ const designRuntimeIdentityAndBridgeOverrides = {
           "यह लेयर सोर्स में नहीं मिली। ऐप लोड होने के बाद फिर से कोशिश करें, या एजेंट से यह बदलाव करने को कहें।",
         reactSourceAnchorsUnavailable:
           "यह ऐप एडिटर को सोर्स लोकेशन नहीं देता, इसलिए इस लेयर को किसी लाइन से नहीं जोड़ा जा सकता। यह बदलाव एजेंट से कराएँ।",
+        primitiveInsertLiveScreen:
+          "लाइव स्क्रीन में सीधे नहीं बनाया जा सकता — इसे बोर्ड पर बनाएँ, फिर खींचकर अंदर लाएँ।",
+        designStateLiveScreen:
+          "लाइव स्क्रीन पर डिज़ाइन स्टेट का पूर्वावलोकन नहीं हो सकता — इसकी सामग्री चल रहा ऐप है, दस्तावेज़ नहीं।",
       },
     },
     layersPanel: { dragGhostCount: "{{count}} लेयर" },
@@ -14662,6 +14698,10 @@ const designRuntimeIdentityAndBridgeOverrides = {
           "تعذر تحديد موقع هذه الطبقة في المصدر. أعد المحاولة بعد اكتمال تحميل التطبيق، أو اطلب من الوكيل إجراء هذا التغيير.",
         reactSourceAnchorsUnavailable:
           "لا يوفّر هذا التطبيق مواقع المصدر للمحرر، لذا لا يمكن ربط هذه الطبقة بسطر معيّن. اطلب من الوكيل إجراء هذا التغيير.",
+        primitiveInsertLiveScreen:
+          "لا يمكن الرسم مباشرة داخل شاشة حيّة — ارسمه على اللوح ثم اسحبه إلى الداخل.",
+        designStateLiveScreen:
+          "لا يمكن معاينة حالات التصميم على شاشة حيّة — محتواها هو التطبيق قيد التشغيل، وليس مستندًا.",
       },
     },
     layersPanel: { dragGhostCount: "{{count}} طبقات" },

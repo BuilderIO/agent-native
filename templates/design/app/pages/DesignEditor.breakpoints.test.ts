@@ -586,12 +586,16 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
       source.indexOf("const handleModeChange = useCallback"),
       source.indexOf("const handleOverviewFrameAction = useCallback"),
     );
-    expect(modeHandler).toContain(
-      'if (next === "interact" && viewModeRef.current === "overview")',
-    );
+    expect(modeHandler).toContain("resolveModeChangeView({");
+    expect(modeHandler).toContain('if (routing === "enter-single-interact")');
     expect(modeHandler).toContain(
       'enterSingleScreen(nextActiveFile?.id, "interact")',
     );
+    // The other direction: Edit/Annotate picked from a focused screen must
+    // route back to the canvas, never fall through to a bare setMode that
+    // leaves viewMode "single" (the forbidden single-screen editing state).
+    expect(modeHandler).toContain('if (routing === "enter-overview")');
+    expect(modeHandler).toContain("enterOverviewFromZoom(next)");
     expect(source).toContain('interactMode={mode === "interact"}');
     // Two-view model: the infinite canvas is the editing view, so returning
     // to overview always drops Interact. Annotate is a tool overlay on that

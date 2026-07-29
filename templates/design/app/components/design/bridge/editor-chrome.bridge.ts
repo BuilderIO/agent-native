@@ -453,8 +453,11 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
    * TRAP: a `_debugStack` frame points into the file the dev server SERVES, so
    * under a transforming dev server (Vite's React plugin, Next.js) its line is
    * the transformed line, not the authored one — `_debugSource` and
-   * data-source-* attributes are authored coordinates. Callers must treat a
-   * stack-derived line as approximate and re-verify before writing source.
+   * data-source-* attributes are authored coordinates. React 19 has ONLY the
+   * stack tier, so this is the common case, not the corner: on the React 19.2 +
+   * Vite 8 target an `<h1>` authored at line 13 reports as line 26. That is why
+   * every result carries `method`, and why nothing downstream may present a
+   * `debug-stack` position as the authored JSX line.
    *
    * Keep in sync with ../../../pages/design-editor/source-location.ts (the
    * unit-tested parser) and source-location.bridge.ts; bridge files may not
@@ -577,6 +580,12 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     ownerColumn?: number;
     ownerComponentName?: string;
     ownerKey?: string;
+    // Which tier produced line/column. "debug-stack" is a TRANSFORMED position.
+    method?: "debug-source" | "debug-stack";
+    // Which tier produced ownerLine/ownerColumn. Tracked separately because an
+    // element can carry an authored data-source-* position while its owner site
+    // is only reachable through the (transformed) owner stack.
+    ownerMethod?: "debug-source" | "debug-stack";
     unavailableReason?: "not-react" | "no-debug-info";
   };
 
@@ -646,6 +655,7 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       line: elementLocation.line,
       column: elementLocation.column,
       component: componentName,
+      method: elementLocation.structured ? "debug-source" : "debug-stack",
     };
     if (componentFiber) {
       var ownerLocation = fiberDebugLocation(componentFiber);
@@ -654,6 +664,9 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         provenance.ownerLine = ownerLocation.line;
         provenance.ownerColumn = ownerLocation.column;
         provenance.ownerComponentName = componentName;
+        provenance.ownerMethod = ownerLocation.structured
+          ? "debug-source"
+          : "debug-stack";
       }
       if (typeof componentFiber.key === "string" && componentFiber.key) {
         provenance.ownerKey = componentFiber.key;
@@ -865,6 +878,11 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       if (provenance.sourceFile) {
         cloneNode.setAttribute("data-source-file", provenance.sourceFile);
         cloneNode.setAttribute("data-source-line", String(provenance.line));
+        // Without this the projection would read a stack-derived (transformed)
+        // line back out through data-source-*, i.e. as an authored one.
+        if (provenance.method) {
+          cloneNode.setAttribute("data-source-method", provenance.method);
+        }
         if (provenance.column) {
           cloneNode.setAttribute(
             "data-source-column",
@@ -893,6 +911,14 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
             cloneNode.setAttribute(
               "data-source-owner-component",
               provenance.ownerComponentName,
+            );
+          }
+          // Same trap as data-source-method: without the owner's own tier the
+          // projection would read a stack-derived owner line as an authored one.
+          if (provenance.ownerMethod) {
+            cloneNode.setAttribute(
+              "data-source-owner-method",
+              provenance.ownerMethod,
             );
           }
         }
@@ -1733,25 +1759,27 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         if (hasColumn) dataSourceColumn = lastPart;
       }
     }
-    var reactProvenance: ReactDebugProvenance | undefined = undefined;
-    if (!dataSourceFile) {
-      reactProvenance = reactDebugProvenance(el);
-      if (reactProvenance.sourceFile) {
-        dataSourceFile = reactProvenance.sourceFile;
-        dataSourceLine = String(reactProvenance.line);
-        dataSourceColumn = reactProvenance.column
-          ? String(reactProvenance.column)
-          : null;
-        dataComponentName =
-          dataComponentName || reactProvenance.component || null;
-      }
+    // Always consult Fiber, even when a source plugin already stamped
+    // data-source-*: those attributes describe the element's OWN site and
+    // never the owner call site, which is the only thing that separates
+    // `.map()` siblings. The attribute tier still wins for line/column below.
+    var hadDataSourceFile = !!dataSourceFile;
+    var reactProvenance: ReactDebugProvenance = reactDebugProvenance(el);
+    if (!hadDataSourceFile && reactProvenance.sourceFile) {
+      dataSourceFile = reactProvenance.sourceFile;
+      dataSourceLine = String(reactProvenance.line);
+      dataSourceColumn = reactProvenance.column
+        ? String(reactProvenance.column)
+        : null;
+      dataComponentName =
+        dataComponentName || reactProvenance.component || null;
     }
     if (
       dataSourceFile ||
       dataSourceLine ||
       dataSourceColumn ||
       dataComponentName ||
-      reactProvenance?.unavailableReason
+      reactProvenance.unavailableReason
     ) {
       provenance = {};
       if (dataSourceFile) provenance.sourceFile = dataSourceFile;
@@ -1764,18 +1792,35 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         if (!isNaN(col)) provenance.column = col;
       }
       if (dataComponentName) provenance.component = dataComponentName;
-      if (reactProvenance?.ownerSourceFile) {
+      // Which tier the line/column above actually came from. An attribute-borne
+      // location is authored by that transform's convention unless it says
+      // otherwise; a fiber one is only authored on the `_debugSource` tier.
+      if (dataSourceFile) {
+        var declaredMethod = el.getAttribute("data-source-method");
+        provenance.method =
+          declaredMethod === "debug-source" || declaredMethod === "debug-stack"
+            ? declaredMethod
+            : hadDataSourceFile
+              ? "data-attribute"
+              : reactProvenance.method || "data-attribute";
+      }
+      if (reactProvenance.ownerSourceFile) {
         provenance.ownerSourceFile = reactProvenance.ownerSourceFile;
         provenance.ownerLine = reactProvenance.ownerLine;
         provenance.ownerColumn = reactProvenance.ownerColumn;
         provenance.ownerComponentName = reactProvenance.ownerComponentName;
+        // The owner's own tier: on a source-plugin element `method` is the
+        // attribute's authored position while this one is the owner stack's
+        // transformed line, so they must not share a single field.
+        provenance.ownerMethod = reactProvenance.ownerMethod;
       }
-      if (reactProvenance?.ownerKey) {
+      if (reactProvenance.ownerKey) {
         provenance.ownerKey = reactProvenance.ownerKey;
       }
       // Why there is no location, so the editor can say "this app exposes no
-      // debug info" instead of "still loading".
-      if (reactProvenance?.unavailableReason) {
+      // debug info" instead of "still loading". Never alongside a resolved
+      // location — a plugin-stamped element on a non-React page has one.
+      if (!dataSourceFile && reactProvenance.unavailableReason) {
         provenance.unavailableReason = reactProvenance.unavailableReason;
       }
     }
@@ -2642,7 +2687,7 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     {
       requestId: string;
       el: Element;
-      target: { anchor: Element; placement: string; axis?: string };
+      target: { anchor: Element; placement: string; axis?: string } | null;
       origin:
         | {
             prevParent: Element;
@@ -2662,6 +2707,15 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         // round-trip must REMOVE it. Restoring a prevParent it never had is
         // what would leave an orphan node behind after Cmd+Z.
         | { inserted: true }
+        // A host-driven delete. The DETACHED element is kept alive here so an
+        // undone deletion re-attaches the real node — with its live React
+        // state, listeners and children — instead of re-parsing a sanitized
+        // snapshot of what it used to look like.
+        | {
+            removed: true;
+            prevParent: Element;
+            prevNextSibling: Node | null;
+          }
         | null;
     }
   > = {};
@@ -5771,7 +5825,7 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     }
   }
 
-  function removeRuntimeTarget(selector, selectorCandidates) {
+  function removeRuntimeTarget(selector, selectorCandidates, requestId?) {
     var target = findRuntimeTarget(selector, selectorCandidates);
     if (
       !target ||
@@ -5779,6 +5833,23 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       target === document.documentElement
     )
       return false;
+    // A requestId means the host queued this deletion as a pending live edit
+    // and may undo it. Register it in the same pending-move table the drag
+    // path uses so the existing visual-structure-ack channel can put the node
+    // back; without it the ack arrives for an unknown id and Cmd+Z silently
+    // does nothing.
+    if (typeof requestId === "string" && requestId && target.parentElement) {
+      pendingStructureMoves[requestId] = {
+        requestId: requestId,
+        el: target,
+        target: null,
+        origin: {
+          removed: true,
+          prevParent: target.parentElement,
+          prevNextSibling: target.nextSibling,
+        },
+      };
+    }
     if (target.parentElement) target.parentElement.removeChild(target);
     // T23: the removed subtree may contain the active text-edit element —
     // its blur/keydown listeners are gone with it, so exit the session
@@ -12362,11 +12433,39 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       if (!move) return;
       delete pendingStructureMoves[e.data.requestId];
       var moveWasInsert = Boolean(move.origin && "inserted" in move.origin);
+      var moveWasRemoval = Boolean(move.origin && "removed" in move.origin);
+      if (moveWasRemoval) {
+        // applied === true means the source now deletes it too, so the node
+        // stays gone and this entry is simply released. applied === false is
+        // the undo: re-attach the very element that was removed.
+        if (!e.data.applied && move.origin && "removed" in move.origin) {
+          var removedParent = move.origin.prevParent;
+          var removedNextSibling = move.origin.prevNextSibling;
+          if (
+            removedParent &&
+            removedParent.isConnected &&
+            !move.el.isConnected
+          ) {
+            removedParent.insertBefore(
+              move.el,
+              removedNextSibling &&
+                removedNextSibling.parentNode === removedParent
+                ? removedNextSibling
+                : null,
+            );
+            selectedEl = move.el;
+            positionOverlay(selectionOverlay, selectedEl);
+            postElementSelect(selectedEl);
+          }
+        }
+        refreshOverlays();
+        return;
+      }
       if (e.data.applied) {
         // An inserted node is already exactly where the host asked for it and
         // has no pre-insert geometry to rebase; replaying the reorder would
         // re-run the absolute/flow correction against its own current rect.
-        if (!moveWasInsert && move.el && move.el.isConnected) {
+        if (!moveWasInsert && move.el && move.el.isConnected && move.target) {
           applyRuntimeReorder(move.el, move.target);
           selectedEl = move.el;
           positionOverlay(selectionOverlay, selectedEl);
@@ -12434,7 +12533,11 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       return;
     }
     if (e.data.type === "delete-element") {
-      removeRuntimeTarget(e.data.selector, e.data.selectorCandidates);
+      removeRuntimeTarget(
+        e.data.selector,
+        e.data.selectorCandidates,
+        e.data.requestId,
+      );
       return;
     }
     if (e.data.type === "set-text-content") {

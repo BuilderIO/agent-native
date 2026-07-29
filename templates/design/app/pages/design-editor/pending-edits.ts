@@ -73,7 +73,7 @@ export interface PendingVisualStyleEdit {
   };
 }
 
-function pendingLiveTextEditKey(edit: PendingLiveTextEdit): string {
+function pendingLiveEditSubjectKey(edit: PendingLiveNonStyleEdit): string {
   return `${edit.screenId}:${edit.sourceId?.trim() || edit.selector.trim()}`;
 }
 
@@ -83,14 +83,32 @@ export function mergePendingLiveNonStyleEdits(
   const merged: PendingLiveNonStyleEdit[] = [];
   for (const edit of edits) {
     if (edit.kind === "structure") {
+      // Deleting a node this session INSERTED nets to zero in source: the
+      // markup was never written there. Queuing both would hand the coding
+      // agent markup to add plus a node to delete, and an apply that runs the
+      // insert can resurrect exactly what the user deleted. Both entries stay
+      // on the undo stack, so undoing the delete re-queues the insertion.
+      const supersededInsertIndex = edit.removed
+        ? merged.findIndex(
+            (candidate) =>
+              candidate.kind === "structure" &&
+              Boolean(candidate.insertedHtml) &&
+              pendingLiveEditSubjectKey(candidate) ===
+                pendingLiveEditSubjectKey(edit),
+          )
+        : -1;
+      if (supersededInsertIndex !== -1) {
+        merged.splice(supersededInsertIndex, 1);
+        continue;
+      }
       merged.push(edit);
       continue;
     }
-    const nextKey = pendingLiveTextEditKey(edit);
+    const nextKey = pendingLiveEditSubjectKey(edit);
     const index = merged.findIndex(
       (candidate) =>
         candidate.kind === "text" &&
-        pendingLiveTextEditKey(candidate) === nextKey,
+        pendingLiveEditSubjectKey(candidate) === nextKey,
     );
     if (index === -1) {
       merged.push(edit);
@@ -114,7 +132,7 @@ export function pendingLiveTextUndoRevertValue(
   const currentForTarget = currentEdits.find(
     (edit): edit is PendingLiveTextEdit =>
       edit.kind === "text" &&
-      pendingLiveTextEditKey(edit) === pendingLiveTextEditKey(nextEdit),
+      pendingLiveEditSubjectKey(edit) === pendingLiveEditSubjectKey(nextEdit),
   );
   return currentForTarget
     ? { value: currentForTarget.value, html: currentForTarget.html }
@@ -163,6 +181,14 @@ export interface PendingLiveStructureEdit {
    * must insert this markup rather than relocate an existing element.
    */
   insertedHtml?: string;
+  /**
+   * This edit DELETED the subject from the running app. A removal has no
+   * anchor — `anchorSelector`/`placement` carry no meaning for it — so every
+   * consumer that pairs a subject with a target (the semantic handoff, the
+   * source-path collection before apply, runtime verification) must branch on
+   * this instead of reading anchor fields that were never captured.
+   */
+  removed?: true;
   requestId?: string;
   updatedAt: number;
 }
@@ -285,6 +311,13 @@ export function reactSourceAnchorForPendingEdit(args: {
     sourceFile,
     rootPath: args.rootPath,
   });
+  const ownerSourceFile = provenance.ownerSourceFile?.trim();
+  const ownerRelPath = ownerSourceFile
+    ? sourcePathRelativeToRoot({
+        sourceFile: ownerSourceFile,
+        rootPath: args.rootPath,
+      })
+    : undefined;
   return {
     id:
       args.id?.trim() ||
@@ -298,7 +331,23 @@ export function reactSourceAnchorForPendingEdit(args: {
     ...(relPath ? { relPath } : {}),
     line: provenance.line,
     column: provenance.column,
+    // Which tier produced line/column, so no consumer can read a React 19
+    // owner-stack (transformed) position as the authored JSX line.
+    ...(provenance.method ? { method: provenance.method } : {}),
     component: provenance.component,
+    // The nearest component's INSTANTIATION site — the `.map()` call site for a
+    // mapped instance. Dropping it here is what left the handoff unable to say
+    // where a mapped sibling actually comes from.
+    ...(ownerSourceFile ? { ownerSourceFile } : {}),
+    ...(ownerRelPath ? { ownerRelPath } : {}),
+    ...(provenance.ownerLine ? { ownerLine: provenance.ownerLine } : {}),
+    ...(provenance.ownerColumn ? { ownerColumn: provenance.ownerColumn } : {}),
+    ...(provenance.ownerComponentName
+      ? { ownerComponent: provenance.ownerComponentName }
+      : {}),
+    // The owner's own tier: a data-attribute element can still owe its owner
+    // line to a transformed owner stack.
+    ...(provenance.ownerMethod ? { ownerMethod: provenance.ownerMethod } : {}),
     // Every `.map()` sibling shares one call site, so runtimeMultiplicity alone
     // cannot say WHICH instance was selected; the React key can.
     ...(provenance.ownerKey ? { ownerKey: provenance.ownerKey } : {}),
@@ -347,6 +396,44 @@ export type PendingLiveNonStyleUndoEntry =
   | PendingLiveTextUndoEntry
   | PendingLiveStructureUndoEntry;
 
+/**
+ * Project-relative source files that must be read before this edit can be
+ * handed off. A removal has no anchor, and an INSERT has no subject — its
+ * markup exists in no source file yet — so demanding both paths rejected every
+ * insert as "anchors still loading". `null` means a path this edit does need
+ * has not resolved yet, which is the only honest "not ready" answer.
+ */
+export function pendingStructureEditSourcePaths(
+  edit: PendingLiveStructureEdit,
+): string[] | null {
+  const required = [
+    ...(edit.insertedHtml ? [] : [edit.sourceAnchor?.relPath]),
+    ...(edit.removed ? [] : [edit.anchorSourceAnchor?.relPath]),
+  ];
+  if (required.some((path) => !path)) return null;
+  return required as string[];
+}
+
+export type PendingStructureRedoCommand =
+  | { kind: "delete" }
+  | { kind: "insert"; html: string }
+  | { kind: "move" };
+
+/**
+ * Which runtime command replays this edit. Undoing an insert REMOVED the node,
+ * so replaying it as a move would address an element that is no longer in the
+ * document and the bridge would return silently — a redo that reports success
+ * and does nothing.
+ */
+export function pendingStructureRedoCommand(
+  edit: PendingLiveStructureEdit,
+): PendingStructureRedoCommand {
+  if (edit.removed) return { kind: "delete" };
+  return edit.insertedHtml
+    ? { kind: "insert", html: edit.insertedHtml }
+    : { kind: "move" };
+}
+
 export function pendingLiveStructureEditsMatch(
   left: PendingLiveStructureEdit,
   right: PendingLiveStructureEdit,
@@ -358,6 +445,7 @@ export function pendingLiveStructureEditsMatch(
     left.anchorSelector === right.anchorSelector &&
     (left.anchorSourceId ?? "") === (right.anchorSourceId ?? "") &&
     left.placement === right.placement &&
+    Boolean(left.removed) === Boolean(right.removed) &&
     left.dropMode === right.dropMode &&
     Boolean(left.forceFlowPositionOverride) ===
       Boolean(right.forceFlowPositionOverride)
@@ -476,12 +564,19 @@ export function buildPendingVisualStyleRevertPatches(
     .filter((patch) => Object.keys(patch.styles).length > 0);
 }
 
+/**
+ * Badge number on the Apply bar: how many changes Apply would hand to the
+ * agent. Live text/structure edits count one each — a delete-only preview
+ * carries no style properties, and reporting `0` next to a visible pending
+ * deletion reads as "nothing to apply".
+ */
 export function getPendingVisualStylePropertyCount(
   edits: readonly PendingVisualStyleEdit[],
+  liveEdits: readonly PendingLiveNonStyleEdit[] = [],
 ): number {
-  return edits.reduce(
-    (count, edit) => count + Object.keys(edit.styles).length,
-    0,
+  return (
+    edits.reduce((count, edit) => count + Object.keys(edit.styles).length, 0) +
+    liveEdits.length
   );
 }
 
@@ -584,26 +679,18 @@ export function formatPendingVisualStylePrompt(args: {
     const insertedHtml = edit.insertedHtml
       ? boundedInsertedHtml(edit.insertedHtml)
       : undefined;
-    const semanticHandoff = insertedHtml
-      ? targetAnchor
+    const semanticHandoff = edit.removed
+      ? subjectAnchor
         ? buildReactSemanticHandoff({
-            operation: "insert",
-            desiredChange: [
-              `Add the new markup in insertedHtml ${edit.placement} the target runtime element.`,
-              insertedHtml.truncated
-                ? "The markup below was truncated for prompt size; read the running preview or ask before writing it verbatim."
-                : "The markup is already positioned for the drop point.",
-              edit.dropMode === "absolute-container"
-                ? "The target is an absolute-positioning container; keep the inline left/top offsets."
-                : "This is a flow/auto-layout insertion; the markup carries no absolute positioning.",
-            ].join(" "),
-            sourceAnchors: [targetAnchor],
+            operation: "remove",
+            desiredChange:
+              "Delete the selected runtime element from the source that renders it. The live preview already shows it gone; remove its markup (and anything that exists only to render it) without disturbing sibling layout or behavior.",
+            sourceAnchors: [subjectAnchor],
             runtimeRelationship: {
-              kind: edit.placement,
-              subjectAnchorIds: [],
-              targetAnchorId: "target",
+              kind: "remove",
+              subjectAnchorIds: ["subject"],
               screenId: edit.screenId,
-              description: `insert ${edit.selector} ${edit.placement} ${edit.anchorSelector}`,
+              description: `remove ${edit.selector}`,
             },
             versionHashes: [],
           })
@@ -612,40 +699,71 @@ export function formatPendingVisualStylePrompt(args: {
             rejection: {
               code: "missing-source-provenance" as const,
               reason:
-                "The insertion target's source anchor was not available for this runtime insert.",
+                "The removed element's source anchor was not available for this runtime deletion.",
             },
           }
-      : subjectAnchor && targetAnchor
-        ? buildReactSemanticHandoff({
-            operation: edit.placement === "inside" ? "reparent" : "move",
-            desiredChange: [
-              `Move the selected runtime element ${edit.placement} the target runtime element.`,
-              edit.dropMode === "flow-insert"
-                ? `The drop is a flow/auto-layout insertion${edit.forceFlowPositionOverride ? "; remove authored absolute positioning so the moved element participates in the target container's layout" : "; preserve normal flow participation"}.`
-                : edit.dropMode === "absolute-container"
-                  ? "The target is an absolute-positioning container; preserve absolute positioning and rebase the moved element's visual offset from sourceRect into the target anchorRect coordinate space."
-                  : "Preserve the runtime layout behavior observed in the preview.",
-            ].join(" "),
-            sourceAnchors: [subjectAnchor, targetAnchor],
-            runtimeRelationship: {
-              kind: edit.placement,
-              subjectAnchorIds: ["subject"],
-              targetAnchorId: "target",
-              screenId: edit.screenId,
-              description: `${edit.selector} ${edit.placement} ${edit.anchorSelector}`,
-            },
-            // The packet intentionally starts without a hash: its execution
-            // contract requires read-local-file before every write.
-            versionHashes: [],
-          })
-        : {
-            ok: false as const,
-            rejection: {
-              code: "missing-source-provenance" as const,
-              reason:
-                "Exact subject and target source anchors were not both available for this React structure edit.",
-            },
-          };
+      : insertedHtml
+        ? targetAnchor
+          ? buildReactSemanticHandoff({
+              operation: "insert",
+              desiredChange: [
+                `Add the new markup in insertedHtml ${edit.placement} the target runtime element.`,
+                insertedHtml.truncated
+                  ? "The markup below was truncated for prompt size; read the running preview or ask before writing it verbatim."
+                  : "The markup is already positioned for the drop point.",
+                edit.dropMode === "absolute-container"
+                  ? "The target is an absolute-positioning container; keep the inline left/top offsets."
+                  : "This is a flow/auto-layout insertion; the markup carries no absolute positioning.",
+              ].join(" "),
+              sourceAnchors: [targetAnchor],
+              runtimeRelationship: {
+                kind: edit.placement,
+                subjectAnchorIds: [],
+                targetAnchorId: "target",
+                screenId: edit.screenId,
+                description: `insert ${edit.selector} ${edit.placement} ${edit.anchorSelector}`,
+              },
+              versionHashes: [],
+            })
+          : {
+              ok: false as const,
+              rejection: {
+                code: "missing-source-provenance" as const,
+                reason:
+                  "The insertion target's source anchor was not available for this runtime insert.",
+              },
+            }
+        : subjectAnchor && targetAnchor
+          ? buildReactSemanticHandoff({
+              operation: edit.placement === "inside" ? "reparent" : "move",
+              desiredChange: [
+                `Move the selected runtime element ${edit.placement} the target runtime element.`,
+                edit.dropMode === "flow-insert"
+                  ? `The drop is a flow/auto-layout insertion${edit.forceFlowPositionOverride ? "; remove authored absolute positioning so the moved element participates in the target container's layout" : "; preserve normal flow participation"}.`
+                  : edit.dropMode === "absolute-container"
+                    ? "The target is an absolute-positioning container; preserve absolute positioning and rebase the moved element's visual offset from sourceRect into the target anchorRect coordinate space."
+                    : "Preserve the runtime layout behavior observed in the preview.",
+              ].join(" "),
+              sourceAnchors: [subjectAnchor, targetAnchor],
+              runtimeRelationship: {
+                kind: edit.placement,
+                subjectAnchorIds: ["subject"],
+                targetAnchorId: "target",
+                screenId: edit.screenId,
+                description: `${edit.selector} ${edit.placement} ${edit.anchorSelector}`,
+              },
+              // The packet intentionally starts without a hash: its execution
+              // contract requires read-local-file before every write.
+              versionHashes: [],
+            })
+          : {
+              ok: false as const,
+              rejection: {
+                code: "missing-source-provenance" as const,
+                reason:
+                  "Exact subject and target source anchors were not both available for this React structure edit.",
+              },
+            };
     return {
       kind: edit.kind,
       screenId: edit.screenId,
@@ -654,10 +772,18 @@ export function formatPendingVisualStylePrompt(args: {
       selector: edit.selector,
       sourceId: edit.sourceId ?? null,
       sourceAnchor: redactReactSourceAnchor(edit.sourceAnchor),
-      anchorSelector: edit.anchorSelector,
-      anchorSourceId: edit.anchorSourceId ?? null,
-      anchorSourceAnchor: redactReactSourceAnchor(edit.anchorSourceAnchor),
-      placement: edit.placement,
+      // A removal has no anchor; emitting empty anchor fields alongside a
+      // meaningless placement reads as a half-captured move.
+      ...(edit.removed
+        ? { removed: true as const }
+        : {
+            anchorSelector: edit.anchorSelector,
+            anchorSourceId: edit.anchorSourceId ?? null,
+            anchorSourceAnchor: redactReactSourceAnchor(
+              edit.anchorSourceAnchor,
+            ),
+            placement: edit.placement,
+          }),
       ...(edit.dropMode ? { dropMode: edit.dropMode } : {}),
       ...(edit.forceFlowPositionOverride
         ? { forceFlowPositionOverride: true }
@@ -695,6 +821,11 @@ export function formatPendingVisualStylePrompt(args: {
       : "",
     hasBreakpointScopedEdits
       ? "Edits that carry a `breakpoint` field were made while a narrower breakpoint frame was active: apply them as width-scoped overrides (apply-visual-edit with `activeFrameWidthPx` set to breakpoint.activeWidthPx), NOT as base writes — base values must keep rendering at wider viewports. When breakpoint.editScope is `only`, confine the override to breakpoint.activeWidthPx through breakpoint.upperBoundPx; otherwise use the normal desktop-down cascade."
+      : "",
+    (args.liveEdits ?? []).some(
+      (edit) => edit.kind === "structure" && edit.removed,
+    )
+      ? "Structure edits carrying `removed: true` are DELETIONS, not moves: the element is already gone from the live preview and must be deleted from the source that renders it. Do not re-create it, and do not read its absent anchor as a half-captured move."
       : "",
     args.edits.some((edit) => edit.interactionState)
       ? "Edits that carry an `interactionState` field are pseudo-class overrides, not base styles. Apply each property only to that exact state (`hover`, `focus`, `focus-visible`, `active`, or `disabled`) while preserving the element's default styling and its other states."

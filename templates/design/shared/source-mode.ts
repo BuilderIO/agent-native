@@ -73,6 +73,19 @@ export interface ElementProvenance {
   ownerComponentName?: string;
   ownerKey?: string;
   /**
+   * Which tier produced `line`/`column`. Absent means the tier was never
+   * reported, which is NOT the same as authored — see
+   * `sourcePositionPrecision`.
+   */
+  method?: ElementProvenanceMethod;
+  /**
+   * Which tier produced `ownerLine`/`ownerColumn`. Separate from `method`
+   * because the two tiers routinely differ: a source plugin stamps an
+   * authored `data-attribute` position on the element while the owner site is
+   * only reachable through a React 19 owner stack (transformed).
+   */
+  ownerMethod?: ElementProvenanceMethod;
+  /**
    * Set when the element resolved to NO location, so callers can tell "this
    * app never exposes source locations" from "the runtime has not reported
    * yet". Never set alongside a resolved `sourceFile`.
@@ -81,6 +94,39 @@ export interface ElementProvenance {
 }
 
 export type ElementProvenanceUnavailableReason = "not-react" | "no-debug-info";
+
+/** Which tier produced a provenance position. */
+export type ElementProvenanceMethod =
+  | "data-attribute" // build-time transform's data-source-*/data-loc attributes
+  | "debug-source" // React <=18 structured `_debugSource` fiber field
+  | "debug-stack"; // React 19 `_debugStack` owner stack
+
+export const ELEMENT_PROVENANCE_METHODS: readonly ElementProvenanceMethod[] = [
+  "data-attribute",
+  "debug-source",
+  "debug-stack",
+];
+
+export type SourcePositionPrecision = "authored" | "transformed" | "unknown";
+
+/**
+ * React 19 deleted `_debugSource`, and its `jsxDEV` drops the authored
+ * `__source` argument the dev transform still emits, so the only surviving
+ * position is a `_debugStack` frame — a position in the file the dev server
+ * SERVES. Under any transforming dev server that is the transformed line, not
+ * the authored one: measured on the React 19.2 + Vite 8 target, `<h1>`
+ * authored at line 13 reports as line 26.
+ *
+ * So a `debug-stack` position must never be presented as the authored JSX
+ * line, and deterministic writers must not seek to it. `unknown` (no tier
+ * reported) is deliberately not folded into `authored`.
+ */
+export function sourcePositionPrecision(
+  method: ElementProvenanceMethod | undefined,
+): SourcePositionPrecision {
+  if (method === "debug-stack") return "transformed";
+  return method ? "authored" : "unknown";
+}
 
 export function parseDataLocProvenance(
   dataLoc: string,

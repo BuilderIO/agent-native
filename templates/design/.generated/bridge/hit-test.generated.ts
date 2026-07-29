@@ -401,7 +401,24 @@ export const hitTestBridgeScript: string = `"use strict";
         }
         cursor = parent;
       }
-      return absolutePrimitiveContainerTargetForPoint(clientX, clientY);
+      var absoluteTarget = absolutePrimitiveContainerTargetForPoint(
+        clientX,
+        clientY
+      );
+      if (absoluteTarget) return absoluteTarget;
+      var blockCursor = hit;
+      while (blockCursor) {
+        if (isContainerDropTarget(blockCursor)) {
+          return {
+            anchor: blockCursor,
+            placement: "inside",
+            axis: "y",
+            dropMode: "flow-insert"
+          };
+        }
+        blockCursor = blockCursor.parentElement;
+      }
+      return null;
     }
     function showInsertionGuideFor(target) {
       if (!target || !target.anchor) {
