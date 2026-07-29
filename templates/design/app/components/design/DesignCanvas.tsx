@@ -2288,7 +2288,7 @@ export function DesignCanvas({
     // content-fit them (Framer-style). Embedded (overview) frames only — a
     // focused single-screen view fills the viewport and must keep native
     // 100vh/min-h-screen, which the reporter's guard would otherwise pin.
-    if (isEmbeddedFrame && !boardSurface) {
+    if (isEmbeddedFrame) {
       frameDocument = appendContentSizeReporter(frameDocument);
     }
     return injectSessionReplayIframeBootstrap(frameDocument);

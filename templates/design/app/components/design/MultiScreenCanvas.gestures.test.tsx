@@ -897,9 +897,6 @@ describe("canvas iframe identity", () => {
         "body > [data-agent-native-node-id]{translate:4096px 4096px;}",
       );
       expect(iframe!.srcdoc).toContain("background:hsl(0, 0%, 10%)");
-      expect(iframe!.srcdoc).not.toContain(
-        "data-agent-native-content-size-bridge",
-      );
       expect(iframe!.getAttribute("data-screen-iframe-id")).toBeNull();
     } finally {
       await act(async () => root.unmount());
