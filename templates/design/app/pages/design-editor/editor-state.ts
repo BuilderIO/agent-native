@@ -14,6 +14,22 @@ import {
 export { isStandaloneHttpUrl };
 
 /**
+ * A live-screen route intentionally refuses whole-document replacement. That
+ * is a successful no-op, unlike an unavailable preview bridge, which callers
+ * must recover by rebuilding their render state.
+ */
+export type PreviewContentReplaceResult =
+  | "applied"
+  | "skipped-live-route"
+  | "unavailable";
+
+export function previewContentReplaceNeedsRenderFallback(
+  result: PreviewContentReplaceResult,
+): boolean {
+  return result === "unavailable";
+}
+
+/**
  * Resolve the source payload behind a localhost-backed Design screen.
  *
  * `design_files.content` intentionally stores the route URL, not its HTML.

@@ -18,7 +18,10 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-import { isStandaloneHttpUrl } from "./editor-state";
+import {
+  isStandaloneHttpUrl,
+  previewContentReplaceNeedsRenderFallback,
+} from "./editor-state";
 
 const editorSource = readFileSync(
   new URL("../DesignEditor.tsx", import.meta.url),
@@ -58,12 +61,11 @@ describe("live screen URL preview guard", () => {
       /if \(isStandaloneHttpUrl\(nextContent\)\) \{[\s\S]*?console\.error\(/,
     );
 
-    const fallback = sourceSection(
-      "export function previewContentReplaceNeedsRenderFallback",
-      "const OVERVIEW_ZOOM_THRESHOLD",
+    expect(previewContentReplaceNeedsRenderFallback("unavailable")).toBe(true);
+    expect(previewContentReplaceNeedsRenderFallback("applied")).toBe(false);
+    expect(previewContentReplaceNeedsRenderFallback("skipped-live-route")).toBe(
+      false,
     );
-    expect(fallback).toContain('return result === "unavailable"');
-    expect(fallback).not.toContain("skipped-live-route");
     expect(editorSource).not.toContain("!replacePreviewContent(");
   });
 

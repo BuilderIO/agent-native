@@ -617,6 +617,7 @@ import {
   getLocalhostRouteSourceFile,
   getPersistedContentHostSyncOptions,
   isStandaloneHttpUrl,
+  previewContentReplaceNeedsRenderFallback,
   removeUndoRedoOrderKind,
   resolveLocalhostSourceWriteContent,
   resolveOptimisticTextDecorationLine,
@@ -627,6 +628,7 @@ import {
   shouldSendKeepalive,
   shouldSkipVisualStyleCommitForPreview,
   type OptimisticTextDecorationLineEntry,
+  type PreviewContentReplaceResult,
   type UndoRedoOrderKind,
 } from "./design-editor/editor-state";
 import {
@@ -902,17 +904,6 @@ function designSelectionStateKeys(): string[] {
 const MAX_GENERATION_ATTEMPTS = 3;
 const AUTO_RETRY_DELAY_MS = 1200;
 const STORED_RUN_LIVENESS_GRACE_MS = 20_000;
-
-export type PreviewContentReplaceResult =
-  | "applied"
-  | "skipped-live-route"
-  | "unavailable";
-
-export function previewContentReplaceNeedsRenderFallback(
-  result: PreviewContentReplaceResult,
-): boolean {
-  return result === "unavailable";
-}
 
 const OVERVIEW_ZOOM_THRESHOLD = 60;
 const MOTION_DOCK_TRANSITION_MS = 200;
