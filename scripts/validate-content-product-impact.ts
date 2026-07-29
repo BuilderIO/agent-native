@@ -8,7 +8,6 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -21,6 +20,10 @@ import {
 } from "./validate-content-product-docs.ts";
 
 const PRODUCT_ROOT = "templates/content/docs/product";
+const REPOSITORY_ROOT = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+);
 const LANES = [
   "contract_repair",
   "contract_fulfillment",
@@ -636,7 +639,9 @@ export function runContentProductImpactCheck(): void {
     );
   }
 
-  const temporaryRoot = mkdtempSync(path.join(tmpdir(), "content-impact-"));
+  const temporaryRoot = mkdtempSync(
+    path.join(REPOSITORY_ROOT, ".content-impact-"),
+  );
   try {
     const baseRoot = materializeProductRoot(
       baseSha,

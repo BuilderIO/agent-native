@@ -328,6 +328,14 @@ function createCliRepository(
     cpSync(path.join(repositoryRoot, fixture), productRoot, {
       recursive: true,
     });
+    writeFileSync(
+      path.join(productRoot, "architecture.md"),
+      "# Architecture\n",
+    );
+    writeFileSync(
+      path.join(productRoot, "README.md"),
+      "Read the [architecture](architecture.md).\n",
+    );
   } else {
     writeFileSync(path.join(root, "README.md"), "base\n");
   }
