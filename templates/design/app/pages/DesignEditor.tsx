@@ -6713,10 +6713,11 @@ function DesignEditor() {
     ],
   );
 
-  // Agent→editor commands follow edit access, not ambient session state: the
-  // visual-edit handoff can authorize a local editor without a normal sign-in.
+  // Direct links are read-only navigation too: viewers must be able to restore
+  // the requested screen, view, and zoom even though tool activation remains
+  // guarded inside applyDesignEditorCommand.
   useEffect(() => {
-    if (!id || !canEditDesign) return;
+    if (!id) return;
     if (initialSearchCommandAppliedForIdRef.current === id) return;
     const command = designEditorCommandFromSearchParams(
       id,
@@ -6730,7 +6731,7 @@ function DesignEditor() {
     if (applied) {
       initialSearchCommandAppliedForIdRef.current = id;
     }
-  }, [applyDesignEditorCommand, canEditDesign, id, initialSearchParams]);
+  }, [applyDesignEditorCommand, id, initialSearchParams]);
 
   useEffect(() => {
     if (!id || !canEditDesign) return;
