@@ -450,6 +450,30 @@ describe("Content impact CLI boundary", () => {
     assert.doesNotMatch(result.stderr, /base Content product catalog/);
   });
 
+  it("materializes linked non-Markdown files inside each snapshot", () => {
+    const repository = createCliRepository(
+      "linked-asset-cli",
+      (root) => {
+        const file = path.join(root, "templates/content/app/example.ts");
+        mkdirSync(path.dirname(file), { recursive: true });
+        writeFileSync(file, "export const example = true;\n");
+      },
+      "",
+      true,
+      (root) => {
+        const productRoot = path.join(root, "templates/content/docs/product");
+        writeFileSync(path.join(productRoot, "contract.json"), "{}\n");
+        writeFileSync(
+          path.join(productRoot, "README.md"),
+          "Read the [architecture](architecture.md) and [contract](contract.json).\n",
+        );
+      },
+    );
+    const result = runCli(repository);
+    assert.equal(result.status, 0, result.stderr);
+    assert.doesNotMatch(result.stdout, /broken relative link/);
+  });
+
   it("uses the merge-base for a PR whose target branch has advanced", () => {
     const repository = createCliRepository(
       "diverged-base-cli",

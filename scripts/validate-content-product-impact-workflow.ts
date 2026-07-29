@@ -15,11 +15,25 @@ function permissionIsRead(value: unknown): boolean {
   return value === "read";
 }
 
+const ALLOWED_GITHUB_EXPRESSIONS = new Set([
+  "github.event.pull_request.number",
+  "github.event.pull_request.base.sha",
+  "github.event.pull_request.head.sha",
+]);
+
 function containsCredentialContext(value: unknown): boolean {
   if (typeof value === "string") {
-    return /\$\{\{[\s\S]*?(?:\bsecrets\b|\bgithub\s*(?:\.\s*token|\[\s*["']token["']\s*\]))/i.test(
-      value,
-    );
+    for (const match of value.matchAll(/\$\{\{([\s\S]*?)\}\}/g)) {
+      const expression = match[1].trim().toLowerCase();
+      if (/\bsecrets\b/i.test(expression)) return true;
+      if (
+        /\bgithub\b/i.test(expression) &&
+        !ALLOWED_GITHUB_EXPRESSIONS.has(expression)
+      ) {
+        return true;
+      }
+    }
+    return false;
   }
   if (Array.isArray(value)) return value.some(containsCredentialContext);
   return (

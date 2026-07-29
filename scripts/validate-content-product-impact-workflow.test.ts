@@ -90,6 +90,21 @@ describe("Content product conformance workflow boundary", () => {
     assert(result.issues.some((issue) => issue.includes("credentials")));
   });
 
+  it("rejects serialization of the full GitHub context", () => {
+    for (const expression of [
+      "${{ toJSON(github) }}",
+      "${{ TOJSON( GITHUB ) }}",
+    ]) {
+      const unsafe = workflow.replace(
+        "    timeout-minutes:",
+        `    env:\n      GITHUB_CONTEXT: "${expression}"\n    timeout-minutes:`,
+      );
+      const result = validateContentProductImpactWorkflow(unsafe);
+      assert.equal(result.ok, false);
+      assert(result.issues.some((issue) => issue.includes("credentials")));
+    }
+  });
+
   it("requires the check job and impact checker step to be unconditional", () => {
     const unsafe = workflow
       .replace(

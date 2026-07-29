@@ -527,6 +527,13 @@ function git(args: string[]): string {
   });
 }
 
+function gitFile(sha: string, file: string): Buffer {
+  return execFileSync("git", ["show", `${sha}:${file}`], {
+    cwd: process.cwd(),
+    maxBuffer: 32 * 1024 * 1024,
+  });
+}
+
 function assertSha(value: string, name: string): void {
   if (!/^[0-9a-f]{40,64}$/i.test(value)) {
     throw new Error(`${name} must be a full Git object SHA`);
@@ -564,11 +571,9 @@ function materializeContentProductSnapshot(
     throw new Error(`${sha} does not contain readable Content product records`);
   }
   for (const file of files) {
-    if (!file.endsWith(".md")) continue;
     const destinationFile = path.join(destination, file);
     mkdirSync(path.dirname(destinationFile), { recursive: true });
-    const source = git(["show", `${sha}:${file}`]);
-    writeFileSync(destinationFile, source);
+    writeFileSync(destinationFile, gitFile(sha, file));
   }
   return root;
 }
