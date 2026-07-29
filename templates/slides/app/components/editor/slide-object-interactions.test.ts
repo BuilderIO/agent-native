@@ -9,6 +9,7 @@ import {
   ensureSlideObjectId,
   escapedEditingSelection,
   findSlideObjectById,
+  freezeSlideElementForFreeform,
   getSlideSelectionIdentity,
   getSlideSelectionMode,
   resizeSlideObject,
@@ -123,5 +124,36 @@ describe("slide object interactions", () => {
       editing: null,
       selected: "text-box",
     });
+  });
+
+  it("freezes an in-flow text block without removing its layout slot", () => {
+    const parent = document.createElement("div");
+    const text = document.createElement("h1");
+    text.dataset.builderId = "heading";
+    text.textContent = "Slide title";
+    parent.append(text);
+
+    const spacer = freezeSlideElementForFreeform(
+      text,
+      { x: 120, y: 80, width: 420, height: 64 },
+      {
+        display: "block",
+        flexGrow: "0",
+        flexShrink: "1",
+        flexBasis: "auto",
+        alignSelf: "auto",
+      },
+    );
+
+    expect(parent.children).toHaveLength(2);
+    expect(parent.firstElementChild).toBe(spacer);
+    expect(spacer.classList.contains("fmd-layout-spacer")).toBe(true);
+    expect(spacer.style.visibility).toBe("hidden");
+    expect(spacer.style.width).toBe("420px");
+    expect(spacer.dataset.builderId).toBeUndefined();
+    expect(text.style.position).toBe("absolute");
+    expect(text.style.left).toBe("120px");
+    expect(text.style.top).toBe("80px");
+    expect(text.dataset.slideObjectId).toBeTruthy();
   });
 });

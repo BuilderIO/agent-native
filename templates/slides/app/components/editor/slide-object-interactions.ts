@@ -171,6 +171,7 @@ export function freezeSlideElementForFreeform(
   geometry: SlideObjectGeometry,
   layout: SlideObjectLayoutSnapshot,
 ): HTMLElement {
+  const objectId = ensureSlideObjectId(element);
   const spacer = element.cloneNode(false) as HTMLElement;
   removeTransientBuilderIds(spacer);
   spacer.removeAttribute("id");
@@ -178,6 +179,7 @@ export function freezeSlideElementForFreeform(
   spacer.removeAttribute("contenteditable");
   spacer.removeAttribute("data-editing-block");
   spacer.classList.add("fmd-layout-spacer");
+  spacer.setAttribute("data-slide-layout-spacer-for", objectId);
   spacer.setAttribute("aria-hidden", "true");
   spacer.style.visibility = "hidden";
   spacer.style.pointerEvents = "none";
@@ -200,7 +202,6 @@ export function freezeSlideElementForFreeform(
 
   element.before(spacer);
   element.classList.add("fmd-freeform-object");
-  ensureSlideObjectId(element);
   element.style.position = "absolute";
   element.style.left = `${geometry.x}px`;
   element.style.top = `${geometry.y}px`;
@@ -211,6 +212,23 @@ export function freezeSlideElementForFreeform(
   // absolute element would offset it from the measured pre-freeze rect.
   element.style.margin = "0";
   return spacer;
+}
+
+/** Remove a freeform object and the invisible layout slot that anchors it. */
+export function removeSlideObjectAndLayoutSpacer(element: HTMLElement): void {
+  const objectId = element.getAttribute("data-slide-object-id");
+  if (objectId) {
+    for (const spacer of Array.from(
+      element.ownerDocument.querySelectorAll<HTMLElement>(
+        "[data-slide-layout-spacer-for]",
+      ),
+    )) {
+      if (spacer.getAttribute("data-slide-layout-spacer-for") === objectId) {
+        spacer.remove();
+      }
+    }
+  }
+  element.remove();
 }
 
 /** Convert a viewport click into the unscaled fmd-slide coordinate system. */
