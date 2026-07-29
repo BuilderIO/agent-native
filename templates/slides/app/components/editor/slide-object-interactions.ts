@@ -32,6 +32,18 @@ export function ensureSlideObjectId(element: HTMLElement): string {
   return id;
 }
 
+export function findSlideObjectById(
+  root: HTMLElement,
+  objectId: string,
+): HTMLElement | null {
+  return (
+    Array.from(
+      root.querySelectorAll<HTMLElement>("[data-slide-object-id]"),
+    ).find((element) => element.getAttribute("data-slide-object-id") === objectId) ??
+    null
+  );
+}
+
 export function removeTransientBuilderIds(element: HTMLElement): void {
   element.removeAttribute("data-builder-id");
   element.querySelectorAll("[data-builder-id]").forEach((node) => {

@@ -6,6 +6,7 @@ import {
   cloneSlideObject,
   ensureSlideObjectId,
   escapedEditingSelection,
+  findSlideObjectById,
   resizeSlideObject,
 } from "./slide-object-interactions";
 
@@ -21,6 +22,20 @@ describe("slide object interactions", () => {
     expect(clone.dataset.slideObjectId).not.toBe(object.dataset.slideObjectId);
     expect(clone.querySelectorAll("[data-builder-id]")).toHaveLength(0);
     expect(ensureSlideObjectId(object)).toBe("original");
+  });
+
+  it("resolves a persisted object after its DOM path changes", () => {
+    const root = document.createElement("div");
+    root.innerHTML = `
+      <div data-fmd-autofit-content>
+        <div data-slide-object-id="persisted-text">Text</div>
+      </div>
+    `;
+
+    expect(findSlideObjectById(root, "persisted-text")?.textContent).toBe(
+      "Text",
+    );
+    expect(findSlideObjectById(root, "missing")).toBeNull();
   });
 
   it("anchors the opposite corner and enforces a usable resize minimum", () => {

@@ -75,6 +75,7 @@ import {
   cloneSlideObject,
   ensureSlideObjectId,
   escapedEditingSelection,
+  findSlideObjectById,
   resizeSlideObject,
   type ResizeHandle,
   type SlideObjectGeometry,
@@ -928,6 +929,7 @@ export default function SlideEditor({
   const [selectedElementPath, setSelectedElementPath] = useState<
     number[] | null
   >(null);
+  const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
   const [selectedElementSelector, setSelectedElementSelector] = useState<
     string | null
   >(null);
@@ -1201,9 +1203,15 @@ export default function SlideEditor({
   }, []);
 
   const resolveSelectedElement = useCallback((): HTMLElement | null => {
+    const slideContent = getSlideContent();
+    if (!slideContent) return null;
+    if (selectedObjectId) {
+      const object = findSlideObjectById(slideContent, selectedObjectId);
+      if (object) return object;
+    }
     if (!selectedElementPath) return null;
-    return resolveElementPath(getSlideContent(), selectedElementPath);
-  }, [getSlideContent, selectedElementPath]);
+    return resolveElementPath(slideContent, selectedElementPath);
+  }, [getSlideContent, selectedElementPath, selectedObjectId]);
 
   const buildSelectionState = useCallback(
     (
@@ -1228,6 +1236,7 @@ export default function SlideEditor({
 
   const clearSelectedElement = useCallback(() => {
     setSelectedElementPath(null);
+    setSelectedObjectId(null);
     setSelectedElementSelector(null);
     setSelectedElementRect(null);
     setSelectedStyleSnapshot(null);
@@ -1241,6 +1250,7 @@ export default function SlideEditor({
       if (path.length === 0) return;
       const snapshot = buildStyleSnapshot(element, selector);
       setSelectedElementPath(path);
+      setSelectedObjectId(element.getAttribute("data-slide-object-id"));
       setSelectedElementSelector(selector);
       setSelectedElementRect(element.getBoundingClientRect());
       setSelectedStyleSnapshot(snapshot);
