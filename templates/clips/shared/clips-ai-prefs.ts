@@ -28,7 +28,6 @@ export type ClipsAiPrefs = {
 export type ClipsUserPrefs = ClipsAiPrefs & {
   defaultPlaybackSpeed?: string;
   emailNotifications?: boolean;
-  displayName?: string;
   transcriptCleanupEnabled?: boolean;
 };
 

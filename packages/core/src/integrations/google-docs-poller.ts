@@ -535,6 +535,9 @@ async function processComment(
         console.error("[google-docs] Error sending response:", err);
       }
     },
+    // No userId here: `options.ownerEmail` is PII (email), which the
+    // terminal event must not carry.
+    { model: options.model, engineName: engine.name },
   );
 }
 

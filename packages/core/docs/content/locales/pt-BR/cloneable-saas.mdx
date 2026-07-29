@@ -33,6 +33,127 @@ Não quer um app de domínio? Use [Chat](/docs/template-chat) quando quiser um a
 
 Veja o catálogo completo em [Apps](/apps) ou vá direto para um. Por exemplo, [Dispatch](/docs/template-dispatch) é um ótimo lugar para começar se você quiser um aplicativo estilo espaço de trabalho.
 
+## Templates da comunidade {#community-templates}
+
+Os templates nomeados no seletor da CLI são **oficiais**: a Agent Native os
+mantém, testa, documenta e publica junto com o framework. Um **template da
+comunidade** é mantido e versionado pelo proprietário do repositório. Ele pode
+usar a mesma superfície do framework, mas uma entrada na lista da comunidade
+não representa recomendação nem promessa de suporte da Agent Native.
+
+Execute `create`, escolha **Template da comunidade** e cole a URL simples de um
+repositório público do GitHub:
+
+```bash
+https://github.com/owner/repo
+```
+
+Se a raiz do repositório contiver um único app Agent Native, a CLI o instalará
+diretamente sem outro seletor. Se o repositório for um workspace Agent Native, a
+CLI descobrirá os filhos diretos válidos de `apps/*`, excluirá `dispatch` e
+perguntará qual app deve ser instalado.
+
+Um marcador `agent-native.workspaceCore` não vazio faz do repositório um
+workspace mesmo quando o pacote raiz também depende de `@agent-native/core`; um
+marcador malformado é rejeitado.
+
+Passe a mesma URL simples para `--template` em scripts ou use a forma curta
+`community:`. Fixe uma branch, tag ou commit depois de `#` para obter um ponto
+de partida reproduzível. Sem uma referência, a CLI tenta `main` e depois
+`master`:
+
+```bash
+npx @agent-native/core@latest create my-app --template community:owner/repo#v1.2.0
+npx @agent-native/core@latest create my-app --template https://github.com/owner/repo#v1.2.0
+```
+
+Para escolher o app de origem de um repositório de workspace sem interação, use
+`?app=<app-name>`. O seletor vem antes do `#ref` opcional. Mantenha todo o valor
+entre aspas, pois shells como zsh tratam `?` como um glob:
+
+```bash
+npx @agent-native/core@latest create my-app --template 'community:owner/repo?app=analytics#v1.2.0'
+npx @agent-native/core@latest create my-app --template 'https://github.com/owner/repo?app=analytics#v1.2.0'
+```
+
+Fora de um workspace, `create` transforma o app de origem selecionado em um app
+independente. Para adicioná-lo a um workspace existente, passe explicitamente o
+repositório da comunidade, pois o seletor de `add-app` mostra apenas templates
+oficiais. Omita `?app` para escolher interativamente no workspace de origem ou
+inclua-o para uma instalação automatizável:
+
+```bash
+npx @agent-native/core@latest add-app my-app --template community:owner/repo#v1.2.0
+npx @agent-native/core@latest add-app my-app --template 'community:owner/repo?app=analytics#v1.2.0'
+```
+
+Somente repositórios públicos do GitHub são aceitos. Repositórios privados,
+hosts que não sejam GitHub, URLs de árvores ou subdiretórios do GitHub e
+caminhos de app aninhados não são compatíveis. Um app na raiz deve ter um
+`package.json` legível que liste `@agent-native/core` em `dependencies`,
+`devDependencies` ou `peerDependencies`. Em um repositório de workspace, cada
+app de origem selecionável deve atender ao mesmo requisito diretamente em
+`apps/<app-name>/`; `dispatch` nunca pode ser selecionado.
+
+Apps de um workspace da comunidade devem ser unidades portáteis, não fatias
+arbitrárias de um monorepo:
+
+- referências de dependência `catalog:` padrão são resolvidas a partir do
+  `pnpm-workspace.yaml` na raiz do repositório de origem; referências de
+  catálogo nomeadas não são compatíveis;
+- referências `workspace:*` a `@agent-native/core`,
+  `@agent-native/dispatch` e `@agent-native/toolkit` são reescritas para versões
+  publicadas. Outros pacotes irmãos do workspace não são copiados; publique-os
+  e use uma versão concreta;
+- a dependência do pacote `workspaceCore` de origem é removida. Os plugins
+  canônicos herdados de autenticação e agent chat do workspace são
+  desconectados em uma instalação independente ou vinculados ao workspace de
+  destino. Qualquer outra importação do pacote `workspaceCore` de origem falha
+  com uma mensagem clara; mova esse código para o app ou publique-o como uma
+  dependência concreta.
+
+Mantenha o restante de cada app completo junto ao seu `package.json`:
+`agent-native.json` quando usado, código-fonte, actions, instruções do agente e
+configuração do banco de dados. Um repositório pronto para o catálogo também
+deve incluir:
+
+- uma licença e um link para o mantenedor ou suporte;
+- um README com as etapas de configuração, variáveis de ambiente obrigatórias
+  e o comando exato da CLI;
+- um `.env.example` contendo apenas placeholders, sem secrets, dados de
+  clientes, bancos de dados de execução ou saídas de build geradas;
+- instalação e comando de desenvolvimento funcionais, typecheck e testes
+  adequados ao template.
+
+O instalador registra os valores `source` e `ref` resolvidos em
+`agent-native.communityTemplate` dentro do `package.json` do app instalado.
+Apps selecionados de um repositório de workspace também registram o app de
+origem como `agent-native.communityTemplate.app`. `agent-native template sync`
+continua exclusivo para templates oficiais; para atualizar um template da
+comunidade, revise uma referência upstream mais recente e mescle as alterações
+por conta própria.
+
+Consulte [Creating Templates](/docs/creating-templates) para ver o checklist
+completo de app, actions, estado, segurança e publicação.
+
+> **Revise o código da comunidade antes de instalar dependências ou executá-lo.**
+> Os templates da comunidade são baixados de repositórios de terceiros; a Agent
+> Native não os isola, audita ou mantém. A CLI baixa apenas o código-fonte; ela
+> não instala dependências nem executa scripts do template. Inspecione o
+> código-fonte, a licença, as dependências e os scripts de instalação de pacotes
+> e prefira uma referência confiável fixada.
+
+Uma demonstração hospedada é opcional. Se você fornecer uma, use um link
+público para experimentar e documente os requisitos de login, dados de exemplo
+ou provedores. O repositório continua sendo a fonte da verdade para a
+instalação, e seu proprietário continua responsável pelo template e pela
+demonstração.
+
+Quer entrar na lista? [Envie um template da comunidade](https://github.com/BuilderIO/agent-native/issues/new?template=community-template.yml)
+com a URL do repositório, uma descrição de uma frase, detalhes do mantenedor e
+da licença, o comando da CLI testado e uma URL opcional da demonstração
+hospedada.
+
 ## O que você ganha imediatamente {#what-you-get}
 
 Cada app de exemplo vem com peças que normalmente levam meses para serem construídas:

@@ -6,6 +6,7 @@ import {
   ACTION_CHAT_UI_DATA_TABLE_RENDERER,
   ACTION_CHAT_UI_DATA_WIDGET_RENDERER,
   ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER,
+  ACTION_CHAT_UI_WORKSPACE_FILE_RENDERER,
 } from "../../../action-ui.js";
 import {
   registerReservedActionChatRenderer,
@@ -22,6 +23,7 @@ import {
   type DataWidgetResult,
 } from "./data-widget-types.js";
 import { normalizeInlineExtensionToolResult } from "./inline-extension-result.js";
+import { normalizeWorkspaceFileResult } from "./workspace-file-result.js";
 
 const LazyDataChartWidget = lazy(() =>
   import("./DataChartWidget.js").then((module) => ({
@@ -41,6 +43,11 @@ const LazyDataTableWidget = lazy(() =>
 const LazyInlineExtensionWidget = lazy(() =>
   import("./InlineExtensionWidget.js").then((module) => ({
     default: module.InlineExtensionWidget,
+  })),
+);
+const LazyWorkspaceFileWidget = lazy(() =>
+  import("./WorkspaceFileWidget.js").then((module) => ({
+    default: module.WorkspaceFileWidget,
   })),
 );
 
@@ -149,6 +156,15 @@ const BuiltinInlineExtensionRenderer: ToolRendererComponent = ({ context }) =>
     </Suspense>
   ) : null;
 
+const BuiltinWorkspaceFileRenderer: ToolRendererComponent = ({ context }) => {
+  const result = normalizeWorkspaceFileResult(context.resultJson);
+  return result ? (
+    <Suspense fallback={<BuiltinToolRendererSkeleton framed={false} />}>
+      <LazyWorkspaceFileWidget result={result} />
+    </Suspense>
+  ) : null;
+};
+
 export function isBuiltinDataWidgetActionRenderer(
   context: ToolRendererContext,
 ): boolean {
@@ -169,6 +185,12 @@ export function resolveBuiltinActionChatRenderer(
     normalizeInlineExtensionToolResult(context)
   ) {
     return BuiltinInlineExtensionRenderer;
+  }
+  if (
+    context.chatUI?.renderer === ACTION_CHAT_UI_WORKSPACE_FILE_RENDERER &&
+    normalizeWorkspaceFileResult(context.resultJson)
+  ) {
+    return BuiltinWorkspaceFileRenderer;
   }
   if (
     isBuiltinDataWidgetActionRenderer(context) &&

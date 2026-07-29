@@ -404,7 +404,7 @@ describe("chat thread store", () => {
     await setThreadQueuedMessages("thread-1", []);
 
     const repo = JSON.parse(row!.thread_data);
-    expect(repo.queuedMessages).toBeUndefined();
+    expect(repo.queuedMessages).toEqual([]);
     expect(repo.messages.map((entry: any) => entry.message.id)).toEqual([
       "user-1",
       "assistant-1",

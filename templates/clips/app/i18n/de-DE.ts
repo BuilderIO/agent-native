@@ -566,6 +566,9 @@ const messages = {
     useColor: "Verwenden Sie {{color}}",
     logo: "Logo",
     logoPreview: "Logo-Vorschau",
+    logoUsage:
+      "Wird Empfängern in Freigabe-E-Mails und auf öffentlichen Clip-Seiten angezeigt.",
+    emailHeaderPreview: "Kopfbereich der Freigabe-E-Mail",
     dropReplace: "Legen Sie ein neues Bild ab, um es zu ersetzen",
     dropHere: "Geben Sie hier einen PNG / JPG / SVG ein",
     uploading: "Hochladen…",
@@ -666,10 +669,6 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
 ### Hinzugefügt
 
 - Du kannst Neuigkeiten jetzt direkt in Clips ansehen. Das Änderungsprotokoll ist im Befehlsmenü (Cmd+K) und in den Einstellungen verfügbar.`,
-    profile: "Profil",
-    email: "E-Mail",
-    displayName: "Anzeigename",
-    displayNamePlaceholder: "Dein Name",
     playback: "Wiedergabe",
     defaultPlaybackSpeed: "Standard-Wiedergabegeschwindigkeit",
     playbackDescription:
@@ -813,6 +812,8 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
       "Noch keine Organisation. Erstelle eine über den Organisationswechsler, um zu beginnen.",
     description: "Organisationsverwaltung: Branding, Mitglieder, Einladungen.",
     adminsOnlyBranding: "Nur Administratoren können das Branding bearbeiten.",
+    brandingLoadFailed:
+      "Das Branding der Organisation konnte nicht geladen werden.",
     members: "Mitglieder",
     pendingInvites: "Ausstehende Einladungen",
     noPendingInvites: "Keine ausstehenden Einladungen.",
@@ -957,6 +958,7 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     replyingTo: "Antwort an",
     commentAt: "Kommentar bei",
     writeReply: "Antwort schreiben...",
+    editComment: "Kommentar bearbeiten",
     commentButton: "Kommentar",
     composerPlaceholder: "Kommentar hinzufügen…",
     mentionSomeone: "Jemanden erwähnen",
@@ -1362,7 +1364,7 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     downloadDesktopApp: "Download desktop app (Lokalisiert)",
     technicalDetails: "Technical details (Lokalisiert)",
     whatToCheck: "What to check (Lokalisiert)",
-    downloadRecording: "Download recording (Lokalisiert)",
+    downloadRecording: "Download (Lokalisiert)",
     openRecorderInTab: "Open recorder in tab (Lokalisiert)",
     connectStorageToFinish:
       "Verbinde Speicher im nächsten Bildschirm: Builder.io (Speicher + KI im kostenlosen Tarif) oder S3-kompatibler Speicher. Clips schließt das Speichern ab.",

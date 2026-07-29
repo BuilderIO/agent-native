@@ -493,11 +493,23 @@ Avant de partager :
 4. Documenter les variables d'environnement requises et les étapes d'intégration.
 5. Inclure des exemples ou des lignes de départ via des migrations additives, et non des fichiers de données d'exécution suivis.
 
-Les modèles de communauté peuvent être créés à partir d'un dépôt GitHub :
+Les modèles de la communauté s’installent directement depuis un dépôt GitHub public. Placez l’application Agent Native à la racine du dépôt :
 
 ```bash
-npx @agent-native/core@latest create my-app --template github:user/repo
+npx @agent-native/core@latest create my-app --template community:owner/repo
 ```
+
+Ajoutez `#branch`, `#tag` ou `#commit` pour épingler une révision précise :
+
+```bash
+npx @agent-native/core@latest create my-app --template community:owner/repo#v1.0.0
+```
+
+La CLI télécharge uniquement le code source. Elle n’installe pas les dépendances et n’exécute pas les scripts du modèle. Les modèles communautaires sont du code tiers : vérifiez le dépôt, la licence, les dépendances et les scripts avant d’exécuter `pnpm install`.
+
+Pour figurer au catalogue, fournissez une application complète à la racine, un dépôt public avec une licence et un README de configuration, une dépendance à `@agent-native/core`, ainsi que des vérifications de types et des tests réussis. Une démo hébergée et une capture d’écran sont facultatives.
+
+[Proposez un modèle communautaire](https://github.com/BuilderIO/agent-native/issues/new?template=community-template.yml) lorsque le dépôt est prêt. Ces modèles restent séparés du catalogue officiel et sont maintenus par leurs auteurs.
 
 ## Contribuer au framework monorepo {#contributing}
 

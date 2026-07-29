@@ -76,7 +76,8 @@ function emitBackgroundWorker(token: string) {
   cpSync(SERVER_DIR, dest, { recursive: true });
   rmSync(path.join(dest, "server.mjs"), { force: true });
 
-  const source = `globalThis.__AGENT_NATIVE_DASHBOARD_REPORT_SCHEDULED_RUNTIME__ = true;
+  const source = `globalThis.__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true;
+globalThis.__AGENT_NATIVE_DASHBOARD_REPORT_SCHEDULED_RUNTIME__ = true;
 
 const CRON_TOKEN = ${JSON.stringify(token)};
 const ROUTE_PATH = ${JSON.stringify(ROUTE_PATH)};
@@ -192,7 +193,8 @@ function emitAlertBackgroundWorker(token: string) {
   cpSync(SERVER_DIR, dest, { recursive: true });
   rmSync(path.join(dest, "server.mjs"), { force: true });
 
-  const source = `globalThis.__AGENT_NATIVE_ANALYTICS_ALERT_SCHEDULED_RUNTIME__ = true;
+  const source = `globalThis.__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true;
+globalThis.__AGENT_NATIVE_ANALYTICS_ALERT_SCHEDULED_RUNTIME__ = true;
 
 const CRON_TOKEN = ${JSON.stringify(token)};
 const ROUTE_PATH = ${JSON.stringify(ALERT_ROUTE_PATH)};
@@ -308,7 +310,8 @@ function emitUptimeBackgroundWorker(token: string) {
   cpSync(SERVER_DIR, dest, { recursive: true });
   rmSync(path.join(dest, "server.mjs"), { force: true });
 
-  const source = `globalThis.__AGENT_NATIVE_UPTIME_MONITOR_SCHEDULED_RUNTIME__ = true;
+  const source = `globalThis.__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true;
+globalThis.__AGENT_NATIVE_UPTIME_MONITOR_SCHEDULED_RUNTIME__ = true;
 
 const CRON_TOKEN = ${JSON.stringify(token)};
 const ROUTE_PATH = ${JSON.stringify(UPTIME_ROUTE_PATH)};

@@ -858,6 +858,9 @@ const enUS = {
     githubOAuthUnavailable:
       "OAuth app credentials are not configured on this deployment. Use the personal access token field below.",
     sharedIntegration: "Shared integration",
+    workspaceAdminRequiredTitle: "Organization connection requires an admin",
+    workspaceAdminRequiredDescription:
+      "Ask an organization owner or admin to connect {{name}} for everyone in this organization.",
     sharedReady:
       "Analytics can use this provider through a workspace connection granted from Dispatch.",
     sharedNeedsGrant:
@@ -1325,6 +1328,9 @@ const analyticsSliceTranslations: {
       githubOAuthUnavailable:
         "此部署中未配置 OAuth 应用程序凭据。使用下面的个人访问令牌字段。",
       sharedIntegration: "共享集成",
+      workspaceAdminRequiredTitle: "组织连接需要管理员",
+      workspaceAdminRequiredDescription:
+        "请让组织所有者或管理员为此组织中的所有人连接 {{name}}。",
       sharedReady:
         "Analytics 可以通过 Dispatch 授予的工作空间连接来使用此提供程序。",
       sharedNeedsGrant: "存在工作区连接。打开Dispatch，授予Analytics访问权限。",
@@ -1618,6 +1624,10 @@ const analyticsSliceTranslations: {
       githubOAuthUnavailable:
         "Las credenciales de la aplicación OAuth no están configuradas en esta implementación. Utilice el campo de token de acceso personal a continuación.",
       sharedIntegration: "Integración compartida",
+      workspaceAdminRequiredTitle:
+        "La conexión de la organización requiere un administrador",
+      workspaceAdminRequiredDescription:
+        "Pide a un propietario o administrador de la organización que conecte {{name}} para todos.",
       sharedReady:
         "Analytics puede utilizar este proveedor a través de una conexión de espacio de trabajo otorgada por Dispatch.",
       sharedNeedsGrant:
@@ -1930,6 +1940,10 @@ const analyticsSliceTranslations: {
       githubOAuthUnavailable:
         "Les informations d'identification de l'application OAuth ne sont pas configurées sur ce déploiement. Utilisez le champ du jeton d'accès personnel ci-dessous.",
       sharedIntegration: "Intégration partagée",
+      workspaceAdminRequiredTitle:
+        "La connexion de l’organisation nécessite un administrateur",
+      workspaceAdminRequiredDescription:
+        "Demandez à un propriétaire ou administrateur de l’organisation de connecter {{name}} pour tous.",
       sharedReady:
         "Analytics peut utiliser ce fournisseur via une connexion à l'espace de travail accordée par Dispatch.",
       sharedNeedsGrant:
@@ -2240,6 +2254,10 @@ const analyticsSliceTranslations: {
       githubOAuthUnavailable:
         "Die Anmeldeinformationen für die OAuth-App sind in dieser Bereitstellung nicht konfiguriert. Verwenden Sie das Feld für das persönliche Zugriffstoken unten.",
       sharedIntegration: "Gemeinsame Integration",
+      workspaceAdminRequiredTitle:
+        "Für die Organisationsverbindung ist ein Administrator erforderlich",
+      workspaceAdminRequiredDescription:
+        "Bitte einen Organisationsinhaber oder Administrator, {{name}} für alle zu verbinden.",
       sharedReady:
         "Analytics kann diesen Anbieter über eine von Dispatch gewährte Workspace-Verbindung nutzen.",
       sharedNeedsGrant:
@@ -2548,6 +2566,9 @@ const analyticsSliceTranslations: {
       githubOAuthUnavailable:
         "OAuth アプリの資格情報は、この展開では構成されていません。以下の個人アクセス トークン フィールドを使用してください。",
       sharedIntegration: "共有統合",
+      workspaceAdminRequiredTitle: "組織の接続には管理者が必要です",
+      workspaceAdminRequiredDescription:
+        "組織の所有者または管理者に、組織全体で {{name}} を接続するよう依頼してください。",
       sharedReady:
         "Analytics は、Dispatch から付与されたワークスペース接続を通じてこのプロバイダーを使用できます。",
       sharedNeedsGrant:
@@ -2850,6 +2871,9 @@ const analyticsSliceTranslations: {
       githubOAuthUnavailable:
         "이 배포에서는 OAuth 앱 자격 증명이 구성되지 않습니다. 아래의 개인 액세스 토큰 필드를 사용하세요.",
       sharedIntegration: "공유 통합",
+      workspaceAdminRequiredTitle: "조직 연결에는 관리자가 필요합니다",
+      workspaceAdminRequiredDescription:
+        "조직 소유자 또는 관리자에게 조직의 모든 사용자를 위해 {{name}} 연결을 요청하세요.",
       sharedReady:
         "Analytics는 Dispatch에서 부여된 작업 공간 연결을 통해 이 공급자를 사용할 수 있습니다.",
       sharedNeedsGrant:
@@ -3149,6 +3173,10 @@ const analyticsSliceTranslations: {
       githubOAuthUnavailable:
         "As credenciais do aplicativo OAuth não estão configuradas nesta implantação. Use o campo de token de acesso pessoal abaixo.",
       sharedIntegration: "Integração compartilhada",
+      workspaceAdminRequiredTitle:
+        "A conexão da organização requer um administrador",
+      workspaceAdminRequiredDescription:
+        "Peça a um proprietário ou administrador da organização para conectar {{name}} para todos.",
       sharedReady:
         "Analytics pode usar este provedor por meio de uma conexão de espaço de trabalho concedida pelo Dispatch.",
       sharedNeedsGrant:
@@ -3453,6 +3481,9 @@ const analyticsSliceTranslations: {
       githubOAuthUnavailable:
         "इस परिनियोजन पर OAuth ऐप क्रेडेंशियल कॉन्फ़िगर नहीं किए गए हैं। नीचे व्यक्तिगत एक्सेस टोकन फ़ील्ड का उपयोग करें।",
       sharedIntegration: "साझा एकीकरण",
+      workspaceAdminRequiredTitle: "संगठन कनेक्शन के लिए एडमिन आवश्यक है",
+      workspaceAdminRequiredDescription:
+        "संगठन के मालिक या एडमिन से सभी के लिए {{name}} कनेक्ट करने को कहें।",
       sharedReady:
         "Analytics इस प्रदाता का उपयोग Dispatch से दिए गए कार्यक्षेत्र कनेक्शन के माध्यम से कर सकता है।",
       sharedNeedsGrant:
@@ -3748,6 +3779,9 @@ const analyticsSliceTranslations: {
       githubOAuthUnavailable:
         "لم يتم تكوين بيانات اعتماد تطبيق OAuth في هذا النشر. استخدم حقل رمز الوصول الشخصي أدناه.",
       sharedIntegration: "التكامل المشترك",
+      workspaceAdminRequiredTitle: "يتطلب اتصال المؤسسة مشرفًا",
+      workspaceAdminRequiredDescription:
+        "اطلب من مالك المؤسسة أو أحد المشرفين ربط {{name}} لجميع أعضاء المؤسسة.",
       sharedReady:
         "يمكن لـ Analytics استخدام هذا الموفر من خلال اتصال مساحة العمل الممنوح من Dispatch.",
       sharedNeedsGrant:

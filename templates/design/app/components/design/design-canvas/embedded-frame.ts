@@ -1,3 +1,5 @@
+import { injectDocumentMarkup } from "@agent-native/core/shared";
+
 const TRANSPARENT_EMBEDDED_FRAME_STYLE =
   "<style data-agent-native-transparent-frame>html,body{background:transparent!important;}body{background-color:transparent!important;}</style>";
 
@@ -37,8 +39,8 @@ export function embeddedContentOffsetStyle(x: number, y: number): string {
 
 function injectEmbeddedFrameStyle(content: string, style: string): string {
   if (!style) return content;
-  if (/<\/head>/i.test(content)) {
-    return content.replace(/<\/head>/i, `${style}</head>`);
+  if (/<\/head\s*>/i.test(content)) {
+    return injectDocumentMarkup(content, style, { target: "head" });
   }
   if (/<body\b/i.test(content)) {
     return content.replace(/<body\b/i, `${style}<body`);

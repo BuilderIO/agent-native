@@ -17,7 +17,19 @@
  *   });
  */
 
+import type { EmailCta, EmailLinkBlock } from "../server/email-template.js";
 import type { UserProfile } from "../user-profile/shared.js";
+
+export interface ShareEmailExtras {
+  /**
+   * Replaces the default body paragraphs between the heading and the preview.
+   * Pass `[]` to send none. Omit to keep the default copy.
+   */
+  paragraphs?: string[];
+  secondaryCta?: EmailCta;
+  linkBlock?: EmailLinkBlock;
+  closingParagraphs?: string[];
+}
 
 export interface ShareableResourceRegistration {
   /** Stable identifier used across actions, UI, and analytics. e.g. "document". */
@@ -86,6 +98,17 @@ export interface ShareableResourceRegistration {
     ctx: { href: string; alt?: string },
   ) => string | undefined | Promise<string | undefined>;
   /**
+   * Optional resolver for app-specific content in the share-notification
+   * email: a second button beside the primary CTA, a treated copyable link,
+   * and closing paragraphs beneath it. Closing paragraphs are injected
+   * verbatim (use `emailLink` / `emailStrong` for inline markup), so escape
+   * any dynamic values.
+   */
+  getShareEmailExtras?: (
+    resource: any,
+    ctx: { href: string; sender: UserProfile; recipientEmail: string },
+  ) => ShareEmailExtras | undefined | Promise<ShareEmailExtras | undefined>;
+  /**
    * Drizzle DB accessor from the template's server/db/index.ts. Required —
    * the framework-level share actions and access helpers call this to reach
    * the right DB instance (schema is template-specific).
@@ -124,7 +147,11 @@ export interface ShareableResourceRegistration {
     | "admin"
     | ((
         resource: any,
-        ctx: { userEmail?: string; orgId?: string },
+        ctx: {
+          userEmail?: string;
+          orgId?: string;
+          authCapability?: string;
+        },
       ) =>
         | "viewer"
         | "editor"
@@ -148,9 +175,14 @@ export interface ShareableResourceRegistration {
    * identity can normalize here so the generic framework sharing actions and
    * access helpers stay in sync with template-owned actions.
    */
-  resolveAccessContext?: (ctx: { userEmail?: string; orgId?: string }) => {
+  resolveAccessContext?: (ctx: {
     userEmail?: string;
     orgId?: string;
+    authCapability?: string;
+  }) => {
+    userEmail?: string;
+    orgId?: string;
+    authCapability?: string;
   };
   /**
    * When true, direct ownership is recognized by owner_email regardless of the
