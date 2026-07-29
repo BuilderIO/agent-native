@@ -28,10 +28,6 @@ ladder.
 - Preserve deck structure and visual consistency. Prefer focused slide edits over
   regenerating whole decks unless requested.
 - Follow linked design-system tokens and custom instructions.
-- A `## Reference Deck` block is a pattern library, not an outline. Plan the new
-  deck from the user's request, then style each slide with the pattern that fits
-  it. Never mirror the reference deck's slide order, count, or content.
-  `get-deck-reference-context` builds the block; `get-deck` reads the full deck.
 - For reusable design-system setup from Figma, connected code/GitHub, local
   code/design files, or optional `design.md`, use Builder-backed DSI indexing
   through `index-design-system-with-builder` or `import-file --format fig`.
@@ -101,7 +97,7 @@ extending the editor's save path, enqueue a granular op (`patch-slide`,
 
 Read the relevant skill before deeper work:
 
-- `create-deck` for new decks and outline-to-slide flows.
+- `create-deck` for new decks, reference decks, and outlines.
 - `slide-editing` for targeted slide changes.
 - `deck-management` for organization, sharing, import/export, and metadata.
 - `slide-images` and `image-generation-via-a2a` for image work.
