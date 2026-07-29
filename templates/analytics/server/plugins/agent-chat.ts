@@ -7,10 +7,7 @@ import {
 } from "@agent-native/core/server";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
-import {
-  applyAnalyticsPlanModePolicy,
-  INITIAL_TOOL_NAMES,
-} from "../lib/agent-chat-plan-mode";
+import { INITIAL_TOOL_NAMES } from "../lib/agent-chat-plan-mode";
 import { ANALYTICS_CONNECTOR_CATALOG } from "../lib/analytics-connector-catalog";
 import { credentialProviderConfigs } from "../lib/credential-keys";
 import {
@@ -53,7 +50,7 @@ export const BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE =
   "BUILT-IN FIRST-PARTY SOURCE — Analytics always provides one built-in first-party source alongside connected external providers such as BigQuery, HubSpot, Gong, Slack, and the other configured integrations. This does not replace or restrict external sources. When `search-analytics-query-catalog` identifies a first-party dashboard/chart definition, preserve its event semantics and use `query-agent-native-analytics` over `analytics_events` or `session_recordings` as appropriate. When the user names an external provider, or the catalog identifies one as authoritative, query that provider instead. Do not report the first-party source as disconnected merely because an external provider is not configured. If the authoritative query returns no rows, report that grounded result with its scope and time window. ";
 
 export const ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE =
-  "OBSERVABILITY INCIDENT WORKFLOW — For a named user's session or error question, resolve the user's email from context, then use list-session-recordings with userId over a bounded recent window to discover the relevant sessions. Do not require hasErrors=true for this initial lookup: replay/network/stuck-run evidence can exist while the recording's JavaScript errorCount is zero. Use hasErrors=true only when the user specifically asks for recordings with captured JavaScript errors or the recording metadata confirms that filter is appropriate. Use list-error-issues with userId or sessionRecordingId to identify a grouped issue, then get-error-issue for stack, breadcrumbs, occurrences, and linked recordings. For console diagnostics or failed network requests, create-session-replay-agent-link first and use its scoped diagnostics endpoint for detailed error text, stacks, request metadata, and bounded 5xx snippets; enumerate with kind/limit and fromMs/toMs or offset when needed. Use get-session-replay-summary and get-session-replay-timeline for the page-navigation and click sequence, and use get-session-replay-events only for additional bounded replay-event details. If no grouped error exists, correlate first-party observability events such as agent_chat_stuck_detected with query-agent-native-analytics in execution mode. In Plan mode, query-agent-native-analytics is intentionally unavailable: do not claim a live event correlation or root cause from it, and describe the event lookup as a planned next step. Prefer these first-party actions over generic SQL. Report the matching evidence and do not claim a root cause without a corroborating error, event, or replay signal. ";
+  "OBSERVABILITY INCIDENT WORKFLOW — For a named user's session or error question, resolve the user's email from context, then use list-session-recordings with userId over a bounded recent window to discover the relevant sessions. Do not require hasErrors=true for this initial lookup: replay/network/stuck-run evidence can exist while the recording's JavaScript errorCount is zero. Use hasErrors=true only when the user specifically asks for recordings with captured JavaScript errors or the recording metadata confirms that filter is appropriate. Use list-error-issues with userId or sessionRecordingId to identify a grouped issue, then get-error-issue for stack, breadcrumbs, occurrences, and linked recordings. For console diagnostics or failed network requests, create-session-replay-agent-link first and use its scoped diagnostics endpoint for detailed error text, stacks, request metadata, and bounded 5xx snippets; enumerate with kind/limit and fromMs/toMs or offset when needed. Use get-session-replay-summary and get-session-replay-timeline for the page-navigation and click sequence, and use get-session-replay-events only for additional bounded replay-event details. If no grouped error exists, correlate first-party observability events such as agent_chat_stuck_detected with query-agent-native-analytics. This and other read-only investigation tools remain available in Plan mode; run the query instead of deferring it to execution mode. Prefer these first-party actions over generic SQL. Report the matching evidence and do not claim a root cause without a corroborating error, event, or replay signal. ";
 
 export const NON_ANALYTICS_REQUEST_GUIDANCE =
   "NON-ANALYTICS REQUESTS — If the user is not asking for a live metric, source record, or derived analytics claim, answer normally in chat. Greetings, general-knowledge questions, math, writing, coding, and conceptual questions do not need a data-source call. Do not use the no-grounded-data fallback for those requests. ";
@@ -103,11 +100,7 @@ Data-dictionary definitions are available through \`search-analytics-query-catal
 </data-dictionary-routing>`;
 }
 
-export {
-  applyAnalyticsPlanModePolicy,
-  INITIAL_TOOL_NAMES,
-  PLAN_MODE_ACT_ONLY_TOOLS,
-} from "../lib/agent-chat-plan-mode";
+export { INITIAL_TOOL_NAMES } from "../lib/agent-chat-plan-mode";
 
 function latestUserText(
   messages: AgentLoopFinalResponseGuardContext["messages"],
@@ -831,9 +824,7 @@ export async function searchDashboardMentions(query: string, event?: any) {
 
 export default createAgentChatPlugin({
   appId: "analytics",
-  actions: applyAnalyticsPlanModePolicy(
-    loadActionsFromStaticRegistry(actionsRegistry),
-  ),
+  actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INITIAL_TOOL_NAMES,
   corpusTools: "lazy",
   finalResponseGuard: realDataFinalGuard,

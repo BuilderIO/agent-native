@@ -400,6 +400,14 @@ export function createAutomationToolEntries(
           required: ["action"],
         },
       },
+      planMode: {
+        effect: (args) =>
+          args.action === "list" || args.action === "list-events"
+            ? "read"
+            : "write",
+        allowedValues: { action: ["list-events", "list"] },
+        description: "Plan mode allows listing automations and event types.",
+      },
       run: async (args: Record<string, unknown>) => {
         const action = args.action;
 

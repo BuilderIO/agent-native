@@ -12,6 +12,29 @@ describe("createFetchToolEntry", () => {
     return entry.run({ url });
   }
 
+  it("classifies only non-persisting GET and HEAD calls as Plan-mode reads", () => {
+    const entry = createFetchToolEntry()["web-request"];
+    const effect = entry.planMode?.effect;
+    expect(typeof effect).toBe("function");
+    if (typeof effect !== "function") throw new Error("Missing classifier");
+
+    expect(effect({ url: "https://example.com" })).toBe("read");
+    expect(effect({ url: "https://example.com", method: "HEAD" })).toBe("read");
+    expect(effect({ url: "https://example.com", method: "POST" })).toBe(
+      "write",
+    );
+    expect(
+      effect({
+        url: "https://example.com",
+        method: "GET",
+        saveToFile: "page.html",
+      }),
+    ).toBe("write");
+    expect(entry.planMode?.allowedValues).toEqual({
+      method: ["GET", "HEAD"],
+    });
+  });
+
   it.each([
     "http://localhost:3000/_agent-native/actions/x",
     "http://127.0.0.1:3000/",

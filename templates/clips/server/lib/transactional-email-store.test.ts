@@ -435,6 +435,69 @@ describe("transactional email store", () => {
     expect(await readdir(locksDirectory)).toEqual([]);
   });
 
+  it("releases a held lock after a fresh contender exits", async () => {
+    const root = await testRoot();
+    const setupStore = createTransactionalEmailStore({ root });
+    await setupStore.enqueue("first-view:share-1", firstViewPayload);
+
+    let releaseHolder: (() => void) | undefined;
+    const holderPaused = new Promise<void>((resolve) => {
+      releaseHolder = resolve;
+    });
+    let holderAcquired: (() => void) | undefined;
+    const holderAcquiredPromise = new Promise<void>((resolve) => {
+      holderAcquired = resolve;
+    });
+    const holderStore = createTransactionalEmailStore({
+      root,
+      testHooks: {
+        afterJobLockAcquired: async () => {
+          holderAcquired?.();
+          await holderPaused;
+        },
+      },
+    });
+
+    let releaseContender: (() => void) | undefined;
+    const contenderPaused = new Promise<void>((resolve) => {
+      releaseContender = resolve;
+    });
+    let freshContention: (() => void) | undefined;
+    const freshContentionPromise = new Promise<void>((resolve) => {
+      freshContention = resolve;
+    });
+    const contenderStore = createTransactionalEmailStore({
+      root,
+      testHooks: {
+        afterFreshLockContention: async () => {
+          freshContention?.();
+          await contenderPaused;
+        },
+      },
+    });
+
+    const holder = holderStore.transition(
+      "first-view:share-1",
+      ["pending"],
+      "ready",
+    );
+    await holderAcquiredPromise;
+    const contender = contenderStore.transition(
+      "first-view:share-1",
+      ["pending"],
+      "ready",
+    );
+    await freshContentionPromise;
+
+    releaseHolder?.();
+    await expect(holder).resolves.toMatchObject({ state: "ready" });
+    releaseContender?.();
+    await expect(contender).resolves.toBeNull();
+    await expect(
+      setupStore.transition("first-view:share-1", ["ready"], "cancelled"),
+    ).resolves.toMatchObject({ state: "cancelled" });
+  });
+
   it("does not release a replacement lock owned by a stale reclaimer", async () => {
     const root = await testRoot();
     const setupStore = createTransactionalEmailStore({ root });

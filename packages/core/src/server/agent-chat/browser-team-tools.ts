@@ -465,6 +465,17 @@ export function createTeamTools(deps: {
           required: ["action"],
         },
       },
+      planMode: {
+        effect: (args) =>
+          args.action === "status" ||
+          args.action === "read-result" ||
+          args.action === "list"
+            ? "read"
+            : "write",
+        allowedValues: { action: ["status", "read-result", "list"] },
+        description:
+          "Plan mode allows listing tasks and reading their status or results.",
+      },
       run: async (args: Record<string, string>) => {
         const action = args.action;
 

@@ -2,7 +2,10 @@ import { createHash } from "node:crypto";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createBuilderBrowserTool } from "./browser-team-tools.js";
+import {
+  createBuilderBrowserTool,
+  createTeamTools,
+} from "./browser-team-tools.js";
 
 const mocks = vi.hoisted(() => ({
   assertAccess: vi.fn(),
@@ -145,5 +148,28 @@ describe("createBuilderBrowserTool extension promotion", () => {
       extensionId: "ext-1",
       contentLength: extension.content.length,
     });
+  });
+});
+
+describe("createTeamTools Plan-mode effects", () => {
+  it("allows task observation but blocks delegation and messages", () => {
+    const entry = createTeamTools({
+      getOwner: () => "owner@example.test",
+      getSystemPrompt: () => "",
+      getActions: () => ({}),
+      getEngine: () => ({}) as any,
+      getModel: () => "test-model",
+      getParentThreadId: () => "thread-1",
+      getSend: () => null,
+    })["agent-teams"];
+    const effect = entry.planMode?.effect;
+    expect(typeof effect).toBe("function");
+    if (typeof effect !== "function") throw new Error("Missing classifier");
+
+    expect(effect({ action: "status" })).toBe("read");
+    expect(effect({ action: "read-result" })).toBe("read");
+    expect(effect({ action: "list" })).toBe("read");
+    expect(effect({ action: "spawn" })).toBe("write");
+    expect(effect({ action: "send" })).toBe("write");
   });
 });

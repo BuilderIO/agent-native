@@ -88,6 +88,18 @@ describe("manage-jobs tool", () => {
     resourceDeleteMock.mockResolvedValue(true);
   });
 
+  it("allows only list in Plan mode", () => {
+    const entry = createJobTools()["manage-jobs"];
+    const effect = entry.planMode?.effect;
+    expect(typeof effect).toBe("function");
+    if (typeof effect !== "function") throw new Error("Missing classifier");
+
+    expect(effect({ action: "list" })).toBe("read");
+    expect(effect({ action: "create" })).toBe("write");
+    expect(effect({ action: "update" })).toBe("write");
+    expect(effect({ action: "delete" })).toBe("write");
+  });
+
   describe("create", () => {
     it("validates required fields", async () => {
       const out = JSON.parse(await run({ action: "create", name: "x" }));

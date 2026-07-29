@@ -52,6 +52,18 @@ describe("manage-automations tool", () => {
     return createAutomationToolEntries(() => owner)["manage-automations"];
   }
 
+  it("allows only list operations in Plan mode", () => {
+    const entry = tool();
+    const effect = entry.planMode?.effect;
+    expect(typeof effect).toBe("function");
+    if (typeof effect !== "function") throw new Error("Missing classifier");
+
+    expect(effect({ action: "list-events" })).toBe("read");
+    expect(effect({ action: "list" })).toBe("read");
+    expect(effect({ action: "define" })).toBe("write");
+    expect(effect({ action: "fire-test" })).toBe("write");
+  });
+
   it("lists only the selected personal scope", async () => {
     const resources = [
       {

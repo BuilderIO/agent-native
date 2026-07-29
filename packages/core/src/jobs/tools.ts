@@ -390,6 +390,11 @@ For jobs that use a connected MCP, pass the exact tool names in mcpTools. This b
           required: ["action"],
         },
       },
+      planMode: {
+        effect: (args) => (args.action === "list" ? "read" : "write"),
+        allowedValues: { action: ["list"] },
+        description: "Plan mode allows listing recurring jobs.",
+      },
       run: async (args) => {
         switch (args.action) {
           case "create":

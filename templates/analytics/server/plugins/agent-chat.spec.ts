@@ -1,16 +1,55 @@
-import type {
-  ActionEntry,
-  AgentLoopFinalResponseGuardContext,
-} from "@agent-native/core/server";
+import type { AgentLoopFinalResponseGuardContext } from "@agent-native/core/server";
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("../../.generated/actions-registry.js", () => ({ default: {} }));
+const { agentChatPluginOptions, representativeAnalyticsActions } = vi.hoisted(
+  () => ({
+    agentChatPluginOptions: [] as Array<Record<string, unknown>>,
+    representativeAnalyticsActions: {
+      "query-agent-native-analytics": {
+        readOnly: true,
+        tool: {
+          description: "Query first-party analytics",
+          parameters: { type: "object", properties: {} },
+        },
+        run: async () => "ok",
+      },
+      bigquery: {
+        readOnly: true,
+        tool: {
+          description: "Query BigQuery",
+          parameters: { type: "object", properties: {} },
+        },
+        run: async () => "ok",
+      },
+      "hubspot-records": {
+        readOnly: true,
+        tool: {
+          description: "Read HubSpot records",
+          parameters: { type: "object", properties: {} },
+        },
+        run: async () => "ok",
+      },
+    },
+  }),
+);
 
-import {
-  applyAnalyticsPlanModePolicy,
-  PLAN_MODE_ACT_ONLY_TOOLS,
-  INITIAL_TOOL_NAMES,
-} from "../lib/agent-chat-plan-mode";
+vi.mock("@agent-native/core/server", async (importOriginal) => {
+  const original =
+    await importOriginal<typeof import("@agent-native/core/server")>();
+  return {
+    ...original,
+    createAgentChatPlugin: (options: Record<string, unknown>) => {
+      agentChatPluginOptions.push(options);
+      return () => {};
+    },
+  };
+});
+
+vi.mock("../../.generated/actions-registry.js", () => ({
+  default: representativeAnalyticsActions,
+}));
+
+import { INITIAL_TOOL_NAMES } from "../lib/agent-chat-plan-mode";
 import {
   GENERIC_NO_DATA_FALLBACK_MESSAGE,
   looksLikeAnalyticsDataRequest,
@@ -28,19 +67,6 @@ import {
   NON_ANALYTICS_REQUEST_GUIDANCE,
   realDataFinalGuard,
 } from "./agent-chat";
-
-type PlanModePolicyEntry = ActionEntry & { allowInPlanMode?: boolean };
-
-function action(readOnly = true): ActionEntry {
-  return {
-    readOnly,
-    tool: {
-      description: "test action",
-      parameters: { type: "object", properties: {} },
-    },
-    run: async () => "ok",
-  };
-}
 
 describe("Analytics agent Plan mode policy", () => {
   it("recovers a silent background dashboard run before the long chunk timeout", () => {
@@ -107,7 +133,10 @@ describe("Analytics agent Plan mode policy", () => {
       "detailed error text, stacks, request metadata",
     );
     expect(ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE).toContain(
-      "In Plan mode, query-agent-native-analytics is intentionally unavailable",
+      "read-only investigation tools remain available in Plan mode",
+    );
+    expect(ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE).toContain(
+      "run the query instead of deferring it",
     );
   });
 
@@ -123,65 +152,17 @@ describe("Analytics agent Plan mode policy", () => {
     expect(context.length).toBeLessThan(1_000);
   });
 
-  it("marks substantive data-analysis tools as Act-only without changing lightweight planning tools", () => {
-    const actions = applyAnalyticsPlanModePolicy({
-      "data-source-status": action(),
-      "search-bigquery-schema": action(),
-      bigquery: action(),
-      "provider-api-request": action(),
-      "query-staged-dataset": action(),
-      "hubspot-deals": action(),
-      "hubspot-pipelines": action(),
-      "github-repo-files": action(),
-    });
+  it("leaves representative read-only Analytics tools available to the shared Plan-mode policy", () => {
+    const pluginActions = agentChatPluginOptions[0]?.actions as Record<
+      string,
+      Record<string, unknown>
+    >;
 
-    expect(
-      (actions["data-source-status"] as PlanModePolicyEntry).allowInPlanMode,
-    ).toBeUndefined();
-    expect(
-      (actions["search-bigquery-schema"] as PlanModePolicyEntry)
-        .allowInPlanMode,
-    ).toBeUndefined();
-    expect((actions.bigquery as PlanModePolicyEntry).allowInPlanMode).toBe(
-      false,
-    );
-    expect(
-      (actions["provider-api-request"] as PlanModePolicyEntry).allowInPlanMode,
-    ).toBe(false);
-    expect(
-      (actions["query-staged-dataset"] as PlanModePolicyEntry).allowInPlanMode,
-    ).toBe(false);
-    expect(
-      (actions["hubspot-deals"] as PlanModePolicyEntry).allowInPlanMode,
-    ).toBe(false);
-    expect(
-      (actions["hubspot-pipelines"] as PlanModePolicyEntry).allowInPlanMode,
-    ).toBe(false);
-    expect(
-      (actions["github-repo-files"] as PlanModePolicyEntry).allowInPlanMode,
-    ).toBe(false);
+    for (const name of Object.keys(representativeAnalyticsActions)) {
+      expect(pluginActions[name]?.readOnly).toBe(true);
+      expect(pluginActions[name]).not.toHaveProperty("allowInPlanMode", false);
+    }
   });
-
-  it("documents the complete Analytics Act-only Plan mode tool set", () => {
-    expect([...PLAN_MODE_ACT_ONLY_TOOLS].sort()).toEqual([
-      "account-deep-dive",
-      "bigquery",
-      "github-repo-files",
-      "gong-calls",
-      "gong-native-insights",
-      "hubspot-deals",
-      "hubspot-pipelines",
-      "hubspot-records",
-      "jira-search",
-      "provider-api-request",
-      "provider-corpus-job",
-      "query-agent-native-analytics",
-      "query-staged-dataset",
-      "sentry",
-      "slack-messages",
-    ]);
-  });
-
   it("keeps corpus tools discoverable without loading them initially", () => {
     expect(INITIAL_TOOL_NAMES).toEqual(
       expect.arrayContaining([
