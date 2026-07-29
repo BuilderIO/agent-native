@@ -571,7 +571,8 @@ function changedFiles(baseSha: string, headSha: string): string[] {
     "-z",
     "--no-renames",
     "--diff-filter=ACDMRTUXB",
-    `${baseSha}...${headSha}`,
+    baseSha,
+    headSha,
   ])
     .split("\0")
     .filter(Boolean);
@@ -644,26 +645,34 @@ export function runContentProductImpactCheck(): void {
       "event base/head SHAs do not match the requested revisions",
     );
   }
+  const comparisonBaseSha = git(["merge-base", baseSha, headSha]).trim();
+  if (!/^[0-9a-f]{40,64}$/i.test(comparisonBaseSha)) {
+    throw new Error("could not resolve a full merge-base for the PR revisions");
+  }
 
   const temporaryRoot = mkdtempSync(
     path.join(REPOSITORY_ROOT, ".content-impact-"),
   );
   try {
+    const baseSnapshotRoot = path.join(temporaryRoot, "base");
+    const headSnapshotRoot = path.join(temporaryRoot, "head");
     const baseRoot = materializeContentProductSnapshot(
-      baseSha,
-      path.join(temporaryRoot, "base"),
+      comparisonBaseSha,
+      baseSnapshotRoot,
     );
     const headRoot = materializeContentProductSnapshot(
       headSha,
-      path.join(temporaryRoot, "head"),
+      headSnapshotRoot,
     );
     const base = validateContentProductDocs(baseRoot, {
       strictCatalog: false,
       checkProjections: false,
+      validationRoot: baseSnapshotRoot,
     });
     const head = validateContentProductDocs(headRoot, {
       strictCatalog: false,
       checkProjections: false,
+      validationRoot: headSnapshotRoot,
     });
     if (base.errors.length > 0) {
       throw new Error(
@@ -672,7 +681,7 @@ export function runContentProductImpactCheck(): void {
     }
     const analysis = analyzeContentProductImpact({
       body: pullRequest.body ?? "",
-      changedFiles: changedFiles(baseSha, headSha),
+      changedFiles: changedFiles(comparisonBaseSha, headSha),
       baseCatalog: base.catalog,
       headCatalog: head.catalog,
       baseCatalogErrors: base.errors,
@@ -683,6 +692,7 @@ export function runContentProductImpactCheck(): void {
       `${JSON.stringify({
         schema: "content-conformance.advisory-declaration.v1",
         headSha,
+        comparisonBaseSha,
         advisory: true,
         ...analysis,
       })}\n`,

@@ -426,7 +426,7 @@ describe("Content impact CLI boundary", () => {
             root,
             "templates/content/.agents/skills/content-product-development/SKILL.md",
           ),
-          "# Content product skill\n\nDo not use [private files](file:///private/example).\n",
+          "# Content product skill\n\nDo not use [live checkout files](../../../../../../../package.json).\n",
         );
       },
       "",
@@ -434,8 +434,48 @@ describe("Content impact CLI boundary", () => {
     const result = runCli(repository);
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /head-catalog-invalid/);
-    assert.match(result.stdout, /remove file URL/);
+    assert.match(result.stdout, /link escapes the repository/);
     assert.doesNotMatch(result.stderr, /base Content product catalog/);
+  });
+
+  it("uses the merge-base for a PR whose target branch has advanced", () => {
+    const repository = createCliRepository(
+      "diverged-base-cli",
+      (root) => writeFileSync(path.join(root, "README.md"), "head\n"),
+      declaration().replace("record_change: included", "record_change: none"),
+    );
+    git(repository.root, ["checkout", "-q", "--detach", repository.baseSha]);
+    writeFileSync(
+      path.join(
+        repository.root,
+        "templates/content/.agents/skills/content-product-development/SKILL.md",
+      ),
+      "# Content product skill\n\nDo not use file:///private/example.\n",
+    );
+    git(repository.root, ["add", "."]);
+    git(repository.root, ["commit", "-qm", "advanced base"]);
+    const advancedBaseSha = git(repository.root, ["rev-parse", "HEAD"]);
+    writeFileSync(
+      repository.eventPath,
+      JSON.stringify({
+        pull_request: {
+          body: declaration().replace(
+            "record_change: included",
+            "record_change: none",
+          ),
+          base: { sha: advancedBaseSha },
+          head: { sha: repository.headSha },
+        },
+      }),
+    );
+
+    const result = runCli({ ...repository, baseSha: advancedBaseSha });
+    assert.equal(result.status, 0, result.stderr);
+    assert.doesNotMatch(result.stderr, /base Content product catalog/);
+    assert.match(
+      result.stdout,
+      new RegExp(`"comparisonBaseSha":"${repository.baseSha}"`),
+    );
   });
 
   it("fails loudly for mismatched event revisions and missing catalogs", () => {

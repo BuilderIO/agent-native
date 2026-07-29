@@ -77,7 +77,11 @@ export type ValidationResult = {
 
 export function validateContentProductDocs(
   root = defaultProductRoot,
-  options: { strictCatalog?: boolean; checkProjections?: boolean } = {},
+  options: {
+    strictCatalog?: boolean;
+    checkProjections?: boolean;
+    validationRoot?: string;
+  } = {},
 ): ValidationResult {
   const strictCatalog = options.strictCatalog ?? root === defaultProductRoot;
   const checkProjections = options.checkProjections ?? true;
@@ -85,7 +89,11 @@ export function validateContentProductDocs(
   const catalog = loadCatalog(root, errors);
 
   validateCatalog(catalog, errors, strictCatalog);
-  validateLinksAndPrivacy(catalog, errors);
+  validateLinksAndPrivacy(
+    catalog,
+    errors,
+    options.validationRoot ?? repositoryRoot,
+  );
 
   const roadmap = renderRoadmap(catalog);
   const encyclopedia = renderEncyclopedia(catalog);
@@ -803,7 +811,11 @@ function validateCapabilityMiniSpec(
   }
 }
 
-function validateLinksAndPrivacy(catalog: ProductCatalog, errors: string[]) {
+function validateLinksAndPrivacy(
+  catalog: ProductCatalog,
+  errors: string[],
+  validationRoot: string,
+) {
   const files = collectMarkdownFiles(catalog.root);
   const skillRoot = join(
     resolve(catalog.root, "../.."),
@@ -859,7 +871,7 @@ function validateLinksAndPrivacy(catalog: ProductCatalog, errors: string[]) {
       }
       const withoutAnchor = target.split("#")[0];
       const resolved = resolve(dirname(file), withoutAnchor);
-      if (!isInside(repositoryRoot, resolved)) {
+      if (!isInside(validationRoot, resolved)) {
         errors.push(
           `${displayPath(file)}:${lineNumber(source, match.index ?? 0)}: link escapes the repository: ${target}`,
         );
