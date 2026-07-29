@@ -324,22 +324,31 @@ async function performActionFetch<T>(
     else outerSignal.addEventListener("abort", onOuterAbort, { once: true });
   }
   let timedOut = false;
-  const timer = controller
-    ? setTimeout(() => {
-        timedOut = true;
-        controller.abort();
-      }, timeoutMs)
-    : null;
-  if (controller) init.signal = controller.signal;
-
-  const throwTimeout = (): never => {
+  const timeoutError = (): Error => {
     const error = new Error(
       `Action ${name} timed out after ${Math.round(timeoutMs / 1000)}s`,
     );
     (error as any).timedOut = true;
     (error as any).status = 408;
-    throw error;
+    return error;
   };
+  const throwTimeout = (): never => {
+    throw timeoutError();
+  };
+  // The timeout rejects the caller directly, not just via `controller.abort()`.
+  // Aborting only works if the transport honors the signal; a patched fetch, a
+  // wedged service worker, or a stalled body stream that never settles would
+  // otherwise leave the request — and the UI's loading state — pending forever.
+  let rejectTimedOut: (error: unknown) => void = () => {};
+  const timedOutSignal = new Promise<never>((_resolve, reject) => {
+    rejectTimedOut = reject;
+  });
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller?.abort();
+    rejectTimedOut(timeoutError());
+  }, timeoutMs);
+  if (controller) init.signal = controller.signal;
 
   let res: Response;
   let raw = "";
@@ -347,7 +356,7 @@ async function performActionFetch<T>(
   let readError: unknown;
   try {
     try {
-      res = await fetch(url, init);
+      res = await Promise.race([fetch(url, init), timedOutSignal]);
       options?.onResponse?.(res);
     } catch (err) {
       if (timedOut) throwTimeout();
@@ -391,7 +400,7 @@ async function performActionFetch<T>(
     // decode failure on a 2xx response should error rather than silently
     // succeed with `null`.
     try {
-      raw = await res.text();
+      raw = await Promise.race([res.text(), timedOutSignal]);
     } catch (err) {
       if (timedOut) throwTimeout();
       if (outerSignal?.aborted) throw err;
@@ -399,7 +408,7 @@ async function performActionFetch<T>(
       readError = err;
     }
   } finally {
-    if (timer) clearTimeout(timer);
+    clearTimeout(timer);
     if (outerSignal) outerSignal.removeEventListener("abort", onOuterAbort);
   }
 
@@ -740,7 +749,9 @@ export function useActionQuery<
 // ---------------------------------------------------------------------------
 
 /**
- * Mutate via an action exposed as POST (default), PUT, or DELETE.
+ * Mutate through the framework's frontend action transport. Mutations use
+ * POST by default and do not need to repeat the action's direct HTTP method.
+ * An explicit PUT or DELETE remains supported for compatibility.
  *
  * When the action type registry is generated, the return type and parameter
  * types are inferred automatically.

@@ -764,6 +764,33 @@ export async function syncSecretsToCredentialStore(
 }
 
 /**
+ * Group secrets by the tenant their credential-store rows must land in.
+ *
+ * Every sync path must write a secret under the org that *owns the row*, not
+ * under whoever happens to be syncing: `writeAppSecret` upserts, so syncing
+ * with the caller's ctx copies credential material into the caller's org
+ * instead of moving it, and it accumulates there permanently.
+ */
+function groupSecretsByTenant(
+  rows: VaultSecretRow[],
+  resolveCtx: (row: VaultSecretRow) => VaultCtx,
+): { ctx: VaultCtx; rows: VaultSecretRow[] }[] {
+  const groups = new Map<string, { ctx: VaultCtx; rows: VaultSecretRow[] }>();
+  for (const row of rows) {
+    if (!row.credentialKey || !row.value) continue;
+    const ctx = resolveCtx(row);
+    const groupKey = `${ctx.orgId ?? ""}\u0000${ctx.ownerEmail}`;
+    const group = groups.get(groupKey);
+    if (group) {
+      group.rows.push(row);
+    } else {
+      groups.set(groupKey, { ctx, rows: [row] });
+    }
+  }
+  return [...groups.values()];
+}
+
+/**
  * Re-sync every vault secret across every tenant into the shared credential
  * store, regardless of which request/ctx is currently active.
  *
@@ -788,23 +815,12 @@ export async function resyncAllVaultSecretsToCredentialStore(): Promise<{
   const db = getDb();
   const rows = await db.select().from(schema.vaultSecrets);
 
-  const groups = new Map<string, { ctx: VaultCtx; rows: VaultSecretRow[] }>();
-  for (const row of rows) {
-    if (!row.credentialKey || !row.value) continue;
-    const ctx: VaultCtx = { ownerEmail: row.ownerEmail, orgId: row.orgId };
-    const groupKey = `${ctx.orgId ?? ""} ${ctx.ownerEmail}`;
-    const group = groups.get(groupKey);
-    if (group) {
-      group.rows.push(row);
-    } else {
-      groups.set(groupKey, { ctx, rows: [row] });
-    }
-  }
+  const groups = groupSecretsByTenant(rows, ctxForRow);
 
   let failedGroups = 0;
   let syncedKeys = 0;
 
-  for (const { ctx, rows: groupRows } of groups.values()) {
+  for (const { ctx, rows: groupRows } of groups) {
     try {
       const result = await syncSecretsToCredentialStore(groupRows, ctx);
       syncedKeys += result.keys.length;
@@ -818,7 +834,7 @@ export async function resyncAllVaultSecretsToCredentialStore(): Promise<{
     }
   }
 
-  return { groups: groups.size, failedGroups, syncedKeys };
+  return { groups: groups.length, failedGroups, syncedKeys };
 }
 
 export async function cleanupSyncedCredentialKeysIfUnused(
@@ -889,13 +905,37 @@ export async function syncGrantsToApp(
   }
 
   if (secretsToSync.length === 0) {
-    return { appId, accessMode: access.mode, synced: 0, keys: [] };
+    return {
+      appId,
+      accessMode: access.mode,
+      synced: 0,
+      keys: [],
+      credentialStores: [],
+    };
   }
 
-  const credentialStoreSync = await syncSecretsToCredentialStore(
-    secretsToSync,
-    ctx,
+  // `all-apps` mode lists secrets across every org the caller can see, so each
+  // row must be written back under its own org. Syncing them all under `ctx`
+  // upserts copies of other orgs' credentials into the caller's org.
+  const credentialStoreGroups = groupSecretsByTenant(secretsToSync, (row) =>
+    ctxForSecretRow(row, ctx),
   );
+  const credentialStores: {
+    scope: ReturnType<typeof credentialStoreScopeForVaultCtx>["scope"];
+    scopeId: string;
+    synced: number;
+  }[] = [];
+  const credentialStoreKeys: string[] = [];
+  for (const group of credentialStoreGroups) {
+    const result = await syncSecretsToCredentialStore(group.rows, group.ctx);
+    credentialStores.push({
+      scope: result.scope,
+      scopeId: result.scopeId,
+      synced: result.keys.length,
+    });
+    credentialStoreKeys.push(...result.keys);
+  }
+
   const vars = secretsToSync.map((secret) => ({
     key: secret.credentialKey,
     value: secret.value,
@@ -942,7 +982,7 @@ export async function syncGrantsToApp(
     }
   }
 
-  const syncedKeys = credentialStoreSync.keys;
+  const syncedKeys = credentialStoreKeys;
   const timestamp = now();
 
   // Update syncedAt on grants that were successfully pushed to the shared
@@ -964,10 +1004,7 @@ export async function syncGrantsToApp(
     metadata: {
       syncedKeys,
       accessMode: access.mode,
-      credentialStore: {
-        scope: credentialStoreSync.scope,
-        scopeId: credentialStoreSync.scopeId,
-      },
+      credentialStores,
       envVars: envVarSync,
     },
   });
@@ -977,11 +1014,7 @@ export async function syncGrantsToApp(
     accessMode: access.mode,
     synced: syncedKeys.length,
     keys: syncedKeys,
-    credentialStore: {
-      scope: credentialStoreSync.scope,
-      scopeId: credentialStoreSync.scopeId,
-      synced: credentialStoreSync.keys.length,
-    },
+    credentialStores,
     envVars: envVarSync,
   };
 }

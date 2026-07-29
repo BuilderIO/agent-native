@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { signInternalToken } from "../integrations/internal-token.js";
 import {
@@ -6,6 +6,7 @@ import {
   AGENT_BACKGROUND_FUNCTION_URL_PATH,
   AGENT_CHAT_PROCESS_RUN_PATH,
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
+  BACKGROUND_FUNCTION_UNREACHABLE_NOTICE_KEY,
   backgroundRuntimeDiagnosticDetail,
   backgroundRunMarkerExpectsBackgroundRuntime,
   dispatchPathTargetsNetlifyBackgroundFunction,
@@ -62,6 +63,10 @@ afterEach(() => {
   Reflect.deleteProperty(
     globalThis as Record<string, unknown>,
     "__AGENT_NATIVE_BACKGROUND_RUNTIME__",
+  );
+  Reflect.deleteProperty(
+    globalThis as Record<string, unknown>,
+    BACKGROUND_FUNCTION_UNREACHABLE_NOTICE_KEY,
   );
 });
 
@@ -330,6 +335,38 @@ describe("background runtime marker diagnostics", () => {
     expect(backgroundRuntimeDiagnosticDetail(marker)).toContain(
       "runtimeDetected=false",
     );
+  });
+
+  it("reports a missing background function ONCE per isolate", () => {
+    const marker = { backgroundFunctionRuntimeExpected: true };
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      backgroundRuntimeDiagnosticDetail(marker);
+      backgroundRuntimeDiagnosticDetail(marker);
+
+      expect(errors).toHaveBeenCalledTimes(1);
+      expect(String(errors.mock.calls[0]?.[0])).toContain(
+        AGENT_BACKGROUND_FUNCTION_NAME,
+      );
+    } finally {
+      errors.mockRestore();
+    }
+  });
+
+  it("stays quiet when the worker really is in the background function", () => {
+    (
+      globalThis as Record<string, unknown>
+    ).__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true;
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      backgroundRuntimeDiagnosticDetail({
+        backgroundFunctionRuntimeExpected: true,
+      });
+
+      expect(errors).not.toHaveBeenCalled();
+    } finally {
+      errors.mockRestore();
+    }
   });
 
   it("uses the long background timeout when the background function entry marked the runtime", () => {

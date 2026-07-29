@@ -317,6 +317,40 @@ export async function createScheduledJobRecord(input: {
   return job;
 }
 
+export async function updateScheduledJobForOwner(
+  ownerEmail: string,
+  id: string,
+  runAt: number,
+): Promise<ScheduledJobRecord | null> {
+  const [existing] = await db
+    .select()
+    .from(schema.scheduledJobs)
+    .where(
+      and(
+        eq(schema.scheduledJobs.id, id),
+        eq(schema.scheduledJobs.ownerEmail, ownerEmail),
+      ),
+    );
+
+  if (!existing) return null;
+
+  await db
+    .update(schema.scheduledJobs)
+    .set({ runAt, status: "pending" } as any)
+    .where(
+      and(
+        eq(schema.scheduledJobs.id, id),
+        eq(schema.scheduledJobs.ownerEmail, ownerEmail),
+      ),
+    );
+
+  return {
+    ...(existing as ScheduledJobRecord),
+    runAt,
+    status: "pending",
+  };
+}
+
 export async function scheduleSnooze(input: {
   ownerEmail: string;
   emailId: string;

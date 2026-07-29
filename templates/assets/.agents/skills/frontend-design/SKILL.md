@@ -1,14 +1,17 @@
 ---
 name: frontend-design
 description: >-
-  Create distinctive, production-grade frontend interfaces with high design
-  quality. Use when building web components, pages, artifacts, posters, or
-  applications (websites, landing pages, dashboards, React components,
-  HTML/CSS layouts, or when styling/beautifying any web UI). Generates
-  creative, polished UI that avoids generic AI aesthetics.
+  Sets the visual direction for a new or redesigned surface, with production
+  quality that avoids generic AI aesthetics. Use when building a new page,
+  app, or marketing surface, defining visual identity, or doing a design pass
+  ("make this look good"). Do not load it for routine UI edits: adding a field
+  to an existing form, fixing spacing, wiring a button, or changing copy.
 scope: dev
 license: Complete terms in LICENSE.txt
 source: https://github.com/anthropics/skills/blob/main/skills/frontend-design/SKILL.md
+local-changes: >-
+  Description narrowed and Verification rescoped deliberately; an upstream sync
+  must not restore the broad auto-load triggers or screenshot-everything step.
 metadata:
   internal: true
 ---
@@ -141,11 +144,22 @@ Avoid:
 
 ## Verification
 
+Match verification effort to the size of the change. For one component, one
+form, one page, or a restyle, run the app's existing checks — formatter,
+`pnpm typecheck`, existing tests — and stop there.
+
+Escalate to browser verification only when the user asks for it, or when the
+change is a multi-step user-visible flow that cannot be confirmed any other
+way. Never author a new Playwright/Puppeteer script, add a browser-automation
+dependency, or stand up an e2e harness to check work the user did not ask you
+to test that way; use an available browser tool, or say what you could not
+verify.
+
 For substantial frontend work:
 
 1. Run the relevant formatter/checks.
 2. Start the dev server when the app needs one.
-3. Verify with browser screenshots at desktop and mobile widths.
+3. Verify with the available browser tooling at desktop and mobile widths.
 4. Check interactive states: hover, focus, loading, empty, error, and destructive confirmations.
 5. When registering or changing a company adapter, run
    `@agent-native/toolkit/conformance`, including mixed-overlay focus,

@@ -1,0 +1,135 @@
+---
+title: "Building and publishing a form"
+description: "The field types Forms ships with, conditional show/hide logic, fine-tuning fields in the visual editor, and publishing a protected, branded public form."
+---
+
+# Building and publishing a form
+
+This page covers designing a form's fields and getting it in front of respondents — through chat, the visual editor, or both. It's written for whoever is putting the form together, with a JSON reference partway through for anyone scripting form creation directly.
+
+## Field types {#field-types}
+
+Forms ships with 11 field types out of the box. Ask the agent for any of them by name, or describe the question and let it pick:
+
+<Table
+  id="doc-block-forms3"
+  title="Shipped field types"
+  columns={["Type", "Needs options", "Example use"]}
+  rows={[
+    ["text", "No", "Name, company"],
+    ["email", "No", "Contact email"],
+    ["number", "No", "Age, quantity"],
+    ["textarea", "No", "Message, comments"],
+    ["select", "Yes", "Country, department"],
+    ["multiselect", "Yes", "Skills, interests"],
+    ["checkbox", "No", "Consent, opt-in"],
+    ["radio", "Yes", "Gender, preference"],
+    ["date", "No", "Birthday, deadline"],
+    ["rating", "No", "Satisfaction, quality (1-5 stars)"],
+    ["scale", "No", "NPS, likelihood (numeric range)"],
+  ]}
+/>
+
+Each field is a JSON object under the hood, whether the agent writes it or you script `create-form` directly:
+
+```json
+{
+  "id": "team_size",
+  "type": "select",
+  "label": "Team size",
+  "placeholder": "Select...",
+  "description": "Roughly how many people are on your team?",
+  "required": true,
+  "options": ["1-5", "6-20", "21-100", "100+"],
+  "validation": {
+    "min": 1,
+    "max": 100,
+    "pattern": "^[0-9]+$",
+    "message": "Enter a number"
+  },
+  "width": "half"
+}
+```
+
+`id`, `type`, `label`, and `required` are the only required properties. `options` is required for `select`, `multiselect`, and `radio`; `validation` (`min`/`max`/`pattern`/`message`) is optional and type-appropriate; `width` is `"full"` (default) or `"half"` for a side-by-side layout.
+
+## Conditional fields
+
+A field can stay hidden until an earlier answer matches a rule:
+
+```json
+{
+  "id": "other_use_case",
+  "type": "text",
+  "label": "Tell us more",
+  "required": false,
+  "conditional": {
+    "fieldId": "use_case",
+    "operator": "equals",
+    "value": "Other"
+  }
+}
+```
+
+`fieldId` must reference a field that appears **earlier** in the form — a forward or missing reference is rejected before it can be saved. The supported operators are `equals`, `not_equals`, and `contains` (the last one matches against multi-select arrays too). When a field is hidden by its condition, its value is stripped before the response is stored or delivered to any integration — a hidden field never leaks a stale or default value into your data.
+
+## Fine-tuning visually
+
+Once a form exists, open its builder to edit labels, placeholders, required state, options, and field order directly — useful when you want pixel-level control rather than describing the change in chat. The builder has four tabs: Edit, Responses, Settings, and Integrations.
+
+<WireframeBlock id="doc-block-forms4">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1.4px solid var(--wf-line)'><strong>Beta signup</strong><span class='wf-pill accent'>published</span><div style='flex:1'></div><button>Share</button><button class='primary'>Unpublish</button></div><div style='display:flex;gap:8px;padding:12px 16px;border-bottom:1.4px solid var(--wf-line)'><span class='wf-pill accent'>Edit</span><span class='wf-pill'>Responses 187</span><span class='wf-pill'>Settings</span><span class='wf-pill'>Integrations</span></div><div style='display:flex;flex-direction:column;gap:12px;padding:30px 78px;overflow:hidden'><h2 style='margin:0'>Beta signup</h2><p class='wf-muted' style='margin:0'>Reserve a spot in the upcoming private beta cohort.</p><div class='wf-card'><strong>Full name</strong><input value='Ada Lovelace'/></div><div class='wf-card'><strong>Work email</strong><input value='you@company.com'/></div><div class='wf-card'><strong>Your role</strong><input value='Select...'/></div><div class='wf-card'><strong>Team size</strong><input value='Select...'/></div></div></div>"
+    }
+  />
+</WireframeBlock>
+
+## Publishing
+
+A form moves through three statuses:
+
+| Status      | Meaning                                  | Public access          |
+| ----------- | ---------------------------------------- | ---------------------- |
+| `draft`     | Work in progress, not publicly available | No                     |
+| `published` | Live and accepting responses             | Yes                    |
+| `closed`    | No longer accepting responses            | Shows a closed message |
+
+A form can't be published if it has no fields, any field is missing a label, or a `select`/`multiselect`/`radio` field has no options — publishing is rejected with the specific reason so it's easy to fix.
+
+The public URL is `/f/<slug>`, where the slug is generated from the title plus a short unique suffix (`beta-signup-a1b2c3`) and regenerates automatically whenever the title changes, unless you set a custom slug. For a form meant to be genuinely anonymous, create it with `status: "published"` from the start and use the exact public URL the create step returns, rather than assuming a later publish step.
+
+## Protecting and branding a public form
+
+**Captcha.** Public submissions can require [Cloudflare Turnstile](https://www.cloudflare.com/products/turnstile/) verification — opt-in by setting a site key and secret key in Settings. Turnstile is on top of two always-on defenses: a hidden honeypot field that silently discards bot submissions, and a minimum fill-time check that rejects anything submitted faster than a human plausibly could.
+
+<Callout tone="warning">
+  Both Turnstile keys need to be set together. The public form page only renders
+  the captcha widget (and produces a token) when the site key is configured, and
+  the server only verifies that token when it exists — so setting just the
+  secret key verifies nothing, and setting just the site key shows a widget the
+  server never checks.
+</Callout>
+
+**Branding.** Every standalone public form shows a small "Built with Agent Native" badge in the bottom corner. It isn't a per-form setting — it's hidden automatically only when the form is embedded inside another page, such as an embedded feedback popover, since that context already carries its host app's own branding.
+
+**Anonymous mode.** Set `anonymous: true` on a form's settings for genuine anonymity: submissions on that form skip capturing the request IP, the submitter's session or claimed email, the page URL, the client surface, and any chat/run ids — none of it is ever written, not just hidden later. This is different from an ordinary published form, which is publicly reachable but still records who and where a response came from when that information is available.
+
+<WireframeBlock id="doc-block-forms5">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;min-height:520px;box-sizing:border-box;padding:40px 60px;gap:20px;position:relative'><div><h2 style='margin:0'>Customer feedback</h2><p class='wf-muted' style='margin:6px 0 0'>Tell us what is and isn't working.</p></div><div class='wf-card'><strong>Overall satisfaction</strong><span style='font-size:20px;letter-spacing:2px'>★★★★☆</span></div><div class='wf-card'><strong>What could be better?</strong><input value='Type your answer...'/></div><div class='wf-card' style='align-items:center;text-align:center;gap:6px'><span class='wf-pill'>Verify you're human</span><span class='wf-muted' style='font-size:12px'>Cloudflare Turnstile widget</span></div><button class='primary' style='align-self:flex-start'>Submit</button><span class='wf-pill' style='position:absolute;right:24px;bottom:20px'>Built with Agent Native</span></div>"
+    }
+  />
+</WireframeBlock>
+
+One more setting worth knowing: `allowedOrigins` restricts which origins may submit to the form cross-origin — handy when embedding a form's submit endpoint in another site's widget. Leaving it unset allows any origin, matching how a plain public form link behaves today.
+
+## What's next
+
+- [**Forms**](/docs/template-forms) — the product overview
+- [**Responses, insights, and destinations**](/docs/template-forms-responses) — what happens after a submission arrives
+- [**Forms — data model and actions**](/docs/template-forms-developers) — the `FormField`/`FormSettings` schema and every action
+- [**Messaging**](/docs/messaging) — connecting Slack for submission notifications

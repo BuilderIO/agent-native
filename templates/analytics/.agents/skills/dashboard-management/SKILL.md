@@ -120,12 +120,49 @@ pnpm action navigate --view=adhoc --dashboardId=weekly-metrics
 
 The save path dry-runs BigQuery panels before persisting. If validation returns a provider error, fix the query and retry. Never work around validation by writing directly to a table.
 
+## Dual-Axis Charts
+
+`line`, `area`, and `bar` panels can plot series against two y-axes. Reach for
+this whenever series share an x-axis but not a unit — a count next to a rate, or
+revenue next to a conversion percent. On a single axis the smaller series
+flattens into the baseline and reads as "no data."
+
+```json
+{
+  "id": "signups-vs-conversion",
+  "title": "Signups vs conversion rate",
+  "source": "first-party",
+  "chartType": "line",
+  "width": 1,
+  "sql": "SELECT day, signups, conversion_rate FROM ...",
+  "config": {
+    "timeScope": "dashboard",
+    "xKey": "day",
+    "yKeys": ["signups", "conversion_rate"],
+    "yFormatter": "number",
+    "rightYKeys": ["conversion_rate"],
+    "rightYFormatter": "percent"
+  }
+}
+```
+
+- `rightYKeys` names series from `yKeys`; everything unnamed stays on the left.
+- `rightYFormatter` defaults to `yFormatter` when omitted.
+- Each axis is labelled with its series names (up to two per side), and tooltip
+  values use the formatter of the axis the series belongs to.
+- At least one series must remain on the left. If `rightYKeys` names every
+  series, or names a column the query never returned, the panel falls back to a
+  single axis and shows a config warning rather than dropping the series.
+- Scheduled email reports render the same two scales, so a dual-axis panel is
+  safe to put on a subscribed dashboard.
+
 ## When To Use An Extension Instead
 
 Native Analytics dashboards are JSON configs rendered by the built-in dashboard
 components. Use native dashboard actions only when the request fits that model:
 standard panels, supported chart types, filters, variables, sections, and grid
-layout.
+layout. Dual-axis charts are part of that model — build one with
+`config.rightYKeys`, never as an extension.
 
 If the user asks for a dashboard or analytical surface that needs bespoke UI or
 code beyond the dashboard JSON/component model, create an extension and embed it
@@ -413,6 +450,9 @@ type PanelConfig = Record<string, unknown> & {
   // Use "dashboard" for AI-generated first-party panels by default.
   timeScope?: PanelTimeScope;
   // Fixed bar width in pixels for bar charts.
+  // Series to plot against a second, right-hand y-axis. See "Dual-Axis Charts".
+  rightYKeys?: string[];
+  rightYFormatter?: "number" | "currency" | "percent";
 };
 
 type PanelPatch = {

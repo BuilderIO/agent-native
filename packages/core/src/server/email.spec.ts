@@ -9,6 +9,28 @@ describe("sendEmail", () => {
     vi.unstubAllGlobals();
   });
 
+  it("overrides only the verified sender display name and maps Reply-To", async () => {
+    vi.stubEnv("SENDGRID_API_KEY", "sendgrid-example-key");
+    vi.stubEnv("EMAIL_FROM", "Agent Native <reports@example.com>");
+    const fetchMock = vi.fn(async () => new Response(null, { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await sendEmail({
+      to: "reader@example.com",
+      subject: "A Clip was shared",
+      html: "<p>Open it below.</p>",
+      fromName: "Alex Doe (via Agent-Native Clips)",
+      replyTo: "alex@example.com",
+    });
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.from).toEqual({
+      email: "reports@example.com",
+      name: "Alex Doe (via Agent-Native Clips)",
+    });
+    expect(body.reply_to).toEqual({ email: "alex@example.com" });
+  });
+
   it("maps inline CID attachments for SendGrid", async () => {
     vi.stubEnv("SENDGRID_API_KEY", "sendgrid-example-key");
     vi.stubEnv("EMAIL_FROM", "Agent Native <reports@example.com>");
@@ -64,6 +86,47 @@ describe("sendEmail", () => {
       }),
     ]);
     expect(body.attachments[0].content).toMatch(/^[A-Za-z0-9+/]+=*$/);
+  });
+
+  it("applies fromName as a display name over the verified address", async () => {
+    vi.stubEnv("RESEND_API_KEY", "resend-example-key");
+    vi.stubEnv("EMAIL_FROM", "Clips <notifications@example.com>");
+    const fetchMock = vi.fn(async () => Response.json({ id: "email_123" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await sendEmail({
+      to: "reader@example.com",
+      subject: "Shared",
+      html: "<p>Shared</p>",
+      fromName: "alice@builder.io via Clips",
+      replyTo: "alice@builder.io",
+    });
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.from).toBe(
+      '"alice@builder.io via Clips" <notifications@example.com>',
+    );
+    expect(body.reply_to).toBe("alice@builder.io");
+  });
+
+  it("strips header-injection characters from fromName", async () => {
+    vi.stubEnv("RESEND_API_KEY", "resend-example-key");
+    vi.stubEnv("EMAIL_FROM", "Clips <notifications@example.com>");
+    const fetchMock = vi.fn(async () => Response.json({ id: "email_123" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await sendEmail({
+      to: "reader@example.com",
+      subject: "Shared",
+      html: "<p>Shared</p>",
+      fromName: 'Evil"\r\nBcc: victim@example.com',
+    });
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.from).toBe(
+      '"Evil Bcc: victim@example.com" <notifications@example.com>',
+    );
+    expect(body.from).not.toContain("\n");
   });
 
   it("maps inline CID attachments for Resend", async () => {
@@ -129,5 +192,43 @@ describe("sendEmail", () => {
 
     await pending;
     expect(requestSignal?.aborted).toBe(true);
+  });
+
+  it("sends fromName as an unquoted display name to SendGrid", async () => {
+    vi.stubEnv("SENDGRID_API_KEY", "sendgrid-example-key");
+    vi.stubEnv("EMAIL_FROM", "Clips <notifications@example.com>");
+    const fetchMock = vi.fn(async () => new Response(null, { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await sendEmail({
+      to: "reader@example.com",
+      subject: "Shared",
+      html: "<p>Shared</p>",
+      fromName: "Alice via Clips",
+    });
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.from).toEqual({
+      name: "Alice via Clips",
+      email: "notifications@example.com",
+    });
+  });
+
+  it("keeps an explicit from address over fromName", async () => {
+    vi.stubEnv("RESEND_API_KEY", "resend-example-key");
+    vi.stubEnv("EMAIL_FROM", "Clips <notifications@example.com>");
+    const fetchMock = vi.fn(async () => Response.json({ id: "email_123" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await sendEmail({
+      to: "reader@example.com",
+      subject: "Invoice",
+      html: "<p>Invoice</p>",
+      from: "Billing <billing@example.com>",
+      fromName: "Alice",
+    });
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.from).toBe("Billing <billing@example.com>");
   });
 });

@@ -25,11 +25,49 @@ export type AcceptanceEnvironmentKeys = {
   a2aSecret: string;
 };
 
+export type RuntimeAuthorityProvisioner =
+  | { kind: "unconfigured" }
+  | {
+      kind: "trusted-lease-v1";
+      profileMapVariable: "ACCEPTANCE_AUTHORITY_PROFILES_JSON";
+    };
+
+export type AcceptanceDirectoryFixture = {
+  origin: string;
+  siteIdVariable: string;
+  withdrawnMemberId: string;
+};
+
+export type AcceptanceHarness =
+  | {
+      kind: "a2a-directory-withdrawal";
+      callerMemberId: string;
+      targetMemberId: string;
+      message: string;
+      expectedResult: string;
+      maxStatusPolls: number;
+    }
+  | {
+      kind: "mcp-read-only-tool";
+      memberId: string;
+      tool: string;
+      arguments: Record<string, unknown>;
+    };
+
+export type AcceptanceIsolation = {
+  productionOrigin: string;
+  otherAcceptanceMemberId: string;
+};
+
 export type TrustedAcceptanceMember = {
   template: string;
   origin: string;
   siteIdVariable: string;
   environment: AcceptanceEnvironmentKeys;
+  inference?: {
+    provider: "openrouter";
+    engine: "ai-sdk:openrouter";
+  };
   build: AcceptanceBuild;
   paths: AcceptancePaths;
 };
@@ -39,8 +77,11 @@ export type TrustedAcceptanceWorkspace = {
   enabled: boolean;
   runtimeAuthority: {
     lifecycle: "ephemeral-per-run";
-    provisioner: "unconfigured";
+    provisioner: RuntimeAuthorityProvisioner;
   };
+  directoryFixture?: AcceptanceDirectoryFixture;
+  harness: AcceptanceHarness;
+  isolation?: AcceptanceIsolation;
   assertions: string[];
   members: TrustedAcceptanceMember[];
 };
@@ -144,11 +185,23 @@ export function validateTrustedAcceptanceConfig(
         message: "must require disposable per-run runtime authority",
       });
     }
-    if (workspace.runtimeAuthority?.provisioner !== "unconfigured") {
+    const provisioner = workspace.runtimeAuthority?.provisioner;
+    if (
+      !provisioner ||
+      (provisioner.kind !== "unconfigured" &&
+        provisioner.kind !== "trusted-lease-v1")
+    ) {
       issues.push({
         path: `${workspacePath}.runtimeAuthority.provisioner`,
-        message:
-          "must remain unconfigured until a trusted lease provider is implemented",
+        message: "must name a supported trusted lease provisioner",
+      });
+    } else if (
+      provisioner.kind === "trusted-lease-v1" &&
+      provisioner.profileMapVariable !== "ACCEPTANCE_AUTHORITY_PROFILES_JSON"
+    ) {
+      issues.push({
+        path: `${workspacePath}.runtimeAuthority.provisioner.profileMapVariable`,
+        message: "must use the protected generic authority profile map",
       });
     }
     if (workspace.assertions.length === 0) {
@@ -237,6 +290,16 @@ export function validateTrustedAcceptanceConfig(
           message: "must be an acceptance-scoped A2A_SECRET key name",
         });
       }
+      if (
+        member.inference &&
+        (member.inference.provider !== "openrouter" ||
+          member.inference.engine !== "ai-sdk:openrouter")
+      ) {
+        issues.push({
+          path: `${memberPath}.inference`,
+          message: "must use the bounded OpenRouter acceptance engine",
+        });
+      }
       if (member.build.command !== `pnpm --filter ${member.template} build`) {
         issues.push({
           path: `${memberPath}.build.command`,
@@ -265,6 +328,169 @@ export function validateTrustedAcceptanceConfig(
         }
       }
     }
+
+    if (workspace.directoryFixture) {
+      const fixturePath = `${workspacePath}.directoryFixture`;
+      if (!isAcceptanceOrigin(workspace.directoryFixture.origin)) {
+        issues.push({
+          path: `${fixturePath}.origin`,
+          message: "must be a stable non-production acceptance HTTPS origin",
+        });
+      }
+      if (
+        !isAcceptanceSiteVariable(workspace.directoryFixture.siteIdVariable)
+      ) {
+        issues.push({
+          path: `${fixturePath}.siteIdVariable`,
+          message: "must be an acceptance-scoped NETLIFY_SITE_ID variable name",
+        });
+      }
+      if (!templates.has(workspace.directoryFixture.withdrawnMemberId)) {
+        issues.push({
+          path: `${fixturePath}.withdrawnMemberId`,
+          message: "must identify a declared workspace member",
+        });
+      }
+      if (origins.has(workspace.directoryFixture.origin)) {
+        issues.push({
+          path: `${fixturePath}.origin`,
+          message: "must not duplicate a workspace member origin",
+        });
+      }
+      if (siteIdVariables.has(workspace.directoryFixture.siteIdVariable)) {
+        issues.push({
+          path: `${fixturePath}.siteIdVariable`,
+          message: "must not duplicate a workspace member site variable",
+        });
+      }
+      origins.add(workspace.directoryFixture.origin);
+      siteIdVariables.add(workspace.directoryFixture.siteIdVariable);
+    }
+
+    const harnessPath = `${workspacePath}.harness`;
+    if (
+      !workspace.harness ||
+      typeof (workspace.harness as { kind?: unknown }).kind !== "string"
+    ) {
+      issues.push({
+        path: harnessPath,
+        message: "must declare a generic acceptance harness",
+      });
+      continue;
+    }
+    if (workspace.harness.kind === "a2a-directory-withdrawal") {
+      if (!workspace.directoryFixture) {
+        issues.push({
+          path: `${harnessPath}.kind`,
+          message: "requires a trusted directory fixture",
+        });
+      }
+      if (!templates.has(workspace.harness.callerMemberId)) {
+        issues.push({
+          path: `${harnessPath}.callerMemberId`,
+          message: "must identify a declared workspace member",
+        });
+      }
+      if (
+        workspace.harness.callerMemberId === workspace.harness.targetMemberId
+      ) {
+        issues.push({
+          path: `${harnessPath}.targetMemberId`,
+          message: "must differ from the caller to prove cross-app delegation",
+        });
+      }
+      if (
+        !templates.has(workspace.harness.targetMemberId) ||
+        workspace.harness.targetMemberId !==
+          workspace.directoryFixture?.withdrawnMemberId
+      ) {
+        issues.push({
+          path: `${harnessPath}.targetMemberId`,
+          message: "must identify the directory member selected for withdrawal",
+        });
+      }
+      if (!workspace.isolation) {
+        issues.push({
+          path: `${workspacePath}.isolation`,
+          message: "is required for the route-continuity trust boundary",
+        });
+      }
+      if (
+        !workspace.harness.message.trim() ||
+        workspace.harness.message.length > 500
+      ) {
+        issues.push({
+          path: `${harnessPath}.message`,
+          message: "must be a bounded non-empty fixture message",
+        });
+      }
+      if (
+        !Number.isInteger(workspace.harness.maxStatusPolls) ||
+        workspace.harness.maxStatusPolls < 1 ||
+        workspace.harness.maxStatusPolls > 60
+      ) {
+        issues.push({
+          path: `${harnessPath}.maxStatusPolls`,
+          message: "must be an integer from 1 through 60",
+        });
+      }
+      if (
+        !workspace.harness.expectedResult?.trim() ||
+        workspace.harness.expectedResult.length > 200
+      ) {
+        issues.push({
+          path: `${harnessPath}.expectedResult`,
+          message: "must name a bounded deterministic synthetic result",
+        });
+      }
+    } else if (workspace.harness.kind === "mcp-read-only-tool") {
+      if (!templates.has(workspace.harness.memberId)) {
+        issues.push({
+          path: `${harnessPath}.memberId`,
+          message: "must identify a declared workspace member",
+        });
+      }
+      if (!/^[a-z0-9][a-z0-9_-]*$/.test(workspace.harness.tool)) {
+        issues.push({
+          path: `${harnessPath}.tool`,
+          message: "must be a stable tool name",
+        });
+      }
+    } else {
+      issues.push({
+        path: `${harnessPath}.kind`,
+        message: "must name a supported generic harness",
+      });
+    }
+    if (workspace.isolation) {
+      try {
+        const production = new URL(workspace.isolation.productionOrigin);
+        if (
+          production.protocol !== "https:" ||
+          production.origin !== workspace.isolation.productionOrigin ||
+          acceptanceHostPattern.test(production.hostname)
+        ) {
+          throw new Error("unsafe production origin");
+        }
+      } catch {
+        issues.push({
+          path: `${workspacePath}.isolation.productionOrigin`,
+          message: "must be an exact non-acceptance HTTPS origin",
+        });
+      }
+      if (
+        !templates.has(workspace.isolation.otherAcceptanceMemberId) ||
+        workspace.isolation.otherAcceptanceMemberId ===
+          (workspace.harness.kind === "a2a-directory-withdrawal"
+            ? workspace.harness.callerMemberId
+            : workspace.harness.memberId)
+      ) {
+        issues.push({
+          path: `${workspacePath}.isolation.otherAcceptanceMemberId`,
+          message: "must identify a different declared acceptance member",
+        });
+      }
+    }
   }
   return issues.length === 0 ? { ok: true, issues: [] } : { ok: false, issues };
 }
@@ -274,6 +500,9 @@ export type TrustedAcceptancePlan = {
   workspace: string;
   enabled: boolean;
   runtimeAuthority: TrustedAcceptanceWorkspace["runtimeAuthority"];
+  directoryFixture?: AcceptanceDirectoryFixture;
+  harness: AcceptanceHarness;
+  isolation?: AcceptanceIsolation;
   assertions: string[];
   members: TrustedAcceptanceMember[];
 };
@@ -312,7 +541,7 @@ export function createTrustedAcceptancePlan(
   }
   if (
     !allowDisabled &&
-    workspace.runtimeAuthority.provisioner === "unconfigured"
+    workspace.runtimeAuthority.provisioner.kind === "unconfigured"
   ) {
     return {
       ok: false,
@@ -333,6 +562,11 @@ export function createTrustedAcceptancePlan(
       workspace: workspace.id,
       enabled: workspace.enabled,
       runtimeAuthority: workspace.runtimeAuthority,
+      ...(workspace.directoryFixture
+        ? { directoryFixture: workspace.directoryFixture }
+        : {}),
+      harness: workspace.harness,
+      ...(workspace.isolation ? { isolation: workspace.isolation } : {}),
       assertions: workspace.assertions,
       members: workspace.members,
     },
@@ -410,6 +644,60 @@ export type TrustedAcceptanceReceipt = {
   rollbackTarget: string | null;
   priorKnownGoodSha: string | null;
   currentKnownGoodSha: string | null;
+  lease?: {
+    id: string;
+    issuedAt: string;
+    expiresAt: string;
+    revokedAt: string | null;
+    state: "active" | "revoking" | "revoked" | "failed";
+  };
+  cleanup?: {
+    inferenceAuthority: "verified-absent" | "pending" | "failed";
+    databaseBranches: "verified-absent" | "pending" | "failed";
+    runtimeConfiguration: "verified-absent" | "pending" | "failed";
+    tombstoneDeployIds: string[];
+    verifiedAt: string | null;
+  };
+  scenarios?:
+    | {
+        kind: "a2a-directory-withdrawal";
+        hostedOAuth: AcceptanceAssertionState;
+        stableDiscovery: AcceptanceAssertionState;
+        discoveryWithdrawal: AcceptanceAssertionState;
+        taskRouteContinuity: AcceptanceAssertionState;
+      }
+    | {
+        kind: "mcp-read-only-tool";
+        hostedOAuth: AcceptanceAssertionState;
+        readOnlyTool: AcceptanceAssertionState;
+      };
+  isolation?: {
+    authorities: Array<{
+      memberId: string;
+      provenance: "fresh-per-run";
+      algorithm: "sha256";
+      digest: string;
+      generatedAt: string;
+    }>;
+    metadata: Array<{
+      role: "production" | "acceptance";
+      resource: string;
+      issuer: string;
+    }>;
+    probes: Array<{
+      kind:
+        | "acceptance-at-production"
+        | "acceptance-at-other-acceptance"
+        | "foreign-domain-sentinel-at-acceptance"
+        | "expired-acceptance"
+        | "replayed-acceptance"
+        | "wrong-audience"
+        | "post-cleanup";
+      status: number;
+      at: string;
+      proofDigest?: string;
+    }>;
+  };
 };
 
 const sensitiveFieldPattern =
@@ -551,7 +839,11 @@ export function validateTrustedAcceptanceReceipt(
   if (!["pass", "fail", "blocked"].includes(receipt.result)) {
     issues.push({ path: "result", message: "must be pass, fail, or blocked" });
   }
-  if (!receipt.rollbackTarget && receipt.result === "pass") {
+  if (
+    receipt.operation === "rollback" &&
+    !receipt.rollbackTarget &&
+    receipt.result === "pass"
+  ) {
     issues.push({
       path: "rollbackTarget",
       message: "is required for a passing receipt",
@@ -563,6 +855,15 @@ export function validateTrustedAcceptanceReceipt(
     issues.push({
       path: "rollbackTarget",
       message: "must be a full lowercase 40-character SHA or null",
+    });
+  }
+  if (
+    receipt.operation === "candidate" &&
+    (receipt.rollbackTarget !== null || receipt.priorKnownGoodSha !== null)
+  ) {
+    issues.push({
+      path: "rollbackTarget",
+      message: "candidate receipts must not claim rollback provenance",
     });
   }
   if (
@@ -602,6 +903,7 @@ export function validateTrustedAcceptanceReceipt(
     });
   }
   if (
+    receipt.operation === "rollback" &&
     receipt.result === "pass" &&
     receipt.priorKnownGoodSha !== receipt.rollbackTarget
   ) {
@@ -609,6 +911,206 @@ export function validateTrustedAcceptanceReceipt(
       path: "priorKnownGoodSha",
       message: "must equal the rollback target for a passing receipt",
     });
+  }
+  if (receipt.lease) {
+    if (!receipt.lease.id.trim()) {
+      issues.push({ path: "lease.id", message: "must be non-empty" });
+    }
+    for (const key of ["issuedAt", "expiresAt"] as const) {
+      if (Number.isNaN(Date.parse(receipt.lease[key]))) {
+        issues.push({
+          path: `lease.${key}`,
+          message: "must be an ISO timestamp",
+        });
+      }
+    }
+    if (
+      receipt.lease.revokedAt !== null &&
+      Number.isNaN(Date.parse(receipt.lease.revokedAt))
+    ) {
+      issues.push({
+        path: "lease.revokedAt",
+        message: "must be an ISO timestamp or null",
+      });
+    }
+    if (
+      Date.parse(receipt.lease.expiresAt) <= Date.parse(receipt.lease.issuedAt)
+    ) {
+      issues.push({
+        path: "lease.expiresAt",
+        message: "must be later than the issue timestamp",
+      });
+    }
+  }
+  if (receipt.cleanup) {
+    if (
+      receipt.cleanup.verifiedAt !== null &&
+      Number.isNaN(Date.parse(receipt.cleanup.verifiedAt))
+    ) {
+      issues.push({
+        path: "cleanup.verifiedAt",
+        message: "must be an ISO timestamp or null",
+      });
+    }
+    if (
+      receipt.cleanup.tombstoneDeployIds.some((id) => !id.trim()) ||
+      new Set(receipt.cleanup.tombstoneDeployIds).size !==
+        receipt.cleanup.tombstoneDeployIds.length
+    ) {
+      issues.push({
+        path: "cleanup.tombstoneDeployIds",
+        message: "must contain unique non-empty opaque deployment IDs",
+      });
+    }
+  }
+  if (
+    receipt.scenarios &&
+    Object.entries(receipt.scenarios).some(
+      ([key, state]) =>
+        key !== "kind" && !["pass", "fail", "blocked"].includes(String(state)),
+    )
+  ) {
+    issues.push({
+      path: "scenarios",
+      message: "must contain valid assertion states",
+    });
+  }
+  if (receipt.isolation) {
+    for (const [index, authority] of receipt.isolation.authorities.entries()) {
+      if (
+        !/^[a-z0-9][a-z0-9-]*$/.test(authority.memberId) ||
+        authority.provenance !== "fresh-per-run" ||
+        authority.algorithm !== "sha256" ||
+        !/^sha256:[a-f0-9]{64}$/.test(authority.digest) ||
+        Number.isNaN(Date.parse(authority.generatedAt))
+      ) {
+        issues.push({
+          path: `isolation.authorities[${index}]`,
+          message: "must contain redacted fresh per-run signing provenance",
+        });
+      }
+    }
+    for (const [index, metadata] of receipt.isolation.metadata.entries()) {
+      try {
+        const resource = new URL(metadata.resource);
+        const issuer = new URL(metadata.issuer);
+        if (
+          resource.protocol !== "https:" ||
+          issuer.protocol !== "https:" ||
+          !["production", "acceptance"].includes(metadata.role)
+        ) {
+          throw new Error("unsafe metadata");
+        }
+      } catch {
+        issues.push({
+          path: `isolation.metadata[${index}]`,
+          message: "must name public HTTPS resource and issuer metadata",
+        });
+      }
+    }
+    for (const [index, probe] of receipt.isolation.probes.entries()) {
+      if (
+        probe.status < 400 ||
+        probe.status > 499 ||
+        Number.isNaN(Date.parse(probe.at)) ||
+        (probe.proofDigest !== undefined &&
+          !/^sha256:[a-f0-9]{64}$/.test(probe.proofDigest))
+      ) {
+        issues.push({
+          path: `isolation.probes[${index}]`,
+          message:
+            "must contain only a fail-closed HTTP status, timestamp, and optional redacted digest",
+        });
+      }
+    }
+  }
+  if (receipt.result === "pass") {
+    const expectedTombstoneCount =
+      receipt.members.length +
+      (receipt.scenarios?.kind === "a2a-directory-withdrawal" ? 1 : 0);
+    if (
+      receipt.lease?.state !== "revoked" ||
+      !receipt.lease.revokedAt ||
+      receipt.cleanup?.inferenceAuthority !== "verified-absent" ||
+      receipt.cleanup.databaseBranches !== "verified-absent" ||
+      receipt.cleanup.runtimeConfiguration !== "verified-absent" ||
+      !receipt.cleanup.verifiedAt ||
+      receipt.cleanup.tombstoneDeployIds.length !== expectedTombstoneCount
+    ) {
+      issues.push({
+        path: "cleanup",
+        message:
+          "passing receipts require verified lease revocation, database and runtime cleanup, and one trusted tombstone deploy per member and directory fixture",
+      });
+    }
+    const scenarios = receipt.scenarios;
+    const scenariosPassed =
+      scenarios?.hostedOAuth === "pass" &&
+      (scenarios.kind === "a2a-directory-withdrawal"
+        ? scenarios.stableDiscovery === "pass" &&
+          scenarios.discoveryWithdrawal === "pass" &&
+          scenarios.taskRouteContinuity === "pass"
+        : scenarios.kind === "mcp-read-only-tool" &&
+          scenarios.readOnlyTool === "pass");
+    if (!scenariosPassed) {
+      issues.push({
+        path: "scenarios",
+        message:
+          "passing receipts require hosted OAuth and every configured generic harness scenario",
+      });
+    }
+    const isolationRequired = expectedAssertions
+      ? expectedAssertions.includes("A11") || expectedAssertions.includes("I7")
+      : true;
+    const requiredProbeKinds = new Set<
+      NonNullable<
+        TrustedAcceptanceReceipt["isolation"]
+      >["probes"][number]["kind"]
+    >([
+      "acceptance-at-production",
+      "acceptance-at-other-acceptance",
+      "foreign-domain-sentinel-at-acceptance",
+      "expired-acceptance",
+      "replayed-acceptance",
+      "wrong-audience",
+      "post-cleanup",
+    ]);
+    const isolation = receipt.isolation;
+    const productionMetadata = isolation?.metadata.filter(
+      ({ role }) => role === "production",
+    );
+    const acceptanceMetadata = isolation?.metadata.filter(
+      ({ role }) => role === "acceptance",
+    );
+    if (
+      isolationRequired &&
+      (!isolation?.authorities.length ||
+        !productionMetadata?.length ||
+        !acceptanceMetadata?.length ||
+        productionMetadata.some((production) =>
+          acceptanceMetadata.some(
+            (acceptance) =>
+              production.resource === acceptance.resource ||
+              production.issuer === acceptance.issuer,
+          ),
+        ) ||
+        isolation.probes.some(({ kind, status }) =>
+          kind === "acceptance-at-production" ||
+          kind === "acceptance-at-other-acceptance" ||
+          kind === "foreign-domain-sentinel-at-acceptance"
+            ? status !== 401
+            : status < 400 || status > 499,
+        ) ||
+        ![...requiredProbeKinds].every((kind) =>
+          isolation.probes.some((probe) => probe.kind === kind),
+        ))
+    ) {
+      issues.push({
+        path: "isolation",
+        message:
+          "passing receipts require fresh signing provenance, distinct public production and acceptance metadata, and every controller-owned 401 isolation probe",
+      });
+    }
   }
   return issues.length === 0 ? { ok: true, issues: [] } : { ok: false, issues };
 }

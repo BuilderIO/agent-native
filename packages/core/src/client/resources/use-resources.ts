@@ -278,6 +278,12 @@ async function fetchJson<T>(url: string): Promise<T> {
   return res.json();
 }
 
+export function resourceDownloadUrl(id: string): string {
+  return agentNativePath(
+    `/_agent-native/resources/${encodeURIComponent(id)}?download=1`,
+  );
+}
+
 export function useResources(scope: ResourceScope = "personal") {
   const query = new URLSearchParams({ scope });
   return useQuery<ResourceMeta[]>({

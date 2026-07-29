@@ -5,6 +5,12 @@ description: "Shared provider metadata, grants, and credential refs for connect-
 
 # Workspace Connections
 
+<Callout tone="info">
+
+**Developer page.** This page is for developers wiring an app to a shared, reusable provider connection. For the end-user catalog of connectable providers, see [Integrations](/docs/integrations).
+
+</Callout>
+
 Workspace connections are the framework primitive for reusable integration metadata. They make "connect once, grant apps, reuse credentials" possible without pretending every provider is fully generic.
 
 ## Quickstart {#quickstart}
@@ -255,17 +261,21 @@ if (workspaceConnectionProviderSupports("slack", "messages")) {
 
 The initial provider ids are:
 
-| Provider       | Capabilities                   | Common uses                    |
-| -------------- | ------------------------------ | ------------------------------ |
-| `slack`        | search, import, messages       | brain, dispatch, analytics     |
-| `github`       | search, import, code, docs     | brain, analytics, dispatch     |
-| `notion`       | search, import, docs           | brain, content, dispatch       |
-| `gmail`        | search, import, messages       | mail, brain, dispatch          |
-| `google_drive` | search, import, docs           | brain, content, slides         |
-| `hubspot`      | search, import, crm            | analytics, brain, mail         |
-| `granola`      | search, import, meetings, docs | brain, calendar, dispatch      |
-| `clips`        | search, import, meetings       | brain, clips                   |
-| `generic`      | search, import, docs           | custom webhooks and file drops |
+| Provider       | Capabilities                   | Common uses                                 |
+| -------------- | ------------------------------ | ------------------------------------------- |
+| `slack`        | search, import, messages       | brain, dispatch, analytics                  |
+| `github`       | search, import, code, docs     | brain, analytics, dispatch                  |
+| `figma`        | search, import, docs           | brain, design, slides, content              |
+| `notion`       | search, import, docs           | brain, content, dispatch                    |
+| `gmail`        | search, import, messages       | mail, brain, dispatch                       |
+| `google_drive` | search, import, docs           | brain, content, slides, dispatch, analytics |
+| `hubspot`      | search, import, crm            | analytics, brain, crm, mail, dispatch       |
+| `salesforce`   | search, import, crm            | analytics, brain, crm, dispatch             |
+| `jira`         | search, import, code, docs     | analytics, brain, dispatch (Jira Cloud)     |
+| `sentry`       | search, import, docs           | analytics, brain, dispatch                  |
+| `granola`      | search, import, meetings, docs | brain, calendar, dispatch                   |
+| `clips`        | search, import, meetings       | brain, clips                                |
+| `generic`      | search, import, docs           | custom webhooks and file drops              |
 
 Credential keys are names only, such as `SLACK_BOT_TOKEN` or `GITHUB_TOKEN`. Provider metadata must never include actual credential values.
 

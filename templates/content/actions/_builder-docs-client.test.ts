@@ -227,6 +227,13 @@ function mcpFetchForEntries(entries: BuilderContentEntry[]) {
       typeof init?.body === "string"
         ? (JSON.parse(init.body) as Record<string, unknown>)
         : {};
+    if (body.method === "server/discover") {
+      return mcpResponse({
+        jsonrpc: "2.0",
+        id: body.id,
+        result: { supportedVersions: ["2026-07-28"] },
+      });
+    }
     if (body.method === "initialize") {
       return mcpResponse({ jsonrpc: "2.0", id: body.id, result: {} }, "s-1");
     }
@@ -550,6 +557,74 @@ describe("Builder docs DB-backed source", () => {
     expect(resolveBuilderCredential).toHaveBeenCalledWith(
       "BUILDER_PRIVATE_KEY",
     );
+  });
+
+  it("falls back to the 2024 MCP protocol when 2025 initialize is rejected", async () => {
+    resolveBuilderCredentialMock.mockImplementation(async (key: string) =>
+      key === "BUILDER_PRIVATE_KEY" ? "private-key" : null,
+    );
+    const initializeVersions: string[] = [];
+    const fetchImpl = vi.fn(
+      async (_input: URL | RequestInfo, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body)) as {
+          method: string;
+          params?: {
+            protocolVersion?: string;
+            _meta?: Record<string, unknown>;
+          };
+          id?: string;
+        };
+        const headers = init?.headers as Record<string, string>;
+        if (body.method === "server/discover") {
+          expect(headers).not.toHaveProperty("mcp-method");
+          expect(headers).not.toHaveProperty("mcp-protocol-version");
+          expect(body.params?._meta).toBeUndefined();
+          return new Response("method not allowed", { status: 405 });
+        }
+        if (body.method === "initialize") {
+          const protocolVersion = String(body.params?.protocolVersion);
+          initializeVersions.push(protocolVersion);
+          if (protocolVersion === "2025-11-25") {
+            return mcpResponse({
+              jsonrpc: "2.0",
+              id: body.id,
+              error: { code: -32602, message: "Unsupported protocol version" },
+            });
+          }
+          return mcpResponse(
+            { jsonrpc: "2.0", id: body.id, result: {} },
+            "legacy-session",
+          );
+        }
+        if (body.method === "notifications/initialized") {
+          expect(headers["mcp-session-id"]).toBe("legacy-session");
+          return mcpResponse({ jsonrpc: "2.0", result: {} });
+        }
+        expect(headers["mcp-session-id"]).toBe("legacy-session");
+        expect(headers).not.toHaveProperty("mcp-protocol-version");
+        return mcpResponse({
+          jsonrpc: "2.0",
+          id: body.id,
+          result: {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({ content: [entry] }),
+              },
+            ],
+          },
+        });
+      },
+    );
+
+    await expect(
+      readFullBuilderDocsEntry({
+        model: "docs-content",
+        entryId: entry.id,
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).resolves.toMatchObject({ id: entry.id });
+    expect(initializeVersions).toEqual(["2025-11-25", "2024-11-05"]);
   });
 
   it("scopes pulled document ids to the caller owner and org", async () => {

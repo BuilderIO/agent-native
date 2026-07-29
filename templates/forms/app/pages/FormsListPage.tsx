@@ -1,5 +1,6 @@
 import { callAction } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
+import { buildSignInReturnHref } from "@agent-native/core/client/ui";
 import {
   useSetHeaderActions,
   useSetPageTitle,
@@ -20,7 +21,7 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router";
+import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { CloudUpgrade } from "@/components/CloudUpgrade";
@@ -306,9 +307,6 @@ export function FormsListPage() {
   if (error && !forms?.length) {
     const status = (error as { status?: number })?.status;
     if (status === 401) {
-      const next = encodeURIComponent(
-        window.location.pathname + window.location.search,
-      );
       return (
         <div className="flex flex-col items-center justify-center h-full gap-3">
           <p className="text-sm text-muted-foreground">
@@ -320,7 +318,7 @@ export function FormsListPage() {
             size="sm"
             className="min-h-10 active:scale-[0.96] transition-[background-color,box-shadow,transform]"
           >
-            <Link to={`/login?next=${next}`}>{t("common.signIn")}</Link>
+            <a href={buildSignInReturnHref()}>{t("common.signIn")}</a>
           </Button>
         </div>
       );

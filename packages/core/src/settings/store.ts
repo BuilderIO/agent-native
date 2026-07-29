@@ -241,6 +241,35 @@ export async function deleteSetting(
   return false;
 }
 
+/**
+ * Delete every setting whose key starts with `prefix`. Returns the number of
+ * rows removed. Used when an owning entity is deleted (e.g. an organization
+ * takes its `o:<orgId>:*` keys with it).
+ */
+export async function deleteSettingsByPrefix(
+  prefix: string,
+  options?: StoreWriteOptions,
+): Promise<number> {
+  await ensureTable();
+  const client = getDbExec();
+  const table = settingsTable();
+  const escaped = prefix.replace(/[!%_]/g, (c) => `!${c}`);
+  const result = await client.execute({
+    sql: `DELETE FROM ${table} WHERE key LIKE ? ESCAPE '!'`,
+    args: [`${escaped}%`],
+  });
+  requestSettingsCache()?.clear();
+  if (result.rowsAffected > 0) {
+    settingsEmitter().emit("settings", {
+      source: "settings",
+      type: "delete",
+      key: prefix,
+      ...(options?.requestSource && { requestSource: options.requestSource }),
+    });
+  }
+  return result.rowsAffected;
+}
+
 export async function getAllSettings(): Promise<
   Record<string, Record<string, unknown>>
 > {

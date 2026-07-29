@@ -61,6 +61,8 @@ const messages = {
     deckOptions: "Options du deck",
     generatingImage: "Génération de l’image...",
     noAssetsYet: "Aucun asset pour le moment.",
+    assetUploadFailed: "Certains envois ont échoué",
+    assetDeleteFailed: "Échec de la suppression de l'asset",
     contentMarkdown: "Contenu (Markdown)",
     speakerNotes: "Notes du présentateur",
     speakerNotesForSlide:
@@ -163,6 +165,13 @@ const messages = {
   designSystems: {
     new: "Nouveau système de design",
     setupBrand: "Configurer votre marque",
+    delete: "Supprimer",
+    cancel: "Annuler",
+    moreActions: "Plus d'actions",
+    deleteDialogTitle: "Supprimer le système de design ?",
+    deleteDialogDescription:
+      "Le système de design est supprimé définitivement. Les présentations qui l'utilisent conservent leur apparence actuelle mais n'y sont plus liées.",
+    deleteError: "Échec de la suppression du système de design",
     emptyTitle: "Configurer votre identité de marque",
     emptyDescription:
       "Créez un système de design avec les couleurs, la typographie et les logos de votre marque. Chaque nouvelle présentation suivra votre identité visuelle.",
@@ -200,6 +209,7 @@ const messages = {
     slideSettings: "Paramètres de la diapositive",
     layout: "Disposition",
     background: "Arrière-plan",
+    customColor: "Couleur personnalisée",
     media: "Média",
     generateImage: "Générer une image",
     assetLibrary: "Bibliothèque de ressources",
@@ -262,7 +272,10 @@ const messages = {
     downloadHtml: "Télécharger en HTML",
     exportPdf: "Exporter en PDF",
     exportPptx: "Exporter en PPTX",
-    downloadGoogleSlides: "Télécharger pour Google Slides",
+    openInGoogleSlides: "Ouvrir dans Google Slides",
+    googleSlidesCreated: "Ouvert dans Google Slides",
+    googleSlidesCreatedHint:
+      "Une copie de cette présentation a été créée dans votre Google Drive.",
     duplicateDeck: "Dupliquer le deck",
   },
   share: {
@@ -479,6 +492,12 @@ const messages = {
     slides: "Diapositivas",
   },
   presentation: {
+    presenterView: "Mode présentateur",
+    speakerNotes: "Notes du présentateur",
+    noNotesForSlide: "Aucune note pour cette diapositive",
+    upNext: "À suivre",
+    endOfDeck: "Fin de la présentation",
+    closePresenterView: "Fermer le mode présentateur",
     noSlides: "No hay diapositivas para presentar",
     previousSlide: "Diapositiva anterior",
     nextSlide: "Siguiente diapositiva",
@@ -543,6 +562,7 @@ const messages = {
     builderDesignSystemId: "Système de conception",
     builderJobId: "Job",
     openInBuilder: "Ouvrir dans Builder",
+    decodeFailed: "Échec du décodage : {{error}}",
     websiteUrl: "URL du site web",
     websitePlaceholder: "example.com ou Nike",
     add: "Ajouter",

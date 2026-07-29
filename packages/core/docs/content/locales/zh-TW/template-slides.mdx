@@ -450,6 +450,6 @@ pnpm dev
 
 `templates/slides/AGENTS.md` 是代理在每次對話中讀取的短路由器。它指向`.agents/skills/`下的skills，並列出了核心規則、應用程式狀態契約和技能指數。 `.agents/skills/create-deck/SKILL.md` 中每個布局的精確幻燈片 HTML 範本 - 每當您新增或更改幻燈片布局模式時更新該技能。
 
-#### API 路由
+#### Actions 與 API 路由
 
-對於 actions 不適合的情況（檔案上傳、流式傳輸），範本會公開一小組 REST 端點：`GET/POST /api/decks`、`GET/PUT/DELETE /api/decks/:id`。參見`templates/slides/server/routes/api/`。
+建立、編輯和刪除簡報及投影片應使用共用 actions，例如 `create-deck`、`add-slide`、`update-slide` 和 `delete-deck`；代理與 UI 都可以呼叫它們。`templates/slides/server/routes/api/` 下的 REST 路由僅用於上傳、串流、匯出及其他路由專屬流程。

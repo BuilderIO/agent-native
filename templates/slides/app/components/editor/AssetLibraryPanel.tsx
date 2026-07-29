@@ -3,8 +3,10 @@ import { useT } from "@agent-native/core/client/i18n";
 import { IconUpload, IconTrash, IconLoader2, IconX } from "@tabler/icons-react";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
+import { toast } from "sonner";
 
 interface Asset {
+  id: string;
   url: string;
   filename: string;
   size: number;
@@ -67,33 +69,54 @@ export default function AssetLibraryPanel({
     const files = e.target.files;
     if (!files || files.length === 0) return;
     setUploading(true);
+    const failures: string[] = [];
     try {
       for (const file of Array.from(files)) {
         const form = new FormData();
         form.append("file", file);
-        await fetch(`${appBasePath()}/api/assets/upload`, {
-          method: "POST",
-          body: form,
-        });
+        try {
+          const res = await fetch(`${appBasePath()}/api/assets/upload`, {
+            method: "POST",
+            body: form,
+          });
+          if (!res.ok) {
+            const body = await res.json().catch(() => null);
+            failures.push(
+              `${file.name}: ${body?.error || `HTTP ${res.status}`}`,
+            );
+          }
+        } catch {
+          failures.push(`${file.name}: upload failed`);
+        }
       }
       await fetchAssets();
-    } catch {
+      if (failures.length > 0) {
+        toast.error(t("raw.assetUploadFailed"), {
+          description: failures.join("\n"),
+        });
+      }
     } finally {
       setUploading(false);
       e.target.value = "";
     }
   };
 
-  const handleDelete = async (filename: string) => {
+  const handleDelete = async (id: string) => {
     try {
-      await fetch(
-        `${appBasePath()}/api/assets/${encodeURIComponent(filename)}`,
+      const res = await fetch(
+        `${appBasePath()}/api/assets/${encodeURIComponent(id)}`,
         {
           method: "DELETE",
         },
       );
-      setAssets((prev) => prev.filter((a) => a.filename !== filename));
-    } catch {}
+      if (!res.ok) {
+        toast.error(t("raw.assetDeleteFailed"));
+        return;
+      }
+      setAssets((prev) => prev.filter((a) => a.id !== id));
+    } catch {
+      toast.error(t("raw.assetDeleteFailed"));
+    }
   };
 
   const handleSelect = (url: string) => {
@@ -185,7 +208,7 @@ export default function AssetLibraryPanel({
           <div className="grid grid-cols-3 gap-2">
             {assets.map((asset) => (
               <div
-                key={asset.filename}
+                key={asset.id}
                 className="group relative aspect-square rounded-md overflow-hidden border border-border bg-muted"
               >
                 <button
@@ -204,7 +227,7 @@ export default function AssetLibraryPanel({
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    handleDelete(asset.filename);
+                    handleDelete(asset.id);
                   }}
                   className="absolute top-0.5 right-0.5 w-5 h-5 bg-black/70 text-white/70 hover:text-red-400 flex items-center justify-center rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
                   aria-label={`Delete ${asset.filename}`}

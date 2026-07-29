@@ -27,6 +27,14 @@ scopes to `≤ 809px`). `breakpointUpperBoundPx` in
 
 ## Managing breakpoints
 
+A newly generated design's frame set comes from `generate-design`'s `devices`
+param (`("mobile"|"tablet"|"desktop")[]`, default `["desktop","mobile"]`). The
+cascade is **desktop-base**: the widest requested device is the primary/base
+frame and each narrower device is a breakpoint frame. The default injected set
+is therefore a Desktop base plus a single Mobile (390) breakpoint frame — the
+narrower frame(s) only, never a frame at the primary desktop width and never an
+auto-added tablet.
+
 - `add-breakpoint` — adds a device-width frame to `designs.data.breakpointSet`
   (Framer defaults: Desktop 1200 / Tablet 810 / Phone 390, or custom 320-3840).
   Duplicate widths are ignored.

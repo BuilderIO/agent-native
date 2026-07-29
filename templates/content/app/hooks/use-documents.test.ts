@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildDocumentTree,
+  DOCUMENT_QUERY_FRESHNESS_OPTIONS,
   documentUpdateSuccessPatch,
   documentPropertiesQueryKey,
   documentQueryKey,
@@ -20,6 +21,16 @@ import {
   setDocumentFavoriteInListCache,
   seedDatabaseItemDocumentCaches,
 } from "./use-documents";
+
+describe("document query freshness", () => {
+  it("always replaces seeded row snapshots before the editor mounts", () => {
+    expect(DOCUMENT_QUERY_FRESHNESS_OPTIONS).toMatchObject({
+      staleTime: 0,
+      refetchOnMount: "always",
+      retry: false,
+    });
+  });
+});
 
 function doc(id: string, parentId: string | null, position = 0): Document {
   return {
@@ -489,7 +500,7 @@ describe("isDocumentUpdateConflict", () => {
 });
 
 describe("seedDatabaseItemDocumentCaches", () => {
-  it("warms get-document and list-document-properties from a database row", () => {
+  it("warms properties without treating a database row snapshot as an editable document", () => {
     const queryClient = new QueryClient();
     const item: ContentDatabaseItem = {
       id: "item-a",
@@ -529,20 +540,75 @@ describe("seedDatabaseItemDocumentCaches", () => {
 
     seedDatabaseItemDocumentCaches(queryClient, item);
 
+    expect(queryClient.getQueryData(documentQueryKey("row-page"))).toBe(
+      undefined,
+    );
     expect(
-      queryClient.getQueryData(documentQueryKey("row-page")),
-    ).toMatchObject({
-      id: "row-page",
-      title: "Builder blog launch",
-      icon: "B",
-      properties: item.properties,
-    });
-    expect(
-      queryClient.getQueryData(documentPropertiesQueryKey("row-page")),
+      queryClient.getQueryData(
+        documentPropertiesQueryKey("row-page", "database"),
+      ),
     ).toEqual({
       documentId: "row-page",
       databaseId: "database",
       properties: item.properties,
+    });
+  });
+
+  it("keeps property caches separate for one page in two databases", () => {
+    const queryClient = new QueryClient();
+    const item = (databaseId: string, propertyId: string, value: string) =>
+      ({
+        id: `item-${databaseId}`,
+        databaseId,
+        position: 0,
+        document: {
+          ...doc("shared-row", `page-${databaseId}`),
+          databaseMembership: {
+            databaseId,
+            databaseDocumentId: `page-${databaseId}`,
+            databaseTitle: databaseId,
+            position: 0,
+          },
+        },
+        properties: [
+          {
+            definition: {
+              id: propertyId,
+              databaseId,
+              name: propertyId,
+              type: "select",
+              visibility: "always_show",
+              options: { options: [] },
+              position: 0,
+              createdAt: "2026-07-24T00:00:00.000Z",
+              updatedAt: "2026-07-24T00:00:00.000Z",
+            },
+            value,
+            editable: true,
+          },
+        ],
+      }) as ContentDatabaseItem;
+
+    const filesItem = item("files-database", "Kind", "Page");
+    const projectItem = item("project-database", "Status", "In progress");
+    seedDatabaseItemDocumentCaches(queryClient, filesItem);
+    seedDatabaseItemDocumentCaches(queryClient, projectItem);
+
+    expect(
+      queryClient.getQueryData(
+        documentPropertiesQueryKey("shared-row", "files-database"),
+      ),
+    ).toMatchObject({
+      databaseId: "files-database",
+      properties: filesItem.properties,
+    });
+    expect(
+      queryClient.getQueryData(
+        documentPropertiesQueryKey("shared-row", "project-database"),
+      ),
+    ).toMatchObject({
+      databaseId: "project-database",
+      properties: projectItem.properties,
     });
   });
 
@@ -585,7 +651,9 @@ describe("seedDatabaseItemDocumentCaches", () => {
       undefined,
     );
     expect(
-      queryClient.getQueryData(documentPropertiesQueryKey("row-page")),
+      queryClient.getQueryData(
+        documentPropertiesQueryKey("row-page", "database"),
+      ),
     ).toEqual({
       documentId: "row-page",
       databaseId: "database",
@@ -631,7 +699,9 @@ describe("seedDatabaseItemDocumentCaches", () => {
       undefined,
     );
     expect(
-      queryClient.getQueryData(documentPropertiesQueryKey("row-page")),
+      queryClient.getQueryData(
+        documentPropertiesQueryKey("row-page", "database"),
+      ),
     ).toEqual({
       documentId: "row-page",
       databaseId: "database",

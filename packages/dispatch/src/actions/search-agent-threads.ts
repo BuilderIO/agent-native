@@ -5,7 +5,7 @@ import { searchAgentThreads } from "../server/lib/thread-debug-store.js";
 
 export default defineAction({
   description:
-    "Search agent chat threads by title, preview, or full persisted thread content. Non-admins are limited to their own current Dispatch DB threads.",
+    "Search agent chat threads by title, preview, full persisted thread content, or an exact request/run ID. Non-admins are limited to their own current Dispatch DB threads.",
   schema: z.object({
     sourceId: z
       .string()

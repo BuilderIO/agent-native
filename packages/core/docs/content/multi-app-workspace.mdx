@@ -7,7 +7,7 @@ description: "Host many agent-native apps in one monorepo with shared auth, RBAC
 
 <Callout tone="info">
 
-**Which workspace doc?** This page covers the **deployment shape** — one monorepo, many apps, shared auth and a unified deploy. For the agent customization layer (Agent Resources: `AGENTS.md`, memory, skills, custom agents) see [Agent Resources](/docs/agent-resources); for governance (who reviews, approves, and owns what) see [Workspace Governance](/docs/workspace-management).
+**Developer page.** This page is for developers scaffolding or deploying a multi-app repo. It covers the **deployment shape** — one monorepo, many apps, shared auth and a unified deploy. For the agent customization layer (Agent Resources: `AGENTS.md`, memory, skills, custom agents) see [Agent Resources](/docs/agent-resources); for governance (who reviews, approves, and owns what) see [Workspace Governance](/docs/workspace-management).
 
 </Callout>
 
@@ -35,7 +35,7 @@ Anything every app in your org should agree on can live in `packages/shared`:
 
 Each individual app becomes _just a set of screens_ — routes, dashboards, views, domain-specific actions. Framework defaults cover the rest until you add a real workspace customization.
 
-That same boundary applies when your app wants to use another first-party app. A new workspace dashboard that needs email, calendar, analytics, and company-memory context should use the existing Mail, Calendar, Analytics, and Brain apps as connected neighbors over links or A2A. It should not clone those templates, create a wrapper app that nests them, or scaffold child apps inside itself just to get access to their data or agents. Fork or scaffold a copy only when you explicitly want to customize that app.
+That same boundary applies when your app wants to use another first-party app. A new workspace dashboard that needs email, calendar, analytics, and company-memory context should use the existing Mail, Calendar, Analytics, and Brain apps as connected neighbors over links or A2A. It should not create wrapper apps that nest them or scaffold child apps inside itself just to get access to their data or agents. Start from a template only when you explicitly want to customize that app.
 
 ## Getting started {#getting-started}
 

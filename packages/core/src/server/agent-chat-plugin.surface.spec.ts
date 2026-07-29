@@ -354,11 +354,15 @@ describe("prompt content invariants", () => {
     }
   });
 
-  it("both variants contain the plan/progress discipline rule", () => {
+  it("both variants say when to open a progress run without restating the tool's mechanics", () => {
     for (const prompt of [full, compact]) {
       expect(prompt).toContain("manage-progress");
-      expect(prompt).toContain("in_progress");
-      expect(prompt).toContain("Never create single-step plans");
+      expect(prompt).toContain("never create single-step plans");
+      // The start/update/complete call sequence belongs to `manage-progress`'s
+      // own tool description, which the model reads before it can call the
+      // tool. Restating it here charges every turn for it.
+      expect(prompt).not.toContain('action: "start"');
+      expect(prompt).not.toContain('status: "succeeded"');
     }
   });
 

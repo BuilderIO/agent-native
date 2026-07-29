@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { RUN_NO_PROGRESS_HARD_TIMEOUT_MS } from "../agent/run-manager.js";
 import {
   AgentAutoContinueSignal,
   readSSEStream,
@@ -7,7 +8,10 @@ import {
   SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS,
   SSE_DURABLE_ACTION_PREPARATION_STALL_TIMEOUT_MS,
   SSE_DURABLE_NO_PROGRESS_TIMEOUT_MS,
+  SSE_IN_FLIGHT_WORK_TIMEOUT_MS,
   SSE_NO_PROGRESS_TIMEOUT_MS,
+  settleInterruptedToolCalls,
+  type ContentPart,
 } from "./sse-event-processor.js";
 
 function commentOnlyStream(delayMs: number): ReadableStream<Uint8Array> {
@@ -298,6 +302,10 @@ function preparingActionProgressStream(
   });
 }
 
+// Long enough to exercise id-scoped preparation tracking, short enough to stay
+// inside the action-preparation stall window this fixture is not testing.
+const PARALLEL_PREPARATION_TERMINAL_DELAY_MS = 80_000;
+
 function parallelSameToolPreparationStream(
   tool = "edit-design",
 ): ReadableStream<Uint8Array> {
@@ -358,7 +366,7 @@ function parallelSameToolPreparationStream(
             ),
           );
           controller.close();
-        }, SSE_NO_PROGRESS_TIMEOUT_MS + 5_000),
+        }, PARALLEL_PREPARATION_TERMINAL_DELAY_MS),
       );
     },
     cancel() {
@@ -760,7 +768,7 @@ describe("SSE replay render pacing", () => {
       expect.objectContaining({
         toolCallId: "analytics-a",
         result: "Stopped before this action started.",
-        isError: true,
+        outcome: "unknown",
       }),
       expect.objectContaining({
         toolCallId: "analytics-b",
@@ -1282,7 +1290,7 @@ describe("SSE event processor no-progress recovery", () => {
       ),
     );
 
-    await vi.advanceTimersByTimeAsync(SSE_NO_PROGRESS_TIMEOUT_MS + 5_000);
+    await vi.advanceTimersByTimeAsync(PARALLEL_PREPARATION_TERMINAL_DELAY_MS);
 
     await expect(donePromise).resolves.toBeDefined();
   });
@@ -2015,7 +2023,7 @@ describe("SSE event processor error classification", () => {
             argsText: "",
             args: {},
             activity: true,
-            isError: true,
+            outcome: "unknown",
             result: "Stopped before this action started.",
           }),
           {
@@ -3353,6 +3361,49 @@ describe("SSE event processor error classification", () => {
       }),
     );
   });
+
+  it("does not auto-continue a deliberate abort reported as a recoverable aborted_* error", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    // Must NOT throw AgentAutoContinueSignal — restarting work a Slack cancel
+    // or the stuck banner just stopped is the destructive outcome.
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "error",
+            error: "The agent run was stopped before it finished.",
+            errorCode: "aborted_slack_cancel",
+            recoverable: true,
+          },
+        ]),
+        [],
+        { value: 0 },
+        "tab-abort",
+      ),
+    );
+
+    const terminal = results.at(-1) as
+      | {
+          status?: { type: string; reason: string };
+          metadata?: { custom?: { runError?: { recoverable?: boolean } } };
+        }
+      | undefined;
+    expect(terminal?.status).toEqual({ type: "incomplete", reason: "error" });
+    expect(terminal?.metadata?.custom?.runError?.recoverable).toBe(true);
+  });
 });
 
 describe("SSE event processor tool id matching", () => {
@@ -3809,5 +3860,152 @@ describe("SSE thinking / reasoning events", () => {
     ).catch(() => {});
 
     expect(content).toEqual([{ type: "text", text: "retry" }]);
+  });
+});
+
+function inFlightToolStream(
+  terminalDelayMs: number,
+  toolDoneDelayMs?: number,
+): ReadableStream<Uint8Array> {
+  const timers: ReturnType<typeof setTimeout>[] = [];
+  const encode = (event: unknown) =>
+    new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\n`);
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(
+        encode({ type: "tool_start", tool: "run-report", id: "call-1" }),
+      );
+      if (toolDoneDelayMs !== undefined) {
+        timers.push(
+          setTimeout(() => {
+            controller.enqueue(
+              encode({
+                type: "tool_done",
+                tool: "run-report",
+                id: "call-1",
+                result: "ok",
+              }),
+            );
+          }, toolDoneDelayMs),
+        );
+      }
+      timers.push(
+        setTimeout(() => {
+          controller.enqueue(encode({ type: "done" }));
+          controller.close();
+        }, terminalDelayMs),
+      );
+    },
+    cancel() {
+      for (const timer of timers) clearTimeout(timer);
+    },
+  });
+}
+
+describe("SSE client watchdog ordering", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("keeps the client no-progress window above the server backstop", () => {
+    // The server owns recovery. If the browser fires first, the whole
+    // server-side ladder becomes unreachable dead code.
+    expect(SSE_NO_PROGRESS_TIMEOUT_MS).toBeGreaterThan(
+      RUN_NO_PROGRESS_HARD_TIMEOUT_MS,
+    );
+    expect(SSE_IN_FLIGHT_WORK_TIMEOUT_MS).toBeGreaterThan(
+      SSE_NO_PROGRESS_TIMEOUT_MS,
+    );
+  });
+
+  it("suspends the no-progress watchdog while a tool call is in flight", async () => {
+    vi.useFakeTimers();
+
+    const donePromise = drain(
+      readSSEStream(
+        inFlightToolStream(SSE_NO_PROGRESS_TIMEOUT_MS + 120_000),
+        [],
+        { value: 0 },
+        undefined,
+      ),
+    );
+
+    await vi.advanceTimersByTimeAsync(SSE_NO_PROGRESS_TIMEOUT_MS + 120_000);
+
+    await expect(donePromise).resolves.toBeDefined();
+  });
+
+  it("resumes the no-progress watchdog once the tool settles", async () => {
+    vi.useFakeTimers();
+
+    const errPromise = (async () => {
+      try {
+        await drain(
+          readSSEStream(
+            inFlightToolStream(SSE_NO_PROGRESS_TIMEOUT_MS * 3, 1_000),
+            [],
+            { value: 0 },
+            undefined,
+          ),
+        );
+      } catch (err) {
+        return err;
+      }
+    })();
+
+    await vi.advanceTimersByTimeAsync(1_000 + SSE_NO_PROGRESS_TIMEOUT_MS + 1);
+    const err = await errPromise;
+
+    expect(err).toBeInstanceOf(AgentAutoContinueSignal);
+    expect((err as AgentAutoContinueSignal).reason).toBe("no_progress");
+    expect((err as AgentAutoContinueSignal).clientWatchdog).toBe(true);
+  });
+});
+
+describe("settleInterruptedToolCalls", () => {
+  const pendingTool = (): ContentPart => ({
+    type: "tool-call",
+    toolCallId: "tc_1",
+    toolName: "send-email",
+    argsText: "{}",
+    args: {},
+  });
+
+  it("records an interrupted side effect as unknown, not failed", () => {
+    const content: ContentPart[] = [pendingTool()];
+
+    expect(settleInterruptedToolCalls(content)).toBe(true);
+
+    const part = content[0] as Extract<ContentPart, { type: "tool-call" }>;
+    expect(part.result).toBeDefined();
+    expect(part.outcome).toBe("unknown");
+    expect(part.isError).toBeUndefined();
+  });
+
+  it("leaves a server-reported failure marked as an error", () => {
+    const failed: ContentPart = {
+      ...pendingTool(),
+      result: "Boom",
+      isError: true,
+    };
+    const content: ContentPart[] = [failed];
+
+    expect(settleInterruptedToolCalls(content)).toBe(false);
+    expect((content[0] as typeof failed).isError).toBe(true);
+    expect((content[0] as typeof failed).outcome).toBeUndefined();
+  });
+
+  it("only settles activity placeholders when asked", () => {
+    const content: ContentPart[] = [{ ...pendingTool(), activity: true }];
+
+    expect(settleInterruptedToolCalls(content)).toBe(false);
+    expect(
+      settleInterruptedToolCalls(content, undefined, {
+        includeActivity: true,
+      }),
+    ).toBe(true);
+    expect(
+      (content[0] as Extract<ContentPart, { type: "tool-call" }>).outcome,
+    ).toBe("unknown");
   });
 });

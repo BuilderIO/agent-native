@@ -153,10 +153,11 @@ export async function repairPersistedFirstPartyDashboardQueries(): Promise<boole
  * Returns the number of dashboards actually changed.
  */
 export async function repairUnboundedFirstPartyPanelsAcrossDashboards(): Promise<number> {
-  // guard:allow-unscoped — this is an org-wide startup repair: it may touch
-  // any dashboard's persisted panel SQL, but only ever replaces an exact
-  // known-bad SQL string under the same optimistic (config, updatedAt) fence
-  // used by the canonical repair above, so a concurrent edit always wins.
+  // guard:allow-unscoped — this explicit operator repair may touch any
+  // dashboard's persisted panel SQL. It must never run during server startup:
+  // reading every config on each serverless cold start can saturate the
+  // database. Exact-string matches and the optimistic (config, updatedAt)
+  // fence ensure a concurrent edit always wins.
   const db = getDb() as any;
   const dialect = getDialect();
   const rows = await db

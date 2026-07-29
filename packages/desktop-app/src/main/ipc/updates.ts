@@ -41,6 +41,10 @@ export interface UpdatesIpcDeps {
   focusMainWindow: () => void;
 }
 
+export interface UpdateCheckOptions {
+  notifyOnResult?: boolean;
+}
+
 // Populated by `registerUpdatesIpc` during startup, before any of the
 // functions below can be invoked (autoUpdater events fire only after
 // registration, and the app menu isn't clickable until the app is ready).
@@ -83,8 +87,10 @@ async function waitForDownloadedUpdate(
   publishDownloadedUpdate();
 }
 
-/** Triggers (or awaits an in-flight) update check. Exported for the app menu's "Check for Updates" item. */
-export async function checkForAppUpdates(): Promise<UpdateStatus> {
+/** Triggers (or awaits an in-flight) update check. */
+export async function checkForAppUpdates(
+  options: UpdateCheckOptions = {},
+): Promise<UpdateStatus> {
   if (IS_DEV) return currentUpdateStatus;
   if (currentUpdateStatus.state === "downloaded") return currentUpdateStatus;
 
@@ -107,6 +113,9 @@ export async function checkForAppUpdates(): Promise<UpdateStatus> {
   }
 
   await updateCheckInFlight;
+  if (options.notifyOnResult) {
+    showUpdateCheckResultNotification(currentUpdateStatus);
+  }
   return currentUpdateStatus;
 }
 
@@ -134,6 +143,27 @@ function showUpdateReadyNotification(version: string) {
   notification.on("click", (_event) => {
     getDeps().focusMainWindow();
   });
+  notification.show();
+}
+
+function showUpdateCheckResultNotification(status: UpdateStatus) {
+  if (!Notification.isSupported()) return;
+
+  const notification =
+    status.state === "not-available"
+      ? new Notification({
+          title: "Agent Native is up to date",
+          body: `You're running the latest version (${status.currentVersion}).`,
+        })
+      : status.state === "error"
+        ? new Notification({
+            title: "Could not check for Agent Native updates",
+            body: status.message,
+          })
+        : null;
+
+  if (!notification) return;
+  notification.on("click", () => getDeps().focusMainWindow());
   notification.show();
 }
 
@@ -219,7 +249,7 @@ export function registerUpdatesIpc(ipcDeps: UpdatesIpcDeps): void {
   );
 
   ipcMain.handle(IPC.UPDATE_CHECK, async (): Promise<UpdateStatus> => {
-    return checkForAppUpdates();
+    return checkForAppUpdates({ notifyOnResult: true });
   });
 
   ipcMain.handle(IPC.UPDATE_DOWNLOAD, async (): Promise<UpdateStatus> => {

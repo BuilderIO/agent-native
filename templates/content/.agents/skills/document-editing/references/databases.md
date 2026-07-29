@@ -161,8 +161,14 @@ adding fields without returning to the table header. The New property picker
 supports searching property types by label or machine name.
 
 In unconstrained table views, row drag handles can reorder database item
-pages through `move-database-item`; clear search, sort, and filters before
-manual reordering. Creating a database row returns the created item IDs and
+pages through `move-database-item`; pass both `databaseId` and `itemId` so the
+membership target is exact, and clear search, sort, and filters before manual
+reordering. Pinned and workspace-root sidebar rows also reorder exact
+memberships, but they are references: moving one never reparents, transfers,
+or changes access to the referenced page. Files sidebar Custom order is
+different again: persist it per user and per database view with
+`update-content-database-personal-view`, without changing the shared Files
+membership order. Creating a database row returns the created item IDs and
 opens the new row page in the side preview. Duplicating a database row
 returns the duplicate item IDs and opens the copied row in the side preview
 so users can continue editing the new page immediately, including from

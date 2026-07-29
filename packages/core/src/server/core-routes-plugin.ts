@@ -21,6 +21,7 @@ import {
   OPENAI_BASE_URL_ENV_VAR,
   PROVIDER_ENV_META,
 } from "../agent/engine/provider-env-vars.js";
+import type { AgentEngineEntry } from "../agent/engine/registry.js";
 import {
   isAgentEngineSettingConfigured,
   getAgentEngineEntry,
@@ -128,6 +129,8 @@ import {
   resolveBuilderCallbackReturnUrl,
   getBuilderBrowserStatusForEvent,
   resolveBuilderBranchProjectId,
+  resolveBuilderPreviewRelayParentOrigin,
+  resolveBuilderPreviewRelayTargetOrigin,
   resolveSafePreviewUrl,
   runBuilderAgent,
   signBuilderCallbackState,
@@ -201,6 +204,206 @@ export function normalizeAgentEngineStatusModel(
 ): string {
   if (!entry) return model ?? DEFAULT_MODEL;
   return normalizeModelForEngine(entry, model ?? entry.defaultModel);
+}
+
+type AgentEngineStatusEntry = {
+  name: string;
+  defaultModel: string;
+  supportedModels: readonly string[];
+  requiredEnvVars: readonly string[];
+};
+
+export interface AgentEngineStatusResult {
+  configured: boolean;
+  engine?: string;
+  model?: string;
+  source?: "settings" | "env" | "app_secrets";
+  envVar?: string;
+  openAiBaseUrlConfigured?: boolean;
+}
+
+export interface AgentEngineStatusDeps<
+  E extends AgentEngineStatusEntry = AgentEngineStatusEntry,
+> {
+  readStoredEngine: () => Promise<{ engine?: string; model?: string } | null>;
+  readOpenAiBaseUrlConfigured: () => boolean | Promise<boolean>;
+  isStoredEngineUsable: (
+    stored: unknown,
+    entry: E,
+  ) => boolean | Promise<boolean>;
+  detectFromUserSecrets: () => Promise<E | null>;
+  detectFromEnv: () => E | null | Promise<E | null>;
+  lookupEntry?: (engine: string) => E | undefined;
+}
+
+/**
+ * Resolve "does this request have a usable AI provider" for one identity.
+ *
+ * Every call site pays for these lookups on a user-visible path (the agent
+ * composer blocks on the status probe), so the two identity-independent reads
+ * start together and the expensive `app_secrets` sweep only runs when the
+ * cheaper sources have not already answered.
+ */
+export async function resolveAgentEngineStatus<
+  E extends AgentEngineStatusEntry,
+>(deps: AgentEngineStatusDeps<E>): Promise<AgentEngineStatusResult> {
+  const lookupEntry = (deps.lookupEntry ?? getAgentEngineEntry) as (
+    engine: string,
+  ) => E | undefined;
+  const [stored, openAiBaseUrlConfigured] = await Promise.all([
+    deps.readStoredEngine(),
+    deps.readOpenAiBaseUrlConfigured(),
+  ]);
+
+  if (isAgentEngineSettingConfigured(stored)) {
+    const engine = (stored as { engine: string }).engine;
+    const entry = lookupEntry(engine);
+    return {
+      configured: true,
+      engine,
+      model: normalizeAgentEngineStatusModel(entry, stored?.model),
+      source: "settings",
+      openAiBaseUrlConfigured,
+    };
+  }
+
+  const envEntry = process.env.AGENT_ENGINE
+    ? lookupEntry(process.env.AGENT_ENGINE)
+    : undefined;
+  if (envEntry) {
+    if (!(await deps.isStoredEngineUsable({ engine: envEntry.name }, envEntry)))
+      return { configured: false, openAiBaseUrlConfigured };
+    return {
+      configured: true,
+      engine: envEntry.name,
+      model: envEntry.defaultModel ?? DEFAULT_MODEL,
+      source: "env",
+      envVar: "AGENT_ENGINE",
+      openAiBaseUrlConfigured,
+    };
+  }
+
+  // Stored provider selections win over an existing Builder connection, so
+  // this is checked before the app_secrets sweep — and the sweep is skipped
+  // entirely when it answers.
+  if (stored && typeof stored.engine === "string") {
+    const entry = lookupEntry(stored.engine);
+    if (entry && (await deps.isStoredEngineUsable(stored, entry))) {
+      return {
+        configured: true,
+        engine: stored.engine,
+        model: normalizeAgentEngineStatusModel(entry, stored.model),
+        source: "env",
+        envVar: entry.requiredEnvVars[0],
+        openAiBaseUrlConfigured,
+      };
+    }
+  }
+
+  // Per-user app_secrets — a user who connected Builder (or pasted their own
+  // provider key) may not have any deploy-level env vars set.
+  const detectedFromUser = await deps.detectFromUserSecrets();
+  if (detectedFromUser) {
+    return {
+      configured: true,
+      engine: detectedFromUser.name,
+      model: detectedFromUser.defaultModel ?? DEFAULT_MODEL,
+      source: "app_secrets",
+      envVar: detectedFromUser.requiredEnvVars[0],
+      openAiBaseUrlConfigured,
+    };
+  }
+
+  const detected = await deps.detectFromEnv();
+  if (detected) {
+    return {
+      configured: true,
+      engine: detected.name,
+      model: detected.defaultModel ?? DEFAULT_MODEL,
+      source: "env",
+      envVar: detected.requiredEnvVars[0],
+      openAiBaseUrlConfigured,
+    };
+  }
+
+  return { configured: false, openAiBaseUrlConfigured };
+}
+
+const _agentEngineStatusInFlight = new Map<
+  string,
+  Promise<AgentEngineStatusResult>
+>();
+
+/**
+ * Share one in-flight status resolution between concurrent probes of the same
+ * identity. Several client surfaces probe this route on mount and the client
+ * retries after its own timeout; without this each probe re-ran the whole
+ * credential sweep. The entry is dropped as soon as the lookup settles, so a
+ * joiner never sees an answer older than one lookup — no TTL, nothing to
+ * invalidate when a provider is added or removed. The key carries the identity
+ * that decides the answer, so no tenant can read another's result.
+ */
+export function shareAgentEngineStatusLookup(
+  identityKey: string,
+  compute: () => Promise<AgentEngineStatusResult>,
+): Promise<AgentEngineStatusResult> {
+  const existing = _agentEngineStatusInFlight.get(identityKey);
+  if (existing) return existing;
+  const started = compute().finally(() => {
+    _agentEngineStatusInFlight.delete(identityKey);
+  });
+  _agentEngineStatusInFlight.set(identityKey, started);
+  return started;
+}
+
+export function agentEngineStatusIdentityKey(
+  userEmail: string | undefined,
+  orgId: string | undefined,
+): string {
+  return `${userEmail ?? ""}\u0000${orgId ?? ""}`;
+}
+
+function requestAgentEngineStatusDeps(): AgentEngineStatusDeps<AgentEngineEntry> {
+  return {
+    readStoredEngine: async () =>
+      (await getSetting("agent-engine")) as {
+        engine?: string;
+        model?: string;
+      } | null,
+    readOpenAiBaseUrlConfigured: async () => {
+      try {
+        if (await resolveSecret(OPENAI_BASE_URL_ENV_VAR)) return true;
+      } catch {
+        /* fall through to deployment env when allowed */
+      }
+      return (
+        canUseDeployCredentialFallbackForRequest(OPENAI_BASE_URL_ENV_VAR) &&
+        !!readDeployCredentialEnv(OPENAI_BASE_URL_ENV_VAR)
+      );
+    },
+    isStoredEngineUsable: isStoredEngineUsableForRequest,
+    detectFromUserSecrets: detectEngineFromUserSecrets,
+    detectFromEnv: detectEngineFromEnv,
+  };
+}
+
+/**
+ * Resolve the identity the status answer depends on. Both lookups memoize per
+ * request inside their own helpers, so repeating them here stays cheap.
+ */
+async function resolveAgentEngineStatusIdentity(
+  event: H3Event,
+): Promise<{ userEmail: string | undefined; orgId: string | undefined }> {
+  const session = await getSession(event).catch(() => null);
+  const userEmail = session?.email;
+  if (!userEmail) return { userEmail: undefined, orgId: undefined };
+  try {
+    const orgCtx = await getOrgContext(event);
+    return { userEmail, orgId: orgCtx.orgId ?? undefined };
+  } catch {
+    /* org module not present in this template */
+    return { userEmail, orgId: undefined };
+  }
 }
 
 export function getFrameworkEnvKeys(): EnvKeyConfig[] {
@@ -649,54 +852,17 @@ async function detectUsageEngineName(
   userEmail: string | undefined,
 ): Promise<string | null> {
   try {
-    const stored = (await getSetting("agent-engine")) as {
-      engine?: string;
-    } | null;
-    if (isAgentEngineSettingConfigured(stored)) {
-      return (stored as { engine: string }).engine;
-    }
-    let orgId: string | undefined;
-    if (userEmail) {
-      try {
-        const orgCtx = await getOrgContext(event);
-        orgId = orgCtx.orgId ?? undefined;
-      } catch {
-        /* org module not present in this template */
-      }
-    }
-    const envEntry = process.env.AGENT_ENGINE
-      ? getAgentEngineEntry(process.env.AGENT_ENGINE)
+    const orgId = userEmail
+      ? (await resolveAgentEngineStatusIdentity(event)).orgId
       : undefined;
-    if (envEntry) {
-      return (await runWithRequestContext({ userEmail, orgId }, () =>
-        isStoredEngineUsableForRequest({ engine: envEntry.name }, envEntry),
-      ))
-        ? envEntry.name
-        : null;
-    }
-
-    const detectedFromUser = await runWithRequestContext(
-      { userEmail, orgId },
-      () => detectEngineFromUserSecrets(),
+    const status = await runWithRequestContext({ userEmail, orgId }, () =>
+      resolveAgentEngineStatus({
+        ...requestAgentEngineStatusDeps(),
+        // Tracking only needs the engine name; skip the base-URL secret read.
+        readOpenAiBaseUrlConfigured: () => false,
+      }),
     );
-    if (stored && typeof stored.engine === "string") {
-      const entry = getAgentEngineEntry(stored.engine);
-      if (
-        entry &&
-        (await runWithRequestContext({ userEmail, orgId }, () =>
-          isStoredEngineUsableForRequest(stored, entry),
-        ))
-      ) {
-        return stored.engine;
-      }
-    }
-    if (detectedFromUser?.name === "builder") return detectedFromUser.name;
-    if (detectedFromUser) return detectedFromUser.name;
-
-    return await runWithRequestContext(
-      { userEmail, orgId },
-      () => detectEngineFromEnv()?.name ?? null,
-    );
+    return status.engine ?? null;
   } catch {
     return null;
   }
@@ -1403,6 +1569,73 @@ export function createCoreRoutesPlugin(
       // middleware any plugin's route can possibly land behind, regardless of
       // plugin init ordering.
 
+      // Peer reachability + auth probe for the settings UI. Deliberately
+      // separate from `${P}/agents` (discovery) — this route makes live
+      // network calls to the peer, so it is session-gated and answers one
+      // peer (`?url=`) or every registered peer (no query) via `discoverAgents`.
+      //
+      // MUST be mounted BEFORE `${P}/agents` below: h3's `.use()` matches by
+      // path prefix, and that handler always returns a value (never calls
+      // `next()`), so it would swallow `/agents/probe` requests before they
+      // ever reached this route if registered second (same hazard as the A2A
+      // `_process-task` route vs. its `/a2a` catch-all — see a2a/server.ts).
+      getH3App(nitroApp).use(
+        `${P}/agents/probe`,
+        defineEventHandler(async (event) => {
+          if (getMethod(event) !== "GET") {
+            setResponseStatus(event, 405);
+            return { error: "Method not allowed" };
+          }
+          const session = await getSession(event).catch(() => null);
+          if (!session?.email) {
+            setResponseStatus(event, 401);
+            return { error: "Authentication required" };
+          }
+
+          return runWithRequestContext(
+            { userEmail: session.email, orgId: session.orgId ?? undefined },
+            async () => {
+              const { probePeerAgent, probeAllPeerAgents } =
+                await import("./agent-peer-probe.js");
+              const query = getRequestURL(event).searchParams;
+              const urlParam = query.get("url");
+
+              if (urlParam === null) {
+                const selfAppId = query.get("selfAppId") ?? undefined;
+                const { discoverAgents } = await import("./agent-discovery.js");
+                const agents = await discoverAgents(selfAppId);
+                const results = await probeAllPeerAgents(agents);
+                return { results };
+              }
+
+              if (!urlParam.trim()) {
+                setResponseStatus(event, 400);
+                return { error: "url is required" };
+              }
+
+              const result = await probePeerAgent({
+                id: "probe",
+                name: urlParam,
+                description: "",
+                url: urlParam,
+                color: "",
+              });
+
+              // Reachability and auth are independent, but a malformed/SSRF-blocked
+              // URL is a caller input error, not a peer that failed to answer — the
+              // one case where the probe's "unreachable" result is reclassified into
+              // a 400 instead of a 200 with `reachable: false`.
+              if (result.error?.startsWith("SSRF blocked:")) {
+                setResponseStatus(event, 400);
+                return { url: urlParam, error: result.error };
+              }
+
+              return result;
+            },
+          );
+        }),
+      );
+
       // Agent discovery primitive — shared by headless CLI/A2A surfaces and
       // UI shells that need to show connected peer apps without depending on
       // the chat route namespace.
@@ -2061,7 +2294,8 @@ export function createCoreRoutesPlugin(
             try {
               relay = signBuilderPreviewRelayState({
                 ownerEmail,
-                targetOrigin: previewOrigin,
+                targetOrigin:
+                  resolveBuilderPreviewRelayTargetOrigin(previewOrigin),
                 basePath: getAppBasePath(),
               });
             } catch (err) {
@@ -2434,6 +2668,13 @@ export function createCoreRoutesPlugin(
               );
             }
 
+            const relayOpenerOrigin =
+              requestUrl.searchParams.get(BUILDER_OPENER_PARAM);
+            const relayParentOrigin = resolveBuilderPreviewRelayParentOrigin({
+              openerOrigin: relayOpenerOrigin,
+              targetOrigin: relayPayload.targetOrigin,
+            });
+
             const privateKey = requestUrl.searchParams.get("p-key");
             const publicKey = requestUrl.searchParams.get("api-key");
             if (!privateKey || !publicKey) {
@@ -2445,7 +2686,7 @@ export function createCoreRoutesPlugin(
               );
               return createBuilderBrowserCallbackErrorPage(
                 "Builder didn't return credentials. Restart the connect flow from settings.",
-                { parentOrigin: relayPayload.targetOrigin },
+                { parentOrigin: relayParentOrigin },
               );
             }
 
@@ -2501,7 +2742,7 @@ export function createCoreRoutesPlugin(
                 "text/html; charset=utf-8",
               );
               return createBuilderBrowserCallbackErrorPage(message, {
-                parentOrigin: relayPayload.targetOrigin,
+                parentOrigin: relayParentOrigin,
               });
             }
 
@@ -2511,8 +2752,8 @@ export function createCoreRoutesPlugin(
               "text/html; charset=utf-8",
             );
             return createBuilderBrowserCallbackPage(
-              `${relayPayload.targetOrigin}${relayPayload.basePath || "/"}`,
-              { parentOrigin: relayPayload.targetOrigin },
+              `${relayParentOrigin}${relayPayload.basePath || "/"}`,
+              { parentOrigin: relayParentOrigin },
             );
           }
 
@@ -3148,141 +3389,27 @@ export function createCoreRoutesPlugin(
         `${P}/agent-engine/status`,
         defineEventHandler(async (event) => {
           try {
-            const session = await getSession(event).catch(() => null);
-            const userEmail = session?.email;
-            let orgId: string | undefined;
-            if (userEmail) {
-              try {
-                const orgCtx = await getOrgContext(event);
-                orgId = orgCtx.orgId ?? undefined;
-              } catch {
-                /* org module not present in this template */
-              }
-            }
-            const openAiBaseUrlConfigured = await runWithRequestContext(
-              { userEmail, orgId },
-              async () => {
-                try {
-                  if (await resolveSecret(OPENAI_BASE_URL_ENV_VAR)) return true;
-                } catch {
-                  /* fall through to deployment env when allowed */
-                }
-                return (
-                  canUseDeployCredentialFallbackForRequest(
-                    OPENAI_BASE_URL_ENV_VAR,
-                  ) && !!readDeployCredentialEnv(OPENAI_BASE_URL_ENV_VAR)
-                );
-              },
-            );
-            const stored = (await getSetting("agent-engine")) as {
-              engine?: string;
-              model?: string;
-            } | null;
-            if (isAgentEngineSettingConfigured(stored)) {
-              const engine = (stored as { engine: string }).engine;
-              const entry = getAgentEngineEntry(engine);
-              const model = normalizeAgentEngineStatusModel(
-                entry,
-                stored?.model,
-              );
-              return {
-                configured: true,
-                engine,
-                model,
-                source: "settings" as const,
-                openAiBaseUrlConfigured,
-              };
-            }
-            const envEntry = process.env.AGENT_ENGINE
-              ? getAgentEngineEntry(process.env.AGENT_ENGINE)
-              : undefined;
-            if (envEntry) {
-              const envUsable = await runWithRequestContext(
-                { userEmail, orgId },
-                () =>
-                  isStoredEngineUsableForRequest(
-                    { engine: envEntry.name },
-                    envEntry,
+            const { userEmail, orgId } =
+              await resolveAgentEngineStatusIdentity(event);
+            return await shareAgentEngineStatusLookup(
+              agentEngineStatusIdentityKey(userEmail, orgId),
+              () =>
+                Promise.resolve(
+                  runWithRequestContext({ userEmail, orgId }, () =>
+                    resolveAgentEngineStatus(requestAgentEngineStatusDeps()),
                   ),
-              );
-              if (!envUsable) {
-                return { configured: false, openAiBaseUrlConfigured };
-              }
-              return {
-                configured: true,
-                engine: envEntry.name,
-                model: envEntry.defaultModel ?? DEFAULT_MODEL,
-                source: "env" as const,
-                envVar: "AGENT_ENGINE",
-                openAiBaseUrlConfigured,
-              };
-            }
-            // Per-user app_secrets — a user who connected Builder (or pasted
-            // their own provider key) may not have any deploy-level env vars
-            // set. Stored provider selections are checked first so saving a
-            // BYOK engine can override an existing Builder connection.
-            const detectedFromUser = await runWithRequestContext(
-              { userEmail, orgId },
-              () => detectEngineFromUserSecrets(),
+                ),
             );
-            if (stored && typeof stored.engine === "string") {
-              const entry = getAgentEngineEntry(stored.engine);
-              if (
-                entry &&
-                (await runWithRequestContext({ userEmail, orgId }, () =>
-                  isStoredEngineUsableForRequest(stored, entry),
-                ))
-              ) {
-                const model = normalizeAgentEngineStatusModel(
-                  entry,
-                  stored.model,
-                );
-                return {
-                  configured: true,
-                  engine: stored.engine,
-                  model,
-                  source: "env" as const,
-                  envVar: entry.requiredEnvVars[0],
-                  openAiBaseUrlConfigured,
-                };
-              }
-            }
-            if (detectedFromUser?.name === "builder") {
-              return {
-                configured: true,
-                engine: detectedFromUser.name,
-                model: detectedFromUser.defaultModel ?? DEFAULT_MODEL,
-                source: "app_secrets" as const,
-                envVar: detectedFromUser.requiredEnvVars[0],
-                openAiBaseUrlConfigured,
-              };
-            }
-            if (detectedFromUser) {
-              return {
-                configured: true,
-                engine: detectedFromUser.name,
-                model: detectedFromUser.defaultModel ?? DEFAULT_MODEL,
-                source: "app_secrets" as const,
-                envVar: detectedFromUser.requiredEnvVars[0],
-                openAiBaseUrlConfigured,
-              };
-            }
-            const detected = await runWithRequestContext(
-              { userEmail, orgId },
-              () => detectEngineFromEnv(),
-            );
-            if (detected) {
-              return {
-                configured: true,
-                engine: detected.name,
-                model: detected.defaultModel ?? DEFAULT_MODEL,
-                source: "env" as const,
-                envVar: detected.requiredEnvVars[0],
-                openAiBaseUrlConfigured,
-              };
-            }
-          } catch {}
-          return { configured: false };
+          } catch (err) {
+            // NOT `{ configured: false }`. A 200 saying "not configured" is an
+            // authoritative answer to the client, so a DB blip here renders as
+            // "connect an AI provider" and gates the composer. 503 is the only
+            // response the client can tell apart from a real answer — it maps
+            // to `unavailable`, which keeps the composer usable and retries.
+            console.error("[agent-engine/status] lookup failed", err);
+            setResponseStatus(event, 503);
+            return { error: "Could not read the agent engine configuration." };
+          }
         }),
       );
 
@@ -4124,8 +4251,13 @@ export function createCoreRoutesPlugin(
       }
       resolveInit();
     } catch (error) {
+      // Do NOT rethrow. Nitro invokes plugins as `try { plugin(app) } catch`,
+      // which cannot catch an async rejection, so rethrowing here surfaces as
+      // an unhandledRejection: Node exits, the serverless container dies, and
+      // every in-flight request on it returns a bare 502. `rejectInit` already
+      // routes this failure to the readiness gate, which answers the affected
+      // paths with a retryable 503 instead.
       rejectInit(error);
-      throw error;
     }
   };
 }

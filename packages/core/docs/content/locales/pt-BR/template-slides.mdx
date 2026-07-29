@@ -450,6 +450,6 @@ Agente skills que explica padrões quando o agente precisa modificar o código:
 
 `templates/slides/AGENTS.md` é o roteador curto que o agente lê em cada conversa. Ele aponta para skills em `.agents/skills/` e estabelece as regras básicas, o contrato de estado do aplicativo e o índice de habilidades. Os modelos de slide HTML exatos para cada layout estão disponíveis no `.agents/skills/create-deck/SKILL.md`. Atualize essa habilidade sempre que você adicionar ou alterar um padrão de layout de slide.
 
-#### Rotas API
+#### Actions e rotas API
 
-Para casos em que actions não é adequado (uploads de arquivos, streaming), o modelo expõe um pequeno conjunto de endpoints REST: `GET/POST /api/decks`, `GET/PUT/DELETE /api/decks/:id`. Consulte `templates/slides/server/routes/api/`.
+A criação, edição e exclusão de decks e slides usa actions compartilhadas como `create-deck`, `add-slide`, `update-slide` e `delete-deck`, que podem ser chamadas pelo agente e pela UI. As rotas REST em `templates/slides/server/routes/api/` ficam reservadas para uploads, streaming, exportações e outros fluxos exclusivos de rotas.

@@ -180,7 +180,7 @@ If an action declares `mcpApp`, the server advertises the official MCP Apps exte
 - Hosts that render MCP Apps show the UI inline; hosts that don't can still call the tool and use the deep-link fallback.
 - Product UIs should use `embedApp()` so the inline surface is the real React app route, or a focused route that renders a shared React component such as an Analytics chart — never a separate plain-HTML implementation.
 - The server emits both standard MCP Apps metadata and ChatGPT Apps SDK compatibility metadata so app-capable hosts find the same `ui://` resource.
-- The current official extension matrix includes Claude, Claude Desktop, VS Code GitHub Copilot, Goose, Postman, MCPJam, ChatGPT, and Cursor. Host support varies by version and plan — see the [External Agents MCP Apps notes](/docs/external-agents#mcp-apps-compatibility) for the user-facing guidance.
+- The current official extension matrix includes Claude, Claude Desktop, VS Code GitHub Copilot, Goose, Postman, MCPJam, ChatGPT, and Cursor. Host support varies by version and plan — see the [External Agents Catalog — MCP Apps compatibility](/docs/external-agents-catalog#mcp-apps-compatibility) for the user-facing guidance.
 
 ### MCP App embed bridge {#mcp-app-embed-bridge}
 
@@ -195,7 +195,7 @@ See [MCP Apps](/docs/mcp-apps#mcp-app-bridge) for the full embed bridge details 
 
 ## Tools {#tools}
 
-Every caller gets a **compact catalog by default** (template-declared app actions plus the cross-app builtins), with the full action surface served only on explicit opt-in and `tool-search` always available to reach the rest. See [External Agents → Catalog tiers](/docs/external-agents#catalog-tiers) for the full explanation.
+Every caller gets a **compact catalog by default** (template-declared app actions plus the cross-app builtins), with the full action surface served only on explicit opt-in and `tool-search` always available to reach the rest. See [External Agents Catalog → Catalog tiers](/docs/external-agents-catalog#catalog-tiers) for the full explanation.
 
 Each action maps directly to one MCP tool:
 
@@ -235,7 +235,11 @@ The agent runs the same loop as the interactive chat — it can call multiple to
 {
   "poll": {
     "tool": "ask_app_status",
-    "arguments": { "app": "mail", "taskId": "task_123" }
+    "arguments": {
+      "app": "mail",
+      "taskId": "task_123",
+      "taskHandle": "opaque_handle"
+    }
   }
 }
 ```
@@ -248,9 +252,10 @@ If a bounded transient status read is unavailable, `ask_app_status` can return
 `status: "unknown"`, `statusRead: "unavailable"`, `retryable: true`, the
 original `app` and `taskId`, and `pollAfterMs` / `poll`. This means the status
 read is unavailable—not that the durable task failed. Retry `ask_app_status`
-with that exact `app` and `taskId`; never resubmit `ask_app` to recover, because
-submission can duplicate work. Permanent authentication, not-found, and
-protocol failures remain errors.
+with the returned `poll.arguments` unchanged, including `taskHandle` when
+present; legacy results without a handle must reuse the same `app` and `taskId`.
+Never resubmit `ask_app` to recover, because submission can duplicate work.
+Permanent authentication, not-found, and protocol failures remain errors.
 
 ## Authentication {#authentication}
 
@@ -423,7 +428,8 @@ Claude Code calls: ask-agent(message: "Prepare a full breakdown of Q3 signups by
 
 ## What's next {#whats-next}
 
-- [**External Agents**](/docs/external-agents) — the recommended connect flow, catalog tiers, and per-host setup
+- [**External Agents**](/docs/external-agents) — the recommended connect flow and per-host setup
+- [**External Agents Catalog**](/docs/external-agents-catalog) — catalog tiers and tool exposure for template authors
 - [**MCP Apps**](/docs/mcp-apps) — inline UI resources for hosts that render them
 - [**MCP Clients**](/docs/mcp-clients) — the other direction: your app consuming external MCP servers
 - [**A2A Protocol**](/docs/a2a-protocol) — the sibling protocol for agent-to-agent calls

@@ -812,10 +812,14 @@ body[data-clips-route="recording-pill"] #root {
   vector-effect: non-scaling-stroke;
 }
 
+/* One variable owns the meter's height and the bars scale off it — every rule
+   that resizes the meter sets `--meter-height`, not `height`. Two rules setting
+   `height` independently is how the box and the bars drifted apart before. */
 .live-audio-bars {
+  --meter-height: 26px;
   display: inline-flex;
   width: 48px;
-  height: 26px;
+  height: var(--meter-height);
   align-items: center;
   justify-content: center;
   gap: 4px;
@@ -823,15 +827,14 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 .live-audio-bars-compact {
-  width: 24px;
-  height: 22px;
+  --meter-height: 22px;
+  width: 21px;
   gap: 3px;
 }
 
 .live-audio-bar {
   display: block;
-  width: 2.5px;
-  min-height: 2.5px;
+  width: 3px;
   border-radius: 999px;
   background: rgba(132, 204, 22, 0.98);
   box-shadow: 0 0 5px rgba(132, 204, 22, 0.35);
@@ -5499,7 +5502,10 @@ body[data-clips-route="recording-pill"] #root {
 .pill-inner-compact {
   width: fit-content;
   height: fit-content;
-  border-radius: 18px;
+  /* Stadium, not a squircle — the collapsed capsule reads as a pill at any
+     height. A fixed radius on the ~44x64 vertical form looks like a rounded
+     rectangle. */
+  border-radius: 999px;
   cursor: pointer;
   transition:
     background 120ms ease,
@@ -5574,7 +5580,7 @@ body[data-clips-route="recording-pill"] #root {
   gap: 6px;
   height: auto;
   width: auto;
-  padding: 12px 10px 10px;
+  padding: 10px 8px;
   cursor: pointer;
 }
 
@@ -5589,8 +5595,8 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 .pill-vertical .pill-wave-meter {
-  height: 22px;
-  width: 24px;
+  --meter-height: 22px;
+  width: 21px;
 }
 
 /* Wrapper around logo + waveform. */
@@ -5614,7 +5620,7 @@ body[data-clips-route="recording-pill"] #root {
 /* Layout only. `display` must stay flex here — a `block` override collapses
    the meter's bars into a single stacked column instead of a waveform. */
 .pill-wave-meter {
-  height: 26px;
+  --meter-height: 26px;
   width: 48px;
   flex-shrink: 0;
 }

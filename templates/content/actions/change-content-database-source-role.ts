@@ -22,6 +22,7 @@ import {
   ensureDatabaseSourceProperty,
   importBuilderCmsEntriesAsDatabaseItems,
   mapBuilderCmsEntriesToLocalItems,
+  mutateContentDatabaseSourceMetadata,
   resolveDatabaseForSourceMutation,
   seedMockSourceFields,
   seedMockSourceRows,
@@ -134,26 +135,26 @@ function sourceRole(source: SourceRecord): "primary" | "secondary" | null {
 }
 
 async function clearSourceFederation(sourceId: string, now: string) {
-  const db = getDb();
-  const [current] = await db
-    .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
-    .from(schema.contentDatabaseSources)
-    .where(eq(schema.contentDatabaseSources.id, sourceId));
-  let metadata: Record<string, unknown> = {};
-  try {
-    const parsed = JSON.parse(current?.metadataJson ?? "{}") as unknown;
-    metadata =
-      parsed && typeof parsed === "object" && !Array.isArray(parsed)
-        ? (parsed as Record<string, unknown>)
-        : {};
-  } catch {
-    metadata = {};
-  }
-  delete metadata.federation;
-  await db
-    .update(schema.contentDatabaseSources)
-    .set({ metadataJson: JSON.stringify(metadata), updatedAt: now })
-    .where(eq(schema.contentDatabaseSources.id, sourceId));
+  await mutateContentDatabaseSourceMetadata({
+    sourceId,
+    now,
+    buildPatch: (current) => {
+      let metadata: Record<string, unknown> = {};
+      try {
+        const parsed = JSON.parse(current.metadataJson ?? "{}") as unknown;
+        metadata =
+          parsed && typeof parsed === "object" && !Array.isArray(parsed)
+            ? (parsed as Record<string, unknown>)
+            : {};
+      } catch {
+        metadata = {};
+      }
+      delete metadata.federation;
+      return { metadataJson: JSON.stringify(metadata) };
+    },
+    failureMessage:
+      "Source metadata changed repeatedly while clearing federation settings.",
+  });
 }
 
 async function removeRowsOwnedOnlyBySource(args: {

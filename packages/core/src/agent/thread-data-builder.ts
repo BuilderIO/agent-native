@@ -21,6 +21,8 @@ interface ContentPart {
   args?: Record<string, string>;
   result?: string;
   isError?: boolean;
+  /** Mirrors the client ContentPart marker in client/sse-event-processor.ts. */
+  outcome?: "unknown";
   completedSideEffect?: boolean;
   mcpApp?: AgentMcpAppPayload;
   chatUI?: ActionChatUIConfig;
@@ -138,8 +140,12 @@ export function buildAssistantMessage(
     }
   };
 
-  for (const { event } of events) {
+  for (const [index, { event }] of events.entries()) {
     if (event.type === "clear") {
+      // A live stream always follows `clear` with the chunk that re-emits the
+      // wiped content. A rebuild has no successor, so applying a TRAILING
+      // clear can only destroy the transcript permanently.
+      if (index === events.length - 1) continue;
       clearAssistantDraftContent(content);
       continue;
     }
@@ -381,6 +387,9 @@ function settleInterruptedToolCalls(content: ContentPart[]): void {
   for (const part of content) {
     if (part.type === "tool-call" && part.result === undefined) {
       part.result = INTERRUPTED_TOOL_RESULT;
+      // Interrupted is not failed — never set `isError` here. The persisted
+      // turn must agree with the live client (client/sse-event-processor.ts).
+      part.outcome = "unknown";
     }
   }
 }
@@ -935,6 +944,45 @@ export interface MergeThreadDataOptions {
   preserveExistingTopLevelKeys?: boolean;
 }
 
+const CLAIMED_QUEUED_MESSAGE_IDS_KEY = "_claimedQueuedMessageIds";
+const MAX_CLAIMED_QUEUED_MESSAGE_IDS = 200;
+
+function claimedQueuedMessageIds(repo: any): string[] {
+  const value = repo?.[CLAIMED_QUEUED_MESSAGE_IDS_KEY];
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (id): id is string => typeof id === "string" && id.length > 0,
+  );
+}
+
+export function hasClaimedQueuedMessage(repo: any, messageId: string): boolean {
+  return claimedQueuedMessageIds(repo).includes(messageId);
+}
+
+export function claimQueuedMessage(repo: any, messageId: string): any {
+  const normalized = repo && typeof repo === "object" ? { ...repo } : {};
+  const claimed = claimedQueuedMessageIds(normalized).filter(
+    (id) => id !== messageId,
+  );
+  normalized[CLAIMED_QUEUED_MESSAGE_IDS_KEY] = [...claimed, messageId].slice(
+    -MAX_CLAIMED_QUEUED_MESSAGE_IDS,
+  );
+  return pruneClaimedQueuedMessages(normalized);
+}
+
+function pruneClaimedQueuedMessages(repo: any): any {
+  if (!Array.isArray(repo?.queuedMessages)) return repo;
+  const claimed = new Set(claimedQueuedMessageIds(repo));
+  if (claimed.size === 0) return repo;
+  return {
+    ...repo,
+    queuedMessages: repo.queuedMessages.filter(
+      (message: any) =>
+        typeof message?.id !== "string" || !claimed.has(message.id),
+    ),
+  };
+}
+
 export function mergeThreadDataForClientSave(
   existingRepo: any,
   incomingRepo: any,
@@ -980,7 +1028,9 @@ export function mergeThreadDataForClientSave(
   const incomingMessages = Array.isArray(merged.messages)
     ? merged.messages
     : null;
-  if (!existingMessages || !incomingMessages) return merged;
+  if (!existingMessages || !incomingMessages) {
+    return pruneClaimedQueuedMessages(merged);
+  }
 
   const incomingKeySets: Set<string>[] = incomingMessages.map(
     (entry: unknown) => new Set(messageIdentityKeys(getStoredMessage(entry))),
@@ -1035,7 +1085,7 @@ export function mergeThreadDataForClientSave(
   merged.messages = nextMessages.map((entry) =>
     rewriteEntryParentId(entry, idRewrites),
   );
-  return normalizeThreadRepository(merged);
+  return normalizeThreadRepository(pruneClaimedQueuedMessages(merged));
 }
 
 function escapeAttachmentAttribute(value: string): string {
@@ -1180,6 +1230,7 @@ export function buildUserMessage(opts: {
   text: string;
   attachments?: AgentChatAttachment[];
   runId?: string;
+  queuedMessageId?: string;
   createdAt?: Date;
 }): {
   id: string;
@@ -1199,6 +1250,9 @@ export function buildUserMessage(opts: {
     metadata: {
       custom: {
         submittedRunId: opts.runId,
+        ...(opts.queuedMessageId
+          ? { agentNativeQueuedMessageId: opts.queuedMessageId }
+          : {}),
       },
     },
   };

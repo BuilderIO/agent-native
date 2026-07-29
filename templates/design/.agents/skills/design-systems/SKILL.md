@@ -456,6 +456,21 @@ When the user provides multiple sources, call all applicable import actions in p
 7. **Call `create-design-system`** with the combined result
 8. **Link to design** via `update-design --designSystemId`
 
+## Fidelity Limits And Open-Ended Figma/GitHub API Access
+
+Figma import/read/paste and design-system/token workflows
+(`import-figma-frame`, `get-figma-design-context`,
+`list-figma-library-assets`, clipboard paste, `.fig` upload) are covered above —
+read them before guessing the calling convention.
+
+Never claim universal lossless Figma import/export; consult
+`FIGMA_INTEROPERABILITY.md` for the real fidelity contract.
+
+For open-ended GitHub/Figma API questions, use
+`provider-api-catalog`/`provider-api-docs`/`provider-api-request` rather than
+treating provider actions as a capability ceiling. Non-read Figma requests need
+human approval.
+
 ## Applying Design System to Generated HTML
 
 When generating a design that has a linked design system, replace all default CSS custom properties with the design system tokens.

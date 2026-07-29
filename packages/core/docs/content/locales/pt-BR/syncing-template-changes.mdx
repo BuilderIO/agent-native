@@ -5,11 +5,13 @@ description: "O agent-native template traz alterações upstream posteriores de 
 
 # Sincronizando alterações de modelo
 
-`agent-native create` copia um modelo primário para o seu aplicativo e então o torna seu — substituindo o nome do aplicativo, renomeando `_gitignore`, reescrevendo `package.json`, fixando as dependências `workspace:*` e `catalog:` em versões concretas e (em um espaço de trabalho) trocando os plugins de autenticação e chat herdados. A partir desse momento, o aplicativo é um fork. Correções e melhorias que chegam ao modelo no upstream não o alcançam mais.
+`agent-native create` copia um modelo primário para o seu aplicativo e então o torna seu — substituindo o nome do aplicativo, renomeando `_gitignore`, reescrevendo `package.json`, fixando as dependências `workspace:*` e `catalog:` em versões concretas e (em um espaço de trabalho) trocando os plugins de autenticação e chat herdados. A partir desse momento, o aplicativo é independente e foi criado a partir do modelo. Correções e melhorias que chegam ao modelo no upstream não o alcançam mais.
 
 `agent-native upgrade` não fecha essa lacuna. Ele atualiza versões de pacotes, executa codemods de import e atualiza diretórios de skills — nunca toca em um arquivo que foi copiado de um modelo.
 
 `agent-native template` é a metade que faltava. Ele busca o modelo novamente em uma versão mais recente, reaplica exatamente as transformações que `create` aplicou e mescla o resultado no seu aplicativo, arquivo por arquivo.
+
+Os modelos da comunidade ficam intencionalmente fora deste fluxo de sincronização. Os metadados `agent-native.communityTemplate` apenas registram a origem instalada; `agent-native template sync` não busca alterações desse repositório. Instale uma revisão fixa para ter um ponto de partida estável e transfira manualmente alterações posteriores depois de revisá-las.
 
 ## Início rápido {#quick-start}
 

@@ -77,12 +77,14 @@ function parseTimeoutMs(value: string | undefined): number | undefined {
 function isServerlessHost(): boolean {
   // Detection mirrors db/migrations.ts:297-301. On Cloudflare Workers/Pages,
   // `process.env` is shimmed and CF_PAGES isn't reliably populated at runtime —
-  // the canonical signal is the `__cf_env` global injected by workerd.
+  // the canonical signal is the `__cf_env`/`__env__` global injected by the
+  // Cloudflare runtime adapter.
   return (
     !!process.env.NETLIFY ||
     !!process.env.AWS_LAMBDA_FUNCTION_NAME ||
     !!process.env.VERCEL ||
-    "__cf_env" in globalThis
+    "__cf_env" in globalThis ||
+    "__env__" in globalThis
   );
 }
 

@@ -63,6 +63,19 @@ describe("buildAssistantMessage", () => {
     ]);
   });
 
+  it("ignores a trailing clear so a rebuild cannot wipe the transcript", () => {
+    const events: RunEvent[] = [
+      { seq: 0, event: { type: "text", text: "Here is the answer" } },
+      { seq: 1, event: { type: "clear" } },
+    ];
+
+    const message = buildAssistantMessage(events, "run-trailing-clear");
+
+    expect(message?.content).toEqual([
+      { type: "text", text: "Here is the answer" },
+    ]);
+  });
+
   it("rebuilds streamed thinking as persisted reasoning parts", () => {
     const events: RunEvent[] = [
       { seq: 0, event: { type: "thinking", text: "First, " } },
@@ -902,6 +915,34 @@ describe("mergeThreadDataForClientSave", () => {
     expect(merged.queuedMessages).toBeUndefined();
   });
 
+  it("does not restore a queued message after the server claimed it", () => {
+    const existing = {
+      _claimedQueuedMessageIds: ["queued-1"],
+      queuedMessages: [],
+      messages: [
+        {
+          id: "user-1",
+          role: "user",
+          content: [{ type: "text", text: "run the report" }],
+        },
+      ],
+    };
+    const staleIncoming = {
+      queuedMessages: [
+        { id: "queued-1", text: "run the report" },
+        { id: "queued-2", text: "send the summary" },
+      ],
+      messages: existing.messages,
+    };
+
+    const merged = mergeThreadDataForClientSave(existing, staleIncoming);
+
+    expect(merged._claimedQueuedMessageIds).toEqual(["queued-1"]);
+    expect(merged.queuedMessages).toEqual([
+      { id: "queued-2", text: "send the summary" },
+    ]);
+  });
+
   it("dedupes a client-save user message against the server's submittedRunId copy of the same prompt", () => {
     // The runtime's saveThreadData PUT sends the runtime export, which
     // assigns every user message `attachments: []`. The server's
@@ -1452,6 +1493,21 @@ describe("buildRepositoryFromCodeAgentTranscript", () => {
 });
 
 describe("upsertUserMessage", () => {
+  it("persists the durable queue identity on a submitted user message", () => {
+    const message = buildUserMessage({
+      text: "Run the report",
+      runId: "run-submit",
+      queuedMessageId: "queued-1",
+    });
+
+    expect(message.metadata).toEqual({
+      custom: {
+        submittedRunId: "run-submit",
+        agentNativeQueuedMessageId: "queued-1",
+      },
+    });
+  });
+
   it("persists submitted text attachments in assistant-ui attachment shape", () => {
     const message = buildUserMessage({
       text: "Summarize this",

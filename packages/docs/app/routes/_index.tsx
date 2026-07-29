@@ -25,7 +25,7 @@ function TerminalCommand({ command }: { command: string }) {
   return (
     <button
       onClick={handleCopy}
-      className="group mx-auto mt-8 flex items-center gap-3 rounded-lg border border-[var(--code-border)] bg-[var(--code-bg)] px-5 py-3 font-mono text-sm transition hover:border-[var(--fg-secondary)]"
+      className="group mx-auto mt-8 flex items-center gap-3 rounded-md border border-[var(--code-border)] bg-[var(--code-bg)] px-5 py-3 font-mono text-sm transition hover:border-[var(--fg-secondary)]"
     >
       <span className="text-[var(--fg-secondary)]">$</span>
       <span className="terminal-command-text min-w-0 flex-1 text-[var(--fg)]">
@@ -422,7 +422,7 @@ function BatteriesIncludedCloud({
           <Link
             data-an-prefetch="render"
             to={localizedPath("/docs/agent-native-toolkit")}
-            className="inline-flex items-center gap-2 rounded-full border border-neutral-300 px-6 py-3 text-sm font-medium text-neutral-950 no-underline transition hover:border-neutral-500 dark:border-white/20 dark:text-white dark:hover:border-white/40"
+            className="inline-flex items-center gap-2 rounded-xl border border-neutral-300 px-6 py-3 text-sm font-medium text-neutral-950 no-underline transition hover:border-neutral-500 dark:border-white/20 dark:text-white dark:hover:border-white/40"
             onClick={() =>
               trackEvent("click cta", {
                 label: "browse_toolkits",
@@ -476,7 +476,7 @@ function ActionSurfaceSection({
             <Link
               data-an-prefetch="render"
               to={localizedPath("/docs/getting-started")}
-              className="inline-flex min-w-0 items-center justify-center gap-2 rounded-full bg-white px-6 py-3 text-sm font-medium text-black no-underline transition hover:opacity-[0.85] hover:no-underline"
+              className="inline-flex min-w-0 items-center justify-center gap-2 rounded-xl bg-white px-6 py-3 text-sm font-medium text-black no-underline transition hover:opacity-[0.85] hover:no-underline"
               onClick={() =>
                 trackEvent("click cta", {
                   label: "build_action",
@@ -505,11 +505,12 @@ function ComparisonSection() {
           <video
             className="homepage-comparison-video"
             src="https://cdn.builder.io/o/assets%2Fc5b47d20f6a943e485717e5895739988%2Fc88d506c160142ae9b8618616ceedcea%2Fcompressed?apiKey=c5b47d20f6a943e485717e5895739988&token=c88d506c160142ae9b8618616ceedcea&alt=media&optimized=true"
+            poster="https://cdn.builder.io/api/v1/image/assets%2Fc5b47d20f6a943e485717e5895739988%2F3d99ddf85c9040e38cb7c989fa4a7735"
             autoPlay
             controls
             muted
             playsInline
-            preload="metadata"
+            preload="auto"
           />
         </div>
       </div>
@@ -663,7 +664,7 @@ export default defineAction({
                 <Link
                   data-an-prefetch="render"
                   to={localizedPath("/docs")}
-                  className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+                  className="inline-flex items-center gap-2 rounded-xl border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
                   onClick={() =>
                     trackEvent("click cta", {
                       label: "read_the_docs",
@@ -730,7 +731,7 @@ export default defineAction({
               <Link
                 data-an-prefetch="render"
                 to={localizedPath("/docs")}
-                className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+                className="inline-flex items-center gap-2 rounded-xl border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
                 onClick={() =>
                   trackEvent("click cta", {
                     label: "read_the_docs",

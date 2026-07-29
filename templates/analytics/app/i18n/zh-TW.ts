@@ -43,6 +43,7 @@ const messages = {
     noAnalysesYet: "還沒有分析",
     dashboardsLoadFailed: "無法載入儀表板。",
     analysesLoadFailed: "無法載入分析。",
+    favoritesUnavailable: "收藏功能目前無法使用",
     retry: "重試",
     search: "搜尋",
     searchShortcut: "搜尋（{{shortcut}}）",
@@ -413,6 +414,9 @@ const messages = {
     githubOAuthUnavailable:
       "此部署中未設定 OAuth 應用程式憑證。使用下面的個人存取權杖欄位。",
     sharedIntegration: "共用整合",
+    workspaceAdminRequiredTitle: "組織連線需要管理員",
+    workspaceAdminRequiredDescription:
+      "請組織擁有者或管理員為組織中的所有人連線 {{name}}。",
     sharedReady:
       "Analytics 可以透過 Dispatch 授予的工作空間連線來使用此提供者。",
     sharedNeedsGrant: "存在工作區連線。開啟Dispatch，授予Analytics存取權限。",
@@ -447,6 +451,9 @@ const messages = {
     sharedCredentials: "共用憑證：{{credentials}}",
     ready: "準備好",
     notConfigured: "未設定",
+    statusUnknown: "無法檢查連線狀態",
+    statusUnknownDescription:
+      "無法讀取連線狀態，此資料來源可能已連線。請重新載入頁面確認後再新增憑證。",
     back: "後退",
     continue: "繼續",
     saveCredentials: "儲存憑證",
@@ -625,6 +632,14 @@ const messages = {
     historyRestoreQuestion: "要還原此儀表板版本嗎？",
     historyRestoreWarning:
       "這會取代目前的儀表板版面，並將目前狀態保存到歷史記錄。",
+    undo: "復原",
+    undoSuccess: "已復原儀表板變更",
+    undoFailed: "無法復原儀表板變更",
+    undoFailedWithMessage: "無法復原儀表板變更：{{message}}",
+    redo: "重做",
+    redoSuccess: "已重做儀表板變更",
+    redoFailed: "無法重做儀表板變更",
+    redoFailedWithMessage: "無法重做儀表板變更：{{message}}",
     panelSettings: "面板設定",
     revenueOverTime: "一段時間內的收入",
     recentSales: "最近銷售",

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import type { WorkspaceConnectionTemplateUse } from "../connections/catalog.js";
 import {
+  describeCredentialScopeGap,
   resolveCredential,
   type CredentialContext,
 } from "../credentials/index.js";
@@ -3976,10 +3977,14 @@ async function resolveAnyCredential(options: {
     const credential = await resolveOptionalCredential({ ...options, key });
     if (credential?.value) return credential;
   }
+  const scopeGap = await describeCredentialScopeGap(
+    options.keys,
+    options.ctx,
+  ).catch(() => null);
   throw new Error(
     `${options.provider} credential not configured. Tried: ${options.keys.join(
       ", ",
-    )}`,
+    )}${scopeGap ? `. ${scopeGap}` : ""}`,
   );
 }
 

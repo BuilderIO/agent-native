@@ -19,6 +19,7 @@ vi.mock("@agent-native/toolkit/ui/sonner", () => ({
   ),
 }));
 
+import { encodeContinuation } from "../shared/sign-in-journey.js";
 import { AppProviders } from "./app-providers.js";
 
 let container: HTMLDivElement;
@@ -110,7 +111,7 @@ describe("AppProviders session gate", () => {
     expect(container.querySelector('[data-testid="app-content"]')).toBeNull();
     expect(useSessionMock).toHaveBeenCalled();
     expect(replaceMock).toHaveBeenCalledWith(
-      "/_agent-native/sign-in?return=%2Finbox",
+      `/_agent-native/sign-in?c=${encodeContinuation("/inbox")}`,
     );
   });
 

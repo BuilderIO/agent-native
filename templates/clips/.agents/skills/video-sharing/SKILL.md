@@ -20,6 +20,12 @@ Embedded bug-report recordings are the exception and default to organization
 visibility. Callers can still explicitly create a private or organization-only
 recording, and owners/admins can change visibility from the Share dialog.
 
+Organization admins can use `set-organization-branding` with
+`defaultVisibility=public|org|private` to choose the visibility applied when new
+recordings omit an explicit visibility. The default remains `public`, and an
+explicit visibility always wins — which is why bug-report recordings still land
+on `org`.
+
 Clips **adds two things** on top of the framework system:
 
 1. **Password** — an optional bcrypt'd string on the `recordings` row. When set, all non-owner viewers must enter it to play the recording.
@@ -84,7 +90,17 @@ Use `list-recordings --view=shared` to list recordings the current user can
 access but does not own. The filter composes with `accessFilter`, so it includes
 direct user/org grants and organization-visible recordings while excluding
 public-link-only clips. The UI exposes the same collection at `/shared`; use
-`navigate --view=shared` to open it.
+`navigate --view=shared` to open it. `view-screen` returns the recordings
+currently visible in that collection.
+
+## Discovery boundary for public clips
+
+Public recordings are unlisted-by-link for agent purposes: an agent may discover
+only recordings the current user owns or has already viewed. Do not use
+`list-recordings` or `search-recordings` to discover another user's public clips,
+to answer a time/date question about the clip already in context, or to recover
+from a failed direct lookup. If the user supplies another clip's share URL or id,
+use that explicit reference; otherwise stop and report the lookup failure.
 
 ## Access resolution
 
@@ -196,15 +212,36 @@ temporary agent-link path:
 - Password-protected clips require `password=<pw>` once; successful JSON
   responses include short-lived tokenized links so the plaintext password is not
   copied into downstream agent prompts, browser history, or logs.
+- If a discovery, context, or transcript payload reports `agentReadiness.state`
+  as `"preparing"` (the clip is `"uploading"` or `"processing"`), wait 15 seconds
+  and retry `agentContextUrl`. Do not open the share page, fetch frames, or draw
+  conclusions until the recording status is `"ready"`.
 - If the context or transcript response reports `transcript.status` as
   `"pending"`, wait 15-30 seconds and retry the context/transcript URL a few
   times before falling back to frames or telling the user no transcript exists.
+  Long recordings are the common case here.
 - If transcription failed because Builder transcription credits are exhausted,
   tell the user to upgrade or connect Builder.io credits, or configure a Groq
   key for backup speech-to-text. Generic OpenAI or Anthropic chat keys do not
   transcribe Clips recordings.
 - Frame extraction must use the checked recording media path and must not expose
   raw provider URLs.
+
+Public agent context also exposes the recording's redacted browser diagnostics:
+the console stream (all levels) as `browserDiagnostics.consoleLogs` and the
+fetch/XHR stream as `browserDiagnostics.networkRequests` (method, sanitized URL
+with query values redacted, status, duration), plus `consoleIssues` and
+`failedNetworkRequests` highlights. All of it is bounded, and page URL, headers,
+bodies, and cookies stay omitted.
+
+Password-protected clips require the password once to mint a short-lived token,
+which is returned inside the agent-context links.
+
+Use the `@agent-native/core/server` and `@agent-native/core/shared` agent-access
+helpers for scoped token mint/verify and bot-visible URL construction. Keep
+Clips-specific visibility, password, transcript, frame, and player behavior in
+Clips. New URLs should use `agent_access`; existing agent API routes should keep
+accepting legacy `t` tokens so already-copied links do not break.
 
 The share popover's "Share with agents" field should copy an agent context URL
 or tokenized share page URL, not raw transcript text. Its "Copy agent prompt"

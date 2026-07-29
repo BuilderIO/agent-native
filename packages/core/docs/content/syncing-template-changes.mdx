@@ -5,11 +5,18 @@ description: "agent-native template pulls later upstream first-party template ch
 
 # Syncing Template Changes
 
-`agent-native create` copies a first-party template into your app and then makes it yours — substituting the app name, renaming `_gitignore`, rewriting `package.json`, pinning `workspace:*` and `catalog:` dependencies to concrete versions, and (in a workspace) swapping in inherited auth and chat plugins. From that moment the app is a fork. Fixes and improvements that land in the template upstream do not reach it.
+`agent-native create` copies a first-party template into your app and then makes it yours — substituting the app name, renaming `_gitignore`, rewriting `package.json`, pinning `workspace:*` and `catalog:` dependencies to concrete versions, and (in a workspace) swapping in inherited auth and chat plugins. From that moment the app is an independent app derived from the template. Fixes and improvements that land in the template upstream do not reach it.
 
 `agent-native upgrade` does not close that gap. It moves package versions, runs import codemods, and refreshes skill directories — it never touches a file that was copied out of a template.
 
 `agent-native template` is the missing half. It re-fetches the template at a newer version, re-applies the exact transforms `create` applied, and merges the result into your app file by file.
+
+Community templates are intentionally outside this sync flow. Their
+`agent-native.communityTemplate` metadata records where the installed source
+came from, but it is not first-party scaffold provenance and `agent-native
+template sync` will not pull from that repository. Install a pinned community
+ref when you need a stable starting point, then review and port later upstream
+changes manually.
 
 ## Quick start {#quick-start}
 
@@ -157,3 +164,12 @@ It diffs your app against its baseline so only your own changes are candidates, 
 | `agent-native eject`         | a framework component into app-owned source, with provenance   |
 
 `upgrade` and `template sync` are complementary and safe to run together. `eject` is the opposite move — it takes ownership of a file deliberately, and ejected files are tracked separately in `agent-native.ejections.json`.
+
+## What's next
+
+- [**Creating Templates**](/docs/creating-templates) — how `agent-native
+create` scaffolds a template in the first place, and the provenance this
+  command later syncs against.
+- [**Package Lifecycle**](/docs/package-lifecycle) — `agent-native eject` and
+  `agent-native package`, the other half of taking ownership of
+  framework-provided code.

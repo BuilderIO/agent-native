@@ -323,7 +323,8 @@ function getProcessingStuckAfterMs(): number {
     process.env.NETLIFY ||
     process.env.AWS_LAMBDA_FUNCTION_NAME ||
     process.env.VERCEL ||
-    "__cf_env" in globalThis
+    "__cf_env" in globalThis ||
+    "__env__" in globalThis
   ) {
     return SERVERLESS_PROCESSING_STUCK_AFTER_MS;
   }
