@@ -948,6 +948,7 @@ export function assistantMessageHasCompletedCustomUi(
       type?: unknown;
       result?: unknown;
       isError?: unknown;
+      outcome?: unknown;
       activity?: unknown;
       chatUI?: unknown;
       mcpApp?: unknown;
@@ -956,7 +957,8 @@ export function assistantMessageHasCompletedCustomUi(
       record.type !== "tool-call" ||
       record.activity === true ||
       record.result === undefined ||
-      record.isError === true
+      record.isError === true ||
+      record.outcome === "unknown"
     ) {
       continue;
     }
@@ -1085,13 +1087,20 @@ export function shouldShowAssistantWorkSummary({
   isComplete,
   hasCollapsibleWork,
   hasUnresolvedTool,
+  chatRunning,
 }: {
   isLast: boolean;
   isComplete: boolean;
   hasCollapsibleWork: boolean;
   hasUnresolvedTool: boolean;
+  chatRunning: boolean;
 }): boolean {
-  if (!hasCollapsibleWork || hasUnresolvedTool) return false;
+  if (!hasCollapsibleWork) return false;
+
+  // An unresolved tool means "still working" only while the turn is actually
+  // running. On a stalled or interrupted turn it used to hide the summary
+  // forever, so the longest turns showed no "Worked for Xm Ys" at all.
+  if (hasUnresolvedTool) return !(isLast && chatRunning);
 
   // Keep completed historical work wrapped while a later turn is running.
   // Removing the wrapper exposes/remounts ReasoningCell and resets its
@@ -1447,6 +1456,7 @@ export function AssistantMessage() {
                   isComplete,
                   hasCollapsibleWork,
                   hasUnresolvedTool,
+                  chatRunning,
                 });
                 if (!showSummary) return <>{children}</>;
                 return (
@@ -1509,9 +1519,6 @@ export function AssistantMessage() {
             contextText={responseConnectionContext}
             variant="response"
           />
-        )}
-        {isLast && hasUnresolvedTool && !chatRunning && (
-          <RunningActivityStatus label="Thinking" />
         )}
       </div>
       {isComplete && (

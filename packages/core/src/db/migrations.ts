@@ -230,6 +230,15 @@ export interface MigrationEntry {
    * throws at startup (programmer error, not a runtime data problem).
    */
   name?: string;
+  /**
+   * JS step for a backfill SQL cannot express — e.g. a repair whose value comes
+   * from application-level parsing of a stored blob. Runs BEFORE this entry's
+   * SQL and before the bookkeeping row is written, so a throw leaves the
+   * migration unrecorded and it retries on the next boot. Pass `sql: {}` for a
+   * run-only entry. Give run-only entries a `name`: the legacy version gate
+   * would otherwise mark them applied via any later migration's MAX advance.
+   */
+  run?: () => Promise<void>;
 }
 
 function resolveMigrationSql(sql: MigrationSql, pg: boolean): string | null {
@@ -368,6 +377,7 @@ export function runMigrations(
           try {
             // D1 is SQLite-compatible
             const raw = resolveMigrationSql(m.sql, false);
+            if (m.run) await m.run();
             const recordStatements = [
               m.name
                 ? d1
@@ -385,8 +395,13 @@ export function runMigrations(
 
             if (raw == null) {
               // Dialect-gated migration with no SQL for this dialect; still
-              // record it so we don't retry forever.
-              for (const stmt of recordStatements) await stmt.run();
+              // record it so we don't retry forever. Keep the name + legacy
+              // version rows atomic: if an isolate is interrupted between
+              // separate writes, the name row would suppress every retry even
+              // though the legacy bookkeeping row never landed.
+              if (recordStatements.length > 0) {
+                await d1.batch(recordStatements);
+              }
               continue;
             }
             const originalStatements = splitSqlStatements(raw);
@@ -594,6 +609,11 @@ export function runMigrations(
           if (m.version > current) {
             recordSql.push({ sql: insertVersionSql, args: [m.version] });
           }
+
+          // A throw here escapes to the outer handler with nothing recorded,
+          // so the entry is retried on the next boot rather than being marked
+          // applied against work that never happened.
+          if (m.run) await m.run();
 
           if (raw == null) {
             // Dialect-gated migration with no SQL for this dialect; still mark

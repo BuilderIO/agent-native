@@ -1201,6 +1201,7 @@ const messages = {
     importLoom: "匯入 Loom",
     importing: "正在匯入...",
     import: "匯入",
+    recordNew: "新增錄製",
   },
   playerSettings: {
     title: "設定",
@@ -1271,6 +1272,24 @@ const messages = {
       "在下一個畫面連線儲存：Builder.io（免費方案儲存 + AI）或 S3 相容儲存。Clips 將完成儲存。",
     connectStorageToRetryLoom:
       "在下一個畫面連線儲存：Builder.io（免費方案儲存 + AI）或 S3 相容儲存。Clips 將重試匯入。",
+  },
+  importRoute: {
+    pageTitle: "匯入 Loom — Clips",
+    title: "匯入 Loom",
+    urlPlaceholder: "https://www.loom.com/share/...",
+    cta: "匯入",
+    helperText:
+      "與 Loom 搭配使用效果極佳。你也可以貼上其他螢幕錄製或影片檔案的連結。",
+    stageFetching: "正在擷取你的影片…",
+    stageUploading: "正在上傳原始素材…",
+    stageTranscript: "讓語音與螢幕畫面都能被代理程式讀取…",
+    stageFinalizing: "正在使其成為 Agent-Native…",
+    importingSubtitle: "正在把普通錄製變成 Agent-Native 原語。",
+    doneHeading: "完成！你的影片現在：",
+    benefitTranscript: "語音與螢幕畫面，全部可搜尋",
+    benefitQueryable: "可被你的代理程式理解與查詢",
+    benefitSummaries: "隨需即時產生摘要與片段",
+    benefitPrimitive: "一流的 Agent-Native 原語",
   },
   dictateRoute: {
     pageTitle: "聽寫 · Clips",

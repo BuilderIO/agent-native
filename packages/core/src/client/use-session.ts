@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 import type { AuthSession } from "../server/auth.js";
 import { setSentryUser, trackSessionStatus } from "./analytics.js";
-import { agentNativePath } from "./api-path.js";
+import { fetchAuthSessionStatus } from "./client-status-requests.js";
 
 export type { AuthSession };
 
@@ -51,10 +51,9 @@ function fetchSharedSession(): Promise<AuthSession | null | undefined> {
 
   sessionRequest = (async () => {
     try {
-      const res = await fetch(agentNativePath("/_agent-native/auth/session"));
-      if (!res.ok) return undefined;
-
-      const data = await res.json();
+      const result = await fetchAuthSessionStatus();
+      if (result.state === "unavailable") return undefined;
+      const data = result.value as AuthSession & { error?: unknown };
       const session = data.error ? null : (data as AuthSession);
       cachedSession = session;
       cachedSessionAt = Date.now();

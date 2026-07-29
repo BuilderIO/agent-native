@@ -8,6 +8,7 @@ const actionMocks = vi.hoisted(() => ({ callAction: vi.fn() }));
 
 vi.mock("./use-action.js", () => actionMocks);
 
+import { invalidateClientStatusRequests } from "./client-status-requests.js";
 import { useChatModels } from "./use-chat-models.js";
 
 /** Serve the three requests refreshEngines makes: engines, env keys, builder. */
@@ -64,6 +65,11 @@ function ChatModelsProbe({
         Change model
       </button>
       <span data-testid={`${id}-selected-model`}>{models.selectedModel}</span>
+      <span data-testid={`${id}-catalog-state`}>
+        {models.availableModels
+          .map((group) => `${group.engine}:${group.configured}`)
+          .join(",")}
+      </span>
     </div>
   );
 }
@@ -84,6 +90,7 @@ describe("useChatModels", () => {
   });
 
   afterEach(() => {
+    invalidateClientStatusRequests();
     act(() => root.unmount());
     container.remove();
     vi.unstubAllGlobals();
@@ -181,6 +188,43 @@ describe("useChatModels", () => {
       container.querySelector('[data-testid="probe-selected-model"]')
         ?.textContent,
     ).toBe("");
+  });
+
+  it("keeps the last model readiness when status refresh is unavailable", async () => {
+    stubCatalog({
+      engines: [
+        {
+          name: "anthropic",
+          label: "Claude",
+          supportedModels: ["claude-sonnet-5"],
+          requiredEnvVars: ["ANTHROPIC_API_KEY"],
+        },
+      ],
+      configuredKeys: ["ANTHROPIC_API_KEY"],
+    });
+
+    await act(async () => {
+      root.render(<ChatModelsProbe enabled storageKey="stable-catalog" />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const catalog = container.querySelector(
+      '[data-testid="probe-catalog-state"]',
+    );
+    expect(catalog?.textContent).toBe("anthropic:true");
+
+    invalidateClientStatusRequests();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Promise.reject(new Error("down"))),
+    );
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(catalog?.textContent).toBe("anthropic:true");
   });
 
   it("syncs same-page model changes between hooks sharing a storage key", async () => {

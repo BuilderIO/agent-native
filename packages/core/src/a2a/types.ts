@@ -225,6 +225,13 @@ export interface A2AConfig {
   description: string;
   version?: string;
   skills: AgentSkill[];
+  /**
+   * Skills advertised only to a caller with a verified A2A identity — the set
+   * `actions/invoke` will actually run. Anonymous card fetches never see these.
+   * Without it the card advertises the public set, which is disjoint from the
+   * invocable set, so siblings are told nothing is directly callable.
+   */
+  authenticatedSkills?: AgentSkill[];
   /** If true, public agent-card discovery includes only explicit public-safe skills. */
   publicSkillsOnly?: boolean;
   handler?: A2AHandler;

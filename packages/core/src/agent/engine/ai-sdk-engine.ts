@@ -360,18 +360,22 @@ class AISDKEngine implements AgentEngine {
         // `createProviderModel` forces Chat Completions specifically when
         // `this.baseUrl` is set (many OpenAI-compatible gateways/proxies
         // don't implement Responses — see that comment). In that exact
-        // combination — forced Chat Completions AND tools present — drop
-        // the explicit override and let the model use its default reasoning
-        // behavior instead of hard-failing the whole request; Responses-API
-        // calls (no baseUrl) are unaffected and keep full effort control.
+        // combination — forced Chat Completions AND tools present — send
+        // `"none"` rather than our resolved effort; Responses-API calls (no
+        // baseUrl) are unaffected and keep full effort control.
+        //
+        // Omitting the field does NOT work: OpenAI then applies the model's
+        // own default effort, which is not "none", and rejects the request
+        // exactly the same way. Only the explicit "none" clears it — the
+        // error text spells this out ("or set reasoning_effort to 'none'").
         const forcedChatCompletionsWithTools =
           Boolean(this.baseUrl) && aiSdkTools !== undefined;
-        if (!forcedChatCompletionsWithTools) {
-          providerOpts.openai = {
-            ...((providerOpts.openai as object) ?? {}),
-            reasoningEffort,
-          };
-        }
+        providerOpts.openai = {
+          ...((providerOpts.openai as object) ?? {}),
+          reasoningEffort: forcedChatCompletionsWithTools
+            ? "none"
+            : reasoningEffort,
+        };
       } else if (this.provider === "openrouter") {
         providerOpts.openrouter = {
           ...((providerOpts.openrouter as object) ?? {}),
