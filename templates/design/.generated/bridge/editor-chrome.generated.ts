@@ -3871,6 +3871,13 @@ export const editorChromeBridgeScript: string = `"use strict";
         } catch (_err) {
         }
       }
+      if (selectedEl && document.documentElement.contains(selectedEl)) {
+        try {
+          ensureRuntimeLayerNodeId(selectedEl);
+          if (matchesExactSelectorList(selectedEl, candidates)) return selectedEl;
+        } catch (_err) {
+        }
+      }
       return null;
     }
     function parseNodeHtmlPreviewElement(html) {

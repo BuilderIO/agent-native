@@ -6,7 +6,10 @@ import type { ElementInfo } from "@/components/design/types";
 import {
   canonicalElementInfoForCodeLayerNode,
   codeLayerNodeMatchesBridgeTarget,
+  resolveCodeLayerTargetFromBridge,
+  resolveCodeLayerTargetFromElementInfo,
   elementInfoFromCodeLayerNode,
+  isClientRenderedMountShell,
   isCodeLayerNodeRuntimeOnly,
   liveDeleteSelectorGroups,
   refreshedBoundingRectSize,
@@ -386,6 +389,174 @@ describe("resolveCodeLayerNodeFromBridge", () => {
     );
 
     expect(resolved).toBe(target);
+  });
+});
+
+describe("isClientRenderedMountShell", () => {
+  // Observed: a Vite SPA screen projected to [html, body, div#root], so every
+  // runtime selection resolved "absent" and the editor blamed the element.
+  it("recognizes the served shell of a client-rendered app", () => {
+    const projection = {
+      nodes: [
+        makeNode({ id: "html", tag: "html", children: ["body"] }),
+        makeNode({ id: "body", tag: "body", children: ["root"] }),
+        makeNode({
+          id: "root",
+          tag: "div",
+          attributes: { id: "root" },
+          children: [],
+        }),
+      ],
+    };
+
+    expect(isClientRenderedMountShell(projection)).toBe(true);
+  });
+
+  it("does not mistake a small authored page for a mount shell", () => {
+    const projection = {
+      nodes: [
+        makeNode({ id: "html", tag: "html", children: ["body"] }),
+        makeNode({ id: "body", tag: "body", children: ["h1"] }),
+        makeNode({
+          id: "h1",
+          tag: "h1",
+          textSnippet: "CartoonLand",
+          children: [],
+        }),
+      ],
+    };
+
+    expect(isClientRenderedMountShell(projection)).toBe(false);
+  });
+
+  it("does not classify a real rendered document as a shell", () => {
+    const projection = {
+      nodes: Array.from({ length: 12 }, (_, index) =>
+        makeNode({ id: `n${index}`, tag: "div" }),
+      ),
+    };
+
+    expect(isClientRenderedMountShell(projection)).toBe(false);
+  });
+});
+
+describe("resolveCodeLayerTargetFromBridge distinguishes absent from ambiguous", () => {
+  // The point of the typed result: `null` cannot say whether the element is gone
+  // or one of several identical instances, which need different remedies.
+  function repeatedCards() {
+    const shared = {
+      selector: "div > p",
+      selectors: ["div > p"],
+      path: "div > p",
+    };
+    return [
+      makeNode({ id: "card-a", ...shared }),
+      makeNode({ id: "card-b", ...shared }),
+      makeNode({ id: "card-c", ...shared }),
+    ];
+  }
+
+  it("reports ambiguous with every candidate when a selector matches repeated instances", () => {
+    const nodes = repeatedCards();
+
+    const resolution = resolveCodeLayerTargetFromBridge({ nodes }, "div > p");
+
+    expect(resolution.status).toBe("ambiguous");
+    expect(
+      resolution.status === "ambiguous" ? resolution.candidates : [],
+    ).toHaveLength(3);
+  });
+
+  it("reports absent when nothing matches at all", () => {
+    const projection = { nodes: [makeNode({ id: "unrelated" })] };
+
+    expect(
+      resolveCodeLayerTargetFromBridge(
+        projection,
+        "section > article",
+        "missing",
+      ).status,
+    ).toBe("absent");
+  });
+
+  it("keeps the null wrapper behavior identical for both failure kinds", () => {
+    const ambiguous = { nodes: repeatedCards() };
+    const empty = { nodes: [makeNode({ id: "unrelated" })] };
+
+    expect(resolveCodeLayerNodeFromBridge(ambiguous, "div > p")).toBeNull();
+    expect(
+      resolveCodeLayerNodeFromBridge(empty, "section > article"),
+    ).toBeNull();
+  });
+
+  it("still resolves a unique sourceId match ahead of an ambiguous selector", () => {
+    const nodes = repeatedCards();
+    nodes[1]!.dataAttributes = { "data-agent-native-node-id": "card-b" };
+
+    const resolution = resolveCodeLayerTargetFromBridge(
+      { nodes },
+      "div > p",
+      "card-b",
+    );
+
+    expect(resolution).toEqual({ status: "resolved", node: nodes[1] });
+  });
+});
+
+describe("resolveCodeLayerTargetFromElementInfo tie-breaking", () => {
+  const shared = {
+    tag: "p",
+    selector: "div > p",
+    selectors: ["div > p"],
+    path: "div > p",
+  };
+
+  it("breaks an ambiguous selector when text evidence singles out one instance", () => {
+    const nodes = [
+      makeNode({ id: "card-a", ...shared, textSnippet: "Alpha" }),
+      makeNode({ id: "card-b", ...shared, textSnippet: "Beta" }),
+    ];
+
+    const resolution = resolveCodeLayerTargetFromElementInfo(
+      { nodes },
+      makeElementInfo({
+        tagName: "p",
+        selector: "div > p",
+        textContent: "Beta",
+      }),
+    );
+
+    expect(resolution).toEqual({ status: "resolved", node: nodes[1] });
+  });
+
+  it("stays ambiguous when scoring cannot break the tie either", () => {
+    const nodes = [
+      makeNode({ id: "card-a", ...shared, textSnippet: "Same" }),
+      makeNode({ id: "card-b", ...shared, textSnippet: "Same" }),
+    ];
+
+    const resolution = resolveCodeLayerTargetFromElementInfo(
+      { nodes },
+      makeElementInfo({
+        tagName: "p",
+        selector: "div > p",
+        textContent: "Same",
+      }),
+    );
+
+    expect(resolution.status).toBe("ambiguous");
+    expect(
+      resolution.status === "ambiguous" ? resolution.candidates : [],
+    ).toHaveLength(2);
+  });
+
+  it("reports absent, not ambiguous, when the element is genuinely gone", () => {
+    const resolution = resolveCodeLayerTargetFromElementInfo(
+      { nodes: [makeNode({ id: "unrelated", tag: "section" })] },
+      makeElementInfo({ tagName: "p", selector: "div > p" }),
+    );
+
+    expect(resolution).toEqual({ status: "absent" });
   });
 });
 

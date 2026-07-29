@@ -5700,6 +5700,18 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         if (match && !isLayerInteractionBlocked(match)) return match;
       } catch (_err) {}
     }
+    // Last resort: React re-creating a node drops its imperatively stamped
+    // "runtime-" id, and on a client-rendered screen that id is the host's ONLY
+    // identity for the element — so the miss dropped the whole edit while we
+    // still held the selection. ensureRuntimeLayerNodeId is deterministic over
+    // screen + provenance + structural path, so re-stamping restores the SAME id
+    // for the intended element and a different one for anything else.
+    if (selectedEl && document.documentElement.contains(selectedEl)) {
+      try {
+        ensureRuntimeLayerNodeId(selectedEl);
+        if (matchesExactSelectorList(selectedEl, candidates)) return selectedEl;
+      } catch (_err) {}
+    }
     return null;
   }
 

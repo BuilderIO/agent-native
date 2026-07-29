@@ -537,12 +537,15 @@ import {
   collectCodeLayerAncestors,
   collectCodeLayerSubtreeDataNodeIds,
   collectEffectiveCodeLayerState,
+  resolveCodeLayerTargetFromBridge,
+  resolveCodeLayerTargetFromElementInfo,
   type EffectiveCodeLayerState,
   elementInfoFromCodeLayerNode,
   elementInfoIsRuntimeOnly,
   ensureGoogleFontLinkInHtml,
   findCodeLayerSiblingOrder,
   findMovedCodeLayerNodeInProjection,
+  isClientRenderedMountShell,
   isCodeLayerNodeRuntimeOnly,
   liveDeleteSelectorGroups,
   preferredCodeLayerSelector,
@@ -13396,6 +13399,16 @@ function DesignEditor() {
         latestActiveContentRef.current ??
         lastLocalContentRef.current ??
         activeContent;
+      // A localhost screen's stored content IS its route URL, so with no
+      // snapshot yet the chain above yields that URL string. Projecting it gives
+      // a 3-node document where nothing resolves: a snapshot that has not
+      // arrived is not an empty document.
+      if (isStandaloneHttpUrl(baseContent)) {
+        toast.error(t("designEditor.patchProof.snapshotNotLoaded"), {
+          duration: 4000,
+        });
+        return;
+      }
       const [firstProperty, firstValue] = entries[0];
       // PF12: reuse the already-built activeCodeLayerProjection when its
       // source content is exactly the content this commit is about to patch
@@ -13407,9 +13420,59 @@ function DesignEditor() {
           ? activeCodeLayerProjection
           : buildCodeLayerProjection(baseContent);
       const targetInfo = options.elementInfo ?? selectedElement;
-      const targetNode = targetInfo
-        ? resolveCodeLayerNodeFromElementInfo(projection, targetInfo)
-        : resolveCodeLayerNodeFromBridge(projection, selector);
+      const targetResolution = targetInfo
+        ? resolveCodeLayerTargetFromElementInfo(projection, targetInfo)
+        : resolveCodeLayerTargetFromBridge(projection, selector);
+      const targetNode =
+        targetResolution.status === "resolved" ? targetResolution.node : null;
+      const sendStyleChange = (window as any).__designCanvasSendStyle;
+      // Item 5 (edit-flash): a breakpoint-scoped commit
+      // (activeBreakpointUpperBoundPx set) never persists as a plain inline
+      // style — planBreakpointStyleWrite below turns it into a width-scoped
+      // Tailwind class or an `@media` rule in the managed breakpoints <style>
+      // block. sendStyleChange only knows how to patch the live element's
+      // INLINE style, which unconditionally beats any `@media` rule's
+      // specificity. Applying it here would preview the wrong
+      // (inline-style-overridden) value immediately, then visibly flash to the
+      // correct cascaded value once the next full document patch/reload catches
+      // up — so skip the runtime shortcut entirely for breakpoint-scoped writes
+      // and fall through to the full content patch path below, which reflects
+      // the actual persisted class/`@media` result.
+      const runtimeStyleApplied =
+        !options.runtimeApplied &&
+        activeBreakpointUpperBoundPx == null &&
+        typeof sendStyleChange === "function";
+      // Shared by both terminal paths below so neither drifts into previewing a
+      // different element than the other.
+      const sendRuntimeStylePreview = (): void => {
+        if (!runtimeStyleApplied) return;
+        // A stamped id goes stale the moment React re-creates the node, so send
+        // the bridge-minted identities as fallbacks (see
+        // canonicalElementInfoForCodeLayerNode).
+        const selectorCandidates = targetNode
+          ? codeLayerSelectorAliases(targetNode)
+          : Array.from(
+              new Set(
+                [
+                  selector,
+                  targetInfo?.runtimeSelector,
+                  targetInfo?.selector,
+                ].filter((candidate): candidate is string =>
+                  Boolean(candidate),
+                ),
+              ),
+            );
+        const nodeId = targetNode
+          ? bridgeSourceIdForCodeLayerNode(targetNode)
+          : (targetInfo?.runtimeSourceId ?? targetInfo?.sourceId);
+        entries.forEach(([property, value]) => {
+          sendStyleChange(selector, property, value, {
+            selectorCandidates,
+            nodeId,
+          });
+        });
+      };
+
       // U7: if this style commit repositions (left/top) the node(s) most
       // recently created by Cmd+D, record the delta so the next Cmd+D on that
       // same selection can replay it instead of landing back in place.
@@ -13448,7 +13511,19 @@ function DesignEditor() {
         // Fail LOUD (same contract as the resolveVisualStyleCommitContent
         // error branch below): patch-proof state alone is too quiet for a
         // user-initiated edit that will never persist.
-        toast.error(t("designEditor.patchProof.selectorMissing"), {
+        //
+        // Three facts, three remedies: ambiguous needs scoping, a mount shell
+        // has no app markup at ANY selector, and only an authored document that
+        // lost the node is actually "missing".
+        const resolutionFailure =
+          targetResolution.status === "ambiguous"
+            ? t("designEditor.patchProof.selectorAmbiguous", {
+                count: targetResolution.candidates.length,
+              })
+            : isClientRenderedMountShell(projection)
+              ? t("designEditor.patchProof.clientRenderedShell")
+              : t("designEditor.patchProof.selectorMissing");
+        toast.error(resolutionFailure, {
           duration: 4000,
         });
         setPatchProof({
@@ -13472,7 +13547,7 @@ function DesignEditor() {
           capability: "unsupported",
           confidence: 0.3,
           status: "failed",
-          error: t("designEditor.patchProof.selectorMissing"),
+          error: resolutionFailure,
           createdAt: Date.now(),
         });
         return;
@@ -13500,38 +13575,7 @@ function DesignEditor() {
         status: "runtime",
         createdAt: Date.now(),
       });
-      const sendStyleChange = (window as any).__designCanvasSendStyle;
-      // Item 5 (edit-flash): a breakpoint-scoped commit (activeBreakpointUpperBoundPx
-      // set) never persists as a plain inline style — planBreakpointStyleWrite
-      // below turns it into a width-scoped Tailwind class or an `@media` rule
-      // in the managed breakpoints <style> block. sendStyleChange only knows
-      // how to patch the live element's INLINE style, which unconditionally
-      // beats any `@media` rule's specificity. Applying it here would preview
-      // the wrong (inline-style-overridden) value immediately, then visibly
-      // flash to the correct cascaded value once the next full document
-      // patch/reload catches up — so skip the runtime shortcut entirely for
-      // breakpoint-scoped writes and fall through to the full content patch
-      // path below, which reflects the actual persisted class/`@media` result.
-      const runtimeStyleApplied =
-        !options.runtimeApplied &&
-        activeBreakpointUpperBoundPx == null &&
-        typeof sendStyleChange === "function";
-      if (runtimeStyleApplied) {
-        const selectorCandidates = targetNode
-          ? codeLayerSelectorAliases(targetNode)
-          : selector
-            ? [selector]
-            : [];
-        const nodeId = targetNode
-          ? bridgeSourceIdForCodeLayerNode(targetNode)
-          : targetInfo?.sourceId;
-        entries.forEach(([property, value]) => {
-          sendStyleChange(selector, property, value, {
-            selectorCandidates,
-            nodeId,
-          });
-        });
-      }
+      sendRuntimeStylePreview();
 
       const nextContent = applyInlineStylesToHtml(baseContent, selector, {
         ...Object.fromEntries(entries),

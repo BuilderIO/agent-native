@@ -945,7 +945,14 @@ const enUS = {
       verified: "Source write verified; rollback available",
       rollback: "Rollback",
       keep: "Keep",
-      selectorMissing: "The selected element no longer exists in this screen.",
+      selectorMissing:
+        "The selected element has no editable match in this screen's source. If a component renders it, apply the change through the agent.",
+      clientRenderedShell:
+        "This screen is client-rendered, so the HTML it serves contains no app markup to patch. Ask the agent to apply this change to the component source.",
+      snapshotNotLoaded:
+        "This screen's source has not loaded yet, so the edit was not written. Wait for the screen to finish loading and try again.",
+      selectorAmbiguous:
+        "This element is one of {{count}} identical instances in the source, so the change was not written. Ask the agent to scope it to this instance.",
       status: {
         runtime: "Runtime style applied",
         queued: "Writing source patch",

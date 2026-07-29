@@ -605,11 +605,44 @@ export function codeLayerNodeMatchesBridgeTarget(
   return codeLayerSelectorMatches(node, selector);
 }
 
-export function resolveCodeLayerNodeFromBridge(
+/**
+ * `absent` and `ambiguous` must stay distinguishable all the way to the UI —
+ * five matching instances is a scoping question, a gone element is a different
+ * failure. Collapsing both into `null` is what made a style commit on a repeated
+ * component claim the element no longer existed while it was on screen.
+ */
+export type CodeLayerResolution =
+  | { status: "resolved"; node: CodeLayerNode }
+  | { status: "absent" }
+  | { status: "ambiguous"; candidates: CodeLayerNode[] };
+
+/**
+ * A client-rendered app serves `<html><body><div id="root">`, so its projection
+ * holds none of the markup the user can select and every selection reads as
+ * "absent" — a different fact, with a different remedy, from a removed element.
+ * The bound is deliberate: an authored page worth editing has more nodes, and a
+ * false positive only costs a more specific refusal message.
+ */
+const MOUNT_SHELL_MAX_NODES = 4;
+
+export function isClientRenderedMountShell(projection: {
+  nodes: CodeLayerNode[];
+}): boolean {
+  if (projection.nodes.length > MOUNT_SHELL_MAX_NODES) return false;
+  return projection.nodes.every(
+    (node) =>
+      node.tag === "html" ||
+      node.tag === "head" ||
+      node.tag === "body" ||
+      (node.children.length === 0 && !collapsedElementText(node.textSnippet)),
+  );
+}
+
+export function resolveCodeLayerTargetFromBridge(
   projection: { nodes: CodeLayerNode[] },
   selector?: string,
   sourceId?: string,
-): CodeLayerNode | null {
+): CodeLayerResolution {
   // Id-based match first, across the WHOLE projection (not just up to
   // whichever node the old combined-predicate `.find()` reached first) — a
   // sourceId identifies one node by its own stable id/data-attribute, which
@@ -622,7 +655,7 @@ export function resolveCodeLayerNodeFromBridge(
     const idMatch = projection.nodes.find((node) =>
       codeLayerNodeMatchesSourceId(node, sourceId),
     );
-    if (idMatch) return idMatch;
+    if (idMatch) return { status: "resolved", node: idMatch };
   }
   // No sourceId (or no node carries it yet, e.g. a bridge target minted a
   // fresh pending id the projection hasn't picked up) — fall back to the
@@ -633,29 +666,49 @@ export function resolveCodeLayerNodeFromBridge(
   // selector that matches more than one node rather than silently picking
   // the first DOM-order match — mirror that discipline here so a duplicate/
   // move/style edit can never silently land on the wrong sibling instance.
-  if (!selector) return null;
+  if (!selector) return { status: "absent" };
   const selectorMatches = projection.nodes.filter((node) =>
     codeLayerSelectorMatches(node, selector),
   );
-  return selectorMatches.length === 1 ? selectorMatches[0]! : null;
+  if (selectorMatches.length === 1) {
+    return { status: "resolved", node: selectorMatches[0]! };
+  }
+  return selectorMatches.length === 0
+    ? { status: "absent" }
+    : { status: "ambiguous", candidates: selectorMatches };
+}
+
+export function resolveCodeLayerNodeFromBridge(
+  projection: { nodes: CodeLayerNode[] },
+  selector?: string,
+  sourceId?: string,
+): CodeLayerNode | null {
+  const resolution = resolveCodeLayerTargetFromBridge(
+    projection,
+    selector,
+    sourceId,
+  );
+  return resolution.status === "resolved" ? resolution.node : null;
 }
 
 export function collapsedElementText(value: string | null | undefined): string {
   return value?.replace(/\s+/g, " ").trim() ?? "";
 }
 
-export function resolveCodeLayerNodeFromElementInfo(
+export function resolveCodeLayerTargetFromElementInfo(
   projection: { nodes: CodeLayerNode[] },
   info: ElementInfo | null | undefined,
-): CodeLayerNode | null {
-  if (!info) return null;
-  const direct = resolveCodeLayerNodeFromBridge(
+): CodeLayerResolution {
+  if (!info) return { status: "absent" };
+  const direct = resolveCodeLayerTargetFromBridge(
     projection,
     info.selector,
     info.sourceId ?? info.id,
   );
-  if (direct) return direct;
+  if (direct.status === "resolved") return direct;
 
+  // Score even an ambiguous selector: text/class/id evidence it does not carry
+  // can single out one instance. Ambiguity only survives if scoring ties too.
   const tagName = info.tagName.toLowerCase();
   const text = collapsedElementText(info.textContent);
   const classes = new Set(info.classes);
@@ -681,11 +734,25 @@ export function resolveCodeLayerNodeFromElementInfo(
     .filter((candidate) => candidate.score >= 4)
     .sort((a, b) => b.score - a.score);
 
-  if (scored.length === 0) return null;
   const [best, next] = scored;
-  if (!best) return null;
-  if (next && next.score === best.score) return null;
-  return best.node;
+  if (!best) return direct;
+  if (next && next.score === best.score) {
+    return {
+      status: "ambiguous",
+      candidates: scored
+        .filter((candidate) => candidate.score === best.score)
+        .map((candidate) => candidate.node),
+    };
+  }
+  return { status: "resolved", node: best.node };
+}
+
+export function resolveCodeLayerNodeFromElementInfo(
+  projection: { nodes: CodeLayerNode[] },
+  info: ElementInfo | null | undefined,
+): CodeLayerNode | null {
+  const resolution = resolveCodeLayerTargetFromElementInfo(projection, info);
+  return resolution.status === "resolved" ? resolution.node : null;
 }
 
 export function canonicalElementInfoForCodeLayerNode(
