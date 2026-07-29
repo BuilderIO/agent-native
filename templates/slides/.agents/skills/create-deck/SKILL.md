@@ -40,15 +40,26 @@ editor stays stable and the user can watch progress.
 ## Reference Decks
 
 The user can pick an existing deck as a style reference when starting a new one.
-When they do, a `## Reference Deck` block is already in your context with that
-deck's slide progression and exemplar slide HTML. Match its layout choices,
-heading hierarchy, type scale, spacing, and markup idiom — but take the content
-only from the user's request. Call `get-deck --id <reference deck id>` when you
-need the full HTML of a slide the exemplars did not cover.
+When they do, a `## Reference Deck` block is already in your context holding one
+worked HTML example per layout.
+
+Treat it as a pattern library, not an outline. The most common failure here is
+walking the reference deck slide by slide and swapping in new copy, which
+produces a deck with the wrong shape for its own content. Instead:
+
+1. Plan the new deck from the user's request alone — story, slide count, order.
+2. For each slide you decided to write, pick the pattern that fits that content.
+3. Reuse a pattern as often as the content warrants, or never.
+4. When nothing fits, compose a new slide from the same type scale, spacing,
+   color, and markup conventions rather than bending content to a near-miss.
+
+The block deliberately omits the reference deck's slide sequence. Call
+`get-deck --id <reference deck id>` if you need to see how that deck handled a
+case the patterns do not cover.
 
 A reference deck and a design system are independent: the design system wins on
-tokens (color, type, spacing), the reference deck wins on structure and slide
-composition. Apply both when both are present.
+tokens (color, type, spacing), the reference deck wins on slide-level
+composition and markup idiom. Apply both when both are present.
 
 Decks the user has starred are their intended reference decks. `list-decks`
 reports `starred` so you can offer them when the user asks for something "like

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildReferenceDeckContext,
-  pickExemplarSlides,
+  pickLayoutPatterns,
 } from "./get-deck-reference-context.js";
 
 const slides = [
@@ -16,18 +16,17 @@ const slides = [
   { id: "d", layout: "quote", content: "<blockquote>Ship it</blockquote>" },
 ];
 
-describe("pickExemplarSlides", () => {
-  it("takes the first slide plus one sample per new layout", () => {
-    expect(pickExemplarSlides(slides).map((e) => e.slideNumber)).toEqual([
-      1, 2, 4,
+describe("pickLayoutPatterns", () => {
+  it("returns one exemplar per distinct layout", () => {
+    expect(pickLayoutPatterns(slides).map((p) => p.layout)).toEqual([
+      "title",
+      "content",
+      "quote",
     ]);
   });
 
-  it("keeps the first slide even when its layout repeats later", () => {
-    const repeated = [slides[1], slides[2], slides[0]];
-    expect(pickExemplarSlides(repeated).map((e) => e.slideNumber)).toEqual([
-      1, 3,
-    ]);
+  it("keeps the first example of a repeated layout", () => {
+    expect(pickLayoutPatterns(slides)[1].slide.id).toBe("b");
   });
 });
 
@@ -40,18 +39,30 @@ describe("buildReferenceDeckContext", () => {
     slides,
   });
 
-  it("states that structure is reused but content is not", () => {
-    expect(context).toContain("Imitate its structure and styling");
-    expect(context).toContain("Do NOT copy its subject matter");
+  it("frames the reference as a pattern library rather than an outline", () => {
+    expect(context).toContain("pattern library, NOT an outline");
+    expect(context).toContain(
+      "Do not reproduce the reference deck's slide order",
+    );
   });
 
-  it("includes the full slide progression and exemplar markup", () => {
-    expect(context).toContain("1. [title] Q3 Review");
-    expect(context).toContain("4. [quote] Ship it");
+  it("withholds the reference deck's slide sequence", () => {
+    expect(context).not.toContain("Slide progression");
+    // No slide numbering that could be read as an order to follow.
+    expect(context).not.toMatch(/^\d+\. \[/m);
+  });
+
+  it("includes one worked markup example per layout", () => {
+    expect(context).toContain("#### Pattern: title");
+    expect(context).toContain("#### Pattern: quote");
     expect(context).toContain("<blockquote>Ship it</blockquote>");
   });
 
-  it("points the agent at get-deck for slides it did not receive", () => {
+  it("tells the agent to take no content from the reference", () => {
+    expect(context).toContain("Take no wording, data, imagery, or subject");
+  });
+
+  it("points the agent at get-deck for cases the patterns miss", () => {
     expect(context).toContain("get-deck --id deck-1");
   });
 });
