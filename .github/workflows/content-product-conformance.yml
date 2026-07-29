@@ -45,6 +45,9 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Fetch exact target revision
+        run: git -C candidate fetch --no-tags https://github.com/BuilderIO/agent-native.git ${{ github.event.pull_request.base.sha }}
+
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
         with:
           package_json_file: controller/package.json

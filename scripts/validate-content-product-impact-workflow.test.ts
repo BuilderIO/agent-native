@@ -167,4 +167,14 @@ describe("Content product conformance workflow boundary", () => {
     assert(result.issues.some((issue) => issue.includes("trusted revision")));
     assert(result.issues.some((issue) => issue.includes("standalone")));
   });
+
+  it("requires the exact upstream base revision for fork pull requests", () => {
+    const unsafe = workflow.replace(
+      "git -C candidate fetch --no-tags https://github.com/BuilderIO/agent-native.git ${{ github.event.pull_request.base.sha }}",
+      "git -C candidate fetch origin main",
+    );
+    const result = validateContentProductImpactWorkflow(unsafe);
+    assert.equal(result.ok, false);
+    assert(result.issues.some((issue) => issue.includes("target revision")));
+  });
 });

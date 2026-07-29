@@ -30,6 +30,8 @@ const NODE_ACTION =
 const CONTROLLER_REVISION = "03caa13fd5bf6176ee01ab223452db9932b7ca8c";
 const CHECKER_COMMAND =
   "pnpm --dir controller exec tsx scripts/validate-content-product-impact.ts";
+const BASE_FETCH_COMMAND =
+  "git -C candidate fetch --no-tags https://github.com/BuilderIO/agent-native.git ${{ github.event.pull_request.base.sha }}";
 
 function hasExactKeys(
   value: Record<string, unknown>,
@@ -42,8 +44,9 @@ function hasExactKeys(
 }
 
 function hasExpectedSteps(steps: Array<Record<string, unknown>>): boolean {
-  if (steps.length !== 6) return false;
-  const [controller, candidate, pnpm, node, install, checker] = steps;
+  if (steps.length !== 7) return false;
+  const [controller, candidate, fetchBase, pnpm, node, install, checker] =
+    steps;
   return (
     hasExactKeys(controller, ["name", "uses", "with"]) &&
     controller.name === "Check out immutable conformance controller" &&
@@ -76,6 +79,9 @@ function hasExpectedSteps(steps: Array<Record<string, unknown>>): boolean {
     candidate.with.path === "candidate" &&
     candidate.with["fetch-depth"] === 0 &&
     candidate.with["persist-credentials"] === false &&
+    hasExactKeys(fetchBase, ["name", "run"]) &&
+    fetchBase.name === "Fetch exact target revision" &&
+    fetchBase.run === BASE_FETCH_COMMAND &&
     hasExactKeys(pnpm, ["uses", "with"]) &&
     pnpm.uses === PNPM_ACTION &&
     isRecord(pnpm.with) &&
@@ -289,6 +295,9 @@ export function validateContentProductImpactWorkflow(
       "${{ github.event.pull_request.head.sha }}"
   ) {
     issues.push("checker must receive exact base and head SHAs");
+  }
+  if (!steps.some((step) => step.run === BASE_FETCH_COMMAND)) {
+    issues.push("workflow must fetch the exact target revision from upstream");
   }
 
   return { ok: issues.length === 0, issues };
