@@ -291,7 +291,7 @@ function AssetsChatsSection({ open }: { open: boolean }) {
             unpin: t("chat.unpinChat"),
             delete: t("chat.archiveChat"),
           }}
-          className="min-w-0 [&_.an-chat-history-rail__new-chat]:justify-start"
+          className="min-w-0"
         />
       </div>
     </div>
