@@ -50,8 +50,10 @@ const relayExecutor = new RemoteRelayExecutor(control);
 let nativePort: chrome.runtime.Port | undefined;
 let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
 let nativeHostConnecting = false;
+let nativeDisconnectingForRelay = false;
 let relayLastSeenAt = 0;
 let relayHasAccess = false;
+let relayOwnsControl = false;
 let relayGeneration = 0;
 let relayAbort: AbortController | undefined;
 let relayQueue: Promise<void> = Promise.resolve();
@@ -94,14 +96,16 @@ function writeControlStatus(): void {
   const nativeHostConnected = Boolean(nativePort);
   const relayConnected =
     relayHasAccess && Date.now() - relayLastSeenAt <= RELAY_STATUS_MAX_AGE_MS;
+  const nativeAvailable = nativeHostConnected && !relayOwnsControl;
+  const relayAvailable = relayConnected && relayOwnsControl;
   void chrome.storage.session.set({
     [BROWSER_CONTROL_STATUS_KEY]:
-      nativeHostConnected || relayConnected
+      nativeAvailable || relayAvailable
         ? {
             state: "available",
             nativeHostConnected,
             relayConnected,
-            controlTransport: nativeHostConnected ? "native" : "relay",
+            controlTransport: relayAvailable ? "relay" : "native",
             activeTasks: control.activeTaskCount,
             updatedAt: new Date().toISOString(),
           }
@@ -136,12 +140,21 @@ async function handleNativeMessage(message: unknown): Promise<void> {
   try {
     const request = parseNativeRequest(message);
     id = request.id;
+    if (relayOwnsControl) {
+      throw new BrowserControlError(
+        "UPSTREAM_NOT_ACTIVE",
+        "The paired browser relay owns browser control.",
+      );
+    }
     const result = await control.execute(request);
     postNative({ id, ok: true, result });
   } catch (error) {
     postNative(errorResponse(id, error));
   } finally {
     writeControlStatus();
+    if (!relayOwnsControl && relayHasAccess && control.activeTaskCount === 0) {
+      restartRelayPoller();
+    }
   }
 }
 
@@ -150,7 +163,7 @@ function scheduleNativeReconnect(): void {
 }
 
 function connectNativeHost(): void {
-  if (nativePort || nativeHostConnecting) return;
+  if (relayOwnsControl || nativePort || nativeHostConnecting) return;
   nativeHostConnecting = true;
   try {
     const port = chrome.runtime.connectNative(NATIVE_HOST);
@@ -166,21 +179,45 @@ function connectNativeHost(): void {
       if (heartbeatTimer) clearInterval(heartbeatTimer);
       heartbeatTimer = undefined;
       writeControlStatus();
-      restartRelayPoller();
+      if (nativeDisconnectingForRelay) {
+        nativeDisconnectingForRelay = false;
+        return;
+      }
       void control.emergencyStopAll().finally(scheduleNativeReconnect);
     });
     startHeartbeat();
     writeControlStatus();
-    restartRelayPoller();
   } catch {
     nativePort = undefined;
     nativeHostConnecting = false;
     writeControlStatus();
-    restartRelayPoller();
     scheduleNativeReconnect();
   } finally {
     if (nativePort) nativeHostConnecting = false;
   }
+}
+
+async function selectRelayControl(): Promise<boolean> {
+  if (relayOwnsControl) return true;
+  if (nativePort && control.activeTaskCount > 0) return false;
+  relayOwnsControl = true;
+  if (nativePort) {
+    nativeDisconnectingForRelay = true;
+    nativePort.disconnect();
+  }
+  writeControlStatus();
+  return true;
+}
+
+async function selectNativeFallback(): Promise<void> {
+  const wasRelayOwner = relayOwnsControl;
+  relayOwnsControl = false;
+  relayLastSeenAt = 0;
+  if (wasRelayOwner && control.activeTaskCount > 0) {
+    await control.emergencyStopAll();
+  }
+  writeControlStatus();
+  connectNativeHost();
 }
 
 function restartRelayPoller(): void {
@@ -193,12 +230,16 @@ async function runRelayLoop(generation: number): Promise<void> {
   const config = await readRemoteDeviceConfig();
   if (!config || generation !== relayGeneration) {
     relayHasAccess = false;
-    writeControlStatus();
+    await selectNativeFallback();
     return;
   }
   relayHasAccess = await hasRemoteHostAccess(config.relayBaseUrl);
+  if (!relayHasAccess || generation !== relayGeneration) {
+    await selectNativeFallback();
+    return;
+  }
+  await selectRelayControl();
   writeControlStatus();
-  if (!relayHasAccess || generation !== relayGeneration) return;
 
   const controller = new AbortController();
   relayAbort = controller;
@@ -212,7 +253,7 @@ async function runRelayLoop(generation: number): Promise<void> {
         {
           deviceId: config.deviceId,
           waitMs: RELAY_WAIT_MS,
-          computerCapabilities: relayCapabilities(Boolean(nativePort)),
+          computerCapabilities: relayCapabilities(relayOwnsControl),
           browserSession,
         },
         controller.signal,
@@ -242,7 +283,7 @@ async function handleRelayCommand(
     isRecord(command) && typeof command.id === "string" ? command.id : null;
   if (!commandId) return;
   try {
-    const executed = await relayExecutor.execute(command, Boolean(nativePort));
+    const executed = await relayExecutor.execute(command, relayOwnsControl);
     await postRelayJson(
       config,
       "/_agent-native/integrations/remote/result",
@@ -316,12 +357,10 @@ function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
 chrome.runtime.onInstalled.addListener(() => {
   void enableSidePanel();
   void chrome.alarms.create(RELAY_WAKE_ALARM, { periodInMinutes: 1 });
-  connectNativeHost();
   restartRelayPoller();
 });
 chrome.runtime.onStartup.addListener(() => {
   void enableSidePanel();
-  connectNativeHost();
   restartRelayPoller();
 });
 chrome.runtime.onSuspend.addListener(() => {
@@ -434,6 +473,5 @@ void enableSidePanel();
 writeControlStatus();
 void chrome.alarms.create(RELAY_WAKE_ALARM, { periodInMinutes: 1 });
 void control.restore().finally(() => {
-  connectNativeHost();
   restartRelayPoller();
 });

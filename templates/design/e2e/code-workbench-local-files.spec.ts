@@ -214,50 +214,18 @@ test("lists the spawned folder, preserves dirty buffers, and saves a local file"
                 element.childElementCount === 0 &&
                 Boolean(element.textContent?.trim()),
             );
-            return {
-              count: visibleTokens.length,
-              colors: [
-                ...new Set(
-                  visibleTokens.map(
-                    (element) => getComputedStyle(element).color,
-                  ),
-                ),
-              ],
-            };
+            const syntaxColors = new Set(
+              visibleTokens.map(
+                (element) => getComputedStyle(element).color,
+              ),
+            );
+            return visibleTokens.length > 3 && syntaxColors.size > 1;
           }),
         {
-          message: `${filename} renders visible syntax colors in Monaco`,
+          message: `${filename} renders visible syntax-highlighted tokens in Monaco`,
         },
       )
-      .toMatchObject({
-        count: expect.any(Number),
-        colors: expect.arrayContaining([expect.any(String)]),
-      });
-    await expect
-      .poll(
-        () =>
-          page.evaluate(() => {
-            const host = document.querySelector(
-              '[data-testid="design-code-monaco-editor"]',
-            );
-            const visibleTokens = [
-              ...(host?.querySelectorAll<HTMLElement>(
-                ".view-lines .view-line span",
-              ) ?? []),
-            ].filter(
-              (element) =>
-                element.childElementCount === 0 &&
-                Boolean(element.textContent?.trim()),
-            );
-            return new Set(
-              visibleTokens.map((element) => getComputedStyle(element).color),
-            ).size;
-          }),
-        {
-          message: `${filename} renders more than one syntax color in Monaco`,
-        },
-      )
-      .toBeGreaterThan(1);
+      .toBe(true);
   }
 
   await localTree.getByText("App.tsx", { exact: true }).click();

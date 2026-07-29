@@ -1589,21 +1589,32 @@ export function createIntegrationsPlugin(
             ? ((await readBody(event)) as {
                 waitMs?: unknown;
                 computerCapabilities?: unknown;
+                browserSession?: unknown;
               })
             : {};
         let pollingDevice = device;
         if (
           method === "POST" &&
-          Object.prototype.hasOwnProperty.call(body, "computerCapabilities")
+          (Object.prototype.hasOwnProperty.call(body, "computerCapabilities") ||
+            Object.prototype.hasOwnProperty.call(body, "browserSession"))
         ) {
-          const computerCapabilities = readComputerCapabilities(
-            body.computerCapabilities,
-          );
           const updated = await updateRemoteDeviceDetails({
             id: device.id,
             metadata: {
               ...(device.metadata ?? {}),
-              computerCapabilities,
+              ...(Object.prototype.hasOwnProperty.call(
+                body,
+                "computerCapabilities",
+              )
+                ? {
+                    computerCapabilities: readComputerCapabilities(
+                      body.computerCapabilities,
+                    ),
+                  }
+                : {}),
+              ...(Object.prototype.hasOwnProperty.call(body, "browserSession")
+                ? { browserSession: readBrowserSession(body.browserSession) }
+                : {}),
             },
           });
           if (updated) pollingDevice = updated;
@@ -3477,6 +3488,39 @@ function readComputerCapabilities(value: unknown) {
     browser: readSurface(input?.browser),
     desktop: readSurface(input?.desktop, true),
   };
+}
+
+function readBrowserSession(value: unknown) {
+  if (value === null) return null;
+  const input = readObject(value);
+  if (!input) return null;
+  const handle = readString(input.handle);
+  const origin = readString(input.origin);
+  const title = readString(input.title);
+  if (
+    input.version !== 1 ||
+    !handle ||
+    handle.length > 128 ||
+    !/^bsn_[0-9a-f-]+$/i.test(handle) ||
+    !origin ||
+    origin.length > 2_048 ||
+    !title ||
+    title.length > 512
+  ) {
+    return null;
+  }
+  try {
+    const url = new URL(origin);
+    if (
+      url.origin !== origin ||
+      (url.protocol !== "http:" && url.protocol !== "https:")
+    ) {
+      return null;
+    }
+  } catch {
+    return null;
+  }
+  return { version: 1, handle, origin, title };
 }
 
 function advertisedComputerOperationClasses(

@@ -45,10 +45,11 @@ network bodies, and credentials. Sensitive-looking URL query values are
 redacted. Context is sent only to the Dispatch conversation the user connected.
 
 A scoped remote-device token may be stored in Chrome extension storage so the
-browser-only relay fallback can poll for approved computer operations. It is
+paired relay can poll for approved computer operations. It is
 sent only to the paired HTTPS relay origin or an explicit loopback development
-origin. Native Messaging remains the preferred control transport, and the
-extension never advertises relay control while Desktop is connected.
+origin. A usable paired relay is the sole control upstream for the side-panel
+session; Native Messaging is disconnected or skipped. Desktop becomes the
+fallback only when no usable paired relay and exact relay-origin grant exists.
 
 ## Package
 

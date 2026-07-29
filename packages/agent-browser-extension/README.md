@@ -16,12 +16,11 @@ origin-scoped browser control.
   tab id.
 - Hidden content, form values, editable drafts, full DOM, cookies, headers,
   request bodies, and arbitrary JavaScript results are never captured.
-- Desktop Native Messaging is the preferred browser-control upstream. When
-  Desktop is absent, the extension can use the scoped remote-device credential
-  delivered through Dispatch pairing to poll the Agent Native relay directly.
-- The direct relay always advertises `browser.observe`. It advertises
-  `browser.control` only while Native Messaging is disconnected, so one
-  upstream owns mutations.
+- A usable Dispatch pairing makes the direct relay the canonical control
+  upstream for the side-panel session. The extension disconnects or skips Native
+  Messaging before advertising relay control.
+- If no usable relay pairing and exact relay-origin grant exists, Desktop Native
+  Messaging is the fallback. The extension never runs both control upstreams.
 
 ## Relay action contract
 
@@ -38,6 +37,9 @@ envelopes whose approval hash passes the core supervision parser:
 
 Control observations exclude screenshots from relay results. There is no
 arbitrary CDP method, expression, function-call, or `Runtime.evaluate` surface.
+The shared service rejects a competing attachment instead of moving an existing
+lease. If relay access is removed, active relay leases are stopped before the
+Desktop fallback reconnects.
 
 ## Development
 

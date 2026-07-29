@@ -19,15 +19,17 @@
 - `debugger`: used only by the shared reviewed browser-control engine after an
   opaque page handle resolves to an exact tab and origin. Tier-0 read capture
   never attaches the debugger.
-- `nativeMessaging`: connects the shared engine to Agent Native Desktop, the
-  preferred control upstream.
+- `nativeMessaging`: connects the shared engine to Agent Native Desktop only
+  when no usable paired relay is available.
 - `alarms`: retries Desktop and wakes the direct relay fallback.
 - `tabs`: follows the current page, resolves user-shared page handles, and
   revalidates an assigned control tab's exact origin.
 
-When Desktop is connected, the direct relay continues to advertise read and
-observation but sets `browser.control` to false. Competing control attachment
-fails visibly in the shared service rather than preempting a task.
+A usable paired relay is canonical for side-panel browser sessions: the
+extension disconnects or skips Native Messaging before advertising relay
+control. If a native task is already active, the extension waits for it to stop
+instead of preempting it. Removing relay access stops remaining relay leases
+before reconnecting the Desktop fallback.
 
 ## Pairing and relay
 
