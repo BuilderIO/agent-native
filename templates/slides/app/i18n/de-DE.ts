@@ -165,6 +165,13 @@ const messages = {
   designSystems: {
     new: "Neues Designsystem",
     setupBrand: "Marke einrichten",
+    delete: "Löschen",
+    cancel: "Abbrechen",
+    moreActions: "Weitere Aktionen",
+    deleteDialogTitle: "Designsystem löschen?",
+    deleteDialogDescription:
+      "Das Designsystem wird dauerhaft gelöscht. Decks, die es verwenden, behalten ihr aktuelles Aussehen, sind aber nicht mehr damit verknüpft.",
+    deleteError: "Designsystem konnte nicht gelöscht werden",
     emptyTitle: "Markenidentität einrichten",
     emptyDescription:
       "Erstelle ein Designsystem mit Markenfarben, Typografie und Logos. Jedes neue Deck folgt deiner visuellen Identität.",

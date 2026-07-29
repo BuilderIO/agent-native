@@ -926,6 +926,7 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     replyingTo: "Replying to",
     commentAt: "Comment at",
     writeReply: "Write a reply...",
+    editComment: "Edit comment",
     commentButton: "Comment",
     composerPlaceholder: "Add a comment…",
     mentionSomeone: "Mention someone",
@@ -1322,7 +1323,7 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     downloadDesktopApp: "Download desktop app",
     technicalDetails: "Technical details",
     whatToCheck: "What to check",
-    downloadRecording: "Download recording",
+    downloadRecording: "Download",
     openRecorderInTab: "Open recorder in tab",
     connectStorageToFinish:
       "Connect storage on the next screen: Builder.io (free tier storage + AI) or S3-compatible storage. Clips will finish saving it.",

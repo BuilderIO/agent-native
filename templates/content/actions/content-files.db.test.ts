@@ -114,6 +114,20 @@ async function getFilesDatabase(spaceId: string) {
 }
 
 describe("Content Files membership reconciliation", () => {
+  it("classifies a missing personal-view database as not found", async () => {
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        getContentDatabasePersonalViewAction.run(
+          { databaseId: "missing-personal-view-database" },
+          { userEmail: OWNER } as any,
+        ),
+      ),
+    ).rejects.toMatchObject({
+      message: 'Database "missing-personal-view-database" not found',
+      statusCode: 404,
+    });
+  });
+
   it("removes the retired Parent default from legacy personal Files views", async () => {
     const { putUserSetting, deleteUserSetting } =
       await import("@agent-native/core/settings");

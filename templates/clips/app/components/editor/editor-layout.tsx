@@ -666,7 +666,6 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
                 onPlay={() => setPlaying(true)}
                 onPause={() => setPlaying(false)}
                 controls={false}
-                crossOrigin="anonymous"
               />
             ) : (
               <div className="text-sm text-muted-foreground">

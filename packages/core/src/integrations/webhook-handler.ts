@@ -35,7 +35,11 @@ import {
   appendDurableContinuationContext,
   runAgentLoopDirectWithSoftTimeout,
 } from "../agent/run-loop-with-resume.js";
-import { startRun, type ActiveRun } from "../agent/run-manager.js";
+import {
+  startRun,
+  type ActiveRun,
+  type StartRunOptions,
+} from "../agent/run-manager.js";
 import {
   buildCurrentTimeUserContext,
   buildRuntimeContextPrompt,
@@ -1211,6 +1215,26 @@ async function processIncomingMessage(
   let usage: Awaited<ReturnType<typeof runAgentLoop>> | null = null;
   let budgetsSettled = false;
 
+  // Populated once `resolvedModel`/`engine` are known inside the run
+  // callback below (stored-model + platform-default resolution can't happen
+  // until then) and read back by run-manager's terminal tracking event via
+  // this same object reference — `startRun` reads `options.model` only in
+  // its `.finally()`, after this callback has settled, so the mutation is
+  // guaranteed to land before it's read.
+  const runOptions: StartRunOptions = {
+    useHostedSoftTimeoutDefault: true,
+    backgroundFunction: isInBackgroundFunctionRuntime(),
+    ...(campaign
+      ? {
+          turnId: campaign.row.turnId,
+          noProgressTimeoutMs: INTEGRATION_CAMPAIGN_NO_PROGRESS_TIMEOUT_MS,
+        }
+      : {}),
+    // No userId here: `ownerEmail` is PII (email), which the terminal event
+    // must not carry.
+    attemptCount: opts.attempts,
+  };
+
   // Wait for the run to complete inside this fresh function execution.
   // We use a Promise so the processor endpoint can await the full lifecycle.
   return new Promise<ProcessIntegrationTaskResult>((resolve) => {
@@ -1283,6 +1307,8 @@ async function processIncomingMessage(
               engine,
               modelCandidate,
             );
+            runOptions.model = resolvedModel;
+            runOptions.engineName = engine.name;
 
             // Wrapper, not raw `runAgentLoop`: an integration turn has no
             // browser to re-POST a continuation, so a transport-level cut
@@ -1847,16 +1873,7 @@ async function processIncomingMessage(
       // chains) with no visible answer. `isInBackgroundFunctionRuntime()` is
       // the runtime proof — never a config guess — so the wider ceiling is
       // taken only where the ~60s synchronous wall genuinely does not apply.
-      {
-        useHostedSoftTimeoutDefault: true,
-        backgroundFunction: isInBackgroundFunctionRuntime(),
-        ...(campaign
-          ? {
-              turnId: campaign.row.turnId,
-              noProgressTimeoutMs: INTEGRATION_CAMPAIGN_NO_PROGRESS_TIMEOUT_MS,
-            }
-          : {}),
-      },
+      runOptions,
     );
   });
 }

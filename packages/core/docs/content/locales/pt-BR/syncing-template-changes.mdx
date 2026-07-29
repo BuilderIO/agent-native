@@ -11,6 +11,8 @@ description: "O agent-native template traz alterações upstream posteriores de 
 
 `agent-native template` é a metade que faltava. Ele busca o modelo novamente em uma versão mais recente, reaplica exatamente as transformações que `create` aplicou e mescla o resultado no seu aplicativo, arquivo por arquivo.
 
+Os modelos da comunidade ficam intencionalmente fora deste fluxo de sincronização. Os metadados `agent-native.communityTemplate` apenas registram a origem instalada; `agent-native template sync` não busca alterações desse repositório. Instale uma revisão fixa para ter um ponto de partida estável e transfira manualmente alterações posteriores depois de revisá-las.
+
 ## Início rápido {#quick-start}
 
 ```bash

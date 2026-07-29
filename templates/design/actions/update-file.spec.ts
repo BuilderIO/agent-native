@@ -250,6 +250,30 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
     expect(await hasCollabState(FILE_ID)).toBe(false);
   });
 
+  it("preserves a URL-backed screen across a rejected route-plus-subtree write and reload", async () => {
+    const routeUrl = "http://localhost:8210/dashboard";
+    const corruptingWrite =
+      `${routeUrl}<section data-agent-native-node-id="group">` +
+      "<p>Nested layer</p></section>";
+    seedFile(routeUrl);
+
+    await expect(
+      updateFileAction.run({
+        id: FILE_ID,
+        content: corruptingWrite,
+        syncCollab: true,
+        expectedVersionHash: sourceContentHash(routeUrl),
+      } as never),
+    ).rejects.toThrow(/DESIGN_HTML_INTEGRITY/);
+
+    // The next load reads the same persisted row; neither SQL nor a newly
+    // seeded collab document may retain the rejected layer fragment.
+    const reloadedContent = designFilesStore.rows.get(FILE_ID)!.content;
+    expect(reloadedContent).toBe(routeUrl);
+    expect(reloadedContent).not.toContain("data-agent-native-node-id");
+    expect(await hasCollabState(FILE_ID)).toBe(false);
+  });
+
   it("1. no expectedVersionHash provided at all: content write proceeds exactly as before", async () => {
     const next = buildDoc(" changed-");
     const result = await updateFileAction.run({

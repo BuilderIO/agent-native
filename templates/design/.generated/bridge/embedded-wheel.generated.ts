@@ -206,6 +206,9 @@ export const embeddedWheelBridgeScript: string = `"use strict";
       if (e.data.type === "embedded-canvas-gesture-mode") {
         wheelEnabled = !!e.data.wheelEnabled;
         spaceKeyForwardingEnabled = !!e.data.spaceKeyForwardingEnabled;
+        if (typeof e.data.editingSafetyEnabled === "boolean") {
+          editingSafetyEnabled = e.data.editingSafetyEnabled;
+        }
       }
     }
     function cancelActivePan() {

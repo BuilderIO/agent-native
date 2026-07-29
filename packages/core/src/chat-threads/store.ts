@@ -1056,11 +1056,10 @@ export async function setThreadQueuedMessages(
     try {
       data = JSON.parse(thread.threadData);
     } catch {}
-    if (queuedMessages.length === 0) {
-      delete data.queuedMessages;
-    } else {
-      data.queuedMessages = queuedMessages;
-    }
+    // Keep an explicit empty tombstone. Other mounted chat surfaces only
+    // reconcile queue state when this field is present; deleting it lets a
+    // stale local queue survive the clear and submit the same prompt again.
+    data.queuedMessages = queuedMessages;
     await updateThreadData(
       threadId,
       JSON.stringify(data),

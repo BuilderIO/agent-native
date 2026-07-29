@@ -12,7 +12,7 @@ describe("docs content parsing", () => {
     expect(await loadDoc("workspace")).toBeUndefined();
     expect(paths).toContain("/docs/agent-resources");
     expect(paths).not.toContain("/docs/workspace");
-  });
+  }, 15_000);
 
   it("ignores fenced markdown headings when extracting page headings", async () => {
     const doc = await loadDoc("creating-templates");

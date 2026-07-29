@@ -307,7 +307,7 @@ describe("DesignCanvas live-edit bridge restart detection", () => {
     expect(container.textContent ?? "").toContain(
       "Live editor connection failed",
     );
-    expect(container.querySelector("iframe")?.getAttribute("src")).toBeNull();
+    expect(container.querySelector("iframe")).toBeNull();
 
     // Window identity is part of the recovery token: an otherwise well-formed
     // ready packet from another same-origin window cannot revive the key.

@@ -495,11 +495,23 @@ Templates should fit naturally into [Multi-App Workspaces](/docs/multi-app-works
 4. 필요한 환경 변수 및 온보딩 단계를 문서화하세요.
 5. 추적된 런타임 데이터 파일이 아닌 추가 마이그레이션을 통해 예제 또는 시드 행을 포함합니다.
 
-GitHub 저장소에서 커뮤니티 템플릿을 생성할 수 있습니다:
+커뮤니티 템플릿은 공개 GitHub 저장소에서 직접 설치합니다. Agent Native 앱을 저장소 루트에 두세요.
 
 ```bash
-npx @agent-native/core@latest create my-app --template github:user/repo
+npx @agent-native/core@latest create my-app --template community:owner/repo
 ```
+
+특정 리비전을 고정하려면 `#branch`, `#tag` 또는 `#commit`을 추가하세요.
+
+```bash
+npx @agent-native/core@latest create my-app --template community:owner/repo#v1.0.0
+```
+
+CLI는 소스만 다운로드하며 종속성을 설치하거나 템플릿 스크립트를 실행하지 않습니다. 커뮤니티 템플릿은 타사 코드이므로 `pnpm install`을 실행하기 전에 저장소, 라이선스, 종속성 및 설치 스크립트를 검토하세요.
+
+카탈로그에 등록하려면 루트의 완성된 앱, 라이선스와 설정 README가 있는 공개 저장소, `@agent-native/core` 종속성, 통과하는 타입 검사와 테스트가 필요합니다. 호스팅 데모와 스크린샷은 선택 사항입니다.
+
+저장소가 준비되면 [커뮤니티 템플릿을 제출](https://github.com/BuilderIO/agent-native/issues/new?template=community-template.yml)하세요. 커뮤니티 목록은 공식 카탈로그와 분리되며 작성자가 유지 관리합니다.
 
 ## 프레임워크 모노레포에 기여 {#contributing}
 

@@ -904,20 +904,48 @@ export function generateWorkerEntry(
   for (let i = 0; i < actions.length; i++) {
     const a = actions[i];
     const varName = `action_${i}`;
+    const handlerName = `action_handler_${i}`;
     actionImports.push(`import ${varName} from ${JSON.stringify(a.absPath)};`);
     // Mirror the runtime mount (action-routes.ts): `path = http?.path ?? name`.
     const routePath = `/_agent-native/actions/${a.path ?? a.name}`;
     actionRegistrations.push(
-      `  app.on(${JSON.stringify(a.method.toUpperCase())}, ${JSON.stringify(routePath)}, defineEventHandler(async (event) => {
+      `  const ${handlerName} = defineEventHandler(async (event) => {
+    const configuredMethod = ${JSON.stringify(a.method.toUpperCase())};
+    const requestMethod = event.req.method;
+    const isFrontendMutation =
+      event.req.headers.get("x-agent-native-frontend") === "1" &&
+      ["POST", "PUT", "DELETE"].includes(configuredMethod) &&
+      ["POST", "PUT", "DELETE"].includes(requestMethod);
+    if (requestMethod !== configuredMethod && !isFrontendMutation) {
+      return new Response(
+        JSON.stringify({ error: \`Method not allowed. Use \${configuredMethod}.\` }),
+        { status: 405, headers: { "Content-Type": "application/json" } }
+      );
+    }
     const params = ${a.method === "get" ? "parseActionSearchParams(event.url.searchParams)" : "(await readBody(event)) ?? {}"};
     try {
-      const result = await ${varName}.run(params, { caller: "http" });
+      const caller =
+        event.req.headers.get("x-agent-native-frontend") === "1"
+          ? "frontend"
+          : "http";
+      const result = await ${varName}.run(params, { caller });
       if (typeof result === "string") { try { return JSON.parse(result); } catch { return result; } }
       return result;
     } catch (err) {
       return new Response(JSON.stringify({ error: err?.message || "Action failed" }), { status: err?.message?.startsWith("Invalid action parameters") ? 400 : 500, headers: { "Content-Type": "application/json" } });
     }
-  }));`,
+  });
+  app.on(${JSON.stringify(a.method.toUpperCase())}, ${JSON.stringify(routePath)}, ${handlerName});
+${["post", "put", "delete"]
+  .filter(
+    (method) =>
+      method !== a.method && ["post", "put", "delete"].includes(a.method),
+  )
+  .map(
+    (method) =>
+      `  app.on(${JSON.stringify(method.toUpperCase())}, ${JSON.stringify(routePath)}, ${handlerName});`,
+  )
+  .join("\n")}`,
     );
   }
 

@@ -162,6 +162,13 @@ const messages = {
   designSystems: {
     new: "新しいデザインシステム",
     setupBrand: "ブランドを設定",
+    delete: "削除",
+    cancel: "キャンセル",
+    moreActions: "その他の操作",
+    deleteDialogTitle: "デザインシステムを削除しますか？",
+    deleteDialogDescription:
+      "デザインシステムを完全に削除します。使用中のデッキは現在の見た目を保ちますが、リンクは解除されます。",
+    deleteError: "デザインシステムを削除できませんでした",
     emptyTitle: "ブランドアイデンティティを設定",
     emptyDescription:
       "ブランドカラー、タイポグラフィ、ロゴを使ってデザインシステムを作成します。新しいデッキはすべてそのビジュアルアイデンティティに従います。",

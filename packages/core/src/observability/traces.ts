@@ -74,12 +74,25 @@ function emitLlmGenerationTrackingEvent(args: {
   llmSpanId: string;
   engineName: string | undefined;
   model: string;
-  inputTokens: number;
-  outputTokens: number;
-  cacheReadTokens: number;
-  cacheWriteTokens: number;
-  costCentsX100: number;
+  /**
+   * Undefined means the engine never reported a usage figure for this run
+   * (e.g. killed for silence before any provider response arrived) — not
+   * that the count was zero. Callers must omit these from the emitted event
+   * rather than coerce to 0; a coerced 0 is indistinguishable from a real
+   * empty-input run and defeats analysis of failing runs by input size.
+   */
+  inputTokens: number | undefined;
+  outputTokens: number | undefined;
+  cacheReadTokens: number | undefined;
+  cacheWriteTokens: number | undefined;
+  /** Same "unknown vs zero" rule as the token fields — cost is derived from
+   *  them and is equally unmeasurable when they were never reported. */
+  costCentsX100: number | undefined;
   durationMs: number;
+  /** Elapsed ms from run start to the first non-heartbeat engine event.
+   *  Undefined when no such event ever arrived (the run never produced a
+   *  token before being aborted) — never coerced to 0. */
+  firstTokenMs: number | undefined;
   status: "success" | "error";
   errorMessage: string | null;
   toolCalls: number;
@@ -102,7 +115,14 @@ function emitLlmGenerationTrackingEvent(args: {
   modelSelectionSource?: string;
 }): void {
   const provider = llmProviderFromEngine(args.engineName, args.model);
-  const costUsd = costUsdFromCenticents(args.costCentsX100);
+  const costUsd =
+    args.costCentsX100 !== undefined
+      ? costUsdFromCenticents(args.costCentsX100)
+      : undefined;
+  const totalTokens =
+    args.inputTokens !== undefined && args.outputTokens !== undefined
+      ? args.inputTokens + args.outputTokens
+      : undefined;
   const error = args.errorMessage ?? undefined;
   const properties: Record<string, unknown> = {
     ...trackingIdentityProperties(),
@@ -116,12 +136,13 @@ function emitLlmGenerationTrackingEvent(args: {
     provider,
     input_tokens: args.inputTokens,
     output_tokens: args.outputTokens,
-    total_tokens: args.inputTokens + args.outputTokens,
+    total_tokens: totalTokens,
     cache_read_tokens: args.cacheReadTokens,
     cache_write_tokens: args.cacheWriteTokens,
     cost_cents_x100: args.costCentsX100,
     cost_usd: costUsd,
     duration_ms: args.durationMs,
+    time_to_first_token_ms: args.firstTokenMs,
     status: args.status,
     tool_calls: args.toolCalls,
     successful_tools: args.successfulTools,
@@ -643,6 +664,16 @@ export async function instrumentAgentLoop(opts: {
         cacheWriteTokens: 0,
         model: loopOpts.model,
       };
+      // The engine never reported a `usage` event for this run (killed for
+      // silence before any provider response, or the loop threw before
+      // returning). `generationUsage`'s token fields are placeholder zeros in
+      // that case, not measured values — the tracking event below must omit
+      // them rather than report a fabricated 0.
+      const usageReported = usage?.usageReported === true;
+      const firstTokenMs =
+        usage?.firstEngineEventAtMs !== undefined
+          ? Math.max(0, usage.firstEngineEventAtMs - runStart)
+          : undefined;
       const llmSpanId = spanId();
       const llmSpan: TraceSpan = {
         id: llmSpanId,
@@ -675,12 +706,17 @@ export async function instrumentAgentLoop(opts: {
             ? loopOpts.engine.name
             : undefined,
         model: generationUsage.model,
-        inputTokens: generationUsage.inputTokens,
-        outputTokens: generationUsage.outputTokens,
-        cacheReadTokens: generationUsage.cacheReadTokens,
-        cacheWriteTokens: generationUsage.cacheWriteTokens,
-        costCentsX100,
+        inputTokens: usageReported ? generationUsage.inputTokens : undefined,
+        outputTokens: usageReported ? generationUsage.outputTokens : undefined,
+        cacheReadTokens: usageReported
+          ? generationUsage.cacheReadTokens
+          : undefined,
+        cacheWriteTokens: usageReported
+          ? generationUsage.cacheWriteTokens
+          : undefined,
+        costCentsX100: usageReported ? costCentsX100 : undefined,
         durationMs: totalDurationMs,
+        firstTokenMs,
         status: runStatus,
         errorMessage,
         toolCalls: toolCallCount,

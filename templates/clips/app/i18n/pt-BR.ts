@@ -946,6 +946,7 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     replyingTo: "Respondendo a",
     commentAt: "Comentário em",
     writeReply: "Escreva uma resposta...",
+    editComment: "Editar comentário",
     commentButton: "Comentar",
     composerPlaceholder: "Adicionar um comentário…",
     mentionSomeone: "Mencionar alguém",
@@ -1351,7 +1352,7 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     downloadDesktopApp: "Download desktop app (Localizado)",
     technicalDetails: "Technical details (Localizado)",
     whatToCheck: "What to check (Localizado)",
-    downloadRecording: "Download recording (Localizado)",
+    downloadRecording: "Download (Localizado)",
     openRecorderInTab: "Open recorder in tab (Localizado)",
     connectStorageToFinish:
       "Conecte armazenamento na próxima tela: Builder.io (armazenamento + IA no plano gratuito) ou armazenamento compatível com S3. Clips terminará de salvar.",

@@ -176,7 +176,11 @@ export function isAgentActionStopError(
 
 /** HTTP exposure config for an action. */
 export interface ActionHttpConfig {
-  /** HTTP method. Default: "POST". Use "GET" for read-only actions. */
+  /**
+   * Method required from direct HTTP callers. Default: "POST". Use "GET" for
+   * read-only actions. Browser action clients use the framework's frontend
+   * mutation transport and do not need to repeat this method.
+   */
   method?: "GET" | "POST" | "PUT" | "DELETE";
   /** Override route path under /_agent-native/actions/. Default: action filename. */
   path?: string;

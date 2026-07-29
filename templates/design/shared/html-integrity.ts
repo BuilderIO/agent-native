@@ -1,3 +1,5 @@
+import { isStandaloneHttpUrl } from "./html-content.js";
+
 /**
  * Stable error code shared by browser and server write paths. Keep this value
  * transport-safe: action errors may preserve either `code` or only `message`.
@@ -24,7 +26,8 @@ export type DesignHtmlIntegrityIssue =
   | "element-unclosed"
   | "close-tag-orphaned"
   | "content-truncated"
-  | "runtime-missing";
+  | "runtime-missing"
+  | "url-backed-screen-replaced";
 
 /**
  * Reporting the symptom instead of the cause sends the fix to the wrong line:
@@ -74,6 +77,8 @@ const DOCUMENT_SHAPE_MESSAGES: Partial<
     "an editor-managed <style>/<script> marker is no longer attached to its element — it was likely split by a partial edit",
   "managed-marker-duplicated":
     "an editor-managed <style>/<script> block appears more than once; there must be exactly one of each",
+  "url-backed-screen-replaced":
+    "this screen's content is its live route URL, and the write would replace it with document markup — that permanently unbinds the screen from the running app. Edit the app's own source instead",
 };
 
 export function describeDesignHtmlIntegrityIssue(
@@ -907,6 +912,21 @@ export function assertDesignHtmlEditIntegrity(args: {
   fileType: string;
   filename?: string;
 }): void {
+  // Checked before the fileType gate and before any document-shape reasoning:
+  // a URL-backed screen's stored content is a route, not markup, so none of
+  // the rules below can see the damage. Concatenating a serialized subtree
+  // onto the route still parses as a URL to `new URL()` and still balances as
+  // a fragment, so every other pass here says "valid" while the screen's live
+  // binding is destroyed for good. Re-pointing the route (URL -> URL) stays
+  // allowed; only URL -> markup is the one-way door.
+  if (
+    isStandaloneHttpUrl(args.previousContent) &&
+    !isStandaloneHttpUrl(args.nextContent)
+  ) {
+    throw new DesignHtmlIntegrityError("url-backed-screen-replaced", {
+      filename: args.filename,
+    });
+  }
   if (args.fileType.toLowerCase() !== "html") return;
   const previousIsDocument = isDocumentHtml(args.previousContent);
   const nextIsDocument = isDocumentHtml(args.nextContent);

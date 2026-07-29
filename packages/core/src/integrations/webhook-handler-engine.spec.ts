@@ -442,12 +442,21 @@ describe("integration webhook handler engine resolution", () => {
         principalType: "service",
       });
 
+      // objectContaining, not an exact match: `runOptions` is handed to
+      // startRun by reference and deliberately mutated afterwards (model and
+      // engineName are filled in inside the run callback so run-manager's
+      // terminal event can read them in its `.finally()`), and it also carries
+      // attemptCount. This assertion is about which soft-timeout ceiling was
+      // chosen, so it pins those two fields and stays agnostic to the rest.
       expect(startRunMock).toHaveBeenLastCalledWith(
         expect.any(String),
         expect.any(String),
         expect.any(Function),
         expect.any(Function),
-        { useHostedSoftTimeoutDefault: true, backgroundFunction: false },
+        expect.objectContaining({
+          useHostedSoftTimeoutDefault: true,
+          backgroundFunction: false,
+        }),
       );
       expect(settleIntegrationUsageBudgetMock).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -481,7 +490,10 @@ describe("integration webhook handler engine resolution", () => {
         expect.any(String),
         expect.any(Function),
         expect.any(Function),
-        { useHostedSoftTimeoutDefault: true, backgroundFunction: true },
+        expect.objectContaining({
+          useHostedSoftTimeoutDefault: true,
+          backgroundFunction: true,
+        }),
       );
     },
   );
