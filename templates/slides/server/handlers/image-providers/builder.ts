@@ -38,10 +38,13 @@ interface BuilderImageGenerationResponse {
 export class BuilderProvider implements ImageProvider {
   name = "builder";
 
+  // Builder credentials are scoped per-user/org and must only be read via
+  // resolveBuilderCredentials(), never process.env directly (even for a sync
+  // existence check), so the real check always happens in
+  // isConfiguredForRequest(), which providerIsConfigured() in ./index.ts
+  // always prefers when it's defined. This sync fallback is never relied on.
   isConfigured(): boolean {
-    return !!(
-      process.env.BUILDER_PRIVATE_KEY && process.env.BUILDER_PUBLIC_KEY
-    );
+    return false;
   }
 
   async isConfiguredForRequest(): Promise<boolean> {
