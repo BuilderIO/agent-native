@@ -904,6 +904,13 @@ describe("transactional email worker", () => {
       emailConfigured: async () => false,
     });
     expect(await clock.store.readJob("unviewed-reminder:share-101")).toBeNull();
+    const firstBatchReminders = (await clock.store.listJobs()).filter(
+      (job) => job.type === "unviewed-reminder",
+    );
+    expect(firstBatchReminders).toHaveLength(100);
+    expect(firstBatchReminders.every((job) => job.state === "ready")).toBe(
+      true,
+    );
     expect(await clock.store.readConfig()).toMatchObject({
       enabledAt: "2026-08-01T00:00:00.000Z",
       shareDiscoveryCursor: {

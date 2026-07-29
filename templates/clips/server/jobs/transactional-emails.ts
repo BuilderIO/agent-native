@@ -32,6 +32,7 @@ import {
 
 const JOB_INTERVAL_MS = 60_000;
 const RECONCILIATION_BATCH_SIZE = 100;
+const RECONCILIATION_WRITE_CONCURRENCY = 8;
 const RECIPIENT_SHARE_BATCH_SIZE = 2;
 const DELIVERY_BATCH_SIZE = 25;
 const REMINDER_DELAY_MS = 48 * 60 * 60 * 1000;
@@ -76,6 +77,27 @@ type ReconciliationCursor = {
   createdAt: string;
   id: string;
 };
+
+async function mapWithConcurrency<Value, Result>(
+  values: readonly Value[],
+  mapper: (value: Value) => Promise<Result>,
+): Promise<Result[]> {
+  const results = new Array<Result>(values.length);
+  let nextIndex = 0;
+  await Promise.all(
+    Array.from(
+      { length: Math.min(RECONCILIATION_WRITE_CONCURRENCY, values.length) },
+      async () => {
+        while (nextIndex < values.length) {
+          const index = nextIndex;
+          nextIndex += 1;
+          results[index] = await mapper(values[index]);
+        }
+      },
+    ),
+  );
+  return results;
+}
 
 export type TransactionalEmailStore = Pick<
   typeof transactionalEmailStore,
@@ -608,19 +630,21 @@ async function reconcileDueReminders(
     cursor,
     limit,
   );
-  let enqueued = 0;
-  for (const rawShare of page) {
-    const share = normalizeShare(rawShare);
-    if (!share) continue;
-    const result = await store.enqueue(`unviewed-reminder:${share.id}`, {
-      type: "unviewed-reminder",
-      recipient: share.recipient,
-      recordingIds: [share.recordingId],
-      shareId: share.id,
-      requestedBy: share.createdBy,
-    });
-    if (result.created) enqueued += 1;
-  }
+  const enqueued = (
+    await mapWithConcurrency(page, async (rawShare) => {
+      const share = normalizeShare(rawShare);
+      if (!share) return false;
+      return (
+        await store.enqueue(`unviewed-reminder:${share.id}`, {
+          type: "unviewed-reminder",
+          recipient: share.recipient,
+          recordingIds: [share.recordingId],
+          shareId: share.id,
+          requestedBy: share.createdBy,
+        })
+      ).created;
+    })
+  ).filter(Boolean).length;
   const lastShare = page[page.length - 1];
   return {
     enqueued,
@@ -892,16 +916,16 @@ export async function runTransactionalEmailsOnce(
         });
       }
     }
-    for (const job of jobs) {
-      if (
-        job.state === "pending" &&
-        (job.type === "first-view" ||
-          job.type === "first-import" ||
-          job.type === "unviewed-reminder")
-      ) {
-        await store.transition(job.logicalKey, ["pending"], "ready");
-      }
-    }
+    await mapWithConcurrency(
+      jobs.filter(
+        (job) =>
+          job.state === "pending" &&
+          (job.type === "first-view" ||
+            job.type === "first-import" ||
+            job.type === "unviewed-reminder"),
+      ),
+      (job) => store.transition(job.logicalKey, ["pending"], "ready"),
+    );
 
     if (!(await (dependencies.emailConfigured ?? isEmailConfigured)())) {
       return result;
