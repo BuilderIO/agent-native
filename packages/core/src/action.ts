@@ -219,11 +219,17 @@ export interface ActionPlanModeConfig<TInput = unknown> {
    * independently rechecks every invocation.
    */
   allowedValues?: Record<string, readonly string[]>;
-  /** Optional Plan-mode input-property allowlist. Other properties are hidden
-   *  from the advertised schema and rejected by the runtime gate. */
+  /**
+   * Optional Plan-mode input-property allowlist. Other properties are hidden
+   * from the advertised schema and rejected by the runtime gate.
+   */
   allowedProperties?: readonly string[];
-  /** Properties hidden and rejected in Plan mode (for example persistence or
-   *  notification options on an otherwise read-only request). */
+  /** Properties required by the Plan-mode schema. */
+  requiredProperties?: readonly string[];
+  /**
+   * Properties hidden and rejected in Plan mode (for example persistence or
+   * notification options on an otherwise read-only request).
+   */
   omittedProperties?: readonly string[];
   /** Additional Plan-mode guidance appended to the tool description. */
   description?: string;

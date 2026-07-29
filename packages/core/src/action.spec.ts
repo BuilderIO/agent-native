@@ -110,6 +110,7 @@ describe("defineAction", () => {
         effect: classify,
         allowedValues: { operation: ["list"] },
         allowedProperties: ["operation"],
+        requiredProperties: ["operation"],
         omittedProperties: ["persist"],
         description: "Only listing is available.",
       },
@@ -120,6 +121,7 @@ describe("defineAction", () => {
       effect: classify,
       allowedValues: { operation: ["list"] },
       allowedProperties: ["operation"],
+      requiredProperties: ["operation"],
       omittedProperties: ["persist"],
       description: "Only listing is available.",
     });

@@ -838,6 +838,7 @@ export async function createCallAgentScriptEntry(
           return "read";
         },
         allowedProperties: ["agent", "action", "input"],
+        requiredProperties: ["agent", "action"],
         description:
           "Plan mode allows only exact read-only cross-app action calls with agent, action, and input.",
       },

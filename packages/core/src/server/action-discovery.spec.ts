@@ -133,6 +133,7 @@ describe("action discovery", () => {
             effect: classify,
             allowedValues: { action: ["list"] },
             allowedProperties: ["action"],
+            requiredProperties: ["action"],
           },
           run: async () => ({ ok: true }),
         },
@@ -143,6 +144,7 @@ describe("action discovery", () => {
       effect: classify,
       allowedValues: { action: ["list"] },
       allowedProperties: ["action"],
+      requiredProperties: ["action"],
     });
   });
 

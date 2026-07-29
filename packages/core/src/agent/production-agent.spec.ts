@@ -890,6 +890,7 @@ describe("buildUserContentWithAttachments", () => {
           planMode: {
             effect: "read",
             allowedProperties: ["query"],
+            requiredProperties: ["query"],
             omittedProperties: ["persist"],
           },
         }),
@@ -901,7 +902,24 @@ describe("buildUserContentWithAttachments", () => {
               query: { type: "string" },
               persist: { type: "boolean" },
             },
-            required: ["query", "persist"],
+            required: ["persist"],
+          },
+        },
+      },
+      "required-plan-input": {
+        ...actionEntry({
+          planMode: {
+            effect: "read",
+            requiredProperties: ["query"],
+          },
+        }),
+        tool: {
+          description: "Inspect records",
+          parameters: {
+            type: "object",
+            properties: {
+              query: { type: "string" },
+            },
           },
         },
       },
@@ -919,6 +937,7 @@ describe("buildUserContentWithAttachments", () => {
       "query-provider",
       "read",
       "read-but-act-only",
+      "required-plan-input",
       "resources",
       "set-url-path",
       "tool-search",
@@ -941,6 +960,9 @@ describe("buildUserContentWithAttachments", () => {
     expect(planRegistry["query-provider"].tool.parameters?.required).toEqual([
       "query",
     ]);
+    expect(
+      planRegistry["required-plan-input"].tool.parameters?.required,
+    ).toEqual(["query"]);
     await expect(
       planRegistry.resources.run({ action: "read" }),
     ).resolves.toContain('"action":"read"');

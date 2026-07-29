@@ -60,6 +60,7 @@ describe("cross-app script entries", () => {
       "action",
       "input",
     ]);
+    expect(entry.planMode?.requiredProperties).toEqual(["agent", "action"]);
   });
 });
 
