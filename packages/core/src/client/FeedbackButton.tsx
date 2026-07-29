@@ -298,7 +298,7 @@ function clientHostname(): string | undefined {
   return location?.hostname;
 }
 
-function isFirstPartyHostname(hostname: string | undefined): boolean {
+function isFirstPartyHostname(hostname: string | null | undefined): boolean {
   const normalized = hostname?.trim().toLowerCase();
   return (
     normalized === FIRST_PARTY_HOSTNAME ||
@@ -308,7 +308,7 @@ function isFirstPartyHostname(hostname: string | undefined): boolean {
 
 export function resolveFeedbackUrl(
   url?: string | null,
-  hostname = clientHostname(),
+  hostname: string | null | undefined = clientHostname(),
 ): string | null {
   const value =
     url === undefined ? clientEnv()?.VITE_AGENT_NATIVE_FEEDBACK_URL : url;
@@ -318,7 +318,10 @@ export function resolveFeedbackUrl(
 }
 
 export function FeedbackButton(props: FeedbackButtonProps) {
-  const url = resolveFeedbackUrl(props.url);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
+  const url = resolveFeedbackUrl(props.url, mounted ? undefined : null);
   if (!url) return null;
   return <FeedbackPopoverButton {...props} url={url} />;
 }

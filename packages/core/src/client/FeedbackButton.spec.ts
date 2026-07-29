@@ -1,6 +1,8 @@
+import { createElement } from "react";
+import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { resolveFeedbackUrl } from "./FeedbackButton";
+import { FeedbackButton, resolveFeedbackUrl } from "./FeedbackButton";
 
 describe("resolveFeedbackUrl", () => {
   afterEach(() => {
@@ -21,10 +23,18 @@ describe("resolveFeedbackUrl", () => {
     expect(resolveFeedbackUrl()).toBe(
       "https://forms.agent-native.com/f/agent-native-feedback/_16ewV",
     );
+    expect(resolveFeedbackUrl(undefined, null)).toBeNull();
     expect(resolveFeedbackUrl(undefined, "agent-native.com")).toBe(
       "https://forms.agent-native.com/f/agent-native-feedback/_16ewV",
     );
     expect(resolveFeedbackUrl(undefined, "fakeagent-native.com")).toBeNull();
+  });
+
+  it("keeps the first-party fallback out of the server-rendered tree", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_FEEDBACK_URL", "");
+    vi.stubGlobal("location", { hostname: "analytics.agent-native.com" });
+
+    expect(renderToString(createElement(FeedbackButton))).toBe("");
   });
 
   it("uses the configured public feedback URL", () => {
