@@ -58,9 +58,9 @@ afterEach(async () => {
 });
 
 describe("VisualEditPage hydration", () => {
-  it("keeps the anonymous sign-in href stable through hydration, then adds its continuation", async () => {
+  it("defers the anonymous sign-in href through hydration, then adds its continuation", async () => {
     const html = renderToString(<VisualEditPage />);
-    expect(html).toContain('href="/_agent-native/sign-in"');
+    expect(html).not.toContain("/_agent-native/sign-in");
     expect(html).not.toContain("?c=hydration-safe-continuation");
     expect(mocks.buildSignInReturnHref).not.toHaveBeenCalled();
 
