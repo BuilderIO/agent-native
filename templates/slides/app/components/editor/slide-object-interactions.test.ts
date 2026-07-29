@@ -12,6 +12,7 @@ import {
   freezeSlideElementForFreeform,
   getSlideSelectionIdentity,
   getSlideSelectionMode,
+  removeSlideObjectAndLayoutSpacer,
   resizeSlideObject,
 } from "./slide-object-interactions";
 
@@ -155,5 +156,11 @@ describe("slide object interactions", () => {
     expect(text.style.left).toBe("120px");
     expect(text.style.top).toBe("80px");
     expect(text.dataset.slideObjectId).toBeTruthy();
+    expect(spacer.dataset.slideLayoutSpacerFor).toBe(
+      text.dataset.slideObjectId,
+    );
+
+    removeSlideObjectAndLayoutSpacer(text);
+    expect(parent.children).toHaveLength(0);
   });
 });

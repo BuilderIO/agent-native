@@ -218,10 +218,9 @@ export function freezeSlideElementForFreeform(
 export function removeSlideObjectAndLayoutSpacer(element: HTMLElement): void {
   const objectId = element.getAttribute("data-slide-object-id");
   if (objectId) {
+    const owner = element.parentElement ?? element.ownerDocument;
     for (const spacer of Array.from(
-      element.ownerDocument.querySelectorAll<HTMLElement>(
-        "[data-slide-layout-spacer-for]",
-      ),
+      owner.querySelectorAll<HTMLElement>("[data-slide-layout-spacer-for]"),
     )) {
       if (spacer.getAttribute("data-slide-layout-spacer-for") === objectId) {
         spacer.remove();

@@ -28,6 +28,7 @@ import {
   useCallback,
   useRef,
   useEffect,
+  useLayoutEffect,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
@@ -82,6 +83,7 @@ import {
   freezeSlideElementForFreeform,
   getSlideSelectionIdentity,
   getSlideSelectionMode,
+  removeSlideObjectAndLayoutSpacer,
   resizeSlideObject,
   type ResizeHandle,
   type SlideObjectGeometry,
@@ -661,6 +663,7 @@ function ImageSelectionOutline({
   return (
     <SelectionOverlayPortal viewportRect={viewportRect} zIndex={50}>
       <div
+        data-slide-selection-outline="true"
         style={{
           position: "absolute",
           top: rect.top - pad,
@@ -692,6 +695,7 @@ function ElementSelectionOutline({
   return (
     <SelectionOverlayPortal viewportRect={viewportRect} zIndex={51}>
       <div
+        data-slide-selection-outline="true"
         style={{
           position: "absolute",
           top: rect.top - pad,
@@ -705,6 +709,7 @@ function ElementSelectionOutline({
         }}
       >
         <span
+          data-slide-resize-handle="nw"
           onPointerDown={(e) => onResizeStart?.("nw", e)}
           className={handleClass}
           style={{
@@ -715,6 +720,7 @@ function ElementSelectionOutline({
           }}
         />
         <span
+          data-slide-resize-handle="ne"
           onPointerDown={(e) => onResizeStart?.("ne", e)}
           className={handleClass}
           style={{
@@ -725,6 +731,7 @@ function ElementSelectionOutline({
           }}
         />
         <span
+          data-slide-resize-handle="sw"
           onPointerDown={(e) => onResizeStart?.("sw", e)}
           className={handleClass}
           style={{
@@ -735,6 +742,7 @@ function ElementSelectionOutline({
           }}
         />
         <span
+          data-slide-resize-handle="se"
           onPointerDown={(e) => onResizeStart?.("se", e)}
           className={handleClass}
           style={{
@@ -1564,8 +1572,9 @@ export default function SlideEditor({
     };
   }, [selectedImg]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!selectedElementPath || !selectedElementSelector) return;
+    let observedElement: HTMLElement | null = null;
     const update = () => {
       const element = resolveSelectedElement();
       if (!element) {
@@ -1583,9 +1592,33 @@ export default function SlideEditor({
       );
     };
     update();
+
+    observedElement = resolveSelectedElement();
+    const positioningLayer = observedElement?.closest(
+      "[data-fmd-autofit-content], .fmd-slide",
+    ) as HTMLElement | null;
+    const resizeObserver =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
+    if (observedElement) resizeObserver?.observe(observedElement);
+    if (positioningLayer) resizeObserver?.observe(positioningLayer);
+    // Auto-fit writes transform custom properties directly on the layer. Those
+    // mutations do not resize the element's CSS box, but they do change its
+    // viewport rect, so selection chrome must follow the transformed DOM.
+    const mutationObserver =
+      typeof MutationObserver === "undefined" || !positioningLayer
+        ? null
+        : new MutationObserver(update);
+    if (mutationObserver && positioningLayer) {
+      mutationObserver.observe(positioningLayer, {
+        attributes: true,
+        attributeFilter: ["class", "style"],
+      });
+    }
     window.addEventListener("resize", update);
     window.addEventListener("scroll", update, true);
     return () => {
+      resizeObserver?.disconnect();
+      mutationObserver?.disconnect();
       window.removeEventListener("resize", update);
       window.removeEventListener("scroll", update, true);
     };
@@ -1861,11 +1894,15 @@ export default function SlideEditor({
 
       if (multiSelection.size > 0) {
         for (const id of multiSelection) {
-          slideContent.querySelector(`[data-builder-id="${id}"]`)?.remove();
+          const element = slideContent.querySelector(
+            `[data-builder-id="${id}"]`,
+          ) as HTMLElement | null;
+          if (element) removeSlideObjectAndLayoutSpacer(element);
         }
         clearMultiSelection();
       } else {
-        resolveSelectedElement()?.remove();
+        const element = resolveSelectedElement();
+        if (element) removeSlideObjectAndLayoutSpacer(element);
         clearSelectedElement();
       }
 
@@ -1884,6 +1921,7 @@ export default function SlideEditor({
     resolveSelectedElement,
     clearSelectedElement,
     readCurrentSlideContentHtml,
+    removeSlideObjectAndLayoutSpacer,
     syncSelectionToAppState,
   ]);
 
