@@ -1891,13 +1891,19 @@ export default function SlideEditor({
         ".fmd-slide",
       ) as HTMLElement | null;
       if (!fmdSlide) return;
-      const rect = fmdSlide.getBoundingClientRect();
+      const positioningLayer =
+        Array.from(fmdSlide.children).find(
+          (child): child is HTMLElement =>
+            child instanceof HTMLElement &&
+            child.hasAttribute("data-fmd-autofit-content"),
+        ) ?? fmdSlide;
+      const rect = positioningLayer.getBoundingClientRect();
       const { x, y } = clientPointToSlideCoordinates(
         clientX,
         clientY,
         rect,
-        fmdSlide.offsetWidth,
-        fmdSlide.offsetHeight,
+        positioningLayer.offsetWidth,
+        positioningLayer.offsetHeight,
       );
 
       if (getComputedStyle(fmdSlide).position === "static") {
@@ -1917,7 +1923,7 @@ export default function SlideEditor({
       box.style.fontFamily = "'Poppins', sans-serif";
       box.style.lineHeight = "1.3";
       box.textContent = ZERO_WIDTH_SPACE;
-      fmdSlide.appendChild(box);
+      positioningLayer.appendChild(box);
 
       enterInlineEdit(box);
 
