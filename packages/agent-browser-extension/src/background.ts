@@ -93,10 +93,10 @@ function postNative(message: NativeResponse | NativeHeartbeat): void {
 }
 
 function writeControlStatus(): void {
-  const nativeHostConnected = Boolean(nativePort);
+  const nativeHostConnected = Boolean(nativePort) && !relayOwnsControl;
   const relayConnected =
     relayHasAccess && Date.now() - relayLastSeenAt <= RELAY_STATUS_MAX_AGE_MS;
-  const nativeAvailable = nativeHostConnected && !relayOwnsControl;
+  const nativeAvailable = nativeHostConnected;
   const relayAvailable = relayConnected && relayOwnsControl;
   void chrome.storage.session.set({
     [BROWSER_CONTROL_STATUS_KEY]:

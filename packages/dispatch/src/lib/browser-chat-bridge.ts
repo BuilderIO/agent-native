@@ -21,7 +21,7 @@ function handleBrowserChatMessage(message: BrowserChatMessageV1): void {
   setAgentChatContextItem({
     key: "browser-current-page",
     title: new URL(message.context.page.url).hostname,
-    context: formatBrowserChatContext(message.context),
+    context: formatBrowserChatContext(message.context, message.browserSession),
     focus: false,
     openSidebar: false,
   });

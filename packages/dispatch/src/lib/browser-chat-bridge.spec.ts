@@ -15,6 +15,12 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
 
 const nonce = "browser-chat-nonce-1234567890";
 const parentOrigin = "chrome-extension://abcdefghijklmnopabcdefghijklmnop";
+const browserSession = {
+  version: 1,
+  handle: "bsn_00000000-0000-4000-8000-000000000000",
+  origin: "https://example.com",
+  title: "Example profile",
+};
 
 function context() {
   return {
@@ -69,6 +75,7 @@ describe("browser chat postMessage bridge", () => {
           nonce,
           intent: "stage",
           context: context(),
+          browserSession,
         },
       }),
     );
@@ -81,6 +88,7 @@ describe("browser chat postMessage bridge", () => {
           nonce: "browser-chat-nonce-wrong-123456",
           intent: "stage",
           context: context(),
+          browserSession,
         },
       }),
     );
@@ -104,8 +112,9 @@ describe("browser chat postMessage bridge", () => {
           type: "browser-context.v1",
           nonce,
           intent: "submit",
-          prompt: "Draft outreach for this person",
+          prompt: "Help me work with this page",
           context: context(),
+          browserSession,
         },
       }),
     );
@@ -118,8 +127,11 @@ describe("browser chat postMessage bridge", () => {
         openSidebar: false,
       }),
     );
+    expect(chat.setContext.mock.calls[0]![0].context).toContain(
+      browserSession.handle,
+    );
     expect(chat.send).toHaveBeenCalledWith({
-      message: "Draft outreach for this person",
+      message: "Help me work with this page",
       submit: true,
       chatTarget: "local",
       openSidebar: false,
