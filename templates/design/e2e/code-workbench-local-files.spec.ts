@@ -215,9 +215,7 @@ test("lists the spawned folder, preserves dirty buffers, and saves a local file"
                 Boolean(element.textContent?.trim()),
             );
             const syntaxColors = new Set(
-              visibleTokens.map(
-                (element) => getComputedStyle(element).color,
-              ),
+              visibleTokens.map((element) => getComputedStyle(element).color),
             );
             return visibleTokens.length > 3 && syntaxColors.size > 1;
           }),
