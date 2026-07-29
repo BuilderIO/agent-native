@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { useDesignSystems } from "@/hooks/use-design-systems";
+import { useWorkspaceDefaults } from "@/hooks/use-workspace-defaults";
 
 import type { DesignSystemData } from "../../shared/api";
 import { missingDesignSystemDataFields } from "../../shared/design-system-validation";
@@ -34,8 +35,16 @@ import { missingDesignSystemDataFields } from "../../shared/design-system-valida
 export default function DesignSystems() {
   const t = useT();
   const { designSystems, isLoading, error, refetch } = useDesignSystems();
+  const {
+    designSystem: workspaceDesignSystem,
+    canManage: canManageWorkspaceDefaults,
+    refetch: refetchWorkspaceDefaults,
+  } = useWorkspaceDefaults();
   const [showSetup, setShowSetup] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [workspaceDefaultCandidate, setWorkspaceDefaultCandidate] = useState<
+    (typeof designSystems)[number] | undefined
+  >(undefined);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const deleteMutation = useActionMutation("delete-design-system");
 
@@ -51,6 +60,61 @@ export default function DesignSystems() {
     } catch (err) {
       console.error("Failed to set default design system:", err);
     }
+  };
+
+  const applyWorkspaceDefault = async (ds: (typeof designSystems)[number]) => {
+    try {
+      // Private means unreadable to teammates, which would make the workspace
+      // default silently do nothing for them. Share through the audited action.
+      if (ds.visibility === "private") {
+        await callAction("set-resource-visibility", {
+          resourceType: "design-system",
+          resourceId: ds.id,
+          visibility: "org",
+        });
+        refetch();
+      }
+      await callAction("set-workspace-defaults", { designSystemId: ds.id });
+      await refetchWorkspaceDefaults();
+      toast.success(t("home.workspaceDefaultSet"));
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : t("home.workspaceDefaultFailed"),
+      );
+    }
+  };
+
+  const handleSetWorkspaceDefault = async (id: string, isDefault: boolean) => {
+    if (isDefault) {
+      const ds = designSystems.find((d) => d.id === id);
+      if (!ds) return;
+      // Only publishing a private design system to the whole workspace is
+      // worth a confirmation; the default itself is one click to undo.
+      if (ds.visibility === "private") {
+        setWorkspaceDefaultCandidate(ds);
+        return;
+      }
+      await applyWorkspaceDefault(ds);
+      return;
+    }
+    try {
+      await callAction("set-workspace-defaults", { designSystemId: null });
+      await refetchWorkspaceDefaults();
+      toast.success(t("home.workspaceDefaultCleared"));
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : t("home.workspaceDefaultFailed"),
+      );
+    }
+  };
+
+  const confirmWorkspaceDefault = () => {
+    // Read but do not clear: AlertDialogAction closes the dialog, and clearing
+    // here too would pre-empt Radix's cleanup and leave <body> at
+    // `pointer-events: none`. `onOpenChange` clears the candidate.
+    const ds = workspaceDefaultCandidate;
+    if (!ds) return;
+    void applyWorkspaceDefault(ds);
   };
 
   const handleComplete = () => {
@@ -204,6 +268,11 @@ export default function DesignSystems() {
                     onClick={() => handleCardClick(ds.id)}
                     onSetDefault={() => handleSetDefault(ds.id)}
                     onDelete={() => setDeleteId(ds.id)}
+                    isWorkspaceDefault={workspaceDesignSystem?.id === ds.id}
+                    canSetWorkspaceDefault={canManageWorkspaceDefaults}
+                    onSetWorkspaceDefault={(isDefault) =>
+                      handleSetWorkspaceDefault(ds.id, isDefault)
+                    }
                   />
                 );
               })}
@@ -211,6 +280,32 @@ export default function DesignSystems() {
           </>
         )}
       </main>
+
+      <AlertDialog
+        open={!!workspaceDefaultCandidate}
+        onOpenChange={(open) =>
+          !open && setWorkspaceDefaultCandidate(undefined)
+        }
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("home.workspaceDefaultConfirmTitle")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("home.workspaceDefaultSystemShareBody", {
+                title: workspaceDefaultCandidate?.title ?? "",
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("home.cancel")}</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmWorkspaceDefault}>
+              {t("home.workspaceDefaultConfirmAction")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog
         open={deleteId !== null}

@@ -28,13 +28,9 @@ ladder.
 - Preserve deck structure and visual consistency. Prefer focused slide edits over
   regenerating whole decks unless requested.
 - Follow linked design-system tokens and custom instructions.
-- For reusable design-system setup from Figma, connected code/GitHub, local
-  code/design files, or optional `design.md`, use Builder-backed DSI indexing
-  through `index-design-system-with-builder` or `import-file --format fig`.
-  Pass readable `design.md` content as `designMd`, use the returned local design
-  system id in Slides flows, and call `get-design-system` before generation to
-  hydrate Builder docs/tokens when available. Do not create a duplicate local
-  design system from raw Figma/code sources.
+- Build reusable design systems from Figma, code, GitHub, or `design.md` via
+  Builder-backed DSI indexing, never a duplicate local copy. Read
+  `design-systems` for the per-source actions.
 - Treat import/export actions as shortcuts, not capability limits. When the
   exact Google Drive endpoint, file metadata field, export format, pagination
   mode, or API version matters, use `provider-api-catalog`,
@@ -49,6 +45,9 @@ ladder.
   and `input` (or `invokeAgentAction`) instead of starting the sibling agent's
   model loop. In Analytics, use `gong-native-insights` for provider-synthesized
   briefs and `gong-calls` for quotes, counts, transcripts, and coverage claims.
+- When the user names no reference deck or design system, call
+  `get-workspace-defaults` first so a bare "make a deck about X" is still on
+  brand.
 - Before generation, follow the creative-context reuse ladder in
   `.agents/skills/creative-context/SKILL.md`: explicit request and current deck
   first, then a pinned/current pack, then narrow library search. Respect
@@ -97,7 +96,7 @@ extending the editor's save path, enqueue a granular op (`patch-slide`,
 
 Read the relevant skill before deeper work:
 
-- `create-deck` for new decks and outline-to-slide flows.
+- `create-deck` for new decks, reference decks, workspace defaults, outlines.
 - `slide-editing` for targeted slide changes.
 - `deck-management` for organization, sharing, import/export, and metadata.
 - `slide-images` and `image-generation-via-a2a` for image work.
