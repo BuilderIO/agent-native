@@ -541,6 +541,9 @@ export default function Index() {
       "",
       deckLengthContext,
       "Start a `manage-progress` run so progress appears in the app header. Add the first slide as soon as it is ready, then continue one slide at a time so the editor visibly fills in.",
+      'Before adding the first slide, choose a concise, specific deck title from the user\'s request and call `patch-deck` with `deckId: "' +
+        deck.id +
+        '"` and `operations: [{ "op": "patch-deck-fields", "fields": { "title": "<generated title>" } }]`. Never leave a generated deck named "Untitled Deck" or another placeholder.',
       "If the user asks for a standalone visual, diagram, hero, one-pager, poster, or a couple of visuals, create only the requested one/few polished visual slides. Do not pad the result into a full presentation.",
       "Add slides ONE AT A TIME using the `add-slide` action with --deckId=" +
         deck.id +

@@ -57,6 +57,8 @@ interface EditorSidebarProps {
   recentEdits?: AttributedRecentEdit[];
   /** Deck aspect ratio (defaults to 16:9 when omitted) */
   aspectRatio?: AspectRatio;
+  /** True while a newly-created deck is being populated slide by slide. */
+  deckGenerating?: boolean;
 }
 
 /** Extract the slide id from a `{kind:"paths",paths:["slides.<id>"]}` edit. */
@@ -551,6 +553,7 @@ export default function EditorSidebar({
   slidePresence,
   recentEdits,
   aspectRatio,
+  deckGenerating = false,
 }: EditorSidebarProps) {
   const t = useT();
   const activeIndex = slides.findIndex((s) => s.id === activeSlideId);
@@ -574,6 +577,7 @@ export default function EditorSidebar({
     [],
   );
   const { generating, submit: agentSubmit } = useAgentGenerating();
+  const showGeneratingSlide = deckGenerating || addSlideGenerating;
 
   const registerSlideButton = useCallback(
     (slideId: string, node: HTMLButtonElement | null) => {
@@ -634,7 +638,7 @@ export default function EditorSidebar({
         <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
           {t("editorSidebar.slides")}
         </span>
-        {addSlideGenerating ? (
+        {showGeneratingSlide ? (
           <IconLoader2 className="w-4 h-4 text-muted-foreground animate-spin" />
         ) : (
           <Tooltip>
@@ -676,7 +680,7 @@ export default function EditorSidebar({
             />
           ))}
         </SortableContext>
-        {addSlideGenerating && (
+        {showGeneratingSlide && (
           <GeneratingSlideSkeleton
             index={slides.length}
             aspectRatio={aspectRatio}

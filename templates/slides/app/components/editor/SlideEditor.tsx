@@ -11,7 +11,10 @@ import {
   useAvatarUrl,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { RecentEditHighlights } from "@agent-native/toolkit/collab-ui";
+import {
+  AgentPresenceChip,
+  RecentEditHighlights,
+} from "@agent-native/toolkit/collab-ui";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import {
   IconAlertTriangle,
@@ -2433,11 +2436,14 @@ export default function SlideEditor({
                           containerRef={slideCanvasRef}
                         />
                       )}
-                      {passivePresentUsers.length > 0 && (
-                        <div className="absolute right-2 top-2 z-10">
-                          <SameSlidePresenceIndicator
-                            users={passivePresentUsers}
-                          />
+                      {(agentActive || passivePresentUsers.length > 0) && (
+                        <div className="absolute right-2 top-2 z-10 flex items-center gap-2">
+                          <AgentPresenceChip active={Boolean(agentActive)} />
+                          {passivePresentUsers.length > 0 && (
+                            <SameSlidePresenceIndicator
+                              users={passivePresentUsers}
+                            />
+                          )}
                         </div>
                       )}
                       {overflowInfo && !readOnly && !agentActive && (
@@ -2504,9 +2510,7 @@ export default function SlideEditor({
                       <IconX className="size-3.5" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>
-                    {t("styleInspector.close")}
-                  </TooltipContent>
+                  <TooltipContent>{t("styleInspector.close")}</TooltipContent>
                 </Tooltip>
               </div>
             )}

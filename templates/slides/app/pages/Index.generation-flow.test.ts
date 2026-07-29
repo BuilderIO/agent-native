@@ -35,4 +35,18 @@ describe("new deck generation flow", () => {
     expect(generatingRouteIndex).toBeGreaterThan(-1);
     expect(submitIndex).toBeGreaterThan(generatingRouteIndex);
   });
+
+  it("requires a generated title before the first slide", () => {
+    const titleInstructionIndex = flow.indexOf(
+      "Before adding the first slide, choose a concise, specific deck title",
+    );
+    const titlePatchIndex = flow.indexOf('"op": "patch-deck-fields"');
+    const addSlideInstructionIndex = flow.indexOf(
+      "Add slides ONE AT A TIME using the `add-slide` action",
+    );
+
+    expect(titleInstructionIndex).toBeGreaterThan(-1);
+    expect(titlePatchIndex).toBeGreaterThan(titleInstructionIndex);
+    expect(addSlideInstructionIndex).toBeGreaterThan(titlePatchIndex);
+  });
 });

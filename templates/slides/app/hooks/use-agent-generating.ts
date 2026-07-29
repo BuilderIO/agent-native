@@ -4,11 +4,13 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-// Ceiling for one agent turn triggered from these panels (e.g. 3 sequential
-// image-generation attempts with retries). If the `agentNative.chatRunning`
-// stop event never arrives for this run — the run errors out before the
-// framework can broadcast it stopped — callers would otherwise spin forever.
-const MAX_GENERATING_MS = 3 * 60 * 1000;
+// This is only a lost-signal recovery guard. A long deck legitimately takes
+// several minutes because each slide is written and fit-checked separately.
+const MAX_GENERATING_MS = 30 * 60 * 1000;
+
+// Gateway continuations can briefly report a stopped chat between model/tool
+// chunks. Keep generation UI and presence steady across that transport gap.
+export const CHAT_STOP_DEBOUNCE_MS = 4_000;
 
 type AgentGeneratingSubmitOptions = Pick<
   AgentChatMessage,
@@ -24,8 +26,10 @@ type AgentGeneratingSubmitOptions = Pick<
  */
 export function useAgentGenerating() {
   const [generating, send] = useAgentChatGenerating();
+  const [recentlyGenerating, setRecentlyGenerating] = useState(false);
   const [timedOut, setTimedOut] = useState(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stopDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const clearWatchdog = useCallback(() => {
     if (timeoutRef.current !== null) {
@@ -34,13 +38,40 @@ export function useAgentGenerating() {
     }
   }, []);
 
+  const clearStopDebounce = useCallback(() => {
+    if (stopDebounceRef.current !== null) {
+      clearTimeout(stopDebounceRef.current);
+      stopDebounceRef.current = null;
+    }
+  }, []);
+
   useEffect(() => {
-    if (!generating) {
+    if (generating) {
+      clearStopDebounce();
+      setRecentlyGenerating(true);
+    } else if (recentlyGenerating) {
+      clearStopDebounce();
+      stopDebounceRef.current = setTimeout(() => {
+        stopDebounceRef.current = null;
+        setRecentlyGenerating(false);
+      }, CHAT_STOP_DEBOUNCE_MS);
+    }
+
+    if (!generating && !recentlyGenerating) {
       clearWatchdog();
       setTimedOut(false);
     }
-    return clearWatchdog;
-  }, [generating, clearWatchdog]);
+
+    return clearStopDebounce;
+  }, [generating, recentlyGenerating, clearStopDebounce, clearWatchdog]);
+
+  useEffect(
+    () => () => {
+      clearWatchdog();
+      clearStopDebounce();
+    },
+    [clearStopDebounce, clearWatchdog],
+  );
 
   const submit = useCallback(
     (
@@ -59,5 +90,8 @@ export function useAgentGenerating() {
     [send, clearWatchdog],
   );
 
-  return { generating: generating && !timedOut, submit };
+  return {
+    generating: (generating || recentlyGenerating) && !timedOut,
+    submit,
+  };
 }
