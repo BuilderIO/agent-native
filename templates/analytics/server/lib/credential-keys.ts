@@ -216,7 +216,7 @@ export const credentialProviderConfigs: CredentialProviderConfig[] = [
     optionalKeys: ["POSTHOG_HOST"],
   },
   {
-    provider: "postgres",
+    provider: "postgresql",
     label: "PostgreSQL",
     requiredKeys: ["POSTGRES_URL"],
   },

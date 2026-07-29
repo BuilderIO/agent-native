@@ -65,6 +65,10 @@ Inside `run-code`, use the workspace helper functions:
 - Direct writes cap at 2 MB each. `saveToFile` allows up to 20 MB per pull.
 - Temporary files belong under `scratch/`; durable user-facing files belong in
   normal Resources folders.
+- When the user asked for a file they can keep or download, call
+  `show-workspace-file` with the durable path immediately after the write. The
+  download must appear in chat; do not answer with only a path or navigation
+  instructions.
 
 ## Chunked Batch Analysis (30+ items)
 

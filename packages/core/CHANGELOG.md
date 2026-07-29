@@ -1,5 +1,89 @@
 # @agent-native/core
 
+## 0.130.1
+
+### Patch Changes
+
+- 2ff153b: Keep verified downstream mutation receipts and delivered integration replies in durable custody until provider delivery and conversation history are confirmed.
+
+## 0.130.0
+
+### Minor Changes
+
+- 279e855: Add a first-class CLI flow for installing community-maintained Agent Native templates from public GitHub repositories, including app selection from community workspace repositories.
+- 279e855: Render compact data exports and durable workspace files as private downloads directly in agent chat.
+- 279e855: Point org members at their own workspace when they land on a different deployment.
+
+  Orgs can now record a `workspaceUrl` (Settings → Team, owner/admin). Members who
+  open a shared hosted app from the template catalog see a notice offering to take
+  them to their team's workspace instead of an app that looks empty, and the org
+  switcher shows which host they are currently on. Opt-in per org — nothing
+  changes for orgs that don't set it, and it offers a choice rather than
+  redirecting.
+
+### Patch Changes
+
+- 279e855: Let a browser explicitly sign out of the shared `AUTH_DISABLED` development account so preview users can choose a real account.
+- 279e855: Add comment author editing to the Clips template corpus.
+- 279e855: Retry transient SQLite locks while a fresh local app enables WAL during startup.
+- 279e855: Prevent frontend action calls from failing with 405 errors when a mutating action declares PUT or DELETE and the caller uses the default mutation transport.
+- 279e855: Prevent sketch wireframes from overflowing the browser call stack when layout measurements contain non-finite coordinates.
+- 279e855: Fix the chat client telling users "the agent connection kept failing" when a
+  turn was actually stopped by `MAX_TOTAL_TRANSIENT_CONTINUATIONS`, the
+  whole-turn ceiling on client re-POSTs of `auto_continue`. That cap only ever
+  binds turns that were making real progress the whole time, so blaming a
+  connection failure named the wrong cause. It now reports its own message:
+  the turn hit the limit on how many times it could be automatically
+  continued, and suggests retrying as a single, narrower request.
+- 279e855: Stop reporting `$ai_generation` token/cost figures as literal `0` when the
+  engine never returned a usage report — every run aborted for no-progress
+  before any provider response arrived was indistinguishable from a real
+  empty-input call, which made it impossible to size the input of failing
+  runs. `input_tokens`, `output_tokens`, `total_tokens`, `cache_read_tokens`,
+  `cache_write_tokens`, `cost_cents_x100`, `cost_usd`, and their `$ai_*`
+  equivalents are now omitted from the tracking event instead of coerced to
+  zero when the engine never reported usage. Also adds `time_to_first_token_ms`,
+  measuring elapsed time from run start to the first non-heartbeat engine
+  event, omitted (not zeroed) when no such event ever arrived.
+- 279e855: Emit an `agent_run_terminal` analytics event for every terminal agent run
+  (completed, errored, aborted, or truncated at a continuation boundary),
+  reusing the same best-effort `track()` seam that already carries
+  `$ai_generation` into `analytics_events`. Run cutoffs — budget exhaustion,
+  loop limits, aborts, and the `truncated` continuation status — were
+  previously visible only in each app's operational `agent_runs` table and
+  absent from analytics entirely. The event carries `run_id`, `thread_id`,
+  `turn_id`, `status`, `terminal_reason`, `error_code`, `error_detail`,
+  `dispatch_mode`, `abort_reason`, and `duration_ms`; `model`/`engine`/
+  `attempt_count` are forwarded through the new optional `StartRunOptions`
+  fields, now populated by every built-in `startRun` caller (main chat,
+  agent teams, harness runs, integration webhooks, the Google Docs poller,
+  and recurring jobs) with the resolved model actually sent to the engine —
+  never the raw client-requested one. `userId` is left unset everywhere: no
+  caller in this codebase has an opaque (non-email) user id available at its
+  `startRun` call site. Emission fires only after the run's terminal status
+  and thread_data are durably persisted, and a missing or failing tracking
+  provider can never affect the run.
+- 279e855: Keep a failed or stopped run visible on the turn it belongs to. The assistant
+  turn now carries a collapsed inline marker built from the persisted run-error
+  metadata (with the run duration when known), so the failure survives the next
+  prompt instead of only existing in the transient recovery banner. The banner
+  still owns the run it is showing, so the same failure is never announced twice.
+- 279e855: Default MCP connections to personal OAuth, keep personal MCP setup available to organization members, hide unusable organization controls, and honor app preset filters in ejected UIs.
+- 279e855: Prevent queued chat prompts from replaying after navigation or remounting the chat.
+- 279e855: Recover AI SDK provider network failures after its internal retry wrapper preserves the final transport error.
+- 279e855: Fix document bridge injection when page scripts contain closing-tag or dollar-sign literals.
+- 279e855: Correct the Dispatch setup docs to match the current workspace picker.
+- 279e855: Fix `/_agent-native/open` silently dropping a `Set-Cookie` staged during `getSession()` (e.g. `_session` query-param promotion) when it built a bare 302 `Response`, so an authenticated redirect could still leave the browser signed out. Export `redirectWithStagedCookies` so other routes can reuse the fix.
+- 279e855: Add `isLoopbackRequest` to the request context and a `getRequestIsLoopback()` reader. The action-route handler captures the real socket peer (via `getRequestIP` without `x-forwarded-for`, so headers cannot spoof it) while the h3 event is still in scope, letting code below the HTTP layer distinguish a local-dev caller from a remote one. Used by Design to let `/visual-edit` work without a login on a localhost-backed design while keeping remote viewers read-only.
+- Updated dependencies [279e855]
+  - @agent-native/toolkit@0.10.12
+
+## 0.129.2
+
+### Patch Changes
+
+- 21e33c7: Keep asynchronous `ask_app` task handles and exact polling arguments visible to MCP callers so they can retrieve the same cross-app task without resubmitting it.
+
 ## 0.129.1
 
 ### Patch Changes

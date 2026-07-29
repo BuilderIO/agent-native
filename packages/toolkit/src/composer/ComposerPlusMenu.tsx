@@ -267,8 +267,9 @@ function ComposerPlusMenuFull({
   const canCreateOrgMcp =
     !org?.orgId || org.role === "owner" || org.role === "admin";
   const hasOrg = !!org?.orgId;
-  const defaultMcpScope: "org" | "user" =
-    hasOrg && canCreateOrgMcp ? "org" : "user";
+  // Composer connections belong to the person asking for them. Organization
+  // sharing remains an explicit choice for owners and admins in the dialog.
+  const defaultMcpScope: "user" = "user";
   const createMcp = resources.useCreateMcpServer!();
   const McpIntegrationDialog = resources.McpIntegrationDialog;
 

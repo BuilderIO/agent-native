@@ -4,6 +4,9 @@
 // templates ship as verbatim copy-only scaffolding (.ts), so their compiled
 // .js never exists in dist.
 const messages = {
+  workspaceFile: {
+    download: "Download",
+  },
   home: {
     settingsTitle: "Settings",
     settingsDescription: "Language and agent preferences",
@@ -873,8 +876,6 @@ const messages = {
       "This provider usually requires an OAuth setup. Follow the provider docs, or add an Authorization header if your endpoint supports token-based access.",
     personal: "Personal",
     organization: "Organization",
-    orgNoOrg: "Join an organization to share MCP servers",
-    orgAdminOnly: "Only owners and admins can add org-scope servers",
     serverNameRequired: "Enter a server name before connecting with OAuth.",
     serverName: "Server name",
     url: "URL",

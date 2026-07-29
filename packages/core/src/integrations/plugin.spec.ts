@@ -53,6 +53,14 @@ const recoverDueA2AContinuationsMock = vi.hoisted(() =>
   vi.fn(async () => ({ dispatched: 0, failed: 0 })),
 );
 const processDueA2AContinuationsMock = vi.hoisted(() => vi.fn(async () => {}));
+const processA2AContinuationByIdMock = vi.hoisted(() => vi.fn());
+const recoverA2AContinuationAfterProcessorFailureMock = vi.hoisted(() =>
+  vi.fn(),
+);
+const reconcileTerminalA2AParentIfDisabledMock = vi.hoisted(() =>
+  vi.fn(async () => false),
+);
+const failA2AContinuationMock = vi.hoisted(() => vi.fn());
 const failDisabledIntegrationCampaignTaskMock = vi.hoisted(() => vi.fn());
 const completeIntegrationCampaignTaskAfterA2AMock = vi.hoisted(() =>
   vi.fn(async () => true),
@@ -70,8 +78,8 @@ const transitionIntegrationCampaignTaskToDeliveryRetryMock = vi.hoisted(() =>
 const waitForA2AIntegrationCampaignMock = vi.hoisted(() =>
   vi.fn(async () => true),
 );
-const hasActiveA2AContinuationsForIntegrationTaskMock = vi.hoisted(() =>
-  vi.fn(async () => true),
+const getA2AContinuationTaskOutcomeMock = vi.hoisted(() =>
+  vi.fn(async () => "active"),
 );
 const claimIntegrationCampaignDeliveryForTaskMock = vi.hoisted(() => vi.fn());
 const completeIntegrationCampaignTaskMock = vi.hoisted(() =>
@@ -141,15 +149,19 @@ vi.mock("./integration-campaigns-store.js", () => ({
 }));
 
 vi.mock("./a2a-continuations-store.js", () => ({
-  failA2AContinuation: vi.fn(),
-  hasActiveA2AContinuationsForIntegrationTask:
-    hasActiveA2AContinuationsForIntegrationTaskMock,
+  ensureA2AContinuationsTable: vi.fn(async () => {}),
+  failA2AContinuation: failA2AContinuationMock,
+  getA2AContinuationTaskOutcome: getA2AContinuationTaskOutcomeMock,
 }));
 
 vi.mock("./a2a-continuation-processor.js", () => ({
-  processA2AContinuationById: vi.fn(),
+  processA2AContinuationById: processA2AContinuationByIdMock,
   processDueA2AContinuations: processDueA2AContinuationsMock,
+  recoverA2AContinuationAfterProcessorFailure:
+    recoverA2AContinuationAfterProcessorFailureMock,
   recoverDueA2AContinuations: recoverDueA2AContinuationsMock,
+  reconcileTerminalA2AParentIfDisabled:
+    reconcileTerminalA2AParentIfDisabledMock,
 }));
 
 vi.mock("./integration-durable-dispatch.js", async () => {
@@ -813,8 +825,8 @@ describe("integrations plugin routes", () => {
     process.env.NETLIFY = "true";
     process.env.A2A_SECRET = "test-secret";
     process.env.AGENT_INTEGRATION_DURABLE_DISPATCH = "true";
-    hasActiveA2AContinuationsForIntegrationTaskMock.mockResolvedValueOnce(
-      false,
+    getA2AContinuationTaskOutcomeMock.mockResolvedValueOnce(
+      "terminal-delivered",
     );
     const baseTask = claimedTask(1);
     const task = {
@@ -844,6 +856,47 @@ describe("integrations plugin routes", () => {
       task.id,
     );
     expect(markTaskCompletedMock).toHaveBeenCalledWith(task.id);
+  });
+
+  it("finishes a history-finalized A2A parent after its rollout scope is disabled", async () => {
+    process.env.NODE_ENV = "development";
+    process.env.NETLIFY = "true";
+    process.env.A2A_SECRET = "test-secret";
+    delete process.env.AGENT_INTEGRATION_DURABLE_DISPATCH;
+    getA2AContinuationTaskOutcomeMock.mockResolvedValueOnce(
+      "terminal-delivered",
+    );
+    const baseTask = claimedTask(1);
+    const task = {
+      ...baseTask,
+      payload: JSON.stringify({
+        kind: "response-delivery",
+        incoming: JSON.parse(baseTask.payload).incoming,
+        message: { text: "The parent work is ready", platformContext: {} },
+        awaitingA2ACompletion: true,
+      }),
+    };
+    getPendingTaskMock.mockResolvedValueOnce(task);
+    const sendResponse = vi.fn(adapter.sendResponse);
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({
+      adapters: [{ ...adapter, sendResponse }],
+    })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: task.id, __integrationCampaignContinuation: true },
+      signedTaskHeaders(task.id),
+    );
+
+    expect(result.status).toBe(200);
+    expect(failDisabledIntegrationCampaignTaskMock).not.toHaveBeenCalled();
+    expect(completeIntegrationCampaignTaskAfterA2AMock).toHaveBeenCalledWith(
+      task.id,
+    );
+    expect(sendResponse).not.toHaveBeenCalled();
   });
 
   it("does not send an unreceipted campaign delivery after scope is disabled", async () => {
@@ -1736,6 +1789,35 @@ describe("integrations plugin routes", () => {
       "temporary downstream outage",
     );
     expect(markTaskFailedMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps an escaped A2A continuation processor failure in durable recovery custody", async () => {
+    process.env.NODE_ENV = "development";
+    delete process.env.A2A_SECRET;
+    processA2AContinuationByIdMock.mockRejectedValueOnce(
+      new Error("temporary continuation store outage"),
+    );
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-a2a-continuation",
+      "POST",
+      { continuationId: "cont-boundary-failure" },
+    );
+
+    expect(result.status).toBe(500);
+    expect(
+      recoverA2AContinuationAfterProcessorFailureMock,
+    ).toHaveBeenCalledWith(
+      "cont-boundary-failure",
+      expect.objectContaining({
+        adapters: expect.any(Map),
+        reason: "temporary continuation store outage",
+      }),
+    );
+    expect(failA2AContinuationMock).not.toHaveBeenCalled();
   });
 
   it("terminally fails a processor task only after its retry budget is exhausted", async () => {

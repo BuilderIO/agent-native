@@ -1,12 +1,9 @@
 import { defineAction } from "@agent-native/core";
-import {
-  getRequestOrgId,
-  getRequestUserEmail,
-} from "@agent-native/core/server/request-context";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { resolveLocalhostConnectionScope } from "../server/lib/localhost-connection.js";
 import type {
   DesignBridgeCapability,
   LocalhostDesignRouteManifest,
@@ -33,9 +30,7 @@ export default defineAction({
   readOnly: true,
   http: { method: "GET" },
   run: async ({ id, status }) => {
-    const ownerEmail = getRequestUserEmail();
-    if (!ownerEmail) throw new Error("no authenticated user");
-    const orgId = getRequestOrgId() ?? null;
+    const { ownerEmail, orgId } = await resolveLocalhostConnectionScope();
     const clauses = [
       eq(schema.designLocalhostConnections.ownerEmail, ownerEmail),
       orgId

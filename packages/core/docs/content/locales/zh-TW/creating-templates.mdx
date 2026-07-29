@@ -495,11 +495,23 @@ export default defineNitroPlugin(() => {
 4. 紀錄所需的環境變數和入門步驟。
 5. 透過附加遷移包含範例或種子行，而不是跟蹤的執行時資料檔案。
 
-可以從 GitHub 儲存庫建立社群範本：
+社群範本可直接從公開 GitHub 儲存庫安裝。請將 Agent Native 應用程式放在儲存庫根目錄：
 
 ```bash
-npx @agent-native/core@latest create my-app --template github:user/repo
+npx @agent-native/core@latest create my-app --template community:owner/repo
 ```
+
+如需固定特定版本，可加入 `#branch`、`#tag` 或 `#commit`：
+
+```bash
+npx @agent-native/core@latest create my-app --template community:owner/repo#v1.0.0
+```
+
+CLI 只下載原始碼，不會安裝相依套件或執行範本指令碼。社群範本屬於第三方程式碼；執行 `pnpm install` 前請檢查儲存庫、授權、相依套件和安裝指令碼。
+
+申請目錄收錄時，請確保儲存庫根目錄包含完整應用程式，公開儲存庫具有授權和設定 README，根 `package.json` 相依於 `@agent-native/core`，且型別檢查與測試均通過。託管示範和截圖為選填。
+
+儲存庫準備好後，[提交社群範本](https://github.com/BuilderIO/agent-native/issues/new?template=community-template.yml)。社群項目與較小的第一方目錄分開，並由作者維護。
 
 ## 為框架 monorepo 做出貢獻 {#contributing}
 
