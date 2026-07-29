@@ -1,27 +1,23 @@
-import {
-  parseBrowserContextV1,
-  type BrowserContextV1,
-} from "@agent-native/core/browser-context";
+import type { BrowserContextV1 } from "@agent-native/core/browser-context";
 
 import {
   BROWSER_CHAT_READY_MESSAGE_TYPE,
   BROWSER_CHAT_RESULT_MESSAGE_TYPE,
   createStageMessage,
-  createSubmitMessage,
-  isLinkedInProfileUrl,
   parseBrowserChatEvent,
   type BrowserChatBinding,
   type BrowserChatContextMessage,
 } from "./browser-chat-protocol";
-import { hasCaptureGrant } from "./capture-grants";
 import {
-  CAPTURE_RESULT_MESSAGE_TYPE,
-  isCaptureResultMessage,
-} from "./capture-messages";
+  hasCaptureGrant,
+  requestPersistentCaptureAccess,
+} from "./capture-grants";
+import { captureTabContext } from "./capture-tab";
 import {
   BROWSER_CONTROL_STATUS_KEY,
   parseBrowserControlStatus,
 } from "./control-status";
+import { createPageSession, type BrowserPageSessionV1 } from "./page-session";
 import {
   beginBrowserChatPairing,
   BROWSER_CHAT_SESSION_KEY,
@@ -29,6 +25,12 @@ import {
   readBrowserChatSession,
   type BrowserChatSession,
 } from "./pairing";
+import {
+  hasRemoteHostAccess,
+  readRemoteDeviceConfig,
+  REMOTE_DEVICE_CONFIG_KEY,
+  requestRemoteHostAccess,
+} from "./remote-device";
 import {
   normalizeDispatchBaseUrl,
   readSettings,
@@ -46,12 +48,9 @@ interface ActivePage {
 
 const pageTitle = requiredElement<HTMLElement>("page-title");
 const pageOrigin = requiredElement<HTMLElement>("page-origin");
+const pageAccessState = requiredElement<HTMLElement>("page-access-state");
 const captureButton = requiredElement<HTMLButtonElement>("capture-button");
 const captureStatus = requiredElement<HTMLElement>("capture-status");
-const linkedinAction = requiredElement<HTMLElement>("linkedin-action");
-const draftOutreachButton = requiredElement<HTMLButtonElement>(
-  "draft-outreach-button",
-);
 const connectionForm = requiredElement<HTMLFormElement>("connection-form");
 const dispatchUrlInput = requiredElement<HTMLInputElement>("dispatch-url");
 const connectPanel = requiredElement<HTMLElement>("connect-panel");
@@ -59,10 +58,14 @@ const connectCopy = requiredElement<HTMLElement>("connect-copy");
 const connectButton = requiredElement<HTMLButtonElement>("connect-button");
 const dispatchFrame = requiredElement<HTMLIFrameElement>("dispatch-frame");
 const controlState = requiredElement<HTMLElement>("control-state");
+const relayAccessButton = requiredElement<HTMLButtonElement>(
+  "relay-access-button",
+);
 
 let settings: ExtensionSettings;
 let activePage: ActivePage | null = null;
 let capturedContext: BrowserContextV1 | null = null;
+let capturedSession: BrowserPageSessionV1 | null = null;
 let browserChatBinding: BrowserChatBinding | null = null;
 let dispatchReady = false;
 let pendingContextMessage: BrowserChatContextMessage | null = null;
@@ -112,18 +115,21 @@ async function refreshActivePage(): Promise<void> {
   pageTitle.textContent = activePage?.title ?? message("noPage");
   pageOrigin.textContent = activePage?.origin ?? "";
   captureButton.disabled = !activePage?.capturable || captureInFlight;
-  const capturedPageUrl = capturedContext?.page.url;
+  const hasAccess = activePage?.capturable
+    ? await hasCaptureGrant(activePage.tabId, activePage.url)
+    : false;
   const sameCapturedPage = Boolean(
-    capturedPageUrl &&
+    capturedContext &&
     activePage &&
-    pageIdentity(capturedPageUrl) === pageIdentity(activePage.url),
+    pageIdentity(capturedContext.page.url) === pageIdentity(activePage.url),
   );
-  linkedinAction.hidden = !(
-    sameCapturedPage &&
-    capturedPageUrl &&
-    isLinkedInProfileUrl(capturedPageUrl)
-  );
-  draftOutreachButton.disabled = !dispatchReady;
+  pageAccessState.textContent = !activePage?.capturable
+    ? message("pageRestricted")
+    : sameCapturedPage
+      ? message("pageShared")
+      : hasAccess
+        ? message("pageAccessReady")
+        : message("pageAccessNeeded");
   if (
     capturedContext &&
     previous &&
@@ -139,8 +145,12 @@ async function refreshActivePage(): Promise<void> {
 async function captureCurrentPage(): Promise<void> {
   if (!activePage?.capturable || captureInFlight) return;
   if (!(await hasCaptureGrant(activePage.tabId, activePage.url))) {
-    setStatus(message("captureGrantNeeded"), "error");
-    return;
+    const granted = await requestPersistentCaptureAccess(activePage.url);
+    if (!granted) {
+      setStatus(message("captureGrantNeeded"), "error");
+      await refreshActivePage();
+      return;
+    }
   }
   captureInFlight = true;
   captureButton.disabled = true;
@@ -148,18 +158,19 @@ async function captureCurrentPage(): Promise<void> {
   setStatus("");
 
   try {
-    const contextPromise = waitForCaptureResult(activePage.tabId);
-    await chrome.scripting.executeScript({
-      target: { tabId: activePage.tabId },
-      files: ["assets/capture-page.js"],
-    });
-    const context = parseBrowserContextV1(await contextPromise);
+    const context = await captureTabContext(activePage.tabId);
     if (context.outcome.state === "failure") {
       throw new Error(context.outcome.failure.message);
     }
+    const pageSession = await createPageSession(
+      activePage.tabId,
+      activePage.url,
+      activePage.title,
+    );
     capturedContext = context;
+    capturedSession = pageSession;
     pendingContextMessage = browserChatBinding
-      ? createStageMessage(browserChatBinding.nonce, context)
+      ? createStageMessage(browserChatBinding.nonce, context, pageSession)
       : null;
     postPendingContext();
     const truncated = context.outcome.state === "truncated";
@@ -171,31 +182,9 @@ async function captureCurrentPage(): Promise<void> {
     setStatus(message("captureFailed"), "error");
   } finally {
     captureInFlight = false;
-    captureButton.textContent = message("capturePage");
+    captureButton.textContent = message("sharePage");
     await refreshActivePage();
   }
-}
-
-function waitForCaptureResult(tabId: number): Promise<BrowserContextV1> {
-  return new Promise((resolve, reject) => {
-    const timeout = window.setTimeout(() => {
-      chrome.runtime.onMessage.removeListener(listener);
-      reject(new Error("Page capture timed out."));
-    }, 8_000);
-    const listener = (value: unknown, sender: chrome.runtime.MessageSender) => {
-      if (
-        sender.id !== chrome.runtime.id ||
-        sender.tab?.id !== tabId ||
-        !isCaptureResultMessage(value)
-      ) {
-        return;
-      }
-      window.clearTimeout(timeout);
-      chrome.runtime.onMessage.removeListener(listener);
-      resolve(value.context);
-    };
-    chrome.runtime.onMessage.addListener(listener);
-  });
 }
 
 function postPendingContext(): void {
@@ -217,31 +206,10 @@ function postPendingContext(): void {
   pendingContextMessage = null;
 }
 
-async function requestOutreachDraft(): Promise<void> {
-  if (
-    !capturedContext ||
-    !browserChatBinding ||
-    !dispatchReady ||
-    !isLinkedInProfileUrl(capturedContext.page.url) ||
-    !dispatchFrame.contentWindow
-  ) {
-    return;
-  }
-  const outbound = createSubmitMessage(
-    browserChatBinding.nonce,
-    message("draftOutreachPrompt"),
-    capturedContext,
-  );
-  dispatchFrame.contentWindow.postMessage(
-    outbound,
-    browserChatBinding.dispatchOrigin,
-  );
-  setStatus(message("draftRequested"), "success");
-}
-
 async function connectDispatch(): Promise<void> {
   connectButton.disabled = true;
   try {
+    await requestRemoteHostAccess(settings.dispatchBaseUrl).catch(() => false);
     const pairing = await beginBrowserChatPairing(settings.dispatchBaseUrl);
     await chrome.tabs.create({ url: pairing.connectUrl });
     connectCopy.textContent = message("pairingOpened");
@@ -271,6 +239,7 @@ async function loadBrowserChatSession(
     dispatchOrigin: session.dispatchOrigin,
     frameWindow,
   };
+  await refreshRelayAccess();
 }
 
 function handleBrowserChatEvent(event: MessageEvent): void {
@@ -281,13 +250,13 @@ function handleBrowserChatEvent(event: MessageEvent): void {
     dispatchReady = true;
     connectPanel.hidden = true;
     dispatchFrame.hidden = false;
-    draftOutreachButton.disabled = false;
     void chrome.storage.session.remove(BROWSER_CHAT_SESSION_KEY);
     setStatus(message("dispatchReady"), "success");
-    if (capturedContext) {
+    if (capturedContext && capturedSession) {
       pendingContextMessage = createStageMessage(
         browserChatBinding.nonce,
         capturedContext,
+        capturedSession,
       );
     }
     postPendingContext();
@@ -307,9 +276,12 @@ async function handleConnectionSave(event: SubmitEvent): Promise<void> {
   }
   settings = { dispatchBaseUrl };
   await saveSettings(settings);
-  await chrome.storage.session.remove([
-    BROWSER_CHAT_SESSION_KEY,
-    PENDING_PAIRING_KEY,
+  await Promise.all([
+    chrome.storage.session.remove([
+      BROWSER_CHAT_SESSION_KEY,
+      PENDING_PAIRING_KEY,
+    ]),
+    chrome.storage.local.remove(REMOTE_DEVICE_CONFIG_KEY),
   ]);
   dispatchReady = false;
   browserChatBinding = null;
@@ -318,6 +290,24 @@ async function handleConnectionSave(event: SubmitEvent): Promise<void> {
   connectPanel.hidden = false;
   connectCopy.textContent = message("connectionSaved");
   setStatus(message("connectionSaved"), "success");
+  await refreshRelayAccess();
+}
+
+async function grantRelayAccess(): Promise<void> {
+  const config = await readRemoteDeviceConfig();
+  if (!config) return;
+  const granted = await requestRemoteHostAccess(config.relayBaseUrl);
+  setStatus(
+    message(granted ? "relayAccessReady" : "relayAccessNeeded"),
+    granted ? "success" : "error",
+  );
+  await refreshRelayAccess();
+}
+
+async function refreshRelayAccess(): Promise<void> {
+  const config = await readRemoteDeviceConfig();
+  relayAccessButton.hidden =
+    !config || (await hasRemoteHostAccess(config.relayBaseUrl));
 }
 
 function setStatus(
@@ -333,7 +323,13 @@ function renderControlStatus(value: unknown): void {
   const status = parseBrowserControlStatus(value);
   controlState.textContent =
     status?.state === "available"
-      ? message(status.activeTasks > 0 ? "controlActive" : "controlAvailable")
+      ? message(
+          status.activeTasks > 0
+            ? "controlActive"
+            : status.controlTransport === "relay"
+              ? "controlAvailableRelay"
+              : "controlAvailable",
+        )
       : message("controlUnavailable");
 }
 
@@ -368,15 +364,12 @@ async function initialize(): Promise<void> {
   } else {
     connectCopy.textContent = message("dispatchLoading");
   }
-  await refreshControlStatus();
+  await Promise.all([refreshControlStatus(), refreshRelayAccess()]);
   window.setInterval(() => void refreshControlStatus(), 10_000);
 
   captureButton.addEventListener("click", () => void captureCurrentPage());
-  draftOutreachButton.addEventListener(
-    "click",
-    () => void requestOutreachDraft(),
-  );
   connectButton.addEventListener("click", () => void connectDispatch());
+  relayAccessButton.addEventListener("click", () => void grantRelayAccess());
   connectionForm.addEventListener(
     "submit",
     (event) => void handleConnectionSave(event),
@@ -392,6 +385,14 @@ async function initialize(): Promise<void> {
     }
   });
   chrome.windows.onFocusChanged.addListener(() => void refreshActivePage());
+  chrome.permissions.onAdded.addListener(() => {
+    void refreshActivePage();
+    void refreshRelayAccess();
+  });
+  chrome.permissions.onRemoved.addListener(() => {
+    void refreshActivePage();
+    void refreshRelayAccess();
+  });
   chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName === "session" && changes[BROWSER_CHAT_SESSION_KEY]?.newValue) {
       void readBrowserChatSession().then((nextSession) => {
@@ -403,6 +404,12 @@ async function initialize(): Promise<void> {
       changes[BROWSER_CONTROL_STATUS_KEY]?.newValue
     ) {
       renderControlStatus(changes[BROWSER_CONTROL_STATUS_KEY].newValue);
+    }
+    if (
+      areaName === "local" &&
+      Object.prototype.hasOwnProperty.call(changes, REMOTE_DEVICE_CONFIG_KEY)
+    ) {
+      void refreshRelayAccess();
     }
   });
 }

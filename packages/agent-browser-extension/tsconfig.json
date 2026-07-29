@@ -13,6 +13,9 @@
       ],
       "@agent-native/core/browser-context": [
         "../core/src/browser-context/index.ts"
+      ],
+      "@agent-native/core/integrations/computer-supervision": [
+        "../core/src/integrations/computer-supervision.ts"
       ]
     },
     "resolveJsonModule": true,

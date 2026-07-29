@@ -3822,8 +3822,9 @@ export function DesignCanvas({
         anchorSourceId,
         anchorPendingNodeId: runtimeStructureInsertRequest.anchor.pendingNodeId,
         placement: runtimeStructureInsertRequest.placement,
-        replaceAnchor:
-          runtimeStructureInsertRequest.replaceAnchor === true && index === 0,
+        ...(runtimeStructureInsertRequest.replaceAnchor === true && index === 0
+          ? { replaceAnchor: true }
+          : {}),
       });
       // Repeated "after" inserts against the original anchor reverse their
       // order. Chain each subsequent root after the clone before it so a

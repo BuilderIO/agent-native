@@ -1,8 +1,8 @@
-import { normalizeDispatchBaseUrl } from "./settings";
 import {
   parseRemoteDevicePairing,
   type RemoteDevicePairing,
 } from "./remote-device";
+import { normalizeDispatchBaseUrl } from "./settings";
 
 export const BROWSER_CHAT_SESSION_MESSAGE_TYPE =
   "browser-chat.session.v1" as const;

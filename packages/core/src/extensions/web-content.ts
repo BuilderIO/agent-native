@@ -377,7 +377,11 @@ function collectAgentMetadata(document: Document): unknown[] {
       continue;
     }
     try {
-      metadata.push(JSON.parse(json));
+      const parsed = JSON.parse(json);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        continue;
+      }
+      metadata.push(parsed);
       totalChars += json.length;
     } catch {}
   }

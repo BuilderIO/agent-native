@@ -296,7 +296,7 @@ describe("createFetchToolEntry", () => {
                 "type": "agent-native.resource.discovery",
                 "resourceType": "dashboard",
                 "resourceId": "dash-1",
-                "contextUrl": "/api/dashboard-agent-context.json?id=dash-1",
+                "contextUrl": "/api/dashboard-agent-context.json?id=dash-1&agent_access=scoped-token",
                 "instructions": "Fetch contextUrl for the dashboard data."
               }
             </script>
@@ -316,7 +316,7 @@ describe("createFetchToolEntry", () => {
     expect(result).toContain("Agent-readable metadata:");
     expect(result).toContain('"type": "agent-native.resource.discovery"');
     expect(result).toContain(
-      '"/api/dashboard-agent-context.json?id=dash-1"',
+      '"/api/dashboard-agent-context.json?id=dash-1&agent_access=scoped-token"',
     );
     expect(result).toContain("Fetch contextUrl for the dashboard data.");
   });

@@ -599,7 +599,7 @@ export function createRemoteBrowserActionEntries(
           command.ownerEmail !== ownerEmail ||
           command.orgId !== orgId ||
           command.kind !== "computer-operation" ||
-          !command.operationClass?.startsWith("browser.")
+          !command.computerOperation?.operationClass.startsWith("browser.")
         ) {
           throw new Error("Remote browser command was not found");
         }

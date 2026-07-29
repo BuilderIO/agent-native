@@ -5736,7 +5736,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       correctAbsoluteMemberClientPosition(el, desiredDropPoint);
     }
-    function postVisualStructureChange(el, target, origin, insertedHtml) {
+    function postVisualStructureChange(el, target, origin, insertedHtml, replaced) {
       if (!el || !target || !target.anchor) return;
       dndLog("post:structure-change", {
         el: getSelector(el),
@@ -5766,6 +5766,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           // the change. The host must NOT tell the coding agent to relocate an
           // element the source file has never contained.
           insertedHtml: typeof insertedHtml === "string" ? insertedHtml : void 0,
+          replaced: replaced === true ? true : void 0,
           sourceRect: rectInfoForElement(el),
           anchorRect: rectInfoForElement(target.anchor),
           payload: getElementInfo(el),
@@ -8420,6 +8421,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           return;
         }
         var insertPlacement = String(e.data.placement || "");
+        var replaceInsertAnchor = e.data.replaceAnchor === true;
         if (insertPlacement !== "before" && insertPlacement !== "after" && insertPlacement !== "inside") {
           rejectInsert("placement");
           return;
@@ -8489,6 +8491,33 @@ export const editorChromeBridgeScript: string = `"use strict";
           );
           return;
         }
+        if (replaceInsertAnchor) {
+          var replaceParent = insertAnchor.parentElement;
+          if (!replaceParent) {
+            rejectInsert("placement-unavailable");
+            return;
+          }
+          var replaceNextSibling = insertAnchor.nextSibling;
+          replaceParent.insertBefore(parsedInsertEl, insertAnchor);
+          selectedEl = parsedInsertEl;
+          positionOverlay(selectionOverlay, selectedEl);
+          refreshOverlays();
+          postVisualStructureChange(
+            parsedInsertEl,
+            insertTarget,
+            {
+              replaced: true,
+              originalElement: insertAnchor,
+              prevParent: replaceParent,
+              prevNextSibling: replaceNextSibling
+            },
+            parsedInsertEl.outerHTML,
+            true
+          );
+          replaceParent.removeChild(insertAnchor);
+          refreshOverlays();
+          return;
+        }
         if (insertPlacement === "inside") {
           insertAnchor.appendChild(parsedInsertEl);
         } else {
@@ -8518,6 +8547,25 @@ export const editorChromeBridgeScript: string = `"use strict";
         delete pendingStructureMoves[e.data.requestId];
         var moveWasInsert = Boolean(move.origin && "inserted" in move.origin);
         var moveWasRemoval = Boolean(move.origin && "removed" in move.origin);
+        var moveWasReplace = Boolean(move.origin && "replaced" in move.origin);
+        if (moveWasReplace && move.origin && "replaced" in move.origin) {
+          if (!e.data.applied) {
+            if (move.el && move.el.isConnected) move.el.remove();
+            var replaceParent = move.origin.prevParent;
+            var replaceNextSibling = move.origin.prevNextSibling;
+            if (replaceParent && replaceParent.isConnected && !move.origin.originalElement.isConnected) {
+              replaceParent.insertBefore(
+                move.origin.originalElement,
+                replaceNextSibling && replaceNextSibling.parentNode === replaceParent ? replaceNextSibling : null
+              );
+              selectedEl = move.origin.originalElement;
+              positionOverlay(selectionOverlay, selectedEl);
+              postElementSelect(selectedEl);
+            }
+          }
+          refreshOverlays();
+          return;
+        }
         if (moveWasRemoval) {
           if (!e.data.applied && move.origin && "removed" in move.origin) {
             var removedParent = move.origin.prevParent;

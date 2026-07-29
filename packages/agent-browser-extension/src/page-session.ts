@@ -21,7 +21,8 @@ export async function createPageSession(
   title: string,
 ): Promise<BrowserPageSessionV1> {
   const origin = captureOrigin(url);
-  if (!origin) throw new Error("Only HTTP(S) pages can become browser sessions.");
+  if (!origin)
+    throw new Error("Only HTTP(S) pages can become browser sessions.");
   const sessions = await readStoredSessions();
   const existing = sessions.find(
     (session) => session.tabId === tabId && session.origin === origin,

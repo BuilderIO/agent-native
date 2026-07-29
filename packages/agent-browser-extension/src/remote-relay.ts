@@ -36,10 +36,7 @@ export class RemoteRelayExecutor {
     if (envelope.sequence <= lastSequence) {
       throw new Error("Remote browser command sequence was replayed.");
     }
-    if (
-      nativeHostConnected &&
-      envelope.operationClass === "browser.control"
-    ) {
+    if (nativeHostConnected && envelope.operationClass === "browser.control") {
       throw new Error(
         "Agent Native Desktop currently owns the browser-control upstream.",
       );

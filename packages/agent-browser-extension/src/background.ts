@@ -13,7 +13,10 @@ import {
   isCaptureGrantValid,
 } from "./capture-grants";
 import { BROWSER_CONTROL_STATUS_KEY } from "./control-status";
-import { invalidatePageSessionsForTab, readCurrentPageSession } from "./page-session";
+import {
+  invalidatePageSessionsForTab,
+  readCurrentPageSession,
+} from "./page-session";
 import {
   acceptBrowserChatSession,
   BROWSER_CHAT_SESSION_KEY,
@@ -199,10 +202,7 @@ async function runRelayLoop(generation: number): Promise<void> {
   const controller = new AbortController();
   relayAbort = controller;
   let backoffMs = 1_000;
-  while (
-    generation === relayGeneration &&
-    !controller.signal.aborted
-  ) {
+  while (generation === relayGeneration && !controller.signal.aborted) {
     try {
       const browserSession = await readCurrentPageSession();
       const response = await postRelayJson(

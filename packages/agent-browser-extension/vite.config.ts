@@ -19,6 +19,10 @@ export default defineConfig({
         root,
         "../core/src/browser-context/index.ts",
       ),
+      "@agent-native/core/integrations/computer-supervision": resolve(
+        root,
+        "../core/src/integrations/computer-supervision.ts",
+      ),
     },
   },
   build: {

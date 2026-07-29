@@ -404,4 +404,128 @@ describe("live insert lifecycle", () => {
       }
     },
   );
+
+  it(
+    "replaces a live element as one pending edit with undo and redo",
+    { timeout: 60_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage();
+        await page.setContent(FIXTURE);
+        await page.locator("#card").evaluate((element) => {
+          Object.defineProperty(element, "__reactFiber$replace", {
+            configurable: true,
+            enumerable: true,
+            value: {
+              _debugStack: {
+                stack:
+                  "Error\n    at Card (http://127.0.0.1:7331/app/routes/home.tsx:12:5)",
+              },
+              return: null,
+            },
+          });
+        });
+        await page.addScriptTag({
+          content: hydratedEditorChromeBridgeScript(),
+        });
+        await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+        await collectBridgeMessages(page);
+
+        const replacementHtml =
+          '<section data-agent-native-node-id="replacement" data-agent-native-layer-name="Replacement">Replacement</section>';
+        await page.evaluate(
+          ([html, anchorSelector]) => {
+            window.postMessage(
+              {
+                type: "runtime-structure-insert",
+                requestId: 10,
+                html,
+                anchorSelector,
+                anchorSourceId: "card",
+                placement: "before",
+                replaceAnchor: true,
+              },
+              "*",
+            );
+          },
+          [replacementHtml, ANCHOR_SELECTOR] as const,
+        );
+
+        const replaceEcho = await nextStructureChange(page, 0);
+        expect(replaceEcho.replaced).toBe(true);
+        expect(await page.locator(ANCHOR_SELECTOR).count()).toBe(0);
+        expect(
+          await page
+            .locator('[data-agent-native-node-id="replacement"]')
+            .count(),
+        ).toBe(1);
+
+        const replaceEdit = pendingEditFromEcho(replaceEcho);
+        expect(replaceEdit.replaced).toBe(true);
+        expect(replaceEdit.sourceAnchor?.relPath).toBe("app/routes/home.tsx");
+        expect(pendingStructureEditSourcePaths(replaceEdit)).toEqual([
+          "app/routes/home.tsx",
+        ]);
+        expect(pendingStructureRedoCommand(replaceEdit)).toEqual({
+          kind: "insert",
+          html: replacementHtml,
+          replaceAnchor: true,
+        });
+        const prompt = formatPendingVisualStylePrompt({
+          designId: "design-1",
+          edits: [],
+          liveEdits: [replaceEdit],
+        });
+        expect(prompt).toContain('"replaced": true');
+        expect(prompt).toContain('"operation": "replace"');
+
+        await page.evaluate((requestId: string) => {
+          window.postMessage(
+            { type: "visual-structure-ack", requestId, applied: false },
+            "*",
+          );
+        }, replaceEcho.requestId);
+        await page.waitForSelector(ANCHOR_SELECTOR);
+        expect(
+          await page
+            .locator('[data-agent-native-node-id="replacement"]')
+            .count(),
+        ).toBe(0);
+
+        const redoCommand = pendingStructureRedoCommand(replaceEdit);
+        if (redoCommand.kind !== "insert") throw new Error("unreachable");
+        await page.evaluate(
+          ([html, anchorSelector, replaceAnchor]) => {
+            window.postMessage(
+              {
+                type: "runtime-structure-insert",
+                requestId: 11,
+                html,
+                anchorSelector,
+                anchorSourceId: "card",
+                placement: "before",
+                replaceAnchor,
+              },
+              "*",
+            );
+          },
+          [
+            redoCommand.html,
+            ANCHOR_SELECTOR,
+            redoCommand.replaceAnchor,
+          ] as const,
+        );
+        await nextStructureChange(page, 1);
+        expect(await page.locator(ANCHOR_SELECTOR).count()).toBe(0);
+        expect(
+          await page
+            .locator('[data-agent-native-node-id="replacement"]')
+            .count(),
+        ).toBe(1);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
 });

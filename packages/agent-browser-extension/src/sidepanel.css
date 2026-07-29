@@ -162,6 +162,13 @@ input {
   text-transform: uppercase;
 }
 
+.page-access-state {
+  display: block;
+  margin-top: 4px;
+  color: #8895a7;
+  font-size: 10px;
+}
+
 .page-title {
   display: block;
   overflow: hidden;
@@ -260,35 +267,6 @@ input {
   color: #70ddc1;
 }
 
-.quick-action {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 10px 14px;
-  border-bottom: 1px solid #202631;
-  background: #0e141d;
-}
-
-.quick-action[hidden] {
-  display: none;
-}
-
-.quick-action div {
-  min-width: 0;
-  flex: 1;
-}
-
-.quick-action strong {
-  font-size: 12px;
-}
-
-.quick-action p {
-  margin: 2px 0 0;
-  color: #7f8a9a;
-  font-size: 10px;
-  line-height: 1.4;
-}
-
 .chat-region {
   position: relative;
   min-height: 260px;
@@ -330,12 +308,31 @@ input {
   display: none;
 }
 
-.control-state {
+.control-footer {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
   padding: 7px 14px;
   border-top: 1px solid #202631;
+}
+
+.control-state {
   color: #606b7b;
   font-size: 10px;
   text-align: center;
+}
+
+#relay-access-button {
+  min-height: 26px;
+  flex: none;
+  padding-block: 4px;
+  font-size: 10px;
+}
+
+#relay-access-button[hidden] {
+  display: none;
 }
 
 @media (prefers-reduced-motion: reduce) {

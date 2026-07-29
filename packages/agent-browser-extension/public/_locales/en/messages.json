@@ -6,7 +6,7 @@
     "message": "Agent Native"
   },
   "extensionDescription": {
-    "message": "Capture the page you choose and work with it in Agent Native."
+    "message": "Chat with the page you choose and let Agent Native work alongside you."
   },
   "actionTitle": {
     "message": "Open Agent Native"
@@ -18,37 +18,37 @@
     "message": "Current page"
   },
   "noPage": {
-    "message": "Open a regular webpage to capture context."
+    "message": "Open a regular webpage to share context."
   },
-  "capturePage": {
-    "message": "Capture page"
+  "sharePage": {
+    "message": "Use page"
   },
   "capturingPage": {
     "message": "Capturing…"
   },
   "captureReady": {
-    "message": "Page context staged for chat."
+    "message": "This page is now available to the chat."
   },
   "captureTruncated": {
-    "message": "Page context staged with some content omitted."
+    "message": "This page is available with some content omitted."
   },
   "captureFailed": {
     "message": "Could not capture this page."
   },
   "captureGrantNeeded": {
-    "message": "Click the Agent Native toolbar button on this tab, then choose Capture page."
+    "message": "Allow access to this site to share the page with Agent Native."
   },
-  "draftOutreach": {
-    "message": "Draft outreach"
+  "pageRestricted": {
+    "message": "Chrome does not allow access to this page"
   },
-  "draftOutreachHint": {
-    "message": "Creates a reviewable draft in chat. It never sends on LinkedIn."
+  "pageAccessNeeded": {
+    "message": "Access needed"
   },
-  "draftOutreachPrompt": {
-    "message": "Draft a concise, personalized outreach message based on this profile. Return a reviewable draft only. Do not send or post anything."
+  "pageAccessReady": {
+    "message": "Site access ready"
   },
-  "draftRequested": {
-    "message": "Draft request sent to Dispatch for review."
+  "pageShared": {
+    "message": "Shared with this chat"
   },
   "pageChanged": {
     "message": "The captured page remains staged. Capture again to replace it."
@@ -90,12 +90,24 @@
     "message": "Captured. Waiting for Dispatch to become ready."
   },
   "controlUnavailable": {
-    "message": "Connect Agent Native Desktop to enable browser control."
+    "message": "Connect Agent Native to enable browser control."
   },
   "controlAvailable": {
     "message": "Browser control is available through Agent Native Desktop."
   },
   "controlActive": {
-    "message": "Agent Native Desktop is controlling an assigned browser tab."
+    "message": "Agent Native is controlling an assigned browser tab."
+  },
+  "controlAvailableRelay": {
+    "message": "Browser control is available through this extension."
+  },
+  "enableBrowserRelay": {
+    "message": "Enable browser relay"
+  },
+  "relayAccessNeeded": {
+    "message": "Allow the connected Agent Native relay to enable browser tools."
+  },
+  "relayAccessReady": {
+    "message": "Browser relay enabled."
   }
 }

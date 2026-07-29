@@ -52,35 +52,25 @@
           </span>
           <strong id="page-title" class="page-title">—</strong>
           <span id="page-origin" class="page-origin"></span>
+          <span
+            id="page-access-state"
+            class="page-access-state"
+            data-i18n="pageAccessNeeded"
+          >
+            Access needed
+          </span>
         </div>
         <button
           id="capture-button"
           class="button button-primary"
           type="button"
-          data-i18n="capturePage"
+          data-i18n="sharePage"
         >
-          Capture page
+          Use page
         </button>
       </section>
 
       <div id="capture-status" class="status-line" role="status"></div>
-
-      <section id="linkedin-action" class="quick-action" hidden>
-        <div>
-          <strong data-i18n="draftOutreach">Draft outreach</strong>
-          <p data-i18n="draftOutreachHint">
-            Creates a reviewable draft in chat. It never sends on LinkedIn.
-          </p>
-        </div>
-        <button
-          id="draft-outreach-button"
-          class="button button-secondary"
-          type="button"
-          data-i18n="draftOutreach"
-        >
-          Draft outreach
-        </button>
-      </section>
 
       <main class="chat-region">
         <div id="connect-panel" class="connect-panel">
@@ -104,12 +94,23 @@
         ></iframe>
       </main>
 
-      <footer
-        id="control-state"
-        class="control-state"
-        data-i18n="controlUnavailable"
-      >
-        Connect Agent Native Desktop to enable browser control.
+      <footer class="control-footer">
+        <span
+          id="control-state"
+          class="control-state"
+          data-i18n="controlUnavailable"
+        >
+          Connect Agent Native to enable browser control.
+        </span>
+        <button
+          id="relay-access-button"
+          class="button button-secondary button-compact"
+          type="button"
+          data-i18n="enableBrowserRelay"
+          hidden
+        >
+          Enable browser relay
+        </button>
       </footer>
     </div>
     <script type="module" src="./sidepanel.ts"></script>

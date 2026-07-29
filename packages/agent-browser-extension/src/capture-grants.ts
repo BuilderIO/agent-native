@@ -54,7 +54,9 @@ export async function hasCaptureGrant(
   return isCaptureGrantValid(stored[key], tabId, url) || hasHostAccess;
 }
 
-export async function hasPersistentCaptureAccess(url: string): Promise<boolean> {
+export async function hasPersistentCaptureAccess(
+  url: string,
+): Promise<boolean> {
   const origin = captureOriginPattern(url);
   return origin
     ? chrome.permissions.contains({ origins: [origin] })

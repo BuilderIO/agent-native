@@ -15889,10 +15889,7 @@ function DesignEditor() {
 
   const handleCopySelection = useCallback(async () => {
     const entries = getSelectedLayerSnapshots().map((snapshot) => ({
-      html: preserveClipboardLayerName(
-        snapshot.html,
-        snapshot.node.layerName,
-      ),
+      html: preserveClipboardLayerName(snapshot.html, snapshot.node.layerName),
       rootNodeId: snapshot.rootNodeId,
       sourceFileId: snapshot.sourceFileId,
       portableStyleSnapshot: snapshot.portableStyleSnapshot,

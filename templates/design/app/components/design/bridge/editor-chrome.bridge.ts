@@ -12648,11 +12648,7 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       var moveWasInsert = Boolean(move.origin && "inserted" in move.origin);
       var moveWasRemoval = Boolean(move.origin && "removed" in move.origin);
       var moveWasReplace = Boolean(move.origin && "replaced" in move.origin);
-      if (
-        moveWasReplace &&
-        move.origin &&
-        "replaced" in move.origin
-      ) {
+      if (moveWasReplace && move.origin && "replaced" in move.origin) {
         if (!e.data.applied) {
           if (move.el && move.el.isConnected) move.el.remove();
           var replaceParent = move.origin.prevParent;

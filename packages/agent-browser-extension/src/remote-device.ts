@@ -83,7 +83,8 @@ export function mergeRemoteDeviceConfig(
     previous?.deviceId === pairing.remoteDevice.id &&
     previous.relayBaseUrl === pairing.relayBaseUrl &&
     previous.dispatchOrigin === dispatchOrigin;
-  const token = pairing.remoteDevice.token ?? (sameDevice ? previous.token : "");
+  const token =
+    pairing.remoteDevice.token ?? (sameDevice ? previous.token : "");
   if (!token) return null;
   return {
     deviceId: pairing.remoteDevice.id,
