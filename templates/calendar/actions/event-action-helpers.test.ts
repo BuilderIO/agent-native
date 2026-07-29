@@ -280,6 +280,30 @@ describe("normalizeCreateEventInput", () => {
     ).toThrow("require valid YYYY-MM-DD dates");
   });
 
+  it("rejects fullDay for non-OOO events", () => {
+    expect(() =>
+      normalizeCreateEventInput({
+        title: "Ordinary event",
+        eventType: "default",
+        start: "2026-08-01T09:00:00-04:00",
+        end: "2026-08-01T17:00:00-04:00",
+        fullDay: true,
+      }),
+    ).toThrow("only supported for out-of-office events");
+  });
+
+  it("rejects a civil date skipped entirely by its timezone", () => {
+    expect(() =>
+      normalizeCreateEventInput({
+        eventType: "outOfOffice",
+        start: "2011-12-30",
+        end: "2011-12-30",
+        startTimeZone: "Pacific/Apia",
+        fullDay: true,
+      }),
+    ).toThrow("at least one valid local instant");
+  });
+
   it("continues to require a title for ordinary events", () => {
     expect(() =>
       normalizeCreateEventInput({

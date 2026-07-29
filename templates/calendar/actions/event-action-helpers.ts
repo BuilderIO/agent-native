@@ -369,6 +369,10 @@ export function normalizeCreateEventInput(args: {
   allDay?: boolean;
   fullDay?: boolean;
 }) {
+  if (args.fullDay === true && args.eventType !== "outOfOffice") {
+    throw new Error("fullDay is only supported for out-of-office events.");
+  }
+
   const title =
     args.title?.trim() ||
     (args.eventType === "outOfOffice" ? "Out of office" : "");
@@ -399,6 +403,11 @@ export function normalizeCreateEventInput(args: {
       "00:00",
       timezone,
     );
+    if (new Date(end).getTime() <= new Date(start).getTime()) {
+      throw new Error(
+        "Full-day out-of-office dates must include at least one valid local instant.",
+      );
+    }
 
     return {
       title,

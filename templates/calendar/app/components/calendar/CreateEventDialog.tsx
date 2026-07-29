@@ -294,7 +294,10 @@ export function CreateEventPopover({
   const initializedKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      initializedKeyRef.current = null;
+      return;
+    }
 
     const nextDate = format(defaultDate || new Date(), "yyyy-MM-dd");
     const draftTimezone =
@@ -466,7 +469,11 @@ export function CreateEventPopover({
       fullDay: fullDayOutOfOffice,
       eventType,
       outOfOfficeProperties: isOutOfOffice
-        ? { autoDeclineMode, declineMessage }
+        ? {
+            autoDeclineMode,
+            declineMessage:
+              autoDeclineMode === "declineNone" ? undefined : declineMessage,
+          }
         : undefined,
       transparency:
         eventType === "workingLocation"
