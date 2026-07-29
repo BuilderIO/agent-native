@@ -368,6 +368,7 @@ export function repairFirstPartyObservedRetentionPanels(
         legacySql: [
           LEGACY_RETENTION_OVER_TIME_SQL,
           LEGACY_V0_RETENTION_OVER_TIME_SQL,
+          PRE_MARKETING_SITE_RETENTION_OVER_TIME_SQL,
         ],
         sql: RETENTION_OVER_TIME_SQL,
         legacyDescription: LEGACY_RETENTION_OVER_TIME_DESCRIPTION,
@@ -380,6 +381,7 @@ export function repairFirstPartyObservedRetentionPanels(
         legacySql: [
           LEGACY_ONE_DAY_RETENTION_BY_TEMPLATE_SQL,
           LEGACY_V0_ONE_DAY_RETENTION_BY_TEMPLATE_SQL,
+          PRE_MARKETING_SITE_ONE_DAY_RETENTION_BY_TEMPLATE_SQL,
         ],
         sql: ONE_DAY_RETENTION_BY_TEMPLATE_SQL,
         legacyDescription: LEGACY_ONE_DAY_RETENTION_BY_TEMPLATE_DESCRIPTION,
@@ -392,6 +394,7 @@ export function repairFirstPartyObservedRetentionPanels(
         legacySql: [
           LEGACY_SEVEN_DAY_RETENTION_BY_TEMPLATE_SQL,
           LEGACY_V0_SEVEN_DAY_RETENTION_BY_TEMPLATE_SQL,
+          PRE_MARKETING_SITE_SEVEN_DAY_RETENTION_BY_TEMPLATE_SQL,
         ],
         sql: SEVEN_DAY_RETENTION_BY_TEMPLATE_SQL,
         legacyDescription: LEGACY_SEVEN_DAY_RETENTION_BY_TEMPLATE_DESCRIPTION,
@@ -405,6 +408,7 @@ export function repairFirstPartyObservedRetentionPanels(
           LEGACY_RECURRING_USERS_BY_TEMPLATE_SQL,
           INTERMEDIATE_RECURRING_USERS_BY_TEMPLATE_SQL,
           DEPLOYED_RECURRING_USERS_BY_TEMPLATE_SQL,
+          PRE_MARKETING_SITE_RECURRING_USERS_BY_TEMPLATE_SQL,
         ],
         sql: RECURRING_USERS_BY_TEMPLATE_SQL,
         legacyDescription: LEGACY_RECURRING_USERS_DESCRIPTION,
@@ -417,6 +421,7 @@ export function repairFirstPartyObservedRetentionPanels(
         legacySql: [
           LEGACY_RECURRING_USERS_BY_TEMPLATE_WEEKLY_SQL,
           INTERMEDIATE_RECURRING_USERS_BY_TEMPLATE_WEEKLY_SQL,
+          PRE_MARKETING_SITE_RECURRING_USERS_BY_TEMPLATE_WEEKLY_SQL,
         ],
         sql: RECURRING_USERS_BY_TEMPLATE_WEEKLY_SQL,
         legacyDescription: LEGACY_RECURRING_USERS_WEEKLY_DESCRIPTION,
@@ -426,14 +431,20 @@ export function repairFirstPartyObservedRetentionPanels(
     [
       "dau-over-time",
       {
-        legacySql: [LEGACY_DAU_BY_TEMPLATE_SQL],
+        legacySql: [
+          LEGACY_DAU_BY_TEMPLATE_SQL,
+          PRE_MARKETING_SITE_DAU_BY_TEMPLATE_SQL,
+        ],
         sql: DAU_BY_TEMPLATE_SQL,
       },
     ],
     [
       "wau-over-time",
       {
-        legacySql: [LEGACY_WAU_BY_TEMPLATE_SQL],
+        legacySql: [
+          LEGACY_WAU_BY_TEMPLATE_SQL,
+          PRE_MARKETING_SITE_WAU_BY_TEMPLATE_SQL,
+        ],
         sql: WAU_BY_TEMPLATE_SQL,
       },
     ],
