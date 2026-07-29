@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  _resetSharedThreadListCacheForTests,
   useChatThreads,
   type ChatThreadScope,
   type ChatThreadSnapshot,
@@ -22,6 +23,7 @@ describe("useChatThreads", () => {
   let root: Root;
 
   beforeEach(() => {
+    _resetSharedThreadListCacheForTests();
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.stubGlobal("crypto", { randomUUID: () => "forked-thread" });
     window.localStorage.clear();
@@ -174,6 +176,65 @@ describe("useChatThreads", () => {
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps completed chat history available when a sidebar remounts", async () => {
+    const existingThread: ChatThreadSummary = {
+      id: "cached-thread",
+      title: "Cached chat",
+      preview: "keep this list visible",
+      messageCount: 2,
+      createdAt: 1,
+      updatedAt: 2,
+      scope: null,
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/cached-chat/threads" && !init) {
+        return jsonResponse({ threads: [existingThread] });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function ThreadList() {
+      hook = useChatThreads("/cached-chat", "cached-sidebar", null, {
+        autoCreate: false,
+        restoreActiveThread: false,
+      });
+      return null;
+    }
+    function Harness({ visible }: { visible: boolean }) {
+      return visible ? <ThreadList /> : null;
+    }
+
+    await act(async () => {
+      root.render(<Harness visible />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(hook!.threads.map((thread) => thread.id)).toEqual(["cached-thread"]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      root.render(<Harness visible={false} />);
+    });
+    await act(async () => {
+      root.render(<Harness visible />);
+    });
+
+    expect(hook!.isLoading).toBe(false);
+    expect(hook!.threads.map((thread) => thread.id)).toEqual(["cached-thread"]);
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("loads older chat history pages into All Chats", async () => {

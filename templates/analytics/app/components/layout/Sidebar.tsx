@@ -2298,9 +2298,10 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                     />
                   </button>
                 </div>
-                {askOpen && isAskRoute ? (
-                  <AnalyticsChatsSection isAskRoute open />
-                ) : null}
+                <AnalyticsChatsSection
+                  isAskRoute={isAskRoute}
+                  open={askOpen && isAskRoute}
+                />
               </div>
 
               {/* Sessions link */}

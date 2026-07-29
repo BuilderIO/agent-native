@@ -82,12 +82,35 @@ const sharedThreadListRequests = new Map<
   string,
   Promise<ChatThreadSummary[] | undefined>
 >();
+const sharedThreadListCache = new Map<string, ChatThreadSummary[]>();
+
+function threadListPageKey(apiUrl: string, offset: number): string {
+  return `${apiUrl}\n${offset}`;
+}
+
+function cachedThreadListPage(
+  apiUrl: string,
+  offset: number,
+): ChatThreadSummary[] | undefined {
+  return sharedThreadListCache.get(threadListPageKey(apiUrl, offset));
+}
+
+/** @internal Keeps module-level thread-list state isolated between tests. */
+export function _resetSharedThreadListCacheForTests(): void {
+  sharedThreadListRequests.clear();
+  sharedThreadListCache.clear();
+}
 
 async function fetchSharedThreadListPage(
   apiUrl: string,
   offset: number,
+  options?: { useCache?: boolean },
 ): Promise<ChatThreadSummary[] | undefined> {
-  const requestKey = `${apiUrl}\n${offset}`;
+  const requestKey = threadListPageKey(apiUrl, offset);
+  if (options?.useCache) {
+    const cached = sharedThreadListCache.get(requestKey);
+    if (cached) return cached;
+  }
   const pending = sharedThreadListRequests.get(requestKey);
   if (pending) return pending;
 
@@ -98,6 +121,7 @@ async function fetchSharedThreadListPage(
       if (!res.ok) return undefined;
       const data = await res.json();
       const threads = (data.threads ?? []) as ChatThreadSummary[];
+      sharedThreadListCache.set(requestKey, threads);
       return threads;
     })
     .finally(() => {
@@ -246,11 +270,19 @@ export function useChatThreads(
     initialActiveThreadRef.current = { id, isNew };
   }
 
-  const [threads, setThreads] = useState<ChatThreadSummary[]>([]);
-  const [hasMoreThreads, setHasMoreThreads] = useState(false);
+  const initialCachedThreads = useMemo(
+    () => cachedThreadListPage(apiUrl, 0),
+    [apiUrl],
+  );
+  const [threads, setThreads] = useState<ChatThreadSummary[]>(
+    () => initialCachedThreads ?? [],
+  );
+  const [hasMoreThreads, setHasMoreThreads] = useState(
+    () => (initialCachedThreads?.length ?? 0) >= THREADS_PAGE_SIZE,
+  );
   const [isLoadingMoreThreads, setIsLoadingMoreThreads] = useState(false);
   const [threadsLoadError, setThreadsLoadError] = useState<string | null>(null);
-  const nextThreadsOffsetRef = useRef(0);
+  const nextThreadsOffsetRef = useRef(initialCachedThreads?.length ?? 0);
   const threadsRef = useRef<ChatThreadSummary[]>(threads);
   threadsRef.current = threads;
 
@@ -368,7 +400,9 @@ export function useChatThreads(
   const [activeThreadId, setActiveThreadId] = useState<string | null>(
     initialActiveThreadRef.current.id,
   );
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(
+    () => initialCachedThreads === undefined,
+  );
   const fetchedRef = useRef(false);
   const activeThreadIdRef = useRef(activeThreadId);
   activeThreadIdRef.current = activeThreadId;
@@ -467,10 +501,12 @@ export function useChatThreads(
   ]);
 
   const fetchThreads = useCallback(
-    async (options?: { append?: boolean }) => {
+    async (options?: { append?: boolean; useCache?: boolean }) => {
       try {
         const offset = options?.append ? nextThreadsOffsetRef.current : 0;
-        const loaded = await fetchSharedThreadListPage(apiUrl, offset);
+        const loaded = await fetchSharedThreadListPage(apiUrl, offset, {
+          useCache: options?.useCache,
+        });
         if (!loaded) {
           if (!options?.append) {
             setThreadsLoadError("Could not load chat history.");
@@ -598,8 +634,8 @@ export function useChatThreads(
     fetchedRef.current = true;
 
     (async () => {
-      setIsLoading(true);
-      const loadedThreads = await fetchThreads();
+      if (initialCachedThreads === undefined) setIsLoading(true);
+      const loadedThreads = await fetchThreads({ useCache: true });
       const savedId = activeThreadIdRef.current;
       if (loadedThreads === undefined) {
         // Thread-list fetch failed. Do not reclassify a saved id as a new
