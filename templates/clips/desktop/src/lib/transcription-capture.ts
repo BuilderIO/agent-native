@@ -286,6 +286,17 @@ async function startBrowserTranscriptionCapture(): Promise<TranscriptionCapture 
 
 export const __test = { createWebSpeechTranscriptBuffer };
 
+/**
+ * Local transcription opens a microphone capture of its own. System-only
+ * recordings must wait for post-upload transcription instead of sampling the
+ * Mac's default microphone.
+ */
+export function shouldStartLocalRecordingTranscription(
+  microphoneEnabled: boolean,
+): boolean {
+  return microphoneEnabled;
+}
+
 export async function startTranscriptionCapture(
   mic?: {
     deviceId?: string | null;

@@ -43,9 +43,11 @@ export async function listDispatchAutomations(): Promise<
   DispatchAutomationItem[]
 > {
   const response = await fetch(agentNativePath("/_agent-native/automations"));
-  if (!response.ok) return [];
-  const rows = await response.json().catch(() => []);
-  return Array.isArray(rows) ? rows : [];
+  const rows = await readAutomationResponse<unknown>(response);
+  if (!Array.isArray(rows)) {
+    throw new Error("Automation list returned an invalid response");
+  }
+  return rows as DispatchAutomationItem[];
 }
 
 export async function setDispatchAutomationEnabled(

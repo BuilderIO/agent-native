@@ -8,19 +8,15 @@ import {
   resourcePut,
 } from "../../resources/store.js";
 import { isValidCron, nextOccurrence } from "../cron.js";
+import { classifyJobResource } from "../frontmatter.js";
 import { buildJobContent, parseJobFrontmatter } from "../scheduler.js";
 import { authorizeJobMutation } from "../tools.js";
 
 const scopeSchema = z.enum(["personal", "organization"]);
 
-function hasTriggerFrontmatter(content: string): boolean {
-  const header = content.match(/^---\n([\s\S]*?)\n---/m)?.[1] ?? "";
-  return /^triggerType\s*:/m.test(header);
-}
-
 export default defineAction({
   description:
-    "Enable, pause, or delete one recurring cron job from the Agent Jobs page.",
+    "Enable, pause, or delete one legacy recurring cron job from the Agent Automations page.",
   agentTool: false,
   schema: z.object({
     operation: z.enum(["update", "delete"]),
@@ -48,7 +44,7 @@ export default defineAction({
     }
 
     const { meta, body } = parseJobFrontmatter(resource.content);
-    if (hasTriggerFrontmatter(resource.content)) {
+    if (classifyJobResource(resource.content).kind === "automation") {
       throw Object.assign(new Error(`Job "${name}" is an automation.`), {
         statusCode: 400,
       });

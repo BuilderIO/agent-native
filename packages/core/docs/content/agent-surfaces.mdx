@@ -59,7 +59,7 @@ The shared page currently provides twelve tabs across two groups:
 | Resources | **Remote agents** | A2A connections to other agent-native apps — this replaces what the Connections tab used to also show                                                                                                                |
 | Agent     | **Snapshots**     | A scope preview, token budget, ordered system sections grouped by provenance/governance/source, and the latest live-thread snapshot. Renamed from "Context"; old `#context` links redirect here.                     |
 | Agent     | **Connections**   | MCP server management only                                                                                                                                                                                           |
-| Agent     | **Jobs**          | Scoped recurring jobs and automations, with the existing pause/resume, details, and delete flows. Automations are personal-only today.                                                                               |
+| Agent     | **Automations**   | Personal and organization Scheduled/Event automations with pause/resume, details, and delete flows. The stable compatibility URL remains `/agent#jobs`.                                                              |
 | Agent     | **Settings**      | Agent model, API keys, limits, voice, and automation settings                                                                                                                                                        |
 | Agent     | **Access**        | The app MCP URL, an A2A agent card when available, and shared setup guides for Claude, ChatGPT, Cursor, Claude Code, Codex, and other clients. Links to `/mcp/connect` for the full connect flow and token fallback. |
 
@@ -165,9 +165,9 @@ is no "browse-everything-at-a-glance" view; if users need that, start from
 
 When you add the built-in Chat shell, the framework provides five management
 surfaces you don't have to build: **Chat** (the main input), **Resources**
-(skills, memory, instructions, sub-agents, connected MCP servers, scheduled
-jobs), **Job history**, **Thread history**, and **Settings**. Those are usually
-enough — talk to it, see what it's done, configure how it behaves. Reach for
+(skills, memory, instructions, sub-agents, and connected MCP servers),
+**Automations**, **Thread history**, and **Settings**. Those are usually enough
+— talk to it, see what it's done, configure how it behaves. Reach for
 [Chat](/docs/template-chat) when you're ready to add that browser UI, or the
 [Dispatch template](/docs/template-dispatch) for a workspace-style starting
 point with Slack/Telegram, scheduled jobs, and shared secrets out of the box.

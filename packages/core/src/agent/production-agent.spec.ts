@@ -32,6 +32,7 @@ import {
   createConnectedAgentReferenceEventRelay,
   createPlanModeActionRegistry,
   createProductionAgentHandler,
+  preloadPlanModeEngineTools,
   isPlanModeToolCallAllowed,
   isCachedToolResultVisibleInContext,
   isContextTooLongError,
@@ -64,6 +65,7 @@ function actionEntry(opts: {
   description?: string;
   readOnly?: boolean;
   allowInPlanMode?: boolean;
+  planMode?: ActionEntry["planMode"];
   parallelSafe?: boolean;
   actions?: string[];
 }): ActionEntry {
@@ -90,6 +92,7 @@ function actionEntry(opts: {
     ...(typeof opts.allowInPlanMode === "boolean"
       ? { allowInPlanMode: opts.allowInPlanMode }
       : {}),
+    ...(opts.planMode ? { planMode: opts.planMode } : {}),
     ...(typeof opts.parallelSafe === "boolean"
       ? { parallelSafe: opts.parallelSafe }
       : {}),
@@ -855,10 +858,71 @@ describe("buildUserContentWithAttachments", () => {
       }),
       write: actionEntry({ readOnly: false }),
       bash: actionEntry({ readOnly: false }),
+      "call-agent": {
+        ...actionEntry({ readOnly: false }),
+        tool: {
+          description: "Call another app",
+          parameters: {
+            type: "object",
+            properties: {
+              agent: { type: "string" },
+              message: { type: "string" },
+              taskId: { type: "string" },
+              action: { type: "string" },
+              input: { type: "object" },
+              approvedActions: { type: "array" },
+            },
+            required: ["agent"],
+          },
+        },
+      },
       "set-url-path": actionEntry({ readOnly: true }),
       resources: actionEntry({
         actions: ["list", "read", "write", "delete"],
+        planMode: {
+          effect: (args: any) =>
+            ["list", "read"].includes(args?.action) ? "read" : "write",
+          allowedValues: { action: ["list", "read"] },
+        },
       }),
+      "query-provider": {
+        ...actionEntry({
+          planMode: {
+            effect: "read",
+            allowedProperties: ["query"],
+            requiredProperties: ["query"],
+            omittedProperties: ["persist"],
+          },
+        }),
+        tool: {
+          description: "Query a provider",
+          parameters: {
+            type: "object",
+            properties: {
+              query: { type: "string" },
+              persist: { type: "boolean" },
+            },
+            required: ["persist"],
+          },
+        },
+      },
+      "required-plan-input": {
+        ...actionEntry({
+          planMode: {
+            effect: "read",
+            requiredProperties: ["query"],
+          },
+        }),
+        tool: {
+          description: "Inspect records",
+          parameters: {
+            type: "object",
+            properties: {
+              query: { type: "string" },
+            },
+          },
+        },
+      },
     });
 
     const planRegistry = createPlanModeActionRegistry(registry);
@@ -869,8 +933,11 @@ describe("buildUserContentWithAttachments", () => {
         .sort(),
     ).toEqual([
       "bash",
+      "call-agent",
+      "query-provider",
       "read",
       "read-but-act-only",
+      "required-plan-input",
       "resources",
       "set-url-path",
       "tool-search",
@@ -885,6 +952,17 @@ describe("buildUserContentWithAttachments", () => {
     expect(
       planRegistry.resources.tool.parameters?.properties.action.enum,
     ).toEqual(["list", "read"]);
+    expect(
+      Object.keys(
+        planRegistry["query-provider"].tool.parameters?.properties ?? {},
+      ),
+    ).toEqual(["query"]);
+    expect(planRegistry["query-provider"].tool.parameters?.required).toEqual([
+      "query",
+    ]);
+    expect(
+      planRegistry["required-plan-input"].tool.parameters?.required,
+    ).toEqual(["query"]);
     await expect(
       planRegistry.resources.run({ action: "read" }),
     ).resolves.toContain('"action":"read"');
@@ -900,6 +978,9 @@ describe("buildUserContentWithAttachments", () => {
     await expect(
       planRegistry.bash.run({ command: "rg button; node -e '1'" }),
     ).resolves.toContain("Plan mode blocked");
+    await expect(planRegistry["call-agent"].run({})).resolves.toContain(
+      "Plan mode blocked",
+    );
 
     const searchResult = await planRegistry["tool-search"].run({
       query: "write file",
@@ -928,6 +1009,7 @@ describe("buildUserContentWithAttachments", () => {
         "gong-calls": actionEntry({ readOnly: true }),
         gcloud: actionEntry({ readOnly: true }),
         "ordinary-rare-tool": actionEntry({ readOnly: true }),
+        "web-request": actionEntry({ readOnly: true }),
       }),
     );
 
@@ -937,6 +1019,7 @@ describe("buildUserContentWithAttachments", () => {
 
     expect(initialTools).toContain("starter");
     expect(initialTools).toContain("tool-search");
+    expect(initialTools).toContain("web-request");
     expect(initialTools).not.toContain("provider-api-request");
     expect(initialTools).not.toContain("provider-api-docs");
     expect(initialTools).not.toContain("run-code");
@@ -957,6 +1040,7 @@ describe("buildUserContentWithAttachments", () => {
         "docs-search": actionEntry({ readOnly: true }),
         "get-framework-context": actionEntry({ readOnly: true }),
         "read-attachment": actionEntry({ readOnly: true }),
+        "web-request": actionEntry({ readOnly: true }),
         "mcp__huge__rare-tool": actionEntry({ readOnly: true }),
       }),
     );
@@ -970,6 +1054,7 @@ describe("buildUserContentWithAttachments", () => {
       "docs-search",
       "get-framework-context",
       "read-attachment",
+      "web-request",
       "mcp__huge__rare-tool",
       "tool-search",
     ]);
@@ -1103,6 +1188,13 @@ describe("buildUserContentWithAttachments", () => {
 
   it("treats mixed tools as read-only only for allowed arguments", () => {
     const webRequest = actionEntry({ readOnly: true });
+    webRequest.planMode = {
+      effect: (args: any) =>
+        ["GET", "HEAD"].includes(String(args?.method ?? "GET").toUpperCase())
+          ? "read"
+          : "write",
+      allowedValues: { method: ["GET", "HEAD"] },
+    };
     expect(
       isPlanModeToolCallAllowed("web-request", { method: "GET" }, webRequest),
     ).toBe(true);
@@ -1139,6 +1231,84 @@ describe("buildUserContentWithAttachments", () => {
         bashTool,
       ),
     ).toBe(false);
+
+    const callAgent = actionEntry({ readOnly: false });
+    expect(isPlanModeToolCallAllowed("call-agent", {}, callAgent)).toBe(false);
+
+    const classifierThrows = actionEntry({
+      planMode: {
+        effect: () => {
+          throw new Error("bad classifier");
+        },
+      },
+    });
+    expect(isPlanModeToolCallAllowed("fragile", {}, classifierThrows)).toBe(
+      false,
+    );
+
+    const projectedRead = actionEntry({
+      planMode: {
+        effect: "read",
+        allowedProperties: ["query", "limit"],
+        omittedProperties: ["persist"],
+      },
+    });
+    expect(
+      isPlanModeToolCallAllowed(
+        "query-provider",
+        { query: "open", limit: 5 },
+        projectedRead,
+      ),
+    ).toBe(true);
+    expect(
+      isPlanModeToolCallAllowed(
+        "query-provider",
+        { query: "open", persist: true },
+        projectedRead,
+      ),
+    ).toBe(false);
+  });
+
+  it("preloads at most three matching callable Plan tool schemas", () => {
+    const registry = createPlanModeActionRegistry(
+      attachToolSearch({
+        "inspect-invoices": actionEntry({
+          description: "Inspect invoice records and totals",
+          readOnly: true,
+        }),
+        "inspect-payments": actionEntry({
+          description: "Inspect payment records",
+          readOnly: true,
+        }),
+        "inspect-customers": actionEntry({
+          description: "Inspect customer billing details",
+          readOnly: true,
+        }),
+        "inspect-refunds": actionEntry({
+          description: "Inspect refunded invoice payments",
+          readOnly: true,
+        }),
+        "delete-invoices": actionEntry({
+          description: "Delete invoice records",
+          readOnly: false,
+        }),
+      }),
+    );
+    const availableTools = actionsToEngineTools(registry);
+    const initialTools = availableTools.filter(
+      (tool) => tool.name === "tool-search",
+    );
+
+    const preloaded = preloadPlanModeEngineTools({
+      request: "Inspect invoice payments, refunds, and customer billing",
+      registry,
+      initialTools,
+      availableTools,
+    });
+
+    expect(preloaded).toHaveLength(4);
+    expect(preloaded.map((tool) => tool.name)).toContain("tool-search");
+    expect(preloaded.map((tool) => tool.name)).not.toContain("delete-invoices");
   });
 });
 

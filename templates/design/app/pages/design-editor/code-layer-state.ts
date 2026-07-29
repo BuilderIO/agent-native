@@ -400,7 +400,9 @@ function provenanceForCodeLayerNode(
     declaredFramework === "html" ||
     declaredFramework === "react" ||
     declaredFramework === "vue" ||
-    declaredFramework === "svelte"
+    declaredFramework === "svelte" ||
+    declaredFramework === "angular" ||
+    declaredFramework === "lwc"
       ? (declaredFramework as ElementProvenanceFramework)
       : undefined;
   const ownerSourceFile = node.dataAttributes["data-source-owner-file"]?.trim();

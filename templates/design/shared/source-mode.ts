@@ -108,7 +108,13 @@ export type ElementProvenanceMethod =
   | "vue-inspector" // Vue dev compiler's `__v_inspector` vnode prop
   | "svelte-meta"; // Svelte dev compiler's `__svelte_meta.loc`
 
-export type ElementProvenanceFramework = "html" | "react" | "vue" | "svelte";
+export type ElementProvenanceFramework =
+  | "html"
+  | "react"
+  | "vue"
+  | "svelte"
+  | "angular"
+  | "lwc";
 
 export const ELEMENT_PROVENANCE_METHODS: readonly ElementProvenanceMethod[] = [
   "data-attribute",

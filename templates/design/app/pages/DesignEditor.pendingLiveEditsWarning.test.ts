@@ -21,6 +21,9 @@ describe("DesignEditor pending live edits", () => {
     );
     expect(toolbar).not.toContain("sessionOnlyWarning");
     expect(toolbar).not.toContain("{pendingVisualEditCount}");
+    expect(toolbar).toContain('className="h-9 min-w-0');
+    expect(toolbar).toContain('className="h-9 w-8');
+    expect(toolbar).not.toContain('className="h-11');
 
     const messages = readFileSync(
       new URL("../i18n-data.ts", import.meta.url),

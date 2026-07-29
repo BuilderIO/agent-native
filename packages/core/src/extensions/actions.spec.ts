@@ -267,6 +267,60 @@ describe("extensions/actions", () => {
     );
   });
 
+  it("requires targeted reads for large extension bodies", async () => {
+    const content =
+      `<div>${"x".repeat(100_000)}` +
+      "function tabMonthlyTableRows(activeTab) { return activeTab; }" +
+      `${"y".repeat(100_000)}</div>`;
+    const getExtension = vi.fn(async () => ({
+      ...extensionRow,
+      content,
+    }));
+
+    mockExtensionModules({
+      store: {
+        getExtension,
+        getHiddenExtensionIdsForCurrentUser: vi.fn(
+          async () => new Set<string>(),
+        ),
+      },
+      resolveAccessRole: "editor",
+    });
+
+    const { createExtensionActionEntries } = await import("./actions.js");
+    const actions = createExtensionActionEntries();
+
+    const compact = (await actions["get-extension"].run({
+      id: "ext-zoom",
+    })) as any;
+    expect(compact.extension).not.toHaveProperty("content");
+    expect(compact.extension.contentOmitted).toMatchObject({
+      reason: "large-content-requires-targeted-read",
+      contentLength: content.length,
+      inlineContentLimit: 60_000,
+    });
+
+    const targeted = (await actions["get-extension"].run({
+      id: "ext-zoom",
+      contentQuery: "tabMonthlyTableRows",
+      contentContextChars: 500,
+    })) as any;
+    expect(targeted.extension).not.toHaveProperty("content");
+    expect(targeted.extension.contentMatches.matches).toHaveLength(1);
+    expect(targeted.extension.contentMatches.matches[0].excerpt).toContain(
+      "function tabMonthlyTableRows",
+    );
+    expect(
+      targeted.extension.contentMatches.matches[0].excerpt.length,
+    ).toBeLessThanOrEqual(1_020);
+
+    const full = (await actions["get-extension"].run({
+      id: "ext-zoom",
+      forceContent: true,
+    })) as any;
+    expect(full.extension.content).toBe(content);
+  });
+
   it("omits extension history version bodies by default", async () => {
     const getExtensionHistoryVersion = vi.fn(async () => ({
       entry: {

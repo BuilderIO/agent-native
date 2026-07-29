@@ -2352,6 +2352,29 @@ describe("provider API runtime", () => {
       deleteGitHubRepositoryFile: vi.fn(),
     };
     const action = createGitHubRepoFilesAction(runtime);
+    const planEffect = action.planMode?.effect;
+    expect(typeof planEffect).toBe("function");
+    if (typeof planEffect !== "function") {
+      throw new Error("Missing Plan-mode classifier");
+    }
+    expect(planEffect({ operation: "list", owner: "o", repo: "r" })).toBe(
+      "read",
+    );
+    expect(planEffect({ operation: "search", owner: "o", repo: "r" })).toBe(
+      "read",
+    );
+    expect(planEffect({ operation: "read", owner: "o", repo: "r" })).toBe(
+      "read",
+    );
+    expect(planEffect({ operation: "write", owner: "o", repo: "r" })).toBe(
+      "write",
+    );
+    expect(planEffect({ operation: "delete", owner: "o", repo: "r" })).toBe(
+      "write",
+    );
+    expect(action.planMode?.allowedValues).toEqual({
+      operation: ["list", "search", "read"],
+    });
 
     expect(typeof action.needsApproval).toBe("function");
     await expect(
