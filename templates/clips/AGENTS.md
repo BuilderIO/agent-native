@@ -97,7 +97,7 @@ Read the matching skill before deeper work in that area:
 | `trim-`, `split-recording`, `remove-silences`, `remove-filler-words` | Edits |
 | `list-meetings`, `get-`, `update-`, `finalize-meeting` | Meetings |
 | `list-dictations`, `cleanup-dictation` | Dictation history |
-| `add-comment`, `create-folder`, `create-space` | Comments, folders |
+| `add-comment`, `update-comment`, `create-folder`, `create-space` | Comments, folders |
 | `share-resource`, `set-resource-visibility`, `build-embed-url` | Share, embed |
 | `create-recording-agent-link` | Two-hour `agent_access` share URL |
 | `prepare-crm-call-evidence` | Opaque clip id plus `/r/<id>` for CRM |

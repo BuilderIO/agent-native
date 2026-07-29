@@ -1951,6 +1951,101 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     });
   });
 
+  it("keeps ask_app polling metadata visible to text-fallback callers", async () => {
+    builtinToolMocks.askAppRun.mockResolvedValueOnce({
+      app: "content",
+      routedVia: "a2a",
+      taskId: "task-1",
+      taskHandle: "opaque-task-handle",
+      status: "working",
+      pollAfterMs: 1_500,
+      poll: {
+        tool: "ask_app_status",
+        arguments: {
+          app: "content",
+          taskId: "task-1",
+          taskHandle: "opaque-task-handle",
+        },
+      },
+      message:
+        "ask_app is still working. Call ask_app_status with the returned taskHandle to retrieve the final response.",
+    });
+
+    const call = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 2921,
+        method: "tools/call",
+        params: {
+          name: "ask_app",
+          arguments: { app: "content", message: "Read the document." },
+        },
+      },
+      { config: compactSurfaceDefaultConfig },
+    );
+
+    expect(call.error).toBeUndefined();
+    expect(JSON.parse(call.result.content[0].text)).toMatchObject({
+      app: "content",
+      routedVia: "a2a",
+      taskId: "task-1",
+      taskHandle: "opaque-task-handle",
+      poll: {
+        tool: "ask_app_status",
+        arguments: {
+          app: "content",
+          taskId: "task-1",
+          taskHandle: "opaque-task-handle",
+        },
+      },
+    });
+    expect(builtinToolMocks.askAppRun).toHaveBeenCalledWith(
+      {
+        app: "content",
+        message: "Read the document.",
+      },
+      expect.objectContaining({
+        actionName: "ask_app",
+        caller: "mcp",
+      }),
+    );
+  });
+
+  it("keeps an app-defined ask_app override concise", async () => {
+    const appDefinedAskAppConfig = {
+      ...compactSurfaceConfig,
+      actions: {
+        ...compactSurfaceConfig.actions,
+        ask_app: {
+          tool: { description: "App-defined ask_app override" },
+          run: async () => ({
+            message: "Custom ask complete.",
+            internalReceipt: "must-not-leak",
+          }),
+        },
+      },
+    };
+
+    const call = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 2922,
+        method: "tools/call",
+        params: {
+          name: "ask_app",
+          arguments: {},
+        },
+      },
+      {
+        config: appDefinedAskAppConfig,
+      },
+    );
+
+    expect(call.error).toBeUndefined();
+    expect(call.result.content[0].text).toBe("Custom ask complete.");
+    expect(JSON.stringify(call.result)).not.toContain("must-not-leak");
+  });
+
   it("returns transient ask_app status read exhaustion as recoverable structured content", async () => {
     builtinToolMocks.askAppStatusRun.mockResolvedValueOnce({
       app: "mail",

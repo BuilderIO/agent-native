@@ -99,7 +99,13 @@ export async function assertContentDatabaseViewerAccess(databaseId: string) {
         isNull(schema.contentDatabases.deletedAt),
       ),
     );
-  if (!database) throw new Error(`Database "${databaseId}" not found`);
+  if (!database) {
+    const error = new Error(`Database "${databaseId}" not found`) as Error & {
+      statusCode: number;
+    };
+    error.statusCode = 404;
+    throw error;
+  }
 
   try {
     await assertAccess("document", database.documentId, "viewer");

@@ -498,22 +498,32 @@ class AISDKEngine implements AgentEngine {
       yield bufferedStop ?? { type: "stop", reason: "end_turn" };
     } catch (err: any) {
       const timedOut = firstEventAbort.didTimeout();
+      // AI SDK wraps exhausted retries in RetryError and keeps the final
+      // APICallError on `lastError`. Read classification fields from that
+      // provider error so the retry wrapper does not erase transport status.
+      const providerError =
+        err?.lastError instanceof Error ? err.lastError : err;
       // Surface structured fields from AI SDK's APICallError so
       // isRetryableError can check statusCode/providerRetryable directly
       // rather than keyword-matching the message string.
       const statusCode: number | undefined =
-        typeof err?.statusCode === "number" ? err.statusCode : undefined;
-      const rawMessage: string = err?.message ?? String(err);
+        typeof providerError?.statusCode === "number"
+          ? providerError.statusCode
+          : undefined;
+      const rawMessage: string =
+        providerError?.message ?? String(providerError);
       // Classify on the bare message — the recorded `errorMessage` carries the
       // cause chain, which is where the real transport failure lives.
       const errorMessage = describeErrorWithCauses(err);
+      const normalizedRawMessage = rawMessage.trim().toLowerCase();
       const isConnectionError =
         !timedOut &&
         statusCode === undefined &&
-        rawMessage.trim().toLowerCase() === "connection error.";
+        (normalizedRawMessage === "connection error." ||
+          normalizedRawMessage.startsWith("cannot connect to api:"));
       const providerRetryable: boolean | undefined =
-        typeof err?.isRetryable === "boolean"
-          ? err.isRetryable
+        typeof providerError?.isRetryable === "boolean"
+          ? providerError.isRetryable
           : isConnectionError || timedOut
             ? true
             : undefined;

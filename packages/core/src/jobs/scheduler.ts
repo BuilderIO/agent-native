@@ -692,6 +692,10 @@ async function executeJob(
               // streams a job, so it gets reaped mid-flight.
               dispatchMode: "background",
               // turnId defaults to runId — fine for single-turn jobs
+              // No userId here: `jobUserEmail` is PII (email), which the
+              // terminal event must not carry.
+              model,
+              engineName: engine.name,
             },
           );
 

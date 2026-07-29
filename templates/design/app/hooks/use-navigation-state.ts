@@ -54,6 +54,7 @@ export interface DesignEditorCommand {
   designId: string;
   editorView?: "single" | "overview";
   viewMode?: "single" | "overview";
+  mode?: "edit" | "annotate" | "interact";
   inspectorTab?: "design" | "comments" | "tweaks" | "code" | "extensions";
   inspector?: "design" | "comments" | "tweaks" | "code" | "extensions";
   leftPanel?:
@@ -165,6 +166,7 @@ export function editorPathFromCommand(cmd: NavigationState): string | null {
   const params = new URLSearchParams();
   const editorView = normalizeEditorView(cmd.editorView);
   if (editorView) params.set("view", editorView);
+  if (editorView === "single") params.set("mode", "interact");
   const inspectorTab = normalizeInspectorTab(cmd.inspectorTab ?? cmd.inspector);
   if (inspectorTab) params.set("inspector", inspectorTab);
   const leftPanel = normalizeLeftPanel(cmd.leftPanel ?? cmd.panel);
@@ -200,6 +202,7 @@ export function editorCommandFromNavigate(
     path,
   };
   if (editorView) command.editorView = editorView;
+  if (editorView === "single") command.mode = "interact";
   if (inspectorTab) command.inspectorTab = inspectorTab;
   if (leftPanel) command.leftPanel = leftPanel;
   if (cmd.fileId) command.fileId = cmd.fileId;

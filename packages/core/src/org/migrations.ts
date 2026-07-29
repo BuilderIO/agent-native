@@ -124,4 +124,8 @@ export const ORG_MIGRATIONS = [
     sql: `CREATE UNIQUE INDEX IF NOT EXISTS app_member_roles_org_app_lower_email_uidx
           ON app_member_roles (org_id, app_id, LOWER(email))`,
   },
+  {
+    version: 1013,
+    sql: `ALTER TABLE organizations ADD COLUMN IF NOT EXISTS workspace_url TEXT`,
+  },
 ];

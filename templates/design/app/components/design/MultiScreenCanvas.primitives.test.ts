@@ -44,6 +44,7 @@ import {
   getBreakpointIframeId,
   getPrimaryIframeId,
   isBreakpointSelectionTarget,
+  shouldSuppressFrameSelectionBox,
 } from "./multi-screen/iframe-targeting";
 import {
   BOARD_SURFACE_RENDER_MAX_SIZE,
@@ -1610,6 +1611,42 @@ describe("isBreakpointSelectionTarget (BP-DEEP v2 item 3)", () => {
 
   it("false for a screen with no breakpoints at all", () => {
     expect(isBreakpointSelectionTarget({})).toBe(false);
+  });
+});
+
+describe("shouldSuppressFrameSelectionBox (overview element selection)", () => {
+  it("suppresses the frame box when the selection is an element inside this screen", () => {
+    expect(
+      shouldSuppressFrameSelectionBox({ id: "screen-1" }, "screen-1"),
+    ).toBe(true);
+  });
+
+  it("does not suppress when the element selection belongs to a different screen", () => {
+    expect(
+      shouldSuppressFrameSelectionBox({ id: "screen-1" }, "screen-2"),
+    ).toBe(false);
+  });
+
+  it("does not suppress a plain frame selection (no element selected anywhere)", () => {
+    expect(shouldSuppressFrameSelectionBox({ id: "screen-1" }, null)).toBe(
+      false,
+    );
+    expect(shouldSuppressFrameSelectionBox({ id: "screen-1" }, undefined)).toBe(
+      false,
+    );
+  });
+
+  it("still suppresses for the existing breakpoint-target case", () => {
+    expect(
+      shouldSuppressFrameSelectionBox(
+        {
+          id: "screen-1",
+          breakpointWidths: [390, 810],
+          activeBreakpointWidth: 810,
+        },
+        null,
+      ),
+    ).toBe(true);
   });
 });
 

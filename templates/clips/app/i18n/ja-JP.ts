@@ -938,6 +938,7 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     replyingTo: "返信先",
     commentAt: "コメント位置",
     writeReply: "返信を書く...",
+    editComment: "コメントを編集",
     commentButton: "コメント",
     composerPlaceholder: "コメントを追加…",
     mentionSomeone: "メンバーをメンション",
@@ -1344,7 +1345,7 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     downloadDesktopApp: "Download desktop app (ローカライズ済み)",
     technicalDetails: "Technical details (ローカライズ済み)",
     whatToCheck: "What to check (ローカライズ済み)",
-    downloadRecording: "Download recording (ローカライズ済み)",
+    downloadRecording: "Download (ローカライズ済み)",
     openRecorderInTab: "Open recorder in tab (ローカライズ済み)",
     connectStorageToFinish:
       "次の画面でストレージを接続してください: Builder.io (無料プランのストレージ + AI) または S3 互換ストレージ。Clips が保存を完了します。",
