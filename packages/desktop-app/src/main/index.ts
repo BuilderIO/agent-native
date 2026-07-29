@@ -202,6 +202,7 @@ import {
   installSentryWebContentsInstrumentation,
   setSentryWebContentsMetadata,
 } from "./sentry";
+import { installWebviewNavigationListeners } from "./webview-navigation";
 
 initializeDesktopSentry();
 initializeDesktopLogger();
@@ -8875,20 +8876,10 @@ function installWebviewOAuthNavigationHandler(contents: Electron.WebContents) {
     }
   };
 
-  contents.on("will-frame-navigate", (event) => {
-    if (event.isMainFrame) return;
-    handleNavigation(event, event.url, { isMainFrame: false });
-  });
-
   // Belt-and-suspenders for existing deployed app bundles that may still
   // fall back to assigning window.location when Electron reports a manually
   // handled popup as null. Keep Builder/Google OAuth out of the app webview.
-  contents.on("will-navigate", (event) => {
-    handleNavigation(event, event.url, { isMainFrame: true });
-  });
-  contents.on("will-redirect", (event, url, _isInPlace, isMainFrame) => {
-    handleNavigation(event, url, { isMainFrame });
-  });
+  installWebviewNavigationListeners(contents, handleNavigation);
 }
 
 // ---------- Webview popup handling ----------
