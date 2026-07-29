@@ -36,14 +36,18 @@ import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import type { Deck } from "@/context/DeckContext";
 import { useDecks } from "@/context/DeckContext";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { useDesignSystems } from "@/hooks/use-design-systems";
+import { useWorkspaceDefaults } from "@/hooks/use-workspace-defaults";
 import { createDeckAgentMessage } from "@/lib/agent-visible-message";
 import { savePromptToComposerDraft } from "@/lib/composer-draft";
 
@@ -125,6 +129,41 @@ async function loadDesignSystemGenerationContext(
   ].join("\n");
 }
 
+interface ReferenceDeckContextResult {
+  agentContext?: string;
+}
+
+async function loadReferenceDeckGenerationContext(
+  referenceDeckId?: string | null,
+): Promise<string> {
+  if (!referenceDeckId) return "";
+  try {
+    const result = (await callAction(
+      "get-deck-reference-context",
+      { id: referenceDeckId },
+      { method: "GET" },
+    )) as ReferenceDeckContextResult | undefined;
+    if (result?.agentContext?.trim()) {
+      return `\n${result.agentContext.trim()}`;
+    }
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "unknown loading error";
+    return [
+      "",
+      "## Reference Deck",
+      `The user picked deck "${referenceDeckId}" as a style reference, but it could not be loaded before generation: ${message}`,
+      "Before adding slides, call `get-deck-reference-context` for this id. If it still fails, tell the user the reference deck is unavailable instead of inventing a style.",
+    ].join("\n");
+  }
+  return [
+    "",
+    "## Reference Deck",
+    `The user picked deck "${referenceDeckId}" as a style reference, but it returned no usable context.`,
+    `Call \`get-deck --id ${referenceDeckId}\` before adding slides. If that deck is empty, tell the user instead of silently generating without a reference.`,
+  ].join("\n");
+}
+
 function describeUploadedFilesForAgent(
   files: UploadedFile[],
   deckId: string,
@@ -163,10 +202,18 @@ export default function Index() {
     reloadDecks,
   } = useDecks();
   const { designSystems, defaultSystem } = useDesignSystems();
+  const {
+    referenceDeck: workspaceReferenceDeck,
+    designSystem: workspaceDesignSystem,
+    canManage: canManageWorkspaceDefaults,
+    refetch: refetchWorkspaceDefaults,
+  } = useWorkspaceDefaults();
   const { session } = useSession();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [deckToDelete, setDeckToDelete] = useState<string | null>(null);
+  const [workspaceDefaultCandidate, setWorkspaceDefaultCandidate] =
+    useState<Deck | null>(null);
   const [showNewDeckPrompt, setShowNewDeckPrompt] = useState(false);
   const [newDeckInitialPrompt, setNewDeckInitialPrompt] = useState<{
     text: string;
@@ -177,6 +224,15 @@ export default function Index() {
   );
   const [signInPromptHadFiles, setSignInPromptHadFiles] = useState(false);
   const [selectedDesignSystemId, setSelectedDesignSystemId] = useState("");
+  const [selectedReferenceDeckId, setSelectedReferenceDeckId] = useState("");
+  // True while the picker still reflects an auto-applied default rather than
+  // an explicit user choice. `useWorkspaceDefaults()`/`useDesignSystems()`
+  // resolve asynchronously, so the initial value set on dialog open can be a
+  // placeholder ("none", or the first-loaded design system) — these stay
+  // true so the hydration effects below can overwrite it once the real
+  // default arrives, and flip to false the moment the user picks explicitly.
+  const designSystemAutoRef = useRef(true);
+  const referenceDeckAutoRef = useRef(true);
   const [showSignInDialog, setShowSignInDialog] = useState(false);
   const [duplicating, setDuplicating] = useState<string | null>(null);
   const duplicatingRef = useRef<string | null>(null);
@@ -189,6 +245,35 @@ export default function Index() {
     () => new Map(designSystems.map((ds) => [ds.id, ds.title])),
     [designSystems],
   );
+  const starredDecks = useMemo(
+    () => decks.filter((deck) => deck.starred),
+    [decks],
+  );
+  const unstarredDecks = useMemo(
+    () => decks.filter((deck) => !deck.starred),
+    [decks],
+  );
+  // A workspace default the caller cannot open is reported by the action as
+  // `unavailable` rather than absent; preselecting it would send every new
+  // prompt at a deck that 404s, so fall back to no reference instead.
+  const workspaceReferenceDeckId =
+    workspaceReferenceDeck && !workspaceReferenceDeck.unavailable
+      ? workspaceReferenceDeck.id
+      : null;
+  const workspaceDesignSystemId =
+    workspaceDesignSystem && !workspaceDesignSystem.unavailable
+      ? workspaceDesignSystem.id
+      : null;
+  // Same precedence the server uses in `create-deck`: an explicit personal
+  // default, then the workspace default, then whatever exists. `defaultSystem`
+  // already collapses the first and last of those, so match it deliberately.
+  const personalDefaultDesignSystemId =
+    designSystems.find((ds) => ds.isDefault)?.id ?? null;
+  const initialDesignSystemId =
+    personalDefaultDesignSystemId ??
+    workspaceDesignSystemId ??
+    defaultSystem?.id ??
+    null;
   const deckFilter = searchParams.get("createdBy") === "me" ? "mine" : "all";
   const visibleDecks = useMemo(
     () =>
@@ -217,10 +302,13 @@ export default function Index() {
   const openNewDeck = useCallback(
     (e: React.MouseEvent<HTMLElement>) => {
       anchorElRef.current = e.currentTarget;
-      setSelectedDesignSystemId(defaultSystem?.id ?? "");
+      designSystemAutoRef.current = true;
+      referenceDeckAutoRef.current = true;
+      setSelectedDesignSystemId(initialDesignSystemId ?? "");
+      setSelectedReferenceDeckId(workspaceReferenceDeckId ?? "none");
       setShowNewDeckPrompt(true);
     },
-    [defaultSystem?.id],
+    [initialDesignSystemId, workspaceReferenceDeckId],
   );
 
   const setNewDeckPromptOpen = useCallback(
@@ -232,6 +320,7 @@ export default function Index() {
           setNewDeckInitialPrompt(null);
           setNewDeckRetryFiles([]);
         }
+        setSelectedReferenceDeckId("none");
       }
     },
     [],
@@ -257,19 +346,30 @@ export default function Index() {
     }
   }, []);
 
+  // Re-syncs the design-system picker whenever the resolved default changes
+  // while the dialog is open, not just on the first render after it opens.
+  // `useWorkspaceDefaults()` and `useDesignSystems()` load asynchronously and
+  // can settle in either order, so `initialDesignSystemId` may go from a
+  // provisional value to the real one after the picker already has a
+  // selection — guarding on `designSystemAutoRef` (instead of on whether
+  // `selectedDesignSystemId` is already set) lets that later value win as
+  // long as the user hasn't explicitly chosen something.
   useEffect(() => {
-    if (!showNewDeckPrompt || selectedDesignSystemId) return;
-    if (defaultSystem?.id) {
-      setSelectedDesignSystemId(defaultSystem.id);
+    if (!showNewDeckPrompt || !designSystemAutoRef.current) return;
+    if (initialDesignSystemId) {
+      setSelectedDesignSystemId(initialDesignSystemId);
     } else if (designSystems.length > 0) {
       setSelectedDesignSystemId("none");
     }
-  }, [
-    defaultSystem?.id,
-    designSystems.length,
-    selectedDesignSystemId,
-    showNewDeckPrompt,
-  ]);
+  }, [initialDesignSystemId, designSystems.length, showNewDeckPrompt]);
+
+  // Same as above for the reference-deck picker: `workspaceReferenceDeckId`
+  // can still be loading when the dialog opens, so re-apply it once it
+  // resolves unless the user already picked a reference deck.
+  useEffect(() => {
+    if (!showNewDeckPrompt || !referenceDeckAutoRef.current) return;
+    setSelectedReferenceDeckId(workspaceReferenceDeckId ?? "none");
+  }, [workspaceReferenceDeckId, showNewDeckPrompt]);
 
   // Restore a prompt that was held back when the user wasn't signed in:
   // we wrote the text to sessionStorage before redirecting to sign-in,
@@ -290,9 +390,12 @@ export default function Index() {
       clearPendingPromptForRetry();
       setNewDeckInitialPrompt({ text: saved, key: Date.now() });
     }
-    setSelectedDesignSystemId(defaultSystem?.id ?? "none");
+    designSystemAutoRef.current = true;
+    referenceDeckAutoRef.current = true;
+    setSelectedDesignSystemId(initialDesignSystemId ?? "none");
+    setSelectedReferenceDeckId(workspaceReferenceDeckId ?? "none");
     setShowNewDeckPrompt(true);
-  }, [defaultSystem?.id, session]);
+  }, [initialDesignSystemId, workspaceReferenceDeckId, session]);
 
   const handleCreateDeckBlank = () => {
     const selectedDesignSystem =
@@ -384,6 +487,11 @@ export default function Index() {
             "If the action cannot read a private document, tell the user the exact sharing step from the action error instead of generating from the URL alone.",
           ].join("\n")
         : "";
+    const referenceDeckContext = await loadReferenceDeckGenerationContext(
+      selectedReferenceDeckId && selectedReferenceDeckId !== "none"
+        ? selectedReferenceDeckId
+        : null,
+    );
     const hydratedDesignSystemContext = await loadDesignSystemGenerationContext(
       selectedDesignSystem?.id,
     );
@@ -408,6 +516,7 @@ export default function Index() {
       "The visible user message above contains the user's request and/or pasted source material for the deck. Treat pasted memo content as source material even if the user did not explicitly say they are pasting it.",
       googleDocContext,
       fileContext,
+      referenceDeckContext,
       designSystemContext,
       "",
       deckLengthContext,
@@ -459,6 +568,81 @@ export default function Index() {
     },
     [updateDeck],
   );
+
+  const handleToggleStar = useCallback(
+    (id: string, starred: boolean) => {
+      updateDeck(id, { starred });
+    },
+    [updateDeck],
+  );
+
+  const applyWorkspaceDefaultDeck = useCallback(
+    async (deck: Deck) => {
+      try {
+        // A private deck is unreadable to everyone else, so share it through
+        // the audited sharing action first — it owns org binding and collab
+        // cache invalidation, which a direct visibility write here would skip.
+        if (deck.visibility === "private") {
+          await callAction("set-resource-visibility", {
+            resourceType: "deck",
+            resourceId: deck.id,
+            visibility: "org",
+          });
+          await reloadDecks();
+        }
+        await callAction("set-workspace-defaults", {
+          referenceDeckId: deck.id,
+        });
+        await refetchWorkspaceDefaults();
+        toast.success(t("home.workspaceDefaultSet"));
+      } catch (error) {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : t("home.workspaceDefaultFailed"),
+        );
+      }
+    },
+    [reloadDecks, refetchWorkspaceDefaults, t],
+  );
+
+  const handleSetWorkspaceDefaultDeck = useCallback(
+    async (id: string, isDefault: boolean) => {
+      if (isDefault) {
+        const deck = decks.find((d) => d.id === id);
+        if (!deck) return;
+        // Setting the default is one click to undo. Publishing a private deck
+        // to the whole workspace is not, so that is the only part we confirm.
+        if (deck.visibility === "private") {
+          setWorkspaceDefaultCandidate(deck);
+          return;
+        }
+        await applyWorkspaceDefaultDeck(deck);
+        return;
+      }
+      try {
+        await callAction("set-workspace-defaults", { referenceDeckId: null });
+        await refetchWorkspaceDefaults();
+        toast.success(t("home.workspaceDefaultCleared"));
+      } catch (error) {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : t("home.workspaceDefaultFailed"),
+        );
+      }
+    },
+    [applyWorkspaceDefaultDeck, decks, refetchWorkspaceDefaults, t],
+  );
+
+  const confirmWorkspaceDefaultDeck = useCallback(() => {
+    // Read but do not clear: AlertDialogAction closes the dialog itself, and
+    // unmounting it here too would pre-empt Radix's close sequence and strand
+    // `pointer-events: none` on <body>. `onOpenChange` clears the candidate.
+    const deck = workspaceDefaultCandidate;
+    if (!deck) return;
+    void applyWorkspaceDefaultDeck(deck);
+  }, [workspaceDefaultCandidate, applyWorkspaceDefaultDeck]);
 
   const handleDuplicate = useCallback(
     async (id: string) => {
@@ -605,12 +789,16 @@ export default function Index() {
                   onDelete={(id) => setDeckToDelete(id)}
                   onRename={handleRename}
                   onDuplicate={handleDuplicate}
+                  onToggleStar={handleToggleStar}
                   isDuplicating={duplicating === deck.id}
                   designSystemTitle={
                     deck.designSystemId
                       ? designSystemTitleById.get(deck.designSystemId)
                       : null
                   }
+                  isWorkspaceDefault={workspaceReferenceDeck?.id === deck.id}
+                  canSetWorkspaceDefault={canManageWorkspaceDefaults}
+                  onSetWorkspaceDefault={handleSetWorkspaceDefaultDeck}
                 />
               ))}
               {visibleDecks.length === 0 && (
@@ -622,6 +810,30 @@ export default function Index() {
           </div>
         </>
       )}
+
+      <AlertDialog
+        open={!!workspaceDefaultCandidate}
+        onOpenChange={(open) => !open && setWorkspaceDefaultCandidate(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("home.workspaceDefaultConfirmTitle")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("home.workspaceDefaultDeckShareBody", {
+                title: workspaceDefaultCandidate?.title ?? "",
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("home.cancel")}</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmWorkspaceDefaultDeck}>
+              {t("home.workspaceDefaultConfirmAction")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog
@@ -673,7 +885,10 @@ export default function Index() {
             </label>
             <Select
               value={selectedDesignSystemId || "none"}
-              onValueChange={setSelectedDesignSystemId}
+              onValueChange={(value) => {
+                designSystemAutoRef.current = false;
+                setSelectedDesignSystemId(value);
+              }}
             >
               <SelectTrigger className="h-8 w-full bg-accent/40 text-xs">
                 <SelectValue placeholder={t("raw.chooseDesignSystem")} />
@@ -683,9 +898,66 @@ export default function Index() {
                 {designSystems.map((ds) => (
                   <SelectItem key={ds.id} value={ds.id}>
                     {ds.title}
-                    {ds.isDefault ? t("home.defaultSuffix") : ""}
+                    {ds.isDefault || ds.id === workspaceDesignSystemId
+                      ? t("home.defaultSuffix")
+                      : ""}
                   </SelectItem>
                 ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+        {decks.length > 0 && (
+          <div className="border-t border-border px-3.5 py-2">
+            <label className="mb-1.5 block text-[11px] font-medium text-muted-foreground">
+              {t("home.referenceDeck")}
+            </label>
+            <Select
+              value={selectedReferenceDeckId || "none"}
+              onValueChange={(value) => {
+                referenceDeckAutoRef.current = false;
+                setSelectedReferenceDeckId(value);
+              }}
+            >
+              <SelectTrigger className="h-8 w-full bg-accent/40 text-xs">
+                <SelectValue placeholder={t("home.referenceDeckPlaceholder")} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">
+                  {t("home.referenceDeckNone")}
+                </SelectItem>
+                {starredDecks.length > 0 && (
+                  <SelectGroup>
+                    <SelectLabel>
+                      {t("home.referenceDeckStarredGroup")}
+                    </SelectLabel>
+                    {starredDecks.map((deck) => (
+                      <SelectItem key={deck.id} value={deck.id}>
+                        {deck.title}
+                        {deck.id === workspaceReferenceDeckId
+                          ? t("home.defaultSuffix")
+                          : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                )}
+                {unstarredDecks.length > 0 && (
+                  <SelectGroup>
+                    {starredDecks.length > 0 && (
+                      <SelectLabel>
+                        {t("home.referenceDeckOtherGroup")}
+                      </SelectLabel>
+                    )}
+                    {unstarredDecks.map((deck) => (
+                      <SelectItem key={deck.id} value={deck.id}>
+                        {deck.title}
+                        {deck.id === workspaceReferenceDeckId
+                          ? t("home.defaultSuffix")
+                          : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                )}
               </SelectContent>
             </Select>
           </div>

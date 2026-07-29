@@ -626,6 +626,27 @@ const messages = {
     newDeckPlaceholder: "Décrivez votre deck, visualisation ou diagramme...",
     skipPrompt: "Ignorer le prompt",
     designSystem: "Système de design",
+    referenceDeck: "Deck de référence",
+    referenceDeckPlaceholder: "Reprendre le style d'un deck existant",
+    referenceDeckNone: "Ne pas en utiliser",
+    referenceDeckStarredGroup: "Favoris",
+    referenceDeckOtherGroup: "Autres decks",
+    workspaceDefaultBadge: "Par défaut pour l'espace de travail",
+    setWorkspaceDefault: "Définir par défaut pour l'espace de travail",
+    clearWorkspaceDefault: "Retirer le deck par défaut de l'espace de travail",
+    workspaceDefaultSet: "Défini par défaut pour l'espace de travail",
+    workspaceDefaultCleared: "Valeur par défaut de l'espace de travail retirée",
+    workspaceDefaultFailed:
+      "Impossible de mettre à jour le deck par défaut de l'espace de travail",
+    workspaceDefaultConfirmTitle:
+      "Définir par défaut pour l'espace de travail ?",
+    workspaceDefaultDeckShareBody:
+      "« {{title}} » est privé. Le définir par défaut pour l'espace de travail le partage avec tous les membres de cet espace de travail, et les nouveaux decks l'utiliseront comme référence de style. Les membres peuvent sélectionner un autre deck de référence lors de la création d'un deck.",
+    workspaceDefaultSystemShareBody:
+      "« {{title}} » est privé. Le définir par défaut pour l'espace de travail le partage avec tous les membres de cet espace de travail, et les nouveaux decks l'utiliseront. Les membres ayant défini leur propre système par défaut le conservent.",
+    workspaceDefaultConfirmAction: "Définir par défaut",
+    starDeck: "Ajouter aux favoris",
+    unstarDeck: "Retirer des favoris",
     none: "Aucun",
     defaultSuffix: " (Par défaut)",
     signInTitle: "Connectez-vous pour créer un deck",
