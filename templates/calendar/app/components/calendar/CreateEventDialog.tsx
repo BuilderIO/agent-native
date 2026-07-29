@@ -292,9 +292,14 @@ export function CreateEventPopover({
   const formRef = useRef<HTMLFormElement>(null);
   const attendeeAutocompleteRef = useRef<AttendeeAutocompleteHandle>(null);
   const initializedKeyRef = useRef<string | null>(null);
+  const preserveInitializationOnCloseRef = useRef(false);
 
   useEffect(() => {
     if (!open) {
+      if (preserveInitializationOnCloseRef.current) {
+        preserveInitializationOnCloseRef.current = false;
+        return;
+      }
       initializedKeyRef.current = null;
       return;
     }
@@ -791,6 +796,7 @@ export function CreateEventPopover({
         : {}),
     };
 
+    preserveInitializationOnCloseRef.current = true;
     onOpenChange(false);
     createEvent.mutate(payload, {
       onSuccess: (result) => {
