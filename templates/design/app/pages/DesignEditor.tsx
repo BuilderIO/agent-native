@@ -293,7 +293,7 @@ import { getBoardSurfaceContentBounds } from "@/components/design/multi-screen/b
 import {
   getCanonicalScreenStack,
   getInitialFrameGeometry,
-  getResponsiveScreenGroupSize,
+  getResponsiveScreenCullGeometry,
   reorderCanonicalScreenStack,
 } from "@/components/design/multi-screen/frame-geometry";
 import {
@@ -683,9 +683,11 @@ import {
   type AlignableRect,
   computeAlignedPositions,
   computeDistributedPositions,
+  computeOverlapReflowGeometry,
   computeTidyPositions,
   inferAutoLayoutFromChildren,
   mergeAuthoredAndLiveRect,
+  type ReflowCandidate,
 } from "./design-editor/layout-operations";
 import {
   applyMotionAutoKeyframesForStyles,
@@ -17596,23 +17598,21 @@ function DesignEditor() {
       const width = geometry.width ?? 0;
       const height = geometry.height ?? 0;
       const screen = overviewScreens.find((item) => item.id === screenId);
-      const widths = breakpointWidthsOverride ?? screen?.breakpointWidths;
-      if (!screen || !widths?.length) return { x, y, width, height };
-      // Same size function viewport culling already uses for a screen plus its
-      // responsive row, so packing and culling cannot disagree about how wide a
-      // breakpoint group is.
-      const size = getResponsiveScreenGroupSize(
+      if (!screen) return { x, y, width, height };
+      // Culling's own geometry, so packing cannot disagree with it. The AABB
+      // matters: a rotated group reaches past its unrotated box, and the
+      // collision test below is axis-aligned.
+      return getResponsiveScreenCullGeometry(
         {
           id: screenId,
           metadata: {
             width: screen.width ?? width,
             height: screen.height ?? height,
           },
-          breakpointWidths: widths,
+          breakpointWidths: breakpointWidthsOverride ?? screen.breakpointWidths,
         },
-        { x, y, width, height },
+        { x, y, width, height, rotation: geometry.rotation },
       );
-      return { x, y, width: size.width, height: size.height };
     },
     [overviewScreens],
   );
@@ -17629,46 +17629,41 @@ function DesignEditor() {
     (breakpointWidths: readonly number[]) => {
       if (!canEditDesignRef.current) return;
       const before = getCanvasFrameGeometry(designDataJsonRef.current);
-      const rects: AlignableRect[] = [];
-      overviewScreens.forEach((screen, index) => {
-        const geometry = {
-          ...getInitialFrameGeometry(index, {
-            width: screen.width ?? 1280,
-            height: screen.height ?? 2560,
-          }),
-          ...before[screen.id],
-        };
-        const footprint = getScreenGroupFootprint(
-          screen.id,
-          geometry,
-          breakpointWidths,
-        );
-        rects.push({
-          id: screen.id,
-          x: footprint.x,
-          y: footprint.y,
-          width: footprint.width,
-          height: footprint.height,
-        });
-      });
-      if (rects.length < 2) return;
-      const overlaps = rects.some((a, i) =>
-        rects.some(
-          (b, j) =>
-            i !== j &&
-            a.x < b.x + b.width &&
-            b.x < a.x + a.width &&
-            a.y < b.y + b.height &&
-            b.y < a.y + a.height,
-        ),
+      const candidates: ReflowCandidate[] = overviewScreens.map(
+        (screen, index) => {
+          // Screens laid out by getInitialFrameGeometry have no canvasFrames
+          // entry yet; carry the resolved geometry so the write-back below can
+          // create one instead of dropping their computed move.
+          const geometry = {
+            ...getInitialFrameGeometry(index, {
+              width: screen.width ?? 1280,
+              height: screen.height ?? 2560,
+            }),
+            ...before[screen.id],
+          };
+          const footprint = getScreenGroupFootprint(
+            screen.id,
+            geometry,
+            breakpointWidths,
+          );
+          return {
+            id: screen.id,
+            geometry,
+            footprint: {
+              id: screen.id,
+              x: footprint.x,
+              y: footprint.y,
+              width: footprint.width,
+              height: footprint.height,
+            },
+          };
+        },
       );
-      if (!overlaps) return;
-      const positions = computeTidyPositions(rects);
-      if (positions.size === 0) return;
+      const reflowed = computeOverlapReflowGeometry(candidates);
+      if (reflowed.size === 0) return;
       const after = cloneCanvasFrameGeometry(before);
-      positions.forEach((position, screenId) => {
-        if (!after[screenId]) return;
-        after[screenId] = { ...after[screenId], ...position };
+      reflowed.forEach((geometry, screenId) => {
+        after[screenId] = { ...after[screenId], ...geometry };
       });
       handleGeometryCommit(before, after);
     },

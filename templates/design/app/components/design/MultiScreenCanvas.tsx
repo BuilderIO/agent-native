@@ -6075,6 +6075,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const drillInTargetRef = useRef<{ screenId: string; key: string } | null>(
     null,
   );
+  /** Latest drill-in request. The candidate collection is an async iframe
+   *  round-trip, so a double-click on another frame must invalidate an
+   *  in-flight one — otherwise the late reply clobbers the newer selection. */
+  const drillInRequestRef = useRef(0);
 
   /**
    * Figma parity: double-clicking a frame's body descends into its layers so
@@ -6096,7 +6100,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         drillInTargetRef.current?.screenId === id
           ? drillInTargetRef.current.key
           : null;
+      const requestId = drillInRequestRef.current + 1;
+      drillInRequestRef.current = requestId;
       void collectLayerMarqueeCandidates(new Set([id])).then((candidates) => {
+        if (drillInRequestRef.current !== requestId) return;
         const target = resolveDrillInTarget({
           candidates,
           screenId: id,

@@ -18,13 +18,20 @@ export type BeginTextEditOutcome =
   | "node-missing"
   | "not-editing"
   | "no-iframe"
-  | "no-reply";
+  | "no-reply"
+  /** begin-text-edit was posted; the iframe has not been re-probed yet. Never
+   *  settle on this — it is not evidence the node was abandoned, and the
+   *  caller's exhaustion path deletes untouched nodes. */
+  | "activation-requested";
 
 export function isTextEditSessionOutcome(
   outcome: BeginTextEditOutcome,
 ): boolean {
   return outcome === "active" || outcome === "done";
 }
+
+/** Grace period before re-probing a just-requested activation. */
+const ACTIVATION_CONFIRM_DELAY_MS = 300;
 
 /**
  * Ask a single iframe's editor-chrome bridge whether a text-edit session for
@@ -78,7 +85,7 @@ function queryTextEditStatus(
   });
 }
 
-async function postBeginTextEdit(
+async function probeTextEdit(
   screenId: string | null,
   nodeId: string,
   boardFileId: string | null,
@@ -97,13 +104,31 @@ async function postBeginTextEdit(
     boardFileId ?? undefined,
   );
   if (!iframe?.contentWindow) return "no-iframe";
-  const status = await queryTextEditStatus(iframe, nodeId);
-  if (isTextEditSessionOutcome(status)) return status;
+  return queryTextEditStatus(iframe, nodeId);
+}
+
+/** Probes, and asks the iframe to enter edit mode when it is not already
+ *  editing. Reports `activation-requested` rather than the status observed
+ *  *before* the request: that pre-activation status is not an answer about the
+ *  session it just asked for. */
+async function requestTextEdit(
+  screenId: string | null,
+  nodeId: string,
+  boardFileId: string | null,
+): Promise<BeginTextEditOutcome> {
+  const status = await probeTextEdit(screenId, nodeId, boardFileId);
+  if (isTextEditSessionOutcome(status) || status === "no-iframe") return status;
+  const iframe = findCanvasIframeForScreen(
+    document.body,
+    screenId ?? "",
+    boardFileId ?? undefined,
+  );
+  if (!iframe?.contentWindow) return "no-iframe";
   iframe.contentWindow.postMessage(
     { type: "begin-text-edit", nodeId, force: true },
     "*",
   );
-  return status;
+  return "activation-requested";
 }
 
 /**
@@ -157,16 +182,30 @@ export function scheduleBeginTextEditForScreen(
   delays.forEach((delay, index) => {
     const timer = window.setTimeout(() => {
       if (finished) return;
-      void postBeginTextEdit(screenId, nodeId, boardFileId).then((status) => {
+      void requestTextEdit(screenId, nodeId, boardFileId).then((status) => {
         if (finished) return;
         lastStatus = status;
         if (isTextEditSessionOutcome(status)) {
           settle(status);
           return;
         }
-        if (index === delays.length - 1) {
+        if (index !== delays.length - 1) return;
+        if (status !== "activation-requested") {
           settle(status);
+          return;
         }
+        // Activation is still in flight, and the caller deletes untouched nodes
+        // on exhaustion. Settle on what the iframe reports, never on the request.
+        const confirmTimer = window.setTimeout(() => {
+          if (finished) return;
+          void probeTextEdit(screenId, nodeId, boardFileId).then(
+            (confirmed) => {
+              if (finished) return;
+              settle(confirmed);
+            },
+          );
+        }, ACTIVATION_CONFIRM_DELAY_MS);
+        timers.push(confirmTimer);
       });
     }, delay);
     timers.push(timer);
