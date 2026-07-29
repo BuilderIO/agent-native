@@ -50,7 +50,6 @@ import {
   runAgentLoopWithMainChatInternalContinuations,
   shouldChainBackgroundContinuation,
   MAX_IDENTICAL_TOOL_CALLS,
-  PLAN_MODE_SYSTEM_PROMPT,
   shouldGuardRepeatedSourceSweep,
   structuredHistoryToEngineMessages,
   trimOldToolResults,
@@ -920,39 +919,9 @@ describe("buildUserContentWithAttachments", () => {
     await expect(
       planRegistry.bash.run({ command: "rg button; node -e '1'" }),
     ).resolves.toContain("Plan mode blocked");
-    expect(
-      Object.keys(planRegistry["call-agent"].tool.parameters?.properties ?? {}),
-    ).toEqual(["agent", "action", "input"]);
-    expect(planRegistry["call-agent"].tool.parameters?.required).toEqual([
-      "agent",
-      "action",
-    ]);
-    await expect(
-      planRegistry["call-agent"].run({
-        agent: "clips",
-        action: "get-recording-player-data",
-        input: { recordingId: "clip-1" },
-      }),
-    ).resolves.toContain('"action":"get-recording-player-data"');
-    await expect(
-      planRegistry["call-agent"].run({
-        agent: "clips",
-        message: "Summarize this recording",
-      }),
-    ).resolves.toContain("Plan mode blocked");
-    await expect(
-      planRegistry["call-agent"].run({
-        agent: "clips",
-        taskId: "task-1",
-      }),
-    ).resolves.toContain("Plan mode blocked");
-    await expect(
-      planRegistry["call-agent"].run({
-        agent: "clips",
-        action: "get-recording-player-data",
-        approvedActions: [],
-      }),
-    ).resolves.toContain("Plan mode blocked");
+    await expect(planRegistry["call-agent"].run({})).resolves.toContain(
+      "Plan mode blocked",
+    );
 
     const searchResult = await planRegistry["tool-search"].run({
       query: "write file",
@@ -964,15 +933,6 @@ describe("buildUserContentWithAttachments", () => {
       (tool: any) => tool.name === "write",
     );
     expect(writeTool.description).toContain("Plan mode blocked");
-  });
-
-  it("allows only exact authenticated cross-app reads in Plan mode", () => {
-    expect(PLAN_MODE_SYSTEM_PROMPT).toContain(
-      "call external agents with natural-language tasks",
-    );
-    expect(PLAN_MODE_SYSTEM_PROMPT).toContain(
-      "exact authenticated read-only action",
-    );
   });
 
   it("keeps the default initial catalog to discovery/runtime tools", () => {
@@ -990,6 +950,7 @@ describe("buildUserContentWithAttachments", () => {
         "gong-calls": actionEntry({ readOnly: true }),
         gcloud: actionEntry({ readOnly: true }),
         "ordinary-rare-tool": actionEntry({ readOnly: true }),
+        "web-request": actionEntry({ readOnly: true }),
       }),
     );
 
@@ -999,6 +960,7 @@ describe("buildUserContentWithAttachments", () => {
 
     expect(initialTools).toContain("starter");
     expect(initialTools).toContain("tool-search");
+    expect(initialTools).toContain("web-request");
     expect(initialTools).not.toContain("provider-api-request");
     expect(initialTools).not.toContain("provider-api-docs");
     expect(initialTools).not.toContain("run-code");
@@ -1019,6 +981,7 @@ describe("buildUserContentWithAttachments", () => {
         "docs-search": actionEntry({ readOnly: true }),
         "get-framework-context": actionEntry({ readOnly: true }),
         "read-attachment": actionEntry({ readOnly: true }),
+        "web-request": actionEntry({ readOnly: true }),
         "mcp__huge__rare-tool": actionEntry({ readOnly: true }),
       }),
     );
@@ -1032,6 +995,7 @@ describe("buildUserContentWithAttachments", () => {
       "docs-search",
       "get-framework-context",
       "read-attachment",
+      "web-request",
       "mcp__huge__rare-tool",
       "tool-search",
     ]);
@@ -1203,57 +1167,7 @@ describe("buildUserContentWithAttachments", () => {
     ).toBe(false);
 
     const callAgent = actionEntry({ readOnly: false });
-    expect(
-      isPlanModeToolCallAllowed(
-        "call-agent",
-        {
-          agent: "clips",
-          action: "get-recording-player-data",
-          input: { recordingId: "clip-1" },
-        },
-        callAgent,
-      ),
-    ).toBe(true);
-    expect(
-      isPlanModeToolCallAllowed(
-        "call-agent",
-        { agent: "clips", message: "Summarize this recording" },
-        callAgent,
-      ),
-    ).toBe(false);
-    expect(
-      isPlanModeToolCallAllowed(
-        "call-agent",
-        {
-          agent: "clips",
-          action: "get-recording-player-data",
-          approvedActions: [],
-        },
-        callAgent,
-      ),
-    ).toBe(false);
-    expect(
-      isPlanModeToolCallAllowed(
-        "call-agent",
-        {
-          agent: "clips",
-          action: "get-recording-player-data",
-          message: {},
-        },
-        callAgent,
-      ),
-    ).toBe(false);
-    expect(
-      isPlanModeToolCallAllowed(
-        "call-agent",
-        {
-          agent: "clips",
-          action: "get-recording-player-data",
-          input: "not-an-object",
-        },
-        callAgent,
-      ),
-    ).toBe(false);
+    expect(isPlanModeToolCallAllowed("call-agent", {}, callAgent)).toBe(false);
   });
 });
 

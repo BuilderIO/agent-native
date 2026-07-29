@@ -13,12 +13,9 @@ const APPROVAL_SCOPES = new Set(["once", "run", "task"] as const);
 const OBSERVE_ACTIONS = new Map<ComputerOperationClass, Set<string>>([
   [
     "browser.observe",
-    new Set(["browser.attach", "browser.observe", "browser.stop"]),
+    new Set(["browser.read", "browser.observe", "browser.stop"]),
   ],
-  [
-    "desktop.observe",
-    new Set(["desktop.observe", "desktop.stop"]),
-  ],
+  ["desktop.observe", new Set(["desktop.observe", "desktop.stop"])],
 ]);
 const MAX_ACTION_BYTES = 32_768;
 const MAX_LEASE_MS = 24 * 60 * 60_000;
@@ -221,10 +218,14 @@ function assertActionMatchesOperationClass(
       `${actionType} cannot execute as a ${operationClass} operation`,
     );
   }
-  if (mode === "observe" && !OBSERVE_ACTIONS.get(operationClass)?.has(actionType)) {
-    throw invalid(
-      `${actionType} requires a ${surface}.control operation`,
-    );
+  if (
+    mode === "observe" &&
+    !OBSERVE_ACTIONS.get(operationClass)?.has(actionType)
+  ) {
+    throw invalid(`${actionType} requires a ${surface}.control operation`);
+  }
+  if (mode === "control" && actionType.endsWith(".observe")) {
+    throw invalid(`${actionType} must use a ${surface}.observe operation`);
   }
 }
 

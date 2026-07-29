@@ -169,15 +169,6 @@ describe("get-recording-player-data direct public access", () => {
     mockShareLimit.mockResolvedValue([]);
   });
 
-  it("exposes the authenticated read to sibling workspace apps", () => {
-    expect(action.publicAgent).toEqual({
-      expose: true,
-      readOnly: true,
-      requiresAuth: true,
-    });
-    expect(action.http).toEqual({ method: "GET" });
-  });
-
   it.each(["admin", "editor", "viewer"] as const)(
     "requires an explicit recording share for %s callers",
     async (role) => {

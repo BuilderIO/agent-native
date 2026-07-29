@@ -516,8 +516,10 @@ export function pendingStructureEditSourcePaths(
   edit: PendingLiveStructureEdit,
 ): string[] | null {
   const required = [
-    ...(edit.insertedHtml ? [] : [edit.sourceAnchor?.relPath]),
-    ...(edit.removed
+    ...(edit.insertedHtml && !edit.replaced
+      ? []
+      : [edit.sourceAnchor?.relPath]),
+    ...(edit.removed || edit.replaced
       ? []
       : [
           edit.anchorSourceAnchor?.relPath ??
@@ -530,7 +532,7 @@ export function pendingStructureEditSourcePaths(
 
 export type PendingStructureRedoCommand =
   | { kind: "delete" }
-  | { kind: "insert"; html: string }
+  | { kind: "insert"; html: string; replaceAnchor?: boolean }
   | { kind: "move" };
 
 /**
@@ -544,7 +546,11 @@ export function pendingStructureRedoCommand(
 ): PendingStructureRedoCommand {
   if (edit.removed) return { kind: "delete" };
   return edit.insertedHtml
-    ? { kind: "insert", html: edit.insertedHtml }
+    ? {
+        kind: "insert",
+        html: edit.insertedHtml,
+        ...(edit.replaced ? { replaceAnchor: true } : {}),
+      }
     : { kind: "move" };
 }
 
@@ -560,6 +566,7 @@ export function pendingLiveStructureEditsMatch(
     (left.anchorSourceId ?? "") === (right.anchorSourceId ?? "") &&
     left.placement === right.placement &&
     Boolean(left.removed) === Boolean(right.removed) &&
+    Boolean(left.replaced) === Boolean(right.replaced) &&
     left.dropMode === right.dropMode &&
     Boolean(left.forceFlowPositionOverride) ===
       Boolean(right.forceFlowPositionOverride)
@@ -908,7 +915,35 @@ export function formatPendingVisualStylePrompt(args: {
     const insertedHtml = edit.insertedHtml
       ? boundedInsertedHtml(edit.insertedHtml)
       : undefined;
-    const semanticHandoff = edit.removed
+    const semanticHandoff =
+      edit.replaced && insertedHtml
+        ? subjectAnchor
+          ? buildReactSemanticHandoff({
+              operation: "replace",
+              desiredChange: [
+                "Replace the selected runtime element with insertedHtml.",
+                insertedHtml.truncated
+                  ? "The markup below was truncated for prompt size; read the running preview or ask before writing it verbatim."
+                  : "Preserve the replacement markup, styles, and child order shown in the live preview.",
+              ].join(" "),
+              sourceAnchors: [subjectAnchor],
+              runtimeRelationship: {
+                kind: "replace",
+                subjectAnchorIds: ["subject"],
+                screenId: edit.screenId,
+                description: `replace ${edit.selector}`,
+              },
+              versionHashes: [],
+            })
+          : {
+              ok: false as const,
+              rejection: {
+                code: "missing-source-provenance" as const,
+                reason:
+                  "The replaced element's source anchor was not available for this runtime replacement.",
+              },
+            }
+        : edit.removed
       ? subjectAnchor
         ? buildReactSemanticHandoff({
             operation: "remove",
@@ -1003,8 +1038,14 @@ export function formatPendingVisualStylePrompt(args: {
       sourceAnchor: redactReactSourceAnchor(edit.sourceAnchor),
       // A removal has no anchor; emitting empty anchor fields alongside a
       // meaningless placement reads as a half-captured move.
-      ...(edit.removed
-        ? { removed: true as const }
+      ...(edit.removed || edit.replaced
+        ? edit.removed
+          ? { removed: true as const }
+          : {
+              replaced: true as const,
+              replacementSelector: edit.replacementSelector,
+              replacementSourceId: edit.replacementSourceId ?? null,
+            }
         : {
             anchorSelector: edit.anchorSelector,
             anchorSourceId: edit.anchorSourceId ?? null,

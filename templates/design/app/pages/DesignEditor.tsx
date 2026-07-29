@@ -16951,6 +16951,43 @@ function DesignEditor() {
     const targetPosition = selectedElement?.boundingRect;
     if (!targetSelector || !targetPosition) return;
     const baseContent = getFreshActiveContent();
+    const targetStoredContent = activeFile.content ?? baseContent;
+    if (isStandaloneHttpUrl(targetStoredContent)) {
+      const prepared = prepareClonedHtmlLayersForLiveInsert(
+        targetStoredContent,
+        [entries[0]!.html],
+        {
+          positions: [{ x: targetPosition.x, y: targetPosition.y }],
+          styleSnapshots: [entries[0]!.portableStyleSnapshot],
+        },
+      );
+      const html = prepared?.htmlFragments[0];
+      if (!prepared || !html) {
+        toast.error(t("designEditor.toasts.layerMoveFailed"), {
+          duration: 4000,
+        });
+        return;
+      }
+      runtimeStructureInsertRevisionRef.current += 1;
+      setRuntimeStructureInsertRequest({
+        requestId: runtimeStructureInsertRevisionRef.current,
+        screenId: activeFile.id,
+        html,
+        replaceAnchor: true,
+        anchor: {
+          selector:
+            selectedElement.runtimeSelector ??
+            selectedCanvasSelector ??
+            targetSelector,
+          sourceId:
+            selectedElement.runtimeSourceId ??
+            selectedElement.sourceId ??
+            undefined,
+        },
+        placement: "before",
+      });
+      return;
+    }
     const projection = buildCodeLayerProjection(baseContent);
     const targetNode = projection.nodes.find((node) =>
       node.selectors.includes(targetSelector),
@@ -16979,9 +17016,14 @@ function DesignEditor() {
     canEditDesign,
     getCanvasClipboardEntries,
     getFreshActiveContent,
+    selectedCanvasSelector,
     selectInsertedLayers,
     selectedElement?.boundingRect,
+    selectedElement?.runtimeSelector,
+    selectedElement?.runtimeSourceId,
     selectedElement?.selector,
+    selectedElement?.sourceId,
+    t,
   ]);
 
   const handleDuplicateSelection = useCallback(() => {
@@ -21345,6 +21387,7 @@ function DesignEditor() {
           requestId: runtimeStructureInsertRevisionRef.current,
           screenId: pendingNonStyleRedo.edit.screenId,
           html: redoCommand.html,
+          replaceAnchor: redoCommand.replaceAnchor,
           anchor: {
             selector: pendingNonStyleRedo.edit.anchorSelector,
             sourceId: pendingNonStyleRedo.edit.anchorSourceId ?? undefined,

@@ -1071,6 +1071,16 @@ export function createAgentChatPlugin(
           getOwnerEmail: () => requireCurrentRunOwner("use browser sessions"),
         });
       } catch {}
+      let remoteBrowserTools: Record<string, ActionEntry> = {};
+      try {
+        const { createRemoteBrowserActionEntries } =
+          await import("../integrations/remote-browser-actions.js");
+        remoteBrowserTools = createRemoteBrowserActionEntries({
+          getOwnerEmail: () =>
+            requireCurrentRunOwner("use a remote browser session"),
+          getOrgId: () => getRequestOrgId() ?? null,
+        });
+      } catch {}
 
       // Core send-email tool — only registered when RESEND_API_KEY or
       // SENDGRID_API_KEY is set. Keyed "core-send-email" to avoid colliding
@@ -1249,6 +1259,7 @@ export function createAgentChatPlugin(
               ...workspaceFileActions,
               ...toolActions,
               ...browserSessionTools,
+              ...remoteBrowserTools,
               ...coreEmailTools,
               ...coreAttachmentTools,
               ...browserTools,
@@ -1275,6 +1286,7 @@ export function createAgentChatPlugin(
               ...workspaceFileActions,
               ...toolActions,
               ...browserSessionTools,
+              ...remoteBrowserTools,
               ...coreEmailTools,
               ...coreAttachmentTools,
               ...browserTools,
@@ -1315,6 +1327,7 @@ export function createAgentChatPlugin(
             ...workspaceFileActions,
             ...toolActions,
             ...browserSessionTools,
+            ...remoteBrowserTools,
             ...coreEmailTools,
             ...coreAttachmentTools,
             ...browserTools,
@@ -1644,6 +1657,7 @@ export function createAgentChatPlugin(
                   ...workspaceFileActions,
                   ...toolActions,
                   ...browserSessionTools,
+                  ...remoteBrowserTools,
                   ...coreEmailTools,
                   ...coreAttachmentTools,
                   ...browserTools,
@@ -1666,6 +1680,7 @@ export function createAgentChatPlugin(
                   ...workspaceFileActions,
                   ...toolActions,
                   ...browserSessionTools,
+                  ...remoteBrowserTools,
                   ...coreEmailTools,
                   ...coreAttachmentTools,
                   ...browserTools,
@@ -2684,6 +2699,7 @@ export function createAgentChatPlugin(
         ...workspaceFileActions,
         ...toolActions,
         ...browserSessionTools,
+        ...remoteBrowserTools,
         ...coreEmailTools,
         ...coreAttachmentTools,
         ...browserTools,
@@ -3224,6 +3240,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   ...workspaceFileActions,
                   ...toolActions,
                   ...browserSessionTools,
+                  ...remoteBrowserTools,
                   ...coreEmailTools,
                   ...coreAttachmentTools,
                   ...browserTools,

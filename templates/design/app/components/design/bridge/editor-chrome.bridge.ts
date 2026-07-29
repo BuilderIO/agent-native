@@ -2867,6 +2867,12 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         // round-trip must REMOVE it. Restoring a prevParent it never had is
         // what would leave an orphan node behind after Cmd+Z.
         | { inserted: true }
+        | {
+            replaced: true;
+            originalElement: Element;
+            prevParent: Element;
+            prevNextSibling: Node | null;
+          }
         // A host-driven delete. The DETACHED element is kept alive here so an
         // undone deletion re-attaches the real node — with its live React
         // state, listeners and children — instead of re-parsing a sanitized
@@ -8666,7 +8672,13 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     correctAbsoluteMemberClientPosition(el, desiredDropPoint);
   }
 
-  function postVisualStructureChange(el, target, origin, insertedHtml?) {
+  function postVisualStructureChange(
+    el,
+    target,
+    origin,
+    insertedHtml?,
+    replaced?,
+  ) {
     if (!el || !target || !target.anchor) return;
     dndLog("post:structure-change", {
       el: getSelector(el),
@@ -8698,6 +8710,7 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         // element the source file has never contained.
         insertedHtml:
           typeof insertedHtml === "string" ? insertedHtml : undefined,
+        replaced: replaced === true ? true : undefined,
         sourceRect: rectInfoForElement(el),
         anchorRect: rectInfoForElement(target.anchor),
         payload: getElementInfo(el),
@@ -12477,6 +12490,7 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         return;
       }
       var insertPlacement = String(e.data.placement || "");
+      var replaceInsertAnchor = e.data.replaceAnchor === true;
       if (
         insertPlacement !== "before" &&
         insertPlacement !== "after" &&
@@ -12572,6 +12586,33 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         );
         return;
       }
+      if (replaceInsertAnchor) {
+        var replaceParent = insertAnchor.parentElement;
+        if (!replaceParent) {
+          rejectInsert("placement-unavailable");
+          return;
+        }
+        var replaceNextSibling = insertAnchor.nextSibling;
+        replaceParent.insertBefore(parsedInsertEl, insertAnchor);
+        selectedEl = parsedInsertEl;
+        positionOverlay(selectionOverlay, selectedEl);
+        refreshOverlays();
+        postVisualStructureChange(
+          parsedInsertEl,
+          insertTarget,
+          {
+            replaced: true,
+            originalElement: insertAnchor,
+            prevParent: replaceParent,
+            prevNextSibling: replaceNextSibling,
+          },
+          parsedInsertEl.outerHTML,
+          true,
+        );
+        replaceParent.removeChild(insertAnchor);
+        refreshOverlays();
+        return;
+      }
       // The host bakes flow/absolute positioning into the markup before it
       // gets here (it owns the drop point and the anchor rect), so the node
       // goes in verbatim — no reorder rebasing on a never-laid-out element.
@@ -12606,6 +12647,36 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       delete pendingStructureMoves[e.data.requestId];
       var moveWasInsert = Boolean(move.origin && "inserted" in move.origin);
       var moveWasRemoval = Boolean(move.origin && "removed" in move.origin);
+      var moveWasReplace = Boolean(move.origin && "replaced" in move.origin);
+      if (
+        moveWasReplace &&
+        move.origin &&
+        "replaced" in move.origin
+      ) {
+        if (!e.data.applied) {
+          if (move.el && move.el.isConnected) move.el.remove();
+          var replaceParent = move.origin.prevParent;
+          var replaceNextSibling = move.origin.prevNextSibling;
+          if (
+            replaceParent &&
+            replaceParent.isConnected &&
+            !move.origin.originalElement.isConnected
+          ) {
+            replaceParent.insertBefore(
+              move.origin.originalElement,
+              replaceNextSibling &&
+                replaceNextSibling.parentNode === replaceParent
+                ? replaceNextSibling
+                : null,
+            );
+            selectedEl = move.origin.originalElement;
+            positionOverlay(selectionOverlay, selectedEl);
+            postElementSelect(selectedEl);
+          }
+        }
+        refreshOverlays();
+        return;
+      }
       if (moveWasRemoval) {
         // applied === true means the source now deletes it too, so the node
         // stays gone and this entry is simply released. applied === false is

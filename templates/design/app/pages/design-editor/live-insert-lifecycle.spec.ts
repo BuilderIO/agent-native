@@ -70,6 +70,7 @@ interface StructureChangeMessage {
   placement: "before" | "after" | "inside";
   dropMode?: "flow-insert" | "absolute-container";
   insertedHtml?: string;
+  replaced?: boolean;
   payload?: { provenance?: unknown };
   anchorPayload?: { provenance?: unknown };
 }
@@ -112,6 +113,29 @@ async function nextStructureChange(
 function pendingEditFromEcho(
   message: StructureChangeMessage,
 ): PendingLiveStructureEdit {
+  if (message.replaced) {
+    return {
+      kind: "structure",
+      screenId: SCREEN_ID,
+      filename: "home",
+      screenName: "Home",
+      selector: message.anchorSelector,
+      sourceId: message.anchorSourceId ?? null,
+      sourceAnchor: reactSourceAnchorForPendingEdit({
+        info: message.anchorPayload as never,
+        id: message.anchorSourceId,
+      }),
+      anchorSelector: "",
+      anchorSourceId: null,
+      placement: message.placement,
+      insertedHtml: message.insertedHtml,
+      replaced: true,
+      replacementSelector: message.selector,
+      replacementSourceId: message.sourceId ?? null,
+      requestId: message.requestId,
+      updatedAt: Date.now(),
+    };
+  }
   return {
     kind: "structure",
     screenId: SCREEN_ID,
