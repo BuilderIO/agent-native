@@ -138,4 +138,17 @@ describe("Content product conformance workflow boundary", () => {
     assert(result.issues.some((issue) => issue.includes("only")));
     assert(result.issues.some((issue) => issue.includes("one checkout")));
   });
+
+  it("rejects self-hosted runners and arbitrary additional steps", () => {
+    const unsafe = workflow
+      .replace("runs-on: ubuntu-latest", "runs-on: self-hosted")
+      .replace(
+        "      - uses: pnpm/action-setup@",
+        "      - uses: arbitrary/action@unsafe\n\n      - uses: pnpm/action-setup@",
+      );
+    const result = validateContentProductImpactWorkflow(unsafe);
+    assert.equal(result.ok, false);
+    assert(result.issues.some((issue) => issue.includes("GitHub-hosted")));
+    assert(result.issues.some((issue) => issue.includes("exactly match")));
+  });
 });

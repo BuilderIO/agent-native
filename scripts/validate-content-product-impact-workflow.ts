@@ -20,6 +20,62 @@ const ALLOWED_GITHUB_EXPRESSIONS = new Set([
   "github.event.pull_request.base.sha",
   "github.event.pull_request.head.sha",
 ]);
+const CHECKOUT_ACTION =
+  "actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5";
+const PNPM_ACTION =
+  "pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320";
+const NODE_ACTION =
+  "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020";
+
+function hasExactKeys(
+  value: Record<string, unknown>,
+  keys: readonly string[],
+): boolean {
+  return (
+    Object.keys(value).length === keys.length &&
+    keys.every((key) => key in value)
+  );
+}
+
+function hasExpectedSteps(steps: Array<Record<string, unknown>>): boolean {
+  if (steps.length !== 5) return false;
+  const [checkout, pnpm, node, install, checker] = steps;
+  return (
+    hasExactKeys(checkout, ["uses", "with"]) &&
+    checkout.uses === CHECKOUT_ACTION &&
+    isRecord(checkout.with) &&
+    hasExactKeys(checkout.with, [
+      "ref",
+      "fetch-depth",
+      "persist-credentials",
+    ]) &&
+    checkout.with.ref === "${{ github.event.pull_request.head.sha }}" &&
+    checkout.with["fetch-depth"] === 0 &&
+    checkout.with["persist-credentials"] === false &&
+    hasExactKeys(pnpm, ["uses"]) &&
+    pnpm.uses === PNPM_ACTION &&
+    hasExactKeys(node, ["uses", "with"]) &&
+    node.uses === NODE_ACTION &&
+    isRecord(node.with) &&
+    hasExactKeys(node.with, ["node-version", "cache"]) &&
+    node.with["node-version"] === "22" &&
+    node.with.cache === "pnpm" &&
+    hasExactKeys(install, ["run"]) &&
+    install.run === "pnpm install --frozen-lockfile --ignore-scripts" &&
+    hasExactKeys(checker, ["name", "env", "run"]) &&
+    checker.name === "Check Content product impact" &&
+    isRecord(checker.env) &&
+    hasExactKeys(checker.env, [
+      "CONTENT_IMPACT_BASE_SHA",
+      "CONTENT_IMPACT_HEAD_SHA",
+    ]) &&
+    checker.env.CONTENT_IMPACT_BASE_SHA ===
+      "${{ github.event.pull_request.base.sha }}" &&
+    checker.env.CONTENT_IMPACT_HEAD_SHA ===
+      "${{ github.event.pull_request.head.sha }}" &&
+    checker.run === "pnpm content-product-impact"
+  );
+}
 
 function containsCredentialContext(value: unknown): boolean {
   if (typeof value === "string") {
@@ -114,6 +170,9 @@ export function validateContentProductImpactWorkflow(
       "check job must inherit the exact read-only workflow permissions",
     );
   }
+  if (check["runs-on"] !== "ubuntu-latest") {
+    issues.push("check job must use the approved GitHub-hosted runner");
+  }
   if ("environment" in check || containsCredentialContext(workflow)) {
     issues.push(
       "advisory check must not receive an environment, secrets, or explicit credentials",
@@ -126,6 +185,11 @@ export function validateContentProductImpactWorkflow(
     issues.push("check job must have an explicit timeout");
   }
   const steps = Array.isArray(check.steps) ? check.steps.filter(isRecord) : [];
+  if (!hasExpectedSteps(steps)) {
+    issues.push(
+      "check job steps must exactly match the pinned checkout, setup, install, and checker sequence",
+    );
+  }
   if (
     ("continue-on-error" in check && check["continue-on-error"] !== false) ||
     steps.some(
