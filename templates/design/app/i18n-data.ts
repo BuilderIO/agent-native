@@ -7864,6 +7864,12 @@ const designModeFeatureOverrides = {
         rollback: "回復",
         keep: "保留",
         selectorMissing: "選取的元素已不在此畫面中。",
+        clientRenderedShell:
+          "此畫面由用戶端渲染，因此提供的 HTML 不包含可供修補的應用程式標記。請要求代理將此變更套用到元件原始碼。",
+        snapshotNotLoaded:
+          "此畫面的原始碼尚未載入，因此未寫入此編輯。請等待畫面完成載入後再試一次。",
+        selectorAmbiguous:
+          "此元素是原始碼中 {{count}} 個相同實例之一，因此未寫入此變更。請要求代理將範圍限定至此實例。",
         status: {
           runtime: "已套用即時樣式",
           queued: "正在寫入來源補丁",
@@ -8028,6 +8034,12 @@ const designModeFeatureOverrides = {
         rollback: "回滚",
         keep: "保留",
         selectorMissing: "选中的元素已不在此屏幕中。",
+        clientRenderedShell:
+          "此屏幕由客户端渲染，因此其提供的 HTML 不包含可修补的应用标记。请让代理将此更改应用到组件源码。",
+        snapshotNotLoaded:
+          "此屏幕的源码尚未加载，因此未写入此编辑。请等待屏幕完成加载后再试。",
+        selectorAmbiguous:
+          "此元素是源码中 {{count}} 个相同实例之一，因此未写入此更改。请让代理将范围限定到此实例。",
         status: {
           runtime: "已应用即时样式",
           queued: "正在写入源码补丁",
@@ -8193,6 +8205,12 @@ const designModeFeatureOverrides = {
         keep: "Conservar",
         selectorMissing:
           "El elemento seleccionado ya no existe en esta pantalla.",
+        clientRenderedShell:
+          "Esta pantalla se renderiza en el cliente, por lo que el HTML que entrega no contiene marcado de la aplicación que se pueda modificar. Pide al agente que aplique este cambio al código fuente del componente.",
+        snapshotNotLoaded:
+          "El código fuente de esta pantalla aún no se ha cargado, por lo que no se escribió la edición. Espera a que la pantalla termine de cargarse e inténtalo de nuevo.",
+        selectorAmbiguous:
+          "Este elemento es una de {{count}} instancias idénticas en el código fuente, por lo que no se escribió el cambio. Pide al agente que lo limite a esta instancia.",
         status: {
           runtime: "Estilo aplicado en runtime",
           queued: "Escribiendo parche de origen",
@@ -8379,6 +8397,12 @@ const designModeFeatureOverrides = {
         rollback: "Revenir",
         keep: "Garder",
         selectorMissing: "L’élément sélectionné n’existe plus dans cet écran.",
+        clientRenderedShell:
+          "Cet écran est rendu côté client ; le HTML qu’il fournit ne contient donc aucun balisage d’application à modifier. Demandez à l’agent d’appliquer cette modification au code source du composant.",
+        snapshotNotLoaded:
+          "Le code source de cet écran n’est pas encore chargé ; la modification n’a donc pas été écrite. Attendez la fin du chargement de l’écran, puis réessayez.",
+        selectorAmbiguous:
+          "Cet élément est l’une des {{count}} instances identiques dans le code source ; la modification n’a donc pas été écrite. Demandez à l’agent de la limiter à cette instance.",
         status: {
           runtime: "Style runtime appliqué",
           queued: "Écriture du patch source",
@@ -8562,6 +8586,12 @@ const designModeFeatureOverrides = {
         keep: "Behalten",
         selectorMissing:
           "Das ausgewählte Element existiert in diesem Screen nicht mehr.",
+        clientRenderedShell:
+          "Dieser Screen wird clientseitig gerendert. Daher enthält das bereitgestellte HTML kein App-Markup, das gepatcht werden kann. Bitte den Agenten, diese Änderung am Komponentenquellcode vorzunehmen.",
+        snapshotNotLoaded:
+          "Der Quellcode dieses Screens wurde noch nicht geladen, daher wurde die Änderung nicht geschrieben. Warte, bis der Screen vollständig geladen ist, und versuche es erneut.",
+        selectorAmbiguous:
+          "Dieses Element ist eine von {{count}} identischen Instanzen im Quellcode, daher wurde die Änderung nicht geschrieben. Bitte den Agenten, sie auf diese Instanz zu beschränken.",
         status: {
           runtime: "Runtime-Stil angewendet",
           queued: "Quellpatch wird geschrieben",
@@ -8750,6 +8780,12 @@ const designModeFeatureOverrides = {
         rollback: "戻す",
         keep: "保持",
         selectorMissing: "選択した要素はこの画面に存在しません。",
+        clientRenderedShell:
+          "この画面はクライアント側でレンダリングされるため、配信される HTML にはパッチ可能なアプリのマークアップが含まれていません。エージェントに、この変更をコンポーネントのソースへ適用するよう依頼してください。",
+        snapshotNotLoaded:
+          "この画面のソースはまだ読み込まれていないため、編集内容は書き込まれませんでした。画面の読み込みが完了してから、もう一度お試しください。",
+        selectorAmbiguous:
+          "この要素はソース内にある {{count}} 個の同一インスタンスの 1 つであるため、変更は書き込まれませんでした。エージェントに、このインスタンスだけを対象にするよう依頼してください。",
         status: {
           runtime: "ランタイムスタイル適用済み",
           queued: "ソースパッチを書き込み中",
@@ -8933,6 +8969,12 @@ const designModeFeatureOverrides = {
         rollback: "롤백",
         keep: "유지",
         selectorMissing: "선택한 요소가 이 화면에 더 이상 없습니다.",
+        clientRenderedShell:
+          "이 화면은 클라이언트에서 렌더링되므로 제공되는 HTML에 패치할 앱 마크업이 없습니다. 에이전트에게 이 변경 사항을 컴포넌트 소스에 적용하도록 요청하세요.",
+        snapshotNotLoaded:
+          "이 화면의 소스가 아직 로드되지 않아 편집 내용이 기록되지 않았습니다. 화면 로드가 끝난 뒤 다시 시도하세요.",
+        selectorAmbiguous:
+          "이 요소는 소스에 있는 동일한 인스턴스 {{count}}개 중 하나이므로 변경 사항이 기록되지 않았습니다. 에이전트에게 이 인스턴스로 범위를 한정하도록 요청하세요.",
         status: {
           runtime: "런타임 스타일 적용됨",
           queued: "소스 패치 작성 중",
@@ -9113,6 +9155,12 @@ const designModeFeatureOverrides = {
         rollback: "Reverter",
         keep: "Manter",
         selectorMissing: "O elemento selecionado não existe mais nesta tela.",
+        clientRenderedShell:
+          "Esta tela é renderizada no cliente, então o HTML fornecido não contém marcação do app que possa ser modificada. Peça ao agente para aplicar esta alteração ao código-fonte do componente.",
+        snapshotNotLoaded:
+          "O código-fonte desta tela ainda não foi carregado, por isso a edição não foi gravada. Aguarde o carregamento da tela e tente novamente.",
+        selectorAmbiguous:
+          "Este elemento é uma de {{count}} instâncias idênticas no código-fonte, por isso a alteração não foi gravada. Peça ao agente para restringi-la a esta instância.",
         status: {
           runtime: "Estilo em runtime aplicado",
           queued: "Escrevendo patch de fonte",
@@ -9293,6 +9341,12 @@ const designModeFeatureOverrides = {
         rollback: "वापस लें",
         keep: "रखें",
         selectorMissing: "चुना गया तत्व अब इस स्क्रीन में नहीं है।",
+        clientRenderedShell:
+          "यह स्क्रीन क्लाइंट पर रेंडर होती है, इसलिए इसके HTML में पैच करने योग्य ऐप मार्कअप नहीं है। एजेंट से इस बदलाव को कंपोनेंट सोर्स में लागू करने के लिए कहें।",
+        snapshotNotLoaded:
+          "इस स्क्रीन का सोर्स अभी लोड नहीं हुआ है, इसलिए संपादन लिखा नहीं गया। स्क्रीन के लोड होने की प्रतीक्षा करें और फिर से कोशिश करें।",
+        selectorAmbiguous:
+          "यह तत्व सोर्स में {{count}} समान इंस्टेंस में से एक है, इसलिए बदलाव लिखा नहीं गया। एजेंट से इसे इसी इंस्टेंस तक सीमित करने के लिए कहें।",
         status: {
           runtime: "रनटाइम स्टाइल लागू",
           queued: "स्रोत पैच लिखा जा रहा है",
@@ -9473,6 +9527,12 @@ const designModeFeatureOverrides = {
         rollback: "تراجع",
         keep: "احتفاظ",
         selectorMissing: "العنصر المحدد لم يعد موجوداً في هذه الشاشة.",
+        clientRenderedShell:
+          "يتم عرض هذه الشاشة من جهة العميل، لذلك لا يحتوي HTML الذي تقدمه على ترميز للتطبيق يمكن تعديله. اطلب من الوكيل تطبيق هذا التغيير على مصدر المكوّن.",
+        snapshotNotLoaded:
+          "لم يتم تحميل مصدر هذه الشاشة بعد، لذلك لم تتم كتابة التعديل. انتظر حتى يكتمل تحميل الشاشة ثم حاول مرة أخرى.",
+        selectorAmbiguous:
+          "هذا العنصر هو أحد {{count}} مثيلات متطابقة في المصدر، لذلك لم تتم كتابة التغيير. اطلب من الوكيل قصره على هذا المثيل.",
         status: {
           runtime: "تم تطبيق نمط التشغيل",
           queued: "جارٍ كتابة تصحيح المصدر",

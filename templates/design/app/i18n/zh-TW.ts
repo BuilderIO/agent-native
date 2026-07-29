@@ -868,6 +868,12 @@ const messages = {
       rollback: "回復",
       keep: "保留",
       selectorMissing: "選取的元素已不在此畫面中。",
+      clientRenderedShell:
+        "此畫面由用戶端渲染，因此提供的 HTML 不包含可供修補的應用程式標記。請要求代理將此變更套用到元件原始碼。",
+      snapshotNotLoaded:
+        "此畫面的原始碼尚未載入，因此未寫入此編輯。請等待畫面完成載入後再試一次。",
+      selectorAmbiguous:
+        "此元素是原始碼中 {{count}} 個相同實例之一，因此未寫入此變更。請要求代理將範圍限定至此實例。",
       status: {
         runtime: "已套用即時樣式",
         queued: "正在寫入來源補丁",

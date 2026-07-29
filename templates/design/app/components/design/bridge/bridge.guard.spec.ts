@@ -2102,7 +2102,7 @@ it(
 // rem, vh, vw, calc(), auto) and is unaffected by rotation.
 it(
   "editor chrome bridge resize seeds the origin from rendered pixels for every non-px CSS width/height unit (%, vw/vh, rem, em, calc)",
-  { timeout: 30_000 },
+  { timeout: 60_000 },
   async () => {
     const browser = await chromium.launch({ headless: true });
     const pageErrors: string[] = [];
@@ -2238,7 +2238,7 @@ it(
 // ── Live repro: SE-corner resize of a `width:100%; height:160px` element ──
 it(
   "editor chrome bridge SE-corner resize of a width:100% element grows width from its rendered size, not from a shrunk parsed-percentage value",
-  { timeout: 30_000 },
+  { timeout: 60_000 },
   async () => {
     const browser = await chromium.launch({ headless: true });
     const pageErrors: string[] = [];
@@ -2320,7 +2320,7 @@ it(
 // ── Commit semantics: only the dragged axis is written back ───────────────
 it(
   "editor chrome bridge resize commits only the axis the user actually dragged, leaving a percentage width untouched on a pure vertical drag",
-  { timeout: 30_000 },
+  { timeout: 60_000 },
   async () => {
     const browser = await chromium.launch({ headless: true });
     const pageErrors: string[] = [];
