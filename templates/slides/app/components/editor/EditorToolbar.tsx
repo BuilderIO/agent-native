@@ -773,9 +773,7 @@ graph TD
               <IconLetterT className="size-4" />
             </button>
           </TooltipTrigger>
-          <TooltipContent>
-            {t("editorToolbar.addTextBox")} (T)
-          </TooltipContent>
+          <TooltipContent>{t("editorToolbar.addTextBox")} (T)</TooltipContent>
         </Tooltip>
       )}
 
