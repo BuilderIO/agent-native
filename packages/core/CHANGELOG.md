@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.129.1
+
+### Patch Changes
+
+- 8c4b44e: Keep the create organization and invite member popovers compact instead of allowing long helper text to expand their width.
+
 ## 0.129.0
 
 ### Minor Changes
