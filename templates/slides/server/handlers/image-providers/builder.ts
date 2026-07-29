@@ -123,7 +123,7 @@ async function requestModel(args: {
     prompt,
     model,
     count: 1,
-    aspectRatio: toBuilderAspectRatio(config?.aspectRatio),
+    aspectRatio: toBuilderAspectRatio(config?.aspectRatio, model),
     size: "1K",
     outputFormat: config?.outputFormat || "png",
     references,
@@ -225,18 +225,40 @@ function isModelUnavailableError(
   );
 }
 
-function toBuilderAspectRatio(aspectRatio?: string): string {
-  const supported = new Set([
-    "1:1",
-    "2:3",
-    "3:2",
-    "3:4",
-    "4:3",
-    "9:16",
-    "16:9",
-    "21:9",
-  ]);
+// gpt-image-* only supports a landscape/square/portrait triplet, unlike
+// Gemini's wider set on Builder's gateway — map to the closest one instead
+// of sending a ratio the requested model will 400 on.
+const OPENAI_ASPECT_RATIOS = new Set(["1:1", "2:3", "3:2"]);
+const GEMINI_ASPECT_RATIOS = new Set([
+  "1:1",
+  "2:3",
+  "3:2",
+  "3:4",
+  "4:3",
+  "9:16",
+  "16:9",
+  "21:9",
+]);
+
+function toBuilderAspectRatio(
+  aspectRatio: string | undefined,
+  model: string,
+): string {
+  const isOpenAiModel = model.startsWith("gpt-image");
+  const supported = isOpenAiModel ? OPENAI_ASPECT_RATIOS : GEMINI_ASPECT_RATIOS;
   if (aspectRatio && supported.has(aspectRatio)) return aspectRatio;
+
+  if (isOpenAiModel) {
+    if (aspectRatio === "4:5" || aspectRatio === "9:16") return "2:3";
+    if (
+      aspectRatio === "5:4" ||
+      aspectRatio === "16:9" ||
+      aspectRatio === "21:9"
+    )
+      return "3:2";
+    return "3:2";
+  }
+
   if (aspectRatio === "4:5") return "3:4";
   if (aspectRatio === "5:4") return "4:3";
   return "16:9";
