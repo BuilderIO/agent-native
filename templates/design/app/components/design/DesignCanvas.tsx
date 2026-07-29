@@ -6,6 +6,7 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import { type ReviewThread } from "@agent-native/core/client/review";
 import type { ReviewComment } from "@agent-native/core/review";
+import { injectDocumentMarkup } from "@agent-native/core/shared";
 import {
   DEFAULT_CANVAS_MAX_ZOOM,
   DEFAULT_CANVAS_MIN_ZOOM,
@@ -54,6 +55,7 @@ import {
   useDesktopDesignNativePreview,
 } from "@/lib/desktop-design-preview";
 import { cn } from "@/lib/utils";
+import { runtimeStyleTarget } from "@/pages/design-editor/pending-edits";
 
 import { editorChromeBridgeScript } from "../../../.generated/bridge/editor-chrome.generated";
 import { embeddedWheelBridgeScript } from "../../../.generated/bridge/embedded-wheel.generated";
@@ -326,6 +328,20 @@ const LIVE_REFLOW_ENABLED = true;
  */
 const SELECTED_LAYER_DRAG_PRIORITY_ENABLED = true;
 
+/**
+ * A style replay into the live iframe. `runtimeSelector`/`runtimeSourceId` are
+ * the only pair that resolves in a localhost document — see
+ * `runtimeStyleTarget` for the two-namespace problem they exist for.
+ */
+type StyleReplayPatch = {
+  selector: string;
+  sourceId?: string | null;
+  runtimeSelector?: string | null;
+  runtimeSourceId?: string | null;
+  styles: Record<string, string>;
+  interactionState?: string;
+};
+
 interface DesignCanvasProps {
   content: string;
   contentKey?: string;
@@ -420,13 +436,12 @@ interface DesignCanvasProps {
   runtimeReplacementKey?: string;
   styleRevertRequest?: {
     requestId: number;
-    patches: Array<{
-      selector: string;
-      sourceId?: string | null;
-      styles: Record<string, string>;
-      interactionState?: string;
-    }>;
+    patches: Array<StyleReplayPatch>;
   } | null;
+  /** Steady-state live style previews replayed after this iframe document
+   * announces readiness. Entries are screen-scoped so a sibling canvas can
+   * never receive another screen's pending edit. */
+  pendingStylePreviewPatches?: Array<StyleReplayPatch & { screenId: string }>;
   styleBaselineResetRequest?: number | null;
   textRevertRequest?: {
     requestId: number;
@@ -1046,6 +1061,7 @@ export function DesignCanvas({
   runtimeReplacementContent,
   runtimeReplacementKey,
   styleRevertRequest,
+  pendingStylePreviewPatches,
   styleBaselineResetRequest,
   textRevertRequest,
   structureAckRequest,
@@ -1513,10 +1529,11 @@ export function DesignCanvas({
     editMode,
     hasLiveEditorBridge: usesLiveEditEditorBridge,
   });
-  // Null only while an entitled viewer's keyed bridge is still registering, so
-  // the frame mounts once directly at the proxied document (resolveLiveEditPreviewUrl's
-  // flash/state-loss note). A viewer with no previewToken has no bridge to wait
-  // for, so it loads the dev server directly rather than degrading to a snapshot.
+  // Null only while an entitled viewer's keyed bridge is still registering.
+  // During that interval the loading surface renders without an iframe; once
+  // registration succeeds, the one real proxied document mounts directly.
+  // A viewer with no previewToken has no bridge to wait for, so it loads the
+  // dev server directly rather than degrading to a snapshot.
   const externalPreviewUrl =
     liveEditExternalPreviewUrl ??
     (usesLiveEditInjectedBridge ? null : rawExternalPreviewUrl);
@@ -2137,14 +2154,10 @@ export function DesignCanvas({
   // switching the active surface (board ↔ screen) or toggling Edit ⇄ Preview
   // never rebuilds srcdoc / reloads every screen iframe.
   const srcdoc = useMemo(() => {
-    if (externalPreviewUrl) return undefined;
-    // Never boot the raw localhost URL (or an editor-enabled srcdoc) while
-    // the keyed live-edit bridge is still registering. The opaque placeholder
-    // stays behind the visible loading surface; the real iframe mounts once,
-    // directly at the authenticated proxied document.
-    if (waitingForLiveEditBridge) {
-      return '<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>';
-    }
+    // A URL-backed screen is never an inline document, including while its
+    // keyed bridge registration is pending. The loading surface waits without
+    // mounting an iframe, then mounts the real `src` exactly once.
+    if (rawExternalPreviewUrl) return undefined;
     const editorChromeBridge = interactMode
       ? ""
       : createEditorBridgeThemeScript(readEditorBridgeThemeVars()) +
@@ -2212,24 +2225,8 @@ export function DesignCanvas({
       contentOffsetY: embeddedFrame?.contentOffsetY ?? 0,
     });
     let frameDocument: string;
-    if (frameContent.includes("</body>")) {
-      // Replacer must be a function, not a string: bridgeToInject embeds the
-      // compiled editor-chrome bridge, which contains literal "$&" (see its
-      // escapeIdent helper). A string replacement arg makes String.replace
-      // treat "$&" as the special "insert the matched text" pattern, splicing
-      // a stray "</body>" into the middle of the bridge's own script text and
-      // truncating its <script> tag early — silently breaking selection/hover
-      // for every embedded screen. A function replacer inserts its return
-      // value verbatim, with no $-pattern substitution.
-      frameDocument = frameContent.replace(
-        "</body>", // i18n-ignore generated iframe HTML injection
-        () => bridgeToInject + "</body>", // i18n-ignore generated iframe HTML injection
-      ); // i18n-ignore generated iframe HTML injection
-    } else if (frameContent.includes("</html>")) {
-      frameDocument = frameContent.replace(
-        "</html>", // i18n-ignore generated iframe HTML injection
-        () => bridgeToInject + "</html>", // i18n-ignore generated iframe HTML injection
-      ); // i18n-ignore generated iframe HTML injection
+    if (/<\/(?:body|html)\s*>/i.test(frameContent)) {
+      frameDocument = injectDocumentMarkup(frameContent, bridgeToInject);
     } else {
       // No body/html tags — wrap it
       const frameStyle = [
@@ -2261,14 +2258,13 @@ export function DesignCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     boardSurface,
-    externalPreviewUrl,
+    rawExternalPreviewUrl,
     interactMode,
     isEmbeddedFrame,
     embeddedFrameBackground,
     embeddedGestureBridgeForCurrentState,
     iframeRenderContent,
     transparentBackground,
-    waitingForLiveEditBridge,
   ]);
 
   // PERF (soak measurement 2): contentHash walks the full srcdoc string
@@ -2415,6 +2411,7 @@ export function DesignCanvas({
       // nothing. Re-derive readiness here so the queue always drains.
       if (trustedCurrentFrame && !bridgeReadyRef.current) {
         bridgeReadyRef.current = true;
+        setReadyIframeDocumentIdentity(iframeDocumentIdentity);
         flushPendingOneShotMessages();
       }
       if (e.data.type === "agent-native:runtime-layer-snapshot") {
@@ -3566,8 +3563,8 @@ export function DesignCanvas({
       options?: { selectorCandidates?: string[]; nodeId?: string | null },
     ) => {
       const iframe = iframeRef.current;
-      if (!iframe?.contentWindow) return;
-      postOneShotBridgeMessage({
+      if (!iframe?.contentWindow) return false;
+      return postOneShotBridgeMessage({
         type: "style-change",
         selector,
         property,
@@ -3577,6 +3574,19 @@ export function DesignCanvas({
       });
     },
     [postOneShotBridgeMessage],
+  );
+  const sendStyleChangeForScreen = useCallback(
+    (
+      targetScreenId: string,
+      selector: string,
+      property: string,
+      value: string,
+      options?: { selectorCandidates?: string[]; nodeId?: string | null },
+    ) => {
+      if (!screenId || targetScreenId !== screenId) return false;
+      return sendStyleChange(selector, property, value, options);
+    },
+    [screenId, sendStyleChange],
   );
 
   const sendInteractionStatePreviewStyle = useCallback(
@@ -3600,46 +3610,57 @@ export function DesignCanvas({
   );
 
   const lastStyleRevertRequestIdRef = useRef<number | null>(null);
+  const replayStylePatches = useCallback(
+    (patches: Array<StyleReplayPatch>) => {
+      for (const patch of patches) {
+        const target = runtimeStyleTarget(patch);
+        if (target.selectorCandidates.length === 0) continue;
+        if (patch.interactionState) {
+          sendInteractionStatePreviewStyle({
+            selector: target.selector,
+            selectorCandidates: target.selectorCandidates,
+            nodeId: target.nodeId,
+            state: patch.interactionState,
+            styles: patch.styles,
+          });
+          continue;
+        }
+        for (const [property, value] of Object.entries(patch.styles)) {
+          postOneShotBridgeMessage({
+            type: "style-change",
+            selector: target.selector,
+            property,
+            value,
+            selectorCandidates: target.selectorCandidates,
+            nodeId: target.nodeId ?? "",
+          });
+        }
+      }
+    },
+    [postOneShotBridgeMessage, sendInteractionStatePreviewStyle],
+  );
   useEffect(() => {
     if (!styleRevertRequest) return;
     if (lastStyleRevertRequestIdRef.current === styleRevertRequest.requestId) {
       return;
     }
     lastStyleRevertRequestIdRef.current = styleRevertRequest.requestId;
-    for (const patch of styleRevertRequest.patches) {
-      const selectorCandidates = [
-        patch.selector,
-        patch.sourceId
-          ? `[data-agent-native-node-id="${String(patch.sourceId)
-              .replace(/\\/g, "\\\\")
-              .replace(/"/g, '\\"')}"]`
-          : "",
-      ].filter(Boolean);
-      if (patch.interactionState) {
-        sendInteractionStatePreviewStyle({
-          selector: patch.selector,
-          selectorCandidates,
-          nodeId: patch.sourceId,
-          state: patch.interactionState,
-          styles: patch.styles,
-        });
-        continue;
-      }
-      for (const [property, value] of Object.entries(patch.styles)) {
-        postOneShotBridgeMessage({
-          type: "style-change",
-          selector: patch.selector,
-          property,
-          value,
-          selectorCandidates,
-          nodeId: patch.sourceId ?? "",
-        });
-      }
-    }
+    replayStylePatches(styleRevertRequest.patches);
+  }, [replayStylePatches, styleRevertRequest]);
+
+  useEffect(() => {
+    if (!screenId) return;
+    replayStylePatches(
+      (pendingStylePreviewPatches ?? []).filter(
+        (patch) => patch.screenId === screenId,
+      ),
+    );
   }, [
-    postOneShotBridgeMessage,
-    sendInteractionStatePreviewStyle,
-    styleRevertRequest,
+    contentKey,
+    pendingStylePreviewPatches,
+    readyIframeDocumentIdentity,
+    replayStylePatches,
+    screenId,
   ]);
 
   const lastStyleBaselineResetRequestRef = useRef<number | null>(null);
@@ -3973,6 +3994,7 @@ export function DesignCanvas({
   useEffect(() => {
     if (!registerRuntimeBridge) return;
     (window as any).__designCanvasSendStyle = sendStyleChange;
+    (window as any).__designCanvasSendStyleForScreen = sendStyleChangeForScreen;
     (window as any).__designCanvasSendInteractionStatePreviewStyle =
       sendInteractionStatePreviewStyle;
     (window as any).__designCanvasReplaceContent =
@@ -3992,6 +4014,12 @@ export function DesignCanvas({
       // a freshly mounted instance's bridge during a remount race.
       if ((window as any).__designCanvasSendStyle === sendStyleChange) {
         delete (window as any).__designCanvasSendStyle;
+      }
+      if (
+        (window as any).__designCanvasSendStyleForScreen ===
+        sendStyleChangeForScreen
+      ) {
+        delete (window as any).__designCanvasSendStyleForScreen;
       }
       if (
         (window as any).__designCanvasSendInteractionStatePreviewStyle ===
@@ -4039,6 +4067,7 @@ export function DesignCanvas({
   }, [
     deleteRuntimeElement,
     registerRuntimeBridge,
+    sendStyleChangeForScreen,
     replacePreviewContentFromHost,
     sendStyleChange,
     sendInteractionStatePreviewStyle,
@@ -4313,37 +4342,39 @@ export function DesignCanvas({
           )}
         />
       ) : null}
-      <iframe
-        key={iframeDocumentIdentity}
-        ref={iframeRef}
-        src={externalPreviewUrl ?? undefined}
-        srcDoc={externalPreviewUrl ? undefined : srcdoc}
-        sandbox={getDesignCanvasIframeSandbox({
-          externalPreview: Boolean(externalPreviewUrl),
-          readOnly,
-        })}
-        data-design-preview-iframe
-        {...{
-          [SESSION_REPLAY_IFRAME_ATTRIBUTE]: !externalPreviewUrl
-            ? ""
-            : undefined,
-        }}
-        data-screen-iframe-id={
-          boardSurface ? undefined : (previewFrameId ?? screenId ?? undefined)
-        }
-        data-design-source-type={
-          sourceType ??
-          (externalPreviewUrl
-            ? "localhost" // inferred — content is a URL
-            : "inline")
-        }
-        className="relative block h-full w-full border-0 bg-transparent"
-        style={{
-          background: iframeBackgroundColor,
-          backgroundColor: iframeBackgroundColor,
-        }}
-        title={t("designEditor.designPreview")}
-      />
+      {rawExternalPreviewUrl && !externalPreviewUrl ? null : (
+        <iframe
+          key={iframeDocumentIdentity}
+          ref={iframeRef}
+          src={externalPreviewUrl ?? undefined}
+          srcDoc={externalPreviewUrl ? undefined : srcdoc}
+          sandbox={getDesignCanvasIframeSandbox({
+            externalPreview: Boolean(externalPreviewUrl),
+            readOnly,
+          })}
+          data-design-preview-iframe
+          {...{
+            [SESSION_REPLAY_IFRAME_ATTRIBUTE]: !externalPreviewUrl
+              ? ""
+              : undefined,
+          }}
+          data-screen-iframe-id={
+            boardSurface ? undefined : (previewFrameId ?? screenId ?? undefined)
+          }
+          data-design-source-type={
+            sourceType ??
+            (externalPreviewUrl
+              ? "localhost" // inferred — content is a URL
+              : "inline")
+          }
+          className="relative block h-full w-full border-0 bg-transparent"
+          style={{
+            background: iframeBackgroundColor,
+            backgroundColor: iframeBackgroundColor,
+          }}
+          title={t("designEditor.designPreview")}
+        />
+      )}
       {runtimeVerificationUrl ? (
         <iframe
           key={`${runtimeVerificationUrl}::${runtimeVerificationRequest?.requestId ?? 0}`}
