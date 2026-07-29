@@ -246,6 +246,9 @@ searching the skill directory over guessing from nearby code.
 
 Two are entry points rather than area guides:
 
+- `content-product-development` — read before planning, implementing,
+  reviewing, testing, or documenting Content behavior or shared framework
+  behavior that changes Content's product contract.
 - `adding-a-feature` — the four-area checklist every feature must satisfy.
 - `writing-agent-instructions` — read before editing any `AGENTS.md`,
   `SKILL.md`, or tool/action description, including this file.

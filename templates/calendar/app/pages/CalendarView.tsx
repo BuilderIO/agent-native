@@ -90,6 +90,7 @@ import {
   getLocalTimezone,
 } from "@/lib/event-form-utils";
 import { buildDeleteEventMutationInput } from "@/lib/event-mutation-inputs";
+import { getLocationSuggestions } from "@/lib/location-suggestions";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
 import { cn } from "@/lib/utils";
 
@@ -576,6 +577,10 @@ export default function CalendarView() {
           })
         : events,
     [events, viewMode, selectedDate],
+  );
+  const locationSuggestions = useMemo(
+    () => getLocationSuggestions(events),
+    [events],
   );
   const openNotificationEvent = useCallback(
     (event: CalendarEvent) => {
@@ -1768,6 +1773,7 @@ export default function CalendarView() {
                 defaultDate={selectedDate}
                 defaultStartTime={createDefaultStart}
                 defaultEndTime={createDefaultEnd}
+                locationSuggestions={locationSuggestions}
               />
               <AccountAvatars />
               <AgentToggleButton />

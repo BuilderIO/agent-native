@@ -12,6 +12,7 @@ import {
 
 import {
   addPlanCommentToBundle,
+  buildPlanAgentContext,
   buildNativeAnchorFromElement,
   buildCommentThreads,
   canSubmitInlineCommentDraft,
@@ -110,6 +111,21 @@ function rect(left: number, top: number, width: number, height: number) {
 }
 
 describe("plan comment thread UI model", () => {
+  it("keeps the plan readable when an action response omits event history", () => {
+    const bundle = {
+      ...bundleWithComments([]),
+      events: undefined,
+    } as unknown as PlanBundle;
+
+    expect(
+      buildPlanAgentContext({
+        bundle,
+        documentHtml: "",
+        url: "https://plan.agent-native.com/plans/plan_1",
+      }),
+    ).toContain("Plan ID: plan_1");
+  });
+
   it("resets the plan reader and window scroll to the top", () => {
     const windowScrollTo = vi.fn();
     const originalWindowScrollTo = window.scrollTo;

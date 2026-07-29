@@ -141,7 +141,11 @@ import {
 } from "../../../core/src/code-agents/background-run.js";
 import * as AppStore from "./app-store";
 import { BrowserControlLoopbackBridge } from "./browser-control/bridge";
-import { installBrowserNativeHost } from "./browser-control/native-host";
+import {
+  AGENT_NATIVE_BROWSER_EXTENSION_IDS_ENV,
+  installBrowserNativeHost,
+  parseAdditionalChromeExtensionIds,
+} from "./browser-control/native-host";
 import { guardCodeAgentPersistence } from "./code-agent-persistence-guard.js";
 import { resolveCodeAgentRunnerInvocation } from "./code-agent-runner.js";
 import {
@@ -3123,6 +3127,9 @@ async function initializeDesktopComputerMcpBridge(): Promise<void> {
       executablePath: process.execPath,
       hostEntryPath,
       stateDirectory: path.join(app.getPath("userData"), "browser-control"),
+      additionalExtensionIds: parseAdditionalChromeExtensionIds(
+        process.env[AGENT_NATIVE_BROWSER_EXTENSION_IDS_ENV],
+      ),
     }).manifestPath;
   } catch (error) {
     await browserBridge.close();

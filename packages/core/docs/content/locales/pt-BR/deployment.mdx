@@ -442,7 +442,14 @@ passam por actions tipadas do app, a menos que o app habilite explicitamente fer
 export default createAgentChatPlugin({
   // Default: "read"
   databaseTools: "read", // "write" | "read" | "off"
-  extensionTools: false,
+  extensionTools: true,
+});
+```
+
+```ts
+// server/plugins/core-routes.ts
+export default createCoreRoutesPlugin({
+  extensionTools: true,
 });
 ```
 
@@ -453,9 +460,10 @@ export default createAgentChatPlugin({
   organização atual e alterações de esquema são bloqueadas.
 - `databaseTools: "off"` ou `false` — remove ferramentas de banco de dados brutos do
   superfície do agente para que o actions do aplicativo seja o único caminho de acesso aos dados.
-- `extensionTools: false` — remove o gerenciamento de extensão da estrutura actions e
-  orientação imediata (`create-extension`, `update-extension` etc.) para aplicativos que
-  não queremos que o agente crie miniaplicativos em sandbox.
+- `extensionTools: true` — habilita no aplicativo as actions e orientações de
+  gerenciamento de extensões (`create-extension`, `update-extension` etc.).
+  Defina-o nos dois plugins para permitir também a criação REST autenticada. As
+  extensões ficam desativadas por padrão.
 
 ## Execução de código de produção {#production-code-execution}
 

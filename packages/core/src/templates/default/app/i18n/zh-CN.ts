@@ -68,6 +68,21 @@ const messages = {
       suggestionGrantKey: "将我的 OpenAI 密钥授予此应用程序",
     },
     pages: {
+      browserChatUnavailableTitle: "浏览器聊天会话不可用",
+      browserChatUnavailableDescription:
+        "请从 Agent-Native 浏览器扩展重新连接。",
+      browserChatPlaceholder: "询问此页面…",
+      browserChatAttachedPlaceholder: "询问 {{page}}…",
+      browserConnectTitle: "连接浏览器聊天",
+      browserConnectDescription:
+        "允许 Agent-Native Chrome 扩展打开此 Dispatch 聊天会话。连接使用一次性的短期票据。",
+      browserConnectInvalid: "此连接请求无效。请从扩展重新开始。",
+      browserConnectConnected: "浏览器聊天已连接。你可以关闭此标签页。",
+      browserConnectConnecting: "正在连接…",
+      browserConnectButton: "连接",
+      browserConnectOpenFromExtension:
+        "请从 Agent-Native Chrome 扩展打开此页面。",
+      browserConnectFailed: "浏览器扩展未能连接。",
       appsDescription: "打开工作区应用程序并从 Dispatch 开始创建新应用程序。",
       appsDescriptionWithWorkspace:
         'Apps in the "{{workspace}}" workspace. Each app gets its own route under this workspace and shares its database, auth, and agent chat.',
@@ -342,6 +357,15 @@ const messages = {
     deleting: "正在归档...",
     openFullView: "打开全视图",
     removeFromWidgetArea: "从此小部件区域中删除",
+    customBlockSandboxed: "自定义块 · 沙盒",
+    sandboxedCustomBlock: "沙盒 SQL 自定义块",
+    sandboxedCustomBlockCreatedBy: "由 {{email}} 创建的沙盒 SQL 自定义块",
+    promoteToAppCode: "升级为应用代码",
+    historyShowsSourceVersions: "历史记录包含源代码版本",
+    createdByHistoryShowsSourceVersions:
+      "由 {{email}} 创建。历史记录包含源代码版本。",
+    createdByHistoryShowsSourceVersionsCompact:
+      "由 {{email}} 创建 · 历史记录包含源代码版本",
     deleteExtensionEllipsis: "归档扩展...",
     removeFromMyListEllipsis: "从我的列表中删除...",
     removeFromWidgetAreaForMe: "Remove from this widget area (for me)",

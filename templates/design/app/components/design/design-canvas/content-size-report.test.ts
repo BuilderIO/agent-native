@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   CONTENT_SIZE_REPORT_MESSAGE_TYPE,
   appendContentSizeReporter,
+  resolveStableContentSizeSample,
 } from "./content-size-report";
 
 describe("appendContentSizeReporter", () => {
@@ -37,7 +38,45 @@ describe("appendContentSizeReporter", () => {
   it("reports its own width so the parent can key by frame", () => {
     const out = appendContentSizeReporter("<body></body>");
     expect(out).toContain("window.innerWidth");
+    expect(out).toContain("window.innerHeight");
     expect(out).toContain("scrollHeight");
+  });
+
+  it("stops viewport-relative content from chasing a growing iframe", () => {
+    const first = resolveStableContentSizeSample(undefined, {
+      height: 920,
+      viewportHeight: 900,
+      width: 1440,
+    });
+    const second = resolveStableContentSizeSample(first, {
+      height: 940,
+      viewportHeight: 920,
+      width: 1440,
+    });
+    const third = resolveStableContentSizeSample(second, {
+      height: 960,
+      viewportHeight: 940,
+      width: 1440,
+    });
+
+    expect(first.acceptedHeight).toBe(920);
+    expect(second.acceptedHeight).toBe(920);
+    expect(third.acceptedHeight).toBe(920);
+  });
+
+  it("accepts real content growth when the viewport stays fixed", () => {
+    const first = resolveStableContentSizeSample(undefined, {
+      height: 920,
+      viewportHeight: 900,
+      width: 1440,
+    });
+    const next = resolveStableContentSizeSample(first, {
+      height: 1320,
+      viewportHeight: 900,
+      width: 1440,
+    });
+
+    expect(next.acceptedHeight).toBe(1320);
   });
 
   // Regression: html already carries earlier bridge scripts (e.g. editor-chrome's

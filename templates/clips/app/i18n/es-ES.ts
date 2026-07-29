@@ -563,6 +563,9 @@ const messages = {
     useColor: "Utilice {{color}}",
     logo: "Logo",
     logoPreview: "Vista previa del logotipo",
+    logoUsage:
+      "Se muestra a los destinatarios en los correos de uso compartido y en las páginas públicas de los clips.",
+    emailHeaderPreview: "Encabezado del correo de uso compartido",
     dropReplace: "Suelta una nueva imagen para reemplazar",
     dropHere: "Coloque un PNG / JPG / SVG aquí",
     uploading: "Subiendo…",
@@ -660,10 +663,6 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
 ### Añadido
 
 - Ahora puedes ver las novedades directamente dentro de Clips. El registro de cambios vive en el menú de comandos (Cmd+K) y en Ajustes.`,
-    profile: "Perfil",
-    email: "Correo electrónico",
-    displayName: "Nombre visible",
-    displayNamePlaceholder: "Tu nombre",
     playback: "Reproducción",
     defaultPlaybackSpeed: "Velocidad de reproducción predeterminada",
     playbackDescription:
@@ -807,6 +806,7 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     description:
       "Administración de organización: marca, miembros e invitaciones.",
     adminsOnlyBranding: "Solo los administradores pueden editar la marca.",
+    brandingLoadFailed: "No se pudo cargar la identidad de la organización.",
     members: "Miembros",
     pendingInvites: "Invitaciones pendientes",
     noPendingInvites: "No hay invitaciones pendientes.",

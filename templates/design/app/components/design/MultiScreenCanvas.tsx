@@ -84,6 +84,8 @@ import {
 import {
   CONTENT_SIZE_REPORT_MESSAGE_TYPE,
   appendContentSizeReporter,
+  resolveStableContentSizeSample,
+  type ContentSizeSample,
 } from "./design-canvas/content-size-report";
 import { appendHitTestResponder } from "./design-canvas/hit-test";
 import { DesignCanvas } from "./DesignCanvas";
@@ -502,6 +504,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const [measuredIframeHeights, setMeasuredIframeHeights] = useState<
     Record<string, number>
   >({});
+  const contentSizeSamplesRef = useRef<Record<string, ContentSizeSample>>({});
   const liveFrameDragPositionsRef = useRef(
     new Map<string, { left: number; top: number }>(),
   );
@@ -7356,14 +7359,30 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       if (!iframeId) return;
       const key = iframeId;
       const height = Math.round(data.height);
+      const width =
+        typeof data.width === "number" && Number.isFinite(data.width)
+          ? Math.round(data.width)
+          : 0;
+      const viewportHeight =
+        typeof data.viewportHeight === "number" &&
+        Number.isFinite(data.viewportHeight) &&
+        data.viewportHeight > 0
+          ? Math.round(data.viewportHeight)
+          : 0;
+      const sample = resolveStableContentSizeSample(
+        contentSizeSamplesRef.current[key],
+        { height, viewportHeight, width },
+      );
+      contentSizeSamplesRef.current[key] = sample;
+      const acceptedHeight = sample.acceptedHeight;
       setMeasuredIframeHeights((prev) => {
         const current = prev[key];
         // Ignore sub-pixel churn so a report can't trigger a re-render that
         // triggers another report.
-        if (current !== undefined && Math.abs(current - height) <= 1) {
+        if (current !== undefined && Math.abs(current - acceptedHeight) <= 1) {
           return prev;
         }
-        return { ...prev, [key]: height };
+        return { ...prev, [key]: acceptedHeight };
       });
     };
     window.addEventListener("message", handleContentSize);

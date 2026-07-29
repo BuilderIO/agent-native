@@ -14,6 +14,7 @@ const INITIAL_TOOL_NAMES = [
   "view-screen",
   "list-decks",
   "get-deck",
+  "get-deck-reference-context",
   "create-deck",
   "add-slide",
   "update-slide",

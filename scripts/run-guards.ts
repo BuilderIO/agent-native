@@ -13,6 +13,7 @@ const guards = [
   "guard:template-list",
   "guard:netlify-private-env",
   "guard:trusted-acceptance",
+  "guard:content-product-docs",
   "guard:workspace-skills",
   "guard:template-standard",
   "guard:public-packages",

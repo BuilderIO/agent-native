@@ -1,5 +1,18 @@
 # @agent-native/dispatch
 
+## 0.16.0
+
+### Minor Changes
+
+- 24a5a20: Add secure Chrome extension pairing and an embedded Dispatch browser chat that
+  stages or submits canonical browser page context.
+
+### Patch Changes
+
+- 24a5a20: Keep scheduled automations classified correctly across scheduler writes, unify Jobs and Automations management, and give Scheduled and Event triggers one identity-checked execution lifecycle with organization scope and enforced MCP allowlists.
+- Updated dependencies [24a5a20]
+  - @agent-native/toolkit@0.11.0
+
 ## 0.15.29
 
 ### Patch Changes

@@ -1,5 +1,40 @@
 # @agent-native/core
 
+## 0.131.1
+
+### Patch Changes
+
+- 49e7191: Export `mutateOrgSetting` from `@agent-native/core/settings` alongside the other org-scoped helpers, so app code can perform atomic read/merge/write updates on org settings instead of racing separate `getOrgSetting`/`putOrgSetting` calls.
+
+## 0.131.0
+
+### Minor Changes
+
+- 24a5a20: Add a typed, bounded `browser-context.v1` contract for reusable readable,
+  design, and ephemeral browser-control context.
+- 24a5a20: Make extension creation and discovery opt-in, including authenticated REST
+  creation, label SQL-backed extensions as sandboxed custom blocks, and let
+  editors promote them into app code through a server-verified Builder handoff.
+
+### Patch Changes
+
+- 24a5a20: Keep scheduled automations classified correctly across scheduler writes, unify Jobs and Automations management, and give Scheduled and Event triggers one identity-checked execution lifecycle with organization scope and enforced MCP allowlists.
+- 24a5a20: Preserve source provenance when copying rendered UI between live local apps and Design files.
+- 24a5a20: Make generic public URL reads immediately available to agents and preserve
+  machine-readable discovery metadata and alternate links when extracting page
+  content, including in Plan mode. Large extensions now default to bounded,
+  targeted source excerpts so focused edits do not stall a run by loading an
+  entire generated app body.
+- 24a5a20: Let Plan mode discover every agent tool, execute calls classified as read-only, narrow mixed-tool schemas to safe inputs, and keep writes and unknown effects runtime-blocked.
+- Updated dependencies [24a5a20]
+  - @agent-native/toolkit@0.11.0
+
+## 0.130.2
+
+### Patch Changes
+
+- ae02242: Share notification emails now lead with "<sharer> shared "<title>" with you" and support overridable body paragraphs, a second dark CTA, and closing paragraphs via the new `getShareEmailExtras` registration hook.
+
 ## 0.130.1
 
 ### Patch Changes

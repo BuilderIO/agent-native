@@ -122,6 +122,42 @@ describe("ExplorerView local file loading", () => {
     expect(listFiles).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps an in-flight listing when provider objects refresh with the same key", async () => {
+    const pending = deferred<WorkspaceFileEntry[]>();
+    const listFiles = vi.fn(() => pending.promise);
+    setWorkbench(localhostProvider(listFiles));
+
+    await mountExplorer();
+    expect(listFiles).toHaveBeenCalledTimes(1);
+
+    setWorkbench(localhostProvider(listFiles));
+    await act(async () => {
+      root!.render(<ExplorerView designId="design-1" explorerFocusToken={0} />);
+      await Promise.resolve();
+    });
+    expect(listFiles).toHaveBeenCalledTimes(1);
+
+    pending.resolve([{ path: "src/App.tsx", size: 42 }]);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mocks.fileTree).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        providerKey: "localhost:connection-1",
+        loading: false,
+        nodes: [
+          expect.objectContaining({
+            kind: "folder",
+            name: "src",
+            path: "src",
+          }),
+        ],
+      }),
+    );
+  });
+
   it("ignores a local file result that settles after unmount", async () => {
     const pending = deferred<WorkspaceFileEntry[]>();
     const listFiles = vi.fn(() => pending.promise);

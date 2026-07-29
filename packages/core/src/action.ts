@@ -121,6 +121,12 @@ export interface ActionRunContext {
   /** Concrete execution id for this agent-loop attempt. */
   runId?: string;
   turnId?: string;
+  /**
+   * Stable key for this exact tool call when the agent loop accepted a human
+   * approval grant. This is trusted loop metadata; action input can never set
+   * it.
+   */
+  approvedToolCallKey?: string;
 }
 
 /**
@@ -193,6 +199,39 @@ export interface PublicAgentActionConfig {
   requiresAuth?: boolean;
   isConsequential?: boolean;
   title?: string;
+  description?: string;
+}
+
+export type ActionPlanModeEffect = "read" | "write" | "unknown";
+
+/**
+ * Declares how an action behaves in Plan mode.
+ *
+ * A fixed `"read"` effect makes the action callable while planning. Mixed
+ * tools can classify each call from its arguments; only a returned `"read"`
+ * is allowed. Classifier errors and `"unknown"` fail closed.
+ */
+export interface ActionPlanModeConfig<TInput = unknown> {
+  effect: ActionPlanModeEffect | ((args: TInput) => ActionPlanModeEffect);
+  /**
+   * Optional argument values advertised and accepted in Plan mode. This keeps
+   * mixed-tool schemas focused on their read variants while the runtime gate
+   * independently rechecks every invocation.
+   */
+  allowedValues?: Record<string, readonly string[]>;
+  /**
+   * Optional Plan-mode input-property allowlist. Other properties are hidden
+   * from the advertised schema and rejected by the runtime gate.
+   */
+  allowedProperties?: readonly string[];
+  /** Properties required by the Plan-mode schema. */
+  requiredProperties?: readonly string[];
+  /**
+   * Properties hidden and rejected in Plan mode (for example persistence or
+   * notification options on an otherwise read-only request).
+   */
+  omittedProperties?: readonly string[];
+  /** Additional Plan-mode guidance appended to the tool description. */
   description?: string;
 }
 
@@ -413,6 +452,9 @@ interface DefineActionWithSchema<
    *  must not run during Plan mode because they perform substantive work
    *  rather than lightweight inspection. Defaults to allowed when read-only. */
   allowInPlanMode?: boolean;
+  /** First-class Plan-mode effect policy. Prefer this over `readOnly` for
+   *  mixed tools whose effect depends on their arguments. */
+  planMode?: ActionPlanModeConfig<StandardSchemaV1.InferInput<TSchema>>;
   /** If true, the agent may execute this action concurrently with other
    *  read-only or parallel-safe tool calls emitted in the same model turn.
    *  Only set this for mutating actions that are internally concurrency-safe
@@ -567,6 +609,9 @@ interface DefineActionWithParams<
   /** Set false for read-only tools that should stay available in Act mode but
    *  must not run during Plan mode. See the schema overload above. */
   allowInPlanMode?: boolean;
+  /** First-class Plan-mode effect policy. Prefer this over `readOnly` for
+   *  mixed tools whose effect depends on their arguments. */
+  planMode?: ActionPlanModeConfig<InferParams<TParams>>;
   /** If true, the agent may execute this action concurrently with other
    *  read-only or parallel-safe tool calls emitted in the same model turn. */
   parallelSafe?: boolean;
@@ -639,6 +684,7 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly agentTool?: boolean;
   readonly readOnly?: boolean;
   readonly allowInPlanMode?: boolean;
+  readonly planMode?: ActionPlanModeConfig<TInput>;
   readonly parallelSafe?: boolean;
   readonly dedupe?: boolean;
   readonly toolCallable?: boolean;
@@ -899,6 +945,15 @@ export function defineAction(options: any) {
     ...(typeof readOnly === "boolean" ? { readOnly } : {}),
     ...(typeof options.allowInPlanMode === "boolean"
       ? { allowInPlanMode: options.allowInPlanMode }
+      : {}),
+    ...(options.planMode &&
+    typeof options.planMode === "object" &&
+    !Array.isArray(options.planMode) &&
+    (typeof options.planMode.effect === "function" ||
+      options.planMode.effect === "read" ||
+      options.planMode.effect === "write" ||
+      options.planMode.effect === "unknown")
+      ? { planMode: options.planMode }
       : {}),
     ...(typeof parallelSafe === "boolean" ? { parallelSafe } : {}),
     ...(typeof dedupe === "boolean" ? { dedupe } : {}),

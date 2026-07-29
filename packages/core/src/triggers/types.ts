@@ -6,15 +6,15 @@
  * cron scheduler and dispatched by the event bus instead.
  */
 
-export interface TriggerFrontmatter {
-  schedule: string;
-  enabled: boolean;
+import type {
+  JobExecutionMode,
+  JobFrontmatter,
+  JobTriggerType,
+} from "../jobs/frontmatter.js";
+
+export interface TriggerFrontmatter extends JobFrontmatter {
   /** "schedule" = cron-based (legacy jobs). "event" = fires on bus event. */
-  triggerType: "schedule" | "event";
-  /** For event triggers: the event name to subscribe to. */
-  event?: string;
-  /** Natural-language condition evaluated by Haiku before dispatch. */
-  condition?: string;
+  triggerType: JobTriggerType;
   /**
    * "agentic" = full runAgentLoop; the only mode `manage-automations` will
    * define/update going forward. "deterministic" was removed from the
@@ -22,21 +22,7 @@ export interface TriggerFrontmatter {
    * before the removal may still carry it, and the dispatcher's
    * warn-and-skip branch keeps them inert by design — do not make them fire.
    */
-  mode: "agentic" | "deterministic";
-  /** Domain tag for filtering in per-template UIs. */
-  domain?: string;
-  /**
-   * Optional application-owned policy id carried into actions by the trusted
-   * trigger dispatcher. It is not model-supplied action input.
-   */
-  delegatedPolicyId?: string;
-  createdBy?: string;
-  orgId?: string;
-  runAs?: "creator" | "shared";
-  lastRun?: string;
-  lastStatus?: "success" | "error" | "running" | "skipped";
-  lastError?: string;
-  nextRun?: string;
+  mode: JobExecutionMode;
 }
 
 export interface TriggerDispatchContext {

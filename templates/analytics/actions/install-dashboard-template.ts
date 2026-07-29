@@ -28,12 +28,13 @@ import {
 async function syncToCollab(
   dashboardId: string,
   config: Record<string, unknown>,
+  requestSource?: string,
 ): Promise<void> {
   const docId = `dash-${dashboardId}`;
   const configStr = JSON.stringify(config);
   try {
     if (await hasCollabState(docId)) {
-      await applyText(docId, configStr, "content", "agent");
+      await applyText(docId, configStr, "content", requestSource);
     } else {
       await seedFromText(docId, configStr);
     }
@@ -137,7 +138,7 @@ export default defineAction({
       height: 760,
     }),
   },
-  run: async (args) => {
+  run: async (args, actionContext) => {
     const email = getRequestUserEmail();
     if (!email) throw new Error("no authenticated user");
     const ctx = { email, orgId: getRequestOrgId() || null };
@@ -242,7 +243,11 @@ export default defineAction({
             return { kind: existing.kind, body: computed.mergedConfig };
           },
         );
-        await syncToCollab(targetId, saved.config as Record<string, unknown>);
+        await syncToCollab(
+          targetId,
+          saved.config as Record<string, unknown>,
+          actionContext?.caller === "frontend" ? undefined : "agent",
+        );
         savedTitle = saved.title;
       }
 
@@ -315,7 +320,11 @@ export default defineAction({
         dashboardConfig,
         ctx,
       );
-      await syncToCollab(dashboardId, dashboardConfig);
+      await syncToCollab(
+        dashboardId,
+        dashboardConfig,
+        actionContext?.caller === "frontend" ? undefined : "agent",
+      );
 
       return {
         templateId: entry.id,

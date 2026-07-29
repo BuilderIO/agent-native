@@ -123,6 +123,7 @@ interface DesignExtensionsPanelProps {
   className?: string;
   hideAssetLibrary?: boolean;
   title?: string;
+  enableExtensionDiscovery?: boolean;
 }
 
 type CreateExtensionSubmitHandler = (text: string) => void;
@@ -283,7 +284,7 @@ function useSlotInstalls(slotId: string) {
   });
 }
 
-function useAvailableExtensions(slotId: string) {
+function useAvailableExtensions(slotId: string, enabled: boolean) {
   const versions = useChangeVersions(["action"]);
   return useQuery<AvailableExtension[]>({
     queryKey: ["design-editor-extension-slot-available", slotId, versions],
@@ -300,6 +301,7 @@ function useAvailableExtensions(slotId: string) {
       }
       return res.json();
     },
+    enabled,
     placeholderData: (prev) => prev,
   });
 }
@@ -1432,6 +1434,7 @@ export function DesignExtensionsPanel({
   className,
   hideAssetLibrary = false,
   title,
+  enableExtensionDiscovery = false,
 }: DesignExtensionsPanelProps) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -1451,7 +1454,7 @@ export function DesignExtensionsPanel({
     isError: installsErrored,
   } = useSlotInstalls(slotId);
   const { data: available = [], isError: availableErrored } =
-    useAvailableExtensions(slotId);
+    useAvailableExtensions(slotId, enableExtensionDiscovery);
   const installedIds = useMemo(
     () => new Set(installs.map((install) => install.extensionId)),
     [installs],
@@ -1533,7 +1536,9 @@ export function DesignExtensionsPanel({
   );
   const normalizedSearch = searchQuery.trim().toLowerCase();
   const sourceMatches = (source: ToolSourceFilter) =>
-    sourceFilter === "all" || sourceFilter === source;
+    !enableExtensionDiscovery ||
+    sourceFilter === "all" ||
+    sourceFilter === source;
   const categoryMatches = (category: ToolCategoryFilter) =>
     categoryFilter === "all" || categoryFilter === category;
   const textMatches = (name: string, description?: string | null) => {
@@ -1554,17 +1559,20 @@ export function DesignExtensionsPanel({
       categoryMatches("plugins") &&
       textMatches(install.name, install.description),
   );
-  const visibleInstallable = installable.filter(
-    (extension) =>
-      sourceMatches("extensions") &&
-      categoryMatches("plugins") &&
-      textMatches(extension.name, extension.description),
-  );
+  const visibleInstallable = enableExtensionDiscovery
+    ? installable.filter(
+        (extension) =>
+          sourceMatches("extensions") &&
+          categoryMatches("plugins") &&
+          textMatches(extension.name, extension.description),
+      )
+    : [];
   const hasAnyVisibleTool =
     visibleFirstPartyRows.length > 0 ||
     visibleInstalls.length > 0 ||
     visibleInstallable.length > 0;
   const showPluginsEmptyState =
+    enableExtensionDiscovery &&
     !hasAnyVisibleTool &&
     categoryFilter === "plugins" &&
     !normalizedSearch &&
@@ -1576,11 +1584,13 @@ export function DesignExtensionsPanel({
         <h3 className="min-w-0 flex-1 truncate text-xs font-semibold text-foreground">
           {title ?? t("designEditor.extensions")}
         </h3>
-        <CreateExtensionPopover
-          open={createOpen}
-          onOpenChange={setCreateOpen}
-          onSubmit={submitCreatePrompt}
-        />
+        {enableExtensionDiscovery ? (
+          <CreateExtensionPopover
+            open={createOpen}
+            onOpenChange={setCreateOpen}
+            onSubmit={submitCreatePrompt}
+          />
+        ) : null}
       </div>
 
       <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-4 pt-3">
@@ -1595,16 +1605,18 @@ export function DesignExtensionsPanel({
         </div>
 
         <div className="mb-4 flex flex-wrap gap-1.5">
-          <ToolFilterMenu
-            label="Source"
-            value={sourceFilter}
-            onChange={setSourceFilter}
-            options={[
-              { value: "all", label: "Source" },
-              { value: "built-in", label: "Built-in" },
-              { value: "extensions", label: "Extensions" },
-            ]}
-          />
+          {enableExtensionDiscovery ? (
+            <ToolFilterMenu
+              label="Source"
+              value={sourceFilter}
+              onChange={setSourceFilter}
+              options={[
+                { value: "all", label: "Source" },
+                { value: "built-in", label: "Built-in" },
+                { value: "extensions", label: "Extensions" },
+              ]}
+            />
+          ) : null}
           <ToolFilterMenu
             label="Category"
             value={categoryFilter}
@@ -1614,12 +1626,15 @@ export function DesignExtensionsPanel({
               { value: "shader", label: "Shaders" },
               { value: "tokens", label: "Tokens" },
               { value: "motion", label: "Motion" },
-              { value: "plugins", label: "Plugins" },
+              ...(enableExtensionDiscovery
+                ? [{ value: "plugins" as const, label: "Plugins" }]
+                : []),
             ]}
           />
         </div>
 
-        {(installsErrored || availableErrored) && (
+        {(installsErrored ||
+          (enableExtensionDiscovery && availableErrored)) && (
           <p className="mb-3 rounded border border-destructive/30 bg-destructive/5 px-2 py-1.5 text-[10px] leading-snug text-destructive">
             Couldn&apos;t load extensions. Built-in tools are still available
             below — check your connection and try again.

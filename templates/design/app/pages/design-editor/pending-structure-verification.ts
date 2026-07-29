@@ -31,6 +31,17 @@ export function verifyPendingStructureRuntime(
     edit.selector,
     edit.sourceId ?? undefined,
   );
+  if (edit.replaced) {
+    const replacement = resolveCodeLayerNodeFromBridge(
+      projection,
+      edit.replacementSelector ?? "",
+      edit.replacementSourceId ?? undefined,
+    );
+    if (!replacement) return { ok: false, failure: "missing-subject" };
+    return subject
+      ? { ok: false, failure: "subject-still-present" }
+      : { ok: true };
+  }
   // A removal proves itself by ABSENCE. Running it through the anchor/order
   // checks below would report "missing-subject" for the exact outcome it
   // asked for, and the apply flow would sit in awaiting-runtime until it

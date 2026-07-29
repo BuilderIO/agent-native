@@ -304,6 +304,41 @@ export function resolveAnalyticsEventDimensions({
   return { app, template };
 }
 
+/**
+ * The public marketing site does not have a product sign-in surface. It shares
+ * the browser analytics write key, though, so its host-derived `www` dimension
+ * must never enter signed-in product cohorts when a client sends session
+ * telemetry.
+ */
+export function isMarketingWebsiteSessionEvent({
+  eventName,
+  hostname,
+  app,
+  template,
+}: {
+  eventName: string;
+  hostname: string | null;
+  app: string | null;
+  template: string | null;
+}): boolean {
+  if (eventName !== "session status") return false;
+  const normalizedHostname = hostname?.trim().toLowerCase().replace(/\.$/, "");
+  if (
+    normalizedHostname === "agent-native.com" ||
+    normalizedHostname === "www.agent-native.com"
+  ) {
+    return true;
+  }
+  // Some older browser events do not include a URL/hostname. Their only
+  // available attribution is the host-derived app/template dimension.
+  const normalizedApp = app?.trim().toLowerCase();
+  const normalizedTemplate = template?.trim().toLowerCase();
+  return (
+    !normalizedHostname &&
+    (normalizedApp === "www" || normalizedTemplate === "www")
+  );
+}
+
 export function parseAnalyticsTrackPayload(raw: unknown): {
   publicKey: string;
   events: IncomingAnalyticsEvent[];
@@ -389,7 +424,7 @@ export async function recordAnalyticsEvents(
       context,
       hostname,
     });
-    const signedIn =
+    const reportedSignedIn =
       asString((properties as any).signed_in) ||
       asString((properties as any).signedIn) ||
       asString((context as any).signed_in) ||
@@ -403,6 +438,14 @@ export async function recordAnalyticsEvents(
     const timestamp = normalizeAnalyticsTimestamp(event.timestamp, receivedAt);
     const sessionId =
       event.sessionId ?? asString((properties as any).sessionId);
+    const signedIn = isMarketingWebsiteSessionEvent({
+      eventName: event.event,
+      hostname,
+      app,
+      template,
+    })
+      ? "false"
+      : reportedSignedIn;
 
     if (event.event === EXCEPTION_EVENT_NAME) {
       exceptionSources.push({

@@ -271,7 +271,10 @@ describe("prompt content invariants", () => {
     }
   });
 
-  it("assembled prompts can remove extension tool guidance", () => {
+  it("keeps extension tool guidance out of assembled prompts by default", () => {
+    const defaultPrompts =
+      _agentChatPromptSectionsForTests.buildFrameworkPrompts();
+    const defaultCorePrompt = buildFrameworkCore();
     const prompts = _agentChatPromptSectionsForTests.buildFrameworkPrompts(
       undefined,
       {
@@ -282,10 +285,18 @@ describe("prompt content invariants", () => {
       extensionTools: false,
     });
 
-    expect(prompts.PROD_FRAMEWORK_PROMPT).toContain("Extensions Disabled");
-    expect(prompts.PROD_FRAMEWORK_PROMPT_COMPACT).toContain(
-      "Extensions Disabled",
+    expect(defaultPrompts.PROD_FRAMEWORK_PROMPT).not.toContain("Extensions");
+    expect(defaultPrompts.PROD_FRAMEWORK_PROMPT_COMPACT).not.toContain(
+      "Extensions",
     );
+    expect(defaultCorePrompt).toContain(
+      "registered actions and connected MCP tools",
+    );
+    expect(defaultCorePrompt).not.toContain(
+      "registered actions, extensions, and connected MCP tools",
+    );
+    expect(prompts.PROD_FRAMEWORK_PROMPT).not.toContain("Extensions");
+    expect(prompts.PROD_FRAMEWORK_PROMPT_COMPACT).not.toContain("Extensions");
     expect(corePrompt).toContain("registered actions and connected MCP tools");
     expect(corePrompt).not.toContain(
       "registered actions, extensions, and connected MCP tools",
@@ -299,7 +310,10 @@ describe("prompt content invariants", () => {
   });
 
   it("keeps app-native dashboard and analysis actions ahead of generic extensions", () => {
-    const prompts = _agentChatPromptSectionsForTests.buildFrameworkPrompts();
+    const prompts = _agentChatPromptSectionsForTests.buildFrameworkPrompts(
+      undefined,
+      { extensionTools: true },
+    );
 
     expect(prompts.PROD_FRAMEWORK_PROMPT).toContain(
       "If the app exposes native actions or instructions for dashboards",
@@ -313,7 +327,10 @@ describe("prompt content invariants", () => {
   });
 
   it("routes extension requests that need native placement to code customization", () => {
-    const prompts = _agentChatPromptSectionsForTests.buildFrameworkPrompts();
+    const prompts = _agentChatPromptSectionsForTests.buildFrameworkPrompts(
+      undefined,
+      { extensionTools: true },
+    );
 
     // The 7-row routing table and worked examples were cut in favor of one
     // boundary sentence (routing among render-inline-extension/create-extension/
@@ -332,6 +349,17 @@ describe("prompt content invariants", () => {
     expect(prompts.PROD_FRAMEWORK_PROMPT_COMPACT).toContain(
       "continue the code-change handoff",
     );
+  });
+
+  it("registers extension actions only after an explicit opt-in", () => {
+    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+      encoding: "utf-8",
+    });
+
+    expect(source).toContain(
+      "const extensionToolsEnabled = options?.extensionTools === true;",
+    );
+    expect(source).toContain("if (extensionToolsEnabled) {");
   });
 
   it("both variants contain the no-fabrication rule", () => {

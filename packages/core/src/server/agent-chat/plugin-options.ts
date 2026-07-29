@@ -273,9 +273,9 @@ export interface AgentChatPluginOptions {
   /**
    * Expose framework extension management actions (`create-extension`,
    * `update-extension`, `list-extensions`, etc.) to the app agent. Defaults to
-   * true. Set to false for apps that do not want the LLM to create or manage
-   * sandboxed extension mini-apps, even though the core extension routes may
-   * still be mounted for other surfaces.
+   * false. Set to true for apps that intentionally let the LLM create or
+   * manage sandboxed extension mini-apps. Core extension routes may still be
+   * mounted for compatibility and app-owned surfaces.
    */
   extensionTools?: boolean;
   /**

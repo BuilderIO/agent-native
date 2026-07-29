@@ -1467,7 +1467,7 @@ function resolveInlineCommentPosition(input: {
   };
 }
 
-function buildPlanAgentContext(input: {
+export function buildPlanAgentContext(input: {
   bundle: PlanBundle & { html?: string };
   documentHtml: string;
   url: string;
@@ -1563,7 +1563,7 @@ function buildPlanAgentContext(input: {
         .join("\n");
     })
     .join("\n");
-  const recentReviewEvents = input.bundle.events
+  const recentReviewEvents = (input.bundle.events ?? [])
     .filter((event) => event.type === "plan.updated")
     .slice(-6)
     .map((event) => {
