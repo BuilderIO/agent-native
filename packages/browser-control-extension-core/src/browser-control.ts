@@ -1,3 +1,4 @@
+// This service is shared by browser-extension hosts; transports stay outside it.
 import {
   attachDebugger,
   detachDebugger,

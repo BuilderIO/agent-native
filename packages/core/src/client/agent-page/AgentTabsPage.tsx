@@ -1,7 +1,7 @@
 import {
   IconBook2,
+  IconBolt,
   IconChecklist,
-  IconClock,
   IconExternalLink,
   IconFolder,
   IconHistory,
@@ -858,10 +858,10 @@ export function AgentTabsPage({
       },
       {
         id: "jobs",
-        label: "Jobs",
-        icon: IconClock,
+        label: "Automations",
+        icon: IconBolt,
         group: "agent",
-        keywords: "scheduled automations recurring",
+        keywords: "jobs scheduled automations recurring event triggers",
         content: (
           <Suspense fallback={<TabLoading />}>
             <AgentJobsTab scope={scope} canManageOrg={canManageOrg} />

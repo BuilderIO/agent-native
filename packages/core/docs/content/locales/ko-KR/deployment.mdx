@@ -442,7 +442,7 @@ openssl rand -hex 32
 export default createAgentChatPlugin({
   // Default: "read"
   databaseTools: "read", // "write" | "read" | "off"
-  extensionTools: false,
+  extensionTools: true,
 });
 ```
 
@@ -453,9 +453,9 @@ export default createAgentChatPlugin({
   스키마 변경은 차단됩니다.
 - `databaseTools: "off"` 또는 `false` — 원시 데이터베이스 도구를 제거합니다.
   에이전트 표면이므로 앱의 actions가 유일한 데이터 액세스 경로입니다.
-- `extensionTools: false` — 프레임워크 확장 관리 actions를 제거하고
-  다음과 같은 앱에 대한 신속한 안내(`create-extension`, `update-extension` 등)
-  에이전트가 샌드박스 미니 앱을 생성하는 것을 원하지 않습니다.
+- `extensionTools: true` — 앱에서 프레임워크 확장 관리 actions와 안내
+  (`create-extension`, `update-extension` 등)를 활성화합니다. 확장
+  프로그램은 기본적으로 비활성화됩니다.
 
 ## 생산 코드 실행 {#production-code-execution}
 

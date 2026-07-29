@@ -443,7 +443,7 @@ laufen über typisierte App-Actions, sofern die App nicht ausdrücklich rohe Sch
 export default createAgentChatPlugin({
   // Default: "read"
   databaseTools: "read", // "write" | "read" | "off"
-  extensionTools: false,
+  extensionTools: true,
 });
 ```
 
@@ -454,9 +454,9 @@ export default createAgentChatPlugin({
   aktuellen Benutzer/die aktuelle Organisation beschränkt; Schemaänderungen werden blockiert.
 - `databaseTools: "off"` oder `false` – entfernt Rohdatenbank-Tools aus
   Agentenoberfläche, sodass die actions der App der einzige Datenzugriffspfad sind.
-- `extensionTools: false` – entfernt Framework-Erweiterungsverwaltung actions und
-  schnelle Anleitung (`create-extension`, `update-extension` usw.) für Apps, die
-  Sie möchten nicht, dass der Agent Sandbox-Mini-Apps erstellt.
+- `extensionTools: true` – aktiviert für die App die actions und Anweisungen
+  zur Framework-Erweiterungsverwaltung (`create-extension`,
+  `update-extension` usw.). Erweiterungen sind standardmäßig deaktiviert.
 
 ## Produktionscode-Ausführung {#production-code-execution}
 

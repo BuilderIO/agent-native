@@ -5,7 +5,7 @@ import {
   normalizeAllowedOrigin,
   parseNativeRequest,
   ProtocolValidationError,
-} from "./policy";
+} from "./index";
 
 const request = (command: unknown): unknown => ({
   id: "req-example",

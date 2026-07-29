@@ -58,6 +58,7 @@ const workspaceSkillIncludes = [
   "audit-log",
   "authentication",
   "automations",
+  "browser-sessions",
   "capture-learnings",
   "changelog",
   "client-methods",

@@ -65,6 +65,19 @@ function sharedJobContent(opts: {
   return lines.join("\n");
 }
 
+function eventAutomationContent(): string {
+  return `---
+schedule: ""
+enabled: true
+triggerType: event
+event: mail.received
+mode: agentic
+createdBy: alice@example.com
+---
+
+Notify me about the message.`;
+}
+
 describe("manage-jobs tool", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -365,6 +378,26 @@ describe("manage-jobs tool", () => {
       const { meta } = parseJobFrontmatter(resourcePutMock.mock.calls[0][2]);
       expect(meta.schedule).toBe("*/30 * * * *");
     });
+
+    it("rejects event-triggered resources without rewriting them", async () => {
+      resourceGetByPathMock.mockResolvedValueOnce({
+        id: "r1",
+        owner: SHARED_OWNER,
+        path: "jobs/event-alert.md",
+        content: eventAutomationContent(),
+      });
+
+      const out = JSON.parse(
+        await run({
+          action: "update",
+          name: "event-alert",
+          enabled: "false",
+        }),
+      );
+
+      expect(out.error).toMatch(/is an automation.*manage-automations/);
+      expect(resourcePutMock).not.toHaveBeenCalled();
+    });
   });
 
   describe("delete", () => {
@@ -402,6 +435,22 @@ describe("manage-jobs tool", () => {
       resourceGetByPathMock.mockResolvedValue(null);
       const out = JSON.parse(await run({ action: "delete", name: "ghost" }));
       expect(out.error).toMatch(/not found/);
+    });
+
+    it("rejects deleting an event-triggered resource", async () => {
+      resourceGetByPathMock.mockResolvedValueOnce({
+        id: "event-1",
+        owner: SHARED_OWNER,
+        path: "jobs/event-alert.md",
+        content: eventAutomationContent(),
+      });
+
+      const out = JSON.parse(
+        await run({ action: "delete", name: "event-alert" }),
+      );
+
+      expect(out.error).toMatch(/is an automation.*manage-automations/);
+      expect(resourceDeleteMock).not.toHaveBeenCalled();
     });
   });
 
@@ -450,6 +499,37 @@ describe("manage-jobs tool", () => {
 
       const jobs = JSON.parse(await run({ action: "list", scope: "personal" }));
       expect(jobs.map((j: any) => j.name)).toEqual(["personal"]);
+    });
+
+    it("excludes explicit scheduled and event-triggered automations", async () => {
+      resourceListMock.mockImplementation(async (owner: string) =>
+        owner === "alice@example.com"
+          ? [
+              { owner, path: "jobs/legacy.md" },
+              { owner, path: "jobs/scheduled.md" },
+              { owner, path: "jobs/event.md" },
+            ]
+          : [],
+      );
+      resourceGetByPathMock.mockImplementation(
+        async (owner: string, path: string) => ({
+          id: path,
+          owner,
+          path,
+          content: path.endsWith("event.md")
+            ? eventAutomationContent()
+            : path.endsWith("scheduled.md")
+              ? sharedJobContent({ createdBy: "alice@example.com" }).replace(
+                  "enabled: true",
+                  "enabled: true\ntriggerType: schedule\nmode: agentic",
+                )
+              : sharedJobContent({ createdBy: "alice@example.com" }),
+        }),
+      );
+
+      const jobs = JSON.parse(await run({ action: "list" }));
+
+      expect(jobs.map((job: any) => job.name)).toEqual(["legacy"]);
     });
 
     it("never lists another org's shared partition", async () => {

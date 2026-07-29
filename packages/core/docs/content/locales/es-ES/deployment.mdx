@@ -442,7 +442,7 @@ las escrituras pasan por actions tipadas de la app salvo que la app active expl�
 export default createAgentChatPlugin({
   // Default: "read"
   databaseTools: "read", // "write" | "read" | "off"
-  extensionTools: false,
+  extensionTools: true,
 });
 ```
 
@@ -453,9 +453,9 @@ export default createAgentChatPlugin({
   usuario/organización actual y los cambios de esquema están bloqueados.
 - `databaseTools: "off"` o `false`: elimina las herramientas de base de datos sin procesar del
   superficie del agente para que los actions de la aplicación sean la única ruta de acceso a los datos.
-- `extensionTools: false`: elimina la gestión de extensiones del marco actions y
-  orientación rápida (`create-extension`, `update-extension`, etc.) para aplicaciones que
-  No quiero que el agente cree miniaplicaciones en espacio aislado.
+- `extensionTools: true`: habilita para la aplicación las actions y la guía de
+  gestión de extensiones (`create-extension`, `update-extension`, etc.). Las
+  extensiones están desactivadas de forma predeterminada.
 
 ## Ejecución del código de producción {#production-code-execution}
 

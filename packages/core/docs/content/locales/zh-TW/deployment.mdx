@@ -442,7 +442,7 @@ openssl rand -hex 32
 export default createAgentChatPlugin({
   // Default: "read"
   databaseTools: "read", // "write" | "read" | "off"
-  extensionTools: false,
+  extensionTools: true,
 });
 ```
 
@@ -452,9 +452,8 @@ export default createAgentChatPlugin({
   供有意的原始 SQL 維護使用。寫入範圍限定為目前使用者/組織，並阻止架構變更。
 - `databaseTools: "off"` 或 `false` — 從
   代理表面，因此應用程式的 actions 是唯一的資料存取路徑。
-- `extensionTools: false` — 刪除框架擴充功能管理 actions 和
-  針對以下應用的提示指導（`create-extension`、`update-extension` 等）
-  不希望代理建立沙盒迷你應用程式。
+- `extensionTools: true` — 為應用啟用框架擴充功能管理 actions 與提示
+  指引（`create-extension`、`update-extension` 等）。擴充功能預設關閉。
 
 ## 正式環境程式碼執行 {#production-code-execution}
 

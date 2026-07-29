@@ -19,6 +19,7 @@ import {
   analyticsDataDictionaryRoutingContext,
   analyticsSourceGuidanceOpening,
   ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE,
+  ANALYTICS_CUSTOM_BLOCK_GUIDANCE,
   ANALYTICS_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS,
   BOUNDED_STRUCTURED_LOOKUP_GUIDANCE,
   BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE,
@@ -229,6 +230,37 @@ describe("Analytics agent Plan mode policy", () => {
 
   it("keeps the first-party query action on the initial tool surface", () => {
     expect(INITIAL_TOOL_NAMES).toContain("query-agent-native-analytics");
+  });
+
+  it("makes Custom Blocks a deliberate one-off exception to native dashboards", () => {
+    expect(ANALYTICS_CUSTOM_BLOCK_GUIDANCE).toContain(
+      "native dashboard panels and Data Programs first",
+    );
+    expect(ANALYTICS_CUSTOM_BLOCK_GUIDANCE).toContain(
+      "only when the user explicitly asks",
+    );
+    expect(ANALYTICS_CUSTOM_BLOCK_GUIDANCE).toContain(
+      "intended scope is this dashboard",
+    );
+    expect(ANALYTICS_CUSTOM_BLOCK_GUIDANCE).toContain("nativeGapReason");
+    expect(ANALYTICS_CUSTOM_BLOCK_GUIDANCE).toContain(
+      "never put prompt text, customer data",
+    );
+    expect(ANALYTICS_CUSTOM_BLOCK_GUIDANCE).toContain("call `connect-builder`");
+    expect(ANALYTICS_CUSTOM_BLOCK_GUIDANCE).toContain(
+      "preserve the existing Custom Block",
+    );
+    expect(ANALYTICS_CUSTOM_BLOCK_GUIDANCE).not.toContain(
+      "automatically create",
+    );
+  });
+
+  it("explicitly keeps extension tools for Analytics Custom Blocks", async () => {
+    const source = await import("node:fs/promises").then(({ readFile }) =>
+      readFile(new URL("./agent-chat.ts", import.meta.url), "utf8"),
+    );
+
+    expect(source).toContain("extensionTools: true");
   });
 });
 

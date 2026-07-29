@@ -1,3 +1,4 @@
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useDraggable } from "@dnd-kit/core";
@@ -12,6 +13,7 @@ import {
   IconDownload,
   IconMessageCircle,
   IconBrandGoogle,
+  IconArrowUpRight,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -39,6 +41,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -48,6 +51,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import type { SelectDashboardPanelOptions } from "@/hooks/use-dashboard-chat-context";
+import { buildCustomBlockPromotionRequest } from "@/lib/custom-block-promotion";
 import { cn } from "@/lib/utils";
 
 import { serializePanelSql } from "./panel-sql";
@@ -205,6 +209,28 @@ export function SqlChartCard({
       );
     }
   }, [dashboardId, exportToGoogleSheets, filters, panel, t]);
+
+  const handlePromoteCustomBlock = useCallback(() => {
+    const extensionId = panel.config?.extensionId;
+    if (!dashboardId || !extensionId) return;
+    const dashboardName =
+      typeof extensionContext?.dashboardName === "string"
+        ? extensionContext.dashboardName
+        : undefined;
+    sendToAgentChat(
+      buildCustomBlockPromotionRequest(
+        {
+          dashboardId,
+          dashboardName,
+          panelId: panel.id,
+          panelTitle: panel.title,
+          extensionId,
+          nativeGapReason: panel.config?.customBlock?.nativeGapReason,
+        },
+        t("sqlDashboard.promoteCustomBlockMessage", { title: panel.title }),
+      ),
+    );
+  }, [dashboardId, extensionContext, panel, t]);
 
   const handleCardClick = useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
@@ -401,6 +427,19 @@ export function SqlChartCard({
               <TooltipContent>{t("sqlDashboard.panelOptions")}</TooltipContent>
             </Tooltip>
             <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuLabel className="font-normal">
+                <span className="block text-xs font-medium text-foreground">
+                  {t("sqlDashboard.customBlock")}
+                </span>
+                <span className="block text-[10px] leading-tight text-muted-foreground">
+                  {t(
+                    panel.config?.customBlock?.authoredBy === "agent"
+                      ? "sqlDashboard.customBlockAgentProvenance"
+                      : "sqlDashboard.customBlockProvenance",
+                  )}
+                </span>
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
               <DropdownMenuItem
                 onSelect={() =>
                   onSelectForChat?.({ openSidebar: true, focus: true })
@@ -419,6 +458,15 @@ export function SqlChartCard({
                 <IconRefresh className="h-4 w-4 mr-2" />
                 {t("sqlDashboard.refresh")}
               </DropdownMenuItem>
+              {editable && panel.config?.extensionId ? (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={handlePromoteCustomBlock}>
+                    <IconArrowUpRight className="h-4 w-4 mr-2" />
+                    {t("sqlDashboard.promoteToAppCode")}
+                  </DropdownMenuItem>
+                </>
+              ) : null}
               {editable ? (
                 <>
                   <DropdownMenuSeparator />

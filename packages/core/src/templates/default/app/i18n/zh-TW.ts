@@ -68,6 +68,21 @@ const messages = {
       suggestionGrantKey: "將我的 OpenAI 金鑰授予此應用程式",
     },
     pages: {
+      browserChatUnavailableTitle: "瀏覽器聊天工作階段無法使用",
+      browserChatUnavailableDescription:
+        "請從 Agent-Native 瀏覽器擴充功能重新連線。",
+      browserChatPlaceholder: "詢問此頁面…",
+      browserChatAttachedPlaceholder: "詢問 {{page}}…",
+      browserConnectTitle: "連接瀏覽器聊天",
+      browserConnectDescription:
+        "允許 Agent-Native Chrome 擴充功能開啟此 Dispatch 聊天工作階段。連線使用一次性的短期票證。",
+      browserConnectInvalid: "此連線要求無效。請從擴充功能重新開始。",
+      browserConnectConnected: "瀏覽器聊天已連線。你可以關閉此分頁。",
+      browserConnectConnecting: "連線中…",
+      browserConnectButton: "連線",
+      browserConnectOpenFromExtension:
+        "請從 Agent-Native Chrome 擴充功能開啟此頁面。",
+      browserConnectFailed: "瀏覽器擴充功能未能連線。",
       appsDescription: "開啟工作區應用程式並從 Dispatch 開始建立新應用程式。",
       appsDescriptionWithWorkspace:
         "「{{workspace}}」工作區中的應用程式。每個應用程式都會在此工作區下取得自己的路由，並共用資料庫、驗證與代理聊天。",
@@ -342,6 +357,15 @@ const messages = {
     deleting: "正在封存...",
     openFullView: "開啟全檢視",
     removeFromWidgetArea: "從此小工具區域中刪除",
+    customBlockSandboxed: "自訂區塊 · 沙盒",
+    sandboxedCustomBlock: "沙盒 SQL 自訂區塊",
+    sandboxedCustomBlockCreatedBy: "由 {{email}} 建立的沙盒 SQL 自訂區塊",
+    promoteToAppCode: "升級為應用程式碼",
+    historyShowsSourceVersions: "歷史記錄包含原始碼版本",
+    createdByHistoryShowsSourceVersions:
+      "由 {{email}} 建立。歷史記錄包含原始碼版本。",
+    createdByHistoryShowsSourceVersionsCompact:
+      "由 {{email}} 建立 · 歷史記錄包含原始碼版本",
     deleteExtensionEllipsis: "封存擴充功能...",
     removeFromMyListEllipsis: "從我的清單中刪除...",
     removeFromWidgetAreaForMe: "從這個小工具區域移除（只套用於我）",

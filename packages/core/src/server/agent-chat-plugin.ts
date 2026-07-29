@@ -605,7 +605,7 @@ export function createAgentChatPlugin(
         const missing = requested.filter((toolName) => !entries[toolName]);
         if (missing.length > 0) {
           throw new Error(
-            `Configured MCP tools are unavailable in this run: ${missing.join(", ")}. Reconnect the MCP server or update the job's capability list.`,
+            `Configured MCP tools are unavailable in this run: ${missing.join(", ")}. Reconnect the MCP server or update the automation's capability list.`,
           );
         }
         return entries;
@@ -691,7 +691,7 @@ export function createAgentChatPlugin(
       );
       const databaseToolsEnabled = databaseToolsMode !== "off";
       const databaseWriteToolsEnabled = databaseToolsMode === "write";
-      const extensionToolsEnabled = options?.extensionTools !== false;
+      const extensionToolsEnabled = options?.extensionTools === true;
       const dbScripts = databaseToolsEnabled
         ? await createDbScriptEntries(databaseToolsMode, {
             extensionTools: extensionToolsEnabled,
@@ -718,7 +718,7 @@ export function createAgentChatPlugin(
         getOrigin: () =>
           getRequestRunContext()?.requestOrigin ?? "http://localhost:3000",
         getOwner: () => getRequestRunContext()?.owner ?? getRequestUserEmail(),
-        extensionTools: options?.extensionTools,
+        extensionTools: extensionToolsEnabled,
       });
 
       // Auto-mount A2A protocol endpoints so every app is discoverable
@@ -6011,7 +6011,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           const { initTriggerDispatcher } =
             await import("../triggers/dispatcher.js");
           await initTriggerDispatcher({
-            getActions: () => ({
+            getActions: (automation?: RecurringJobContext) => ({
               ...templateScripts,
               ...resourceScripts,
               ...docsScripts,
@@ -6024,6 +6024,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               ...fetchTool,
               ...webSearchTool,
               ...toolActions,
+              ...getJobMcpActionEntries(automation),
             }),
             getSystemPrompt: async (owner: string) => {
               const resources = await loadResourcesForPrompt(
@@ -6038,10 +6039,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             },
             // See the matching comment on schedulerDeps.getInitialToolNames
             // above — same shared `basePrompt`, same reasoning.
-            getInitialToolNames: () => [
+            getInitialToolNames: (automation?: RecurringJobContext) => [
               ...effectiveInitialToolNames,
               "manage-jobs",
               "manage-progress",
+              ...(automation?.meta.mcpTools ?? []),
             ],
             apiKey: options?.apiKey,
             model: options?.model,

@@ -582,7 +582,7 @@ write tools:
 export default createAgentChatPlugin({
   // Default: "read"
   databaseTools: "read", // "write" | "read" | "off"
-  extensionTools: false,
+  extensionTools: true,
 });
 ```
 
@@ -593,9 +593,9 @@ export default createAgentChatPlugin({
   current user/org and schema changes are blocked.
 - `databaseTools: "off"` or `false` — removes raw database tools from the
   agent surface so the app's actions are the only data access path.
-- `extensionTools: false` — removes framework extension-management actions and
-  prompt guidance (`create-extension`, `update-extension`, etc.) for apps that
-  do not want the agent creating sandboxed mini-apps.
+- `extensionTools: true` — opts the app into framework extension-management
+  actions and prompt guidance (`create-extension`, `update-extension`, etc.).
+  Extensions are disabled by default.
 
 ## Production Code Execution {#production-code-execution}
 

@@ -229,7 +229,7 @@ const ADVANCED_NAV_ITEMS = [
 
 const EMPTY_NAV_ITEMS: readonly DispatchNavItem[] = [];
 
-const CHROMELESS_PATHS = ["/approval"];
+const CHROMELESS_PATHS = ["/approval", "/browser-chat", "/browser-connect"];
 const SIDEBAR_COLLAPSE_KEY = "dispatch.sidebar.collapsed";
 
 // Routes whose page renders its own toolbar.

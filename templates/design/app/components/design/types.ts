@@ -27,6 +27,8 @@ export interface RuntimeStructureMoveRequest {
 export interface RuntimeStructureInsertRequest {
   requestId: number;
   html: string;
+  /** Additional clipboard roots inserted by the same paste gesture. */
+  additionalHtml?: string[];
   anchor: {
     selector: string;
     sourceId?: string | null;

@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import { normalizeMonacoThemeColor } from "../code-workbench-theme";
+import { CODE_WORKBENCH_SHELL_CLASSNAME } from "./code-workbench-shell";
 
 describe("code workbench shell", () => {
   it("themes from native workbench tokens and suppresses design hotkeys", () => {
@@ -15,6 +16,12 @@ describe("code workbench shell", () => {
     expect(source).toContain("--workbench-bg");
     expect(source).not.toContain("srcDoc=");
     expect(source).not.toContain("#0f1115");
+  });
+
+  it("keeps a full-height edge between the workbench and canvas", () => {
+    expect(CODE_WORKBENCH_SHELL_CLASSNAME).toContain("border-r");
+    expect(CODE_WORKBENCH_SHELL_CLASSNAME).toContain("--workbench-border");
+    expect(CODE_WORKBENCH_SHELL_CLASSNAME).toContain("shadow-[4px_0_12px");
   });
 
   it("normalizes computed CSS colors before passing them to Monaco", () => {

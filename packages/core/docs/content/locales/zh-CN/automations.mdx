@@ -5,9 +5,9 @@ description: "具有自然语言条件的事件触发和计划自动化"
 
 # 自动化
 
-**自动化**是一条规则：_当 X 发生时，执行 Y_ — 用自然语言描述。代理执行指令，因此自动化可以访问代理可以在交互式聊天中使用的每个操作、工具和 MCP 服务器。
+**自动化**是代理按计划或在事件发生时执行的任务：_当 X 发生时，执行 Y_。**Scheduled** 和 **Event** 是两种触发类型，而不是两个独立产品。
 
-自动化通过 `web-request` 工具使用**事件触发器**、**自然语言条件**和**出站 HTTP** 扩展 [recurring jobs](/docs/recurring-jobs)。它们使用与重复作业相同的 `jobs/<name>.md` 文件格式、存储和“创建三种方式”工作流程 - 请参阅 [Recurring Jobs](/docs/recurring-jobs#job-file) 了解共享格式。本页面仅涵盖事件驱动自动化的新增内容。
+框架最初将计划自动化公开为 **Recurring Jobs**。该名称、`jobs/<name>.md` 路径和 `manage-jobs` 工具会为兼容性保留。新的产品指南使用 **Automations** 作为总称；维护旧计划作业或使用组织范围及高级字段时，请参阅 [Recurring Jobs](/docs/recurring-jobs)。
 
 <Diagram id="doc-block-15xrd2h" title={"当X发生时，做Y"} summary={"总线上触发事件，可选的自然语言条件对其进行门控，代理运行具有完整工具访问权限的自动化主体。"}>
 
@@ -72,9 +72,15 @@ description: "具有自然语言条件的事件触发和计划自动化"
 
 代理发现可用事件，确认计划，并为您编写自动化。
 
-### 来自设置UI
+### 从 Automations 界面
 
-自动化出现在设置面板中。用户可以在那里查看、启用/禁用和删除它们。
+在完整的 Agent 页面中打开 **Automations**，查看和管理计划自动化及事件触发自动化。兼容 URL 仍为 `/agent#jobs`，因此现有链接和书签会继续工作。
+
+<Callout tone="warning">
+
+`manage-automations` 支持个人和组织范围的 Scheduled 与 Event 自动化。组织 Event 自动化对成员可见，但始终以创建者身份运行；管理员可以管理定义，但不能更改该执行身份。
+
+</Callout>
 
 第三条路径 - 通过 `resourcePut` 手动写入 `jobs/<name>.md` 文件 - 与 [recurring jobs](/docs/recurring-jobs#creating) 的工作方式完全相同。对于事件驱动的自动化，您可以将下面的事件触发 frontmatter 添加到同一文件中。事件触发作业设置 `schedule: ""` 并提供 `triggerType: event`、`event` 名称和可选的 `condition`：
 
@@ -176,7 +182,7 @@ emit(
 );
 ```
 
-自动化触发的发出元数据范围中的 `owner` - 仅评估同一用户拥有的自动化（或共享自动化）。
+发出元数据中的 `owner` 决定哪些自动化可以触发。个人和组织 Event 自动化都必须与 `createdBy` 完全匹配。
 
 ## 条件 {#conditions}
 
@@ -228,7 +234,7 @@ Body: {"text": "New booking from ${attendeeEmail}"}
 
 ## 代理工具 {#agent-tools}
 
-所有自动化操作均通过带有 `action` 参数的单个 `manage-automations` 工具访问：
+个人和组织自动化都使用带 `action` 参数的 `manage-automations`：
 
 | 行动          | 目的                                                 |
 | ------------- | ---------------------------------------------------- |
@@ -240,6 +246,8 @@ Body: {"text": "New booking from ${attendeeEmail}"}
 | `fire-test`   | 发出 `test.event.fired` 事件来验证自动化             |
 
 附加工具：`web-request` — 出站 HTTP 替换为 `${keys.NAME}`。
+
+`manage-automations` 支持组织范围、模型覆盖和严格执行的 MCP 允许列表。`manage-jobs` 仍是旧 schedule-only 集成和交付元数据的兼容工具。
 
 ## API端点 {#api}
 
@@ -280,7 +288,8 @@ Confirm an automation's wiring and condition without waiting for a real provider
   <div class="diagram-card">
     <span class="diagram-pill">scope</span
     ><small class="diagram-muted"
-      >keep only those owned by the event's owner (or shared)</small
+      >match <code>createdBy</code> to the event owner; verify org
+      membership</small
     >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
@@ -361,6 +370,7 @@ Confirm an automation's wiring and condition without waiting for a real provider
 
 ```yaml
 ---
+schedule: ""
 triggerType: event
 event: plan.commented
 condition: "resolutionTarget is human or resolutionTarget is null"

@@ -81,7 +81,7 @@ export async function createDbScriptEntries(
   try {
     if (mode === "off") return {};
     const extensionQueryGuidance =
-      options.extensionTools === false
+      options.extensionTools !== true
         ? "Extension management tools are disabled for this app; do not query or mutate the legacy tools table as a workaround."
         : "For extension management, use list-extensions, update-extension, hide-extension, or delete-extension instead of querying the legacy tools table.";
     const [schemaMod, queryMod] = await Promise.all([

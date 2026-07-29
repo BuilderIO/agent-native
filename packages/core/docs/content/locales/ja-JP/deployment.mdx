@@ -442,7 +442,7 @@ openssl rand -hex 32
 export default createAgentChatPlugin({
   // Default: "read"
   databaseTools: "read", // "write" | "read" | "off"
-  extensionTools: false,
+  extensionTools: true,
 });
 ```
 
@@ -453,9 +453,9 @@ export default createAgentChatPlugin({
   スコープされ、スキーマ変更はブロックされます。
 - `databaseTools: "off"` または `false` — 生のデータベース ツールを
   エージェント サーフェスのため、アプリの actions が唯一のデータ アクセス パスになります。
-- `extensionTools: false` — フレームワーク拡張管理 actions を削除し、
-  次のようなアプリに対するプロンプト ガイダンス (`create-extension`、`update-extension` など)
-  エージェントがサンドボックス化されたミニアプリを作成することを望まない。
+- `extensionTools: true` — フレームワークの拡張管理 actions と
+  ガイダンス（`create-extension`、`update-extension` など）をアプリで
+  有効にします。拡張機能は既定で無効です。
 
 ## 本番コードの実行 {#production-code-execution}
 

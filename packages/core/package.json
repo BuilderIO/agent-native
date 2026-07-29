@@ -74,6 +74,7 @@
     "./integrations": "./dist/integrations/index.js",
     "./integrations/runtime": "./dist/integrations/runtime.js",
     "./ingestion": "./dist/ingestion/index.js",
+    "./browser-context": "./dist/browser-context/index.js",
     "./search-utils": "./dist/search-utils/index.js",
     "./search": "./dist/search/index.js",
     "./embeddings": "./dist/embeddings/index.js",

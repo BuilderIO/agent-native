@@ -6,6 +6,7 @@ import approveVaultRequest from "./approve-vault-request.js";
 import archiveWorkspaceApp from "./archive-workspace-app.js";
 import askApp from "./ask_app.js";
 import askAppStatus from "./ask_app_status.js";
+import createBrowserChatSession from "./create-browser-chat-session.js";
 import createDreamReport from "./create-dream-report.js";
 import createLinkToken from "./create-link-token.js";
 import createPylonTicket from "./create-pylon-ticket.js";
@@ -111,6 +112,7 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "create-workspace-resource-grant": createWorkspaceResourceGrant,
   "create-workspace-resource": createWorkspaceResource,
   "create-dream-report": createDreamReport,
+  "create-browser-chat-session": createBrowserChatSession,
   create_embed_session: createEmbedSession,
   "delete-staged-dataset": deleteStagedDataset,
   "delete-destination": deleteDestination,

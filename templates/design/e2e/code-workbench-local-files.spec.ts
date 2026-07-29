@@ -149,8 +149,12 @@ test("lists the spawned folder, preserves dirty buffers, and saves a local file"
   await expect(localRoot).toBeVisible({ timeout: 20_000 });
   await expect(localRoot).toHaveAttribute("title", rootPath);
 
-  await page.getByText("src", { exact: true }).click();
-  await page.getByText("App.tsx", { exact: true }).click();
+  const localTree = page.getByRole("tree", {
+    name: `LOCAL FILES — ${rootName}`,
+    exact: true,
+  });
+  await localTree.getByText("src", { exact: true }).click();
+  await localTree.getByText("App.tsx", { exact: true }).click();
   await expect(page.getByTestId("design-code-monaco-editor")).toBeVisible();
 
   for (const [filename, language] of [
@@ -160,7 +164,7 @@ test("lists the spawned folder, preserves dirty buffers, and saves a local file"
     ["Component.svelte", "html"],
     ["Component.astro", "html"],
   ] as const) {
-    await page.getByText(filename, { exact: true }).click();
+    await localTree.getByText(filename, { exact: true }).click();
     await expect
       .poll(() =>
         page.evaluate(() => {
@@ -185,7 +189,7 @@ test("lists the spawned folder, preserves dirty buffers, and saves a local file"
       .toBeGreaterThan(3);
   }
 
-  await page.getByText("App.tsx", { exact: true }).click();
+  await localTree.getByText("App.tsx", { exact: true }).click();
   const localUri = await page.evaluate(async () => {
     const workbench = (
       window as typeof window & {
@@ -255,7 +259,11 @@ test("lists the spawned folder, preserves dirty buffers, and saves a local file"
     )
     .toBe(false);
 
-  await expect(page.getByText("Dockerfile", { exact: true })).toBeVisible();
-  await expect(page.getByText(".prettierrc", { exact: true })).toBeVisible();
-  await expect(page.getByText(".env", { exact: true })).toHaveCount(0);
+  await expect(
+    localTree.getByText("Dockerfile", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    localTree.getByText(".prettierrc", { exact: true }),
+  ).toBeVisible();
+  await expect(localTree.getByText(".env", { exact: true })).toHaveCount(0);
 });

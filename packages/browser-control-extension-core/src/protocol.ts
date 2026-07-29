@@ -1,3 +1,4 @@
+// Keep the command protocol transport-neutral so every browser host shares it.
 export type BrowserTarget = {
   observationId: string;
   backendNodeId: number;

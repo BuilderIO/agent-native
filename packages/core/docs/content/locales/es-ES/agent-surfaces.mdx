@@ -26,18 +26,16 @@ La página compartida ofrece actualmente cinco pestañas:
 - **Context** — vista previa del ámbito, presupuesto de tokens, secciones de sistema ordenadas con procedencia y gobierno, vista de lista/treemap y la instantánea del hilo activo más reciente.
 - **Files** — vuelve a alojar `ResourcesPanel` para recursos personales o de la organización.
 - **Connections** — gestión de servidores MCP y lista de agentes remotos A2A: lo que puede llamar el agente de esta aplicación.
-- **Jobs** — trabajos recurrentes y automatizaciones con los flujos existentes de pausar/reanudar, detalles y borrar. Las automatizaciones son personales por ahora.
+- **Automations** — automatizaciones personales y de organización Scheduled y Event con pausa/reanudación, detalles y eliminación. La URL de compatibilidad sigue siendo `/agent#jobs`.
 - **Access** — URL de MCP, tarjeta de agente A2A cuando existe y guías de configuración compartidas; el flujo completo y el token alternativo están en `/mcp/connect`.
 
-El selector **Personal / Organization** proporciona el ámbito a las pestañas.
-Los miembros pueden inspeccionar los datos de la organización, mientras que su
-administración sigue restringida a propietarios/administradores donde el
-componente alojado impone ese límite. El
-objetivo es que el contexto sea inspeccionable, atribuible y gobernable, y
-separar capacidad de acceso. La página es una capa fina sobre componentes,
-acciones y comprobaciones existentes, no una nueva consola de administración.
-Todavía no ofrece interfaz para grants, edición de ámbitos, revocación ni
-historial de procedencia por iteración.
+La página usa actualmente el ámbito personal y no ofrece un selector
+**Personal / Organization** para toda la página. Una pestaña puede mostrar sus
+propias secciones de organización cuando las acciones subyacentes las admiten:
+**Automations** muestra secciones personales y de organización para Scheduled
+y Event. Las automatizaciones Event de la organización siempre se ejecutan
+como su creador. La página es una capa fina sobre componentes, acciones y
+comprobaciones existentes, no una nueva consola de administración.
 
 Agent-Native es deliberadamente componible. Puedes utilizar el agente sin mucho UI,
 use el UI sin el tiempo de ejecución del agente integrado, o use ambos juntos como un completo

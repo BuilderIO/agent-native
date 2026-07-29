@@ -61,12 +61,18 @@ const CONTENT_SIZE_REPORT_BRIDGE = `
     applyDeviceVh();
     var height = measure();
     var width = window.innerWidth || 0;
+    var viewportHeight = window.innerHeight || 0;
     if (height === lastHeight && width === lastWidth) return;
     lastHeight = height;
     lastWidth = width;
     try {
       window.parent.postMessage(
-        { type: "agent-native:content-size", width: width, height: height },
+        {
+          type: "agent-native:content-size",
+          width: width,
+          height: height,
+          viewportHeight: viewportHeight,
+        },
         "*",
       );
     } catch (err) {
@@ -106,6 +112,37 @@ const CONTENT_SIZE_REPORT_BRIDGE = `
 `;
 
 export const CONTENT_SIZE_REPORT_MESSAGE_TYPE = "agent-native:content-size";
+
+export type ContentSizeSample = {
+  acceptedHeight: number;
+  height: number;
+  viewportHeight: number;
+  width: number;
+};
+
+/**
+ * A document using raw viewport-height CSS can report a larger scrollHeight
+ * every time its iframe grows. Keep the first useful height when subsequent
+ * growth tracks the viewport growth; later content changes at a stable
+ * viewport are still accepted.
+ */
+export function resolveStableContentSizeSample(
+  previous: ContentSizeSample | undefined,
+  next: Omit<ContentSizeSample, "acceptedHeight">,
+): ContentSizeSample {
+  if (!previous) return { ...next, acceptedHeight: next.height };
+  const sameWidth = Math.abs(next.width - previous.width) <= 1;
+  const viewportGrowth = next.viewportHeight - previous.viewportHeight;
+  const contentGrowth = next.height - previous.height;
+  const viewportCoupledGrowth =
+    sameWidth && viewportGrowth > 1 && contentGrowth > 1;
+  return {
+    ...next,
+    acceptedHeight: viewportCoupledGrowth
+      ? previous.acceptedHeight
+      : next.height,
+  };
+}
 
 /** Appends the reporter + full-height guard, mirroring appendHitTestResponder's
  * marker handling so it runs regardless of document structure. */
