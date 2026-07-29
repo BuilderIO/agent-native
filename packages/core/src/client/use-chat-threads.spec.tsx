@@ -179,9 +179,10 @@ describe("useChatThreads", () => {
   });
 
   it("keeps completed chat history available when a sidebar remounts", async () => {
+    let cachedTitle = "Cached chat";
     const existingThread: ChatThreadSummary = {
       id: "cached-thread",
-      title: "Cached chat",
+      title: cachedTitle,
       preview: "keep this list visible",
       messageCount: 2,
       createdAt: 1,
@@ -190,7 +191,16 @@ describe("useChatThreads", () => {
     };
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       if (url === "/cached-chat/threads" && !init) {
-        return jsonResponse({ threads: [existingThread] });
+        return jsonResponse({
+          threads: [{ ...existingThread, title: cachedTitle }],
+        });
+      }
+      if (
+        url === "/cached-chat/threads/cached-thread" &&
+        init?.method === "PUT"
+      ) {
+        cachedTitle = JSON.parse(String(init.body)).title;
+        return jsonResponse({});
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
@@ -235,6 +245,26 @@ describe("useChatThreads", () => {
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await hook!.saveThreadData("cached-thread", {
+        threadData: "{}",
+        title: "Saved chat",
+        preview: "keep this list visible",
+        messageCount: 2,
+      });
+    });
+
+    await act(async () => {
+      root.render(<Harness visible={false} />);
+    });
+    await act(async () => {
+      root.render(<Harness visible />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it("loads older chat history pages into All Chats", async () => {
