@@ -82,15 +82,15 @@ function createPopupStub() {
   } as unknown as Window;
 }
 
-const signedCliAuthUrl =
-  "https://builder.io/cli-auth?response_type=code&host=agent-native-browser&client_id=Agent%20Native%20Browser&redirect_url=https%3A%2F%2Fagent-workspace.builder.io%2Fdispatch%2F_agent-native%2Fbuilder%2Fcallback%3F_an_state%3Dsigned&preview_url=https%3A%2F%2Fagent-workspace.builder.io%2Fdispatch&framework=agent-native";
-const staleCliAuthUrl = signedCliAuthUrl.replace(
-  "_an_state%3Dsigned",
-  "_an_state%3Dstale",
+const signedConnectUrl =
+  "http://localhost:3000/_agent-native/builder/connect?_an_connect=signed";
+const staleConnectUrl = signedConnectUrl.replace(
+  "_an_connect=signed",
+  "_an_connect=stale",
 );
-const refreshedCliAuthUrl = signedCliAuthUrl.replace(
-  "_an_state%3Dsigned",
-  "_an_state%3Drefreshed",
+const refreshedConnectUrl = signedConnectUrl.replace(
+  "_an_connect=signed",
+  "_an_connect=refreshed",
 );
 
 const connectedBuilderStatus = {
@@ -98,7 +98,6 @@ const connectedBuilderStatus = {
   envManaged: false,
   builderEnabled: true,
   orgName: "Builder space",
-  cliAuthUrl: signedCliAuthUrl,
   connectUrl:
     "http://localhost:3000/_agent-native/builder/connect?_an_connect=signed",
   appHost: "https://builder.io",
@@ -193,7 +192,6 @@ describe("useBuilderConnectFlow", () => {
           envManaged: false,
           builderEnabled: true,
           orgName: null,
-          cliAuthUrl: signedCliAuthUrl,
           connectUrl:
             "http://localhost:3000/_agent-native/builder/connect?_an_connect=signed",
           appHost: "https://builder.io",
@@ -231,7 +229,7 @@ describe("useBuilderConnectFlow", () => {
     );
   });
 
-  it("opens a blank web popup and navigates to a freshly fetched cli-auth URL", async () => {
+  it("opens a blank web popup and navigates to a freshly fetched connect URL", async () => {
     setUserAgent("Mozilla/5.0 Chrome/140.0");
     const popup = createPopupStub();
     openSpy.mockReturnValue(popup);
@@ -253,7 +251,7 @@ describe("useBuilderConnectFlow", () => {
       "_blank",
       "width=600,height=700",
     );
-    expect(popup.location.href).toBe(expectedConnectUrl(signedCliAuthUrl));
+    expect(popup.location.href).toBe(expectedConnectUrl(signedConnectUrl));
     expect(container.textContent).not.toContain("Popup blocked");
   });
 
@@ -269,7 +267,6 @@ describe("useBuilderConnectFlow", () => {
           envManaged: false,
           builderEnabled: true,
           orgName: null,
-          cliAuthUrl: signedCliAuthUrl,
           connectUrl:
             "http://localhost:3000/_agent-native/builder/connect?_an_connect=signed",
           appHost: "https://builder.io",
@@ -297,7 +294,7 @@ describe("useBuilderConnectFlow", () => {
       "_blank",
       "width=600,height=700",
     );
-    expect(popup.location.href).toBe(expectedConnectUrl(signedCliAuthUrl));
+    expect(popup.location.href).toBe(expectedConnectUrl(signedConnectUrl));
     expect(container.textContent).not.toContain(
       "Couldn't start Builder connect",
     );
@@ -358,9 +355,8 @@ describe("useBuilderConnectFlow", () => {
           envManaged: false,
           builderEnabled: true,
           orgName: null,
-          cliAuthUrl: refreshedCliAuthUrl,
           connectUrl:
-            "http://localhost:3000/_agent-native/builder/connect?_an_connect=signed",
+            "http://localhost:3000/_agent-native/builder/connect?_an_connect=refreshed",
           appHost: "https://builder.io",
           apiHost: "https://api.builder.io",
           publicKeyConfigured: false,
@@ -369,7 +365,7 @@ describe("useBuilderConnectFlow", () => {
       );
 
     await act(async () => {
-      root.render(<BuilderConnectProbe popupUrl={staleCliAuthUrl} />);
+      root.render(<BuilderConnectProbe popupUrl={staleConnectUrl} />);
     });
 
     await act(async () => {
@@ -383,7 +379,7 @@ describe("useBuilderConnectFlow", () => {
       "_blank",
       "width=600,height=700",
     );
-    expect(popup.location.href).toBe(expectedConnectUrl(refreshedCliAuthUrl));
+    expect(popup.location.href).toBe(expectedConnectUrl(refreshedConnectUrl));
 
     resolveInitialFetch(jsonResponse({ configured: false }));
   });
@@ -435,7 +431,6 @@ describe("useBuilderConnectFlow", () => {
           envManaged: false,
           builderEnabled: true,
           orgName: null,
-          cliAuthUrl: signedCliAuthUrl,
           connectUrl:
             "http://localhost:3000/_agent-native/builder/connect?_an_connect=signed",
           appHost: "https://builder.io",
@@ -450,7 +445,6 @@ describe("useBuilderConnectFlow", () => {
           envManaged: false,
           builderEnabled: true,
           orgName: "Builder space",
-          cliAuthUrl: signedCliAuthUrl,
           connectUrl:
             "http://localhost:3000/_agent-native/builder/connect?_an_connect=signed",
           appHost: "https://builder.io",
@@ -494,7 +488,6 @@ describe("useBuilderConnectFlow", () => {
         envManaged: false,
         builderEnabled: true,
         orgName: null,
-        cliAuthUrl: signedCliAuthUrl,
         connectUrl:
           "http://localhost:3000/_agent-native/builder/connect?_an_connect=signed",
         appHost: "https://builder.io",
@@ -543,7 +536,6 @@ describe("useBuilderConnectFlow", () => {
         envManaged: false,
         builderEnabled: true,
         orgName: null,
-        cliAuthUrl: signedCliAuthUrl,
         connectUrl:
           "http://localhost:3000/_agent-native/builder/connect?_an_connect=signed",
         appHost: "https://builder.io",
@@ -587,7 +579,7 @@ describe("useBuilderConnectFlow", () => {
     });
 
     expect(openSpy).toHaveBeenCalledWith(
-      expectedConnectUrl(signedCliAuthUrl),
+      expectedConnectUrl(signedConnectUrl),
       "_blank",
       "noopener,noreferrer",
     );
@@ -607,7 +599,6 @@ describe("useBuilderConnectFlow", () => {
           envManaged: false,
           builderEnabled: true,
           orgName: null,
-          cliAuthUrl: signedCliAuthUrl,
           connectUrl:
             "http://localhost:3000/_agent-native/builder/connect?_an_connect=signed",
           appHost: "https://builder.io",
@@ -622,7 +613,6 @@ describe("useBuilderConnectFlow", () => {
           envManaged: false,
           builderEnabled: true,
           orgName: null,
-          cliAuthUrl: refreshedCliAuthUrl,
           connectUrl:
             "http://localhost:3000/_agent-native/builder/connect?_an_connect=refreshed",
           appHost: "https://builder.io",
@@ -650,7 +640,7 @@ describe("useBuilderConnectFlow", () => {
       "width=600,height=700",
     );
     expect(openMcpAppHostLink).toHaveBeenCalledWith(
-      expectedConnectUrl(refreshedCliAuthUrl),
+      expectedConnectUrl(refreshedConnectUrl),
     );
     expect(container.textContent).toContain("not-configured connecting");
     expect(container.textContent).not.toContain("Allow popups");

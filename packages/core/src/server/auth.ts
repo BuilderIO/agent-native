@@ -110,14 +110,8 @@ import { signupAttributionFromCookieHeader } from "./attribution.js";
 import { getBetterAuth, getBetterAuthSync } from "./better-auth-instance.js";
 import type { BetterAuthConfig } from "./better-auth-instance.js";
 import {
-  BUILDER_CONNECT_OWNER_COOKIE,
   BUILDER_CONNECT_PARAM,
-  BUILDER_RELAY_PATH,
-  BUILDER_RELAY_STATE_PARAM,
-  BUILDER_STATE_PARAM,
-  verifyBuilderCallbackStateAndGetOwner,
   verifyBuilderConnectTokenAndGetOwner,
-  verifyBuilderPreviewRelayStateForCallback,
 } from "./builder-browser.js";
 import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import {
@@ -1524,54 +1518,9 @@ export function shouldBypassAuthForBuilderConnect(
   event: H3Event,
   p: string,
 ): boolean {
-  // The preview-safe second hop is authenticated by its timestamped HMAC and
-  // one-shot pending row. It cannot carry a browser session from the corporate
-  // callback deployment, so let the route perform that stronger check itself.
-  if (p === BUILDER_RELAY_PATH) return true;
-
   if (p === "/_agent-native/builder/connect") {
     const url = event.node?.req?.url ?? event.path ?? "/";
     return Boolean(verifiedBuilderConnectOwnerFromUrl(url));
-  }
-
-  if (p === "/_agent-native/builder/callback") {
-    const url = event.node?.req?.url ?? event.path ?? "/";
-    const queryStart = url.indexOf("?");
-    const state =
-      queryStart >= 0
-        ? new URLSearchParams(url.slice(queryStart + 1)).get(
-            BUILDER_STATE_PARAM,
-          )
-        : null;
-    const relayState =
-      queryStart >= 0
-        ? new URLSearchParams(url.slice(queryStart + 1)).get(
-            BUILDER_RELAY_STATE_PARAM,
-          )
-        : null;
-    if (relayState) {
-      try {
-        if (verifyBuilderPreviewRelayStateForCallback(relayState)) return true;
-      } catch {
-        // Dedicated relay secret missing: let the auth guard fail closed.
-      }
-    }
-    // The signed `_an_state` authenticates this specific Builder callback
-    // flow back to our app. A stale localhost session cookie can otherwise
-    // make the global guard reject the callback before the handler gets to
-    // validate the state and owner. This only bypasses to the callback route;
-    // the callback handler still verifies the signed owner / pending flow.
-    if (verifyBuilderCallbackStateAndGetOwner(state)) return true;
-
-    // The legacy owner cookie is broader and can be stale across shared
-    // browser sessions, so keep it limited to the session-lost popup case.
-    const hasSession = getFrameworkSessionCookieValues(event).length > 0;
-    if (hasSession) return false;
-    return Boolean(
-      verifyBuilderConnectTokenAndGetOwner(
-        getCookie(event, BUILDER_CONNECT_OWNER_COOKIE),
-      ),
-    );
   }
 
   return false;

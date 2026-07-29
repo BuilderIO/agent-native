@@ -17,7 +17,6 @@ export interface BuilderStatus {
   envManaged?: boolean;
   credentialSource?: "user" | "org" | "workspace" | "env";
   connectUrl: string;
-  cliAuthUrl?: string;
   appHost: string;
   apiHost: string;
   branchProjectIdConfigured?: boolean;
@@ -139,7 +138,7 @@ export function useBuilderStatus({
 
 // ─── useBuilderConnectFlow ──────────────────────────────────────────────────
 //
-// Shared state machine for the "open Builder CLI-auth popup + poll
+// Shared state machine for the "open Builder OAuth popup + poll
 // /connection-status/builder until credentials land" interaction. Replaces three
 // near-duplicate inline implementations: `BuilderCliAuthMethod` in
 // OnboardingPanel, `ConnectBuilderCard`, and `BuilderConnectCta` in
@@ -147,11 +146,9 @@ export function useBuilderStatus({
 // behavior; the hook owns the polling + timeout + focus refresh.
 //
 // `popupUrl` is what we pass to `window.open`. The default
-// `/_agent-native/builder/connect` is a server-side 302 to the real
-// cli-auth URL — using it keeps the click handler synchronous so popup
-// blockers don't downgrade the open to same-tab navigation. Pass an
-// explicit `popupUrl` (e.g. the already-computed cli-auth URL) if your
-// caller already has it in hand.
+// `/_agent-native/builder/connect` begins discovery and redirects to Builder's
+// authorization endpoint. Keeping the initial open app-local makes popup
+// handling synchronous and lets the server mint fresh one-time state.
 
 export interface BuilderConnectFlowOptions {
   /** Skip server status polling for hosts that own provider routing. */
@@ -210,7 +207,6 @@ const POLL_TIMEOUT_MS = 5 * 60 * 1000;
 const CALLBACK_SUCCESS_STATUS_RETRY_MS = 500;
 const CALLBACK_SUCCESS_STATUS_RETRIES = 10;
 const BUILDER_CONNECT_PARAM = "_an_connect";
-const BUILDER_STATE_PARAM = "_an_state";
 const BUILDER_SIGNUP_SOURCE_PARAM = "signupSource";
 const BUILDER_AGENT_NATIVE_FLOW_PARAM = "agentNativeFlow";
 const BUILDER_AGENT_NATIVE_CONNECT_SOURCE_PARAM = "agentNativeConnectSource";
@@ -374,7 +370,7 @@ function hasSignedCallbackState(url: string | null | undefined): boolean {
     const parsed = new URL(url, window.location.origin);
     const redirectUrl = parsed.searchParams.get("redirect_url");
     if (!redirectUrl) return false;
-    return new URL(redirectUrl).searchParams.has(BUILDER_STATE_PARAM);
+    return false;
   } catch {
     return false;
   }
@@ -610,7 +606,6 @@ export function useBuilderConnectFlow(
         builderEnabled?: boolean;
         orgName?: string | null;
         connectUrl?: string;
-        cliAuthUrl?: string;
         credentialSource?: "user" | "org" | "workspace" | "env";
         connectError?: { message: string; at: number };
         authError?: { message: string; at: number };
@@ -654,7 +649,7 @@ export function useBuilderConnectFlow(
       setConfigured(!!s.configured);
       setEnvManaged(!!s.envManaged);
       setBuilderEnabled(!!s.builderEnabled);
-      const nextConnectUrl = s.cliAuthUrl ?? s.connectUrl ?? null;
+      const nextConnectUrl = s.connectUrl ?? null;
       setStatusConnectUrl(nextConnectUrl);
       statusConnectUrlAtRef.current = nextConnectUrl ? Date.now() : null;
       const org = s.orgName ?? null;
@@ -772,7 +767,7 @@ export function useBuilderConnectFlow(
               setConfigured(!!s.configured);
               setEnvManaged(!!s.envManaged);
               setBuilderEnabled(!!s.builderEnabled);
-              const nextConnectUrl = s.cliAuthUrl ?? s.connectUrl ?? null;
+              const nextConnectUrl = s.connectUrl ?? null;
               setStatusConnectUrl(nextConnectUrl);
               statusConnectUrlAtRef.current = nextConnectUrl
                 ? Date.now()
@@ -780,8 +775,7 @@ export function useBuilderConnectFlow(
               setOrgName(s.orgName ?? null);
             }
 
-            const hostUrl =
-              s?.cliAuthUrl ?? s?.connectUrl ?? cachedFreshUrl ?? directUrl;
+            const hostUrl = s?.connectUrl ?? cachedFreshUrl ?? directUrl;
             const trackedHostUrl = withBuilderConnectTrackingParams(hostUrl, {
               source: clickTrackingSource,
               flow: clickTrackingFlow,
@@ -813,7 +807,7 @@ export function useBuilderConnectFlow(
               setConfigured(!!s.configured);
               setEnvManaged(!!s.envManaged);
               setBuilderEnabled(!!s.builderEnabled);
-              const nextConnectUrl = s.cliAuthUrl ?? s.connectUrl ?? null;
+              const nextConnectUrl = s.connectUrl ?? null;
               setStatusConnectUrl(nextConnectUrl);
               statusConnectUrlAtRef.current = nextConnectUrl
                 ? Date.now()
@@ -826,7 +820,6 @@ export function useBuilderConnectFlow(
             // the popup when the refresh hits a transient 401/HTML/error
             // response before the status cache has warmed.
             const freshUrl =
-              s?.cliAuthUrl ??
               s?.connectUrl ??
               cachedFreshUrl ??
               signedCliPropUrl ??
@@ -873,7 +866,7 @@ export function useBuilderConnectFlow(
           setConfigured(true);
           setEnvManaged(!!s.envManaged);
           setBuilderEnabled(!!s.builderEnabled);
-          const nextConnectUrl = s.cliAuthUrl ?? s.connectUrl ?? null;
+          const nextConnectUrl = s.connectUrl ?? null;
           setStatusConnectUrl(nextConnectUrl);
           statusConnectUrlAtRef.current = nextConnectUrl ? Date.now() : null;
           const org = s.orgName ?? null;
@@ -971,7 +964,7 @@ export function useBuilderConnectFlow(
           setConfigured(false);
           setEnvManaged(!!s.envManaged);
           setBuilderEnabled(!!s.builderEnabled);
-          const nextConnectUrl = s.cliAuthUrl ?? s.connectUrl ?? null;
+          const nextConnectUrl = s.connectUrl ?? null;
           setStatusConnectUrl(nextConnectUrl);
           statusConnectUrlAtRef.current = nextConnectUrl ? Date.now() : null;
           setOrgName(s.orgName ?? null);
@@ -991,7 +984,7 @@ export function useBuilderConnectFlow(
       setConfigured(true);
       setEnvManaged(!!s.envManaged);
       setBuilderEnabled(!!s.builderEnabled);
-      const nextConnectUrl = s.cliAuthUrl ?? s.connectUrl ?? null;
+      const nextConnectUrl = s.connectUrl ?? null;
       setStatusConnectUrl(nextConnectUrl);
       statusConnectUrlAtRef.current = nextConnectUrl ? Date.now() : null;
       const org = s.orgName ?? null;

@@ -11,6 +11,11 @@
 import { createRequire } from "node:module";
 
 import {
+  BUILDER_OAUTH_SCOPE,
+  hasBuilderOAuthSession,
+  resolveBuilderOAuthRequestAccess,
+} from "../../server/builder-oauth.js";
+import {
   assertCredentialStoreReadable,
   canUseDeployCredentialFallbackForRequest,
   getProviderCredentialAuthFailure,
@@ -18,6 +23,7 @@ import {
   resolveBuilderCredentialsDetailed,
   resolveSecret,
 } from "../../server/credential-provider.js";
+import { getRequestUserEmail } from "../../server/request-context.js";
 import { getSetting } from "../../settings/store.js";
 import { getAgentAppModelDefaultForCurrentRequest } from "../app-model-defaults.js";
 import {
@@ -586,6 +592,15 @@ async function resolveOpenAiBaseUrl(): Promise<string | undefined> {
  * whose org-shared keys exist but were unreadable.
  */
 async function hasUsableBuilderConnection(): Promise<boolean> {
+  const ownerEmail = getRequestUserEmail();
+  if (ownerEmail && (await hasBuilderOAuthSession(ownerEmail))) {
+    return Boolean(
+      await resolveBuilderOAuthRequestAccess({
+        ownerEmail,
+        requiredScope: BUILDER_OAUTH_SCOPE,
+      }),
+    );
+  }
   const creds = await resolveBuilderCredentialsDetailed();
   assertCredentialStoreReadable(creds);
   return Boolean(creds.privateKey && creds.publicKey);

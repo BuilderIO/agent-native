@@ -1,9 +1,4 @@
-import {
-  createHash,
-  createHmac,
-  randomBytes,
-  timingSafeEqual,
-} from "node:crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
 import type { H3Event } from "h3";
 import { getHeader } from "h3";
@@ -21,75 +16,6 @@ const BUILDER_BROWSER_HOST = "agent-native-browser";
 const BUILDER_BROWSER_CLIENT_ID = "Agent Native Browser";
 
 export const BUILDER_CALLBACK_PATH = "/_agent-native/builder/callback";
-export const BUILDER_RELAY_PATH = "/_agent-native/builder/relay";
-export const BUILDER_RELAY_STATE_PARAM = "_an_relay";
-export const BUILDER_RELAY_SECRET_ENV = "AGENT_NATIVE_BUILDER_RELAY_SECRET";
-export const BUILDER_RELAY_TARGET_ORIGINS_ENV =
-  "AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS";
-export const BUILDER_RELAY_TARGET_DOMAIN_SUFFIXES_ENV =
-  "AGENT_NATIVE_BUILDER_RELAY_TARGET_DOMAIN_SUFFIXES";
-export const BUILDER_RELAY_TIMESTAMP_HEADER = "x-agent-native-relay-timestamp";
-export const BUILDER_RELAY_FLOW_HEADER = "x-agent-native-relay-flow";
-export const BUILDER_RELAY_SIGNATURE_HEADER = "x-agent-native-relay-signature";
-
-const BUILDER_RELAY_PURPOSE = "builder-preview-callback-relay";
-const BUILDER_RELAY_STATE_VERSION = 1;
-const BUILDER_RELAY_TTL_MS = 10 * 60 * 1000;
-const BUILDER_RELAY_REQUEST_SKEW_MS = 2 * 60 * 1000;
-const IMMUTABLE_NETLIFY_RELAY_HOST =
-  /^(?<deploy>[a-f0-9]{24})--(?<site>[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)\.netlify\.app$/;
-const NETLIFY_DEPLOY_PREVIEW_HOST =
-  /^deploy-preview-\d+--(?<site>[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)\.netlify\.app$/;
-
-export interface BuilderPreviewRelayState {
-  v: 1;
-  purpose: typeof BUILDER_RELAY_PURPOSE;
-  flowId: string;
-  ownerEmail: string;
-  targetOrigin: string;
-  basePath: string;
-  iat: number;
-  exp: number;
-}
-
-export interface BuilderRelayCredentials {
-  privateKey: string;
-  publicKey: string;
-  userId: string | null;
-  orgName: string | null;
-  orgKind: string | null;
-  subscription: string | null;
-  subscriptionLevel: string | null;
-  subscriptionName: string | null;
-  isEnterprise: boolean | null;
-  isFreeAccount: boolean | null;
-}
-
-export interface BuilderRelayRequestBody {
-  relayState: string;
-  credentials: BuilderRelayCredentials;
-}
-
-function builderRelaySecret(): string {
-  const secret = process.env[BUILDER_RELAY_SECRET_ENV]?.trim();
-  if (!secret) {
-    throw new Error(
-      `${BUILDER_RELAY_SECRET_ENV} is required for Builder preview authorization relay.`,
-    );
-  }
-  if (secret.length < 32) {
-    throw new Error(
-      `${BUILDER_RELAY_SECRET_ENV} must be at least 32 characters long.`,
-    );
-  }
-  return secret;
-}
-
-function builderRelayMac(value: string): string {
-  return createHmac("sha256", builderRelaySecret())
-    .update(value)
-    .digest("base64url");
-}
 
 function safeEqualText(expected: string, actual: string): boolean {
   const expectedBuffer = Buffer.from(expected);
@@ -100,344 +26,71 @@ function safeEqualText(expected: string, actual: string): boolean {
   );
 }
 
-function normalizeBuilderRelayBasePath(value: string): string | null {
-  if (!value) return "";
-  if (!value.startsWith("/") || value.includes("?") || value.includes("#")) {
-    return null;
-  }
-  const normalized = value.replace(/\/+$/, "");
-  if (normalized.split("/").some((part) => part === "." || part === "..")) {
-    return null;
-  }
-  return normalized;
+export function createBuilderConnectState(): string {
+  const stateNonce = randomBytes(32).toString("base64url");
+  const signature = createHmac(
+    "sha256",
+    `builder-connect-state:${getAuthSecret()}`,
+  )
+    .update(stateNonce)
+    .digest("base64url");
+  return `${stateNonce}.${signature}`;
 }
 
-export function isSafeBuilderRelayTargetOrigin(value: string): boolean {
+export function isSignedBuilderConnectState(
+  value: string | null | undefined,
+): boolean {
+  if (!value) return false;
+  const [nonce, signature, ...rest] = value.split(".");
+  if (
+    !nonce ||
+    !signature ||
+    rest.length ||
+    !/^[A-Za-z0-9_-]{43}$/.test(nonce) ||
+    !/^[A-Za-z0-9_-]{43}$/.test(signature)
+  ) {
+    return false;
+  }
+  const expected = createHmac(
+    "sha256",
+    `builder-connect-state:${getAuthSecret()}`,
+  )
+    .update(nonce)
+    .digest("base64url");
+  return safeEqualText(expected, signature);
+}
+
+export function isBuilderConnectCallbackOriginAllowed(origin: string): boolean {
   try {
-    const url = new URL(value);
-    if (
-      url.origin !== value ||
-      url.username ||
-      url.password ||
-      url.hostname.includes("*")
-    )
-      return false;
+    const url = new URL(origin);
+    if (url.origin !== origin || url.username || url.password) return false;
     const hostname = url.hostname.toLowerCase();
     const loopback =
       hostname === "localhost" ||
       hostname === "127.0.0.1" ||
       hostname === "::1" ||
       hostname === "[::1]";
-    if (loopback)
+    if (loopback) {
       return url.protocol === "http:" && process.env.NODE_ENV !== "production";
+    }
     if (url.protocol !== "https:") return false;
-    return (
-      hostname.endsWith(".netlify.app") ||
-      hostname.endsWith(".vercel.app") ||
+    if (
       hostname === "agent-native.com" ||
-      hostname.endsWith(".agent-native.com") ||
-      hostname.endsWith(".builder.io") ||
-      hostname.endsWith(".builderio.xyz") ||
-      hostname.endsWith(".builderio.dev") ||
-      hostname.endsWith(".builder.codes")
-    );
+      hostname === "www.agent-native.com" ||
+      hostname === "assets.agent-native.com"
+    ) {
+      return true;
+    }
+    return [
+      "builderio.xyz",
+      "builderio.dev",
+      "builder.codes",
+      "builder.my",
+    ].some((suffix) => hostname === suffix || hostname.endsWith(`.${suffix}`));
   } catch {
     return false;
   }
 }
-
-export function isTrustedBuilderRelayTargetOrigin(value: string): boolean {
-  if (!isSafeBuilderRelayTargetOrigin(value)) return false;
-  const hostname = new URL(value).hostname.toLowerCase();
-  if (
-    hostname.endsWith(".netlify.app") &&
-    !/^[a-f0-9]{24}--[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.netlify\.app$/.test(
-      hostname,
-    )
-  ) {
-    return false;
-  }
-  const exactOriginMatch = (process.env[BUILDER_RELAY_TARGET_ORIGINS_ENV] ?? "")
-    .split(",")
-    .map((origin) => origin.trim())
-    .filter(Boolean)
-    .some((origin) => origin === value && !origin.includes("*"));
-  return (
-    exactOriginMatch ||
-    builderRelayTargetDomainSuffixes().some((suffix) =>
-      hostname.endsWith(suffix),
-    )
-  );
-}
-
-/**
- * Netlify's deploy-preview alias is convenient for people but mutable, so it
- * must never be the signed relay destination. The deploy builder embeds
- * Netlify's DEPLOY_ID into the Nitro server bundle, while SITE_NAME remains
- * available to Functions at runtime. Use that pair only when it
- * identifies the same site as the visible preview alias; otherwise preserve
- * the visible origin so callback validation fails closed.
- */
-export function resolveBuilderPreviewRelayTargetOrigin(
-  previewOrigin: string,
-): string {
-  let previewUrl: URL;
-  try {
-    previewUrl = new URL(previewOrigin);
-  } catch {
-    return previewOrigin;
-  }
-  const previewMatch = NETLIFY_DEPLOY_PREVIEW_HOST.exec(
-    previewUrl.hostname.toLowerCase(),
-  );
-  if (!previewMatch?.groups?.site) return previewOrigin;
-
-  const buildId = process.env.AGENT_NATIVE_BUILD_ID?.trim().toLowerCase();
-  const siteName = process.env.SITE_NAME?.trim().toLowerCase();
-  if (
-    !buildId ||
-    !siteName ||
-    !/^[a-f0-9]{24}$/.test(buildId) ||
-    siteName !== previewMatch.groups.site
-  ) {
-    return previewOrigin;
-  }
-
-  const immutableOrigin = `https://${buildId}--${siteName}.netlify.app`;
-  return IMMUTABLE_NETLIFY_RELAY_HOST.test(new URL(immutableOrigin).hostname)
-    ? immutableOrigin
-    : previewOrigin;
-}
-export function signBuilderPreviewRelayState(input: {
-  ownerEmail: string;
-  targetOrigin: string;
-  basePath?: string;
-  flowId?: string;
-  now?: number;
-}): { state: string; payload: BuilderPreviewRelayState } {
-  if (!isSafeBuilderRelayTargetOrigin(input.targetOrigin)) {
-    throw new Error(
-      "Builder relay target origin is not an approved preview origin.",
-    );
-  }
-  const basePath = normalizeBuilderRelayBasePath(input.basePath ?? "");
-  if (basePath === null) throw new Error("Builder relay base path is invalid.");
-  const now = input.now ?? Date.now();
-  const payload: BuilderPreviewRelayState = {
-    v: BUILDER_RELAY_STATE_VERSION,
-    purpose: BUILDER_RELAY_PURPOSE,
-    flowId: input.flowId ?? randomBytes(24).toString("base64url"),
-    ownerEmail: input.ownerEmail,
-    targetOrigin: input.targetOrigin,
-    basePath,
-    iat: now,
-    exp: now + BUILDER_RELAY_TTL_MS,
-  };
-  const encoded = Buffer.from(JSON.stringify(payload), "utf8").toString(
-    "base64url",
-  );
-  return { state: `${encoded}.${builderRelayMac(encoded)}`, payload };
-}
-
-function builderRelayTargetDomainSuffixes(): string[] {
-  return (process.env[BUILDER_RELAY_TARGET_DOMAIN_SUFFIXES_ENV] ?? "")
-    .split(",")
-    .map((suffix) => suffix.trim().toLowerCase())
-    .filter((suffix) => {
-      if (!suffix.startsWith(".") || suffix.includes("*")) return false;
-      const hostname = suffix.slice(1);
-      if (!hostname.includes(".") || hostname.length > 253) return false;
-      if (
-        !hostname
-          .split(".")
-          .every((label) =>
-            /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label),
-          )
-      ) {
-        return false;
-      }
-      try {
-        return new URL(`https://${hostname}`).hostname === hostname;
-      } catch {
-        return false;
-      }
-    });
-}
-
-export function verifyBuilderPreviewRelayState(
-  state: string | null | undefined,
-  options: { now?: number } = {},
-): BuilderPreviewRelayState | null {
-  if (!state) return null;
-  const parts = state.split(".");
-  if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
-  if (!safeEqualText(builderRelayMac(parts[0]), parts[1])) return null;
-  let value: unknown;
-  try {
-    value = JSON.parse(Buffer.from(parts[0], "base64url").toString("utf8"));
-  } catch {
-    return null;
-  }
-  if (!value || typeof value !== "object") return null;
-  const payload = value as Partial<BuilderPreviewRelayState>;
-  const now = options.now ?? Date.now();
-  if (
-    payload.v !== BUILDER_RELAY_STATE_VERSION ||
-    payload.purpose !== BUILDER_RELAY_PURPOSE ||
-    typeof payload.flowId !== "string" ||
-    !/^[A-Za-z0-9_-]{24,128}$/.test(payload.flowId) ||
-    typeof payload.ownerEmail !== "string" ||
-    !payload.ownerEmail.includes("@") ||
-    typeof payload.targetOrigin !== "string" ||
-    !isSafeBuilderRelayTargetOrigin(payload.targetOrigin) ||
-    typeof payload.basePath !== "string" ||
-    normalizeBuilderRelayBasePath(payload.basePath) !== payload.basePath ||
-    typeof payload.iat !== "number" ||
-    typeof payload.exp !== "number" ||
-    payload.exp <= payload.iat ||
-    payload.exp - payload.iat > BUILDER_RELAY_TTL_MS ||
-    payload.iat > now + BUILDER_RELAY_REQUEST_SKEW_MS ||
-    payload.exp < now
-  ) {
-    return null;
-  }
-  return payload as BuilderPreviewRelayState;
-}
-
-/**
- * Corporate callback trust check. Preview-side state verification and relay
- * receipt deliberately do not require this callback-only allowlist.
- */
-export function verifyBuilderPreviewRelayStateForCallback(
-  state: string | null | undefined,
-  options: { now?: number } = {},
-): BuilderPreviewRelayState | null {
-  const payload = verifyBuilderPreviewRelayState(state, options);
-  return payload && isTrustedBuilderRelayTargetOrigin(payload.targetOrigin)
-    ? payload
-    : null;
-}
-
-export function getBuilderPreviewRelayUrl(
-  payload: BuilderPreviewRelayState,
-): string {
-  return `${payload.targetOrigin}${payload.basePath}${BUILDER_RELAY_PATH}`;
-}
-
-function builderRelayBodyDigest(body: string): string {
-  return createHash("sha256").update(body).digest("base64url");
-}
-
-function builderRelayRequestSignature(
-  timestamp: number,
-  flowId: string,
-  body: string,
-): string {
-  return builderRelayMac(
-    `v1.${timestamp}.${flowId}.${builderRelayBodyDigest(body)}`,
-  );
-}
-
-export function createBuilderRelayRequest(
-  relayState: string,
-  credentials: BuilderRelayCredentials,
-  options: { now?: number } = {},
-): { body: string; headers: Record<string, string>; url: string } {
-  const payload = verifyBuilderPreviewRelayState(relayState, options);
-  if (!payload) throw new Error("Builder relay state is invalid or expired.");
-  const body = JSON.stringify({
-    relayState,
-    credentials,
-  } satisfies BuilderRelayRequestBody);
-  const timestamp = options.now ?? Date.now();
-  return {
-    body,
-    url: getBuilderPreviewRelayUrl(payload),
-    headers: {
-      "content-type": "application/json",
-      [BUILDER_RELAY_TIMESTAMP_HEADER]: String(timestamp),
-      [BUILDER_RELAY_FLOW_HEADER]: payload.flowId,
-      [BUILDER_RELAY_SIGNATURE_HEADER]: builderRelayRequestSignature(
-        timestamp,
-        payload.flowId,
-        body,
-      ),
-    },
-  };
-}
-
-export function verifyBuilderRelayRequest(input: {
-  body: string;
-  timestamp: string | null | undefined;
-  flowId: string | null | undefined;
-  signature: string | null | undefined;
-  requestOrigin: string;
-  requestBasePath: string;
-  now?: number;
-}): {
-  payload: BuilderPreviewRelayState;
-  body: BuilderRelayRequestBody;
-} | null {
-  const timestamp = Number(input.timestamp);
-  const now = input.now ?? Date.now();
-  if (
-    !Number.isFinite(timestamp) ||
-    Math.abs(now - timestamp) > BUILDER_RELAY_REQUEST_SKEW_MS ||
-    !input.flowId ||
-    !input.signature ||
-    !safeEqualText(
-      builderRelayRequestSignature(timestamp, input.flowId, input.body),
-      input.signature,
-    )
-  ) {
-    return null;
-  }
-  let body: BuilderRelayRequestBody;
-  try {
-    body = JSON.parse(input.body) as BuilderRelayRequestBody;
-  } catch {
-    return null;
-  }
-  const payload = verifyBuilderPreviewRelayState(body.relayState, { now });
-  if (
-    !payload ||
-    payload.flowId !== input.flowId ||
-    payload.targetOrigin !== input.requestOrigin ||
-    payload.basePath !== input.requestBasePath ||
-    !body.credentials ||
-    typeof body.credentials.privateKey !== "string" ||
-    typeof body.credentials.publicKey !== "string" ||
-    !body.credentials.privateKey ||
-    !body.credentials.publicKey
-  ) {
-    return null;
-  }
-  const nullableString = (value: unknown): string | null =>
-    typeof value === "string" ? value : null;
-  const nullableBoolean = (value: unknown): boolean | null =>
-    typeof value === "boolean" ? value : null;
-  return {
-    payload,
-    body: {
-      relayState: body.relayState,
-      // Explicitly rebuild the credential payload. Extra fields such as an
-      // attacker-supplied ownerEmail/orgId never reach the credential writer.
-      credentials: {
-        privateKey: body.credentials.privateKey,
-        publicKey: body.credentials.publicKey,
-        userId: nullableString(body.credentials.userId),
-        orgName: nullableString(body.credentials.orgName),
-        orgKind: nullableString(body.credentials.orgKind),
-        subscription: nullableString(body.credentials.subscription),
-        subscriptionLevel: nullableString(body.credentials.subscriptionLevel),
-        subscriptionName: nullableString(body.credentials.subscriptionName),
-        isEnterprise: nullableBoolean(body.credentials.isEnterprise),
-        isFreeAccount: nullableBoolean(body.credentials.isFreeAccount),
-      },
-    },
-  };
-}
-
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (ch) => {
     switch (ch) {
@@ -455,17 +108,7 @@ function escapeHtml(value: string): string {
   });
 }
 
-/**
- * Query-param name carrying the signed CSRF state on the connect→callback
- * round-trip. Prefixed with `_an_` to avoid collisions if Builder ever
- * adds standard OAuth `state` support to cli-auth. Builder preserves
- * the path/query of `redirect_url` verbatim when redirecting back, so
- * we embed `_an_state=…` inside the redirect_url query string at
- * connect time and read it back on the callback.
- */
-export const BUILDER_STATE_PARAM = "_an_state";
 export const BUILDER_CONNECT_PARAM = "_an_connect";
-export const BUILDER_CONNECT_OWNER_COOKIE = "an_builder_connect_owner";
 export const BUILDER_SIGNUP_SOURCE_PARAM = "signupSource";
 export const BUILDER_AGENT_NATIVE_FLOW_PARAM = "agentNativeFlow";
 export const BUILDER_AGENT_NATIVE_CONNECT_SOURCE_PARAM =
@@ -565,19 +208,12 @@ export interface BuilderBrowserStatus {
   /**
    * The currently effective Builder credential was rejected by Builder's API.
    * This is durable status about the credential pair, not a failure of an
-   * in-progress cli-auth callback.
+   * in-progress OAuth callback.
    */
   authError?: { message: string; at: number };
   connectError?: { message: string; at: number };
   appHost: string;
   apiHost: string;
-  /**
-   * Ready-to-open Builder CLI auth URL for this request owner, when the
-   * callback can return to the same deployment that minted the state. Preview
-   * deployments that must callback through a gateway omit this and use
-   * connectUrl so the server can write a pending-connect row first.
-   */
-  cliAuthUrl?: string;
   connectUrl: string;
   publicKeyConfigured: boolean;
   privateKeyConfigured: boolean;
@@ -608,42 +244,23 @@ export interface BrowserConnectionArgs {
   proxyDestination?: string;
 }
 
-type BuilderSignedTokenPurpose = "callback" | "connect";
-
-function signingKeyForPurpose(purpose: BuilderSignedTokenPurpose): string {
-  // Preserve the original callback-state signing key for any in-flight legacy
-  // callbacks; use a separate key domain for connect-entry tokens.
-  return purpose === "callback"
-    ? `builder-csrf:${getAuthSecret()}`
-    : `builder-connect:${getAuthSecret()}`;
-}
-
-function macForParts(
-  purpose: BuilderSignedTokenPurpose,
-  nonce: string,
-  emailEncoded: string,
-  ts: number,
-): string {
-  return createHmac("sha256", signingKeyForPurpose(purpose))
+function macForParts(nonce: string, emailEncoded: string, ts: number): string {
+  return createHmac("sha256", `builder-connect:${getAuthSecret()}`)
     .update(`${nonce}.${emailEncoded}.${ts}`)
     .digest("base64url");
 }
 
-function signEmailBoundBuilderToken(
-  ownerEmail: string,
-  purpose: BuilderSignedTokenPurpose,
-): string {
+function signEmailBoundBuilderToken(ownerEmail: string): string {
   const nonce = randomBytes(16).toString("base64url");
   const ts = Date.now();
   const emailEncoded = Buffer.from(ownerEmail, "utf8").toString("base64url");
-  const mac = macForParts(purpose, nonce, emailEncoded, ts);
+  const mac = macForParts(nonce, emailEncoded, ts);
   return `${nonce}.${emailEncoded}.${ts}.${mac}`;
 }
 
 function verifyEmailBoundBuilderToken(
   token: string | null | undefined,
   ownerEmail: string,
-  purpose: BuilderSignedTokenPurpose,
 ): boolean {
   if (typeof token !== "string" || token.length === 0) return false;
   const parts = token.split(".");
@@ -665,66 +282,21 @@ function verifyEmailBoundBuilderToken(
   // arbitrary lifetime through clock skew or forged future issue times.
   if (Math.abs(Date.now() - ts) > BUILDER_STATE_TTL_MS) return false;
 
-  const expected = Buffer.from(macForParts(purpose, nonce, emailEncoded, ts));
+  const expected = Buffer.from(macForParts(nonce, emailEncoded, ts));
   const candidate = Buffer.from(mac);
   if (expected.length !== candidate.length) return false;
   return timingSafeEqual(expected, candidate);
 }
 
-/**
- * Mint a signed CSRF state token bound to the current session's email
- * and a fresh nonce. Round-trips through Builder's cli-auth flow inside
- * the redirect_url query string and is verified on the callback before
- * any keys are written.
- *
- * Why bind to email: it's the only stable, universally-available
- * identity field across all auth modes (Better Auth, BYOA, AUTH_MODE=local).
- * Binding to the session token instead would put the cookie value in a
- * URL that may end up in server logs / browser history.
- */
-export function signBuilderCallbackState(sessionEmail: string): string {
-  return signEmailBoundBuilderToken(sessionEmail, "callback");
-}
-
-/**
- * Verify a state token produced by `signBuilderCallbackState`. Returns
- * false on any malformed, forged, expired, or cross-session token.
- */
-export function verifyBuilderCallbackState(
-  token: string | null | undefined,
-  sessionEmail: string,
-): boolean {
-  return verifyEmailBoundBuilderToken(token, sessionEmail, "callback");
-}
-
-export function verifyBuilderCallbackStateAndGetOwner(
-  token: string | null | undefined,
-): string | null {
-  if (typeof token !== "string" || token.length === 0) return null;
-  const parts = token.split(".");
-  if (parts.length !== 4) return null;
-  const emailEncoded = parts[1];
-  if (!emailEncoded) return null;
-
-  let ownerEmail: string;
-  try {
-    ownerEmail = Buffer.from(emailEncoded, "base64url").toString("utf8");
-  } catch {
-    return null;
-  }
-  if (!ownerEmail) return null;
-  return verifyBuilderCallbackState(token, ownerEmail) ? ownerEmail : null;
-}
-
 export function signBuilderConnectToken(ownerEmail: string): string {
-  return signEmailBoundBuilderToken(ownerEmail, "connect");
+  return signEmailBoundBuilderToken(ownerEmail);
 }
 
 export function verifyBuilderConnectToken(
   token: string | null | undefined,
   ownerEmail: string,
 ): boolean {
-  return verifyEmailBoundBuilderToken(token, ownerEmail, "connect");
+  return verifyEmailBoundBuilderToken(token, ownerEmail);
 }
 
 export function verifyBuilderConnectTokenAndGetOwner(
@@ -850,154 +422,6 @@ export async function resolveBuilderBranchProjectId(): Promise<string> {
 
 export async function resolveIsBuilderBranchingEnabled(): Promise<boolean> {
   return !!(await resolveBuilderBranchProjectId());
-}
-
-function isBuilderCliAuthAllowedOrigin(origin: string | null | undefined) {
-  if (!origin) return false;
-  try {
-    const parsed = new URL(origin);
-    const hostname = parsed.hostname.toLowerCase();
-    const isAllowedProtocol =
-      parsed.protocol === "http:" || parsed.protocol === "https:";
-    const isLocalhost =
-      hostname === "localhost" ||
-      hostname === "127.0.0.1" ||
-      hostname === "::1" ||
-      hostname === "[::1]";
-    const isBuilderDomain =
-      hostname === "builder.io" || hostname.endsWith(".builder.io");
-    const isAgentNativeDomain =
-      hostname === "agent-native.com" || hostname.endsWith(".agent-native.com");
-    return (
-      isAllowedProtocol &&
-      (isLocalhost || isBuilderDomain || isAgentNativeDomain)
-    );
-  } catch {
-    return false;
-  }
-}
-
-function firstBuilderCliAuthCallbackOriginFromEnv(): string | null {
-  for (const key of [
-    "APP_URL",
-    "VITE_APP_URL",
-    "BETTER_AUTH_URL",
-    "VITE_BETTER_AUTH_URL",
-    "WORKSPACE_GATEWAY_URL",
-    "VITE_WORKSPACE_GATEWAY_URL",
-  ]) {
-    const raw = process.env[key];
-    if (!raw) continue;
-    try {
-      const origin = new URL(raw).origin;
-      if (isBuilderCliAuthAllowedOrigin(origin)) return origin;
-    } catch {
-      // Ignore malformed environment values.
-    }
-  }
-  return null;
-}
-
-/**
- * Query param on the callback URL that carries the original preview opener
- * origin when cli-auth's allow-list forces `preview_url` to the gateway.
- * Read on the callback to derive the correct postMessage targetOrigin.
- *
- * Not signed: the receive-side trust check in `useBuilderStatus` still
- * gates messages by allow-listed origin. The worst an attacker could do by
- * crafting a different `_an_opener` value is target a postMessage to an
- * origin that doesn't match the actual opener — postMessage drops the
- * message in that case, identical to the legacy wildcard-fallback path.
- */
-export const BUILDER_OPENER_PARAM = "_an_opener";
-
-function isBuilderOpenerOriginSafe(value: string | null | undefined): boolean {
-  if (!value) return false;
-  try {
-    const parsed = new URL(value);
-    return parsed.protocol === "http:" || parsed.protocol === "https:";
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Build the Builder cli-auth URL for the connect popup. When a signed
- * `state` token is supplied it is embedded inside the `redirect_url`
- * query string so it survives Builder's redirect verbatim — Builder
- * preserves the redirect_url's existing query when appending p-key /
- * api-key / etc., so we don't depend on Builder echoing a top-level
- * `state` parameter (it doesn't).
- *
- * Status responses can surface this URL directly; the legacy
- * `/_agent-native/builder/connect` trampoline still calls this helper for
- * clients that only know the app-local connect URL.
- */
-export function buildBuilderCliAuthUrl(
-  callbackOrigin: string,
-  state: string | null = null,
-  options: {
-    previewOrigin?: string;
-    relayState?: string;
-    tracking?: BuilderConnectTrackingParams;
-  } = {},
-): string {
-  const normalizedCallbackOrigin = normalizeOrigin(callbackOrigin);
-  const requestedPreviewOrigin = normalizeOrigin(
-    options.previewOrigin || callbackOrigin,
-  );
-  const normalizedPreviewOrigin = isBuilderCliAuthAllowedOrigin(
-    requestedPreviewOrigin,
-  )
-    ? requestedPreviewOrigin
-    : normalizedCallbackOrigin;
-  const appBasePath = getAppBasePath();
-  const callbackUrl = new URL(
-    `${appBasePath}${BUILDER_CALLBACK_PATH}`,
-    normalizedCallbackOrigin,
-  );
-  if (state) {
-    callbackUrl.searchParams.set(BUILDER_STATE_PARAM, state);
-  }
-  if (options.relayState) {
-    callbackUrl.searchParams.set(BUILDER_RELAY_STATE_PARAM, options.relayState);
-  }
-  // When the cli-auth allow-list forces preview_url onto the gateway origin,
-  // the callback would otherwise lose the real opener origin and post its
-  // success message to the gateway instead of the preview tab. Embed the
-  // original preview origin in the callback's own query string so the
-  // callback handler can recover it for parentOrigin / postMessage. Builder
-  // preserves the redirect_url's query verbatim, so this round-trips.
-  if (
-    requestedPreviewOrigin &&
-    requestedPreviewOrigin !== normalizedPreviewOrigin &&
-    isBuilderOpenerOriginSafe(requestedPreviewOrigin)
-  ) {
-    callbackUrl.searchParams.set(BUILDER_OPENER_PARAM, requestedPreviewOrigin);
-  }
-  const identity = resolveSignupTrackingIdentity();
-  const tracking = {
-    signupSource: BUILDER_SIGNUP_SOURCE,
-    agentNativeApp: identity.app,
-    agentNativeTemplate: identity.template,
-    ...options.tracking,
-  };
-  applyBuilderConnectTrackingParams(callbackUrl.searchParams, tracking);
-  const url = new URL("/cli-auth", getBuilderAppHost());
-  url.searchParams.set("response_type", "code");
-  url.searchParams.set("host", BUILDER_BROWSER_HOST);
-  url.searchParams.set("client_id", BUILDER_BROWSER_CLIENT_ID);
-  url.searchParams.set("redirect_url", callbackUrl.toString());
-  url.searchParams.set(
-    "preview_url",
-    `${normalizedPreviewOrigin}${appBasePath}`,
-  );
-  url.searchParams.set("framework", "agent-native");
-  applyBuilderConnectTrackingParams(url.searchParams, tracking);
-  applyBuilderUtmTrackingParams(url.searchParams, {
-    content: cleanTrackingParam(tracking.agentNativeConnectSource) ?? null,
-  });
-  return url.toString();
 }
 
 /**
@@ -1131,40 +555,6 @@ export function getBuilderBrowserOriginForEvent(event: H3Event): string {
   return `${proto}://${headerHost}`;
 }
 
-/**
- * Builder's /cli-auth page currently only accepts localhost, *.builder.io,
- * *.agent-native.com, or builder: redirect_url destinations. Preview hosts
- * such as *.builderio.xyz and *.builder.codes are valid app origins for us,
- * but Builder rejects them and falls back to http://localhost:10110/auth.
- * Use a configured public gateway for the callback in those cases while
- * leaving the surfaced connect URL on the user's active preview.
- */
-export function getBuilderCliAuthCallbackOriginForEvent(
-  event: H3Event,
-): string {
-  const previewOrigin = getBuilderBrowserOriginForEvent(event);
-  if (isBuilderCliAuthAllowedOrigin(previewOrigin)) return previewOrigin;
-  const envOrigin = firstBuilderCliAuthCallbackOriginFromEnv();
-  if (envOrigin) return envOrigin;
-  // The app is being reached via a tunnel (e.g. ngrok) whose origin Builder's
-  // /cli-auth does not trust, and no public gateway is configured. Handing
-  // Builder the rejected tunnel origin makes it fall back to its own *dead*
-  // http://localhost:10110/auth default (ERR_CONNECTION_REFUSED). In local dev
-  // the app is also reachable at http://localhost:<PORT> — an origin Builder
-  // accepts and a same-machine browser can reach — so use that for the callback
-  // instead of a broken redirect. (Production origins are *.agent-native.com,
-  // which pass the allow-list above and never reach here.)
-  return localBuilderCliAuthCallbackOrigin() ?? previewOrigin;
-}
-
-/** App's own localhost origin for the Builder connect callback, in local dev. */
-function localBuilderCliAuthCallbackOrigin(): string | null {
-  if (process.env.NODE_ENV === "production") return null;
-  const port = process.env.PORT?.trim();
-  if (!port || !/^\d{1,5}$/.test(port)) return null;
-  return `http://localhost:${port}`;
-}
-
 export function getBuilderBrowserStatus(origin: string): BuilderBrowserStatus {
   const branchProjectId = getConfiguredBuilderBranchProjectId();
   const envManaged = !!process.env.BUILDER_PRIVATE_KEY;
@@ -1207,9 +597,8 @@ export function getBuilderBrowserStatusForEvent(
 }
 
 /**
- * Env vars written by the Builder CLI-auth callback. Single source of truth
- * for the connect/disconnect key set — `getBuilderCallbackEnvVars` and the
- * disconnect handler's scrub loop both derive from this list, so drift
+ * Legacy Builder credential env vars. The disconnect scrub loop derives from
+ * this list, so drift
  * (e.g. disconnect silently leaving `BUILDER_USER_ID` behind because
  * someone added a key to one site but not the other) is impossible.
  */
@@ -1226,41 +615,6 @@ export const BUILDER_ENV_KEYS = [
   "BUILDER_IS_FREE_ACCOUNT",
 ] as const;
 
-export type BuilderEnvKey = (typeof BUILDER_ENV_KEYS)[number];
-
-export function getBuilderCallbackEnvVars(params: {
-  privateKey?: string | null;
-  publicKey?: string | null;
-  userId?: string | null;
-  orgName?: string | null;
-  orgKind?: string | null;
-  subscription?: string | null;
-  subscriptionLevel?: string | null;
-  subscriptionName?: string | null;
-  isEnterprise?: boolean | null;
-  isFreeAccount?: boolean | null;
-}) {
-  const values: Record<BuilderEnvKey, string> = {
-    BUILDER_PRIVATE_KEY: params.privateKey?.trim() || "",
-    BUILDER_PUBLIC_KEY: params.publicKey?.trim() || "",
-    BUILDER_USER_ID: params.userId?.trim() || "",
-    BUILDER_ORG_NAME: params.orgName?.trim() || "",
-    BUILDER_ORG_KIND: params.orgKind?.trim() || "",
-    BUILDER_SUBSCRIPTION: params.subscription?.trim() || "",
-    BUILDER_SUBSCRIPTION_LEVEL: params.subscriptionLevel?.trim() || "",
-    BUILDER_SUBSCRIPTION_NAME: params.subscriptionName?.trim() || "",
-    BUILDER_IS_ENTERPRISE:
-      typeof params.isEnterprise === "boolean"
-        ? String(params.isEnterprise)
-        : "",
-    BUILDER_IS_FREE_ACCOUNT:
-      typeof params.isFreeAccount === "boolean"
-        ? String(params.isFreeAccount)
-        : "",
-  };
-  return BUILDER_ENV_KEYS.map((key) => ({ key, value: values[key] }));
-}
-
 export function resolveSafePreviewUrl(
   previewUrl: string | null | undefined,
   event: H3Event,
@@ -1269,39 +623,6 @@ export function resolveSafePreviewUrl(
     return previewUrl;
   }
   return getBuilderBrowserOriginForEvent(event);
-}
-
-export function resolveBuilderPreviewRelayParentOrigin(options: {
-  openerOrigin?: string | null;
-  targetOrigin: string;
-}): string {
-  if (!options.openerOrigin) return options.targetOrigin;
-  let openerUrl: URL;
-  let targetUrl: URL;
-  try {
-    openerUrl = new URL(options.openerOrigin);
-    targetUrl = new URL(options.targetOrigin);
-  } catch {
-    return options.targetOrigin;
-  }
-  if (
-    openerUrl.origin !== options.openerOrigin ||
-    !isSafeBuilderRelayTargetOrigin(openerUrl.origin)
-  ) {
-    return options.targetOrigin;
-  }
-  if (openerUrl.origin === targetUrl.origin) return openerUrl.origin;
-
-  const openerMatch = NETLIFY_DEPLOY_PREVIEW_HOST.exec(
-    openerUrl.hostname.toLowerCase(),
-  );
-  const targetMatch = IMMUTABLE_NETLIFY_RELAY_HOST.exec(
-    targetUrl.hostname.toLowerCase(),
-  );
-  return openerMatch?.groups?.site &&
-    openerMatch.groups.site === targetMatch?.groups?.site
-    ? openerUrl.origin
-    : options.targetOrigin;
 }
 
 export function resolveBuilderCallbackReturnUrl(options: {

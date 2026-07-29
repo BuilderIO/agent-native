@@ -387,8 +387,6 @@ Trois points à garder à l'esprit :
 | `APP_BASE_PATH`                             | Montez l'application sous un préfixe (par exemple `/mail`). Réglé automatiquement par `npx @agent-native/core@latest deploy` ; laissez-le désactivé pour être autonome.                                                                                                                                                                                                                                                                                                                            |
 | `AGENT_PROD_CODE_EXECUTION`                 | Mode d'exécution du code de production facultatif : `off` (par défaut), `sandboxed` ou `trusted`. Voir [Production Code Execution](#production-code-execution).                                                                                                                                                                                                                                                                                                                                    |
 | `AGENT_NATIVE_SSR_CACHE`                    | Politique de cache de la coque SSR pour l'ensemble du déploiement : non défini/`on` conserve le cache strict par défaut, `off` envoie `no-store`, ou une durée telle que `30s` / `5m` définit une fraîcheur plus courte. Voir [Mise en cache SSR](#ssr-caching).                                                                                                                                                                                                                                   |
-| `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | Secret HMAC partagé et dédié d'au moins 32 caractères pour le relais sécurisé de l'autorisation Builder vers les aperçus. Définissez la même valeur sur le déploiement de rappel d'entreprise approuvé et sur les déploiements d'aperçu uniquement lorsque l'autorisation doit être enregistrée dans une base de données d'aperçu isolée.                                                                                                                                                          |
-| `AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS` | Liste séparée par des virgules des origines d'aperçu approuvées exactes, réservée au rappel d'entreprise (par exemple `https://0123456789abcdef01234567--content.netlify.app`). Définissez-la uniquement sur le déploiement de rappel d'entreprise. Les origines Netlify doivent utiliser un permalien immuable propre au déploiement avec un identifiant hexadécimal de 24 caractères ; les alias mutables `deploy-preview-*`, les caractères génériques et les suffixes de domaine sont rejetés. |
 
 Les variables de connexion à la base de données (`DATABASE_URL`, `DATABASE_AUTH_TOKEN`, `<APP_NAME>_DATABASE_URL` par application) résident dans [Database](/docs/database#production).
 
@@ -423,7 +421,7 @@ Dans un espace de travail, la racine `.env` est chargée automatiquement dans ch
 
 ### Générer des secrets puissants {#env-generate-secrets}
 
-Pour tout secret marqué « 32+ caractères aléatoires » (`BETTER_AUTH_SECRET`, `OAUTH_STATE_SECRET`, `A2A_SECRET`, `SECRETS_ENCRYPTION_KEY`, `AGENT_NATIVE_BUILDER_RELAY_SECRET`), générez de nouvelles valeurs avec :
+Pour tout secret marqué « 32+ caractères aléatoires » (`BETTER_AUTH_SECRET`, `OAUTH_STATE_SECRET`, `A2A_SECRET`, `SECRETS_ENCRYPTION_KEY`), générez de nouvelles valeurs avec :
 
 ```bash
 openssl rand -hex 32

@@ -7,7 +7,7 @@
  * directly. That way the same feature can work in three modes:
  *
  *   1. User set their own key in .env              → use it directly
- *   2. User connected Builder via `/cli-auth`      → route through Builder proxy
+ *   2. User connected Builder via OAuth            → authorize managed Builder requests
  *   3. Neither                                      → throw FeatureNotConfigured
  *
  * Templates catch FeatureNotConfigured and show a "Connect Builder (1 click) /
