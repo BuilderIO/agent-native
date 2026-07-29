@@ -75,7 +75,7 @@ product-boundary-gates:
   agent-native-public-constituency: source-blind developers packaging Desktop with standard Core and Dispatch apps receive the reusable identity boundary without Alice-specific infrastructure
 acceptance-state:
   status: blocked
-  summary: current main is integrated and the conflict-focused identity/updater suites pass; exact-head CI, a fresh signed artifact, updater-safe exact-artifact QA, and authenticated real-app acceptance still block handoff readiness
+  summary: current main is integrated, exact-head CI and signed artifact trust are green, and exact-head Mail and Dispatch candidates are ready; the short canonical-origin canary, updater-safe installed-app QA, and authenticated real-app acceptance still block handoff readiness
   verified:
     - Core identity protocol suite: 210 tests passed
     - Desktop main, renderer, shared, broker, and preload suites: 202 tests passed
@@ -100,6 +100,13 @@ acceptance-state:
     - pre-integration independent review found no updater-code defects and verified the exact canary version family has no feed, check, download, install, listener, focus, ready-callback, or timer capability while stable and unrelated prerelease builds retain normal updater behavior
     - post-integration focused verification on 7d4cbf499: Desktop identity, updater policy/runtime, and preload 29 tests passed; Core identity 27; Dispatch primary-auth forwarding 1; Dispatch identity library 24
     - post-integration conflict review verified every updater touchpoint retains the exact canary eligibility guard while current-main delayed native staging and manual-result notifications remain intact; Dispatch retains the sign-in journey while primary auth remains the sole initializer
+    - exact-head required CI run 30480891661 passed on 3d380f5db0d5ae93b310b3665c165d2a3716f1fd, including build, typecheck, security guards, Core integration, scaffold, SSR smoke, and every fast-test lane
+    - exact-head signed canary run 30480891545 passed signing, notarization, provenance, trust verification, and short-lived artifact upload for desktop-sso-canary-3d380f5db0d5ae93b310b3665c165d2a3716f1fd
+    - downloaded canary 0.1.150-desktop-sso-canary.9 matched all four manifest SHA-256 values and the arm64 app passed strict deep codesign, stapler, Gatekeeper, bundle id, version, signer, and architecture checks locally
+    - exact-head canary .9 is installed side-by-side at /Applications/Agent Native SSO Canary.app; the prior .2 canary is preserved recoverably at /Applications/Agent Native SSO Canary.previous.app and the stable Desktop app is untouched
+    - immutable exact-head Netlify candidates 6a6a48cbd8ca3400088ba95f (Mail) and 6a6a48cbc9c76200085e212c (Dispatch) are ready and unpublished
+    - candidate preflight proved Mail constructs the canonical Dispatch authorize route, Dispatch returns the logged-out sign-in continuation for the canonical Mail callback, and Dispatch rejects a hostile callback with 400 before session work
+    - fresh production rollback targets are Mail 6a6a3a4ee65f5f0008ca3fc5 and Dispatch 6a6a3a4e9b07310008196a34, both current-main ce426feef1ebeb370fca581291c9391339a757ed
   implementation:
     - authenticated nonce-only app-local completion route in Core
     - dedicated persistent Dispatch identity partition in packaged Desktop
@@ -112,9 +119,8 @@ acceptance-state:
     - branch-scoped signed macOS canary workflow with no publishing, tags, releases, or updater feed
     - Dispatch primary-auth public-route configuration eliminating concurrent auth-initializer pre-emption
   blockers:
-    - exact-head required CI must pass after the current-main integration; the Framework compute host was unavailable, so heavy package and full-repository gates remain assigned to GitHub CI
-    - a fresh signed/notarized canary artifact must be produced because the prior exact-head artifact expired on 2026-07-26
-    - the branch canary must not offer, download, or install a stable Desktop update while exact-artifact acceptance is running
+    - authenticated Netlify publication and rollback control must be exercised for the short canonical-origin canary; the current tool surface has no Netlify connector, CLI session, or callable in-app browser control despite the user's authenticated browser session
+    - the installed exact-head branch canary must prove it does not offer, download, or install a stable Desktop update during acceptance
     - a safe authenticated Dispatch test identity is required to complete same-account Mail data, restart, sign-out, account-switch, isolation, and hostile-flow acceptance
   last-land-packet: https://github.com/BuilderIO/agent-native/pull/2290#issuecomment-5062742844
 deployment-boundary:
@@ -128,6 +134,6 @@ deployment-boundary:
     - merge or stable Desktop publication without a separate decision
     - enabling arbitrary preview hosts, custom apps, or Builder credentials
 vault-brief: /Users/alicemoore/Developer/teenylilthoughts/briefs/Agent-Native Desktop workspace SSO canary implementation plan 2026-07-21.md
-ledger-revision: desktop-sso-work-r12
+ledger-revision: desktop-sso-work-r13
 status: active
 ```
