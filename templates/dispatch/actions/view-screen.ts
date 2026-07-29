@@ -197,10 +197,11 @@ export default defineAction({
             },
           );
         }
-        if (nav.threadId) {
+        if (nav.threadId || nav.runId) {
           const detail = (await runDispatchAction("get-agent-thread-debug", {
             sourceId: nav.sourceId,
-            threadId: nav.threadId,
+            threadId: nav.runId ? undefined : nav.threadId,
+            runId: nav.runId,
             ownerEmail: nav.ownerEmail,
             maxRuns: 5,
             maxEvents: 80,

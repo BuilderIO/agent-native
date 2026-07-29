@@ -29,6 +29,7 @@ import {
   IconAdjustments,
   IconPencilPlus,
   IconPin,
+  IconLetterT,
   IconWand,
   IconUpload,
   IconSun,
@@ -63,6 +64,7 @@ import {
   type AspectRatio,
   DEFAULT_ASPECT_RATIO,
 } from "@/lib/aspect-ratios";
+import type { GoogleSlidesExportResult } from "@/lib/export-google-slides-client";
 import { parseUploadResponse } from "@/lib/upload-response";
 import { shortcutLabel } from "@/lib/utils";
 
@@ -123,12 +125,18 @@ interface EditorToolbarProps {
   pinMode?: boolean;
   /** Toggle comment-pin drop mode */
   onTogglePinMode?: () => void;
+  /** Whether the add-text-box tool is active */
+  textBoxMode?: boolean;
+  /** Toggle the add-text-box tool */
+  onToggleTextBoxMode?: () => void;
   /** Duplicate the current deck */
   onDuplicateDeck?: () => void;
   /** Export the deck as PDF */
   onExportPdf?: () => void;
   /** Export the deck as PPTX */
   onExportPptx?: () => Promise<void> | void;
+  /** Create the deck in the user's Google Drive as native Google Slides */
+  onExportGoogleSlides?: () => Promise<GoogleSlidesExportResult>;
   /** Active deck aspect ratio (defaults to 16:9 when omitted) */
   aspectRatio?: AspectRatio;
   /** Change the deck's aspect ratio */
@@ -158,6 +166,16 @@ const backgroundOptions = [
   "bg-gradient-to-br from-[#0a0a0a] to-[#0f1a14]",
   "bg-[#ffffff]",
 ];
+
+const HEX_COLOR_PATTERN = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
+
+/** Native <input type="color"> only accepts 3/6-digit hex — fall back to
+ * black for gradients or other raw CSS values so the picker still opens. */
+function toColorInputValue(background: string | undefined): string {
+  return background && HEX_COLOR_PATTERN.test(background)
+    ? background
+    : "#000000";
+}
 
 /** Popover anchored to a button ref */
 function ToolbarPopover({
@@ -247,9 +265,12 @@ export default function EditorToolbar({
   onToggleDrawMode,
   pinMode,
   onTogglePinMode,
+  textBoxMode,
+  onToggleTextBoxMode,
   onDuplicateDeck,
   onExportPdf,
   onExportPptx,
+  onExportGoogleSlides,
   aspectRatio,
   onSetAspectRatio,
   designSystemTitle,
@@ -287,6 +308,9 @@ export default function EditorToolbar({
   }, []);
 
   const activeAspectRatio: AspectRatio = aspectRatio ?? DEFAULT_ASPECT_RATIO;
+  const isCustomBackground =
+    !!currentSlide?.background &&
+    !backgroundOptions.includes(currentSlide.background);
   const [layoutOpen, setLayoutOpen] = useState(false);
   const layoutRef = useRef<HTMLButtonElement>(null);
 
@@ -305,10 +329,10 @@ export default function EditorToolbar({
   const [themeMounted, setThemeMounted] = useState(false);
   useEffect(() => setThemeMounted(true), []);
   const isDark = themeMounted ? resolvedTheme === "dark" : false;
-  // The four secondary tools share an "active when something is on" indicator
-  // so the dot on the consolidated button reflects any of them.
+  // The secondary tools share an "active when something is on" indicator so
+  // the dot on the consolidated button reflects any of them.
   const anyToolActive = Boolean(
-    animationsOpen || tweaksOpen || drawMode || pinMode,
+    animationsOpen || tweaksOpen || drawMode || pinMode || textBoxMode,
   );
 
   const closeAll = () => {
@@ -537,6 +561,29 @@ export default function EditorToolbar({
                       }`}
                     />
                   ))}
+                  <label
+                    className={`relative w-10 h-7 rounded-md border cursor-pointer overflow-hidden transition-all ${
+                      isCustomBackground
+                        ? "border-[#609FF8] ring-1 ring-[#609FF8]/30"
+                        : "border-border hover:border-foreground/20"
+                    }`}
+                    style={{
+                      background: isCustomBackground
+                        ? currentSlide.background
+                        : "conic-gradient(from 180deg, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)",
+                    }}
+                    title={t("editorToolbar.customColor")}
+                  >
+                    <input
+                      type="color"
+                      value={toColorInputValue(currentSlide.background)}
+                      onChange={(e) => {
+                        onUpdateSlide!({ background: e.target.value });
+                      }}
+                      className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                      aria-label={t("editorToolbar.customColor")}
+                    />
+                  </label>
                 </div>
               </div>
 
@@ -731,7 +778,8 @@ graph TD
         (onToggleAnimations ||
           onToggleTweaks ||
           onToggleDrawMode ||
-          onTogglePinMode) && (
+          onTogglePinMode ||
+          onToggleTextBoxMode) && (
           <>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -832,6 +880,23 @@ graph TD
                         {t("editorToolbar.pinCommentsDescription")}
                       </span>
                     </span>
+                  </button>
+                )}
+                {onToggleTextBoxMode && (
+                  <button
+                    onClick={() => {
+                      onToggleTextBoxMode();
+                      setToolsOpen(false);
+                    }}
+                    data-toolbar-textbox-button
+                    className={`flex items-center gap-2 w-full px-3 py-1.5 text-xs transition-colors ${
+                      textBoxMode
+                        ? "text-foreground bg-accent/50"
+                        : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                    }`}
+                  >
+                    <IconLetterT className="w-3.5 h-3.5" />
+                    {t("editorToolbar.addTextBox")}
                   </button>
                 )}
               </div>
@@ -937,6 +1002,7 @@ graph TD
           onDuplicate={onDuplicateDeck ?? (() => {})}
           onExportPdf={onExportPdf ?? (() => {})}
           onExportPptx={onExportPptx ?? (() => {})}
+          onExportGoogleSlides={onExportGoogleSlides}
         />
       </div>
 

@@ -5,6 +5,7 @@ import {
   keyboardKeyLabels,
   keyboardShortcutLabels,
 } from "../i18n-keyboard-shortcuts";
+import { responsiveInteractOverrides } from "../i18n-responsive-interact";
 import { designTemplateFeatureOverrides } from "../i18n-template-feature";
 
 const messages = {
@@ -424,6 +425,7 @@ const messages = {
   },
   designEditor: {
     ...designTemplateFeatureOverrides["zh-TW"].designEditor,
+    ...responsiveInteractOverrides["zh-TW"].designEditor,
     askAgent: "詢問代理",
     nodeRewrite: {
       composerTitle: "詢問或變更所選內容",
@@ -656,12 +658,51 @@ const messages = {
         "無法比對到特定的 Figma 節點。請改貼上畫框連結以進行精確匯入。",
       figmaPasteRestLabel: "透過 Figma API 匯入",
       figmaPasteHtmlLabel: "從剪貼簿預覽匯入",
+      figmaPasteLocalKiwiLabel: "已在未登入狀態下匯入 — 僅含幾何與文字",
+      figmaPasteImagesNeedToken:
+        "{{count}} 個圖片{{plural}}需要 Figma 存取權才能載入。",
+      figmaHydrationDialogTitle: "連結 Figma 以載入圖片",
+      figmaHydrationDialogDescription:
+        "輸入您的 Figma 存取權杖，以載入已匯入螢幕{{screensPlural}}中 {{count}} 個缺少的圖片{{plural}}。",
+      figmaHydrationConnectAndLoad: "連結並載入圖片",
+      figmaHydrationSuccess: "圖片載入成功",
+      figmaHydrationSuccessDescription:
+        "已從 Figma 填入 {{count}} 個圖片{{plural}}。",
+      figmaHydrationRecommended: "Recommended",
+      figmaHydrationFigTitle: "Have the original .fig file?",
+      figmaHydrationFigOption:
+        "Fastest — pulls every image straight from the file. No token, no rate limits.",
+      figmaHydrationChooseFig: "Fill images from .fig",
+      figmaHydrationOrToken: "Or fetch from Figma",
+      figmaHydrationTokenDescription:
+        'Fetches the exact images from the copied frame\'s Figma file. Needs "File content" and "Current user" scopes; saved securely, never shown in chat.',
+      figmaHydrationRateLimit:
+        "Figma rate-limits its API by seat — Viewer/Collab seats get only a few requests, Dev/Full seats more. If it's cooling down, use the .fig above.",
+      figmaHydrationFigSuccessDescription:
+        "{{count}} image{{plural}} filled in from the .fig file.",
+      figmaHydrationInvalidFig: "Choose a .fig file exported from Figma.",
+      figmaHydrationFigError: "Couldn't read images from that .fig file.",
       figUploadTitle: "上傳 .fig",
       figUploadDescription:
-        "實驗性功能：Figma 的 .fig 格式為專有格式且可能變更。支援的圖層會轉為可編輯螢幕，部分功能可能不同。上限為 50 MB。",
+        "本機匯入，不使用 Figma API 配額。包含內嵌圖片。格式可能隨 Figma 版本變更。上限為 50 MB。",
+      figUploadDescriptionShort:
+        "本機匯入 — 不使用 Figma API 配額。包含內嵌圖片。",
       chooseFigFile: "選擇 .fig 檔案",
       figUploadUploading: "上傳中 {{progress}}%",
       figUploadProcessing: "轉換中…",
+      figmaPasteBodyUnlimited:
+        "不需要 Figma 權杖即可使用 — 幾何、版面和文字立即匯入。",
+      figmaPasteBodyImages:
+        "若無權杖，圖片填充可能遺失。上傳 .fig 檔案可包含內嵌圖片。",
+      rateLimitTitle: "Figma 已暫停此匯入",
+      rateLimitLowSeat:
+        "您的座位類型（檢視者/協作者）的 Figma API 檔案匯入配額有限 — 根據官方 Figma 文件，每月最多 6 次請求。",
+      rateLimitGeneric: "Figma 對此匯入進行了速率限制。配額將自動重設。",
+      rateLimitRetryIn: "請在 {{time}} 後重試。",
+      rateLimitAlternatives: "無配額替代方案：",
+      rateLimitUsePaste: "從 Figma 貼上 — 無限制",
+      rateLimitUseFig: "上傳 .fig — 無限制",
+      rateLimitUpgrade: "查看 Figma 方案選項 →",
       htmlTitle: "匯入 HTML",
       htmlDescription:
         "貼上或上傳獨立 HTML。Design 會將其儲存為新螢幕，不會注入到此編輯器 UI。",
@@ -827,6 +868,12 @@ const messages = {
       rollback: "回復",
       keep: "保留",
       selectorMissing: "選取的元素已不在此畫面中。",
+      clientRenderedShell:
+        "此畫面由用戶端渲染，因此提供的 HTML 不包含可供修補的應用程式標記。請要求代理將此變更套用到元件原始碼。",
+      snapshotNotLoaded:
+        "此畫面的原始碼尚未載入，因此未寫入此編輯。請等待畫面完成載入後再試一次。",
+      selectorAmbiguous:
+        "此元素是原始碼中 {{count}} 個相同實例之一，因此未寫入此變更。請要求代理將範圍限定至此實例。",
       status: {
         runtime: "已套用即時樣式",
         queued: "正在寫入來源補丁",
@@ -836,16 +883,18 @@ const messages = {
       },
     },
     pendingVisualStyles: {
-      applyAria: "套用待處理的視覺樣式編輯",
+      applyAria: "套用設計更新",
       applyButton: "套用樣式",
       previewLabel: "待處理的視覺預覽",
-      applyWithAgent: "用 Design 代理套用",
+      applyDesignUpdates: "套用設計更新",
       verifying: "正在驗證來源與執行階段…",
       retryWithAgent: "重試來源驗證",
       copyPrompt: "將提示複製給您的代理",
       abortPreview: "放棄預覽並進入互動",
       agentMessage: "將待處理的視覺樣式編輯套用到來源。",
       sentToast: "樣式編輯已傳送給 Design 代理",
+      agentHandoffFailedToast:
+        "無法連線到代理。預覽已保留，您可以重試或複製提示。",
       verifiedToast: "已驗證來源與執行階段結構",
       conflictToast:
         "重新載入的執行階段與待處理的結構編輯不符。預覽仍可復原；請解決來源衝突後重試。",
@@ -854,13 +903,24 @@ const messages = {
       copiedToast: "樣式提示已複製",
       abortedToast: "已捨棄待處理的預覽",
       interactBlocked: "切換到互動前，請先套用或放棄待處理的即時編輯。",
-      leaveTitle: "離開前要套用樣式嗎？",
+      leaveTitle: "離開前要套用設計更新嗎？",
       leaveDescriptionOne:
-        "即時預覽中有 {{count}} 個待處理的視覺樣式編輯。現在離開會捨棄該未套用的樣式變更。",
+        "即時預覽中有 {{count}} 個僅限此工作階段的設計更新。現在離開或重新載入會捨棄它。",
       leaveDescriptionOther:
-        "即時預覽中有 {{count}} 個待處理的視覺樣式編輯。現在離開會捨棄這些未套用的樣式變更。",
+        "即時預覽中有 {{count}} 個僅限此工作階段的設計更新。現在離開或重新載入會捨棄它們。",
       stay: "留在這裡",
       leave: "不套用並離開",
+    },
+    addLocalhostScreen: {
+      title: "從您的應用程式新增畫面",
+      description: "選擇一個路由做為新畫面，或輸入路徑。",
+      searchPlaceholder: "搜尋路由…",
+      noRoutes: "找不到符合的路由",
+      useCustomPath: "新增「{{path}}」",
+      viewportDesktop: "桌面版",
+      viewportMobile: "行動版",
+      added: "已新增畫面",
+      addFailed: "無法新增畫面",
     },
     capabilities: {
       "deterministic-style-edit": "安全樣式編輯",
@@ -922,7 +982,11 @@ const messages = {
       redoSkippedConcurrentEdit: "已略過重做 — 其他人移動了該項目",
       autoLayoutScreensUnsupported: "新增自動布局不適用於畫面",
       reactSourceAnchorsLoading:
-        "React 原始碼錨點仍在載入中。請等本機應用程式完成渲染後再試一次。",
+        "無法在原始碼中定位此圖層。請等應用程式載入完成後重試，或請代理程式協助完成此變更。",
+      reactSourceAnchorsUnavailable:
+        "此應用程式未向編輯器提供原始碼位置，因此無法將此圖層對應到特定行。請讓代理程式完成此變更。",
+      designStateLiveScreen:
+        "即時畫面無法預覽設計狀態 — 其內容是執行中的應用程式，而非文件。",
     },
   },
   layersPanel: {
@@ -1193,6 +1257,7 @@ const messages = {
       "透過 Builder DSI 連接 Figma、程式碼和選用的 design.md 指引。脈絡越多，代理得到的系統越準確。",
     figmaParsingTitle: "正在啟動 Builder DSI 索引...",
     figmaParsingDescription: "Builder 會擷取權杖、元件、資產和使用指引",
+    figmaDecodeFailed: "解碼失敗：{{error}}",
     uploadFig: "連接 Figma .fig 檔案",
     figmaSaveLocalCopy: "上傳 Figma 本機副本：File -> Save local copy",
     websiteUrl: "網站 URL",

@@ -147,6 +147,7 @@ const messages = {
     makeVariations: "做出變化",
     handoff: "Handoff",
     download: "Download",
+    downloadFailed: "無法下載資產。",
     copyUrl: "複製 URL",
     delete: "Delete",
     deleteTitle: "刪除資產？",

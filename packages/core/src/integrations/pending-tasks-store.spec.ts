@@ -50,7 +50,9 @@ describe("integration pending task store", () => {
       return { rows: [] };
     });
 
-    const task = await claimPendingTask("task-1");
+    const task = await claimPendingTask("task-1", {
+      dispatchOutcome: "background-acknowledged",
+    });
 
     expect(task?.id).toBe("task-1");
     const updateCall = executeMock.mock.calls.find(([query]) => {
@@ -68,6 +70,15 @@ describe("integration pending task store", () => {
     expect((updateCall?.[0] as { sql: string }).sql).toContain(
       "earlier.created_at < integration_pending_tasks.created_at",
     );
+    expect((updateCall?.[0] as { sql: string }).sql).toContain(
+      "last_dispatch_outcome = COALESCE(?, last_dispatch_outcome)",
+    );
+    expect((updateCall?.[0] as { args: unknown[] }).args).toEqual([
+      "processing",
+      expect.any(Number),
+      "background-acknowledged",
+      "task-1",
+    ]);
   });
 
   it("does not claim terminal failed tasks", async () => {
@@ -103,20 +114,49 @@ describe("integration pending task store", () => {
     await expect(claimPendingTask("task-failed")).resolves.toBeNull();
   });
 
+  it("does not let fallback telemetry downgrade an active background lease", async () => {
+    executeMock.mockResolvedValue({ rows: [], rowsAffected: 1 });
+    const { recordPendingTaskDispatchAttempt } = await loadStore();
+
+    await recordPendingTaskDispatchAttempt("task-1", "portable-unconfirmed");
+
+    const update = executeMock.mock.calls
+      .map(([query]) => query)
+      .find(
+        (query): query is { sql: string; args: unknown[] } =>
+          typeof query !== "string" &&
+          query.sql.includes("dispatch_attempts = dispatch_attempts + 1"),
+      );
+    expect(update?.sql).toContain("WHEN status = 'processing'");
+    expect(update?.sql).toContain(
+      "last_dispatch_outcome = 'background-acknowledged'",
+    );
+    expect(update?.sql).toContain("THEN last_dispatch_outcome");
+    expect(update?.args).toEqual([
+      expect.any(Number),
+      "portable-unconfirmed",
+      "task-1",
+    ]);
+  });
+
   it("dispatches same-millisecond thread tasks by stable id order", async () => {
-    executeMock.mockResolvedValue({ rows: [{ id: "task-a" }] });
-    const { getNextPendingTaskIdForThread } = await loadStore();
+    executeMock.mockResolvedValue({
+      rows: [{ id: "task-a", dispatch_scope: "channel-7" }],
+    });
+    const { getNextPendingTaskForThread } = await loadStore();
 
     await expect(
-      getNextPendingTaskIdForThread("slack", "thread-1"),
-    ).resolves.toBe("task-a");
+      getNextPendingTaskForThread("slack", "thread-1"),
+    ).resolves.toEqual({ id: "task-a", dispatchScope: "channel-7" });
 
     const select = executeMock.mock.calls
       .map(([query]) => query)
       .find(
         (query): query is { sql: string; args: unknown[] } =>
           typeof query !== "string" &&
-          query.sql.includes("SELECT id FROM integration_pending_tasks"),
+          query.sql.includes(
+            "SELECT id, dispatch_scope FROM integration_pending_tasks",
+          ),
       );
     expect(select?.sql).toContain("ORDER BY created_at ASC, id ASC");
     expect(select?.args).toEqual(["slack", "thread-1"]);
@@ -202,6 +242,30 @@ describe("integration pending task store", () => {
     expect(isDuplicateEventError(new Error("CHECK constraint failed"))).toBe(
       false,
     );
+  });
+
+  it("persists the channel scope used by durable dispatch", async () => {
+    executeMock.mockResolvedValue({ rows: [], rowsAffected: 1 });
+    const { insertPendingTask } = await loadStore();
+
+    await insertPendingTask({
+      id: "task-scoped",
+      platform: "microsoft-teams",
+      externalThreadId: "conversation-9",
+      payload: "{}",
+      ownerEmail: "member@example.com",
+      dispatchScope: "channel-7",
+    });
+
+    const insert = executeMock.mock.calls
+      .map(([query]) => query)
+      .find(
+        (query): query is { sql: string; args: unknown[] } =>
+          typeof query !== "string" &&
+          query.sql.includes("INSERT INTO integration_pending_tasks"),
+      );
+    expect(insert?.sql).toContain("dispatch_scope");
+    expect(insert?.args.at(-1)).toBe("channel-7");
   });
 
   it("resolves valid Slack provenance from the caller's stored task", async () => {

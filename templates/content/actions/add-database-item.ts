@@ -217,6 +217,7 @@ export default defineAction({
       ...(await getContentDatabaseResponse(databaseId)),
       createdItemId: itemId,
       createdDocumentId: documentId,
+      createdDocumentUpdatedAt: now,
     };
   },
 });

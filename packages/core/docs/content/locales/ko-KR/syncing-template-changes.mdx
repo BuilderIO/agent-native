@@ -1,0 +1,161 @@
+---
+title: "템플릿 변경 사항 동기화"
+description: "agent-native template은 순수한 기준선(baseline)에 대한 실제 파일 단위 3-way 병합을 사용하여, 템플릿에서 생성된 앱에 이후의 업스트림 퍼스트파티 템플릿 변경 사항을 가져옵니다."
+---
+
+# 템플릿 변경 사항 동기화
+
+`agent-native create`는 퍼스트파티 템플릿을 앱에 복사한 다음 이를 여러분의 것으로 만듭니다 — 앱 이름을 대체하고, `_gitignore`의 이름을 변경하고, `package.json`을 다시 작성하고, `workspace:*` 및 `catalog:` 종속성을 구체적인 버전으로 고정하며, (작업 공간의 경우) 상속된 인증 및 채팅 플러그인을 교체합니다. 그 순간부터 앱은 템플릿에서 만들어진 독립적인 app이 됩니다. 템플릿 업스트림에 반영된 수정 사항과 개선 사항은 거기에 도달하지 않습니다.
+
+`agent-native upgrade`는 그 간극을 메우지 않습니다. 패키지 버전을 이동하고, import codemods를 실행하고, skill 디렉터리를 새로 고칩니다 — 템플릿에서 복사된 파일에는 결코 손대지 않습니다.
+
+`agent-native template`은 빠진 나머지 절반입니다. 템플릿을 더 새로운 버전으로 다시 가져오고, `create`가 적용한 것과 정확히 동일한 변환을 다시 적용한 다음, 그 결과를 파일 단위로 여러분의 앱에 병합합니다.
+
+커뮤니티 템플릿은 의도적으로 이 동기화 흐름의 대상이 아닙니다. `agent-native.communityTemplate` 메타데이터는 설치한 출처만 기록하며 `agent-native template sync`는 해당 저장소에서 변경 사항을 가져오지 않습니다. 안정적인 시작점이 필요하면 고정 리비전을 설치하고 이후 변경 사항은 검토한 뒤 수동으로 옮기세요.
+
+## 빠른 시작 {#quick-start}
+
+```bash
+agent-native upgrade
+agent-native template sync
+```
+
+`sync`는 설치된 `@agent-native/core`와 일치하는 템플릿 버전을 기본값으로 사용하므로, `upgrade` 다음에 실행하면 코드와 패키지를 동일한 버전으로 유지할 수 있습니다.
+
+병합하기 전에 확인하세요:
+
+```bash
+agent-native template status
+agent-native template diff
+```
+
+## 병합 작동 방식 {#how-the-merge-works}
+
+유용한 병합에는 두 개가 아니라 세 개의 트리가 필요합니다:
+
+- **base** — 앱이 생성되었을 당시의, 손대지 않은 원본 템플릿입니다.
+- **theirs** — 동기화하려는 버전의 동일한 템플릿을, 동일한 변환 파이프라인을 거친 것입니다.
+- **ours** — 현재 상태 그대로의 여러분의 앱입니다.
+
+이것들이 있으면 모든 파일이 명확한 경우로 분류됩니다. 업스트림이 건드리지 않았다면 그대로 둡니다. 여러분이 건드린 적이 없다면 빨리 감기(fast-forward)됩니다. 둘 다 변경했다면 충돌 마커가 붙습니다. 단지 다르다는 이유만으로 덮어쓰지는 않습니다.
+
+base가 없으면 "sync"는 덮어쓰기만을 의미할 수 있으며, 이는 여러분의 작업을 조용히 버리거나 업스트림의 변경 사항을 되돌리게 됩니다.
+
+## 기준선 {#the-baseline}
+
+base 트리는 여러분 자신의 저장소에 git ref로 저장됩니다:
+
+```txt
+refs/agent-native/template-baseline/apps/slides
+```
+
+이는 일회용 index 파일에 대해 git plumbing으로 기록됩니다. 여러분의 `HEAD`, 브랜치, index, 작업 트리는 전혀 건드리지 않습니다 — 편집 도중에 `template baseline`을 실행해도 안전하며, `git status`는 전후로 동일하게 표시됩니다.
+
+처음 기록할 때, `refs/agent-native/*`에 대한 fetch 및 push refspec이 원격 저장소에 추가되어 클론 후에도 기준선이 유지됩니다. 앱이 git 저장소 안에 없으면 기준선은 `.agent-native/` 아래의 tarball로 대체됩니다.
+
+출처 정보가 존재하기 전에 생성된 앱에는 기준선이 없습니다. 하나를 생성한 다음 동기화하세요:
+
+```bash
+agent-native template baseline
+agent-native template sync
+```
+
+## 출처 정보 {#provenance}
+
+`create`는 이후의 병합에 필요한 정보를 앱의 `package.json`에 기록합니다:
+
+```json
+{
+  "agent-native": {
+    "scaffold": {
+      "template": "slides",
+      "frameworkSkills": "default",
+      "templateRef": "@agent-native/core@0.120.3",
+      "templateSource": "github",
+      "coreVersion": "0.120.3",
+      "shape": "workspace"
+    }
+  }
+}
+```
+
+`templateRef`는 템플릿이 실제로 가져와진 불변 태그이며, 이것이 base를 재현 가능하게 만듭니다. `shape`는 구체화(materialization) 중에 작업 공간 변환이 재생되는지 여부를 결정합니다.
+
+## 명령어 {#commands}
+
+### status {#status}
+
+```bash
+agent-native template status [app]
+```
+
+기록된 ref, 사용 가능한 최신 ref, 기준선 존재 여부, 업스트림이 변경한 파일 수, 그리고 여러분이 로컬에서 수정한 파일 수를 보고합니다.
+
+### diff {#diff}
+
+```bash
+agent-native template diff [app] [--to <ref>]
+```
+
+기준선과 대상 사이에서 업스트림이 변경한 내용에 대한 읽기 전용 unified diff입니다. 아무것도 기록하지 않습니다.
+
+### sync {#sync}
+
+```bash
+agent-native template sync [app] [--to <ref>] [--dry-run] [--force]
+```
+
+병합을 수행합니다. `--to`는 설치된 core와 일치하는 ref를 기본값으로 사용합니다. `--dry-run`은 기록하지 않고 계획만 출력합니다.
+
+`sync`는 앱 디렉터리에 커밋되지 않은 변경 사항이 있으면 실행을 거부하므로, 잘못된 병합은 항상 `git checkout`으로 복구할 수 있습니다. `--force`는 이를 재정의합니다. 먼저 커밋하는 것을 선호하세요.
+
+병합이 깔끔하면 기준선은 자동으로 진행됩니다. 충돌이 있으면 의도적으로 진행하지 않습니다 — `accept`를 참조하세요.
+
+### accept {#accept}
+
+```bash
+agent-native template accept [app]
+```
+
+충돌 마커를 해결한 후 기준선을 진행시킵니다. `<<<<<<<`가 남아 있는 동안은 거부하므로, 기준선이 미해결 병합을 지나쳐 다음 base에 충돌 마커를 조용히 구워 넣는 일은 결코 없습니다.
+
+### baseline {#baseline}
+
+```bash
+agent-native template baseline [app] [--ref <ref>] [--template <name>]
+```
+
+scaffold 출처 정보보다 앞서 존재하는 앱의 기준선을 기록합니다. 앱이 실제로 어떤 버전에서 왔는지 알고 있다면 `--ref`를 전달하세요. 실제와 가까울수록 첫 sync에서 발생하는 가짜 충돌이 줄어듭니다.
+
+## 절대 병합되지 않는 것 {#what-is-never-merged}
+
+일부 파일은 정의상 여러분의 것이며, 일부는 의미 있게 병합할 수 없습니다:
+
+- 비밀 정보 및 로컬 설정: `.env`, `.env.local`
+- 잠금 파일: `pnpm-lock.yaml`
+- 생성된 출력: `node_modules`, `.output`, `.react-router`, `dist`, `build`
+- 앱 소유 콘텐츠: `learnings.md`, `changelog/` 아래의 보류 중인 항목
+
+바이너리 파일은 절대 마커 병합되지 않습니다. 양쪽 모두 변경했다면 여러분의 사본이 유지되고 해당 파일은 수동 처리 대상으로 보고됩니다. 심볼릭 링크는 덮어쓰이지 않고 보고됩니다.
+
+## 변경 사항을 다시 기여하기 {#contributing-changes-back}
+
+동기화는 설계상 단방향입니다: 업스트림이 템플릿 콘텐츠에 대한 신뢰할 수 있는 정보 원천이며, `create`가 적용하는 변환은 완벽하게 되돌릴 수 없습니다. 구체적인 앱 이름에서 `{{APP_NAME}}`를 복원하는 것은 추측일 뿐이며, `create`가 통째로 다시 작성한 파일 — `package.json`, `netlify.toml`, `app/root.tsx`, `server/plugins/auth.ts` — 은 충실한 역변환이 전혀 없습니다.
+
+프레임워크 모노레포 내부에서 작업 중이며 앱 측 개선 사항을 템플릿에 다시 반영하고 싶다면, `contribute:template` 스크립트가 이러한 제약을 명시적으로 드러낸 상태로 역방향 작업을 수행합니다:
+
+```bash
+pnpm contribute:template --app <path-to-app> --dry-run
+```
+
+여러분의 앱을 기준선과 비교하여 diff함으로써 여러분 자신의 변경 사항만 후보가 되도록 하고, 해당 파일에 대해서만 플레이스홀더 치환을 반전시키고, 현재 브랜치의 스테이징되지 않은 편집으로 `templates/<name>/`에 3-way 병합한 다음, 손대기를 거부한 모든 것을 출력하여 의도를 수동으로 옮길 수 있게 합니다.
+
+## 다른 명령어와의 관계 {#relationship-to-other-commands}
+
+| 명령어                       | 이동 대상                                             |
+| ---------------------------- | ----------------------------------------------------- |
+| `agent-native upgrade`       | `@agent-native/*` 패키지 버전, import, skill 디렉터리 |
+| `agent-native template sync` | scaffold 시점에 템플릿에서 복사된 파일                |
+| `agent-native eject`         | 프레임워크 컴포넌트를 출처 정보와 함께 앱 소유 소스로 |
+
+`upgrade`와 `template sync`는 상호 보완적이며 함께 실행해도 안전합니다. `eject`는 정반대의 동작입니다 — 파일의 소유권을 의도적으로 가져오며, eject된 파일은 `agent-native.ejections.json`에서 별도로 추적됩니다.

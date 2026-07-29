@@ -255,6 +255,8 @@ export async function readLiveSourceFile(file: SourceWorkspaceFile): Promise<{
  * read-check-write lock closes the race after this preparation step.
  */
 export class SourceWorkspaceEditConflictError extends Error {
+  readonly statusCode = 409;
+
   constructor(
     message = "Source file changed since the editor snapshot was prepared.",
   ) {
@@ -331,7 +333,11 @@ export async function writeInlineSourceFile(args: {
       args.expectedVersionHash &&
       args.expectedVersionHash !== current.versionHash
     ) {
-      throw new Error(
+      // Typed so callers can catch-and-retry the same way they already do for
+      // the other two conflict sites below (see apply-shader-fill.ts /
+      // apply-component-prop-edit.ts / edit-design.ts) instead of only
+      // matching on message text.
+      throw new SourceWorkspaceEditConflictError(
         "Source file changed since it was read. Re-read the file and retry.",
       );
     }
@@ -357,6 +363,7 @@ export async function writeInlineSourceFile(args: {
       previousContent: current.content,
       nextContent: args.content,
       fileType: currentFile.fileType ?? args.file.fileType ?? "html",
+      filename: currentFile.filename ?? args.file.filename,
     });
 
     if (await hasCollabState(args.file.id)) {

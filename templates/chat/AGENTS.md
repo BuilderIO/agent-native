@@ -13,7 +13,15 @@ workflow needs durable UI around the conversation.
 - Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
 - Follow the root framework contract: data in SQL, actions first, application
   state for navigation/selection, and shared agent chat for AI work.
+- Scale effort to the task. A small, well-specified change is a short read, the
+  edit, and the app's existing checks (`pnpm typecheck`, formatter, existing
+  tests) — not a codebase survey, unrequested tests, or browser automation.
 - Use actions for app operations and keep frontend/API parity.
+- Do not add `/api/*` routes for app data. If you are about to create a file
+  under `server/routes/api/`, or middleware to guard one, stop and write a
+  `defineAction` instead. The only exceptions are uploads, streaming, inbound
+  webhooks, OAuth callbacks, public unauthenticated URLs, and non-JSON
+  responses — not auth, settings, search, or CRUD.
 - Treat the chat as the default UI. When the user asks for a capability, prefer
   adding or improving the action surface first, then add a page, table, form, or
   widget only when the user needs to inspect, compare, approve, or share durable

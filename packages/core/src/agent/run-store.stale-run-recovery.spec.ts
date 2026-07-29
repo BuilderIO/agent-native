@@ -105,6 +105,18 @@ function setStaleLiveness(runId: string, atMs: number): void {
     .run(atMs, atMs, runId);
 }
 
+// Simulates a run that started long enough ago to be reap-eligible, made a
+// token of real progress a few seconds in, then went completely silent for
+// the rest of its life — the "deterministic early hang" signature behind
+// the STALE_RUN_RECOVERY_CONSECUTIVE_NO_PROGRESS_LIMIT circuit breaker.
+function setDeadOnArrival(runId: string, startedAtMs: number): void {
+  sqlite
+    .prepare(
+      `UPDATE agent_runs SET started_at = ?, heartbeat_at = ?, last_progress_at = ? WHERE id = ?`,
+    )
+    .run(startedAtMs, startedAtMs + 5_000, startedAtMs + 5_000, runId);
+}
+
 function readRow(runId: string):
   | {
       id: string;
@@ -159,6 +171,22 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
     expect(readRow(runId)?.status).toBe("aborted");
   });
 
+  it("escalates Stop on one chunk to every run of the same turn", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn, { dispatchMode: "background" });
+    const successor = `${runId}-chunk2`;
+    await insertRun(successor, thread, turn, { dispatchMode: "background" });
+
+    const { abortTurnDurably } = await import("./run-manager.js");
+    await abortTurnDurably(runId);
+
+    // Without the turn marker the successor claims itself and the turn keeps
+    // looping — the "Stop didn't stop it" report.
+    expect(await isTurnAborted(thread, turn)).toBe(true);
+    expect(readRow(successor)?.status).toBe("aborted");
+  });
+
   it("creates exactly one unclaimed recovery successor for a dead claimed background worker, and does not stack a second on a re-reap", async () => {
     currentClient = makeRawClient(true);
     const { runId, thread, turn } = ids();
@@ -203,6 +231,45 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
     const reapedAgain = await reapIfStale(runId);
     expect(reapedAgain).toBe(false);
     expect(rowsForTurn(turn)).toHaveLength(2);
+  });
+
+  it("stops recovering after 3 consecutive stale_run reaps that made near-zero progress (deterministic dead-on-arrival loop)", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    const payload = JSON.stringify({ message: "doomed request" });
+    const longAgo = Date.now() - STALE_PAST_MS;
+
+    await insertRun(runId, thread, turn, {
+      dispatchMode: "background",
+      dispatchPayload: payload,
+    });
+    await claimBackgroundRun(runId);
+    setDeadOnArrival(runId, longAgo);
+    expect(await reapIfStale(runId)).toBe(true);
+
+    let siblings = rowsForTurn(turn);
+    expect(siblings).toHaveLength(2); // original + 1st successor (recovered)
+    let successorId = siblings.find((r) => r.id !== runId)!.id;
+
+    await claimBackgroundRun(successorId);
+    setDeadOnArrival(successorId, longAgo);
+    expect(await reapIfStale(successorId)).toBe(true);
+
+    siblings = rowsForTurn(turn);
+    expect(siblings).toHaveLength(3); // + 2nd successor (recovered) — 2 in a row isn't enough to trip the breaker
+    const thirdRunId = siblings.find(
+      (r) => r.id !== runId && r.id !== successorId,
+    )!.id;
+
+    await claimBackgroundRun(thirdRunId);
+    setDeadOnArrival(thirdRunId, longAgo);
+    expect(await reapIfStale(thirdRunId)).toBe(true);
+
+    // The 3rd consecutive dead-on-arrival stale_run reap trips the breaker —
+    // no 4th successor, and the decline is diagnosable.
+    expect(readRow(thirdRunId)?.diag_stage).toContain("declined");
+    expect(readRow(thirdRunId)?.diag_stage).toContain("repeated_no_progress");
+    expect(rowsForTurn(turn)).toHaveLength(3);
   });
 
   it("does NOT create a successor once the per-turn run budget is exhausted", async () => {

@@ -808,6 +808,9 @@ describe("RealtimeVoiceMode", () => {
         document.querySelector(".agent-realtime-voice-glow"),
       ).not.toBeNull();
       expect(
+        document.querySelector(".agent-realtime-voice-edge-light"),
+      ).not.toBeNull();
+      expect(
         document.querySelector(".agent-realtime-voice-working"),
       ).toBeNull();
     },
@@ -843,6 +846,17 @@ describe("RealtimeVoiceMode", () => {
     const glow = document.querySelector('[data-realtime-voice-glow="true"]');
 
     expect(animate).toHaveBeenCalledTimes(1);
+    expect(animate).toHaveBeenCalledWith(
+      [
+        { "--agent-realtime-voice-angle": "0deg" },
+        { "--agent-realtime-voice-angle": "360deg" },
+      ],
+      {
+        duration: 12_000,
+        easing: "linear",
+        iterations: Number.POSITIVE_INFINITY,
+      },
+    );
     expect(updateGlowPlaybackRate).toHaveBeenLastCalledWith(1);
 
     render(

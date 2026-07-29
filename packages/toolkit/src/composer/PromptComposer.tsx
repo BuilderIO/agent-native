@@ -59,11 +59,6 @@ import type {
 } from "./types.js";
 
 const MAX_INLINE_TEXT_FILE_CHARS = 60_000;
-const SUBMIT_ENGINE_STATUS_TIMEOUT_MS = 1000;
-
-export function canSubmitWithAgentEngineState(state: string): boolean {
-  return state === "configured";
-}
 
 /**
  * Files the user attached via the "+" button in PromptComposer. The host owns
@@ -231,6 +226,19 @@ function formatInlineTextFile(name: string, text: string): string {
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+/**
+ * Only a confirmed-missing engine that also has a setup component to render
+ * may block typing: a disabled composer with no way out is never an acceptable
+ * terminal state, and `unknown`/`unavailable` mean the status check has not
+ * answered — not that no provider is configured.
+ */
+export function shouldGateComposerForMissingEngine(input: {
+  state: string;
+  hasSetupComponent: boolean;
+}): boolean {
+  return input.state === "missing" && input.hasSetupComponent;
 }
 
 export async function buildPromptComposerSubmission(options: {
@@ -523,7 +531,6 @@ function PromptComposerInner({
     resolvedModelStatusChecksEnabled,
   );
   const missingApiKey = agentEngineConfigured.missing;
-  const agentEngineUnavailable = agentEngineConfigured.state === "unavailable";
   const [missingKeyBouncePulse, setMissingKeyBouncePulse] = useState(0);
   const bounceMissingKeySetup = useCallback(() => {
     setMissingKeyBouncePulse((pulse) => pulse + 1);
@@ -532,36 +539,6 @@ function PromptComposerInner({
     }
   }, []);
   const handleBuilderConnected = useCallback(() => {
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new Event("agent-engine:configured-changed"));
-    }
-  }, []);
-  const ensureAgentEngineReadyForSubmit = useCallback(async () => {
-    if (!resolvedModelStatusChecksEnabled) return true;
-    const state =
-      agentEngineConfigured.state === "missing"
-        ? "missing"
-        : await modelsAdapter.fetchAgentEngineConfiguredState!(
-            resolvedModelStatusChecksEnabled,
-            {
-              timeoutMs: SUBMIT_ENGINE_STATUS_TIMEOUT_MS,
-            },
-          );
-    if (state === "missing") {
-      bounceMissingKeySetup();
-      return false;
-    }
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new Event("agent-engine:configured-changed"));
-    }
-    return canSubmitWithAgentEngineState(state);
-  }, [
-    agentEngineConfigured.state,
-    bounceMissingKeySetup,
-    modelsAdapter,
-    resolvedModelStatusChecksEnabled,
-  ]);
-  const retryAgentEngineStatus = useCallback(() => {
     if (typeof window !== "undefined") {
       window.dispatchEvent(new Event("agent-engine:configured-changed"));
     }
@@ -606,6 +583,12 @@ function PromptComposerInner({
     [composerEffort, composerEngine, composerModel, onSubmit],
   );
   const useInlineMissingKeySetup = layoutVariant === "compact";
+  const gateComposer = shouldGateComposerForMissingEngine({
+    state: agentEngineConfigured.state,
+    hasSetupComponent: Boolean(
+      useInlineMissingKeySetup ? BuilderSetupContent : BuilderSetupCard,
+    ),
+  });
 
   return (
     <>
@@ -628,36 +611,25 @@ function PromptComposerInner({
       <AgentComposerFrame
         className={cn(
           "text-start",
-          (missingApiKey || agentEngineUnavailable) && "cursor-pointer",
+          gateComposer && "cursor-pointer",
           className,
         )}
         rootClassName={rootClassName}
         style={style}
         rootStyle={rootStyle}
         layoutVariant={layoutVariant}
-        onClick={
-          missingApiKey
-            ? bounceMissingKeySetup
-            : agentEngineUnavailable
-              ? retryAgentEngineStatus
-              : undefined
-        }
+        onClick={gateComposer ? bounceMissingKeySetup : undefined}
       >
         <PromptAttachmentStrip />
         <TiptapComposer
           focusRef={handleRef}
-          disabled={disabled || missingApiKey || agentEngineUnavailable}
+          disabled={disabled || gateComposer}
           placeholder={
-            missingApiKey
-              ? "Connect AI above to continue..."
-              : agentEngineUnavailable
-                ? "Unable to check AI connection. Click to retry."
-                : placeholder
+            gateComposer ? "Connect AI above to continue..." : placeholder
           }
           initialText={initialText}
           initialTextKey={initialTextKey}
           onSubmit={handleSubmit}
-          onBeforeSubmit={ensureAgentEngineReadyForSubmit}
           clearOnSubmit={!preserveDraftOnSubmit}
           plusMenuMode={
             plusMenuMode ?? (attachmentsEnabled ? "upload-only" : "hidden")

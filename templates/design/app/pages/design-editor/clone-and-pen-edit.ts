@@ -14,6 +14,7 @@ import {
 import { uniqueLayerId } from "./canvas-primitive-insert";
 import { reassignClonedAuthoredIds } from "./clone-idrefs";
 import { queryUniqueSelector } from "./dom-utils";
+import { isStandaloneHttpUrl } from "./editor-state";
 import {
   applyPortableStyles,
   elementAtPortableStylePath,
@@ -236,6 +237,11 @@ export function insertClonedHtmlLayers(
   nodeIdMap: Map<string, string>;
 } | null {
   if (typeof window === "undefined" || layerHtmls.length === 0) return null;
+  // Same hazard appendCanvasPrimitiveToHtml guards: a live screen's stored
+  // content is its route URL, and returning an "edited document" for it means
+  // the caller persists HTML over the URL. Paste, duplicate, and image-drop
+  // all land here, so refuse the shape once rather than at each of them.
+  if (isStandaloneHttpUrl(content)) return null;
   try {
     const doc = new DOMParser().parseFromString(content, "text/html");
     if (!doc.body) return null;

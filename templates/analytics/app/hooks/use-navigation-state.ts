@@ -1,8 +1,5 @@
-import { markAgentChatHomeHandoff } from "@agent-native/core/client/agent-chat";
 import { useAgentRouteState } from "@agent-native/core/client/navigation";
-import { useLocation } from "react-router";
 
-import { ANALYTICS_CHAT_STORAGE_KEY } from "@/lib/chat-handoff";
 import { rememberLastOpened } from "@/lib/last-opened";
 import { TAB_ID } from "@/lib/tab-id";
 
@@ -24,7 +21,6 @@ interface NavigationState {
 const SESSION_FILTER_KEYS = ["range", "app", "q"] as const;
 
 export function useNavigationState() {
-  const location = useLocation();
   useAgentRouteState<NavigationState>({
     browserTabId: TAB_ID,
     getNavigationState: ({ pathname, searchParams }) => {
@@ -115,10 +111,10 @@ export function useNavigationState() {
         return `/dashboards/${cmd.dashboardId}`;
       if (cmd.view === "analyses" && cmd.analysisId)
         return `/analyses/${cmd.analysisId}`;
-      if (cmd.view === "analyses") return "/analyses";
+      if (cmd.view === "analyses") return "/dashboards";
       if (cmd.view === "extensions" && cmd.extensionId)
         return `/extensions/${cmd.extensionId}`;
-      if (cmd.view === "extensions") return "/extensions";
+      if (cmd.view === "extensions") return "/settings#extensions";
       if (cmd.view === "sessions" && cmd.recordingId)
         return `/sessions/${encodeURIComponent(cmd.recordingId)}`;
       if (cmd.view === "sessions") return "/sessions";
@@ -156,16 +152,7 @@ export function useNavigationState() {
       if (cmd.view === "overview" || cmd.view === "home") return "/ask";
       return "/";
     },
-    onNavigate: (_command, path) => {
-      if (location.pathname === "/ask" && pathnameFromPath(path) !== "/ask") {
-        markAgentChatHomeHandoff(ANALYTICS_CHAT_STORAGE_KEY);
-      }
-    },
   });
-}
-
-function pathnameFromPath(path: string): string {
-  return path.split(/[?#]/, 1)[0] || "/";
 }
 
 function sessionFilters(

@@ -3,7 +3,7 @@ import { createAuthPlugin } from "@agent-native/core/server";
 import { getDispatchConfig } from "../index.js";
 
 const DEFAULT_MARKETING = {
-  appName: "Agent-Native Dispatch",
+  appName: "Dispatch",
   tagline:
     "Your AI agent manages secrets, orchestrates other agents, and routes messages across your workspace.",
   features: [

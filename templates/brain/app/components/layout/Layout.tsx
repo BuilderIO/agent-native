@@ -1,6 +1,7 @@
 import {
   AgentSidebar,
   focusAgentChat,
+  isAgentChatHomeHandoffActive,
   navigateWithAgentChatViewTransition,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
@@ -44,10 +45,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
     activePath: location.pathname,
     enabled: !isAskRoute,
   });
+  const chatHomeHandoffPending = isAgentChatHomeHandoffActive("brain");
   useAgentChatHomeHandoffLinks({
     storageKey: "brain",
     chatPath: "/",
-    requireActiveHandoff: false,
+    requireActiveHandoff: true,
   });
 
   useEffect(() => {
@@ -129,6 +131,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <AgentSidebar
         position="right"
         chatViewTransition
+        chatViewTransitionHandoff={chatHomeHandoffPending}
         storageKey="brain"
         browserTabId={TAB_ID}
         openOnChatRunning={chatHomeHandoffActive}

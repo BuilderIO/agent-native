@@ -9,8 +9,10 @@ npm-debug.log*
 pnpm-debug.log*
 
 node_modules
+build/
 dist
 dist-ssr
+.output/
 *.local
 
 # Editor directories and files
@@ -41,3 +43,4 @@ data/.sessions.json
 learnings.md
 
 .vercel/
+.agent-native/

@@ -8,6 +8,7 @@ import {
   keyboardShortcutLabels,
 } from "./i18n-keyboard-shortcuts";
 import { motionDockOverrides } from "./i18n-motion";
+import { responsiveInteractOverrides } from "./i18n-responsive-interact";
 import { designTemplateFeatureOverrides } from "./i18n-template-feature";
 import zhTW from "./i18n/zh-TW";
 
@@ -467,6 +468,18 @@ const enUS = {
           "Responsive edits affect this breakpoint and smaller sizes by default. Change the scope beside the breakpoint control.",
       },
     },
+    responsiveInteract: {
+      device: "Device",
+      width: "Width",
+      widthAbbreviation: "W",
+      height: "Height",
+      heightAbbreviation: "H",
+      zoom: "Zoom",
+      zoomIn: "Zoom in",
+      zoomOut: "Zoom out",
+      zoomToPreset: "Zoom to {{percent}}%",
+      exit: "Exit responsive preview",
+    },
     screenDeletion: {
       titleOne: "Delete this screen?",
       titleMany: "Delete {{count}} screens?",
@@ -568,7 +581,7 @@ const enUS = {
       figmaTokenDocs: "Get a token",
       figmaTokenPlaceholder: "Paste your Figma personal access token",
       figmaTokenDescription:
-        "Saved securely for Figma imports and agent chat. The token is never added to chat.",
+        'Needs "File content" and "Current user" scopes. Saved securely — never added to chat.',
       importFigmaUrl: "Import from Figma",
       saveKeyAndImport: "Save key and import",
       figmaUrlSuccess: "Imported from Figma.",
@@ -586,12 +599,53 @@ const enUS = {
         "Couldn't match this to specific Figma nodes. Paste a frame link instead for an exact import.",
       figmaPasteRestLabel: "Imported via Figma API",
       figmaPasteHtmlLabel: "Imported from clipboard preview",
+      figmaPasteLocalKiwiLabel:
+        "Imported without token — geometry and text only",
+      figmaPasteImagesNeedToken:
+        "{{count}} image{{plural}} need Figma access to load.",
+      figmaHydrationDialogTitle: "Fill in the missing images",
+      figmaHydrationDialogDescription:
+        "{{count}} image{{plural}} in the imported screen{{screensPlural}} couldn't come through the paste — Figma's clipboard leaves image data out. Fill from the original .fig, or fetch the exact images from the copied frame.",
+      figmaHydrationConnectAndLoad: "Connect & fetch images",
+      figmaHydrationSuccess: "Images loaded successfully",
+      figmaHydrationSuccessDescription:
+        "{{count}} image{{plural}} filled in from Figma.",
+      figmaHydrationRecommended: "Recommended",
+      figmaHydrationFigTitle: "Have the original .fig file?",
+      figmaHydrationFigOption:
+        "Fastest — pulls every image straight from the file. No token, no rate limits.",
+      figmaHydrationChooseFig: "Fill images from .fig",
+      figmaHydrationOrToken: "Or fetch from Figma",
+      figmaHydrationTokenDescription:
+        'Fetches the exact images from the copied frame\'s Figma file. Needs "File content" and "Current user" scopes; saved securely, never shown in chat.',
+      figmaHydrationRateLimit:
+        "Figma rate-limits its API by seat — Viewer/Collab seats get only a few requests, Dev/Full seats more. If it's cooling down, use the .fig above.",
+      figmaHydrationFigSuccessDescription:
+        "{{count}} image{{plural}} filled in from the .fig file.",
+      figmaHydrationInvalidFig: "Choose a .fig file exported from Figma.",
+      figmaHydrationFigError: "Couldn't read images from that .fig file.",
       figUploadTitle: "Upload .fig",
       figUploadDescription:
-        "Experimental: Figma's .fig format is proprietary and may change. Supported layers become editable screens; some features may differ. Maximum 50 MB.",
+        "Local import using Figma's .fig format — no API quota. Embedded images are included. Format may change between Figma versions. Maximum 50 MB.",
       chooseFigFile: "Choose .fig file",
       figUploadUploading: "Uploading {{progress}}%",
       figUploadProcessing: "Converting…",
+      figUploadDescriptionShort:
+        "Local import — no Figma API quota used. Embedded images included.",
+      figmaPasteBodyUnlimited:
+        "Works without a Figma token — geometry, layout, and text import immediately.",
+      figmaPasteBodyImages:
+        "Image fills may be missing without a token. Upload the .fig file to include embedded images.",
+      rateLimitTitle: "Figma paused this import",
+      rateLimitLowSeat:
+        "Your seat type (Viewer/Collab) has a limited Figma API quota for file imports — up to 6 requests per month per the official Figma docs.",
+      rateLimitGeneric:
+        "Figma rate-limited this import. The quota resets automatically.",
+      rateLimitRetryIn: "Try again in {{time}}.",
+      rateLimitAlternatives: "No-quota alternatives:",
+      rateLimitUsePaste: "Paste from Figma — unlimited",
+      rateLimitUseFig: "Upload .fig — unlimited",
+      rateLimitUpgrade: "View Figma plan options →",
       htmlTitle: "Import HTML",
       htmlDescription:
         "Paste or upload standalone HTML. Design stores it as a new screen without injecting it into this editor UI.",
@@ -891,7 +945,14 @@ const enUS = {
       verified: "Source write verified; rollback available",
       rollback: "Rollback",
       keep: "Keep",
-      selectorMissing: "The selected element no longer exists in this screen.",
+      selectorMissing:
+        "The selected element has no editable match in this screen's source. If a component renders it, apply the change through the agent.",
+      clientRenderedShell:
+        "This screen is client-rendered, so the HTML it serves contains no app markup to patch. Ask the agent to apply this change to the component source.",
+      snapshotNotLoaded:
+        "This screen's source has not loaded yet, so the edit was not written. Wait for the screen to finish loading and try again.",
+      selectorAmbiguous:
+        "This element is one of {{count}} identical instances in the source, so the change was not written. Ask the agent to scope it to this instance.",
       status: {
         runtime: "Runtime style applied",
         queued: "Writing source patch",
@@ -901,16 +962,18 @@ const enUS = {
       },
     },
     pendingVisualStyles: {
-      applyAria: "Apply pending visual style edits",
+      applyAria: "Apply design updates",
       applyButton: "Apply styles",
       previewLabel: "Pending visual preview",
-      applyWithAgent: "Apply with Design agent",
+      applyDesignUpdates: "Apply design update",
       verifying: "Verifying source and runtime…",
       retryWithAgent: "Retry source verification",
       copyPrompt: "Copy prompt to your agent",
       abortPreview: "Abort preview and interact",
       agentMessage: "Apply the pending visual style edits to the source.",
-      sentToast: "Style edits sent to the Design agent",
+      sentToast: "Design updates sent to the agent",
+      agentHandoffFailedToast:
+        "Could not reach the agent. The preview was kept so you can retry or copy the prompt.",
       verifiedToast: "Source and runtime structure verified",
       conflictToast:
         "The reloaded runtime did not match the pending structure edit. The preview is still undoable; retry after resolving the source conflict.",
@@ -920,13 +983,24 @@ const enUS = {
       abortedToast: "Pending preview discarded",
       interactBlocked:
         "Apply or abort pending live edits before switching to Interact.",
-      leaveTitle: "Apply styles before leaving?",
+      leaveTitle: "Apply design updates before leaving?",
       leaveDescriptionOne:
-        "You have {{count}} pending visual style edit in the live preview. Leaving now will discard that unapplied style change.",
+        "You have {{count}} session-only design update in the live preview. Leaving or reloading now will discard it.",
       leaveDescriptionOther:
-        "You have {{count}} pending visual style edits in the live preview. Leaving now will discard those unapplied style changes.",
+        "You have {{count}} session-only design updates in the live preview. Leaving or reloading now will discard them.",
       stay: "Stay here",
       leave: "Leave without applying",
+    },
+    addLocalhostScreen: {
+      title: "Add a screen from your app",
+      description: "Pick a route to add as a new frame, or type a path.",
+      searchPlaceholder: "Search routes…",
+      noRoutes: "No matching routes",
+      useCustomPath: 'Add "{{path}}"',
+      viewportDesktop: "Desktop",
+      viewportMobile: "Mobile",
+      added: "Screen added",
+      addFailed: "Could not add screen",
     },
     nodeRewrite: {
       composerTitle: "Ask or change selection",
@@ -1011,6 +1085,8 @@ const enUS = {
       propsCopied: "Properties copied",
       propsPasted: "Properties pasted",
       primitiveInsertFailed: "Could not add that layer to the screen",
+      designStateLiveScreen:
+        "Design states can't preview on a live screen — its content is the running app, not a document.",
       layerMoveFailed: "Could not move that layer",
       layerMoveRedirected:
         "Moved next to its original spot — the exact drop target isn't editable",
@@ -1028,7 +1104,9 @@ const enUS = {
       redoSkippedConcurrentEdit: "Skipped a redo — someone else moved that",
       autoLayoutScreensUnsupported: "Add auto layout doesn't apply to screens",
       reactSourceAnchorsLoading:
-        "React source anchors are still loading. Try again once the local app finishes rendering.",
+        "Can't locate this layer in the source. Try again once the app finishes loading, or ask the agent to make the change.",
+      reactSourceAnchorsUnavailable:
+        "This app doesn't expose source locations to the editor, so this layer can't be traced back to a line. Ask the agent to make the change.",
     },
   },
   layersPanel: {
@@ -1370,6 +1448,7 @@ const enUS = {
     figmaParsingTitle: "Starting Builder DSI indexing...",
     figmaParsingDescription:
       "Builder will extract tokens, components, assets, and usage guidance",
+    figmaDecodeFailed: "Decoding failed: {{error}}",
     uploadFig: "Connect Figma with a .fig file",
     figmaSaveLocalCopy:
       "Upload a local copy from Figma: File -> Save local copy",
@@ -1839,6 +1918,7 @@ const designLocaleOverrides = {
         "通过 Builder DSI 连接 Figma、代码和可选的 design.md 指引。上下文越多，代理得到的系统越准确。",
       figmaParsingTitle: "正在启动 Builder DSI 索引...",
       figmaParsingDescription: "Builder 会提取令牌、组件、资产和使用指引",
+      figmaDecodeFailed: "解码失败：{{error}}",
       uploadFig: "连接 Figma .fig 文件",
       figmaSaveLocalCopy: "上传 Figma 本地副本：File -> Save local copy",
       websiteUrl: "网站URL",
@@ -2243,6 +2323,7 @@ const designLocaleOverrides = {
       figmaParsingTitle: "Iniciando indexación de Builder DSI...",
       figmaParsingDescription:
         "Builder extraerá tokens, componentes, recursos y guía de uso.",
+      figmaDecodeFailed: "Error al decodificar: {{error}}",
       uploadFig: "Conectar Figma con un archivo .fig",
       figmaSaveLocalCopy:
         "Sube una copia local de Figma: File -> Save local copy",
@@ -2668,6 +2749,7 @@ const designLocaleOverrides = {
       figmaParsingTitle: "Démarrage de l’indexation Builder DSI...",
       figmaParsingDescription:
         "Builder extraira les jetons, composants, ressources et consignes d’utilisation",
+      figmaDecodeFailed: "Échec du décodage : {{error}}",
       uploadFig: "Connecter Figma avec un fichier .fig",
       figmaSaveLocalCopy:
         "Importez une copie locale Figma : File -> Save local copy",
@@ -3093,6 +3175,7 @@ const designLocaleOverrides = {
       figmaParsingTitle: "Builder-DSI-Indizierung wird gestartet...",
       figmaParsingDescription:
         "Builder extrahiert Tokens, Komponenten, Assets und Nutzungsanweisungen",
+      figmaDecodeFailed: "Dekodierung fehlgeschlagen: {{error}}",
       uploadFig: "Figma mit einer .fig-Datei verbinden",
       figmaSaveLocalCopy:
         "Lade eine lokale Figma-Kopie hoch: File -> Save local copy",
@@ -3518,6 +3601,7 @@ const designLocaleOverrides = {
       figmaParsingTitle: "Builder DSI のインデックス作成を開始しています...",
       figmaParsingDescription:
         "Builder がトークン、コンポーネント、アセット、利用ガイドを抽出します",
+      figmaDecodeFailed: "デコードに失敗しました: {{error}}",
       uploadFig: "Figma .fig ファイルを接続",
       figmaSaveLocalCopy:
         "Figma のローカルコピーをアップロード: File -> Save local copy",
@@ -3938,6 +4022,7 @@ const designLocaleOverrides = {
       figmaParsingTitle: "Builder DSI 색인 생성을 시작하는 중...",
       figmaParsingDescription:
         "Builder가 토큰, 컴포넌트, 자산, 사용 지침을 추출합니다",
+      figmaDecodeFailed: "디코딩에 실패했습니다: {{error}}",
       uploadFig: "Figma .fig 파일 연결",
       figmaSaveLocalCopy: "Figma 로컬 사본 업로드: File -> Save local copy",
       websiteUrl: "웹사이트 URL",
@@ -4352,6 +4437,7 @@ const designLocaleOverrides = {
       figmaParsingTitle: "Iniciando indexação do Builder DSI...",
       figmaParsingDescription:
         "Builder extrairá tokens, componentes, recursos e orientações de uso",
+      figmaDecodeFailed: "Falha na decodificação: {{error}}",
       uploadFig: "Conectar Figma com um arquivo .fig",
       figmaSaveLocalCopy:
         "Envie uma cópia local do Figma: File -> Save local copy",
@@ -4772,6 +4858,7 @@ const designLocaleOverrides = {
       figmaParsingTitle: "Builder DSI indexing शुरू की जा रही है...",
       figmaParsingDescription:
         "Builder टोकन, कंपोनेंट, एसेट और उपयोग मार्गदर्शन निकालेगा",
+      figmaDecodeFailed: "डिकोडिंग विफल: {{error}}",
       uploadFig: "Figma .fig फ़ाइल कनेक्ट करें",
       figmaSaveLocalCopy: "Figma स्थानीय कॉपी अपलोड करें: File -> Save local copy",
       websiteUrl: "वेबसाइट URL",
@@ -5182,6 +5269,7 @@ const designLocaleOverrides = {
       figmaParsingTitle: "جارٍ بدء فهرسة Builder DSI...",
       figmaParsingDescription:
         "سيستخرج Builder الرموز والمكونات والأصول وإرشادات الاستخدام",
+      figmaDecodeFailed: "فشل فك الترميز: {{error}}",
       uploadFig: "ربط Figma بملف .fig",
       figmaSaveLocalCopy: "حمّل نسخة Figma محلية: File -> Save local copy",
       websiteUrl: "موقع URL",
@@ -7776,6 +7864,12 @@ const designModeFeatureOverrides = {
         rollback: "回復",
         keep: "保留",
         selectorMissing: "選取的元素已不在此畫面中。",
+        clientRenderedShell:
+          "此畫面由用戶端渲染，因此提供的 HTML 不包含可供修補的應用程式標記。請要求代理將此變更套用到元件原始碼。",
+        snapshotNotLoaded:
+          "此畫面的原始碼尚未載入，因此未寫入此編輯。請等待畫面完成載入後再試一次。",
+        selectorAmbiguous:
+          "此元素是原始碼中 {{count}} 個相同實例之一，因此未寫入此變更。請要求代理將範圍限定至此實例。",
         status: {
           runtime: "已套用即時樣式",
           queued: "正在寫入來源補丁",
@@ -7940,6 +8034,12 @@ const designModeFeatureOverrides = {
         rollback: "回滚",
         keep: "保留",
         selectorMissing: "选中的元素已不在此屏幕中。",
+        clientRenderedShell:
+          "此屏幕由客户端渲染，因此其提供的 HTML 不包含可修补的应用标记。请让代理将此更改应用到组件源码。",
+        snapshotNotLoaded:
+          "此屏幕的源码尚未加载，因此未写入此编辑。请等待屏幕完成加载后再试。",
+        selectorAmbiguous:
+          "此元素是源码中 {{count}} 个相同实例之一，因此未写入此更改。请让代理将范围限定到此实例。",
         status: {
           runtime: "已应用即时样式",
           queued: "正在写入源码补丁",
@@ -8105,6 +8205,12 @@ const designModeFeatureOverrides = {
         keep: "Conservar",
         selectorMissing:
           "El elemento seleccionado ya no existe en esta pantalla.",
+        clientRenderedShell:
+          "Esta pantalla se renderiza en el cliente, por lo que el HTML que entrega no contiene marcado de la aplicación que se pueda modificar. Pide al agente que aplique este cambio al código fuente del componente.",
+        snapshotNotLoaded:
+          "El código fuente de esta pantalla aún no se ha cargado, por lo que no se escribió la edición. Espera a que la pantalla termine de cargarse e inténtalo de nuevo.",
+        selectorAmbiguous:
+          "Este elemento es una de {{count}} instancias idénticas en el código fuente, por lo que no se escribió el cambio. Pide al agente que lo limite a esta instancia.",
         status: {
           runtime: "Estilo aplicado en runtime",
           queued: "Escribiendo parche de origen",
@@ -8291,6 +8397,12 @@ const designModeFeatureOverrides = {
         rollback: "Revenir",
         keep: "Garder",
         selectorMissing: "L’élément sélectionné n’existe plus dans cet écran.",
+        clientRenderedShell:
+          "Cet écran est rendu côté client ; le HTML qu’il fournit ne contient donc aucun balisage d’application à modifier. Demandez à l’agent d’appliquer cette modification au code source du composant.",
+        snapshotNotLoaded:
+          "Le code source de cet écran n’est pas encore chargé ; la modification n’a donc pas été écrite. Attendez la fin du chargement de l’écran, puis réessayez.",
+        selectorAmbiguous:
+          "Cet élément est l’une des {{count}} instances identiques dans le code source ; la modification n’a donc pas été écrite. Demandez à l’agent de la limiter à cette instance.",
         status: {
           runtime: "Style runtime appliqué",
           queued: "Écriture du patch source",
@@ -8474,6 +8586,12 @@ const designModeFeatureOverrides = {
         keep: "Behalten",
         selectorMissing:
           "Das ausgewählte Element existiert in diesem Screen nicht mehr.",
+        clientRenderedShell:
+          "Dieser Screen wird clientseitig gerendert. Daher enthält das bereitgestellte HTML kein App-Markup, das gepatcht werden kann. Bitte den Agenten, diese Änderung am Komponentenquellcode vorzunehmen.",
+        snapshotNotLoaded:
+          "Der Quellcode dieses Screens wurde noch nicht geladen, daher wurde die Änderung nicht geschrieben. Warte, bis der Screen vollständig geladen ist, und versuche es erneut.",
+        selectorAmbiguous:
+          "Dieses Element ist eine von {{count}} identischen Instanzen im Quellcode, daher wurde die Änderung nicht geschrieben. Bitte den Agenten, sie auf diese Instanz zu beschränken.",
         status: {
           runtime: "Runtime-Stil angewendet",
           queued: "Quellpatch wird geschrieben",
@@ -8662,6 +8780,12 @@ const designModeFeatureOverrides = {
         rollback: "戻す",
         keep: "保持",
         selectorMissing: "選択した要素はこの画面に存在しません。",
+        clientRenderedShell:
+          "この画面はクライアント側でレンダリングされるため、配信される HTML にはパッチ可能なアプリのマークアップが含まれていません。エージェントに、この変更をコンポーネントのソースへ適用するよう依頼してください。",
+        snapshotNotLoaded:
+          "この画面のソースはまだ読み込まれていないため、編集内容は書き込まれませんでした。画面の読み込みが完了してから、もう一度お試しください。",
+        selectorAmbiguous:
+          "この要素はソース内にある {{count}} 個の同一インスタンスの 1 つであるため、変更は書き込まれませんでした。エージェントに、このインスタンスだけを対象にするよう依頼してください。",
         status: {
           runtime: "ランタイムスタイル適用済み",
           queued: "ソースパッチを書き込み中",
@@ -8845,6 +8969,12 @@ const designModeFeatureOverrides = {
         rollback: "롤백",
         keep: "유지",
         selectorMissing: "선택한 요소가 이 화면에 더 이상 없습니다.",
+        clientRenderedShell:
+          "이 화면은 클라이언트에서 렌더링되므로 제공되는 HTML에 패치할 앱 마크업이 없습니다. 에이전트에게 이 변경 사항을 컴포넌트 소스에 적용하도록 요청하세요.",
+        snapshotNotLoaded:
+          "이 화면의 소스가 아직 로드되지 않아 편집 내용이 기록되지 않았습니다. 화면 로드가 끝난 뒤 다시 시도하세요.",
+        selectorAmbiguous:
+          "이 요소는 소스에 있는 동일한 인스턴스 {{count}}개 중 하나이므로 변경 사항이 기록되지 않았습니다. 에이전트에게 이 인스턴스로 범위를 한정하도록 요청하세요.",
         status: {
           runtime: "런타임 스타일 적용됨",
           queued: "소스 패치 작성 중",
@@ -9025,6 +9155,12 @@ const designModeFeatureOverrides = {
         rollback: "Reverter",
         keep: "Manter",
         selectorMissing: "O elemento selecionado não existe mais nesta tela.",
+        clientRenderedShell:
+          "Esta tela é renderizada no cliente, então o HTML fornecido não contém marcação do app que possa ser modificada. Peça ao agente para aplicar esta alteração ao código-fonte do componente.",
+        snapshotNotLoaded:
+          "O código-fonte desta tela ainda não foi carregado, por isso a edição não foi gravada. Aguarde o carregamento da tela e tente novamente.",
+        selectorAmbiguous:
+          "Este elemento é uma de {{count}} instâncias idênticas no código-fonte, por isso a alteração não foi gravada. Peça ao agente para restringi-la a esta instância.",
         status: {
           runtime: "Estilo em runtime aplicado",
           queued: "Escrevendo patch de fonte",
@@ -9205,6 +9341,12 @@ const designModeFeatureOverrides = {
         rollback: "वापस लें",
         keep: "रखें",
         selectorMissing: "चुना गया तत्व अब इस स्क्रीन में नहीं है।",
+        clientRenderedShell:
+          "यह स्क्रीन क्लाइंट पर रेंडर होती है, इसलिए इसके HTML में पैच करने योग्य ऐप मार्कअप नहीं है। एजेंट से इस बदलाव को कंपोनेंट सोर्स में लागू करने के लिए कहें।",
+        snapshotNotLoaded:
+          "इस स्क्रीन का सोर्स अभी लोड नहीं हुआ है, इसलिए संपादन लिखा नहीं गया। स्क्रीन के लोड होने की प्रतीक्षा करें और फिर से कोशिश करें।",
+        selectorAmbiguous:
+          "यह तत्व सोर्स में {{count}} समान इंस्टेंस में से एक है, इसलिए बदलाव लिखा नहीं गया। एजेंट से इसे इसी इंस्टेंस तक सीमित करने के लिए कहें।",
         status: {
           runtime: "रनटाइम स्टाइल लागू",
           queued: "स्रोत पैच लिखा जा रहा है",
@@ -9385,6 +9527,12 @@ const designModeFeatureOverrides = {
         rollback: "تراجع",
         keep: "احتفاظ",
         selectorMissing: "العنصر المحدد لم يعد موجوداً في هذه الشاشة.",
+        clientRenderedShell:
+          "يتم عرض هذه الشاشة من جهة العميل، لذلك لا يحتوي HTML الذي تقدمه على ترميز للتطبيق يمكن تعديله. اطلب من الوكيل تطبيق هذا التغيير على مصدر المكوّن.",
+        snapshotNotLoaded:
+          "لم يتم تحميل مصدر هذه الشاشة بعد، لذلك لم تتم كتابة التعديل. انتظر حتى يكتمل تحميل الشاشة ثم حاول مرة أخرى.",
+        selectorAmbiguous:
+          "هذا العنصر هو أحد {{count}} مثيلات متطابقة في المصدر، لذلك لم تتم كتابة التغيير. اطلب من الوكيل قصره على هذا المثيل.",
         status: {
           runtime: "تم تطبيق نمط التشغيل",
           queued: "جارٍ كتابة تصحيح المصدر",
@@ -11072,13 +11220,15 @@ const designPendingVisualStyleOverrides = {
         applyAria: "套用待處理的視覺樣式編輯",
         applyButton: "套用樣式",
         previewLabel: "待處理的視覺預覽",
-        applyWithAgent: "用 Design 代理套用",
+        applyDesignUpdates: "套用設計更新",
         verifying: "正在驗證來源與執行階段…",
         retryWithAgent: "重試來源驗證",
         copyPrompt: "將提示複製給您的代理",
         abortPreview: "中止預覽並互動",
         agentMessage: "將待處理的視覺樣式編輯套用到來源。",
-        sentToast: "樣式編輯已傳送給 Design 代理",
+        sentToast: "設計更新已傳送給代理",
+        agentHandoffFailedToast:
+          "無法連線到代理。預覽已保留，您可以重試或複製提示。",
         verifiedToast: "已驗證來源與執行階段結構",
         conflictToast:
           "重新載入的執行階段與待處理的結構編輯不符。預覽仍可復原；請解決來源衝突後重試。",
@@ -11087,11 +11237,11 @@ const designPendingVisualStyleOverrides = {
         copiedToast: "樣式提示已複製",
         abortedToast: "待處理的預覽已捨棄",
         interactBlocked: "請先套用或中止待處理的即時編輯，再切換到互動模式。",
-        leaveTitle: "離開前要套用樣式嗎？",
+        leaveTitle: "離開前要套用設計更新嗎？",
         leaveDescriptionOne:
-          "即時預覽中有 {{count}} 個待處理的視覺樣式編輯。現在離開會捨棄該未套用的樣式變更。",
+          "即時預覽中有 {{count}} 個僅限此工作階段的設計更新。現在離開或重新載入會捨棄它。",
         leaveDescriptionOther:
-          "即時預覽中有 {{count}} 個待處理的視覺樣式編輯。現在離開會捨棄這些未套用的樣式變更。",
+          "即時預覽中有 {{count}} 個僅限此工作階段的設計更新。現在離開或重新載入會捨棄它們。",
         stay: "留在這裡",
         leave: "不套用並離開",
       },
@@ -11103,13 +11253,15 @@ const designPendingVisualStyleOverrides = {
         applyAria: "应用待处理的视觉样式编辑",
         applyButton: "应用样式",
         previewLabel: "待处理的视觉预览",
-        applyWithAgent: "用 Design 代理应用",
+        applyDesignUpdates: "应用设计更新",
         verifying: "正在验证源文件和运行时…",
         retryWithAgent: "重试源文件验证",
         copyPrompt: "将提示复制给你的代理",
         abortPreview: "中止预览并互动",
         agentMessage: "将待处理的视觉样式编辑应用到源文件。",
-        sentToast: "样式编辑已发送给 Design 代理",
+        sentToast: "设计更新已发送给代理",
+        agentHandoffFailedToast:
+          "无法连接到代理。预览已保留，你可以重试或复制提示。",
         verifiedToast: "已验证源文件和运行时结构",
         conflictToast:
           "重新加载的运行时与待处理的结构编辑不匹配。预览仍可撤销；请解决源文件冲突后重试。",
@@ -11118,11 +11270,11 @@ const designPendingVisualStyleOverrides = {
         copiedToast: "样式提示已复制",
         abortedToast: "待处理的预览已丢弃",
         interactBlocked: "请先应用或中止待处理的实时编辑，再切换到互动模式。",
-        leaveTitle: "离开前应用样式？",
+        leaveTitle: "离开前应用设计更新？",
         leaveDescriptionOne:
-          "实时预览中有 {{count}} 个待处理的视觉样式编辑。现在离开会丢弃这个未应用的样式更改。",
+          "实时预览中有 {{count}} 个仅限此会话的设计更新。现在离开或重新加载会将其丢弃。",
         leaveDescriptionOther:
-          "实时预览中有 {{count}} 个待处理的视觉样式编辑。现在离开会丢弃这些未应用的样式更改。",
+          "实时预览中有 {{count}} 个仅限此会话的设计更新。现在离开或重新加载会将它们丢弃。",
         stay: "留在这里",
         leave: "不应用并离开",
       },
@@ -11134,14 +11286,16 @@ const designPendingVisualStyleOverrides = {
         applyAria: "Aplicar ediciones visuales de estilo pendientes",
         applyButton: "Aplicar estilos",
         previewLabel: "Vista previa visual pendiente",
-        applyWithAgent: "Aplicar con el agente de Design",
+        applyDesignUpdates: "Aplicar actualizaciones de diseño",
         verifying: "Verificando el código y el runtime…",
         retryWithAgent: "Reintentar verificación del código",
         copyPrompt: "Copiar prompt a tu agente",
         abortPreview: "Cancelar vista previa e interactuar",
         agentMessage:
           "Aplica las ediciones visuales de estilo pendientes al código fuente.",
-        sentToast: "Ediciones de estilo enviadas al agente de Design",
+        sentToast: "Actualizaciones de diseño enviadas al agente",
+        agentHandoffFailedToast:
+          "No se pudo contactar con el agente. Se conservó la vista previa para que puedas reintentar o copiar el prompt.",
         verifiedToast: "Código y estructura del runtime verificados",
         conflictToast:
           "El runtime recargado no coincide con la edición estructural pendiente. La vista previa aún se puede deshacer; resuelve el conflicto y vuelve a intentarlo.",
@@ -11151,11 +11305,11 @@ const designPendingVisualStyleOverrides = {
         abortedToast: "Vista previa pendiente descartada",
         interactBlocked:
           "Aplica o cancela las ediciones en vivo pendientes antes de cambiar a Interactuar.",
-        leaveTitle: "¿Aplicar estilos antes de salir?",
+        leaveTitle: "¿Aplicar las actualizaciones de diseño antes de salir?",
         leaveDescriptionOne:
-          "Tienes {{count}} edición visual de estilo pendiente en la vista previa en vivo. Si sales ahora, se descartará ese cambio de estilo sin aplicar.",
+          "Tienes {{count}} actualización de diseño solo para esta sesión en la vista previa en vivo. Si sales o recargas ahora, se descartará.",
         leaveDescriptionOther:
-          "Tienes {{count}} ediciones visuales de estilo pendientes en la vista previa en vivo. Si sales ahora, se descartarán esos cambios de estilo sin aplicar.",
+          "Tienes {{count}} actualizaciones de diseño solo para esta sesión en la vista previa en vivo. Si sales o recargas ahora, se descartarán.",
         stay: "Quedarse aquí",
         leave: "Salir sin aplicar",
       },
@@ -11167,14 +11321,16 @@ const designPendingVisualStyleOverrides = {
         applyAria: "Appliquer les modifications visuelles de style en attente",
         applyButton: "Appliquer les styles",
         previewLabel: "Aperçu visuel en attente",
-        applyWithAgent: "Appliquer avec l’agent Design",
+        applyDesignUpdates: "Appliquer les mises à jour du design",
         verifying: "Vérification de la source et du runtime…",
         retryWithAgent: "Réessayer la vérification de la source",
         copyPrompt: "Copier le prompt vers votre agent",
         abortPreview: "Annuler l’aperçu et interagir",
         agentMessage:
           "Appliquez les modifications visuelles de style en attente à la source.",
-        sentToast: "Modifications de style envoyées à l’agent Design",
+        sentToast: "Mises à jour du design envoyées à l’agent",
+        agentHandoffFailedToast:
+          "Impossible de joindre l’agent. L’aperçu a été conservé pour réessayer ou copier le prompt.",
         verifiedToast: "Source et structure du runtime vérifiées",
         conflictToast:
           "Le runtime rechargé ne correspond pas à la modification de structure en attente. L’aperçu reste annulable ; résolvez le conflit puis réessayez.",
@@ -11184,11 +11340,11 @@ const designPendingVisualStyleOverrides = {
         abortedToast: "Aperçu en attente supprimé",
         interactBlocked:
           "Appliquez ou annulez les modifications en direct en attente avant de passer à Interagir.",
-        leaveTitle: "Appliquer les styles avant de quitter ?",
+        leaveTitle: "Appliquer les mises à jour avant de quitter ?",
         leaveDescriptionOne:
-          "Vous avez {{count}} modification visuelle de style en attente dans l’aperçu en direct. Quitter maintenant supprimera cette modification non appliquée.",
+          "Vous avez {{count}} mise à jour de design limitée à cette session dans l’aperçu en direct. Quitter ou recharger maintenant la supprimera.",
         leaveDescriptionOther:
-          "Vous avez {{count}} modifications visuelles de style en attente dans l’aperçu en direct. Quitter maintenant supprimera ces modifications non appliquées.",
+          "Vous avez {{count}} mises à jour de design limitées à cette session dans l’aperçu en direct. Quitter ou recharger maintenant les supprimera.",
         stay: "Rester ici",
         leave: "Quitter sans appliquer",
       },
@@ -11200,14 +11356,16 @@ const designPendingVisualStyleOverrides = {
         applyAria: "Ausstehende visuelle Stiländerungen anwenden",
         applyButton: "Stile anwenden",
         previewLabel: "Ausstehende visuelle Vorschau",
-        applyWithAgent: "Mit Design-Agent anwenden",
+        applyDesignUpdates: "Design-Updates anwenden",
         verifying: "Quelle und Laufzeit werden überprüft…",
         retryWithAgent: "Quellprüfung wiederholen",
         copyPrompt: "Prompt an deinen Agent kopieren",
         abortPreview: "Vorschau abbrechen und interagieren",
         agentMessage:
           "Wende die ausstehenden visuellen Stiländerungen auf die Quelle an.",
-        sentToast: "Stiländerungen an den Design-Agent gesendet",
+        sentToast: "Design-Updates an den Agenten gesendet",
+        agentHandoffFailedToast:
+          "Der Agent konnte nicht erreicht werden. Die Vorschau wurde beibehalten, damit du es erneut versuchen oder den Prompt kopieren kannst.",
         verifiedToast: "Quelle und Laufzeitstruktur überprüft",
         conflictToast:
           "Die neu geladene Laufzeit stimmt nicht mit der ausstehenden Strukturänderung überein. Die Vorschau kann weiterhin rückgängig gemacht werden; löse den Konflikt und versuche es erneut.",
@@ -11217,11 +11375,11 @@ const designPendingVisualStyleOverrides = {
         abortedToast: "Ausstehende Vorschau verworfen",
         interactBlocked:
           "Wende ausstehende Live-Änderungen an oder brich sie ab, bevor du zu Interagieren wechselst.",
-        leaveTitle: "Stile vor dem Verlassen anwenden?",
+        leaveTitle: "Design-Updates vor dem Verlassen anwenden?",
         leaveDescriptionOne:
-          "In der Live-Vorschau gibt es {{count}} ausstehende visuelle Stiländerung. Wenn du jetzt gehst, wird diese nicht angewendete Stiländerung verworfen.",
+          "In der Live-Vorschau gibt es {{count}} Design-Update nur für diese Sitzung. Verlassen oder Neuladen verwirft es.",
         leaveDescriptionOther:
-          "In der Live-Vorschau gibt es {{count}} ausstehende visuelle Stiländerungen. Wenn du jetzt gehst, werden diese nicht angewendeten Stiländerungen verworfen.",
+          "In der Live-Vorschau gibt es {{count}} Design-Updates nur für diese Sitzung. Verlassen oder Neuladen verwirft sie.",
         stay: "Hier bleiben",
         leave: "Ohne Anwenden verlassen",
       },
@@ -11233,14 +11391,16 @@ const designPendingVisualStyleOverrides = {
         applyAria: "保留中のビジュアルスタイル編集を適用",
         applyButton: "スタイルを適用",
         previewLabel: "保留中のビジュアルプレビュー",
-        applyWithAgent: "Design エージェントで適用",
+        applyDesignUpdates: "デザインの更新を適用",
         verifying: "ソースとランタイムを検証中…",
         retryWithAgent: "ソース検証を再試行",
         copyPrompt: "エージェントにプロンプトをコピー",
         abortPreview: "プレビューを中止して操作",
         agentMessage:
           "保留中のビジュアルスタイル編集をソースに適用してください。",
-        sentToast: "スタイル編集を Design エージェントに送信しました",
+        sentToast: "デザイン更新をエージェントに送信しました",
+        agentHandoffFailedToast:
+          "エージェントに接続できませんでした。再試行またはプロンプトのコピーができるよう、プレビューは保持されています。",
         verifiedToast: "ソースとランタイム構造を検証しました",
         conflictToast:
           "再読み込みしたランタイムが保留中の構造編集と一致しません。プレビューは元に戻せます。ソースの競合を解決して再試行してください。",
@@ -11250,11 +11410,11 @@ const designPendingVisualStyleOverrides = {
         abortedToast: "保留中のプレビューを破棄しました",
         interactBlocked:
           "操作モードに切り替える前に、保留中のライブ編集を適用するか中止してください。",
-        leaveTitle: "離れる前にスタイルを適用しますか？",
+        leaveTitle: "離れる前にデザインの更新を適用しますか？",
         leaveDescriptionOne:
-          "ライブプレビューに {{count}} 件の保留中のビジュアルスタイル編集があります。今離れると、未適用のスタイル変更は破棄されます。",
+          "ライブプレビューにこのセッション限定のデザイン更新が {{count}} 件あります。今離れるか再読み込みすると破棄されます。",
         leaveDescriptionOther:
-          "ライブプレビューに {{count}} 件の保留中のビジュアルスタイル編集があります。今離れると、未適用のスタイル変更は破棄されます。",
+          "ライブプレビューにこのセッション限定のデザイン更新が {{count}} 件あります。今離れるか再読み込みすると破棄されます。",
         stay: "ここに留まる",
         leave: "適用せずに離れる",
       },
@@ -11266,13 +11426,15 @@ const designPendingVisualStyleOverrides = {
         applyAria: "보류 중인 시각 스타일 편집 적용",
         applyButton: "스타일 적용",
         previewLabel: "보류 중인 시각 미리보기",
-        applyWithAgent: "Design 에이전트로 적용",
+        applyDesignUpdates: "디자인 업데이트 적용",
         verifying: "소스와 런타임 확인 중…",
         retryWithAgent: "소스 확인 다시 시도",
         copyPrompt: "에이전트에 프롬프트 복사",
         abortPreview: "미리보기를 중단하고 상호작용",
         agentMessage: "보류 중인 시각 스타일 편집을 소스에 적용하세요.",
-        sentToast: "스타일 편집을 Design 에이전트로 보냈습니다",
+        sentToast: "디자인 업데이트를 에이전트로 보냈습니다",
+        agentHandoffFailedToast:
+          "에이전트에 연결할 수 없습니다. 다시 시도하거나 프롬프트를 복사할 수 있도록 미리보기를 유지했습니다.",
         verifiedToast: "소스와 런타임 구조를 확인했습니다",
         conflictToast:
           "다시 로드된 런타임이 보류 중인 구조 편집과 일치하지 않습니다. 미리보기는 계속 실행 취소할 수 있으니 소스 충돌을 해결한 뒤 다시 시도하세요.",
@@ -11282,11 +11444,11 @@ const designPendingVisualStyleOverrides = {
         abortedToast: "보류 중인 미리보기를 버렸습니다",
         interactBlocked:
           "상호작용 모드로 전환하기 전에 보류 중인 라이브 편집을 적용하거나 중단하세요.",
-        leaveTitle: "나가기 전에 스타일을 적용할까요?",
+        leaveTitle: "나가기 전에 디자인 업데이트를 적용할까요?",
         leaveDescriptionOne:
-          "라이브 미리보기에 보류 중인 시각 스타일 편집이 {{count}}개 있습니다. 지금 나가면 적용되지 않은 스타일 변경이 삭제됩니다.",
+          "라이브 미리보기에 이 세션에서만 유지되는 디자인 업데이트가 {{count}}개 있습니다. 지금 나가거나 다시 로드하면 삭제됩니다.",
         leaveDescriptionOther:
-          "라이브 미리보기에 보류 중인 시각 스타일 편집이 {{count}}개 있습니다. 지금 나가면 적용되지 않은 스타일 변경이 삭제됩니다.",
+          "라이브 미리보기에 이 세션에서만 유지되는 디자인 업데이트가 {{count}}개 있습니다. 지금 나가거나 다시 로드하면 삭제됩니다.",
         stay: "여기에 머물기",
         leave: "적용하지 않고 나가기",
       },
@@ -11298,14 +11460,16 @@ const designPendingVisualStyleOverrides = {
         applyAria: "Aplicar edições visuais de estilo pendentes",
         applyButton: "Aplicar estilos",
         previewLabel: "Prévia visual pendente",
-        applyWithAgent: "Aplicar com o agente Design",
+        applyDesignUpdates: "Aplicar atualizações de design",
         verifying: "Verificando origem e runtime…",
         retryWithAgent: "Tentar verificar a origem novamente",
         copyPrompt: "Copiar prompt para seu agente",
         abortPreview: "Cancelar prévia e interagir",
         agentMessage:
           "Aplique as edições visuais de estilo pendentes à origem.",
-        sentToast: "Edições de estilo enviadas ao agente Design",
+        sentToast: "Atualizações de design enviadas ao agente",
+        agentHandoffFailedToast:
+          "Não foi possível acessar o agente. A prévia foi mantida para você tentar novamente ou copiar o prompt.",
         verifiedToast: "Origem e estrutura do runtime verificadas",
         conflictToast:
           "O runtime recarregado não corresponde à edição estrutural pendente. A prévia ainda pode ser desfeita; resolva o conflito e tente novamente.",
@@ -11315,11 +11479,11 @@ const designPendingVisualStyleOverrides = {
         abortedToast: "Prévia pendente descartada",
         interactBlocked:
           "Aplique ou cancele as edições ao vivo pendentes antes de mudar para Interagir.",
-        leaveTitle: "Aplicar estilos antes de sair?",
+        leaveTitle: "Aplicar as atualizações de design antes de sair?",
         leaveDescriptionOne:
-          "Você tem {{count}} edição visual de estilo pendente na prévia ao vivo. Sair agora descartará essa alteração de estilo não aplicada.",
+          "Você tem {{count}} atualização de design somente desta sessão na prévia ao vivo. Sair ou recarregar agora a descartará.",
         leaveDescriptionOther:
-          "Você tem {{count}} edições visuais de estilo pendentes na prévia ao vivo. Sair agora descartará essas alterações de estilo não aplicadas.",
+          "Você tem {{count}} atualizações de design somente desta sessão na prévia ao vivo. Sair ou recarregar agora as descartará.",
         stay: "Ficar aqui",
         leave: "Sair sem aplicar",
       },
@@ -11331,13 +11495,15 @@ const designPendingVisualStyleOverrides = {
         applyAria: "लंबित visual style edits लागू करें",
         applyButton: "Styles लागू करें",
         previewLabel: "लंबित visual preview",
-        applyWithAgent: "Design agent से लागू करें",
+        applyDesignUpdates: "डिज़ाइन अपडेट लागू करें",
         verifying: "Source और runtime सत्यापित हो रहे हैं…",
         retryWithAgent: "Source verification फिर करें",
         copyPrompt: "Prompt अपने agent को कॉपी करें",
         abortPreview: "Preview रोकें और interact करें",
         agentMessage: "लंबित visual style edits को source पर लागू करें।",
-        sentToast: "Style edits Design agent को भेजे गए",
+        sentToast: "Design updates agent को भेजे गए",
+        agentHandoffFailedToast:
+          "Agent तक नहीं पहुंच सके। Retry या prompt कॉपी करने के लिए preview रखा गया है।",
         verifiedToast: "Source और runtime structure सत्यापित हैं",
         conflictToast:
           "Reload हुआ runtime pending structure edit से मेल नहीं खाता। Preview अभी भी undo किया जा सकता है; source conflict हल करके फिर कोशिश करें।",
@@ -11346,11 +11512,11 @@ const designPendingVisualStyleOverrides = {
         copiedToast: "Style prompt कॉपी हुआ",
         abortedToast: "लंबित preview हटा दिया गया",
         interactBlocked: "Interact पर जाने से पहले लंबित live edits लागू करें या रोकें।",
-        leaveTitle: "छोड़ने से पहले styles लागू करें?",
+        leaveTitle: "छोड़ने से पहले design updates लागू करें?",
         leaveDescriptionOne:
-          "Live preview में {{count}} लंबित visual style edit है। अभी छोड़ने पर वह unapplied style change हट जाएगा।",
+          "Live preview में {{count}} design update केवल इस session के लिए है। अभी छोड़ने या reload करने पर यह हट जाएगा।",
         leaveDescriptionOther:
-          "Live preview में {{count}} लंबित visual style edits हैं। अभी छोड़ने पर वे unapplied style changes हट जाएंगे।",
+          "Live preview में {{count}} design updates केवल इस session के लिए हैं। अभी छोड़ने या reload करने पर ये हट जाएंगे।",
         stay: "यहीं रहें",
         leave: "बिना लागू किए छोड़ें",
       },
@@ -11362,13 +11528,15 @@ const designPendingVisualStyleOverrides = {
         applyAria: "تطبيق تعديلات النمط المرئية المعلقة",
         applyButton: "تطبيق الأنماط",
         previewLabel: "معاينة مرئية معلقة",
-        applyWithAgent: "تطبيق عبر وكيل Design",
+        applyDesignUpdates: "تطبيق تحديثات التصميم",
         verifying: "جارٍ التحقق من المصدر ووقت التشغيل…",
         retryWithAgent: "إعادة التحقق من المصدر",
         copyPrompt: "نسخ الموجه إلى وكيلك",
         abortPreview: "إلغاء المعاينة والتفاعل",
         agentMessage: "طبّق تعديلات النمط المرئية المعلقة على المصدر.",
-        sentToast: "تم إرسال تعديلات النمط إلى وكيل Design",
+        sentToast: "تم إرسال تحديثات التصميم إلى الوكيل",
+        agentHandoffFailedToast:
+          "تعذر الوصول إلى الوكيل. تم الاحتفاظ بالمعاينة لتتمكن من إعادة المحاولة أو نسخ الموجه.",
         verifiedToast: "تم التحقق من المصدر وبنية وقت التشغيل",
         conflictToast:
           "لا يطابق وقت التشغيل المعاد تحميله تعديل البنية المعلق. لا تزال المعاينة قابلة للتراجع؛ عالج تعارض المصدر ثم أعد المحاولة.",
@@ -11378,13 +11546,172 @@ const designPendingVisualStyleOverrides = {
         abortedToast: "تم تجاهل المعاينة المعلقة",
         interactBlocked:
           "طبّق التعديلات المباشرة المعلقة أو ألغها قبل الانتقال إلى التفاعل.",
-        leaveTitle: "تطبيق الأنماط قبل المغادرة؟",
+        leaveTitle: "تطبيق تحديثات التصميم قبل المغادرة؟",
         leaveDescriptionOne:
-          "لديك {{count}} تعديل نمط مرئي معلق في المعاينة المباشرة. ستؤدي المغادرة الآن إلى تجاهل تغيير النمط غير المطبق.",
+          "لديك {{count}} تحديث تصميم خاص بهذه الجلسة في المعاينة المباشرة. ستؤدي المغادرة أو إعادة التحميل الآن إلى تجاهله.",
         leaveDescriptionOther:
-          "لديك {{count}} تعديلات نمط مرئية معلقة في المعاينة المباشرة. ستؤدي المغادرة الآن إلى تجاهل تغييرات النمط غير المطبقة.",
+          "لديك {{count}} تحديثات تصميم خاصة بهذه الجلسة في المعاينة المباشرة. ستؤدي المغادرة أو إعادة التحميل الآن إلى تجاهلها.",
         stay: "البقاء هنا",
         leave: "المغادرة دون تطبيق",
+      },
+    },
+  },
+} satisfies Record<Exclude<LocaleCode, "en-US">, PartialMessages>;
+
+const designAddLocalhostScreenOverrides = {
+  "zh-TW": {
+    designEditor: {
+      addLocalhostScreen: {
+        title: "從您的應用程式新增畫面",
+        description: "選擇一個路由做為新畫面，或輸入路徑。",
+        searchPlaceholder: "搜尋路由…",
+        noRoutes: "找不到符合的路由",
+        useCustomPath: "新增「{{path}}」",
+        viewportDesktop: "桌面版",
+        viewportMobile: "行動版",
+        added: "已新增畫面",
+        addFailed: "無法新增畫面",
+      },
+    },
+  },
+  "zh-CN": {
+    designEditor: {
+      addLocalhostScreen: {
+        title: "从您的应用添加屏幕",
+        description: "选择一个路由作为新屏幕，或输入路径。",
+        searchPlaceholder: "搜索路由…",
+        noRoutes: "未找到匹配的路由",
+        useCustomPath: "添加“{{path}}”",
+        viewportDesktop: "桌面版",
+        viewportMobile: "移动版",
+        added: "已添加屏幕",
+        addFailed: "无法添加屏幕",
+      },
+    },
+  },
+  "es-ES": {
+    designEditor: {
+      addLocalhostScreen: {
+        title: "Añadir una pantalla desde tu app",
+        description:
+          "Elige una ruta para añadirla como nuevo marco, o escribe una ruta.",
+        searchPlaceholder: "Buscar rutas…",
+        noRoutes: "No hay rutas que coincidan",
+        useCustomPath: 'Añadir "{{path}}"',
+        viewportDesktop: "Escritorio",
+        viewportMobile: "Móvil",
+        added: "Pantalla añadida",
+        addFailed: "No se pudo añadir la pantalla",
+      },
+    },
+  },
+  "fr-FR": {
+    designEditor: {
+      addLocalhostScreen: {
+        title: "Ajouter un écran depuis votre application",
+        description:
+          "Choisissez une route à ajouter comme nouveau cadre, ou saisissez un chemin.",
+        searchPlaceholder: "Rechercher des routes…",
+        noRoutes: "Aucune route correspondante",
+        useCustomPath: "Ajouter « {{path}} »",
+        viewportDesktop: "Bureau",
+        viewportMobile: "Mobile",
+        added: "Écran ajouté",
+        addFailed: "Impossible d’ajouter l’écran",
+      },
+    },
+  },
+  "de-DE": {
+    designEditor: {
+      addLocalhostScreen: {
+        title: "Einen Screen aus deiner App hinzufügen",
+        description:
+          "Wähle eine Route als neuen Rahmen aus oder gib einen Pfad ein.",
+        searchPlaceholder: "Routen durchsuchen…",
+        noRoutes: "Keine passenden Routen",
+        useCustomPath: "„{{path}}“ hinzufügen",
+        viewportDesktop: "Desktop",
+        viewportMobile: "Mobil",
+        added: "Screen hinzugefügt",
+        addFailed: "Screen konnte nicht hinzugefügt werden",
+      },
+    },
+  },
+  "ja-JP": {
+    designEditor: {
+      addLocalhostScreen: {
+        title: "アプリから画面を追加",
+        description:
+          "新しいフレームとして追加するルートを選ぶか、パスを入力してください。",
+        searchPlaceholder: "ルートを検索…",
+        noRoutes: "一致するルートがありません",
+        useCustomPath: "「{{path}}」を追加",
+        viewportDesktop: "デスクトップ",
+        viewportMobile: "モバイル",
+        added: "画面を追加しました",
+        addFailed: "画面を追加できませんでした",
+      },
+    },
+  },
+  "ko-KR": {
+    designEditor: {
+      addLocalhostScreen: {
+        title: "앱에서 화면 추가",
+        description:
+          "새 프레임으로 추가할 경로를 선택하거나 경로를 입력하세요.",
+        searchPlaceholder: "경로 검색…",
+        noRoutes: "일치하는 경로가 없습니다",
+        useCustomPath: '"{{path}}" 추가',
+        viewportDesktop: "데스크톱",
+        viewportMobile: "모바일",
+        added: "화면이 추가되었습니다",
+        addFailed: "화면을 추가할 수 없습니다",
+      },
+    },
+  },
+  "pt-BR": {
+    designEditor: {
+      addLocalhostScreen: {
+        title: "Adicionar uma tela do seu app",
+        description:
+          "Escolha uma rota para adicionar como novo quadro, ou digite um caminho.",
+        searchPlaceholder: "Buscar rotas…",
+        noRoutes: "Nenhuma rota encontrada",
+        useCustomPath: 'Adicionar "{{path}}"',
+        viewportDesktop: "Desktop",
+        viewportMobile: "Celular",
+        added: "Tela adicionada",
+        addFailed: "Não foi possível adicionar a tela",
+      },
+    },
+  },
+  "hi-IN": {
+    designEditor: {
+      addLocalhostScreen: {
+        title: "अपनी app से screen जोड़ें",
+        description: "नए frame के रूप में जोड़ने के लिए एक route चुनें, या path टाइप करें।",
+        searchPlaceholder: "Routes खोजें…",
+        noRoutes: "कोई मेल खाता route नहीं मिला",
+        useCustomPath: '"{{path}}" जोड़ें',
+        viewportDesktop: "Desktop",
+        viewportMobile: "Mobile",
+        added: "Screen जोड़ी गई",
+        addFailed: "Screen नहीं जोड़ी जा सकी",
+      },
+    },
+  },
+  "ar-SA": {
+    designEditor: {
+      addLocalhostScreen: {
+        title: "إضافة شاشة من تطبيقك",
+        description: "اختر مسارًا لإضافته كإطار جديد، أو أدخل مسارًا.",
+        searchPlaceholder: "البحث في المسارات…",
+        noRoutes: "لا توجد مسارات مطابقة",
+        useCustomPath: 'إضافة "{{path}}"',
+        viewportDesktop: "سطح المكتب",
+        viewportMobile: "الجوال",
+        added: "تمت إضافة الشاشة",
+        addFailed: "تعذرت إضافة الشاشة",
       },
     },
   },
@@ -11781,6 +12108,16 @@ const designImportOverrides = {
           "無法比對到特定的 Figma 節點。請改貼上畫框連結以進行精確匯入。",
         figmaPasteRestLabel: "透過 Figma API 匯入",
         figmaPasteHtmlLabel: "從剪貼簿預覽匯入",
+        figmaPasteLocalKiwiLabel: "已在未登入狀態下匯入 — 僅含幾何與文字",
+        figmaPasteImagesNeedToken:
+          "{{count}} 個圖片{{plural}}需要 Figma 存取權才能載入。",
+        figmaHydrationDialogTitle: "連結 Figma 以載入圖片",
+        figmaHydrationDialogDescription:
+          "輸入您的 Figma 存取權杖，以載入已匯入螢幕{{screensPlural}}中 {{count}} 個缺少的圖片{{plural}}。",
+        figmaHydrationConnectAndLoad: "連結並載入圖片",
+        figmaHydrationSuccess: "圖片載入成功",
+        figmaHydrationSuccessDescription:
+          "已從 Figma 填入 {{count}} 個圖片{{plural}}。",
         figUploadTitle: "上傳 .fig",
         figUploadDescription:
           "實驗性功能：Figma 的 .fig 格式為專有格式且可能變更。支援的圖層會轉為可編輯螢幕，部分功能可能不同。上限為 50 MB。",
@@ -11834,6 +12171,16 @@ const designImportOverrides = {
           "无法匹配到特定的 Figma 节点。请改为粘贴画框链接以进行精确导入。",
         figmaPasteRestLabel: "通过 Figma API 导入",
         figmaPasteHtmlLabel: "从剪贴板预览导入",
+        figmaPasteLocalKiwiLabel: "已在未登录状态下导入 — 仅包含几何与文字",
+        figmaPasteImagesNeedToken:
+          "{{count}} 张图片{{plural}}需要 Figma 访问权限才能加载。",
+        figmaHydrationDialogTitle: "连接 Figma 以加载图片",
+        figmaHydrationDialogDescription:
+          "输入您的 Figma 访问令牌，以加载已导入屏幕{{screensPlural}}中缺少的 {{count}} 张图片{{plural}}。",
+        figmaHydrationConnectAndLoad: "连接并加载图片",
+        figmaHydrationSuccess: "图片加载成功",
+        figmaHydrationSuccessDescription:
+          "已从 Figma 填入 {{count}} 张图片{{plural}}。",
         figUploadTitle: "上传 .fig",
         figUploadDescription:
           "实验性功能：Figma 的 .fig 格式为专有格式且可能变化。支持的图层会转换为可编辑屏幕，部分功能可能有所不同。最大 50 MB。",
@@ -11889,6 +12236,17 @@ const designImportOverrides = {
           "No se pudo hacer coincidir con nodos específicos de Figma. Pega un enlace de marco para una importación exacta.",
         figmaPasteRestLabel: "Importado mediante la API de Figma",
         figmaPasteHtmlLabel: "Importado desde la vista previa del portapapeles",
+        figmaPasteLocalKiwiLabel:
+          "Importado sin token — solo geometría y texto",
+        figmaPasteImagesNeedToken:
+          "{{count}} imagen{{plural}} necesita{{plural}} acceso a Figma para cargarse.",
+        figmaHydrationDialogTitle: "Conectar Figma para cargar imágenes",
+        figmaHydrationDialogDescription:
+          "Introduce tu token de acceso de Figma para cargar {{count}} imagen{{plural}} faltante{{plural}} en la pantalla{{screensPlural}} importada{{screensPlural}}.",
+        figmaHydrationConnectAndLoad: "Conectar y cargar imágenes",
+        figmaHydrationSuccess: "Imágenes cargadas correctamente",
+        figmaHydrationSuccessDescription:
+          "{{count}} imagen{{plural}} rellenada{{plural}} desde Figma.",
         figUploadTitle: "Subir .fig",
         figUploadDescription:
           "Experimental: el formato .fig de Figma es propietario y puede cambiar. Las capas compatibles se convierten en pantallas editables; algunas funciones pueden variar. Máximo 50 MB.",
@@ -11946,6 +12304,17 @@ const designImportOverrides = {
           "Impossible de faire correspondre à des nœuds Figma précis. Collez un lien de cadre pour un import exact.",
         figmaPasteRestLabel: "Importé via l'API Figma",
         figmaPasteHtmlLabel: "Importé depuis l'aperçu du presse-papiers",
+        figmaPasteLocalKiwiLabel:
+          "Importé sans token — géométrie et texte uniquement",
+        figmaPasteImagesNeedToken:
+          "{{count}} image{{plural}} nécessite{{plural}} un accès Figma pour être chargée{{plural}}.",
+        figmaHydrationDialogTitle: "Connecter Figma pour charger les images",
+        figmaHydrationDialogDescription:
+          "Saisissez votre token d'accès Figma pour charger {{count}} image{{plural}} manquante{{plural}} dans l'écran{{screensPlural}} importé{{screensPlural}}.",
+        figmaHydrationConnectAndLoad: "Connecter et charger les images",
+        figmaHydrationSuccess: "Images chargées avec succès",
+        figmaHydrationSuccessDescription:
+          "{{count}} image{{plural}} remplie{{plural}} depuis Figma.",
         figUploadTitle: "Téléverser .fig",
         figUploadDescription:
           "Expérimental : le format .fig de Figma est propriétaire et peut évoluer. Les calques pris en charge deviennent des écrans modifiables ; certaines fonctions peuvent différer. Maximum 50 Mo.",
@@ -12003,6 +12372,17 @@ const designImportOverrides = {
           "Konnte nicht mit bestimmten Figma-Nodes abgeglichen werden. Füge stattdessen einen Frame-Link für einen exakten Import ein.",
         figmaPasteRestLabel: "Über die Figma-API importiert",
         figmaPasteHtmlLabel: "Aus der Zwischenablage-Vorschau importiert",
+        figmaPasteLocalKiwiLabel:
+          "Ohne Token importiert — nur Geometrie und Text",
+        figmaPasteImagesNeedToken:
+          "{{count}} Bild{{plural}} benötigt{{plural}} Figma-Zugriff zum Laden.",
+        figmaHydrationDialogTitle: "Figma verbinden, um Bilder zu laden",
+        figmaHydrationDialogDescription:
+          "Gib deinen Figma-Zugriffstoken ein, um {{count}} fehlendes{{plural}} Bild{{plural}} in den importierten Screen{{screensPlural}} zu laden.",
+        figmaHydrationConnectAndLoad: "Verbinden und Bilder laden",
+        figmaHydrationSuccess: "Bilder erfolgreich geladen",
+        figmaHydrationSuccessDescription:
+          "{{count}} Bild{{plural}} aus Figma ausgefüllt.",
         figUploadTitle: ".fig hochladen",
         figUploadDescription:
           "Experimentell: Das .fig-Format von Figma ist proprietär und kann sich ändern. Unterstützte Ebenen werden zu bearbeitbaren Screens; einige Funktionen können abweichen. Maximal 50 MB.",
@@ -12059,6 +12439,17 @@ const designImportOverrides = {
           "特定の Figma ノードと一致しませんでした。正確にインポートするにはフレームのリンクを貼り付けてください。",
         figmaPasteRestLabel: "Figma API 経由でインポート",
         figmaPasteHtmlLabel: "クリップボードプレビューからインポート",
+        figmaPasteLocalKiwiLabel:
+          "トークンなしでインポート — ジオメトリとテキストのみ",
+        figmaPasteImagesNeedToken:
+          "{{count}} 枚の画像{{plural}}を読み込むには Figma へのアクセスが必要です。",
+        figmaHydrationDialogTitle: "Figma を接続して画像を読み込む",
+        figmaHydrationDialogDescription:
+          "Figma アクセストークンを入力して、インポートされた画面{{screensPlural}}の不足している {{count}} 枚の画像{{plural}}を読み込んでください。",
+        figmaHydrationConnectAndLoad: "接続して画像を読み込む",
+        figmaHydrationSuccess: "画像の読み込みが完了しました",
+        figmaHydrationSuccessDescription:
+          "Figma から {{count}} 枚の画像{{plural}}が入力されました。",
         figUploadTitle: ".fig をアップロード",
         figUploadDescription:
           "試験的機能：Figma の .fig 形式は独自仕様で、変更される可能性があります。対応レイヤーは編集可能な画面になりますが、一部の機能は異なる場合があります。最大 50 MB。",
@@ -12116,6 +12507,16 @@ const designImportOverrides = {
           "특정 Figma 노드와 일치시킬 수 없습니다. 정확한 가져오기를 위해 프레임 링크를 붙여넣으세요.",
         figmaPasteRestLabel: "Figma API로 가져옴",
         figmaPasteHtmlLabel: "클립보드 미리보기에서 가져옴",
+        figmaPasteLocalKiwiLabel: "토큰 없이 가져옴 — 기하학적 구조와 텍스트만",
+        figmaPasteImagesNeedToken:
+          "{{count}}개의 이미지{{plural}}를 로드하려면 Figma 접근이 필요합니다.",
+        figmaHydrationDialogTitle: "Figma를 연결하여 이미지 로드",
+        figmaHydrationDialogDescription:
+          "Figma 액세스 토큰을 입력하여 가져온 화면{{screensPlural}}의 누락된 이미지 {{count}}개{{plural}}를 로드하세요.",
+        figmaHydrationConnectAndLoad: "연결하고 이미지 로드",
+        figmaHydrationSuccess: "이미지가 성공적으로 로드되었습니다",
+        figmaHydrationSuccessDescription:
+          "Figma에서 {{count}}개의 이미지{{plural}}가 채워졌습니다.",
         figUploadTitle: ".fig 업로드",
         figUploadDescription:
           "실험적 기능: Figma의 .fig 형식은 독점 형식이며 변경될 수 있습니다. 지원되는 레이어는 편집 가능한 화면으로 변환되지만 일부 기능은 다를 수 있습니다. 최대 50MB.",
@@ -12174,6 +12575,17 @@ const designImportOverrides = {
         figmaPasteRestLabel: "Importado via API do Figma",
         figmaPasteHtmlLabel:
           "Importado da pré-visualização da área de transferência",
+        figmaPasteLocalKiwiLabel:
+          "Importado sem token — apenas geometria e texto",
+        figmaPasteImagesNeedToken:
+          "{{count}} imagem{{plural}} precisa{{plural}} de acesso ao Figma para carregar.",
+        figmaHydrationDialogTitle: "Conectar o Figma para carregar imagens",
+        figmaHydrationDialogDescription:
+          "Insira seu token de acesso do Figma para carregar {{count}} imagem{{plural}} ausente{{plural}} na tela{{screensPlural}} importada{{screensPlural}}.",
+        figmaHydrationConnectAndLoad: "Conectar e carregar imagens",
+        figmaHydrationSuccess: "Imagens carregadas com sucesso",
+        figmaHydrationSuccessDescription:
+          "{{count}} imagem{{plural}} preenchida{{plural}} do Figma.",
         figUploadTitle: "Enviar .fig",
         figUploadDescription:
           "Experimental: o formato .fig do Figma é proprietário e pode mudar. As camadas compatíveis viram telas editáveis; alguns recursos podem ser diferentes. Máximo de 50 MB.",
@@ -12231,6 +12643,17 @@ const designImportOverrides = {
           "विशिष्ट Figma नोड्स से मेल नहीं खाया। सटीक आयात के लिए इसके बजाय एक frame लिंक paste करें।",
         figmaPasteRestLabel: "Figma API के ज़रिए आयात किया गया",
         figmaPasteHtmlLabel: "क्लिपबोर्ड पूर्वावलोकन से आयात किया गया",
+        figmaPasteLocalKiwiLabel:
+          "बिना token के आयात किया गया — केवल geometry और text",
+        figmaPasteImagesNeedToken:
+          "{{count}} छवि{{plural}} को लोड करने के लिए Figma की पहुँच चाहिए।",
+        figmaHydrationDialogTitle: "छवियाँ लोड करने के लिए Figma जोड़ें",
+        figmaHydrationDialogDescription:
+          "आयातित screen{{screensPlural}} में {{count}} गायब छवि{{plural}} लोड करने के लिए अपना Figma access token दर्ज करें।",
+        figmaHydrationConnectAndLoad: "जोड़ें और छवियाँ लोड करें",
+        figmaHydrationSuccess: "छवियाँ सफलतापूर्वक लोड हुईं",
+        figmaHydrationSuccessDescription:
+          "Figma से {{count}} छवि{{plural}} भरी गई{{plural}}।",
         figUploadTitle: ".fig अपलोड करें",
         figUploadDescription:
           "प्रायोगिक: Figma का .fig format proprietary है और बदल सकता है। समर्थित layers editable screens बनती हैं; कुछ features अलग हो सकते हैं। अधिकतम 50 MB।",
@@ -12287,6 +12710,17 @@ const designImportOverrides = {
           "تعذّرت المطابقة مع عُقد Figma محددة. الصق رابط الإطار بدلاً من ذلك للحصول على استيراد دقيق.",
         figmaPasteRestLabel: "تم الاستيراد عبر واجهة Figma البرمجية",
         figmaPasteHtmlLabel: "تم الاستيراد من معاينة الحافظة",
+        figmaPasteLocalKiwiLabel:
+          "تم الاستيراد بدون رمز — الأشكال الهندسية والنص فقط",
+        figmaPasteImagesNeedToken:
+          "{{count}} صورة{{plural}} تحتاج إلى الوصول إلى Figma للتحميل.",
+        figmaHydrationDialogTitle: "ربط Figma لتحميل الصور",
+        figmaHydrationDialogDescription:
+          "أدخل رمز الوصول إلى Figma لتحميل {{count}} صورة{{plural}} مفقودة في الشاشة{{screensPlural}} المستوردة.",
+        figmaHydrationConnectAndLoad: "ربط وتحميل الصور",
+        figmaHydrationSuccess: "تم تحميل الصور بنجاح",
+        figmaHydrationSuccessDescription:
+          "تم ملء {{count}} صورة{{plural}} من Figma.",
         figUploadTitle: "رفع .fig",
         figUploadDescription:
           "ميزة تجريبية: تنسيق .fig في Figma مملوك وقد يتغير. تتحول الطبقات المدعومة إلى شاشات قابلة للتحرير، وقد تختلف بعض الميزات. الحد الأقصى 50 ميغابايت.",
@@ -14067,7 +14501,11 @@ const designRuntimeIdentityAndBridgeOverrides = {
     designEditor: {
       toasts: {
         reactSourceAnchorsLoading:
-          "React 源码锚点仍在加载中。请等本地应用完成渲染后再试一次。",
+          "无法在源码中定位该图层。请等应用加载完成后重试，或请代理帮你完成此更改。",
+        reactSourceAnchorsUnavailable:
+          "该应用未向编辑器提供源码位置，因此无法把该图层追溯到具体代码行。请让代理完成此更改。",
+        designStateLiveScreen:
+          "实时画面无法预览设计状态 — 它的内容是正在运行的应用，而不是文档。",
       },
     },
     layersPanel: { dragGhostCount: "{{count}} 个图层" },
@@ -14093,7 +14531,11 @@ const designRuntimeIdentityAndBridgeOverrides = {
     designEditor: {
       toasts: {
         reactSourceAnchorsLoading:
-          "Los anclajes al código fuente de React aún se están cargando. Vuelve a intentarlo cuando la aplicación local termine de renderizarse.",
+          "No se puede localizar esta capa en el código fuente. Vuelve a intentarlo cuando la aplicación termine de cargar, o pide al agente que haga el cambio.",
+        reactSourceAnchorsUnavailable:
+          "Esta aplicación no expone ubicaciones de código al editor, así que esta capa no se puede rastrear hasta una línea. Pide al agente que haga el cambio.",
+        designStateLiveScreen:
+          "Los estados de diseño no se pueden previsualizar en una pantalla en vivo: su contenido es la app en ejecución, no un documento.",
       },
     },
     layersPanel: { dragGhostCount: "{{count}} capas" },
@@ -14120,7 +14562,11 @@ const designRuntimeIdentityAndBridgeOverrides = {
     designEditor: {
       toasts: {
         reactSourceAnchorsLoading:
-          "Les ancres vers le code source React sont encore en cours de chargement. Réessayez une fois le rendu de l’application locale terminé.",
+          "Impossible de localiser ce calque dans le code source. Réessayez une fois le chargement de l’application terminé, ou demandez à l’agent d’effectuer ce changement.",
+        reactSourceAnchorsUnavailable:
+          "Cette application n’expose pas les emplacements du code source à l’éditeur : ce calque ne peut donc pas être relié à une ligne. Demandez à l’agent d’effectuer ce changement.",
+        designStateLiveScreen:
+          "Les états de design ne peuvent pas être prévisualisés sur un écran en direct — son contenu est l'application en cours d'exécution, pas un document.",
       },
     },
     layersPanel: { dragGhostCount: "{{count}} calques" },
@@ -14146,7 +14592,11 @@ const designRuntimeIdentityAndBridgeOverrides = {
     designEditor: {
       toasts: {
         reactSourceAnchorsLoading:
-          "Die React-Quellcodeanker werden noch geladen. Versuche es erneut, sobald die lokale App vollständig gerendert wurde.",
+          "Diese Ebene lässt sich im Quellcode nicht finden. Versuche es erneut, sobald die App vollständig geladen ist, oder lass die Änderung vom Agenten vornehmen.",
+        reactSourceAnchorsUnavailable:
+          "Diese App stellt dem Editor keine Quellcode-Positionen bereit, daher lässt sich diese Ebene keiner Zeile zuordnen. Lass die Änderung vom Agenten vornehmen.",
+        designStateLiveScreen:
+          "Design-Zustände lassen sich in einem Live-Screen nicht vorschauen — sein Inhalt ist die laufende App, kein Dokument.",
       },
     },
     layersPanel: { dragGhostCount: "{{count}} Ebenen" },
@@ -14173,7 +14623,11 @@ const designRuntimeIdentityAndBridgeOverrides = {
     designEditor: {
       toasts: {
         reactSourceAnchorsLoading:
-          "React ソースのアンカーを読み込み中です。ローカルアプリのレンダリングが完了してからもう一度お試しください。",
+          "このレイヤーのソースが見つかりません。アプリの読み込みが完了してから再度お試しいただくか、エージェントに変更を依頼してください。",
+        reactSourceAnchorsUnavailable:
+          "このアプリはエディターにソース位置を提供していないため、このレイヤーを行にひも付けできません。エージェントに変更を依頼してください。",
+        designStateLiveScreen:
+          "ライブ画面ではデザイン状態をプレビューできません。その内容はドキュメントではなく実行中のアプリです。",
       },
     },
     layersPanel: { dragGhostCount: "{{count}} 個のレイヤー" },
@@ -14199,7 +14653,11 @@ const designRuntimeIdentityAndBridgeOverrides = {
     designEditor: {
       toasts: {
         reactSourceAnchorsLoading:
-          "React 소스 앵커를 아직 불러오는 중입니다. 로컬 앱의 렌더링이 끝난 후 다시 시도하세요.",
+          "이 레이어를 소스에서 찾을 수 없습니다. 앱 로딩이 끝난 후 다시 시도하거나, 에이전트에게 변경을 요청하세요.",
+        reactSourceAnchorsUnavailable:
+          "이 앱은 편집기에 소스 위치를 제공하지 않아 이 레이어를 코드 줄과 연결할 수 없습니다. 에이전트에게 변경을 요청하세요.",
+        designStateLiveScreen:
+          "라이브 화면에서는 디자인 상태를 미리 볼 수 없습니다. 콘텐츠가 문서가 아니라 실행 중인 앱입니다.",
       },
     },
     layersPanel: { dragGhostCount: "레이어 {{count}}개" },
@@ -14225,7 +14683,11 @@ const designRuntimeIdentityAndBridgeOverrides = {
     designEditor: {
       toasts: {
         reactSourceAnchorsLoading:
-          "Os vínculos ao código-fonte do React ainda estão sendo carregados. Tente novamente quando o app local terminar de renderizar.",
+          "Não foi possível localizar esta camada no código-fonte. Tente novamente quando o app terminar de carregar, ou peça ao agente para fazer essa alteração.",
+        reactSourceAnchorsUnavailable:
+          "Este app não expõe localizações de código ao editor, então esta camada não pode ser associada a uma linha. Peça ao agente para fazer essa alteração.",
+        designStateLiveScreen:
+          "Estados de design não podem ser visualizados em uma tela ao vivo — o conteúdo dela é o app em execução, não um documento.",
       },
     },
     layersPanel: { dragGhostCount: "{{count}} camadas" },
@@ -14252,7 +14714,11 @@ const designRuntimeIdentityAndBridgeOverrides = {
     designEditor: {
       toasts: {
         reactSourceAnchorsLoading:
-          "React सोर्स एंकर अभी लोड हो रहे हैं। लोकल ऐप की रेंडरिंग पूरी होने के बाद फिर से कोशिश करें।",
+          "यह लेयर सोर्स में नहीं मिली। ऐप लोड होने के बाद फिर से कोशिश करें, या एजेंट से यह बदलाव करने को कहें।",
+        reactSourceAnchorsUnavailable:
+          "यह ऐप एडिटर को सोर्स लोकेशन नहीं देता, इसलिए इस लेयर को किसी लाइन से नहीं जोड़ा जा सकता। यह बदलाव एजेंट से कराएँ।",
+        designStateLiveScreen:
+          "लाइव स्क्रीन पर डिज़ाइन स्टेट का पूर्वावलोकन नहीं हो सकता — इसकी सामग्री चल रहा ऐप है, दस्तावेज़ नहीं।",
       },
     },
     layersPanel: { dragGhostCount: "{{count}} लेयर" },
@@ -14278,7 +14744,11 @@ const designRuntimeIdentityAndBridgeOverrides = {
     designEditor: {
       toasts: {
         reactSourceAnchorsLoading:
-          "لا تزال نقاط ارتساء مصدر React قيد التحميل. أعد المحاولة بعد اكتمال عرض التطبيق المحلي.",
+          "تعذر تحديد موقع هذه الطبقة في المصدر. أعد المحاولة بعد اكتمال تحميل التطبيق، أو اطلب من الوكيل إجراء هذا التغيير.",
+        reactSourceAnchorsUnavailable:
+          "لا يوفّر هذا التطبيق مواقع المصدر للمحرر، لذا لا يمكن ربط هذه الطبقة بسطر معيّن. اطلب من الوكيل إجراء هذا التغيير.",
+        designStateLiveScreen:
+          "لا يمكن معاينة حالات التصميم على شاشة حيّة — محتواها هو التطبيق قيد التشغيل، وليس مستندًا.",
       },
     },
     layersPanel: { dragGhostCount: "{{count}} طبقات" },
@@ -14733,8 +15203,10 @@ export const messagesByLocale = {
       designVisualEditOverrides["zh-TW"],
       designTemplateFeatureOverrides["zh-TW"],
       designPendingVisualStyleOverrides["zh-TW"],
+      designAddLocalhostScreenOverrides["zh-TW"],
       designFillStylesComingSoonOverrides["zh-TW"],
       breakpointBarOverrides["zh-TW"],
+      responsiveInteractOverrides["zh-TW"],
       motionDockOverrides["zh-TW"],
     ),
   ),
@@ -14755,6 +15227,7 @@ export const messagesByLocale = {
       designVisualEditOverrides["zh-CN"],
       designTemplateFeatureOverrides["zh-CN"],
       designPendingVisualStyleOverrides["zh-CN"],
+      designAddLocalhostScreenOverrides["zh-CN"],
       designFillStylesComingSoonOverrides["zh-CN"],
       designFramePresetsOverrides["zh-CN"],
       designAlignmentOverrides["zh-CN"],
@@ -14762,6 +15235,7 @@ export const messagesByLocale = {
       designInteractionStatesOverrides["zh-CN"],
       designMotionAndBreakpointOverrides["zh-CN"],
       breakpointBarOverrides["zh-CN"],
+      responsiveInteractOverrides["zh-CN"],
       motionDockOverrides["zh-CN"],
       designRuntimeIdentityAndBridgeOverrides["zh-CN"],
       designComponentInstanceOverrides["zh-CN"],
@@ -14832,6 +15306,7 @@ export const messagesByLocale = {
       designVisualEditOverrides["es-ES"],
       designTemplateFeatureOverrides["es-ES"],
       designPendingVisualStyleOverrides["es-ES"],
+      designAddLocalhostScreenOverrides["es-ES"],
       designFillStylesComingSoonOverrides["es-ES"],
       designFramePresetsOverrides["es-ES"],
       designAlignmentOverrides["es-ES"],
@@ -14839,6 +15314,7 @@ export const messagesByLocale = {
       designInteractionStatesOverrides["es-ES"],
       designMotionAndBreakpointOverrides["es-ES"],
       breakpointBarOverrides["es-ES"],
+      responsiveInteractOverrides["es-ES"],
       motionDockOverrides["es-ES"],
       designRuntimeIdentityAndBridgeOverrides["es-ES"],
       designComponentInstanceOverrides["es-ES"],
@@ -14911,6 +15387,7 @@ export const messagesByLocale = {
       designVisualEditOverrides["fr-FR"],
       designTemplateFeatureOverrides["fr-FR"],
       designPendingVisualStyleOverrides["fr-FR"],
+      designAddLocalhostScreenOverrides["fr-FR"],
       designFillStylesComingSoonOverrides["fr-FR"],
       designFramePresetsOverrides["fr-FR"],
       designAlignmentOverrides["fr-FR"],
@@ -14918,6 +15395,7 @@ export const messagesByLocale = {
       designInteractionStatesOverrides["fr-FR"],
       designMotionAndBreakpointOverrides["fr-FR"],
       breakpointBarOverrides["fr-FR"],
+      responsiveInteractOverrides["fr-FR"],
       motionDockOverrides["fr-FR"],
       designRuntimeIdentityAndBridgeOverrides["fr-FR"],
       designComponentInstanceOverrides["fr-FR"],
@@ -14990,6 +15468,7 @@ export const messagesByLocale = {
       designVisualEditOverrides["de-DE"],
       designTemplateFeatureOverrides["de-DE"],
       designPendingVisualStyleOverrides["de-DE"],
+      designAddLocalhostScreenOverrides["de-DE"],
       designFillStylesComingSoonOverrides["de-DE"],
       designFramePresetsOverrides["de-DE"],
       designAlignmentOverrides["de-DE"],
@@ -14997,6 +15476,7 @@ export const messagesByLocale = {
       designInteractionStatesOverrides["de-DE"],
       designMotionAndBreakpointOverrides["de-DE"],
       breakpointBarOverrides["de-DE"],
+      responsiveInteractOverrides["de-DE"],
       motionDockOverrides["de-DE"],
       designRuntimeIdentityAndBridgeOverrides["de-DE"],
       designComponentInstanceOverrides["de-DE"],
@@ -15069,6 +15549,7 @@ export const messagesByLocale = {
       designVisualEditOverrides["ja-JP"],
       designTemplateFeatureOverrides["ja-JP"],
       designPendingVisualStyleOverrides["ja-JP"],
+      designAddLocalhostScreenOverrides["ja-JP"],
       designFillStylesComingSoonOverrides["ja-JP"],
       designFramePresetsOverrides["ja-JP"],
       designAlignmentOverrides["ja-JP"],
@@ -15076,6 +15557,7 @@ export const messagesByLocale = {
       designInteractionStatesOverrides["ja-JP"],
       designMotionAndBreakpointOverrides["ja-JP"],
       breakpointBarOverrides["ja-JP"],
+      responsiveInteractOverrides["ja-JP"],
       motionDockOverrides["ja-JP"],
       designRuntimeIdentityAndBridgeOverrides["ja-JP"],
       designComponentInstanceOverrides["ja-JP"],
@@ -15149,6 +15631,7 @@ export const messagesByLocale = {
       designVisualEditOverrides["ko-KR"],
       designTemplateFeatureOverrides["ko-KR"],
       designPendingVisualStyleOverrides["ko-KR"],
+      designAddLocalhostScreenOverrides["ko-KR"],
       designFillStylesComingSoonOverrides["ko-KR"],
       designFramePresetsOverrides["ko-KR"],
       designAlignmentOverrides["ko-KR"],
@@ -15156,6 +15639,7 @@ export const messagesByLocale = {
       designInteractionStatesOverrides["ko-KR"],
       designMotionAndBreakpointOverrides["ko-KR"],
       breakpointBarOverrides["ko-KR"],
+      responsiveInteractOverrides["ko-KR"],
       motionDockOverrides["ko-KR"],
       designRuntimeIdentityAndBridgeOverrides["ko-KR"],
       designComponentInstanceOverrides["ko-KR"],
@@ -15227,6 +15711,7 @@ export const messagesByLocale = {
       designVisualEditOverrides["pt-BR"],
       designTemplateFeatureOverrides["pt-BR"],
       designPendingVisualStyleOverrides["pt-BR"],
+      designAddLocalhostScreenOverrides["pt-BR"],
       designFillStylesComingSoonOverrides["pt-BR"],
       designFramePresetsOverrides["pt-BR"],
       designAlignmentOverrides["pt-BR"],
@@ -15234,6 +15719,7 @@ export const messagesByLocale = {
       designInteractionStatesOverrides["pt-BR"],
       designMotionAndBreakpointOverrides["pt-BR"],
       breakpointBarOverrides["pt-BR"],
+      responsiveInteractOverrides["pt-BR"],
       motionDockOverrides["pt-BR"],
       designRuntimeIdentityAndBridgeOverrides["pt-BR"],
       designComponentInstanceOverrides["pt-BR"],
@@ -15306,6 +15792,7 @@ export const messagesByLocale = {
       designVisualEditOverrides["hi-IN"],
       designTemplateFeatureOverrides["hi-IN"],
       designPendingVisualStyleOverrides["hi-IN"],
+      designAddLocalhostScreenOverrides["hi-IN"],
       designFillStylesComingSoonOverrides["hi-IN"],
       designFramePresetsOverrides["hi-IN"],
       designAlignmentOverrides["hi-IN"],
@@ -15313,6 +15800,7 @@ export const messagesByLocale = {
       designInteractionStatesOverrides["hi-IN"],
       designMotionAndBreakpointOverrides["hi-IN"],
       breakpointBarOverrides["hi-IN"],
+      responsiveInteractOverrides["hi-IN"],
       motionDockOverrides["hi-IN"],
       designRuntimeIdentityAndBridgeOverrides["hi-IN"],
       designComponentInstanceOverrides["hi-IN"],
@@ -15385,6 +15873,7 @@ export const messagesByLocale = {
       designVisualEditOverrides["ar-SA"],
       designTemplateFeatureOverrides["ar-SA"],
       designPendingVisualStyleOverrides["ar-SA"],
+      designAddLocalhostScreenOverrides["ar-SA"],
       designFillStylesComingSoonOverrides["ar-SA"],
       designFramePresetsOverrides["ar-SA"],
       designAlignmentOverrides["ar-SA"],
@@ -15392,6 +15881,7 @@ export const messagesByLocale = {
       designInteractionStatesOverrides["ar-SA"],
       designMotionAndBreakpointOverrides["ar-SA"],
       breakpointBarOverrides["ar-SA"],
+      responsiveInteractOverrides["ar-SA"],
       motionDockOverrides["ar-SA"],
       designRuntimeIdentityAndBridgeOverrides["ar-SA"],
       designComponentInstanceOverrides["ar-SA"],

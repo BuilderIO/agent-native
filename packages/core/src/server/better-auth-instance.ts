@@ -1109,6 +1109,18 @@ async function createBetterAuthInstance(
   return auth as unknown as BetterAuthInstance;
 }
 
+/**
+ * Configure the local auth connection with the same write contention settings
+ * as the shared app connection. Better Auth uses its own SQLite handle, so the
+ * app connection's busy timeout does not protect first-run account creation.
+ */
+export function configureLocalSqlite(sqlite: {
+  pragma(statement: string): unknown;
+}): void {
+  sqlite.pragma("busy_timeout = 10000");
+  sqlite.pragma("journal_mode = WAL");
+}
+
 async function buildDatabaseConfig(
   dialect: string,
 ): Promise<BetterAuthOptions["database"]> {
@@ -1182,7 +1194,7 @@ async function buildDatabaseConfig(
     const { default: Database } = await import("better-sqlite3");
     const filePath = url.replace(/^file:/, "");
     const sqlite = new Database(filePath);
-    sqlite.pragma("journal_mode = WAL");
+    configureLocalSqlite(sqlite);
     const { drizzle } = await import("drizzle-orm/better-sqlite3");
     const db = drizzle(sqlite, { schema: sqliteAuthSchema });
     const { drizzleAdapter } = await import("better-auth/adapters/drizzle");

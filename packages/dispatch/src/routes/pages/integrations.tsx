@@ -247,7 +247,7 @@ function ConnectorCard({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="group flex flex-col items-start gap-2 rounded-2xl border bg-card p-5 text-left transition hover:border-foreground/20 hover:bg-card/80 cursor-pointer"
+        className="group flex flex-col items-start gap-2 rounded-2xl bg-card p-5 text-left transition-[background-color] hover:bg-card/80 cursor-pointer"
       >
         <div className="flex w-full items-start justify-between gap-2">
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-muted">
@@ -430,7 +430,7 @@ export default function ConnectionsRoute() {
       )}
 
       {apps.length > 0 && (
-        <Collapsible className="mt-6 rounded-2xl border bg-card">
+        <Collapsible className="mt-6 rounded-2xl bg-card">
           <CollapsibleTrigger className="group flex w-full items-center justify-between px-4 py-3 text-sm">
             <span className="flex items-center gap-2 text-muted-foreground">
               <IconPlugConnected size={14} />

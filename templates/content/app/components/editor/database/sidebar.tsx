@@ -5,6 +5,8 @@ import type {
   ContentDatabasePersonalViewOverrides,
   ContentDatabaseResponse,
   ContentDatabaseViewConfig,
+  ContentSidebarOrderMode,
+  ContentSidebarViewOrder,
 } from "@shared/api";
 import {
   IconChevronDown,
@@ -12,7 +14,6 @@ import {
   IconDatabase,
   IconDots,
   IconFileText,
-  IconLoader2,
   IconPlus,
   IconStar,
   IconTrash,
@@ -44,6 +45,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
   TooltipContent,
@@ -51,6 +53,12 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
+import {
+  SidebarDropIndicator,
+  SidebarReorderProvider,
+  useSidebarReorderItem,
+  type SidebarReorderLabels,
+} from "../../sidebar/sidebar-reorder";
 import { applyDatabaseView } from "./filter-sort";
 import {
   databaseViewGroupingProperty,
@@ -63,6 +71,75 @@ import {
   defaultDatabaseViewConfig,
   normalizeClientDatabaseViewConfig,
 } from "./view-config";
+
+export interface ContentFilesSidebarManualReorder {
+  onReorder: (
+    itemIds: string[],
+    moved: { itemId: string; position: number },
+  ) => void;
+  labels: SidebarReorderLabels;
+}
+
+export interface ContentFilesSidebarRenderReorder {
+  controls: ReturnType<typeof useSidebarReorderItem>;
+  labels: SidebarReorderLabels;
+}
+
+export function databaseSidebarReorderItems(
+  items: ContentDatabaseItem[],
+  untitledLabel: string,
+  hierarchical: boolean,
+) {
+  return items.map((item) => ({
+    id: item.id,
+    label: item.document.title || untitledLabel,
+    parentId: hierarchical ? item.document.parentId : null,
+  }));
+}
+
+export function contentSidebarOrderedItems(
+  items: ContentDatabaseItem[],
+  order: ContentSidebarViewOrder,
+) {
+  const itemIds = new Map(
+    order.itemIds.map((itemId, index) => [itemId, index]),
+  );
+  const stableItemId = (
+    left: ContentDatabaseItem,
+    right: ContentDatabaseItem,
+  ) => left.id.localeCompare(right.id);
+  const newestFirst = (left: string, right: string) =>
+    new Date(right).getTime() - new Date(left).getTime();
+
+  return [...items].sort((left, right) => {
+    if (order.mode === "custom") {
+      const leftIndex = itemIds.get(left.id);
+      const rightIndex = itemIds.get(right.id);
+      if (leftIndex !== undefined || rightIndex !== undefined) {
+        if (leftIndex === undefined) return 1;
+        if (rightIndex === undefined) return -1;
+        if (leftIndex !== rightIndex) return leftIndex - rightIndex;
+      }
+      return left.position - right.position || stableItemId(left, right);
+    }
+    if (order.mode === "last_edited") {
+      return (
+        newestFirst(left.document.updatedAt, right.document.updatedAt) ||
+        stableItemId(left, right)
+      );
+    }
+    if (order.mode === "created") {
+      return (
+        newestFirst(left.document.createdAt, right.document.createdAt) ||
+        stableItemId(left, right)
+      );
+    }
+    return (
+      (left.document.title || "").localeCompare(right.document.title || "") ||
+      stableItemId(left, right)
+    );
+  });
+}
 
 function applyPersonalSidebarViewOverrides(
   savedViewConfig: ContentDatabaseViewConfig,
@@ -99,6 +176,8 @@ export function ContentFilesSidebarView({
   activeDocumentId,
   labels,
   onSelectView,
+  sidebarOrder,
+  manualReorder,
   onOpenItem,
   onCreateChildPage,
   onCreateChildDatabase,
@@ -114,6 +193,9 @@ export function ContentFilesSidebarView({
   isLoading: boolean;
   activeDocumentId?: string | null;
   onSelectView?: (viewId: string) => void;
+  /** A parent-owned, user-scoped Files order. It never writes database membership. */
+  sidebarOrder?: ContentSidebarViewOrder;
+  manualReorder?: ContentFilesSidebarManualReorder;
   onOpenItem?: (item: ContentDatabaseItem) => boolean;
   onCreateChildPage?: (item: ContentDatabaseItem) => void;
   onCreateChildDatabase?: (item: ContentDatabaseItem) => void;
@@ -121,7 +203,10 @@ export function ContentFilesSidebarView({
   onToggleFavorite?: (item: ContentDatabaseItem) => void;
   expandedDocumentIds?: ReadonlySet<string>;
   onDocumentExpandedChange?: (documentId: string, expanded: boolean) => void;
-  renderItem?: (item: ContentDatabaseItem) => ReactNode;
+  renderItem?: (
+    item: ContentDatabaseItem,
+    reorder?: ContentFilesSidebarRenderReorder,
+  ) => ReactNode;
   scroll?: boolean;
   labels: Omit<
     Parameters<typeof DatabaseSidebarView>[0],
@@ -136,8 +221,14 @@ export function ContentFilesSidebarView({
     | "scroll"
   >;
 }) {
+  const usableData =
+    data?.database &&
+    Array.isArray(data.items) &&
+    Array.isArray(data.properties)
+      ? data
+      : undefined;
   const viewConfig = applyPersonalSidebarViewOverrides(
-    data?.database.viewConfig ?? defaultDatabaseViewConfig(),
+    usableData?.database.viewConfig ?? defaultDatabaseViewConfig(),
     overrides,
   );
   const [selectedViewId, setSelectedViewId] = useState(
@@ -154,29 +245,40 @@ export function ContentFilesSidebarView({
   useEffect(() => {
     setConstraintsCleared(false);
   }, [activeFilterKey, activeView.id]);
-  const items = data
+  const filteredItems = usableData
     ? applyDatabaseView(
-        data.items,
-        data.properties,
+        usableData.items,
+        usableData.properties,
         "",
         constraintsCleared ? [] : activeView.filters,
-        activeView.sorts,
+        sidebarOrder ? [] : activeView.sorts,
         activeView.filterMode ?? "and",
       )
     : [];
+  const items = sidebarOrder
+    ? contentSidebarOrderedItems(filteredItems, sidebarOrder)
+    : filteredItems;
   const groups = databaseVisibleGroups(
     databaseViewItemGroups(
       items,
-      data?.properties ?? [],
+      usableData?.properties ?? [],
       activeView.groupByPropertyId,
     ),
     activeView.hideEmptyGroups === true,
   );
-  const hasFilesHierarchy = data?.properties.some(
+  const hasFilesHierarchy = usableData?.properties.some(
     (property) => property.definition.systemRole === "files_parent",
   );
   const hierarchyItems = hasFilesHierarchy ? items : undefined;
-  const hierarchyUniverseItems = hasFilesHierarchy ? data?.items : undefined;
+  const hierarchyUniverseItems = hasFilesHierarchy
+    ? usableData?.items
+    : undefined;
+  const manualReorderEnabled =
+    Boolean(manualReorder) &&
+    (sidebarOrder?.mode ?? "custom") === "custom" &&
+    activeView.sorts.length === 0 &&
+    activeView.filters.length === 0 &&
+    !databaseViewGroupingProperty(activeView, usableData?.properties ?? []);
   return (
     <div className="min-w-0">
       {viewConfig.views.length > 1 && (
@@ -204,7 +306,10 @@ export function ContentFilesSidebarView({
         {...labels}
         groups={groups}
         grouped={
-          !!databaseViewGroupingProperty(activeView, data?.properties ?? [])
+          !!databaseViewGroupingProperty(
+            activeView,
+            usableData?.properties ?? [],
+          )
         }
         isLoading={isLoading}
         hasActiveConstraints={
@@ -224,6 +329,7 @@ export function ContentFilesSidebarView({
         renderItem={renderItem}
         hierarchyItems={hierarchyItems}
         hierarchyUniverseItems={hierarchyUniverseItems}
+        manualReorder={manualReorderEnabled ? manualReorder : undefined}
         scroll={scroll}
       />
     </div>
@@ -249,8 +355,8 @@ export function DatabaseSidebarView({
   renderItem,
   hierarchyItems,
   hierarchyUniverseItems,
+  manualReorder,
   scroll = true,
-  loadingLabel,
   noMatchesLabel,
   clearLabel,
   navigationLabel,
@@ -271,11 +377,14 @@ export function DatabaseSidebarView({
   onToggleFavorite?: (item: ContentDatabaseItem) => void;
   expandedDocumentIds?: ReadonlySet<string>;
   onDocumentExpandedChange?: (documentId: string, expanded: boolean) => void;
-  renderItem?: (item: ContentDatabaseItem) => ReactNode;
+  renderItem?: (
+    item: ContentDatabaseItem,
+    reorder?: ContentFilesSidebarRenderReorder,
+  ) => ReactNode;
   hierarchyItems?: ContentDatabaseItem[];
   hierarchyUniverseItems?: ContentDatabaseItem[];
+  manualReorder?: ContentFilesSidebarManualReorder;
   scroll?: boolean;
-  loadingLabel: string;
   noMatchesLabel: string;
   clearLabel: string;
   navigationLabel: string;
@@ -327,7 +436,7 @@ export function DatabaseSidebarView({
     );
     return (
       <div key={node.item.id} className="min-w-0">
-        <DatabaseSidebarRow
+        <SidebarDatabaseRow
           item={node.item}
           openPagesIn={openPagesIn}
           onPreview={onPreview}
@@ -344,6 +453,7 @@ export function DatabaseSidebarView({
           onToggleExpanded={(nextOpen) =>
             setDocumentOpen(node.item.document.id, nextOpen)
           }
+          manualReorder={manualReorder}
         />
         {open && node.children.length > 0 ? (
           <div>
@@ -356,9 +466,19 @@ export function DatabaseSidebarView({
 
   if (isLoading) {
     return (
-      <div className="flex h-16 items-center gap-2 px-2 text-sm text-muted-foreground">
-        <IconLoader2 className="size-4 animate-spin" />
-        {loadingLabel}
+      <div aria-hidden="true" className="grid gap-1 p-1">
+        {[70, 55, 85, 60, 45].map((width, index) => (
+          <div
+            key={`sidebar-skeleton-${index}`}
+            className="flex h-7 items-center gap-1.5 rounded px-1.5"
+          >
+            <Skeleton className="size-3.5 shrink-0 rounded-sm bg-sidebar-foreground/12 dark:bg-sidebar-foreground/10" />
+            <Skeleton
+              className="h-3 rounded bg-sidebar-foreground/12 dark:bg-sidebar-foreground/10"
+              style={{ width: `${width}%` }}
+            />
+          </div>
+        ))}
       </div>
     );
   }
@@ -382,7 +502,7 @@ export function DatabaseSidebarView({
   const navigation = (
     <nav
       aria-label={navigationLabel}
-      className="grid min-w-0 gap-1 overflow-x-hidden p-1"
+      className="grid min-w-0 gap-1 overflow-x-hidden py-1 ps-1"
     >
       {grouped
         ? groups.map((group) => {
@@ -407,11 +527,14 @@ export function DatabaseSidebarView({
                 <CollapsibleContent className="grid gap-0.5 pl-2">
                   {group.items.map((item) =>
                     renderItem ? (
-                      <div key={item.id} className="min-w-0">
-                        {renderItem(item)}
-                      </div>
+                      <SidebarRenderedItem
+                        key={item.id}
+                        item={item}
+                        renderItem={renderItem}
+                        manualReorder={manualReorder}
+                      />
                     ) : (
-                      <DatabaseSidebarRow
+                      <SidebarDatabaseRow
                         key={item.id}
                         item={item}
                         openPagesIn={openPagesIn}
@@ -423,6 +546,7 @@ export function DatabaseSidebarView({
                         onDeleteItem={onDeleteItem}
                         onToggleFavorite={onToggleFavorite}
                         untitledLabel={untitledLabel}
+                        manualReorder={manualReorder}
                       />
                     ),
                   )}
@@ -434,11 +558,14 @@ export function DatabaseSidebarView({
           ? itemTree.map((node) => renderTreeNode(node, 0))
           : items.map((item) =>
               renderItem ? (
-                <div key={item.id} className="min-w-0">
-                  {renderItem(item)}
-                </div>
+                <SidebarRenderedItem
+                  key={item.id}
+                  item={item}
+                  renderItem={renderItem}
+                  manualReorder={manualReorder}
+                />
               ) : (
-                <DatabaseSidebarRow
+                <SidebarDatabaseRow
                   key={item.id}
                   item={item}
                   openPagesIn={openPagesIn}
@@ -450,15 +577,116 @@ export function DatabaseSidebarView({
                   onDeleteItem={onDeleteItem}
                   onToggleFavorite={onToggleFavorite}
                   untitledLabel={untitledLabel}
+                  manualReorder={manualReorder}
                 />
               ),
             )}
     </nav>
   );
-  return scroll ? (
-    <ScrollArea className="max-h-[32rem] w-full">{navigation}</ScrollArea>
+  const reorderItems = databaseSidebarReorderItems(
+    hierarchyItems ?? items,
+    untitledLabel,
+    Boolean(hierarchyItems),
+  );
+  const reorderableNavigation = manualReorder ? (
+    <SidebarReorderProvider
+      items={reorderItems}
+      labels={manualReorder.labels}
+      onReorder={manualReorder.onReorder}
+    >
+      {navigation}
+    </SidebarReorderProvider>
   ) : (
     navigation
+  );
+  return scroll ? (
+    <ScrollArea className="max-h-[32rem] w-full">
+      {reorderableNavigation}
+    </ScrollArea>
+  ) : (
+    reorderableNavigation
+  );
+}
+
+function SidebarRenderedItem({
+  item,
+  renderItem,
+  manualReorder,
+}: {
+  item: ContentDatabaseItem;
+  renderItem: (
+    item: ContentDatabaseItem,
+    reorder?: ContentFilesSidebarRenderReorder,
+  ) => ReactNode;
+  manualReorder?: ContentFilesSidebarManualReorder;
+}) {
+  return manualReorder ? (
+    <ReorderableRenderedSidebarItem
+      item={item}
+      renderItem={renderItem}
+      labels={manualReorder.labels}
+    />
+  ) : (
+    <div className="min-w-0">{renderItem(item)}</div>
+  );
+}
+
+function ReorderableRenderedSidebarItem({
+  item,
+  renderItem,
+  labels,
+}: {
+  item: ContentDatabaseItem;
+  renderItem: (
+    item: ContentDatabaseItem,
+    reorder?: ContentFilesSidebarRenderReorder,
+  ) => ReactNode;
+  labels: SidebarReorderLabels;
+}) {
+  const controls = useSidebarReorderItem(item.id);
+  return (
+    <div
+      ref={controls.setNodeRef}
+      style={controls.style}
+      className="relative min-w-0"
+    >
+      <SidebarDropIndicator placement={controls.dropIndicator} />
+      {renderItem(item, { controls, labels })}
+    </div>
+  );
+}
+
+function SidebarDatabaseRow({
+  manualReorder,
+  ...props
+}: Parameters<typeof DatabaseSidebarRow>[0] & {
+  manualReorder?: ContentFilesSidebarManualReorder;
+}) {
+  return manualReorder ? (
+    <ReorderableDatabaseSidebarRow
+      {...props}
+      reorderLabels={manualReorder.labels}
+    />
+  ) : (
+    <DatabaseSidebarRow {...props} />
+  );
+}
+
+function ReorderableDatabaseSidebarRow({
+  reorderLabels,
+  ...props
+}: Parameters<typeof DatabaseSidebarRow>[0] & {
+  reorderLabels: SidebarReorderLabels;
+}) {
+  const reorder = useSidebarReorderItem(props.item.id);
+  return (
+    <div ref={reorder.setNodeRef} style={reorder.style} className="relative">
+      <SidebarDropIndicator placement={reorder.dropIndicator} />
+      <DatabaseSidebarRow
+        {...props}
+        reorder={{ controls: reorder, labels: reorderLabels }}
+      />
+    </div>
   );
 }
 
@@ -477,6 +705,7 @@ function DatabaseSidebarRow({
   hasChildren = false,
   expanded = false,
   onToggleExpanded,
+  reorder,
 }: {
   item: ContentDatabaseItem;
   openPagesIn: ContentDatabaseOpenPagesIn;
@@ -492,6 +721,10 @@ function DatabaseSidebarRow({
   hasChildren?: boolean;
   expanded?: boolean;
   onToggleExpanded?: (open: boolean) => void;
+  reorder?: {
+    controls: ReturnType<typeof useSidebarReorderItem>;
+    labels: SidebarReorderLabels;
+  };
 }) {
   const t = useT();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -502,8 +735,7 @@ function DatabaseSidebarRow({
     item.document.accessRole === "admin";
   const canCreateChild = canEdit && Boolean(onCreateChildPage);
   const hasMenuActions =
-    (canEdit && Boolean(onToggleFavorite)) ||
-    (canManage && Boolean(onDeleteItem));
+    Boolean(onToggleFavorite) || (canManage && Boolean(onDeleteItem));
   function handleClick(event: MouseEvent<HTMLAnchorElement>) {
     if (
       event.defaultPrevented ||
@@ -536,7 +768,7 @@ function DatabaseSidebarRow({
             style={{
               insetInlineStart: `${databaseSidebarRowIndent(depth, hasChildren)}px`,
             }}
-            aria-label={`${expanded ? "Collapse" : "Expand"} ${title}`}
+            aria-label={`${expanded ? t("sidebar.collapse") : t("sidebar.expand")} ${title}`}
             aria-expanded={expanded}
             onPointerUp={(event) => event.currentTarget.blur()}
             onClick={() => onToggleExpanded?.(!expanded)}
@@ -551,8 +783,14 @@ function DatabaseSidebarRow({
         ) : null}
         <Link
           to={`/page/${item.document.id}`}
+          {...reorder?.controls.attributes}
+          {...reorder?.controls.listeners}
+          data-sidebar-reorder-item-id={reorder?.controls.itemId}
+          role="link"
           className={cn(
             "flex h-7 min-w-0 items-center gap-1.5 rounded pe-1.5 text-sm text-foreground/85 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            reorder && "touch-none cursor-pointer select-none",
+            reorder?.controls.isDragging && "cursor-grabbing",
             active && "font-semibold text-foreground",
           )}
           style={{
@@ -579,7 +817,8 @@ function DatabaseSidebarRow({
           <span
             className={cn(
               "min-w-0 flex-1 truncate",
-              (hasMenuActions || canCreateChild) && "pe-12",
+              (hasMenuActions || canCreateChild) &&
+                "group-hover:pe-12 group-focus-within:pe-12",
             )}
           >
             {title}
@@ -587,20 +826,20 @@ function DatabaseSidebarRow({
         </Link>
 
         {(hasMenuActions || canCreateChild) && (
-          <div className="pointer-events-none absolute end-1 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5 rounded bg-sidebar px-0.5 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
+          <div className="pointer-events-none absolute end-0 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5 rounded bg-sidebar px-0.5 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
             {hasMenuActions && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button
                     type="button"
                     className="flex size-6 items-center justify-center rounded text-foreground hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    aria-label={`More actions for ${title}`}
+                    aria-label={t("sidebar.moreActionsFor", { label: title })}
                   >
                     <IconDots size={14} />
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-48">
-                  {canEdit && onToggleFavorite ? (
+                  {onToggleFavorite ? (
                     <DropdownMenuItem onSelect={() => onToggleFavorite(item)}>
                       <IconStar
                         className={cn(
@@ -609,11 +848,11 @@ function DatabaseSidebarRow({
                         )}
                       />
                       {item.document.isFavorite
-                        ? "Remove from favorites"
-                        : "Add to favorites"}
+                        ? t("sidebar.unpinFromSidebar")
+                        : t("sidebar.pinToSidebar")}
                     </DropdownMenuItem>
                   ) : null}
-                  {canEdit && onToggleFavorite && canManage && onDeleteItem ? (
+                  {onToggleFavorite && canManage && onDeleteItem ? (
                     <DropdownMenuSeparator />
                   ) : null}
                   {canManage && onDeleteItem ? (

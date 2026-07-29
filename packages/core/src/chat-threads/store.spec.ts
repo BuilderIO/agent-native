@@ -18,6 +18,7 @@ import {
   createThreadShareLink,
   forkThread,
   getThreadByShareToken,
+  grantThreadUserShare,
   listThreads,
   renameThread,
   revokeThreadShareLink,
@@ -66,6 +67,13 @@ describe("chat thread store", () => {
   let conflictOnce: (() => void) | null;
   let conflictEveryThreadDataUpdate: boolean;
   let transientThreadDataUpdateFailures: number;
+  let shareRows: Array<{
+    id: string;
+    resource_id: string;
+    principal_id: string;
+    role: string;
+    created_by: string;
+  }>;
 
   beforeEach(() => {
     row = {
@@ -81,6 +89,7 @@ describe("chat thread store", () => {
     conflictOnce = null;
     conflictEveryThreadDataUpdate = false;
     transientThreadDataUpdateFailures = 0;
+    shareRows = [];
     executeMock.mockReset();
     emitChatThreadChangeMock.mockReset();
     executeMock.mockImplementation(async (query: string | any) => {
@@ -167,8 +176,88 @@ describe("chat thread store", () => {
         row = { ...row, archived_at: args[0] };
         return { rows: [], rowsAffected: 1 };
       }
+      if (/SELECT id, role FROM chat_thread_shares/i.test(sql)) {
+        return {
+          rows: shareRows.filter(
+            (share) =>
+              share.resource_id === args[0] &&
+              share.principal_id.toLowerCase() === args[1],
+          ),
+          rowsAffected: 0,
+        };
+      }
+      if (/UPDATE chat_thread_shares SET role/i.test(sql)) {
+        shareRows = shareRows.map((share) =>
+          share.id === args[1] ? { ...share, role: args[0] } : share,
+        );
+        return { rows: [], rowsAffected: 1 };
+      }
+      if (/INSERT INTO chat_thread_shares/i.test(sql)) {
+        shareRows.push({
+          id: args[0],
+          resource_id: args[1],
+          principal_id: args[2],
+          role: args[3],
+          created_by: args[4],
+        });
+        return { rows: [], rowsAffected: 1 };
+      }
       throw new Error(`Unexpected SQL: ${sql}`);
     });
+  });
+
+  it("grants a non-owner an explicit share so integration deep links resolve", async () => {
+    await grantThreadUserShare(
+      "thread-1",
+      "  Brent@Example.com ",
+      "editor",
+      "integration@slack",
+    );
+
+    expect(shareRows).toEqual([
+      expect.objectContaining({
+        resource_id: "thread-1",
+        principal_id: "brent@example.com",
+        role: "editor",
+        created_by: "integration@slack",
+      }),
+    ]);
+  });
+
+  it("is idempotent and never downgrades an existing stronger role", async () => {
+    await grantThreadUserShare(
+      "thread-1",
+      "brent@example.com",
+      "admin",
+      "integration@slack",
+    );
+    await grantThreadUserShare(
+      "thread-1",
+      "brent@example.com",
+      "editor",
+      "integration@slack",
+    );
+
+    expect(shareRows).toHaveLength(1);
+    expect(shareRows[0].role).toBe("admin");
+  });
+
+  it("upgrades a weaker existing role instead of inserting a duplicate", async () => {
+    await grantThreadUserShare(
+      "thread-1",
+      "brent@example.com",
+      "viewer",
+      "integration@slack",
+    );
+    await grantThreadUserShare(
+      "thread-1",
+      "brent@example.com",
+      "editor",
+      "integration@slack",
+    );
+
+    expect(shareRows).toHaveLength(1);
+    expect(shareRows[0].role).toBe("editor");
   });
 
   it("retries cross-process thread-data conflicts and preserves server-only messages", async () => {
@@ -315,7 +404,7 @@ describe("chat thread store", () => {
     await setThreadQueuedMessages("thread-1", []);
 
     const repo = JSON.parse(row!.thread_data);
-    expect(repo.queuedMessages).toBeUndefined();
+    expect(repo.queuedMessages).toEqual([]);
     expect(repo.messages.map((entry: any) => entry.message.id)).toEqual([
       "user-1",
       "assistant-1",
@@ -549,12 +638,12 @@ describe("chat thread store", () => {
     ]);
   });
 
-  it("backfills message_count for legacy rows so they stay in the list", async () => {
+  it("keeps the legacy message_count repair out of table bootstrap", async () => {
     // ensureTable caches its bootstrap promise at module scope, so reset the
-    // module registry to force a fresh bootstrap (and the one-time backfill)
-    // for this assertion.
+    // module registry to exercise a fresh bootstrap.
     vi.resetModules();
     const updates: Array<{ count: number; id: string }> = [];
+    let repairScans = 0;
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
       const args = typeof query === "string" ? [] : query.args;
@@ -563,6 +652,7 @@ describe("chat thread store", () => {
       }
       // The legacy backfill probe: a row that has messages but count = 0.
       if (/SELECT id, thread_data, message_count/i.test(sql)) {
+        repairScans++;
         return {
           rows: [
             {
@@ -594,7 +684,14 @@ describe("chat thread store", () => {
     const freshStore = await import("./store.js");
     await freshStore.listThreads("user@example.com");
 
+    expect(repairScans).toBe(0);
+    expect(updates).toEqual([]);
+
+    const result = await freshStore.repairLegacyChatThreadMessageCounts();
+
+    expect(repairScans).toBe(1);
     expect(updates).toEqual([{ count: 2, id: "legacy-1" }]);
+    expect(result).toEqual({ scanned: 1, updated: 1 });
   });
 
   it("renames threads with a durable title override", async () => {

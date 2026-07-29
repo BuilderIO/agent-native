@@ -1,5 +1,6 @@
 import {
   AgentSidebar,
+  isAgentChatHomeHandoffActive,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
 } from "@agent-native/core/client/agent-chat";
@@ -92,10 +93,11 @@ export function Layout({ children }: LayoutProps) {
     activePath: location.pathname,
     enabled: !chatRoute,
   });
+  const chatHomeHandoffPending = isAgentChatHomeHandoffActive("plans");
   useAgentChatHomeHandoffLinks({
     storageKey: "plans",
     chatPath: "/",
-    requireActiveHandoff: false,
+    requireActiveHandoff: true,
   });
   const hideAppNavigation = planDetailRoute && planReaderImmersive;
   const effectiveSidebarCollapsed = chatRoute
@@ -153,7 +155,7 @@ export function Layout({ children }: LayoutProps) {
 
   const pageContent = (
     <div className="flex h-full flex-1 flex-col overflow-hidden">
-      {ownsToolbar ? (
+      {chatRoute ? null : ownsToolbar ? (
         hideAppNavigation ? null : (
           <div className="flex h-12 items-center border-b border-border px-4 md:hidden shrink-0">
             <button
@@ -206,6 +208,7 @@ export function Layout({ children }: LayoutProps) {
             position="right"
             defaultOpen={false}
             chatViewTransition
+            chatViewTransitionHandoff={chatHomeHandoffPending}
             storageKey="plans"
             openOnChatRunning={chatHomeHandoffActive}
             agentPageHref="/agent"

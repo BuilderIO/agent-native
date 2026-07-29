@@ -2,7 +2,9 @@ import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import {
+  IconCalendar,
   IconChevronDown,
   IconChevronRight,
   IconClockHour4,
@@ -13,6 +15,8 @@ import {
   IconFileText,
   IconWorld,
   IconTrash,
+  IconUser,
+  IconUsersGroup,
 } from "@tabler/icons-react";
 import { useEffect, useState, type FormEvent } from "react";
 import { toast } from "sonner";
@@ -40,6 +44,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
 import { Input } from "./ui/input";
@@ -58,6 +64,8 @@ export function WorkspaceAppCard({
   app: WorkspaceAppSummary;
   className?: string;
 }) {
+  const t = useT();
+  const { formatDate } = useFormatters();
   const href = workspaceAppHref(app);
   const openInNewTab = isPendingBuilderHref(app);
   const isPending = app.status === "pending";
@@ -127,7 +135,7 @@ export function WorkspaceAppCard({
     <div
       aria-disabled={!href}
       className={cn(
-        "group relative rounded-xl border border-border/60 bg-card/40 p-4 transition-[background-color,border-color] hover:border-foreground/20 hover:bg-accent/15 focus-within:border-foreground/20 focus-within:bg-accent/15 aria-disabled:opacity-60",
+        "group relative rounded-xl bg-card/40 p-4 transition-[background-color] hover:bg-accent/15 focus-within:bg-accent/15 aria-disabled:opacity-60",
         isArchived && "opacity-70",
         className,
       )}
@@ -215,7 +223,7 @@ export function WorkspaceAppCard({
                 </TooltipTrigger>
                 <TooltipContent>More actions</TooltipContent>
               </Tooltip>
-              <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuContent align="end" className="w-72">
                 <DropdownMenuItem
                   onSelect={(event) => {
                     event.preventDefault();
@@ -244,6 +252,20 @@ export function WorkspaceAppCard({
                     Hide from list
                   </DropdownMenuItem>
                 )}
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel className="font-normal">
+                  <WorkspaceAppMetadata
+                    app={app}
+                    formatDate={formatDate}
+                    labels={{
+                      created: t("agents.dashboardMetadataCreated"),
+                      createdBy: t("agents.dashboardMetadataCreatedBy"),
+                      owner: t("dispatch.pages.appMetadataOwner"),
+                      teams: t("dispatch.pages.appMetadataTeams"),
+                      notTracked: t("agents.notTracked"),
+                    }}
+                  />
+                </DropdownMenuLabel>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -289,6 +311,80 @@ export function WorkspaceAppCard({
           </form>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+function WorkspaceAppMetadata({
+  app,
+  formatDate,
+  labels,
+}: {
+  app: WorkspaceAppSummary;
+  formatDate: ReturnType<typeof useFormatters>["formatDate"];
+  labels: {
+    created: string;
+    createdBy: string;
+    owner: string;
+    teams: string;
+    notTracked: string;
+  };
+}) {
+  function formatMetadataDate(value: string | null | undefined): string {
+    if (!value) return labels.notTracked;
+    try {
+      return formatDate(value, {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      });
+    } catch {
+      return value;
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5 text-xs text-muted-foreground">
+      <WorkspaceAppMetadataRow
+        icon={IconCalendar}
+        label={labels.created}
+        value={formatMetadataDate(app.createdAt)}
+      />
+      <WorkspaceAppMetadataRow
+        icon={IconUser}
+        label={labels.createdBy}
+        value={app.createdBy || labels.notTracked}
+      />
+      <WorkspaceAppMetadataRow
+        icon={IconUser}
+        label={labels.owner}
+        value={app.owner || labels.notTracked}
+      />
+      <WorkspaceAppMetadataRow
+        icon={IconUsersGroup}
+        label={labels.teams}
+        value={app.teams?.join(", ") || labels.notTracked}
+      />
+    </div>
+  );
+}
+
+function WorkspaceAppMetadataRow({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: typeof IconCalendar;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="flex items-start gap-1.5">
+      <Icon className="mt-0.5 h-3 w-3 shrink-0" />
+      <span className="shrink-0">{label}</span>
+      <span className="min-w-0 truncate text-foreground/80">{value}</span>
     </div>
   );
 }

@@ -65,7 +65,18 @@ registerRequiredSecret({
           "User-Agent": "AgentNative/1.0",
         },
       });
-      if (res.ok) return true;
+      console.log("[figma-validator] GET /v1/me status:", res.status);
+      if (res.ok) {
+        console.log("[figma-validator] token accepted");
+        return true;
+      }
+      let body = "";
+      try {
+        body = await res.text();
+      } catch {
+        /* ignore */
+      }
+      console.log("[figma-validator] Figma error body:", body);
       if (res.status === 401 || res.status === 403) {
         return {
           ok: false,
@@ -73,7 +84,8 @@ registerRequiredSecret({
         };
       }
       return { ok: false, error: `Figma returned ${res.status}.` };
-    } catch {
+    } catch (err) {
+      console.log("[figma-validator] fetch threw:", err);
       return {
         ok: false,
         error: "Could not reach Figma. Check your network and try again.",

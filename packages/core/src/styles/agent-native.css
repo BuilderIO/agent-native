@@ -27,6 +27,14 @@
 @import "./blocks.css";
 @import "./chat-history-list.css";
 
+/* Core's own client components (settings, TeamPage, share dialogs, …) render
+   @agent-native/toolkit UI, so the toolkit's @source registration belongs here
+   rather than in each app's global.css. Without it Tailwind never generates the
+   classes that appear only inside toolkit components — including the `z-[290]`
+   on portaled dropdown/select/popover content — and those menus render behind
+   raised app surfaces. Apps that import this stylesheet get it for free. */
+@import "@agent-native/toolkit/styles.css";
+
 /* Scan @agent-native/core's compiled client output for Tailwind classes.
    Path is resolved relative to THIS file. After build, this CSS lives at
    dist/styles/agent-native.css, so `../client/**` resolves to dist/client/**. */
@@ -137,6 +145,28 @@
 
 .agent-sidebar-panel > .agent-sidebar-panel-inner {
   background: inherit;
+}
+
+.message-scroller-viewport--top-fade {
+  --message-scroller-top-fade-size: 48px;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    black var(--message-scroller-top-fade-size),
+    black 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    black var(--message-scroller-top-fade-size),
+    black 100%
+  );
+  -webkit-mask-position: 0 0;
+  mask-position: 0 0;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
 }
 
 .agent-sidebar-resize-handle {
@@ -288,6 +318,10 @@
   opacity: 1;
 }
 
+/* A named chat surface already morphs from its old geometry during a
+   full-page-chat handoff. Override only the initial style of that panel so it
+   does not slide in from the right underneath the morph. Keeping the normal
+   rules intact preserves ordinary sidebar open/close animation. */
 @starting-style {
   .agent-sidebar-panel[data-agent-sidebar-animation="desktop"][data-agent-sidebar-state="open"] {
     width: 0;
@@ -307,6 +341,15 @@
 
   .agent-sidebar-backdrop[data-agent-sidebar-animation="mobile"][data-agent-sidebar-state="open"] {
     opacity: 0;
+  }
+
+  .agent-native-chat-view-transition.agent-sidebar-panel[data-agent-sidebar-animation="desktop"][data-agent-sidebar-chat-handoff="true"] {
+    width: var(--agent-sidebar-width);
+  }
+
+  .agent-native-chat-view-transition.agent-sidebar-panel[data-agent-sidebar-animation="desktop"][data-agent-sidebar-chat-handoff="true"]
+    > .agent-sidebar-panel-inner {
+    transform: translateX(0);
   }
 }
 
@@ -888,6 +931,7 @@
 
 [data-agent-empty-state="centered"] {
   justify-content: center;
+  padding-bottom: clamp(3rem, 8vh, 6rem);
 }
 
 [data-agent-empty-state="centered"] > .agent-chat-scroll {

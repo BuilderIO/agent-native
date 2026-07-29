@@ -8,6 +8,7 @@ import {
   type A2AToolResultSummary,
 } from "../a2a/artifact-response.js";
 import { collectFinalResponseTextFromAgentEvents } from "../a2a/response-text.js";
+import { isInBackgroundFunctionRuntime } from "../agent/durable-background.js";
 import {
   formatLlmCredentialErrorMessage,
   isLlmCredentialError,
@@ -30,7 +31,15 @@ import {
   engineToProvider,
   type ActionEntry,
 } from "../agent/production-agent.js";
-import { startRun, type ActiveRun } from "../agent/run-manager.js";
+import {
+  appendDurableContinuationContext,
+  runAgentLoopDirectWithSoftTimeout,
+} from "../agent/run-loop-with-resume.js";
+import {
+  startRun,
+  type ActiveRun,
+  type StartRunOptions,
+} from "../agent/run-manager.js";
 import {
   buildCurrentTimeUserContext,
   buildRuntimeContextPrompt,
@@ -41,12 +50,16 @@ import {
   threadDataToEngineMessages,
 } from "../agent/thread-data-builder.js";
 import { attachToolSearch } from "../agent/tool-search.js";
-import { createThread, getThread } from "../chat-threads/store.js";
+import type { ContinuationReason } from "../agent/types.js";
+import {
+  createThread,
+  getThread,
+  grantThreadUserShare,
+} from "../chat-threads/store.js";
 import { updateThreadData } from "../chat-threads/store.js";
 import { isLocalDatabase } from "../db/client.js";
 import { getOrgA2ASecret, resolveOrgIdForEmail } from "../org/context.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
-import { FRAMEWORK_ROUTE_PREFIX } from "../server/core-routes-plugin.js";
 import {
   canUseDeployCredentialFallbackForRequest,
   readDeployCredentialEnv,
@@ -54,12 +67,27 @@ import {
 import { runWithRequestContext } from "../server/request-context.js";
 import { normalizeReasoningEffortForRequest } from "../shared/reasoning-effort.js";
 import { A2A_CONTINUATION_QUEUED_MARKER } from "./a2a-continuation-marker.js";
+import { hasActiveA2AContinuationsForIntegrationTask } from "./a2a-continuations-store.js";
 import {
   clearIntegrationAwaitingInput,
   setIntegrationAwaitingInput,
 } from "./awaiting-input-store.js";
+import {
+  claimIntegrationCampaignDeliveryForTask,
+  claimIntegrationCampaign,
+  completeIntegrationCampaignTask,
+  createIntegrationCampaign,
+  failIntegrationCampaign,
+  heartbeatIntegrationCampaign,
+  scheduleNextIntegrationCampaign,
+  waitForA2AIntegrationCampaign,
+  type IntegrationCampaign,
+} from "./integration-campaigns-store.js";
+import {
+  dispatchPendingIntegrationTask,
+  integrationDispatchScopeValue,
+} from "./integration-durable-dispatch.js";
 import { loadIntegrationMemoryPrompt } from "./integration-memory.js";
-import { signInternalToken } from "./internal-token.js";
 import {
   insertPendingTask,
   isDuplicateEventError,
@@ -73,6 +101,7 @@ import type {
   IncomingMessage,
   OutgoingMessage,
   PlatformDeliveryReceipt,
+  PlatformRunProgressRef,
 } from "./types.js";
 import {
   listIntegrationUsageBudgets,
@@ -86,6 +115,78 @@ const DEFERRED_RESPONSE_DISPATCH_SETTLE_WAIT_MS = 1_500;
 const DEFERRED_RESPONSE_MAX_HANDLER_MS = 2_500;
 const EMPTY_INTEGRATION_RESPONSE_MESSAGE =
   "The model finished without a visible answer. Try again, or open the thread in Dispatch to inspect the run.";
+const CUTOFF_INTEGRATION_RESPONSE_MESSAGE =
+  "I ran out of time on this one before I could write up an answer — it needed more research than a single run allows. " +
+  "Open the thread in Dispatch to see what I gathered, or ask me again in smaller pieces (one source at a time works best).";
+const INTEGRATION_CAMPAIGN_LEASE_MS = 16 * 60_000;
+const INTEGRATION_CAMPAIGN_MAX_CHUNKS = 4;
+const INTEGRATION_CAMPAIGN_A2A_CHECK_MS = 30_000;
+// Keep a lost handoff plus the one-minute sweep inside the two-minute messaging
+// target without shortening general background-run budgets.
+const INTEGRATION_CAMPAIGN_NO_PROGRESS_TIMEOUT_MS = 45_000;
+
+/**
+ * True when the run stopped at a continuation boundary rather than finishing:
+ * the run-manager's soft timeout emits `auto_continue` and aborts the loop, and
+ * the loop itself emits one when it hits an internal step budget. The run's
+ * status is still "completed", so without this check a cut-off research request
+ * is reported to the user as a model that answered with nothing.
+ *
+ * Only the LAST terminal event decides: an in-invocation resume that recovered
+ * from an earlier boundary goes on to emit `done`, and that run did finish.
+ */
+function endedAtContinuationBoundary(run: ActiveRun): boolean {
+  for (let i = run.events.length - 1; i >= 0; i--) {
+    const event = run.events[i].event;
+    if (event.type === "auto_continue") return true;
+    if (event.type === "done" || event.type === "error") return false;
+  }
+  return false;
+}
+
+function continuationBoundaryReason(run: ActiveRun): ContinuationReason {
+  for (let index = run.events.length - 1; index >= 0; index -= 1) {
+    const runEvent = run.events[index];
+    if (!runEvent) continue;
+    if (runEvent.event.type === "auto_continue") return runEvent.event.reason;
+  }
+  return "run_timeout";
+}
+
+function checkpointContinuationReason(
+  checkpoint: string | null | undefined,
+): ContinuationReason {
+  if (!checkpoint) return "run_timeout";
+  try {
+    const reason = JSON.parse(checkpoint).reason;
+    if (
+      reason === "run_timeout" ||
+      reason === "loop_limit" ||
+      reason === "max_tokens" ||
+      reason === "no_progress" ||
+      reason === "stream_ended" ||
+      reason === "gateway_timeout" ||
+      reason === "network_interrupted"
+    ) {
+      return reason;
+    }
+  } catch {}
+  return "run_timeout";
+}
+
+function parseIntegrationProgressRef(
+  value: string,
+): PlatformRunProgressRef | null {
+  try {
+    const parsed = JSON.parse(value) as Partial<PlatformRunProgressRef>;
+    return typeof parsed.kind === "string" &&
+      typeof parsed.streamTs === "string"
+      ? { kind: parsed.kind, streamTs: parsed.streamTs }
+      : null;
+  } catch {
+    return null;
+  }
+}
 
 type ToolDoneEvent = {
   type: "tool_done";
@@ -106,14 +207,24 @@ export type IntegrationResponseDeliveryTaskPayload = {
   deliveryReceipt?: PlatformDeliveryReceipt;
   deliveredAt?: string;
   artifacts?: A2AArtifactIdentity[];
+  campaignTerminalStatus?: "completed" | "failed";
+  awaitingA2ACompletion?: true;
 };
 
 export type ProcessIntegrationTaskResult =
   | { status: "completed" }
+  | { status: "campaign-pending" | "campaign-active" }
+  | { status: "campaign-failed" }
   | {
       status: "delivery-pending";
       payload: IntegrationResponseDeliveryTaskPayload;
       errorMessage: string;
+      campaignLease?: {
+        campaignId: string;
+        runId: string;
+        leaseToken: string;
+        campaignStatus: "completed" | "failed" | "waiting-a2a";
+      };
     };
 
 /**
@@ -307,7 +418,7 @@ export async function resolveIntegrationApiKey(
  * 2. Verify webhook signature
  * 3. Parse incoming message (null = ignored event)
  * 4. Persist task to SQL
- * 5. Fire-and-forget POST to /_agent-native/integrations/process-task
+ * 5. Dispatch the queued task through the configured processor handoff
  *    (a fresh function execution with its own timeout budget)
  * 6. Return HTTP 200 immediately (within Slack's 3s SLA)
  *
@@ -477,48 +588,14 @@ async function enqueueAndDispatch(
     // platform produce the same key, so the unique index rejects the
     // second insert (H3 in the webhook security audit).
     externalEventKey: buildEventDedupKey(incoming),
+    dispatchScope: integrationDispatchScopeValue({
+      platform: incoming.platform,
+      externalThreadId: incoming.externalThreadId,
+      platformContext: incoming.platformContext,
+    }),
   });
 
   const baseUrl = resolveBaseUrl(event);
-  const processUrl = `${baseUrl}${FRAMEWORK_ROUTE_PREFIX}/integrations/process-task`;
-
-  // Sign the dispatch with an HMAC token so the processor endpoint can
-  // verify the request came from us and not the public internet. The
-  // processor refuses unsigned requests in production (C3 in the webhook
-  // security audit). In dev, dispatching unsigned is allowed and falls
-  // through to the SQL atomic claim for double-processing protection.
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  try {
-    headers["Authorization"] = `Bearer ${signInternalToken(taskId)}`;
-  } catch (err) {
-    // Distinguish "secret not configured" (the documented dev path) from
-    // a real signing failure — silently swallowing both made malformed
-    // secrets fail invisibly (L5 in the audit).
-    if (err instanceof Error && !/A2A_SECRET/i.test(err.message)) {
-      console.error(
-        `[integrations] signInternalToken failed unexpectedly for ${taskId}:`,
-        err,
-      );
-    }
-  }
-
-  // Fire-and-forget: do NOT await the full response (the processor's run
-  // takes minutes — we don't want to block the caller). BUT on Netlify
-  // Lambda, when we return immediately, the runtime can freeze the function
-  // before the outbound TCP handshake even starts, which leaves the dispatch
-  // request stuck waiting for the 60s retry-sweep job. Race the fetch
-  // against a short timer so the request gets a reasonable chance to leave
-  // the box; the trade-off is at most a couple seconds of added webhook
-  // latency, still inside Slack's timeout window.
-  const dispatchPromise = fetch(processUrl, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ taskId }),
-  }).catch((err) => {
-    console.error("[integrations] Failed to dispatch processor request:", err);
-  });
   const settleWaitMs = options.adapter.capabilities?.deferredWebhookResponse
     ? Math.min(
         DEFERRED_RESPONSE_DISPATCH_SETTLE_WAIT_MS,
@@ -528,10 +605,17 @@ async function enqueueAndDispatch(
         ),
       )
     : PROCESSOR_DISPATCH_SETTLE_WAIT_MS;
-  await Promise.race([
-    dispatchPromise,
-    new Promise<void>((resolve) => setTimeout(resolve, settleWaitMs)),
-  ]);
+  await dispatchPendingIntegrationTask({
+    taskId,
+    task: {
+      platform: incoming.platform,
+      externalThreadId: incoming.externalThreadId,
+      platformContext: incoming.platformContext,
+    },
+    event,
+    baseUrl,
+    portableSettleMs: settleWaitMs,
+  });
 }
 
 /**
@@ -581,6 +665,10 @@ export function resolveBaseUrl(event: H3Event): string {
 export async function processIntegrationTask(
   task: PendingTask,
   options: WebhookHandlerOptions,
+  campaignOptions?: {
+    enabled?: boolean;
+    continuationInvocation?: boolean;
+  },
 ): Promise<ProcessIntegrationTaskResult> {
   const parsed = JSON.parse(task.payload) as {
     incoming: IncomingMessage;
@@ -588,7 +676,9 @@ export async function processIntegrationTask(
     principalType?: "user" | "service";
   };
 
-  await recordInboundIntegrationAudit(task, parsed.incoming);
+  if (!campaignOptions?.continuationInvocation) {
+    await recordInboundIntegrationAudit(task, parsed.incoming);
+  }
 
   return processIncomingMessage(parsed.incoming, options, {
     taskId: task.id,
@@ -596,6 +686,7 @@ export async function processIntegrationTask(
     placeholderRef: parsed.placeholderRef,
     orgId: task.orgId ?? undefined,
     principalType: parsed.principalType ?? options.principalType ?? "user",
+    durableCampaign: campaignOptions?.enabled === true,
   });
 }
 
@@ -649,6 +740,7 @@ async function processIncomingMessage(
     placeholderRef?: string;
     orgId?: string;
     principalType?: "user" | "service";
+    durableCampaign?: boolean;
   } = {},
 ): Promise<ProcessIntegrationTaskResult> {
   const {
@@ -814,6 +906,218 @@ async function processIncomingMessage(
     await releaseApplicableIntegrationBudgets(budgetReservations.reservations);
     throw error;
   }
+
+  // Channel conversations run as the integration service principal, so the
+  // thread is owned by `integration@<platform>` and not by the human who asked.
+  // The "Open thread" deep link we hand back would then 404 for them and the
+  // chat surface would silently render an empty new chat, so grant each
+  // verified participant an explicit share on the thread they are driving.
+  if (
+    incoming.senderVerified === true &&
+    incoming.senderEmail &&
+    incoming.senderEmail.trim().toLowerCase() !== ownerEmail.toLowerCase()
+  ) {
+    await grantThreadUserShare(
+      threadId,
+      incoming.senderEmail,
+      "editor",
+      ownerEmail,
+    ).catch((error) => {
+      console.warn(
+        `[integrations] Could not grant ${incoming.platform} sender access to thread ${threadId}:`,
+        error instanceof Error ? error.message : error,
+      );
+    });
+  }
+
+  let campaign:
+    | {
+        row: IntegrationCampaign;
+        runId: string;
+        leaseToken: string;
+      }
+    | undefined;
+  if (opts.durableCampaign && opts.taskId) {
+    const created = await createIntegrationCampaign({
+      integrationTaskId: opts.taskId,
+      threadId,
+      turnId: `integration-turn-${opts.taskId}`,
+    });
+    if (created.status === "completed") {
+      await releaseApplicableIntegrationBudgets(
+        budgetReservations.reservations,
+      );
+      return { status: "completed" };
+    }
+    if (created.status === "failed") {
+      await releaseApplicableIntegrationBudgets(
+        budgetReservations.reservations,
+      );
+      return { status: "campaign-failed" };
+    }
+    const runId = `integration-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const leaseToken = crypto.randomUUID();
+    const claimed = await claimIntegrationCampaign(created.id, {
+      runId,
+      leaseToken,
+      leaseDurationMs: INTEGRATION_CAMPAIGN_LEASE_MS,
+      maxChunks: INTEGRATION_CAMPAIGN_MAX_CHUNKS,
+    });
+    if (claimed.kind === "chunk-limit") {
+      const deliveryRunId = `integration-delivery-${crypto.randomUUID()}`;
+      const deliveryLeaseToken = crypto.randomUUID();
+      const deliveryCampaign = await claimIntegrationCampaignDeliveryForTask(
+        opts.taskId,
+        {
+          runId: deliveryRunId,
+          leaseToken: deliveryLeaseToken,
+          leaseDurationMs: INTEGRATION_CAMPAIGN_LEASE_MS,
+        },
+      );
+      if (!deliveryCampaign) {
+        await releaseApplicableIntegrationBudgets(
+          budgetReservations.reservations,
+        );
+        return { status: "campaign-active" };
+      }
+      const exhaustedProgressRef = deliveryCampaign.progressRef
+        ? parseIntegrationProgressRef(deliveryCampaign.progressRef)
+        : null;
+      const exhaustedProgress = exhaustedProgressRef
+        ? await adapter
+            .resumeRunProgress?.(incoming, exhaustedProgressRef)
+            .catch(() => null)
+        : null;
+      const exhaustedMessage = adapter.formatAgentResponse(
+        "I couldn't safely finish this request after several continuation attempts. No completed write will be replayed.",
+      );
+      let deliveryPayload: IntegrationResponseDeliveryTaskPayload = {
+        kind: "response-delivery",
+        incoming,
+        message: exhaustedMessage,
+        ...(opts.placeholderRef ? { placeholderRef: opts.placeholderRef } : {}),
+        internalThreadId: threadId,
+        campaignTerminalStatus: "failed",
+        ...buildDeliveryHistoryMessageIds(incoming),
+      };
+      try {
+        await stageTaskDeliveryPayload(
+          opts.taskId,
+          JSON.stringify(deliveryPayload),
+        );
+        let receipt: void | PlatformDeliveryReceipt;
+        if (exhaustedProgress) {
+          try {
+            receipt = await exhaustedProgress.complete(exhaustedMessage);
+          } catch {
+            receipt = await adapter.sendResponse(exhaustedMessage, incoming, {
+              placeholderRef: opts.placeholderRef,
+            });
+          }
+        } else {
+          receipt = await adapter.sendResponse(exhaustedMessage, incoming, {
+            placeholderRef: opts.placeholderRef,
+          });
+        }
+        if (receipt?.status !== "delivered") {
+          throw new Error(
+            `${incoming.platform} exhaustion response completed without delivery proof`,
+          );
+        }
+        deliveryPayload = {
+          ...deliveryPayload,
+          deliveryReceipt: receipt,
+          deliveredAt: new Date().toISOString(),
+        };
+        await stageTaskDeliveryPayload(
+          opts.taskId,
+          JSON.stringify(deliveryPayload),
+        );
+        await recordIntegrationResponseDelivery(deliveryPayload, receipt);
+        const terminalized = await failIntegrationCampaign(
+          deliveryCampaign.id,
+          {
+            runId: deliveryRunId,
+            leaseToken: deliveryLeaseToken,
+            errorMessage: "Integration campaign exhausted its chunk limit",
+          },
+        );
+        if (!terminalized) {
+          await releaseApplicableIntegrationBudgets(
+            budgetReservations.reservations,
+          );
+          return { status: "campaign-active" };
+        }
+      } catch (error) {
+        await releaseApplicableIntegrationBudgets(
+          budgetReservations.reservations,
+        );
+        return {
+          status: "delivery-pending",
+          payload: deliveryPayload,
+          campaignLease: {
+            campaignId: deliveryCampaign.id,
+            runId: deliveryRunId,
+            leaseToken: deliveryLeaseToken,
+            campaignStatus: "failed",
+          },
+          errorMessage:
+            error instanceof Error
+              ? error.message.slice(0, 1000)
+              : "Integration exhaustion response delivery failed",
+        };
+      }
+      await releaseApplicableIntegrationBudgets(
+        budgetReservations.reservations,
+      );
+      return { status: "campaign-failed" };
+    }
+    if (claimed.kind !== "claimed") {
+      await releaseApplicableIntegrationBudgets(
+        budgetReservations.reservations,
+      );
+      return { status: "campaign-active" };
+    }
+    campaign = { row: claimed.campaign, runId, leaseToken };
+    if (campaign.row.checkpoint) {
+      let waitingForA2A = false;
+      try {
+        waitingForA2A =
+          JSON.parse(campaign.row.checkpoint).waitingForA2A === true;
+      } catch {}
+      if (waitingForA2A) {
+        const activeA2A = await hasActiveA2AContinuationsForIntegrationTask(
+          opts.taskId,
+        );
+        if (activeA2A) {
+          const waiting = await waitForA2AIntegrationCampaign(campaign.row.id, {
+            runId: campaign.runId,
+            leaseToken: campaign.leaseToken,
+            nextRunAt: Date.now() + INTEGRATION_CAMPAIGN_A2A_CHECK_MS,
+            progressRef: campaign.row.progressRef,
+          });
+          await releaseApplicableIntegrationBudgets(
+            budgetReservations.reservations,
+          );
+          return {
+            status: waiting ? "campaign-pending" : "campaign-active",
+          };
+        }
+        const completed = await completeIntegrationCampaignTask(
+          campaign.row.id,
+          {
+            integrationTaskId: opts.taskId!,
+            runId: campaign.runId,
+            leaseToken: campaign.leaseToken,
+          },
+        );
+        await releaseApplicableIntegrationBudgets(
+          budgetReservations.reservations,
+        );
+        return { status: completed ? "completed" : "campaign-active" };
+      }
+    }
+  }
   const existingMessages: EngineMessage[] = [];
   if (thread?.threadData) {
     existingMessages.push(...threadDataToEngineMessages(thread.threadData));
@@ -844,15 +1148,21 @@ async function processIncomingMessage(
   // Precise current time rides the engine-facing user message (not the cached
   // system-prompt prefix, and not the persisted thread text) — the runtime
   // context appended to the system prompt is day-granular only.
-  const messages: EngineMessage[] = [
-    ...existingMessages,
-    {
+  const messages: EngineMessage[] = [...existingMessages];
+  if (campaign && campaign.row.chunkCount > 1) {
+    await appendDurableContinuationContext(
+      messages,
+      checkpointContinuationReason(campaign.row.checkpoint),
+      threadId,
+    );
+  } else {
+    messages.push({
       role: "user",
       content: [
         { type: "text", text: userText + buildCurrentTimeUserContext() },
       ],
-    },
-  ];
+    });
+  }
 
   // Run agent loop via startRun, wrapped in a request context so that
   // tools (especially call-agent) can resolve the caller's org for org-scoped
@@ -880,10 +1190,50 @@ async function processIncomingMessage(
     throw error;
   }
 
-  const runId = `integration-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const progress = await adapter.startRunProgress?.(incoming).catch(() => null);
+  const runId =
+    campaign?.runId ??
+    `integration-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const storedProgressRef = campaign?.row.progressRef
+    ? parseIntegrationProgressRef(campaign.row.progressRef)
+    : null;
+  const progress = storedProgressRef
+    ? await adapter
+        .resumeRunProgress?.(incoming, storedProgressRef)
+        .catch(() => null)
+    : await adapter.startRunProgress?.(incoming).catch(() => null);
+  if (campaign && campaign.row.chunkCount > 1 && progress) {
+    await Promise.resolve(
+      progress.onEvent({
+        type: "agent_call_progress",
+        agent: "Agent Native",
+        state: "working",
+        elapsedSeconds: 0,
+        detail: "Continuing in the background",
+      }),
+    ).catch(() => {});
+  }
   let usage: Awaited<ReturnType<typeof runAgentLoop>> | null = null;
   let budgetsSettled = false;
+
+  // Populated once `resolvedModel`/`engine` are known inside the run
+  // callback below (stored-model + platform-default resolution can't happen
+  // until then) and read back by run-manager's terminal tracking event via
+  // this same object reference — `startRun` reads `options.model` only in
+  // its `.finally()`, after this callback has settled, so the mutation is
+  // guaranteed to land before it's read.
+  const runOptions: StartRunOptions = {
+    useHostedSoftTimeoutDefault: true,
+    backgroundFunction: isInBackgroundFunctionRuntime(),
+    ...(campaign
+      ? {
+          turnId: campaign.row.turnId,
+          noProgressTimeoutMs: INTEGRATION_CAMPAIGN_NO_PROGRESS_TIMEOUT_MS,
+        }
+      : {}),
+    // No userId here: `ownerEmail` is PII (email), which the terminal event
+    // must not carry.
+    attemptCount: opts.attempts,
+  };
 
   // Wait for the run to complete inside this fresh function execution.
   // We use a Promise so the processor endpoint can await the full lifecycle.
@@ -957,39 +1307,53 @@ async function processIncomingMessage(
               engine,
               modelCandidate,
             );
+            runOptions.model = resolvedModel;
+            runOptions.engineName = engine.name;
 
-            usage = await runAgentLoop({
-              engine,
-              model: resolvedModel,
-              systemPrompt: effectiveSystemPrompt,
-              tools,
-              availableTools,
-              messages,
-              actions: runnableActions,
-              send: async (event) => {
-                if (progress) {
-                  await Promise.resolve(progress.onEvent(event)).catch(
-                    () => {},
-                  );
-                }
-                await send(event);
+            // Wrapper, not raw `runAgentLoop`: an integration turn has no
+            // browser to re-POST a continuation, so a transport-level cut
+            // (gateway 45s, socket hang up, upstream 5xx) has to be resumed
+            // inside this invocation or the user's Slack thread just stops.
+            // Same budget the run-manager resolved for this run below.
+            usage = await runAgentLoopDirectWithSoftTimeout(
+              {
+                engine,
+                model: resolvedModel,
+                systemPrompt: effectiveSystemPrompt,
+                tools,
+                availableTools,
+                messages,
+                actions: runnableActions,
+                send: async (event) => {
+                  if (progress) {
+                    await Promise.resolve(progress.onEvent(event)).catch(
+                      () => {},
+                    );
+                  }
+                  await send(event);
+                },
+                signal,
+                threadId,
+                approvedToolCalls: incoming.approvedToolCalls,
+                // Messaging integrations are interactive chat surfaces. They
+                // need the same initial completion headroom as web chat so
+                // reasoning cannot consume the small per-engine default and
+                // leave a user-facing Slack reply empty.
+                maxOutputTokens: resolveMainChatMaxOutputTokens(resolvedModel),
+                // Explicitly resolve the normal chat default so an empty-final
+                // retry can step its reasoning effort down rather than
+                // repeatedly letting the engine choose Medium.
+                reasoningEffort: normalizeReasoningEffortForRequest(
+                  resolvedModel,
+                  undefined,
+                ),
               },
-              signal,
-              threadId,
-              approvedToolCalls: incoming.approvedToolCalls,
-              // Messaging integrations are interactive chat surfaces. They
-              // need the same initial completion headroom as web chat so
-              // reasoning cannot consume the small per-engine default and
-              // leave a user-facing Slack reply empty.
-              maxOutputTokens: resolveMainChatMaxOutputTokens(resolvedModel),
-              // Explicitly resolve the normal chat default so an empty-final
-              // retry can step its reasoning effort down rather than
-              // repeatedly letting the engine choose Medium.
-              reasoningEffort: normalizeReasoningEffortForRequest(
-                resolvedModel,
-                undefined,
-              ),
-            });
+              undefined,
+              {
+                useHostedDefault: true,
+                backgroundFunction: isInBackgroundFunctionRuntime(),
+              },
+            );
             return usage;
           },
         );
@@ -1006,7 +1370,28 @@ async function processIncomingMessage(
           | undefined;
         let outcome: ProcessIntegrationTaskResult = { status: "completed" };
         try {
+          if (campaign) {
+            const stillOwned = await heartbeatIntegrationCampaign(
+              campaign.row.id,
+              {
+                runId: campaign.runId,
+                leaseToken: campaign.leaseToken,
+                leaseDurationMs: INTEGRATION_CAMPAIGN_LEASE_MS,
+              },
+            );
+            if (!stillOwned) {
+              outcome = { status: "campaign-active" };
+              return;
+            }
+          }
           queuedA2AContinuation = hasQueuedA2AContinuation(completedRun);
+          const durableCampaignContinuation = Boolean(
+            campaign &&
+            campaign.row.chunkCount < INTEGRATION_CAMPAIGN_MAX_CHUNKS &&
+            completedRun.status === "completed" &&
+            endedAtContinuationBoundary(completedRun) &&
+            !queuedA2AContinuation,
+          );
           const slackInputRequest =
             incoming.platform === "slack"
               ? extractSlackInputRequest(completedRun)
@@ -1032,6 +1417,7 @@ async function processIncomingMessage(
           let suppressPlatformReply =
             queuedA2AContinuation &&
             isQueuedA2AContinuationDeferral(responseText);
+          suppressPlatformReply ||= durableCampaignContinuation;
 
           // Compute trusted tool receipts before choosing the empty-answer
           // fallback. A completed write must not be reported as though nothing
@@ -1076,7 +1462,10 @@ async function processIncomingMessage(
                 "directly is the most reliable way to get an answer right now.";
             } else {
               responseText =
-                verifiedMutationReceipt ?? EMPTY_INTEGRATION_RESPONSE_MESSAGE;
+                verifiedMutationReceipt ??
+                (endedAtContinuationBoundary(completedRun)
+                  ? CUTOFF_INTEGRATION_RESPONSE_MESSAGE
+                  : EMPTY_INTEGRATION_RESPONSE_MESSAGE);
             }
           }
           if (approval?.type === "approval_required") {
@@ -1136,6 +1525,14 @@ async function processIncomingMessage(
               artifacts: extractA2AArtifactIdentities(toolResults, {
                 persistedArtifactSecrets: artifactSecrets,
               }),
+              ...(campaign && queuedA2AContinuation
+                ? { awaitingA2ACompletion: true as const }
+                : {}),
+              ...(campaign &&
+              !queuedA2AContinuation &&
+              !durableCampaignContinuation
+                ? { campaignTerminalStatus: "completed" as const }
+                : {}),
             };
             if (opts.taskId) {
               await stageTaskDeliveryPayload(
@@ -1236,6 +1633,9 @@ async function processIncomingMessage(
           }
 
           // Persist thread data
+          const historyMessageIds =
+            stagedDeliveryPayload ??
+            (campaign ? buildDeliveryHistoryMessageIds(incoming) : undefined);
           threadCheckpoint = await persistThreadData(
             threadId,
             incoming.text,
@@ -1243,8 +1643,10 @@ async function processIncomingMessage(
             thread,
             deliveredResponse,
             toolResults,
-            stagedDeliveryPayload,
+            historyMessageIds,
             artifactSecrets,
+            Boolean(campaign),
+            !durableCampaignContinuation,
           );
           if (outgoingForDelivery && stagedDeliveryPayload) {
             if (!threadCheckpoint) {
@@ -1279,6 +1681,69 @@ async function processIncomingMessage(
             usage,
           );
           budgetsSettled = true;
+          if (campaign && queuedA2AContinuation) {
+            const waiting = await waitForA2AIntegrationCampaign(
+              campaign.row.id,
+              {
+                runId: campaign.runId,
+                leaseToken: campaign.leaseToken,
+                nextRunAt: Date.now() + INTEGRATION_CAMPAIGN_A2A_CHECK_MS,
+                progressRef: progress?.ref
+                  ? JSON.stringify(progress.ref)
+                  : undefined,
+              },
+            );
+            if (!waiting) {
+              throw new Error("Integration campaign lease was superseded");
+            }
+            outcome = { status: "campaign-pending" };
+          } else if (campaign && durableCampaignContinuation) {
+            const scheduled = await scheduleNextIntegrationCampaign(
+              campaign.row.id,
+              {
+                runId: campaign.runId,
+                leaseToken: campaign.leaseToken,
+                nextRunAt: Date.now(),
+                progressRef: progress?.ref
+                  ? JSON.stringify(progress.ref)
+                  : undefined,
+                checkpoint: JSON.stringify({
+                  reason: continuationBoundaryReason(completedRun),
+                  threadId,
+                  ...(threadCheckpoint?.assistantMessageId
+                    ? {
+                        assistantMessageId: threadCheckpoint.assistantMessageId,
+                      }
+                    : {}),
+                }),
+              },
+            );
+            if (!scheduled) {
+              throw new Error("Integration campaign lease was superseded");
+            }
+            await dispatchPendingIntegrationTask({
+              taskId: opts.taskId!,
+              task: {
+                platform: incoming.platform,
+                externalThreadId: incoming.externalThreadId,
+                platformContext: incoming.platformContext,
+              },
+              campaignContinuation: true,
+            });
+            outcome = { status: "campaign-pending" };
+          } else if (campaign) {
+            const completed = await completeIntegrationCampaignTask(
+              campaign.row.id,
+              {
+                integrationTaskId: opts.taskId!,
+                runId: campaign.runId,
+                leaseToken: campaign.leaseToken,
+              },
+            );
+            if (!completed) {
+              throw new Error("Integration campaign lease was superseded");
+            }
+          }
         } catch (err) {
           console.error(
             `[integrations] Error sending response to ${incoming.platform}:`,
@@ -1297,8 +1762,12 @@ async function processIncomingMessage(
                 thread,
                 undefined,
                 collectToolResultSummaries(completedRun),
-                stagedDeliveryPayload,
+                stagedDeliveryPayload ??
+                  (campaign
+                    ? buildDeliveryHistoryMessageIds(incoming)
+                    : undefined),
                 artifactSecrets,
+                Boolean(campaign),
               );
             }
             if (usage) {
@@ -1336,8 +1805,29 @@ async function processIncomingMessage(
                   ? { assistantMessageId: threadCheckpoint.assistantMessageId }
                   : {}),
               },
+              ...(campaign &&
+              (stagedDeliveryPayload?.campaignTerminalStatus ||
+                stagedDeliveryPayload?.awaitingA2ACompletion)
+                ? {
+                    campaignLease: {
+                      campaignId: campaign.row.id,
+                      runId: campaign.runId,
+                      leaseToken: campaign.leaseToken,
+                      campaignStatus:
+                        stagedDeliveryPayload.campaignTerminalStatus ??
+                        ("waiting-a2a" as const),
+                    },
+                  }
+                : {}),
               errorMessage,
             };
+            return;
+          }
+          if (campaign) {
+            // A campaign-owned, no-delivery path must never fall through to
+            // the default completed outcome. Its lease/checkpoint recovery
+            // remains the sole owner of this logical turn.
+            outcome = { status: "campaign-active" };
             return;
           }
           // A queued continuation owns the final platform response. Later
@@ -1371,13 +1861,19 @@ async function processIncomingMessage(
           resolve(outcome);
         }
       },
-      // Integration workers are ordinary self-dispatched serverless requests,
-      // not a Netlify background-function route. Without the hosted soft
-      // timeout, a wedged model connection can outlive the worker and leave
-      // Slack's native stream in "working" forever when the host kills the
-      // process. Checkpoint at the foreground-safe boundary so onComplete can
-      // always close the provider progress surface before the function wall.
-      { useHostedSoftTimeoutDefault: true },
+      // Without the hosted soft timeout, a wedged model connection can outlive
+      // the worker and leave Slack's native stream in "working" forever when
+      // the host kills the process. Checkpoint at the safe boundary so
+      // onComplete can always close the provider progress surface first.
+      //
+      // Which boundary that is depends on where this task is actually running:
+      // when durable dispatch routes it to the emitted `-background` function
+      // it has ~15min, and clamping it to the 40s foreground budget anyway cut
+      // off every research-shaped request (multi-source sweeps, long tool
+      // chains) with no visible answer. `isInBackgroundFunctionRuntime()` is
+      // the runtime proof — never a config guess — so the wider ceiling is
+      // taken only where the ~60s synchronous wall genuinely does not apply.
+      runOptions,
     );
   });
 }
@@ -1786,6 +2282,8 @@ async function persistThreadData(
     "userMessageId" | "assistantMessageId"
   >,
   artifactSecrets: readonly string[] = [],
+  mergeRunContent = false,
+  deliveryAttempted = true,
 ): Promise<{ userMessageId: string; assistantMessageId?: string } | undefined> {
   try {
     let repo: any;
@@ -1817,9 +2315,38 @@ async function persistThreadData(
           (message: any) => message?.id === builtAssistantMsg.id,
         )
       : undefined;
+    if (builtAssistantMsg && mergeRunContent) {
+      builtAssistantMsg.metadata.integrationRunIds = [completedRun.runId];
+    }
+    if (mergeRunContent && existingAssistantMsg && builtAssistantMsg) {
+      const previousRunIds = Array.isArray(
+        existingAssistantMsg.metadata?.integrationRunIds,
+      )
+        ? existingAssistantMsg.metadata.integrationRunIds.filter(
+            (value: unknown): value is string => typeof value === "string",
+          )
+        : [];
+      if (!previousRunIds.includes(completedRun.runId)) {
+        existingAssistantMsg.content = [
+          ...(Array.isArray(existingAssistantMsg.content)
+            ? existingAssistantMsg.content
+            : []),
+          ...(Array.isArray(builtAssistantMsg.content)
+            ? builtAssistantMsg.content
+            : []),
+        ];
+        existingAssistantMsg.metadata = {
+          ...existingAssistantMsg.metadata,
+          ...builtAssistantMsg.metadata,
+          integrationRunIds: [...previousRunIds, completedRun.runId],
+        };
+      }
+    }
     const assistantMsg = existingAssistantMsg ?? builtAssistantMsg;
-    if (assistantMsg) {
+    if (assistantMsg && deliveryAttempted) {
       assistantMsg.metadata.integrationDeliveryAttempted = true;
+    }
+    if (assistantMsg) {
       const artifactIdentities = extractA2AArtifactIdentities(toolResults, {
         persistedArtifactSecrets: artifactSecrets,
       });

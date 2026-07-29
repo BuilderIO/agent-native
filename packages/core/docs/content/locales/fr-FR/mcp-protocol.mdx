@@ -224,7 +224,11 @@ L'agent exécute la même boucle que le chat interactif : il peut appeler plusi
 {
   "poll": {
     "tool": "ask_app_status",
-    "arguments": { "app": "mail", "taskId": "task_123" }
+    "arguments": {
+      "app": "mail",
+      "taskId": "task_123",
+      "taskHandle": "opaque_handle"
+    }
   }
 }
 ```
@@ -235,8 +239,9 @@ Si une lecture d'état transitoire et limitée est indisponible, `ask_app_status
 peut renvoyer `status: "unknown"`, `statusRead: "unavailable"`,
 `retryable: true`, les `app` et `taskId` d'origine, ainsi que `pollAfterMs` /
 `poll`. Cela signifie que la lecture d'état est indisponible, et non que la tâche
-durable a échoué. Réessayez `ask_app_status` avec exactement les mêmes `app` et
-`taskId` ; ne soumettez jamais à nouveau `ask_app` pour récupérer, car la
+durable a échoué. Réessayez `ask_app_status` avec exactement les mêmes
+`poll.arguments`, y compris le `taskHandle` lorsqu'il est présent. Les anciens
+résultats sans handle doivent réutiliser les mêmes `app` et `taskId` ; ne soumettez jamais à nouveau `ask_app` pour récupérer, car la
 soumission peut dupliquer le travail. Les erreurs permanentes d'authentification,
 d'introuvable et de protocole restent des erreurs.
 

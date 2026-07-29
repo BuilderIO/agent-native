@@ -5,6 +5,7 @@ import {
   automationNextRun,
   automationStatus,
   automationTarget,
+  automationTroubleshootPath,
   sortAutomations,
 } from "./automation-display.js";
 import type { DispatchAutomationItem } from "./automations.js";
@@ -24,6 +25,12 @@ describe("automation-display", () => {
     expect(
       automationIdentity({ owner: "user@example.com", path: "jobs/digest.md" }),
     ).toBe("user@example.com:jobs/digest.md");
+  });
+
+  it("prepares a thread-debug search for an automation", () => {
+    expect(
+      automationTroubleshootPath({ name: "coach onboarding reminder" }),
+    ).toBe("/thread-debug?query=coach+onboarding+reminder");
   });
 
   it("prefers event names, then schedule descriptions", () => {

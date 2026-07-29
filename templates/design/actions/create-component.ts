@@ -45,7 +45,7 @@ import {
   type SourceWorkspaceFile,
 } from "../server/source-workspace.js";
 import { resolveSourceCapabilities } from "../shared/capability-resolver.js";
-import { buildCodeLayerProjection } from "../shared/code-layer.js";
+import { resolveCodeLayerTarget } from "../shared/code-layer.js";
 import type { CodeLayerNode, CodeLayerSource } from "../shared/code-layer.js";
 import { agentSelectionDescriptor } from "../shared/collab-selection.js";
 import {
@@ -333,22 +333,25 @@ export default defineAction({
       filename: file.filename,
     };
 
-    const projection = buildCodeLayerProjection(html, {
-      source: codeLayerSource,
-    });
+    // The shared resolver, not a local `.find()`: it refuses an ambiguous match
+    // instead of annotating whichever repeated instance came first, and names
+    // the count. The old "Element not found" read the same whether the target
+    // was absent, ambiguous, or never supplied.
+    const { projection, resolution } = resolveCodeLayerTarget(
+      html,
+      { nodeId, selector },
+      { source: codeLayerSource },
+    );
 
-    const node = nodeId
-      ? projection.nodes.find((n) => n.id === nodeId)
-      : projection.nodes.find(
-          (n) =>
-            n.selector === selector || n.selectors.includes(selector ?? ""),
-        );
-
-    if (!node) {
+    if (resolution.status !== "resolved" || !resolution.node) {
       throw new Error(
-        `Element not found. Run get-code-layer-projection to list current node ids and selectors.`,
+        `${resolution.message ?? "Target did not resolve to a single code layer node."} ` +
+          `Searched ${projection.nodes.length} projection nodes for ` +
+          `${nodeId ? `nodeId "${nodeId}"` : `selector "${selector ?? ""}"`}. ` +
+          `Run get-code-layer-projection to list current node ids and selectors.`,
       );
     }
+    const node = resolution.node;
 
     // ── Build annotations ─────────────────────────────────────────────────────
     const componentName = normalizeComponentName(name);

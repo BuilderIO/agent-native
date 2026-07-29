@@ -1,14 +1,17 @@
 ---
 name: frontend-design
 description: >-
-  Create distinctive, production-grade frontend interfaces with high design
-  quality. Use when building web components, pages, artifacts, posters, or
-  applications (websites, landing pages, dashboards, React components,
-  HTML/CSS layouts, or when styling/beautifying any web UI). Generates
-  creative, polished UI that avoids generic AI aesthetics.
+  Sets the visual direction for a new or redesigned surface, with production
+  quality that avoids generic AI aesthetics. Use when building a new page,
+  app, or marketing surface, defining visual identity, or doing a design pass
+  ("make this look good"). Do not load it for routine UI edits: adding a field
+  to an existing form, fixing spacing, wiring a button, or changing copy.
 scope: dev
 license: Complete terms in LICENSE.txt
 source: https://github.com/anthropics/skills/blob/main/skills/frontend-design/SKILL.md
+local-changes: >-
+  Description narrowed and Verification rescoped deliberately; an upstream sync
+  must not restore the broad auto-load triggers or screenshot-everything step.
 metadata:
   internal: true
 ---
@@ -34,6 +37,34 @@ Then implement working code that is cohesive, accessible, responsive, and polish
 ## Minimalism And Progressive Disclosure
 
 Default to Apple/Linear-level restraint: make the primary workflow obvious, then remove everything that does not help that workflow right now. A polished UI often has fewer visible controls, fewer borders, fewer labels, and fewer explanatory surfaces than the first reasonable implementation.
+
+### Progressive Disclosure Is A Design Requirement
+
+Treat an all-at-once interface as a defect to fix during design, not as a
+styling preference. Before coding, inventory every piece of content and action
+on the surface, then assign each one to the smallest useful visibility level:
+
+1. **Immediate** — the page title, current state, one primary action, and the
+   compact context needed to choose what to do next.
+2. **Expanded** — the details needed for the selected item or active workflow.
+3. **On demand** — advanced settings, diagnostics, credentials, metadata,
+   destructive actions, documentation, and rarely used tools.
+
+Use single-select accordions or simple disclosure rows for sibling panels when
+the user is choosing one item at a time. Inside an expanded panel, keep another
+layer for independent concerns instead of dumping every form, explanation, and
+secondary action into the first reveal. Prefer one flat panel with alignment,
+dividers, and whitespace over nested cards; provider or product icons should
+not receive decorative borders or containers unless the container communicates
+state or interaction. A collapsed row should still show the item name, status,
+and a concise summary so the user can scan the whole surface without opening
+everything.
+
+Before shipping, ask: “What can disappear until the user asks for it?” Then
+verify collapsed, expanded, loading, empty, error, and narrow-width states.
+If the first viewport contains multiple forms, repeated explanatory copy,
+documentation links, and controls for unrelated tasks, the surface has not
+passed this requirement yet.
 
 - **Start by subtracting**: Before adding a visible control, banner, toolbar row, card, or explanatory block, ask what can be removed, merged, renamed, or moved into an existing affordance.
 - **One primary action**: Each surface should have one dominant next action. Secondary actions belong in menus, popovers, command palettes, disclosure rows, or contextual hover/focus states unless they are used constantly.
@@ -113,11 +144,22 @@ Avoid:
 
 ## Verification
 
+Match verification effort to the size of the change. For one component, one
+form, one page, or a restyle, run the app's existing checks — formatter,
+`pnpm typecheck`, existing tests — and stop there.
+
+Escalate to browser verification only when the user asks for it, or when the
+change is a multi-step user-visible flow that cannot be confirmed any other
+way. Never author a new Playwright/Puppeteer script, add a browser-automation
+dependency, or stand up an e2e harness to check work the user did not ask you
+to test that way; use an available browser tool, or say what you could not
+verify.
+
 For substantial frontend work:
 
 1. Run the relevant formatter/checks.
 2. Start the dev server when the app needs one.
-3. Verify with browser screenshots at desktop and mobile widths.
+3. Verify with the available browser tooling at desktop and mobile widths.
 4. Check interactive states: hover, focus, loading, empty, error, and destructive confirmations.
 5. When registering or changing a company adapter, run
    `@agent-native/toolkit/conformance`, including mixed-overlay focus,

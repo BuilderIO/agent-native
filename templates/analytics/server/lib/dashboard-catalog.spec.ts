@@ -19,11 +19,13 @@ import {
   DEPLOYED_RECURRING_USERS_BY_TEMPLATE_SQL,
   INTERMEDIATE_RECURRING_USERS_BY_TEMPLATE_SQL,
   INTERMEDIATE_RECURRING_USERS_BY_TEMPLATE_WEEKLY_SQL,
+  LEGACY_DAU_BY_TEMPLATE_SQL,
   LEGACY_RECURRING_USERS_BY_TEMPLATE_SQL,
   LEGACY_RECURRING_USERS_BY_TEMPLATE_WEEKLY_SQL,
   LEGACY_V0_RETENTION_OVER_TIME_SQL,
   LEGACY_V0_SEVEN_DAY_RETENTION_BY_TEMPLATE_SQL,
   LEGACY_V0_ONE_DAY_RETENTION_BY_TEMPLATE_SQL,
+  LEGACY_WAU_BY_TEMPLATE_SQL,
   repairFirstPartyObservedRetentionPanels,
 } from "./first-party-metric-catalog";
 import { parsePanelDescriptor } from "./prometheus";
@@ -257,6 +259,26 @@ describe("dashboard catalog", () => {
     }
   });
 
+  it("uses a fixed 800-day generator for signup date fill in catalog and seed", () => {
+    const catalogPanel = requiredFirstPartyPanel("signups-over-time");
+    const seed = loadDashboardSeed("agent-native-templates-first-party");
+    const seedPanel = (
+      seed?.panels as Array<{ id?: string; sql?: string }>
+    ).find((panel) => panel.id === "signups-over-time");
+
+    expect(catalogPanel.sql).toContain("WITH digits AS");
+    expect(catalogPanel.sql).toContain(
+      "SELECT ones.n + tens.n * 10 + hundreds.n * 100 AS n",
+    );
+    expect(catalogPanel.sql).toContain("WHERE hundreds.n < 8");
+    expect(catalogPanel.sql).not.toContain("ROW_NUMBER() OVER");
+    expect(catalogPanel.sql).not.toContain("FROM analytics_events LIMIT 800");
+    expect(seedPanel?.sql).toBe(catalogPanel.sql);
+    expect(() =>
+      validateFirstPartyAnalyticsSql(catalogPanel.sql),
+    ).not.toThrow();
+  });
+
   it("repairs only exact legacy observed-retention panels and preserves custom panel intent", () => {
     const legacyDaily = requiredFirstPartyPanel("recurring-users-by-template");
     const legacyWeekly = requiredFirstPartyPanel(
@@ -269,6 +291,8 @@ describe("dashboard catalog", () => {
     const legacySevenDay = requiredFirstPartyPanel(
       "seven-day-retention-by-template",
     );
+    const legacyDau = requiredFirstPartyPanel("dau-over-time");
+    const legacyWau = requiredFirstPartyPanel("wau-over-time");
     const legacyConfig = {
       name: "Legacy dashboard",
       panels: [
@@ -315,6 +339,14 @@ describe("dashboard catalog", () => {
             description:
               "Selected-range signed-in cohorts by the browser identity's first non-docs app/template. Counts returns to any non-docs app within 7-14 days. Templates with fewer than 20 mature cohort identities are hidden.",
           },
+        },
+        {
+          ...legacyDau,
+          sql: LEGACY_DAU_BY_TEMPLATE_SQL,
+        },
+        {
+          ...legacyWau,
+          sql: LEGACY_WAU_BY_TEMPLATE_SQL,
         },
         {
           id: "recurring-users-by-template-copy",
@@ -371,9 +403,15 @@ describe("dashboard catalog", () => {
         config: { description: panel.config?.description },
       });
     }
+    expect(panels.find((panel) => panel.id === legacyDau.id)).toMatchObject({
+      sql: legacyDau.sql,
+    });
+    expect(panels.find((panel) => panel.id === legacyWau.id)).toMatchObject({
+      sql: legacyWau.sql,
+    });
     expect(
       panels.find((panel) => panel.id === "recurring-users-by-template-copy"),
-    ).toEqual(legacyConfig.panels[5]);
+    ).toEqual(legacyConfig.panels[7]);
 
     const customSql = repairFirstPartyObservedRetentionPanels({
       panels: [

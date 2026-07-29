@@ -1,0 +1,161 @@
+---
+title: "Vorlagenänderungen synchronisieren"
+description: "agent-native template zieht spätere Upstream-Änderungen an Erstanbieter-Vorlagen in eine App, die aus einer Vorlage erstellt wurde, mittels einer echten Drei-Wege-Zusammenführung pro Datei gegen eine unberührte Baseline."
+---
+
+# Vorlagenänderungen synchronisieren
+
+`agent-native create` kopiert eine Erstanbieter-Vorlage in Ihre App und macht sie dann zu Ihrer eigenen – der App-Name wird ersetzt, `_gitignore` umbenannt, `package.json` neu geschrieben, `workspace:*`- und `catalog:`-Abhängigkeiten auf konkrete Versionen festgelegt und (in einem Arbeitsbereich) geerbte Auth- und Chat-Plugins eingesetzt. Von diesem Moment an ist die App eine unabhängige, aus der Vorlage erstellte App. Fixes und Verbesserungen, die im Upstream der Vorlage landen, erreichen sie nicht mehr.
+
+`agent-native upgrade` schließt diese Lücke nicht. Es aktualisiert Paketversionen, führt Import-Codemods aus und aktualisiert skills-Verzeichnisse – es rührt niemals eine Datei an, die aus einer Vorlage kopiert wurde.
+
+`agent-native template` ist die fehlende Hälfte. Es ruft die Vorlage erneut in einer neueren Version ab, wendet exakt die Transformationen erneut an, die `create` angewendet hat, und führt das Ergebnis Datei für Datei in Ihre App zusammen.
+
+Community-Vorlagen sind absichtlich nicht Teil dieses Sync-Ablaufs. Ihre `agent-native.communityTemplate`-Metadaten zeichnen nur die installierte Quelle auf; `agent-native template sync` lädt keine Änderungen aus diesem Repository. Installiere für einen stabilen Ausgangspunkt eine feste Revision und übertrage spätere Änderungen nach Prüfung manuell.
+
+## Schnellstart {#quick-start}
+
+```bash
+agent-native upgrade
+agent-native template sync
+```
+
+`sync` verwendet standardmäßig die Vorlagenversion, die zu Ihrem installierten `@agent-native/core` passt, sodass Code und Pakete nach einem Lauf im Anschluss an `upgrade` auf derselben Version bleiben.
+
+Schauen Sie nach, bevor Sie zusammenführen:
+
+```bash
+agent-native template status
+agent-native template diff
+```
+
+## Wie die Zusammenführung funktioniert {#how-the-merge-works}
+
+Eine sinnvolle Zusammenführung braucht drei Bäume, nicht zwei:
+
+- **base** – die unberührte Vorlage, wie sie war, als Ihre App generiert wurde.
+- **theirs** – dieselbe Vorlage in der Version, auf die Sie synchronisieren, durch dieselbe Transformationspipeline geschickt.
+- **ours** – Ihre App, so wie sie jetzt dasteht.
+
+Damit fällt jede Datei in einen klaren Fall. Upstream hat sie nicht angefasst, also bleibt sie unverändert. Sie haben sie nie angefasst, also wird sie per Fast-Forward übernommen. Beide Seiten haben sie geändert, also erhält sie Konfliktmarkierungen. Nichts wird überschrieben, nur weil es sich unterscheidet.
+
+Ohne eine base kann „sync" nur Überschreiben bedeuten, was stillschweigend entweder Ihre Arbeit verwirft oder die des Upstreams rückgängig macht.
+
+## Die Baseline {#the-baseline}
+
+Der Base-Baum wird als Git-Ref in Ihrem eigenen Repo gespeichert:
+
+```txt
+refs/agent-native/template-baseline/apps/slides
+```
+
+Er wird mit Git-Plumbing-Befehlen gegen eine Wegwerf-Indexdatei geschrieben. Ihr `HEAD`, Ihr Branch, Ihr Index und Ihr Arbeitsverzeichnis werden dabei nie angefasst – `template baseline` mitten in einer Bearbeitung auszuführen ist sicher, und `git status` liefert vorher wie nachher dasselbe Ergebnis.
+
+Beim ersten Schreiben werden die Fetch- und Push-Refspecs für `refs/agent-native/*` zu Ihrem Remote hinzugefügt, damit die Baseline einen Klon übersteht. Befindet sich die App nicht in einem Git-Repo, fällt die Baseline auf ein Tarball unter `.agent-native/` zurück.
+
+Apps, die vor der Einführung der Herkunft generiert wurden, haben keine Baseline. Legen Sie eine an und synchronisieren Sie dann:
+
+```bash
+agent-native template baseline
+agent-native template sync
+```
+
+## Herkunft {#provenance}
+
+`create` hält in der `package.json` der App fest, was eine spätere Zusammenführung braucht:
+
+```json
+{
+  "agent-native": {
+    "scaffold": {
+      "template": "slides",
+      "frameworkSkills": "default",
+      "templateRef": "@agent-native/core@0.120.3",
+      "templateSource": "github",
+      "coreVersion": "0.120.3",
+      "shape": "workspace"
+    }
+  }
+}
+```
+
+`templateRef` ist der unveränderliche Tag, von dem die Vorlage tatsächlich abgerufen wurde – das macht die base reproduzierbar. `shape` entscheidet, ob die Arbeitsbereichs-Transformationen bei der Materialisierung erneut angewendet werden.
+
+## Befehle {#commands}
+
+### status {#status}
+
+```bash
+agent-native template status [app]
+```
+
+Meldet den erfassten Ref, den neuesten verfügbaren Ref, ob eine Baseline existiert, wie viele Dateien der Upstream geändert hat und wie viele Sie lokal geändert haben.
+
+### diff {#diff}
+
+```bash
+agent-native template diff [app] [--to <ref>]
+```
+
+Ein schreibgeschütztes Unified Diff dessen, was sich im Upstream zwischen Ihrer Baseline und dem Ziel geändert hat. Schreibt nichts.
+
+### sync {#sync}
+
+```bash
+agent-native template sync [app] [--to <ref>] [--dry-run] [--force]
+```
+
+Führt die Zusammenführung durch. `--to` verwendet standardmäßig den Ref, der zum installierten Core passt. `--dry-run` gibt den Plan aus, ohne zu schreiben.
+
+`sync` verweigert die Ausführung, wenn das App-Verzeichnis nicht committete Änderungen hat, sodass eine fehlgeschlagene Zusammenführung immer mit `git checkout` rückgängig gemacht werden kann. `--force` setzt dies außer Kraft; committen Sie lieber vorher.
+
+Wenn die Zusammenführung sauber verläuft, rückt die Baseline automatisch vor. Bei Konflikten tut sie das bewusst nicht – siehe `accept`.
+
+### accept {#accept}
+
+```bash
+agent-native template accept [app]
+```
+
+Lässt die Baseline vorrücken, nachdem Sie Konfliktmarkierungen aufgelöst haben. Der Befehl verweigert die Ausführung, solange noch `<<<<<<<` vorhanden ist, sodass die Baseline nie über eine ungelöste Zusammenführung hinaus vorrücken und stillschweigend Konfliktmarkierungen in Ihre nächste base einbacken kann.
+
+### baseline {#baseline}
+
+```bash
+agent-native template baseline [app] [--ref <ref>] [--template <name>]
+```
+
+Legt eine Baseline für eine App an, die älter ist als die Scaffold-Herkunft. Geben Sie `--ref` an, wenn Sie wissen, aus welcher Version die App tatsächlich stammt; je näher das an der Wahrheit liegt, desto weniger Phantomkonflikte erzeugt die erste Synchronisierung.
+
+## Was nie zusammengeführt wird {#what-is-never-merged}
+
+Manche Dateien gehören per Definition Ihnen, und manche lassen sich nicht sinnvoll zusammenführen:
+
+- Geheimnisse und lokale Konfiguration: `.env`, `.env.local`
+- Lockfiles: `pnpm-lock.yaml`
+- Generierte Ausgabe: `node_modules`, `.output`, `.react-router`, `dist`, `build`
+- App-eigene Inhalte: `learnings.md`, ausstehende Einträge unter `changelog/`
+
+Binärdateien werden nie mit Markern zusammengeführt. Haben beide Seiten eine geändert, wird Ihre Kopie behalten und die Datei zur manuellen Bearbeitung gemeldet. Symlinks werden gemeldet statt überschrieben.
+
+## Änderungen zurückgeben {#contributing-changes-back}
+
+Synchronisierung ist absichtlich einseitig: Der Upstream ist die Quelle der Wahrheit für Vorlageninhalte, und die Transformationen, die `create` anwendet, sind nicht perfekt umkehrbar. `{{APP_NAME}}` aus einem konkreten App-Namen zurückzugewinnen ist eine Vermutung, und Dateien, die `create` vollständig neu geschrieben hat – `package.json`, `netlify.toml`, `app/root.tsx`, `server/plugins/auth.ts` – haben überhaupt keine originalgetreue Umkehrung.
+
+Wenn Sie innerhalb des Framework-Monorepos arbeiten und eine app-seitige Verbesserung zurück in eine Vorlage einbringen möchten, führt das Skript `contribute:template` den umgekehrten Durchlauf mit diesen Einschränkungen explizit gemacht durch:
+
+```bash
+pnpm contribute:template --app <path-to-app> --dry-run
+```
+
+Es vergleicht Ihre App mit ihrer Baseline, sodass nur Ihre eigenen Änderungen als Kandidaten infrage kommen, kehrt die Platzhalter-Substitution nur bei diesen Dateien um, führt sie per Drei-Wege-Zusammenführung als nicht gestagte Änderungen auf dem aktuellen Branch in `templates/<name>/` ein und gibt alles aus, was es nicht anfassen wollte, damit Sie die Absicht von Hand übertragen können.
+
+## Verhältnis zu anderen Befehlen {#relationship-to-other-commands}
+
+| Befehl                       | Bewegt                                                               |
+| ---------------------------- | -------------------------------------------------------------------- |
+| `agent-native upgrade`       | `@agent-native/*`-Paketversionen, Importe, skills-Verzeichnisse      |
+| `agent-native template sync` | Dateien, die zum Scaffold-Zeitpunkt aus einer Vorlage kopiert wurden |
+| `agent-native eject`         | eine Framework-Komponente in app-eigenen Quellcode, mit Herkunft     |
+
+`upgrade` und `template sync` ergänzen sich und können gefahrlos zusammen ausgeführt werden. `eject` ist der entgegengesetzte Schritt – er übernimmt absichtlich die Eigentümerschaft an einer Datei, und ausgeworfene Dateien werden separat in `agent-native.ejections.json` erfasst.

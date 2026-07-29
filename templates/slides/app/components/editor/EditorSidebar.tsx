@@ -28,7 +28,10 @@ import { toast } from "sonner";
 
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import { GoogleDocImportHint } from "@/components/editor/GoogleDocImportHint";
-import type { UploadedFile } from "@/components/editor/PromptDialog";
+import {
+  isInsidePortaledLayer,
+  type UploadedFile,
+} from "@/components/editor/PromptDialog";
 import {
   Tooltip,
   TooltipContent,
@@ -36,6 +39,7 @@ import {
 } from "@/components/ui/tooltip";
 import type { Slide } from "@/context/DeckContext";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
+import { addSlideAgentMessage } from "@/lib/agent-visible-message";
 import type { AspectRatio } from "@/lib/aspect-ratios";
 
 interface EditorSidebarProps {
@@ -365,6 +369,7 @@ function AddSlidePopover({
   useEffect(() => {
     if (!open) return;
     const handleClick = (e: MouseEvent) => {
+      if (isInsidePortaledLayer(e.target)) return;
       if (
         panelRef.current &&
         !panelRef.current.contains(e.target as Node) &&
@@ -413,17 +418,15 @@ function AddSlidePopover({
       }
 
       const trimmedText = text.trim();
-      const description = [trimmedText || "a new slide", googleDocContext]
-        .filter(Boolean)
-        .join("\n\n");
-      const sourceForContext = truncateSourceForContext(description);
+      const googleDocSourceForContext =
+        truncateSourceForContext(googleDocContext);
       const fileContext = describeUploadedFilesForAgent(uploaded, deckId);
       const context = [
         `Add a new slide to deck "${deckTitle}" (id: ${deckId}).`,
         `Insert after slide ${activeSlideIndex + 1} of ${slideCount} (active slide id: ${activeSlideId}).`,
-        "The text below is the user's request and/or pasted source material for the new slide(s). Treat pasted memo content as source material even if the user did not explicitly say they are pasting it.",
-        `User request / source material:\n${sourceForContext.text}`,
-        sourceForContext.truncated
+        "The visible user message above contains the user's request and/or pasted source material for the new slide(s). Treat pasted memo content as source material even if the user did not explicitly say they are pasting it.",
+        googleDocSourceForContext.text,
+        googleDocSourceForContext.truncated
           ? `The pasted source was longer than ${MAX_SOURCE_CONTEXT_CHARS} characters, so only the first ${MAX_SOURCE_CONTEXT_CHARS} characters were included to keep the agent request reliable.`
           : "",
         fileContext,
@@ -438,10 +441,7 @@ function AddSlidePopover({
         "For larger requests, keep adding slides sequentially: wait for each add-slide result, then call add-slide for the next slide. Start slide 1 immediately; do not wait to design the entire sequence before adding it.",
       ].join("\n");
 
-      agentSubmit(
-        `Add slide: ${summarizePromptForChat(trimmedText || "a new slide")}`,
-        context,
-      );
+      agentSubmit(addSlideAgentMessage(trimmedText), context);
       onOpenChange(false);
     },
     [
@@ -537,13 +537,6 @@ function AddSlidePopover({
     </div>,
     document.body,
   );
-}
-
-function summarizePromptForChat(prompt: string): string {
-  const singleLine = prompt.trim().replace(/\s+/g, " ");
-  if (!singleLine) return "a new slide";
-  if (singleLine.length <= 180) return singleLine;
-  return `${singleLine.slice(0, 177)}...`;
 }
 
 export default function EditorSidebar({

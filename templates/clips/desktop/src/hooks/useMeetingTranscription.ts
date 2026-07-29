@@ -830,13 +830,19 @@ export function useMeetingTranscription({
     );
 
     unlistens.push(
-      listen<{ meetingId: string; openChat?: boolean }>(
+      listen<{ meetingId: string; openChat?: boolean; prompt?: string }>(
         "clips:open-meeting",
         (ev) => {
           if (!ev.payload?.meetingId) return;
-          const query = ev.payload.openChat ? "?chat=1" : "";
+          const params = new URLSearchParams();
+          if (ev.payload.openChat) params.set("chat", "1");
+          const prompt = ev.payload.prompt?.trim();
+          if (prompt) params.set("ask", prompt);
+          const query = params.toString();
           openExternal(
-            `${normalizedServerUrl}/meetings/${ev.payload.meetingId}${query}`,
+            `${normalizedServerUrl}/meetings/${ev.payload.meetingId}${
+              query ? `?${query}` : ""
+            }`,
           ).catch((err) =>
             console.warn("[clips-popover] open meeting in web failed:", err),
           );

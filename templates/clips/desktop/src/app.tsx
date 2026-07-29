@@ -63,6 +63,7 @@ import {
   getCameraStreamWithFallback,
   isMediaConstraintFailure,
 } from "./lib/media-capture-constraints";
+import { sendNativeNotification } from "./lib/native-notification";
 import { openMeetingJoinUrl } from "./lib/open-meeting-join-url";
 import {
   DESKTOP_CAPTURE_PERMISSION_MESSAGE,
@@ -88,6 +89,10 @@ import {
   type RecorderHandle,
   type RecorderStopResult,
 } from "./lib/recorder";
+import {
+  copyRecordingShareLink,
+  recordingShareUrl,
+} from "./lib/recording-link";
 import { REWIND_AGENT_PROMPT } from "./lib/rewind-agent-prompt";
 import { getRewindStatusPresentation } from "./lib/rewind-status";
 import {
@@ -206,6 +211,12 @@ interface DueRewindAgentHandoff {
 interface LocalRecordingNotice {
   folderPath?: string;
   files: LocalExportedFile[];
+}
+
+interface ShareLinkNotice {
+  recordingId: string;
+  origin: string;
+  url: string;
 }
 
 interface ScreenMemoryExportResult {
@@ -907,6 +918,8 @@ export function App() {
   );
   const [localRecordingNotice, setLocalRecordingNotice] =
     useState<LocalRecordingNotice | null>(null);
+  const [shareLinkNotice, setShareLinkNotice] =
+    useState<ShareLinkNotice | null>(null);
   const [popoverView, setPopoverView] = useState<PopoverView>("recorder");
   const [rewindSettingsReturnView, setRewindSettingsReturnView] = useState<
     "recorder" | "settings"
@@ -2565,6 +2578,34 @@ export function App() {
     });
   }
 
+  // Never rejects: a clipboard failure must not be mistaken for a failed
+  // recording by the stop/retry callers that await this inside their try block.
+  async function copyShareLink(
+    recordingId: string,
+    origin = serverUrl,
+    { notify = true }: { notify?: boolean } = {},
+  ) {
+    try {
+      const url = recordingShareUrl(recordingId, origin);
+      const copied = await copyRecordingShareLink(recordingId, origin);
+      if (copied) {
+        setShareLinkNotice(null);
+        if (notify) {
+          await sendNativeNotification({
+            title: "Link copied",
+            body: "Your clip link is ready to paste.",
+          });
+        }
+      } else {
+        setShareLinkNotice({ recordingId, origin, url });
+      }
+      return copied;
+    } catch (err) {
+      console.error("[clips-tray] copy share link failed:", err);
+      return false;
+    }
+  }
+
   async function retryPendingUpload(upload: PendingDesktopUpload) {
     if (retryingUploadId || exportingUploadId || dismissingUploadId) return;
     const targetServerUrl = serverUrlForPendingUpload(upload, serverUrl);
@@ -2598,6 +2639,7 @@ export function App() {
         });
       }
       await loadPendingUploads();
+      await copyShareLink(upload.recordingId, targetServerUrl);
       await openExternal(`${targetServerUrl}/r/${upload.recordingId}`);
       getCurrentWindow()
         .hide()
@@ -2737,6 +2779,7 @@ export function App() {
     }
     setRecError(null);
     setLocalRecordingNotice(null);
+    setShareLinkNotice(null);
     console.log("[clips-popover] handleStartRecording clicked", {
       serverUrl,
       mode,
@@ -3101,6 +3144,10 @@ export function App() {
             });
           } else {
             setLastRecordingId(stopResult.recordingId);
+            // The browser opens `/r/<id>` (the author's dashboard); what lands
+            // on the clipboard must be the public `/share/<id>` link, which is
+            // the one a recipient can actually open.
+            await copyShareLink(stopResult.recordingId);
           }
         } catch (err) {
           stopFailed = true;
@@ -3636,6 +3683,20 @@ export function App() {
                 console.error("[clips-tray] open local folder failed:", err);
               });
             }}
+          />
+        ) : null}
+
+        {shareLinkNotice ? (
+          <ShareLinkBanner
+            notice={shareLinkNotice}
+            onCopy={() => {
+              void copyShareLink(
+                shareLinkNotice.recordingId,
+                shareLinkNotice.origin,
+                { notify: false },
+              );
+            }}
+            onDismiss={() => setShareLinkNotice(null)}
           />
         ) : null}
 
@@ -4226,6 +4287,31 @@ function LocalRecordingSavedBanner({
           Open folder
         </button>
       ) : null}
+      <button type="button" className="local-save-dismiss" onClick={onDismiss}>
+        Dismiss
+      </button>
+    </div>
+  );
+}
+
+function ShareLinkBanner({
+  notice,
+  onCopy,
+  onDismiss,
+}: {
+  notice: ShareLinkNotice;
+  onCopy: () => void;
+  onDismiss: () => void;
+}) {
+  return (
+    <div className="share-link-banner">
+      <div className="local-save-copy">
+        <div className="local-save-title">Share link ready</div>
+        <div className="local-save-sub">{notice.url}</div>
+      </div>
+      <button type="button" onClick={onCopy}>
+        Copy
+      </button>
       <button type="button" className="local-save-dismiss" onClick={onDismiss}>
         Dismiss
       </button>

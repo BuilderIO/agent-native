@@ -1,5 +1,87 @@
 # @agent-native/toolkit
 
+## 0.10.12
+
+### Patch Changes
+
+- 279e855: Default MCP connections to personal OAuth, keep personal MCP setup available to organization members, hide unusable organization controls, and honor app preset filters in ejected UIs.
+
+## 0.10.11
+
+### Patch Changes
+
+- 0aada94: Allow the new chat control to fill the available history rail space.
+- 0aada94: Show relative cost per model in the composer's model picker. Each row now
+  carries a quiet `$`/`$$`/`$$$` suffix so a user can tell an entry model from a
+  flagship one before selecting it, rather than discovering the difference in
+  their bill. The tier reuses the token list the picker already sorts by
+  (`MODEL_COST_ORDER`) and reflects each provider's own entry/mid/flagship ladder
+  — it is not a cross-provider price claim. Models outside that list render with
+  no label at all; a guessed tier would read as fact.
+
+## 0.10.10
+
+### Patch Changes
+
+- 16a9d1a: Keep editor block drag previews aligned with the point where the block was grabbed, then clear incidental selection and focus after a successful drop.
+
+## 0.10.9
+
+### Patch Changes
+
+- cbc6936: Show only the connect actions in the composer model picker when no LLM provider is configured, instead of a list of unpickable "needs API key" models, and surface Builder connect failures instead of leaving the "Connect Builder.io" button looking dead when the popup is blocked.
+
+## 0.10.8
+
+### Patch Changes
+
+- 14818b6: Allow the first local edit in a newly synced empty collaborative document to reach the host application's canonical save path.
+
+## 0.10.7
+
+### Patch Changes
+
+- 52cce19: Stop the agent composer from locking into a silently dead state. An
+  engine-readiness check that timed out or failed is now kept distinct from a
+  confirmed "no provider configured": it leaves the composer usable instead of
+  disabling it, and retries on a backoff instead of latching until reload. The
+  2.5s client budget that a single warm-server status probe routinely lost is
+  now a 15s abort ceiling rather than a deadline the probes race. A composer is
+  only ever disabled when the "Connect AI" affordance renders alongside it.
+
+## 0.10.6
+
+### Patch Changes
+
+- 8afb252: Allow newly created empty collaborative editors to persist their first real user edit after the shared document finishes loading.
+
+## 0.10.5
+
+### Patch Changes
+
+- 0e2c19d: Use borderless accent styling for shared secondary controls and organization pickers.
+- 0e2c19d: Align shared chat history rails with left-aligned New Chat controls and animate chat-list expansion using intrinsic sizing.
+- 0e2c19d: Expose a shared command-menu open event and sidebar footer action composition primitive.
+
+## 0.10.4
+
+### Patch Changes
+
+- 4b734be: Give `SharedRichEditor` Notion-style block grips by default and keep the caret
+  inside blocks created through the shared slash-command menu.
+
+## 0.10.3
+
+### Patch Changes
+
+- 180b41d: Preserve native pointer, keyboard, accessibility, and ref props when legacy Toolkit buttons are composed as menu triggers.
+
+## 0.10.2
+
+### Patch Changes
+
+- 2254362: Center full-page empty chat surfaces consistently and quiet the shared chat history rail.
+
 ## 0.10.1
 
 ### Patch Changes

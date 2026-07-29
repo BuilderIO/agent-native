@@ -92,7 +92,7 @@ export function getThemeVars(_isDark?: boolean): string {
   --muted-foreground: 240 5% 64.9%;
   --accent: 240 3.7% 15.9%;
   --accent-foreground: 0 0% 98%;
-  --destructive: 0 84% 60%;
+  --destructive: 0 91% 71%;
   --destructive-foreground: 0 0% 98%;
   --border: 240 3.7% 15.9%;
   --input: 240 3.7% 15.9%;

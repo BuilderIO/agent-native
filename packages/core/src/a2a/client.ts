@@ -1,6 +1,50 @@
 import * as jose from "jose";
 
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
+
+/**
+ * A workspace serves every app from one gateway on loopback, so sibling A2A
+ * targets are private addresses by construction and the SSRF guard cannot tell
+ * them apart from an attack. Trust only origins this deployment configured for
+ * itself — never a value that arrived on a request.
+ */
+function workspacePrivateOrigins(): string[] {
+  const origins = [
+    process.env.WORKSPACE_GATEWAY_URL,
+    process.env.APP_URL,
+    process.env.BETTER_AUTH_URL,
+    // Escape hatch for contexts that never receive the gateway manifest (the
+    // action CLI, one-off scripts). Comma-separated origins.
+    ...(process.env.AGENT_NATIVE_A2A_ALLOWED_ORIGINS ?? "").split(","),
+  ]
+    .map((value) => value?.trim())
+    .filter((value): value is string => !!value);
+
+  // The gateway also hands each child the sibling manifest, and siblings are
+  // reached on their own loopback ports rather than through the gateway.
+  const raw = process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON;
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw);
+      const apps = Array.isArray(parsed?.apps)
+        ? parsed.apps
+        : Array.isArray(parsed)
+          ? parsed
+          : [];
+      for (const app of apps) {
+        const url = app?.url ?? app?.origin ?? app?.baseUrl;
+        if (typeof url === "string" && url) origins.push(url);
+        const port = app?.port;
+        if (typeof port === "number" && Number.isFinite(port)) {
+          origins.push(`http://127.0.0.1:${port}`);
+        }
+      }
+    } catch {
+      // A malformed manifest must not disable the SSRF guard.
+    }
+  }
+  return origins;
+}
 import { sanitizeA2ACorrelationMetadata } from "./correlation.js";
 import type {
   A2AApprovedAction,
@@ -138,7 +182,7 @@ export class A2AClient {
         const res = await ssrfSafeFetch(
           endpoint,
           { method: "OPTIONS" },
-          { maxRedirects: 3 },
+          { maxRedirects: 3, allowedPrivateOrigins: workspacePrivateOrigins() },
         );
         if (res.status !== 404 && res.status !== 405) {
           this.endpointCandidates = [endpoint];
@@ -233,11 +277,27 @@ export class A2AClient {
     throw lastError ?? new Error("No A2A endpoint candidates available");
   }
 
-  async getAgentCard(): Promise<AgentCard> {
+  async getAgentCard(options?: {
+    timeoutMs?: number;
+    /**
+     * Identity token for the card fetch. The anonymous card can only advertise
+     * publicly-safe actions, which is a disjoint set from what `actions/invoke`
+     * runs — so a sibling that discovers anonymously is told there is nothing
+     * callable. Pass a token to see the invocable set.
+     */
+    token?: string;
+  }): Promise<AgentCard> {
     const res = await ssrfSafeFetch(
       `${this.baseUrl}/.well-known/agent-card.json`,
-      {},
-      { maxRedirects: 3 },
+      {
+        ...(options?.timeoutMs
+          ? { signal: AbortSignal.timeout(options.timeoutMs) }
+          : {}),
+        ...(options?.token
+          ? { headers: { Authorization: `Bearer ${options.token}` } }
+          : {}),
+      },
+      { maxRedirects: 3, allowedPrivateOrigins: workspacePrivateOrigins() },
     );
     if (!res.ok) {
       throw new Error(`Failed to fetch agent card (${res.status})`);
@@ -548,7 +608,7 @@ export class A2AClient {
           body: JSON.stringify(body),
           signal: controller?.signal,
         },
-        { maxRedirects: 3 },
+        { maxRedirects: 3, allowedPrivateOrigins: workspacePrivateOrigins() },
       );
     } finally {
       if (timer) clearTimeout(timer);
@@ -647,6 +707,10 @@ export async function callAgent(
   text: string,
   opts?: {
     apiKey?: string;
+    /** Additional bearer tokens to try in order after apiKey during rotation. */
+    apiKeyFallbacks?: string[];
+    /** Additional transport metadata. Receivers must not use it as identity. */
+    metadata?: Record<string, unknown>;
     contextId?: string;
     userEmail?: string;
     orgDomain?: string;
@@ -694,7 +758,7 @@ export async function callAgent(
     onUpdate?: (task: Task) => void;
   },
 ): Promise<string> {
-  const metadata: Record<string, unknown> = {};
+  const metadata: Record<string, unknown> = { ...opts?.metadata };
   if (opts?.userEmail) metadata.userEmail = opts.userEmail;
   if (opts?.orgDomain) metadata.orgDomain = opts.orgDomain;
   if (opts?.requestOrigin) metadata.requestOrigin = opts.requestOrigin;
@@ -829,6 +893,7 @@ export async function callAction(
 async function buildA2AApiKeyAttempts(
   opts?: {
     apiKey?: string;
+    apiKeyFallbacks?: string[];
     userEmail?: string;
     orgDomain?: string;
     orgSecret?: string;
@@ -842,6 +907,7 @@ async function buildA2AApiKeyAttempts(
   };
 
   add(opts?.apiKey);
+  for (const fallback of opts?.apiKeyFallbacks ?? []) add(fallback);
 
   if (opts?.userEmail && (opts.orgSecret || process.env.A2A_SECRET)) {
     if (process.env.A2A_SECRET?.trim()) {
@@ -877,7 +943,16 @@ async function buildA2AApiKeyAttempts(
 
 function normalizeA2AAudience(url: string): string {
   const explicit = splitExplicitA2AEndpoint(url.replace(/\/$/, ""));
-  return (explicit?.baseUrl ?? url).replace(/\/$/, "");
+  const base = (explicit?.baseUrl ?? url).replace(/\/$/, "");
+  // Receivers derive their expected audience from APP_URL, which carries no
+  // app path. In a workspace every app is mounted under one gateway origin, so
+  // signing the path-qualified URL yields an audience the receiver can never
+  // match. The origin is the identifier both sides agree on.
+  try {
+    return new URL(base).origin;
+  } catch {
+    return base;
+  }
 }
 
 function isA2AAuthRejection(err: unknown): boolean {

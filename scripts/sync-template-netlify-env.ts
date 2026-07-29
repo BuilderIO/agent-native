@@ -67,6 +67,7 @@ const DEFAULT_SCOPES = ["builds", "functions", "runtime"];
 const DEFAULT_CONTEXT = "production";
 const DEFAULT_HOSTED_TEMPLATE_ENV = new Map([
   ["GA_MEASUREMENT_ID", "G-ESF7FYXGN9"],
+  ["GTM_CONTAINER_ID", "GTM-N3WSTXZ"],
   [
     "VITE_AGENT_NATIVE_FEEDBACK_URL",
     "https://forms.agent-native.com/f/agent-native-feedback/_16ewV",
@@ -90,6 +91,7 @@ const HOSTED_TEMPLATE_ENV_ALLOWLIST_EXACT = new Set([
   "ENABLE_BUILDER",
   "GA4_PROPERTY_ID",
   "GA_MEASUREMENT_ID",
+  "GTM_CONTAINER_ID",
   "GOOGLE_CLIENT_ID",
   "GOOGLE_CLIENT_SECRET",
   "GOOGLE_LEGACY_CLIENT_ID",
@@ -139,6 +141,7 @@ const PUBLIC_KEY_EXACT = new Set([
   "ENABLE_BUILDER",
   "GA4_PROPERTY_ID",
   "GA_MEASUREMENT_ID",
+  "GTM_CONTAINER_ID",
   "GOOGLE_CLIENT_ID",
   "GOOGLE_PICKER_API_KEY",
   "GOOGLE_SIGN_IN_CLIENT_ID",
@@ -177,8 +180,9 @@ Options:
   --scope <scope>         Scope to set. Can be repeated. Defaults to ${DEFAULT_SCOPES.join(",")}.
   --source <file>         Env file inside each template. Can be repeated.
                            Defaults to ${DEFAULT_SOURCES.join(", ")}.
-                           GA_MEASUREMENT_ID defaults to the hosted Agent-Native
-                           GA4 property unless an env source overrides it.
+                           GA_MEASUREMENT_ID and GTM_CONTAINER_ID default to the
+                           hosted Agent-Native analytics configuration unless an
+                           env source overrides them.
   --help                  Show this help.
 
 Known templates:

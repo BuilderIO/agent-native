@@ -9,6 +9,18 @@ import { TooltipProvider } from "./ui/tooltip";
 
 const clientState = vi.hoisted(() => ({
   navigateWithTransition: vi.fn(),
+  promptComposerProps: null as Record<string, unknown> | null,
+  useChatModels: vi.fn(() => ({
+    availableModels: [],
+    defaultModel: "auto",
+    selectedModel: "auto",
+    selectedEngine: "",
+    selectedEffort: "medium" as const,
+    isLoading: false,
+    onModelChange: vi.fn(),
+    onEffortChange: vi.fn(),
+    refreshEngines: vi.fn(),
+  })),
 }));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
@@ -17,25 +29,24 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
     path: string,
     options?: unknown,
   ) => clientState.navigateWithTransition(navigate, path, options),
-  useChatModels: () => ({ selectedModel: "auto" }),
+  useChatModels: clientState.useChatModels,
 }));
 
 vi.mock("@agent-native/core/client/composer", () => ({
-  PromptComposer: ({
-    onSubmit,
-    placeholder,
-  }: {
-    onSubmit: (value: string) => void;
-    placeholder: string;
-  }) => (
-    <button
-      type="button"
-      data-placeholder={placeholder}
-      onClick={() => onSubmit("Route onboarding work")}
-    >
-      Composer
-    </button>
-  ),
+  PromptComposer: (props: Record<string, unknown>) => {
+    clientState.promptComposerProps = props;
+    const onSubmit = props.onSubmit as (value: string) => void;
+    const placeholder = props.placeholder as string;
+    return (
+      <button
+        type="button"
+        data-placeholder={placeholder}
+        onClick={() => onSubmit("Route onboarding work")}
+      >
+        Composer
+      </button>
+    );
+  },
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -67,6 +78,8 @@ describe("DispatchControlPlane", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     clientState.navigateWithTransition.mockReset();
+    clientState.promptComposerProps = null;
+    clientState.useChatModels.mockClear();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -97,6 +110,16 @@ describe("DispatchControlPlane", () => {
     expect(
       container.querySelector('[data-placeholder="Ask Dispatch anything..."]'),
     ).not.toBeNull();
+    expect(clientState.useChatModels).toHaveBeenCalledWith({
+      storageKey: "dispatch",
+    });
+    expect(clientState.promptComposerProps).toMatchObject({
+      availableModels: [],
+      modelListLoading: false,
+      selectedEffort: "medium",
+      selectedEngine: "",
+      selectedModel: "auto",
+    });
 
     await act(async () => {
       container.querySelector<HTMLButtonElement>("[data-placeholder]")?.click();
@@ -110,6 +133,8 @@ describe("DispatchControlPlane", () => {
           dispatchPrompt: expect.objectContaining({
             message: "Route onboarding work",
             selectedModel: "auto",
+            selectedEngine: "",
+            selectedEffort: "medium",
           }),
         },
       }),

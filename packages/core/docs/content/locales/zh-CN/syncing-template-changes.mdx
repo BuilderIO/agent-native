@@ -1,0 +1,161 @@
+---
+title: "同步模板更改"
+description: "agent-native template 使用针对纯净基线的、真正逐文件的三方合并，将稍后上游第一方模板中的更改拉取到从模板生成的应用中。"
+---
+
+# 同步模板更改
+
+`agent-native create` 将第一方模板复制到您的应用中，然后使其成为您自己的——替换应用名称、重命名 `_gitignore`、重写 `package.json`、将 `workspace:*` 和 `catalog:` 依赖固定为具体版本，并且（在工作区中）替换继承的身份验证和聊天插件。从那一刻起，该应用就是一个从模板创建的独立 app。上游模板中落地的修复和改进不会到达它。
+
+`agent-native upgrade` 不会弥合这一差距。它移动包版本、运行导入代码迁移（codemods），并刷新 skill 目录——它从不接触从模板中复制出来的文件。
+
+`agent-native template` 是缺失的另一半。它以更新的版本重新获取模板，重新应用 `create` 所应用的确切转换，并将结果逐文件合并到您的应用中。
+
+社区模板有意不包含在此同步流程中。`agent-native.communityTemplate` 元数据只记录安装来源；`agent-native template sync` 不会从该仓库拉取更改。需要稳定起点时请安装固定版本，后续上游更改应在审查后手动移植。
+
+## 快速开始 {#quick-start}
+
+```bash
+agent-native upgrade
+agent-native template sync
+```
+
+`sync` 默认使用与您安装的 `@agent-native/core` 相匹配的模板版本，因此在 `upgrade` 之后运行它可以使代码和包保持在同一版本。
+
+合并之前先查看：
+
+```bash
+agent-native template status
+agent-native template diff
+```
+
+## 合并的工作原理 {#how-the-merge-works}
+
+一次有用的合并需要三棵树，而不是两棵：
+
+- **base（基础）** — 应用生成时那个未经改动的原始模板。
+- **theirs（对方）** — 您要同步到的版本的同一模板，经过相同的转换流水线处理。
+- **ours（我方）** — 您现在这个样子的应用。
+
+有了这些，每个文件都会落入一个明确的情形：上游没有改动它，所以保持不变；您从未改动过它，所以快进（fast-forward）；双方都改动了它，所以会加上冲突标记。不会仅仅因为存在差异就被覆盖。
+
+没有 base，"sync" 就只能意味着覆盖，这会悄无声息地丢弃您的工作，或者撤销上游的改动。
+
+## 基线 {#the-baseline}
+
+base 树以 git ref 的形式存储在您自己的仓库中：
+
+```txt
+refs/agent-native/template-baseline/apps/slides
+```
+
+它是使用 git plumbing 针对一个一次性的 index 文件写入的。您的 `HEAD`、分支、index 和工作树从不会被触碰——在编辑过程中运行 `template baseline` 是安全的，`git status` 在前后读起来完全一致。
+
+在首次写入时，`refs/agent-native/*` 的 fetch 和 push refspec 会被添加到您的远程仓库，以便基线在克隆后依然存在。如果应用不在 git 仓库中，基线会回退为 `.agent-native/` 下的一个 tarball。
+
+在溯源信息出现之前生成的应用没有基线。创建一个，然后同步：
+
+```bash
+agent-native template baseline
+agent-native template sync
+```
+
+## 溯源信息 {#provenance}
+
+`create` 会将后续合并所需的信息记录在应用的 `package.json` 中：
+
+```json
+{
+  "agent-native": {
+    "scaffold": {
+      "template": "slides",
+      "frameworkSkills": "default",
+      "templateRef": "@agent-native/core@0.120.3",
+      "templateSource": "github",
+      "coreVersion": "0.120.3",
+      "shape": "workspace"
+    }
+  }
+}
+```
+
+`templateRef` 是模板实际获取自的不可变标签，这正是使 base 可复现的原因。`shape` 决定在具体化（materialization）期间是否重放工作区转换。
+
+## 命令 {#commands}
+
+### status {#status}
+
+```bash
+agent-native template status [app]
+```
+
+报告已记录的 ref、可用的最新 ref、基线是否存在、上游更改了多少文件，以及您在本地修改了多少文件。
+
+### diff {#diff}
+
+```bash
+agent-native template diff [app] [--to <ref>]
+```
+
+一个只读的统一差异（unified diff），显示您的基线和目标之间上游发生了什么变化。不写入任何内容。
+
+### sync {#sync}
+
+```bash
+agent-native template sync [app] [--to <ref>] [--dry-run] [--force]
+```
+
+执行合并。`--to` 默认使用与已安装 core 相匹配的 ref。`--dry-run` 打印计划而不写入。
+
+当应用目录存在未提交的更改时，`sync` 会拒绝运行，因此一次糟糕的合并总是可以通过 `git checkout` 恢复。`--force` 会覆盖这一点；建议优先先提交。
+
+当合并干净时，基线会自动前进。当存在冲突时，它刻意不会前进——参见 `accept`。
+
+### accept {#accept}
+
+```bash
+agent-native template accept [app]
+```
+
+在您解决冲突标记后推进基线。只要还残留任何 `<<<<<<<`，它就会拒绝执行，因此基线永远不会越过一次未解决的合并，把冲突标记悄悄烘焙进您的下一个 base 中。
+
+### baseline {#baseline}
+
+```bash
+agent-native template baseline [app] [--ref <ref>] [--template <name>]
+```
+
+为一个早于 scaffold 溯源信息存在的应用记录基线。如果您知道该应用实际来自哪个版本，请传入 `--ref`；越接近真实情况，第一次 sync 产生的虚假冲突就越少。
+
+## 永远不会被合并的内容 {#what-is-never-merged}
+
+有些文件按定义就是您自己的，有些则无法进行有意义的合并：
+
+- 密钥和本地配置：`.env`、`.env.local`
+- 锁文件：`pnpm-lock.yaml`
+- 生成的输出：`node_modules`、`.output`、`.react-router`、`dist`、`build`
+- 应用自有内容：`learnings.md`、`changelog/` 下待处理的条目
+
+二进制文件永远不会进行标记式合并。如果双方都改动了同一个文件，会保留您的副本，并将该文件报告为需要手动处理。符号链接会被报告而不是被覆盖。
+
+## 将更改贡献回去 {#contributing-changes-back}
+
+同步在设计上是单向的：上游是模板内容的事实来源，而 `create` 应用的转换并非完全可逆。从一个具体的应用名称还原出 `{{APP_NAME}}` 只是一种猜测，而 `create` 整体重写过的文件——`package.json`、`netlify.toml`、`app/root.tsx`、`server/plugins/auth.ts`——根本没有可靠的逆变换。
+
+如果您在框架 monorepo 内工作，并希望将应用端的改进推回模板，`contribute:template` 脚本会执行反向处理，并明确说明这些限制：
+
+```bash
+pnpm contribute:template --app <path-to-app> --dry-run
+```
+
+它将您的应用与其基线进行差异比较，因此只有您自己的更改才会成为候选；仅在这些文件上反转占位符替换；将它们作为当前分支上的未暂存编辑，三方合并到 `templates/<name>/` 中；并打印出它拒绝触碰的一切，以便您可以手动移植其中的意图。
+
+## 与其他命令的关系 {#relationship-to-other-commands}
+
+| 命令                         | 移动内容                                       |
+| ---------------------------- | ---------------------------------------------- |
+| `agent-native upgrade`       | `@agent-native/*` 包版本、导入、skill 目录     |
+| `agent-native template sync` | 在 scaffold 时从模板复制出的文件               |
+| `agent-native eject`         | 将一个框架组件连同溯源信息一起转入应用自有源码 |
+
+`upgrade` 和 `template sync` 是互补的，可以安全地一起运行。`eject` 是相反的动作——它是刻意接管某个文件的所有权，被 eject 的文件会在 `agent-native.ejections.json` 中单独跟踪。

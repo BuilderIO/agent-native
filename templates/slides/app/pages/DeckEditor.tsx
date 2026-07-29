@@ -62,6 +62,7 @@ import {
 } from "@/hooks/use-slide-comments";
 import type { AspectRatio } from "@/lib/aspect-ratios";
 import { getPreset } from "@/lib/design-systems";
+import { exportDeckToGoogleSlides } from "@/lib/export-google-slides-client";
 import { exportDeckAsPdf } from "@/lib/export-pdf-client";
 import { exportDeckAsPptx } from "@/lib/export-pptx-client";
 import {
@@ -196,6 +197,7 @@ export default function DeckEditor() {
   const [tweaksOpen, setTweaksOpen] = useState(false);
   const [drawMode, setDrawMode] = useState(false);
   const [pinMode, setPinMode] = useState(false);
+  const [textBoxMode, setTextBoxMode] = useState(false);
   const [pendingComment, setPendingComment] = useState<{
     quotedText: string;
   } | null>(null);
@@ -816,6 +818,8 @@ export default function DeckEditor() {
         onToggleDrawMode={() => setDrawMode((v) => !v)}
         pinMode={pinMode}
         onTogglePinMode={() => setPinMode((v) => !v)}
+        textBoxMode={textBoxMode}
+        onToggleTextBoxMode={() => setTextBoxMode((v) => !v)}
         onDuplicateDeck={() => {
           const newId = `deck-${nanoid()}`;
           const optimistic = duplicateDeck(id, newId);
@@ -850,6 +854,16 @@ export default function DeckEditor() {
             throw new Error(t("deckEditor.deckHasNoSlides"));
           }
           await exportDeckAsPptx(deck.title, slides, deck.aspectRatio);
+        }}
+        onExportGoogleSlides={async () => {
+          const slides = deck.slides.map((s) => ({
+            id: s.id,
+            notes: s.notes,
+          }));
+          if (slides.length === 0) {
+            throw new Error(t("deckEditor.deckHasNoSlides"));
+          }
+          return exportDeckToGoogleSlides(deck.title, slides, deck.aspectRatio);
         }}
         aspectRatio={deck.aspectRatio}
         designSystemTitle={designSystemTitle}
@@ -992,6 +1006,8 @@ export default function DeckEditor() {
               onExitDrawMode={() => setDrawMode(false)}
               pinMode={pinMode}
               onExitPinMode={() => setPinMode(false)}
+              textBoxMode={textBoxMode}
+              onExitTextBoxMode={() => setTextBoxMode(false)}
               slideId={currentSlide.id}
               slideTitle={(() => {
                 const m = currentSlide.content?.match(

@@ -15,9 +15,6 @@ vi.mock("@agent-native/core", () => ({
       .filter((v) => typeof v === "string" && v.length > 0)
       .join(" "),
 }));
-vi.mock("@agent-native/core/client/extensions", () => ({
-  ExtensionsSidebarSection: () => null,
-}));
 vi.mock("@agent-native/core/client/api-path", () => ({
   appPath: (path: string) => path,
 }));
@@ -30,16 +27,44 @@ vi.mock("@agent-native/core/client/ui", () => ({
   FeedbackButton: () => null,
 }));
 
+vi.mock("@agent-native/core/client/navigation", () => ({
+  openCommandMenu: vi.fn(),
+}));
+
 vi.mock("@agent-native/core/client/i18n", () => ({
+  LanguagePicker: () => null,
   useT: () => (key: string) =>
     ({
       "navigation.brand": "Slides",
       "navigation.decks": "Decks",
       "navigation.designSystems": "Design Systems",
       "navigation.settings": "Settings",
+      "settings.agentTitle": "Manage agent",
+      "settings.languageLabel": "Language",
+      "sidebar.search": "Search",
       "sidebar.expandSidebar": "Expand sidebar",
       "sidebar.collapseSidebar": "Collapse sidebar",
     })[key] ?? key,
+}));
+vi.mock("@agent-native/toolkit/app-shell", () => ({
+  SidebarFooterActions: ({
+    feedback,
+    translate,
+    search,
+    collapse,
+  }: {
+    feedback?: ReactNode;
+    translate?: ReactNode;
+    search?: ReactNode;
+    collapse?: ReactNode;
+  }) => (
+    <div>
+      {feedback}
+      {translate}
+      {search}
+      {collapse}
+    </div>
+  ),
 }));
 vi.mock("@agent-native/core/client/org", () => ({
   OrgSwitcher: () => null,
@@ -77,6 +102,7 @@ describe("<Sidebar collapsed>", () => {
     expect(screen.queryByText("Decks")).toBeNull();
     expect(screen.queryByText("Design Systems")).toBeNull();
     expect(screen.queryByText("Settings")).toBeNull();
+    expect(screen.queryByText("Manage agent")).toBeNull();
 
     expect(screen.getByLabelText("Decks")).toBeDefined();
     expect(screen.getByLabelText("Design Systems")).toBeDefined();

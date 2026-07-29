@@ -3,6 +3,7 @@ import { callAction } from "@agent-native/core/client/hooks";
 import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
 import { TeamPage } from "@agent-native/core/client/org";
 import {
+  AccountSettingsCard,
   SettingsTabsPage,
   useAgentSettingsTabs,
   type SettingsSearchEntry,
@@ -197,6 +198,7 @@ export default function Settings() {
 
   return (
     <SettingsTabsPage
+      account={<AccountSettingsCard />}
       generalLabel={t("settings.general")}
       teamLabel={t("navigation.team")}
       extraTabs={agentSettingsTabs}

@@ -40,6 +40,7 @@ import {
   IconStack2,
   IconMessageChatbot,
   IconPencil,
+  IconAlertTriangle,
   IconLoader2,
 } from "@tabler/icons-react";
 import React, { useState, useEffect, useCallback, useRef } from "react";
@@ -73,6 +74,13 @@ import {
   MarkdownText,
   renderMarkdownToClipboardHtml,
 } from "./markdown-renderer.js";
+import { getAssistantRunDurationMs } from "./repo-helpers.js";
+import {
+  getRunErrorMetadata,
+  runErrorHeadline,
+  runErrorKey,
+  type RunErrorInfo,
+} from "./run-recovery.js";
 import {
   ToolCallFallback,
   ToolActivityPresentation,
@@ -80,6 +88,7 @@ import {
   ASSISTANT_VISIBLE_TOOL_CALL_LIMIT,
   ChatRunningContext,
   ChatRunDurationContext,
+  formatWorkedDuration,
   RanToolsSummary,
   ReasoningCell,
   WorkedForSummary,
@@ -283,11 +292,60 @@ export const CheckpointContext = React.createContext<{
   apiUrl: string;
   devMode: boolean;
   threadId?: string;
+  // Run ids that actually have a saved checkpoint. Restore is only offered for
+  // these — auto-checkpointing skips turns that started from a dirty tree or a
+  // non-git cwd, and without this the menu item appears on every turn and does
+  // nothing when clicked.
+  checkpointRunIds?: ReadonlySet<string>;
 } | null>(null);
 
 export const MessageActionsContext = React.createContext<{
   onForkChat?: () => void | boolean | Promise<void | boolean>;
+  onRetryRunError?: () => void;
+  /**
+   * Key of the run error the transient recovery banner is already showing. The
+   * turn that owns that run stays quiet so one failure is never announced
+   * twice; every other failed turn keeps its own inline marker.
+   */
+  bannerRunErrorKey?: string | null;
 } | null>(null);
+
+/**
+ * Restore rewrites the working tree, so only offer it when the server actually
+ * has a checkpoint for this turn. Auto-checkpointing skips turns that started
+ * from a dirty tree or a non-git cwd; gating on Code mode alone put a
+ * "Revert to here" item on turns where clicking it could do nothing.
+ */
+export function shouldOfferRestore(args: {
+  devMode: boolean | undefined;
+  isComplete: boolean;
+  isLast: boolean;
+  runId: string | undefined;
+  checkpointRunIds: ReadonlySet<string> | undefined;
+}): boolean {
+  return Boolean(
+    args.devMode &&
+    args.isComplete &&
+    !args.isLast &&
+    args.runId &&
+    args.checkpointRunIds?.has(args.runId),
+  );
+}
+
+/**
+ * Live yields put the run id at `metadata.custom.runId`; server-persisted
+ * messages put it at `metadata.runId`.
+ */
+export function assistantMessageRunId(message: unknown): string | undefined {
+  const metadata = (message as { metadata?: unknown })?.metadata as
+    | { custom?: { runId?: unknown }; runId?: unknown }
+    | undefined;
+  return typeof metadata?.custom?.runId === "string"
+    ? metadata.custom.runId
+    : typeof metadata?.runId === "string"
+      ? metadata.runId
+      : undefined;
+}
 
 // ─── MessageBranchPicker ──────────────────────────────────────────────────────
 
@@ -556,20 +614,12 @@ export function MessageActionsMenu({
 
   const handleCopyRequestId = useCallback(() => {
     const m = messageRuntime.getState();
-    const meta = m.metadata as
-      | {
-          custom?: { runId?: unknown };
-          runId?: unknown;
-        }
-      | undefined;
-    // Live yields put the trace ID at metadata.custom.runId; server-persisted
-    // messages put it at metadata.runId. If neither is present (e.g. the run
-    // is still in flight and this is the first message), fall back to the
-    // active-run state so a hung / mid-stream chat still surfaces a usable
-    // trace ID. Last resort is the assistant-ui local message id.
+    // If the message carries no run id (e.g. the run is still in flight and
+    // this is the first message), fall back to the active-run state so a hung /
+    // mid-stream chat still surfaces a usable trace ID. Last resort is the
+    // assistant-ui local message id.
     const runId =
-      (typeof meta?.custom?.runId === "string" && meta.custom.runId) ||
-      (typeof meta?.runId === "string" && meta.runId) ||
+      assistantMessageRunId(m) ||
       (typeof window !== "undefined" ? getActiveRun()?.runId : null) ||
       m.id ||
       "";
@@ -912,6 +962,7 @@ export function assistantMessageHasCompletedCustomUi(
       type?: unknown;
       result?: unknown;
       isError?: unknown;
+      outcome?: unknown;
       activity?: unknown;
       chatUI?: unknown;
       mcpApp?: unknown;
@@ -920,7 +971,8 @@ export function assistantMessageHasCompletedCustomUi(
       record.type !== "tool-call" ||
       record.activity === true ||
       record.result === undefined ||
-      record.isError === true
+      record.isError === true ||
+      record.outcome === "unknown"
     ) {
       continue;
     }
@@ -988,18 +1040,34 @@ export function shouldShowAssistantMessageFooter({
   return statusIsTerminal;
 }
 
+/**
+ * Server-authoritative "a run for this thread is still active and running".
+ * Local `chatRunning` dips to not-running at every chunk boundary and transport
+ * re-attach while the turn is alive server-side, so it cannot decide on its own
+ * that the agent stopped.
+ */
+export const ServerRunActiveContext = React.createContext(false);
+
 export function shouldShowMissingFinalResponse({
+  isCurrentTurnRunning,
+  serverRunActive,
   statusIsTerminal,
   hasAssistantText,
   hasUnresolvedTool,
   hasCompletedCustomUi,
 }: {
+  isCurrentTurnRunning: boolean;
+  serverRunActive?: boolean;
   statusIsTerminal: boolean;
   hasAssistantText: boolean;
   hasUnresolvedTool: boolean;
   hasCompletedCustomUi?: boolean;
 }): boolean {
+  if (serverRunActive) return false;
+  // A completed tool can make the latest message look terminal before the
+  // active turn attaches its follow-up text.
   return (
+    !isCurrentTurnRunning &&
     statusIsTerminal &&
     !hasAssistantText &&
     !hasUnresolvedTool &&
@@ -1007,18 +1075,46 @@ export function shouldShowMissingFinalResponse({
   );
 }
 
+/**
+ * "The agent stopped" is derived from local client state, which dips to
+ * not-running at every chunk boundary and transport re-attach while the turn is
+ * still alive server-side. Requiring the shape to hold for a beat keeps the
+ * notice off the screen for those gaps without hiding a real stop for long.
+ */
+const MISSING_FINAL_RESPONSE_SETTLE_MS = 3_000;
+
+export function useSettledFlag(active: boolean, delayMs: number): boolean {
+  const [settled, setSettled] = useState(false);
+  useEffect(() => {
+    if (!active || delayMs <= 0) {
+      setSettled(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setSettled(true), delayMs);
+    return () => window.clearTimeout(timer);
+  }, [active, delayMs]);
+  return active && (delayMs <= 0 || settled);
+}
+
 export function shouldShowAssistantWorkSummary({
   isLast,
   isComplete,
   hasCollapsibleWork,
   hasUnresolvedTool,
+  chatRunning,
 }: {
   isLast: boolean;
   isComplete: boolean;
   hasCollapsibleWork: boolean;
   hasUnresolvedTool: boolean;
+  chatRunning: boolean;
 }): boolean {
-  if (!hasCollapsibleWork || hasUnresolvedTool) return false;
+  if (!hasCollapsibleWork) return false;
+
+  // An unresolved tool means "still working" only while the turn is actually
+  // running. On a stalled or interrupted turn it used to hide the summary
+  // forever, so the longest turns showed no "Worked for Xm Ys" at all.
+  if (hasUnresolvedTool) return !(isLast && chatRunning);
 
   // Keep completed historical work wrapped while a later turn is running.
   // Removing the wrapper exposes/remounts ReasoningCell and resets its
@@ -1193,15 +1289,89 @@ function isAssistantToolSummaryPart(
     .some((candidate) => candidate.type === "tool-call");
 }
 
+export function shouldShowInlineRunError({
+  runError,
+  bannerRunErrorKey,
+}: {
+  runError: RunErrorInfo | null;
+  bannerRunErrorKey: string | null | undefined;
+}): boolean {
+  if (!runError) return false;
+  return runErrorKey(runError) !== bannerRunErrorKey;
+}
+
+export function InlineRunErrorNotice({
+  info,
+  durationMs,
+  onRetry,
+}: {
+  info: RunErrorInfo;
+  durationMs?: number | null;
+  onRetry?: (() => void) | undefined;
+}) {
+  const [open, setOpen] = useState(false);
+  const headline = runErrorHeadline(info);
+  const label =
+    durationMs != null && durationMs >= 1000
+      ? `${headline} after ${formatWorkedDuration(durationMs)}`
+      : headline;
+
+  return (
+    <div className="my-1 w-full">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex cursor-pointer items-center gap-1.5 py-0.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <IconAlertTriangle className="size-3.5 shrink-0 text-amber-500" />
+        <span className="truncate">{label}</span>
+        <IconChevronRight
+          className={cn(
+            "size-3.5 shrink-0 transition-transform",
+            open && "rotate-90",
+          )}
+        />
+      </button>
+      {open && (
+        <div className="mt-1 rounded-md border border-border/60 bg-background/70 p-2 text-[11px] leading-relaxed text-muted-foreground">
+          <p className="whitespace-pre-wrap break-words">{info.message}</p>
+          {info.errorCode && (
+            <div className="mt-1 font-mono">code: {info.errorCode}</div>
+          )}
+          {info.runId && <div className="font-mono">run: {info.runId}</div>}
+          {info.details && (
+            <pre className="mt-1 max-h-28 overflow-auto whitespace-pre-wrap break-words font-mono">
+              {info.details}
+            </pre>
+          )}
+          {onRetry && (
+            <button
+              type="button"
+              onClick={onRetry}
+              className="mt-2 inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-[11px] font-medium text-foreground hover:bg-accent"
+            >
+              <IconRefresh className="size-3" />
+              Retry
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function AssistantMessage() {
   const [restoreState, setRestoreState] = useState<
-    "idle" | "confirming" | "restoring"
+    "idle" | "confirming" | "restoring" | "error"
   >("idle");
+  const [restoreError, setRestoreError] = useState<string | null>(null);
   const messageRuntime = useMessageRuntime();
   const thread = useThread();
   const chatRunning = React.useContext(ChatRunningContext);
   const lastRunDurationMs = React.useContext(ChatRunDurationContext);
   const msg = messageRuntime.getState();
+  const persistedDurationMs = getAssistantRunDurationMs(msg);
   const timestamp = formatMessageTimestamp(msg.createdAt);
   const isLast =
     thread.messages.length > 0 &&
@@ -1214,12 +1384,24 @@ export function AssistantMessage() {
     msg.content,
   );
   const hasCustomUi = assistantMessageHasCustomUi(msg.content);
-  const showMissingFinalResponse = shouldShowMissingFinalResponse({
-    statusIsTerminal,
-    hasAssistantText: responseConnectionText.trim().length > 0,
-    hasUnresolvedTool,
-    hasCompletedCustomUi,
+  const serverRunActive = React.useContext(ServerRunActiveContext);
+  const messageRunError = getRunErrorMetadata(msg);
+  const messageActions = React.useContext(MessageActionsContext);
+  const showInlineRunError = shouldShowInlineRunError({
+    runError: messageRunError,
+    bannerRunErrorKey: messageActions?.bannerRunErrorKey,
   });
+  const showMissingFinalResponse = useSettledFlag(
+    shouldShowMissingFinalResponse({
+      isCurrentTurnRunning: isLast && chatRunning,
+      serverRunActive: isLast && serverRunActive,
+      statusIsTerminal,
+      hasAssistantText: responseConnectionText.trim().length > 0,
+      hasUnresolvedTool,
+      hasCompletedCustomUi,
+    }),
+    isLast ? MISSING_FINAL_RESPONSE_SETTLE_MS : 0,
+  );
   const responseConnectionContext = userMessageTextBeforeAssistant(
     thread.messages,
     msg.id,
@@ -1267,60 +1449,60 @@ export function AssistantMessage() {
     wasRunningRef.current = chatRunning && isLast;
   }, [chatRunning, isComplete, isLast]);
 
+  const messageRunId = assistantMessageRunId(msg);
+
   const handleRestore = useCallback(async () => {
-    if (restoreState === "idle") {
+    if (restoreState === "idle" || restoreState === "error") {
+      setRestoreError(null);
       setRestoreState("confirming");
       return;
     }
     if (restoreState !== "confirming" || !cpCtx) return;
+    if (!messageRunId) {
+      setRestoreError("This message has no run to restore to.");
+      setRestoreState("error");
+      return;
+    }
     setRestoreState("restoring");
     try {
-      const m = messageRuntime.getState();
-      const meta = m.metadata as
-        | { custom?: { runId?: unknown }; runId?: unknown }
-        | undefined;
-      const runId =
-        (typeof meta?.custom?.runId === "string" && meta.custom.runId) ||
-        (typeof meta?.runId === "string" && meta.runId) ||
-        null;
-      if (!runId) {
-        setRestoreState("idle");
-        return;
-      }
-      const tid = cpCtx.threadId || "";
-      const res = await fetch(
-        `${cpCtx.apiUrl}/checkpoints?threadId=${encodeURIComponent(tid)}`,
-      );
-      const checkpoints: unknown[] = res.ok ? await res.json() : [];
-      const checkpoint = checkpoints.find(
-        (cp) => (cp as { runId?: string }).runId === runId,
-      );
-      if (!checkpoint) {
-        setRestoreState("idle");
-        return;
-      }
       const restoreRes = await fetch(`${cpCtx.apiUrl}/checkpoints/restore`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          checkpointId: (checkpoint as { id?: string }).id,
-        }),
+        body: JSON.stringify({ runId: messageRunId }),
       });
       if (restoreRes.ok) {
         window.location.reload();
-      } else {
-        setRestoreState("idle");
+        return;
       }
-    } catch {
-      setRestoreState("idle");
+      const payload = (await restoreRes.json().catch(() => null)) as {
+        error?: unknown;
+      } | null;
+      setRestoreError(
+        typeof payload?.error === "string"
+          ? payload.error
+          : `Restore failed (${restoreRes.status}).`,
+      );
+      setRestoreState("error");
+    } catch (err) {
+      setRestoreError(
+        err instanceof Error ? err.message : "Restore request failed.",
+      );
+      setRestoreState("error");
     }
-  }, [restoreState, cpCtx, messageRuntime]);
+  }, [restoreState, cpCtx, messageRunId]);
 
   const cancelRestore = useCallback(() => {
+    setRestoreError(null);
     setRestoreState("idle");
   }, []);
 
-  const showRestore = cpCtx?.devMode && isComplete && !isLast;
+  const showRestore = shouldOfferRestore({
+    devMode: cpCtx?.devMode,
+    isComplete,
+    isLast,
+    runId: messageRunId,
+    checkpointRunIds: cpCtx?.checkpointRunIds,
+  });
 
   // Collect parts for the files-changed summary (code-agent turns only).
   const msgContent = msg.content as ContentPart[] | undefined;
@@ -1366,11 +1548,12 @@ export function AssistantMessage() {
                   isComplete,
                   hasCollapsibleWork,
                   hasUnresolvedTool,
+                  chatRunning,
                 });
                 if (!showSummary) return <>{children}</>;
                 return (
                   <WorkedForSummary
-                    durationMs={capturedDurationMs}
+                    durationMs={capturedDurationMs ?? persistedDurationMs}
                     defaultOpen={hasCustomUi}
                     autoCollapse={animateCollapse && !hasCustomUi}
                   >
@@ -1413,7 +1596,18 @@ export function AssistantMessage() {
             }
           }}
         </MessagePrimitive.GroupedParts>
-        {showMissingFinalResponse && (
+        {showInlineRunError && messageRunError && (
+          <InlineRunErrorNotice
+            info={messageRunError}
+            durationMs={capturedDurationMs ?? persistedDurationMs}
+            onRetry={
+              isLast && messageRunError.recoverable
+                ? messageActions?.onRetryRunError
+                : undefined
+            }
+          />
+        )}
+        {showMissingFinalResponse && !showInlineRunError && (
           <p role="status" className="text-muted-foreground">
             The agent stopped without sending a final message. Ask it to
             continue or retry.
@@ -1428,9 +1622,6 @@ export function AssistantMessage() {
             contextText={responseConnectionContext}
             variant="response"
           />
-        )}
-        {isLast && hasUnresolvedTool && !chatRunning && (
-          <RunningActivityStatus label="Thinking" />
         )}
       </div>
       {isComplete && (
@@ -1489,20 +1680,21 @@ export function AssistantMessage() {
               <IconLoader2 className="h-3 w-3 animate-spin" />
               Restoring...
             </span>
+          ) : restoreState === "error" ? (
+            <span className="flex items-center gap-1 text-xs text-destructive">
+              <IconAlertTriangle className="h-3 w-3 shrink-0" />
+              <span className="truncate">{restoreError}</span>
+              <button
+                onClick={cancelRestore}
+                className="cursor-pointer rounded-md px-1.5 py-0.5 text-muted-foreground hover:bg-accent"
+              >
+                Dismiss
+              </button>
+            </span>
           ) : (
             <ThumbsFeedback
               threadId={cpCtx?.threadId ?? ""}
-              runId={(() => {
-                const meta = messageRuntime.getState().metadata as
-                  | { custom?: { runId?: unknown }; runId?: unknown }
-                  | undefined;
-                return (
-                  (typeof meta?.custom?.runId === "string" &&
-                    meta.custom.runId) ||
-                  (typeof meta?.runId === "string" && meta.runId) ||
-                  ""
-                );
-              })()}
+              runId={messageRunId ?? ""}
               messageSeq={thread.messages.findIndex((m) => m.id === msg.id)}
             />
           )}

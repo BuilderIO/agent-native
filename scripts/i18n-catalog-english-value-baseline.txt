@@ -228,6 +228,22 @@ templates/clips/app/i18n/pt-BR|sharePage.agentNativeClips|Agent-Native Clips
 templates/clips/app/i18n/zh-CN|sharePage.agentNativeClips|Agent-Native Clips
 templates/clips/app/i18n/zh-TW|sharePage.agentNativeClips|Agent-Native Clips
 templates/design/app/i18n/ar-SA|designEditor.askAgent|Ask agent
+templates/design/app/i18n/ar-SA|designEditor.import.figUploadDescriptionShort|Local import — no Figma API quota used. Embedded images included.
+templates/design/app/i18n/ar-SA|designEditor.import.figmaHydrationChooseFig|Fill images from .fig
+templates/design/app/i18n/ar-SA|designEditor.import.figmaHydrationFigError|Couldn't read images from that .fig file.
+templates/design/app/i18n/ar-SA|designEditor.import.figmaHydrationFigOption|Fastest — pulls every image straight from the file. No token, no rate limits.
+templates/design/app/i18n/ar-SA|designEditor.import.figmaHydrationFigTitle|Have the original .fig file?
+templates/design/app/i18n/ar-SA|designEditor.import.figmaHydrationInvalidFig|Choose a .fig file exported from Figma.
+templates/design/app/i18n/ar-SA|designEditor.import.figmaHydrationOrToken|Or fetch from Figma
+templates/design/app/i18n/ar-SA|designEditor.import.figmaHydrationRateLimit|Figma rate-limits its API by seat — Viewer/Collab seats get only a few requests, Dev/Full seats more. If it's cooling down, use the .fig above.
+templates/design/app/i18n/ar-SA|designEditor.import.figmaPasteBodyImages|Image fills may be missing without a token. Upload the .fig file to include embedded images.
+templates/design/app/i18n/ar-SA|designEditor.import.figmaPasteBodyUnlimited|Works without a Figma token — geometry, layout, and text import immediately.
+templates/design/app/i18n/ar-SA|designEditor.import.rateLimitAlternatives|No-quota alternatives:
+templates/design/app/i18n/ar-SA|designEditor.import.rateLimitGeneric|Figma rate-limited this import. The quota resets automatically.
+templates/design/app/i18n/ar-SA|designEditor.import.rateLimitTitle|Figma paused this import
+templates/design/app/i18n/ar-SA|designEditor.import.rateLimitUpgrade|View Figma plan options →
+templates/design/app/i18n/ar-SA|designEditor.import.rateLimitUseFig|Upload .fig — unlimited
+templates/design/app/i18n/ar-SA|designEditor.import.rateLimitUsePaste|Paste from Figma — unlimited
 templates/design/app/i18n/ar-SA|designEditor.toasts.componentCreateFailed|Could not create component
 templates/design/app/i18n/ar-SA|designEditor.toasts.componentCreated|Component created
 templates/design/app/i18n/ar-SA|designEditor.tokens.add|Add token
@@ -238,6 +254,22 @@ templates/design/app/i18n/ar-SA|designEditor.tokens.empty|No tokens yet
 templates/design/app/i18n/ar-SA|designEditor.tokens.newToken|New token
 templates/design/app/i18n/ar-SA|designEditor.tokens.refresh|Refresh tokens
 templates/design/app/i18n/de-DE|designEditor.askAgent|Ask agent
+templates/design/app/i18n/de-DE|designEditor.import.figUploadDescriptionShort|Local import — no Figma API quota used. Embedded images included.
+templates/design/app/i18n/de-DE|designEditor.import.figmaHydrationChooseFig|Fill images from .fig
+templates/design/app/i18n/de-DE|designEditor.import.figmaHydrationFigError|Couldn't read images from that .fig file.
+templates/design/app/i18n/de-DE|designEditor.import.figmaHydrationFigOption|Fastest — pulls every image straight from the file. No token, no rate limits.
+templates/design/app/i18n/de-DE|designEditor.import.figmaHydrationFigTitle|Have the original .fig file?
+templates/design/app/i18n/de-DE|designEditor.import.figmaHydrationInvalidFig|Choose a .fig file exported from Figma.
+templates/design/app/i18n/de-DE|designEditor.import.figmaHydrationOrToken|Or fetch from Figma
+templates/design/app/i18n/de-DE|designEditor.import.figmaHydrationRateLimit|Figma rate-limits its API by seat — Viewer/Collab seats get only a few requests, Dev/Full seats more. If it's cooling down, use the .fig above.
+templates/design/app/i18n/de-DE|designEditor.import.figmaPasteBodyImages|Image fills may be missing without a token. Upload the .fig file to include embedded images.
+templates/design/app/i18n/de-DE|designEditor.import.figmaPasteBodyUnlimited|Works without a Figma token — geometry, layout, and text import immediately.
+templates/design/app/i18n/de-DE|designEditor.import.rateLimitAlternatives|No-quota alternatives:
+templates/design/app/i18n/de-DE|designEditor.import.rateLimitGeneric|Figma rate-limited this import. The quota resets automatically.
+templates/design/app/i18n/de-DE|designEditor.import.rateLimitTitle|Figma paused this import
+templates/design/app/i18n/de-DE|designEditor.import.rateLimitUpgrade|View Figma plan options →
+templates/design/app/i18n/de-DE|designEditor.import.rateLimitUseFig|Upload .fig — unlimited
+templates/design/app/i18n/de-DE|designEditor.import.rateLimitUsePaste|Paste from Figma — unlimited
 templates/design/app/i18n/de-DE|designEditor.toasts.componentCreateFailed|Could not create component
 templates/design/app/i18n/de-DE|designEditor.toasts.componentCreated|Component created
 templates/design/app/i18n/de-DE|designEditor.tokens.add|Add token
@@ -248,6 +280,22 @@ templates/design/app/i18n/de-DE|designEditor.tokens.empty|No tokens yet
 templates/design/app/i18n/de-DE|designEditor.tokens.newToken|New token
 templates/design/app/i18n/de-DE|designEditor.tokens.refresh|Refresh tokens
 templates/design/app/i18n/es-ES|designEditor.askAgent|Ask agent
+templates/design/app/i18n/es-ES|designEditor.import.figUploadDescriptionShort|Local import — no Figma API quota used. Embedded images included.
+templates/design/app/i18n/es-ES|designEditor.import.figmaHydrationChooseFig|Fill images from .fig
+templates/design/app/i18n/es-ES|designEditor.import.figmaHydrationFigError|Couldn't read images from that .fig file.
+templates/design/app/i18n/es-ES|designEditor.import.figmaHydrationFigOption|Fastest — pulls every image straight from the file. No token, no rate limits.
+templates/design/app/i18n/es-ES|designEditor.import.figmaHydrationFigTitle|Have the original .fig file?
+templates/design/app/i18n/es-ES|designEditor.import.figmaHydrationInvalidFig|Choose a .fig file exported from Figma.
+templates/design/app/i18n/es-ES|designEditor.import.figmaHydrationOrToken|Or fetch from Figma
+templates/design/app/i18n/es-ES|designEditor.import.figmaHydrationRateLimit|Figma rate-limits its API by seat — Viewer/Collab seats get only a few requests, Dev/Full seats more. If it's cooling down, use the .fig above.
+templates/design/app/i18n/es-ES|designEditor.import.figmaPasteBodyImages|Image fills may be missing without a token. Upload the .fig file to include embedded images.
+templates/design/app/i18n/es-ES|designEditor.import.figmaPasteBodyUnlimited|Works without a Figma token — geometry, layout, and text import immediately.
+templates/design/app/i18n/es-ES|designEditor.import.rateLimitAlternatives|No-quota alternatives:
+templates/design/app/i18n/es-ES|designEditor.import.rateLimitGeneric|Figma rate-limited this import. The quota resets automatically.
+templates/design/app/i18n/es-ES|designEditor.import.rateLimitTitle|Figma paused this import
+templates/design/app/i18n/es-ES|designEditor.import.rateLimitUpgrade|View Figma plan options →
+templates/design/app/i18n/es-ES|designEditor.import.rateLimitUseFig|Upload .fig — unlimited
+templates/design/app/i18n/es-ES|designEditor.import.rateLimitUsePaste|Paste from Figma — unlimited
 templates/design/app/i18n/es-ES|designEditor.toasts.componentCreateFailed|Could not create component
 templates/design/app/i18n/es-ES|designEditor.toasts.componentCreated|Component created
 templates/design/app/i18n/es-ES|designEditor.tokens.add|Add token
@@ -258,6 +306,22 @@ templates/design/app/i18n/es-ES|designEditor.tokens.empty|No tokens yet
 templates/design/app/i18n/es-ES|designEditor.tokens.newToken|New token
 templates/design/app/i18n/es-ES|designEditor.tokens.refresh|Refresh tokens
 templates/design/app/i18n/fr-FR|designEditor.askAgent|Ask agent
+templates/design/app/i18n/fr-FR|designEditor.import.figUploadDescriptionShort|Local import — no Figma API quota used. Embedded images included.
+templates/design/app/i18n/fr-FR|designEditor.import.figmaHydrationChooseFig|Fill images from .fig
+templates/design/app/i18n/fr-FR|designEditor.import.figmaHydrationFigError|Couldn't read images from that .fig file.
+templates/design/app/i18n/fr-FR|designEditor.import.figmaHydrationFigOption|Fastest — pulls every image straight from the file. No token, no rate limits.
+templates/design/app/i18n/fr-FR|designEditor.import.figmaHydrationFigTitle|Have the original .fig file?
+templates/design/app/i18n/fr-FR|designEditor.import.figmaHydrationInvalidFig|Choose a .fig file exported from Figma.
+templates/design/app/i18n/fr-FR|designEditor.import.figmaHydrationOrToken|Or fetch from Figma
+templates/design/app/i18n/fr-FR|designEditor.import.figmaHydrationRateLimit|Figma rate-limits its API by seat — Viewer/Collab seats get only a few requests, Dev/Full seats more. If it's cooling down, use the .fig above.
+templates/design/app/i18n/fr-FR|designEditor.import.figmaPasteBodyImages|Image fills may be missing without a token. Upload the .fig file to include embedded images.
+templates/design/app/i18n/fr-FR|designEditor.import.figmaPasteBodyUnlimited|Works without a Figma token — geometry, layout, and text import immediately.
+templates/design/app/i18n/fr-FR|designEditor.import.rateLimitAlternatives|No-quota alternatives:
+templates/design/app/i18n/fr-FR|designEditor.import.rateLimitGeneric|Figma rate-limited this import. The quota resets automatically.
+templates/design/app/i18n/fr-FR|designEditor.import.rateLimitTitle|Figma paused this import
+templates/design/app/i18n/fr-FR|designEditor.import.rateLimitUpgrade|View Figma plan options →
+templates/design/app/i18n/fr-FR|designEditor.import.rateLimitUseFig|Upload .fig — unlimited
+templates/design/app/i18n/fr-FR|designEditor.import.rateLimitUsePaste|Paste from Figma — unlimited
 templates/design/app/i18n/fr-FR|designEditor.toasts.componentCreateFailed|Could not create component
 templates/design/app/i18n/fr-FR|designEditor.toasts.componentCreated|Component created
 templates/design/app/i18n/fr-FR|designEditor.tokens.add|Add token
@@ -268,6 +332,22 @@ templates/design/app/i18n/fr-FR|designEditor.tokens.empty|No tokens yet
 templates/design/app/i18n/fr-FR|designEditor.tokens.newToken|New token
 templates/design/app/i18n/fr-FR|designEditor.tokens.refresh|Refresh tokens
 templates/design/app/i18n/hi-IN|designEditor.askAgent|Ask agent
+templates/design/app/i18n/hi-IN|designEditor.import.figUploadDescriptionShort|Local import — no Figma API quota used. Embedded images included.
+templates/design/app/i18n/hi-IN|designEditor.import.figmaHydrationChooseFig|Fill images from .fig
+templates/design/app/i18n/hi-IN|designEditor.import.figmaHydrationFigError|Couldn't read images from that .fig file.
+templates/design/app/i18n/hi-IN|designEditor.import.figmaHydrationFigOption|Fastest — pulls every image straight from the file. No token, no rate limits.
+templates/design/app/i18n/hi-IN|designEditor.import.figmaHydrationFigTitle|Have the original .fig file?
+templates/design/app/i18n/hi-IN|designEditor.import.figmaHydrationInvalidFig|Choose a .fig file exported from Figma.
+templates/design/app/i18n/hi-IN|designEditor.import.figmaHydrationOrToken|Or fetch from Figma
+templates/design/app/i18n/hi-IN|designEditor.import.figmaHydrationRateLimit|Figma rate-limits its API by seat — Viewer/Collab seats get only a few requests, Dev/Full seats more. If it's cooling down, use the .fig above.
+templates/design/app/i18n/hi-IN|designEditor.import.figmaPasteBodyImages|Image fills may be missing without a token. Upload the .fig file to include embedded images.
+templates/design/app/i18n/hi-IN|designEditor.import.figmaPasteBodyUnlimited|Works without a Figma token — geometry, layout, and text import immediately.
+templates/design/app/i18n/hi-IN|designEditor.import.rateLimitAlternatives|No-quota alternatives:
+templates/design/app/i18n/hi-IN|designEditor.import.rateLimitGeneric|Figma rate-limited this import. The quota resets automatically.
+templates/design/app/i18n/hi-IN|designEditor.import.rateLimitTitle|Figma paused this import
+templates/design/app/i18n/hi-IN|designEditor.import.rateLimitUpgrade|View Figma plan options →
+templates/design/app/i18n/hi-IN|designEditor.import.rateLimitUseFig|Upload .fig — unlimited
+templates/design/app/i18n/hi-IN|designEditor.import.rateLimitUsePaste|Paste from Figma — unlimited
 templates/design/app/i18n/hi-IN|designEditor.toasts.componentCreateFailed|Could not create component
 templates/design/app/i18n/hi-IN|designEditor.toasts.componentCreated|Component created
 templates/design/app/i18n/hi-IN|designEditor.tokens.add|Add token
@@ -278,6 +358,22 @@ templates/design/app/i18n/hi-IN|designEditor.tokens.empty|No tokens yet
 templates/design/app/i18n/hi-IN|designEditor.tokens.newToken|New token
 templates/design/app/i18n/hi-IN|designEditor.tokens.refresh|Refresh tokens
 templates/design/app/i18n/ja-JP|designEditor.askAgent|Ask agent
+templates/design/app/i18n/ja-JP|designEditor.import.figUploadDescriptionShort|Local import — no Figma API quota used. Embedded images included.
+templates/design/app/i18n/ja-JP|designEditor.import.figmaHydrationChooseFig|Fill images from .fig
+templates/design/app/i18n/ja-JP|designEditor.import.figmaHydrationFigError|Couldn't read images from that .fig file.
+templates/design/app/i18n/ja-JP|designEditor.import.figmaHydrationFigOption|Fastest — pulls every image straight from the file. No token, no rate limits.
+templates/design/app/i18n/ja-JP|designEditor.import.figmaHydrationFigTitle|Have the original .fig file?
+templates/design/app/i18n/ja-JP|designEditor.import.figmaHydrationInvalidFig|Choose a .fig file exported from Figma.
+templates/design/app/i18n/ja-JP|designEditor.import.figmaHydrationOrToken|Or fetch from Figma
+templates/design/app/i18n/ja-JP|designEditor.import.figmaHydrationRateLimit|Figma rate-limits its API by seat — Viewer/Collab seats get only a few requests, Dev/Full seats more. If it's cooling down, use the .fig above.
+templates/design/app/i18n/ja-JP|designEditor.import.figmaPasteBodyImages|Image fills may be missing without a token. Upload the .fig file to include embedded images.
+templates/design/app/i18n/ja-JP|designEditor.import.figmaPasteBodyUnlimited|Works without a Figma token — geometry, layout, and text import immediately.
+templates/design/app/i18n/ja-JP|designEditor.import.rateLimitAlternatives|No-quota alternatives:
+templates/design/app/i18n/ja-JP|designEditor.import.rateLimitGeneric|Figma rate-limited this import. The quota resets automatically.
+templates/design/app/i18n/ja-JP|designEditor.import.rateLimitTitle|Figma paused this import
+templates/design/app/i18n/ja-JP|designEditor.import.rateLimitUpgrade|View Figma plan options →
+templates/design/app/i18n/ja-JP|designEditor.import.rateLimitUseFig|Upload .fig — unlimited
+templates/design/app/i18n/ja-JP|designEditor.import.rateLimitUsePaste|Paste from Figma — unlimited
 templates/design/app/i18n/ja-JP|designEditor.toasts.componentCreateFailed|Could not create component
 templates/design/app/i18n/ja-JP|designEditor.toasts.componentCreated|Component created
 templates/design/app/i18n/ja-JP|designEditor.tokens.add|Add token
@@ -288,6 +384,22 @@ templates/design/app/i18n/ja-JP|designEditor.tokens.empty|No tokens yet
 templates/design/app/i18n/ja-JP|designEditor.tokens.newToken|New token
 templates/design/app/i18n/ja-JP|designEditor.tokens.refresh|Refresh tokens
 templates/design/app/i18n/ko-KR|designEditor.askAgent|Ask agent
+templates/design/app/i18n/ko-KR|designEditor.import.figUploadDescriptionShort|Local import — no Figma API quota used. Embedded images included.
+templates/design/app/i18n/ko-KR|designEditor.import.figmaHydrationChooseFig|Fill images from .fig
+templates/design/app/i18n/ko-KR|designEditor.import.figmaHydrationFigError|Couldn't read images from that .fig file.
+templates/design/app/i18n/ko-KR|designEditor.import.figmaHydrationFigOption|Fastest — pulls every image straight from the file. No token, no rate limits.
+templates/design/app/i18n/ko-KR|designEditor.import.figmaHydrationFigTitle|Have the original .fig file?
+templates/design/app/i18n/ko-KR|designEditor.import.figmaHydrationInvalidFig|Choose a .fig file exported from Figma.
+templates/design/app/i18n/ko-KR|designEditor.import.figmaHydrationOrToken|Or fetch from Figma
+templates/design/app/i18n/ko-KR|designEditor.import.figmaHydrationRateLimit|Figma rate-limits its API by seat — Viewer/Collab seats get only a few requests, Dev/Full seats more. If it's cooling down, use the .fig above.
+templates/design/app/i18n/ko-KR|designEditor.import.figmaPasteBodyImages|Image fills may be missing without a token. Upload the .fig file to include embedded images.
+templates/design/app/i18n/ko-KR|designEditor.import.figmaPasteBodyUnlimited|Works without a Figma token — geometry, layout, and text import immediately.
+templates/design/app/i18n/ko-KR|designEditor.import.rateLimitAlternatives|No-quota alternatives:
+templates/design/app/i18n/ko-KR|designEditor.import.rateLimitGeneric|Figma rate-limited this import. The quota resets automatically.
+templates/design/app/i18n/ko-KR|designEditor.import.rateLimitTitle|Figma paused this import
+templates/design/app/i18n/ko-KR|designEditor.import.rateLimitUpgrade|View Figma plan options →
+templates/design/app/i18n/ko-KR|designEditor.import.rateLimitUseFig|Upload .fig — unlimited
+templates/design/app/i18n/ko-KR|designEditor.import.rateLimitUsePaste|Paste from Figma — unlimited
 templates/design/app/i18n/ko-KR|designEditor.toasts.componentCreateFailed|Could not create component
 templates/design/app/i18n/ko-KR|designEditor.toasts.componentCreated|Component created
 templates/design/app/i18n/ko-KR|designEditor.tokens.add|Add token
@@ -298,6 +410,22 @@ templates/design/app/i18n/ko-KR|designEditor.tokens.empty|No tokens yet
 templates/design/app/i18n/ko-KR|designEditor.tokens.newToken|New token
 templates/design/app/i18n/ko-KR|designEditor.tokens.refresh|Refresh tokens
 templates/design/app/i18n/pt-BR|designEditor.askAgent|Ask agent
+templates/design/app/i18n/pt-BR|designEditor.import.figUploadDescriptionShort|Local import — no Figma API quota used. Embedded images included.
+templates/design/app/i18n/pt-BR|designEditor.import.figmaHydrationChooseFig|Fill images from .fig
+templates/design/app/i18n/pt-BR|designEditor.import.figmaHydrationFigError|Couldn't read images from that .fig file.
+templates/design/app/i18n/pt-BR|designEditor.import.figmaHydrationFigOption|Fastest — pulls every image straight from the file. No token, no rate limits.
+templates/design/app/i18n/pt-BR|designEditor.import.figmaHydrationFigTitle|Have the original .fig file?
+templates/design/app/i18n/pt-BR|designEditor.import.figmaHydrationInvalidFig|Choose a .fig file exported from Figma.
+templates/design/app/i18n/pt-BR|designEditor.import.figmaHydrationOrToken|Or fetch from Figma
+templates/design/app/i18n/pt-BR|designEditor.import.figmaHydrationRateLimit|Figma rate-limits its API by seat — Viewer/Collab seats get only a few requests, Dev/Full seats more. If it's cooling down, use the .fig above.
+templates/design/app/i18n/pt-BR|designEditor.import.figmaPasteBodyImages|Image fills may be missing without a token. Upload the .fig file to include embedded images.
+templates/design/app/i18n/pt-BR|designEditor.import.figmaPasteBodyUnlimited|Works without a Figma token — geometry, layout, and text import immediately.
+templates/design/app/i18n/pt-BR|designEditor.import.rateLimitAlternatives|No-quota alternatives:
+templates/design/app/i18n/pt-BR|designEditor.import.rateLimitGeneric|Figma rate-limited this import. The quota resets automatically.
+templates/design/app/i18n/pt-BR|designEditor.import.rateLimitTitle|Figma paused this import
+templates/design/app/i18n/pt-BR|designEditor.import.rateLimitUpgrade|View Figma plan options →
+templates/design/app/i18n/pt-BR|designEditor.import.rateLimitUseFig|Upload .fig — unlimited
+templates/design/app/i18n/pt-BR|designEditor.import.rateLimitUsePaste|Paste from Figma — unlimited
 templates/design/app/i18n/pt-BR|designEditor.toasts.componentCreateFailed|Could not create component
 templates/design/app/i18n/pt-BR|designEditor.toasts.componentCreated|Component created
 templates/design/app/i18n/pt-BR|designEditor.tokens.add|Add token
@@ -308,6 +436,22 @@ templates/design/app/i18n/pt-BR|designEditor.tokens.empty|No tokens yet
 templates/design/app/i18n/pt-BR|designEditor.tokens.newToken|New token
 templates/design/app/i18n/pt-BR|designEditor.tokens.refresh|Refresh tokens
 templates/design/app/i18n/zh-CN|designEditor.askAgent|Ask agent
+templates/design/app/i18n/zh-CN|designEditor.import.figUploadDescriptionShort|Local import — no Figma API quota used. Embedded images included.
+templates/design/app/i18n/zh-CN|designEditor.import.figmaHydrationChooseFig|Fill images from .fig
+templates/design/app/i18n/zh-CN|designEditor.import.figmaHydrationFigError|Couldn't read images from that .fig file.
+templates/design/app/i18n/zh-CN|designEditor.import.figmaHydrationFigOption|Fastest — pulls every image straight from the file. No token, no rate limits.
+templates/design/app/i18n/zh-CN|designEditor.import.figmaHydrationFigTitle|Have the original .fig file?
+templates/design/app/i18n/zh-CN|designEditor.import.figmaHydrationInvalidFig|Choose a .fig file exported from Figma.
+templates/design/app/i18n/zh-CN|designEditor.import.figmaHydrationOrToken|Or fetch from Figma
+templates/design/app/i18n/zh-CN|designEditor.import.figmaHydrationRateLimit|Figma rate-limits its API by seat — Viewer/Collab seats get only a few requests, Dev/Full seats more. If it's cooling down, use the .fig above.
+templates/design/app/i18n/zh-CN|designEditor.import.figmaPasteBodyImages|Image fills may be missing without a token. Upload the .fig file to include embedded images.
+templates/design/app/i18n/zh-CN|designEditor.import.figmaPasteBodyUnlimited|Works without a Figma token — geometry, layout, and text import immediately.
+templates/design/app/i18n/zh-CN|designEditor.import.rateLimitAlternatives|No-quota alternatives:
+templates/design/app/i18n/zh-CN|designEditor.import.rateLimitGeneric|Figma rate-limited this import. The quota resets automatically.
+templates/design/app/i18n/zh-CN|designEditor.import.rateLimitTitle|Figma paused this import
+templates/design/app/i18n/zh-CN|designEditor.import.rateLimitUpgrade|View Figma plan options →
+templates/design/app/i18n/zh-CN|designEditor.import.rateLimitUseFig|Upload .fig — unlimited
+templates/design/app/i18n/zh-CN|designEditor.import.rateLimitUsePaste|Paste from Figma — unlimited
 templates/design/app/i18n/zh-CN|designEditor.toasts.componentCreateFailed|Could not create component
 templates/design/app/i18n/zh-CN|designEditor.toasts.componentCreated|Component created
 templates/design/app/i18n/zh-CN|designEditor.tokens.add|Add token
@@ -317,3 +461,10 @@ templates/design/app/i18n/zh-CN|designEditor.tokens.emptyHint|Add design tokens 
 templates/design/app/i18n/zh-CN|designEditor.tokens.empty|No tokens yet
 templates/design/app/i18n/zh-CN|designEditor.tokens.newToken|New token
 templates/design/app/i18n/zh-CN|designEditor.tokens.refresh|Refresh tokens
+templates/design/app/i18n/zh-TW|designEditor.import.figmaHydrationChooseFig|Fill images from .fig
+templates/design/app/i18n/zh-TW|designEditor.import.figmaHydrationFigError|Couldn't read images from that .fig file.
+templates/design/app/i18n/zh-TW|designEditor.import.figmaHydrationFigOption|Fastest — pulls every image straight from the file. No token, no rate limits.
+templates/design/app/i18n/zh-TW|designEditor.import.figmaHydrationFigTitle|Have the original .fig file?
+templates/design/app/i18n/zh-TW|designEditor.import.figmaHydrationInvalidFig|Choose a .fig file exported from Figma.
+templates/design/app/i18n/zh-TW|designEditor.import.figmaHydrationOrToken|Or fetch from Figma
+templates/design/app/i18n/zh-TW|designEditor.import.figmaHydrationRateLimit|Figma rate-limits its API by seat — Viewer/Collab seats get only a few requests, Dev/Full seats more. If it's cooling down, use the .fig above.

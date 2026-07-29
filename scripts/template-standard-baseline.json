@@ -58,6 +58,11 @@
     },
     {
       "rule": "byte-sync:gitignore-source:mismatch",
+      "template": "crm",
+      "note": "Existing _gitignore predates the canonical shape (different section ordering/entries). Needs reconciliation in Phase 2/3."
+    },
+    {
+      "rule": "byte-sync:gitignore-source:mismatch",
       "template": "design",
       "note": "Existing _gitignore adds Playwright E2E artifact paths on top of the shared base — legitimate template-specific addition. Needs a human decision in Phase 2/3 on reconciling vs. keeping as an accepted diff."
     },

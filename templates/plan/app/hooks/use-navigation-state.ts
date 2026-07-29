@@ -1,4 +1,3 @@
-import { markAgentChatHomeHandoff } from "@agent-native/core/client/agent-chat";
 import {
   agentNativePath,
   appBasePath,
@@ -108,9 +107,6 @@ export function useNavigationState() {
     deleteCommand();
     const path = planNavigateCommandPath(cmd);
     void prewarmPlanRoutePath(path);
-    if (location.pathname === "/" && path !== "/") {
-      markAgentChatHomeHandoff("plans");
-    }
     const commitNavigation = () =>
       navigate(path, { replace: true, flushSync: true });
     if (

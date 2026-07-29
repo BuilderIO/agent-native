@@ -1,5 +1,5 @@
 import { generateTabId } from "@agent-native/core/client/agent-chat";
-import { agentNativePath } from "@agent-native/core/client/api-path";
+import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
 import {
   useCollaborativeDoc,
   emailToColor,
@@ -11,6 +11,7 @@ import {
   callAction,
   useChangeVersions,
   useActionMutation,
+  type AuthSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { ShareButton } from "@agent-native/core/client/sharing";
@@ -33,7 +34,8 @@ import {
 } from "@dnd-kit/core";
 import {
   IconArchive,
-  IconClock,
+  IconArrowBackUp,
+  IconArrowForwardUp,
   IconDotsVertical,
   IconEye,
   IconEyeOff,
@@ -45,7 +47,6 @@ import {
   IconPencil,
   IconPlus,
   IconTrash,
-  IconUser,
   IconUsersGroup,
   IconWorld,
   IconX,
@@ -64,6 +65,7 @@ import { useSearchParams, useParams, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { DashboardHistoryPanel } from "@/components/dashboard/DashboardHistoryPanel";
+import { DashboardMetadata } from "@/components/dashboard/DashboardMetadata";
 import {
   DashboardTitleSkeleton,
   useSetPageTitle,
@@ -103,8 +105,18 @@ import {
   type DashboardPanelChatContextArgs,
   type SelectDashboardPanelOptions,
 } from "@/hooks/use-dashboard-chat-context";
+import {
+  useDashboardRevisions,
+  useRestoreDashboardRevision,
+} from "@/hooks/use-dashboard-revisions";
 import { useDashboardViews } from "@/hooks/use-dashboard-views";
 import { useUserPref } from "@/hooks/use-user-pref";
+import {
+  DASHBOARD_REPORT_BOOTSTRAP_RETRY_DELAY_MS,
+  DASHBOARD_REPORT_BOOTSTRAP_TIMEOUT_MS,
+  dashboardReportCaptureError,
+  type DashboardReportCapturePhase,
+} from "@/lib/dashboard-report-capture";
 import { incrementItemView } from "@/lib/item-popularity";
 import {
   sqlDashboardPrefetchKey,
@@ -148,11 +160,7 @@ import { dashboardExtensionSlotId } from "./extension-slot";
 import { interpolate } from "./interpolate";
 import { serializePanelSql } from "./panel-sql";
 import { AddPanelPopover, PanelEditorDialog } from "./PanelEditorDialog";
-import {
-  listReportablePanelIds,
-  parseReportPanelWindow,
-  windowReportPanels,
-} from "./report-panel-window";
+import { listReportablePanelIds } from "./report-panel-window";
 import { SqlChartCard } from "./SqlChartCard";
 import {
   clampDashboardColumns,
@@ -248,6 +256,7 @@ const PanelCell = memo(function PanelCell({
   remoteEditor,
   editable,
   eagerLoad,
+  reportScreenshot,
   isDragSource,
   selectedForChat,
   selectPanelForChat,
@@ -261,6 +270,7 @@ const PanelCell = memo(function PanelCell({
   remoteEditor: { color: string; name: string } | undefined;
   editable: boolean;
   eagerLoad: boolean;
+  reportScreenshot: boolean;
   isDragSource: boolean;
   selectedForChat: boolean;
   selectPanelForChat: (
@@ -348,6 +358,7 @@ const PanelCell = memo(function PanelCell({
         onSaveSql={(sql) => onSavePanel({ ...panel, sql })}
         editable={editable}
         eagerLoad={eagerLoad}
+        reportScreenshot={reportScreenshot}
         isDragSource={isDragSource}
         selectedForChat={selectedForChat}
         onSelectForChat={handleSelectForChat}
@@ -383,7 +394,9 @@ type FetchedDashboard = {
   hiddenBy: string | null;
   visibility: "private" | "org" | "public";
   ownerEmail: string | null;
+  createdAt: string | null;
   updatedAt: string | null;
+  updatedBy: string | null;
 } & ResourceAccess;
 
 function parseDashboardDemoMetadata(
@@ -419,14 +432,31 @@ function parseDashboardCatalogMetadata(
   };
 }
 
-async function fetchDashboard(id: string): Promise<FetchedDashboard | null> {
+async function fetchDashboard(
+  id: string,
+  options?: { reportScreenshot?: boolean },
+): Promise<FetchedDashboard | null> {
   try {
     const data: any = await callAction(
       "get-sql-dashboard",
       { id, includeConfig: true },
-      { method: "GET" },
+      {
+        method: "GET",
+        ...(options?.reportScreenshot
+          ? { timeoutMs: DASHBOARD_REPORT_BOOTSTRAP_TIMEOUT_MS }
+          : {}),
+      },
     );
-    if (!data || data.error) return null;
+    if (!data) return null;
+    if (data.error) {
+      throw new Error(
+        typeof data.message === "string" && data.message
+          ? data.message
+          : typeof data.error === "string"
+            ? data.error
+            : "Dashboard bootstrap failed",
+      );
+    }
     return {
       id,
       config: {
@@ -451,15 +481,50 @@ async function fetchDashboard(id: string): Promise<FetchedDashboard | null> {
           ? data.visibility
           : "private",
       ownerEmail: typeof data.ownerEmail === "string" ? data.ownerEmail : null,
+      createdAt: typeof data.createdAt === "string" ? data.createdAt : null,
       updatedAt: typeof data.updatedAt === "string" ? data.updatedAt : null,
+      updatedBy: typeof data.updatedBy === "string" ? data.updatedBy : null,
       role: typeof data.role === "string" ? data.role : undefined,
       canEdit: typeof data.canEdit === "boolean" ? data.canEdit : undefined,
       canManage:
         typeof data.canManage === "boolean" ? data.canManage : undefined,
     };
-  } catch {
+  } catch (error) {
+    if (options?.reportScreenshot) throw error;
     return null;
   }
+}
+
+function DashboardReportCaptureSurface({
+  phase,
+  panelIds,
+  error,
+  className,
+  children,
+}: {
+  phase: DashboardReportCapturePhase;
+  panelIds?: string[];
+  error?: unknown;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  const captureError = error ? dashboardReportCaptureError(error) : undefined;
+
+  return (
+    <div
+      className={className}
+      data-dashboard-report-capture
+      data-dashboard-report-ready={phase === "ready" ? "true" : "false"}
+      data-dashboard-report-phase={phase}
+      data-dashboard-report-fetch-state={phase}
+      data-dashboard-report-error={captureError || undefined}
+      data-dashboard-report-panel-ids={
+        panelIds ? JSON.stringify(panelIds) : undefined
+      }
+    >
+      {children}
+    </div>
+  );
 }
 
 /**
@@ -478,20 +543,25 @@ async function saveDashboard(
 }
 
 export default function SqlDashboardPage() {
+  const { session } = useSession();
+
+  return <SqlDashboardPageContent reportScreenshot={false} session={session} />;
+}
+
+function SqlDashboardPageContent({
+  reportScreenshot,
+  session,
+}: {
+  reportScreenshot: boolean;
+  session: AuthSession | null;
+}) {
   const t = useT();
   const [searchParams, setSearchParams] = useSearchParams();
   const { id: routeId } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const dashboardId = searchParams.get("id") || routeId;
-  const reportScreenshot = searchParams.get("reportScreenshot") === "1";
   const reportSettingsRequested = searchParams.get("reportSettings") === "1";
-  const reportPanelWindow = reportScreenshot
-    ? parseReportPanelWindow(
-        searchParams.get("reportPanelOffset"),
-        searchParams.get("reportPanelLimit"),
-      )
-    : null;
 
   const [dashboard, setDashboard] = useState<SqlDashboardConfig | null>(null);
   const [archivedAt, setArchivedAt] = useState<string | null>(null);
@@ -500,7 +570,13 @@ export default function SqlDashboardPage() {
     "private" | "org" | "public" | null
   >(null);
   const [dashboardOwner, setDashboardOwner] = useState<string | null>(null);
+  const [dashboardCreatedAt, setDashboardCreatedAt] = useState<string | null>(
+    null,
+  );
   const [dashboardUpdatedAt, setDashboardUpdatedAt] = useState<string | null>(
+    null,
+  );
+  const [dashboardUpdatedBy, setDashboardUpdatedBy] = useState<string | null>(
     null,
   );
   const [resourceAccess, setResourceAccess] = useState<ResourceAccess | null>(
@@ -514,6 +590,8 @@ export default function SqlDashboardPage() {
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [emailReportOpen, setEmailReportOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [undoRevisionId, setUndoRevisionId] = useState<string | null>(null);
+  const [redoRevisionIds, setRedoRevisionIds] = useState<string[]>([]);
   const [dashboardActionsOpen, setDashboardActionsOpen] = useState(false);
   const [contextSheetOpen, setContextSheetOpen] = useState(false);
   const [activeDropSlot, setActiveDropSlot] =
@@ -523,8 +601,13 @@ export default function SqlDashboardPage() {
   );
   const viewedDashboardIdRef = useRef<string | null>(null);
   const pendingConfigRef = useRef<DashboardAdoptionHold | null>(null);
+  const revisionRestoreInFlightRef = useRef(false);
   const canEdit = !reportScreenshot && resourceCanEdit(resourceAccess);
   const canManage = !reportScreenshot && resourceCanManage(resourceAccess);
+  const resetRevisionNavigation = useCallback(() => {
+    setUndoRevisionId(null);
+    setRedoRevisionIds([]);
+  }, []);
   const dashboardColumns = clampDashboardColumns(
     dashboard?.columns ?? DEFAULT_DASHBOARD_COLUMNS,
   );
@@ -546,6 +629,25 @@ export default function SqlDashboardPage() {
   );
   const { mutateAsync: archiveDashboardAction } =
     useActionMutation("archive-dashboard");
+  const { data: dashboardRevisions } = useDashboardRevisions(
+    !reportScreenshot && dashboardId ? dashboardId : null,
+  );
+  const restoreDashboardRevision = useRestoreDashboardRevision(
+    dashboardId ?? "",
+  );
+  const undoRevisionIndex = undoRevisionId
+    ? (dashboardRevisions?.findIndex(
+        (revision) => revision.id === undoRevisionId,
+      ) ?? -1)
+    : -1;
+  const canUndo =
+    canEdit &&
+    !!dashboardId &&
+    !!dashboardRevisions?.length &&
+    (undoRevisionId === null ||
+      (undoRevisionIndex >= 0 &&
+        undoRevisionIndex < dashboardRevisions.length - 1));
+  const canRedo = canEdit && !!dashboardId && redoRevisionIds.length > 0;
 
   // Refetch the dashboard whenever the `dashboards` source bumps OR any
   // agent action runs. We depend on both because:
@@ -561,8 +663,12 @@ export default function SqlDashboardPage() {
     enabled: !!dashboardId,
     queryFn: async () => {
       if (!dashboardId) return null;
-      return fetchDashboard(dashboardId);
+      return fetchDashboard(dashboardId, { reportScreenshot });
     },
+    retry: reportScreenshot ? 1 : false,
+    retryDelay: reportScreenshot
+      ? DASHBOARD_REPORT_BOOTSTRAP_RETRY_DELAY_MS
+      : undefined,
     staleTime: 30_000,
     placeholderData: (prev) => prev,
     initialData: () => {
@@ -590,7 +696,6 @@ export default function SqlDashboardPage() {
   const [editingPanel, setEditingPanel] = useState<SqlPanel | null>(null);
 
   // ── Collaborative editing ──────────────────────────────────────────
-  const { session } = useSession();
   const currentUser: CollabUser | undefined =
     !reportScreenshot && session?.email
       ? {
@@ -684,6 +789,9 @@ export default function SqlDashboardPage() {
       try {
         const parsed = JSON.parse(raw) as SqlDashboardConfig;
         if (parsed && Array.isArray(parsed.panels)) {
+          if (!revisionRestoreInFlightRef.current) {
+            resetRevisionNavigation();
+          }
           holdDashboardConfig();
           setDashboard(parsed);
           updateCachedDashboardConfig(parsed);
@@ -696,13 +804,20 @@ export default function SqlDashboardPage() {
     return () => {
       ytext.unobserve(handler);
     };
-  }, [ydoc, collabSynced, holdDashboardConfig, updateCachedDashboardConfig]);
+  }, [
+    ydoc,
+    collabSynced,
+    holdDashboardConfig,
+    resetRevisionNavigation,
+    updateCachedDashboardConfig,
+  ]);
 
   // Per-user saved filter state
   const filterPrefKey = dashboardId ? `dashboard-filters:${dashboardId}` : "";
   const {
     data: savedFilters,
     isLoading: filtersLoading,
+    isSuccess: filtersLoaded,
     save: saveFilterPref,
   } = useUserPref<{ filters: Record<string, string> }>(filterPrefKey);
 
@@ -720,10 +835,14 @@ export default function SqlDashboardPage() {
     setHiddenAt(null);
     setDashboardVisibility(null);
     setDashboardOwner(null);
+    setDashboardCreatedAt(null);
     setDashboardUpdatedAt(null);
+    setDashboardUpdatedBy(null);
     setResourceAccess(null);
+    resetRevisionNavigation();
+    revisionRestoreInFlightRef.current = false;
     if (!dashboardId) setLoaded(true);
-  }, [dashboardId]);
+  }, [dashboardId, resetRevisionNavigation]);
 
   useEffect(() => {
     if (!dashboardId || !dashboardQuery.isSuccess) return;
@@ -741,6 +860,16 @@ export default function SqlDashboardPage() {
       pendingConfigRef.current = null;
     }
     if (!adoption.adopt) return;
+    if (
+      loaded &&
+      dashboardUpdatedAt &&
+      fetched?.updatedAt &&
+      fetched.updatedAt !== dashboardUpdatedAt &&
+      !revisionRestoreInFlightRef.current &&
+      !pendingConfigRef.current
+    ) {
+      resetRevisionNavigation();
+    }
     const fetchedConfig = fetched?.config ?? null;
     const fetchedVisibility =
       fetched?.visibility === "private" ||
@@ -753,7 +882,9 @@ export default function SqlDashboardPage() {
     setHiddenAt(fetched?.hiddenAt ?? null);
     setDashboardVisibility(fetchedVisibility);
     setDashboardOwner(fetched?.ownerEmail ?? null);
+    setDashboardCreatedAt(fetched?.createdAt ?? null);
     setDashboardUpdatedAt(fetched?.updatedAt ?? null);
+    setDashboardUpdatedBy(fetched?.updatedBy ?? null);
     setResourceAccess(
       fetched
         ? {
@@ -780,6 +911,7 @@ export default function SqlDashboardPage() {
     dashboardUpdatedAt,
     loaded,
     reportScreenshot,
+    resetRevisionNavigation,
   ]);
 
   // Apply saved filters on initial load if no filter URL params are present
@@ -788,6 +920,7 @@ export default function SqlDashboardPage() {
       reportScreenshot ||
       appliedSaved.current ||
       filtersLoading ||
+      !filtersLoaded ||
       !loaded ||
       !dashboard
     )
@@ -832,6 +965,7 @@ export default function SqlDashboardPage() {
     }
   }, [
     filtersLoading,
+    filtersLoaded,
     loaded,
     dashboard,
     savedFilters,
@@ -902,6 +1036,7 @@ export default function SqlDashboardPage() {
         toast.error(t("sqlDashboard.viewOnly"));
         return;
       }
+      resetRevisionNavigation();
       holdDashboardConfig();
       setDashboard(updated);
       updateCachedDashboardConfig(updated);
@@ -937,6 +1072,7 @@ export default function SqlDashboardPage() {
       holdDashboardConfig,
       queryClient,
       pushToCollab,
+      resetRevisionNavigation,
       t,
       updateCachedDashboardConfig,
     ],
@@ -952,6 +1088,7 @@ export default function SqlDashboardPage() {
       if (!canEdit) {
         throw new Error(t("sqlDashboard.viewOnly"));
       }
+      resetRevisionNavigation();
       holdDashboardConfig();
       await saveDashboard(dashboardId, updated);
       setDashboard(updated);
@@ -972,10 +1109,147 @@ export default function SqlDashboardPage() {
       holdDashboardConfig,
       queryClient,
       pushToCollab,
+      resetRevisionNavigation,
       t,
       updateCachedDashboardConfig,
     ],
   );
+
+  const handleUndo = useCallback(async () => {
+    if (
+      !dashboardId ||
+      !canEdit ||
+      !canUndo ||
+      restoreDashboardRevision.isPending
+    ) {
+      return;
+    }
+
+    const revisions = dashboardRevisions ?? [];
+    const targetIndex =
+      undoRevisionId === null ? 0 : Math.max(0, undoRevisionIndex + 1);
+    const targetRevision = revisions[targetIndex];
+    if (!targetRevision) return;
+
+    revisionRestoreInFlightRef.current = true;
+    holdDashboardConfig();
+    try {
+      const restored = await restoreDashboardRevision.mutateAsync({
+        dashboardId,
+        revisionId: targetRevision.id,
+        expectedUpdatedAt: dashboardUpdatedAt ?? undefined,
+      });
+      setUndoRevisionId(targetRevision.id);
+      setRedoRevisionIds((current) => [
+        ...current,
+        restored.snapshotRevisionId,
+      ]);
+      if (restored?.updatedAt) setDashboardUpdatedAt(restored.updatedAt);
+      toast.success(t("dashboard.undoSuccess"));
+    } catch (error) {
+      resetRevisionNavigation();
+      toast.error(
+        error instanceof Error
+          ? t("dashboard.undoFailedWithMessage", { message: error.message })
+          : t("dashboard.undoFailed"),
+      );
+    } finally {
+      revisionRestoreInFlightRef.current = false;
+    }
+  }, [
+    canEdit,
+    canUndo,
+    dashboardId,
+    dashboardRevisions,
+    dashboardUpdatedAt,
+    holdDashboardConfig,
+    restoreDashboardRevision,
+    resetRevisionNavigation,
+    t,
+    undoRevisionId,
+    undoRevisionIndex,
+  ]);
+
+  const handleRedo = useCallback(async () => {
+    if (
+      !dashboardId ||
+      !canEdit ||
+      !canRedo ||
+      restoreDashboardRevision.isPending
+    ) {
+      return;
+    }
+
+    const targetRevisionId = redoRevisionIds[redoRevisionIds.length - 1];
+    if (!targetRevisionId) return;
+
+    revisionRestoreInFlightRef.current = true;
+    holdDashboardConfig();
+    try {
+      const restored = await restoreDashboardRevision.mutateAsync({
+        dashboardId,
+        revisionId: targetRevisionId,
+        expectedUpdatedAt: dashboardUpdatedAt ?? undefined,
+      });
+      setRedoRevisionIds((current) => current.slice(0, -1));
+      setUndoRevisionId(null);
+      if (restored?.updatedAt) setDashboardUpdatedAt(restored.updatedAt);
+      toast.success(t("dashboard.redoSuccess"));
+    } catch (error) {
+      resetRevisionNavigation();
+      toast.error(
+        error instanceof Error
+          ? t("dashboard.redoFailedWithMessage", { message: error.message })
+          : t("dashboard.redoFailed"),
+      );
+    } finally {
+      revisionRestoreInFlightRef.current = false;
+    }
+  }, [
+    canEdit,
+    canRedo,
+    dashboardId,
+    dashboardUpdatedAt,
+    holdDashboardConfig,
+    redoRevisionIds,
+    resetRevisionNavigation,
+    restoreDashboardRevision,
+    t,
+  ]);
+
+  useEffect(() => {
+    if (reportScreenshot) return;
+
+    const handleUndoShortcut = (event: KeyboardEvent) => {
+      if (
+        event.defaultPrevented ||
+        !(event.metaKey || event.ctrlKey) ||
+        event.key.toLowerCase() !== "z"
+      ) {
+        return;
+      }
+      const target = event.target as HTMLElement | null;
+      if (
+        target?.closest("input, textarea, select, [contenteditable='true']")
+      ) {
+        return;
+      }
+      const canHandle = event.shiftKey ? canRedo : canUndo;
+      if (!canHandle || restoreDashboardRevision.isPending) return;
+      event.preventDefault();
+      void (event.shiftKey ? handleRedo() : handleUndo());
+    };
+
+    window.addEventListener("keydown", handleUndoShortcut);
+    return () => window.removeEventListener("keydown", handleUndoShortcut);
+  }, [
+    canUndo,
+    canRedo,
+    handleRedo,
+    handleUndo,
+    reportScreenshot,
+    restoreDashboardRevision.isPending,
+  ]);
 
   const removePanel = useCallback(
     (panelId: string) => {
@@ -1165,9 +1439,8 @@ export default function SqlDashboardPage() {
         ? requestedTab
         : tabs[0]
       : null;
-  // Report captures cover the complete dashboard across ordered windows. The
-  // report URL intentionally has no `tab` parameter, so do not apply the
-  // normal first-tab selection while rendering the screenshot surface.
+  // The report URL carries no `tab` parameter and must show every panel, so
+  // the normal first-tab fallback does not apply in report mode.
   const activeTab = reportScreenshot ? null : selectedTab;
   const groupedTabs = useMemo(() => groupDashboardTabs(tabs), [tabs]);
   const activeTabGroup = activeTab
@@ -1203,11 +1476,10 @@ export default function SqlDashboardPage() {
   // dashboard shows every panel as before.
   const visiblePanels = useMemo(() => {
     if (!dashboard) return [];
-    const tabPanels = activeTab
+    return activeTab
       ? dashboard.panels.filter((p) => !p.tab || p.tab === activeTab)
       : dashboard.panels;
-    return windowReportPanels(tabPanels, reportPanelWindow);
-  }, [dashboard, activeTab, reportPanelWindow]);
+  }, [dashboard, activeTab]);
 
   // Group panels into "section blocks": each section starts a new block whose
   // grid uses the section's `columns` (falling back to the dashboard default).
@@ -1384,6 +1656,11 @@ export default function SqlDashboardPage() {
     [saveView],
   );
 
+  const dashboardShareUrl = useMemo(() => {
+    if (!dashboardId || typeof window === "undefined") return undefined;
+    return window.location.origin + appPath("/dashboards/" + dashboardId);
+  }, [dashboardId]);
+
   useSetPageTitle(
     reportScreenshot ? null : dashboard ? (
       <div className="flex min-w-0 items-center gap-2">
@@ -1436,6 +1713,8 @@ export default function SqlDashboardPage() {
             resourceId={dashboardId}
             resourceTitle={dashboard.name}
             variant="compact"
+            triggerClassName="border-0 bg-accent text-accent-foreground hover:bg-accent/80 hover:text-accent-foreground"
+            shareUrl={dashboardShareUrl}
             shareTabs={{
               tabs: [
                 {
@@ -1493,57 +1772,7 @@ export default function SqlDashboardPage() {
             </TooltipTrigger>
             <TooltipContent>{t("sqlDashboard.details")}</TooltipContent>
           </Tooltip>
-          <DropdownMenuContent align="end" className="w-56">
-            <DropdownMenuLabel className="font-normal">
-              <div className="flex flex-col gap-1.5 text-xs text-muted-foreground">
-                {dashboardUpdatedAt && (
-                  <span className="flex items-center gap-1.5">
-                    <IconClock className="h-3 w-3" />
-                    {t("sqlDashboard.updated", {
-                      date: new Date(dashboardUpdatedAt).toLocaleDateString(
-                        "en-US",
-                        {
-                          year: "numeric",
-                          month: "short",
-                          day: "numeric",
-                        },
-                      ),
-                    })}
-                  </span>
-                )}
-                {dashboardOwner && (
-                  <span className="flex items-center gap-1.5">
-                    <IconUser className="h-3 w-3" />
-                    {dashboardOwner.split("@")[0]}
-                  </span>
-                )}
-                {dashboardVisibility ? (
-                  <span className="flex items-center gap-1.5">
-                    {dashboardVisibility === "public" ? (
-                      <IconWorld className="h-3 w-3" />
-                    ) : dashboardVisibility === "org" ? (
-                      <IconUsersGroup className="h-3 w-3" />
-                    ) : (
-                      <IconLock className="h-3 w-3" />
-                    )}
-                    {dashboardVisibility === "public"
-                      ? t("sqlDashboard.public")
-                      : dashboardVisibility === "org"
-                        ? t("sqlDashboard.sharedWithOrg")
-                        : t("sqlDashboard.private")}
-                  </span>
-                ) : null}
-                {hiddenAt && (
-                  <span className="flex items-center gap-1.5 font-medium text-amber-600 dark:text-amber-400">
-                    <IconEyeOff className="h-3 w-3" />
-                    {t("sqlDashboard.hidden")}
-                  </span>
-                )}
-              </div>
-            </DropdownMenuLabel>
-            {(canEdit && !archivedAt) || canManage ? (
-              <DropdownMenuSeparator />
-            ) : null}
+          <DropdownMenuContent align="end" className="w-72">
             {dashboardId && canEdit && !archivedAt ? (
               <DropdownMenuItem
                 onSelect={(event) => {
@@ -1559,6 +1788,41 @@ export default function SqlDashboardPage() {
             {dashboardId ? (
               <>
                 <DropdownMenuSeparator />
+                {canEdit ? (
+                  <DropdownMenuItem
+                    disabled={!canUndo || restoreDashboardRevision.isPending}
+                    aria-keyshortcuts="Meta+Z"
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      setDashboardActionsOpen(false);
+                      void handleUndo();
+                    }}
+                  >
+                    <IconArrowBackUp className="mr-2 h-3.5 w-3.5" />
+                    {t("dashboard.undo")}
+                    <span className="ml-auto text-[10px] text-muted-foreground">
+                      ⌘Z
+                    </span>
+                  </DropdownMenuItem>
+                ) : null}
+                {canEdit ? (
+                  <DropdownMenuItem
+                    disabled={!canRedo || restoreDashboardRevision.isPending}
+                    aria-keyshortcuts="Meta+Shift+Z"
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      setDashboardActionsOpen(false);
+                      void handleRedo();
+                    }}
+                  >
+                    <IconArrowForwardUp className="mr-2 h-3.5 w-3.5" />
+                    {t("dashboard.redo")}
+                    <span className="ml-auto text-[10px] text-muted-foreground">
+                      {/* i18n-ignore keyboard shortcut hint */}
+                      ⌘⇧Z
+                    </span>
+                  </DropdownMenuItem>
+                ) : null}
                 <DropdownMenuItem
                   onSelect={(event) => {
                     event.preventDefault();
@@ -1609,6 +1873,41 @@ export default function SqlDashboardPage() {
                 {t("sqlDashboard.deletePermanently")}
               </DropdownMenuItem>
             ) : null}
+            {dashboardId || (canEdit && !archivedAt) || canManage ? (
+              <DropdownMenuSeparator />
+            ) : null}
+            <DropdownMenuLabel className="font-normal">
+              <DashboardMetadata
+                createdAt={dashboardCreatedAt}
+                createdBy={dashboardOwner}
+                updatedAt={dashboardUpdatedAt}
+                updatedBy={dashboardUpdatedBy}
+              />
+              <div className="mt-2 flex flex-col gap-1.5 text-xs text-muted-foreground">
+                {dashboardVisibility ? (
+                  <span className="flex items-center gap-1.5">
+                    {dashboardVisibility === "public" ? (
+                      <IconWorld className="h-3 w-3" />
+                    ) : dashboardVisibility === "org" ? (
+                      <IconUsersGroup className="h-3 w-3" />
+                    ) : (
+                      <IconLock className="h-3 w-3" />
+                    )}
+                    {dashboardVisibility === "public"
+                      ? t("sqlDashboard.public")
+                      : dashboardVisibility === "org"
+                        ? t("sqlDashboard.sharedWithOrg")
+                        : t("sqlDashboard.private")}
+                  </span>
+                ) : null}
+                {hiddenAt && (
+                  <span className="flex items-center gap-1.5 font-medium text-amber-600 dark:text-amber-400">
+                    <IconEyeOff className="h-3 w-3" />
+                    {t("sqlDashboard.hidden")}
+                  </span>
+                )}
+              </div>
+            </DropdownMenuLabel>
           </DropdownMenuContent>
         </DropdownMenu>
         {dashboardId ? (
@@ -1626,6 +1925,7 @@ export default function SqlDashboardPage() {
             open={historyOpen}
             onOpenChange={setHistoryOpen}
             canRestore={canEdit && !archivedAt}
+            onRestored={resetRevisionNavigation}
           />
         ) : null}
         {dashboardId ? (
@@ -1680,6 +1980,15 @@ export default function SqlDashboardPage() {
   );
 
   if (!dashboardId) {
+    if (reportScreenshot) {
+      return (
+        <DashboardReportCaptureSurface phase="missing">
+          <div className="flex h-64 items-center justify-center text-muted-foreground">
+            {t("sqlDashboard.noDashboardSelected")}
+          </div>
+        </DashboardReportCaptureSurface>
+      );
+    }
     return (
       <div className="flex items-center justify-center h-64 text-muted-foreground">
         {t("sqlDashboard.noDashboardSelected")}
@@ -1687,21 +1996,42 @@ export default function SqlDashboardPage() {
     );
   }
 
+  if (reportScreenshot && dashboardQuery.isError) {
+    return (
+      <DashboardReportCaptureSurface phase="error" error={dashboardQuery.error}>
+        <DashboardSkeleton />
+      </DashboardReportCaptureSurface>
+    );
+  }
+
   if (!loaded) {
+    if (reportScreenshot) {
+      return (
+        <DashboardReportCaptureSurface phase="loading">
+          <DashboardSkeleton />
+        </DashboardReportCaptureSurface>
+      );
+    }
     return <DashboardSkeleton />;
   }
 
-  if (!dashboard) return <BlankDashboard />;
+  if (!dashboard) {
+    if (reportScreenshot) {
+      return (
+        <DashboardReportCaptureSurface phase="missing">
+          <BlankDashboard />
+        </DashboardReportCaptureSurface>
+      );
+    }
+    return <BlankDashboard />;
+  }
 
   return (
-    <div
+    <DashboardReportCaptureSurface
       className="space-y-4"
-      data-dashboard-report-capture
-      data-dashboard-report-ready={loaded && dashboard ? "true" : "false"}
-      data-dashboard-report-panel-ids={
-        reportScreenshot
-          ? JSON.stringify(listReportablePanelIds(visiblePanels))
-          : undefined
+      phase="ready"
+      panelIds={
+        reportScreenshot ? listReportablePanelIds(visiblePanels) : undefined
       }
     >
       {hiddenAt ? (
@@ -1972,6 +2302,7 @@ export default function SqlDashboardPage() {
                                 }
                                 editable={canEdit}
                                 eagerLoad={reportScreenshot}
+                                reportScreenshot={reportScreenshot}
                                 isDragSource={activeDragPanelId === panel.id}
                                 selectedForChat={selectedPanelId === panel.id}
                                 selectPanelForChat={selectPanelForChat}
@@ -2023,6 +2354,6 @@ export default function SqlDashboardPage() {
           existingPanelTitles={dashboard.panels.map((p) => p.title)}
         />
       ) : null}
-    </div>
+    </DashboardReportCaptureSurface>
   );
 }

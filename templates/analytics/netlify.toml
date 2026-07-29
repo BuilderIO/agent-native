@@ -10,9 +10,13 @@ functions = "templates/analytics/.netlify/functions-internal"
 
 [build.environment]
 GA_MEASUREMENT_ID = "G-ESF7FYXGN9"
+GTM_CONTAINER_ID = "GTM-N3WSTXZ"
 NITRO_PRESET = "netlify"
 NPM_CONFIG_PRODUCTION = "false"
 AGENT_PROD_CODE_EXECUTION = "sandboxed"
+# Analytics dashboard creation can span multiple model/tool rounds; keep those
+# turns on the durable background worker instead of the short foreground wall.
+AGENT_CHAT_DURABLE_BACKGROUND = "true"
 
 # A2A delegation calls run a full agent loop (LLM + tool calls + DB queries).
 # Hosted agent chat uses a soft timeout before this function timeout so the

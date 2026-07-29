@@ -4,6 +4,9 @@
 // templates ship as verbatim copy-only scaffolding (.ts), so their compiled
 // .js never exists in dist.
 const messages = {
+  workspaceFile: {
+    download: "Download",
+  },
   home: {
     settingsTitle: "Settings",
     settingsDescription: "Language and agent preferences",
@@ -18,6 +21,7 @@ const messages = {
   },
   settings: {
     title: "Settings",
+    pageTitle: "Settings",
     description: "Language and workspace preferences for this app.",
     languageTitle: "Language",
     languageDescription:
@@ -53,6 +57,15 @@ const messages = {
     profileSaved: "Profile updated",
     profileSaveError: "Could not update profile",
     profileMenuItem: "Profile",
+  },
+  secrets: {
+    scopeLabel: "Scope",
+    scopePersonal: "Personal",
+    scopeWorkspace: "Workspace",
+    scopePersonalDescription:
+      "Only your own signed-in sessions use this key. Integration, webhook, scheduled job, automation, and agent-to-agent runs sign in as their owner rather than as you, so they cannot read it.",
+    scopeWorkspaceDescription:
+      "Everyone in this workspace uses this key, including integration, webhook, scheduled job, automation, and agent-to-agent runs.",
   },
   agentResources: {
     openDocs: "Open {{section}} documentation",
@@ -171,6 +184,7 @@ const messages = {
       workspaceControlPlane: "Workspace control plane",
       workspaceSubtitle_one: "Workspace · {{count}} app",
       workspaceSubtitle_other: "Workspace · {{count}} apps",
+      search: "Search",
       chats: "Chats",
       newChat: "New chat",
       newDispatchChat: "New Dispatch chat",
@@ -195,6 +209,7 @@ const messages = {
       otherAppsDescription: "Open other apps available to you.",
       availableCount: "{{count}} available",
       activeCount: "{{count}} active",
+      pendingCount: "{{count}} pending",
       hiddenCount: "{{count}} hidden",
       createApp: "Create app",
       templates: "Templates",
@@ -204,6 +219,16 @@ const messages = {
       show: "Show",
       hiddenApps: "Hidden apps",
       hiddenAppCount: "{{count}} hidden apps",
+      pendingApps: "Pending apps",
+      pendingAppsDescription:
+        "{{count}} pending apps are hidden by default. Show them only when you need to inspect work in progress.",
+      showPendingApps: "Show pending apps",
+      hidePendingApps: "Hide pending apps",
+      noActiveWorkspaceApps: "No active workspace apps yet",
+      noActiveWorkspaceAppsDescription:
+        "Pending apps are hidden by default. Expand Pending apps below to inspect them.",
+      appMetadataOwner: "Owner",
+      appMetadataTeams: "Teams",
       workspaceAppFallback: "Workspace App",
       workspaceAppDescription:
         "Open a deployed app or check the status of an app being created.",
@@ -309,6 +334,7 @@ const messages = {
     newTerminal: "New terminal",
     panelOptions: "Agent panel options",
     collapseSidebar: "Collapse sidebar",
+    expandSidebar: "Expand sidebar",
     hideChats: "Hide chats",
     allChats: "All chats",
     settings: "Settings",
@@ -336,7 +362,12 @@ const messages = {
     addOwnKeys: "Add your own keys",
     configureProviderKeys: "Configure Anthropic, OpenAI, or another provider",
     checkingAiConnection: "Checking AI connection...",
-    connectionUnavailable: "Unable to check AI connection. Click to retry.",
+    delegatedAgent: {
+      asking: "Asking {{name}}...",
+      asked: "Asked {{name}}",
+      error: "Error asking {{name}}",
+      elapsed: "{{duration}} elapsed",
+    },
     voiceMode: {
       entryButtonLabel: "Use microphone",
       promptTitle: "Use your voice",
@@ -736,6 +767,10 @@ const messages = {
     createOrgCardTitle: "Create an Organization",
     createOrgCardDescription:
       "Set up a team to collaborate with your colleagues.",
+    createOrgVaultNotice:
+      "Vault keys aren't shared between organizations. A new organization starts with an empty vault, so you'll need to add its own API keys and credentials before connected apps work.",
+    acceptInvitationOrgSwitchNotice:
+      "Joining makes {{name}} your active organization. Connected apps will switch to {{name}}'s vault keys, so anything using keys saved in your current organization may stop working until {{name}} has its own.",
     joinDomainOne:
       "An organization matching your email domain already exists. Join it to collaborate with your teammates.",
     joinDomainMany:
@@ -762,10 +797,20 @@ const messages = {
     remove: "Remove",
     save: "Save",
     loading: "Loading...",
+    dangerZone: "Danger zone",
+    deleteOrg: "Delete organization",
+    deleteOrgDescription:
+      "Permanently deletes this organization, its members, and its pending invitations. Data owned by the organization becomes inaccessible. This cannot be undone.",
+    deleteOrgConfirmPrompt: "Type {{name}} to confirm.",
+    deleteOrgConfirmPlaceholder: "Organization name",
+    deleteOrgConfirmCta: "Delete organization",
+    deleteOrgPending: "Deleting…",
   },
   integrations: {
     webhookUrl: "Webhook URL",
     copyWebhookUrl: "Copy webhook URL",
+    webhookUrlLocalOnly:
+      "{{platform}} can't call {{url}} — that address only exists on this machine. Deploy the app, or expose this server through an HTTPS tunnel, then open this page from the public address to get a webhook URL you can paste.",
     notConfigured:
       "Not configured. Set the required secrets to enable this integration.",
     enable: "Enable",
@@ -825,8 +870,6 @@ const messages = {
       "This provider usually requires an OAuth setup. Follow the provider docs, or add an Authorization header if your endpoint supports token-based access.",
     personal: "Personal",
     organization: "Organization",
-    orgNoOrg: "Join an organization to share MCP servers",
-    orgAdminOnly: "Only owners and admins can add org-scope servers",
     serverNameRequired: "Enter a server name before connecting with OAuth.",
     serverName: "Server name",
     url: "URL",

@@ -311,6 +311,18 @@ export default defineConfig({
 });
 ```
 
+## Cloudflare Workers {#cloudflare-workers}
+
+Usa la salida de módulos nativa de Nitro para un Cloudflare Worker con SSR
+habilitado. Ejecuta `npx @agent-native/core@latest build` y después publica
+con `npx wrangler deploy --config .output/server/wrangler.json`.
+
+```ts
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "cloudflare_module" } })],
+});
+```
+
 ## AWS Lambda {#aws-lambda}
 
 ```ts
@@ -329,6 +341,41 @@ export default defineConfig({
 });
 ```
 
+## Caché SSR {#ssr-caching}
+
+Cada respuesta HTML SSR y cada respuesta `.data` de React Router es una única shell impersonal y pública: `createH3SSRHandler` elimina las cookies antes de renderizar, de modo que los mismos bytes son correctos para todos los visitantes y toda la personalización ocurre en el cliente después de la carga. Esto es lo que permite marcar de forma segura una única política de caché estricta en esas respuestas de forma predeterminada:
+
+```txt
+cache-control: public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600
+```
+
+El mismo valor se refleja en `cdn-cache-control` y `netlify-cdn-cache-control`. Una única entrada de CDN compartida sirve entonces todo el sitio en lugar de renderizar en cada solicitud, lo que es la palanca más importante para la latencia de la primera respuesta — déjala activada a menos que se aplique a tu implementación alguno de los casos siguientes.
+
+### Anular con `AGENT_NATIVE_SSR_CACHE` {#ssr-cache-env}
+
+Configure `AGENT_NATIVE_SSR_CACHE` en el entorno de implementación para cambiar la política de toda la implementación:
+
+| Valor                                               | Resultado                                                                          |
+| --------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| sin configurar, `on`, `default`, `true`, `1`        | La política predeterminada anterior, sin cambios. Recomendado — mejor rendimiento. |
+| `off`, `false`, `0`, `none`, `no-store`, `disabled` | `no-store` en `cache-control`, `cdn-cache-control` y `netlify-cdn-cache-control`.  |
+| Una duración: `30`, `30s`, `5m`, `2h`               | `public, max-age=<n>, stale-while-revalidate=<n>, stale-if-error=3600`.            |
+
+Los números sin unidad son segundos. `stale-while-revalidate` refleja deliberadamente `max-age` para una duración personalizada: una ventana de frescura corta combinada con la ventana obsoleta predeterminada de siete días devolvería exactamente la obsolescencia de la que te habías excluido. Un valor no reconocido registra una advertencia y recurre al valor predeterminado, de modo que un error tipográfico nunca puede desactivar silenciosamente la CDN.
+
+Redúzcala o desactívela cuando se cumpla alguna de estas condiciones:
+
+1. **Tu proveedor no purga su CDN al implementar.** Netlify y Vercel sí lo hacen; algunas configuraciones autogestionadas no. Sin una purga, una compilación publicada puede seguir sirviendo la shell anterior durante `max-age` más `stale-while-revalidate`.
+2. **Tus loaders devuelven datos públicos mutables.** Tras una mutación exitosa, una nueva obtención mediante `useRevalidator()` o una redirección después de una acción puede leer la copia `.data` en caché del navegador en lugar de la salida fresca del loader.
+
+La configuración se aplica a toda superficie de shell pública: el HTML SSR y `.data` de React Router, la shell HTML de inicio de sesión, la ruta `/_agent-native/speculation-rules.json`, el sitio de documentación y el SSR del formulario público en la plantilla de formularios. El Cloudflare Worker generado la resuelve en el momento de la compilación, así que configúrala en el entorno de implementación antes de ejecutar la compilación.
+
+Tres cosas a tener en cuenta:
+
+- **Desactivar la caché no hace que el SSR se personalice.** Las cookies se siguen eliminando antes de renderizar y los loaders SSR siguen viendo la rama anónima. Los datos por usuario deben seguir resolviéndose en el cliente. Esta variable controla únicamente la _duración_ de la caché.
+- **Es una configuración de toda la implementación, no por ruta, por diseño.** Una anulación de caché por ruta o por solicitud es la forma en que la carga útil de un visitante termina en la entrada de CDN compartida de otro visitante, así que el framework no ofrece una — `guard:ssr-cache-shell` lo garantiza.
+- **Para datos frescos tras una mutación, prefiere las actions en lugar de desactivar la caché.** Los datos de la aplicación pertenecen a [Actions](/docs/actions), se leen desde el cliente con `useActionQuery` / `useActionMutation` y se mantienen actualizados mediante el polling de `useDbSync()`; nada de eso pasa por la caché de la shell SSR. Mantén los loaders SSR renderizando la shell pública, y recurre a esta variable solo cuando realmente quieras que los datos del loader estén más frescos.
+
 ## Variables de entorno {#environment-variables}
 
 ### Compilación/Tiempo de ejecución {#env-runtime}
@@ -339,6 +386,7 @@ export default defineConfig({
 | `NITRO_PRESET`                              | Anular el valor preestablecido de compilación en el momento de la compilación                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `APP_BASE_PATH`                             | Monte la aplicación bajo un prefijo (por ejemplo, `/mail`). Establecido automáticamente por `npx @agent-native/core@latest deploy`; déjelo sin configurar para que sea independiente.                                                                                                                                                                                                                                                                                                                               |
 | `AGENT_PROD_CODE_EXECUTION`                 | Modo de ejecución de código de producción opcional: `off` (predeterminado), `sandboxed` o `trusted`. Ver [Production Code Execution](#production-code-execution).                                                                                                                                                                                                                                                                                                                                                   |
+| `AGENT_NATIVE_SSR_CACHE`                    | Política de caché de la shell SSR para toda la implementación: sin configurar/`on` mantiene la caché estricta predeterminada, `off` envía `no-store`, o una duración como `30s` / `5m` establece una frescura más corta. Ver [SSR Caching](#ssr-caching).                                                                                                                                                                                                                                                           |
 | `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | Secreto HMAC compartido y dedicado de 32 caracteres o más para la retransmisión segura de la autorización de Builder a vistas previas. Configure el mismo valor en el despliegue de devolución de llamada corporativo aprobado y en los despliegues de vista previa solo cuando la autorización deba almacenarse en una base de datos de vista previa aislada.                                                                                                                                                      |
 | `AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS` | Lista de orígenes de vista previa de confianza exactos, separados por comas y solo para la devolución de llamada corporativa (por ejemplo, `https://0123456789abcdef01234567--content.netlify.app`). Configúrela únicamente en el despliegue de devolución de llamada corporativo. Los orígenes de Netlify deben usar un enlace permanente inmutable y específico del despliegue con un ID hexadecimal de 24 caracteres; se rechazan los alias mutables `deploy-preview-*`, los comodines y los sufijos de dominio. |
 

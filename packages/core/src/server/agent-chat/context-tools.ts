@@ -1,6 +1,11 @@
 import { ACTION_CHAT_UI_DATA_WIDGET_RENDERER } from "../../action-ui.js";
 import type { ActionEntry } from "../../agent/production-agent.js";
-import { dataWidgetResultSchema } from "../../data-widgets/index.js";
+import {
+  clampDataWidgetRows,
+  DATA_WIDGET_MAX_CHART_POINTS,
+  DATA_WIDGET_MAX_ROWS,
+  dataWidgetResultSchema,
+} from "../../data-widgets/index.js";
 import { getRequestRunContext } from "../request-context.js";
 
 // ---------------------------------------------------------------------------
@@ -559,8 +564,7 @@ export function createDataWidgetActionEntries(): Record<string, ActionEntry> {
         description: "Render a validated native data table or chart in chat.",
       },
       tool: {
-        description:
-          "Render a native Agent-Native chat data widget from compact, real data you already retrieved or the user provided. Use this for in-chat tables, charts, graphs, trends, and compact reports when no domain-specific action already returns a native widget. Never fabricate rows or metrics just to make a chart.",
+        description: `Render a native Agent-Native chat data widget from compact, real data you already retrieved or the user provided. Use this for in-chat tables, charts, graphs, trends, and compact reports when no domain-specific action already returns a native widget. Never fabricate rows or metrics just to make a chart. Rows travel as tool arguments you type out one token at a time, so this is only for already-summarized data: at most ${DATA_WIDGET_MAX_ROWS} table rows and ${DATA_WIDGET_MAX_CHART_POINTS} chart points (anything beyond that is dropped). For a larger result set, aggregate it first, or state the total and show only the top rows — never re-serialize a full query result here.`,
         parameters: {
           type: "object",
           properties: {
@@ -602,7 +606,8 @@ export function createDataWidgetActionEntries(): Record<string, ActionEntry> {
           required: ["widget"],
         },
       },
-      run: async (args) => dataWidgetResultSchema.parse(args),
+      run: async (args) =>
+        clampDataWidgetRows(dataWidgetResultSchema.parse(args)),
     },
   };
 }

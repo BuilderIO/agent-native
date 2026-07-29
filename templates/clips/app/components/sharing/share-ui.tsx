@@ -1,3 +1,4 @@
+import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import {
   useActionMutation,
   useActionQuery,
@@ -15,6 +16,11 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 
+import {
+  Avatar as UserAvatar,
+  AvatarFallback as UserAvatarFallback,
+  AvatarImage as UserAvatarImage,
+} from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -25,6 +31,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useVisibleAvatarUrl } from "@/lib/use-visible-avatar-url";
 import { cn } from "@/lib/utils";
 
 // ---------------------------------------------------------------------------
@@ -70,7 +77,7 @@ export const ROLE_OPTIONS: Array<{ value: Role; label: string }> = [
 ];
 
 export function copyToClipboard(value: string): void {
-  navigator.clipboard.writeText(value).catch(() => {});
+  void writeClipboardText(value);
 }
 
 // ---------------------------------------------------------------------------
@@ -303,17 +310,26 @@ export function CopyField({
 // ---------------------------------------------------------------------------
 
 export function Avatar({ label, org }: { label: string; org?: boolean }) {
-  return (
-    <span
-      aria-hidden
-      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold text-muted-foreground"
-    >
-      {org ? (
+  const { avatarRef, avatarUrl } = useVisibleAvatarUrl(org ? null : label);
+
+  if (org) {
+    return (
+      <span
+        aria-hidden
+        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold text-muted-foreground"
+      >
         <IconUsersGroup size={14} strokeWidth={1.75} />
-      ) : (
-        (label.split("@")[0]?.[0] ?? label[0] ?? "?").toUpperCase()
-      )}
-    </span>
+      </span>
+    );
+  }
+
+  return (
+    <UserAvatar ref={avatarRef} className="h-7 w-7 shrink-0">
+      {avatarUrl ? <UserAvatarImage src={avatarUrl} alt={label} /> : null}
+      <UserAvatarFallback className="bg-muted text-[11px] font-semibold text-muted-foreground">
+        {(label.split("@")[0]?.[0] ?? label[0] ?? "?").toUpperCase()}
+      </UserAvatarFallback>
+    </UserAvatar>
   );
 }
 

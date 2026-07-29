@@ -22,6 +22,7 @@ import {
   parsePendingEntry,
 } from "../changelog/parse.js";
 import { getViteDevRecoveryScript } from "../client/vite-dev-recovery-script.js";
+import { writeAgentNativeNitroPresetMarker } from "../deploy/nitro-preset.js";
 import { findWorkspaceRoot } from "../scripts/utils.js";
 import { verifyEmbedSessionToken } from "../server/embed-session.js";
 import {
@@ -253,6 +254,9 @@ function nitroVitePlugin(
  * rate-limits an unrelated client-reload nudge); keep the two independent.
  */
 const NITRO_FULL_RELOAD_DEBOUNCE_MS = 300;
+const OPTIMIZE_DEP_FULL_RELOAD_COOLDOWN_MS = 2_000;
+const OPTIMIZE_DEP_FULL_RELOAD_WINDOW_MS = 30_000;
+const OPTIMIZE_DEP_MAX_FULL_RELOADS = 3;
 
 /**
  * Wraps a single Nitro-provided Vite plugin so that, if it defines a
@@ -628,6 +632,10 @@ function hasCoreDep(pkg: string, cwd: string): boolean {
 }
 
 function hasOptimizeDep(pkg: string, cwd: string): boolean {
+  // The nested dependency entry below is rooted at @agent-native/core, so
+  // monorepo consumers need to retain it even though the source package does
+  // not list itself as a dependency.
+  if (pkg === "@agent-native/core" && findCorePackageRoot(cwd)) return true;
   return hasDep(pkg, cwd) || hasCoreDep(pkg, cwd);
 }
 
@@ -711,6 +719,47 @@ function getClientDedupe(cwd: string): string[] {
  * of dist/ at startup and never picks up new exports).
  */
 function findCorePackageRoot(cwd: string): string | null {
+  const localSourceRoot = findLocalCoreSourceRoot(cwd);
+  if (localSourceRoot) return localSourceRoot;
+
+  // Published Core packages are installed as transitive dependency roots in
+  // pnpm. The consuming app cannot resolve Core's client-only dependencies
+  // from its own node_modules unless we first locate that installed package
+  // and read its manifest. This is also what lets optimizeDeps use Vite's
+  // nested-dependency syntax for standalone CLI-generated apps.
+  try {
+    const appRequire = createRequire(path.join(cwd, "package.json"));
+    const resolved = appRequire.resolve("@agent-native/core");
+    let dir = path.dirname(resolved);
+    for (let i = 0; i < 20; i++) {
+      const packageJsonPath = path.join(dir, "package.json");
+      if (fs.existsSync(packageJsonPath)) {
+        const packageJson = JSON.parse(
+          fs.readFileSync(packageJsonPath, "utf-8"),
+        ) as { name?: string };
+        if (packageJson.name === "@agent-native/core") {
+          return fs.realpathSync(dir);
+        }
+      }
+
+      const parent = path.dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+  } catch {
+    // The app may not have installed Core yet; fall through to null.
+  }
+
+  return null;
+}
+
+/**
+ * Locate a local framework checkout whose source should be aliased for HMR.
+ * This intentionally does not use Node package resolution: published Core
+ * tarballs include `src/` for source maps/docs, but must still be consumed
+ * through their built `dist/` exports.
+ */
+function findLocalCoreSourceRoot(cwd: string): string | null {
   try {
     const pkg = JSON.parse(
       fs.readFileSync(path.join(cwd, "package.json"), "utf-8"),
@@ -746,7 +795,7 @@ function findCorePackageRoot(cwd: string): string | null {
 }
 
 function findCoreSrcDir(cwd: string): string | null {
-  const root = findCorePackageRoot(cwd);
+  const root = findLocalCoreSourceRoot(cwd);
   return root ? path.join(root, "src") : null;
 }
 
@@ -824,6 +873,7 @@ const CORE_CLIENT_SUBPATHS = [
   // entry.client.tsx imports from here so it never pulls the full client barrel
   // (and its transitive ~650-700 KB gzip chat stack) onto the critical path.
   "@agent-native/core/client/api-path",
+  "@agent-native/core/client/clipboard",
   "@agent-native/core/blocks",
   "@agent-native/core/blocks/server",
   "@agent-native/core/client/extensions",
@@ -858,6 +908,18 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
     { specifier: "@libsql/client" },
     { specifier: "@amplitude/analytics-browser" },
     { specifier: "@assistant-ui/react" },
+    { specifier: "@assistant-ui/react-markdown" },
+    { specifier: "@assistant-ui/store" },
+    { specifier: "@assistant-ui/tap" },
+    {
+      specifier: "@agent-native/core > @assistant-ui/react > assistant-stream",
+      packageName: "@agent-native/core",
+    },
+    {
+      specifier:
+        "@agent-native/core > @assistant-ui/react > assistant-stream/utils",
+      packageName: "@agent-native/core",
+    },
     { specifier: "@codemirror/lang-sql" },
     { specifier: "@codemirror/theme-one-dark" },
     { specifier: "@excalidraw/excalidraw" },
@@ -1034,11 +1096,7 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
       // then rebundles and reloads the editor. Its documented nested-dependency
       // syntax resolves the right-hand package from core's package directory,
       // while app-owned dependencies should remain direct entries.
-      if (
-        inMonorepo &&
-        !hasDep(dependencyName, cwd) &&
-        hasCoreDep(dependencyName, cwd)
-      ) {
+      if (!hasDep(dependencyName, cwd) && hasCoreDep(dependencyName, cwd)) {
         return `@agent-native/core > ${specifier}`;
       }
       return specifier;
@@ -1209,6 +1267,10 @@ function getCoreSourceAliases(
       coreSrc,
       "client/api-path.ts",
     ),
+    "@agent-native/core/client/clipboard": path.join(
+      coreSrc,
+      "client/clipboard.ts",
+    ),
     "@agent-native/core/blocks": path.join(coreSrc, "client/blocks/index.ts"),
     "@agent-native/core/blocks/server": path.join(
       coreSrc,
@@ -1326,7 +1388,7 @@ function getCoreSourceAliases(
 }
 
 export interface NitroOptions {
-  /** Nitro deployment preset (e.g. "node", "vercel", "netlify", "cloudflare_pages"). Default: "node" */
+  /** Nitro deployment preset (e.g. "node", "vercel", "netlify", "cloudflare_pages", "cloudflare_module"). Default: "node" */
   preset?: string;
   /** Source directory for server files. Default: "./server" */
   srcDir?: string;
@@ -1487,7 +1549,8 @@ function fullReloadOnOptimizeDep504(): Plugin {
     name: "agent-native-full-reload-optimize-dep-504",
     apply: "serve",
     configureServer(server) {
-      let lastReloadAt = 0;
+      let lastReloadAt: number | null = null;
+      let reloadHistory: number[] = [];
       server.middlewares.use((req, res, next) => {
         const originalEnd = res.end;
         (res as unknown as { end: (...args: unknown[]) => unknown }).end = (
@@ -1499,8 +1562,17 @@ function fullReloadOnOptimizeDep504(): Plugin {
             statusMessage === "Outdated Optimize Dep"
           ) {
             const now = Date.now();
-            if (now - lastReloadAt > 500) {
+            reloadHistory = reloadHistory.filter(
+              (timestamp) =>
+                now - timestamp < OPTIMIZE_DEP_FULL_RELOAD_WINDOW_MS,
+            );
+            if (
+              (lastReloadAt === null ||
+                now - lastReloadAt >= OPTIMIZE_DEP_FULL_RELOAD_COOLDOWN_MS) &&
+              reloadHistory.length < OPTIMIZE_DEP_MAX_FULL_RELOADS
+            ) {
               lastReloadAt = now;
+              reloadHistory.push(now);
               server.ws.send({ type: "full-reload" });
               server.config.logger.info(
                 `[agent-native] Vite optimized deps changed while loading ${
@@ -1577,18 +1649,30 @@ function baseRedirectGuard(): Plugin {
         if (serveMountedEmbedRuntimeModule(server, req, res, base)) {
           return;
         }
-        // Nitro's pre-middleware only intercepts document/iframe/frame/empty
-        // fetch-dest requests. For video/audio/image etc. it calls next() and
-        // the post-internal Nitro middleware handles them instead. If we strip
-        // the base path here for those requests, Vite's base middleware sees the
-        // stripped path (e.g. /api/video/:id without /clips/) and responds with
-        // a "did you mean /clips/api/video/:id" error before Nitro can handle it.
-        // Only strip when the request type matches Nitro's pre-middleware gate.
+        // stripMountedDevApiPath only rewrites paths that resolve to /api/**
+        // (see isApiDevPath below), so this never touches static asset or
+        // document requests — only mounted API calls. Nitro's dev router
+        // matches routes against req.url with the mount prefix still in
+        // place (its own baseURL is unset in dev), so a mounted API request
+        // must have that prefix stripped before Nitro's router ever sees it,
+        // regardless of Sec-Fetch-Dest — otherwise it falls through to
+        // Vite/connect's generic 404 instead of the real handler. This used
+        // to be gated to document/iframe/frame/empty only, because stripping
+        // for video/audio/image previously made Vite's base middleware see
+        // the stripped path (e.g. /api/video/:id without /clips/) before
+        // Nitro's router got a chance to match it. That gate is stale: image
+        // and video requests hit the exact same "Cannot GET" fallback today,
+        // because the browser sends Sec-Fetch-Dest: image/video/audio/track
+        // for <img>/<video>/<audio> fetches, not empty — so those requests
+        // were never actually reaching Nitro pre-strip in the first place.
         const secFetchDest = req.headers["sec-fetch-dest"] as
           | string
           | undefined;
         const isNitroPreHandled =
-          !secFetchDest || /^(document|iframe|frame|empty)$/.test(secFetchDest);
+          !secFetchDest ||
+          /^(document|iframe|frame|empty|image|video|audio|track)$/.test(
+            secFetchDest,
+          );
         if (isNitroPreHandled) {
           req.url = stripMountedDevApiPath(req.url, base);
         }
@@ -2093,6 +2177,7 @@ function ssrStubPlugin(packages: string[]): Plugin | null {
     "ThreadPrimitive",
     "WebLinksAddon",
     "captureException",
+    "codeToHtml",
     "common",
     "createLowlight",
     "createNodeFromContent",
@@ -2112,6 +2197,7 @@ function ssrStubPlugin(packages: string[]): Plugin | null {
     "encodeStateAsUpdate",
     "mergeUpdates",
     "useAui",
+    "useAuiState",
     "useComposer",
     "useComposerRuntime",
     "useCurrentEditor",
@@ -2341,6 +2427,10 @@ type NitroModuleGraph = {
 
 const NITRO_STARTUP_SETTLE_MS = 1_000;
 const NITRO_STARTUP_TIMEOUT_MS = 30_000;
+const NITRO_STARTUP_RETRY_KEY = "__agent_native_nitro_startup_retry";
+const NITRO_STARTUP_RETRY_MAX = 5;
+const NITRO_STARTUP_RETRY_DELAY_MS = 1_000;
+const NITRO_STARTUP_RETRY_RESET_MS = 15_000;
 
 function nitroModuleGraphSignature(environment: unknown): string | null {
   const graph = (environment as { moduleGraph?: NitroModuleGraph } | undefined)
@@ -2383,9 +2473,66 @@ function sendNitroStartingResponse(
     res.end();
     return;
   }
-  res.end(
-    '<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="0.25"><title>Starting…</title></head><body></body></html>',
-  );
+  res.end(`<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Dev server restarting…</title>
+    <style>
+      body { margin: 0; min-height: 100vh; display: grid; place-items: center; font: 16px/1.5 system-ui, sans-serif; color: #171717; background: #fafafa; }
+      main { width: min(560px, calc(100vw - 48px)); }
+      h1 { margin: 0 0 8px; font-size: 1.25rem; }
+      p { margin: 0; color: #737373; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Dev server is restarting…</h1>
+      <p id="agent-native-nitro-retry-status">Checking again shortly.</p>
+    </main>
+    <script>
+      (() => {
+        const key = ${JSON.stringify(NITRO_STARTUP_RETRY_KEY)};
+        const maxRetries = ${NITRO_STARTUP_RETRY_MAX};
+        const resetAfterMs = ${NITRO_STARTUP_RETRY_RESET_MS};
+        const retryDelayMs = ${NITRO_STARTUP_RETRY_DELAY_MS};
+        const status = document.getElementById("agent-native-nitro-retry-status");
+        const now = Date.now();
+        let count = 0;
+        let lastAttemptAt = 0;
+
+        try {
+          const stored = JSON.parse(sessionStorage.getItem(key) || "null");
+          if (stored && typeof stored === "object") {
+            count = Number.isFinite(stored.count) ? stored.count : 0;
+            lastAttemptAt = Number.isFinite(stored.at) ? stored.at : 0;
+          }
+        } catch (error) {
+          // A blocked session store is handled below by showing a manual retry.
+        }
+
+        if (now - lastAttemptAt > resetAfterMs) count = 0;
+        if (count >= maxRetries) {
+          if (status) status.textContent = "The server is still unavailable. Refresh when it is ready.";
+          return;
+        }
+
+        const nextState = JSON.stringify({ count: count + 1, at: now });
+        try {
+          sessionStorage.setItem(key, nextState);
+          if (sessionStorage.getItem(key) !== nextState) throw new Error("unavailable");
+        } catch (error) {
+          if (status) status.textContent = "Refresh manually when the server is ready.";
+          return;
+        }
+
+        if (status) status.textContent = "Retrying in one second…";
+        setTimeout(() => window.location.reload(), retryDelayMs);
+      })();
+    </script>
+  </body>
+</html>`);
 }
 
 function nitroStartupGate(
@@ -2818,6 +2965,22 @@ function forceServeOnly(pluginOrPreset: any): any {
   return { ...pluginOrPreset, apply: "serve" };
 }
 
+function nitroPresetMarkerPlugin(
+  options: ClientConfigOptions | AgentNativeVitePluginOptions,
+): Plugin | null {
+  const preset = options.nitro?.preset;
+  if (typeof preset !== "string" || !preset.trim()) return null;
+
+  return {
+    name: "agent-native-nitro-preset-marker",
+    configResolved(config) {
+      if (config.command === "build") {
+        writeAgentNativeNitroPresetMarker(preset);
+      }
+    },
+  };
+}
+
 function createAgentNativePlugins(
   options: ClientConfigOptions | AgentNativeVitePluginOptions,
   {
@@ -2835,8 +2998,10 @@ function createAgentNativePlugins(
   const { appBasePath } = getConfiguredAppBasePath();
   const nitroPlugin = createNitroDevPlugin(options, appBasePath);
   const includeNitro = !isBuildCommand(command);
+  const presetMarkerPlugin = nitroPresetMarkerPlugin(options);
 
   return [
+    presetMarkerPlugin,
     // Stub packages from `options.ssrStubs` in the SSR bundle so they
     // don't bloat the edge worker. Opt-in per template — the framework
     // hardcodes nothing (e.g. docs sites legitimately import `shiki` on
@@ -2997,6 +3162,12 @@ function createAgentNativeConfig(
       ),
       "process.env.AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID": JSON.stringify(
         process.env.GA_MEASUREMENT_ID?.trim() || "",
+      ),
+      __AGENT_NATIVE_BUILD_GTM_CONTAINER_ID__: JSON.stringify(
+        process.env.GTM_CONTAINER_ID?.trim() || "",
+      ),
+      "process.env.AGENT_NATIVE_BUILD_GTM_CONTAINER_ID": JSON.stringify(
+        process.env.GTM_CONTAINER_ID?.trim() || "",
       ),
       // Framework route warmup controls how SSR `.data` routes are fetched:
       // ordinary fetches keep them CDN-cacheable, while native prefetch headers

@@ -35,7 +35,7 @@
   --accent-foreground: 0 0% 98%;
 
   /* Destructive - bright enough for text on dark surfaces */
-  --destructive: 0 84.2% 60.2%;
+  --destructive: 0 91% 71%;
   --destructive-foreground: 0 0% 98%;
 
   /* Borders - Subtle and thin */
@@ -136,11 +136,6 @@
   .light .recharts-cartesian-grid line {
     stroke: #d4d4d8 !important;
   }
-}
-
-.analytics-chat-panel [data-agent-empty-state="centered"] {
-  justify-content: center;
-  padding-bottom: clamp(4rem, 12vh, 8rem);
 }
 
 .analytics-mobile-nav {

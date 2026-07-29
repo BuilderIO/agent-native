@@ -83,13 +83,39 @@ const presetReferenceFillSchema = z.object({
   assetIds: z.array(z.string().min(1)).min(1).max(4),
 });
 
+const imageGenerationAgentInputSchema = z.object({
+  libraryId: z
+    .string()
+    .min(1)
+    .describe("Brand kit/library ID to use for this image."),
+  collectionId: z.string().optional(),
+  presetId: z.string().optional(),
+  sessionId: z.string().optional(),
+  prompt: z.string().min(1),
+  embeddedText: z.string().optional(),
+  textPlacement: z.string().optional(),
+  aspectRatio: z.enum(ASPECT_RATIOS).optional(),
+  imageSize: z.enum(IMAGE_SIZES).optional(),
+  model: z.enum(IMAGE_MODELS).optional(),
+  tier: z.enum(IMAGE_QUALITY_TIERS).optional(),
+  intent: z.enum(GENERATION_INTENTS).optional(),
+  styleStrength: z.enum(STYLE_STRENGTHS).optional(),
+  categories: z.array(z.enum(IMAGE_CATEGORIES)).optional(),
+  referenceAssetIds: z.array(z.string()).optional(),
+  presetReferenceFills: z.array(presetReferenceFillSchema).max(6).optional(),
+  includeLogo: z.boolean().optional(),
+  sourceAssetId: z.string().optional(),
+  subjectAssetId: z.string().optional(),
+  groundingMode: z.enum(["auto", "off", "google-search"]).optional(),
+});
+
 export default defineAction({
   description:
     "Generate one brand-consistent image from a brand kit/library. This is synchronous for images and returns the final asset with preview/download/embed URLs. Use @brand-kit mentions as libraryId and @preset mentions as presetId when present. If no preset is tagged, call list-generation-presets first and use a matching preset's presetId; the user may not know presets exist. Generate presetless only when no preset matches the request. Use generate-image-batch for multiple independent slots; do not poll image runs after this action returns.",
   schema: z.object({
     libraryId: z
       .string()
-      .optional()
+      .min(1)
       .describe(
         "Brand kit/library ID. Pass the refId from a brand-kit @mention, or choose a kit from view-screen/list-libraries.",
       ),
@@ -205,6 +231,7 @@ export default defineAction({
         "When false, attach the output to the session without making it the active asset. Batch generation selects the active asset deterministically after all slots finish.",
       ),
   }),
+  agentInputSchema: imageGenerationAgentInputSchema,
   parallelSafe: true,
   timeoutMs: IMAGE_GENERATION_TOOL_TIMEOUT_MS,
   run: async (input, context?: ActionRunContext) => {

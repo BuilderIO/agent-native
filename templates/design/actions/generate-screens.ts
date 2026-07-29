@@ -34,7 +34,7 @@ const DEVICE_REGION_SIZE: Record<
 > = {
   mobile: { width: 390, height: 844 },
   tablet: { width: 768, height: 1024 },
-  desktop: { width: 1440, height: 1024 },
+  desktop: { width: 1440, height: 900 },
 };
 
 function regionSizeForScreen(screen: {
@@ -135,10 +135,11 @@ const requestedScreenSchema = z
       .enum(["mobile", "tablet", "desktop"])
       .optional()
       .describe(
-        "Intended viewport for this screen. Defaults to desktop-sized when " +
-          "omitted — pass 'mobile' for phone screens and 'tablet' for iPad-" +
-          "width screens so the canvas region matches the content instead of " +
-          "always sizing every screen as desktop.",
+        "Intended viewport for this DISTINCT screen. Defaults to desktop-sized " +
+          "when omitted. Use 'mobile' or 'tablet' only for a genuinely " +
+          "device-specific screen (e.g. a mobile-only page), NOT to create " +
+          "per-device copies of the same page — those are breakpoint frames of " +
+          "one document, chosen with generate-design's `devices` param.",
       ),
     width: z
       .number()
@@ -168,15 +169,20 @@ const requestedScreenSchema = z
 
 export default defineAction({
   description:
-    "Start a multi-screen generation session on the Design canvas. " +
-    "Use this before generating multiple screens or variations in parallel: it " +
-    "assigns non-overlapping canvas regions and returns per-frame generation " +
-    "instructions including canvasFrame placements. The session state is " +
-    "agent-facing planning state consumed by generate-design and view-screen. " +
-    "Pass each screen's deviceType ('mobile', 'tablet', or 'desktop') so its " +
-    "canvas region matches the content — a desktop dashboard should not be " +
-    "boxed into a 390px mobile-width frame. Defaults to desktop when omitted; " +
-    "pass explicit width/height instead for a non-standard viewport. " +
+    "Start a multi-screen generation session on the Design canvas for " +
+    "genuinely DISTINCT screens — different pages or states such as Home, " +
+    "Dashboard, and Checkout — each saved as its own screen file. " +
+    "Do NOT use this to model device responsiveness: mobile/tablet/desktop " +
+    "variants of the SAME page are breakpoint frames of one document, not " +
+    "separate screen files. Choose those device frames with generate-design's " +
+    "`devices` param instead of adding one screen per device here. " +
+    "It assigns non-overlapping canvas regions and returns per-frame " +
+    "generation instructions including canvasFrame placements. The session " +
+    "state is agent-facing planning state consumed by generate-design and " +
+    "view-screen. Set a screen's deviceType ('mobile', 'tablet', or 'desktop') " +
+    "only for a genuinely device-specific distinct screen (e.g. a mobile-only " +
+    "page) so its canvas region matches the content; it defaults to desktop, " +
+    "or pass explicit width/height for a non-standard viewport. " +
     "After this action, fan out calls to generate-design for each returned " +
     "frame, passing the returned canvasFrame values to generate-design so " +
     "screens appear in the infinite overview canvas.",
@@ -326,6 +332,37 @@ export default defineAction({
         .map((file) => file.filename)
         .filter((filename): filename is string => Boolean(filename)),
     );
+
+    // Region packing starts at x:0, so offset the whole batch past screens
+    // already on the board — otherwise a follow-up session stacks its screens
+    // on top of existing ones (generate-design's per-frame collision check is
+    // only a fallback; offsetting here keeps the batch's own layout intact).
+    const existingDesignRows = await db
+      .select({ data: schema.designs.data })
+      .from(schema.designs)
+      .where(eq(schema.designs.id, designId));
+    let boardRightEdge = 0;
+    try {
+      const raw = existingDesignRows[0]?.data;
+      const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+      const frames = (parsed.canvasFrames ?? {}) as Record<
+        string,
+        { x?: number; width?: number }
+      >;
+      for (const frame of Object.values(frames)) {
+        const x = typeof frame?.x === "number" ? frame.x : 0;
+        const width = typeof frame?.width === "number" ? frame.width : 0;
+        boardRightEdge = Math.max(
+          boardRightEdge,
+          x + width + DEFAULT_ASSIGNED_REGION_GAP,
+        );
+      }
+    } catch {
+      // Malformed data — fall back to the origin.
+    }
+    if (boardRightEdge > 0) {
+      for (const region of regions) region.x += boardRightEdge;
+    }
     // Dedupe any filename (explicit or auto-generated) so two screens can
     // never resolve to the same target file, and so no target collides with
     // an existing screen — otherwise generate-design silently overwrites the

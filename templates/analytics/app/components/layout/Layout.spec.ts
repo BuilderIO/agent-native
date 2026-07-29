@@ -13,9 +13,11 @@ describe("Analytics layout sidebar route policy", () => {
     expect(shouldDefaultOpenAnalyticsSidebar("/sessions/sr_123")).toBe(false);
   });
 
-  it("preserves the existing default-open sidebar on non-session routes", () => {
+  it("keeps the right agent sidebar closed on dashboard routes", () => {
     expect(isAnalyticsSessionsRoute("/ask")).toBe(false);
     expect(isAnalyticsSessionsRoute("/dashboards/revenue")).toBe(false);
-    expect(shouldDefaultOpenAnalyticsSidebar("/dashboards/revenue")).toBe(true);
+    expect(shouldDefaultOpenAnalyticsSidebar("/dashboards/revenue")).toBe(
+      false,
+    );
   });
 });

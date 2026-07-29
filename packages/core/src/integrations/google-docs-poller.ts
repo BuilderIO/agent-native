@@ -1,11 +1,11 @@
 import { createAnthropicEngine } from "../agent/engine/index.js";
 import type { EngineMessage } from "../agent/engine/types.js";
 import {
-  runAgentLoop,
   actionsToEngineTools,
   filterInitialEngineTools,
   type ActionEntry,
 } from "../agent/production-agent.js";
+import { runAgentLoopDirectWithSoftTimeout } from "../agent/run-loop-with-resume.js";
 import { startRun, type ActiveRun } from "../agent/run-manager.js";
 import {
   buildAssistantMessage,
@@ -498,17 +498,24 @@ async function processComment(
       await runWithRequestContext(
         { userEmail: options.ownerEmail, orgId, isIntegrationCaller: true },
         () =>
-          runAgentLoop({
-            engine,
-            model: options.model,
-            systemPrompt: options.systemPrompt,
-            tools,
-            availableTools,
-            messages,
-            actions: runnableActions,
-            send,
-            signal,
-          }),
+          // Wrapper, not raw `runAgentLoop`: a doc-comment reply has no client
+          // driving continuation, so a transport-level cut has to be resumed
+          // inside this invocation or the commenter never gets an answer.
+          runAgentLoopDirectWithSoftTimeout(
+            {
+              engine,
+              model: options.model,
+              systemPrompt: options.systemPrompt,
+              tools,
+              availableTools,
+              messages,
+              actions: runnableActions,
+              send,
+              signal,
+            },
+            undefined,
+            { useHostedDefault: true },
+          ),
       );
     },
     async (completedRun: ActiveRun) => {
@@ -528,6 +535,9 @@ async function processComment(
         console.error("[google-docs] Error sending response:", err);
       }
     },
+    // No userId here: `options.ownerEmail` is PII (email), which the
+    // terminal event must not carry.
+    { model: options.model, engineName: engine.name },
   );
 }
 

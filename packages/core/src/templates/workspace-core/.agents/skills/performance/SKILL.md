@@ -151,6 +151,23 @@ See the `authentication` skill for the full model and `guard:ssr-cache-shell`
 plus `ssr-handler.spec.ts` (`packages/core/src/server/ssr-handler.ts`) for the
 enforced contract.
 
+**Never route mutation-fresh reads through SSR loader data.** Data that changes
+when a user acts belongs in an action, read from the client with
+`useActionQuery` / `useActionMutation` and kept live by `useDbSync()` polling —
+that path never touches the SSR shell cache. A `useRevalidator()` after a
+mutation re-fetches `.data` with a plain GET and can legitimately be served the
+cached copy. SSR loaders render the public shell; the client resolves anything
+that must be fresh.
+
+The one supported knob is the deployment-wide `AGENT_NATIVE_SSR_CACHE` env var:
+unset/`on` keeps the default, `off` sends `no-store`, and a duration such as
+`30s` / `5m` shortens freshness. It is for deployments whose host does not purge
+its CDN on deploy, or whose loaders genuinely serve mutable public data. It
+changes cache duration only — cookies are still stripped before render, so
+turning it off does not make SSR personalized. There is deliberately no
+per-route or per-request override; that is how one visitor's payload lands in
+another visitor's shared CDN entry.
+
 ## 7. Big payloads and long lists
 
 - **Paginate or window** unbounded lists (messages, responses, events, activity).
@@ -176,3 +193,5 @@ enforced contract.
 - [ ] Unbounded lists are paginated/windowed; large blobs aren't inlined on the hot path.
 - [ ] SSR HTML/`.data` path stays session-blind and cacheable — no `private`,
       `no-store`, `Vary: Cookie`, or auth branch added to it.
+- [ ] Mutation-fresh reads go through actions + `useActionQuery`, not SSR loader
+      data.

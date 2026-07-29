@@ -6,12 +6,16 @@ import { DocumentProperties } from "./DocumentProperties";
 
 interface DocumentInfoPanelProps {
   document: Document;
+  databaseId?: string | null;
+  databaseDocumentId?: string | null;
   canEdit: boolean;
   onSaveDescription: (description: string) => Promise<unknown> | unknown;
 }
 
 export function DocumentInfoPanel({
   document,
+  databaseId,
+  databaseDocumentId,
   canEdit,
   onSaveDescription,
 }: DocumentInfoPanelProps) {
@@ -32,7 +36,14 @@ export function DocumentInfoPanel({
         onSave={onSaveDescription}
       />
       {document.databaseMembership && !isLocalFileDocument ? (
-        <DocumentProperties documentId={document.id} canEdit={canEdit} />
+        <DocumentProperties
+          documentId={document.id}
+          databaseId={databaseId ?? document.databaseMembership.databaseId}
+          databaseDocumentId={
+            databaseDocumentId ?? document.databaseMembership.databaseDocumentId
+          }
+          canEdit={canEdit}
+        />
       ) : null}
     </div>
   );

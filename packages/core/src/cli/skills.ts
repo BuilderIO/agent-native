@@ -32,7 +32,7 @@ import {
   CONTEXT_XRAY_SKILL_MD,
   installLocalContextXray,
 } from "./context-xray-local.js";
-import { CLIENTS, type ClientId } from "./mcp-config-writers.js";
+import { CLIENTS, configPathFor, type ClientId } from "./mcp-config-writers.js";
 import {
   installScreenMemoryForClient,
   resolveScreenMemoryStoreDir,
@@ -800,6 +800,7 @@ export interface RunSkillsOptions {
    * browser/device OAuth round-trip.
    */
   runConnect?: (args: string[]) => Promise<void>;
+  installScreenMemory?: typeof installScreenMemoryForClient;
   /**
    * Best-effort install-funnel telemetry. Created once per `runSkills` run and
    * threaded through resolution/install/connect so each `track` is fire-and-
@@ -848,6 +849,50 @@ function normalizeKnownSkillTarget(
 
 function isKnownSkill(value: string | undefined): boolean {
   return Boolean(normalizeKnownSkillTarget(value));
+}
+
+function explicitlyTargetsRewind(parsed: ParsedSkillsArgs): boolean {
+  return (
+    normalizeKnownSkillTarget(parsed.target ?? "assets") === "rewind" ||
+    Boolean(
+      parsed.plainSkillNames?.some(
+        (skillName) => normalizeKnownSkillTarget(skillName) === "rewind",
+      ),
+    )
+  );
+}
+
+const REWIND_MISSING_STORE_ERROR =
+  "No local Clips Screen Memory store was found. Clips Desktop is required for Rewind. Download and launch the signed app from https://clips.agent-native.com/download, turn Rewind on, then run the setup again. Clips Desktop was not installed or enabled automatically.";
+
+function preflightRewindStore(parsed: ParsedSkillsArgs): string | undefined {
+  if (parsed.command !== "add" || !explicitlyTargetsRewind(parsed))
+    return undefined;
+  if (!parsed.mcp) {
+    throw new Error(
+      "Rewind requires the local Clips Screen Memory MCP and cannot be installed with --no-mcp.",
+    );
+  }
+  if (parsed.mcpUrl) {
+    throw new Error(
+      "Rewind uses the local Clips Screen Memory MCP and does not accept --mcp-url.",
+    );
+  }
+  if (parsed.dryRun) return undefined;
+  const screenMemoryDir = resolveScreenMemoryStoreDir();
+  if (!screenMemoryDir) throw new Error(REWIND_MISSING_STORE_ERROR);
+  return screenMemoryDir;
+}
+
+function preflightResolvedRewindTargets(
+  parsed: ParsedSkillsArgs,
+  targets: string[],
+): void {
+  preflightRewindStore({
+    ...parsed,
+    target: undefined,
+    plainSkillNames: [...(parsed.plainSkillNames ?? []), ...targets],
+  });
 }
 
 function isLocalOnlyBuiltInSkill(
@@ -1128,6 +1173,7 @@ function writeSkillFolder(
       `${JSON.stringify(metadata, null, 2)}\n`,
       "utf-8",
     );
+    assertSkillFolderIsNotSymlink(dir);
     fs.rmSync(dir, { recursive: true, force: true });
     fs.renameSync(tempDir, dir);
   } catch (error: any) {
@@ -1137,6 +1183,21 @@ function writeSkillFolder(
     throw new Error(
       `Cannot write Agent Native skill folder ${dir}: ${error?.message ?? error}`,
       { cause: error },
+    );
+  }
+}
+
+function assertSkillFolderIsNotSymlink(dir: string): void {
+  let stat: fs.Stats;
+  try {
+    stat = fs.lstatSync(dir);
+  } catch (error: any) {
+    if (error?.code === "ENOENT") return;
+    throw error;
+  }
+  if (stat.isSymbolicLink()) {
+    throw new Error(
+      `Refusing to replace symlinked Agent Native skill folder ${dir}. Update the linked source or remove the symlink before installing.`,
     );
   }
 }
@@ -1382,7 +1443,7 @@ $ARGUMENTS
  * there is no need to shell out to the separate @agent-native/skills installer
  * (which would have to be published to npm first). Returns the written folders.
  */
-function installBuiltInInstructions(input: {
+type BuiltInInstructionInstallInput = {
   appSkillId: BuiltInAppSkillId;
   onlySkillNames?: string[];
   skillsAgents: string[];
@@ -1391,7 +1452,11 @@ function installBuiltInInstructions(input: {
   dryRun?: boolean;
   planMode?: PlanInstallMode;
   mcpUrl?: string;
-}): string[] {
+};
+
+function builtInInstructionPaths(
+  input: BuiltInInstructionInstallInput,
+): string[] {
   const bundles = Object.values(
     skillFilesForBuiltIn(input.appSkillId, {
       planMode: input.planMode,
@@ -1411,20 +1476,96 @@ function installBuiltInInstructions(input: {
     );
     for (const bundle of bundles) {
       const dir = path.join(root, bundle.skillName);
-      if (!input.dryRun) writeSkillFolder(dir, bundle);
       written.push(dir);
       const command = slashCommandForBuiltInSkill(bundle.skillName);
       if (command) {
         const commandPath = path.join(commandsRoot, `${bundle.skillName}.md`);
-        if (!input.dryRun) {
-          fs.mkdirSync(path.dirname(commandPath), { recursive: true });
-          fs.writeFileSync(commandPath, command, "utf-8");
-        }
         written.push(commandPath);
       }
     }
   }
   return written;
+}
+
+function installBuiltInInstructions(
+  input: BuiltInInstructionInstallInput,
+): string[] {
+  const bundles = Object.values(
+    skillFilesForBuiltIn(input.appSkillId, {
+      planMode: input.planMode,
+      mcpUrl: input.mcpUrl,
+    }),
+  ).filter(
+    (bundle) =>
+      !input.onlySkillNames || input.onlySkillNames.includes(bundle.skillName),
+  );
+  const written = builtInInstructionPaths(input);
+  if (input.dryRun) return written;
+
+  for (const agent of input.skillsAgents) {
+    const root = builtInSkillsRootForAgent(agent, input.scope, input.baseDir);
+    const commandsRoot = builtInCommandsRootForAgent(
+      agent,
+      input.scope,
+      input.baseDir,
+    );
+    for (const bundle of bundles) {
+      writeSkillFolder(path.join(root, bundle.skillName), bundle);
+      const command = slashCommandForBuiltInSkill(bundle.skillName);
+      if (command) {
+        const commandPath = path.join(commandsRoot, `${bundle.skillName}.md`);
+        fs.mkdirSync(path.dirname(commandPath), { recursive: true });
+        fs.writeFileSync(commandPath, command, "utf-8");
+      }
+    }
+  }
+  return written;
+}
+
+interface InstallPathSnapshot {
+  target: string;
+  backup: string;
+  existed: boolean;
+}
+
+function snapshotInstallPaths(
+  targets: string[],
+  backupRoot: string,
+): InstallPathSnapshot[] {
+  return [...new Set(targets)].map((target, index) => {
+    const backup = path.join(backupRoot, `snapshot-${index}`);
+    const existed = fs.existsSync(target);
+    if (existed) fs.cpSync(target, backup, { recursive: true });
+    return { target, backup, existed };
+  });
+}
+
+function removeEmptyParents(start: string, boundary: string): void {
+  let current = path.resolve(start);
+  const stop = path.resolve(boundary);
+  while (current !== stop && current.startsWith(`${stop}${path.sep}`)) {
+    if (!fs.existsSync(current) || fs.readdirSync(current).length > 0) return;
+    fs.rmdirSync(current);
+    current = path.dirname(current);
+  }
+}
+
+function restoreInstallPaths(
+  snapshots: InstallPathSnapshot[],
+  boundary: string,
+): void {
+  for (const snapshot of snapshots.toReversed()) {
+    fs.rmSync(snapshot.target, { recursive: true, force: true });
+    if (snapshot.existed) {
+      fs.mkdirSync(path.dirname(snapshot.target), { recursive: true });
+      fs.cpSync(snapshot.backup, snapshot.target, { recursive: true });
+    }
+  }
+  for (const snapshot of snapshots) {
+    if (!snapshot.existed) {
+      removeEmptyParents(path.dirname(snapshot.target), boundary);
+    }
+  }
 }
 
 function listSkillFolderFiles(dir: string): Record<string, string> {
@@ -3376,6 +3517,11 @@ export async function addAgentNativeSkill(
   const knownBuiltIn = knownTarget ? BUILT_IN_APP_SKILLS[knownTarget] : null;
   const installsScreenMemoryMcp = isScreenMemoryMcpBuiltInSkill(knownBuiltIn);
   const baseDir = options.baseDir ?? process.cwd();
+  if (installsScreenMemoryMcp && !parsed.mcp) {
+    throw new Error(
+      "Rewind requires the local Clips Screen Memory MCP and cannot be installed with --no-mcp.",
+    );
+  }
   if (installsScreenMemoryMcp && parsed.mcpUrl) {
     throw new Error(
       "Rewind uses the local Clips Screen Memory MCP and does not accept --mcp-url.",
@@ -3487,7 +3633,7 @@ export async function addAgentNativeSkill(
   }
   installTarget = preserveMcpUrlAppPathOverride(installTarget, parsed.mcpUrl);
   const skillsAgents = installsScreenMemoryMcp
-    ? clients
+    ? clients.filter((client) => client !== "cowork")
     : skillsAgentsForClients(clients);
   if (parsed.dryRun) {
     try {
@@ -3537,6 +3683,7 @@ export async function addAgentNativeSkill(
     }
   }
   const commands: string[] = [];
+  const screenMemoryDir = preflightRewindStore(parsed);
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "an-skills-add-"));
   let instructionSource: string | undefined;
   let instructionsWritten: string[] | undefined;
@@ -3544,6 +3691,36 @@ export async function addAgentNativeSkill(
   let connectCommand: string | undefined;
   let registeredMcpClients: ClientId[] = shouldRegisterMcp ? mcpClients : [];
   let localManifestPath: string | undefined;
+  const builtInInstructionInput: BuiltInInstructionInstallInput | undefined =
+    knownTarget
+      ? {
+          appSkillId: knownTarget,
+          onlySkillNames,
+          skillsAgents,
+          scope: parsed.scope as "project" | "user",
+          baseDir,
+          dryRun: parsed.dryRun,
+          planMode,
+          mcpUrl: installTarget.loaded.manifest.hosted.mcpUrl,
+        }
+      : undefined;
+  const rewindSnapshots = installsScreenMemoryMcp
+    ? snapshotInstallPaths(
+        [
+          ...(parsed.instructions && builtInInstructionInput
+            ? builtInInstructionPaths(builtInInstructionInput)
+            : []),
+          ...(shouldRegisterMcp
+            ? mcpClients.map((client) =>
+                configPathFor(client, baseDir, parsed.scope),
+              )
+            : []),
+        ],
+        tmpRoot,
+      )
+    : undefined;
+  const rollbackBoundary =
+    parsed.scope === "user" ? os.homedir() : path.resolve(baseDir);
 
   try {
     if (parsed.instructions) {
@@ -3553,21 +3730,14 @@ export async function addAgentNativeSkill(
             "Skill instructions use shared .agents for Codex, Pi, Cursor, OpenCode, Copilot, and similar agents, or Claude Code's native files. Use an MCP-capable client or omit --instructions-only.",
           );
         }
-      } else if (knownTarget) {
+      } else if (knownTarget && builtInInstructionInput) {
         // Built-in skills ship their instructions inside this package, so copy
         // the skill folders straight into each client's skills directory. This
         // avoids shelling out to the separate @agent-native/skills installer
         // (which would need to be published to npm to run via npx).
-        instructionsWritten = installBuiltInInstructions({
-          appSkillId: knownTarget,
-          onlySkillNames,
-          skillsAgents,
-          scope: parsed.scope as "project" | "user",
-          baseDir,
-          dryRun: parsed.dryRun,
-          planMode,
-          mcpUrl: installTarget.loaded.manifest.hosted.mcpUrl,
-        });
+        instructionsWritten = installBuiltInInstructions(
+          builtInInstructionInput,
+        );
         instructionSource = instructionsWritten[0];
         commands.push(...instructionsWritten.map((dir) => `write ${dir}`));
       } else {
@@ -3611,29 +3781,24 @@ export async function addAgentNativeSkill(
       commands.push(`write ${localManifestPath}`);
     }
 
-    // Skill instructions are now on disk (built-in folders copied or external
-    // pack materialized) — record the install before MCP registration/connect.
-    options.telemetry?.track("skills_cli install completed", {
-      skills: installTarget.skillNames.join(","),
-      clients: clients.join(","),
-      scope: parsed.scope,
-      dryRun: Boolean(parsed.dryRun),
-    });
+    // Rewind reports completion only after both local writes succeed.
+    if (!installsScreenMemoryMcp) {
+      options.telemetry?.track("skills_cli install completed", {
+        skills: installTarget.skillNames.join(","),
+        clients: clients.join(","),
+        scope: parsed.scope,
+        dryRun: Boolean(parsed.dryRun),
+      });
+    }
 
     if (shouldRegisterMcp && installsScreenMemoryMcp) {
-      const screenMemoryDir = resolveScreenMemoryStoreDir();
-      if (!screenMemoryDir) {
-        throw new Error(
-          "No local Clips Screen Memory store was found. Turn Rewind on in Clips, then run the setup again.",
-        );
-      }
       registeredMcpClients = mcpClients.map((client) => {
         commands.push(
           `npx @agent-native/core@latest mcp install-screen-memory --client ${client} --scope ${parsed.scope}`,
         );
-        installScreenMemoryForClient(
+        (options.installScreenMemory ?? installScreenMemoryForClient)(
           client,
-          screenMemoryDir,
+          screenMemoryDir!,
           baseDir,
           parsed.scope,
         );
@@ -3641,6 +3806,12 @@ export async function addAgentNativeSkill(
       });
       options.telemetry?.track("skills_cli mcp registered", {
         skills: installTarget.skillNames.join(","),
+      });
+      options.telemetry?.track("skills_cli install completed", {
+        skills: installTarget.skillNames.join(","),
+        clients: clients.join(","),
+        scope: parsed.scope,
+        dryRun: false,
       });
     } else if (shouldRegisterMcp) {
       commands.push(
@@ -3769,6 +3940,18 @@ export async function addAgentNativeSkill(
       githubActionExisted,
       githubActionSuggestedCommand,
     };
+  } catch (error) {
+    if (rewindSnapshots) {
+      try {
+        restoreInstallPaths(rewindSnapshots, rollbackBoundary);
+      } catch (rollbackError) {
+        throw new AggregateError(
+          [error, rollbackError],
+          "Rewind setup failed and its partial installation could not be fully rolled back.",
+        );
+      }
+    }
+    throw error;
   } finally {
     fs.rmSync(tmpRoot, { recursive: true, force: true });
     installTarget.cleanup?.();
@@ -4046,6 +4229,41 @@ function readCliVersion(): string {
   }
 }
 
+function deferCliTelemetry(target: CliTelemetry): {
+  telemetry: CliTelemetry;
+  commit: () => void;
+} {
+  type TrackCall = Parameters<CliTelemetry["track"]>;
+  type ExceptionCall = Parameters<CliTelemetry["captureException"]>;
+  const trackCalls: TrackCall[] = [];
+  const exceptionCalls: ExceptionCall[] = [];
+  let committed = false;
+
+  return {
+    telemetry: {
+      track(...args) {
+        if (committed) target.track(...args);
+        else trackCalls.push(args);
+      },
+      captureException(...args) {
+        if (committed) target.captureException(...args);
+        else exceptionCalls.push(args);
+      },
+      async flush() {
+        if (committed) await target.flush();
+      },
+    },
+    commit() {
+      if (committed) return;
+      committed = true;
+      for (const args of trackCalls) target.track(...args);
+      for (const args of exceptionCalls) target.captureException(...args);
+      trackCalls.length = 0;
+      exceptionCalls.length = 0;
+    },
+  };
+}
+
 export async function runSkills(
   argv: string[],
   options: RunSkillsOptions = {},
@@ -4054,6 +4272,7 @@ export async function runSkills(
   if (parsed.baseDir) {
     options = { ...options, baseDir: path.resolve(parsed.baseDir) };
   }
+  preflightRewindStore(parsed);
   const clackForLog = parsed.printJson
     ? undefined
     : await import("@clack/prompts");
@@ -4089,7 +4308,7 @@ export async function runSkills(
   // finally so events send on success, error, and cancellation — the CLI is
   // short-lived, so flushing before exit is essential or the events never send.
   const startedAt = Date.now();
-  const telemetry =
+  const telemetryTarget =
     options.telemetry ??
     createCliTelemetry({
       cli: "core",
@@ -4097,6 +4316,13 @@ export async function runSkills(
       command: parsed.command,
       interactive: shouldPrompt(parsed, options),
     });
+  const deferredTelemetry = deferCliTelemetry(telemetryTarget);
+  const telemetry = deferredTelemetry.telemetry;
+  const deferUntilSkillSelection =
+    parsed.command === "add" &&
+    !parsed.target &&
+    !(parsed.plainSkillNames?.length ?? 0);
+  if (!deferUntilSkillSelection) deferredTelemetry.commit();
   const optionsWithTelemetry: RunSkillsOptions = {
     ...options,
     telemetry,
@@ -4137,9 +4363,12 @@ export async function runSkills(
 
     const targets = await resolveSkillTargets(parsed, optionsWithTelemetry);
     if (!targets) {
+      deferredTelemetry.commit();
       telemetry.track("skills_cli cancelled", { step: "skills" });
       return;
     }
+    preflightResolvedRewindTargets(parsed, targets);
+    deferredTelemetry.commit();
     const preselected = Boolean(parsed.target);
     telemetry.track("skills_cli skills selected", {
       selected: targets.join(","),
@@ -4453,6 +4682,11 @@ export async function runSkills(
       command: parsed.command,
       error: error instanceof Error ? error.message : String(error),
       durationMs: Date.now() - startedAt,
+    });
+    telemetry.captureException(error, {
+      handled: false,
+      tags: { source: "skills-command", command: parsed.command },
+      extra: { durationMs: Date.now() - startedAt },
     });
     throw error;
   } finally {

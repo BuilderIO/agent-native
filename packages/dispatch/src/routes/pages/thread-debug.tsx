@@ -7,6 +7,7 @@ import {
   IconSearch,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router";
 
 import { ActionQueryError } from "../../components/action-query-error";
 import { DispatchShell } from "../../components/dispatch-shell";
@@ -86,6 +87,7 @@ interface ThreadDebugResponse {
   };
   access: { viewerEmail: string; scope: string; canInspectAll: boolean };
   thread: ThreadSearchResult;
+  lookup?: { requestedId: string; threadId: string; runId: string | null };
   messages: ThreadMessage[];
   debug: any;
   debugRuns: any[];
@@ -209,7 +211,7 @@ function ResultCard({
 function MessageBlock({ message }: { message: ThreadMessage }) {
   const tools = toolParts(message);
   return (
-    <div className="rounded-lg border bg-card">
+    <div className="rounded-lg bg-card">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2">
         <div className="flex min-w-0 items-center gap-2">
           <Badge
@@ -275,7 +277,7 @@ function ThreadDetail({ detail }: { detail: ThreadDebugResponse }) {
   );
 
   return (
-    <div className="rounded-lg border bg-card">
+    <div className="rounded-lg bg-card">
       <div className="border-b px-4 py-3">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
@@ -325,7 +327,7 @@ function ThreadDetail({ detail }: { detail: ThreadDebugResponse }) {
         <TabsContent value="runs" className="mt-4 space-y-3">
           {detail.runs.length > 0 ? (
             detail.runs.map((run) => (
-              <details key={run.id} className="rounded-lg border bg-card">
+              <details key={run.id} className="rounded-lg bg-card">
                 <summary className="cursor-pointer px-4 py-3">
                   <div className="inline-flex flex-wrap items-center gap-2">
                     <Badge variant="outline">{run.status}</Badge>
@@ -416,18 +418,23 @@ function ThreadDetail({ detail }: { detail: ThreadDebugResponse }) {
 }
 
 export default function ThreadDebugRoute() {
-  const [sourceId, setSourceId] = useState("current");
-  const [query, setQuery] = useState("");
-  const [ownerEmail, setOwnerEmail] = useState("");
-  const [threadId, setThreadId] = useState("");
+  const [routeSearchParams] = useSearchParams();
+  const initialSourceId = routeSearchParams.get("source") || "current";
+  const initialQuery = routeSearchParams.get("query") || "";
+  const initialOwnerEmail = routeSearchParams.get("ownerEmail") || "";
+  const [sourceId, setSourceId] = useState(initialSourceId);
+  const [query, setQuery] = useState(initialQuery);
+  const [ownerEmail, setOwnerEmail] = useState(initialOwnerEmail);
+  const [lookupId, setLookupId] = useState("");
   const [submittedSearch, setSubmittedSearch] = useState({
-    sourceId: "current",
-    query: "",
-    ownerEmail: "",
+    sourceId: initialSourceId,
+    query: initialQuery,
+    ownerEmail: initialOwnerEmail,
   });
   const [selected, setSelected] = useState<{
     sourceId: string;
-    threadId: string;
+    lookupId: string;
+    lookupKind: "thread" | "run";
     ownerEmail?: string;
   } | null>(null);
 
@@ -470,7 +477,9 @@ export default function ThreadDebugRoute() {
   const detailParams = useMemo(
     () => ({
       sourceId: selected?.sourceId ?? "current",
-      threadId: selected?.threadId ?? "",
+      ...(selected?.lookupKind === "run"
+        ? { runId: selected.lookupId }
+        : { threadId: selected?.lookupId ?? "" }),
       ownerEmail: selected?.ownerEmail,
       maxRuns: 20,
       maxEvents: 800,
@@ -487,7 +496,7 @@ export default function ThreadDebugRoute() {
     "get-agent-thread-debug",
     detailParams,
     {
-      enabled: Boolean(selected?.threadId),
+      enabled: Boolean(selected?.lookupId),
     },
   );
 
@@ -507,10 +516,21 @@ export default function ThreadDebugRoute() {
         sourceId,
         query,
         ownerEmail: ownerEmail.trim() || undefined,
-        threadId: selected?.threadId ?? (threadId.trim() || undefined),
+        threadId:
+          selected?.lookupKind === "thread"
+            ? selected.lookupId
+            : !selected && lookupId.trim() && !lookupId.startsWith("run-")
+              ? lookupId.trim()
+              : undefined,
+        runId:
+          selected?.lookupKind === "run"
+            ? selected.lookupId
+            : !selected && lookupId.trim() && lookupId.startsWith("run-")
+              ? lookupId.trim()
+              : undefined,
       }),
     }).catch(() => {});
-  }, [ownerEmail, query, selected?.threadId, sourceId, threadId]);
+  }, [ownerEmail, query, selected, sourceId, lookupId]);
 
   return (
     <DispatchShell
@@ -524,7 +544,7 @@ export default function ThreadDebugRoute() {
             onRetry={() => void sourcesQuery.refetch()}
           />
         ) : null}
-        <section className="rounded-lg border bg-card p-4">
+        <section className="rounded-lg bg-card p-4">
           <div className="grid gap-3 lg:grid-cols-[220px_1fr_260px_auto]">
             <Select value={sourceId} onValueChange={setSourceId}>
               <SelectTrigger>
@@ -568,20 +588,21 @@ export default function ThreadDebugRoute() {
 
           <div className="mt-3 grid gap-3 lg:grid-cols-[1fr_auto]">
             <Input
-              value={threadId}
-              onChange={(event) => setThreadId(event.target.value)}
-              placeholder="Paste thread ID"
+              value={lookupId}
+              onChange={(event) => setLookupId(event.target.value)}
+              placeholder="Paste thread or request/run ID"
               className="font-mono"
             />
             <Button
               type="button"
               variant="outline"
               onClick={() => {
-                const trimmed = threadId.trim();
+                const trimmed = lookupId.trim();
                 if (!trimmed) return;
                 setSelected({
                   sourceId,
-                  threadId: trimmed,
+                  lookupId: trimmed,
+                  lookupKind: trimmed.startsWith("run-") ? "run" : "thread",
                   ownerEmail: ownerEmail.trim() || undefined,
                 });
               }}
@@ -616,7 +637,7 @@ export default function ThreadDebugRoute() {
         ) : null}
 
         <div className="grid gap-4 xl:grid-cols-[380px_1fr]">
-          <section className="min-h-[520px] rounded-lg border bg-card">
+          <section className="min-h-[520px] rounded-lg bg-card">
             <div className="flex items-center justify-between border-b px-4 py-3">
               <div>
                 <div className="text-sm font-semibold text-foreground">
@@ -655,11 +676,15 @@ export default function ThreadDebugRoute() {
                 <ResultCard
                   key={result.id}
                   result={result}
-                  selected={selected?.threadId === result.id}
+                  selected={
+                    selected?.lookupKind === "thread" &&
+                    selected.lookupId === result.id
+                  }
                   onSelect={() =>
                     setSelected({
                       sourceId: submittedSearch.sourceId,
-                      threadId: result.id,
+                      lookupId: result.id,
+                      lookupKind: "thread",
                       ownerEmail: submittedSearch.ownerEmail || undefined,
                     })
                   }
@@ -676,7 +701,7 @@ export default function ThreadDebugRoute() {
               />
             ) : null}
             {detailLoading ? (
-              <div className="rounded-lg border bg-card p-4">
+              <div className="rounded-lg bg-card p-4">
                 <Skeleton className="h-6 w-72" />
                 <Skeleton className="mt-3 h-4 w-96" />
                 <Skeleton className="mt-6 h-[520px] w-full" />
@@ -686,7 +711,7 @@ export default function ThreadDebugRoute() {
             ) : (
               <div className="flex min-h-[520px] flex-col items-center justify-center rounded-lg border border-dashed bg-card px-4 text-center text-sm text-muted-foreground">
                 <IconFileSearch className="mb-2 h-5 w-5" />
-                Select or inspect a thread.
+                Select or inspect a thread or request/run ID.
               </div>
             )}
           </section>

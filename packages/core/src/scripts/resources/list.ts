@@ -14,7 +14,10 @@ import {
   SHARED_OWNER,
   WORKSPACE_OWNER,
 } from "../../resources/store.js";
-import { getRequestUserEmail } from "../../server/request-context.js";
+import {
+  getAmbientUserEmail,
+  getRequestUserEmail,
+} from "../../server/request-context.js";
 import { parseArgs, fail } from "../utils.js";
 
 export default async function resourceListScript(
@@ -42,7 +45,7 @@ Options:
     parsed["include-agent-scratch"] === "true" ||
     parsed.includeAgentScratch === "true" ||
     parsed.includeScratch === "true";
-  const owner = getRequestUserEmail() ?? process.env.AGENT_USER_EMAIL;
+  const owner = getRequestUserEmail() ?? getAmbientUserEmail();
   if (!owner) {
     fail(
       "resource-list requires an authenticated user (request context or AGENT_USER_EMAIL env var).",

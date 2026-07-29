@@ -27,6 +27,7 @@ import {
 } from "../server/lib/recordings.js";
 import { setResumableSession } from "../server/lib/resumable-session.js";
 import { shouldEnableStreamingUpload } from "../server/lib/streaming-upload-mode.js";
+import { uploadLeaseExpiry } from "../server/lib/upload-lease.js";
 import {
   allowsSqlRecordingChunkScratch,
   STORAGE_SETUP_REQUIRED_REASON,
@@ -70,6 +71,9 @@ export default defineAction({
       sourceWindowTitle: args.sourceWindowTitle?.trim() || null,
       status: "uploading",
       uploadProgress: 0,
+      // Take the upload lease at creation. A row that never gets one is
+      // invisible to the reaper and can sit in 'uploading' forever.
+      uploadLeaseExpiresAt: uploadLeaseExpiry(),
       hasAudio: args.hasAudio ?? true,
       hasCamera: args.hasCamera ?? false,
       visibility: args.visibility ?? defaultVisibility,

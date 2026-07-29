@@ -159,9 +159,6 @@ async function ensureTable(): Promise<void> {
           "chat_thread_shares_resource_idx",
           CHAT_THREAD_SHARES_RESOURCE_INDEX_SQL,
         );
-        // One-time backfill of message_count for legacy rows written before
-        // the column was maintained.
-        await backfillLegacyMessageCounts(client);
         return;
       }
 
@@ -221,15 +218,6 @@ async function ensureTable(): Promise<void> {
           // Index already exists or the dialect rejected a duplicate.
         }
       }
-      // One-time backfill of message_count for legacy rows written before
-      // the column was maintained. The list/summary path now reads
-      // message_count directly (instead of re-parsing the thread_data blob)
-      // and filters on `message_count > 0`, so any legacy row that has
-      // messages but a stale `message_count = 0` would otherwise vanish from
-      // the sidebar. Recompute the count from thread_data and persist it so
-      // the hot path can stay blob-free. Idempotent: only touches rows where
-      // the count is still 0 but the blob clearly contains a messages array.
-      await backfillLegacyMessageCounts(client);
     })().catch((err) => {
       // Retry init on the next call after a failed startup.
       _initPromise = undefined;
@@ -240,28 +228,47 @@ async function ensureTable(): Promise<void> {
 }
 
 /**
- * Recompute `message_count` from `thread_data` for legacy rows that still
- * have a stale `message_count = 0` despite carrying a messages array in the
- * blob. Without this, dropping the `thread_data` payload (and the
- * `OR thread_data LIKE '%"messages"%'` filter) from the list path would make
- * those rows disappear from the sidebar. Runs once at table bootstrap and is
- * idempotent — after the first pass no row matches the WHERE clause again.
+ * Explicitly repair `message_count` for legacy rows written before the count
+ * was maintained. This must never run from table/bootstrap initialization:
+ * serverless isolates would each scan the full `thread_data` blob column on
+ * cold start. Operators may invoke it once when upgrading an old database.
  */
-async function backfillLegacyMessageCounts(
-  client: ReturnType<typeof getDbExec>,
-): Promise<void> {
-  const { rows } = await client.execute({
-    sql: `SELECT id, thread_data, message_count FROM chat_threads WHERE message_count = 0 AND thread_data LIKE '%"messages"%'`,
-    args: [],
-  });
-  for (const r of rows) {
-    const count = deriveMessageCount(r.thread_data, 0);
-    if (count <= 0) continue;
-    await client.execute({
-      sql: `UPDATE chat_threads SET message_count = ? WHERE id = ? AND message_count = 0`,
-      args: [count, r.id as string],
+export async function repairLegacyChatThreadMessageCounts(
+  options: {
+    batchSize?: number;
+  } = {},
+): Promise<{ scanned: number; updated: number }> {
+  await ensureTable();
+  const client = getDbExec();
+  const batchSize = Math.max(1, Math.min(options.batchSize ?? 100, 1_000));
+  let afterId = "";
+  let scanned = 0;
+  let updated = 0;
+  while (true) {
+    const { rows } = await client.execute({
+      sql: `SELECT id, thread_data, message_count FROM chat_threads
+            WHERE message_count = 0
+              AND thread_data LIKE '%"messages"%'
+              AND id > ?
+            ORDER BY id
+            LIMIT ?`,
+      args: [afterId, batchSize],
     });
+    if (rows.length === 0) break;
+    for (const row of rows) {
+      afterId = String(row.id);
+      scanned++;
+      const count = deriveMessageCount(row.thread_data, 0);
+      if (count <= 0) continue;
+      const result = await client.execute({
+        sql: `UPDATE chat_threads SET message_count = ? WHERE id = ? AND message_count = 0`,
+        args: [count, afterId],
+      });
+      if (result.rowsAffected > 0) updated++;
+    }
+    if (rows.length < batchSize) break;
   }
+  return { scanned, updated };
 }
 
 function generateId(): string {
@@ -407,8 +414,8 @@ function rowToThread(r: Record<string, unknown>): ChatThread {
 
 function rowToSummary(r: Record<string, unknown>): ChatThreadSummary | null {
   // The summary path never loads `thread_data`; the count comes from the
-  // dedicated `message_count` column (maintained on write, backfilled for
-  // legacy rows at bootstrap). Empty threads are filtered out of the list.
+  // dedicated `message_count` column maintained on write. Empty threads are
+  // filtered out of the list.
   const messageCount = Number(r.message_count);
   if (!Number.isFinite(messageCount) || messageCount <= 0) return null;
   return {
@@ -475,9 +482,8 @@ const THREAD_COLUMNS = `id, owner_email, title, preview, thread_data, message_co
 // message-history JSON blob and selecting it for every row turns "open the
 // sidebar" into "download every conversation". The summary derives nothing
 // from the blob anymore — preview and message_count are dedicated columns
-// (message_count is maintained on write and backfilled for legacy rows at
-// bootstrap). The detail path (`THREAD_COLUMNS` / `getThread`) still returns
-// the full blob.
+// (message_count is maintained on write). The detail path (`THREAD_COLUMNS` /
+// `getThread`) still returns the full blob.
 const SUMMARY_COLUMNS = `id, title, preview, message_count, created_at, updated_at, scope_type, scope_id, scope_label, pinned_at, archived_at, org_id, visibility`;
 
 export function registerChatThreadsShareable(): void {
@@ -684,10 +690,9 @@ export async function listThreads(
   const limit = opts.limit ?? 50;
   const offset = opts.offset ?? 0;
   const client = getDbExec();
-  // `message_count > 0` is the authoritative "has messages" signal: it is
-  // maintained on every write and backfilled for legacy rows at bootstrap,
-  // so the old `OR thread_data LIKE '%"messages"%'` substring scan over the
-  // full blob is no longer needed here.
+  // `message_count > 0` is the authoritative "has messages" signal maintained
+  // on every write, so the old `OR thread_data LIKE '%"messages"%'` substring
+  // scan over the full blob is no longer needed here.
   const access = chatThreadAccessSql(
     ownerEmail,
     opts.orgId ?? getRequestOrgId(),
@@ -731,9 +736,9 @@ export async function searchThreads(
   await ensureTable();
   const client = getDbExec();
   const pattern = `%${escapeLike(query)}%`;
-  // The count-guard uses the maintained/backfilled `message_count` column
-  // (same as listThreads). The content match still scans `thread_data` —
-  // search legitimately needs to look inside message history.
+  // The count-guard uses the maintained `message_count` column (same as
+  // listThreads). The content match still scans `thread_data` — search
+  // legitimately needs to look inside message history.
   const access = chatThreadAccessSql(
     ownerEmail,
     options.orgId ?? getRequestOrgId(),
@@ -1051,11 +1056,10 @@ export async function setThreadQueuedMessages(
     try {
       data = JSON.parse(thread.threadData);
     } catch {}
-    if (queuedMessages.length === 0) {
-      delete data.queuedMessages;
-    } else {
-      data.queuedMessages = queuedMessages;
-    }
+    // Keep an explicit empty tombstone. Other mounted chat surfaces only
+    // reconcile queue state when this field is present; deleting it lets a
+    // stale local queue survive the clear and submit the same prompt again.
+    data.queuedMessages = queuedMessages;
     await updateThreadData(
       threadId,
       JSON.stringify(data),
@@ -1288,6 +1292,51 @@ export async function getThreadByShareToken(
     }
   }
   return null;
+}
+
+/**
+ * Grant a user an explicit share on a thread they don't own. Used by the
+ * messaging-integration path, where a channel conversation runs as the
+ * integration service principal and so creates a thread owned by
+ * `integration@<platform>` rather than the human who asked — without this the
+ * "Open thread" deep link resolves to a 404 for them.
+ *
+ * Idempotent, and never downgrades an existing stronger role.
+ */
+export async function grantThreadUserShare(
+  threadId: string,
+  userEmail: string,
+  role: ShareRole,
+  grantedBy: string,
+): Promise<void> {
+  const normalizedEmail = userEmail.trim().toLowerCase();
+  if (!threadId || !normalizedEmail.includes("@")) return;
+  await ensureTable();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT id, role FROM chat_thread_shares WHERE resource_id = ? AND principal_type = 'user' AND LOWER(principal_id) = ?`,
+    args: [threadId, normalizedEmail],
+  });
+  const existing = rows[0];
+  if (existing) {
+    if (roleSatisfies(existing.role as ShareRole, role)) return;
+    await client.execute({
+      sql: `UPDATE chat_thread_shares SET role = ? WHERE id = ?`,
+      args: [role, existing.id as string],
+    });
+    return;
+  }
+  await client.execute({
+    sql: `INSERT INTO chat_thread_shares (id, resource_id, principal_type, principal_id, role, created_by, created_at) VALUES (?, ?, 'user', ?, ?, ?, ?)`,
+    args: [
+      crypto.randomUUID(),
+      threadId,
+      normalizedEmail,
+      role,
+      grantedBy,
+      new Date().toISOString(),
+    ],
+  });
 }
 
 export async function deleteThread(id: string): Promise<boolean> {

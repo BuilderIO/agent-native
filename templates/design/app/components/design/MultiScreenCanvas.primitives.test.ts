@@ -44,6 +44,7 @@ import {
   getBreakpointIframeId,
   getPrimaryIframeId,
   isBreakpointSelectionTarget,
+  shouldSuppressFrameSelectionBox,
 } from "./multi-screen/iframe-targeting";
 import {
   BOARD_SURFACE_RENDER_MAX_SIZE,
@@ -276,8 +277,16 @@ describe("board surface pointer capture", () => {
     expect(content).toContain('data-agent-native-node-id="right"');
     expect(content).not.toMatch(/<script|onload=|<iframe|<object|<embed/i);
     expect(content).not.toMatch(/<audio|<video|autoplay|http-equiv="refresh"/i);
-    expect(content).not.toMatch(/<link|<meta|<base|@import|url\(/i);
-    expect(content).not.toContain("https://example.test");
+    expect(content).not.toMatch(/<link|<meta|<base|@import/i);
+    // data: and blob: url() are still stripped; https:// passes through for images
+    expect(content).not.toMatch(/url\(\s*["']?data:/i);
+    expect(content).not.toMatch(/url\(\s*["']?blob:/i);
+    // https:// CSS background-image urls survive (CDN images need to render)
+    expect(content).toContain("url(https://example.test/bg.png)");
+    expect(content).toContain("url(https://example.test/inline.png)");
+    // src/href attributes on media elements are still stripped
+    expect(content).not.toMatch(/\ssrc="https:\/\/example\.test/);
+    expect(content).not.toMatch(/\shref="https:\/\/example\.test/);
     expect(content).toContain("animation:none!important");
     expect(content).toContain("transition:none!important");
   });
@@ -1602,6 +1611,42 @@ describe("isBreakpointSelectionTarget (BP-DEEP v2 item 3)", () => {
 
   it("false for a screen with no breakpoints at all", () => {
     expect(isBreakpointSelectionTarget({})).toBe(false);
+  });
+});
+
+describe("shouldSuppressFrameSelectionBox (overview element selection)", () => {
+  it("suppresses the frame box when the selection is an element inside this screen", () => {
+    expect(
+      shouldSuppressFrameSelectionBox({ id: "screen-1" }, "screen-1"),
+    ).toBe(true);
+  });
+
+  it("does not suppress when the element selection belongs to a different screen", () => {
+    expect(
+      shouldSuppressFrameSelectionBox({ id: "screen-1" }, "screen-2"),
+    ).toBe(false);
+  });
+
+  it("does not suppress a plain frame selection (no element selected anywhere)", () => {
+    expect(shouldSuppressFrameSelectionBox({ id: "screen-1" }, null)).toBe(
+      false,
+    );
+    expect(shouldSuppressFrameSelectionBox({ id: "screen-1" }, undefined)).toBe(
+      false,
+    );
+  });
+
+  it("still suppresses for the existing breakpoint-target case", () => {
+    expect(
+      shouldSuppressFrameSelectionBox(
+        {
+          id: "screen-1",
+          breakpointWidths: [390, 810],
+          activeBreakpointWidth: 810,
+        },
+        null,
+      ),
+    ).toBe(true);
   });
 });
 

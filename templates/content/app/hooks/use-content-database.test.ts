@@ -9,12 +9,14 @@ import {
   applyDocumentPropertiesToDatabaseResponse,
   applyDocumentPropertyValueToDatabaseResponse,
   applyOptimisticItemToContentDatabase,
+  applyOptimisticBuilderWriteMode,
   applyOptimisticSourceFieldPropertyToDatabaseResponse,
   applySourceFieldPropertyToDatabaseResponse,
   clearDeletedContentDatabaseFromCache,
   contentDatabaseQueryKey,
   invalidateBuilderBodyHydrationQueries,
   invalidateContentDatabaseSourceRefreshQueries,
+  moveOptimisticContentDatabaseItem,
   preserveScopedDatabasePlaceholder,
   readCachedContentDatabaseResponse,
   removeDocumentPropertyFromDatabaseResponse,
@@ -101,6 +103,29 @@ describe("optimistic Content database items", () => {
       totalItems: 0,
       returnedItems: 0,
     });
+  });
+
+  it("moves one exact membership immediately and keeps positions gapless", () => {
+    const current = {
+      ...databaseResponse(),
+      items: databaseResponse().items.slice(0, 3),
+    };
+
+    const moved = moveOptimisticContentDatabaseItem(
+      current,
+      current.items[2]!.id,
+      0,
+    );
+
+    expect(moved?.items.map((item) => item.id)).toEqual([
+      current.items[2]!.id,
+      current.items[0]!.id,
+      current.items[1]!.id,
+    ]);
+    expect(moved?.items.map((item) => item.position)).toEqual([0, 1, 2]);
+    expect(
+      moveOptimisticContentDatabaseItem(current, "another-membership", 0),
+    ).toBe(current);
   });
 });
 
@@ -216,6 +241,58 @@ function databaseResponse(): ContentDatabaseResponse {
     },
   };
 }
+
+describe("applyOptimisticBuilderWriteMode", () => {
+  it("updates the active Builder policy without replacing database rows", () => {
+    const current = databaseResponse();
+    current.sources = [current.source!];
+
+    const updated = applyOptimisticBuilderWriteMode(current, {
+      documentId: "database-page",
+      sourceId: "source",
+      writeMode: "publish_updates",
+      allowPublicationTransitions: true,
+    });
+
+    expect(updated?.items).toBe(current.items);
+    expect(updated?.source).toMatchObject({
+      capabilities: { liveWritesEnabled: true },
+      metadata: {
+        writeMode: "publish_updates",
+        allowPublicationTransitions: true,
+        allowedWriteModes: ["autosave", "publish"],
+        allowPublishWrites: true,
+        pushMode: "publish",
+      },
+    });
+    expect(updated?.sources?.[0]).toMatchObject(updated?.source ?? {});
+  });
+
+  it("optimistically disables publication transitions for read-only mode", () => {
+    const current = applyOptimisticBuilderWriteMode(databaseResponse(), {
+      sourceId: "source",
+      writeMode: "publish_updates",
+      allowPublicationTransitions: true,
+    });
+
+    const updated = applyOptimisticBuilderWriteMode(current, {
+      sourceId: "source",
+      writeMode: "read_only",
+      allowPublicationTransitions: true,
+    });
+
+    expect(updated?.source).toMatchObject({
+      capabilities: { liveWritesEnabled: false },
+      metadata: {
+        writeMode: "read_only",
+        allowPublicationTransitions: false,
+        allowedWriteModes: [],
+        allowPublishWrites: false,
+        pushMode: "none",
+      },
+    });
+  });
+});
 
 function sourceFieldPatch(): ContentDatabaseSourceFieldPropertyResponse {
   return {

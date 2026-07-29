@@ -105,7 +105,6 @@ export interface ShareButtonController {
   handleAdd: () => void;
   handleChangeRole: (share: ShareButtonShare, role: ShareButtonRole) => void;
   handleRemove: (share: ShareButtonShare) => void;
-  handleDone: () => void;
 }
 
 export function useShareButtonController(
@@ -547,11 +546,6 @@ export function useShareButtonController(
     ],
   );
 
-  const handleDone = useCallback(() => {
-    if (canManage && inviteEmail.trim()) handleAdd();
-    handleOpenChange(false);
-  }, [canManage, handleAdd, handleOpenChange, inviteEmail]);
-
   return {
     open,
     handleOpenChange,
@@ -585,7 +579,6 @@ export function useShareButtonController(
     handleAdd,
     handleChangeRole,
     handleRemove,
-    handleDone,
   };
 }
 

@@ -21,6 +21,8 @@ interface ContentPart {
   args?: Record<string, string>;
   result?: string;
   isError?: boolean;
+  /** Mirrors the client ContentPart marker in client/sse-event-processor.ts. */
+  outcome?: "unknown";
   completedSideEffect?: boolean;
   mcpApp?: AgentMcpAppPayload;
   chatUI?: ActionChatUIConfig;
@@ -35,6 +37,7 @@ interface BuildAssistantMessageOptions {
    * overwriting the others.
    */
   turnId?: string;
+  runDurationMs?: number;
 }
 
 type AssistantMessage = NonNullable<ReturnType<typeof buildAssistantMessage>>;
@@ -42,6 +45,8 @@ type UserMessage = ReturnType<typeof buildUserMessage>;
 
 const INTERRUPTED_TOOL_RESULT =
   "Interrupted before this tool returned a result.";
+
+export const ASSISTANT_RUN_DURATION_METADATA_KEY = "agentNativeRunDurationMs";
 
 const MAX_STORED_ATTACHMENT_CHARS = 60_000;
 /**
@@ -135,8 +140,12 @@ export function buildAssistantMessage(
     }
   };
 
-  for (const { event } of events) {
+  for (const [index, { event }] of events.entries()) {
     if (event.type === "clear") {
+      // A live stream always follows `clear` with the chunk that re-emits the
+      // wiped content. A rebuild has no successor, so applying a TRAILING
+      // clear can only destroy the transcript permanently.
+      if (index === events.length - 1) continue;
       clearAssistantDraftContent(content);
       continue;
     }
@@ -267,6 +276,13 @@ export function buildAssistantMessage(
   const custom: Record<string, unknown> = {};
   if (options.turnId) custom.turnId = options.turnId;
   if (runId) custom.foldedRunIds = [runId];
+  if (
+    typeof options.runDurationMs === "number" &&
+    Number.isFinite(options.runDurationMs) &&
+    options.runDurationMs >= 0
+  ) {
+    custom[ASSISTANT_RUN_DURATION_METADATA_KEY] = options.runDurationMs;
+  }
   if (continued) custom.continued = true;
   if (runError) {
     custom.runError = {
@@ -371,6 +387,9 @@ function settleInterruptedToolCalls(content: ContentPart[]): void {
   for (const part of content) {
     if (part.type === "tool-call" && part.result === undefined) {
       part.result = INTERRUPTED_TOOL_RESULT;
+      // Interrupted is not failed — never set `isError` here. The persisted
+      // turn must agree with the live client (client/sse-event-processor.ts).
+      part.outcome = "unknown";
     }
   }
 }
@@ -462,6 +481,41 @@ function messagesMatch(a: any, b: any): boolean {
   return messageIdentityKeys(a).some((key) => bKeys.has(key));
 }
 
+function preserveAssistantRunDuration(chosenEntry: any, otherEntry: any): any {
+  const chosen = getStoredMessage(chosenEntry);
+  const other = getStoredMessage(otherEntry);
+  if (chosen?.role !== "assistant" || other?.role !== "assistant") {
+    return chosenEntry;
+  }
+
+  const chosenCustom =
+    chosen.metadata?.custom && typeof chosen.metadata.custom === "object"
+      ? (chosen.metadata.custom as Record<string, unknown>)
+      : {};
+  if (assistantRunDurationMs(chosenCustom) != null) return chosenEntry;
+
+  const otherCustom =
+    other.metadata?.custom && typeof other.metadata.custom === "object"
+      ? (other.metadata.custom as Record<string, unknown>)
+      : {};
+  const durationMs = assistantRunDurationMs(otherCustom);
+  if (durationMs == null) return chosenEntry;
+
+  const nextMessage = {
+    ...chosen,
+    metadata: {
+      ...chosen.metadata,
+      custom: {
+        ...chosenCustom,
+        [ASSISTANT_RUN_DURATION_METADATA_KEY]: durationMs,
+      },
+    },
+  };
+  return chosenEntry?.message === undefined
+    ? nextMessage
+    : { ...chosenEntry, message: nextMessage };
+}
+
 function chooseMergedMessageEntry(existingEntry: any, incomingEntry: any): any {
   const existing = getStoredMessage(existingEntry);
   const incoming = getStoredMessage(incomingEntry);
@@ -479,12 +533,19 @@ function chooseMergedMessageEntry(existingEntry: any, incomingEntry: any): any {
   ) {
     const existingWeight = assistantContentWeight(existing.content);
     const incomingWeight = assistantContentWeight(incoming.content);
-    if (existingWeight > incomingWeight) return existingEntry;
-    if (incomingWeight > existingWeight) return incomingEntry;
-    return isTerminalAssistantStatus(existing?.status) &&
-      !isTerminalAssistantStatus(incoming?.status)
-      ? existingEntry
-      : incomingEntry;
+    const chosen =
+      existingWeight > incomingWeight
+        ? existingEntry
+        : incomingWeight > existingWeight
+          ? incomingEntry
+          : isTerminalAssistantStatus(existing?.status) &&
+              !isTerminalAssistantStatus(incoming?.status)
+            ? existingEntry
+            : incomingEntry;
+    return preserveAssistantRunDuration(
+      chosen,
+      chosen === existingEntry ? incomingEntry : existingEntry,
+    );
   }
   if (
     existing?.role === "assistant" &&
@@ -492,9 +553,9 @@ function chooseMergedMessageEntry(existingEntry: any, incomingEntry: any): any {
     isTerminalAssistantStatus(existing?.status) &&
     !isTerminalAssistantStatus(incoming?.status)
   ) {
-    return existingEntry;
+    return preserveAssistantRunDuration(existingEntry, incomingEntry);
   }
-  return incomingEntry;
+  return preserveAssistantRunDuration(incomingEntry, existingEntry);
 }
 
 function normalizeMessageEntry(
@@ -883,6 +944,45 @@ export interface MergeThreadDataOptions {
   preserveExistingTopLevelKeys?: boolean;
 }
 
+const CLAIMED_QUEUED_MESSAGE_IDS_KEY = "_claimedQueuedMessageIds";
+const MAX_CLAIMED_QUEUED_MESSAGE_IDS = 200;
+
+function claimedQueuedMessageIds(repo: any): string[] {
+  const value = repo?.[CLAIMED_QUEUED_MESSAGE_IDS_KEY];
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (id): id is string => typeof id === "string" && id.length > 0,
+  );
+}
+
+export function hasClaimedQueuedMessage(repo: any, messageId: string): boolean {
+  return claimedQueuedMessageIds(repo).includes(messageId);
+}
+
+export function claimQueuedMessage(repo: any, messageId: string): any {
+  const normalized = repo && typeof repo === "object" ? { ...repo } : {};
+  const claimed = claimedQueuedMessageIds(normalized).filter(
+    (id) => id !== messageId,
+  );
+  normalized[CLAIMED_QUEUED_MESSAGE_IDS_KEY] = [...claimed, messageId].slice(
+    -MAX_CLAIMED_QUEUED_MESSAGE_IDS,
+  );
+  return pruneClaimedQueuedMessages(normalized);
+}
+
+function pruneClaimedQueuedMessages(repo: any): any {
+  if (!Array.isArray(repo?.queuedMessages)) return repo;
+  const claimed = new Set(claimedQueuedMessageIds(repo));
+  if (claimed.size === 0) return repo;
+  return {
+    ...repo,
+    queuedMessages: repo.queuedMessages.filter(
+      (message: any) =>
+        typeof message?.id !== "string" || !claimed.has(message.id),
+    ),
+  };
+}
+
 export function mergeThreadDataForClientSave(
   existingRepo: any,
   incomingRepo: any,
@@ -928,7 +1028,9 @@ export function mergeThreadDataForClientSave(
   const incomingMessages = Array.isArray(merged.messages)
     ? merged.messages
     : null;
-  if (!existingMessages || !incomingMessages) return merged;
+  if (!existingMessages || !incomingMessages) {
+    return pruneClaimedQueuedMessages(merged);
+  }
 
   const incomingKeySets: Set<string>[] = incomingMessages.map(
     (entry: unknown) => new Set(messageIdentityKeys(getStoredMessage(entry))),
@@ -983,7 +1085,7 @@ export function mergeThreadDataForClientSave(
   merged.messages = nextMessages.map((entry) =>
     rewriteEntryParentId(entry, idRewrites),
   );
-  return normalizeThreadRepository(merged);
+  return normalizeThreadRepository(pruneClaimedQueuedMessages(merged));
 }
 
 function escapeAttachmentAttribute(value: string): string {
@@ -1128,6 +1230,7 @@ export function buildUserMessage(opts: {
   text: string;
   attachments?: AgentChatAttachment[];
   runId?: string;
+  queuedMessageId?: string;
   createdAt?: Date;
 }): {
   id: string;
@@ -1147,6 +1250,9 @@ export function buildUserMessage(opts: {
     metadata: {
       custom: {
         submittedRunId: opts.runId,
+        ...(opts.queuedMessageId
+          ? { agentNativeQueuedMessageId: opts.queuedMessageId }
+          : {}),
       },
     },
   };
@@ -1397,6 +1503,17 @@ function foldedRunIdsOf(message: any): string[] {
     : [];
 }
 
+function assistantRunDurationMs(
+  custom: Record<string, unknown>,
+): number | null {
+  const durationMs = custom[ASSISTANT_RUN_DURATION_METADATA_KEY];
+  return typeof durationMs === "number" &&
+    Number.isFinite(durationMs) &&
+    durationMs >= 0
+    ? durationMs
+    : null;
+}
+
 /** Rough size of an assistant message's content, used only to pick the larger
  *  of two representations of the same chunk so a fold can never shrink. */
 function assistantContentWeight(content: unknown): number {
@@ -1519,6 +1636,20 @@ export function foldAssistantTurn(
     turnId,
     foldedRunIds: mergedFolded,
   };
+  const existingDurationMs = assistantRunDurationMs(existingCustom);
+  const incomingDurationMs = assistantRunDurationMs(incomingCustom);
+  const mergedDurationMs = runAlreadyFolded
+    ? existingDurationMs == null
+      ? incomingDurationMs
+      : incomingDurationMs == null
+        ? existingDurationMs
+        : Math.max(existingDurationMs, incomingDurationMs)
+    : existingDurationMs == null && incomingDurationMs == null
+      ? null
+      : (existingDurationMs ?? 0) + (incomingDurationMs ?? 0);
+  if (mergedDurationMs != null) {
+    mergedCustom[ASSISTANT_RUN_DURATION_METADATA_KEY] = mergedDurationMs;
+  }
   // Only the freshest chunk decides whether the turn is still continuing.
   if (incomingCustom.continued !== true) delete mergedCustom.continued;
 

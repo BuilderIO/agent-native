@@ -323,7 +323,7 @@ A identidade do usuário é derivada do e-mail da sessão. A estrutura fornece a
 Os modelos podem adicionar um sistema de comentários com discussões encadeadas em documentos. O sistema de comentários do modelo de conteúdo inclui uma implementação completa com:
 
 - Tabela `document_comments` SQL (tópicos, respostas, status resolvido)
-- As rotas REST do modelo de conteúdo para atualização/exclusão em `/api/comments/:id`; criar e listar executado através do `add-comment` / `list-comments` actions. Os modelos personalizados implementam seus próprios endpoints equivalentes na rota principal `POST /_agent-native/collab/:docId/search-replace`.
+- A atualização e a exclusão usam as ações `update-comment` / `delete-comment`; criar e listar executado através do `add-comment` / `list-comments` actions. Os modelos personalizados implementam seus próprios endpoints equivalentes na rota principal `POST /_agent-native/collab/:docId/search-replace`.
 - Barra lateral de comentários com visualização encadeada e resposta UI
 - Resolver/não resolver tópicos
 - **Botão Enviar para AI** — envia o contexto do tópico de comentários para o chat do agente via `sendToAgentChat()`

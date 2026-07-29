@@ -512,13 +512,13 @@ Consulte [MCP Apps](/docs/mcp-apps) para obter todos os detalhes da ponte: trans
 
 Além das ferramentas por ação, o servidor MCP expõe um conjunto de verbos estável, para que um agente externo tenha uma superfície previsível sem adivinhar os nomes das ações por aplicativo:
 
-| Ferramenta                                         | Efeitos colaterais | Devoluções                                                                                                                                                            |
-| -------------------------------------------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `list_apps`                                        | nenhum             | aplicativos de espaço de trabalho + seus URLs/estado de execução                                                                                                      |
-| `open_app({ app, view?, path?, params?, embed? })` | nenhum             | um link direto ou rota de mesma origem; `embed: true` renderiza o aplicativo completo in-line onde houver suporte                                                     |
-| `ask_app({ app, message, async?, maxWaitMs? })`    | loop de agente     | encaminha uma tarefa em linguagem natural para o agente no aplicativo desse aplicativo; trabalho longo retorna um `taskId` durável para consulta com `ask_app_status` |
-| `create_workspace_app({ name, template })`         | andaimes           | um novo aplicativo inicializado pelo caminho do espaço de trabalho, além de URL em execução + link direto                                                             |
-| `list_templates`                                   | nenhum             | somente os modelos permitidos                                                                                                                                         |
+| Ferramenta                                         | Efeitos colaterais | Devoluções                                                                                                                                                                                     |
+| -------------------------------------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `list_apps`                                        | nenhum             | aplicativos de espaço de trabalho + seus URLs/estado de execução                                                                                                                               |
+| `open_app({ app, view?, path?, params?, embed? })` | nenhum             | um link direto ou rota de mesma origem; `embed: true` renderiza o aplicativo completo in-line onde houver suporte                                                                              |
+| `ask_app({ app, message, async?, maxWaitMs? })`    | loop de agente     | encaminha uma tarefa em linguagem natural para o agente no aplicativo desse aplicativo; trabalho longo retorna um `taskHandle` durável e um `taskId` legado para consulta com `ask_app_status` |
+| `create_workspace_app({ name, template })`         | andaimes           | um novo aplicativo inicializado pelo caminho do espaço de trabalho, além de URL em execução + link direto                                                                                      |
+| `list_templates`                                   | nenhum             | somente os modelos permitidos                                                                                                                                                                  |
 
 `create_workspace_app` rejeita qualquer modelo não listado na lista de permissões — a lista de permissões de modelos públicos no `packages/shared-app-config/templates.ts` é oficial e protegida por CI; um agente externo não pode ampliá-lo. Uma ação de modelo com o mesmo nome substitui uma ação interna (precedência de modelo sobre núcleo). Desative todo o conjunto com `MCPConfig.builtinCrossAppTools: false`.
 
@@ -528,13 +528,19 @@ Para transferências rápidas de ChatGPT/Claude, o caminho ideal é direto: cham
 
 ### Solicitações de agente de longa duração
 
+Quando `ask_app` retornar um `taskHandle`, passe esse valor opaco sem alterações
+para `ask_app_status`; ele preserva a rota original da tarefa mesmo que a
+descoberta de aplicativos mude entre as chamadas. Os argumentos antigos `app` e
+`taskId` continuam aceitos durante a migração.
+
 Hosts e gateways MCP não compartilham um único timeout longo de chamada de
 ferramenta; alguns impõem um teto de cinco minutos e outros são
 configuráveis. Não projete uma integração de agente externo em torno de um
 `tools/call` bloqueante de dez minutos. `ask-agent` e `ask_app` confirmam o
-trabalho hospedado rapidamente e depois retornam um `taskId` durável quando a
-espera embutida expira. Consulte com `ask_app_status` usando o `app` e o
-`taskId` retornados; o resultado inclui `pollAfterMs` como um intervalo
+trabalho hospedado rapidamente e depois retornam um `taskHandle` durável e um
+`taskId` legado quando a espera embutida expira. Consulte com `ask_app_status`
+reutilizando sem alterações os `poll.arguments` retornados, especialmente o
+`taskHandle`; o resultado inclui `pollAfterMs` como um intervalo
 amigável para hosts. A tarefa precisa ser criada antes que a primeira
 resposta possa expirar, então um URL de consulta retornado apenas após uma
 chamada longa não é um contrato de recuperação confiável.
@@ -544,7 +550,8 @@ Se uma leitura de status transitória e limitada estiver indisponível,
 `statusRead: "unavailable"`, `retryable: true`, o `app` e o `taskId` originais,
 e `pollAfterMs` / `poll`. Isso significa que a leitura de status está
 indisponível, não que a tarefa durável falhou. Tente novamente `ask_app_status`
-com exatamente o mesmo `app` e `taskId`; nunca reenvie `ask_app` para recuperar,
+com os mesmos `poll.arguments`, incluindo o `taskHandle` quando presente. Resultados
+legados sem identificador devem reutilizar o mesmo `app` e `taskId`; nunca reenvie `ask_app` para recuperar,
 pois o envio pode duplicar o trabalho. Erros permanentes de autenticação, de não
 encontrado e de protocolo continuam sendo erros.
 

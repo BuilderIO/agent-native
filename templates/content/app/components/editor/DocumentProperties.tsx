@@ -132,6 +132,7 @@ import {
 } from "@/components/ui/tooltip";
 import { applySourceFieldPropertyToDatabaseResponse } from "@/hooks/use-content-database";
 import {
+  documentPropertiesResponseMatchesScope,
   useConfigureDocumentProperty,
   useDeleteDocumentProperty,
   useDocumentProperties,
@@ -165,6 +166,8 @@ function tWithFallback(
 
 interface DocumentPropertiesProps {
   documentId: string;
+  databaseId: string;
+  databaseDocumentId: string;
   canEdit: boolean;
   popoversPortalled?: boolean;
 }
@@ -796,17 +799,23 @@ function scalarPlaceholder(type: DocumentPropertyType, t: TFunction) {
 
 export function DocumentProperties({
   documentId,
+  databaseId,
+  databaseDocumentId,
   canEdit,
   popoversPortalled = true,
 }: DocumentPropertiesProps) {
   const t = useT();
-  const { data, isLoading } = useDocumentProperties(documentId);
+  const { data, isLoading } = useDocumentProperties(documentId, databaseId);
+  const loaded = documentPropertiesResponseMatchesScope(
+    documentId,
+    databaseId,
+    data,
+  );
   // Blocks fields are rendered as body content (below the database/title), not
   // as scalar property rows in this panel — exclude them here.
-  const properties = (data?.properties ?? []).filter(
+  const properties = (loaded ? data.properties : []).filter(
     (property) => property.definition.type !== "blocks",
   );
-  const databaseId = data?.databaseId ?? null;
   const visibleProperties = properties.filter(isPropertyVisible);
   const hiddenProperties = properties.filter(
     (property) => !isPropertyVisible(property),
@@ -814,7 +823,7 @@ export function DocumentProperties({
 
   return (
     <div className="mt-5 border-y border-transparent py-1">
-      {isLoading ? (
+      {isLoading || !loaded ? (
         <div className="flex h-8 items-center gap-2 text-sm text-muted-foreground">
           <Spinner className="size-3.5" />
           {t("editor.properties.loadingProperties")}
@@ -826,6 +835,7 @@ export function DocumentProperties({
               key={property.definition.id}
               property={property}
               documentId={documentId}
+              databaseDocumentId={databaseDocumentId}
               canEdit={canEdit}
               popoversPortalled={popoversPortalled}
               t={t}
@@ -834,17 +844,19 @@ export function DocumentProperties({
         </div>
       ) : null}
 
-      {canEdit && hiddenProperties.length > 0 ? (
+      {loaded && canEdit && hiddenProperties.length > 0 ? (
         <HiddenPropertiesMenu
           documentId={documentId}
+          databaseId={databaseId}
           properties={hiddenProperties}
           t={t}
         />
       ) : null}
 
-      {canEdit && databaseId ? (
+      {loaded && canEdit && databaseId ? (
         <AddProperty
           documentId={documentId}
+          databaseId={databaseId}
           popoversPortalled={popoversPortalled}
         />
       ) : null}
@@ -863,14 +875,16 @@ function isPropertyVisible(property: DocumentProperty) {
 
 function HiddenPropertiesMenu({
   documentId,
+  databaseId,
   properties,
   t,
 }: {
   documentId: string;
+  databaseId: string;
   properties: DocumentProperty[];
   t: TFunction;
 }) {
-  const configure = useConfigureDocumentProperty(documentId);
+  const configure = useConfigureDocumentProperty(documentId, databaseId);
 
   async function showProperty(property: DocumentProperty) {
     await configure.mutateAsync({
@@ -927,12 +941,14 @@ function HiddenPropertiesMenu({
 function PropertyRow({
   property,
   documentId,
+  databaseDocumentId,
   canEdit,
   popoversPortalled,
   t,
 }: {
   property: DocumentProperty;
   documentId: string;
+  databaseDocumentId: string;
   canEdit: boolean;
   popoversPortalled: boolean;
   t: TFunction;
@@ -950,6 +966,7 @@ function PropertyRow({
         <PropertyManagementPopover
           property={property}
           documentId={documentId}
+          databaseId={property.definition.databaseId!}
           icon={Icon}
         />
       ) : (
@@ -978,6 +995,7 @@ function PropertyRow({
         <PropertyValuePopover
           property={property}
           documentId={documentId}
+          databaseDocumentId={databaseDocumentId}
           portalled={popoversPortalled}
         >
           {value}
@@ -1012,6 +1030,7 @@ export function propertyTypeForSourceFieldType(
 export function PropertyManagementPopover({
   property,
   documentId,
+  databaseId,
   icon: Icon,
   triggerClassName,
   onTriggerPointerDown,
@@ -1028,6 +1047,7 @@ export function PropertyManagementPopover({
 }: {
   property: DocumentProperty;
   documentId: string;
+  databaseId: string;
   icon: Icon;
   triggerClassName?: string;
   onTriggerPointerDown?: (event: ReactPointerEvent<HTMLButtonElement>) => void;
@@ -1058,10 +1078,13 @@ export function PropertyManagementPopover({
   const quickFilters = databaseQuickFilterOptionsForColumn(
     property.definition.type,
   );
-  const configure = useConfigureDocumentProperty(documentId);
-  const duplicate = useDuplicateDocumentProperty(documentId);
-  const remove = useDeleteDocumentProperty(documentId);
-  const { data: propertiesData } = useDocumentProperties(documentId);
+  const configure = useConfigureDocumentProperty(documentId, databaseId);
+  const duplicate = useDuplicateDocumentProperty(documentId, databaseId);
+  const remove = useDeleteDocumentProperty(documentId, databaseId);
+  const { data: propertiesData } = useDocumentProperties(
+    documentId,
+    databaseId,
+  );
   const bindQueryClient = useQueryClient();
   const bindSourceField = useActionMutation<
     ContentDatabaseResponse,
@@ -1072,7 +1095,11 @@ export function PropertyManagementPopover({
         queryKey: ["action", "get-content-database"],
       });
       bindQueryClient.invalidateQueries({
-        queryKey: ["action", "list-document-properties", { documentId }],
+        queryKey: [
+          "action",
+          "list-document-properties",
+          { documentId, databaseId },
+        ],
       });
     },
   });
@@ -2126,7 +2153,11 @@ function PersonValueEditor({
   onDone: () => void;
 }) {
   const t = useT();
-  const mutation = useSetDocumentProperty(documentId, databaseDocumentId);
+  const mutation = useSetDocumentProperty(
+    documentId,
+    property.definition.databaseId!,
+    databaseDocumentId,
+  );
   const { session } = useSession();
   const [people, setPeople] = useState(() => personItems(property.value));
   const [query, setQuery] = useState("");
@@ -2327,7 +2358,11 @@ function FilesMediaValueEditor({
   onDone: () => void;
 }) {
   const t = useT();
-  const mutation = useSetDocumentProperty(documentId, databaseDocumentId);
+  const mutation = useSetDocumentProperty(
+    documentId,
+    property.definition.databaseId!,
+    databaseDocumentId,
+  );
   const [items, setItems] = useState(() => filesMediaItems(property.value));
   const [linkValue, setLinkValue] = useState("");
   const [uploading, setUploading] = useState(false);
@@ -2530,7 +2565,11 @@ function DateValueEditor({
   onDone: () => void;
 }) {
   const t = useT();
-  const mutation = useSetDocumentProperty(documentId, databaseDocumentId);
+  const mutation = useSetDocumentProperty(
+    documentId,
+    property.definition.databaseId!,
+    databaseDocumentId,
+  );
   const [includeTime, setIncludeTime] = useState(
     documentPropertyDateIncludesTime(property.value),
   );
@@ -2589,7 +2628,20 @@ function DateValueEditor({
       className="grid gap-2"
       onSubmit={(event) => {
         event.preventDefault();
-        void save();
+        const formData = new FormData(event.currentTarget);
+        const submittedStartValue = formData.get("property-start-value");
+        const submittedEndValue = formData.get("property-end-value");
+
+        // Native date controls can update their displayed DOM value before
+        // React receives the corresponding change event. Read the submitted
+        // form so Save never clears a date that is visibly present.
+        void save(
+          buildValue(
+            typeof submittedStartValue === "string" ? submittedStartValue : "",
+            typeof submittedEndValue === "string" ? submittedEndValue : "",
+            formData.has("property-include-time"),
+          ),
+        );
       }}
     >
       <div className="grid grid-cols-2 gap-1">
@@ -2684,6 +2736,7 @@ function DateValueEditor({
       </label>
       <label className="flex items-center gap-2 rounded-md border px-2.5 py-2 text-sm">
         <input
+          name="property-include-time"
           type="checkbox"
           checked={includeTime}
           onChange={(event) => {
@@ -2745,7 +2798,11 @@ function ScalarValueEditor({
   onDone: () => void;
 }) {
   const t = useT();
-  const mutation = useSetDocumentProperty(documentId, databaseDocumentId);
+  const mutation = useSetDocumentProperty(
+    documentId,
+    property.definition.databaseId!,
+    databaseDocumentId,
+  );
   const type = property.definition.type;
   const inputType =
     type === "number"
@@ -2855,7 +2912,11 @@ function CheckboxValueEditor({
   onDone: () => void;
 }) {
   const t = useT();
-  const mutation = useSetDocumentProperty(documentId, databaseDocumentId);
+  const mutation = useSetDocumentProperty(
+    documentId,
+    property.definition.databaseId!,
+    databaseDocumentId,
+  );
   const checked = Boolean(property.value);
 
   return (
@@ -2896,9 +2957,14 @@ function OptionValueEditor({
   onDone: () => void;
 }) {
   const t = useT();
-  const setValue = useSetDocumentProperty(documentId, databaseDocumentId);
+  const setValue = useSetDocumentProperty(
+    documentId,
+    property.definition.databaseId!,
+    databaseDocumentId,
+  );
   const configure = useConfigureDocumentProperty(
     documentId,
+    property.definition.databaseId!,
     databaseDocumentId,
   );
   const options = property.definition.options.options ?? [];
@@ -3065,6 +3131,7 @@ function OptionValueEditor({
 
 export function AddProperty({
   documentId,
+  databaseId,
   variant = "default",
   label,
   popoversPortalled = true,
@@ -3072,6 +3139,7 @@ export function AddProperty({
   sources,
 }: {
   documentId: string;
+  databaseId: string;
   variant?: "default" | "header" | "icon";
   label?: string;
   popoversPortalled?: boolean;
@@ -3079,7 +3147,7 @@ export function AddProperty({
   sources?: ContentDatabaseSource[];
 }) {
   const t = useT();
-  const configure = useConfigureDocumentProperty(documentId);
+  const configure = useConfigureDocumentProperty(documentId, databaseId);
   const queryClient = useQueryClient();
   const addSourceFieldProperty = useActionMutation<
     ContentDatabaseSourceFieldPropertyResponse,
@@ -3091,7 +3159,11 @@ export function AddProperty({
         (current) => applySourceFieldPropertyToDatabaseResponse(current, data),
       );
       queryClient.invalidateQueries({
-        queryKey: ["action", "list-document-properties", { documentId }],
+        queryKey: [
+          "action",
+          "list-document-properties",
+          { documentId, databaseId },
+        ],
       });
     },
   });

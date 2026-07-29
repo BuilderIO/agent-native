@@ -1,0 +1,161 @@
+---
+title: "同步範本變更"
+description: "agent-native template 使用針對純淨基線的、真正逐檔案的三方合併，將稍後上游第一方範本中的變更拉取到從範本產生的應用程式中。"
+---
+
+# 同步範本變更
+
+`agent-native create` 會將第一方範本複製到您的應用程式中，然後使其成為您自己的——取代應用程式名稱、重新命名 `_gitignore`、重寫 `package.json`、將 `workspace:*` 和 `catalog:` 相依性固定為具體版本，並且（在工作區中）替換繼承的驗證和聊天外掛。從那一刻起，該應用程式就是從範本建立的獨立 app。上游範本中落地的修正和改進不會傳達到它。
+
+`agent-native upgrade` 不會彌補這個差距。它移動套件版本、執行匯入程式碼遷移（codemods），並重新整理 skill 目錄——它永遠不會觸碰從範本中複製出來的檔案。
+
+`agent-native template` 是缺少的另一半。它以較新的版本重新取得範本，重新套用 `create` 所套用的確切轉換，並將結果逐檔案合併到您的應用程式中。
+
+社群範本刻意不包含在此同步流程中。`agent-native.communityTemplate` 中繼資料只記錄安裝來源；`agent-native template sync` 不會從該儲存庫拉取變更。需要穩定起點時請安裝固定版本，後續上游變更應在審查後手動移植。
+
+## 快速入門 {#quick-start}
+
+```bash
+agent-native upgrade
+agent-native template sync
+```
+
+`sync` 預設使用與您安裝的 `@agent-native/core` 相符的範本版本，因此在 `upgrade` 之後執行它可以讓程式碼和套件保持在相同版本。
+
+合併之前先查看：
+
+```bash
+agent-native template status
+agent-native template diff
+```
+
+## 合併的運作方式 {#how-the-merge-works}
+
+一次有用的合併需要三棵樹，而不是兩棵：
+
+- **base（基礎）** — 應用程式產生時那個未經改動的原始範本。
+- **theirs（對方）** — 您要同步到的版本的同一範本，經過相同的轉換流程處理。
+- **ours（我方）** — 您現在這個樣子的應用程式。
+
+有了這些，每個檔案都會落入一個明確的情況：上游沒有改動它，所以保持不變；您從未改動過它，所以快轉（fast-forward）；雙方都改動了它，所以會加上衝突標記。不會僅僅因為存在差異就被覆蓋。
+
+沒有 base，「sync」就只能意味著覆蓋，這會悄無聲息地丟棄您的工作，或是還原上游的改動。
+
+## 基線 {#the-baseline}
+
+base 樹以 git ref 的形式儲存在您自己的儲存庫中：
+
+```txt
+refs/agent-native/template-baseline/apps/slides
+```
+
+它是使用 git plumbing 針對一個一次性的 index 檔案寫入的。您的 `HEAD`、分支、index 和工作樹永遠不會被觸碰——在編輯過程中執行 `template baseline` 是安全的，`git status` 在前後讀起來完全一致。
+
+在第一次寫入時，`refs/agent-native/*` 的 fetch 和 push refspec 會被新增到您的遠端儲存庫，以便基線在複製後依然存在。如果應用程式不在 git 儲存庫中，基線會回退為 `.agent-native/` 下的一個 tarball。
+
+在溯源資訊出現之前產生的應用程式沒有基線。建立一個，然後同步：
+
+```bash
+agent-native template baseline
+agent-native template sync
+```
+
+## 溯源資訊 {#provenance}
+
+`create` 會將後續合併所需的資訊記錄在應用程式的 `package.json` 中：
+
+```json
+{
+  "agent-native": {
+    "scaffold": {
+      "template": "slides",
+      "frameworkSkills": "default",
+      "templateRef": "@agent-native/core@0.120.3",
+      "templateSource": "github",
+      "coreVersion": "0.120.3",
+      "shape": "workspace"
+    }
+  }
+}
+```
+
+`templateRef` 是範本實際擷取自的不可變標籤，這正是使 base 可重現的原因。`shape` 決定在具體化（materialization）期間是否重播工作區轉換。
+
+## 命令 {#commands}
+
+### status {#status}
+
+```bash
+agent-native template status [app]
+```
+
+回報已記錄的 ref、可用的最新 ref、基線是否存在、上游更改了多少檔案，以及您在本機修改了多少檔案。
+
+### diff {#diff}
+
+```bash
+agent-native template diff [app] [--to <ref>]
+```
+
+一個唯讀的統一差異（unified diff），顯示您的基線和目標之間上游發生了什麼變化。不寫入任何內容。
+
+### sync {#sync}
+
+```bash
+agent-native template sync [app] [--to <ref>] [--dry-run] [--force]
+```
+
+執行合併。`--to` 預設使用與已安裝 core 相符的 ref。`--dry-run` 印出計畫而不寫入。
+
+當應用程式目錄存在未提交的變更時，`sync` 會拒絕執行，因此一次糟糕的合併總是可以透過 `git checkout` 復原。`--force` 會覆蓋這一點；建議優先先提交。
+
+當合併乾淨時，基線會自動前進。當存在衝突時，它刻意不會前進——請參閱 `accept`。
+
+### accept {#accept}
+
+```bash
+agent-native template accept [app]
+```
+
+在您解決衝突標記後推進基線。只要還殘留任何 `<<<<<<<`，它就會拒絕執行，因此基線永遠不會越過一次未解決的合併，把衝突標記悄悄烘焙進您的下一個 base 中。
+
+### baseline {#baseline}
+
+```bash
+agent-native template baseline [app] [--ref <ref>] [--template <name>]
+```
+
+為一個早於 scaffold 溯源資訊存在的應用程式記錄基線。如果您知道該應用程式實際來自哪個版本，請傳入 `--ref`；越接近真實情況，第一次 sync 產生的虛假衝突就越少。
+
+## 永遠不會被合併的內容 {#what-is-never-merged}
+
+有些檔案依定義就是您自己的，有些則無法進行有意義的合併：
+
+- 密鑰和本機設定：`.env`、`.env.local`
+- 鎖定檔案：`pnpm-lock.yaml`
+- 產生的輸出：`node_modules`、`.output`、`.react-router`、`dist`、`build`
+- 應用程式自有內容：`learnings.md`、`changelog/` 下待處理的項目
+
+二進位檔案永遠不會進行標記式合併。如果雙方都改動了同一個檔案，會保留您的副本，並將該檔案回報為需要手動處理。符號連結會被回報而不是被覆蓋。
+
+## 將變更貢獻回去 {#contributing-changes-back}
+
+同步在設計上是單向的：上游是範本內容的事實來源，而 `create` 套用的轉換並非完全可逆。從一個具體的應用程式名稱還原出 `{{APP_NAME}}` 只是一種猜測，而 `create` 整體重寫過的檔案——`package.json`、`netlify.toml`、`app/root.tsx`、`server/plugins/auth.ts`——根本沒有可靠的逆轉換。
+
+如果您在框架 monorepo 內工作，並希望將應用程式端的改進推回範本，`contribute:template` 指令碼會執行反向處理，並明確說明這些限制：
+
+```bash
+pnpm contribute:template --app <path-to-app> --dry-run
+```
+
+它將您的應用程式與其基線進行差異比較，因此只有您自己的變更才會成為候選；僅在這些檔案上反轉預留位置替換；將它們作為目前分支上的未預存編輯，三方合併到 `templates/<name>/` 中；並印出它拒絕觸碰的一切，以便您可以手動移植其中的意圖。
+
+## 與其他命令的關係 {#relationship-to-other-commands}
+
+| 命令                         | 移動內容                                             |
+| ---------------------------- | ---------------------------------------------------- |
+| `agent-native upgrade`       | `@agent-native/*` 套件版本、匯入、skill 目錄         |
+| `agent-native template sync` | 在 scaffold 時從範本複製出的檔案                     |
+| `agent-native eject`         | 將一個框架元件連同溯源資訊一起轉入應用程式自有原始碼 |
+
+`upgrade` 和 `template sync` 是互補的，可以安全地一起執行。`eject` 是相反的動作——它是刻意接管某個檔案的所有權，被 eject 的檔案會在 `agent-native.ejections.json` 中單獨追蹤。

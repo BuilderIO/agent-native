@@ -7,6 +7,7 @@ import { useSession, useActionQuery } from "@agent-native/core/client/hooks";
 import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
 import { TeamPage, useOrg, useSwitchOrg } from "@agent-native/core/client/org";
 import {
+  AccountSettingsCard,
   useBuilderConnectFlow,
   useBuilderStatus,
   SettingsTabsPage,
@@ -836,6 +837,7 @@ export default function SettingsIndexRoute() {
         </h1>
       </PageHeader>
       <SettingsTabsPage
+        account={<AccountSettingsCard />}
         whatsNewLabel={t("settings.whatsNew")}
         extraTabs={agentSettingsTabs}
         generalSearchEntries={generalSearchEntries}

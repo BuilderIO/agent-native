@@ -4,14 +4,40 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildPromptComposerSubmission,
-  canSubmitWithAgentEngineState,
+  shouldGateComposerForMissingEngine,
 } from "./PromptComposer.js";
 
-describe("canSubmitWithAgentEngineState", () => {
-  it("allows configured engines and blocks unresolved states", () => {
-    expect(canSubmitWithAgentEngineState("configured")).toBe(true);
-    expect(canSubmitWithAgentEngineState("missing")).toBe(false);
-    expect(canSubmitWithAgentEngineState("unavailable")).toBe(false);
+describe("shouldGateComposerForMissingEngine", () => {
+  it("never disables the composer while the status check is unresolved", () => {
+    for (const state of ["unknown", "unavailable"]) {
+      expect(
+        shouldGateComposerForMissingEngine({ state, hasSetupComponent: true }),
+      ).toBe(false);
+    }
+  });
+
+  it("gates only when a connect affordance can be rendered", () => {
+    expect(
+      shouldGateComposerForMissingEngine({
+        state: "missing",
+        hasSetupComponent: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldGateComposerForMissingEngine({
+        state: "missing",
+        hasSetupComponent: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("leaves the composer usable once an engine is configured", () => {
+    expect(
+      shouldGateComposerForMissingEngine({
+        state: "configured",
+        hasSetupComponent: true,
+      }),
+    ).toBe(false);
   });
 });
 

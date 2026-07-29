@@ -94,7 +94,7 @@
       "strategy": "source-copy",
       "sourceEntries": ["src/app-shell"],
       "targetRoot": "app/components/agent-native/toolkit",
-      "dependencies": ["react"],
+      "dependencies": ["clsx", "react", "tailwind-merge"],
       "verification": ["pnpm typecheck"]
     },
     {

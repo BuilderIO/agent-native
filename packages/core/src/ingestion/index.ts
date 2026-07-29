@@ -54,6 +54,26 @@ export {
   type SummarizeFigmaNodeResult,
 } from "./figma.js";
 export {
+  cssBlendMode,
+  gradientAngleDegreesFromHandles,
+  gradientGeometryFromTransform,
+  handlePositionsFromArrayTransform,
+  handlePositionsFromObjectTransform,
+  invert2x3,
+  mat2x3FromArray,
+  remapLinearStopPosition,
+  resolveGradientHandles,
+  vectorLength,
+  type BlendModeResult,
+  type BlendVerdict,
+  type GradientGeometry,
+  type GradientHandles,
+  type GradientKind,
+  type Mat2x3Array,
+  type Mat2x3Object,
+  type Vec2,
+} from "./figma-paint-math.js";
+export {
   assertFigmaNodeTreeComplexity,
   collectFallbackNodeIds,
   collectFontUsage,

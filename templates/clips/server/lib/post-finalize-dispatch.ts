@@ -11,7 +11,8 @@ export type PostFinalizeJobKind =
   | "media-ready"
   | "seekable"
   | "transcript"
-  | "brain-export";
+  | "brain-export"
+  | "loom-import";
 
 export const POST_FINALIZE_JOB_TOKEN_KIND = "clips-post-finalize-job";
 

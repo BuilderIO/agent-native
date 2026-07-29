@@ -1,3 +1,5 @@
+import { injectDocumentMarkup } from "@agent-native/core/shared";
+
 import type { FrameGeometry } from "./types";
 
 export function hasBoardSurfaceContent(html: string | undefined) {
@@ -279,7 +281,14 @@ function stripExecutableStaticPreviewContent(html: string) {
     .replace(/<(?:iframe|object|embed|audio|video|source)\b[^>]*\/?\s*>/gi, "")
     .replace(/<(?:link|meta|base)\b[^>]*>/gi, "")
     .replace(/@import\s+(?:url\([^)]*\)|["'][^"']*["'])\s*[^;]*;/gi, "")
-    .replace(/url\(\s*(?:"[^"]*"|'[^']*'|[^)]*)\s*\)/gi, "none")
+    .replace(/url\(\s*(?:"[^"]*"|'[^']*'|[^)]*)\s*\)/gi, (match) => {
+      // Strip data:, blob:, and unknown-scheme url() references to prevent
+      // large embedded payloads or local-resource leaks. Allow https:// URLs
+      // (CDN images/fonts) — they can only fetch inert assets, not execute code.
+      const raw = match.slice(4, -1).trim();
+      const inner = raw.replace(/^['"]|['"]$/g, "").trim();
+      return /^https:\/\//i.test(inner) ? match : "none";
+    })
     .replace(/<(?:img|image|use)\b[^>]*>/gi, (tag) =>
       tag.replace(
         /\s+(?:src|srcset|href|xlink:href)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi,
@@ -315,8 +324,8 @@ export function getBoardSurfaceStaticPreviewContent(args: {
   const offsetX = -args.logicalGeometry.x;
   const offsetY = -args.logicalGeometry.y;
   const style = `<style data-agent-native-board-static-preview>*,*::before,*::after{animation:none!important;animation-delay:0s!important;transition:none!important;caret-color:transparent!important;}html{width:${viewportWidth}px!important;height:${viewportHeight}px!important;overflow:hidden!important;}body{margin:0!important;width:${width}px!important;height:${height}px!important;overflow:visible!important;transform:scale(${scale})!important;transform-origin:0 0!important;}body>[data-agent-native-node-id]{translate:${offsetX}px ${offsetY}px!important;}</style>`;
-  if (/<\/head>/i.test(renderHtml)) {
-    return renderHtml.replace(/<\/head>/i, `${style}</head>`);
+  if (/<\/head\s*>/i.test(renderHtml)) {
+    return injectDocumentMarkup(renderHtml, style, { target: "head" });
   }
   if (/<body\b/i.test(renderHtml)) {
     return renderHtml.replace(/<body\b/i, `${style}<body`);

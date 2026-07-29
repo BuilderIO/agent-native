@@ -1,7 +1,10 @@
 build
 .output/
 
-.generated/
+# `.generated/bridge` is committed source that DesignCanvas imports at module
+# load — ignoring it yields a checkout where every design page 500s.
+.generated/*
+!.generated/bridge/
 
 # Stray SQLite files at the template root (real DB lives under data/)
 /app.db

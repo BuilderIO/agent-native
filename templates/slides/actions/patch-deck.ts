@@ -26,6 +26,7 @@ import { z } from "zod";
 import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
+import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
 
 // ---------------------------------------------------------------------------
 // Per-deck write lock — same pattern as add-slide.ts so all client and agent
@@ -122,7 +123,7 @@ const PatchDeckFieldsOp = z.object({
       tweaks: z
         .record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
         .optional(),
-      aspectRatio: z.string().optional(),
+      aspectRatio: z.enum(ASPECT_RATIO_VALUES).optional(),
       shareToken: z.string().optional(),
       visibility: z.enum(["private", "org", "public"]).optional(),
     })
@@ -288,6 +289,30 @@ export function applyOperation(deck: any, op: Operation): void {
   }
 }
 
+/**
+ * Resolve the last operation in a sequence. For example, when typing a new name
+ * this will be the latest name of the deck in a sequence of keystrokes.
+ */
+export function resolveDeckColumnUpdates(
+  current: { title: string; designSystemId: string | null },
+  operations: Operation[],
+): { title: string; designSystemId: string | null } {
+  const fieldOps = operations
+    .filter(
+      (op): op is z.infer<typeof PatchDeckFieldsOp> =>
+        op.op === "patch-deck-fields",
+    )
+    .reverse();
+  const titleOp = fieldOps.find((op) => typeof op.fields.title === "string");
+  const dsOp = fieldOps.find((op) => "designSystemId" in op.fields);
+  return {
+    title: titleOp?.fields.title ?? current.title,
+    designSystemId: dsOp
+      ? (dsOp.fields.designSystemId ?? null)
+      : current.designSystemId,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Action definition
 // ---------------------------------------------------------------------------
@@ -341,23 +366,11 @@ export default defineAction({
       const now = new Date().toISOString();
       deck.updatedAt = now;
 
-      // For patch-deck-fields ops that include a title, also update the
-      // SQL title column (kept in sync with deck.title for list queries).
-      const titleOp = operations.find(
-        (op): op is z.infer<typeof PatchDeckFieldsOp> =>
-          op.op === "patch-deck-fields" && typeof op.fields.title === "string",
-      );
-      const sqlTitle = titleOp?.fields.title ?? row.title;
-
-      // For patch-deck-fields ops that include designSystemId, update the
-      // SQL designSystemId column (used by list queries and sharing checks).
-      const dsOp = operations.find(
-        (op): op is z.infer<typeof PatchDeckFieldsOp> =>
-          op.op === "patch-deck-fields" && "designSystemId" in op.fields,
-      );
-      const sqlDesignSystemId = dsOp
-        ? (dsOp.fields.designSystemId ?? null)
-        : row.designSystemId;
+      const { title: sqlTitle, designSystemId: sqlDesignSystemId } =
+        resolveDeckColumnUpdates(
+          { title: row.title, designSystemId: row.designSystemId },
+          operations,
+        );
 
       let generationRecord:
         | {

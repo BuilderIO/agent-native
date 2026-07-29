@@ -59,6 +59,7 @@ import {
   normalizeTranscriptSegments,
   parseTranscriptSegments,
 } from "../shared/transcript-segments.js";
+import { PENDING_TRANSCRIPT_HEARTBEAT_MS } from "../shared/transcript-status.js";
 import cleanupTranscript from "./cleanup-transcript.js";
 import { loadAgentsMdContext } from "./lib/agents-md-context.js";
 import {
@@ -419,6 +420,54 @@ function isRecentlyPendingTranscript(transcript: {
   );
 }
 
+/**
+ * Run `work` while keeping this recording's pending transcript row marked live.
+ *
+ * `resolveTranscriptPresentation` infers "the worker is gone" from a pending
+ * row nothing has written for STALE_PENDING_TRANSCRIPT_MS, because the row
+ * carries no other liveness signal. Media fetch, ffmpeg extraction and the
+ * provider call legitimately add up past that window on a long recording, so
+ * without this ping the UI publishes a terminal "stopped before it finished"
+ * failure over a run that is still working — and the player's self-heal then
+ * forces a second concurrent transcription of the same clip.
+ *
+ * The update is scoped to `status = 'pending'` so it can never touch a row a
+ * concurrent run has already finished, and the interval is unref'd and cleared
+ * so it cannot hold a serverless invocation open.
+ */
+async function withPendingTranscriptHeartbeat<T>(
+  db: ReturnType<typeof getDb>,
+  recordingId: string,
+  work: () => Promise<T>,
+): Promise<T> {
+  const timer = setInterval(() => {
+    void (async () => {
+      try {
+        await db
+          .update(schema.recordingTranscripts)
+          .set({ updatedAt: new Date().toISOString() })
+          .where(
+            and(
+              eq(schema.recordingTranscripts.recordingId, recordingId),
+              eq(schema.recordingTranscripts.status, "pending"),
+            ),
+          );
+      } catch (err) {
+        console.warn(
+          `[clips] transcript heartbeat failed for ${recordingId}:`,
+          (err as Error)?.message ?? String(err),
+        );
+      }
+    })();
+  }, PENDING_TRANSCRIPT_HEARTBEAT_MS);
+  (timer as { unref?: () => void }).unref?.();
+  try {
+    return await work();
+  } finally {
+    clearInterval(timer);
+  }
+}
+
 async function writeTranscriptCleanupState(
   recordingId: string,
   value: Record<string, unknown>,
@@ -435,6 +484,26 @@ function fullTextSegmentJson(
   durationMs: number | null | undefined,
 ): string {
   return JSON.stringify(buildCaptionSegmentsFromText(text, durationMs));
+}
+
+/**
+ * Pick the segments to store after cleanup rewrites the transcript text.
+ *
+ * Measured timings from the capture engine always win.
+ * `buildCaptionSegmentsFromText` spaces cues in proportion to word count, so
+ * re-synthesizing over real timestamps spreads a short transcript evenly across
+ * the whole recording — which reads as minute-long gaps of dropped speech even
+ * when nothing was dropped there.
+ */
+export function resolveCleanupSegmentsJson(
+  priorSegmentsJson: string | null | undefined,
+  cleanedText: string,
+  durationMs: number | null | undefined,
+): string {
+  if (parseTranscriptSegments(priorSegmentsJson).length > 1) {
+    return priorSegmentsJson as string;
+  }
+  return fullTextSegmentJson(cleanedText, durationMs);
 }
 
 export function isSafeTranscriptCleanupReplacement(
@@ -642,12 +711,14 @@ async function cleanupNativeTranscript({
   ownerEmail,
   fullText,
   durationMs,
+  segmentsJson,
 }: {
   db: ReturnType<typeof getDb>;
   recordingId: string;
   ownerEmail: string;
   fullText: string;
   durationMs: number | null | undefined;
+  segmentsJson?: string | null;
 }): Promise<{ cleaned: boolean; provider?: string }> {
   const sourceText = fullText.trim();
   if (!sourceText) return { cleaned: false };
@@ -704,7 +775,11 @@ async function cleanupNativeTranscript({
         status: "ready",
         failureReason: null,
         language,
-        segmentsJson: fullTextSegmentJson(cleanedText, durationMs),
+        segmentsJson: resolveCleanupSegmentsJson(
+          segmentsJson,
+          cleanedText,
+          durationMs,
+        ),
         fullText: cleanedText,
         retryCount: 0,
         updatedAt: now,
@@ -855,6 +930,7 @@ async function completeReadyTranscript({
     ownerEmail,
     fullText,
     durationMs: recForTitle?.durationMs,
+    segmentsJson,
   }).catch((err) => {
     console.warn(
       `[clips] native transcript cleanup failed for ${recordingId}:`,
@@ -1224,8 +1300,15 @@ const requestTranscriptAction = defineAction({
 
       let audioMedia: AudioOnlyTranscriptionMedia;
       try {
-        audioMedia = await getAudioMedia(rec);
-        await ensureAudioHasSignal(audioMedia);
+        audioMedia = await withPendingTranscriptHeartbeat(
+          db,
+          args.recordingId,
+          async () => {
+            const media = await getAudioMedia(rec);
+            await ensureAudioHasSignal(media);
+            return media;
+          },
+        );
       } catch (err) {
         return failAudioOnlyPreparation({
           db,
@@ -1239,13 +1322,18 @@ const requestTranscriptAction = defineAction({
 
       try {
         const startedAt = Date.now();
-        const builderResult = await transcribeWithBuilderModelFallback({
-          audioBytes: audioMedia.audioBytes,
-          mimeType: audioMedia.mimeType,
-          diarize: false,
-          instructions: SPEECH_ONLY_TRANSCRIPTION_INSTRUCTIONS,
-          timeoutMs: builderTranscriptionTimeoutMs(rec.durationMs),
-        });
+        const builderResult = await withPendingTranscriptHeartbeat(
+          db,
+          args.recordingId,
+          () =>
+            transcribeWithBuilderModelFallback({
+              audioBytes: audioMedia.audioBytes,
+              mimeType: audioMedia.mimeType,
+              diarize: false,
+              instructions: SPEECH_ONLY_TRANSCRIPTION_INSTRUCTIONS,
+              timeoutMs: builderTranscriptionTimeoutMs(rec.durationMs),
+            }),
+        );
 
         const segments = (builderResult.segments ?? [])
           .map((s) => ({
@@ -1422,6 +1510,11 @@ async function upsertTranscriptRow(
     .limit(1);
 
   const retryCount = row.status === "ready" ? 0 : (row.retryCount ?? undefined);
+  // `row.now` is captured once at the top of a run that can last minutes, so it
+  // is a creation timestamp, never a "last written" one. Stamping it as
+  // `updatedAt` would walk the pending heartbeat backwards and re-arm the stale
+  // check over a run that just finished.
+  const updatedAt = new Date().toISOString();
 
   if (existing) {
     await db
@@ -1434,7 +1527,7 @@ async function upsertTranscriptRow(
         ...(row.segmentsJson ? { segmentsJson: row.segmentsJson } : {}),
         ...(row.fullText !== undefined ? { fullText: row.fullText } : {}),
         ...(retryCount !== undefined ? { retryCount } : {}),
-        updatedAt: row.now,
+        updatedAt,
       })
       .where(eq(schema.recordingTranscripts.recordingId, row.recordingId));
   } else {
@@ -1448,7 +1541,7 @@ async function upsertTranscriptRow(
       failureReason: row.failureReason,
       retryCount: retryCount ?? 0,
       createdAt: row.now,
-      updatedAt: row.now,
+      updatedAt,
     });
   }
 }

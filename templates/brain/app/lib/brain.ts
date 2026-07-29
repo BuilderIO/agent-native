@@ -1,6 +1,5 @@
 import type { Icon } from "@tabler/icons-react";
 import {
-  IconHierarchy2,
   IconBook2,
   IconChecks,
   IconDatabase,
@@ -550,8 +549,18 @@ export interface BrainConnectionProvider {
   configuredSourceCount: number;
   hasConfiguredSources: boolean;
   sourceProviderSupported: boolean;
+  configured?: boolean | null;
+  setupLink?: string;
   credentialHealth?: BrainCredentialHealth;
   providerHealth?: BrainProviderHealth;
+  rawProviderApi?: {
+    available: boolean;
+    actionNames: string[];
+    docsUrls: string[];
+    specUrls: string[];
+    auth: string | null;
+    examples: unknown[];
+  };
   workspaceConnection?: BrainWorkspaceConnectionSummary;
 }
 
@@ -1006,12 +1015,6 @@ export const navItems: Array<{
     label: "Settings",
     href: "/settings",
     icon: IconSettings,
-  },
-  {
-    view: "agent",
-    label: "Manage agent",
-    href: "/agent",
-    icon: IconHierarchy2,
   },
 ];
 

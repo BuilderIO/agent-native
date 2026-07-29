@@ -9,6 +9,7 @@ import {
   type ComponentInstance,
 } from "./component-model";
 import type { TailwindBreakpointPrefix } from "./design-state.js";
+import { isStandaloneHttpUrl } from "./html-content.js";
 import {
   getPropertyClasses,
   parseClassGroups,
@@ -20,6 +21,14 @@ import {
   utilityStem,
 } from "./responsive-classes.js";
 import type { DesignSourceType } from "./source-mode";
+
+/**
+ * Shown when a document transform is handed a URL-backed (localhost/fusion)
+ * screen's stored content. Same wording from both producers so the message
+ * doesn't depend on which gesture the user happened to use.
+ */
+export const URL_BACKED_SCREEN_EDIT_REFUSAL =
+  "This screen is backed by a live route URL, not editable markup — layers cannot be moved into or out of it. Edit the running app's source instead.";
 
 export type CodeLayerSourceKind =
   | "design-file"
@@ -3984,6 +3993,24 @@ export function applyVisualEdit(
       ),
     };
   }
+  // See moveNodeBetweenDocuments' twin guard: a URL-backed screen stores its
+  // route, not a document, and every edit below concatenates against `html`.
+  // Callers only ever check `status`, so refusing here turns ~40 gesture and
+  // action call sites into "nothing happened" instead of a screen silently
+  // unbound from the running app.
+  if (isStandaloneHttpUrl(html)) {
+    return {
+      content: html,
+      projection: buildCodeLayerProjection(html, { source }),
+      result: patchResult(
+        "unsupported",
+        source,
+        intent,
+        false,
+        URL_BACKED_SCREEN_EDIT_REFUSAL,
+      ),
+    };
+  }
 
   const initial = buildProjection(html, source);
 
@@ -4343,6 +4370,22 @@ export function moveNodeBetweenDocuments(
   opts: MoveNodeBetweenDocumentsOptions,
 ): MoveNodeBetweenDocumentsResult {
   const { nodeId, anchorNodeId, placement = "inside" } = opts;
+
+  // A URL-backed (localhost/fusion) screen stores its route URL as content,
+  // not a document. Both branches below end in string concatenation against
+  // `destHtml`, so a URL destination yields "http://host/<div …>" — a screen
+  // permanently unbound from the running app, with no parse error anywhere.
+  // Refusing HERE and not only at the persist gate matters: callers move
+  // several files in one gesture and write the source screens first, so a
+  // late refusal would delete the node from its source and land it nowhere.
+  if (isStandaloneHttpUrl(destHtml) || isStandaloneHttpUrl(sourceHtml)) {
+    return {
+      sourceHtml,
+      destHtml,
+      status: "unsupported",
+      message: URL_BACKED_SCREEN_EDIT_REFUSAL,
+    };
+  }
 
   // --- Locate the node in sourceHtml ---
   const sourceElements = parseHtmlElements(sourceHtml);

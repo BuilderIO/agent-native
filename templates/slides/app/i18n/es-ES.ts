@@ -61,6 +61,8 @@ const messages = {
     deckOptions: "Opciones de la presentación",
     generatingImage: "Generando imagen...",
     noAssetsYet: "Aún no hay recursos.",
+    assetUploadFailed: "Algunas subidas fallaron",
+    assetDeleteFailed: "No se pudo eliminar el recurso",
     contentMarkdown: "Contenido (Markdown)",
     speakerNotes: "Notas del presentador",
     speakerNotesForSlide:
@@ -122,6 +124,7 @@ const messages = {
     uploadAttachedFailed: "No se pudo subir el archivo adjunto.",
     uploadFailed: "Error al subir",
     doubleClickEdit: "Haz doble clic en cualquier texto para editarlo",
+    dragToMove: "Arrastra para mover",
     aiEditing: "IA editando",
     startTypingCommands: "Empieza a escribir… o pulsa / para comandos",
     pinDropHint:
@@ -161,6 +164,13 @@ const messages = {
   designSystems: {
     new: "Nuevo sistema de diseño",
     setupBrand: "Configura tu marca",
+    delete: "Eliminar",
+    cancel: "Cancelar",
+    moreActions: "Más acciones",
+    deleteDialogTitle: "¿Eliminar el sistema de diseño?",
+    deleteDialogDescription:
+      "Esto elimina el sistema de diseño de forma permanente. Las presentaciones que lo usan mantienen su aspecto actual, pero dejan de estar vinculadas a él.",
+    deleteError: "No se pudo eliminar el sistema de diseño",
     emptyTitle: "Configura la identidad de tu marca",
     emptyDescription:
       "Crea un sistema de diseño con los colores, la tipografía y los logotipos de tu marca. Cada nueva presentación seguirá tu identidad visual.",
@@ -197,6 +207,7 @@ const messages = {
     slideSettings: "Ajustes de diapositiva",
     layout: "Diseño",
     background: "Fondo",
+    customColor: "Color personalizado",
     media: "Multimedia",
     generateImage: "Generar imagen",
     assetLibrary: "Biblioteca de recursos",
@@ -216,6 +227,7 @@ const messages = {
     elementAnimations: "Animaciones de elementos",
     tweaks: "Ajustes finos",
     drawOnSlide: "Dibujar en la diapositiva",
+    addTextBox: "Añadir cuadro de texto",
     pinComments: "Fijar comentarios",
     pinCommentsDescription:
       "Haz clic en puntos de la diapositiva para encolar varias ediciones y enviarlas todas a la vez.",
@@ -257,7 +269,10 @@ const messages = {
     downloadHtml: "Descargar como HTML",
     exportPdf: "Exportar como PDF",
     exportPptx: "Exportar como PPTX",
-    downloadGoogleSlides: "Descargar para Google Slides",
+    openInGoogleSlides: "Abrir en Google Slides",
+    googleSlidesCreated: "Abierto en Google Slides",
+    googleSlidesCreatedHint:
+      "Se creó una copia de esta presentación en tu Google Drive.",
     duplicateDeck: "Duplicar deck",
   },
   share: {
@@ -473,6 +488,12 @@ const messages = {
     slides: "Diapositivas",
   },
   presentation: {
+    presenterView: "Vista del presentador",
+    speakerNotes: "Notas del orador",
+    noNotesForSlide: "No hay notas para esta diapositiva",
+    upNext: "A continuación",
+    endOfDeck: "Fin de la presentación",
+    closePresenterView: "Cerrar la vista del presentador",
     noSlides: "No hay diapositivas para presentar",
     previousSlide: "Diapositiva anterior",
     nextSlide: "Siguiente diapositiva",
@@ -537,6 +558,7 @@ const messages = {
     builderDesignSystemId: "Sistema de diseño",
     builderJobId: "Job",
     openInBuilder: "Abrir en Builder",
+    decodeFailed: "Error al decodificar: {{error}}",
     websiteUrl: "URL del sitio web",
     websitePlaceholder: "example.com o Nike",
     add: "Añadir",

@@ -46,6 +46,14 @@ const enUS = {
     historyRestoreQuestion: "Restore this dashboard version?",
     historyRestoreWarning:
       "This replaces the current dashboard layout and saves the current state in history.",
+    undo: "Undo",
+    undoSuccess: "Dashboard change undone",
+    undoFailed: "Couldn't undo dashboard change",
+    undoFailedWithMessage: "Couldn't undo dashboard change: {{message}}",
+    redo: "Redo",
+    redoSuccess: "Dashboard change redone",
+    redoFailed: "Couldn't redo dashboard change",
+    redoFailedWithMessage: "Couldn't redo dashboard change: {{message}}",
     panelSettings: "Panel settings",
     revenueOverTime: "Revenue over time",
     recentSales: "Recent Sales",
@@ -65,6 +73,7 @@ const enUS = {
     noAnalysesYet: "No analyses yet",
     dashboardsLoadFailed: "Couldn't load dashboards.",
     analysesLoadFailed: "Couldn't load analyses.",
+    favoritesUnavailable: "Favorites are unavailable right now",
     retry: "Retry",
     search: "Search",
     searchShortcut: "Search ({{shortcut}})",
@@ -410,6 +419,10 @@ const enUS = {
     dashboardUsageTotal: "Dashboards",
     dashboardUsageActive: "{{count}} active",
     dashboardUsageViews: "Views",
+    dashboardUsageEdits: "Edits",
+    dashboardUsageSort: "Sort dashboards",
+    dashboardUsageMostViewed: "Most viewed",
+    dashboardUsageMostEdited: "Most edited",
     dashboardUsageTop: "Top: {{name}}",
     dashboardUsageEngagements: "Engagements",
     dashboardUsageEngagementsHint: "Non-pageview events plus saved views",
@@ -420,6 +433,10 @@ const enUS = {
     dashboardUsageUsers: "Users",
     dashboardUsageModified: "Modified",
     dashboardUsageCreated: "Created",
+    dashboardMetadataCreated: "Created",
+    dashboardMetadataCreatedBy: "Created by",
+    dashboardMetadataUpdated: "Updated",
+    dashboardMetadataUpdatedBy: "Updated by",
     dashboardUsageState: "State",
     dashboardUsagePanels: "{{count}} panels",
     dashboardUsageSavedViews: "{{count}} saved views",
@@ -841,6 +858,9 @@ const enUS = {
     githubOAuthUnavailable:
       "OAuth app credentials are not configured on this deployment. Use the personal access token field below.",
     sharedIntegration: "Shared integration",
+    workspaceAdminRequiredTitle: "Organization connection requires an admin",
+    workspaceAdminRequiredDescription:
+      "Ask an organization owner or admin to connect {{name}} for everyone in this organization.",
     sharedReady:
       "Analytics can use this provider through a workspace connection granted from Dispatch.",
     sharedNeedsGrant:
@@ -876,6 +896,9 @@ const enUS = {
     sharedCredentials: "Shared credentials: {{credentials}}",
     ready: "Ready",
     notConfigured: "Not configured",
+    statusUnknown: "Couldn't check connection status",
+    statusUnknownDescription:
+      "The connection status couldn't be read, so this source may already be connected. Reload to check again before adding credentials.",
     back: "Back",
     continue: "Continue",
     saveCredentials: "Save Credentials",
@@ -1305,6 +1328,9 @@ const analyticsSliceTranslations: {
       githubOAuthUnavailable:
         "此部署中未配置 OAuth 应用程序凭据。使用下面的个人访问令牌字段。",
       sharedIntegration: "共享集成",
+      workspaceAdminRequiredTitle: "组织连接需要管理员",
+      workspaceAdminRequiredDescription:
+        "请让组织所有者或管理员为此组织中的所有人连接 {{name}}。",
       sharedReady:
         "Analytics 可以通过 Dispatch 授予的工作空间连接来使用此提供程序。",
       sharedNeedsGrant: "存在工作区连接。打开Dispatch，授予Analytics访问权限。",
@@ -1339,6 +1365,9 @@ const analyticsSliceTranslations: {
       sharedCredentials: "共享凭证：{{credentials}}",
       ready: "准备好",
       notConfigured: "未配置",
+      statusUnknown: "无法检查连接状态",
+      statusUnknownDescription:
+        "无法读取连接状态，此数据源可能已连接。请重新加载页面确认后再添加凭据。",
       back: "后退",
       continue: "继续",
       saveCredentials: "保存凭证",
@@ -1595,6 +1624,10 @@ const analyticsSliceTranslations: {
       githubOAuthUnavailable:
         "Las credenciales de la aplicación OAuth no están configuradas en esta implementación. Utilice el campo de token de acceso personal a continuación.",
       sharedIntegration: "Integración compartida",
+      workspaceAdminRequiredTitle:
+        "La conexión de la organización requiere un administrador",
+      workspaceAdminRequiredDescription:
+        "Pide a un propietario o administrador de la organización que conecte {{name}} para todos.",
       sharedReady:
         "Analytics puede utilizar este proveedor a través de una conexión de espacio de trabajo otorgada por Dispatch.",
       sharedNeedsGrant:
@@ -1631,6 +1664,9 @@ const analyticsSliceTranslations: {
       sharedCredentials: "Credenciales compartidas: {{credentials}}",
       ready: "Listo",
       notConfigured: "No configurado",
+      statusUnknown: "No se pudo comprobar el estado de la conexión",
+      statusUnknownDescription:
+        "No se pudo leer el estado de la conexión, así que esta fuente puede estar ya conectada. Vuelve a cargar la página para comprobarlo antes de añadir credenciales.",
       back: "Atrás",
       continue: "Continuar",
       saveCredentials: "Guardar credenciales",
@@ -1904,6 +1940,10 @@ const analyticsSliceTranslations: {
       githubOAuthUnavailable:
         "Les informations d'identification de l'application OAuth ne sont pas configurées sur ce déploiement. Utilisez le champ du jeton d'accès personnel ci-dessous.",
       sharedIntegration: "Intégration partagée",
+      workspaceAdminRequiredTitle:
+        "La connexion de l’organisation nécessite un administrateur",
+      workspaceAdminRequiredDescription:
+        "Demandez à un propriétaire ou administrateur de l’organisation de connecter {{name}} pour tous.",
       sharedReady:
         "Analytics peut utiliser ce fournisseur via une connexion à l'espace de travail accordée par Dispatch.",
       sharedNeedsGrant:
@@ -1940,6 +1980,9 @@ const analyticsSliceTranslations: {
       sharedCredentials: "Identifiants partagés : {{credentials}}",
       ready: "Prêt",
       notConfigured: "Non configuré",
+      statusUnknown: "Impossible de vérifier l'état de la connexion",
+      statusUnknownDescription:
+        "L'état de la connexion n'a pas pu être lu ; cette source est peut-être déjà connectée. Rechargez la page pour vérifier avant d'ajouter des identifiants.",
       back: "Dos",
       continue: "Continuer",
       saveCredentials: "Enregistrer les informations d'identification",
@@ -2211,6 +2254,10 @@ const analyticsSliceTranslations: {
       githubOAuthUnavailable:
         "Die Anmeldeinformationen für die OAuth-App sind in dieser Bereitstellung nicht konfiguriert. Verwenden Sie das Feld für das persönliche Zugriffstoken unten.",
       sharedIntegration: "Gemeinsame Integration",
+      workspaceAdminRequiredTitle:
+        "Für die Organisationsverbindung ist ein Administrator erforderlich",
+      workspaceAdminRequiredDescription:
+        "Bitte einen Organisationsinhaber oder Administrator, {{name}} für alle zu verbinden.",
       sharedReady:
         "Analytics kann diesen Anbieter über eine von Dispatch gewährte Workspace-Verbindung nutzen.",
       sharedNeedsGrant:
@@ -2247,6 +2294,9 @@ const analyticsSliceTranslations: {
       sharedCredentials: "Gemeinsame Anmeldeinformationen: {{credentials}}",
       ready: "Bereit",
       notConfigured: "Nicht konfiguriert",
+      statusUnknown: "Verbindungsstatus konnte nicht geprüft werden",
+      statusUnknownDescription:
+        "Der Verbindungsstatus konnte nicht gelesen werden, diese Quelle ist möglicherweise bereits verbunden. Lade die Seite neu, um erneut zu prüfen, bevor du Zugangsdaten hinzufügst.",
       back: "Zurück",
       continue: "Weitermachen",
       saveCredentials: "Anmeldeinformationen speichern",
@@ -2516,6 +2566,9 @@ const analyticsSliceTranslations: {
       githubOAuthUnavailable:
         "OAuth アプリの資格情報は、この展開では構成されていません。以下の個人アクセス トークン フィールドを使用してください。",
       sharedIntegration: "共有統合",
+      workspaceAdminRequiredTitle: "組織の接続には管理者が必要です",
+      workspaceAdminRequiredDescription:
+        "組織の所有者または管理者に、組織全体で {{name}} を接続するよう依頼してください。",
       sharedReady:
         "Analytics は、Dispatch から付与されたワークスペース接続を通じてこのプロバイダーを使用できます。",
       sharedNeedsGrant:
@@ -2551,6 +2604,9 @@ const analyticsSliceTranslations: {
       sharedCredentials: "共有資格情報: {{credentials}}",
       ready: "準備ができて",
       notConfigured: "未設定",
+      statusUnknown: "接続状態を確認できませんでした",
+      statusUnknownDescription:
+        "接続状態を読み取れなかったため、このソースはすでに接続されている可能性があります。認証情報を追加する前に、再読み込みして確認してください。",
       back: "戻る",
       continue: "続く",
       saveCredentials: "認証情報の保存",
@@ -2815,6 +2871,9 @@ const analyticsSliceTranslations: {
       githubOAuthUnavailable:
         "이 배포에서는 OAuth 앱 자격 증명이 구성되지 않습니다. 아래의 개인 액세스 토큰 필드를 사용하세요.",
       sharedIntegration: "공유 통합",
+      workspaceAdminRequiredTitle: "조직 연결에는 관리자가 필요합니다",
+      workspaceAdminRequiredDescription:
+        "조직 소유자 또는 관리자에게 조직의 모든 사용자를 위해 {{name}} 연결을 요청하세요.",
       sharedReady:
         "Analytics는 Dispatch에서 부여된 작업 공간 연결을 통해 이 공급자를 사용할 수 있습니다.",
       sharedNeedsGrant:
@@ -2850,6 +2909,9 @@ const analyticsSliceTranslations: {
       sharedCredentials: "공유 자격 증명: {{credentials}}",
       ready: "준비가 된",
       notConfigured: "구성되지 않음",
+      statusUnknown: "연결 상태를 확인할 수 없습니다",
+      statusUnknownDescription:
+        "연결 상태를 읽을 수 없어 이 소스가 이미 연결되어 있을 수 있습니다. 자격 증명을 추가하기 전에 새로 고쳐 다시 확인하세요.",
       back: "뒤쪽에",
       continue: "계속하다",
       saveCredentials: "자격 증명 저장",
@@ -3111,6 +3173,10 @@ const analyticsSliceTranslations: {
       githubOAuthUnavailable:
         "As credenciais do aplicativo OAuth não estão configuradas nesta implantação. Use o campo de token de acesso pessoal abaixo.",
       sharedIntegration: "Integração compartilhada",
+      workspaceAdminRequiredTitle:
+        "A conexão da organização requer um administrador",
+      workspaceAdminRequiredDescription:
+        "Peça a um proprietário ou administrador da organização para conectar {{name}} para todos.",
       sharedReady:
         "Analytics pode usar este provedor por meio de uma conexão de espaço de trabalho concedida pelo Dispatch.",
       sharedNeedsGrant:
@@ -3146,6 +3212,9 @@ const analyticsSliceTranslations: {
       sharedCredentials: "Credenciais compartilhadas: {{credentials}}",
       ready: "Preparar",
       notConfigured: "Não configurado",
+      statusUnknown: "Não foi possível verificar o status da conexão",
+      statusUnknownDescription:
+        "Não foi possível ler o status da conexão, então esta fonte pode já estar conectada. Recarregue a página para verificar antes de adicionar credenciais.",
       back: "Voltar",
       continue: "Continuar",
       saveCredentials: "Salvar credenciais",
@@ -3412,6 +3481,9 @@ const analyticsSliceTranslations: {
       githubOAuthUnavailable:
         "इस परिनियोजन पर OAuth ऐप क्रेडेंशियल कॉन्फ़िगर नहीं किए गए हैं। नीचे व्यक्तिगत एक्सेस टोकन फ़ील्ड का उपयोग करें।",
       sharedIntegration: "साझा एकीकरण",
+      workspaceAdminRequiredTitle: "संगठन कनेक्शन के लिए एडमिन आवश्यक है",
+      workspaceAdminRequiredDescription:
+        "संगठन के मालिक या एडमिन से सभी के लिए {{name}} कनेक्ट करने को कहें।",
       sharedReady:
         "Analytics इस प्रदाता का उपयोग Dispatch से दिए गए कार्यक्षेत्र कनेक्शन के माध्यम से कर सकता है।",
       sharedNeedsGrant:
@@ -3447,6 +3519,9 @@ const analyticsSliceTranslations: {
       sharedCredentials: "साझा क्रेडेंशियल: {{credentials}}",
       ready: "तैयार",
       notConfigured: "कॉन्फ़िगर नहीं किया गया",
+      statusUnknown: "कनेक्शन स्थिति जाँची नहीं जा सकी",
+      statusUnknownDescription:
+        "कनेक्शन स्थिति पढ़ी नहीं जा सकी, इसलिए हो सकता है कि यह स्रोत पहले से जुड़ा हो। क्रेडेंशियल जोड़ने से पहले पेज फिर से लोड करके जाँचें।",
       back: "पीछे",
       continue: "जारी रखना",
       saveCredentials: "क्रेडेंशियल सहेजें",
@@ -3704,6 +3779,9 @@ const analyticsSliceTranslations: {
       githubOAuthUnavailable:
         "لم يتم تكوين بيانات اعتماد تطبيق OAuth في هذا النشر. استخدم حقل رمز الوصول الشخصي أدناه.",
       sharedIntegration: "التكامل المشترك",
+      workspaceAdminRequiredTitle: "يتطلب اتصال المؤسسة مشرفًا",
+      workspaceAdminRequiredDescription:
+        "اطلب من مالك المؤسسة أو أحد المشرفين ربط {{name}} لجميع أعضاء المؤسسة.",
       sharedReady:
         "يمكن لـ Analytics استخدام هذا الموفر من خلال اتصال مساحة العمل الممنوح من Dispatch.",
       sharedNeedsGrant:
@@ -3739,6 +3817,9 @@ const analyticsSliceTranslations: {
       sharedCredentials: "بيانات الاعتماد المشتركة: {{credentials}}",
       ready: "مستعد",
       notConfigured: "لم يتم تكوينه",
+      statusUnknown: "تعذّر التحقق من حالة الاتصال",
+      statusUnknownDescription:
+        "تعذّرت قراءة حالة الاتصال، لذا قد يكون هذا المصدر متصلاً بالفعل. أعد تحميل الصفحة للتحقق قبل إضافة بيانات الاعتماد.",
       back: "خلف",
       continue: "يكمل",
       saveCredentials: "حفظ بيانات الاعتماد",
@@ -4010,6 +4091,7 @@ export const messagesByLocale = {
       noAnalysesYet: "还没有分析",
       dashboardsLoadFailed: "无法加载仪表板。",
       analysesLoadFailed: "无法加载分析。",
+      favoritesUnavailable: "收藏功能目前不可用",
       retry: "重试",
       search: "搜索",
       searchShortcut: "搜索（{{shortcut}}）",
@@ -4217,6 +4299,7 @@ export const messagesByLocale = {
       noAnalysesYet: "Aún no hay análisis",
       dashboardsLoadFailed: "No se pudieron cargar los paneles.",
       analysesLoadFailed: "No se pudieron cargar los análisis.",
+      favoritesUnavailable: "Los favoritos no están disponibles ahora",
       retry: "Reintentar",
       search: "Buscar",
       searchShortcut: "Buscar ({{shortcut}})",
@@ -4436,6 +4519,7 @@ export const messagesByLocale = {
       noAnalysesYet: "Aucune analyse pour le moment",
       dashboardsLoadFailed: "Impossible de charger les tableaux de bord.",
       analysesLoadFailed: "Impossible de charger les analyses.",
+      favoritesUnavailable: "Les favoris sont indisponibles pour le moment",
       retry: "Réessayer",
       search: "Rechercher",
       searchShortcut: "Rechercher ({{shortcut}})",
@@ -4661,6 +4745,7 @@ export const messagesByLocale = {
       noAnalysesYet: "Noch keine Analysen",
       dashboardsLoadFailed: "Dashboards konnten nicht geladen werden.",
       analysesLoadFailed: "Analysen konnten nicht geladen werden.",
+      favoritesUnavailable: "Favoriten sind momentan nicht verfügbar",
       retry: "Erneut versuchen",
       search: "Suchen",
       searchShortcut: "Suchen ({{shortcut}})",
@@ -4886,6 +4971,7 @@ export const messagesByLocale = {
       noAnalysesYet: "分析はまだありません",
       dashboardsLoadFailed: "ダッシュボードを読み込めませんでした。",
       analysesLoadFailed: "分析を読み込めませんでした。",
+      favoritesUnavailable: "お気に入りは現在利用できません",
       retry: "再試行",
       search: "検索",
       searchShortcut: "検索（{{shortcut}}）",
@@ -5104,6 +5190,7 @@ export const messagesByLocale = {
       noAnalysesYet: "아직 분석이 없습니다",
       dashboardsLoadFailed: "대시보드를 불러오지 못했습니다.",
       analysesLoadFailed: "분석을 불러오지 못했습니다.",
+      favoritesUnavailable: "즐겨찾기를 지금 사용할 수 없습니다",
       retry: "다시 시도",
       search: "검색",
       searchShortcut: "검색({{shortcut}})",
@@ -5322,6 +5409,7 @@ export const messagesByLocale = {
       noAnalysesYet: "Ainda não há análises",
       dashboardsLoadFailed: "Não foi possível carregar os painéis.",
       analysesLoadFailed: "Não foi possível carregar as análises.",
+      favoritesUnavailable: "Os favoritos não estão disponíveis no momento",
       retry: "Tentar novamente",
       search: "Pesquisar",
       searchShortcut: "Pesquisar ({{shortcut}})",
@@ -5547,6 +5635,7 @@ export const messagesByLocale = {
       noAnalysesYet: "अभी कोई विश्लेषण नहीं",
       dashboardsLoadFailed: "डैशबोर्ड लोड नहीं हो सके।",
       analysesLoadFailed: "विश्लेषण लोड नहीं हो सके।",
+      favoritesUnavailable: "पसंदीदा अभी उपलब्ध नहीं हैं",
       retry: "फिर से कोशिश करें",
       search: "खोजें",
       searchShortcut: "खोजें ({{shortcut}})",
@@ -5762,6 +5851,7 @@ export const messagesByLocale = {
       noAnalysesYet: "لا توجد تحليلات بعد",
       dashboardsLoadFailed: "تعذر تحميل لوحات المعلومات.",
       analysesLoadFailed: "تعذر تحميل التحليلات.",
+      favoritesUnavailable: "المفضلة غير متاحة الآن",
       retry: "إعادة المحاولة",
       search: "بحث",
       searchShortcut: "بحث ({{shortcut}})",
@@ -11293,6 +11383,10 @@ const translatedDashboardAdminTranslations = {
       dashboardUsageTotal: "仪表板",
       dashboardUsageActive: "{{count}} 个活跃",
       dashboardUsageViews: "浏览量",
+      dashboardUsageEdits: "编辑次数",
+      dashboardUsageSort: "排序仪表板",
+      dashboardUsageMostViewed: "浏览最多",
+      dashboardUsageMostEdited: "编辑最多",
       dashboardUsageTop: "最高：{{name}}",
       dashboardUsageEngagements: "互动",
       dashboardUsageEngagementsHint: "非页面浏览事件加已保存视图",
@@ -11303,6 +11397,10 @@ const translatedDashboardAdminTranslations = {
       dashboardUsageUsers: "用户",
       dashboardUsageModified: "修改时间",
       dashboardUsageCreated: "创建时间",
+      dashboardMetadataCreated: "创建时间",
+      dashboardMetadataCreatedBy: "创建者",
+      dashboardMetadataUpdated: "更新时间",
+      dashboardMetadataUpdatedBy: "更新者",
       dashboardUsageState: "状态",
       dashboardUsagePanels: "{{count}} 个面板",
       dashboardUsageSavedViews: "{{count}} 个已保存视图",
@@ -11332,6 +11430,10 @@ const translatedDashboardAdminTranslations = {
       dashboardUsageTotal: "Paneles",
       dashboardUsageActive: "{{count}} activos",
       dashboardUsageViews: "Vistas",
+      dashboardUsageEdits: "Ediciones",
+      dashboardUsageSort: "Ordenar paneles",
+      dashboardUsageMostViewed: "Más vistas",
+      dashboardUsageMostEdited: "Más editados",
       dashboardUsageTop: "Principal: {{name}}",
       dashboardUsageEngagements: "Interacciones",
       dashboardUsageEngagementsHint:
@@ -11343,6 +11445,10 @@ const translatedDashboardAdminTranslations = {
       dashboardUsageUsers: "Usuarios",
       dashboardUsageModified: "Modificado",
       dashboardUsageCreated: "Creado",
+      dashboardMetadataCreated: "Creado",
+      dashboardMetadataCreatedBy: "Creado por",
+      dashboardMetadataUpdated: "Modificado",
+      dashboardMetadataUpdatedBy: "Modificado por",
       dashboardUsageState: "Estado",
       dashboardUsagePanels: "{{count}} paneles",
       dashboardUsageSavedViews: "{{count}} vistas guardadas",
@@ -11372,6 +11478,10 @@ const translatedDashboardAdminTranslations = {
       dashboardUsageTotal: "Tableaux de bord",
       dashboardUsageActive: "{{count}} actifs",
       dashboardUsageViews: "Vues",
+      dashboardUsageEdits: "Modifications",
+      dashboardUsageSort: "Trier les tableaux",
+      dashboardUsageMostViewed: "Les plus consultés",
+      dashboardUsageMostEdited: "Les plus modifiés",
       dashboardUsageTop: "Meilleur : {{name}}",
       dashboardUsageEngagements: "Engagements",
       dashboardUsageEngagementsHint:
@@ -11383,6 +11493,10 @@ const translatedDashboardAdminTranslations = {
       dashboardUsageUsers: "Utilisateurs",
       dashboardUsageModified: "Modifié",
       dashboardUsageCreated: "Créé",
+      dashboardMetadataCreated: "Créé",
+      dashboardMetadataCreatedBy: "Créé par",
+      dashboardMetadataUpdated: "Modifié",
+      dashboardMetadataUpdatedBy: "Modifié par",
       dashboardUsageState: "État",
       dashboardUsagePanels: "{{count}} panneaux",
       dashboardUsageSavedViews: "{{count}} vues enregistrées",
@@ -11412,6 +11526,10 @@ const translatedDashboardAdminTranslations = {
       dashboardUsageTotal: "Dashboards",
       dashboardUsageActive: "{{count}} aktiv",
       dashboardUsageViews: "Aufrufe",
+      dashboardUsageEdits: "Bearbeitungen",
+      dashboardUsageSort: "Dashboards sortieren",
+      dashboardUsageMostViewed: "Am häufigsten aufgerufen",
+      dashboardUsageMostEdited: "Am häufigsten bearbeitet",
       dashboardUsageTop: "Top: {{name}}",
       dashboardUsageEngagements: "Interaktionen",
       dashboardUsageEngagementsHint:
@@ -11423,6 +11541,10 @@ const translatedDashboardAdminTranslations = {
       dashboardUsageUsers: "Benutzer",
       dashboardUsageModified: "Geändert",
       dashboardUsageCreated: "Erstellt",
+      dashboardMetadataCreated: "Erstellt",
+      dashboardMetadataCreatedBy: "Erstellt von",
+      dashboardMetadataUpdated: "Geändert",
+      dashboardMetadataUpdatedBy: "Geändert von",
       dashboardUsageState: "Status",
       dashboardUsagePanels: "{{count}} Panels",
       dashboardUsageSavedViews: "{{count}} gespeicherte Ansichten",
@@ -11452,6 +11574,10 @@ const translatedDashboardAdminTranslations = {
       dashboardUsageTotal: "ダッシュボード",
       dashboardUsageActive: "{{count}} 件がアクティブ",
       dashboardUsageViews: "閲覧数",
+      dashboardUsageEdits: "編集数",
+      dashboardUsageSort: "ダッシュボードを並べ替え",
+      dashboardUsageMostViewed: "閲覧数が多い順",
+      dashboardUsageMostEdited: "編集数が多い順",
       dashboardUsageTop: "トップ：{{name}}",
       dashboardUsageEngagements: "エンゲージメント",
       dashboardUsageEngagementsHint:
@@ -11463,6 +11589,10 @@ const translatedDashboardAdminTranslations = {
       dashboardUsageUsers: "ユーザー",
       dashboardUsageModified: "更新日",
       dashboardUsageCreated: "作成日",
+      dashboardMetadataCreated: "作成日",
+      dashboardMetadataCreatedBy: "作成者",
+      dashboardMetadataUpdated: "更新日",
+      dashboardMetadataUpdatedBy: "更新者",
       dashboardUsageState: "状態",
       dashboardUsagePanels: "{{count}} パネル",
       dashboardUsageSavedViews: "{{count}} 件の保存済みビュー",
@@ -11492,6 +11622,10 @@ const translatedDashboardAdminTranslations = {
       dashboardUsageTotal: "대시보드",
       dashboardUsageActive: "{{count}}개 활성",
       dashboardUsageViews: "조회수",
+      dashboardUsageEdits: "편집 횟수",
+      dashboardUsageSort: "대시보드 정렬",
+      dashboardUsageMostViewed: "조회수 많은 순",
+      dashboardUsageMostEdited: "편집 많은 순",
       dashboardUsageTop: "상위: {{name}}",
       dashboardUsageEngagements: "참여",
       dashboardUsageEngagementsHint: "페이지뷰 외 이벤트와 저장된 보기",
@@ -11502,6 +11636,10 @@ const translatedDashboardAdminTranslations = {
       dashboardUsageUsers: "사용자",
       dashboardUsageModified: "수정됨",
       dashboardUsageCreated: "생성됨",
+      dashboardMetadataCreated: "생성됨",
+      dashboardMetadataCreatedBy: "생성자",
+      dashboardMetadataUpdated: "수정됨",
+      dashboardMetadataUpdatedBy: "수정자",
       dashboardUsageState: "상태",
       dashboardUsagePanels: "{{count}}개 패널",
       dashboardUsageSavedViews: "{{count}}개 저장된 보기",
@@ -11531,6 +11669,10 @@ const translatedDashboardAdminTranslations = {
       dashboardUsageTotal: "Painéis",
       dashboardUsageActive: "{{count}} ativos",
       dashboardUsageViews: "Visualizações",
+      dashboardUsageEdits: "Edições",
+      dashboardUsageSort: "Ordenar painéis",
+      dashboardUsageMostViewed: "Mais visualizados",
+      dashboardUsageMostEdited: "Mais editados",
       dashboardUsageTop: "Principal: {{name}}",
       dashboardUsageEngagements: "Engajamentos",
       dashboardUsageEngagementsHint:
@@ -11542,6 +11684,10 @@ const translatedDashboardAdminTranslations = {
       dashboardUsageUsers: "Usuários",
       dashboardUsageModified: "Modificado",
       dashboardUsageCreated: "Criado",
+      dashboardMetadataCreated: "Criado",
+      dashboardMetadataCreatedBy: "Criado por",
+      dashboardMetadataUpdated: "Modificado",
+      dashboardMetadataUpdatedBy: "Modificado por",
       dashboardUsageState: "Estado",
       dashboardUsagePanels: "{{count}} painéis",
       dashboardUsageSavedViews: "{{count}} visualizações salvas",
@@ -11571,6 +11717,10 @@ const translatedDashboardAdminTranslations = {
       dashboardUsageTotal: "डैशबोर्ड",
       dashboardUsageActive: "{{count}} सक्रिय",
       dashboardUsageViews: "व्यू",
+      dashboardUsageEdits: "संपादन",
+      dashboardUsageSort: "डैशबोर्ड क्रमित करें",
+      dashboardUsageMostViewed: "सबसे अधिक देखे गए",
+      dashboardUsageMostEdited: "सबसे अधिक संपादित",
       dashboardUsageTop: "शीर्ष: {{name}}",
       dashboardUsageEngagements: "एंगेजमेंट",
       dashboardUsageEngagementsHint: "Non-pageview events और saved views",
@@ -11581,6 +11731,10 @@ const translatedDashboardAdminTranslations = {
       dashboardUsageUsers: "यूज़र",
       dashboardUsageModified: "संशोधित",
       dashboardUsageCreated: "बनाया गया",
+      dashboardMetadataCreated: "बनाया गया",
+      dashboardMetadataCreatedBy: "इसके द्वारा बनाया गया",
+      dashboardMetadataUpdated: "संशोधित",
+      dashboardMetadataUpdatedBy: "इसके द्वारा संशोधित",
       dashboardUsageState: "स्थिति",
       dashboardUsagePanels: "{{count}} पैनल",
       dashboardUsageSavedViews: "{{count}} saved views",
@@ -11610,6 +11764,10 @@ const translatedDashboardAdminTranslations = {
       dashboardUsageTotal: "لوحات المعلومات",
       dashboardUsageActive: "{{count}} نشطة",
       dashboardUsageViews: "المشاهدات",
+      dashboardUsageEdits: "التعديلات",
+      dashboardUsageSort: "فرز لوحات المعلومات",
+      dashboardUsageMostViewed: "الأكثر مشاهدة",
+      dashboardUsageMostEdited: "الأكثر تعديلاً",
       dashboardUsageTop: "الأعلى: {{name}}",
       dashboardUsageEngagements: "التفاعلات",
       dashboardUsageEngagementsHint:
@@ -11621,6 +11779,10 @@ const translatedDashboardAdminTranslations = {
       dashboardUsageUsers: "المستخدمون",
       dashboardUsageModified: "عُدّلت",
       dashboardUsageCreated: "أُنشئت",
+      dashboardMetadataCreated: "أُنشئت",
+      dashboardMetadataCreatedBy: "أنشأها",
+      dashboardMetadataUpdated: "عُدّلت",
+      dashboardMetadataUpdatedBy: "عدّلها",
       dashboardUsageState: "الحالة",
       dashboardUsagePanels: "{{count}} لوحات",
       dashboardUsageSavedViews: "{{count}} طرق عرض محفوظة",
@@ -11682,6 +11844,14 @@ const translatedHistoryTranslations = {
       historyRestoreQuestion: "要還原此儀表板版本嗎？",
       historyRestoreWarning:
         "這會取代目前的儀表板版面，並將目前狀態保存到歷史記錄。",
+      undo: "復原",
+      undoSuccess: "已復原儀表板變更",
+      undoFailed: "無法復原儀表板變更",
+      undoFailedWithMessage: "無法復原儀表板變更：{{message}}",
+      redo: "重做",
+      redoSuccess: "已重做儀表板變更",
+      redoFailed: "無法重做儀表板變更",
+      redoFailedWithMessage: "無法重做儀表板變更：{{message}}",
     },
     analyses: {
       historyTitle: "分析歷史記錄",
@@ -11711,6 +11881,14 @@ const translatedHistoryTranslations = {
       historyRestoreQuestion: "要还原此仪表板版本吗？",
       historyRestoreWarning:
         "这会替换当前仪表板布局，并把当前状态保存到历史记录。",
+      undo: "撤销",
+      undoSuccess: "已撤销仪表板更改",
+      undoFailed: "无法撤销仪表板更改",
+      undoFailedWithMessage: "无法撤销仪表板更改：{{message}}",
+      redo: "重做",
+      redoSuccess: "已重做仪表板更改",
+      redoFailed: "无法重做仪表板更改",
+      redoFailedWithMessage: "无法重做仪表板更改：{{message}}",
     },
     analyses: {
       historyTitle: "分析历史记录",
@@ -11742,6 +11920,16 @@ const translatedHistoryTranslations = {
       historyRestoreQuestion: "¿Restaurar esta versión del panel?",
       historyRestoreWarning:
         "Esto reemplaza el diseño actual del panel y guarda el estado actual en el historial.",
+      undo: "Deshacer",
+      undoSuccess: "Cambio del panel deshecho",
+      undoFailed: "No se pudo deshacer el cambio del panel",
+      undoFailedWithMessage:
+        "No se pudo deshacer el cambio del panel: {{message}}",
+      redo: "Rehacer",
+      redoSuccess: "Cambio del panel rehecho",
+      redoFailed: "No se pudo rehacer el cambio del panel",
+      redoFailedWithMessage:
+        "No se pudo rehacer el cambio del panel: {{message}}",
     },
     analyses: {
       historyTitle: "Historial del análisis",
@@ -11775,6 +11963,16 @@ const translatedHistoryTranslations = {
       historyRestoreQuestion: "Restaurer cette version du tableau de bord ?",
       historyRestoreWarning:
         "Cela remplace la mise en page actuelle du tableau de bord et enregistre l'état actuel dans l'historique.",
+      undo: "Annuler",
+      undoSuccess: "Modification du tableau de bord annulée",
+      undoFailed: "Impossible d'annuler la modification du tableau de bord",
+      undoFailedWithMessage:
+        "Impossible d'annuler la modification du tableau de bord : {{message}}",
+      redo: "Rétablir",
+      redoSuccess: "Modification du tableau de bord rétablie",
+      redoFailed: "Impossible de rétablir la modification du tableau de bord",
+      redoFailedWithMessage:
+        "Impossible de rétablir la modification du tableau de bord : {{message}}",
     },
     analyses: {
       historyTitle: "Historique de l'analyse",
@@ -11808,6 +12006,16 @@ const translatedHistoryTranslations = {
       historyRestoreQuestion: "Diese Dashboard-Version wiederherstellen?",
       historyRestoreWarning:
         "Dies ersetzt das aktuelle Dashboard-Layout und speichert den aktuellen Stand im Verlauf.",
+      undo: "Rückgängig",
+      undoSuccess: "Dashboard-Änderung rückgängig gemacht",
+      undoFailed: "Dashboard-Änderung konnte nicht rückgängig gemacht werden",
+      undoFailedWithMessage:
+        "Dashboard-Änderung konnte nicht rückgängig gemacht werden: {{message}}",
+      redo: "Wiederholen",
+      redoSuccess: "Dashboard-Änderung wiederholt",
+      redoFailed: "Dashboard-Änderung konnte nicht wiederholt werden",
+      redoFailedWithMessage:
+        "Dashboard-Änderung konnte nicht wiederholt werden: {{message}}",
     },
     analyses: {
       historyTitle: "Analyseverlauf",
@@ -11841,6 +12049,16 @@ const translatedHistoryTranslations = {
       historyRestoreQuestion: "このダッシュボード版を復元しますか？",
       historyRestoreWarning:
         "現在のダッシュボードレイアウトを置き換え、現在の状態を履歴に保存します。",
+      undo: "元に戻す",
+      undoSuccess: "ダッシュボードの変更を元に戻しました",
+      undoFailed: "ダッシュボードの変更を元に戻せませんでした",
+      undoFailedWithMessage:
+        "ダッシュボードの変更を元に戻せませんでした：{{message}}",
+      redo: "やり直す",
+      redoSuccess: "ダッシュボードの変更をやり直しました",
+      redoFailed: "ダッシュボードの変更をやり直せませんでした",
+      redoFailedWithMessage:
+        "ダッシュボードの変更をやり直せませんでした：{{message}}",
     },
     analyses: {
       historyTitle: "分析履歴",
@@ -11874,6 +12092,16 @@ const translatedHistoryTranslations = {
       historyRestoreQuestion: "이 대시보드 버전을 복원할까요?",
       historyRestoreWarning:
         "현재 대시보드 레이아웃을 대체하고 현재 상태를 기록에 저장합니다.",
+      undo: "실행 취소",
+      undoSuccess: "대시보드 변경을 실행 취소했습니다",
+      undoFailed: "대시보드 변경을 실행 취소할 수 없습니다",
+      undoFailedWithMessage:
+        "대시보드 변경을 실행 취소할 수 없습니다: {{message}}",
+      redo: "다시 실행",
+      redoSuccess: "대시보드 변경을 다시 실행했습니다",
+      redoFailed: "대시보드 변경을 다시 실행할 수 없습니다",
+      redoFailedWithMessage:
+        "대시보드 변경을 다시 실행할 수 없습니다: {{message}}",
     },
     analyses: {
       historyTitle: "분석 기록",
@@ -11907,6 +12135,16 @@ const translatedHistoryTranslations = {
       historyRestoreQuestion: "Restaurar esta versão do painel?",
       historyRestoreWarning:
         "Isso substitui o layout atual do painel e salva o estado atual no histórico.",
+      undo: "Desfazer",
+      undoSuccess: "Alteração do painel desfeita",
+      undoFailed: "Não foi possível desfazer a alteração do painel",
+      undoFailedWithMessage:
+        "Não foi possível desfazer a alteração do painel: {{message}}",
+      redo: "Refazer",
+      redoSuccess: "Alteração do painel refeita",
+      redoFailed: "Não foi possível refazer a alteração do painel",
+      redoFailedWithMessage:
+        "Não foi possível refazer a alteração do painel: {{message}}",
     },
     analyses: {
       historyTitle: "Histórico da análise",
@@ -11940,6 +12178,14 @@ const translatedHistoryTranslations = {
       historyRestoreQuestion: "इस डैशबोर्ड संस्करण को पुनर्स्थापित करें?",
       historyRestoreWarning:
         "यह वर्तमान डैशबोर्ड layout को बदल देगा और वर्तमान स्थिति को इतिहास में सहेजेगा।",
+      undo: "पूर्ववत करें",
+      undoSuccess: "डैशबोर्ड बदलाव पूर्ववत किया गया",
+      undoFailed: "डैशबोर्ड बदलाव पूर्ववत नहीं किया जा सका",
+      undoFailedWithMessage: "डैशबोर्ड बदलाव पूर्ववत नहीं किया जा सका: {{message}}",
+      redo: "फिर से करें",
+      redoSuccess: "डैशबोर्ड बदलाव फिर से किया गया",
+      redoFailed: "डैशबोर्ड बदलाव फिर से नहीं किया जा सका",
+      redoFailedWithMessage: "डैशबोर्ड बदलाव फिर से नहीं किया जा सका: {{message}}",
     },
     analyses: {
       historyTitle: "विश्लेषण इतिहास",
@@ -11973,6 +12219,16 @@ const translatedHistoryTranslations = {
       historyRestoreQuestion: "هل تريد استعادة هذا الإصدار من لوحة المعلومات؟",
       historyRestoreWarning:
         "سيستبدل هذا تخطيط لوحة المعلومات الحالي ويحفظ الحالة الحالية في السجل.",
+      undo: "تراجع",
+      undoSuccess: "تم التراجع عن تغيير لوحة المعلومات",
+      undoFailed: "تعذر التراجع عن تغيير لوحة المعلومات",
+      undoFailedWithMessage:
+        "تعذر التراجع عن تغيير لوحة المعلومات: {{message}}",
+      redo: "إعادة",
+      redoSuccess: "تمت إعادة تطبيق تغيير لوحة المعلومات",
+      redoFailed: "تعذرت إعادة تطبيق تغيير لوحة المعلومات",
+      redoFailedWithMessage:
+        "تعذرت إعادة تطبيق تغيير لوحة المعلومات: {{message}}",
     },
     analyses: {
       historyTitle: "سجل التحليل",

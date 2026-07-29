@@ -4,6 +4,8 @@ import {
   DEFAULT_SSR_CACHE_CONTROL,
   DEFAULT_SSR_CDN_CACHE_CONTROL,
   DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL,
+  DISABLED_SSR_CACHE_HEADERS,
+  SSR_CACHE_ENV_VAR,
 } from "../shared/cache-control.js";
 
 // The explicit login page is CDN-cached on the same long-fresh / long-SWR
@@ -34,6 +36,7 @@ describe("server/auth", () => {
     process.env = originalEnv;
     vi.doUnmock("./better-auth-instance.js");
     vi.doUnmock("../db/client.js");
+    vi.doUnmock("./embed-session.js");
     vi.resetModules();
   });
 
@@ -194,6 +197,48 @@ describe("server/auth", () => {
       ).toBe(true);
       logSpy.mockRestore();
       errorSpy.mockRestore();
+    });
+
+    it("lets logout opt the current browser out of AUTH_DISABLED inside an HTTPS iframe", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("AUTH_DISABLED", "1");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const logoutHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/logout",
+      )?.[1];
+      const event = createJsonPostEvent(
+        "/_agent-native/auth/logout",
+        {},
+        { "x-forwarded-proto": "https" },
+      );
+
+      await logoutHandler(event);
+
+      const setCookie = event.res.headers.get("set-cookie") ?? "";
+      expect(setCookie).toContain("_auth_disabled_opt_out=1");
+      expect(setCookie).toContain("HttpOnly");
+      expect(setCookie).toContain("SameSite=None");
+      expect(setCookie).toContain("Secure");
+      expect(setCookie).toContain("Partitioned");
     });
 
     it("mounts generic Google OAuth routes by default when credentials are configured", async () => {
@@ -571,6 +616,46 @@ describe("server/auth", () => {
       expect(html).not.toContain("ACCESS_TOKEN");
     });
 
+    it("honors the deployment-wide SSR cache override on the login shell", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("APP_BASE_PATH", "/demo");
+      vi.stubEnv(SSR_CACHE_ENV_VAR, "off");
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      const result = await guard(createMockEvent({ path: "/demo/login" }));
+
+      expect(result).toBeInstanceOf(Response);
+      const response = result as Response;
+      expect(response.status).toBe(200);
+      expect(response.headers.get("Cache-Control")).toBe(
+        DISABLED_SSR_CACHE_HEADERS["cache-control"],
+      );
+      expect(response.headers.get("CDN-Cache-Control")).toBe(
+        DISABLED_SSR_CACHE_HEADERS["cdn-cache-control"],
+      );
+      expect(response.headers.get("Netlify-CDN-Cache-Control")).toBe(
+        DISABLED_SSR_CACHE_HEADERS["netlify-cdn-cache-control"],
+      );
+    });
+
     it("custom auth without loginHtml does not render an access-token page", async () => {
       vi.stubEnv("NODE_ENV", "production");
       const { autoMountAuth } = await import("./auth.js");
@@ -901,6 +986,7 @@ describe("server/auth", () => {
 
       for (const path of [
         "/dispatch/_agent-native/integrations/process-task",
+        "/dispatch/_agent-native/integrations/retry-stuck-tasks",
         "/dispatch/_agent-native/integrations/process-a2a-continuation",
       ]) {
         const event = createMockEvent({ path });
@@ -1109,6 +1195,34 @@ describe("server/auth", () => {
         expect((result as Response).status).toBe(200);
         expect(await (result as Response).text()).toContain("QA login");
       }
+    });
+
+    it("includes analytics on the framework-owned signup page", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("GA_MEASUREMENT_ID", "G-UNITTEST123");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app, {
+        getSession: async () => null,
+        loginHtml:
+          "<!doctype html><html><head></head><body>signup</body></html>",
+      });
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      const result = await guard(createMockEvent({ path: "/signup" }));
+
+      expect(result).toBeInstanceOf(Response);
+      const html = await (result as Response).text();
+      expect(html).toContain(
+        "https://www.googletagmanager.com/gtag/js?id=G-UNITTEST123",
+      );
     });
 
     it("passes normal app documents through as the uniform SSR shell without resolving a session", async () => {
@@ -2411,6 +2525,40 @@ describe("server/auth", () => {
   });
 
   describe("getSession", () => {
+    it("does not promote a capability embed into the ticket owner's AuthSession", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      delete process.env.AUTH_DISABLED;
+
+      vi.doMock("./embed-session.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        resolveEmbedSessionFromRequest: vi.fn(async () => ({
+          email: "ticket-owner@example.com",
+          token: "signed-capability",
+          targetPath: "/visual-edit/design_1",
+          scope: "capability:visual-edit:design:design_1",
+        })),
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({
+          execute: vi.fn(async () => ({ rows: [] })),
+        }),
+        isPostgres: () => false,
+        isLocalDatabase: () => true,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+      vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        getBetterAuthSync: () => null,
+      }));
+
+      const { getSession } = await import("./auth.js");
+
+      await expect(getSession(createMockEvent())).resolves.toBeNull();
+    });
+
     it("returns a shared session when AUTH_DISABLED=1", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("AUTH_DISABLED", "1");
@@ -2459,6 +2607,79 @@ describe("server/auth", () => {
       const event = createMockEvent();
 
       expect(await getSession(event)).toEqual({ email: "dev@local.test" });
+    });
+
+    it("does not return the AUTH_DISABLED session after this browser explicitly logs out", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("AUTH_DISABLED", "1");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      const mockExecute = vi.fn().mockResolvedValue({ rows: [] });
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: mockExecute }),
+        isPostgres: () => false,
+        isLocalDatabase: () => true,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+      vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        getBetterAuthSync: () => null,
+      }));
+
+      const { COOKIE_NAME, getSession } = await import("./auth.js");
+      const event = createMockEvent({
+        headers: {
+          cookie: `${COOKIE_NAME}_auth_disabled_opt_out=1`,
+        },
+      });
+
+      await expect(getSession(event)).resolves.toBeNull();
+    });
+
+    it("prefers a real Better Auth session over the AUTH_DISABLED browser opt-out", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("AUTH_DISABLED", "1");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      const mockExecute = vi.fn().mockResolvedValue({ rows: [] });
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: mockExecute }),
+        isPostgres: () => false,
+        isLocalDatabase: () => true,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+      vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        getBetterAuthSync: () => ({
+          api: {
+            getSession: vi.fn(async () => ({
+              user: {
+                id: "real-user",
+                email: "real@example.com",
+                name: "Real User",
+              },
+              session: { token: "real-session" },
+            })),
+          },
+        }),
+      }));
+
+      const { COOKIE_NAME, getSession } = await import("./auth.js");
+      const event = createMockEvent({
+        headers: {
+          cookie: `${COOKIE_NAME}_auth_disabled_opt_out=1`,
+        },
+      });
+
+      await expect(getSession(event)).resolves.toMatchObject({
+        email: "real@example.com",
+        userId: "real-user",
+        token: "real-session",
+      });
     });
 
     it("prefers custom getSession over AUTH_DISABLED", async () => {
@@ -3398,7 +3619,7 @@ describe("server/auth", () => {
       expect(loginHtml).toContain(
         'var __AN_WORKSPACE_GATEWAY_RETURN_ORIGIN = "";',
       );
-      expect(loginHtml).toContain('id="debug"');
+      expect(loginHtml).toContain('id="google-debug"');
       expect(loginHtml).toContain(
         "__anSetOAuthDebug('Google popup opened; waiting for callback', flowId)",
       );
@@ -3471,7 +3692,7 @@ describe("server/auth", () => {
         "Opening Google sign-in redirect from Builder preview",
       );
       expect(loginHtml).toContain(
-        "never reached this app. Check the Google OAuth redirect URI",
+        "Google sign-in did not finish. Check the Google OAuth redirect URI",
       );
       expect(loginHtml).not.toContain("&debug=1");
     });
@@ -3591,7 +3812,7 @@ describe("server/auth", () => {
       expect(html).toContain('id="resend-verification"');
       expect(html).toContain('id="back-to-signup"');
       expect(html).toContain("showVerificationStep(email, pass)");
-      expect(html).toContain("callbackURL: __anGetReturnPath()");
+      expect(html).toContain("callbackURL: __anResumeHref()");
       expect(html).not.toContain(
         "Account created! Check your email to verify, then sign in.",
       );
@@ -4171,6 +4392,27 @@ describe("server/auth", () => {
       const html = await (response as Response).text();
       expect(html).toContain("agentnative://oauth-complete");
       expect(html).toContain('window.location.href="/"');
+    });
+  });
+
+  describe("redirectWithStagedCookies", () => {
+    it("copies staged cookies and the no-referrer policy onto the redirect response", async () => {
+      const { redirectWithStagedCookies } = await import("./auth.js");
+      const event = createMockEvent();
+      event.res.headers.append(
+        "set-cookie",
+        "an_session=example-session; Path=/; HttpOnly; SameSite=Lax",
+      );
+      event.res.headers.set("Referrer-Policy", "no-referrer");
+
+      const response = redirectWithStagedCookies(event, "/design/design_1");
+
+      expect(response.status).toBe(302);
+      expect(response.headers.get("Location")).toBe("/design/design_1");
+      expect(response.headers.get("set-cookie")).toContain(
+        "an_session=example-session",
+      );
+      expect(response.headers.get("Referrer-Policy")).toBe("no-referrer");
     });
   });
 

@@ -47,6 +47,7 @@ interface DashboardHistoryPanelProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   canRestore?: boolean;
+  onRestored?: () => void;
 }
 
 export function DashboardHistoryPanel({
@@ -54,6 +55,7 @@ export function DashboardHistoryPanel({
   open,
   onOpenChange,
   canRestore = true,
+  onRestored,
 }: DashboardHistoryPanelProps) {
   const t = useT();
   const { data: revisions, isLoading } = useDashboardRevisions(
@@ -70,6 +72,7 @@ export function DashboardHistoryPanel({
         revisionId: revision.id,
       });
       toast.success(t("dashboard.historyRestored"));
+      onRestored?.();
       setPendingRestore(null);
       onOpenChange(false);
     } catch {
@@ -108,10 +111,7 @@ export function DashboardHistoryPanel({
             ) : (
               <div className="space-y-1">
                 {revisions.map((revision) => (
-                  <div
-                    key={revision.id}
-                    className="rounded-lg border border-border bg-card p-3"
-                  >
+                  <div key={revision.id} className="rounded-lg bg-card p-3">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="truncate text-xs font-medium">

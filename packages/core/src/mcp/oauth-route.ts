@@ -18,6 +18,12 @@ import { getConfiguredLoginHtml, getSession } from "../server/auth.js";
 import { getAuthSecret } from "../server/better-auth-instance.js";
 import { readBody } from "../server/h3-helpers.js";
 import {
+  applicationTypeForRedirectUris,
+  isAllowedOAuthRedirectUri,
+  isUrlBasedOAuthClientId,
+  resolveOAuthClientMetadataDocument,
+} from "./oauth-client-metadata.js";
+import {
   createOAuthCode,
   createOAuthRefreshToken,
   consumeOAuthCode,
@@ -30,7 +36,6 @@ import {
 } from "./oauth-store.js";
 import {
   MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS,
-  MCP_OAUTH_DEFAULT_SCOPE,
   MCP_OAUTH_SCOPES,
   normalizeOAuthScope,
   signMcpOAuthAccessToken,
@@ -41,6 +46,11 @@ export interface McpOAuthRouteOptions {
   appId?: string;
   appName?: string;
 }
+
+const MCP_OAUTH_RESOURCE_SCOPES = MCP_OAUTH_SCOPES.filter(
+  (scope) => scope !== "offline_access",
+);
+const MCP_OAUTH_RESOURCE_SCOPE = MCP_OAUTH_RESOURCE_SCOPES.join(" ");
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -229,7 +239,7 @@ export function getMcpOAuthProtectedResourceMetadataUrl(
 
 export function buildMcpOAuthChallenge(event: H3Event): string {
   const metadata = getMcpOAuthProtectedResourceMetadataUrl(event);
-  const scope = MCP_OAUTH_DEFAULT_SCOPE;
+  const scope = MCP_OAUTH_RESOURCE_SCOPE;
   return metadata
     ? `Bearer resource_metadata="${metadata}", scope="${scope}"`
     : `Bearer scope="${scope}"`;
@@ -268,7 +278,7 @@ export function handleMcpOAuthProtectedResourceMetadata(
   return json({
     resource,
     authorization_servers: [issuer],
-    scopes_supported: MCP_OAUTH_SCOPES,
+    scopes_supported: MCP_OAUTH_RESOURCE_SCOPES,
     resource_documentation: issuer,
   });
 }
@@ -296,52 +306,9 @@ export function handleMcpOAuthAuthorizationServerMetadata(
     code_challenge_methods_supported: ["S256"],
     token_endpoint_auth_methods_supported: ["none"],
     scopes_supported: MCP_OAUTH_SCOPES,
+    authorization_response_iss_parameter_supported: true,
+    client_id_metadata_document_supported: true,
   });
-}
-
-// Schemes that must never be accepted as a redirect target: they can execute
-// script or read local resources if a redirect is ever rendered in a browser
-// or webview context.
-const DISALLOWED_REDIRECT_SCHEMES = new Set([
-  "javascript:",
-  "data:",
-  "vbscript:",
-  "file:",
-  "blob:",
-  "about:",
-]);
-
-// Native/desktop IDE clients (Cursor, VS Code, …) register a private-use URI
-// scheme callback such as `cursor://` or `vscode://` (RFC 8252 §7.1) instead of
-// an https/loopback URL. The authorization code is bound by PKCE (S256), so
-// delivering it through a client-registered app scheme is safe.
-function isPrivateUseRedirectScheme(protocol: string): boolean {
-  if (DISALLOWED_REDIRECT_SCHEMES.has(protocol)) return false;
-  // RFC 3986 scheme grammar: ALPHA *( ALPHA / DIGIT / "+" / "-" / "." ), with a
-  // trailing ":" from URL.protocol. Require a non-http(s) custom scheme here;
-  // http/https are handled explicitly above.
-  return /^[a-z][a-z0-9+.-]*:$/.test(protocol);
-}
-
-function isAllowedRedirectUri(value: unknown): value is string {
-  if (typeof value !== "string" || value.length > 2048) return false;
-  try {
-    const url = new URL(value);
-    if (url.hash) return false;
-    if (url.username || url.password) return false;
-    if (url.protocol === "https:") return true;
-    if (url.protocol === "http:") {
-      return (
-        url.hostname === "localhost" ||
-        url.hostname === "127.0.0.1" ||
-        url.hostname === "::1" ||
-        url.hostname === "[::1]"
-      );
-    }
-    return isPrivateUseRedirectScheme(url.protocol);
-  } catch {
-    return false;
-  }
 }
 
 function parseStringArray(value: unknown): string[] {
@@ -362,7 +329,7 @@ async function handleRegister(event: H3Event): Promise<Response> {
   if (
     redirectUris.length === 0 ||
     redirectUris.length > 20 ||
-    !redirectUris.every(isAllowedRedirectUri)
+    !redirectUris.every(isAllowedOAuthRedirectUri)
   ) {
     return oauthError(
       "invalid_client_metadata",
@@ -393,6 +360,22 @@ async function handleRegister(event: H3Event): Promise<Response> {
       "Only public OAuth clients are supported",
     );
   }
+  const requestedApplicationType =
+    typeof body.application_type === "string"
+      ? body.application_type
+      : undefined;
+  if (
+    requestedApplicationType &&
+    requestedApplicationType !== "native" &&
+    requestedApplicationType !== "web"
+  ) {
+    return oauthError(
+      "invalid_client_metadata",
+      "application_type must be native or web",
+    );
+  }
+  const applicationType =
+    requestedApplicationType ?? applicationTypeForRedirectUris(redirectUris);
 
   const clientName =
     typeof body.client_name === "string"
@@ -422,6 +405,7 @@ async function handleRegister(event: H3Event): Promise<Response> {
       grant_types: client.grantTypes,
       response_types: client.responseTypes,
       token_endpoint_auth_method: client.tokenEndpointAuthMethod,
+      application_type: applicationType,
     },
     201,
   );
@@ -429,12 +413,14 @@ async function handleRegister(event: H3Event): Promise<Response> {
 
 function redirectWithOAuthError(params: {
   redirectUri: string;
+  issuer: string;
   state?: string;
   error: string;
   description?: string;
 }): Response {
   const url = new URL(params.redirectUri);
   url.searchParams.set("error", params.error);
+  url.searchParams.set("iss", params.issuer);
   if (params.description) {
     url.searchParams.set("error_description", params.description);
   }
@@ -444,17 +430,20 @@ function redirectWithOAuthError(params: {
 
 function buildCodeRedirectUrl(params: {
   redirectUri: string;
+  issuer: string;
   code: string;
   state?: string;
 }): string {
   const url = new URL(params.redirectUri);
   url.searchParams.set("code", params.code);
+  url.searchParams.set("iss", params.issuer);
   if (params.state) url.searchParams.set("state", params.state);
   return url.toString();
 }
 
 function redirectWithCode(params: {
   redirectUri: string;
+  issuer: string;
   code: string;
   state?: string;
 }): Response {
@@ -574,6 +563,7 @@ function renderConsentPage(params: {
   appName: string;
   email: string;
   clientName: string;
+  redirectUri: string;
   scopes: string[];
   fields: Record<string, string>;
 }): string {
@@ -602,6 +592,7 @@ function renderConsentPage(params: {
   <h1>Authorize ${escapeHtml(params.clientName)}</h1>
   <p>${escapeHtml(params.appName)} will let this MCP client act as ${escapeHtml(params.email)} for these scopes:</p>
   <ul>${scopes}</ul>
+  <p>After authorization, your browser will return to <code>${escapeHtml(params.redirectUri)}</code>.</p>
   <form method="post">
     ${hidden}
     <div class="actions">
@@ -721,6 +712,7 @@ async function handleAuthorize(
     );
   }
   const params = await readOAuthParams(event);
+  const issuer = getMcpOAuthIssuer(event);
   const state = params.state;
   const clientId = params.client_id;
   const redirectUri = params.redirect_uri;
@@ -739,6 +731,7 @@ async function handleAuthorize(
   if (
     !clientId ||
     !redirectUri ||
+    !issuer ||
     !resource ||
     !expectedResources.includes(resource)
   ) {
@@ -748,7 +741,9 @@ async function handleAuthorize(
     return oauthError("invalid_request", "PKCE S256 is required");
   }
 
-  const client = await getOAuthClient(clientId);
+  const client = isUrlBasedOAuthClientId(clientId)
+    ? await resolveOAuthClientMetadataDocument(clientId).catch(() => null)
+    : await getOAuthClient(clientId);
   if (!client || !client.redirectUris.includes(redirectUri)) {
     return oauthError("invalid_client", "Unknown client or redirect_uri");
   }
@@ -758,6 +753,7 @@ async function handleAuthorize(
     if (params.prompt === "none") {
       return redirectWithOAuthError({
         redirectUri,
+        issuer,
         state,
         error: "login_required",
       });
@@ -772,6 +768,7 @@ async function handleAuthorize(
   if (!scope) {
     return redirectWithOAuthError({
       redirectUri,
+      issuer,
       state,
       error: "invalid_scope",
     });
@@ -782,6 +779,7 @@ async function handleAuthorize(
         appName: options.appName || options.appId || "Agent Native",
         email: session.email,
         clientName: client.clientName || client.clientId,
+        redirectUri,
         scopes: scope.split(/\s+/),
         fields: {
           response_type: "code",
@@ -821,6 +819,7 @@ async function handleAuthorize(
   if (params.decision !== "approve") {
     return redirectWithOAuthError({
       redirectUri,
+      issuer,
       state,
       error: "access_denied",
     });
@@ -850,7 +849,7 @@ async function handleAuthorize(
     isDeepLinkRedirect =
       protocol !== "http:" &&
       protocol !== "https:" &&
-      isPrivateUseRedirectScheme(protocol);
+      /^[a-z][a-z0-9+.-]*:$/.test(protocol);
   } catch {
     isDeepLinkRedirect = false;
   }
@@ -861,13 +860,19 @@ async function handleAuthorize(
         clientName: client.clientName ?? null,
         redirectUrl: buildCodeRedirectUrl({
           redirectUri,
+          issuer,
           state,
           code: code.code,
         }),
       }),
     );
   }
-  return redirectWithCode({ redirectUri, state, code: code.code });
+  return redirectWithCode({
+    redirectUri,
+    issuer,
+    state,
+    code: code.code,
+  });
 }
 
 async function issueTokenSet(params: {
