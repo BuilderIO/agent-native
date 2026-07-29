@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.129.2
+
+### Patch Changes
+
+- 21e33c7: Keep asynchronous `ask_app` task handles and exact polling arguments visible to MCP callers so they can retrieve the same cross-app task without resubmitting it.
+
 ## 0.129.1
 
 ### Patch Changes
