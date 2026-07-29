@@ -7,6 +7,8 @@ type DesignSystemSummary = {
   data: string;
   isDefault: boolean;
   visibility?: "private" | "org" | "public" | null;
+  accessRole?: "owner" | "admin" | "editor" | "viewer";
+  canManage?: boolean;
   createdAt: string;
 };
 
