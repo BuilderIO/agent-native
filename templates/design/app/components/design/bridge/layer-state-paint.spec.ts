@@ -16,13 +16,72 @@ function hydratedEditorChromeBridgeScript(): string {
     .replace("__RUNTIME_LAYER_SNAPSHOT_ENABLED__", "false");
 }
 
-const content = `<!doctype html><html><body style="margin:0">
+const content = `<!doctype html><html><head><style>#plain{background-color:rgb(1, 2, 3)}</style></head><body style="margin:0">
   <div id="locked" style="width:120px;height:60px;background:tomato"></div>
   <div id="plain" style="width:120px;height:60px;background:steelblue"></div>
   <div id="gone" style="width:120px;height:60px;background:seagreen"></div>
 </body></html>`;
 
 describe("editor chrome layer-state paint", () => {
+  it(
+    "removes an inline override when a style change restores an empty value",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage();
+        await page.setContent(content);
+        await page.addScriptTag({
+          content: hydratedEditorChromeBridgeScript(),
+        });
+
+        await page.evaluate(() => {
+          window.postMessage(
+            {
+              type: "style-change",
+              selector: "#plain",
+              property: "backgroundColor",
+              value: "tomato",
+            },
+            "*",
+          );
+        });
+        await expect
+          .poll(() =>
+            page.evaluate(
+              () => document.getElementById("plain")!.style.backgroundColor,
+            ),
+          )
+          .toBe("tomato");
+
+        await page.evaluate(() => {
+          window.postMessage(
+            {
+              type: "style-change",
+              selector: "#plain",
+              property: "backgroundColor",
+              value: "",
+            },
+            "*",
+          );
+        });
+        await expect
+          .poll(() =>
+            page.evaluate(() => {
+              const element = document.getElementById("plain")!;
+              return {
+                inline: element.style.backgroundColor,
+                computed: getComputedStyle(element).backgroundColor,
+              };
+            }),
+          )
+          .toEqual({ inline: "", computed: "rgb(1, 2, 3)" });
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
   it(
     "paints a locked layer distinguishably from an unlocked one, and clears it on unlock",
     { timeout: 30_000 },
