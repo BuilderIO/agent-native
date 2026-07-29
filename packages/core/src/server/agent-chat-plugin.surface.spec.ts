@@ -80,6 +80,23 @@ describe("lean production run policy", () => {
   });
 });
 
+describe("app chat harness wiring", () => {
+  it("selects the dedicated harness handler without passing it to AgentEngine", () => {
+    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+      encoding: "utf-8",
+    });
+
+    expect(source).toContain("const harnessHandler = options?.harness");
+    expect(source).toContain("harnessHandler ??");
+    expect(
+      source.indexOf("ownerContext.anonymous && anonymousHandler"),
+    ).toBeLessThan(
+      source.indexOf("harnessHandler ??", source.indexOf("const handler =")),
+    );
+    expect(source).not.toMatch(/engineOption:\s*options\?\.harness/);
+  });
+});
+
 describe("interactive agent run options", () => {
   it("forwards an app's durable no-progress watchdog to every interactive handler", () => {
     expect(

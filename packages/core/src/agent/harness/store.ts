@@ -283,25 +283,44 @@ export async function getAgentHarnessSession(
   return rowToHarnessSession(rows[0]);
 }
 
+export interface AgentHarnessSessionScope {
+  ownerEmail: string | null;
+  orgId?: string | null;
+}
+
 export async function getLatestAgentHarnessSessionForThread(
   threadId: string,
   harnessName?: string,
+  scope?: AgentHarnessSessionScope,
 ): Promise<StoredAgentHarnessSession | null> {
   await ensureAgentHarnessSessionTables();
   const client = getDbExec();
-  const { rows } = harnessName
-    ? await client.execute({
-        sql: `SELECT * FROM agent_harness_sessions
-              WHERE thread_id = ? AND harness_name = ? AND status != 'destroyed'
-              ORDER BY updated_at DESC LIMIT 1`,
-        args: [threadId, harnessName],
-      })
-    : await client.execute({
-        sql: `SELECT * FROM agent_harness_sessions
-              WHERE thread_id = ? AND status != 'destroyed'
-              ORDER BY updated_at DESC LIMIT 1`,
-        args: [threadId],
-      });
+  const clauses = ["thread_id = ?", "status != 'destroyed'"];
+  const args: unknown[] = [threadId];
+  if (harnessName) {
+    clauses.push("harness_name = ?");
+    args.push(harnessName);
+  }
+  if (scope) {
+    if (scope.ownerEmail === null) clauses.push("owner_email IS NULL");
+    else {
+      clauses.push("owner_email = ?");
+      args.push(scope.ownerEmail);
+    }
+    if (scope.orgId !== undefined) {
+      if (scope.orgId === null) clauses.push("org_id IS NULL");
+      else {
+        clauses.push("org_id = ?");
+        args.push(scope.orgId);
+      }
+    }
+  }
+  const { rows } = await client.execute({
+    sql: `SELECT * FROM agent_harness_sessions
+          WHERE ${clauses.join(" AND ")}
+          ORDER BY updated_at DESC LIMIT 1`,
+    args,
+  });
   return rowToHarnessSession(rows[0]);
 }
 

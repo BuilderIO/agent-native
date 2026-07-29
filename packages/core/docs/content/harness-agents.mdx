@@ -92,20 +92,64 @@ spawn background / sub-agent runs with [Custom Agents & Teams](/docs/agent-teams
 ## Built-in harnesses {#built-in}
 
 `registerBuiltinAgentHarnesses()` registers three adapters backed by the AI SDK
-`HarnessAgent`:
+`HarnessAgent`, plus a direct local Pi adapter:
 
 | Name                         | Runtime     | Sandbox | Approvals |
 | ---------------------------- | ----------- | ------- | --------- |
 | `ai-sdk-harness:claude-code` | Claude Code | yes     | yes       |
 | `ai-sdk-harness:codex`       | Codex       | yes     | no        |
-| `ai-sdk-harness:pi`          | Pi          | no      | yes       |
+| `ai-sdk-harness:pi`          | Pi          | yes     | yes       |
+| `pi:local`                   | Local Pi    | no      | no        |
 
 Their runtime packages are **optional peer dependencies** and load lazily, so an
 app that never uses a harness does not pay for it. Each adapter carries an
-`installPackage` hint (for example `@ai-sdk/harness@canary
-@ai-sdk/harness-codex@canary`); `resolveAgentHarness` throws a clear install
-error if the packages are missing, and `isAgentHarnessPackageInstalled(entry)`
-lets you check first.
+`installPackage` hint; `resolveAgentHarness` throws a clear install error if the
+packages are missing, and `isAgentHarnessPackageInstalled(entry)` lets you check
+first.
+
+### Local Pi app chat {#local-pi-app-chat}
+
+`pi:local` runs `@earendil-works/pi-coding-agent` in the app's local Node
+process. It uses Pi's normal agent directory (by default `~/.pi/agent`) so Pi
+owns model selection and OAuth refresh. Agent-Native never reads, copies, logs,
+or stores Pi's auth file; SQL stores only the opaque Pi session-file reference
+needed to resume the thread.
+
+Install the optional runtime package, authenticate Pi once, and configure the
+normal agent-chat plugin with an explicit fail-closed local-development guard:
+
+```bash
+pnpm add @earendil-works/pi-coding-agent
+pi
+```
+
+In Pi, run `/login` and choose **OpenAI ChatGPT Plus/Pro (Codex)**.
+
+```ts
+createAgentChatPlugin({
+  harness: {
+    adapter: { name: "pi:local" },
+    cwd: process.cwd(),
+    permissionMode: "allow-edits",
+    guard: (event) => isTrustedLocalPiRequest(event),
+  },
+});
+```
+
+`isTrustedLocalPiRequest` is deliberately host-owned: require development mode
+and a verified loopback/localhost request. A denial must return false (or a
+structured 403/503 decision); it never falls back to an API-billed engine.
+`pi:local` exposes read-only Pi filesystem tools by default and routes app
+operations through the request-filtered Agent-Native action tools. In
+`allow-reads` mode, only actions explicitly marked read-only are exposed. The
+adapter currently has no native approval continuation, so actions that declare
+`needsApproval` fail closed rather than running. Harness app chat is foreground
+only, does not accept attachments yet, and is intended for a trusted single-user
+local process—not serverless or shared hosting.
+
+`ai-sdk-harness:pi` is the sandboxed AI SDK adapter. It requires a
+`HarnessV1SandboxProvider` and does not implicitly reuse local Pi OAuth; use
+`pi:local` when the goal is to reuse the user's existing Pi setup.
 
 `registerBuiltinAgentHarnesses()` also registers the [ACP](#acp) harnesses
 (`acp`, `acp:gemini`, `acp:claude-code`).

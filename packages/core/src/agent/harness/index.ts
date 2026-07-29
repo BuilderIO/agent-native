@@ -5,6 +5,8 @@ export type {
   AgentHarnessContinueInput,
   AgentHarnessCreateSessionOptions,
   AgentHarnessEvent,
+  AgentHarnessHostTool,
+  AgentHarnessHostToolContext,
   AgentHarnessMessage,
   AgentHarnessPermissionMode,
   AgentHarnessSession,
@@ -31,13 +33,16 @@ export {
   markAgentHarnessSessionStopped,
   saveAgentHarnessSession,
   updateAgentHarnessSession,
+  type AgentHarnessSessionScope,
   type AgentHarnessSessionStatus,
   type SaveAgentHarnessSessionInput,
   type StoredAgentHarnessSession,
 } from "./store.js";
 export {
   sendAgentHarnessEvent,
+  startAgentHarnessApprovalRun,
   startAgentHarnessRun,
+  type StartAgentHarnessApprovalRunOptions,
   type StartAgentHarnessRunOptions,
 } from "./runner.js";
 export {
@@ -52,12 +57,27 @@ export {
   type AgentHarnessOwnerScope,
 } from "./lifecycle.js";
 export {
+  createAgentHarnessActionTools,
+  type CreateAgentHarnessActionToolsOptions,
+} from "./chat-tools.js";
+export {
   aiSdkHarnessPartToEvents,
   createAiSdkHarnessAdapter,
+  toAiSdkHarnessTools,
   type AiSdkHarnessAdapterOptions,
   type AiSdkHarnessRuntime,
   type CodexCliAuthConfig,
 } from "./ai-sdk-adapter.js";
+export {
+  LOCAL_PI_PACKAGE,
+  createLocalPiHarnessAdapter,
+  filterLocalPiHostTools,
+  localPiHostToolsToDefinitions,
+  localPiSessionEventToHarnessEvents,
+  normalizeLocalPiResumeState,
+  type LocalPiHarnessAdapterOptions,
+  type LocalPiResumeState,
+} from "./local-pi-adapter.js";
 export {
   ACP_PACKAGE,
   acpAutoPermissionDecision,

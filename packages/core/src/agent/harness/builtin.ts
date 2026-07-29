@@ -7,6 +7,10 @@ import {
   createAiSdkHarnessAdapter,
   type AiSdkHarnessRuntime,
 } from "./ai-sdk-adapter.js";
+import {
+  createLocalPiHarnessAdapter,
+  type LocalPiHarnessAdapterOptions,
+} from "./local-pi-adapter.js";
 import { registerAgentHarness } from "./registry.js";
 
 const AI_SDK_HARNESS_RUNTIMES: AiSdkHarnessRuntime[] = [
@@ -31,6 +35,19 @@ export function registerBuiltinAgentHarnesses(): void {
         } as Parameters<typeof createAiSdkHarnessAdapter>[0]),
     });
   }
+
+  const localPiAdapter = createLocalPiHarnessAdapter();
+  registerAgentHarness({
+    name: localPiAdapter.name,
+    label: localPiAdapter.label,
+    description: localPiAdapter.description,
+    installPackage: localPiAdapter.installPackage,
+    capabilities: localPiAdapter.capabilities,
+    create: (config) =>
+      createLocalPiHarnessAdapter(
+        (config ?? {}) as LocalPiHarnessAdapterOptions,
+      ),
+  });
 
   // Generic ACP entry: resolve with { command, args } for any ACP agent.
   const acpAdapter = createAcpHarnessAdapter({ command: "acp" });

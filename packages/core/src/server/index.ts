@@ -198,6 +198,7 @@ export {
   createAgentChatPlugin,
   defaultAgentChatPlugin,
   refreshGlobalMcpManager,
+  type AgentChatHarnessConfig,
   type AgentChatPluginOptions,
 } from "./agent-chat-plugin.js";
 export {

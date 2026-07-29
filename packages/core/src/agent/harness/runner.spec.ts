@@ -9,6 +9,9 @@ const mocks = vi.hoisted(() => ({
   getAgentHarnessSession: vi.fn(),
   updateAgentHarnessSession: vi.fn(),
   markAgentHarnessSessionStopped: vi.fn(),
+  registerLiveAgentHarnessSession: vi.fn(),
+  releaseLiveAgentHarnessSession: vi.fn(),
+  resolveAgentHarnessApproval: vi.fn(),
 }));
 
 vi.mock("../run-manager.js", () => ({
@@ -22,7 +25,14 @@ vi.mock("./store.js", () => ({
   markAgentHarnessSessionStopped: mocks.markAgentHarnessSessionStopped,
 }));
 
-const { startAgentHarnessRun } = await import("./runner.js");
+vi.mock("./lifecycle.js", () => ({
+  registerLiveAgentHarnessSession: mocks.registerLiveAgentHarnessSession,
+  releaseLiveAgentHarnessSession: mocks.releaseLiveAgentHarnessSession,
+  resolveAgentHarnessApproval: mocks.resolveAgentHarnessApproval,
+}));
+
+const { startAgentHarnessApprovalRun, startAgentHarnessRun } =
+  await import("./runner.js");
 
 describe("startAgentHarnessRun", () => {
   beforeEach(() => {
@@ -31,6 +41,7 @@ describe("startAgentHarnessRun", () => {
     mocks.getAgentHarnessSession.mockResolvedValue({ pendingApproval: null });
     mocks.updateAgentHarnessSession.mockResolvedValue({});
     mocks.markAgentHarnessSessionStopped.mockResolvedValue({});
+    mocks.resolveAgentHarnessApproval.mockResolvedValue({ ok: true });
   });
 
   it("streams harness events through startRun and detaches session state", async () => {
@@ -106,6 +117,51 @@ describe("startAgentHarnessRun", () => {
         pendingApproval: null,
       }),
     );
+  });
+
+  it("continues an approval inside its own run-manager run", async () => {
+    let capturedRunFn:
+      | ((send: (event: AgentChatEvent) => void) => Promise<void>)
+      | undefined;
+    mocks.startRun.mockImplementation((runId, threadId, runFn) => {
+      capturedRunFn = runFn;
+      return {
+        runId,
+        threadId,
+        turnId: "turn-1",
+        events: [],
+        status: "running",
+        subscribers: new Set(),
+        abort: new AbortController(),
+        startedAt: Date.now(),
+      };
+    });
+    mocks.resolveAgentHarnessApproval.mockImplementation(
+      async ({ onHarnessEvent }) => {
+        await onHarnessEvent({ type: "text-delta", text: "continued" });
+        return { ok: true };
+      },
+    );
+
+    startAgentHarnessApprovalRun({
+      runId: "approval-run",
+      harnessRunId: "original-run",
+      threadId: "thread-1",
+      turnId: "turn-1",
+      approval: { id: "approval-1", approved: true },
+      scope: { ownerEmail: "alice@example.com", orgId: "org-1" },
+    });
+    const sent: AgentChatEvent[] = [];
+    await capturedRunFn?.((event) => sent.push(event));
+
+    expect(mocks.resolveAgentHarnessApproval).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: "original-run",
+        approval: { id: "approval-1", approved: true },
+        scope: { ownerEmail: "alice@example.com", orgId: "org-1" },
+      }),
+    );
+    expect(sent).toEqual([{ type: "text", text: "continued" }]);
   });
 
   it("stops and marks the session when the run signal is aborted", async () => {

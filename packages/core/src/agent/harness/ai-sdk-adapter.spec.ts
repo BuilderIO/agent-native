@@ -8,6 +8,7 @@ import {
   aiSdkHarnessPartToEvents,
   createCodexCliAuthSandboxHook,
   normalizeCodexCliAuthConfig,
+  toAiSdkHarnessTools,
 } from "./ai-sdk-adapter.js";
 
 const tempDirs: string[] = [];
@@ -100,6 +101,57 @@ describe("aiSdkHarnessPartToEvents", () => {
         error: new Error("boom"),
       }),
     ).toEqual([{ type: "error", error: "boom" }]);
+  });
+});
+
+describe("toAiSdkHarnessTools", () => {
+  it("grants a host tool only after the AI SDK approval gate ran for the same call", async () => {
+    const execute = vi.fn(async () => "ok");
+    const converted = toAiSdkHarnessTools(
+      {
+        publish: {
+          description: "Publish",
+          inputSchema: { type: "object" },
+          needsApproval: async () => true,
+          execute,
+        },
+      },
+      {
+        tool: (definition) => definition,
+        jsonSchema: (schema) => schema,
+      },
+    );
+    const publish = converted.publish as {
+      needsApproval: (
+        input: unknown,
+        context: { toolCallId: string },
+      ) => Promise<boolean>;
+      execute: (
+        input: unknown,
+        context: { toolCallId: string },
+      ) => Promise<unknown>;
+    };
+
+    await publish.execute({}, { toolCallId: "call-1" });
+    expect(execute).toHaveBeenLastCalledWith(
+      {},
+      expect.objectContaining({ toolCallId: "call-1", approved: false }),
+    );
+
+    await expect(
+      publish.needsApproval({}, { toolCallId: "call-2" }),
+    ).resolves.toBe(true);
+    await publish.execute({}, { toolCallId: "call-2" });
+    expect(execute).toHaveBeenLastCalledWith(
+      {},
+      expect.objectContaining({ toolCallId: "call-2", approved: true }),
+    );
+
+    await publish.execute({}, { toolCallId: "call-2" });
+    expect(execute).toHaveBeenLastCalledWith(
+      {},
+      expect.objectContaining({ toolCallId: "call-2", approved: false }),
+    );
   });
 });
 

@@ -94,14 +94,14 @@ UI مع [`AgentChatRuntime`](/docs/native-chat-ui#byo-agent-runtimes)؛ دع
 | ---------------------------- | ----------- | ----------- | --------- |
 | `ai-sdk-harness:claude-code` | رمز Claude  | نعم         | نعم       |
 | `ai-sdk-harness:codex`       | Codex       | نعم         | لا        |
-| `ai-sdk-harness:pi`          | باي         | لا          | نعم       |
+| `ai-sdk-harness:pi`          | Pi          | نعم         | نعم       |
+| `pi:local`                   | Pi محلي     | لا          | لا        |
 
-حزم وقت التشغيل الخاصة بها هي **تبعيات نظير اختيارية** ويتم تحميلها ببطء، لذا
-التطبيق الذي لا يستخدم أداة التثبيت مطلقًا لا يدفع ثمنه. يحمل كل محول
-تلميح `installPackage` (على سبيل المثال `@ai-sdk/harness@canary
-@ai-sdk/harness-codex@canary`); `resolveAgentHarness` يُجري تثبيتًا واضحًا
-خطأ إذا كانت الحزم مفقودة، و`isAgentHarnessPackageInstalled(entry)`
-يتيح لك التحقق أولاً.
+حزم التشغيل هي **تبعيات نظير اختيارية** تُحمّل عند الطلب. يعرض `resolveAgentHarness` تلميح التثبيت عند غياب الحزمة.
+
+### Pi المحلي في دردشة التطبيق {#local-pi-app-chat}
+
+يشغّل `pi:local` الحزمة `@earendil-works/pi-coding-agent` داخل عملية Node المحلية ويستخدم افتراضيًا دليل Pi المعتاد `~/.pi/agent`. يبقى اختيار النموذج وOAuth تحت إدارة Pi؛ ولا يقرأ Agent-Native ملف المصادقة أو ينسخه أو يخزنه، بينما تحفظ SQL مرجع الجلسة المعتم فقط. فعّله فقط مع حارس صريح مغلق افتراضيًا يتحقق من وضع التطوير وloopback. يعمل في المقدمة فقط، ويرفض المرفقات حاليًا، وتفشل إجراءات `needsApproval` بأمان. أما `ai-sdk-harness:pi` فهو محول sandbox ولا يعيد استخدام تسجيل دخول Pi المحلي تلقائيًا.
 
 يسجل `registerBuiltinAgentHarnesses()` أيضًا أحزمة [ACP](#acp)
 (`acp`, `acp:gemini`, `acp:claude-code`).

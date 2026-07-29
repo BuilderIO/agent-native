@@ -23,6 +23,7 @@ export function agentHarnessEventToAgentChatEvents(
       return [
         {
           type: "tool_start",
+          ...(event.id ? { id: event.id } : {}),
           tool: event.name,
           input: normalizeToolInput(event.input),
         },
@@ -31,6 +32,7 @@ export function agentHarnessEventToAgentChatEvents(
       return [
         {
           type: "tool_done",
+          ...(event.id ? { id: event.id } : {}),
           tool: event.name,
           ...(event.input !== undefined
             ? { input: normalizeToolInput(event.input) }
@@ -42,9 +44,11 @@ export function agentHarnessEventToAgentChatEvents(
     case "approval-request":
       return [
         {
-          type: "activity",
-          label: event.message || "Waiting for harness approval",
-          ...(event.tool ? { tool: event.tool } : {}),
+          type: "approval_required",
+          tool: event.tool ?? "harness",
+          input: normalizeToolInput(event.input),
+          approvalKey: event.id,
+          toolCallId: event.id,
         },
       ];
     case "file-change":

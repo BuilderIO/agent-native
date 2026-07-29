@@ -8,6 +8,7 @@ import type {
 import type { ExternalAgentPolicy } from "../../mcp/external-agent-policy.js";
 import type { DatabaseToolsOption } from "../../scripts/db/tool-mode.js";
 import type { PromptExamples } from "../prompts/index.js";
+import type { AgentChatHarnessConfig } from "./harness-handler.js";
 
 /** Shape of a Nitro plugin function: receives the Nitro app instance at
  * startup and may register routes/hooks synchronously or asynchronously. */
@@ -58,6 +59,13 @@ export interface AgentChatPluginOptions {
     | import("../../agent/engine/types.js").AgentEngine
     | string
     | { name: string; config: Record<string, unknown> };
+  /**
+   * Optional full agent harness for app chat. Harnesses own their loop and
+   * session lifecycle; they are never passed to AgentEngine or runAgentLoop.
+   * A configured harness fails closed when its request guard denies access or
+   * its adapter cannot be loaded.
+   */
+  harness?: AgentChatHarnessConfig;
   /** Route path. Default: /_agent-native/agent-chat */
   path?: string;
   /** Custom mention providers for @-tagging template entities */
