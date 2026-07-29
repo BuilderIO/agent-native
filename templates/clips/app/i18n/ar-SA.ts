@@ -551,6 +551,8 @@ const messages = {
     useColor: "استخدم {{color}}",
     logo: "الشعار",
     logoPreview: "معاينة الشعار",
+    logoUsage: "يظهر للمستلمين في رسائل المشاركة وعلى صفحات المقاطع العامة.",
+    emailHeaderPreview: "ترويسة بريد المشاركة",
     dropReplace: "أسقط صورة جديدة للاستبدال",
     dropHere: "أسقط PNG / JPG / SVG هنا",
     uploading: "جارٍ التحميل…",
@@ -647,10 +649,6 @@ const messages = {
 ### تمت الإضافة
 
 - يمكنك الآن رؤية الجديد مباشرة داخل Clips. أصبح سجل التغييرات متاحًا في قائمة الأوامر (Cmd+K) وفي الإعدادات.`,
-    profile: "الملف الشخصي",
-    email: "البريد الإلكتروني",
-    displayName: "اسم العرض",
-    displayNamePlaceholder: "اسمك",
     playback: "التشغيل",
     defaultPlaybackSpeed: "سرعة التشغيل الافتراضية",
     playbackDescription: "تُطبق تلقائيًا عند فتح تسجيل.",
@@ -792,6 +790,7 @@ const messages = {
     noOrganization: "لا توجد مؤسسة بعد. أنشئ واحدة من مبدل المؤسسات للبدء.",
     description: "إدارة المؤسسة: العلامة التجارية، الأعضاء، الدعوات.",
     adminsOnlyBranding: "يمكن للمسؤولين فقط تعديل العلامة التجارية.",
+    brandingLoadFailed: "تعذّر تحميل هوية المؤسسة.",
     members: "الأعضاء",
     pendingInvites: "الدعوات المعلقة",
     noPendingInvites: "لا توجد دعوات معلقة.",

@@ -543,6 +543,8 @@ const messages = {
     useColor: "{{color}} उपयोग करें",
     logo: "लोगो",
     logoPreview: "लोगो पूर्वावलोकन",
+    logoUsage: "साझा ईमेल और सार्वजनिक क्लिप पेजों पर प्राप्तकर्ताओं को दिखाया जाता है।",
+    emailHeaderPreview: "साझा ईमेल हेडर",
     dropReplace: "बदलने के लिए नई छवि छोड़ें",
     dropHere: "यहां PNG / JPG / SVG छोड़ें",
     uploading: "अपलोड हो रहा है…",
@@ -639,10 +641,6 @@ Clips में उपयोगकर्ताओं को दिखने व�
 ### जोड़ा गया
 
 - अब आप Clips के अंदर ही नया क्या है देख सकते हैं। बदलाव लॉग अब कमांड मेनू (Cmd+K) और सेटिंग्स में उपलब्ध है।`,
-    profile: "प्रोफ़ाइल",
-    email: "ईमेल",
-    displayName: "दिखने वाला नाम",
-    displayNamePlaceholder: "आपका नाम",
     playback: "प्लेबैक",
     defaultPlaybackSpeed: "डिफ़ॉल्ट प्लेबैक गति",
     playbackDescription: "रिकॉर्डिंग खोलने पर अपने आप लागू होती है।",
@@ -780,6 +778,7 @@ Clips में उपयोगकर्ताओं को दिखने व�
     noOrganization: "अभी कोई संगठन नहीं है। शुरू करने के लिए संगठन स्विचर से एक बनाएं।",
     description: "संगठन व्यवस्थापन: ब्रांडिंग, सदस्य, आमंत्रण।",
     adminsOnlyBranding: "केवल व्यवस्थापक ब्रांडिंग संपादित कर सकते हैं।",
+    brandingLoadFailed: "संगठन ब्रांडिंग लोड नहीं हो सकी।",
     members: "सदस्य",
     pendingInvites: "लंबित आमंत्रण",
     noPendingInvites: "कोई लंबित आमंत्रण नहीं।",
