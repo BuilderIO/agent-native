@@ -13,7 +13,9 @@ export function CardsBlock({ data }: BlockReadProps<CardsData>) {
           {card.href ? (
             <a href={card.href} className="docs-card-title docs-card-link">
               {card.title}
-              <span className="docs-card-arrow" aria-hidden="true">→</span>
+              <span className="docs-card-arrow" aria-hidden="true">
+                →
+              </span>
             </a>
           ) : (
             <p className="docs-card-title">{card.title}</p>
@@ -35,6 +37,12 @@ export const cardsBlock = defineBlock<CardsData>({
   description:
     "A responsive card grid for feature overviews. Each card has a title (optionally linked) and a short description.",
   empty: () => ({
-    cards: [{ title: "Feature name", href: "/docs/feature", body: "Short description." }],
+    cards: [
+      {
+        title: "Feature name",
+        href: "/docs/feature",
+        body: "Short description.",
+      },
+    ],
   }),
 });

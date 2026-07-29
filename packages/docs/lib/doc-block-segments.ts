@@ -10,11 +10,12 @@ import {
   registerLibraryBlockConfigs,
   type MdxJsxNode,
 } from "../../core/src/client/blocks/server";
-
 import { cardsSchema, cardsMdx } from "../app/components/blocks/cards.config";
-import { comparisonSchema, comparisonMdx } from "../app/components/blocks/comparison.config";
+import {
+  comparisonSchema,
+  comparisonMdx,
+} from "../app/components/blocks/comparison.config";
 import { stepsSchema, stepsMdx } from "../app/components/blocks/steps.config";
-
 
 const BLOCK_TYPE_ALIASES: Record<string, string> = {
   "an-diagram": "diagram",
@@ -507,7 +508,7 @@ export function validateDocBlock(
 
   let data: unknown;
   if (type === "mermaid") {
-    data = { code: body.trim() };
+    data = { source: body.trim() };
   } else {
     const trimmed = body.trim();
     if (!trimmed) {

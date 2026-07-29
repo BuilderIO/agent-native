@@ -1,6 +1,5 @@
-import { z } from "zod";
-
 import type { BlockMdxConfig } from "@agent-native/core/blocks";
+import { z } from "zod";
 
 export interface ComparisonSide {
   label: string;

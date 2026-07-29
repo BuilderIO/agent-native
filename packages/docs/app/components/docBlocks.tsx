@@ -36,18 +36,17 @@ import {
   type BlockRenderContext,
   type NestedBlock,
 } from "@agent-native/core/blocks";
-
-import { cardsBlock } from "./blocks/cards";
-import { comparisonBlock } from "./blocks/comparison";
-import { stepsBlock } from "./blocks/steps";
 import { useT } from "@agent-native/core/client/i18n";
 import { useMemo, type ReactNode } from "react";
-import { renderMarkdownToHtml } from "./MarkdownRenderer";
 
 import {
   resolveDocBlockType,
   type DocSegment,
 } from "../../lib/doc-block-segments";
+import { cardsBlock } from "./blocks/cards";
+import { comparisonBlock } from "./blocks/comparison";
+import { stepsBlock } from "./blocks/steps";
+import { renderMarkdownToHtml } from "./MarkdownRenderer";
 
 export {
   DOC_BLOCK_LANGUAGES,

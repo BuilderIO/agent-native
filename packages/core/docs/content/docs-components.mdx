@@ -75,13 +75,13 @@ This is a `decision` callout. Use it to surface a deliberate tradeoff the reader
 </Callout>
 ```
 
-| Tone | When to use |
-|---|---|
-| `info` | Background context, neutral notes |
-| `warning` | Potential data loss, breaking changes, hard-to-reverse steps |
-| `success` | Recommended option, confirmed working path |
-| `risk` | Security implications, production caveats |
-| `decision` | Deliberate tradeoffs the reader should understand |
+| Tone       | When to use                                                  |
+| ---------- | ------------------------------------------------------------ |
+| `info`     | Background context, neutral notes                            |
+| `warning`  | Potential data loss, breaking changes, hard-to-reverse steps |
+| `success`  | Recommended option, confirmed working path                   |
+| `risk`     | Security implications, production caveats                    |
+| `decision` | Deliberate tradeoffs the reader should understand            |
 
 Leave a blank line between the opening tag and the body, and another before the closing tag.
 
@@ -261,51 +261,139 @@ Use a fenced code block with the `mermaid` language tag. Mermaid supports flowch
 
 ## FileTree
 
-<FileTree id="docs-components-filetree" entries={[
-  {"path": "actions/analyze-text.ts", "change": "added", "note": "New action — callable from agent, UI, and CLI"},
-  {"path": "actions/list-text-analyses.ts", "change": "added"},
-  {"path": "app/routes/analyses.tsx", "change": "modified"},
-  {"path": "app/config/nav.ts", "change": "modified", "note": "Add the new route to the sidebar nav"},
-  {"path": "db/migrations/001_analyses.sql"}
-]} />
+<FileTree
+  id="docs-components-filetree"
+  entries={[
+    {
+      path: "actions/analyze-text.ts",
+      change: "added",
+      note: "New action — callable from agent, UI, and CLI",
+    },
+    { path: "actions/list-text-analyses.ts", change: "added" },
+    { path: "app/routes/analyses.tsx", change: "modified" },
+    {
+      path: "app/config/nav.ts",
+      change: "modified",
+      note: "Add the new route to the sidebar nav",
+    },
+    { path: "db/migrations/001_analyses.sql" },
+  ]}
+/>
 
 ```mdx
-<FileTree id="docs-components-filetree" entries={[
-  {"path": "actions/analyze-text.ts", "change": "added", "note": "New action — callable from agent, UI, and CLI"},
-  {"path": "actions/list-text-analyses.ts", "change": "added"},
-  {"path": "app/routes/analyses.tsx", "change": "modified"},
-  {"path": "app/config/nav.ts", "change": "modified", "note": "Add the new route to the sidebar nav"},
-  {"path": "db/migrations/001_analyses.sql"}
-]} />
+<FileTree
+  id="docs-components-filetree"
+  entries={[
+    {
+      path: "actions/analyze-text.ts",
+      change: "added",
+      note: "New action — callable from agent, UI, and CLI",
+    },
+    { path: "actions/list-text-analyses.ts", change: "added" },
+    { path: "app/routes/analyses.tsx", change: "modified" },
+    {
+      path: "app/config/nav.ts",
+      change: "modified",
+      note: "Add the new route to the sidebar nav",
+    },
+    { path: "db/migrations/001_analyses.sql" },
+  ]}
+/>
 ```
 
 FileTree is **self-closing** (`/>`). It does not accept Markdown children — if you use open/close tags with content inside you will get a parse error.
 
 Each entry in `entries` is an object with a `path` key (slash-delimited) and optional fields:
 
-| Field | Values | Effect |
-|---|---|---|
-| `change` | `"added"` \| `"modified"` \| `"removed"` \| `"renamed"` | Colored badge on the row |
-| `note` | any string | Expandable annotation shown on hover |
-| `snippet` | code string | Expandable code preview |
-| `language` | e.g. `"ts"` | Syntax highlighting for the snippet |
+| Field      | Values                                                  | Effect                               |
+| ---------- | ------------------------------------------------------- | ------------------------------------ |
+| `change`   | `"added"` \| `"modified"` \| `"removed"` \| `"renamed"` | Colored badge on the row             |
+| `note`     | any string                                              | Expandable annotation shown on hover |
+| `snippet`  | code string                                             | Expandable code preview              |
+| `language` | e.g. `"ts"`                                             | Syntax highlighting for the snippet  |
 
 ---
 
 ## Tabs
 
-<TabsBlock id="docs-components-tabs" tabs={[
-  {"id": "pnpm", "label": "pnpm", "blocks": [{"type": "code", "id": "pnpm-install", "data": {"code": "pnpm install", "language": "bash"}}]},
-  {"id": "npm", "label": "npm", "blocks": [{"type": "code", "id": "npm-install", "data": {"code": "npm install", "language": "bash"}}]},
-  {"id": "yarn", "label": "yarn", "blocks": [{"type": "code", "id": "yarn-install", "data": {"code": "yarn install", "language": "bash"}}]}
-]} />
+<TabsBlock
+  id="docs-components-tabs"
+  tabs={[
+    {
+      id: "pnpm",
+      label: "pnpm",
+      blocks: [
+        {
+          type: "code",
+          id: "pnpm-install",
+          data: { code: "pnpm install", language: "bash" },
+        },
+      ],
+    },
+    {
+      id: "npm",
+      label: "npm",
+      blocks: [
+        {
+          type: "code",
+          id: "npm-install",
+          data: { code: "npm install", language: "bash" },
+        },
+      ],
+    },
+    {
+      id: "yarn",
+      label: "yarn",
+      blocks: [
+        {
+          type: "code",
+          id: "yarn-install",
+          data: { code: "yarn install", language: "bash" },
+        },
+      ],
+    },
+  ]}
+/>
 
 ```mdx
-<TabsBlock id="docs-components-tabs" tabs={[
-  {"id": "pnpm", "label": "pnpm", "blocks": [{"type": "code", "id": "pnpm-install", "data": {"code": "pnpm install", "language": "bash"}}]},
-  {"id": "npm", "label": "npm", "blocks": [{"type": "code", "id": "npm-install", "data": {"code": "npm install", "language": "bash"}}]},
-  {"id": "yarn", "label": "yarn", "blocks": [{"type": "code", "id": "yarn-install", "data": {"code": "yarn install", "language": "bash"}}]}
-]} />
+<TabsBlock
+  id="docs-components-tabs"
+  tabs={[
+    {
+      id: "pnpm",
+      label: "pnpm",
+      blocks: [
+        {
+          type: "code",
+          id: "pnpm-install",
+          data: { code: "pnpm install", language: "bash" },
+        },
+      ],
+    },
+    {
+      id: "npm",
+      label: "npm",
+      blocks: [
+        {
+          type: "code",
+          id: "npm-install",
+          data: { code: "npm install", language: "bash" },
+        },
+      ],
+    },
+    {
+      id: "yarn",
+      label: "yarn",
+      blocks: [
+        {
+          type: "code",
+          id: "yarn-install",
+          data: { code: "yarn install", language: "bash" },
+        },
+      ],
+    },
+  ]}
+/>
 ```
 
 `TabsBlock` is self-closing. The entire structure is one JSON `tabs` attribute. Each tab's content is a `blocks` array where each item is a block object with `type`, `id`, and `data` matching that block's schema. Tabs works best for short parallel code snippets (one code block per tab). For richer multi-block content per tab, use a visual editor rather than hand-authoring the JSON.
@@ -314,16 +402,74 @@ Each entry in `entries` is an object with a `path` key (slash-delimited) and opt
 
 ## Columns
 
-<Columns id="docs-components-columns" columns={[
-  {"id": "col-manual", "label": "Manual approach", "blocks": [{"type": "code", "id": "manual-code", "data": {"code": "const res = await fetch('/api/analyses')\nconst data = await res.json()", "language": "ts"}}]},
-  {"id": "col-actions", "label": "With actions", "blocks": [{"type": "code", "id": "action-code", "data": {"code": "const { data } = useActionQuery('list-text-analyses', {})", "language": "ts"}}]}
-]} />
+<Columns
+  id="docs-components-columns"
+  columns={[
+    {
+      id: "col-manual",
+      label: "Manual approach",
+      blocks: [
+        {
+          type: "code",
+          id: "manual-code",
+          data: {
+            code: "const res = await fetch('/api/analyses')\nconst data = await res.json()",
+            language: "ts",
+          },
+        },
+      ],
+    },
+    {
+      id: "col-actions",
+      label: "With actions",
+      blocks: [
+        {
+          type: "code",
+          id: "action-code",
+          data: {
+            code: "const { data } = useActionQuery('list-text-analyses', {})",
+            language: "ts",
+          },
+        },
+      ],
+    },
+  ]}
+/>
 
 ```mdx
-<Columns id="docs-components-columns" columns={[
-  {"id": "col-manual", "label": "Manual approach", "blocks": [{"type": "code", "id": "manual-code", "data": {"code": "const res = await fetch('/api/analyses')\nconst data = await res.json()", "language": "ts"}}]},
-  {"id": "col-actions", "label": "With actions", "blocks": [{"type": "code", "id": "action-code", "data": {"code": "const { data } = useActionQuery('list-text-analyses', {})", "language": "ts"}}]}
-]} />
+<Columns
+  id="docs-components-columns"
+  columns={[
+    {
+      id: "col-manual",
+      label: "Manual approach",
+      blocks: [
+        {
+          type: "code",
+          id: "manual-code",
+          data: {
+            code: "const res = await fetch('/api/analyses')\nconst data = await res.json()",
+            language: "ts",
+          },
+        },
+      ],
+    },
+    {
+      id: "col-actions",
+      label: "With actions",
+      blocks: [
+        {
+          type: "code",
+          id: "action-code",
+          data: {
+            code: "const { data } = useActionQuery('list-text-analyses', {})",
+            language: "ts",
+          },
+        },
+      ],
+    },
+  ]}
+/>
 ```
 
 Like `TabsBlock`, `Columns` is self-closing with a single JSON `columns` attribute. Each column has an optional `label` header and a `blocks` array. For comparing prose rather than code, `Comparison` is easier to hand-author.
@@ -332,14 +478,14 @@ Like `TabsBlock`, `Columns` is self-closing with a single JSON `columns` attribu
 
 ## When to use which component
 
-| Situation | Component |
-|---|---|
-| Reader must not miss something | `Callout` (warning / info / success) |
-| Sequential procedure with titled steps | `Steps` |
-| Navigation or feature overview grid | `Cards` |
-| Before vs. after, old vs. new (prose) | `Comparison` |
-| Same task in multiple tools or frameworks | `Tabs` |
-| Side-by-side code (labeled columns) | `Columns` |
-| Project directory structure | `FileTree` |
-| Inline keyboard shortcut | `[[Key]]` |
-| Architecture or flow diagram | Mermaid fence |
+| Situation                                 | Component                            |
+| ----------------------------------------- | ------------------------------------ |
+| Reader must not miss something            | `Callout` (warning / info / success) |
+| Sequential procedure with titled steps    | `Steps`                              |
+| Navigation or feature overview grid       | `Cards`                              |
+| Before vs. after, old vs. new (prose)     | `Comparison`                         |
+| Same task in multiple tools or frameworks | `Tabs`                               |
+| Side-by-side code (labeled columns)       | `Columns`                            |
+| Project directory structure               | `FileTree`                           |
+| Inline keyboard shortcut                  | `[[Key]]`                            |
+| Architecture or flow diagram              | Mermaid fence                        |

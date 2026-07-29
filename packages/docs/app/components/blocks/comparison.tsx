@@ -1,6 +1,6 @@
-import type React from "react";
 import { defineBlock } from "@agent-native/core/blocks";
 import type { BlockReadProps } from "@agent-native/core/blocks";
+import type React from "react";
 
 import {
   comparisonSchema,
