@@ -36,8 +36,10 @@ export const REMINDER_PRESETS = [
 export const MAX_EVENT_ATTACHMENTS = 25;
 export const UNNAMED_EVENT_TITLE = "(No title)";
 
-export function getEditableEventTitle(title: string): string {
-  return title === UNNAMED_EVENT_TITLE ? "" : title;
+export function getEditableEventTitle(
+  event: Pick<CalendarEvent, "title" | "titleIsGenerated">,
+): string {
+  return event.titleIsGenerated ? "" : event.title;
 }
 
 const DAY_CODES = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"] as const;

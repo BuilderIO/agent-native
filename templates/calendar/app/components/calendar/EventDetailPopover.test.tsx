@@ -238,7 +238,10 @@ describe("EventDetailPopover characterization", () => {
     act(() => {
       root.render(
         <EventDetailPopover
-          event={baseEvent({ title: "(No title)" })}
+          event={baseEvent({
+            title: "(No title)",
+            titleIsGenerated: true,
+          })}
           defaultOpen
           onDelete={() => undefined}
         >
@@ -258,7 +261,10 @@ describe("EventDetailPopover characterization", () => {
     act(() => {
       root.render(
         <EventDetailPopover
-          event={baseEvent({ title: "(No title)" })}
+          event={baseEvent({
+            title: "(No title)",
+            titleIsGenerated: true,
+          })}
           onDelete={() => undefined}
         >
           <button type="button">Open</button>
@@ -326,6 +332,7 @@ describe("EventDetailPopover characterization", () => {
         <EventDetailPopover
           event={baseEvent({
             title: "Out of office",
+            titleIsGenerated: true,
             eventType: "outOfOffice",
           })}
           isDraft
@@ -352,6 +359,30 @@ describe("EventDetailPopover characterization", () => {
 
     expect(onTitleSave).not.toHaveBeenCalled();
     expect(onDismissNew).toHaveBeenCalledWith("event-1", undefined);
+  });
+
+  it("preserves an explicit Out of office title on a draft", () => {
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={baseEvent({
+            title: "Out of office",
+            eventType: "outOfOffice",
+          })}
+          isDraft
+          defaultOpen
+          onDelete={() => undefined}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    const titleInput = document.querySelector<HTMLInputElement>(
+      'input[placeholder="eventForm.addTitle"]',
+    );
+    expect(titleInput).toBeTruthy();
+    expect(titleInput!.value).toBe("Out of office");
   });
 
   it("does not show the event timezone as a standalone row", () => {

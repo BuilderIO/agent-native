@@ -130,6 +130,7 @@ function buildOptimisticCalendarEvent(
     title:
       newData.title?.trim() ||
       (newData.eventType === "outOfOffice" ? "Out of office" : ""),
+    titleIsGenerated: !newData.title?.trim(),
     start,
     end,
     startTimeZone: newData.startTimeZone,

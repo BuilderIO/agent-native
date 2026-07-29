@@ -519,16 +519,6 @@ interface EventDetailPopoverProps {
   onDraftDiscard?: (eventId: string) => void;
 }
 
-function getInitialEditableTitle(
-  event: Pick<CalendarEvent, "title" | "eventType">,
-  isDraft: boolean,
-) {
-  if (isDraft && isOutOfOfficeEvent(event) && event.title === "Out of office") {
-    return "";
-  }
-  return getEditableEventTitle(event.title);
-}
-
 export function EventDetailPopover({
   event,
   children,
@@ -547,7 +537,7 @@ export function EventDetailPopover({
   const isMobile = useIsMobile();
   const [open, setOpen] = useState(defaultOpen);
   const [editingTitle, setEditingTitle] = useState(
-    defaultOpen ? getInitialEditableTitle(event, isDraft) : "",
+    defaultOpen ? getEditableEventTitle(event) : "",
   );
   const [isEditingTitle, setIsEditingTitle] = useState(defaultOpen);
   const isNewEventRef = useRef(defaultOpen);
@@ -686,12 +676,12 @@ export function EventDetailPopover({
       setIsEditingTitle(true);
       isNewEventRef.current = true;
       setEditingTitle((current) => {
-        const eventTitle = getInitialEditableTitle(event, isDraft);
+        const eventTitle = getEditableEventTitle(event);
         if (current.trim() && current !== eventTitle) return current;
         return eventTitle;
       });
     }
-  }, [defaultOpen, event.eventType, event.title, isDraft]);
+  }, [defaultOpen, event.title, event.titleIsGenerated]);
 
   // Focus title input when editing starts
   useEffect(() => {
@@ -1557,7 +1547,7 @@ export function EventDetailPopover({
                       if (isNewEventRef.current && onDismissNew) {
                         handleOpenChange(false);
                       } else {
-                        setEditingTitle(getEditableEventTitle(event.title));
+                        setEditingTitle(getEditableEventTitle(event));
                         setIsEditingTitle(false);
                       }
                     } else if (
@@ -1573,10 +1563,7 @@ export function EventDetailPopover({
                   }}
                   onBlur={() => {
                     const trimmed = editingTitle.trim();
-                    if (
-                      trimmed &&
-                      trimmed !== getEditableEventTitle(event.title)
-                    ) {
+                    if (trimmed && trimmed !== getEditableEventTitle(event)) {
                       onTitleSave?.(event.id, trimmed, event.accountEmail);
                       isNewEventRef.current = false;
                     }
@@ -1590,7 +1577,7 @@ export function EventDetailPopover({
                   className={`mb-4 -mx-0.5 rounded px-0.5 text-lg font-semibold leading-tight text-foreground ${!isOverlay && !isWorkingLocation ? "cursor-text hover:bg-muted/50" : ""}`}
                   onClick={() => {
                     if (isOverlay || isWorkingLocation) return;
-                    setEditingTitle(getEditableEventTitle(event.title));
+                    setEditingTitle(getEditableEventTitle(event));
                     setIsEditingTitle(true);
                   }}
                 >

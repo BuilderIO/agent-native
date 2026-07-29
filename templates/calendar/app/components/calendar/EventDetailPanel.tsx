@@ -341,7 +341,7 @@ export function EventDetailPanel({
                         const trimmed = editingTitle.trim();
                         if (
                           trimmed &&
-                          trimmed !== getEditableEventTitle(event.title)
+                          trimmed !== getEditableEventTitle(event)
                         ) {
                           onTitleSave?.(event.id, trimmed, event.accountEmail);
                         }
@@ -354,10 +354,7 @@ export function EventDetailPanel({
                     }}
                     onBlur={() => {
                       const trimmed = editingTitle.trim();
-                      if (
-                        trimmed &&
-                        trimmed !== getEditableEventTitle(event.title)
-                      ) {
+                      if (trimmed && trimmed !== getEditableEventTitle(event)) {
                         onTitleSave?.(event.id, trimmed, event.accountEmail);
                       }
                       setIsEditingTitle(false);
@@ -373,7 +370,7 @@ export function EventDetailPanel({
                     )}
                     onClick={() => {
                       if (isWorkingLocation) return;
-                      setEditingTitle(getEditableEventTitle(event.title));
+                      setEditingTitle(getEditableEventTitle(event));
                       setIsEditingTitle(true);
                     }}
                   >

@@ -206,13 +206,15 @@ function draftToCalendarEvent(
   fallbackDate: Date,
 ): CalendarEvent {
   const { start, end } = draftRange(draft, fallbackDate);
+  const editableTitle = draft.title?.trim() ?? "";
   return {
     id: calendarDraftEventId(draft.id),
     title:
-      draft.title?.trim() ||
+      editableTitle ||
       (draft.eventType === "outOfOffice"
         ? "Out of office"
         : UNNAMED_EVENT_TITLE),
+    titleIsGenerated: !editableTitle,
     description: draft.description ?? "",
     start: start.toISOString(),
     end: end.toISOString(),
@@ -1433,7 +1435,7 @@ export default function CalendarView() {
       });
       // Delete the event if title was never set
       const ev = events.find((e) => e.id === eventId);
-      if (!ev || !getEditableEventTitle(ev.title).trim()) {
+      if (!ev || !getEditableEventTitle(ev).trim()) {
         deleteEvent.mutate(
           buildDeleteEventMutationInput(
             {

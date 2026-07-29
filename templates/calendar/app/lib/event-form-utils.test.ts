@@ -13,13 +13,16 @@ import {
 
 describe("getEditableEventTitle", () => {
   it("keeps the display-only unnamed label out of editable state", () => {
-    expect(getEditableEventTitle("(No title)")).toBe("");
+    expect(
+      getEditableEventTitle({
+        title: "(No title)",
+        titleIsGenerated: true,
+      }),
+    ).toBe("");
   });
 
-  it("preserves a real event title", () => {
-    expect(getEditableEventTitle("Dinner with Sierra")).toBe(
-      "Dinner with Sierra",
-    );
+  it("preserves a real event title even when it matches a display label", () => {
+    expect(getEditableEventTitle({ title: "(No title)" })).toBe("(No title)");
   });
 });
 
