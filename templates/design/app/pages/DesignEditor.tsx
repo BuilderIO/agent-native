@@ -522,6 +522,7 @@ import {
   insertClonedHtmlLayer,
   insertClonedHtmlLayers,
   prepareClonedHtmlLayersForLiveInsert,
+  preserveClipboardLayerName,
   setPenNodesAttributeOnElement,
   writeBackVectorEditedPenPath,
 } from "./design-editor/clone-and-pen-edit";
@@ -9124,6 +9125,10 @@ function DesignEditor() {
         /** Markup this change introduced; the subject does not exist in the
          * screen's source yet, so it must be added rather than relocated. */
         insertedHtml?: string;
+        /** The inserted markup replaced this subject as one live gesture. */
+        replaced?: true;
+        replacementSelector?: string;
+        replacementSourceId?: string;
         /** This change DELETED the subject; it has no anchor. */
         removed?: true;
       },
@@ -9192,6 +9197,13 @@ function DesignEditor() {
         sourceRect: details?.sourceRect,
         anchorRect: details?.anchorRect,
         insertedHtml: details?.insertedHtml,
+        ...(details?.replaced
+          ? {
+              replaced: true as const,
+              replacementSelector: details.replacementSelector,
+              replacementSourceId: details.replacementSourceId,
+            }
+          : {}),
         ...(details?.removed ? { removed: true as const } : {}),
         requestId: details?.requestId,
         updatedAt: Date.now(),
@@ -14701,6 +14713,9 @@ function DesignEditor() {
         /** Markup this change introduced; the subject does not exist in the
          * screen's source yet, so it must be added rather than relocated. */
         insertedHtml?: string;
+        replaced?: true;
+        replacementSelector?: string;
+        replacementSourceId?: string;
       },
     ) => {
       dndHostLog("persist:begin", {
@@ -15206,6 +15221,9 @@ function DesignEditor() {
         /** Markup this change introduced; the subject does not exist in the
          * screen's source yet, so it must be added rather than relocated. */
         insertedHtml?: string;
+        replaced?: true;
+        replacementSelector?: string;
+        replacementSourceId?: string;
       },
     ) => {
       if (screenId === activeFile?.id) {
@@ -15871,7 +15889,10 @@ function DesignEditor() {
 
   const handleCopySelection = useCallback(async () => {
     const entries = getSelectedLayerSnapshots().map((snapshot) => ({
-      html: snapshot.html,
+      html: preserveClipboardLayerName(
+        snapshot.html,
+        snapshot.node.layerName,
+      ),
       rootNodeId: snapshot.rootNodeId,
       sourceFileId: snapshot.sourceFileId,
       portableStyleSnapshot: snapshot.portableStyleSnapshot,

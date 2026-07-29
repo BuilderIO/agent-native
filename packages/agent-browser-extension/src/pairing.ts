@@ -1,4 +1,8 @@
 import { normalizeDispatchBaseUrl } from "./settings";
+import {
+  parseRemoteDevicePairing,
+  type RemoteDevicePairing,
+} from "./remote-device";
 
 export const BROWSER_CHAT_SESSION_MESSAGE_TYPE =
   "browser-chat.session.v1" as const;
@@ -21,12 +25,18 @@ export interface BrowserChatSession {
   receivedAt: number;
 }
 
+export interface AcceptedBrowserChatPairing {
+  session: BrowserChatSession;
+  remote: RemoteDevicePairing;
+}
+
 interface BrowserChatSessionMessage {
   type: typeof BROWSER_CHAT_SESSION_MESSAGE_TYPE;
   nonce: string;
   startPath: string;
   dispatchOrigin: string;
   expiresAt: string;
+  remote: RemoteDevicePairing;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -57,11 +67,17 @@ function parseSessionMessage(value: unknown): BrowserChatSessionMessage | null {
   if (!isRecord(value)) return null;
   const keys = Object.keys(value);
   if (
-    keys.length !== 5 ||
+    keys.length !== 7 ||
     !keys.every((key) =>
-      ["type", "nonce", "startPath", "dispatchOrigin", "expiresAt"].includes(
-        key,
-      ),
+      [
+        "type",
+        "nonce",
+        "startPath",
+        "dispatchOrigin",
+        "expiresAt",
+        "remoteDevice",
+        "relayBaseUrl",
+      ].includes(key),
     ) ||
     value.type !== BROWSER_CHAT_SESSION_MESSAGE_TYPE
   ) {
@@ -84,12 +100,18 @@ function parseSessionMessage(value: unknown): BrowserChatSessionMessage | null {
   ) {
     return null;
   }
+  const remote = parseRemoteDevicePairing(
+    value.remoteDevice,
+    value.relayBaseUrl,
+  );
+  if (!remote) return null;
   return {
     type: BROWSER_CHAT_SESSION_MESSAGE_TYPE,
     nonce,
     startPath: value.startPath,
     dispatchOrigin,
     expiresAt: value.expiresAt,
+    remote,
   };
 }
 
@@ -136,11 +158,14 @@ export function acceptBrowserChatSession(
   const startUrl = resolveStartUrl(message.startPath, pending.dispatchOrigin);
   return startUrl
     ? {
-        nonce: pending.nonce,
-        dispatchOrigin: pending.dispatchOrigin,
-        startUrl,
-        expiresAt: message.expiresAt,
-        receivedAt: now,
+        session: {
+          nonce: pending.nonce,
+          dispatchOrigin: pending.dispatchOrigin,
+          startUrl,
+          expiresAt: message.expiresAt,
+          receivedAt: now,
+        },
+        remote: message.remote,
       }
     : null;
 }

@@ -2,7 +2,10 @@
 
 import { describe, expect, it } from "vitest";
 
-import { prepareClonedHtmlLayersForLiveInsert } from "./clone-and-pen-edit";
+import {
+  prepareClonedHtmlLayersForLiveInsert,
+  preserveClipboardLayerName,
+} from "./clone-and-pen-edit";
 
 const LIVE_URL = "http://localhost:5173/products?preview=1";
 
@@ -17,6 +20,23 @@ function parseFragment(html: string): Element {
 }
 
 describe("prepareClonedHtmlLayersForLiveInsert", () => {
+  it("preserves the human runtime layer name before clone ids replace authored ids", () => {
+    const html =
+      '<section id="runtime-panel" data-component-name="RuntimePanel">Panel</section>';
+    const enriched = preserveClipboardLayerName(html, "Runtime Panel");
+    const root = parseFragment(enriched);
+
+    expect(root.getAttribute("data-agent-native-layer-name")).toBe(
+      "Runtime Panel",
+    );
+    expect(
+      preserveClipboardLayerName(
+        '<section data-agent-native-layer-name="Authored">Panel</section>',
+        "Runtime Panel",
+      ),
+    ).toContain('data-agent-native-layer-name="Authored"');
+  });
+
   it("clones a subtree with fresh node ids and remapped authored id references", () => {
     const result = prepareClonedHtmlLayersForLiveInsert(
       LIVE_URL,

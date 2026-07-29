@@ -142,6 +142,9 @@ export function SqlChartCard({
   );
 
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [openConfirmAfterMenuClose, setOpenConfirmAfterMenuClose] =
+    useState(false);
   const [expanded, setExpanded] = useState(false);
   const [extRefreshKey, setExtRefreshKey] = useState(0);
   const [exportCsv, setExportCsv] = useState<(() => void) | null>(null);
@@ -287,6 +290,20 @@ export function SqlChartCard({
     setExportCsv(null);
   }, [panel.id]);
 
+  useEffect(() => {
+    if (menuOpen || !openConfirmAfterMenuClose) return;
+    const frame = requestAnimationFrame(() => {
+      setOpenConfirmAfterMenuClose(false);
+      setConfirmOpen(true);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [menuOpen, openConfirmAfterMenuClose]);
+
+  const requestDeleteConfirmation = useCallback(() => {
+    setOpenConfirmAfterMenuClose(true);
+    setMenuOpen(false);
+  }, []);
+
   // Section panels render as a flush header row (no card chrome, full width)
   // so they read as dividers between groups of panels rather than as another
   // tile in the grid.
@@ -302,7 +319,7 @@ export function SqlChartCard({
           <h2 className="text-base font-semibold flex-1">{panel.title}</h2>
           {editable ? (
             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100">
-              <DropdownMenu>
+              <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <DropdownMenuTrigger asChild>
@@ -327,8 +344,9 @@ export function SqlChartCard({
                   )}
                   {onEdit && <DropdownMenuSeparator />}
                   <DropdownMenuItem
-                    onSelect={() => {
-                      setConfirmOpen(true);
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      requestDeleteConfirmation();
                     }}
                   >
                     <IconTrash className="h-4 w-4 mr-2" />
@@ -411,7 +429,7 @@ export function SqlChartCard({
           />
         )}
         <div className="absolute right-1 top-1 flex items-center gap-1 opacity-0 group-hover:opacity-100">
-          <DropdownMenu>
+          <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
             <Tooltip>
               <TooltipTrigger asChild>
                 <DropdownMenuTrigger asChild>
@@ -476,8 +494,9 @@ export function SqlChartCard({
                     </DropdownMenuItem>
                   ) : null}
                   <DropdownMenuItem
-                    onSelect={() => {
-                      setConfirmOpen(true);
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      requestDeleteConfirmation();
                     }}
                   >
                     <IconTrash className="h-4 w-4 mr-2" />
@@ -588,7 +607,7 @@ export function SqlChartCard({
               </ViewSqlPopover>
             ) : null}
             {showPanelMenu ? (
-              <DropdownMenu>
+              <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <DropdownMenuTrigger asChild>
@@ -657,8 +676,9 @@ export function SqlChartCard({
                   </DropdownMenuItem>
                   {editable ? (
                     <DropdownMenuItem
-                      onSelect={() => {
-                        setConfirmOpen(true);
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        requestDeleteConfirmation();
                       }}
                     >
                       <IconTrash className="h-4 w-4 mr-2" />

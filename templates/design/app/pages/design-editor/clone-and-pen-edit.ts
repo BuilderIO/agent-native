@@ -145,6 +145,28 @@ function clearRootLayerPosition(element: Element) {
   host.style.bottom = "";
 }
 
+export function preserveClipboardLayerName(
+  layerHtml: string,
+  layerName: string | null | undefined,
+): string {
+  const normalizedName = layerName?.trim();
+  if (typeof window === "undefined" || !normalizedName) return layerHtml;
+  try {
+    const doc = new DOMParser().parseFromString(
+      `<template>${layerHtml}</template>`,
+      "text/html",
+    );
+    const root = doc.querySelector("template")?.content.firstElementChild;
+    if (!root) return layerHtml;
+    if (!root.hasAttribute("data-agent-native-layer-name")) {
+      root.setAttribute("data-agent-native-layer-name", normalizedName);
+    }
+    return root.outerHTML;
+  } catch {
+    return layerHtml;
+  }
+}
+
 function setRootLayerPosition(
   element: Element,
   position: { x: number; y: number },

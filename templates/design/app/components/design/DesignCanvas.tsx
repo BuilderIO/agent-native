@@ -524,6 +524,10 @@ interface DesignCanvasProps {
       /** Set when the subject is markup this change introduced, not an
        * element the running app already had. */
       insertedHtml?: string;
+      /** The inserted subject replaced the anchor as one undoable gesture. */
+      replaced?: true;
+      replacementSelector?: string;
+      replacementSourceId?: string;
     },
   ) => boolean | "pending" | void;
   onVisualDuplicateChange?: (
@@ -2630,6 +2634,7 @@ export function DesignCanvas({
         const selector = String(e.data.selector || "");
         const anchorSelector = String(e.data.anchorSelector || "");
         const placement = String(e.data.placement || "after");
+        const replaced = e.data.replaced === true;
         dndHostLog("recv:structure-change", {
           selector,
           anchorSelector,
@@ -2685,14 +2690,16 @@ export function DesignCanvas({
             placement === "inside")
         ) {
           const applied = onVisualStructureChange?.(
-            selector,
-            anchorSelector,
+            replaced ? anchorSelector : selector,
+            replaced ? "" : anchorSelector,
             placement,
-            e.data.payload,
+            replaced && isElementInfoPayload(e.data.anchorPayload)
+              ? e.data.anchorPayload
+              : e.data.payload,
             {
               requestId,
-              sourceId,
-              anchorSourceId,
+              sourceId: replaced ? anchorSourceId : sourceId,
+              anchorSourceId: replaced ? undefined : anchorSourceId,
               dropMode,
               forceFlowPositionOverride:
                 e.data.forceFlowPositionOverride === true,
@@ -2705,6 +2712,13 @@ export function DesignCanvas({
                 typeof e.data.insertedHtml === "string"
                   ? e.data.insertedHtml
                   : undefined,
+              ...(replaced
+                ? {
+                    replaced: true as const,
+                    replacementSelector: selector,
+                    replacementSourceId: sourceId,
+                  }
+                : {}),
             },
           );
           dndHostLog("persist:result", {
@@ -3808,6 +3822,8 @@ export function DesignCanvas({
         anchorSourceId,
         anchorPendingNodeId: runtimeStructureInsertRequest.anchor.pendingNodeId,
         placement: runtimeStructureInsertRequest.placement,
+        replaceAnchor:
+          runtimeStructureInsertRequest.replaceAnchor === true && index === 0,
       });
       // Repeated "after" inserts against the original anchor reverse their
       // order. Chain each subsequent root after the clone before it so a

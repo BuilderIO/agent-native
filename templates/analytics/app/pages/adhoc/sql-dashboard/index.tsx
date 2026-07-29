@@ -588,6 +588,8 @@ function SqlDashboardPageContent({
   const [descriptionInput, setDescriptionInput] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [openDeleteAfterMenuClose, setOpenDeleteAfterMenuClose] =
+    useState(false);
   const [emailReportOpen, setEmailReportOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [undoRevisionId, setUndoRevisionId] = useState<string | null>(null);
@@ -604,6 +606,20 @@ function SqlDashboardPageContent({
   const revisionRestoreInFlightRef = useRef(false);
   const canEdit = !reportScreenshot && resourceCanEdit(resourceAccess);
   const canManage = !reportScreenshot && resourceCanManage(resourceAccess);
+  useEffect(() => {
+    if (dashboardActionsOpen || !openDeleteAfterMenuClose) return;
+    const frame = requestAnimationFrame(() => {
+      setOpenDeleteAfterMenuClose(false);
+      setConfirmDeleteOpen(true);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [dashboardActionsOpen, openDeleteAfterMenuClose]);
+
+  const requestDashboardDelete = useCallback(() => {
+    setOpenDeleteAfterMenuClose(true);
+    setDashboardActionsOpen(false);
+  }, []);
+
   const resetRevisionNavigation = useCallback(() => {
     setUndoRevisionId(null);
     setRedoRevisionIds([]);
@@ -1864,8 +1880,7 @@ function SqlDashboardPageContent({
               <DropdownMenuItem
                 onSelect={(event) => {
                   event.preventDefault();
-                  setDashboardActionsOpen(false);
-                  setConfirmDeleteOpen(true);
+                  requestDashboardDelete();
                 }}
                 className="text-destructive focus:text-destructive"
               >

@@ -1,5 +1,7 @@
 import type { BrowserContextV1 } from "@agent-native/core/browser-context";
 
+import type { BrowserPageSessionV1 } from "./page-session";
+
 export const BROWSER_CONTEXT_MESSAGE_TYPE = "browser-context.v1" as const;
 export const BROWSER_CHAT_READY_MESSAGE_TYPE = "browser-chat.ready.v1" as const;
 export const BROWSER_CHAT_RESULT_MESSAGE_TYPE =
@@ -11,6 +13,7 @@ export type BrowserChatContextMessage =
       nonce: string;
       intent: "stage";
       context: BrowserContextV1;
+      browserSession: BrowserPageSessionV1;
     }
   | {
       type: typeof BROWSER_CONTEXT_MESSAGE_TYPE;
@@ -18,6 +21,7 @@ export type BrowserChatContextMessage =
       intent: "submit";
       prompt: string;
       context: BrowserContextV1;
+      browserSession: BrowserPageSessionV1;
     };
 
 export type BrowserChatInboundMessage =
@@ -42,12 +46,14 @@ export interface BrowserChatBinding {
 export function createStageMessage(
   nonce: string,
   context: BrowserContextV1,
+  browserSession: BrowserPageSessionV1,
 ): BrowserChatContextMessage {
   return {
     type: BROWSER_CONTEXT_MESSAGE_TYPE,
     nonce,
     intent: "stage",
     context,
+    browserSession,
   };
 }
 
@@ -55,6 +61,7 @@ export function createSubmitMessage(
   nonce: string,
   prompt: string,
   context: BrowserContextV1,
+  browserSession: BrowserPageSessionV1,
 ): BrowserChatContextMessage {
   if (!prompt.trim() || prompt.length > 12_000) {
     throw new Error("Browser chat prompt is invalid.");
@@ -65,6 +72,7 @@ export function createSubmitMessage(
     intent: "submit",
     prompt: prompt.trim(),
     context,
+    browserSession,
   };
 }
 
@@ -109,19 +117,6 @@ export function parseBrowserChatEvent(
     captureId: data.captureId,
     ok: data.ok,
   };
-}
-
-export function isLinkedInProfileUrl(value: string): boolean {
-  try {
-    const url = new URL(value);
-    const hostname = url.hostname.toLowerCase();
-    return (
-      (hostname === "linkedin.com" || hostname === "www.linkedin.com") &&
-      /^\/in\/[^/]+\/?$/.test(url.pathname)
-    );
-  } catch {
-    return false;
-  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

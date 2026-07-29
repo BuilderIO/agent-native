@@ -266,6 +266,11 @@ export interface PendingLiveStructureEdit {
    * must insert this markup rather than relocate an existing element.
    */
   insertedHtml?: string;
+  /** The inserted markup replaced `selector` instead of landing beside it. */
+  replaced?: true;
+  /** Runtime identity of the optimistic replacement used for verification. */
+  replacementSelector?: string;
+  replacementSourceId?: string | null;
   /**
    * This edit DELETED the subject from the running app. A removal has no
    * anchor — `anchorSelector`/`placement` carry no meaning for it — so every
