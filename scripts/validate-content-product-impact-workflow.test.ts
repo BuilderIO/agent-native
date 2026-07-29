@@ -47,12 +47,30 @@ describe("Content product conformance workflow boundary", () => {
   });
 
   it("does not hide checker infrastructure failures", () => {
-    const unsafe = workflow.replace(
-      "        run: pnpm content-product-impact",
-      "        continue-on-error: true\n        run: pnpm content-product-impact",
-    );
-    const result = validateContentProductImpactWorkflow(unsafe);
-    assert.equal(result.ok, false);
-    assert(result.issues.some((issue) => issue.includes("infrastructure")));
+    for (const value of ["true", "${{ true }}"]) {
+      const unsafe = workflow.replace(
+        "        run: pnpm content-product-impact",
+        `        continue-on-error: ${value}\n        run: pnpm content-product-impact`,
+      );
+      const result = validateContentProductImpactWorkflow(unsafe);
+      assert.equal(result.ok, false);
+      assert(result.issues.some((issue) => issue.includes("infrastructure")));
+    }
+  });
+
+  it("rejects dot and bracket references to the secrets context", () => {
+    for (const expression of [
+      "${{ secrets.DEPLOY_KEY }}",
+      "${{ secrets['DEPLOY_KEY'] }}",
+      "${{ toJSON(secrets) }}",
+    ]) {
+      const unsafe = workflow.replace(
+        "    timeout-minutes:",
+        `    env:\n      LEAK: "${expression}"\n    timeout-minutes:`,
+      );
+      const result = validateContentProductImpactWorkflow(unsafe);
+      assert.equal(result.ok, false);
+      assert(result.issues.some((issue) => issue.includes("secrets")));
+    }
   });
 });

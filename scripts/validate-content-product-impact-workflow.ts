@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { parse } from "yaml";
 
 export type ContentImpactWorkflowGuardResult = {
@@ -11,6 +13,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function permissionIsRead(value: unknown): boolean {
   return value === "read";
+}
+
+function containsSecretContext(value: unknown): boolean {
+  if (typeof value === "string") {
+    return /\$\{\{[\s\S]*?\bsecrets\b/i.test(value);
+  }
+  if (Array.isArray(value)) return value.some(containsSecretContext);
+  return isRecord(value) && Object.values(value).some(containsSecretContext);
 }
 
 export function validateContentProductImpactWorkflow(
@@ -78,13 +88,24 @@ export function validateContentProductImpactWorkflow(
     issues.push("workflow must define the check job");
     return { ok: false, issues };
   }
-  if ("environment" in check || /\bsecrets\./.test(source)) {
+  if ("environment" in check || containsSecretContext(workflow)) {
     issues.push("advisory check must not receive an environment or secrets");
   }
   if (typeof check["timeout-minutes"] !== "number") {
     issues.push("check job must have an explicit timeout");
   }
   const steps = Array.isArray(check.steps) ? check.steps.filter(isRecord) : [];
+  if (
+    ("continue-on-error" in check && check["continue-on-error"] !== false) ||
+    steps.some(
+      (step) =>
+        "continue-on-error" in step && step["continue-on-error"] !== false,
+    )
+  ) {
+    issues.push(
+      "workflow must not hide checker input or infrastructure failures",
+    );
+  }
   const checkout = steps.find(
     (step) =>
       typeof step.uses === "string" &&
@@ -108,10 +129,6 @@ export function validateContentProductImpactWorkflow(
   );
   if (!runStep || !isRecord(runStep.env)) {
     issues.push("workflow must invoke the standalone impact checker");
-  } else if (runStep["continue-on-error"] === true) {
-    issues.push(
-      "workflow must not hide checker input or infrastructure failures",
-    );
   } else if (
     runStep.env.CONTENT_IMPACT_BASE_SHA !==
       "${{ github.event.pull_request.base.sha }}" ||
@@ -122,4 +139,22 @@ export function validateContentProductImpactWorkflow(
   }
 
   return { ok: issues.length === 0, issues };
+}
+
+function main(): void {
+  const result = validateContentProductImpactWorkflow(
+    readFileSync(".github/workflows/content-product-conformance.yml", "utf8"),
+  );
+  if (!result.ok) {
+    for (const issue of result.issues) {
+      console.error(`[content-product-conformance] ${issue}`);
+    }
+    process.exitCode = 1;
+    return;
+  }
+  console.log("Content product conformance workflow boundary checks passed.");
+}
+
+if (process.argv[1]?.endsWith("validate-content-product-impact-workflow.ts")) {
+  main();
 }
