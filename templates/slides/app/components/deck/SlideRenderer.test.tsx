@@ -157,6 +157,9 @@ describe("SlideInner autofit", () => {
           if (this.textContent?.includes("Horizontally fitted")) {
             return 1000;
           }
+          if (this.textContent?.includes("Moved freeform object")) {
+            return 786;
+          }
           return 740;
         }
         return this.clientWidth;
@@ -271,5 +274,30 @@ describe("SlideInner autofit", () => {
     // the pre-edit transform rather than reset to 1 and visibly shift content.
     await new Promise((resolve) => window.setTimeout(resolve, 20));
     expect(fitLayer?.style.getPropertyValue("--fmd-fit-scale")).toBe("0.74");
+  });
+
+  it("does not fit the flow layer around a moved freeform object", async () => {
+    const slide: Slide = {
+      id: "raw-freeform",
+      layout: "blank",
+      notes: "",
+      content:
+        '<div class="fmd-slide" style="padding: 80px 110px;"><h2>Flow title</h2><div class="fmd-freeform-object" data-slide-object-id="freeform-1" style="position: absolute; left: 46px; top: 174px; width: 740px;">Moved freeform object</div></div>',
+    };
+
+    render(<SlideInner slide={slide} />);
+
+    await waitFor(() => {
+      const fitLayer = document.querySelector<HTMLElement>(
+        "[data-fmd-autofit-content]",
+      );
+      // The absolute object expands scrollWidth to 786px, but its independent
+      // geometry must not shrink or shift the 740px normal-flow layout.
+      expect(fitLayer?.scrollWidth).toBe(786);
+      expect(fitLayer?.style.getPropertyValue("--fmd-fit-scale")).toBe("1");
+      expect(fitLayer?.style.getPropertyValue("--fmd-fit-x")).toBe("0px");
+      expect(fitLayer?.style.getPropertyValue("--fmd-fit-y")).toBe("0px");
+      expect(fitLayer?.getAttribute("data-fmd-autofit-active")).toBeNull();
+    });
   });
 });
