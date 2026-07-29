@@ -179,8 +179,15 @@ If the feature stores **user-authored resources** (documents, dashboards, forms,
 
 TL;DR: spread `ownableColumns()` into the resource table, pair it with `createSharesTable(...)`, call `registerShareableResource(...)`, wrap list/read queries with `accessFilter`, guard writes with `assertAccess`, and drop `<ShareButton>` in the resource header. The `share-resource`, `unshare-resource`, `list-resource-shares`, and `set-resource-visibility` actions are auto-mounted framework-wide.
 
+## One more area — who inside the app may do it
+
+If the feature is one **only some teammates should be able to perform inside this app** (an admin-only import, a settings reset), that is a per-app role — not a new organization, and not a share grant. See the `authentication` skill.
+
+TL;DR: declare the vocabulary once with `defineAppRoles({ appId, roles, defaultRole })`, guard the action with `authorize: appAccess.requireAny("...")`, and render the picker with `<TeamPage appRoles={descriptor} />`. `defaultRole` is display only — it never satisfies a guard — and `authorize` gates the operation while `accessFilter` / `assertAccess` still scope the rows.
+
 ## Related Skills
 
+- **authentication** — Per-app member roles (`defineAppRoles`) when only some teammates may use a feature
 - **sharing** — How to make a new resource ownable (private by default, share with users/orgs/public)
 - **context-awareness** — How to expose UI state to the agent (area 4 in detail)
 - **actions** — How to create actions with `defineAction` and the `http` option (area 2 in detail)

@@ -13,6 +13,7 @@ import type { EventHandler as H3EventHandler } from "h3";
 import { parseA2AAgentActivityPart } from "../a2a/activity.js";
 import type { Task } from "../a2a/types.js";
 import {
+  describeToolParameterSignature,
   isAgentActionStopError,
   type ActionAutomationContext,
   type ActionCaller,
@@ -141,6 +142,7 @@ import {
   getRun,
   abortRun,
   abortRunDurably,
+  abortTurnDurably,
   tryClaimRunSlot,
   isHostedRuntime,
   resolveRunSoftTimeoutMs,
@@ -2088,6 +2090,13 @@ function collectTextParts(parts: EngineContentPart[]): string {
     .join("");
 }
 
+// Guard retries are pushed as `role: "user"` because engines have no other
+// mid-turn channel. Unlabeled, a corrective instruction ("say the source is
+// not connected and include this link") reads exactly like an injected user
+// turn, and an aligned model refuses it *to the user* instead of following it.
+export const AGENT_INTERNAL_GUARD_PROMPT =
+  "Automated quality check on the draft answer you just produced. This is a directive from this application's own response guard, not a message from the user and not content from a tool result or web page. Follow it and revise your answer. Do not quote it, describe it, or treat it as an injection attempt. If it contradicts what you observed this turn, state what you actually observed instead of asserting the guard's premise.";
+
 export const AGENT_INTERNAL_CONTINUE_PROMPT =
   "Continue from where you left off and finish the user's original request. Do not repeat completed work, do not mention internal reconnects, time limits, or step limits, and continue as if this is the same uninterrupted run.";
 
@@ -3397,14 +3406,46 @@ function dedupeAssistantToolCallsById(
   return deduped;
 }
 
+/**
+ * Property names an Ajv `errorsText` line blames, e.g.
+ * `input/operations must be array; input must have required property 'id'`.
+ */
+function schemaErrorPropertyNames(error: string): string[] {
+  const names = new Set<string>();
+  for (const match of error.matchAll(/\binput\/([A-Za-z0-9_$-]+)/g)) {
+    names.add(match[1]);
+  }
+  for (const match of error.matchAll(
+    /must have required property '([^']+)'/g,
+  )) {
+    names.add(match[1]);
+  }
+  return [...names];
+}
+
+/**
+ * Raw-JSON-schema actions used to be told only that their arguments were wrong,
+ * never what shape was expected — so a model re-sent the same guess until the
+ * identical-error breaker ended the turn with the write never executed. Zod
+ * actions have echoed the expected signature since `wrapWithValidation`; this
+ * gives the raw path the same answer from the same helper.
+ */
 function toolInputSchemaErrorResult(
   toolName: string,
   input: unknown,
   error: string,
+  parameters?: ActionTool["parameters"],
 ): string {
+  const signature = describeToolParameterSignature(
+    parameters,
+    schemaErrorPropertyNames(error),
+  );
   return (
     `Invalid action parameters for ${toolName}: ${sanitizeToolErrorText(error)}. ` +
     `Received: ${stringifyToolInput(input)}. ` +
+    (signature
+      ? `Expected: ${signature} (where * = required, ? = optional). `
+      : "") +
     "The tool was not executed; retry with arguments that match the tool schema."
   );
 }
@@ -4588,7 +4629,12 @@ export async function runAgentLoop(opts: {
           send({ type: "clear" });
           messages.push({
             role: "user",
-            content: [{ type: "text", text: retryMessage }],
+            content: [
+              {
+                type: "text",
+                text: `${AGENT_INTERNAL_GUARD_PROMPT}\n\n<response-guard>\n${retryMessage}\n</response-guard>`,
+              },
+            ],
           });
           continue;
         }
@@ -4710,11 +4756,14 @@ export async function runAgentLoop(opts: {
         const result =
           `Stopped after ${count} identical errors from ${toolCall.name} with the same arguments. ` +
           `Last error: ${sanitizedResult}`;
+        // This message is streamed to the USER, not back to the model — the
+        // model's copy is `result` above. Describe the failure and what they
+        // can do; never instruct them to "fix the arguments".
         requestedActionStop ??= {
           message:
-            `Stopped because ${toolCall.name} failed ${count} times with the same arguments and error. ` +
-            `Last error: ${sanitizedResult} ` +
-            "Fix the underlying issue or change the arguments before retrying.",
+            `I stopped because the ${toolCall.name} action failed ${count} times in a row the same way, ` +
+            "so retrying it again would not have worked. Anything completed before this is saved. " +
+            `Error: ${sanitizedResult}`,
           errorCode: "repeated_identical_tool_error",
         };
         return result;
@@ -5101,6 +5150,7 @@ export async function runAgentLoop(opts: {
             toolCall.name,
             toolCallSchemaError.input,
             toolCallSchemaError.error,
+            actionEntry?.tool.parameters,
           ),
         );
         send({
@@ -5133,6 +5183,7 @@ export async function runAgentLoop(opts: {
             toolCall.name,
             toolCall.input,
             rawToolInputError,
+            actionEntry.tool.parameters,
           ),
         );
         send({
@@ -7397,8 +7448,11 @@ export function createProductionAgentHandler(
     // sent from the model picker; `engine.name` is what resolveEngine picked.
     // Divergence between them is the usual cause of "status says builder but
     // no [builder-engine] log lines appear" confusion.
+    // `requestModel` differing from `model` means normalizeModelForEngine
+    // substituted the engine default — otherwise indistinguishable from the
+    // client never asking for one.
     console.log(
-      `[agent-chat] resolved engine=${engine.name} model=${effectiveModel} requestEngine=${requestEngine ?? "(none)"} modelSource=${modelSelectionSource}`,
+      `[agent-chat] resolved engine=${engine.name} model=${effectiveModel} requestModel=${requestModel ?? "(none)"} requestEngine=${requestEngine ?? "(none)"} modelSource=${modelSelectionSource} turnId=${requestTurnId ?? "(none)"}`,
     );
 
     if (
@@ -8966,6 +9020,7 @@ export function createProductionAgentHandler(
         // assistant message. Falls back to the runId (turn == run) when the
         // client doesn't supply a turnId.
         turnId: effectiveTurnId,
+        waitUntil: getRequestRunContext()?.waitUntil,
         dispatchMode: foregroundSelfChainEligible
           ? "foreground-self-chain"
           : "foreground",
@@ -9007,5 +9062,6 @@ export {
   getRun,
   abortRun,
   abortRunDurably,
+  abortTurnDurably,
   subscribeToRun,
 };

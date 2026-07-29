@@ -10,6 +10,8 @@ import {
   SSE_DURABLE_NO_PROGRESS_TIMEOUT_MS,
   SSE_IN_FLIGHT_WORK_TIMEOUT_MS,
   SSE_NO_PROGRESS_TIMEOUT_MS,
+  settleInterruptedToolCalls,
+  type ContentPart,
 } from "./sse-event-processor.js";
 
 function commentOnlyStream(delayMs: number): ReadableStream<Uint8Array> {
@@ -766,7 +768,7 @@ describe("SSE replay render pacing", () => {
       expect.objectContaining({
         toolCallId: "analytics-a",
         result: "Stopped before this action started.",
-        isError: true,
+        outcome: "unknown",
       }),
       expect.objectContaining({
         toolCallId: "analytics-b",
@@ -2021,7 +2023,7 @@ describe("SSE event processor error classification", () => {
             argsText: "",
             args: {},
             activity: true,
-            isError: true,
+            outcome: "unknown",
             result: "Stopped before this action started.",
           }),
           {
@@ -3957,5 +3959,53 @@ describe("SSE client watchdog ordering", () => {
     expect(err).toBeInstanceOf(AgentAutoContinueSignal);
     expect((err as AgentAutoContinueSignal).reason).toBe("no_progress");
     expect((err as AgentAutoContinueSignal).clientWatchdog).toBe(true);
+  });
+});
+
+describe("settleInterruptedToolCalls", () => {
+  const pendingTool = (): ContentPart => ({
+    type: "tool-call",
+    toolCallId: "tc_1",
+    toolName: "send-email",
+    argsText: "{}",
+    args: {},
+  });
+
+  it("records an interrupted side effect as unknown, not failed", () => {
+    const content: ContentPart[] = [pendingTool()];
+
+    expect(settleInterruptedToolCalls(content)).toBe(true);
+
+    const part = content[0] as Extract<ContentPart, { type: "tool-call" }>;
+    expect(part.result).toBeDefined();
+    expect(part.outcome).toBe("unknown");
+    expect(part.isError).toBeUndefined();
+  });
+
+  it("leaves a server-reported failure marked as an error", () => {
+    const failed: ContentPart = {
+      ...pendingTool(),
+      result: "Boom",
+      isError: true,
+    };
+    const content: ContentPart[] = [failed];
+
+    expect(settleInterruptedToolCalls(content)).toBe(false);
+    expect((content[0] as typeof failed).isError).toBe(true);
+    expect((content[0] as typeof failed).outcome).toBeUndefined();
+  });
+
+  it("only settles activity placeholders when asked", () => {
+    const content: ContentPart[] = [{ ...pendingTool(), activity: true }];
+
+    expect(settleInterruptedToolCalls(content)).toBe(false);
+    expect(
+      settleInterruptedToolCalls(content, undefined, {
+        includeActivity: true,
+      }),
+    ).toBe(true);
+    expect(
+      (content[0] as Extract<ContentPart, { type: "tool-call" }>).outcome,
+    ).toBe("unknown");
   });
 });

@@ -64,6 +64,7 @@ import {
   type AspectRatio,
   DEFAULT_ASPECT_RATIO,
 } from "@/lib/aspect-ratios";
+import type { GoogleSlidesExportResult } from "@/lib/export-google-slides-client";
 import { parseUploadResponse } from "@/lib/upload-response";
 import { shortcutLabel } from "@/lib/utils";
 
@@ -134,6 +135,8 @@ interface EditorToolbarProps {
   onExportPdf?: () => void;
   /** Export the deck as PPTX */
   onExportPptx?: () => Promise<void> | void;
+  /** Create the deck in the user's Google Drive as native Google Slides */
+  onExportGoogleSlides?: () => Promise<GoogleSlidesExportResult>;
   /** Active deck aspect ratio (defaults to 16:9 when omitted) */
   aspectRatio?: AspectRatio;
   /** Change the deck's aspect ratio */
@@ -267,6 +270,7 @@ export default function EditorToolbar({
   onDuplicateDeck,
   onExportPdf,
   onExportPptx,
+  onExportGoogleSlides,
   aspectRatio,
   onSetAspectRatio,
   designSystemTitle,
@@ -998,6 +1002,7 @@ graph TD
           onDuplicate={onDuplicateDeck ?? (() => {})}
           onExportPdf={onExportPdf ?? (() => {})}
           onExportPptx={onExportPptx ?? (() => {})}
+          onExportGoogleSlides={onExportGoogleSlides}
         />
       </div>
 

@@ -21,6 +21,8 @@ interface ContentPart {
   args?: Record<string, string>;
   result?: string;
   isError?: boolean;
+  /** Mirrors the client ContentPart marker in client/sse-event-processor.ts. */
+  outcome?: "unknown";
   completedSideEffect?: boolean;
   mcpApp?: AgentMcpAppPayload;
   chatUI?: ActionChatUIConfig;
@@ -385,6 +387,9 @@ function settleInterruptedToolCalls(content: ContentPart[]): void {
   for (const part of content) {
     if (part.type === "tool-call" && part.result === undefined) {
       part.result = INTERRUPTED_TOOL_RESULT;
+      // Interrupted is not failed — never set `isError` here. The persisted
+      // turn must agree with the live client (client/sse-event-processor.ts).
+      part.outcome = "unknown";
     }
   }
 }

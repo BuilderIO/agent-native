@@ -415,3 +415,94 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
     );
   });
 });
+
+describe("DesignCanvas localhost screens never render a source snapshot", () => {
+  // A viewer without a previewToken (public link, signed-out session, an inline
+  // browser with no cookies) used to get `externalSnapshotHtml` as srcdoc: a
+  // frozen copy that looks exactly like the running app but has no live DOM
+  // behind it, so selection, layers, and edits all silently addressed a corpse.
+  it("loads the dev-server URL live when the viewer has no bridge entitlement", async () => {
+    await act(async () => {
+      root.render(
+        <DesignCanvas
+          content="http://localhost:5173/settings"
+          contentKey="screen-settings"
+          screenId="screen-settings"
+          sourceType="localhost"
+          bridgeUrl="http://127.0.0.1:7331"
+          previewToken={undefined}
+          externalSnapshotHtml="<!doctype html><html><body>Frozen snapshot</body></html>"
+          zoom={100}
+          deviceFrame="none"
+          editMode={false}
+          readOnly
+          interactMode={false}
+          onElementSelect={() => {}}
+          onElementHover={() => {}}
+          tweakValues={{}}
+        />,
+      );
+    });
+
+    const iframe = container.querySelector<HTMLIFrameElement>(
+      "[data-design-preview-iframe]",
+    );
+    expect(iframe?.getAttribute("src")).toBe("http://localhost:5173/settings");
+    expect(iframe?.hasAttribute("srcdoc")).toBe(false);
+    expect(container.innerHTML).not.toContain("Frozen snapshot");
+  });
+
+  it("keeps an entitled viewer on the proxied document instead of the snapshot", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = requestInfoUrl(input);
+      if (url.endsWith("/live-edit-bridge")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ ok: true }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        );
+      }
+      return Promise.reject(new Error(`Unexpected fetch: ${url}`));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(
+        <DesignCanvas
+          content="http://localhost:5173/settings"
+          contentKey="screen-settings"
+          screenId="screen-settings"
+          sourceType="localhost"
+          bridgeUrl="http://127.0.0.1:7331"
+          previewToken="example-preview-token"
+          externalSnapshotHtml="<!doctype html><html><body>Frozen snapshot</body></html>"
+          zoom={100}
+          deviceFrame="none"
+          editMode
+          interactMode={false}
+          onElementSelect={() => {}}
+          onElementHover={() => {}}
+          tweakValues={{}}
+        />,
+      );
+    });
+
+    await vi.waitFor(() => {
+      expect(
+        container.querySelector<HTMLIFrameElement>(
+          "[data-design-preview-iframe]",
+        )?.src,
+      ).toContain("/live-edit?");
+    });
+    const iframe = container.querySelector<HTMLIFrameElement>(
+      "[data-design-preview-iframe]",
+    );
+    expect(iframe?.hasAttribute("srcdoc")).toBe(false);
+    // The transition fallback may briefly paint the snapshot, but only as an
+    // inert aria-hidden layer — never as the editable document.
+    expect(iframe?.getAttribute("srcdoc") ?? "").not.toContain(
+      "Frozen snapshot",
+    );
+  });
+});

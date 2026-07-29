@@ -46,6 +46,7 @@ import {
 } from "./DatabaseView";
 
 export function DatabaseTimelineView({
+  databaseId,
   activeView,
   properties,
   items,
@@ -67,6 +68,7 @@ export function DatabaseTimelineView({
   onDeletedPreviewItem,
   onOpenPage,
 }: {
+  databaseId: string;
   activeView: ContentDatabaseView;
   properties: DocumentProperty[];
   items: ContentDatabaseItem[];
@@ -287,7 +289,12 @@ export function DatabaseTimelineView({
       ) : dateProperties.length === 0 ? (
         <div className="flex min-h-24 items-center justify-between gap-3 px-2 py-4 text-sm text-muted-foreground">
           <span>{dbText("addADatePropertyToUseTimelineView")}</span>
-          {canEdit ? <AddProperty documentId={databaseDocumentId} /> : null}
+          {canEdit ? (
+            <AddProperty
+              documentId={databaseDocumentId}
+              databaseId={databaseId}
+            />
+          ) : null}
         </div>
       ) : (
         <>

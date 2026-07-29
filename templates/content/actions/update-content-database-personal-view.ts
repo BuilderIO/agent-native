@@ -4,9 +4,11 @@ import { z } from "zod";
 
 import {
   assertContentDatabaseViewerAccess,
+  normalizePersonalDatabaseViewOverrides,
   personalDatabaseViewSettingKey,
   personalViewOverridesSchema,
 } from "./_content-database-personal-view.js";
+import { getContentDatabaseResponse } from "./_database-utils.js";
 
 export default defineAction({
   description:
@@ -21,6 +23,11 @@ export default defineAction({
 
     const key = personalDatabaseViewSettingKey(databaseId);
     if (overrides) {
+      const visibleDatabase = await getContentDatabaseResponse(databaseId);
+      overrides = normalizePersonalDatabaseViewOverrides(
+        overrides,
+        new Set(visibleDatabase.items.map((item) => item.id)),
+      );
       await putUserSetting(ctx.userEmail, key, overrides);
     } else {
       await deleteUserSetting(ctx.userEmail, key);

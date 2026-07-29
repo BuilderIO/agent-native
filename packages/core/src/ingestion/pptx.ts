@@ -10,6 +10,10 @@ export interface ParsedPptxImage {
   data: Uint8Array;
   mimeType: string;
   name: string;
+  /** Width / height of the picture shape on the slide, from its own placed size (not the source file's pixel dimensions). */
+  aspectRatio?: number;
+  /** True when the picture shape covers at least ~85% of the slide's width and height — a full-bleed background photo rather than an inset card image. */
+  fullBleed?: boolean;
 }
 
 export interface ParsedPptxSlide {
@@ -46,11 +50,13 @@ export async function parsePptxPresentation(
   if (!presentationXml)
     throw new Error("Invalid PPTX: missing ppt/presentation.xml");
   const presentation = parseXml(presentationXml);
+  const presentationRoot = record(record(presentation)?.["p:presentation"]);
   const slideIds = asArray(
-    record(record(record(presentation)?.["p:presentation"])?.["p:sldIdLst"])?.[
-      "p:sldId"
-    ],
+    record(presentationRoot?.["p:sldIdLst"])?.["p:sldId"],
   ).map((entry) => stringValue(record(entry)?.["@_r:id"]) ?? "");
+  const sldSz = record(presentationRoot?.["p:sldSz"]);
+  const slideWidthEmu = Number(sldSz?.["@_cx"]) || undefined;
+  const slideHeightEmu = Number(sldSz?.["@_cy"]) || undefined;
   const relationshipsXml = await zip
     .file("ppt/_rels/presentation.xml.rels")
     ?.async("string");
@@ -95,9 +101,27 @@ export async function parsePptxPresentation(
       .file(relationshipPath)
       ?.async("string");
     if (slideRelationshipsXml) {
-      for (const relationship of parseRelationships(
+      const slideRelationships = parseRelationships(
         parseXml(slideRelationshipsXml),
-      ).values()) {
+      );
+      // Walk the slide's own picture shapes (in document order) rather than
+      // every image relationship, so each image carries the placed size the
+      // author gave it on the slide — that size is what tells a full-bleed
+      // cover photo apart from a small inset card photo, which a flat
+      // relationship scan has no way to know.
+      const pictureShapes: PictureShape[] = [];
+      collectPictureShapes(slide, pictureShapes);
+      reorderByDocumentPosition(pictureShapes, xml);
+      addBackgroundFillShape(
+        slide,
+        pictureShapes,
+        slideWidthEmu,
+        slideHeightEmu,
+      );
+      for (const shape of pictureShapes) {
+        if (!shape.embedId) continue;
+        const relationship = slideRelationships.get(shape.embedId);
+        if (!relationship) continue;
         if (
           !relationship.type.includes("/image") &&
           !/\.(png|jpe?g|gif|svg|webp|bmp|tiff?|emf|wmf)$/i.test(
@@ -114,10 +138,24 @@ export async function parsePptxPresentation(
         const image = zip.file(imagePath);
         if (!image) continue;
         const name = imagePath.split("/").at(-1) ?? "image";
+        const aspectRatio =
+          shape.widthEmu && shape.heightEmu
+            ? shape.widthEmu / shape.heightEmu
+            : undefined;
+        const fullBleed = Boolean(
+          shape.widthEmu &&
+          shape.heightEmu &&
+          slideWidthEmu &&
+          slideHeightEmu &&
+          shape.widthEmu / slideWidthEmu >= 0.85 &&
+          shape.heightEmu / slideHeightEmu >= 0.85,
+        );
         images.push({
           data: new Uint8Array(await image.async("nodebuffer")),
           mimeType: imageMimeType(name),
           name,
+          aspectRatio,
+          fullBleed,
         });
       }
     }
@@ -202,6 +240,222 @@ function collectTextRuns(
     if (key.startsWith("@_") || key === "a:r" || key === "a:t") continue;
     for (const item of asArray(child)) collectTextRuns(item, runs, inherited);
   }
+}
+
+interface PictureShape {
+  embedId?: string;
+  widthEmu?: number;
+  heightEmu?: number;
+}
+
+/**
+ * Recursively find every embedded picture in a slide, in document order:
+ * plain `p:pic` shapes, and `p:sp` autoshapes whose fill is a picture
+ * (common for "photo cutout" shapes and full-bleed decorative rectangles).
+ * A group shape (`p:grpSp`) defines its own local coordinate space for its
+ * children (`chOff`/`chExt`) that can be scaled arbitrarily relative to the
+ * group's own placed size on the slide, so each level of nesting multiplies
+ * a running scale factor into the child sizes below it — without that, a
+ * picture inside a resized group would report its unscaled design-time
+ * size instead of how large it actually appears on the slide.
+ */
+function collectPictureShapes(
+  value: unknown,
+  out: PictureShape[],
+  scaleX = 1,
+  scaleY = 1,
+): void {
+  const node = record(value);
+  if (!node) return;
+  for (const [key, child] of Object.entries(node)) {
+    if (key.startsWith("@_")) continue;
+    if (key === "p:pic") {
+      for (const picNode of asArray(child)) {
+        const pic = record(picNode);
+        const blip = record(record(pic?.["p:blipFill"])?.["a:blip"]);
+        out.push(
+          scaledShape(
+            stringValue(blip?.["@_r:embed"]),
+            extFromSpPr(pic),
+            scaleX,
+            scaleY,
+          ),
+        );
+      }
+      continue;
+    }
+    if (key === "p:sp") {
+      for (const spNode of asArray(child)) {
+        const sp = record(spNode);
+        const blip = record(
+          record(record(sp?.["p:spPr"])?.["a:blipFill"])?.["a:blip"],
+        );
+        const embedId = stringValue(blip?.["@_r:embed"]);
+        if (embedId) {
+          out.push(scaledShape(embedId, extFromSpPr(sp), scaleX, scaleY));
+        }
+      }
+      continue;
+    }
+    if (key === "p:grpSp") {
+      for (const groupNode of asArray(child)) {
+        const scale = groupChildScale(record(groupNode), scaleX, scaleY);
+        collectPictureShapes(groupNode, out, scale.x, scale.y);
+      }
+      continue;
+    }
+    for (const item of asArray(child)) {
+      collectPictureShapes(item, out, scaleX, scaleY);
+    }
+  }
+}
+
+/** Whether an `a:xfrm` `rot` value (60,000ths of a degree) is an odd multiple of 90° — a 90/270 turn that swaps effective width and height. */
+function isOddQuarterTurn(rot: number): boolean {
+  if (!Number.isFinite(rot)) return false;
+  const quarterTurns = Math.round(rot / 60000 / 90);
+  return ((quarterTurns % 2) + 2) % 2 === 1;
+}
+
+/**
+ * A group's `chExt` is the coordinate space its children are authored in;
+ * `ext` is how large the group actually renders — the ratio between them is
+ * the extra scale nested children need on top of their own declared size.
+ * When the group itself is rotated a 90/270-degree turn, that ratio applies
+ * to the perpendicular axis on the slide, so the X/Y scale factors need
+ * swapping the same way a rotated picture's own width/height do.
+ */
+function groupChildScale(
+  groupNode: Record<string, unknown> | null,
+  parentScaleX: number,
+  parentScaleY: number,
+): { x: number; y: number } {
+  const xfrm = record(record(groupNode?.["p:grpSpPr"])?.["a:xfrm"]);
+  const ext = record(xfrm?.["a:ext"]);
+  const chExt = record(xfrm?.["a:chExt"]);
+  const extCx = Number(ext?.["@_cx"]);
+  const extCy = Number(ext?.["@_cy"]);
+  const chExtCx = Number(chExt?.["@_cx"]);
+  const chExtCy = Number(chExt?.["@_cy"]);
+  let groupScaleX =
+    Number.isFinite(extCx) && Number.isFinite(chExtCx) && chExtCx > 0
+      ? extCx / chExtCx
+      : 1;
+  let groupScaleY =
+    Number.isFinite(extCy) && Number.isFinite(chExtCy) && chExtCy > 0
+      ? extCy / chExtCy
+      : 1;
+  if (isOddQuarterTurn(Number(xfrm?.["@_rot"]))) {
+    [groupScaleX, groupScaleY] = [groupScaleY, groupScaleX];
+  }
+  return { x: parentScaleX * groupScaleX, y: parentScaleY * groupScaleY };
+}
+
+/**
+ * `a:xfrm/a:ext` always stores the shape's *unrotated* design-time width and
+ * height — `a:xfrm/@rot` (in 60,000ths of a degree) rotates it around its
+ * own center afterward. For a 90/270-degree turn, the shape's effective
+ * on-slide footprint has its width and height swapped relative to that
+ * declared size, so a rotated full-bleed photo can otherwise get treated as
+ * a small inset, or a portrait image get an inverted aspect ratio.
+ */
+function extFromSpPr(shapeNode: Record<string, unknown> | null): {
+  cx?: number;
+  cy?: number;
+} {
+  const xfrm = record(record(shapeNode?.["p:spPr"])?.["a:xfrm"]);
+  const ext = record(xfrm?.["a:ext"]);
+  const cx = Number(ext?.["@_cx"]);
+  const cy = Number(ext?.["@_cy"]);
+  if (!Number.isFinite(cx) || cx <= 0 || !Number.isFinite(cy) || cy <= 0) {
+    return { cx: undefined, cy: undefined };
+  }
+  return isOddQuarterTurn(Number(xfrm?.["@_rot"]))
+    ? { cx: cy, cy: cx }
+    : { cx, cy };
+}
+
+function scaledShape(
+  embedId: string | undefined,
+  size: { cx?: number; cy?: number },
+  scaleX: number,
+  scaleY: number,
+): PictureShape {
+  return {
+    embedId,
+    widthEmu: size.cx !== undefined ? size.cx * scaleX : undefined,
+    heightEmu: size.cy !== undefined ? size.cy * scaleY : undefined,
+  };
+}
+
+/**
+ * fast-xml-parser groups sibling elements by tag name, so a slide whose
+ * picture-bearing shapes alternate types on the page (e.g. `p:sp`, `p:pic`,
+ * `p:sp`) comes out of `collectPictureShapes` re-sorted by tag rather than
+ * by the order they actually appear — every `p:sp` gets visited before any
+ * `p:pic`, even if a `p:pic` came first in the file. Re-derive the true
+ * order from the raw XML text instead: `<a:blip r:embed="...">` occurrences
+ * appear in exactly document order regardless of nesting, so they can be
+ * used to restore the author's original front-to-back ordering (which
+ * matters because downstream rendering treats the first image as primary).
+ */
+function reorderByDocumentPosition(shapes: PictureShape[], xml: string): void {
+  const order: string[] = [];
+  const blipPattern = /<a:blip\b[^>]*\br:embed=(?:"([^"]+)"|'([^']+)')/g;
+  let match: RegExpExecArray | null;
+  while ((match = blipPattern.exec(xml))) order.push(match[1] ?? match[2]);
+
+  // The same relationship id can legitimately be reused across multiple
+  // placements (e.g. a repeated icon), so looking up a single fixed index
+  // per id would assign every reused shape the position of its first XML
+  // occurrence. Instead give each id a queue of its occurrence positions
+  // and consume one per shape, in the order shapes were collected.
+  const occurrences = new Map<string, number[]>();
+  order.forEach((embedId, index) => {
+    const queue = occurrences.get(embedId);
+    if (queue) queue.push(index);
+    else occurrences.set(embedId, [index]);
+  });
+  const positions = shapes.map((shape) => {
+    const queue = shape.embedId ? occurrences.get(shape.embedId) : undefined;
+    return queue && queue.length > 0 ? queue.shift()! : -1;
+  });
+  const sortedIndices = shapes.map((_, i) => i);
+  sortedIndices.sort((a, b) => positions[a] - positions[b]);
+  const sorted = sortedIndices.map((i) => shapes[i]);
+  shapes.splice(0, shapes.length, ...sorted);
+}
+
+/** Read the embed relationship id of a slide's background picture fill (`p:cSld/p:bg/p:bgPr/a:blipFill/a:blip`), if any. */
+function extractBackgroundFillEmbedId(slide: unknown): string | undefined {
+  const root = record(slide);
+  const cSld = record(record(root?.["p:sld"])?.["p:cSld"] ?? root?.["p:cSld"]);
+  const bgPr = record(record(cSld?.["p:bg"])?.["p:bgPr"]);
+  const blip = record(record(bgPr?.["a:blipFill"])?.["a:blip"]);
+  return stringValue(blip?.["@_r:embed"]);
+}
+
+/**
+ * Add the slide's background picture fill, if any, as a synthetic
+ * full-slide-sized shape. It's unshifted to the front rather than appended:
+ * downstream rendering only ever uses the first image in the list, and a
+ * background fill is the slide's base layer — the primary visual — so a
+ * smaller foreground picture (a logo, an icon) must not bump it out of that
+ * slot.
+ */
+function addBackgroundFillShape(
+  slide: unknown,
+  pictureShapes: PictureShape[],
+  slideWidthEmu: number | undefined,
+  slideHeightEmu: number | undefined,
+): void {
+  const embedId = extractBackgroundFillEmbedId(slide);
+  if (!embedId) return;
+  pictureShapes.unshift({
+    embedId,
+    widthEmu: slideWidthEmu,
+    heightEmu: slideHeightEmu,
+  });
 }
 
 function runProperties(

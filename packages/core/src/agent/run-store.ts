@@ -2053,6 +2053,24 @@ export async function markTurnAborted(
   );
 }
 
+/**
+ * Turn identity for a run, or null when the row is unknown. `turn_id` is null
+ * for rows written before the column existed; those runs are their own turn.
+ */
+export async function getRunTurnRef(
+  runId: string,
+): Promise<{ threadId: string; turnId: string } | null> {
+  await ensureRunTables();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT thread_id, turn_id FROM agent_runs WHERE id = ?`,
+    args: [runId],
+  });
+  const row = rows[0] as { thread_id?: unknown; turn_id?: unknown } | undefined;
+  const threadId = row?.thread_id ? String(row.thread_id) : "";
+  if (!threadId) return null;
+  return { threadId, turnId: row?.turn_id ? String(row.turn_id) : runId };
+}
+
 export async function isTurnAborted(
   threadId: string,
   turnId: string,

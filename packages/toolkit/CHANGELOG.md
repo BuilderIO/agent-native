@@ -1,5 +1,30 @@
 # @agent-native/toolkit
 
+## 0.10.11
+
+### Patch Changes
+
+- 0aada94: Allow the new chat control to fill the available history rail space.
+- 0aada94: Show relative cost per model in the composer's model picker. Each row now
+  carries a quiet `$`/`$$`/`$$$` suffix so a user can tell an entry model from a
+  flagship one before selecting it, rather than discovering the difference in
+  their bill. The tier reuses the token list the picker already sorts by
+  (`MODEL_COST_ORDER`) and reflects each provider's own entry/mid/flagship ladder
+  — it is not a cross-provider price claim. Models outside that list render with
+  no label at all; a guessed tier would read as fact.
+
+## 0.10.10
+
+### Patch Changes
+
+- 16a9d1a: Keep editor block drag previews aligned with the point where the block was grabbed, then clear incidental selection and focus after a successful drop.
+
+## 0.10.9
+
+### Patch Changes
+
+- cbc6936: Show only the connect actions in the composer model picker when no LLM provider is configured, instead of a list of unpickable "needs API key" models, and surface Builder connect failures instead of leaving the "Connect Builder.io" button looking dead when the popup is blocked.
+
 ## 0.10.8
 
 ### Patch Changes

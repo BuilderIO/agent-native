@@ -627,8 +627,8 @@ export function VoiceTranscriptionSection() {
               id="openai"
               selected={transcriptionMode === "batch" && provider === "openai"}
               onSelect={() => chooseBatchProvider("openai")}
-              title="OpenAI Whisper"
-              subtitle="Batch Whisper provider. Requires an OpenAI API key."
+              title="OpenAI Transcribe"
+              subtitle="Batch transcription provider. Requires an OpenAI API key."
               rightSlot={
                 openAiConfigured === null ? null : openAiConfigured ? (
                   <span className="flex items-center gap-1 text-[10px] text-green-500">

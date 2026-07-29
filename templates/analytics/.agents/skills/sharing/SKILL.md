@@ -34,6 +34,8 @@ Visibility is coarse. Explicit share grants are fine-grained (per user or per or
 - **`editor`** — read + write.
 - **`admin`** — read + write + manage shares. Does NOT replace the single `owner_email` on the resource.
 
+There are three role systems and they never imply one another. A share role answers "what may this person do to **one row**". An org role (`org_members.role`) answers "what may this person do to the **team**". An app role (`defineAppRoles`, see the `authentication` skill) answers "what may this person do inside **one app**". A share `admin` is not an app admin and neither is an org admin.
+
 ### Anonymous public URLs stay separate
 
 Form "publish" slugs, booking-link slugs, any feature that exposes a URL to unauthenticated users — these are a different axis and are NOT controlled by the sharing system. Keep them alongside it.
@@ -136,6 +138,8 @@ export default defineAction({
 ```
 
 For delete actions use `"admin"` (or fold in `"owner"` to require the real owner).
+
+`authorize` is a different axis, not an alternative: it gates whether the caller may run the operation at all, while `assertAccess` scopes which row they may touch. A write action restricted to some teammates needs both — `authorize: appAccess.requireAny(...)` on the action, `assertAccess` inside `run`.
 
 ## Create actions must set owner
 

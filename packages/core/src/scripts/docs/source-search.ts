@@ -70,6 +70,16 @@ function getCorpusRoot(): string {
   );
 }
 
+/**
+ * The corpus is a sibling of the package root, so a bundled serverless deploy
+ * never carries it. Callers register this tool conditionally: advertising a
+ * search tool whose only possible answer is "not found" costs the agent a turn
+ * and reads to it like the code genuinely does not exist.
+ */
+export function hasSourceCorpus(): boolean {
+  return fs.existsSync(getCorpusRoot());
+}
+
 function isProbablyTextFile(filePath: string): boolean {
   const ext = path.extname(filePath).toLowerCase();
   if (TEXT_EXTENSIONS.has(ext)) return true;

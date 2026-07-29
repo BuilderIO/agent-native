@@ -8,10 +8,7 @@ import {
 // startup so the dashboard / analysis share actions know where to dispatch.
 import "../db/index.js";
 import * as schema from "../db/schema.js";
-import {
-  repairPersistedFirstPartyDashboardQueries,
-  repairUnboundedFirstPartyPanelsAcrossDashboards,
-} from "../lib/first-party-dashboard-repair.js";
+import { repairPersistedFirstPartyDashboardQueries } from "../lib/first-party-dashboard-repair.js";
 
 /**
  * Every Drizzle table exported from schema.ts. Filters out type-only and
@@ -1335,20 +1332,6 @@ export default async (nitroApp: any): Promise<void> => {
   } catch (err) {
     console.warn(
       "[db] Failed to repair canonical first-party dashboard queries (non-fatal):",
-      err instanceof Error ? err.message : err,
-    );
-  }
-  try {
-    const repairedCount =
-      await repairUnboundedFirstPartyPanelsAcrossDashboards();
-    if (repairedCount > 0) {
-      console.info(
-        `[db] Repaired ${repairedCount} dashboard(s) with unbounded first-party panel SQL.`,
-      );
-    }
-  } catch (err) {
-    console.warn(
-      "[db] Failed to repair unbounded first-party panels across dashboards (non-fatal):",
       err instanceof Error ? err.message : err,
     );
   }

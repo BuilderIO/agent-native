@@ -1,6 +1,8 @@
 import { McpClientManager } from "@agent-native/core/mcp-client";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import {
+  Client,
+  StreamableHTTPClientTransport,
+} from "@modelcontextprotocol/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { BrowserControlLoopbackBridge } from "../browser-control/bridge";
@@ -87,7 +89,10 @@ async function createHarness(
   });
   const url = await bridge.start();
   const registration = bridge.registerRun("run-server-owned", permissionMode);
-  const client = new Client({ name: "test", version: "1.0.0" });
+  const client = new Client(
+    { name: "test", version: "1.0.0" },
+    { versionNegotiation: { mode: "auto" } },
+  );
   await client.connect(
     new StreamableHTTPClientTransport(new URL(url), {
       requestInit: {

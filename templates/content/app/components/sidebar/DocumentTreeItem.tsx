@@ -175,7 +175,7 @@ export function FavoriteDocumentItem({
                   }}
                 >
                   <IconStar size={14} className="me-2 fill-current" />
-                  {t("sidebar.removeFromFavorites")}
+                  {t("sidebar.unpinFromSidebar")}
                 </DropdownMenuItem>
               )}
               {canEdit && canManage && <DropdownMenuSeparator />}
@@ -419,8 +419,8 @@ export function DocumentTreeItem({
                       className={cn("me-2", node.isFavorite && "fill-current")}
                     />
                     {node.isFavorite
-                      ? "Remove from favorites"
-                      : "Add to favorites"}
+                      ? t("sidebar.unpinFromSidebar")
+                      : t("sidebar.pinToSidebar")}
                   </DropdownMenuItem>
                 )}
                 {canEdit && canManage && <DropdownMenuSeparator />}

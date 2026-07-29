@@ -3,12 +3,16 @@ import { useEffect, useRef, useState } from "react";
 
 import {
   advanceMeterLevels,
+  combinedMeterLevel,
   decayMeterLevel,
+  EMPTY_METER_SOURCES,
+  foldMeterSources,
   METER_BAR_COUNT,
   METER_BAR_GAINS,
-  METER_SAMPLE_MS,
+  METER_IDLE_MS,
   meterBarHeight,
-  nextMeterLevel,
+  type MeterSource,
+  type MeterSourceLevels,
 } from "../lib/audio-meter";
 
 interface LiveAudioBarsProps {
@@ -28,24 +32,33 @@ export function LiveAudioBars({
   const [levels, setLevels] = useState<number[]>(() =>
     new Array(METER_BAR_COUNT).fill(0),
   );
-  const levelRef = useRef(0);
+  const sourcesRef = useRef<MeterSourceLevels>(EMPTY_METER_SOURCES);
+  const lastEventRef = useRef(0);
 
   useEffect(() => {
     let stopped = false;
     let unlisten: (() => void) | null = null;
 
-    const sampleTimer = window.setInterval(() => {
-      const current = levelRef.current;
-      levelRef.current = decayMeterLevel(current);
-      setLevels((prev) => advanceMeterLevels(prev, current));
-    }, METER_SAMPLE_MS);
-
-    listen<{ level?: number }>("voice:audio-level", (event) => {
-      levelRef.current = nextMeterLevel(
-        levelRef.current,
-        Number(event.payload?.level),
+    const push = () =>
+      setLevels((prev) =>
+        advanceMeterLevels(prev, combinedMeterLevel(sourcesRef.current)),
       );
-    })
+
+    // Drive the bars straight off the capture events rather than resampling on
+    // a timer — both taps already emit at ~25 Hz, and a timer tick landing
+    // between them just showed a decayed copy of a live level.
+    listen<{ level?: number; source?: MeterSource }>(
+      "voice:audio-level",
+      (event) => {
+        sourcesRef.current = foldMeterSources(
+          sourcesRef.current,
+          event.payload?.source === "system" ? "system" : "mic",
+          Number(event.payload?.level),
+        );
+        lastEventRef.current = Date.now();
+        push();
+      },
+    )
       .then((cleanup) => {
         if (stopped) {
           cleanup();
@@ -55,9 +68,21 @@ export function LiveAudioBars({
       })
       .catch(() => {});
 
+    // Capture buffers keep arriving through silence, so they settle the meter on
+    // their own. This only covers pause / teardown, where the events stop.
+    const idleTimer = window.setInterval(() => {
+      if (Date.now() - lastEventRef.current < METER_IDLE_MS) return;
+      if (combinedMeterLevel(sourcesRef.current) === 0) return;
+      sourcesRef.current = {
+        mic: decayMeterLevel(sourcesRef.current.mic),
+        system: decayMeterLevel(sourcesRef.current.system),
+      };
+      push();
+    }, METER_IDLE_MS);
+
     return () => {
       stopped = true;
-      window.clearInterval(sampleTimer);
+      window.clearInterval(idleTimer);
       unlisten?.();
     };
   }, []);
@@ -77,7 +102,9 @@ export function LiveAudioBars({
           className="live-audio-bar"
           key={index}
           style={{
-            height: `${Math.round(meterBarHeight(levels[index] ?? 0, index))}%`,
+            height: `calc(var(--meter-height) * ${(
+              meterBarHeight(levels[index] ?? 0, index) / 100
+            ).toFixed(3)})`,
           }}
         />
       ))}

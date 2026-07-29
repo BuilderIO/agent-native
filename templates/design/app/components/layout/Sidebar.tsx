@@ -17,7 +17,6 @@ import {
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router";
 
-import { ThemeToggle } from "@/components/ThemeToggle";
 import {
   Tooltip,
   TooltipContent,
@@ -128,25 +127,25 @@ export function Sidebar() {
           collapsed ? "justify-center px-2" : "justify-between px-4",
         )}
       >
-        {!collapsed && (
-          <div className="flex items-center gap-2">
-            <img
-              src={appPath("/agent-native-icon-light.svg")}
-              alt=""
-              aria-hidden="true"
-              className="block h-4 w-auto dark:hidden"
-            />
-            <img
-              src={appPath("/agent-native-icon-dark.svg")}
-              alt=""
-              aria-hidden="true"
-              className="hidden h-4 w-auto dark:block"
-            />
+        <div className="flex items-center gap-2">
+          <img
+            src={appPath("/agent-native-icon-light.svg")}
+            alt=""
+            aria-hidden="true"
+            className="block h-4 w-auto dark:hidden"
+          />
+          <img
+            src={appPath("/agent-native-icon-dark.svg")}
+            alt=""
+            aria-hidden="true"
+            className="hidden h-4 w-auto dark:block"
+          />
+          {!collapsed && (
             <span className="text-sm font-semibold tracking-tight">
               {t("navigation.brand")}
             </span>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
@@ -234,7 +233,6 @@ export function Sidebar() {
               </div>
               <div className="px-3 py-2">
                 <DevDatabaseLink />
-                <ThemeToggle className="h-8 w-8 shrink-0" />
               </div>
             </div>
           )}

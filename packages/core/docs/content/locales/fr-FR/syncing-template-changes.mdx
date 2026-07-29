@@ -5,7 +5,7 @@ description: "agent-native template récupère les modifications ultérieures ap
 
 # Synchroniser les modifications de modèle
 
-`agent-native create` copie un modèle propriétaire dans votre application, puis se l'approprie — en substituant le nom de l'application, en renommant `_gitignore`, en réécrivant `package.json`, en fixant les dépendances `workspace:*` et `catalog:` à des versions concrètes et (dans un espace de travail) en substituant les plugins d'authentification et de chat hérités. À partir de ce moment, l'application est un fork. Les correctifs et améliorations qui arrivent en amont dans le modèle ne l'atteignent plus.
+`agent-native create` copie un modèle propriétaire dans votre application, puis se l'approprie — en substituant le nom de l'application, en renommant `_gitignore`, en réécrivant `package.json`, en fixant les dépendances `workspace:*` et `catalog:` à des versions concrètes et (dans un espace de travail) en substituant les plugins d'authentification et de chat hérités. À partir de ce moment, l'application est une app indépendante créée à partir du modèle. Les correctifs et améliorations qui arrivent en amont dans le modèle ne l'atteignent plus.
 
 `agent-native upgrade` ne comble pas cet écart. Il fait évoluer les versions de packages, exécute des codemods d'import et actualise les répertoires de skills — il ne touche jamais un fichier qui a été copié depuis un modèle.
 

@@ -88,3 +88,11 @@ Every action carries its own schema, and the rest of the app-specific surface
 (comments, sharing, databases, Notion, local file sources such as
 `remove-local-file-source`) is registered too — use `tool-search` instead of
 scanning a table here.
+
+Sidebar ordering has two deliberately different meanings. Reordering Pinned or
+workspace roots moves the exact database membership identified by both
+`databaseId` and `itemId`; it never reparents or moves the referenced document.
+Files sidebar Custom order is a per-user database-view preference written with
+`update-content-database-personal-view`, so it must not change shared Files
+membership positions. Ordinary unconstrained database row reordering remains a
+shared database mutation through `move-database-item`.

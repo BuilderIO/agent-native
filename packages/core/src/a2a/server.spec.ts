@@ -171,6 +171,58 @@ describe("mountA2A auth", () => {
     ]);
   });
 
+  // The public card may only name actions with `requiresAuth !== true`, while
+  // `actions/invoke` only runs ones with `requiresAuth === true`. Advertising
+  // the public set to a verified sibling reported "no callable actions" for an
+  // app it could in fact call, so callers fell back to open-ended delegation.
+  it("shows a verified caller the skills it can actually invoke", async () => {
+    const cardConfig = {
+      ...config,
+      publicSkillsOnly: true,
+      skills: [],
+      authenticatedSkills: [
+        {
+          id: "query-agent-native-analytics",
+          name: "query-agent-native-analytics",
+          description: "Read-only SQL over first-party analytics",
+          publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+        },
+      ],
+    } as unknown as A2AConfig;
+
+    const anonymous = await (
+      await mountedAgentCardHandler(cardConfig)
+    )({
+      method: "GET",
+      headers: { host: "agent.example", "x-forwarded-proto": "https" },
+      context: {},
+    });
+    expect(anonymous.skills).toEqual([]);
+
+    process.env.A2A_SECRET = "test-a2a-secret";
+    const token = await new jose.SignJWT({})
+      .setProtectedHeader({ alg: "HS256" })
+      .setSubject("sibling@example.com")
+      .setAudience("https://agent.example")
+      .setExpirationTime("5m")
+      .sign(new TextEncoder().encode("test-a2a-secret"));
+
+    const authenticated = await (
+      await mountedAgentCardHandler(cardConfig)
+    )({
+      method: "GET",
+      headers: {
+        host: "agent.example",
+        "x-forwarded-proto": "https",
+        authorization: `Bearer ${token}`,
+      },
+      context: {},
+    });
+    expect(
+      authenticated.skills.map((skill: { id: string }) => skill.id),
+    ).toEqual(["query-agent-native-analytics"]);
+  });
+
   it("requires the owner's browser session for approval pages", async () => {
     getSessionMock.mockResolvedValue(null);
     const handler = await mountedA2AApprovalHandler(config);

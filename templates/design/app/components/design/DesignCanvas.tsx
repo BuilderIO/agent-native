@@ -316,6 +316,15 @@ ${editorChromeBridgeScript}
  */
 const LIVE_REFLOW_ENABLED = true;
 
+/**
+ * Rollout gate: when on, a pointerdown inside the current selection's box keeps
+ * the selected element as the drag target even when an overlapping
+ * non-descendant sibling wins the hit test. Baked into the bridge as
+ * `__SELECTED_LAYER_DRAG_PRIORITY__`; flip to `false` for descendant-only
+ * behavior.
+ */
+const SELECTED_LAYER_DRAG_PRIORITY_ENABLED = true;
+
 interface DesignCanvasProps {
   content: string;
   contentKey?: string;
@@ -950,6 +959,10 @@ function buildEditorChromeBridgeScript(args: {
         "__LIVE_REFLOW_ENABLED__",
         LIVE_REFLOW_ENABLED ? "true" : "false",
       )
+      .replace(
+        "__SELECTED_LAYER_DRAG_PRIORITY__",
+        SELECTED_LAYER_DRAG_PRIORITY_ENABLED ? "true" : "false",
+      )
   );
 }
 
@@ -1385,10 +1398,6 @@ export function DesignCanvas({
     bridgeUrl,
     liveEditBridgeKey,
   );
-  const hasLiveEditExternalFrame =
-    sourceType === "localhost" && Boolean(bridgeUrl && rawExternalPreviewUrl);
-  const hasAuthenticatedLiveEditExternalFrame =
-    hasLiveEditExternalFrame && Boolean(previewToken);
   const usesLiveEditInjectedBridge =
     sourceType === "localhost" &&
     Boolean(bridgeUrl && previewToken && rawExternalPreviewUrl);
@@ -1427,12 +1436,15 @@ export function DesignCanvas({
   // bridge, so crossing that boundary must use the latest persisted `content`
   // or native hover/focus/pressed behavior would run against the stale HTML
   // from before the inspector edits.
-  const iframeRenderContent =
-    !hasAuthenticatedLiveEditExternalFrame && activeExternalSnapshotHtml
-      ? activeExternalSnapshotHtml
-      : interactMode
-        ? content
-        : renderedContent;
+  //
+  // A localhost screen NEVER renders `activeExternalSnapshotHtml`. The snapshot
+  // is the editable source model only. Rendering it produced a frame that looked
+  // exactly like the running app but was a corpse: no live DOM to manipulate,
+  // layers parsed from frozen HTML, and every edit applied to markup the app had
+  // already moved past — a failure indistinguishable from success. A viewer with
+  // no bridge entitlement gets the real dev-server URL instead (see
+  // externalPreviewUrl below), which is live even without editor chrome.
+  const iframeRenderContent = interactMode ? content : renderedContent;
 
   const desktopNativeSnapshot = useDesktopDesignNativePreview({
     iframeRef,
@@ -1463,13 +1475,13 @@ export function DesignCanvas({
     editMode,
     hasLiveEditorBridge: usesLiveEditEditorBridge,
   });
+  // Null only while an entitled viewer's keyed bridge is still registering, so
+  // the frame mounts once directly at the proxied document (resolveLiveEditPreviewUrl's
+  // flash/state-loss note). A viewer with no previewToken has no bridge to wait
+  // for, so it loads the dev server directly rather than degrading to a snapshot.
   const externalPreviewUrl =
     liveEditExternalPreviewUrl ??
-    (hasLiveEditExternalFrame
-      ? null
-      : activeExternalSnapshotHtml
-        ? null
-        : rawExternalPreviewUrl);
+    (usesLiveEditInjectedBridge ? null : rawExternalPreviewUrl);
   const runtimeVerificationUrl = useMemo(() => {
     if (!runtimeVerificationRequest || !externalPreviewUrl) return null;
     return externalPreviewUrl;
@@ -2131,6 +2143,10 @@ export function DesignCanvas({
           .replace(
             "__LIVE_REFLOW_ENABLED__",
             LIVE_REFLOW_ENABLED ? "true" : "false",
+          )
+          .replace(
+            "__SELECTED_LAYER_DRAG_PRIORITY__",
+            SELECTED_LAYER_DRAG_PRIORITY_ENABLED ? "true" : "false",
           );
     // ALWAYS injected (like the other always-on bridges above) so
     // MultiScreenCanvas's cross-screen drag hit-testing

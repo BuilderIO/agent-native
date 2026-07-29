@@ -1284,6 +1284,7 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     importLoom: "Import Loom (Localisé)",
     importing: "Importing... (Localisé)",
     import: "Import (Localisé)",
+    recordNew: "Nouvel enregistrement",
   },
   playerSettings: {
     title: "Settings (Localisé)",
@@ -1361,6 +1362,26 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
       "Connectez le stockage sur l’écran suivant : Builder.io (stockage + IA sur l’offre gratuite) ou stockage compatible S3. Clips terminera l’enregistrement.",
     connectStorageToRetryLoom:
       "Connectez le stockage sur l’écran suivant : Builder.io (stockage + IA sur l’offre gratuite) ou stockage compatible S3. Clips relancera l’import.",
+  },
+  importRoute: {
+    pageTitle: "Importer Loom — Clips",
+    title: "Importer Loom",
+    urlPlaceholder: "https://www.loom.com/share/...",
+    cta: "Importer",
+    helperText:
+      "Fonctionne très bien avec Loom. Vous pouvez aussi coller le lien de tout autre enregistrement d'écran ou fichier vidéo.",
+    stageFetching: "Récupération de votre vidéo…",
+    stageUploading: "Envoi des rushes…",
+    stageTranscript:
+      "Rendre la parole et les visuels à l'écran lisibles par l'agent…",
+    stageFinalizing: "Transformation en Agent-Native…",
+    importingSubtitle:
+      "Transformer un simple enregistrement en primitive Agent-Native.",
+    doneHeading: "Et voilà ! Votre vidéo est désormais :",
+    benefitTranscript: "Parole et visuels à l'écran, entièrement cherchables",
+    benefitQueryable: "Comprise et interrogeable par votre agent",
+    benefitSummaries: "Résumés et extraits instantanés à la demande",
+    benefitPrimitive: "Une primitive Agent-Native de premier ordre",
   },
   dictateRoute: {
     pageTitle: "Dictate · Clips (Localisé)",

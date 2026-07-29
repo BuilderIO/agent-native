@@ -1,12 +1,12 @@
 ---
 title: "Extending Clips"
-description: "Data model, action reference, and setup steps for forking, self-hosting, or extending the Clips template — recordings, transcripts, meetings, organizations, and the Chrome extension/bug-report embed."
+description: "Data model, action reference, and setup steps for customizing, self-hosting, or extending the Clips template — recordings, transcripts, meetings, organizations, and the Chrome extension/bug-report embed."
 search: "Clips developers data model actions schema self-host Chrome extension bug report embed"
 ---
 
 # Extending Clips
 
-The rest of this doc is for anyone forking the Clips template, self-hosting it, or extending it with new capabilities.
+The rest of this doc is for anyone customizing the Clips template, self-hosting it, or extending it with new capabilities.
 
 ## Quick start
 
@@ -351,7 +351,7 @@ Every agent-callable operation is a TypeScript file in `templates/clips/actions/
 
 ## Customizing it
 
-Clips is a complete, cloneable template — fork it and ask the agent to extend it. Some examples:
+Clips is a complete, cloneable template — start from it and ask the agent to extend it. Some examples:
 
 - "Add a filler-word removal button that strips ums and uhs from the transcript and re-stitches the video."
 - "Auto-post my standup notes to Slack #eng whenever a meeting ends." (Connect Slack first via [Messaging](/docs/messaging).)
@@ -368,6 +368,6 @@ The agent edits routes, components, the transcript pipeline, and the schema as n
 - [**Capturing Everywhere**](/docs/template-clips-capture-everywhere) — desktop, mobile, Rewind, Screen Memory, and the Chrome extension from a user's perspective
 - [**Sharing, Teams, and Agent-Readable Clips**](/docs/template-clips-sharing-and-teams) — the sharing model this data model backs
 - [**AI Pipeline, Editing, and Insights**](/docs/template-clips-ai-and-editing) — the transcription and editing pipeline these actions power
-- [**Templates**](/docs/cloneable-saas) — the clone-and-own model
+- [**Templates**](/docs/cloneable-saas) — the Cloneable SaaS model
 - [**Context Awareness**](/docs/context-awareness) — how the agent knows the current clip and playhead
 - [**Agent Teams**](/docs/agent-teams) — delegate transcript cleanup to a specialist sub-agent

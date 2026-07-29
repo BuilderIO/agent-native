@@ -258,7 +258,10 @@ const messages = {
     downloadHtml: "Baixar como HTML",
     exportPdf: "Exportar como PDF",
     exportPptx: "Exportar como PPTX",
-    downloadGoogleSlides: "Baixar para Google Slides",
+    openInGoogleSlides: "Abrir no Google Slides",
+    googleSlidesCreated: "Aberto no Google Slides",
+    googleSlidesCreatedHint:
+      "Uma cópia desta apresentação foi criada no seu Google Drive.",
     duplicateDeck: "Duplicar deck",
   },
   share: {
@@ -473,6 +476,12 @@ const messages = {
     slides: "Diapositivas",
   },
   presentation: {
+    presenterView: "Modo apresentador",
+    speakerNotes: "Notas do apresentador",
+    noNotesForSlide: "Sem notas para este slide",
+    upNext: "A seguir",
+    endOfDeck: "Fim da apresentação",
+    closePresenterView: "Fechar o modo apresentador",
     noSlides: "No hay diapositivas para presentar",
     previousSlide: "Diapositiva anterior",
     nextSlide: "Siguiente diapositiva",
@@ -537,6 +546,7 @@ const messages = {
     builderDesignSystemId: "Sistema de design",
     builderJobId: "Job",
     openInBuilder: "Abrir no Builder",
+    decodeFailed: "Falha na decodificação: {{error}}",
     websiteUrl: "URL do site",
     websitePlaceholder: "example.com ou Nike",
     add: "Adicionar",

@@ -42,6 +42,11 @@ export const filterSchema = z.object({
   parentFilterGroupId: z.string().optional(),
 });
 
+export const sidebarOrderSchema = z.object({
+  mode: z.enum(["custom", "last_edited", "name", "created"]),
+  itemIds: z.array(z.string()),
+});
+
 const personalViewOverridesFields = {
   activeViewId: z.string().optional(),
   views: z.array(
@@ -50,6 +55,7 @@ const personalViewOverridesFields = {
       sorts: z.array(sortSchema).default([]),
       filters: z.array(filterSchema).default([]),
       filterMode: z.enum(["and", "or"]).default("and"),
+      sidebarOrder: sidebarOrderSchema.optional(),
     }),
   ),
 };
@@ -58,6 +64,24 @@ export const personalViewOverridesSchema = z.object({
   version: z.literal(PERSONAL_DATABASE_VIEW_OVERRIDES_VERSION),
   ...personalViewOverridesFields,
 });
+
+export function normalizePersonalDatabaseViewOverrides(
+  overrides: z.infer<typeof personalViewOverridesSchema>,
+  validItemIds?: ReadonlySet<string>,
+) {
+  return {
+    ...overrides,
+    views: overrides.views.map((view) => ({
+      ...view,
+      sidebarOrder: {
+        mode: view.sidebarOrder?.mode ?? "custom",
+        itemIds: [...new Set(view.sidebarOrder?.itemIds ?? [])].filter(
+          (itemId) => !validItemIds || validItemIds.has(itemId),
+        ),
+      },
+    })),
+  };
+}
 
 const legacyPersonalViewOverridesSchema = z.object({
   version: z.literal(1),
@@ -94,7 +118,8 @@ export async function readPersonalDatabaseViewOverrides(
     personalDatabaseViewSettingKey(databaseId),
   );
   const parsed = personalViewOverridesSchema.safeParse(stored);
-  if (parsed.success) return parsed.data;
+  if (parsed.success)
+    return normalizePersonalDatabaseViewOverrides(parsed.data);
 
   const legacy = legacyPersonalViewOverridesSchema.safeParse(stored);
   if (!legacy.success) return null;
@@ -103,7 +128,7 @@ export async function readPersonalDatabaseViewOverrides(
     .from(schema.contentDatabases)
     .where(eq(schema.contentDatabases.id, databaseId));
   const legacyParentKey = filesParentPropertyId(databaseId);
-  return {
+  return normalizePersonalDatabaseViewOverrides({
     ...legacy.data,
     version: PERSONAL_DATABASE_VIEW_OVERRIDES_VERSION,
     views: legacy.data.views.map((view) => ({
@@ -120,5 +145,5 @@ export async function readPersonalDatabaseViewOverrides(
             )
           : view.filters,
     })),
-  };
+  });
 }

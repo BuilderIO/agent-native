@@ -56,6 +56,9 @@ import {
   type ReactNode,
 } from "react";
 
+// Type-only: erased at build time, so declaring app roles pulls no server or
+// database code into the browser bundle.
+import type { AppRolesDescriptor } from "../../org/app-roles.js";
 import type { DomainMatchOrg } from "../../org/types.js";
 import {
   Tooltip,
@@ -82,6 +85,8 @@ import {
   useSetA2ASecret,
   useSyncA2ASecret,
   useJoinByDomain,
+  useAppRoles,
+  useSetAppMemberRole,
   type InviteRole,
   type SyncA2ASecretResult,
 } from "./hooks.js";
@@ -127,6 +132,17 @@ export interface TeamPageProps {
    * tweak page width.
    */
   className?: string;
+  /**
+   * Opt in to an app-role column on the members table, using the same
+   * descriptor the app passes to `defineAppRoles`. Pass it explicitly rather
+   * than letting the page discover registered apps: a workspace can host
+   * several, and a members table that silently grows a column when some
+   * unrelated module registers itself is a surprise, not a feature.
+   *
+   * Only org owners/admins can change assignments; everyone else sees the
+   * column read-only.
+   */
+  appRoles?: AppRolesDescriptor;
 }
 
 function RoleIcon({ role }: { role: string }) {
@@ -383,7 +399,7 @@ interface PendingInviteListItem {
   role: string;
 }
 
-function MembersCard() {
+function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
   const t = useT();
   const { data: org } = useOrg();
   const { data: membersData, isLoading: isLoadingMembers } = useOrgMembers();
@@ -457,6 +473,7 @@ function MembersCard() {
         isLoadingMembers={isLoadingMembers}
         currentUserEmail={org.email}
         currentUserRole={org.role ?? null}
+        appRoles={appRoles}
       />
 
       {isOwner && <DangerZoneCard orgName={org.orgName ?? ""} />}
@@ -470,16 +487,26 @@ function MembersTableCard({
   isLoadingMembers,
   currentUserEmail,
   currentUserRole,
+  appRoles,
 }: {
   members: MemberListItem[];
   pendingInvites: PendingInviteListItem[];
   isLoadingMembers: boolean;
   currentUserEmail: string;
   currentUserRole: string | null;
+  appRoles?: AppRolesDescriptor;
 }) {
   const t = useT();
   const [showInviteForm, setShowInviteForm] = useState(false);
   const canInvite = currentUserRole === "owner" || currentUserRole === "admin";
+  const { data: appRoleData } = useAppRoles(appRoles?.appId);
+  const appRoleByEmail = new Map(
+    (appRoleData?.assignments ?? []).map((a) => [
+      a.email.toLowerCase(),
+      a.role,
+    ]),
+  );
+  const columnCount = appRoles ? 5 : 4;
 
   return (
     <section className="rounded-lg border border-border bg-card">
@@ -516,6 +543,9 @@ function MembersTableCard({
           <TableRow>
             <TableHead>{t("org.member")}</TableHead>
             <TableHead>{t("org.role")}</TableHead>
+            {appRoles && (
+              <TableHead>{appRoles.label ?? appRoles.appId}</TableHead>
+            )}
             <TableHead>{t("org.status")}</TableHead>
             <TableHead className="text-end">{t("org.actions")}</TableHead>
           </TableRow>
@@ -524,7 +554,7 @@ function MembersTableCard({
           {isLoadingMembers && members.length === 0 ? (
             [0, 1, 2].map((i) => (
               <TableRow key={i}>
-                <TableCell colSpan={4}>
+                <TableCell colSpan={columnCount}>
                   <div
                     className="h-3.5 rounded bg-muted animate-pulse"
                     style={{ width: `${180 + i * 48}px` }}
@@ -535,7 +565,7 @@ function MembersTableCard({
           ) : members.length === 0 && pendingInvites.length === 0 ? (
             <TableRow>
               <TableCell
-                colSpan={4}
+                colSpan={columnCount}
                 className="py-8 text-center text-sm text-muted-foreground"
               >
                 {t("org.noMembers")}
@@ -550,10 +580,17 @@ function MembersTableCard({
                   role={m.role}
                   isCurrentUser={m.email === currentUserEmail}
                   currentUserRole={currentUserRole}
+                  appRoles={appRoles}
+                  appRole={appRoleByEmail.get(m.email.toLowerCase()) ?? null}
+                  canManageAppRoles={Boolean(appRoleData?.canManage)}
                 />
               ))}
               {pendingInvites.map((inv) => (
-                <PendingInviteRow key={inv.id} invite={inv} />
+                <PendingInviteRow
+                  key={inv.id}
+                  invite={inv}
+                  hasAppRoleColumn={Boolean(appRoles)}
+                />
               ))}
             </>
           )}
@@ -665,7 +702,13 @@ function RoleBadge({ role }: { role: string }) {
   );
 }
 
-function PendingInviteRow({ invite }: { invite: PendingInviteListItem }) {
+function PendingInviteRow({
+  invite,
+  hasAppRoleColumn,
+}: {
+  invite: PendingInviteListItem;
+  hasAppRoleColumn?: boolean;
+}) {
   const t = useT();
   return (
     <TableRow className="opacity-70">
@@ -675,6 +718,13 @@ function PendingInviteRow({ invite }: { invite: PendingInviteListItem }) {
       <TableCell>
         <RoleBadge role={invite.role} />
       </TableCell>
+      {/* App roles hang off membership, so there is nothing to assign until the
+          invitation is accepted. */}
+      {hasAppRoleColumn && (
+        <TableCell>
+          <span className="text-muted-foreground">-</span>
+        </TableCell>
+      )}
       <TableCell>
         <span className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">
           {t("org.invited")}
@@ -685,16 +735,112 @@ function PendingInviteRow({ invite }: { invite: PendingInviteListItem }) {
   );
 }
 
+/** Sentinel for "clear the assignment" — Select cannot carry an empty value. */
+const UNASSIGNED = "__unassigned__";
+
+function AppRoleCell({
+  email,
+  appRoles,
+  appRole,
+  canManage,
+}: {
+  email: string;
+  appRoles: AppRolesDescriptor;
+  appRole: string | null;
+  canManage: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const setAppRole = useSetAppMemberRole(appRoles.appId);
+  const labelFor = (r: string) => appRoles.roleLabels?.[r] ?? r;
+
+  if (editing) {
+    return (
+      <TableCell>
+        <Select
+          defaultOpen
+          value={appRole ?? UNASSIGNED}
+          onOpenChange={(open) => {
+            if (!open) setEditing(false);
+          }}
+          onValueChange={(value) => {
+            const next = value === UNASSIGNED ? null : value;
+            if (next === appRole) {
+              setEditing(false);
+              return;
+            }
+            setAppRole.mutate(
+              { email, role: next },
+              { onSuccess: () => setEditing(false) },
+            );
+          }}
+          disabled={setAppRole.isPending}
+        >
+          <SelectTrigger
+            autoFocus
+            className="h-auto w-auto rounded-md border border-border bg-background px-1.5 py-0.5 text-[11px]"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={UNASSIGNED}>
+              {appRoles.defaultRole ? labelFor(appRoles.defaultRole) : "—"}
+            </SelectItem>
+            {appRoles.roles.map((r) => (
+              <SelectItem key={r} value={r}>
+                {labelFor(r)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </TableCell>
+    );
+  }
+
+  // An unassigned member shows the app's default only as a hint. The default
+  // never satisfies a server guard, so it must not read as a granted role.
+  const display = appRole ? (
+    <span className="inline-flex items-center rounded border border-border px-2 py-1 text-xs text-muted-foreground">
+      {labelFor(appRole)}
+    </span>
+  ) : (
+    <span className="text-xs text-muted-foreground/70">
+      {appRoles.defaultRole ? labelFor(appRoles.defaultRole) : "—"}
+    </span>
+  );
+
+  return (
+    <TableCell>
+      {canManage ? (
+        <Button
+          type="button"
+          onClick={() => setEditing(true)}
+          className="cursor-pointer rounded hover:opacity-80"
+        >
+          {display}
+        </Button>
+      ) : (
+        display
+      )}
+    </TableCell>
+  );
+}
+
 function MemberRow({
   email,
   role,
   isCurrentUser,
   currentUserRole,
+  appRoles,
+  appRole,
+  canManageAppRoles,
 }: {
   email: string;
   role: string;
   isCurrentUser: boolean;
   currentUserRole: string | null;
+  appRoles?: AppRolesDescriptor;
+  appRole?: string | null;
+  canManageAppRoles?: boolean;
 }) {
   const t = useT();
   const removeMember = useRemoveMember();
@@ -719,6 +865,14 @@ function MemberRow({
       <TableCell>
         <RoleBadge role={role} />
       </TableCell>
+      {appRoles && (
+        <AppRoleCell
+          email={email}
+          appRoles={appRoles}
+          appRole={appRole ?? null}
+          canManage={Boolean(canManageAppRoles)}
+        />
+      )}
       <TableCell>
         {isCurrentUser ? (
           <span className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">
@@ -1620,6 +1774,7 @@ export function TeamPage({
   showTitle = true,
   createOrgDescription,
   className,
+  appRoles,
 }: TeamPageProps) {
   const t = useT();
   const { data: org, isLoading } = useOrg();
@@ -1652,7 +1807,7 @@ export function TeamPage({
           {!org?.orgId ? (
             <CreateOrgCard description={createOrgDescription} />
           ) : (
-            <MembersCard />
+            <MembersCard appRoles={appRoles} />
           )}
         </>
       )}
