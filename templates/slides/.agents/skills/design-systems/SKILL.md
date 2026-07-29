@@ -44,10 +44,16 @@ Builder indexing flow.
 
 `delete-design-system` requires admin access or higher (owner or admin share
 role) and removes the system, its shares, and the `designSystemId` link on
-every deck that used it. Those decks
-keep the tokens already baked into their slides — deletion never rewrites deck
-content — so a deck can look on-brand while no longer being linked to a system.
-Deletion does not remove an upstream Builder-indexed design system.
+every linked deck the caller can edit — decks the caller can't edit keep a
+dangling reference instead of being silently mutated, reported back as
+`decksSkippedForAccess` (clear it later with `patch-deck`'s
+`patch-deck-fields`, `designSystemId: null`). Those decks keep the tokens
+already baked into their slides — deletion never rewrites deck content — so a
+deck can look on-brand while no longer being linked to a system. If the
+deleted system was the caller's default, another of their design systems is
+promoted to default so future deck creation doesn't silently drop to "no
+design system". Deletion does not remove an upstream Builder-indexed design
+system.
 
 ## Applying to Slides
 
