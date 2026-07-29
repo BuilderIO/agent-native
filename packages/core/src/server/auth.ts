@@ -2471,7 +2471,7 @@ export function setFrameworkSessionCookie(event: H3Event, token: string): void {
  * any non-Response continuation path; h3 only skips the merge for the
  * Response branch, so there's no double-emit.)
  */
-function redirectWithStagedCookies(
+export function redirectWithStagedCookies(
   event: H3Event,
   location: string,
   status = 302,

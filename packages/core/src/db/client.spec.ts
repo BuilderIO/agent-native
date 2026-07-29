@@ -188,6 +188,87 @@ describe("db/client D1 execution", () => {
   });
 });
 
+describe("db/client local SQLite initialization", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.doUnmock("better-sqlite3");
+    vi.resetModules();
+  });
+
+  it("retries a stale-runtime lock while enabling WAL", async () => {
+    vi.useFakeTimers();
+    const locked = Object.assign(new Error("database is locked"), {
+      code: "SQLITE_BUSY",
+    });
+    const pragma = vi
+      .fn()
+      .mockReturnValueOnce(undefined)
+      .mockImplementationOnce(() => {
+        throw locked;
+      })
+      .mockReturnValueOnce([{ journal_mode: "wal" }]);
+    const close = vi.fn();
+
+    vi.doMock("better-sqlite3", () => ({
+      default: class MockDatabase {
+        pragma = pragma;
+        close = close;
+      },
+    }));
+
+    const { createDbExec } = await import("./client.js");
+    const pending = createDbExec({ url: "file:./data/app.db" });
+
+    await vi.advanceTimersByTimeAsync(500);
+    const exec = await pending;
+
+    expect(pragma.mock.calls).toEqual([
+      ["busy_timeout = 10000"],
+      ["journal_mode = WAL"],
+      ["journal_mode = WAL"],
+    ]);
+
+    await exec.close?.();
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it("closes the handle and surfaces a lock that outlasts every retry", async () => {
+    vi.useFakeTimers();
+    const locked = Object.assign(new Error("database is locked"), {
+      code: "SQLITE_BUSY",
+    });
+    const pragma = vi.fn((statement: string) => {
+      if (statement === "journal_mode = WAL") throw locked;
+    });
+    const close = vi.fn();
+
+    vi.doMock("better-sqlite3", () => ({
+      default: class MockDatabase {
+        pragma = pragma;
+        close = close;
+      },
+    }));
+
+    const { createDbExec } = await import("./client.js");
+    const pending = expect(
+      createDbExec({ url: "file:./data/app.db" }),
+    ).rejects.toBe(locked);
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    await pending;
+
+    expect(pragma.mock.calls).toEqual([
+      ["busy_timeout = 10000"],
+      ["journal_mode = WAL"],
+      ["journal_mode = WAL"],
+      ["journal_mode = WAL"],
+      ["journal_mode = WAL"],
+      ["journal_mode = WAL"],
+    ]);
+    expect(close).toHaveBeenCalledOnce();
+  });
+});
+
 describe("pgliteDataDirFromUrl", () => {
   afterEach(() => {
     vi.unstubAllEnvs();

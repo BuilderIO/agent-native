@@ -976,7 +976,7 @@ const messages = {
       redoSkippedConcurrentEdit: "已略過重做 — 其他人移動了該項目",
       autoLayoutScreensUnsupported: "新增自動布局不適用於畫面",
       reactSourceAnchorsLoading:
-        "React 原始碼錨點仍在載入中。請等本機應用程式完成渲染後再試一次。",
+        "無法在原始碼中定位此圖層。請等應用程式載入完成後重試，或請代理程式協助完成此變更。",
     },
   },
   layersPanel: {

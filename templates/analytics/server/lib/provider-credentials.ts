@@ -1,6 +1,13 @@
+import {
+  isProviderApiId,
+  resolveProviderApiOAuthAccessToken,
+} from "@agent-native/core/provider-api";
 import type { SecretRef } from "@agent-native/core/secrets";
 import type { WorkspaceConnectionCredentialResolution } from "@agent-native/core/workspace-connections";
-import { resolveWorkspaceConnectionCredentialForApp } from "@agent-native/core/workspace-connections";
+import {
+  resolveWorkspaceConnectionCredentialForApp,
+  resolveWorkspaceConnectionForApp,
+} from "@agent-native/core/workspace-connections";
 
 import { resolveCredential, type CredentialContext } from "./credentials";
 
@@ -153,6 +160,49 @@ async function resolveViaCoreHelper({
   return null;
 }
 
+async function resolveWorkspaceOAuthProviderCredential(
+  options: ResolveProviderCredentialOptions,
+): Promise<AnalyticsProviderCredential | null> {
+  if (options.workspaceConnection === false) return null;
+  const provider = options.provider.trim().toLowerCase();
+  if (!isProviderApiId(provider)) return null;
+
+  const requestedConnectionId = options.connectionId?.trim() || undefined;
+  const resolvedConnection = await resolveWorkspaceConnectionForApp({
+    appId: ANALYTICS_APP_ID,
+    provider,
+    connectionId: requestedConnectionId,
+    requireConnected: true,
+  });
+  if (
+    !resolvedConnection.available ||
+    resolvedConnection.connection?.config.credentialMode !== "oauth"
+  ) {
+    return null;
+  }
+
+  const oauth = await resolveProviderApiOAuthAccessToken(
+    {
+      provider,
+      connectionId: resolvedConnection.connection.id,
+    },
+    {
+      appId: ANALYTICS_APP_ID,
+      providerIds: [provider],
+      getCredentialContext: () => options.ctx,
+    },
+  );
+  return {
+    value: oauth.accessToken,
+    key: `${normalizeKey(provider)}_OAUTH_TOKEN`,
+    provider,
+    source: "workspace_connection",
+    connectionId: oauth.connectionId ?? resolvedConnection.connection.id,
+    connectionLabel:
+      oauth.connectionLabel ?? resolvedConnection.connection.label,
+  };
+}
+
 export async function resolveWorkspaceConnectionProviderCredential(
   options: ResolveProviderCredentialOptions,
 ): Promise<AnalyticsProviderCredential | null> {
@@ -220,6 +270,10 @@ export async function resolveAnalyticsProviderCredential(
   options: ResolveProviderCredentialOptions,
 ): Promise<AnalyticsProviderCredential | null> {
   const keys = uniqueKeys(options.keys);
+  const oauthCredential =
+    await resolveWorkspaceOAuthProviderCredential(options);
+  if (oauthCredential) return oauthCredential;
+
   const workspaceCredential =
     await resolveWorkspaceConnectionProviderCredential({ ...options, keys });
   if (workspaceCredential) return workspaceCredential;

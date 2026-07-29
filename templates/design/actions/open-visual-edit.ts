@@ -1,6 +1,9 @@
+import crypto from "node:crypto";
+
 import { defineAction, embedApp } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
-import { buildDeepLink } from "@agent-native/core/server";
+import { addSession, buildDeepLink } from "@agent-native/core/server";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -173,6 +176,30 @@ function designOverviewDeepLink(designId: string): string {
     params: { designId, editorView: "overview" },
     to: `/design/${encodeURIComponent(designId)}?editorView=overview`,
   });
+}
+
+/**
+ * Mint a fresh legacy-session token for this action's already-authenticated
+ * caller and attach it to the deep link as `_session`. `/_agent-native/open`
+ * resolves `getSession()` before redirecting (see `promoteQuerySession` in
+ * auth.ts), which promotes the token into a real browser cookie and strips it
+ * from the visible URL. An anonymous `/visual-edit` browser that follows this
+ * link becomes genuinely signed in as the caller, so `/_agent-native/actions/*`
+ * and `/_agent-native/application-state/*` mutations pass the normal
+ * ownership checks instead of needing an anonymous-write bypass. Only ever
+ * mint for the verified caller of this action — never for an arbitrary
+ * requester — and never log the token.
+ */
+async function withCallerSession(
+  openUrl: string,
+  ownerEmail: string,
+): Promise<string> {
+  const token = crypto.randomBytes(32).toString("hex");
+  await addSession(token, ownerEmail);
+  const isAbsolute = /^[a-z][a-z0-9+.-]*:\/\//i.test(openUrl);
+  const url = new URL(openUrl, "http://design-open.invalid");
+  url.searchParams.set("_session", token);
+  return isAbsolute ? url.toString() : url.pathname + url.search + url.hash;
 }
 
 function routeManifestFromScreens(args: {
@@ -431,6 +458,12 @@ export default defineAction({
       });
     }
 
+    const ownerEmail = getRequestUserEmail();
+    const deepLink = designOverviewDeepLink(designId);
+    const openUrl = ownerEmail
+      ? await withCallerSession(deepLink, ownerEmail)
+      : deepLink;
+
     return {
       designId,
       connectionId: connection.id,
@@ -444,7 +477,7 @@ export default defineAction({
       placedFrames: screens.placedFrames,
       overview: true,
       urlPath,
-      openUrl: designOverviewDeepLink(designId),
+      openUrl,
       // Minted/stored by connect-localhost; the skill starts the bridge with
       // `design connect --bridge-token <this>` so bridge and row agree.
       bridgeToken: connection.bridgeToken,
@@ -453,10 +486,16 @@ export default defineAction({
   },
   link: ({ result }) => {
     if (!result || typeof result !== "object") return null;
-    const designId = (result as { designId?: string }).designId;
+    const { designId, openUrl } = result as {
+      designId?: string;
+      openUrl?: string;
+    };
     if (!designId) return null;
     return {
-      url: designOverviewDeepLink(designId),
+      // Reuse the session-bearing URL the run() already minted, so the
+      // agent-surfaced "Open overview →" link also signs an anonymous
+      // browser in as this action's caller instead of a bare read-only link.
+      url: openUrl ?? designOverviewDeepLink(designId),
       label: "Open overview",
       view: "editor",
     };

@@ -478,7 +478,7 @@ const enUS = {
       zoomIn: "Zoom in",
       zoomOut: "Zoom out",
       zoomToPreset: "Zoom to {{percent}}%",
-      exit: "Exit full-screen preview",
+      exit: "Exit responsive preview",
     },
     screenDeletion: {
       titleOne: "Delete this screen?",
@@ -1095,7 +1095,7 @@ const enUS = {
       redoSkippedConcurrentEdit: "Skipped a redo — someone else moved that",
       autoLayoutScreensUnsupported: "Add auto layout doesn't apply to screens",
       reactSourceAnchorsLoading:
-        "React source anchors are still loading. Try again once the local app finishes rendering.",
+        "Can't locate this layer in the source. Try again once the app finishes loading, or ask the agent to make the change.",
     },
   },
   layersPanel: {
@@ -14430,7 +14430,7 @@ const designRuntimeIdentityAndBridgeOverrides = {
     designEditor: {
       toasts: {
         reactSourceAnchorsLoading:
-          "React 源码锚点仍在加载中。请等本地应用完成渲染后再试一次。",
+          "无法在源码中定位该图层。请等应用加载完成后重试，或请代理帮你完成此更改。",
       },
     },
     layersPanel: { dragGhostCount: "{{count}} 个图层" },
@@ -14456,7 +14456,7 @@ const designRuntimeIdentityAndBridgeOverrides = {
     designEditor: {
       toasts: {
         reactSourceAnchorsLoading:
-          "Los anclajes al código fuente de React aún se están cargando. Vuelve a intentarlo cuando la aplicación local termine de renderizarse.",
+          "No se puede localizar esta capa en el código fuente. Vuelve a intentarlo cuando la aplicación termine de cargar, o pide al agente que haga el cambio.",
       },
     },
     layersPanel: { dragGhostCount: "{{count}} capas" },
@@ -14483,7 +14483,7 @@ const designRuntimeIdentityAndBridgeOverrides = {
     designEditor: {
       toasts: {
         reactSourceAnchorsLoading:
-          "Les ancres vers le code source React sont encore en cours de chargement. Réessayez une fois le rendu de l’application locale terminé.",
+          "Impossible de localiser ce calque dans le code source. Réessayez une fois le chargement de l’application terminé, ou demandez à l’agent d’effectuer ce changement.",
       },
     },
     layersPanel: { dragGhostCount: "{{count}} calques" },
@@ -14509,7 +14509,7 @@ const designRuntimeIdentityAndBridgeOverrides = {
     designEditor: {
       toasts: {
         reactSourceAnchorsLoading:
-          "Die React-Quellcodeanker werden noch geladen. Versuche es erneut, sobald die lokale App vollständig gerendert wurde.",
+          "Diese Ebene lässt sich im Quellcode nicht finden. Versuche es erneut, sobald die App vollständig geladen ist, oder lass die Änderung vom Agenten vornehmen.",
       },
     },
     layersPanel: { dragGhostCount: "{{count}} Ebenen" },
@@ -14536,7 +14536,7 @@ const designRuntimeIdentityAndBridgeOverrides = {
     designEditor: {
       toasts: {
         reactSourceAnchorsLoading:
-          "React ソースのアンカーを読み込み中です。ローカルアプリのレンダリングが完了してからもう一度お試しください。",
+          "このレイヤーのソースが見つかりません。アプリの読み込みが完了してから再度お試しいただくか、エージェントに変更を依頼してください。",
       },
     },
     layersPanel: { dragGhostCount: "{{count}} 個のレイヤー" },
@@ -14562,7 +14562,7 @@ const designRuntimeIdentityAndBridgeOverrides = {
     designEditor: {
       toasts: {
         reactSourceAnchorsLoading:
-          "React 소스 앵커를 아직 불러오는 중입니다. 로컬 앱의 렌더링이 끝난 후 다시 시도하세요.",
+          "이 레이어를 소스에서 찾을 수 없습니다. 앱 로딩이 끝난 후 다시 시도하거나, 에이전트에게 변경을 요청하세요.",
       },
     },
     layersPanel: { dragGhostCount: "레이어 {{count}}개" },
@@ -14588,7 +14588,7 @@ const designRuntimeIdentityAndBridgeOverrides = {
     designEditor: {
       toasts: {
         reactSourceAnchorsLoading:
-          "Os vínculos ao código-fonte do React ainda estão sendo carregados. Tente novamente quando o app local terminar de renderizar.",
+          "Não foi possível localizar esta camada no código-fonte. Tente novamente quando o app terminar de carregar, ou peça ao agente para fazer essa alteração.",
       },
     },
     layersPanel: { dragGhostCount: "{{count}} camadas" },
@@ -14615,7 +14615,7 @@ const designRuntimeIdentityAndBridgeOverrides = {
     designEditor: {
       toasts: {
         reactSourceAnchorsLoading:
-          "React सोर्स एंकर अभी लोड हो रहे हैं। लोकल ऐप की रेंडरिंग पूरी होने के बाद फिर से कोशिश करें।",
+          "यह लेयर सोर्स में नहीं मिली। ऐप लोड होने के बाद फिर से कोशिश करें, या एजेंट से यह बदलाव करने को कहें।",
       },
     },
     layersPanel: { dragGhostCount: "{{count}} लेयर" },
@@ -14641,7 +14641,7 @@ const designRuntimeIdentityAndBridgeOverrides = {
     designEditor: {
       toasts: {
         reactSourceAnchorsLoading:
-          "لا تزال نقاط ارتساء مصدر React قيد التحميل. أعد المحاولة بعد اكتمال عرض التطبيق المحلي.",
+          "تعذر تحديد موقع هذه الطبقة في المصدر. أعد المحاولة بعد اكتمال تحميل التطبيق، أو اطلب من الوكيل إجراء هذا التغيير.",
       },
     },
     layersPanel: { dragGhostCount: "{{count}} طبقات" },

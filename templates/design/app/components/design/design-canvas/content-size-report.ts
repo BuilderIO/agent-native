@@ -108,16 +108,23 @@ export const CONTENT_SIZE_REPORT_MESSAGE_TYPE = "agent-native:content-size";
 /** Appends the reporter + full-height guard, mirroring appendHitTestResponder's
  * marker handling so it runs regardless of document structure. */
 export function appendContentSizeReporter(html: string): string {
+  // Replacer must be a function, not a string: by this point `html` already
+  // has the other bridge scripts spliced in, and their compiled source can
+  // contain literal "$&" (e.g. editor-chrome's escapeIdent). A string
+  // replacement arg makes String.replace treat "$&" as the special "insert
+  // the matched text" pattern, so a stray "</body>" lands mid-script and
+  // truncates its <script> tag early. A function replacer inserts its return
+  // value verbatim.
   if (html.includes("</body>")) {
     return html.replace(
       "</body>", // i18n-ignore generated iframe HTML marker
-      CONTENT_SIZE_REPORT_BRIDGE + "</body>", // i18n-ignore generated iframe HTML injection
+      () => CONTENT_SIZE_REPORT_BRIDGE + "</body>", // i18n-ignore generated iframe HTML injection
     );
   }
   if (html.includes("</html>")) {
     return html.replace(
       "</html>", // i18n-ignore generated iframe HTML marker
-      CONTENT_SIZE_REPORT_BRIDGE + "</html>", // i18n-ignore generated iframe HTML injection
+      () => CONTENT_SIZE_REPORT_BRIDGE + "</html>", // i18n-ignore generated iframe HTML injection
     );
   }
   return html + CONTENT_SIZE_REPORT_BRIDGE;

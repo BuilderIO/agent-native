@@ -55,6 +55,10 @@ vi.mock("../org/context.js", () => ({
 
 vi.mock("./auth.js", () => ({
   getSession: (...args: unknown[]) => mockGetSession(...args),
+  // Captured into the request context so code below the HTTP layer can tell a
+  // local-dev caller from a remote one. Mocked false: these specs assert
+  // ordinary remote-request behavior.
+  isLoopbackRequest: () => false,
 }));
 vi.mock("../a2a-claims.js", () => ({
   verifyA2ATokenWithClaims: (...args: unknown[]) =>

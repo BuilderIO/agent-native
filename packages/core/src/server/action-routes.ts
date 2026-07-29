@@ -58,6 +58,7 @@ function currentBuildId(): string {
  * Actions are exposed as POST by default. Use `http: { method: "GET" }` in
  * defineAction to expose as GET. Use `http: false` to mark as agent-only.
  */
+import { isLoopbackRequest } from "./auth.js";
 import { getH3App } from "./framework-request-handler.js";
 import { runWithRequestContext } from "./request-context.js";
 
@@ -495,6 +496,9 @@ export function mountActionRoutes(
             orgId,
             timezone,
             requestOrigin: getRequestURL(event).origin,
+            // Captured here because this is the last layer that still holds
+            // the h3 event; everything below reads it off the request store.
+            isLoopbackRequest: isLoopbackRequest(event),
           },
           async () => {
             // Reject oversize bodies from Content-Length before parsing, so a

@@ -1,12 +1,37 @@
+import { getRequestIsLoopback } from "@agent-native/core/server/request-context";
+
+import { designSourceTypeFromData } from "../../shared/source-mode";
+
 const EDITOR_ROLES = new Set(["owner", "admin", "editor"]);
 
 /**
- * Public visibility is read-only. Ownership and explicit share grants are
- * resolved separately by the framework, so they can still upgrade the caller
- * to owner/admin/editor without making an anonymous public link writable.
+ * Public visibility is read-only, with one exception: `/visual-edit`.
+ *
+ * A localhost-backed design is a view of a dev server running on the caller's
+ * own machine, so requiring a login to edit it protects nothing the caller
+ * doesn't already own outright — they can edit those files directly. Gating it
+ * only broke the tool. A loopback caller therefore gets `editor` on a
+ * localhost-source design, which is what releases `previewToken` and lets the
+ * live-edit bridge register.
+ *
+ * BOTH halves of the gate matter. Loopback alone is not enough: a tunnel or
+ * reverse proxy that reaches the dev server over localhost also presents as
+ * loopback, so the design must additionally be localhost-source — a resource
+ * that is worthless to anyone who cannot reach 127.0.0.1 anyway. Localhost-
+ * source alone is not enough either: `previewToken` unlocks the loopback
+ * bridge, and handing it to a remote viewer of a *shared* design would let an
+ * attacker-controlled page drive the victim's local bridge from their browser.
+ *
+ * Ownership and explicit share grants are resolved separately by the
+ * framework and can still upgrade the caller independently of this.
  */
-export function publicDesignAccessRole(): "viewer" {
-  return "viewer";
+export function publicDesignAccessRole(
+  resource?: { data?: unknown } | null,
+): "viewer" | "editor" {
+  if (!getRequestIsLoopback()) return "viewer";
+  return designSourceTypeFromData(resource?.data) === "localhost"
+    ? "editor"
+    : "viewer";
 }
 
 function removeLocalhostCredentials(

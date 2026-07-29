@@ -6,6 +6,7 @@ import type { ElementInfo } from "@/components/design/types";
 import {
   codeLayerNodeMatchesBridgeTarget,
   elementInfoFromCodeLayerNode,
+  isCodeLayerNodeRuntimeOnly,
   refreshedBoundingRectSize,
   refreshedComputedStyles,
   resolveCodeLayerNodeFromBridge,
@@ -369,5 +370,57 @@ describe("refreshedBoundingRectSize", () => {
     });
     const result = refreshedBoundingRectSize(staleInfo, {});
     expect(result).toEqual({ x: 4, y: 8, width: 167, height: 86 });
+  });
+});
+
+describe("isCodeLayerNodeRuntimeOnly", () => {
+  it("is never runtime-only for a file whose layers panel is showing its own source projection (fail-before case)", () => {
+    // Before the fix, callers gated on the FILE-level model.runtimeOnly flag
+    // directly, so a static/inline screen (fileIsRuntimeProjected: false)
+    // never hit this function at all and was fine either way — this case
+    // guards the base condition the narrower per-node check must preserve.
+    expect(
+      isCodeLayerNodeRuntimeOnly({
+        fileIsRuntimeProjected: false,
+        nodeIdAttr: undefined,
+        sourceNodeIdAttrs: new Set(),
+      }),
+    ).toBe(false);
+  });
+
+  it("is NOT runtime-only for a localhost node whose stamped node id also appears in the source projection (fail-before case)", () => {
+    // Before the fix: every node on a hydrated localhost screen was flagged
+    // runtimeOnly=true purely because the FILE used the runtime projection —
+    // even a node with a perfectly resolvable source match, and even on a
+    // plain static-HTML target with no React at all. That made
+    // handleToggleLayerLocked/Hidden always route through the
+    // React-semantic-handoff path and show "still loading" forever.
+    expect(
+      isCodeLayerNodeRuntimeOnly({
+        fileIsRuntimeProjected: true,
+        nodeIdAttr: "an-e0jybg",
+        sourceNodeIdAttrs: new Set(["an-e0jybg", "an-abc123"]),
+      }),
+    ).toBe(false);
+  });
+
+  it("is runtime-only when the node's stamped id has no match in the source projection", () => {
+    expect(
+      isCodeLayerNodeRuntimeOnly({
+        fileIsRuntimeProjected: true,
+        nodeIdAttr: "an-e0jybg",
+        sourceNodeIdAttrs: new Set(["an-abc123"]),
+      }),
+    ).toBe(true);
+  });
+
+  it("is runtime-only when the node has no stamped id at all", () => {
+    expect(
+      isCodeLayerNodeRuntimeOnly({
+        fileIsRuntimeProjected: true,
+        nodeIdAttr: undefined,
+        sourceNodeIdAttrs: new Set(["an-abc123"]),
+      }),
+    ).toBe(true);
   });
 });

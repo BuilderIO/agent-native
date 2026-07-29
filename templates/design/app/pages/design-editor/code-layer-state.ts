@@ -592,6 +592,34 @@ export function elementInfoIsRuntimeOnly(
   );
 }
 
+/**
+ * Per-node refinement of a file's "layers panel is showing the runtime
+ * (localhost-hydrated) tree" flag into an actual "this node has no
+ * resolvable source counterpart" signal.
+ *
+ * `fileIsRuntimeProjected` alone is true for basically every hydrated
+ * localhost screen, React or not — see shouldPreferRuntimeLayerProjection's
+ * doc comment in design-editor/pending-edits.ts — so callers that gated a
+ * React-semantic-handoff requirement on that file-level flag treated every
+ * node on every localhost screen as unresolvable, including on a page with
+ * no React at all.
+ *
+ * Match on the stamped `data-agent-native-node-id` attribute, NOT
+ * CodeLayerNode.id: `id` is `hashStable(sourceKey:...)` (see nodeIdFor in
+ * shared/code-layer.ts), and sourceKey differs between the runtime and
+ * source projection parses of the very same content, so `id` never lines up
+ * even for the identical element — the stamped DOM attribute does.
+ */
+export function isCodeLayerNodeRuntimeOnly(args: {
+  fileIsRuntimeProjected: boolean;
+  nodeIdAttr: string | undefined;
+  sourceNodeIdAttrs: ReadonlySet<string>;
+}): boolean {
+  if (!args.fileIsRuntimeProjected) return false;
+  if (!args.nodeIdAttr) return true;
+  return !args.sourceNodeIdAttrs.has(args.nodeIdAttr);
+}
+
 export function codeLayerPatchMessage(
   message: string | null | undefined,
   fallback: string,

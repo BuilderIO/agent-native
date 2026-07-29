@@ -124,6 +124,13 @@ export interface MultiScreenCanvasProps {
   zoom: number;
   activeId?: string | null;
   selectedScreenIds?: string[];
+  /** Screen id whose active selection is a specific element INSIDE the
+   * screen (a Layers-panel row, an in-canvas click) rather than the screen
+   * frame itself. The frame's own SelectionBox is suppressed for this
+   * screen — the iframe's editor-chrome bridge already draws a tightly
+   * fitted outline + resize handles around the real element, so drawing the
+   * frame-sized box on top of it would be wrong, not just redundant. */
+  selectedElementScreenId?: string | null;
   /** Hidden screen/file rows retain geometry but do not render or participate
    * in overview hit testing, fit, or selection until shown again. */
   hiddenScreenIds?: ReadonlySet<string> | readonly string[];

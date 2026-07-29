@@ -414,6 +414,9 @@ const messages = {
     githubOAuthUnavailable:
       "此部署中未設定 OAuth 應用程式憑證。使用下面的個人存取權杖欄位。",
     sharedIntegration: "共用整合",
+    workspaceAdminRequiredTitle: "組織連線需要管理員",
+    workspaceAdminRequiredDescription:
+      "請組織擁有者或管理員為組織中的所有人連線 {{name}}。",
     sharedReady:
       "Analytics 可以透過 Dispatch 授予的工作空間連線來使用此提供者。",
     sharedNeedsGrant: "存在工作區連線。開啟Dispatch，授予Analytics存取權限。",

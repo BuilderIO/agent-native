@@ -46,7 +46,6 @@ import {
   type PenPath,
 } from "@shared/pen-path";
 import {
-  IconArrowsMaximize,
   IconCopy,
   IconDots,
   IconHandClick,
@@ -213,6 +212,7 @@ import {
   getActiveScreenIframeId,
   getBreakpointIframeId,
   isBreakpointSelectionTarget,
+  shouldSuppressFrameSelectionBox,
 } from "./multi-screen/iframe-targeting";
 import {
   boardPointToBoardSurfaceLocalPoint,
@@ -406,6 +406,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   zoom,
   activeId,
   selectedScreenIds,
+  selectedElementScreenId = null,
   hiddenScreenIds = EMPTY_SCREEN_IDS,
   lockedScreenIds = EMPTY_SCREEN_IDS,
   fullViewScreenIds,
@@ -7568,9 +7569,17 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     ? canvasFrames.find((entry) => entry.screen.id === singleSelectedFrame.id)
         ?.screen
     : undefined;
+  // Overview element selection (a Layers-panel row or an in-canvas click
+  // resolving to a specific node) also suppresses the frame box: the parent
+  // still carries the screen in `selectedIds` (other UI — z-order, "topmost
+  // screen" — depends on that), but the frame's own bounds are the wrong
+  // outline for an element selection. See shouldSuppressFrameSelectionBox.
   const suppressBaseSelectionBox = Boolean(
     singleSelectedFrameScreen &&
-    isBreakpointSelectionTarget(singleSelectedFrameScreen),
+    shouldSuppressFrameSelectionBox(
+      singleSelectedFrameScreen,
+      selectedElementScreenId,
+    ),
   );
   const singleSelectedDraft =
     selectedDraftEntries.length === 1 && !selectedDraftGroupBounds
@@ -7816,7 +7825,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               showFullView={fullViewIdSet.has(screen.id)}
               pendingReview={pendingReviewScreenIdSet.has(screen.id)}
               onReviewPendingScreen={onReviewPendingScreen}
-              interactMode={interactMode}
               isDirectlyHovered={screen.id === directlyHoveredScreenId}
               isFileDragOver={
                 fileDragOverFrameId !== null &&
@@ -9125,7 +9133,6 @@ interface ScreenProps {
   showFullView: boolean;
   pendingReview: boolean;
   onReviewPendingScreen?: (screenId: string) => void;
-  interactMode: boolean;
   readOnly: boolean;
   isDirectlyHovered: boolean;
   /** True while a native OS file drag is hovering this frame (Figma parity §1). */
@@ -9197,7 +9204,6 @@ const Screen = memo(function Screen({
   showFullView,
   pendingReview,
   onReviewPendingScreen,
-  interactMode,
   readOnly,
   isDirectlyHovered,
   isFileDragOver,
@@ -9303,9 +9309,7 @@ const Screen = memo(function Screen({
   // cover one another. Narrow frames collapse the action to its familiar icon;
   // the accessible name and native tooltip preserve the action's meaning.
   const compactFullView = frameScreenWidth < FRAME_HEADER_BUTTON_COMPACT_WIDTH;
-  const frameActionLabel = interactMode
-    ? t("multiScreenCanvas.fullView")
-    : t("designEditor.modes.interact");
+  const frameActionLabel = t("designEditor.modes.interact");
   const labelInfoMaxWidth = Math.max(
     64,
     frameScreenWidth -
@@ -9473,11 +9477,7 @@ const Screen = memo(function Screen({
           onMouseEnter={() => updateDirectHover(true)}
           onMouseLeave={() => updateDirectHover(false)}
         >
-          {interactMode ? (
-            <IconArrowsMaximize className="size-3 shrink-0" />
-          ) : (
-            <IconHandClick className="size-3 shrink-0" />
-          )}
+          <IconHandClick className="size-3 shrink-0" />
           <span className={cn("truncate", compactFullView && "sr-only")}>
             {frameActionLabel}
           </span>
@@ -9714,7 +9714,6 @@ const Screen = memo(function Screen({
           renderBreakpointContent={renderBreakpointContent}
           activeBreakpointWidth={screen.activeBreakpointWidth}
           isScreenSelected={isSelected}
-          interactMode={interactMode}
           penActive={penActive}
           creationToolActive={creationToolActive}
           cullTier={cullTier}
@@ -9862,7 +9861,6 @@ function BreakpointPreviewRow({
   renderBreakpointContent,
   activeBreakpointWidth,
   isScreenSelected,
-  interactMode,
   penActive,
   creationToolActive,
   cullTier,
@@ -9906,7 +9904,6 @@ function BreakpointPreviewRow({
    *  mirrors `Screen`'s own `isSelected`, used so a breakpoint frame's chrome
    *  reads as "part of a selected group" the same way the base frame does. */
   isScreenSelected: boolean;
-  interactMode: boolean;
   penActive: boolean;
   creationToolActive: boolean;
   /** Uses the owning screen's exact culling lifecycle: never-seen/evicted
@@ -9943,9 +9940,7 @@ function BreakpointPreviewRow({
   canEdit?: boolean;
 }) {
   const t = useT();
-  const frameActionLabel = interactMode
-    ? t("multiScreenCanvas.fullView")
-    : t("designEditor.modes.interact");
+  const frameActionLabel = t("designEditor.modes.interact");
   const breakpointWidths = visibleBreakpointWidths(
     screen.breakpointWidths,
     // Immutable device width, not the resizable box width (see frame-geometry).
@@ -10264,11 +10259,7 @@ function BreakpointPreviewRow({
                     e.stopPropagation();
                   }}
                 >
-                  {interactMode ? (
-                    <IconArrowsMaximize className="size-3" />
-                  ) : (
-                    <IconHandClick className="size-3" />
-                  )}
+                  <IconHandClick className="size-3" />
                 </button>
               ) : null}
               <span

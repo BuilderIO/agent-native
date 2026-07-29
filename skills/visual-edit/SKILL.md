@@ -68,24 +68,36 @@ The same action is available from Design's empty-canvas context menu.
   static DOM snapshot. Editing is direct DOM manipulation against that live
   document; the parallel `/snapshot` fetch feeds the editable source model only
   and must never be rendered in the frame.
-- A viewer holding the connection's `previewToken` gets the proxied
-  `/live-edit` document with editor chrome. A viewer without one — a signed-out
-  session, a public link, or an inline browser with no cookies — gets the plain
-  dev-server URL: still live, but with no editor chrome, no layers, and no
-  editing. If the canvas looks right but selection and the layers panel do
-  nothing, the frame is unbridged; sign in rather than assuming Design is broken.
+- **`/visual-edit` needs no login.** A caller on loopback opening a
+  localhost-source design is granted editor access, which releases the
+  connection's `previewToken` and lets the live-edit bridge register. The gate
+  is deliberately two-part — loopback AND localhost-source — because a tunnel
+  terminating on localhost also presents as loopback, and because `previewToken`
+  unlocks the loopback bridge, so a remote viewer of a *shared* design must
+  never receive it. Remote viewers stay read-only and get the plain dev-server
+  URL: live, but with no editor chrome, no layers, and no editing.
+- Do not "fix" a read-only canvas by telling the user to sign in. On loopback
+  that is a bug: check that the design is localhost-source and that the request
+  really is loopback.
 - The live editor is same-origin through the local bridge proxy. This boots
   CSR apps and root-relative assets, but it is still a localhost editing proxy:
   app-origin cookies, WebSockets/HMR, SSE, and non-GET app API calls may need a
   future dev-server/plugin integration for perfect parity with the app's own
   origin.
-- Interact mode renders the app's normal URL so app navigation, scrolling,
-  links, and form controls behave as they would in the browser.
+- **There are exactly two views.** The infinite canvas is where all editing
+  happens, and the responsive interactive view (Interact) is where the app runs
+  for real. There is no third "full view"/focused-edit state — clicking a screen
+  in the Screens list, or the view toggle, opens the responsive view, and
+  closing it returns to the canvas.
+- Interact keeps the left and right rails and adds a device bar above the canvas
+  (device preset, editable width/height, zoom, close). It renders the app's
+  normal URL so navigation, scrolling, links, and form controls behave as they
+  would in the browser, and the wheel scrolls the app rather than panning the
+  canvas. The canvas view is the opposite: the wheel pans and zooms it, and
+  native interaction inside the frame is suppressed.
 - While a localhost screen has pending live visual edits, do not switch back to
   Interact until the user either applies the edits to source or explicitly
   aborts/discards the preview.
-- Start in Design's screen overview mode. In overview, screens are static
-  design frames; full-screen focus is for scrolling and app interaction.
 - Alt-drag duplicates a screen. For localhost screens, duplication copies the
   iframe frame and URL metadata; change the copy's path/query for a new state.
 - Flow visualization is multiple URL states: `/checkout?step=shipping`,

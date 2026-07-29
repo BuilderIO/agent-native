@@ -1,5 +1,5 @@
 /**
- * Pure data/logic for the full-screen Interact mode's device chrome bar
+ * Pure data/logic for the responsive Interact mode's device chrome bar
  * (ResponsiveInteractBar). Modeled on builder-internal's
  * ResponsiveEditingMode/responsive-device-presets, adapted to this app's
  * shadcn chrome. Kept separate from DEVICE_FRAME_VIEWPORTS in
@@ -50,7 +50,9 @@ export const INTERACT_DEVICE_PRESETS: InteractDevicePreset[] = [
   },
 ];
 
-export const DEFAULT_INTERACT_DEVICE_PRESET = INTERACT_DEVICE_PRESETS[1]!;
+export const DEFAULT_INTERACT_DEVICE_PRESET = INTERACT_DEVICE_PRESETS.find(
+  (preset) => preset.category === "desktop",
+)!;
 
 export function findInteractDevicePreset(
   name: string,
@@ -58,8 +60,44 @@ export function findInteractDevicePreset(
   return INTERACT_DEVICE_PRESETS.find((preset) => preset.name === name);
 }
 
+export function resolveInteractDeviceForScreen(screen?: {
+  width?: number | null;
+  height?: number | null;
+}): InteractDevicePreset {
+  const width =
+    typeof screen?.width === "number" &&
+    Number.isFinite(screen.width) &&
+    screen.width > 0
+      ? Math.round(screen.width)
+      : DEFAULT_INTERACT_DEVICE_PRESET.width;
+  const height =
+    typeof screen?.height === "number" &&
+    Number.isFinite(screen.height) &&
+    screen.height > 0
+      ? Math.round(screen.height)
+      : DEFAULT_INTERACT_DEVICE_PRESET.height;
+  const preset = INTERACT_DEVICE_PRESETS.find(
+    (candidate) =>
+      candidate.category !== "custom" &&
+      candidate.width === width &&
+      candidate.height === height,
+  );
+  return (
+    preset ?? {
+      name: INTERACT_CUSTOM_DEVICE_NAME,
+      category: "custom",
+      width,
+      height,
+    }
+  );
+}
+
+export function formatInteractZoom(zoom: number): string {
+  return Number.isFinite(zoom) ? zoom.toFixed(1) : "100.0";
+}
+
 /**
- * Auto-fit zoom for the full-screen device box, ported from
+ * Auto-fit zoom for the responsive device box, ported from
  * builder-internal's ResponsiveEditingMode effect (~lines 155-174): only
  * zooms DOWN so the device fits the available chrome area, never zooms in
  * past 100% just because there's extra room. Steps to the nearest 5 and

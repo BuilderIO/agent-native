@@ -293,6 +293,7 @@ import { getBoardSurfaceContentBounds } from "@/components/design/multi-screen/b
 import {
   getCanonicalScreenStack,
   getInitialFrameGeometry,
+  getScreenPreviewViewport,
   reorderCanonicalScreenStack,
 } from "@/components/design/multi-screen/frame-geometry";
 import {
@@ -536,6 +537,7 @@ import {
   ensureGoogleFontLinkInHtml,
   findCodeLayerSiblingOrder,
   findMovedCodeLayerNodeInProjection,
+  isCodeLayerNodeRuntimeOnly,
   preferredCodeLayerSelector,
   refreshElementInfoFromContent,
   refreshSelectedLayerIdsFromContent,
@@ -776,7 +778,7 @@ import {
   DEFAULT_INTERACT_DEVICE_PRESET,
   findInteractDevicePreset,
   INTERACT_CUSTOM_DEVICE_NAME,
-  RESPONSIVE_INTERACT_BAR_HEIGHT,
+  resolveInteractDeviceForScreen,
 } from "./design-editor/responsive-interact";
 import {
   classifyDesignSaveFailure,
@@ -2099,7 +2101,7 @@ function DesignEditor() {
     number | null
   >(null);
   const [deviceFrame, setDeviceFrame] = useState<DeviceFrameType>("none");
-  // Full-screen Interact device box. Kept separate from `zoom` (the canvas
+  // Responsive Interact device box. Kept separate from `zoom` (the canvas
   // camera) because this scales a literal device viewport, not the canvas.
   const [interactDeviceName, setInteractDeviceName] = useState(
     DEFAULT_INTERACT_DEVICE_PRESET.name,
@@ -6167,8 +6169,13 @@ function DesignEditor() {
   // write access via request-localhost-write-consent (granting stays human-only).
   // One-shot: consume the app-state key, open the dialog, then clear it so
   // echoed app-state bumps don't re-open it.
+  //
+  // Keyed on edit access, NOT sign-in: /visual-edit deliberately works without a
+  // login for a loopback caller, and gating this on `isSignedIn` left exactly
+  // that user unable to ever grant write consent — the dialog never opened, so
+  // applying edits back to source silently had no path to succeed.
   useEffect(() => {
-    if (!id || !isSignedIn) return;
+    if (!id || !canEditDesign) return;
     let cancelled = false;
     const key = `design-localhost-write-consent-request:${id}`;
     void (async () => {
@@ -6201,7 +6208,7 @@ function DesignEditor() {
     return () => {
       cancelled = true;
     };
-  }, [appStateVersion, id, isSignedIn]);
+  }, [appStateVersion, canEditDesign, id]);
 
   // §6.4 — The active screen's primary-frame width (the BASE editing
   // context). Overrides written at a narrower active breakpoint apply below
@@ -6546,8 +6553,11 @@ function DesignEditor() {
     [canEditDesign, files, id, setZoomForView],
   );
 
+  // Agent→editor commands (navigate/select/zoom) follow edit access, not
+  // sign-in: on /visual-edit the agent drives the canvas for a loopback caller
+  // who never logs in, and an isSignedIn gate silently dropped every command.
   useEffect(() => {
-    if (!id || !isSignedIn) return;
+    if (!id || !canEditDesign) return;
     if (initialSearchCommandAppliedForIdRef.current === id) return;
     const command = designEditorCommandFromSearchParams(
       id,
@@ -6561,10 +6571,10 @@ function DesignEditor() {
     if (applied) {
       initialSearchCommandAppliedForIdRef.current = id;
     }
-  }, [applyDesignEditorCommand, id, initialSearchParams]);
+  }, [applyDesignEditorCommand, canEditDesign, id, initialSearchParams]);
 
   useEffect(() => {
-    if (!id || !isSignedIn) return;
+    if (!id || !canEditDesign) return;
     let cancelled = false;
     const keys = browserTabId
       ? [designEditorCommandKey(browserTabId), designEditorCommandKey()]
@@ -6585,7 +6595,13 @@ function DesignEditor() {
     return () => {
       cancelled = true;
     };
-  }, [appStateVersion, applyDesignEditorCommand, browserTabId, id, isSignedIn]);
+  }, [
+    appStateVersion,
+    applyDesignEditorCommand,
+    browserTabId,
+    canEditDesign,
+    id,
+  ]);
 
   const optimisticallyInsertCreatedFile = useCallback(
     (args: {
@@ -9652,6 +9668,29 @@ function DesignEditor() {
       );
     },
     [selectedCanvasSelector, selectedCanvasSelectorCandidates, selectedElement],
+  );
+
+  // BUG-UNDO-LIVE-SNAPSHOT: undo/redo replay for a live-snapshot
+  // (localhost/fusion) screen only ever called updateLiveScreenSnapshotContent,
+  // which just swaps liveScreenSnapshotsById — that state has no independent
+  // renderer for a LIVE iframe (src points at the running app; it is never
+  // re-rendered from `content`), so the visible DOM silently kept whatever the
+  // last direct style/structure edit left it at while the model quietly
+  // reverted underneath. Mirrors applyLocalContentUpdate's
+  // forcePreviewFullDocument handling (the "holistic flash pipeline") a few
+  // lines up: push the reverted/reapplied HTML into the live iframe via the
+  // same whole-document bridge patch, falling back to a full contentRenderRevision
+  // reload only when the live patch can't run. Only meaningful for the
+  // currently active screen — replacePreviewContent always targets whichever
+  // DesignCanvas has registerRuntimeBridge set, which tracks activeFile.
+  const syncLiveScreenSnapshotPreview = useCallback(
+    (screenId: string, html: string) => {
+      if (screenId !== activeFile?.id) return;
+      if (!replacePreviewContent(html, null, { forceFullDocument: true })) {
+        setContentRenderRevision((revision) => revision + 1);
+      }
+    },
+    [activeFile?.id, replacePreviewContent],
   );
 
   const deleteRuntimeElement = useCallback(
@@ -15102,7 +15141,15 @@ function DesignEditor() {
 
     const snapshots: SelectedCanvasLayerSnapshot[] = [];
     for (const file of files) {
-      const content = getScreenContent(file.id);
+      // BUG-DELETE-LIVE-SNAPSHOT: getScreenContent returns DesignFile.content,
+      // which for a localhost/live-snapshot screen is just the bridged route
+      // URL, not HTML — so a node lookup against it always came up empty and
+      // this screen's selection silently produced no snapshot. Prefer the
+      // live snapshot HTML (same source commitVisualStyles already reads for
+      // this exact reason) and fall back to the file content for inline/board
+      // screens that don't have one.
+      const content =
+        liveScreenSnapshotsById[file.id]?.html ?? getScreenContent(file.id);
       if (!content) continue;
       const projection = buildCodeLayerProjection(content);
       const tree = buildCodeLayerTree(projection);
@@ -15138,7 +15185,8 @@ function DesignEditor() {
     }
 
     if (snapshots.length === 0 && activeFile && selectedElement?.selector) {
-      const content = getFreshActiveContent();
+      const content =
+        liveScreenSnapshotsById[activeFile.id]?.html ?? getFreshActiveContent();
       const projection = buildCodeLayerProjection(content);
       const tree = buildCodeLayerTree(projection);
       const node = resolveCodeLayerNodeFromElementInfo(
@@ -15193,6 +15241,7 @@ function DesignEditor() {
     files,
     getFreshActiveContent,
     getScreenContent,
+    liveScreenSnapshotsById,
     selectedElement,
     selectedElementLayerId,
     selectedLayerIdsState,
@@ -16499,7 +16548,13 @@ function DesignEditor() {
           (snapshot) => snapshot.sourceFileId === file.id,
         );
         if (group.length === 0) continue;
-        const originalContent = getScreenContent(file.id);
+        // BUG-DELETE-LIVE-SNAPSHOT: see the matching note in
+        // getSelectedLayerSnapshots — file.content is a bare URL for a
+        // localhost/live-snapshot screen, so removeCodeLayerNodeFromHtml
+        // below could never find anything to remove. Use the live snapshot
+        // HTML when this screen has one.
+        const liveSnapshot = liveScreenSnapshotsById[file.id];
+        const originalContent = liveSnapshot?.html ?? getScreenContent(file.id);
         let content = originalContent;
         const projection = buildCodeLayerProjection(content);
         const tree = buildCodeLayerTree(projection);
@@ -16608,17 +16663,26 @@ function DesignEditor() {
           activeRuntimeSelectors.push(...removedSelectors);
         }
         didDelete = true;
-        // Item 5 (edit-flash) parity: a breakpoint-scoped write can become a
-        // width-scoped class OR a managed @media rule (planBreakpointStyleWrite),
-        // neither of which the runtime bridge's inline-style shortcut can
-        // preview correctly — force a full preview refresh the same way
-        // commitVisualStyles does for breakpoint-scoped style commits,
-        // instead of the optimistic refreshPreview:false structural-delete
-        // path.
-        applyFileContentUpdate(file.id, content, {
-          refreshPreview: false,
-          forcePreviewFullDocument: useBreakpointScopedDelete,
-        });
+        if (liveSnapshot) {
+          // Records the same ContentHistoryChange shape as
+          // applyFileContentUpdate, so this delete gets a real undo/redo
+          // entry that now also re-syncs the live iframe (see
+          // syncLiveScreenSnapshotPreview) instead of only updating the
+          // model liveScreenSnapshotsById state.
+          updateLiveScreenSnapshotContent(file.id, content);
+        } else {
+          // Item 5 (edit-flash) parity: a breakpoint-scoped write can become a
+          // width-scoped class OR a managed @media rule (planBreakpointStyleWrite),
+          // neither of which the runtime bridge's inline-style shortcut can
+          // preview correctly — force a full preview refresh the same way
+          // commitVisualStyles does for breakpoint-scoped style commits,
+          // instead of the optimistic refreshPreview:false structural-delete
+          // path.
+          applyFileContentUpdate(file.id, content, {
+            refreshPreview: false,
+            forcePreviewFullDocument: useBreakpointScopedDelete,
+          });
+        }
       }
       if (!didDelete) return;
       if (orphanedTrackNodeIds) {
@@ -16644,7 +16708,10 @@ function DesignEditor() {
     }
 
     if (!selectedElement?.selector) return;
-    const baseContent = getFreshActiveContent();
+    const activeLiveSnapshot = activeFile
+      ? liveScreenSnapshotsById[activeFile.id]
+      : undefined;
+    const baseContent = activeLiveSnapshot?.html ?? getFreshActiveContent();
     // Item 7b — same breakpoint-scoped display:none routing as the
     // multi-layer-snapshot branch above, for the single-runtime-selected-
     // element fallback path (e.g. single-screen canvas click-select with no
@@ -16677,10 +16744,14 @@ function DesignEditor() {
         : null;
       if (patch && patch.result.status === "applied") {
         deleteRuntimeElement(selectedElement.selector);
-        applyLocalContentUpdate(patch.content, {
-          refreshPreview: false,
-          forcePreviewFullDocument: true,
-        });
+        if (activeLiveSnapshot) {
+          updateLiveScreenSnapshotContent(activeFile!.id, patch.content);
+        } else {
+          applyLocalContentUpdate(patch.content, {
+            refreshPreview: false,
+            forcePreviewFullDocument: true,
+          });
+        }
         setSelectedElement(null);
         setSelectedLayerIdsState([]);
       }
@@ -16717,12 +16788,16 @@ function DesignEditor() {
       }
     }
     deleteRuntimeElement(selectedElement.selector);
-    applyLocalContentUpdate(nextContent, { refreshPreview: false });
+    if (activeLiveSnapshot) {
+      updateLiveScreenSnapshotContent(activeFile!.id, nextContent);
+    } else {
+      applyLocalContentUpdate(nextContent, { refreshPreview: false });
+    }
     setSelectedElement(null);
     setSelectedLayerIdsState([]);
   }, [
     activeBreakpointUpperBoundPx,
-    activeFile?.id,
+    activeFile,
     applyFileContentUpdate,
     applyLocalContentUpdate,
     canEditDesign,
@@ -16731,8 +16806,10 @@ function DesignEditor() {
     getFreshActiveContent,
     getScreenContent,
     getSelectedLayerSnapshots,
+    liveScreenSnapshotsById,
     pruneMotionTracksByNodeId,
     selectedElement,
+    updateLiveScreenSnapshotContent,
   ]);
 
   const sendRuntimeLayerSemanticHandoff = useCallback(
@@ -19899,6 +19976,7 @@ function DesignEditor() {
               updateLiveScreenSnapshotContent(entry.fileId, entry.before, {
                 recordHistory: false,
               });
+              syncLiveScreenSnapshotPreview(entry.fileId, entry.before);
             } else {
               applyLocalContentUpdate(entry.before, {
                 refreshPreview: false,
@@ -19971,6 +20049,7 @@ function DesignEditor() {
             updateLiveScreenSnapshotContent(change.fileId, change.before, {
               recordHistory: false,
             });
+            syncLiveScreenSnapshotPreview(change.fileId, change.before);
           } else if (change.fileId === activeFile?.id) {
             applyLocalContentUpdate(change.before, {
               refreshPreview: false,
@@ -20254,6 +20333,7 @@ function DesignEditor() {
     restoreSelectionSnapshot,
     requestPendingLiveNonStyleRevert,
     requestPendingVisualStyleRevert,
+    syncLiveScreenSnapshotPreview,
     syncUndoRedoState,
     updateLiveScreenSnapshotContent,
     writeFrameGeometrySnapshot,
@@ -20554,6 +20634,7 @@ function DesignEditor() {
               updateLiveScreenSnapshotContent(entry.fileId, entry.after, {
                 recordHistory: false,
               });
+              syncLiveScreenSnapshotPreview(entry.fileId, entry.after);
             } else {
               applyLocalContentUpdate(entry.after, {
                 refreshPreview: false,
@@ -20625,6 +20706,7 @@ function DesignEditor() {
             updateLiveScreenSnapshotContent(change.fileId, change.after, {
               recordHistory: false,
             });
+            syncLiveScreenSnapshotPreview(change.fileId, change.after);
           } else if (change.fileId === activeFile?.id) {
             applyLocalContentUpdate(change.after, {
               refreshPreview: false,
@@ -20922,6 +21004,7 @@ function DesignEditor() {
     recordLocalContentHistoryChangeFallback,
     replacePreviewContent,
     restoreSelectionSnapshot,
+    syncLiveScreenSnapshotPreview,
     syncUndoRedoState,
     t,
     updateLiveScreenSnapshotContent,
@@ -21073,11 +21156,12 @@ function DesignEditor() {
     runEditorViewTransition(() => {
       setDrawMode(false);
       setPinMode(false);
-      // Returning from a focused prototype keeps Interact active so the user
-      // lands back on the large interactive canvas. Other overview-entry
-      // paths retain the existing Edit default.
+      // The infinite canvas IS the editing view, so Interact never survives
+      // the trip back to overview — that pairing was the old third state.
+      // Annotate is a tool overlay on the same canvas, not a view, so it
+      // stays.
       setMode((currentMode) =>
-        currentMode === "interact" ? "interact" : "edit",
+        currentMode === "annotate" ? "annotate" : "edit",
       );
       setSelectedElement(null);
       setHoveredElement(null);
@@ -21093,7 +21177,42 @@ function DesignEditor() {
   ]);
 
   const enterSingleScreen = useCallback(
-    (fileId?: string | null, nextMode: EditorMode = "edit") => {
+    // Focusing a screen means the responsive interactive view — there is no
+    // single-screen Edit view. The infinite canvas is where editing happens.
+    (fileId?: string | null, nextMode: EditorMode = "interact") => {
+      const targetFileId = fileId ?? activeFileId;
+      const targetScreen = targetFileId
+        ? overviewScreens.find((screen) => screen.id === targetFileId)
+        : undefined;
+      const targetMetadataSize = targetScreen
+        ? {
+            width: targetScreen.width ?? DEFAULT_INTERACT_DEVICE_PRESET.width,
+            height:
+              targetScreen.height ?? DEFAULT_INTERACT_DEVICE_PRESET.height,
+          }
+        : undefined;
+      const targetViewport =
+        targetFileId && targetMetadataSize
+          ? getScreenPreviewViewport(targetMetadataSize, {
+              width:
+                canvasFrameGeometryById[targetFileId]?.width ??
+                targetMetadataSize.width,
+              height:
+                canvasFrameGeometryById[targetFileId]?.height ??
+                targetMetadataSize.height,
+            })
+          : undefined;
+      const nextInteractDevice =
+        nextMode === "interact"
+          ? resolveInteractDeviceForScreen(
+              targetViewport
+                ? {
+                    width: targetViewport.viewportWidth,
+                    height: targetViewport.viewportHeight,
+                  }
+                : undefined,
+            )
+          : null;
       if (
         viewModeRef.current === "single" &&
         (!fileId || fileId === activeFileId)
@@ -21104,6 +21223,17 @@ function DesignEditor() {
           // Interact button) — reset to the default zoom rather than
           // restoring the remembered one, mirroring the previous behavior.
           setScreenZoom(FOCUSED_SCREEN_ZOOM);
+        }
+        // The early return used to swallow a requested mode change, so
+        // re-clicking a screen after closing Interact left it in whatever
+        // mode it had drifted to instead of reopening the responsive view.
+        setMode(nextMode);
+        if (nextInteractDevice) {
+          setInteractDeviceName(nextInteractDevice.name);
+          setInteractDeviceSize({
+            width: nextInteractDevice.width,
+            height: nextInteractDevice.height,
+          });
         }
         return;
       }
@@ -21123,7 +21253,6 @@ function DesignEditor() {
       // always resetting to FOCUSED_SCREEN_ZOOM, so leaving and re-entering a
       // screen preserves where the user left off. Falls back to
       // FOCUSED_SCREEN_ZOOM for a screen's first visit.
-      const targetFileId = fileId ?? activeFileId;
       const restoredZoom = resolveScreenEntryZoom(
         targetFileId,
         screenZoomByIdRef.current,
@@ -21138,12 +21267,21 @@ function DesignEditor() {
         setHoveredElement(null);
         setActiveTool("move");
         setScreenZoom(restoredZoom);
+        if (nextInteractDevice) {
+          setInteractDeviceName(nextInteractDevice.name);
+          setInteractDeviceSize({
+            width: nextInteractDevice.width,
+            height: nextInteractDevice.height,
+          });
+        }
         setViewMode("single");
       });
     },
     [
       activeFileId,
+      canvasFrameGeometryById,
       clearPendingOverviewLayerSelectionTimer,
+      overviewScreens,
       runEditorViewTransition,
     ],
   );
@@ -21152,9 +21290,9 @@ function DesignEditor() {
     [enterSingleScreen],
   );
 
-  // Interact presents the screen full-screen in a device box with its own
-  // chrome bar, so the editor's panels and inspector step aside. Embedded
-  // hosts keep their own chrome and are left alone.
+  // Interact presents the screen in a responsive device box with its own
+  // chrome bar inside the center canvas. The rails stay mounted, while
+  // embedded hosts keep their own chrome and are left alone.
   const responsiveInteractActive =
     mode === "interact" && viewMode === "single" && !!activeFile && !embedded;
   const handleInteractDeviceChange = useCallback((name: string) => {
@@ -21179,7 +21317,7 @@ function DesignEditor() {
   // shouldPopToOverviewOnZoomOut's doc comment: the pop must only fire when
   // the user crosses the threshold from above while already in single view,
   // never on the zoom value restored by entering single view (that
-  // level-triggered version was the "Full view flashes then bounces back to
+  // level-triggered version was the "Interact flashes then bounces back to
   // overview" bug). The ref holds the last zoom observed in settled
   // single-view state and resets to null whenever single view isn't active,
   // so the first observation after entry can never pop.
@@ -21247,6 +21385,10 @@ function DesignEditor() {
         clearPendingLiveEditState();
       }
 
+      if (next === "interact" && viewModeRef.current === "overview") {
+        enterSingleScreen(nextActiveFile?.id, "interact");
+        return;
+      }
       if (options?.targetFileId) setActiveFileId(options.targetFileId);
       setMode(next);
       setSelectedElement(null);
@@ -21271,6 +21413,7 @@ function DesignEditor() {
       pendingLiveNonStyleEdits,
       pendingVisualStyleEdits,
       clearPendingLiveEditState,
+      enterSingleScreen,
       requestPendingLiveNonStyleRevert,
       requestPendingVisualStyleRevert,
       t,
@@ -21287,24 +21430,41 @@ function DesignEditor() {
     },
     [enterSingleScreenInteract, handleModeChange, mode],
   );
+  // Closing the responsive view returns to the infinite canvas. Dropping to
+  // Edit while still in single view was the forbidden third state: a focused
+  // screen with no device chrome and no canvas around it.
   const handleExitResponsiveInteract = useCallback(
-    () => handleModeChange("edit"),
-    [handleModeChange],
+    () => enterOverviewFromZoom(),
+    [enterOverviewFromZoom],
   );
-  // Fit the device box on entry and whenever the device changes, matching
-  // builder-internal: only ever zooms DOWN, so a device smaller than the
-  // viewport still renders at true 1:1.
+  // Fit against the actual center canvas, not window.innerWidth: both rails
+  // remain mounted in Interact, so window-level math can place a wide device
+  // partly behind them. ResizeObserver also refits after either rail moves.
   useEffect(() => {
     if (!responsiveInteractActive) return;
-    setInteractZoom(
-      computeInteractZoomToFit({
-        availableWidth: window.innerWidth - 96,
-        availableHeight:
-          window.innerHeight - RESPONSIVE_INTERACT_BAR_HEIGHT - 96,
-        deviceWidth: interactDeviceSize.width,
-        deviceHeight: interactDeviceSize.height,
-      }),
-    );
+    const container = canvasContainerRef.current;
+    if (!container) return;
+    const updateZoomToFit = () => {
+      setInteractZoom(
+        computeInteractZoomToFit({
+          availableWidth: Math.max(1, container.clientWidth - 48),
+          availableHeight: Math.max(1, container.clientHeight - 48),
+          deviceWidth: interactDeviceSize.width,
+          deviceHeight: interactDeviceSize.height,
+        }),
+      );
+    };
+    updateZoomToFit();
+    window.addEventListener("resize", updateZoomToFit);
+    const observer =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(updateZoomToFit);
+    observer?.observe(container);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", updateZoomToFit);
+    };
   }, [
     responsiveInteractActive,
     interactDeviceSize.width,
@@ -21325,7 +21485,9 @@ function DesignEditor() {
 
   const handleViewModeToggle = useCallback(() => {
     if (viewModeRef.current === "overview") {
-      enterSingleScreen(activeFileId);
+      // The toggle swaps between the only two views there are: the infinite
+      // canvas (editing) and the responsive interactive view.
+      enterSingleScreen(activeFileId, "interact");
       return;
     }
     enterOverviewFromZoom();
@@ -21347,7 +21509,10 @@ function DesignEditor() {
       setCreatedOverviewLayerSelection(null);
       setOverviewSelectedScreenIds([]);
       setSelectedLayerIdsState([]);
-      enterSingleScreen(screenId);
+      // Only two views exist: the infinite canvas (editing) and the responsive
+      // interactive view. Picking a screen from the Screens list means "go look
+      // at this running screen", so it lands in the responsive view.
+      enterSingleScreen(screenId, "interact");
     },
     [
       clearPendingOverviewLayerSelectionTimer,
@@ -21838,12 +22003,16 @@ function DesignEditor() {
     if (targetProjection.rootNodeIds.length > 0) {
       setSelectedLayerIdsState(targetProjection.rootNodeIds);
     }
-    enterSingleScreen(target);
+    // Drill-in selects the screen's children and stays on the infinite canvas.
+    // It used to also switch to a focused single-screen view — that view no
+    // longer exists (the only two views are the canvas and the responsive
+    // interactive one), and routing this through the focused view now would
+    // land the user in Interact, where there is no selection at all.
+    setActiveFileId(target);
   }, [
     SINGLE_MODE_TEXT_TAGS,
     activeFile?.id,
     activeFileId,
-    enterSingleScreen,
     enterVectorEditForSelection,
     getProjectionContentForScreen,
     overviewSelectedScreenIds,
@@ -22177,7 +22346,9 @@ function DesignEditor() {
     onSendToBack: canEditDesign
       ? () => changeSelectedZIndex("back")
       : undefined,
-    onEscape: handleEscapeHotkey,
+    // Interact owns the running app's keyboard behavior. The editor shell must
+    // not consume Escape or use it to change view/selection underneath it.
+    onEscape: responsiveInteractActive ? undefined : handleEscapeHotkey,
     onEnter: handleEnterHotkey,
     onSelectParent: handleSelectParentLayer,
     onTab: ({ backwards }) => handleCycleSibling(backwards),
@@ -24169,12 +24340,27 @@ function DesignEditor() {
       }
     >();
     codeLayerModelsByFile.forEach((model) => {
+      // BUG-LAYER-STATE-RUNTIME-ONLY: model.runtimeOnly only says the Layers
+      // panel is DISPLAYING the runtime-derived tree for this screen — it
+      // says nothing about whether any given NODE actually lacks a
+      // resolvable source counterpart. See isCodeLayerNodeRuntimeOnly's doc
+      // comment for why every lock/hide/group/reparent call site downstream
+      // needs the narrower per-node signal instead.
+      const sourceNodeIdAttrs = new Set(
+        model.sourceProjection.nodes
+          .map((node) => node.dataAttributes["data-agent-native-node-id"])
+          .filter((value): value is string => Boolean(value)),
+      );
       model.projection.nodes.forEach((node) => {
         owners.set(node.id, {
           fileId: model.fileId,
           node,
           tree: model.tree,
-          runtimeOnly: model.runtimeOnly,
+          runtimeOnly: isCodeLayerNodeRuntimeOnly({
+            fileIsRuntimeProjected: model.runtimeOnly,
+            nodeIdAttr: node.dataAttributes["data-agent-native-node-id"],
+            sourceNodeIdAttrs,
+          }),
         });
       });
     });
@@ -27078,22 +27264,50 @@ function DesignEditor() {
         applyLockedState();
         return;
       }
+      // BUG-LOCK-HIDE-LIVE-SNAPSHOT: same fix as handleDeleteSelection —
+      // getFreshActiveContent()/file.content is a bare URL for a
+      // localhost/live-snapshot screen, so setCodeLayerAttributeInHtml below
+      // could never find `node` in it and this write silently no-opped.
+      // `node` itself is unusable against the live snapshot HTML too:
+      // setCodeLayerAttributeInHtml indexes by node.source.openStart/openEnd,
+      // raw offsets into whatever string the RUNTIME projection parsed
+      // (runtimeLayerSnapshotsById), not the separately-tracked live
+      // snapshot — re-resolve a node from that exact content by the one id
+      // that's stable across both (see codeLayerOwnerByNodeId's matching
+      // note above).
+      const liveSnapshot = liveScreenSnapshotsById[owner.fileId];
+      const nodeIdAttr = node.dataAttributes["data-agent-native-node-id"];
+      const liveNode =
+        liveSnapshot && nodeIdAttr
+          ? buildCodeLayerProjection(liveSnapshot.html).nodes.find(
+              (candidate) =>
+                candidate.dataAttributes["data-agent-native-node-id"] ===
+                nodeIdAttr,
+            )
+          : undefined;
       const sourceFile = files.find((file) => file.id === owner.fileId);
       const sourceContent =
-        owner.fileId === activeFile?.id
+        liveSnapshot?.html ??
+        (owner.fileId === activeFile?.id
           ? getFreshActiveContent()
-          : (sourceFile?.content ?? "");
-      if (sourceContent) {
+          : (sourceFile?.content ?? ""));
+      const targetNode = liveSnapshot ? liveNode : node;
+      if (sourceContent && targetNode) {
         const nextContent = setCodeLayerAttributeInHtml(
           sourceContent,
-          node,
+          targetNode,
           "data-agent-native-locked",
           locked ? "true" : null,
         );
         if (nextContent && nextContent !== sourceContent) {
-          applyFileContentUpdate(owner.fileId, nextContent, {
-            refreshPreview: false,
-          });
+          if (liveSnapshot) {
+            updateLiveScreenSnapshotContent(owner.fileId, nextContent);
+            syncLiveScreenSnapshotPreview(owner.fileId, nextContent);
+          } else {
+            applyFileContentUpdate(owner.fileId, nextContent, {
+              refreshPreview: false,
+            });
+          }
         }
       }
       applyLockedState();
@@ -27105,7 +27319,10 @@ function DesignEditor() {
       codeLayerOwnerByNodeId,
       files,
       getFreshActiveContent,
+      liveScreenSnapshotsById,
       sendRuntimeLayerStateSemanticHandoff,
+      syncLiveScreenSnapshotPreview,
+      updateLiveScreenSnapshotContent,
     ],
   );
 
@@ -27145,22 +27362,42 @@ function DesignEditor() {
         applyHiddenState();
         return;
       }
+      // BUG-LOCK-HIDE-LIVE-SNAPSHOT: see the matching note in
+      // handleToggleLayerLocked, including why `node` has to be re-resolved
+      // against the live snapshot content before it's usable there.
+      const liveSnapshot = liveScreenSnapshotsById[owner.fileId];
+      const nodeIdAttr = node.dataAttributes["data-agent-native-node-id"];
+      const liveNode =
+        liveSnapshot && nodeIdAttr
+          ? buildCodeLayerProjection(liveSnapshot.html).nodes.find(
+              (candidate) =>
+                candidate.dataAttributes["data-agent-native-node-id"] ===
+                nodeIdAttr,
+            )
+          : undefined;
       const sourceFile = files.find((file) => file.id === owner.fileId);
       const sourceContent =
-        owner.fileId === activeFile?.id
+        liveSnapshot?.html ??
+        (owner.fileId === activeFile?.id
           ? getFreshActiveContent()
-          : (sourceFile?.content ?? "");
-      if (sourceContent) {
+          : (sourceFile?.content ?? ""));
+      const targetNode = liveSnapshot ? liveNode : node;
+      if (sourceContent && targetNode) {
         const nextContent = setCodeLayerAttributeInHtml(
           sourceContent,
-          node,
+          targetNode,
           "data-agent-native-hidden",
           hidden ? "true" : null,
         );
         if (nextContent && nextContent !== sourceContent) {
-          applyFileContentUpdate(owner.fileId, nextContent, {
-            refreshPreview: false,
-          });
+          if (liveSnapshot) {
+            updateLiveScreenSnapshotContent(owner.fileId, nextContent);
+            syncLiveScreenSnapshotPreview(owner.fileId, nextContent);
+          } else {
+            applyFileContentUpdate(owner.fileId, nextContent, {
+              refreshPreview: false,
+            });
+          }
         }
       }
       applyHiddenState();
@@ -27172,7 +27409,10 @@ function DesignEditor() {
       codeLayerOwnerByNodeId,
       files,
       getFreshActiveContent,
+      liveScreenSnapshotsById,
       sendRuntimeLayerStateSemanticHandoff,
+      syncLiveScreenSnapshotPreview,
+      updateLiveScreenSnapshotContent,
     ],
   );
 
@@ -28595,11 +28835,11 @@ function DesignEditor() {
             asChild
             variant="outline"
             size="sm"
-            className="h-8 cursor-pointer gap-1.5 rounded-md bg-[var(--design-editor-panel-raised-bg)] px-3 text-sm shadow-none"
+            className="h-8 min-w-0 shrink cursor-pointer gap-1.5 rounded-md bg-[var(--design-editor-panel-raised-bg)] px-3 text-sm shadow-none"
             aria-label={t("designEditor.signUpToSave")}
           >
             <a href={signInToSaveHref}>
-              <span>{t("designEditor.signUpToSave")}</span>
+              <span className="truncate">{t("designEditor.signUpToSave")}</span>
             </a>
           </Button>
         </TooltipTrigger>
@@ -28728,7 +28968,11 @@ function DesignEditor() {
           />
         </div>
 
-        <div className="flex shrink-0 items-center gap-1">
+        {/* Not shrink-0: the signed-out CTA ("Sign up free to save") is a
+            nowrap label wide enough to push this row past the right rail's
+            edge on its own, and a shrink-0 row has no way to give that space
+            back — it just overflows the panel. */}
+        <div className="flex min-w-0 shrink items-center gap-1">
           {pendingNodeRewriteControl}
           {canEditDesign && reviewAgentQueueCount > 0 ? (
             <Button
@@ -29028,22 +29272,9 @@ function DesignEditor() {
           />
         </div>
       )}
-      {responsiveInteractActive ? (
-        <ResponsiveInteractBar
-          deviceName={interactDeviceName}
-          width={interactDeviceSize.width}
-          height={interactDeviceSize.height}
-          zoom={interactZoom}
-          onDeviceChange={handleInteractDeviceChange}
-          onWidthChange={handleInteractWidthChange}
-          onHeightChange={handleInteractHeightChange}
-          onZoomChange={setInteractZoom}
-          onClose={handleExitResponsiveInteract}
-        />
-      ) : null}
       {/* Main canvas area */}
       <div className="flex-1 flex overflow-hidden relative">
-        {!embedded && !uiHidden && !responsiveInteractActive ? (
+        {!embedded && !uiHidden ? (
           <div className="relative flex min-h-0 shrink-0 bg-[var(--design-editor-panel-bg)]">
             <DesignWorkspaceRail
               activePanel={activeLeftPanel}
@@ -29588,6 +29819,22 @@ function DesignEditor() {
           >
             {activeFile ? (
               <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+                {/* Interact's device chrome sits inside the canvas column so
+                    the workspace rails stay put — Interact is a different view
+                    of the same editor, not a chrome-free takeover. */}
+                {responsiveInteractActive ? (
+                  <ResponsiveInteractBar
+                    deviceName={interactDeviceName}
+                    width={interactDeviceSize.width}
+                    height={interactDeviceSize.height}
+                    zoom={interactZoom}
+                    onDeviceChange={handleInteractDeviceChange}
+                    onWidthChange={handleInteractWidthChange}
+                    onHeightChange={handleInteractHeightChange}
+                    onZoomChange={setInteractZoom}
+                    onClose={handleExitResponsiveInteract}
+                  />
+                ) : null}
                 {/* §6.4 / BP-DEEP v2 — breakpoint targeting no longer
                     renders any bar over or above the canvas (the earlier
                     floating overlay covered screen headers; the chrome-row
@@ -30004,6 +30251,11 @@ function DesignEditor() {
                             ? interactDeviceSize.width
                             : activeBreakpointWidthState
                         }
+                        previewHeightPx={
+                          responsiveInteractActive
+                            ? interactDeviceSize.height
+                            : undefined
+                        }
                         shaderFillPreview={shaderFillPreview}
                         onComponentSourceJump={handleComponentSourceJump}
                         motionTracks={motionTracksWire}
@@ -30269,10 +30521,7 @@ function DesignEditor() {
         )}
 
         {/* Right rail */}
-        {!embedded &&
-        !uiHidden &&
-        !initialGenerationChromeLimited &&
-        !responsiveInteractActive ? (
+        {!embedded && !uiHidden && !initialGenerationChromeLimited ? (
           <div
             ref={rightSidebarContentRef}
             className="relative hidden h-full min-h-0 shrink-0 flex-col border-l border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)] md:flex"

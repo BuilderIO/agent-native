@@ -149,6 +149,18 @@ export interface RequestContext {
    */
   requestOrigin?: string;
   /**
+   * True when the request's real socket peer is loopback, captured by the
+   * action-route handler while the h3 event is still in scope (nothing below
+   * that layer can see the event). Derived from `getRequestIP()` WITHOUT
+   * `x-forwarded-for`, so a remote client cannot set it via headers.
+   *
+   * A local-dev gate only. A tunnel or reverse proxy that reaches the dev
+   * server over loopback also presents as loopback, so this is necessary but
+   * not sufficient on its own — pair it with something that scopes the blast
+   * radius (a resource that is itself local-only, NODE_ENV, etc.).
+   */
+  isLoopbackRequest?: boolean;
+  /**
    * True when this request is being processed by an integration-platform
    * webhook (Slack, Telegram, etc.) where the function timeout is the
    * binding constraint. Code that calls slow remote APIs can use this to apply
@@ -386,6 +398,15 @@ export function getRequestOrgId(): string | undefined {
     return store.orgId;
   }
   return processEnv("AGENT_ORG_ID");
+}
+
+/**
+ * Whether the current request came from a loopback socket peer. Fails closed:
+ * outside a request store (CLI, background job, agent run) there is no peer to
+ * vouch for, so this is `false` rather than inheriting an ambient default.
+ */
+export function getRequestIsLoopback(): boolean {
+  return als.getStore()?.isLoopbackRequest === true;
 }
 
 function markAuthContextAccess(ctx: RequestContext | undefined) {

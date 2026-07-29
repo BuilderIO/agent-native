@@ -224,11 +224,12 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
     );
     expect(focusedIframe?.getAttribute("src")).toContain("/live-edit?");
     expect(focusedIframe?.getAttribute("srcdoc")).toBeNull();
-    const fallback = container.querySelector<HTMLIFrameElement>(
-      "[data-live-edit-transition-fallback]",
-    );
-    expect(fallback?.getAttribute("srcdoc")).toContain("Chat preview");
-    expect(fallback?.getAttribute("srcdoc")).not.toBe(previewUrl);
+    // No frozen copy is ever painted over the live frame, not even mid-swap:
+    // a snapshot that outlives a stalled swap is indistinguishable from a
+    // working screen.
+    expect(
+      container.querySelector("[data-live-edit-transition-fallback]"),
+    ).toBeNull();
 
     await act(async () => {
       window.dispatchEvent(
@@ -246,9 +247,9 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
       focusedIframe,
     );
 
-    // A source write that forces a Vite full reload must put the authenticated
-    // snapshot back over the SAME iframe until its replacement bridge is
-    // ready. This covers the unavoidable HMR navigation without a white flash.
+    // A source write that forces a Vite full reload must keep the SAME live
+    // iframe (no remount, no state loss) and must not cover it with a
+    // snapshot while the replacement bridge comes back.
     await act(async () => {
       window.dispatchEvent(
         new MessageEvent("message", {
@@ -259,15 +260,16 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
       );
     });
     expect(
-      container
-        .querySelector<HTMLIFrameElement>(
-          "[data-live-edit-transition-fallback]",
-        )
-        ?.getAttribute("srcdoc"),
-    ).toContain("Chat preview");
+      container.querySelector("[data-live-edit-transition-fallback]"),
+    ).toBeNull();
     expect(container.querySelector("[data-design-preview-iframe]")).toBe(
       focusedIframe,
     );
+    expect(
+      container
+        .querySelector<HTMLIFrameElement>("[data-design-preview-iframe]")
+        ?.getAttribute("src"),
+    ).toContain("/live-edit?");
 
     await act(async () => {
       window.dispatchEvent(

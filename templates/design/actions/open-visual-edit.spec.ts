@@ -2,8 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   addLocalhostScreensRun: vi.fn(),
+  addSession: vi.fn(),
   connectLocalhostRun: vi.fn(),
   createDesignRun: vi.fn(),
+  getRequestUserEmail: vi.fn(),
   navigateRun: vi.fn(),
   writeAppState: vi.fn(),
 }));
@@ -18,6 +20,7 @@ vi.mock("@agent-native/core/application-state", () => ({
 }));
 
 vi.mock("@agent-native/core/server", () => ({
+  addSession: mocks.addSession,
   buildDeepLink: ({
     to,
   }: {
@@ -26,6 +29,10 @@ vi.mock("@agent-native/core/server", () => ({
     params: Record<string, unknown>;
     to: string;
   }) => `agent-native://open${to}`,
+}));
+
+vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestUserEmail: mocks.getRequestUserEmail,
 }));
 
 vi.mock("./connect-localhost.js", () => ({
@@ -61,8 +68,12 @@ import action from "./open-visual-edit.js";
 describe("open-visual-edit", () => {
   beforeEach(() => {
     mocks.addLocalhostScreensRun.mockReset();
+    mocks.addSession.mockReset();
+    mocks.addSession.mockResolvedValue(undefined);
     mocks.connectLocalhostRun.mockReset();
     mocks.createDesignRun.mockReset();
+    mocks.getRequestUserEmail.mockReset();
+    mocks.getRequestUserEmail.mockReturnValue("owner@example.com");
     mocks.navigateRun.mockReset();
     mocks.writeAppState.mockReset();
 
@@ -267,5 +278,43 @@ describe("open-visual-edit", () => {
     });
 
     expect(parsed.success).toBe(true);
+  });
+
+  it("mints a caller session and embeds it in openUrl so an anonymous /visual-edit browser signs in as the caller", async () => {
+    const result = await action.run({
+      designId: "design_1",
+      devServerUrl: "http://localhost:5173",
+      paths: ["/"],
+      navigate: false,
+    });
+
+    expect(mocks.addSession).toHaveBeenCalledTimes(1);
+    const [token, email] = mocks.addSession.mock.calls[0]!;
+    expect(email).toBe("owner@example.com");
+    expect(typeof token).toBe("string");
+    expect(token.length).toBeGreaterThan(0);
+
+    expect(result.openUrl).toBe(
+      `agent-native://open/design/design_1?editorView=overview&_session=${token}`,
+    );
+    // The agent-surfaced "Open overview" link reuses the same session-bearing
+    // URL rather than a bare read-only deep link.
+    expect(action.link!({ args: {}, result }).url).toBe(result.openUrl);
+  });
+
+  it("does not mint or attach a session when the action has no authenticated caller", async () => {
+    mocks.getRequestUserEmail.mockReturnValue(undefined);
+
+    const result = await action.run({
+      designId: "design_1",
+      devServerUrl: "http://localhost:5173",
+      paths: ["/"],
+      navigate: false,
+    });
+
+    expect(mocks.addSession).not.toHaveBeenCalled();
+    expect(result.openUrl).toBe(
+      "agent-native://open/design/design_1?editorView=overview",
+    );
   });
 });

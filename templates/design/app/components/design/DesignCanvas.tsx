@@ -630,6 +630,7 @@ interface DesignCanvasProps {
    * 100% height.
    */
   previewWidthPx?: number;
+  previewHeightPx?: number;
   /**
    * Shader-fill CSS preview to apply to a selected element inside the iframe.
    *
@@ -875,7 +876,7 @@ const LIVE_EDIT_SAME_INSTANCE_MAX_REARM_DELAY_MS = 16_000;
 const LIVE_EDIT_SAME_INSTANCE_ERROR_CEILING_MS = 48_000;
 
 // Successful bridge registrations belong to the localhost bridge process,
-// not to one React DesignCanvas instance. Overview -> Full view currently
+// not to one React DesignCanvas instance. Canvas -> responsive Interact
 // replaces the overview canvas component with a focused canvas component; a
 // component-local registration flag made that transition mount an empty
 // srcdoc first and then replace it with the live URL after an identical POST.
@@ -1103,6 +1104,7 @@ export function DesignCanvas({
   motionDefaultEase,
   motionDurationMs,
   previewWidthPx,
+  previewHeightPx,
   onComponentSourceJump,
   shaderFillPreview,
   gradientEditTarget,
@@ -1360,8 +1362,11 @@ export function DesignCanvas({
   );
   // Keep the installed gesture script identical between overview and focused
   // mode. The live flags are posted below; baking `isEmbeddedFrame` into the
-  // script changed the bridge key during Full view and defeated the
+  // script changed the bridge key during responsive Interact and defeated the
   // registration handoff cache, forcing an avoidable iframe navigation.
+  // interactMode remains baked: un-baking its first-paint safety flag made the
+  // responsive iframe render blank in live verification. The live message
+  // below is additive; it does not replace the correct initial script.
   const embeddedGestureBridgeForCurrentState = useMemo(
     () =>
       EMBEDDED_WHEEL_BRIDGE_SCRIPT.replace(
@@ -2175,14 +2180,22 @@ export function DesignCanvas({
     });
     let frameDocument: string;
     if (frameContent.includes("</body>")) {
+      // Replacer must be a function, not a string: bridgeToInject embeds the
+      // compiled editor-chrome bridge, which contains literal "$&" (see its
+      // escapeIdent helper). A string replacement arg makes String.replace
+      // treat "$&" as the special "insert the matched text" pattern, splicing
+      // a stray "</body>" into the middle of the bridge's own script text and
+      // truncating its <script> tag early — silently breaking selection/hover
+      // for every embedded screen. A function replacer inserts its return
+      // value verbatim, with no $-pattern substitution.
       frameDocument = frameContent.replace(
         "</body>", // i18n-ignore generated iframe HTML injection
-        bridgeToInject + "</body>", // i18n-ignore generated iframe HTML injection
+        () => bridgeToInject + "</body>", // i18n-ignore generated iframe HTML injection
       ); // i18n-ignore generated iframe HTML injection
     } else if (frameContent.includes("</html>")) {
       frameDocument = frameContent.replace(
         "</html>", // i18n-ignore generated iframe HTML injection
-        bridgeToInject + "</html>", // i18n-ignore generated iframe HTML injection
+        () => bridgeToInject + "</html>", // i18n-ignore generated iframe HTML injection
       ); // i18n-ignore generated iframe HTML injection
     } else {
       // No body/html tags — wrap it
@@ -2248,13 +2261,15 @@ export function DesignCanvas({
     previousIframeDocumentIdentityRef.current = iframeDocumentIdentity;
     bridgeReadyRef.current = false;
   }
+  // No snapshot is ever painted over the live frame, not even for the few
+  // frames of a document swap. Covering the real iframe with a frozen copy is
+  // the same false-success shape as rendering the snapshot outright: when the
+  // swap stalls, the canvas keeps showing a screen that looks correct and
+  // responds to nothing. A brief flash is the honest signal.
   const liveEditDocumentPending =
     usesLiveEditEditorBridge &&
     Boolean(externalPreviewUrl) &&
     readyIframeDocumentIdentity !== iframeDocumentIdentity;
-  const liveEditTransitionFallbackHtml = liveEditDocumentPending
-    ? activeExternalSnapshotHtml
-    : undefined;
 
   // Listen for messages from the iframe
   useEffect(() => {
@@ -3274,15 +3289,33 @@ export function DesignCanvas({
   ]);
 
   // Overview/focused placement is presentation state, not document identity.
-  // Update gesture routing in place so entering Full view reuses the same
+  // Update gesture routing in place when entering responsive Interact.
   // registered bridge key instead of rebuilding the injected script.
+  //
+  // readyIframeDocumentIdentity is a dep purely to re-fire this on every
+  // (re)ready handshake: a document swap resets bridgeReadyRef and wipes
+  // pendingOneShotMessagesRef (see the contentKey-change effect above), which
+  // silently drops this message if it was still queued when the swap
+  // happened. Its own value isn't read here — only bridgeReadyRef.current
+  // (already true by the time the ready handler flips this state) matters,
+  // so re-running always sends live instead of re-queuing into the
+  // just-cleared queue.
   useEffect(() => {
     postOneShotBridgeMessage({
       type: "embedded-canvas-gesture-mode",
       wheelEnabled: isEmbeddedFrame,
       spaceKeyForwardingEnabled: interactMode || readOnly,
+      // Interact hands the app its own native interaction back; every other
+      // mode keeps the editing shield armed.
+      editingSafetyEnabled: !interactMode,
     });
-  }, [interactMode, isEmbeddedFrame, postOneShotBridgeMessage, readOnly]);
+  }, [
+    interactMode,
+    isEmbeddedFrame,
+    postOneShotBridgeMessage,
+    readOnly,
+    readyIframeDocumentIdentity,
+  ]);
 
   // The board iframe is a finite paint window over an infinite logical
   // canvas. Re-centering that window must update its CSS/bridge coordinate
@@ -3959,6 +3992,12 @@ export function DesignCanvas({
     previewWidthPx !== null && previewWidthPx !== undefined
       ? `${previewWidthPx}px`
       : iframeWidth;
+  const resolvedHeight =
+    previewHeightPx !== null && previewHeightPx !== undefined
+      ? `${previewHeightPx}px`
+      : deviceFrame === "none"
+        ? "100%"
+        : (iframeHeight ?? undefined);
   const focusScrollSurface = useCallback(() => {
     const surface = scrollContainerRef.current;
     if (!surface || document.activeElement === surface) return;
@@ -4147,9 +4186,7 @@ export function DesignCanvas({
           ? embeddedFrameFluid
             ? "100%"
             : embeddedFrame.viewportHeight
-          : deviceFrame === "none"
-            ? "100%"
-            : (iframeHeight ?? undefined),
+          : resolvedHeight,
         // BP-DEEP item 2: when a breakpoint chip constrains the viewport
         // (previewWidthPx) the wrapper is NARROWER than the canvas, so there
         // is no horizontal overflow for the scroll-centering effect above to
@@ -4191,21 +4228,6 @@ export function DesignCanvas({
           )}
         />
       ) : null}
-      {liveEditTransitionFallbackHtml ? (
-        <iframe
-          data-live-edit-transition-fallback
-          srcDoc={liveEditTransitionFallbackHtml}
-          sandbox=""
-          aria-hidden="true"
-          tabIndex={-1}
-          className="pointer-events-none absolute inset-0 block h-full w-full border-0 bg-transparent"
-          style={{
-            background: iframeBackgroundColor,
-            backgroundColor: iframeBackgroundColor,
-          }}
-          title=""
-        />
-      ) : null}
       <iframe
         key={iframeDocumentIdentity}
         ref={iframeRef}
@@ -4230,10 +4252,7 @@ export function DesignCanvas({
             ? "localhost" // inferred — content is a URL
             : "inline")
         }
-        className={cn(
-          "relative block h-full w-full border-0 bg-transparent",
-          liveEditTransitionFallbackHtml && "pointer-events-none opacity-0",
-        )}
+        className="relative block h-full w-full border-0 bg-transparent"
         style={{
           background: iframeBackgroundColor,
           backgroundColor: iframeBackgroundColor,
@@ -4335,7 +4354,7 @@ export function DesignCanvas({
       ) : null}
       {waitingForEditableExternalSnapshot ||
       waitingForLiveEditBridge ||
-      (liveEditDocumentPending && !liveEditTransitionFallbackHtml) ? (
+      liveEditDocumentPending ? (
         <div className="pointer-events-auto absolute inset-0 z-10 flex items-center justify-center bg-background/85 px-4 text-center text-sm text-muted-foreground">
           {waitingForLiveEditBridge &&
           bridgeRegistrationError?.bridgeKey === liveEditBridgeKey ? (
