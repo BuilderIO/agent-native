@@ -18,10 +18,7 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 
 vi.mock("../server/db/index.js", () => ({}));
 
-import {
-  assertServerPptxExportable,
-  fetchImageAsBase64,
-} from "./export-pptx";
+import { assertServerPptxExportable, fetchImageAsBase64 } from "./export-pptx";
 
 describe("fetchImageAsBase64", () => {
   beforeEach(() => {

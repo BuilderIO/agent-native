@@ -72,6 +72,7 @@ import type { DesignSystemData } from "../../../shared/api";
 import { BlockBubbleMenu } from "./BlockBubbleMenu";
 import ImageOverlay from "./ImageOverlay";
 import {
+  clientPointToSlideCoordinates,
   cloneSlideObject,
   ensureSlideObjectId,
   escapedEditingSelection,
@@ -80,6 +81,7 @@ import {
   type ResizeHandle,
   type SlideObjectGeometry,
 } from "./slide-object-interactions";
+import { decideSlideEscape } from "./slide-escape-arbiter";
 import { getPassiveSlidePresenceUsers } from "./slide-presence";
 import {
   SlideStyleInspector,
@@ -400,8 +402,15 @@ interface SlidesSelectionState {
   slideId: string;
   slideIndex: number;
   slideNumber: number;
-  mode: "single" | "multi" | "image" | "editing";
-  activeTool?: "select" | "draw" | "pin";
+  mode:
+    | "single"
+    | "multi"
+    | "image"
+    | "editing"
+    | "box-selected"
+    | "resizing"
+    | "canvas";
+  activeTool?: "select" | "draw" | "pin" | "text";
   items: SlideSelectionItem[];
 }
 
@@ -1137,7 +1146,7 @@ export default function SlideEditor({
         `3. Reduce slide padding (e.g. 40px top/bottom instead of 60-80px) if the layout is genuinely tight.`,
         `4. If the content really can't be compressed without losing meaning, split it across two slides.`,
         ``,
-        `Do NOT solve this by adding \`transform: scale()\`, \`overflow: scroll\`, or absolute positioning — the renderer no longer auto-shrinks overflowing slides, so the HTML itself has to fit ${dimsW}x${dimsH}.`,
+        `Do NOT solve this by adding \`transform: scale()\` or \`overflow: scroll\`. Preserve existing manually positioned absolute objects, including text boxes; rewrite only the overflowing flow layout so the HTML itself fits ${dimsW}x${dimsH}.`,
       ]
         .filter(Boolean)
         .join("\n"),
@@ -1150,6 +1159,7 @@ export default function SlideEditor({
    *  placing pointerdown doesn't fall through to click-to-select/deselect
    *  logic and steal focus back off the freshly created box. */
   const suppressNextClickRef = useRef(false);
+  const activeGestureCancelRef = useRef<(() => void) | null>(null);
   /**
    * If the user pressed shift/cmd before starting a marquee, additive mode
    * preserves the existing selection on pointerup.
@@ -1221,6 +1231,8 @@ export default function SlideEditor({
         ? "draw"
         : pinMode
           ? "pin"
+          : textBoxMode
+            ? "text"
           : "select",
     ): SlidesSelectionState => ({
       deckId,
@@ -1231,7 +1243,7 @@ export default function SlideEditor({
       activeTool,
       items,
     }),
-    [deckId, drawMode, pinMode, slide.id, slideIndex],
+    [deckId, drawMode, pinMode, slide.id, slideIndex, textBoxMode],
   );
 
   const clearSelectedElement = useCallback(() => {
@@ -1243,7 +1255,11 @@ export default function SlideEditor({
   }, []);
 
   const selectElementForStyling = useCallback(
-    (element: HTMLElement, selector: string) => {
+    (
+      element: HTMLElement,
+      selector: string,
+      selectionMode?: SlidesSelectionState["mode"],
+    ) => {
       const slideContent = getSlideContent();
       if (!slideContent) return;
       const path = elementPathFromRoot(slideContent, element);
@@ -1255,7 +1271,14 @@ export default function SlideEditor({
       setSelectedElementRect(element.getBoundingClientRect());
       setSelectedStyleSnapshot(snapshot);
       syncSelectionToAppState(
-        buildSelectionState(snapshot.isImage ? "image" : "single", [
+        buildSelectionState(
+          selectionMode ??
+            (snapshot.isImage
+              ? "image"
+              : snapshot.isAbsolute
+                ? "box-selected"
+                : "single"),
+          [
           {
             selector,
             kind: snapshot.isImage ? "image" : "element",
@@ -1267,7 +1290,8 @@ export default function SlideEditor({
                 : undefined,
             style: snapshot,
           },
-        ]),
+          ],
+        ),
       );
     },
     [buildSelectionState, getSlideContent],
@@ -1400,12 +1424,6 @@ export default function SlideEditor({
         slideContent &&
         !slideContent.contains(e.target)
       ) {
-        return;
-      }
-      if (e.key === "Escape") {
-        e.preventDefault();
-        e.stopPropagation();
-        exitInlineEdit();
         return;
       }
       if (e.key === "Enter") {
@@ -1689,42 +1707,6 @@ export default function SlideEditor({
     syncSelectionToAppState(null);
   }, [clearSelectedElement, slide.id]);
 
-  // Escape key clears multi-selection (only when not inline-editing)
-  useEffect(() => {
-    if (multiSelection.size === 0) return;
-    if (editingEl) return; // Esc handler in editing mode owns this key
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        clearMultiSelection();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [multiSelection.size, editingEl, clearMultiSelection]);
-
-  // Escape after an inline-edit Escape clears the retained single selection.
-  // Inputs outside the canvas keep their native Escape behavior.
-  useEffect(() => {
-    if (editingEl || !selectedElementSelector) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      const active = document.activeElement;
-      if (
-        active?.tagName === "INPUT" ||
-        active?.tagName === "TEXTAREA" ||
-        (active instanceof HTMLElement && active.isContentEditable)
-      ) {
-        return;
-      }
-      e.preventDefault();
-      clearSelectedElement();
-      syncSelectionToAppState(null);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [clearSelectedElement, editingEl, selectedElementSelector]);
-
   // Delete/Backspace removes the selected shape/text box (single or
   // multi-select) from the slide. Only active when something is selected for
   // styling (not while inline-editing text, where Backspace should delete a
@@ -1821,28 +1803,14 @@ export default function SlideEditor({
         ".fmd-slide",
       ) as HTMLElement | null;
       if (!fmdSlide) return;
-      // .fmd-slide is often visually scaled (canvas zoom, and the autofit
-      // system that shrinks overflowing slides to fit) via a CSS transform.
-      // A transform doesn't change the element's own layout coordinate
-      // space, so a pixel offset computed from its on-screen rect would be
-      // scaled a second time once applied to a child. Percentages resolve
-      // against that untransformed layout box, so they land at the actual
-      // click point regardless of the current scale.
       const rect = fmdSlide.getBoundingClientRect();
-      const xPct =
-        rect.width > 0
-          ? Math.min(
-              100,
-              Math.max(0, ((clientX - rect.left) / rect.width) * 100),
-            )
-          : 0;
-      const yPct =
-        rect.height > 0
-          ? Math.min(
-              100,
-              Math.max(0, ((clientY - rect.top) / rect.height) * 100),
-            )
-          : 0;
+      const { x, y } = clientPointToSlideCoordinates(
+        clientX,
+        clientY,
+        rect,
+        fmdSlide.offsetWidth,
+        fmdSlide.offsetHeight,
+      );
 
       if (getComputedStyle(fmdSlide).position === "static") {
         fmdSlide.style.position = "relative";
@@ -1853,8 +1821,8 @@ export default function SlideEditor({
       ensureSlideObjectId(box);
       ensureBuilderId(box);
       box.style.position = "absolute";
-      box.style.left = `${xPct}%`;
-      box.style.top = `${yPct}%`;
+      box.style.left = `${x}px`;
+      box.style.top = `${y}px`;
       box.style.width = "320px";
       box.style.fontSize = "24px";
       box.style.color = "#fff";

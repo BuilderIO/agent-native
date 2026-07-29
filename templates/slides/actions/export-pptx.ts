@@ -351,7 +351,7 @@ export async function fetchImageAsBase64(url: string): Promise<string | null> {
 
 export default defineAction({
   description:
-    "Export a deck as a PowerPoint (.pptx) file. Returns a download URL for the generated file.",
+    "Export a normal-flow deck as a PowerPoint (.pptx) file. Decks with freeform positioned objects must use the Slides editor's Export > PowerPoint flow so browser-rendered geometry is preserved. Returns a download URL for the generated file.",
   schema: z.object({
     deckId: z.string().describe("Deck ID to export"),
     includeNotes: z

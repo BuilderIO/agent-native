@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  clientPointToSlideCoordinates,
   cloneSlideObject,
   ensureSlideObjectId,
   escapedEditingSelection,
@@ -11,6 +12,18 @@ import {
 } from "./slide-object-interactions";
 
 describe("slide object interactions", () => {
+  it("places boxes in unscaled slide pixels instead of transformed percentages", () => {
+    expect(
+      clientPointToSlideCoordinates(
+        350,
+        225,
+        { left: 100, top: 75, width: 960, height: 540 },
+        1920,
+        1080,
+      ),
+    ).toEqual({ x: 500, y: 300 });
+  });
+
   it("gives clones a distinct persisted identity and drops runtime ids", () => {
     const object = document.createElement("div");
     object.dataset.builderId = "b-1";

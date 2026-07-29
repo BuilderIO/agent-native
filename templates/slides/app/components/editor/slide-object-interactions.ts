@@ -9,6 +9,13 @@ export interface SlideObjectGeometry {
   height: number;
 }
 
+export interface SlideLayoutRect {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
 export interface ResizeOptions {
   handle: ResizeHandle;
   dx: number;
@@ -56,6 +63,28 @@ export function cloneSlideObject(element: HTMLElement): HTMLElement {
   removeTransientBuilderIds(clone);
   clone.setAttribute("data-slide-object-id", createSlideObjectId());
   return clone;
+}
+
+/** Convert a viewport click into the unscaled fmd-slide coordinate system. */
+export function clientPointToSlideCoordinates(
+  clientX: number,
+  clientY: number,
+  rect: SlideLayoutRect,
+  slideWidth: number,
+  slideHeight: number,
+): { x: number; y: number } {
+  const x =
+    rect.width > 0
+      ? ((clientX - rect.left) / rect.width) * slideWidth
+      : 0;
+  const y =
+    rect.height > 0
+      ? ((clientY - rect.top) / rect.height) * slideHeight
+      : 0;
+  return {
+    x: Math.round(Math.min(slideWidth, Math.max(0, x))),
+    y: Math.round(Math.min(slideHeight, Math.max(0, y))),
+  };
 }
 
 export function resizeSlideObject(
