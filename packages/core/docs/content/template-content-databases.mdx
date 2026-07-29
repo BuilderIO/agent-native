@@ -1,0 +1,406 @@
+---
+title: "Content: Databases, Properties & Forms"
+description: "Build Notion-style databases inside Content, connect them to an external source with reviewable sync, and collect submissions through intake forms."
+---
+
+# Databases, Properties & Forms
+
+A Content database is a Notion-style table where every row is itself a full document. This page covers building one, giving it structured columns, optionally connecting it to an outside source, and using it to collect submissions through a form. It's useful for anyone setting up a tracker, roadmap, or intake queue, with a few details near the bottom for developers connecting an external source.
+
+## Databases are pages with rows
+
+Turn any page into a database (or ask the agent to "create a database called Feature Requests") and it renders as a table where each row opens into its own document — a row page can hold its own rich content, sub-pages, comments, and version history, just like any other document. Row pages are reached from the database view rather than the ordinary sidebar tree, so a database with hundreds of rows doesn't clutter your page list.
+
+## Properties
+
+Add columns (properties) to describe each row. Supported types: text, number, select, multi-select, status, date, person, place, files & media, checkbox, url, email, phone, and a rich-text "Blocks" field for longer per-row content beyond the main body. Computed properties (formula, created time/by, last-edited time/by) fill in automatically. Every property and option can carry its own description, so the agent (and your teammates) know what belongs in a field before writing a value into it.
+
+## Views
+
+Save as many named views as you want per database — table, list, gallery, board, calendar, timeline, or form — each with its own sort, filters, grouping, hidden columns, and layout settings. A calendar or timeline view plots rows by a date property; a board view groups rows into columns by status or a select property, and dragging a card between columns updates that row's property.
+
+## Connecting an external source
+
+A database can mirror rows from an outside source instead of (or in addition to) rows you create by hand: a Notion database, a Builder CMS model, or a local table in your own app. Attaching a source reads a snapshot of its fields and rows into Content — nothing is deleted or overwritten sight unseen.
+
+Two attach modes:
+
+- **Add more rows** — the source's entries become their own new rows in your database.
+- **Add details** — the source's fields join onto your _existing_ rows by a shared key (for example, matching a Notion database row to a local row by email or slug), adding read-only columns without duplicating rows.
+
+Once attached, a source can propose changes — new or updated field values it saw upstream — as a **change set** instead of silently applying them. You (or the agent, on your instruction) approve or reject each change set before it lands on the row.
+
+<Diagram id="doc-block-content4" title="Attach, propose, review, apply" summary={"Every external source reads into Content as a proposed change set first. Nothing from an outside source overwrites a row until someone approves it."}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Attach source<br /><small class="diagram-muted"
+        >Notion database · Builder CMS · local table</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Read snapshot</span
+    ><small class="diagram-muted">fields, rows, freshness</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    Change set<br /><small class="diagram-muted">proposed</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Review<br /><small class="diagram-muted">approve / reject</small>
+    </div>
+    <div class="diagram-box">
+      Applied to row<br /><small class="diagram-muted">or discarded</small>
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+Notion database sources are currently read-only "add details" sources — they enrich existing rows but don't create new ones. Builder CMS sources can do either: pull in a whole collection as new rows, or join fields onto rows that already exist.
+
+## Structured intake forms
+
+Turn a database into a form to collect submissions from people, Slack, or another app without anyone touching the database directly. A form view has its own question order and required fields, so the same database can back two different forms for two different audiences.
+
+<Callout tone="warning">
+
+Before submitting a form on someone's behalf, the agent reads the _current_ property and form schema first — required fields, option lists, and question order can all change over time. It only asks for values that are genuinely required and missing, and it never guesses at an option that isn't on the list.
+
+</Callout>
+
+A submission writes the title, rich-text content, and every property value in one step, verifies the row actually saved, and returns a direct link to the new page — so a Slack request like "log a bug: the export button is broken on Safari" becomes one real, linkable row instead of a half-written draft.
+
+## Trash
+
+Deleting a database moves it (and its rows) to Trash separately from ordinary page deletion, so you can browse and restore a removed database without hunting through deleted pages one by one.
+
+## Data model
+
+<DataModel
+  id="doc-block-content5"
+  title="Databases and external sources"
+  summary={
+    "A database is a document with property definitions and rows; an attached external source layers read snapshots, field mappings, and reviewable change sets on top without touching the row until it's approved."
+  }
+  entities={[
+    {
+      id: "content_databases",
+      name: "content_databases",
+      note: "A database object attached to a document (the database's own page)",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "document_id", type: "id", fk: "documents.id" },
+        { name: "title", type: "string" },
+        {
+          name: "view_config_json",
+          type: "json",
+          note: "saved views: sorts, filters, layout",
+        },
+        {
+          name: "primary_blocks_property_id",
+          type: "id",
+          nullable: true,
+          note: "the row body's Blocks field, if seeded",
+        },
+        { name: "deleted_at", type: "datetime", nullable: true },
+      ],
+    },
+    {
+      id: "content_database_items",
+      name: "content_database_items",
+      note: "One row in a database, linking it to its row document",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        {
+          name: "database_id",
+          type: "id",
+          fk: "content_databases.id",
+        },
+        { name: "document_id", type: "id", fk: "documents.id" },
+        { name: "position", type: "int" },
+        {
+          name: "body_hydration_status",
+          type: "enum",
+          note: "hydrated | pending | error — source-imported row bodies",
+        },
+      ],
+    },
+    {
+      id: "document_property_definitions",
+      name: "document_property_definitions",
+      note: "Column definitions for a database",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "database_id", type: "id", fk: "content_databases.id" },
+        { name: "name", type: "string" },
+        {
+          name: "type",
+          type: "enum",
+          note: "text, select, status, date, blocks, formula, ...",
+        },
+        { name: "description", type: "string" },
+        {
+          name: "visibility",
+          type: "enum",
+          note: "always_show | hide_when_empty | always_hide",
+        },
+        { name: "options_json", type: "json" },
+        { name: "position", type: "int" },
+      ],
+    },
+    {
+      id: "document_property_values",
+      name: "document_property_values",
+      note: "Per-row property values",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "document_id", type: "id", fk: "documents.id" },
+        {
+          name: "property_id",
+          type: "id",
+          fk: "document_property_definitions.id",
+        },
+        { name: "value_json", type: "json" },
+      ],
+    },
+    {
+      id: "document_block_field_contents",
+      name: "document_block_field_contents",
+      note: "Content for every Blocks property beyond the primary body field",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "document_id", type: "id", fk: "documents.id" },
+        {
+          name: "property_id",
+          type: "id",
+          fk: "document_property_definitions.id",
+        },
+        { name: "content", type: "markdown" },
+      ],
+    },
+    {
+      id: "content_database_sources",
+      name: "content_database_sources",
+      note: "One attached external source per database (per attach call)",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "database_id", type: "id", fk: "content_databases.id" },
+        {
+          name: "source_type",
+          type: "enum",
+          note: "notion-database | builder-cms | local-table",
+        },
+        { name: "source_name", type: "string" },
+        { name: "source_table", type: "string" },
+        {
+          name: "sync_state",
+          type: "enum",
+          note: "linked | refreshing | error",
+        },
+        { name: "freshness", type: "string" },
+        { name: "last_refreshed_at", type: "datetime", nullable: true },
+      ],
+    },
+    {
+      id: "content_database_source_fields",
+      name: "content_database_source_fields",
+      note: "Field mapping between a source's columns and local properties",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "source_id", type: "id", fk: "content_database_sources.id" },
+        {
+          name: "property_id",
+          type: "id",
+          nullable: true,
+          fk: "document_property_definitions.id",
+        },
+        { name: "source_field_key", type: "string" },
+        { name: "source_field_label", type: "string" },
+        {
+          name: "write_owner",
+          type: "enum",
+          note: "local | source — who wins on conflict",
+        },
+        { name: "read_only", type: "bool" },
+      ],
+    },
+    {
+      id: "content_database_source_rows",
+      name: "content_database_source_rows",
+      note: "Identity linking one source row to one local row",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "source_id", type: "id", fk: "content_database_sources.id" },
+        {
+          name: "database_item_id",
+          type: "id",
+          fk: "content_database_items.id",
+        },
+        { name: "source_row_id", type: "string" },
+        { name: "source_values_json", type: "json" },
+        { name: "sync_state", type: "enum", note: "linked | ..." },
+      ],
+    },
+    {
+      id: "content_database_source_change_sets",
+      name: "content_database_source_change_sets",
+      note: "A proposed field or row change awaiting review",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "source_id", type: "id", fk: "content_database_sources.id" },
+        {
+          name: "document_id",
+          type: "id",
+          nullable: true,
+          fk: "documents.id",
+        },
+        {
+          name: "direction",
+          type: "enum",
+          note: "incoming | outgoing",
+        },
+        {
+          name: "state",
+          type: "enum",
+          note: "proposed | approved | rejected | applied",
+        },
+        { name: "summary", type: "string" },
+        { name: "field_changes_json", type: "json" },
+      ],
+    },
+    {
+      id: "content_database_source_change_reviews",
+      name: "content_database_source_change_reviews",
+      note: "An audit row per review decision on a change set",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        {
+          name: "change_set_id",
+          type: "id",
+          fk: "content_database_source_change_sets.id",
+        },
+        { name: "reviewer_email", type: "string" },
+        { name: "decision", type: "enum", note: "approved | rejected" },
+        { name: "note", type: "string", nullable: true },
+      ],
+    },
+    {
+      id: "content_database_source_executions",
+      name: "content_database_source_executions",
+      note: "A guarded write-back attempt for an approved change set",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "source_id", type: "id", fk: "content_database_sources.id" },
+        {
+          name: "change_set_id",
+          type: "id",
+          fk: "content_database_source_change_sets.id",
+        },
+        { name: "adapter", type: "string" },
+        { name: "state", type: "string" },
+        {
+          name: "idempotency_key",
+          type: "string",
+          note: "prevents a retried push from double-writing",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "content_databases",
+      to: "content_database_items",
+      kind: "1-n",
+      label: "has rows",
+    },
+    {
+      from: "content_databases",
+      to: "document_property_definitions",
+      kind: "1-n",
+      label: "has properties",
+    },
+    {
+      from: "document_property_definitions",
+      to: "document_property_values",
+      kind: "1-n",
+      label: "has values",
+    },
+    {
+      from: "content_databases",
+      to: "content_database_sources",
+      kind: "1-n",
+      label: "has attached sources",
+    },
+    {
+      from: "content_database_sources",
+      to: "content_database_source_fields",
+      kind: "1-n",
+      label: "maps fields",
+    },
+    {
+      from: "content_database_sources",
+      to: "content_database_source_rows",
+      kind: "1-n",
+      label: "links rows",
+    },
+    {
+      from: "content_database_sources",
+      to: "content_database_source_change_sets",
+      kind: "1-n",
+      label: "proposes changes",
+    },
+    {
+      from: "content_database_source_change_sets",
+      to: "content_database_source_change_reviews",
+      kind: "1-n",
+      label: "records reviews",
+    },
+    {
+      from: "content_database_source_change_sets",
+      to: "content_database_source_executions",
+      kind: "1-1",
+      label: "executes once approved",
+    },
+  ]}
+/>
+
+For the action names behind attach/refresh/review/submit, see the [Developer Guide](/docs/template-content-developers#action-inventory).
+
+## What's next
+
+- [Content overview](/docs/template-content) — what the app is and how to get started
+- [Writing & organizing documents](/docs/template-content-editing) — the editor, page tree, and sharing model a database's row pages build on
+- [Local files, Notion & Builder CMS sync](/docs/template-content-sync) — syncing whole documents, as opposed to database rows
+- [Developer Guide](/docs/template-content-developers) — the full data model and action inventory

@@ -65,6 +65,7 @@ import {
   listAgentEngines,
   registerBuiltinEngines,
 } from "../agent/engine/index.js";
+import { SYSTEM_PROMPT_CACHE_SPLIT } from "../agent/engine/prompt-cache.js";
 import type { EngineMessage } from "../agent/engine/types.js";
 import {
   createProductionAgentHandler,
@@ -73,6 +74,7 @@ import {
   toolCallCacheKey,
   getActiveRunForThreadAsync,
   abortRunDurably,
+  abortTurnDurably,
   subscribeToRun,
   type ActionEntry,
 } from "../agent/production-agent.js";
@@ -88,8 +90,10 @@ import {
 import {
   buildAssistantMessage,
   buildUserMessage,
+  claimQueuedMessage,
   extractThreadMeta,
   foldAssistantTurn,
+  hasClaimedQueuedMessage,
   mergeThreadDataForClientSave,
   upsertUserMessage,
 } from "../agent/thread-data-builder.js";
@@ -100,6 +104,7 @@ import type {
   MentionProvider,
 } from "../agent/types.js";
 import { readAppStateForCurrentTab } from "../application-state/script-helpers.js";
+import { runChatThreadDataMigrations } from "../chat-threads/migrations.js";
 import {
   createThread,
   forkThread,
@@ -278,6 +283,7 @@ import {
   runMCPAgentLoop,
   assembleA2AFinalResponse,
   buildPublicAgentA2ASkills,
+  buildAuthenticatedAgentA2ASkills,
   resolveArtifactBaseUrl,
 } from "./agent-chat/action-filters-a2a.js";
 import {
@@ -441,6 +447,19 @@ const generateTitleRateLimit = new Map<string, number[]>();
 const RATE_LIMIT_SWEEP_THRESHOLD = 1000;
 
 /**
+ * Abort reasons that mean a human asked to stop, so `/runs/:id/abort` escalates
+ * to a turn-wide abort. Watchdog reasons (`no_progress`, `auto_stuck_retry`)
+ * stay single-run: they end a chunk the client believes is dead and must not
+ * kill a server-side continuation chain that is still making progress.
+ */
+export const USER_STOP_ABORT_REASONS = new Set([
+  "user",
+  "abort",
+  "user_stuck_cancel",
+  "user_stuck_retry",
+]);
+
+/**
  * Pick the URL allowlist to enforce for a `${keys.NAME}` reference used by
  * the agent fetch tool.
  *
@@ -487,21 +506,9 @@ export function createAgentChatPlugin(
       const { awaitBootstrap } = await import("./framework-request-handler.js");
       await awaitBootstrap(nitroApp);
 
-      // Reap phantom runs left over from the previous process (HMR restart,
-      // process crash, isolate eviction). Any run whose heartbeat is already
-      // stale by startup time had a dead producer; mark it errored so the
-      // next /runs/active check returns a terminal status and reconnecting
-      // clients don't spin on "Thinking...". Runs owned by OTHER live
-      // isolates are protected by their fresh heartbeats.
-      try {
-        const { reapAllStaleRuns } = await import("../agent/run-store.js");
-        const reaped = await reapAllStaleRuns();
-        if (reaped > 0) {
-          console.log(`[agent-chat] reaped ${reaped} stale run(s) on startup`);
-        }
-      } catch {
-        // Best effort — don't block plugin init if SQL isn't ready yet.
-      }
+      // Never make route readiness wait on an org-global stale-run sweep.
+      // `/runs/active` reaps the requested run on demand, and the periodic
+      // recovery sweep below handles abandoned runs with no connected client.
 
       const env = process.env.NODE_ENV;
       // AGENT_MODE=production forces production agent constraints even in dev
@@ -546,44 +553,47 @@ export function createAgentChatPlugin(
         extensionTools: options?.extensionTools,
       });
 
-      // Initialize MCP client. Merges file/env config + auto-detected binaries
-      // + any remote servers users have added through the settings UI (persisted
-      // in the settings table, scanned across all scopes so we never drop
-      // another user's entries). Graceful-degrade: any failure yields zero MCP
-      // tools and agent-chat keeps working as before.
-      let mcpConfig = await buildMergedConfig().catch((err) => {
-        console.warn(
-          `[mcp-client] buildMergedConfig failed: ${err?.message ?? err}`,
-        );
-        return null;
-      });
-      if (!mcpConfig) {
-        const fileOrEnv = loadMcpConfig() ?? autoDetectMcpConfig();
-        mcpConfig = fileOrEnv;
-        if (mcpConfig?.source) {
-          console.log(
-            `[mcp-client] loaded config from ${mcpConfig.source} (${Object.keys(mcpConfig.servers).length} server(s))`,
+      // Route readiness must not wait on settings scans, remote hub fetches, or
+      // third-party MCP handshakes. Build the action surface against an empty
+      // manager, then hydrate it after every live action registry has subscribed
+      // to manager changes.
+      const mcpManager = new McpClientManager(null);
+      setGlobalMcpManager(mcpManager);
+      const mcpActionEntries: Record<string, ActionEntry> = {};
+      let mcpInitializationPromise: Promise<void> | null = null;
+      const initializeMcpManager = async (): Promise<void> => {
+        let mcpConfig = await buildMergedConfig().catch((err) => {
+          console.warn(
+            `[mcp-client] buildMergedConfig failed: ${err?.message ?? err}`,
           );
-        } else if (process.env.DEBUG) {
+          return null;
+        });
+        if (!mcpConfig) {
+          mcpConfig = loadMcpConfig() ?? autoDetectMcpConfig();
+          if (mcpConfig?.source) {
+            console.log(
+              `[mcp-client] loaded config from ${mcpConfig.source} (${Object.keys(mcpConfig.servers).length} server(s))`,
+            );
+          } else if (process.env.DEBUG) {
+            console.log(
+              "[mcp-client] no configured MCP servers — skipping MCP tools",
+            );
+          }
+        } else if (mcpConfig.source) {
           console.log(
-            "[mcp-client] no configured MCP servers — skipping MCP tools",
+            `[mcp-client] merged config (${Object.keys(mcpConfig.servers).length} server(s), source: ${mcpConfig.source})`,
           );
         }
-      } else if (mcpConfig.source) {
-        console.log(
-          `[mcp-client] merged config (${Object.keys(mcpConfig.servers).length} server(s), source: ${mcpConfig.source})`,
-        );
-      }
-      const mcpManager = new McpClientManager(mcpConfig);
-      try {
-        await mcpManager.start();
-      } catch (err: any) {
-        console.warn(
-          `[mcp-client] start() failed: ${err?.message ?? err}. Continuing without MCP tools.`,
-        );
-      }
-      setGlobalMcpManager(mcpManager);
-      const mcpActionEntries = mcpToolsToActionEntries(mcpManager);
+        try {
+          await mcpManager.reconfigure(mcpConfig);
+        } catch (err: any) {
+          console.warn(
+            `[mcp-client] initialization failed: ${err?.message ?? err}. Continuing without MCP tools.`,
+          );
+        } finally {
+          startMcpConfigRefresh(mcpManager);
+        }
+      };
       const getJobMcpActionEntries = (
         job?: RecurringJobContext,
       ): Record<string, ActionEntry> => {
@@ -604,8 +614,11 @@ export function createAgentChatPlugin(
       // Mount status + management routes so the settings UI can list / add /
       // remove remote MCP servers and hot-reload the running manager.
       mountMcpStatusRoute(nitroApp, mcpManager);
-      mountMcpServersRoutes(nitroApp, mcpManager);
-      startMcpConfigRefresh(mcpManager);
+      mountMcpServersRoutes(nitroApp, mcpManager, {
+        // Serialize an unusually early settings mutation behind the initial
+        // config snapshot so stale startup data cannot overwrite the write.
+        waitUntilReady: () => mcpInitializationPromise ?? Promise.resolve(),
+      });
       // Hub-serve: expose org-scope servers to other agent-native apps in the
       // workspace when `AGENT_NATIVE_MCP_HUB_TOKEN` is set (dispatch, by
       // convention). Gated by the env var so mounting is a no-op otherwise.
@@ -1032,6 +1045,12 @@ export function createAgentChatPlugin(
           await import("../workspace-files/tool.js");
         workspaceFilesTool = createWorkspaceFilesTool();
       } catch {}
+      let workspaceFileActions: Record<string, ActionEntry> = {};
+      try {
+        const { createWorkspaceFileActionEntries } =
+          await import("../workspace-files/actions.js");
+        workspaceFileActions = createWorkspaceFileActionEntries();
+      } catch {}
       let toolActions: Record<string, ActionEntry> =
         createDataWidgetActionEntries();
       if (extensionToolsEnabled) {
@@ -1227,6 +1246,7 @@ export function createAgentChatPlugin(
               ...fetchTool,
               ...webSearchTool,
               ...workspaceFilesTool,
+              ...workspaceFileActions,
               ...toolActions,
               ...browserSessionTools,
               ...coreEmailTools,
@@ -1252,6 +1272,7 @@ export function createAgentChatPlugin(
               ...fetchTool,
               ...webSearchTool,
               ...workspaceFilesTool,
+              ...workspaceFileActions,
               ...toolActions,
               ...browserSessionTools,
               ...coreEmailTools,
@@ -1291,6 +1312,7 @@ export function createAgentChatPlugin(
             ...fetchTool,
             ...webSearchTool,
             ...workspaceFilesTool,
+            ...workspaceFileActions,
             ...toolActions,
             ...browserSessionTools,
             ...coreEmailTools,
@@ -1309,6 +1331,10 @@ export function createAgentChatPlugin(
           : "Agent",
         description: `Agent-native ${options?.appId ?? "app"} agent`,
         skills: buildPublicAgentA2ASkills(allScripts),
+        authenticatedSkills: buildAuthenticatedAgentA2ASkills(
+          mcpFullActions ?? allScripts,
+          options ?? {},
+        ),
         publicSkillsOnly: true,
         streaming: true,
         durableBackgroundRuns: options?.durableBackgroundRuns,
@@ -1585,12 +1611,14 @@ export function createAgentChatPlugin(
           const runtimeContext = runtimeContextForEvent(context.event);
           const systemPrompt = devActive
             ? devPrompt +
+              SYSTEM_PROMPT_CACHE_SPLIT +
               resources +
               schemaBlock +
               extra +
               modelOverlay +
               runtimeContext
             : basePrompt +
+              SYSTEM_PROMPT_CACHE_SPLIT +
               resources +
               schemaBlock +
               extra +
@@ -1613,6 +1641,7 @@ export function createAgentChatPlugin(
                   ...fetchTool,
                   ...webSearchTool,
                   ...workspaceFilesTool,
+                  ...workspaceFileActions,
                   ...toolActions,
                   ...browserSessionTools,
                   ...coreEmailTools,
@@ -1634,6 +1663,7 @@ export function createAgentChatPlugin(
                   ...fetchTool,
                   ...webSearchTool,
                   ...workspaceFilesTool,
+                  ...workspaceFileActions,
                   ...toolActions,
                   ...browserSessionTools,
                   ...coreEmailTools,
@@ -1791,6 +1821,10 @@ export function createAgentChatPlugin(
               runSoftTimeoutMs: options?.runSoftTimeoutMs,
             },
             {
+              // Without the hosted default an app that never sets
+              // `runSoftTimeoutMs` resolves to 0 and the wrapper degrades to a
+              // bare `runAgentLoop` — no resume at all on a delegated turn.
+              useHostedDefault: true,
               backgroundFunction:
                 options?.durableBackgroundRuns === true &&
                 isInBackgroundFunctionRuntime(),
@@ -2009,6 +2043,7 @@ export function createAgentChatPlugin(
                     ...fetchTool,
                     ...webSearchTool,
                     ...workspaceFilesTool,
+                    ...workspaceFileActions,
                     ...toolActions,
                     ...mcpActionEntries,
                     ...devScriptsForA2A,
@@ -2026,6 +2061,7 @@ export function createAgentChatPlugin(
                     ...fetchTool,
                     ...webSearchTool,
                     ...workspaceFilesTool,
+                    ...workspaceFileActions,
                     ...toolActions,
                     ...mcpActionEntries,
                     ...(resolvedProdCodeExec !== "off" ? runCodeTool : {}),
@@ -2073,10 +2109,12 @@ export function createAgentChatPlugin(
             // this plugin (A2A above, prod/anonymous/dev handlers below).
             const systemPrompt = devActiveMcp
               ? mcpDevPrompt +
+                SYSTEM_PROMPT_CACHE_SPLIT +
                 resources +
                 schemaBlock +
                 buildRuntimeContextPrompt()
               : basePrompt +
+                SYSTEM_PROMPT_CACHE_SPLIT +
                 resources +
                 schemaBlock +
                 buildRuntimeContextPrompt();
@@ -2126,6 +2164,9 @@ export function createAgentChatPlugin(
                 runSoftTimeoutMs: options?.runSoftTimeoutMs,
               },
               {
+                // Same as the A2A call site: without this a hosted app that
+                // never configured `runSoftTimeoutMs` gets no resume at all.
+                useHostedDefault: true,
                 backgroundFunction:
                   options?.durableBackgroundRuns === true &&
                   isInBackgroundFunctionRuntime(),
@@ -2446,6 +2487,7 @@ export function createAgentChatPlugin(
         threadId: string | undefined;
         message: string;
         attachments?: AgentChatAttachment[];
+        queuedMessageId?: string;
       }) => {
         const threadId = details.threadId;
         if (!threadId) return;
@@ -2488,12 +2530,23 @@ export function createAgentChatPlugin(
             repo = {};
           }
 
+          if (details.queuedMessageId) {
+            if (hasClaimedQueuedMessage(repo, details.queuedMessageId)) {
+              throw createError({
+                statusCode: 409,
+                statusMessage: "Queued message was already submitted",
+              });
+            }
+            repo = claimQueuedMessage(repo, details.queuedMessageId);
+          }
+
           repo = upsertUserMessage(
             repo,
             buildUserMessage({
               text: details.message,
               attachments: details.attachments,
               runId: details.runId,
+              queuedMessageId: details.queuedMessageId,
             }),
           );
 
@@ -2628,6 +2681,7 @@ export function createAgentChatPlugin(
         ...fetchTool,
         ...webSearchTool,
         ...workspaceFilesTool,
+        ...workspaceFileActions,
         ...toolActions,
         ...browserSessionTools,
         ...coreEmailTools,
@@ -2928,6 +2982,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           // less-stable content would still invalidate the cached prefix for
           // everything that follows it — putting it last means a day
           // rollover invalidates as little of the prefix as possible.
+          // `SYSTEM_PROMPT_CACHE_SPLIT` marks where the cacheable prefix ends,
+          // so everything after it can change without a cache write.
           if (leanPrompt) {
             const leanRunPolicyPrompt = buildLeanRunPolicyPrompt(
               codeEditingSurfaceRestriction,
@@ -2947,6 +3003,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             return setSystemPromptOnContext(
               leanBasePrompt +
                 leanRunPolicyPrompt +
+                SYSTEM_PROMPT_CACHE_SPLIT +
                 extra +
                 modelOverlay +
                 runtimeContext,
@@ -2978,6 +3035,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           });
           return setSystemPromptOnContext(
             basePrompt +
+              SYSTEM_PROMPT_CACHE_SPLIT +
               resources +
               schemaBlock +
               codeEditingSurfaceRestriction +
@@ -3163,6 +3221,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   ...fetchTool,
                   ...webSearchTool,
                   ...workspaceFilesTool,
+                  ...workspaceFileActions,
                   ...toolActions,
                   ...browserSessionTools,
                   ...coreEmailTools,
@@ -4556,6 +4615,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             // the cross-isolate abort + terminal event to be durable. Returning
             // early lets Retry collide with the still-running row.
             await abortRunDurably(runId, reason);
+            if (USER_STOP_ABORT_REASONS.has(reason)) {
+              await abortTurnDurably(runId, reason);
+            }
             return { ok: true };
           }
 
@@ -5661,6 +5723,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         }
       }
 
+      mcpInitializationPromise = initializeMcpManager().catch((err) => {
+        console.warn(
+          `[mcp-client] deferred initialization failed: ${err?.message ?? err}`,
+        );
+      });
+      void mcpInitializationPromise;
+
       // ─── Agent Teams orphan sweep ─────────────────────────────────────
       // Re-fires stuck/queued dispatches when the browser is closed and the
       // RunsTray's per-user reconciliation never triggers. Runs every 2 minutes
@@ -5828,7 +5897,18 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 const {
                   listUnclaimedBackgroundRunRows,
                   shouldRedispatchUnclaimedBackgroundRun,
+                  reapAllStaleRuns,
                 } = await import("../agent/run-store.js");
+                // The unclaimed-background sweep below only matches
+                // dispatch_mode='background' — handoffs a worker never
+                // claimed. Once a worker CLAIMS a row nothing periodic looked
+                // at it again, so a dead producer was only reaped when some
+                // client request path or an unrelated run's cleanup happened
+                // to notice (prod: 24 minutes after the last heartbeat,
+                // against a 45s window). `reapAllStaleRuns` is per-row,
+                // idempotent, re-checks staleness at UPDATE time and honours
+                // the in-flight grace, so it is safe on this cadence.
+                await reapAllStaleRuns().catch(() => {});
                 let rows: { id: string; startedAt: number }[];
                 try {
                   rows = await listUnclaimedBackgroundRunRows();
@@ -5907,6 +5987,18 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         }, 20_000); // Start 20s after init (after the agent-teams sweep)
       })();
 
+      // ─── Legacy chat-thread message_count repair ──────────────────────
+      // Long-lived processes apply this name-tracked data migration once.
+      // Serverless isolates skip it: launching a full thread_data scan from
+      // every cold start would recreate the connection stampede this repair
+      // was extracted from table bootstrap to prevent.
+      void runChatThreadDataMigrations(nitroApp).catch((err: unknown) => {
+        console.error(
+          "[chat-threads] legacy message_count repair failed — retrying on the next long-lived boot:",
+          err,
+        );
+      });
+
       // ─── Trigger Dispatcher (event-based automations) ─────────────────
       if (disableRecurringJobsRuntime) {
         if (process.env.DEBUG) {
@@ -5957,7 +6049,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           });
           if (process.env.DEBUG)
             console.log("[triggers] Trigger dispatcher initialized");
-        } catch (err) {
+        } catch {
           // Triggers module not available — skip silently
         }
       }

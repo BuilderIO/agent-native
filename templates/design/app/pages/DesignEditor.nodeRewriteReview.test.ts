@@ -10,21 +10,15 @@ describe("DesignEditor candidate review navigation", () => {
   );
 
   it("keeps review in Overview and only uses focused navigation from Single view", () => {
-    const overviewBranch = reviewHandler.slice(
-      reviewHandler.indexOf('viewModeRef.current === "overview"'),
-      reviewHandler.indexOf("handleSidebarScreenSelect"),
-    );
-
-    expect(overviewBranch).toContain("setActiveFileId(proposal.fileId)");
-    expect(overviewBranch).toContain(
+    expect(reviewHandler).toContain('viewModeRef.current = "overview"');
+    expect(reviewHandler).toContain('setViewMode("overview")');
+    expect(reviewHandler).toContain("setActiveFileId(proposal.fileId)");
+    expect(reviewHandler).toContain(
       "setOverviewSelectedScreenIds([proposal.fileId])",
     );
-    expect(overviewBranch).toContain("handleBreakpointBarSelect(undefined)");
-    expect(overviewBranch).toContain("setCameraCommand({");
-    expect(overviewBranch).toMatch(/return;\s*}\s*$/);
-    expect(reviewHandler).toContain(
-      "handleSidebarScreenSelect(proposal.fileId)",
-    );
+    expect(reviewHandler).toContain("handleBreakpointBarSelect(undefined)");
+    expect(reviewHandler).toContain("setCameraCommand({");
+    expect(reviewHandler).not.toContain("handleSidebarScreenSelect");
   });
 
   it("mounts one viewport-level panel and marks the active base preview", () => {

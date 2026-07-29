@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { getDefaultMcpIntegrations } from "./mcp-integration-catalog.js";
 import { findMcpConnectionSuggestionIntegration } from "./McpConnectionSuggestion.js";
 
 describe("findMcpConnectionSuggestionIntegration", () => {
@@ -21,5 +22,18 @@ describe("findMcpConnectionSuggestionIntegration", () => {
         variant: "response",
       })?.id,
     ).toBe("notion");
+  });
+
+  it("respects integrations excluded by the host app", () => {
+    const integrations = getDefaultMcpIntegrations({
+      defaults: { exclude: ["hubspot"] },
+    });
+
+    expect(
+      findMcpConnectionSuggestionIntegration({
+        text: "Pull the latest HubSpot deals.",
+        integrations,
+      }),
+    ).toBeNull();
   });
 });

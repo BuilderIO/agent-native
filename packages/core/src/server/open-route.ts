@@ -38,8 +38,13 @@ import {
   isMcpEmbedCorsOrigin,
   MCP_EMBED_CORS_ALLOW_HEADERS,
 } from "../shared/mcp-embed-headers.js";
+import { normalizeAppPath } from "../shared/sign-in-journey.js";
 import { getConfiguredAppBasePath } from "./app-base-path.js";
-import { getSession, getConfiguredLoginHtml } from "./auth.js";
+import {
+  getSession,
+  getConfiguredLoginHtml,
+  redirectWithStagedCookies,
+} from "./auth.js";
 import { requestHasEmbedAuthMarker } from "./embed-session.js";
 
 /** Query keys that are route control, not navigation payload. */
@@ -48,6 +53,11 @@ const RESERVED = new Set([
   "view",
   "to",
   "compose",
+  // Mobile/caller-session bridge token (see `promoteQuerySession` in
+  // auth.ts). `getSession()` below reads and promotes it into a cookie; it
+  // must never also land in `navParams`, or it would be persisted into the
+  // `navigate` application-state row that the client polls and reads.
+  "_session",
   EMBED_MODE_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
   MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
@@ -108,7 +118,11 @@ function safeRelativePath(raw: string | undefined | null): string | null {
   if (!raw.startsWith("/")) return null;
   if (raw.startsWith("//") || raw.startsWith("/\\")) return null;
   if (/^\/[a-z][a-z0-9+.-]*:/i.test(raw)) return null;
-  return raw;
+  // Shared validator: adds the WHATWG reparse the prefix checks above miss,
+  // and the auth-entry rejection, so a deep link cannot resolve to a login
+  // form. No base path here — the base is applied later by
+  // `withConfiguredRedirectBasePath`, so this value is still base-relative.
+  return normalizeAppPath(raw);
 }
 
 function addMcpEmbedHeaders(event: H3Event, headers: Headers): Headers {
@@ -133,11 +147,16 @@ function redirect(
   location: string,
   embedRedirect: boolean,
 ): Response {
-  // Native web Response (not h3 v2's reworked sendRedirect) — matches the
-  // redirect pattern used elsewhere in auth.ts.
-  const headers = new Headers({ Location: location });
-  if (embedRedirect) addMcpEmbedHeaders(event, headers);
-  return new Response("", { status: 302, headers });
+  // A bare `new Response("", { status: 302, headers: { Location } })` here
+  // would silently drop the Set-Cookie `getSession()` just staged below (e.g.
+  // `promoteQuerySession` promoting a `_session` query token) — h3 v2 only
+  // merges `event.res.headers`-staged cookies onto a returned Response when
+  // it's 2xx. Route through the same cookie-preserving redirect auth.ts uses.
+  const response = redirectWithStagedCookies(event, location);
+  if (!embedRedirect) return response;
+  const headers = new Headers(response.headers);
+  addMcpEmbedHeaders(event, headers);
+  return new Response("", { status: response.status, headers });
 }
 
 function appendSearchParams(target: string, params: URLSearchParams): string {

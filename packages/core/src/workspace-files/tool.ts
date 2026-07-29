@@ -133,7 +133,9 @@ export function createWorkspaceFilesTool(): Record<string, ActionEntry> {
               return JSON.stringify({
                 ok: true,
                 action: "write",
+                resourceId: meta.id,
                 path: meta.path,
+                contentType: meta.contentType,
                 sizeBytes: meta.sizeBytes,
                 updatedAt: meta.updatedAt,
               });
@@ -153,7 +155,9 @@ export function createWorkspaceFilesTool(): Record<string, ActionEntry> {
               return JSON.stringify({
                 ok: true,
                 action: "append",
+                resourceId: meta.id,
                 path: meta.path,
+                contentType: meta.contentType,
                 sizeBytes: meta.sizeBytes,
                 updatedAt: meta.updatedAt,
               });

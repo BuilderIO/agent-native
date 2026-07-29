@@ -93,6 +93,7 @@ async function writeAppState(key: string, value: unknown): Promise<void> {
 }
 
 import {
+  BUG_REPORT_POPUP_RESPONSE_HEADERS,
   bugReportTitle,
   parseBugReportContext,
   type BugReportContext,
@@ -129,6 +130,7 @@ export function headers() {
   return {
     "Permissions-Policy":
       "camera=(self), microphone=(self), display-capture=(self), geolocation=(), screen-wake-lock=()",
+    ...BUG_REPORT_POPUP_RESPONSE_HEADERS,
   };
 }
 
@@ -522,10 +524,6 @@ function friendlyRecordingErrorMessage(error: string): string {
   return error;
 }
 
-function userFacingActionErrorMessage(error: string): string {
-  return error.replace(/^Action [a-z0-9-]+ failed:\s*/i, "").trim() || error;
-}
-
 interface PendingRecording {
   id: string;
   uploadChunkUrl: string;
@@ -804,7 +802,6 @@ export default function RecordRoute() {
   // the live camera bubble is hidden during full-screen recording.
   const [resolvedDisplaySurface, setResolvedDisplaySurface] =
     useState<DisplaySurface | null>(null);
-  const [loomImporting, setLoomImporting] = useState(false);
   const [recordingMode, setRecordingMode] =
     useState<RecordingMode>("screen+camera");
   // Surfaced during the post-stop compression pass so the spinner can show
@@ -834,6 +831,17 @@ export default function RecordRoute() {
     const params = new URLSearchParams(location.search);
     return params.get("folderId") || null;
   }, [location.search]);
+  const autoOpenUploadFromUrl = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    return params.get("autoUpload") === "1";
+  }, [location.search]);
+  const importLoomHref = useMemo(() => {
+    const params = new URLSearchParams();
+    if (spaceIdFromUrl) params.set("spaceId", spaceIdFromUrl);
+    if (folderIdFromUrl) params.set("folderId", folderIdFromUrl);
+    const qs = params.toString();
+    return qs ? `/import?${qs}` : "/import";
+  }, [spaceIdFromUrl, folderIdFromUrl]);
   const storageConfigured: boolean | null = storageQuery.isLoading
     ? null
     : !!storageQuery.data?.configured;
@@ -1816,70 +1824,6 @@ export default function RecordRoute() {
     [markStorageConfigured, navigate, probeVideoMetadata, showSavedToast],
   );
 
-  const importLoom = useCallback(
-    async (url: string) => {
-      startSessionRef.current += 1;
-      fileUploadAbortRef.current?.abort(makeAbortError("Upload cancelled"));
-      fileUploadAbortRef.current = null;
-      setError(null);
-      setLoomImporting(true);
-
-      try {
-        const result = (await callAction(
-          "import-loom-recording" as any,
-          {
-            url,
-            spaceIds: spaceIdFromUrl ? [spaceIdFromUrl] : undefined,
-            folderId: folderIdFromUrl ?? undefined,
-          } as any,
-        )) as {
-          recordingId?: string;
-          status?: string;
-          storageSetupRequired?: boolean;
-        };
-        const recordingId = result?.recordingId;
-        if (!recordingId) {
-          throw new Error("Loom import did not return a recording id.");
-        }
-
-        if (
-          result?.storageSetupRequired ||
-          result?.status === "waiting_storage"
-        ) {
-          toast.info(t("recordRoute.storageNeededToFinishLoomImport"), {
-            description: t("recordRoute.connectStorageToRetryLoom"),
-            duration: 12_000,
-          });
-        } else if (result?.status === "processing") {
-          // The video download + reupload run as a background job (see
-          // import-loom-recording.ts) so this request stays fast regardless of
-          // Loom video length; the recording page polls until it is ready.
-          toast.info(t("recordingPage.importingLoom"));
-        } else {
-          showSavedToast(
-            t("recordRoute.loomImported"),
-            await copyRecordingShareLink(recordingId),
-            recordingId,
-          );
-        }
-        await writeAppState("navigate", {
-          view: "recording",
-          recordingId,
-        }).catch(() => {});
-        navigate(`/r/${recordingId}`);
-      } catch (err) {
-        throw new Error(
-          err instanceof Error
-            ? userFacingActionErrorMessage(err.message)
-            : t("recordRoute.couldNotImportLoom"),
-        );
-      } finally {
-        setLoomImporting(false);
-      }
-    },
-    [folderIdFromUrl, navigate, spaceIdFromUrl, showSavedToast],
-  );
-
   const saveBrowserDiagnostics = useCallback(
     async (recordingId: string) => {
       const capture = browserDiagnosticsRef.current;
@@ -2054,6 +1998,11 @@ export default function RecordRoute() {
       // (from Web Speech API) with no API key required.
       const browserTranscript = await liveTranscription.stopAndWait();
       const trimmedTranscript = browserTranscript.trim();
+      // Non-null when Web Speech died before we asked it to stop, so whatever
+      // it captured covers only part of the recording. Send it with the text:
+      // a partial transcript must never be stored as the finished one, or the
+      // cloud fallback is suppressed and the user keeps the first few lines.
+      const incompleteReason = liveTranscription.getIncompleteReason();
       if (trimmedTranscript) {
         const transcriptRes = await fetch(
           agentNativePath("/_agent-native/actions/save-browser-transcript"),
@@ -2064,6 +2013,7 @@ export default function RecordRoute() {
               recordingId: pending.id,
               fullText: trimmedTranscript,
               source: "web-speech",
+              failureReason: incompleteReason ?? undefined,
             }),
           },
         ).catch((err) => {
@@ -2086,9 +2036,11 @@ export default function RecordRoute() {
               recordingId: pending.id,
               fullText: "",
               source: "web-speech",
-              failureReason: liveTranscription.supported
-                ? "Browser native transcription returned no speech before recording stopped."
-                : "Browser Web Speech recognition is unavailable in this browser.",
+              failureReason:
+                incompleteReason ??
+                (liveTranscription.supported
+                  ? "Browser native transcription returned no speech before recording stopped."
+                  : "Browser Web Speech recognition is unavailable in this browser."),
             }),
           },
         ).catch((err) => {
@@ -2539,10 +2491,10 @@ export default function RecordRoute() {
                     initialRecorderOptions.surface
                   }
                   onUpload={uploadFile}
-                  onImportLoom={importLoom}
-                  importingLoom={loomImporting}
+                  importLoomHref={importLoomHref}
                   cameraSize={cameraSize}
                   onCameraSizeChange={handleCameraSizeChange}
+                  autoOpenUpload={autoOpenUploadFromUrl}
                 />
               ) : (
                 <StorageSetupCard

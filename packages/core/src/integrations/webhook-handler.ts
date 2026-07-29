@@ -31,8 +31,15 @@ import {
   engineToProvider,
   type ActionEntry,
 } from "../agent/production-agent.js";
-import { appendDurableContinuationContext } from "../agent/run-loop-with-resume.js";
-import { startRun, type ActiveRun } from "../agent/run-manager.js";
+import {
+  appendDurableContinuationContext,
+  runAgentLoopDirectWithSoftTimeout,
+} from "../agent/run-loop-with-resume.js";
+import {
+  startRun,
+  type ActiveRun,
+  type StartRunOptions,
+} from "../agent/run-manager.js";
 import {
   buildCurrentTimeUserContext,
   buildRuntimeContextPrompt,
@@ -125,9 +132,17 @@ const INTEGRATION_CAMPAIGN_NO_PROGRESS_TIMEOUT_MS = 45_000;
  * the loop itself emits one when it hits an internal step budget. The run's
  * status is still "completed", so without this check a cut-off research request
  * is reported to the user as a model that answered with nothing.
+ *
+ * Only the LAST terminal event decides: an in-invocation resume that recovered
+ * from an earlier boundary goes on to emit `done`, and that run did finish.
  */
 function endedAtContinuationBoundary(run: ActiveRun): boolean {
-  return run.events.some((runEvent) => runEvent.event.type === "auto_continue");
+  for (let i = run.events.length - 1; i >= 0; i--) {
+    const event = run.events[i].event;
+    if (event.type === "auto_continue") return true;
+    if (event.type === "done" || event.type === "error") return false;
+  }
+  return false;
 }
 
 function continuationBoundaryReason(run: ActiveRun): ContinuationReason {
@@ -1213,6 +1228,26 @@ async function processIncomingMessage(
   let usage: Awaited<ReturnType<typeof runAgentLoop>> | null = null;
   let budgetsSettled = false;
 
+  // Populated once `resolvedModel`/`engine` are known inside the run
+  // callback below (stored-model + platform-default resolution can't happen
+  // until then) and read back by run-manager's terminal tracking event via
+  // this same object reference — `startRun` reads `options.model` only in
+  // its `.finally()`, after this callback has settled, so the mutation is
+  // guaranteed to land before it's read.
+  const runOptions: StartRunOptions = {
+    useHostedSoftTimeoutDefault: true,
+    backgroundFunction: isInBackgroundFunctionRuntime(),
+    ...(campaign
+      ? {
+          turnId: campaign.row.turnId,
+          noProgressTimeoutMs: INTEGRATION_CAMPAIGN_NO_PROGRESS_TIMEOUT_MS,
+        }
+      : {}),
+    // No userId here: `ownerEmail` is PII (email), which the terminal event
+    // must not carry.
+    attemptCount: opts.attempts,
+  };
+
   // Wait for the run to complete inside this fresh function execution.
   // We use a Promise so the processor endpoint can await the full lifecycle.
   return new Promise<ProcessIntegrationTaskResult>((resolve) => {
@@ -1285,39 +1320,53 @@ async function processIncomingMessage(
               engine,
               modelCandidate,
             );
+            runOptions.model = resolvedModel;
+            runOptions.engineName = engine.name;
 
-            usage = await runAgentLoop({
-              engine,
-              model: resolvedModel,
-              systemPrompt: effectiveSystemPrompt,
-              tools,
-              availableTools,
-              messages,
-              actions: runnableActions,
-              send: async (event) => {
-                if (progress) {
-                  await Promise.resolve(progress.onEvent(event)).catch(
-                    () => {},
-                  );
-                }
-                await send(event);
+            // Wrapper, not raw `runAgentLoop`: an integration turn has no
+            // browser to re-POST a continuation, so a transport-level cut
+            // (gateway 45s, socket hang up, upstream 5xx) has to be resumed
+            // inside this invocation or the user's Slack thread just stops.
+            // Same budget the run-manager resolved for this run below.
+            usage = await runAgentLoopDirectWithSoftTimeout(
+              {
+                engine,
+                model: resolvedModel,
+                systemPrompt: effectiveSystemPrompt,
+                tools,
+                availableTools,
+                messages,
+                actions: runnableActions,
+                send: async (event) => {
+                  if (progress) {
+                    await Promise.resolve(progress.onEvent(event)).catch(
+                      () => {},
+                    );
+                  }
+                  await send(event);
+                },
+                signal,
+                threadId,
+                approvedToolCalls: incoming.approvedToolCalls,
+                // Messaging integrations are interactive chat surfaces. They
+                // need the same initial completion headroom as web chat so
+                // reasoning cannot consume the small per-engine default and
+                // leave a user-facing Slack reply empty.
+                maxOutputTokens: resolveMainChatMaxOutputTokens(resolvedModel),
+                // Explicitly resolve the normal chat default so an empty-final
+                // retry can step its reasoning effort down rather than
+                // repeatedly letting the engine choose Medium.
+                reasoningEffort: normalizeReasoningEffortForRequest(
+                  resolvedModel,
+                  undefined,
+                ),
               },
-              signal,
-              threadId,
-              approvedToolCalls: incoming.approvedToolCalls,
-              // Messaging integrations are interactive chat surfaces. They
-              // need the same initial completion headroom as web chat so
-              // reasoning cannot consume the small per-engine default and
-              // leave a user-facing Slack reply empty.
-              maxOutputTokens: resolveMainChatMaxOutputTokens(resolvedModel),
-              // Explicitly resolve the normal chat default so an empty-final
-              // retry can step its reasoning effort down rather than
-              // repeatedly letting the engine choose Medium.
-              reasoningEffort: normalizeReasoningEffortForRequest(
-                resolvedModel,
-                undefined,
-              ),
-            });
+              undefined,
+              {
+                useHostedDefault: true,
+                backgroundFunction: isInBackgroundFunctionRuntime(),
+              },
+            );
             return usage;
           },
         );
@@ -1837,16 +1886,7 @@ async function processIncomingMessage(
       // chains) with no visible answer. `isInBackgroundFunctionRuntime()` is
       // the runtime proof — never a config guess — so the wider ceiling is
       // taken only where the ~60s synchronous wall genuinely does not apply.
-      {
-        useHostedSoftTimeoutDefault: true,
-        backgroundFunction: isInBackgroundFunctionRuntime(),
-        ...(campaign
-          ? {
-              turnId: campaign.row.turnId,
-              noProgressTimeoutMs: INTEGRATION_CAMPAIGN_NO_PROGRESS_TIMEOUT_MS,
-            }
-          : {}),
-      },
+      runOptions,
     );
   });
 }

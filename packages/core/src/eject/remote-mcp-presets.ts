@@ -132,7 +132,7 @@ export function findMcpIntegrationForText(
 function withUiIntegrations(
   integrations: readonly DefaultMcpIntegration[] = [],
 ): DefaultMcpIntegration[] {
-  return mergeDefaultMcpIntegrations(integrations);
+  return getDefaultMcpIntegrations(undefined, integrations);
 }
 
 export function McpIntegrationDialog(

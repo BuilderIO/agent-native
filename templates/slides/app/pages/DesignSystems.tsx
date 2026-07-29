@@ -1,4 +1,4 @@
-import { callAction } from "@agent-native/core/client/hooks";
+import { callAction, useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   useSetHeaderActions,
@@ -11,19 +11,33 @@ import {
   IconRefresh,
 } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
+import { toast } from "sonner";
 
 import { DesignSystemCard } from "@/components/design-system/DesignSystemCard";
 import { DesignSystemSetup } from "@/components/design-system/DesignSystemSetup";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { useDesignSystems } from "@/hooks/use-design-systems";
 
 import type { DesignSystemData } from "../../shared/api";
+import { missingDesignSystemDataFields } from "../../shared/design-system-validation";
 
 export default function DesignSystems() {
   const t = useT();
   const { designSystems, isLoading, error, refetch } = useDesignSystems();
   const [showSetup, setShowSetup] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const deleteMutation = useActionMutation("delete-design-system");
 
   const handleCardClick = (id: string) => {
     setEditingId(id);
@@ -50,9 +64,31 @@ export default function DesignSystems() {
     setEditingId(null);
   };
 
+  const handleConfirmDelete = () => {
+    if (deleteId === null) return;
+    const id = deleteId;
+    setDeleteId(null);
+    deleteMutation.mutate({ id } as never, {
+      onSuccess: () => refetch(),
+      onError: (err: unknown) => {
+        void refetch();
+        toast.error(t("designSystems.deleteError"), {
+          description: err instanceof Error ? err.message : undefined,
+        });
+      },
+    });
+  };
+
   const parseDesignData = (dataStr: string): DesignSystemData | null => {
     try {
-      return JSON.parse(dataStr) as DesignSystemData;
+      const parsed = JSON.parse(dataStr) as DesignSystemData;
+      // DesignSystemCard reads colors.* / typography.* unconditionally, down
+      // to nested fields like typography.headingFont. Rows written before
+      // create/update validation existed can have `colors: {}` and still
+      // pass a truthy check, so reuse the same nested-field validator the
+      // actions use rather than only checking the top-level objects exist.
+      if (missingDesignSystemDataFields(parsed).length > 0) return null;
+      return parsed;
     } catch {
       return null;
     }
@@ -164,8 +200,10 @@ export default function DesignSystems() {
                     data={parsed}
                     isDefault={ds.isDefault}
                     visibility={ds.visibility}
+                    canManage={ds.canManage}
                     onClick={() => handleCardClick(ds.id)}
                     onSetDefault={() => handleSetDefault(ds.id)}
+                    onDelete={() => setDeleteId(ds.id)}
                   />
                 );
               })}
@@ -173,6 +211,31 @@ export default function DesignSystems() {
           </>
         )}
       </main>
+
+      <AlertDialog
+        open={deleteId !== null}
+        onOpenChange={(open) => !open && setDeleteId(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("designSystems.deleteDialogTitle")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("designSystems.deleteDialogDescription")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("designSystems.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {t("designSystems.delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Setup/Edit Dialog */}
       <DesignSystemSetup

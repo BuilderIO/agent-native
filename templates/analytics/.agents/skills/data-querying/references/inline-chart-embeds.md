@@ -78,6 +78,14 @@ Any other `source`/`chartType` value, or a missing/blank `sql`, makes
   auto-detection.
 - `colors` / `color` — series colors.
 - `yFormatter` — `"number"` | `"currency"` | `"percent"`.
+- `rightYKeys` / `rightYFormatter` — `line`, `area`, and `bar` only: plot the
+  named series against a second, right-hand y-axis with its own scale and
+  formatter. Use this whenever series share an x-axis but not a unit (counts
+  next to a rate, revenue next to a conversion percent) — on one axis the
+  smaller series flattens into the baseline. At least one series must stay on
+  the left axis; if `rightYKeys` names every series, or names a column the
+  query never returned, the chart falls back to a single axis and the panel
+  shows a config warning.
 - `columns` — `table` chartType only: `{ key, label?, format?, linkKey?, hidden? }[]`.
 - `stacked`, `legend`, `pivot`, `limit`, `valueLabels`, `description` — see
   `SqlPanelConfig` in `types.ts` for the full list.

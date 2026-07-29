@@ -217,7 +217,6 @@ interface ShareLinkNotice {
   recordingId: string;
   origin: string;
   url: string;
-  copied: boolean;
 }
 
 interface ScreenMemoryExportResult {
@@ -2589,14 +2588,16 @@ export function App() {
     try {
       const url = recordingShareUrl(recordingId, origin);
       const copied = await copyRecordingShareLink(recordingId, origin);
-      setShareLinkNotice({ recordingId, origin, url, copied });
-      // The popover hides right after an automatic copy, so the banner below is
-      // only seen on the next open — the OS notification is the live signal.
-      if (copied && notify) {
-        await sendNativeNotification({
-          title: "Link copied",
-          body: "Your clip link is ready to paste.",
-        });
+      if (copied) {
+        setShareLinkNotice(null);
+        if (notify) {
+          await sendNativeNotification({
+            title: "Link copied",
+            body: "Your clip link is ready to paste.",
+          });
+        }
+      } else {
+        setShareLinkNotice({ recordingId, origin, url });
       }
       return copied;
     } catch (err) {
@@ -4305,16 +4306,12 @@ function ShareLinkBanner({
   return (
     <div className="share-link-banner">
       <div className="local-save-copy">
-        <div className="local-save-title">
-          {notice.copied ? "Share link copied" : "Share link ready"}
-        </div>
+        <div className="local-save-title">Share link ready</div>
         <div className="local-save-sub">{notice.url}</div>
       </div>
-      {notice.copied ? null : (
-        <button type="button" onClick={onCopy}>
-          Copy
-        </button>
-      )}
+      <button type="button" onClick={onCopy}>
+        Copy
+      </button>
       <button type="button" className="local-save-dismiss" onClick={onDismiss}>
         Dismiss
       </button>

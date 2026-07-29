@@ -321,7 +321,7 @@ Die Benutzeridentität wird aus der Sitzungs-E-Mail abgeleitet. Das Framework st
 Vorlagen können ein Kommentarsystem mit Thread-Diskussionen zu Dokumenten hinzufügen. Das Kommentarsystem der Inhaltsvorlage enthält eine vollständige Implementierung mit:
 
 - `document_comments` SQL-Tabelle (Threads, Antworten, gelöster Status)
-- Die REST-Routen der Inhaltsvorlage zum Aktualisieren/Löschen bei `/api/comments/:id`; Erstellen und Listenlauf über den `add-comment` / `list-comments` actions. Benutzerdefinierte Vorlagen implementieren ihre eigenen äquivalenten Endpunkte für die Kernroute `POST /_agent-native/collab/:docId/search-replace`.
+- Aktualisieren und Löschen laufen über die `update-comment` / `delete-comment` actions; Erstellen und Listenlauf über den `add-comment` / `list-comments` actions. Benutzerdefinierte Vorlagen implementieren ihre eigenen äquivalenten Endpunkte für die Kernroute `POST /_agent-native/collab/:docId/search-replace`.
 - Kommentarseitenleiste mit Thread-Ansicht und Antwort UI
 - Threads auflösen/auflösen
 - Schaltfläche **An AI senden** – sendet den Kommentar-Thread-Kontext über `sendToAgentChat()` an den Agenten-Chat

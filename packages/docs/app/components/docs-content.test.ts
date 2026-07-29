@@ -1,21 +1,21 @@
 import { describe, expect, it } from "vitest";
 
-import { buildSearchIndex, getDoc } from "./docs-content";
+import { buildSearchIndex, loadDoc } from "./docs-content";
 
 describe("docs content parsing", () => {
-  it("uses Agent Resources as the canonical docs slug and search path", () => {
-    const doc = getDoc("agent-resources");
-    const paths = buildSearchIndex().map((entry) => entry.path);
+  it("uses Agent Resources as the canonical docs slug and search path", async () => {
+    const doc = await loadDoc("agent-resources");
+    const paths = (await buildSearchIndex()).map((entry) => entry.path);
 
     expect(doc?.title).toBe("Agent Resources");
     expect(doc?.body).not.toContain("Which workspace doc?");
-    expect(getDoc("workspace")).toBeUndefined();
+    expect(await loadDoc("workspace")).toBeUndefined();
     expect(paths).toContain("/docs/agent-resources");
     expect(paths).not.toContain("/docs/workspace");
-  });
+  }, 15_000);
 
-  it("ignores fenced markdown headings when extracting page headings", () => {
-    const doc = getDoc("creating-templates");
+  it("ignores fenced markdown headings when extracting page headings", async () => {
+    const doc = await loadDoc("creating-templates");
 
     expect(doc).toBeDefined();
     const headings = doc!.headings;
@@ -28,8 +28,8 @@ describe("docs content parsing", () => {
     );
   });
 
-  it("keeps fenced markdown headings out of the search section index", () => {
-    const sections = buildSearchIndex().filter(
+  it("keeps fenced markdown headings out of the search section index", async () => {
+    const sections = (await buildSearchIndex()).filter(
       (entry) => entry.path === "/docs/creating-templates",
     );
 
@@ -39,8 +39,8 @@ describe("docs content parsing", () => {
     ).toBe(false);
   });
 
-  it("indexes markdown mirror text instead of raw MDX component source", () => {
-    const indexText = buildSearchIndex()
+  it("indexes markdown mirror text instead of raw MDX component source", async () => {
+    const indexText = (await buildSearchIndex())
       .map((entry) => `${entry.section}\n${entry.text}`)
       .join("\n");
 

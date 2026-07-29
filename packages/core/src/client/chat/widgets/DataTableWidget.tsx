@@ -1,19 +1,8 @@
-import {
-  IconDots,
-  IconDownload,
-  IconExternalLink,
-  IconTable,
-} from "@tabler/icons-react";
+import { IconDownload, IconExternalLink, IconTable } from "@tabler/icons-react";
 
 import { requestAgentSidebarOpen } from "../../agent-sidebar-state.js";
 import { appPath } from "../../api-path.js";
 import { startAgentChatViewTransition } from "../../chat-view-transition.js";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "../../components/ui/dropdown-menu.js";
 import { downloadFile, toCSVTable } from "../../db-admin/export-utils.js";
 import { cn } from "../../utils.js";
 import type { DataTableWidget as DataTableWidgetData } from "./data-widget-types.js";
@@ -165,23 +154,15 @@ export function DataTableWidget({
             <IconExternalLink className="h-3 w-3" />
           </a>
         ) : null}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              aria-label="Data table options"
-              className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            >
-              <IconDots className="h-3.5 w-3.5" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-44">
-            <DropdownMenuItem onSelect={exportCsv} disabled={!canExportCsv}>
-              <IconDownload className="mr-2 h-3.5 w-3.5" />
-              Download CSV
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <button
+          type="button"
+          onClick={exportCsv}
+          disabled={!canExportCsv}
+          className="inline-flex shrink-0 items-center gap-1 rounded-md bg-primary px-2 py-1 text-[11px] font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50"
+        >
+          <IconDownload className="h-3 w-3" />
+          Download CSV
+        </button>
       </div>
       <div className="max-h-[360px] overflow-auto">
         <table className="w-full min-w-[420px] border-collapse text-xs">

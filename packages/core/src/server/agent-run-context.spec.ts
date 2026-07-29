@@ -32,10 +32,14 @@ import {
   getRequestUserName,
 } from "./request-context.js";
 
-function makeEvent(headers: Record<string, string> = {}): any {
+function makeEvent(
+  headers: Record<string, string> = {},
+  waitUntil?: (promise: Promise<unknown>) => void,
+): any {
   return {
     context: {},
     headers: new Headers(headers),
+    ...(waitUntil ? { req: { waitUntil } } : {}),
   };
 }
 
@@ -194,6 +198,24 @@ describe("server/agent-run-context", () => {
       timezone: "America/Los_Angeles",
       isBackgroundWorker: true,
     });
+  });
+
+  it("keeps the request-scoped waitUntil callback in the run context", async () => {
+    const waitUntil = vi.fn();
+    const event = makeEvent({}, waitUntil);
+
+    await runWithAgentRunContext(
+      {
+        event,
+        ownerContext: {
+          owner: "alice@example.com",
+          anonymous: false,
+        },
+      },
+      async () => {
+        expect(getRequestRunContext()?.waitUntil).toBe(waitUntil);
+      },
+    );
   });
 
   it("seeds the durable background owner from the persisted run row", async () => {

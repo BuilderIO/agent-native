@@ -255,6 +255,8 @@ export async function readLiveSourceFile(file: SourceWorkspaceFile): Promise<{
  * read-check-write lock closes the race after this preparation step.
  */
 export class SourceWorkspaceEditConflictError extends Error {
+  readonly statusCode = 409;
+
   constructor(
     message = "Source file changed since the editor snapshot was prepared.",
   ) {
@@ -361,6 +363,7 @@ export async function writeInlineSourceFile(args: {
       previousContent: current.content,
       nextContent: args.content,
       fileType: currentFile.fileType ?? args.file.fileType ?? "html",
+      filename: currentFile.filename ?? args.file.filename,
     });
 
     if (await hasCollabState(args.file.id)) {

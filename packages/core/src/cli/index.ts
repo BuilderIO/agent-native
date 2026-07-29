@@ -8,6 +8,10 @@ import { fileURLToPath } from "url";
 
 import * as Sentry from "@sentry/node";
 
+import {
+  clearAgentNativeNitroPresetMarker,
+  resolveAgentNativeNitroPreset,
+} from "../deploy/nitro-preset.js";
 import { resolveDeployPostBuildInvocation } from "./deploy-build.js";
 import { shouldTrackCliRun } from "./telemetry-routing.js";
 import { createCliTelemetry } from "./telemetry.js";
@@ -696,6 +700,7 @@ switch (command) {
       }
 
       if (isReactRouterFramework()) {
+        clearAgentNativeNitroPresetMarker();
         validateReactRouterBuildDependencies();
         const rr = findReactRouterBin();
         console.log("Building (React Router framework mode)...");
@@ -709,15 +714,20 @@ switch (command) {
       // Post-build: framework-mode apps also need a Nitro server bundle for
       // `agent-native start` and for serverless presets.
       if (isReactRouterFramework()) {
+        const configuredNitroPreset = resolveAgentNativeNitroPreset();
+        const deployEnv = configuredNitroPreset
+          ? { ...process.env, NITRO_PRESET: configuredNitroPreset }
+          : process.env;
         const __dirname = path.dirname(fileURLToPath(import.meta.url));
         const deployBuild = resolveDeployPostBuildInvocation({
           cliDir: __dirname,
+          env: deployEnv,
           findTsxBin,
         });
         if (deployBuild) {
           await runBuildStep(deployBuild.command, deployBuild.args, {
             label: "deploy-build",
-            env: process.env,
+            env: deployEnv,
           });
         } else {
           console.warn(
@@ -1215,7 +1225,8 @@ Usage:
   agent-native typecheck        Run TypeScript type checking
   agent-native create [name]    Scaffold a new agent-native workspace with a
                                 multi-select template picker. Use --standalone
-                                for a single-app scaffold.
+                                for a single-app scaffold, or choose Community
+                                template to install a public GitHub repository.
   agent-native code             Launch Agent-Native Code workspace. Type a task or
                                 use goals like /migrate and /audit.
   agent-native code serve       Run the Agent-Native Code remote connector.
@@ -1300,8 +1311,9 @@ Options:
   -h, --help                    Show this help message
   -v, --version                 Show version number
   --template <names>            Comma-separated templates to pre-select
-                                (mail,calendar,analytics,...) — or
-                                github:user/repo for community templates
+                                (mail,calendar,analytics,...), or install a
+                                community repo from a plain GitHub URL or
+                                community:owner/repo[?app=id][#ref]
   --headless                    Create the primitive-first action-only scaffold
   --standalone                  Scaffold a single standalone app (no workspace)
   --emit [dir]                  With migrate, emit an own-agent dossier

@@ -62,6 +62,8 @@ const messages = {
     deckOptions: "Deckoptionen",
     generatingImage: "Bild wird generiert...",
     noAssetsYet: "Noch keine Assets.",
+    assetUploadFailed: "Einige Uploads sind fehlgeschlagen",
+    assetDeleteFailed: "Asset konnte nicht gelöscht werden",
     contentMarkdown: "Inhalt (Markdown)",
     speakerNotes: "Sprechernotizen",
     speakerNotesForSlide: "Sprechernotizen — Folie {{index}} / {{count}}",
@@ -163,6 +165,13 @@ const messages = {
   designSystems: {
     new: "Neues Designsystem",
     setupBrand: "Marke einrichten",
+    delete: "Löschen",
+    cancel: "Abbrechen",
+    moreActions: "Weitere Aktionen",
+    deleteDialogTitle: "Designsystem löschen?",
+    deleteDialogDescription:
+      "Das Designsystem wird dauerhaft gelöscht. Decks, die es verwenden, behalten ihr aktuelles Aussehen, sind aber nicht mehr damit verknüpft.",
+    deleteError: "Designsystem konnte nicht gelöscht werden",
     emptyTitle: "Markenidentität einrichten",
     emptyDescription:
       "Erstelle ein Designsystem mit Markenfarben, Typografie und Logos. Jedes neue Deck folgt deiner visuellen Identität.",
@@ -196,6 +205,7 @@ const messages = {
     slideSettings: "Folieneinstellungen",
     layout: "Layout",
     background: "Hintergrund",
+    customColor: "Benutzerdefinierte Farbe",
     media: "Medien",
     generateImage: "Bild generieren",
     assetLibrary: "Asset-Bibliothek",
@@ -258,7 +268,10 @@ const messages = {
     downloadHtml: "Als HTML herunterladen",
     exportPdf: "Als PDF exportieren",
     exportPptx: "Als PPTX exportieren",
-    downloadGoogleSlides: "Für Google Slides herunterladen",
+    openInGoogleSlides: "In Google Slides öffnen",
+    googleSlidesCreated: "In Google Slides geöffnet",
+    googleSlidesCreatedHint:
+      "Eine Kopie dieser Präsentation wurde in deinem Google Drive erstellt.",
     duplicateDeck: "Deck duplizieren",
   },
   share: {
@@ -471,6 +484,12 @@ const messages = {
     slides: "Diapositivas",
   },
   presentation: {
+    presenterView: "Referentenansicht",
+    speakerNotes: "Sprechernotizen",
+    noNotesForSlide: "Keine Notizen für diese Folie",
+    upNext: "Als Nächstes",
+    endOfDeck: "Ende der Präsentation",
+    closePresenterView: "Referentenansicht schließen",
     noSlides: "No hay diapositivas para presentar",
     previousSlide: "Diapositiva anterior",
     nextSlide: "Siguiente diapositiva",
@@ -534,6 +553,7 @@ const messages = {
     builderDesignSystemId: "Designsystem",
     builderJobId: "Job",
     openInBuilder: "In Builder öffnen",
+    decodeFailed: "Dekodierung fehlgeschlagen: {{error}}",
     websiteUrl: "Website-URL",
     websitePlaceholder: "example.com oder Nike",
     add: "Hinzufügen",

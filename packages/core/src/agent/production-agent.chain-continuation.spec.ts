@@ -9,6 +9,8 @@ import {
   isLoopProtectionDispatchError,
   MAX_BACKGROUND_RUN_CONTINUATIONS,
   MAX_NESTED_SELF_DISPATCH_DEPTH,
+  AGENT_CHAT_TURN_INPUT_TOKENS_FIELD,
+  MAX_TURN_WALL_CLOCK_MS,
   resolveContinuationDispatchBudget,
   resolveSelfChainContinuationBudget,
   SELF_CHAIN_MIN_CONTINUATION_BUDGET_MS,
@@ -97,6 +99,10 @@ interface Harness {
       | "markBackgroundContinuationChunkTerminal"
       | "generateRunId"
       | "sleep"
+      | "readTurnStartedAt"
+      | "emitRunText"
+      | "isTurnAborted"
+      | "markRunAborted"
     >
   >;
   /** Ordered log of the calls that matter for handoff-ordering assertions. */
@@ -107,10 +113,15 @@ function makeHarness(overrides?: {
   fireInternalDispatch?: ChainServerDrivenContinuationDeps["fireInternalDispatch"];
   readBackgroundRunClaim?: ChainServerDrivenContinuationDeps["readBackgroundRunClaim"];
   countRunsForTurn?: ChainServerDrivenContinuationDeps["countRunsForTurn"];
+  readTurnStartedAt?: ChainServerDrivenContinuationDeps["readTurnStartedAt"];
 }): Harness {
   const callOrder: string[] = [];
   const deps: Harness["deps"] = {
     countRunsForTurn: overrides?.countRunsForTurn ?? vi.fn(async () => 1),
+    readTurnStartedAt:
+      overrides?.readTurnStartedAt ?? vi.fn(async () => Date.now()),
+    isTurnAborted: vi.fn(async () => false),
+    emitRunText: vi.fn(async () => {}),
     insertRun: vi.fn(async () => {
       callOrder.push("insertRun");
     }),
@@ -127,6 +138,7 @@ function makeHarness(overrides?: {
       })),
     updateRunHeartbeat: vi.fn(async () => {}),
     updateRunStatusIfRunning: vi.fn(async () => true),
+    markRunAborted: vi.fn(async () => {}),
     setRunTerminalReason: vi.fn(async () => {}),
     recordRunDiagnostic: vi.fn(async () => {}),
     markBackgroundContinuationChunkTerminal: vi.fn(async () => {
@@ -174,6 +186,16 @@ async function runChain(
 }
 
 describe("chainServerDrivenContinuation — transactional handoff (foreground self-chain)", () => {
+  it("does not mint a successor after the logical turn has been durably aborted", async () => {
+    const h = makeHarness();
+    h.deps.isTurnAborted = vi.fn(async () => true);
+
+    await runChain(h);
+
+    expect(h.deps.insertRun).not.toHaveBeenCalled();
+    expect(h.deps.markRunAborted).toHaveBeenCalledWith("run-chunk0", "user");
+  });
+
   it("PRE-INSERTS the successor row before the dispatch fires, then marks the chunk terminal", async () => {
     const h = makeHarness();
     const run = timeoutBoundaryRun();
@@ -333,7 +355,7 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
     // TURN is not dead, only this handoff attempt was.
     expect(h.deps.updateRunStatusIfRunning).toHaveBeenCalledWith(
       "run-chunk0",
-      "errored",
+      "completed",
     );
     expect(h.deps.setRunTerminalReason).toHaveBeenCalledWith(
       "run-chunk0",
@@ -555,7 +577,7 @@ describe("chainServerDrivenContinuation — worker proven in background function
     );
     expect(h.deps.updateRunStatusIfRunning).toHaveBeenCalledWith(
       "run-chunk0",
-      "errored",
+      "completed",
     );
     expect(h.deps.setRunTerminalReason).toHaveBeenCalledWith(
       "run-chunk0",
@@ -565,10 +587,10 @@ describe("chainServerDrivenContinuation — worker proven in background function
 });
 
 describe("chainServerDrivenContinuation — durable-background path unchanged", () => {
-  it("keeps the durable worker chain's target, 3 attempts, 15s timeout, and never consults the claim on failure", async () => {
+  it("keeps the durable worker chain's target, 3 attempts, and 15s timeout, and consults the claim on failure", async () => {
     process.env.NETLIFY = "true";
     const dispatchMock = vi.fn().mockRejectedValue(new Error("dead handoff"));
-    const readClaim = vi.fn();
+    const readClaim = vi.fn().mockResolvedValue(null);
     const h = makeHarness({
       fireInternalDispatch: dispatchMock as any,
       readBackgroundRunClaim: readClaim as any,
@@ -584,16 +606,18 @@ describe("chainServerDrivenContinuation — durable-background path unchanged", 
     expect(dispatch.body[AGENT_CHAT_BACKGROUND_RUN_FIELD]).toMatchObject({
       backgroundFunctionRuntimeExpected: true,
     });
-    // A Netlify background fn 202s on enqueue, so a failed await IS a dead
-    // handoff — the claim-check shortcut is foreground-only.
-    expect(readClaim).not.toHaveBeenCalled();
+    // A lost dispatch RESPONSE is not proof of a dead handoff on any target:
+    // prod recorded a connection-level `fetch failed` against a background
+    // function whose successor had already started. The claim is consulted on
+    // every failed attempt; here it returns nothing, so the retries proceed.
+    expect(readClaim).toHaveBeenCalledWith("run-next");
     // This chunk still goes terminal loudly, but the recoverable-vs-fatal
     // split applies uniformly regardless of dispatch target: the pre-inserted
     // successor row exists in SQL either way, so it is left for the sweep
     // instead of being errored immediately.
     expect(h.deps.updateRunStatusIfRunning).toHaveBeenCalledWith(
       "run-chunk0",
-      "errored",
+      "completed",
     );
     expect(h.deps.setRunTerminalReason).toHaveBeenCalledWith(
       "run-chunk0",
@@ -602,6 +626,29 @@ describe("chainServerDrivenContinuation — durable-background path unchanged", 
     expect(h.deps.updateRunStatusIfRunning).not.toHaveBeenCalledWith(
       "run-next",
       "errored",
+    );
+  });
+
+  it("stops retrying and does not report a deferred handoff once the successor has claimed", async () => {
+    // run-1784961792821-k793n5 logged `dispatch_deferred[...] fetch failed` at
+    // 06:56:33 while its successor had started at 06:56:25 and completed
+    // normally. Each redundant re-dispatch cold-starts a Lambda, rebuilds the
+    // system prompt, then loses the CAS.
+    process.env.NETLIFY = "true";
+    const dispatchMock = vi.fn().mockRejectedValue(new Error("fetch failed"));
+    const readClaim = vi
+      .fn()
+      .mockResolvedValue({ dispatchMode: "foreground", status: "running" });
+    const h = makeHarness({
+      fireInternalDispatch: dispatchMock as any,
+      readBackgroundRunClaim: readClaim as any,
+    });
+    await runChain(h, { chainViaDurableBackground: true });
+
+    expect(dispatchMock).toHaveBeenCalledTimes(1);
+    expect(h.deps.setRunTerminalReason).not.toHaveBeenCalledWith(
+      "run-chunk0",
+      "background_continuation_dispatch_deferred",
     );
   });
 });
@@ -656,7 +703,7 @@ describe("chainServerDrivenContinuation — Netlify loop-protection 508 is class
     // Still deferred — never the fatal `background_continuation_dispatch_failed`.
     expect(h.deps.updateRunStatusIfRunning).toHaveBeenCalledWith(
       "run-chunk0",
-      "errored",
+      "completed",
     );
     expect(h.deps.setRunTerminalReason).toHaveBeenCalledWith(
       "run-chunk0",
@@ -714,7 +761,7 @@ describe("chainServerDrivenContinuation — proactive nested-dispatch depth cap"
     expect(h.deps.insertRun).toHaveBeenCalled();
     expect(h.deps.updateRunStatusIfRunning).toHaveBeenCalledWith(
       "run-chunk0",
-      "errored",
+      "completed",
     );
     expect(h.deps.setRunTerminalReason).toHaveBeenCalledWith(
       "run-chunk0",
@@ -798,5 +845,72 @@ describe("chainServerDrivenContinuation — the intentional per-turn budget stil
       "run-chunk0",
       "turn_continuation_budget_exhausted",
     );
+    // Not a bare error string: the user gets a final assistant message so the
+    // tool results the turn DID produce don't look discarded.
+    expect(h.deps.emitRunText).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.stringContaining("I stopped after"),
+    );
+  });
+
+  it("refuses to chain past the turn wall-clock ceiling even while the run-count ledger still has room", async () => {
+    // 25 durable chunks x ~780s is over five hours; prod has an observed 2h34m
+    // turn that the run-count ledger alone never stopped.
+    const h = makeHarness({
+      countRunsForTurn: vi.fn(async () => 2) as any,
+      readTurnStartedAt: vi.fn(
+        async () => Date.now() - (MAX_TURN_WALL_CLOCK_MS + 60_000),
+      ) as any,
+    });
+    await runChain(h);
+
+    expect(h.deps.insertRun).not.toHaveBeenCalled();
+    expect(h.deps.fireInternalDispatch).not.toHaveBeenCalled();
+    expect(h.deps.setRunTerminalReason).toHaveBeenCalledWith(
+      "run-chunk0",
+      "turn_wall_clock_budget_exhausted",
+    );
+    expect(h.deps.emitRunText).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.stringContaining("minutes"),
+    );
+  });
+
+  it("keeps chaining a long-but-not-expired turn, and when the turn start is unreadable", async () => {
+    const live = makeHarness({
+      readTurnStartedAt: vi.fn(
+        async () => Date.now() - (MAX_TURN_WALL_CLOCK_MS - 60_000),
+      ) as any,
+    });
+    await runChain(live);
+    expect(live.deps.fireInternalDispatch).toHaveBeenCalled();
+
+    const unknownStart = makeHarness({
+      readTurnStartedAt: vi.fn(async () => null) as any,
+    });
+    await runChain(unknownStart);
+    expect(unknownStart.deps.fireInternalDispatch).toHaveBeenCalled();
+  });
+});
+
+describe("chainServerDrivenContinuation — per-turn token total is carried to the successor", () => {
+  it("writes the running total onto the successor's rehydration body so the ceiling is not reset per chunk", async () => {
+    const h = makeHarness();
+    await chainServerDrivenContinuation({
+      event: {},
+      run: timeoutBoundaryRun(),
+      effectiveThreadId: "thread-1",
+      effectiveTurnId: "turn-1",
+      requestBody: { message: "go", threadId: "thread-1" },
+      backgroundContinuationCount: 0,
+      turnInputTokens: 1_234_567,
+      chainViaDurableBackground: false,
+      deps: h.deps,
+    });
+
+    const insertOpts = (h.deps.insertRun as any).mock.calls[0][3];
+    expect(JSON.parse(insertOpts.dispatchPayload)).toMatchObject({
+      [AGENT_CHAT_TURN_INPUT_TOKENS_FIELD]: 1_234_567,
+    });
   });
 });

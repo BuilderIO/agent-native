@@ -382,16 +382,25 @@ export function normalizeFrameFile(file: string | null): string {
 }
 
 function normalizeMessageForFingerprint(message: string): string {
-  return message
-    .replace(/https?:\/\/\S+/gi, "<url>")
-    .replace(
-      /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi,
-      "<uuid>",
-    )
-    .replace(/0x[0-9a-f]+/gi, "<hex>")
-    .replace(/\b\d+\b/g, "<n>")
-    .trim()
-    .slice(0, 200);
+  return (
+    message
+      .replace(/https?:\/\/\S+/gi, "<url>")
+      .replace(
+        /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi,
+        "<uuid>",
+      )
+      // Only quoted runs without whitespace: a lone apostrophe in "Can't" must
+      // never swallow the rest of the message as if it opened a quote.
+      .replace(/(['"`])[^\s'"`]*\1/g, "<str>")
+      .replace(/(?:\/[\w.@%+-]+){2,}\/?/g, "<path>")
+      .replace(/0x[0-9a-f]+/gi, "<hex>")
+      // Not \b\d+\b: a unit suffix ("8000ms") keeps the digits word-adjacent, so
+      // a bounded rule leaves every timeout value in its own group.
+      .replace(/\d+/g, "<n>")
+      .replace(/\([^()]*,[^()]*\)/g, "(<list>)")
+      .trim()
+      .slice(0, 200)
+  );
 }
 
 function hashHex(input: string): string {
@@ -408,9 +417,12 @@ function topFrame(frames: ParsedStackFrame[]): ParsedStackFrame | null {
 }
 
 /**
- * Stable grouping key. Prefers error type + top in-app frame
+ * Stable grouping key: error type + normalized message + top in-app frame
  * (function + normalized file, ignoring line/col so small edits don't split a
- * group). Falls back to a normalized message when there is no usable stack.
+ * group). The message is always part of the key — dropping it funnels every
+ * error thrown through a shared frame (an action dispatcher, a minified
+ * bundler helper) into one issue whose title describes only whichever error
+ * happened to land there first.
  */
 export function fingerprint(
   type: string,
@@ -422,10 +434,11 @@ export function fingerprint(
   // type in the stored occurrence.
   const groupingType = type === "UnhandledRejection" ? "Error" : type;
   const frame = topFrame(frames);
+  const normalizedMessage = normalizeMessageForFingerprint(message);
   const key =
     frame && (frame.file || frame.function)
-      ? `${groupingType}|${normalizeFrameFile(frame.file)}|${frame.function ?? ""}`
-      : `${groupingType}|${normalizeMessageForFingerprint(message)}`;
+      ? `${groupingType}|${normalizeFrameFile(frame.file)}|${frame.function ?? ""}|${normalizedMessage}`
+      : `${groupingType}|${normalizedMessage}`;
   return hashHex(key);
 }
 
@@ -720,9 +733,13 @@ async function pruneAndCountUsers(
         ),
       );
   }
+  // Count real identities only. Falling back to the per-event id made every
+  // identity-less occurrence its own "user", so an anonymous server-side flood
+  // reported broad user impact. Occurrences without an identity stay in
+  // `eventCount` and contribute nothing here.
   const [row] = await db
     .select({
-      users: sql<number>`count(distinct coalesce(${schema.errorEvents.userKey}, ${schema.errorEvents.anonymousId}, ${schema.errorEvents.id}))`,
+      users: sql<number>`count(distinct coalesce(nullif(${schema.errorEvents.userKey}, ''), nullif(${schema.errorEvents.anonymousId}, ''), nullif(${schema.errorEvents.sessionId}, '')))`,
     })
     .from(schema.errorEvents)
     .where(

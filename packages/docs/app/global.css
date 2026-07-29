@@ -1,5 +1,7 @@
 @import "tailwindcss";
 @import "@agent-native/core/styles/agent-native.css";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
 
 /* shadcn CSS variables required by agent-native sidebar components */
 :root {
@@ -65,11 +67,11 @@
 
 @theme {
   --font-sans:
-    -apple-system, "system-ui", "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell,
-    "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
+    "Geist Variable", -apple-system, "system-ui", "Segoe UI", Roboto, Oxygen,
+    Ubuntu, Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
   --font-mono:
-    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono",
-    monospace;
+    "Geist Mono Variable", ui-monospace, SFMono-Regular, "SF Mono", Menlo,
+    Consolas, "Liberation Mono", monospace;
 }
 
 :root {
@@ -920,6 +922,7 @@ html.dark .shiki span {
 .feature-cloud-word {
   z-index: 1;
   pointer-events: none;
+  font-family: var(--font-mono);
   letter-spacing: 0;
   text-shadow:
     0 1px 18px rgba(255, 255, 255, 0.9),
@@ -954,6 +957,8 @@ html.dark .shiki span {
 
 .hero-gradient-text {
   display: inline-block;
+  padding-bottom: 0.12em;
+  line-height: 1.25;
   background: linear-gradient(90deg, #0987c4 0%, #0ea5e9 50%, #22d3ee 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -1049,7 +1054,6 @@ html.dark .shiki span {
   aspect-ratio: 16 / 9;
   object-fit: cover;
   border-radius: 4px;
-  mix-blend-mode: screen;
 }
 
 .approaches-table-wrapper {
@@ -1130,6 +1134,7 @@ html.dark .shiki span {
   border-radius: 999px;
   background: color-mix(in srgb, var(--docs-accent) 12%, transparent);
   border: 1px solid color-mix(in srgb, var(--docs-accent) 30%, transparent);
+  font-family: var(--font-mono);
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.05em;
@@ -1195,7 +1200,7 @@ html.dark .shiki span {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  border-radius: 9999px;
+  border-radius: 12px;
   padding: 12px 24px;
   font-size: 14px;
   font-weight: 500;

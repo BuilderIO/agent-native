@@ -172,7 +172,9 @@ interface DataSourceStatusSummary {
   externalSourceLabels: string[];
   availableExternalSources: Array<{
     aliases: string[];
-    configured: boolean;
+    configured: boolean | null;
+    label?: string;
+    setupLink?: string;
   }>;
   setupLink: string;
 }
@@ -242,7 +244,7 @@ function hasMissingRequestedExternalSource(
   const configuredAliases = [
     ...configuredSourceLabels.map((label) => [label]),
     ...availableExternalSources
-      .filter(({ configured }) => configured)
+      .filter(({ configured }) => configured === true)
       .map(({ aliases }) => aliases),
   ];
   const sourceAliases = [
@@ -256,12 +258,21 @@ function hasMissingRequestedExternalSource(
     .filter(({ terms }) =>
       terms.some((term) => containsNormalizedPhrase(userText, term)),
     )
-    .some(
-      ({ aliases }) =>
-        !configuredAliases.some((configured) =>
-          sourceAliasesOverlap(configured, aliases),
-        ),
-    );
+    .some(({ aliases }) => {
+      const matchingStatuses = availableExternalSources.filter((source) =>
+        sourceAliasesOverlap(source.aliases, aliases),
+      );
+      if (
+        matchingStatuses.some(
+          ({ configured }) => configured === true || configured === null,
+        )
+      ) {
+        return false;
+      }
+      return !configuredAliases.some((configured) =>
+        sourceAliasesOverlap(configured, aliases),
+      );
+    });
 }
 
 function dataSourceStatusSummary(
@@ -270,7 +281,7 @@ function dataSourceStatusSummary(
   const externalSourceLabels = new Set<string>();
   const availableExternalSources = new Map<
     string,
-    { aliases: string[]; configured: boolean }
+    DataSourceStatusSummary["availableExternalSources"][number]
   >();
   let checked = false;
   let setupLink = ANALYTICS_DATA_SOURCES_LINK;
@@ -278,7 +289,8 @@ function dataSourceStatusSummary(
   const addAvailableExternalSource = (
     provider: unknown,
     label: unknown,
-    configured: boolean,
+    configured: boolean | null,
+    providerSetupLink?: unknown,
   ) => {
     const aliases = [provider, label]
       .filter((value): value is string => typeof value === "string")
@@ -288,11 +300,35 @@ function dataSourceStatusSummary(
     if (!key) return;
     const existing = availableExternalSources.get(key);
     if (existing) {
-      existing.configured ||= configured;
+      existing.configured =
+        existing.configured === true || configured === true
+          ? true
+          : existing.configured === null || configured === null
+            ? null
+            : false;
       existing.aliases = [...new Set([...existing.aliases, ...aliases])];
+      if (!existing.label && typeof label === "string" && label.trim()) {
+        existing.label = label.trim();
+      }
+      if (
+        !existing.setupLink &&
+        typeof providerSetupLink === "string" &&
+        providerSetupLink.trim()
+      ) {
+        existing.setupLink = providerSetupLink.trim();
+      }
       return;
     }
-    availableExternalSources.set(key, { aliases, configured });
+    availableExternalSources.set(key, {
+      aliases,
+      configured,
+      ...(typeof label === "string" && label.trim()
+        ? { label: label.trim() }
+        : {}),
+      ...(typeof providerSetupLink === "string" && providerSetupLink.trim()
+        ? { setupLink: providerSetupLink.trim() }
+        : {}),
+    });
   };
 
   for (const result of toolResults ?? []) {
@@ -302,7 +338,6 @@ function dataSourceStatusSummary(
       .replace(/[\s_]+/g, "-");
     if (normalizedName !== "data-source-status" || result.isError) continue;
 
-    checked = true;
     let parsed: Record<string, unknown>;
     try {
       const value = JSON.parse(String(result.content ?? ""));
@@ -312,6 +347,19 @@ function dataSourceStatusSummary(
       parsed = value as Record<string, unknown>;
     } catch {
       continue;
+    }
+
+    const workspaceConnections =
+      parsed.workspaceConnections &&
+      typeof parsed.workspaceConnections === "object" &&
+      !Array.isArray(parsed.workspaceConnections)
+        ? (parsed.workspaceConnections as Record<string, unknown>)
+        : null;
+    // A status result that errored, or whose workspace-connection lookup
+    // failed, says "we could not look", not "nothing is connected". Only a
+    // trustworthy result may mark the turn as checked.
+    if (!parsed.error && workspaceConnections?.available !== false) {
+      checked = true;
     }
 
     let foundSetupLink = false;
@@ -361,7 +409,12 @@ function dataSourceStatusSummary(
       if (typeof label === "string" && label.trim()) {
         externalSourceLabels.add(label.trim());
       }
-      addAvailableExternalSource(record.provider, label, true);
+      addAvailableExternalSource(
+        record.provider,
+        label,
+        true,
+        record.setupLink,
+      );
     }
 
     // Backward compatibility for status responses that predate the compact
@@ -381,23 +434,20 @@ function dataSourceStatusSummary(
         .toLowerCase();
       if (providerId === "first-party") continue;
       const label = record.label ?? record.provider;
+      const configured =
+        typeof record.configured === "boolean" ? record.configured : null;
       addAvailableExternalSource(
         record.provider,
         label,
-        record.configured === true,
+        configured,
+        record.setupLink,
       );
-      if (record.configured !== true) continue;
+      if (configured !== true) continue;
       if (typeof label === "string" && label.trim()) {
         externalSourceLabels.add(label.trim());
       }
     }
 
-    const workspaceConnections =
-      parsed.workspaceConnections &&
-      typeof parsed.workspaceConnections === "object" &&
-      !Array.isArray(parsed.workspaceConnections)
-        ? (parsed.workspaceConnections as Record<string, unknown>)
-        : null;
     const workspaceProviders = Array.isArray(workspaceConnections?.providers)
       ? workspaceConnections.providers
       : [];
@@ -412,8 +462,17 @@ function dataSourceStatusSummary(
       const record = provider as Record<string, unknown>;
       const providerId = record.id ?? record.provider;
       const label = record.label ?? providerId;
+      const grantState =
+        typeof record.grantState === "string" ? record.grantState : null;
       const configured =
-        record.configured === true || record.grantState === "connected";
+        record.configured === true || grantState === "connected"
+          ? true
+          : record.configured === false ||
+              grantState === "granted" ||
+              grantState === "needs_grant" ||
+              grantState === "not_connected"
+            ? false
+            : null;
       addAvailableExternalSource(providerId, label, configured);
       if (configured && typeof label === "string" && label.trim()) {
         externalSourceLabels.add(label.trim());
@@ -426,6 +485,34 @@ function dataSourceStatusSummary(
     externalSourceLabels: [...externalSourceLabels],
     availableExternalSources: [...availableExternalSources.values()],
     setupLink,
+  };
+}
+
+function requestedExternalSourceSetup(
+  userText: string,
+  summary: DataSourceStatusSummary,
+): { label: string; setupLink: string } | null {
+  let source:
+    | DataSourceStatusSummary["availableExternalSources"][number]
+    | undefined;
+  let bestMatchLength = -1;
+  for (const candidate of summary.availableExternalSources) {
+    if (candidate.configured !== false || !candidate.setupLink) continue;
+    const matchLength = Math.max(
+      -1,
+      ...candidate.aliases
+        .filter((alias) => containsNormalizedPhrase(userText, alias))
+        .map((alias) => normalizeSourceLabel(alias).length),
+    );
+    if (matchLength > bestMatchLength) {
+      source = candidate;
+      bestMatchLength = matchLength;
+    }
+  }
+  if (!source?.setupLink) return null;
+  return {
+    label: source.label ?? source.aliases[0] ?? "data source",
+    setupLink: source.setupLink,
   };
 }
 
@@ -469,8 +556,23 @@ export function realDataFinalGuard(
   const incompleteEvidence = hasIncompleteDataEvidence(context.toolResults);
   const dataQueryAttempted = hasDataQueryAttempt(context.toolResults);
   const sourceStatus = dataSourceStatusSummary(context.toolResults);
+  const requestedSourceSetup = requestedExternalSourceSetup(
+    userText,
+    sourceStatus,
+  );
+  const setupLink = requestedSourceSetup?.setupLink ?? sourceStatus.setupLink;
+  const setupLabel = requestedSourceSetup
+    ? `Connect ${requestedSourceSetup.label}`
+    : "Connect data sources";
+  const setupMarkdown = `[${setupLabel}](${setupLink})`;
+  const hasUnknownExternalSourceStatus =
+    sourceStatus.availableExternalSources.some(
+      ({ configured }) => configured === null,
+    );
   const noConnectedExternalSources =
-    sourceStatus.checked && sourceStatus.externalSourceLabels.length === 0;
+    sourceStatus.checked &&
+    sourceStatus.externalSourceLabels.length === 0 &&
+    !hasUnknownExternalSourceStatus;
   const externalSourceRequest = looksLikeExternalSourceRequest(userText);
   const missingRequestedExternalSource = hasMissingRequestedExternalSource(
     userText,
@@ -479,10 +581,14 @@ export function realDataFinalGuard(
   );
   const firstPartySourceShouldBeTried =
     noConnectedExternalSources && !externalSourceRequest;
+  // Only a `data-source-status` result can show something is missing. A turn
+  // that never called it has empty label lists, which is "we did not look",
+  // not "nothing is connected" — treating those the same made the guard demand
+  // a Connect-data-sources link on turns whose sources were working fine.
   const needsDataSourceLink =
-    !sourceStatus.checked ||
-    (externalSourceRequest &&
-      (noConnectedExternalSources || missingRequestedExternalSource));
+    sourceStatus.checked &&
+    externalSourceRequest &&
+    (noConnectedExternalSources || missingRequestedExternalSource);
   if (
     hasFailedCorpusWorkflowEvidence(context.toolResults) &&
     looksLikeCoverageSensitiveAnalyticsRequest(userText) &&
@@ -591,11 +697,11 @@ export function realDataFinalGuard(
     }
     if (
       needsDataSourceLink &&
-      !includesDataSourcesLink(context.text, sourceStatus.setupLink)
+      !includesDataSourcesLink(context.text, setupLink)
     ) {
       return {
-        retryMessage: `The response correctly explains that the requested live data is unavailable, but it needs a contextual next step. Explain which external source is missing, keep the conversation open, and include this exact markdown link: [Connect data sources](${sourceStatus.setupLink}). Do not use the generic no-grounded-data fallback.`,
-        fallbackMessage: `I can help with that once the relevant source is connected. [Connect data sources](${sourceStatus.setupLink})`,
+        retryMessage: `The response correctly explains that the requested live data is unavailable, but it needs a contextual next step. Explain which external source is missing, keep the conversation open, and include this exact markdown link: ${setupMarkdown}. Do not use the generic no-grounded-data fallback.`,
+        fallbackMessage: `I can help with that once the relevant source is connected. ${setupMarkdown}`,
         maxRetries: 2,
       };
     }
@@ -605,11 +711,11 @@ export function realDataFinalGuard(
   if (failedQueryMessage) {
     if (
       needsDataSourceLink &&
-      !includesDataSourcesLink(context.text, sourceStatus.setupLink)
+      !includesDataSourcesLink(context.text, setupLink)
     ) {
       return {
-        retryMessage: `${failedQueryMessage} Explain which external source is missing and include this exact markdown link: [Connect data sources](${sourceStatus.setupLink}).`,
-        fallbackMessage: `${failedQueryMessage} [Connect data sources](${sourceStatus.setupLink})`,
+        retryMessage: `${failedQueryMessage} Explain which external source is missing and include this exact markdown link: ${setupMarkdown}.`,
+        fallbackMessage: `${failedQueryMessage} ${setupMarkdown}`,
         maxRetries: 2,
       };
     }
@@ -625,8 +731,8 @@ export function realDataFinalGuard(
       (noConnectedExternalSources && externalSourceRequest))
   ) {
     return {
-      retryMessage: `The requested external source is not connected. Explain what is missing in the context of the user's question and include this exact markdown link: [Connect data sources](${sourceStatus.setupLink}). Do not use the generic no-grounded-data fallback.`,
-      fallbackMessage: `I can help with that once the relevant source is connected. [Connect data sources](${sourceStatus.setupLink})`,
+      retryMessage: `The requested external source is not connected. Explain what is missing in the context of the user's question and include this exact markdown link: ${setupMarkdown}. Do not use the generic no-grounded-data fallback.`,
+      fallbackMessage: `I can help with that once the relevant source is connected. ${setupMarkdown}`,
       maxRetries: 2,
       expandToolSurface: true,
     };
@@ -645,8 +751,8 @@ export function realDataFinalGuard(
   }
   if (noConnectedExternalSources) {
     return {
-      retryMessage: `The user asked for live analytics, but data-source-status found no connected external providers. The built-in first-party source is still available for first-party Analytics data. If this request needs an external source, respond naturally in the context of the user's question, explain what is missing, and include [Connect data sources](${sourceStatus.setupLink}). Do not use a generic canned no-data response.`,
-      fallbackMessage: `I can help with that once the relevant source is connected. [Connect data sources](${sourceStatus.setupLink})`,
+      retryMessage: `The user asked for live analytics, but data-source-status found no connected external providers. The built-in first-party source is still available for first-party Analytics data. If this request needs an external source, respond naturally in the context of the user's question, explain what is missing, and include ${setupMarkdown}. Do not use a generic canned no-data response.`,
+      fallbackMessage: `I can help with that once the relevant source is connected. ${setupMarkdown}`,
       maxRetries: 2,
       expandToolSurface: true,
     };
@@ -672,6 +778,46 @@ export function realDataFinalGuard(
     // the canned fallback without ever running a query.
     expandToolSurface: true,
   };
+}
+
+export async function searchDashboardMentions(query: string, event?: any) {
+  if (!event) return [];
+  try {
+    const { getOrgContext } = await import("@agent-native/core/org");
+    const { listDashboardSummaries } =
+      await import("../lib/dashboards-store.js");
+    const ctx = await getOrgContext(event);
+    const rows = await listDashboardSummaries(
+      { email: ctx.email, orgId: ctx.orgId ?? null },
+      { kind: "sql", hidden: query ? "all" : "visible" },
+    );
+    const items = rows.map((dashboard) => ({
+      id: dashboard.id,
+      name: dashboard.name,
+    }));
+
+    const q = (query || "").toLowerCase().trim();
+    const filtered = q
+      ? items.filter(
+          (dashboard) =>
+            (dashboard.name || "").toLowerCase().includes(q) ||
+            dashboard.id.toLowerCase().includes(q),
+        )
+      : items;
+
+    return filtered.slice(0, 20).map((dashboard) => ({
+      id: `dashboard:${dashboard.id}`,
+      label: dashboard.name || "Untitled dashboard",
+      description: `/dashboards/${dashboard.id}`,
+      icon: "deck",
+      refType: "dashboard",
+      refId: dashboard.id,
+      refPath: `/dashboards/${dashboard.id}`,
+    }));
+  } catch (err) {
+    console.error("[analytics] Dashboard mention provider failed:", err);
+    return [];
+  }
 }
 
 export default createAgentChatPlugin({
@@ -752,41 +898,7 @@ export default createAgentChatPlugin({
     dashboards: {
       label: "Dashboards",
       icon: "deck",
-      search: async (query: string, event?: any) => {
-        if (!event) return [];
-        try {
-          const { getOrgContext } = await import("@agent-native/core/org");
-          const { listDashboards } = await import("../lib/dashboards-store.js");
-          const ctx = await getOrgContext(event);
-          const rows = await listDashboards(
-            { email: ctx.email, orgId: ctx.orgId ?? null },
-            { kind: "sql", hidden: query ? "all" : "visible" },
-          );
-          const items = rows.map((d) => ({ id: d.id, name: d.title }));
-
-          const q = (query || "").toLowerCase().trim();
-          const filtered = q
-            ? items.filter(
-                (d) =>
-                  (d.name || "").toLowerCase().includes(q) ||
-                  d.id.toLowerCase().includes(q),
-              )
-            : items;
-
-          return filtered.slice(0, 20).map((d) => ({
-            id: `dashboard:${d.id}`,
-            label: d.name || "Untitled dashboard",
-            description: `/dashboards/${d.id}`,
-            icon: "deck",
-            refType: "dashboard",
-            refId: d.id,
-            refPath: `/dashboards/${d.id}`,
-          }));
-        } catch (err) {
-          console.error("[analytics] Dashboard mention provider failed:", err);
-          return [];
-        }
-      },
+      search: searchDashboardMentions,
     },
   },
 });

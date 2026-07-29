@@ -54,6 +54,7 @@ jobs:
       pull_request: ${{ steps.provenance.outputs.pull_request }}
       matrix: ${{ steps.plan.outputs.matrix }}
       assertions: ${{ steps.plan.outputs.assertions }}
+      plan_json: ${{ steps.plan.outputs.plan_json }}
     steps:
       - name: Require the trusted default-branch controller
         env:
@@ -116,15 +117,15 @@ jobs:
               rollback_plan_args+=(--allow-disabled)
             fi
             pnpm tsx scripts/trusted-acceptance.ts "${rollback_plan_args[@]}" > "$RUNNER_TEMP/rollback-plan.json"
-            expected_assertions="$(node -e 'const p=require(process.env.RUNNER_TEMP + "/rollback-plan.json"); if (!p.ok) process.exit(1); process.stdout.write(JSON.stringify(p.plan.assertions))')"
+            expected_assertions="$(node -e 'const p=require(process.env.RUNNER_TEMP + "/rollback-plan.json"); if (!p.ok) process.exit(1); process.stdout.write(JSON.stringify(p.plan.assertions.filter(id => id !== "A14")))')"
             gh api "repos/$TRUSTED_REPOSITORY/actions/runs/$ROLLBACK_RUN_ID" > "$RUNNER_TEMP/prior-run.json"
-            node - <<'NODE'
-            const fs = require("node:fs");
-            const run = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + "/prior-run.json", "utf8"));
-            if (run.path !== ".github/workflows/trusted-acceptance.yml" || run.event !== "workflow_dispatch" || run.conclusion !== "success" || run.head_branch !== "main") {
-              throw new Error("rollback_run_id must be a successful main dispatch of the trusted acceptance workflow");
-            }
-            NODE
+            node -e '
+              const fs = require("node:fs");
+              const run = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + "/prior-run.json", "utf8"));
+              if (run.path !== ".github/workflows/trusted-acceptance.yml" || run.event !== "workflow_dispatch" || run.conclusion !== "success" || run.head_branch !== "main") {
+                throw new Error("rollback_run_id must be a successful main dispatch of the trusted acceptance workflow");
+              }
+            '
             artifact_id="$(gh api "repos/$TRUSTED_REPOSITORY/actions/runs/$ROLLBACK_RUN_ID/artifacts" --jq ".artifacts[] | select(.name == \"trusted-acceptance-receipt-$ROLLBACK_RUN_ID\") | .id" | head -n 1)"
             if [[ -z "$artifact_id" ]]; then
               echo "No trusted acceptance receipt artifact found for rollback_run_id." >&2
@@ -135,15 +136,15 @@ jobs:
             unzip -p "$RUNNER_TEMP/prior-receipt.zip" trusted-acceptance-receipt.json > "$prior_receipt"
             test -s "$prior_receipt"
             pnpm tsx scripts/trusted-acceptance.ts receipt --file "$prior_receipt" --expected-assertions "$expected_assertions"
-            node - "$prior_receipt" <<'NODE'
-            const fs = require("node:fs");
-            const receipt = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
-            const run = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + "/prior-run.json", "utf8"));
-            const expectedRunUrl = `https://github.com/${process.env.TRUSTED_REPOSITORY}/actions/runs/${process.env.ROLLBACK_RUN_ID}`;
-            if (receipt.result !== "pass" || receipt.runUrl !== expectedRunUrl || receipt.controllerSha !== run.head_sha || receipt.workspace !== process.env.WORKSPACE || receipt.currentKnownGoodSha !== process.env.ROLLBACK_SHA) {
-              throw new Error("Rollback SHA is not the known-good SHA from the selected passing workspace receipt");
-            }
-            NODE
+            node -e '
+              const fs = require("node:fs");
+              const receipt = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+              const run = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + "/prior-run.json", "utf8"));
+              const expectedRunUrl = `https://github.com/${process.env.TRUSTED_REPOSITORY}/actions/runs/${process.env.ROLLBACK_RUN_ID}`;
+              if (receipt.result !== "pass" || receipt.runUrl !== expectedRunUrl || receipt.controllerSha !== run.head_sha || receipt.workspace !== process.env.WORKSPACE || receipt.currentKnownGoodSha !== process.env.ROLLBACK_SHA) {
+                throw new Error("Rollback SHA is not the known-good SHA from the selected passing workspace receipt");
+              }
+            ' "$prior_receipt"
             operation="rollback"
             receipt_pr=""
           else
@@ -175,6 +176,7 @@ jobs:
         env:
           WORKSPACE: ${{ inputs.workspace }}
           DEPLOY: ${{ inputs.deploy }}
+          OPERATION: ${{ steps.provenance.outputs.operation }}
         run: |
           templates="$(find templates -mindepth 2 -maxdepth 2 -name package.json -print | sed 's#templates/##;s#/package.json##' | sort | paste -sd, -)"
           args=(plan --file "$CONFIG_FILE" --templates "$templates" --workspace "$WORKSPACE")
@@ -188,7 +190,11 @@ jobs:
           if (!plan.ok) throw new Error(JSON.stringify(plan.issues));
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `config_revision=${plan.plan.revision}\n`);
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `matrix=${JSON.stringify({ include: plan.plan.members })}\n`);
-          fs.appendFileSync(process.env.GITHUB_OUTPUT, `assertions=${JSON.stringify(plan.plan.assertions)}\n`);
+          const assertions = process.env.OPERATION === "candidate"
+            ? plan.plan.assertions.filter(id => id !== "A14")
+            : plan.plan.assertions;
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `assertions=${JSON.stringify(assertions)}\n`);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `plan_json=${JSON.stringify(plan.plan)}\n`);
           NODE
 
       - name: Record dry-run plan
@@ -220,6 +226,8 @@ jobs:
           persist-credentials: false
 
       - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+        with:
+          package_json_file: candidate/package.json
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
@@ -282,6 +290,7 @@ jobs:
       - name: Install pinned deployment client before credentials enter the job
         run: |
           pnpm install --frozen-lockfile --ignore-scripts
+          pnpm exec playwright install --with-deps chromium
           npm install --global netlify-cli@27.0.0 --ignore-scripts
 
       - name: Download every inert candidate artifact
@@ -298,10 +307,25 @@ jobs:
           node - <<'NODE'
           const fs = require("node:fs");
           const path = require("node:path");
+          const assertRegularTree = (root) => {
+            const rootStat = fs.lstatSync(root);
+            if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) throw new Error(`Candidate artifact root is not a regular directory: ${root}`);
+            const visit = directory => {
+              for (const entry of fs.readdirSync(directory, {withFileTypes: true})) {
+                const file = path.join(directory, entry.name);
+                const stat = fs.lstatSync(file);
+                if (stat.isSymbolicLink()) throw new Error(`Candidate artifact contains a symlink: ${file}`);
+                if (stat.isDirectory()) visit(file);
+                else if (!stat.isFile()) throw new Error(`Candidate artifact contains a non-regular file: ${file}`);
+              }
+            };
+            visit(root);
+          };
           for (const member of JSON.parse(process.env.MATRIX).include) {
             const artifact = path.join(process.env.RUNNER_TEMP, "acceptance-artifacts", `trusted-acceptance-build-${member.template}`);
             const metadata = JSON.parse(fs.readFileSync(path.join(artifact, "build-metadata.json"), "utf8"));
-            if (metadata.sha !== process.env.EXPECTED_SHA || metadata.template !== member.template || !fs.statSync(path.join(artifact, "publish")).isDirectory()) {
+            assertRegularTree(artifact);
+            if (metadata.sha !== process.env.EXPECTED_SHA || metadata.template !== member.template || !fs.lstatSync(path.join(artifact, "publish")).isDirectory()) {
               throw new Error(`Candidate artifact provenance mismatch for ${member.template}`);
             }
           }
@@ -315,6 +339,7 @@ jobs:
         env:
           AUTHORITY_PROFILES_JSON: ${{ vars.ACCEPTANCE_AUTHORITY_PROFILES_JSON }}
           MATRIX: ${{ needs.plan.outputs.matrix }}
+          PLAN_JSON: ${{ needs.plan.outputs.plan_json }}
           WORKSPACE: ${{ inputs.workspace }}
         run: |
           if [[ -z "$AUTHORITY_PROFILES_JSON" ]]; then
@@ -333,53 +358,127 @@ jobs:
           const fs = require("node:fs");
           const path = require("node:path");
           const profile = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + "/trusted-authority-profile.json", "utf8"));
+          const declaredPlan = JSON.parse(process.env.PLAN_JSON);
           const expected = new Set(JSON.parse(process.env.MATRIX).include.map(({template}) => template));
           const runtime = new Map(profile.runtime.members.map((member) => [member.id, member]));
           const productionSiteIds = new Set(Object.values(JSON.parse(fs.readFileSync("scripts/netlify-sites.json", "utf8"))));
-          const members = profile.members.map(({id}) => {
+          const root = path.join(process.env.RUNNER_TEMP, "trusted-acceptance-deploy");
+          const members = profile.members.map(({id, artifactDirectory}) => {
             if (!expected.has(id) || !runtime.has(id)) throw new Error(`Profile member ${id} is not an expected artifact`);
             if (productionSiteIds.has(runtime.get(id).netlifySiteId)) throw new Error(`Profile member ${id} resolves to a known production site ID`);
-            const artifact = path.join(process.env.RUNNER_TEMP, "acceptance-artifacts", `trusted-acceptance-build-${id}`);
-            if (!fs.existsSync(artifact)) throw new Error(`Missing verified artifact for ${id}`);
-            return {id, siteId: runtime.get(id).netlifySiteId, artifact};
+            const source = path.join(process.env.RUNNER_TEMP, "acceptance-artifacts", `trusted-acceptance-build-${id}`);
+            const artifact = path.join(root, artifactDirectory);
+            if (!fs.existsSync(source)) throw new Error(`Missing verified artifact for ${id}`);
+            fs.cpSync(source, artifact, {recursive: true, errorOnExist: true, force: false});
+            return {
+              id,
+              siteId: runtime.get(id).netlifySiteId,
+              artifactDirectory,
+              publishDirectory: path.posix.join(artifactDirectory, "publish"),
+              functionsDirectory: path.posix.join(artifactDirectory, ".netlify/functions-internal"),
+            };
           });
           if (members.length !== expected.size) throw new Error("Profile must deploy the entire configured workspace");
-          fs.writeFileSync(process.env.RUNNER_TEMP + "/trusted-deploy-manifest.json", JSON.stringify(members));
+
+          let directoryFixture;
+          if (profile.directoryFixture) {
+            if (productionSiteIds.has(profile.directoryFixture.netlifySiteId)) throw new Error("Directory fixture resolves to a known production site ID");
+            const artifactDirectory = profile.directoryFixture.artifactDirectory;
+            const fixtureRoot = path.join(root, artifactDirectory);
+            const functionsDirectory = path.join(fixtureRoot, "functions");
+            const publishDirectory = path.join(fixtureRoot, "public");
+            fs.mkdirSync(functionsDirectory, {recursive: true});
+            fs.mkdirSync(publishDirectory, {recursive: true});
+            fs.copyFileSync("scripts/trusted-acceptance/directory-fixture.ts", path.join(functionsDirectory, "directory-fixture.ts"));
+            fs.copyFileSync("scripts/trusted-acceptance/directory-netlify-function.ts", path.join(functionsDirectory, "acceptance-directory.ts"));
+            fs.writeFileSync(path.join(publishDirectory, "index.html"), "<!doctype html><title>Trusted acceptance directory</title>\n");
+            const hash = require("node:crypto").createHash("sha256");
+            const visit = (directory, prefix = "") => {
+              for (const entry of fs.readdirSync(directory, {withFileTypes: true}).sort((a, b) => a.name.localeCompare(b.name))) {
+                if (entry.isSymbolicLink()) throw new Error("Trusted directory artifact must not contain symlinks");
+                const relative = path.posix.join(prefix, entry.name);
+                const absolute = path.join(directory, entry.name);
+                if (entry.isDirectory()) visit(absolute, relative);
+                else if (entry.isFile()) hash.update(relative).update("\0").update(fs.readFileSync(absolute)).update("\0");
+                else throw new Error("Trusted directory artifact contains a non-regular file");
+              }
+            };
+            visit(fixtureRoot);
+            const sha256 = hash.digest("hex");
+            if (sha256 !== profile.directoryFixture.artifactSha256) throw new Error("Trusted directory artifact digest does not match the protected profile");
+            directoryFixture = {
+              siteId: profile.directoryFixture.netlifySiteId,
+              artifactDirectory,
+              publishDirectory: path.posix.join(artifactDirectory, "public"),
+              functionsDirectory: path.posix.join(artifactDirectory, "functions"),
+              sha256,
+            };
+          }
+
+          const selected = declaredPlan.harness.kind === "a2a-directory-withdrawal"
+            ? declaredPlan.members.find(({template}) => template === declaredPlan.harness.callerMemberId)
+            : declaredPlan.members.find(({template}) => template === declaredPlan.harness.memberId);
+          if (!selected) throw new Error("Configured harness member is missing from the trusted plan");
+          const isolationTarget = declaredPlan.isolation
+            ? declaredPlan.members.find(({template}) => template === declaredPlan.isolation.otherAcceptanceMemberId)
+            : undefined;
+          if (declaredPlan.isolation && !isolationTarget) throw new Error("Configured isolation member is missing from the trusted plan");
+          const hostedPlan = {
+            version: 1,
+            workspace: profile.workspace,
+            profileSha256: require("node:crypto").createHash("sha256").update(fs.readFileSync(process.env.RUNNER_TEMP + "/trusted-authority-profile.json")).digest("hex"),
+            tokenExpiryMs: 300000,
+            members: [{
+              id: selected.template,
+              origin: selected.origin,
+              mcpUrl: new URL(selected.paths.mcp, selected.origin).toString(),
+              wrongAudienceResource: declaredPlan.isolation
+                ? new URL(selected.paths.mcp, declaredPlan.isolation.productionOrigin).toString()
+                : "https://wrong-audience.acceptance.invalid/mcp",
+              harness: declaredPlan.harness.kind === "a2a-directory-withdrawal"
+                ? {
+                    kind: "a2a-directory-withdrawal",
+                    targetApp: declaredPlan.harness.targetMemberId,
+                    message: declaredPlan.harness.message,
+                    expectedResult: declaredPlan.harness.expectedResult,
+                    maxStatusPolls: declaredPlan.harness.maxStatusPolls,
+                  }
+                : {kind: "mcp-read-only-tool", tool: declaredPlan.harness.tool, arguments: declaredPlan.harness.arguments},
+              ...(declaredPlan.isolation ? {
+                productionMcpUrl: new URL(selected.paths.mcp, declaredPlan.isolation.productionOrigin).toString(),
+                otherAcceptanceMcpUrl: new URL(isolationTarget.paths.mcp, isolationTarget.origin).toString(),
+              } : {}),
+            }],
+          };
+          fs.writeFileSync(process.env.RUNNER_TEMP + "/trusted-hosted-plan.json", JSON.stringify(hostedPlan));
+          fs.writeFileSync(process.env.RUNNER_TEMP + "/trusted-deploy-manifest.json", JSON.stringify({version: 1, members, ...(directoryFixture ? {directoryFixture} : {})}));
           NODE
 
-      - name: Acquire one whole-workspace disposable lease
+      - name: Run trusted hosted OAuth, harness, deployment, and cleanup
+        working-directory: ${{ runner.temp }}/trusted-acceptance-deploy
         env:
           ACCEPTANCE_NEON_API_KEY: ${{ secrets.ACCEPTANCE_NEON_API_KEY }}
           ACCEPTANCE_NETLIFY_AUTH_TOKEN: ${{ secrets.ACCEPTANCE_NETLIFY_AUTH_TOKEN }}
           ACCEPTANCE_OPENROUTER_API_KEY: ${{ secrets.ACCEPTANCE_OPENROUTER_API_KEY }}
         run: |
-          pnpm tsx scripts/trusted-acceptance/controller.ts acquire --profile "$RUNNER_TEMP/trusted-authority-profile.json" --journal "$RUNNER_TEMP/trusted-acceptance-lease.json"
+          "$GITHUB_WORKSPACE/node_modules/.bin/tsx" "$GITHUB_WORKSPACE/scripts/trusted-acceptance/run-hosted-acceptance.ts" \
+            --plan "$RUNNER_TEMP/trusted-hosted-plan.json" \
+            --profile "$RUNNER_TEMP/trusted-authority-profile.json" \
+            --deploy-manifest "$RUNNER_TEMP/trusted-deploy-manifest.json" \
+            --journal "$RUNNER_TEMP/trusted-acceptance-lease.json" \
+            --receipt "$RUNNER_TEMP/trusted-acceptance-controller-receipt.json" \
+            --deploy-result "$RUNNER_TEMP/trusted-acceptance-deploy-result.json"
 
-      - name: Deploy every preverified inert artifact
-        working-directory: ${{ runner.temp }}/trusted-acceptance-deploy
-        env:
-          NETLIFY_AUTH_TOKEN: ${{ secrets.ACCEPTANCE_NETLIFY_AUTH_TOKEN }}
-        run: |
-          node -e 'const fs=require("node:fs"); for (const member of JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + "/trusted-deploy-manifest.json", "utf8"))) process.stdout.write(`${member.id}\t${member.siteId}\t${member.artifact}\n`)' | while IFS=$'\t' read -r template site_id artifact_dir; do
-            raw_result="$(mktemp)"
-            trap 'rm -f "$raw_result"' EXIT
-            netlify deploy --prod --no-build --json --auth "$NETLIFY_AUTH_TOKEN" --site "$site_id" --dir "$artifact_dir/publish" --functions "$artifact_dir/.netlify/functions-internal" > "$raw_result"
-            node - "$raw_result" "$RUNNER_TEMP/deploy-$template.json" "$template" <<'NODE'
-            const fs = require("node:fs");
-            const result = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
-            const deployId = result.deploy_id ?? result.id;
-            if (!deployId) throw new Error("Netlify did not return a deploy ID");
-            fs.writeFileSync(process.argv[3], JSON.stringify({template: process.argv[4], deployId}));
-            NODE
-          done
-
-      - name: Revoke one whole-workspace disposable lease
+      - name: Revoke one whole-workspace disposable lease after interruption
         if: ${{ always() }}
         env:
           ACCEPTANCE_NEON_API_KEY: ${{ secrets.ACCEPTANCE_NEON_API_KEY }}
           ACCEPTANCE_NETLIFY_AUTH_TOKEN: ${{ secrets.ACCEPTANCE_NETLIFY_AUTH_TOKEN }}
           ACCEPTANCE_OPENROUTER_API_KEY: ${{ secrets.ACCEPTANCE_OPENROUTER_API_KEY }}
-        run: pnpm tsx scripts/trusted-acceptance/controller.ts revoke --profile "$RUNNER_TEMP/trusted-authority-profile.json" --journal "$RUNNER_TEMP/trusted-acceptance-lease.json"
+        run: |
+          if [[ -f "$RUNNER_TEMP/trusted-acceptance-lease.json" ]]; then
+            pnpm tsx scripts/trusted-acceptance/controller.ts revoke --profile "$RUNNER_TEMP/trusted-authority-profile.json" --journal "$RUNNER_TEMP/trusted-acceptance-lease.json"
+          fi
 
       - name: Upload current redacted lease journal and controller receipt
         if: ${{ always() }}
@@ -388,15 +487,19 @@ jobs:
           name: trusted-acceptance-lease-state-${{ github.run_id }}
           path: |
             ${{ runner.temp }}/trusted-acceptance-lease.json
+            ${{ runner.temp }}/trusted-acceptance-controller-receipt.json
           if-no-files-found: warn
           retention-days: 30
 
-      - name: Upload redacted deployment result
+      - name: Upload redacted hosted acceptance result
+        if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: trusted-acceptance-deploy-results
-          path: ${{ runner.temp }}/deploy-*.json
-          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/trusted-acceptance-deploy-result.json
+            ${{ runner.temp }}/trusted-acceptance-controller-receipt.json
+          if-no-files-found: warn
           retention-days: 30
 
   receipt:
@@ -421,7 +524,8 @@ jobs:
         run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Download redacted deployment results
-        if: ${{ inputs.deploy && needs.deploy.result == 'success' }}
+        if: ${{ inputs.deploy && needs.deploy.result != 'skipped' }}
+        continue-on-error: true
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: trusted-acceptance-deploy-*
@@ -438,6 +542,7 @@ jobs:
           DEPLOY_RESULT: ${{ needs.deploy.result }}
           MATRIX: ${{ needs.plan.outputs.matrix }}
           OPERATION: ${{ needs.plan.outputs.operation }}
+          PLAN_JSON: ${{ needs.plan.outputs.plan_json }}
           PR_NUMBER: ${{ needs.plan.outputs.pull_request }}
           ROLLBACK_SHA: ${{ inputs.rollback_sha }}
           RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -447,19 +552,92 @@ jobs:
           node - <<'NODE'
           const fs = require("node:fs");
           const path = require("node:path");
+          const plan = JSON.parse(process.env.PLAN_JSON);
+          const deployResultPath = path.join(process.env.RUNNER_TEMP, "deploy-results", "trusted-acceptance-deploy-result.json");
+          const controllerReceiptPath = path.join(process.env.RUNNER_TEMP, "deploy-results", "trusted-acceptance-controller-receipt.json");
+          const deployResult = fs.existsSync(deployResultPath)
+            ? JSON.parse(fs.readFileSync(deployResultPath, "utf8"))
+            : {deployments: []};
+          const controllerReceipt = fs.existsSync(controllerReceiptPath)
+            ? JSON.parse(fs.readFileSync(controllerReceiptPath, "utf8"))
+            : null;
+          const deployIds = new Map(deployResult.deployments.map(({id, deployId}) => [id, deployId]));
           const members = JSON.parse(process.env.MATRIX).include.map(member => {
-            const resultPath = path.join(process.env.RUNNER_TEMP, "deploy-results", `deploy-${member.template}.json`);
-            const deployId = fs.existsSync(resultPath)
-              ? JSON.parse(fs.readFileSync(resultPath, "utf8")).deployId
-              : null;
-            return {template: member.template, origin: member.origin, deployId};
+            return {template: member.template, origin: member.origin, deployId: deployIds.get(member.template) ?? null};
           });
-          const deployed = process.env.DEPLOY_REQUESTED === "true" && process.env.DEPLOY_RESULT === "success";
-          const assertions = JSON.parse(process.env.ASSERTIONS).map(id => ({
-            id,
-            state: "blocked",
-            evidencePointer: deployed ? "workflow://runtime-proof-pending" : "workflow://dry-run-only",
-          }));
+          const controllerPassed = controllerReceipt?.result === "passed";
+          const evidence = new Map((controllerReceipt?.evidence ?? []).map(entry => [entry.assertionId, entry]));
+          const callerId = plan.harness.kind === "a2a-directory-withdrawal" ? plan.harness.callerMemberId : plan.harness.memberId;
+          const has = suffix => evidence.get(`${callerId}:${suffix}`)?.status === "passed";
+          const cleanupPassed = controllerPassed && controllerReceipt.lease?.state === "revoked" &&
+            controllerReceipt.lease.verification?.inferenceDisabled &&
+            controllerReceipt.lease.verification?.runtimeVariablesAbsent &&
+            controllerReceipt.lease.verification?.tombstoneActive &&
+            controllerReceipt.lease.verification?.branchesDeleted;
+          const oauthPassed = has("oauth");
+          const harnessPassed = has("harness");
+          const isolationPassed = [
+            "acceptance-token-rejected-by-production-resource",
+            "acceptance-token-rejected-by-other-acceptance-resource",
+            "foreign-domain-sentinel-rejected-by-acceptance",
+            "production-oauth-metadata-distinct",
+            "oauth-authorization-code-replay-rejected",
+            "oauth-wrong-audience-rejected",
+            "expiry",
+            "post-cleanup",
+          ].every(has);
+          const repositoryProof = new Set(["A1", "A2", "A3", "A4", "A12", "A13"]);
+          const liveProof = id => {
+            if (!controllerPassed) return false;
+            if (["A5", "I5"].includes(id)) return cleanupPassed;
+            if (["A6", "A7", "I6"].includes(id)) return oauthPassed && has("oauth-authorization-code-replay-rejected") && has("oauth-wrong-audience-rejected");
+            if (["A8", "A9", "A10"].includes(id)) return plan.harness.kind === "a2a-directory-withdrawal" && harnessPassed;
+            if (["A11", "I7"].includes(id)) return isolationPassed;
+            if (id === "I1") return has("unauthenticated-oauth-code-rejected");
+            if (["I2", "I3"].includes(id)) return has("session") && has("wrong-password-rejected");
+            if (id === "I4") return has("wrong-password-rejected") && has("second-tenant-data-isolated");
+            if (id === "I8") return plan.harness.kind === "mcp-read-only-tool" && harnessPassed && oauthPassed && cleanupPassed;
+            if (id === "A14") return process.env.OPERATION === "rollback" && controllerPassed && members.every(member => member.deployId);
+            return false;
+          };
+          const assertions = JSON.parse(process.env.ASSERTIONS).map(id => {
+            const passed = repositoryProof.has(id) || liveProof(id);
+            return {
+              id,
+              state: passed ? "pass" : "blocked",
+              evidencePointer: passed
+                ? (repositoryProof.has(id) ? "workflow://trusted-controller" : `controller-receipt://${callerId}`)
+                : (process.env.DEPLOY_REQUESTED === "true" ? "workflow://required-proof-missing" : "workflow://dry-run-only"),
+            };
+          });
+          const allPassed = assertions.every(({state}) => state === "pass");
+          const lease = controllerReceipt?.lease;
+          const scenarios = plan.harness.kind === "a2a-directory-withdrawal"
+            ? {kind: plan.harness.kind, hostedOAuth: oauthPassed ? "pass" : "blocked", stableDiscovery: harnessPassed ? "pass" : "blocked", discoveryWithdrawal: harnessPassed ? "pass" : "blocked", taskRouteContinuity: harnessPassed ? "pass" : "blocked"}
+            : {kind: plan.harness.kind, hostedOAuth: oauthPassed ? "pass" : "blocked", readOnlyTool: harnessPassed ? "pass" : "blocked"};
+          const authorities = (lease?.members ?? []).flatMap(member => member.authSigningAuthority ? [{
+            memberId: member.memberId,
+            provenance: "fresh-per-run",
+            algorithm: "sha256",
+            digest: `sha256:${member.authSigningAuthority.sha256}`,
+            generatedAt: member.authSigningAuthority.generatedAt,
+          }] : []);
+          const acceptanceMetadata = [...evidence.values()].filter(entry => entry.assertionId.endsWith(":oauth") && entry.publicResource && entry.publicIssuer).map(entry => ({role: "acceptance", resource: entry.publicResource, issuer: entry.publicIssuer}));
+          const productionMetadata = [...evidence.values()].filter(entry => entry.assertionId.endsWith(":production-oauth-metadata-distinct") && entry.publicResource && entry.publicIssuer).map(entry => ({role: "production", resource: entry.publicResource, issuer: entry.publicIssuer}));
+          const probeMap = [
+            ["acceptance-token-rejected-by-production-resource", "acceptance-at-production"],
+            ["acceptance-token-rejected-by-other-acceptance-resource", "acceptance-at-other-acceptance"],
+            ["foreign-domain-sentinel-rejected-by-acceptance", "foreign-domain-sentinel-at-acceptance"],
+            ["expiry", "expired-acceptance"],
+            ["oauth-authorization-code-replay-rejected", "replayed-acceptance"],
+            ["oauth-wrong-audience-rejected", "wrong-audience"],
+            ["post-cleanup", "post-cleanup"],
+          ];
+          const probes = probeMap.flatMap(([suffix, kind]) => {
+            const entry = evidence.get(`${callerId}:${suffix}`);
+            return entry?.httpStatus ? [{kind, status: entry.httpStatus, at: entry.timestamp, ...(entry.proofDigest ? {proofDigest: entry.proofDigest} : {})}] : [];
+          });
+          const revokedAt = lease?.journal?.findLast(entry => entry.operation === "revoke-cleanup" && entry.outcome === "ok")?.at ?? null;
           const receipt = {
             actor: process.env.ACTOR,
             runUrl: process.env.RUN_URL,
@@ -473,10 +651,25 @@ jobs:
             assertions,
             startedAt: new Date().toISOString(),
             completedAt: new Date().toISOString(),
-            result: "blocked",
+            result: allPassed ? "pass" : "blocked",
             rollbackTarget: process.env.ROLLBACK_SHA || null,
             priorKnownGoodSha: process.env.ROLLBACK_SHA || null,
-            currentKnownGoodSha: null,
+            currentKnownGoodSha: allPassed ? process.env.SHA : null,
+            ...(lease ? {
+              lease: {id: lease.id, issuedAt: lease.createdAt, expiresAt: lease.expiresAt, revokedAt: lease.state === "revoked" ? revokedAt : null, state: lease.state},
+              cleanup: {
+                inferenceAuthority: lease.verification.inferenceDisabled ? "verified-absent" : "failed",
+                databaseBranches: lease.verification.branchesDeleted ? "verified-absent" : "failed",
+                runtimeConfiguration: lease.verification.runtimeVariablesAbsent ? "verified-absent" : "failed",
+                tombstoneDeployIds: [
+                  ...lease.members.flatMap(member => member.tombstoneDeployId ? [member.tombstoneDeployId] : []),
+                  ...(lease.directoryFixture?.tombstoneDeployId ? [lease.directoryFixture.tombstoneDeployId] : []),
+                ],
+                verifiedAt: cleanupPassed ? new Date().toISOString() : null,
+              },
+              scenarios,
+              ...(authorities.length || acceptanceMetadata.length || productionMetadata.length || probes.length ? {isolation: {authorities, metadata: [...productionMetadata, ...acceptanceMetadata], probes}} : {}),
+            } : {}),
           };
           fs.writeFileSync(process.env.RUNNER_TEMP + "/trusted-acceptance-receipt.json", JSON.stringify(receipt, null, 2));
           NODE

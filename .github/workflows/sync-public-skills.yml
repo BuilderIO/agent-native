@@ -6,11 +6,14 @@ on:
     paths:
       - "skills/visual-plans/**"
       - "skills/visual-recap/**"
+      - "skills/visual-edit/**"
       - ".agents/plugins/agent-native-visual-plans/**"
+      - ".agents/plugins/agent-native-design/**"
       - "templates/plan/.agents/skills/visual-plan/**"
       - "templates/plan/.agents/skills/visual-recap/**"
+      - "templates/design/.agents/skills/visual-edit/**"
       - "packages/core/src/cli/skills.ts"
-      - "packages/core/src/cli/skills-content/rewind-skill.ts"
+      - "packages/core/src/cli/skills-content/**"
       - ".github/workflows/sync-public-skills.yml"
   workflow_dispatch:
 

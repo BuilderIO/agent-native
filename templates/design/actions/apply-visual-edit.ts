@@ -355,6 +355,11 @@ const targetSchema = z
       .object({
         line: z.number().int().positive(),
         column: z.number().int().positive(),
+        // Without this the deterministic writer cannot tell a React 19
+        // owner-stack line from an authored one and would seek to it.
+        positionPrecision: z
+          .enum(["authored", "transformed", "unknown"])
+          .optional(),
         runtimeMultiplicity: z.number().int().positive().optional(),
         scope: z
           .enum([
@@ -693,6 +698,7 @@ export default defineAction({
               sourceAnchor?: {
                 line: number;
                 column: number;
+                positionPrecision?: "authored" | "transformed" | "unknown";
                 runtimeMultiplicity?: number;
                 scope?:
                   | "single-instance"
@@ -714,7 +720,7 @@ export default defineAction({
             status: "conflict" as const,
             changed: false,
             message:
-              "Local visual edits require designId, connectionId, path, and an exact sourceAnchor from the live selection.",
+              "Local visual edits require designId, connectionId, path, and a complete sourceAnchor from the live selection.",
           },
           persisted: false,
         };

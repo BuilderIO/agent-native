@@ -69,6 +69,16 @@ const allowed = new Set(
   [...truth.entries()].filter(([, meta]) => !meta.hidden).map(([slug]) => slug),
 );
 
+// Template docs also have public topic pages such as
+// `template-assets-presets.mdx`. The first slug segment identifies the public
+// template; the suffix is a docs topic, not a second template catalog entry.
+function isAllowedTemplateDocSlug(slug) {
+  return (
+    allowed.has(slug) ||
+    [...allowed].some((templateSlug) => slug.startsWith(`${templateSlug}-`))
+  );
+}
+
 const errors = [];
 
 // ── 1. CLI duplicate must agree with source of truth on hidden flag.
@@ -135,7 +145,7 @@ const DOCS_NAV_PATH = "packages/docs/app/components/docsNavItems.ts";
     const docsSlugRe = /\/docs\/template-([a-z][a-z0-9-]*)\b/g;
     while ((match = docsSlugRe.exec(inTemplatesSection)) !== null) {
       const slug = match[1];
-      if (!allowed.has(slug)) {
+      if (!isAllowedTemplateDocSlug(slug)) {
         errors.push(
           `${DOCS_NAV_PATH}: "/docs/template-${slug}" is in the sidebar but not in the public allow-list. ` +
             `Either remove the entry, or flip hidden:false in ${SOURCE_OF_TRUTH} (and ${CLI_DUPLICATE}).`,
@@ -153,9 +163,9 @@ const DOCS_CONTENT_DIR = "packages/core/docs/content";
     const m = file.match(/^template-([a-z0-9-]+)\.(?:mdx|md)$/);
     if (!m) continue;
     const slug = m[1];
-    if (!allowed.has(slug)) {
+    if (!isAllowedTemplateDocSlug(slug)) {
       errors.push(
-        `${DOCS_CONTENT_DIR}/${file}: docs page exists for "${slug}" which is not in the public allow-list. ` +
+        `${DOCS_CONTENT_DIR}/${file}: docs page is not for a public template or its topic "${slug}". ` +
           `Delete this file, or flip hidden:false in ${SOURCE_OF_TRUTH} (and ${CLI_DUPLICATE}).`,
       );
     }

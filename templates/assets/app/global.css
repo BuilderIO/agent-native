@@ -207,10 +207,6 @@
     grid-template-columns: minmax(0, 1fr) 284px;
   }
 
-  .assets-live-candidates-grid {
-    grid-template-columns: minmax(0, 1fr) minmax(18rem, 22rem);
-  }
-
   .assets-brand-kit-settings-grid {
     grid-template-columns: minmax(0, 1fr) 320px;
   }

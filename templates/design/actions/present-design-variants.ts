@@ -19,6 +19,7 @@ import {
   type CanvasFramePlacement,
 } from "../shared/canvas-frames.js";
 import { isUniqueConstraintViolation } from "../shared/db-conflict.js";
+import { assertDesignHtmlWellFormed } from "../shared/html-integrity.js";
 import { widthToPrefix } from "../shared/responsive-classes.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
 
@@ -29,10 +30,13 @@ const MOBILE_HEIGHT = 844;
 const TABLET_WIDTH = 768;
 const TABLET_HEIGHT = 1024;
 const DESKTOP_WIDTH = 1440;
-const DESKTOP_HEIGHT = 1024;
-const DEFAULT_RESPONSIVE_BREAKPOINTS = [390, 768, 1440].map((widthPx) => ({
+const DESKTOP_HEIGHT = 900;
+// Desktop-base default: the primary/base frame is Desktop (1440), so the
+// breakpoint set is Mobile only. The primary width is never included and no
+// tablet is auto-added, matching generate-design's device derivation.
+const DEFAULT_RESPONSIVE_BREAKPOINTS = [MOBILE_WIDTH].map((widthPx) => ({
   id: `generated-${widthPx}`,
-  label: widthPx === 390 ? "Mobile" : widthPx === 768 ? "Tablet" : "Desktop",
+  label: "Mobile",
   widthPx,
   prefix: widthToPrefix(widthPx),
 }));
@@ -822,6 +826,21 @@ export default defineAction({
   },
   run: async ({ designId, prompt, variants, deleteSupersededSetIds }) => {
     await assertAccess("design", designId, "editor");
+
+    // Before any mutation. These are model-authored screens created by raw
+    // insert, so they need the same well-formedness gate as generate-design —
+    // though not its document-shape rules, since a variant may be a sketch with
+    // `<html>`/`<body>` implied. Ordering is the load-bearing part: the
+    // supersession and deletion below are irreversible, so throwing after them
+    // would destroy existing variant sets and create nothing to replace them.
+    for (const variant of variants) {
+      const candidate = variant.content?.trim();
+      if (!candidate) continue;
+      assertDesignHtmlWellFormed({
+        content: annotateScreenHtmlForPersist(candidate, "html"),
+        filename: `variant-${slugify(variant.label.trim(), "option")}.html`,
+      });
+    }
 
     // Non-destructive bookkeeping: flag earlier still-complete variant sets
     // as superseded. Files are NEVER deleted automatically — a user's pick

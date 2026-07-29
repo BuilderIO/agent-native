@@ -219,6 +219,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
           cacheReadTokens: 1_000,
           cacheWriteTokens: 0,
           model: "claude-test",
+          usageReported: true,
         };
       },
       loopOpts,
@@ -502,8 +503,6 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
       run_id: "run-interrupted",
       model: "gpt-test",
       status: "error",
-      input_tokens: 0,
-      output_tokens: 0,
       tool_calls: 1,
       successful_tools: 0,
       failed_tools: 1,
@@ -518,7 +517,122 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
         },
       ],
     });
+    // The engine never reported a usage figure for this run (it threw before
+    // any provider response). An unreported token/cost/TTFT figure must be
+    // absent from the payload, never coerced to a literal 0 that is
+    // indistinguishable from a real empty-input run.
+    expect(events[0]?.properties?.input_tokens).toBeUndefined();
+    expect(events[0]?.properties?.output_tokens).toBeUndefined();
+    expect(events[0]?.properties?.total_tokens).toBeUndefined();
+    expect(events[0]?.properties?.cache_read_tokens).toBeUndefined();
+    expect(events[0]?.properties?.cache_write_tokens).toBeUndefined();
+    expect(events[0]?.properties?.cost_cents_x100).toBeUndefined();
+    expect(events[0]?.properties?.cost_usd).toBeUndefined();
+    expect(events[0]?.properties?.time_to_first_token_ms).toBeUndefined();
+    expect(events[0]?.properties?.["$ai_input_tokens"]).toBeUndefined();
+    expect(events[0]?.properties?.["$ai_output_tokens"]).toBeUndefined();
+    expect(events[0]?.properties?.["$ai_total_cost_usd"]).toBeUndefined();
     expect(JSON.stringify(events[0])).not.toContain("must-not-be-tracked");
+  });
+
+  it("omits usage/cost figures when the run ends for no-progress without throwing", async () => {
+    // Mirrors the real no-progress abort path (production-agent.ts returns
+    // `usage` normally with placeholder zeros instead of throwing) rather
+    // than the thrown-error path covered above — the measured bug was a
+    // resolved run with literal 0s, not an exception.
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        events.push(event);
+      },
+    });
+    const loopOpts: any = {
+      engine: { name: "builder" },
+      model: "gpt-test",
+      systemPrompt: "",
+      tools: [],
+      messages: [],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+
+    await instrumentAgentLoop({
+      runAgentLoop: async () => ({
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "gpt-test",
+        // usageReported intentionally omitted — no `usage` event ever
+        // arrived before the no-progress abort.
+      }),
+      loopOpts,
+      runId: "run-no-progress",
+      threadId: "thread-1",
+      userId: "user@example.com",
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(events).toHaveLength(1);
+    expect(events[0]?.properties?.input_tokens).toBeUndefined();
+    expect(events[0]?.properties?.output_tokens).toBeUndefined();
+    expect(events[0]?.properties?.total_tokens).toBeUndefined();
+    expect(events[0]?.properties?.cache_read_tokens).toBeUndefined();
+    expect(events[0]?.properties?.cache_write_tokens).toBeUndefined();
+    expect(events[0]?.properties?.cost_cents_x100).toBeUndefined();
+    expect(events[0]?.properties?.cost_usd).toBeUndefined();
+    expect(events[0]?.properties?.time_to_first_token_ms).toBeUndefined();
+  });
+
+  it("reports time_to_first_token_ms measured from run start when the engine reports a first-event timestamp", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        events.push(event);
+      },
+    });
+    const loopOpts: any = {
+      engine: { name: "builder" },
+      model: "gpt-test",
+      systemPrompt: "",
+      tools: [],
+      messages: [],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+
+    await instrumentAgentLoop({
+      runAgentLoop: async () => {
+        const firstEngineEventAtMs = Date.now() + 25;
+        return {
+          inputTokens: 10,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "gpt-test",
+          usageReported: true,
+          firstEngineEventAtMs,
+        };
+      },
+      loopOpts,
+      runId: "run-ttft",
+      threadId: "thread-1",
+      userId: "user@example.com",
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(events).toHaveLength(1);
+    const ttft = events[0]?.properties?.time_to_first_token_ms;
+    expect(typeof ttft).toBe("number");
+    expect(ttft as number).toBeGreaterThanOrEqual(0);
   });
 
   it("emits run/tool/llm spans with expected names and attributes", async () => {

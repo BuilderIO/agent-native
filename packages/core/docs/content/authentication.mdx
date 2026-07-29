@@ -133,10 +133,11 @@ database/origin share sign-in and apps that don't stay isolated:
 
 First-party hosted apps each have their own auth database, so cross-app sign-in
 goes through [Cross-App SSO](/docs/cross-app-sso) rather than a shared cookie.
-These deploys must provide `APP_NAME` or a derivable app URL (`APP_URL`, `URL`,
-`DEPLOY_PRIME_URL`, or `DEPLOY_URL`); otherwise startup fails instead of falling
-back to the shared `an_session` name. To intentionally share one auth database
-across subdomains, set `AGENT_NATIVE_SHARE_COOKIE_DOMAIN=1` alongside
+These deploys must provide `APP_NAME` or a derivable app URL (`APP_URL`,
+`BETTER_AUTH_URL`, `VITE_BETTER_AUTH_URL`, `URL`, `DEPLOY_PRIME_URL`, or
+`DEPLOY_URL`); otherwise startup fails instead of falling back to the shared
+`an_session` name. To intentionally share one auth database across
+subdomains, set `AGENT_NATIVE_SHARE_COOKIE_DOMAIN=1` alongside
 `COOKIE_DOMAIN`.
 
 ## QA Accounts {#qa-accounts}
@@ -198,7 +199,7 @@ The framework provides a built-in organization system. This is the framework's o
 - Switching active organization
 - Per-org data scoping via `org_id` columns
 
-The active org is tracked on the session as `session.orgId`, and switching orgs changes the data the user and agent see. Data scoping itself happens further down the stack — see [Security & Data Scoping](/docs/security#data-scoping) for the full `session.orgId → AGENT_ORG_ID → SQL` pipeline and the access guards. The [Multi-Tenancy](/docs/multi-tenancy) docs cover the org-management surface.
+The active org is tracked on the session as `session.orgId`, and switching orgs changes the data the user and agent see. Data scoping itself happens further down the stack — see [Security & Data Scoping](/docs/security#data-scoping) for the full `session.orgId → AGENT_ORG_ID → SQL` pipeline and the access guards. The [Multi-Tenancy](/docs/multi-tenancy) docs cover the org-management surface. For the org-role vs. resource-role distinction, the full org REST route table, and a practical multi-user setup sequence, see [Organizations, Teams & Permissions](/docs/organizations-teams-permissions).
 
 ## Static MCP Bearer Tokens {#access-tokens}
 
@@ -448,6 +449,7 @@ The default `/_agent-native/google/auth-url` route does this automatically — o
 
 ## What's next
 
+- [**Organizations, Teams & Permissions**](/docs/organizations-teams-permissions) — the org-role vs. resource-role RBAC model, and a practical multi-user setup sequence
 - [**Multi-Tenancy**](/docs/multi-tenancy) — the org-management surface built on top of `session.orgId`
 - [**Security — Data Scoping**](/docs/security#data-scoping) — the `session.orgId → AGENT_ORG_ID → SQL` pipeline and access guards
 - [**Cross-App SSO**](/docs/cross-app-sso) — sharing sign-in across first-party hosted apps that each have their own auth database

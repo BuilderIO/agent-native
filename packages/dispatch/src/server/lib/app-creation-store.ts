@@ -66,6 +66,9 @@ export interface WorkspaceAppSummary {
   builderUrl?: string | null;
   branchName?: string | null;
   createdAt?: string | null;
+  createdBy?: string | null;
+  owner?: string | null;
+  teams?: string[];
   agentCardUrl?: string | null;
   agentCardReachable?: boolean;
   a2aEndpointUrl?: string | null;
@@ -125,6 +128,9 @@ interface PendingWorkspaceApp {
   contextId: string | null;
   contextLabel: string | null;
   audience?: WorkspaceAppAudience;
+  createdBy?: string | null;
+  owner?: string | null;
+  teams?: string[];
   createdAt: string;
   updatedAt: string;
   expiresAt: string | null;
@@ -387,6 +393,12 @@ function applyWorkspaceAppMetadataOverride(
     ...app,
     ...(shouldApplyName ? { name } : {}),
     ...(shouldApplyDescription ? { description } : {}),
+    ...(app.status === "pending" && !app.createdBy && override.updatedBy
+      ? { createdBy: override.updatedBy }
+      : {}),
+    ...(app.status === "pending" && !app.owner && override.updatedBy
+      ? { owner: override.updatedBy }
+      : {}),
   };
 }
 
@@ -446,6 +458,75 @@ function normalizeWorkspaceAppPathList(value: unknown): string[] {
       entry.length > 1 && entry.endsWith("/") ? entry.slice(0, -1) : entry,
     );
   return Array.from(new Set(paths));
+}
+
+function normalizeWorkspaceAppTeams(value: unknown): string[] {
+  const rawTeams = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.split(",")
+      : [];
+  return Array.from(
+    new Set(
+      rawTeams
+        .map((team) => (typeof team === "string" ? team.trim() : ""))
+        .filter(Boolean),
+    ),
+  );
+}
+
+function workspaceAppMetadataFromRecord(
+  record: Record<string, any>,
+): Pick<WorkspaceAppSummary, "createdAt" | "createdBy" | "owner" | "teams"> {
+  const config = record["agent-native"] ?? record.agentNative;
+  const workspaceConfig =
+    config && typeof config === "object" && !Array.isArray(config)
+      ? (config.workspaceApp ?? config.workspace ?? config)
+      : {};
+  const metadata =
+    record.metadata &&
+    typeof record.metadata === "object" &&
+    !Array.isArray(record.metadata)
+      ? record.metadata
+      : {};
+  const pick = (...values: unknown[]) =>
+    values.map(cleanOptionalText).find((value) => value !== undefined);
+
+  const teams = normalizeWorkspaceAppTeams(
+    record.teams ??
+      record.team ??
+      metadata.teams ??
+      metadata.team ??
+      workspaceConfig.teams ??
+      workspaceConfig.team,
+  );
+  return {
+    createdAt: pick(
+      record.createdAt,
+      record.created_at,
+      metadata.createdAt,
+      workspaceConfig.createdAt,
+    ),
+    createdBy: pick(
+      record.createdBy,
+      record.createdByEmail,
+      record.created_by,
+      metadata.createdBy,
+      metadata.createdByEmail,
+      workspaceConfig.createdBy,
+      workspaceConfig.createdByEmail,
+    ),
+    owner: pick(
+      record.owner,
+      record.ownerEmail,
+      record.owner_email,
+      metadata.owner,
+      metadata.ownerEmail,
+      workspaceConfig.owner,
+      workspaceConfig.ownerEmail,
+    ),
+    teams,
+  };
 }
 
 function workspaceAppAudienceFromPackageJson(
@@ -513,6 +594,7 @@ function parseWorkspaceAppsManifest(parsed: any): WorkspaceAppSummary[] | null {
       const id = typeof entry.id === "string" ? entry.id.trim() : "";
       const pathValue = typeof entry.path === "string" ? entry.path.trim() : "";
       if (!id || !pathValue.startsWith("/")) return null;
+      const metadata = workspaceAppMetadataFromRecord(entry);
       return {
         id,
         name:
@@ -534,6 +616,7 @@ function parseWorkspaceAppsManifest(parsed: any): WorkspaceAppSummary[] | null {
         publicPaths: normalizeWorkspaceAppPathList(entry.publicPaths),
         protectedPaths: normalizeWorkspaceAppPathList(entry.protectedPaths),
         status: "ready",
+        ...metadata,
       } satisfies WorkspaceAppSummary;
     })
     .filter(
@@ -645,6 +728,9 @@ function parsePendingWorkspaceApps(value: unknown): PendingWorkspaceApp[] {
             : null,
         contextId: cleanOptionalString(record.contextId),
         contextLabel: cleanOptionalString(record.contextLabel),
+        createdBy: cleanOptionalString(record.createdBy),
+        owner: cleanOptionalString(record.owner ?? record.ownerEmail),
+        teams: normalizeWorkspaceAppTeams(record.teams ?? record.team),
         ...(record.audience === undefined
           ? {}
           : { audience: normalizeWorkspaceAppAudience(record.audience) }),
@@ -755,6 +841,9 @@ function pendingAppToSummary(app: PendingWorkspaceApp): WorkspaceAppSummary {
     builderUrl: app.builderUrl,
     branchName: app.branchName,
     createdAt: app.createdAt,
+    createdBy: app.createdBy,
+    owner: app.owner,
+    teams: app.teams,
   };
 }
 
@@ -918,6 +1007,8 @@ async function recordPendingWorkspaceApp(input: {
     projectId: input.projectId,
     contextId: context?.id ?? null,
     contextLabel: context?.label ?? null,
+    createdBy: currentOwnerEmail(),
+    owner: currentOwnerEmail(),
     createdAt: existing?.createdAt || now,
     updatedAt: now,
     expiresAt: pendingWorkspaceAppExpiresAt(existing?.createdAt || now),
@@ -1038,6 +1129,7 @@ function readWorkspaceAppsFromFilesystem(
       const pkg = readJson(path.join(appDir, "package.json"));
       if (!pkg) return null;
       const routeAccess = workspaceAppRouteAccessFromPackageJson(pkg);
+      const metadata = workspaceAppMetadataFromRecord(pkg);
       return {
         id: entry.name,
         name: pkg.displayName || titleCase(entry.name),
@@ -1051,6 +1143,7 @@ function readWorkspaceAppsFromFilesystem(
         publicPaths: routeAccess.publicPaths,
         protectedPaths: routeAccess.protectedPaths,
         status: "ready",
+        ...metadata,
       } satisfies WorkspaceAppSummary;
     })
     .filter((app): app is WorkspaceAppSummary => !!app)
@@ -1644,7 +1737,7 @@ function normalizeBuilderRunString(value: unknown, fieldName: string): string {
     throw new Error(`Builder app creation returned a blank ${fieldName}`);
   }
   const trimmed = value.trim();
-  if (/[ -]/.test(trimmed)) {
+  if (/[\u0000-\u001f\u007f]/.test(trimmed)) {
     throw new Error(`Builder app creation returned a malformed ${fieldName}`);
   }
   return trimmed;
@@ -1765,8 +1858,8 @@ function buildWorkspaceAppPrompt(input: {
       `Use the workspace app layout: create it under apps/${appId}, mount it at /${appId}, keep it on the shared workspace database/hosting model, and avoid table-name collisions by namespacing any new domain tables to the app.`,
       `Important routing rule: from outside the app, link to /${appId}; inside apps/${appId}, React Router routes are app-local. Use <Link to="/review"> and navigate("/review"), not "/${appId}/review"; APP_BASE_PATH supplies the mounted prefix, and hardcoding it causes doubled URLs like /${appId}/${appId}/review.`,
       "Existing first-party apps are neighbors, not implementation details for this app. If the user prompt mentions Mail, Calendar, Analytics, Dispatch, or other templates, treat them as existing hosted/connected apps that this app can link to or call through A2A/default connected agents. For example, Mail, Calendar, and Analytics already exist at https://mail.agent-native.com, https://calendar.agent-native.com, and https://analytics.agent-native.com.",
-      `Do not clone first-party templates, create wrapper apps, or scaffold child apps/routes for Mail, Calendar, Analytics, etc. inside apps/${appId} just so this app can access them. If the request is a cross-app dashboard or overview, build only the new dashboard/overview app and delegate to the existing apps for domain work.`,
-      "Only create another first-party app copy when the user explicitly asks for a customized fork/copy of that app; otherwise keep using the hosted/shared app so improvements to the base template keep flowing to users.",
+      `Do not create wrapper apps or scaffold child apps/routes for Mail, Calendar, Analytics, etc. inside apps/${appId} just so this app can access them. If the request is a cross-app dashboard or overview, build only the new dashboard/overview app and delegate to the existing apps for domain work.`,
+      "Only create another first-party app when the user explicitly asks for a customized app from that template; otherwise keep using the hosted/shared app so improvements to the base app keep flowing to users.",
       selectedKeys.length
         ? `Dispatch will create pending vault requests for the selected keys for appId "${appId}" after this app creation request is accepted. Do not grant or sync vault keys directly from the app-creation branch.`
         : "Do not grant or request any Dispatch vault keys unless the user asks later.",

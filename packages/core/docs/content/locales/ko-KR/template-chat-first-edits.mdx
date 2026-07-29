@@ -1,0 +1,70 @@
+---
+title: "채팅에서 첫 번째 기능 추가하기"
+description: "Chat의 시작 화면을 렌더링하는 단 하나의 파일, 실제 props가 하는 일, 그리고 기능을 처음부터 끝까지 추가하는 전체 안내."
+---
+
+# 채팅에서 첫 번째 기능 추가하기
+
+이 페이지는 [채팅 템플릿](/docs/template-chat)을 확장하는 개발자를 위한 것입니다. 시작 채팅 화면을 렌더링하는 단 하나의 파일을 다루고, 실제 기능을 요청할 때 에이전트가 일반적으로 다루는 모든 것을 안내합니다.
+
+## 검사할 첫 번째 코드 {#first-code}
+
+- `actions/hello.ts`는 에이전트가 호출할 수 있는 시작 동작입니다. 교체하거나
+  옆에 actions를 추가하세요.
+- `app/routes/_index.tsx`는 전체 페이지 채팅 화면을 렌더링합니다. 조정
+  제안, 빈 상태, 작곡가 또는 주변 레이아웃이 여기에 있습니다.
+- `AGENTS.md`는 내장 에이전트에게 이 앱 내에서 작업하는 방법을 알려줍니다.
+
+<FileTree
+  id="doc-block-9fl54l"
+  title={"Chat 템플릿 레이아웃"}
+  entries={[
+    {
+      path: "actions/hello.ts",
+      note: "하나의 예시 action; 교체하거나 옆에 actions 추가",
+    },
+    {
+      path: "actions/view-screen.ts",
+      note: "에이전트가 읽는 표준 context action",
+    },
+    {
+      path: "actions/navigate.ts",
+      note: "표준 navigation action",
+    },
+    {
+      path: "app/routes/_index.tsx",
+      note: "전체 페이지 chat 화면을 렌더링; suggestions, empty state, composer 편집",
+    },
+    {
+      path: "app/routes/chat.$threadId.tsx",
+      note: "_index.tsx를 다시 내보내므로 /chat/:threadId는 URL에 스레드 id가 포함된 동일한 화면을 렌더링합니다",
+    },
+    {
+      path: "AGENTS.md",
+      note: "내장 에이전트가 읽는 chat-first 지침",
+    },
+  ]}
+/>
+
+실제 시작 파일은 단순한 `<AgentChatSurface />` 이상입니다. 스레드 URL 동기화, 탭 아이덴티티, hero 컴포저 레이아웃은 `app/routes/_index.tsx`를 참고하세요.
+
+## 자체 에이전트 백엔드 사용 {#own-agent-backend}
+
+템플릿은 기본적으로 내장된 앱 에이전트 루프를 사용합니다. 사용자 정의 백엔드를 연결하려면 UI를 다시 작성하는 대신 에이전트 채팅 플러그인 뒤의 채팅 런타임을 교체하세요. Chat 경로는 공유 채팅 화면 주위에 얇은 렌더러로 유지되어야 합니다. 백엔드 선택은 서버 플러그인/런타임 어댑터에 속합니다.
+
+모델 오케스트레이션이 이미 다른 곳에 있지만 인증, 스레드, actions, UI 상태 및 배포 가능한 페이지가 있는 앱을 원하는 경우 이 방법을 사용하세요.
+
+## 첫 번째 수정 {#first-edits}
+
+비계를 설치한 후 상담원에게 다음을 질문하세요.
+
+> `notes`에 대한 데이터 모델을 추가합니다. 메모에는 ID, 제목, 본문, 소유자가 있습니다. `/notes`에서 노트 페이지를 렌더링하고, actions 생성/목록을 추가하고, 채팅에서 노트를 생성할 수 있도록 유지하세요.
+
+에이전트는 Drizzle 스키마, actions, 경로, 탐색 및 지침을 추가해야 합니다. 그런 다음 UI 또는 채팅에서 메모 기능을 사용할 수 있습니다.
+
+## 다음 단계
+
+- [**채팅 템플릿**](/docs/template-chat) — 기본으로 제공되는 것과 선택 시기
+- [**Chat — 런타임 및 관리자 화면**](/docs/template-chat-developers) — 핵심 테이블, 인증, 관리자 페이지
+- [**Actions**](/docs/actions) — 액션 시스템 채팅과 UI 모두 호출
+- [**Native 채팅 UI**](/docs/native-chat-ui) — 채팅 화면 기본 요소 및 런타임 옵션

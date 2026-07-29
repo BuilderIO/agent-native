@@ -146,6 +146,15 @@ Disconnect the current user's Notion OAuth connection.
 pnpm action disconnect-notion
 ```
 
+## Raw Notion Provider API
+
+Treat the Notion workflow actions above as shortcuts, not capability limits.
+When the exact Notion endpoint, filter, pagination mode, or API version matters,
+use `provider-api-catalog`, `provider-api-docs`, and `provider-api-request`
+against the real Notion API. The provider API resolves auth from the user's
+Notion OAuth connection, never from `NOTION_API_KEY`. For large scans, stage
+results with `stageAs` and analyze them with `query-staged-dataset`.
+
 ## How Sync Works (Architecture)
 
 Documents are stored as **Notion-Flavored Markdown (NFM)** — the exact format
@@ -213,7 +222,9 @@ the two copies from drifting.
 ## Important Notes
 
 - Notion access is **per-user OAuth only**. Never read `NOTION_API_KEY` from the
-  environment or accept a user-pasted token; require editor access for pull/push.
+  environment or `process.env`, never accept a user-pasted token or save a
+  user-entered Notion token through `/_agent-native/env-vars`, and require
+  editor access for routes that pull or push Notion content.
 - Pull replaces local content with Notion's; push replaces Notion's with local.
   When both sides changed since the last sync the link enters `conflict` state and
   the user resolves it (pull-wins or push-wins) — there is no line-level merge.

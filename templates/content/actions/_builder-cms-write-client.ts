@@ -13,8 +13,10 @@ export interface BuilderCmsWriteResult {
   entryId?: string;
   responseBody: unknown;
   error?: string;
-  ambiguity?: "timeout" | "transport";
+  ambiguity?: "timeout" | "transport" | "provider";
 }
+
+export const DEFAULT_BUILDER_CMS_WRITE_TIMEOUT_MS = 30_000;
 
 type FetchLike = typeof fetch;
 
@@ -40,6 +42,39 @@ function parseResponseBody(text: string): unknown {
   } catch {
     return text;
   }
+}
+
+function builderValidationMessage(value: unknown): string | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  const candidates = [record.message, record.error, record.detail];
+  if (Array.isArray(record.errors)) {
+    for (const error of record.errors) {
+      if (typeof error === "string") candidates.push(error);
+      else if (error && typeof error === "object" && !Array.isArray(error)) {
+        candidates.push((error as Record<string, unknown>).message);
+      }
+    }
+  }
+  for (const candidate of candidates) {
+    if (typeof candidate !== "string") continue;
+    const message = candidate.replace(/\s+/g, " ").trim();
+    if (
+      message.length > 0 &&
+      message.length <= 240 &&
+      /\b(required|must|invalid|validation|at least|at most|minimum|maximum|too short|too long)\b/i.test(
+        message,
+      ) &&
+      !/(?:https?:\/\/|bearer\s+|api[_ -]?key|token|secret|password)/i.test(
+        message,
+      )
+    ) {
+      return message;
+    }
+  }
+  return undefined;
 }
 
 function stringRecordValue(
@@ -78,14 +113,24 @@ function buildWriteResult(args: {
 }): BuilderCmsWriteResult {
   const responseBody = parseResponseBody(args.responseText);
   const entryId = extractBuilderCmsWriteEntryId(responseBody);
+  const validationMessage =
+    !args.ok && (args.status === 400 || args.status === 422)
+      ? builderValidationMessage(responseBody)
+      : undefined;
+  const providerOutcomeUnknown = !args.ok && args.status >= 500;
   return {
     ok: args.ok,
     status: args.status,
-    entryId,
-    responseBody,
+    entryId: providerOutcomeUnknown ? undefined : entryId,
+    responseBody: providerOutcomeUnknown ? null : responseBody,
+    ambiguity: providerOutcomeUnknown ? "provider" : undefined,
     error: args.ok
       ? undefined
-      : `Builder write request failed with HTTP ${args.status}.`,
+      : validationMessage
+        ? `Builder validation failed: ${validationMessage}`
+        : providerOutcomeUnknown
+          ? `Builder returned HTTP ${args.status} after the write was dispatched; remote outcome is unknown.`
+          : `Builder write request failed with HTTP ${args.status}.`,
   };
 }
 
@@ -119,7 +164,10 @@ export async function executeBuilderCmsWrite(args: {
   };
 
   const controller = new AbortController();
-  const timeoutMs = Math.max(1, args.timeoutMs ?? 15_000);
+  const timeoutMs = Math.max(
+    1,
+    args.timeoutMs ?? DEFAULT_BUILDER_CMS_WRITE_TIMEOUT_MS,
+  );
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await (args.fetchImpl ?? fetch)(url, {
@@ -133,7 +181,7 @@ export async function executeBuilderCmsWrite(args: {
       status: response.status,
       responseText: await response.text(),
     });
-  } catch (error) {
+  } catch {
     const timedOut = controller.signal.aborted;
     return {
       ok: false,
@@ -142,9 +190,7 @@ export async function executeBuilderCmsWrite(args: {
       ambiguity: timedOut ? "timeout" : "transport",
       error: timedOut
         ? `Builder write timed out after ${timeoutMs}ms; remote outcome is unknown.`
-        : error instanceof Error
-          ? `Builder write transport failed after dispatch; remote outcome is unknown: ${error.message}`
-          : "Builder write transport failed after dispatch; remote outcome is unknown.",
+        : "Builder write transport failed after dispatch; remote outcome is unknown.",
     };
   } finally {
     clearTimeout(timeout);

@@ -27,7 +27,9 @@ import {
   assistantMessageRunId,
   assistantChatAutoscrollStatusKey,
   assistantUiRecoverableRenderErrorKind,
+  createUserMessageRunConfig,
   dedupeReconnectContentAgainstMessages,
+  hoistQueuedMessageToFront,
   displayableUserMessageText,
   isAssistantUiRecoverableRenderError,
   isAssistantUiStaleIndexError,
@@ -249,6 +251,65 @@ describe("resolveAssistantChatSubmitIntent", () => {
         requestedIntent: undefined,
       }),
     ).toBe("immediate");
+  });
+});
+
+describe("hoistQueuedMessageToFront", () => {
+  it("moves the send-now entry ahead of the rest of the queue", () => {
+    expect(
+      hoistQueuedMessageToFront(
+        [{ id: "a" }, { id: "b" }, { id: "c" }],
+        "c",
+      ).map((message) => message.id),
+    ).toEqual(["c", "a", "b"]);
+  });
+
+  it("leaves the queue intact when the entry is already gone", () => {
+    expect(
+      hoistQueuedMessageToFront([{ id: "a" }, { id: "b" }], "missing").map(
+        (message) => message.id,
+      ),
+    ).toEqual(["a", "b"]);
+  });
+});
+
+describe("createUserMessageRunConfig model snapshot", () => {
+  it("sends the model a queued message was composed with", () => {
+    const options = createUserMessageRunConfig(
+      undefined,
+      "plan",
+      undefined,
+      undefined,
+      undefined,
+      "queued-1",
+      undefined,
+      { model: "claude-opus-4-6", engine: "builder", effort: "high" },
+    );
+
+    expect(options.runConfig?.custom).toMatchObject({
+      requestMode: "plan",
+      agentNativeQueuedMessageId: "queued-1",
+      model: "claude-opus-4-6",
+      engine: "builder",
+      effort: "high",
+    });
+  });
+
+  it("omits the snapshot for queue entries persisted before it existed", () => {
+    const options = createUserMessageRunConfig(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "queued-legacy",
+      undefined,
+      { model: undefined, engine: undefined, effort: undefined },
+    );
+
+    expect(options.runConfig?.custom).toEqual({
+      agentNativeQueuedMessageId: "queued-legacy",
+    });
   });
 });
 
@@ -1475,12 +1536,14 @@ describe("settleInterruptedAssistantToolCallsInRepo", () => {
     const tool = settled.repo.messages[0].message.content[0] as {
       result?: unknown;
       isError?: boolean;
+      outcome?: string;
       activity?: boolean;
     };
 
     expect(settled.changed).toBe(true);
     expect(tool.result).toBe("Stopped before this action started.");
-    expect(tool.isError).toBe(true);
+    expect(tool.outcome).toBe("unknown");
+    expect(tool.isError).toBeUndefined();
     expect(tool.activity).toBe(true);
     expect(settled.repo.messages[0].message.status).toEqual({
       type: "incomplete",
@@ -1743,15 +1806,15 @@ describe("chat submit and stop hardening", () => {
     expect(source).not.toContain("checkingAiConnection");
   });
 
-  it("makes the chat composer retryable when provider readiness is unavailable", () => {
+  it("never disables the chat composer on an unresolved provider status check", () => {
     const source = readFileSync("src/client/AssistantChat.tsx", {
       encoding: "utf8",
     });
 
-    expect(source).toContain(
-      "missingApiKey || isProviderStatusUnavailable || composerDisabled",
-    );
-    expect(source).not.toContain("UNKNOWN_STATUS_RETRY_MS");
+    // A readiness check that timed out is not evidence that no provider is
+    // configured; disabling on it left an inert box that swallowed keystrokes.
+    expect(source).toContain("const isComposerDisabled = composerDisabled;");
+    expect(source).not.toContain("isProviderStatusUnavailable");
   });
 
   it("clears queued follow-ups and settles stopped tool calls by default", () => {

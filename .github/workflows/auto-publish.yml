@@ -149,11 +149,10 @@ jobs:
           app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
           private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
           owner: BuilderIO
-          # List every downstream repo this job dispatches to; workspace and
-          # starter each keep their own consumer workflow in their own repo.
+          # Consumer workflow lives in the workspace repo. The starter mirror is
+          # dispatched to this repo's own workflow (see below), not from here.
           repositories: |
             builder-agent-native-workspace
-            builder-agent-native-starter
 
       - name: Trigger Builder workspace package update
         if: |
@@ -175,7 +174,13 @@ jobs:
             -f "client_payload[sourceRepository]=${{ github.repository }}" \
             -f "client_payload[sourceRunUrl]=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
-      - name: Trigger Builder starter package update
+      # The starter mirror runs in THIS repo (push-chat-template-to-starter needs
+      # the monorepo source to materialize), so dispatch to ourselves rather than
+      # to the starter. Must use the agent-native-scoped app token, not
+      # GITHUB_TOKEN: repository_dispatch events created with GITHUB_TOKEN don't
+      # trigger workflow runs. Carries the published commit sha so the mirror
+      # materializes exactly what was just published to npm.
+      - name: Trigger starter template mirror
         if: |
           steps.changesets.outputs.published == 'true' &&
           (
@@ -184,15 +189,14 @@ jobs:
             contains(steps.changesets.outputs.publishedPackages, '@agent-native/toolkit')
           )
         env:
-          GH_TOKEN: ${{ steps.builder-downstream-token.outputs.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           PUBLISHED_PACKAGES: ${{ steps.changesets.outputs.publishedPackages }}
         run: |
-          gh api repos/BuilderIO/builder-agent-native-starter/dispatches \
+          gh api repos/${{ github.repository }}/dispatches \
             --method POST \
             -f event_type=agent-native-packages-published \
-            -f "client_payload[publishedPackages]=$PUBLISHED_PACKAGES" \
-            -f "client_payload[sourceRepository]=${{ github.repository }}" \
-            -f "client_payload[sourceRunUrl]=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            -f "client_payload[sha]=${{ github.sha }}" \
+            -f "client_payload[publishedPackages]=$PUBLISHED_PACKAGES"
 
   publish-desktop:
     name: Publish desktop app

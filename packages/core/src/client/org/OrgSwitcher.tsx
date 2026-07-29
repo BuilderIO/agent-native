@@ -12,7 +12,9 @@ import {
   IconChevronRight,
   IconClipboardList,
   IconCode,
+  IconExternalLink,
   IconFileText,
+  IconKey,
   IconLayoutBoard,
   IconListCheck,
   IconLoader2,
@@ -40,6 +42,7 @@ import {
 import { useState } from "react";
 import { useNavigate } from "react-router";
 
+import { shouldOfferWorkspace } from "../../org/workspace-url.js";
 import { agentNativePath } from "../api-path.js";
 import { useT } from "../i18n.js";
 import { useSession } from "../use-session.js";
@@ -417,7 +420,7 @@ export function OrgSwitcher({
           align="start"
           sideOffset={6}
           collisionPadding={12}
-          className={POPOVER_CONTENT_CLASS}
+          className={`${POPOVER_CONTENT_CLASS} ${mode === "list" ? "" : "w-64"}`}
           onOpenAutoFocus={(e) => {
             // Don't auto-focus the first item — feels heavy on a switcher.
             if (mode === "list") e.preventDefault();
@@ -425,6 +428,27 @@ export function OrgSwitcher({
         >
           {mode === "list" && (
             <>
+              {/* The org name alone is ambiguous: the same org exists on every
+                  deployment a member has signed into, so the switcher reads
+                  identically on all of them. The host is what tells them
+                  which one they're actually looking at. */}
+              {typeof window !== "undefined" && (
+                <div className="px-2.5 pb-1.5 pt-1 text-[11px] text-muted-foreground">
+                  <div className="truncate">{window.location.host}</div>
+                  {shouldOfferWorkspace(
+                    window.location.href,
+                    org.workspaceUrl,
+                  ) && (
+                    <a
+                      href={org.workspaceUrl ?? undefined}
+                      className="mt-0.5 inline-flex items-center gap-1 text-foreground no-underline hover:underline"
+                    >
+                      <IconExternalLink className="h-3 w-3 shrink-0" />
+                      Your workspace
+                    </a>
+                  )}
+                </div>
+              )}
               {!inOrg && (
                 <div
                   className="flex w-full items-center gap-2 px-2.5 py-1.5 text-xs text-muted-foreground"
@@ -473,33 +497,42 @@ export function OrgSwitcher({
                   {orgs.length > 0 && <div className="my-1 h-px bg-border" />}
                   <div className={SECTION_LABEL_CLASS}>Invitations</div>
                   {pendingInvitations.map((inv) => (
-                    <div
-                      key={inv.id}
-                      className="flex items-center gap-2 px-2.5 py-1.5 text-xs"
-                    >
-                      <IconUsersGroup className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                      <span className="truncate flex-1 text-foreground">
-                        {inv.orgName}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          try {
-                            await acceptInvitation.mutateAsync(inv.id);
-                            setOpen(false);
-                          } catch {
-                            /* error surfaced via acceptInvitation.error */
-                          }
-                        }}
-                        disabled={acceptInvitation.isPending}
-                        className="rounded px-1.5 py-0.5 text-[11px] font-medium text-primary hover:bg-primary/10 disabled:opacity-50 cursor-pointer"
-                      >
-                        {acceptInvitation.isPending ? (
-                          <IconLoader2 className="h-3 w-3 animate-spin" />
-                        ) : (
-                          "Join"
-                        )}
-                      </button>
+                    <div key={inv.id} className="px-2.5 py-1.5 text-xs">
+                      <div className="flex items-center gap-2">
+                        <IconUsersGroup className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        <span className="truncate flex-1 text-foreground">
+                          {inv.orgName}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              await acceptInvitation.mutateAsync(inv.id);
+                              setOpen(false);
+                            } catch {
+                              /* error surfaced via acceptInvitation.error */
+                            }
+                          }}
+                          disabled={acceptInvitation.isPending}
+                          className="rounded px-1.5 py-0.5 text-[11px] font-medium text-primary hover:bg-primary/10 disabled:opacity-50 cursor-pointer"
+                        >
+                          {acceptInvitation.isPending ? (
+                            <IconLoader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            "Join"
+                          )}
+                        </button>
+                      </div>
+                      {org.orgId && (
+                        <p className="mt-1 flex items-start gap-1.5 text-[11px] leading-snug text-muted-foreground">
+                          <IconKey className="mt-0.5 h-3 w-3 shrink-0" />
+                          <span>
+                            {t("org.acceptInvitationOrgSwitchNotice", {
+                              name: inv.orgName,
+                            })}
+                          </span>
+                        </p>
+                      )}
                     </div>
                   ))}
                 </>
@@ -682,6 +715,10 @@ export function OrgSwitcher({
               <div className="px-0.5 pb-1 text-[10px] uppercase tracking-wide text-muted-foreground">
                 New organization
               </div>
+              <p className="pe-0.5 pb-1.5 ps-2 text-[11px] leading-snug text-muted-foreground">
+                <IconKey className="me-1.5 inline-block h-3 w-3 align-text-top" />
+                {t("org.createOrgVaultNotice")}
+              </p>
               <input
                 autoFocus
                 value={newName}

@@ -10,6 +10,7 @@ import {
   writeBrainExportState,
 } from "../lib/brain-export-state.js";
 import { ownerEmailMatches } from "../lib/recordings.js";
+import { reapExpiredUploads } from "../lib/upload-lease.js";
 
 const SWEEP_INTERVAL_MS = 60_000;
 const MAX_ATTEMPTS = 8;
@@ -172,6 +173,9 @@ export default function registerBrainExportJob(): void {
     return;
   }
   setInterval(() => {
+    reapExpiredUploads().catch((error) =>
+      console.error("[uploads] lease reaper interval failed:", error),
+    );
     runBrainExportSweepOnce().catch((error) =>
       console.error("[brain-export] interval failed:", error),
     );

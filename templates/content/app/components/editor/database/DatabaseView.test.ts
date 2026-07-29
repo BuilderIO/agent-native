@@ -22,6 +22,7 @@ import {
   databaseBulkMultiSelectValueAfterOperation,
   builderSourceContinuationKey,
   builderSourceContinuationFetchedCountDetail,
+  builderSourceContinuationFailureDecision,
   builderSourceContinuationWatchdogDelay,
   builderSourceContinuationProgressPercent,
   builderSourceContinuationWatchdogDecision,
@@ -51,6 +52,7 @@ import {
   databaseNextBuilderContinuationWatchdogSource,
   databaseNextBuilderHydrationSource,
   databasePreviewItem,
+  databaseItemPagePath,
   databaseRecordBuilderContinuationAttempt,
   databaseSourceOperationIsPending,
   pendingMutationSourceId,
@@ -62,6 +64,14 @@ import {
 } from "./DatabaseView";
 
 describe("database preview property saves", () => {
+  it("carries the database and its page through full-page navigation", () => {
+    expect(
+      databaseItemPagePath("row-1", "database & one", "database/page"),
+    ).toBe(
+      "/page/row-1?databaseId=database+%26+one&databaseDocumentId=database%2Fpage",
+    );
+  });
+
   it("treats a body changed outside a title-only save as a conflict", () => {
     const baseline = {
       title: "Before",
@@ -386,6 +396,12 @@ describe("Builder source continuation state", () => {
     expect(builderSourceContinuationWatchdogDelay(2)).toBe(20_000);
     expect(builderSourceContinuationWatchdogDelay(3)).toBe(30_000);
     expect(builderSourceContinuationWatchdogDelay(20)).toBe(30_000);
+  });
+
+  it("retries one transient continuation failure before surfacing an error", () => {
+    expect(builderSourceContinuationFailureDecision(1)).toBe("retry");
+    expect(builderSourceContinuationFailureDecision(2)).toBe("error");
+    expect(builderSourceContinuationFailureDecision(20)).toBe("error");
   });
 
   it("keeps a direct retry attempted until the watchdog backoff retries it", () => {
