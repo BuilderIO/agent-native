@@ -252,14 +252,36 @@ export function dateTimeInTimezoneToIso(
 ) {
   const [year, month, day] = date.split("-").map(Number);
   const [hour, minute] = time.split(":").map(Number);
-  const wallTimeAsUtc = new Date(
-    Date.UTC(year, month - 1, day, hour, minute, 0),
-  );
-  let offset = getTimezoneOffsetMs(wallTimeAsUtc, timezone);
-  let result = new Date(wallTimeAsUtc.getTime() - offset);
-  offset = getTimezoneOffsetMs(result, timezone);
-  result = new Date(wallTimeAsUtc.getTime() - offset);
-  return result.toISOString();
+  const wallClockUtc = Date.UTC(year, month - 1, day, hour, minute, 0);
+  const offsets = new Set<number>();
+  for (let hours = -36; hours <= 36; hours += 6) {
+    offsets.add(
+      getTimezoneOffsetMs(
+        new Date(wallClockUtc + hours * 60 * 60 * 1000),
+        timezone,
+      ),
+    );
+  }
+
+  const candidates = [...offsets]
+    .map((offset) => new Date(wallClockUtc - offset))
+    .map((candidate) => ({
+      candidate,
+      localWallClock:
+        candidate.getTime() + getTimezoneOffsetMs(candidate, timezone),
+    }))
+    .sort((a, b) => {
+      const aDelta = a.localWallClock - wallClockUtc;
+      const bDelta = b.localWallClock - wallClockUtc;
+      if (aDelta === 0 && bDelta === 0) {
+        return a.candidate.getTime() - b.candidate.getTime();
+      }
+      if (aDelta >= 0 && bDelta < 0) return -1;
+      if (aDelta < 0 && bDelta >= 0) return 1;
+      return Math.abs(aDelta) - Math.abs(bDelta);
+    });
+
+  return candidates[0].candidate.toISOString();
 }
 
 export function formatTimezoneLabel(timezone: string) {

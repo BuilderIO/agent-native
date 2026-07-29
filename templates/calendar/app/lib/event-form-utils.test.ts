@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildRecurrenceRules,
+  dateTimeInTimezoneToIso,
   formatRecurrenceText,
   getEditableEventTitle,
   getEventEndValidationMessage,
@@ -19,6 +20,14 @@ describe("getEditableEventTitle", () => {
     expect(getEditableEventTitle("Dinner with Sierra")).toBe(
       "Dinner with Sierra",
     );
+  });
+});
+
+describe("dateTimeInTimezoneToIso", () => {
+  it("uses the first valid instant when a timezone skips local midnight", () => {
+    expect(
+      dateTimeInTimezoneToIso("2026-09-06", "00:00", "America/Santiago"),
+    ).toBe("2026-09-06T04:00:00.000Z");
   });
 });
 
