@@ -5,59 +5,65 @@ import { runAgentLoop, type ActionEntry } from "./production-agent.js";
 
 // The real `patch-deck` shape: a discriminated union of operations whose only
 // interesting enums live three levels down, under an operation's `fields`.
-const patchDeckParameters = {
-  type: "object" as const,
-  properties: {
-    deckId: { type: "string" },
-    operations: {
-      type: "array",
-      items: {
-        oneOf: [
-          {
-            type: "object",
-            properties: {
-              op: { const: "patch-slide" },
-              slideId: { type: "string" },
-              fields: {
-                type: "object",
-                properties: { content: { type: "string" } },
-              },
-            },
-            required: ["op", "slideId", "fields"],
-          },
-          {
-            type: "object",
-            properties: {
-              op: { const: "reorder-slides" },
-              orderedIds: { type: "array", items: { type: "string" } },
-            },
-            required: ["op", "orderedIds"],
-          },
-          {
-            type: "object",
-            properties: {
-              op: { const: "patch-deck-fields" },
-              fields: {
-                type: "object",
-                properties: {
-                  title: { type: "string" },
-                  designSystemId: { type: "string" },
-                  tweaks: { type: "object" },
-                  aspectRatio: { enum: ["16:9", "4:3"] },
-                  shareToken: { type: "string" },
-                  visibility: { enum: ["private", "org", "public"] },
-                  starred: { type: "boolean" },
+//
+// Parametrized by union keyword because both are reachable for the same Zod
+// schema — Zod v4's own `toJSONSchema` emits `oneOf` for a discriminated union,
+// while the manual fallback converter in `action.ts` emits `anyOf`.
+function patchDeckParameters(unionKeyword: "oneOf" | "anyOf") {
+  return {
+    type: "object" as const,
+    properties: {
+      deckId: { type: "string" },
+      operations: {
+        type: "array",
+        items: {
+          [unionKeyword]: [
+            {
+              type: "object",
+              properties: {
+                op: { const: "patch-slide" },
+                slideId: { type: "string" },
+                fields: {
+                  type: "object",
+                  properties: { content: { type: "string" } },
                 },
               },
+              required: ["op", "slideId", "fields"],
             },
-            required: ["op", "fields"],
-          },
-        ],
+            {
+              type: "object",
+              properties: {
+                op: { const: "reorder-slides" },
+                orderedIds: { type: "array", items: { type: "string" } },
+              },
+              required: ["op", "orderedIds"],
+            },
+            {
+              type: "object",
+              properties: {
+                op: { const: "patch-deck-fields" },
+                fields: {
+                  type: "object",
+                  properties: {
+                    title: { type: "string" },
+                    designSystemId: { type: "string" },
+                    tweaks: { type: "object" },
+                    aspectRatio: { enum: ["16:9", "4:3"] },
+                    shareToken: { type: "string" },
+                    visibility: { enum: ["private", "org", "public"] },
+                    starred: { type: "boolean" },
+                  },
+                },
+              },
+              required: ["op", "fields"],
+            },
+          ],
+        },
       },
     },
-  },
-  required: ["deckId", "operations"],
-};
+    required: ["deckId", "operations"],
+  };
+}
 
 function engineCallingPatchDeck(input: unknown): AgentEngine {
   let calls = 0;
@@ -91,7 +97,14 @@ function engineCallingPatchDeck(input: unknown): AgentEngine {
   } as AgentEngine;
 }
 
-async function runPatchDeck(input: unknown) {
+async function runPatchDeck(
+  unionKeyword: "oneOf" | "anyOf",
+  input: unknown,
+): Promise<{
+  run: ReturnType<typeof vi.fn>;
+  result: string;
+  errorClause: string;
+}> {
   const run = vi.fn(async () => ({ ok: true }));
   const events: any[] = [];
   await runAgentLoop({
@@ -102,7 +115,10 @@ async function runPatchDeck(input: unknown) {
     messages: [{ role: "user", content: [{ type: "text", text: "rename" }] }],
     actions: {
       "patch-deck": {
-        tool: { description: "Patch a deck", parameters: patchDeckParameters },
+        tool: {
+          description: "Patch a deck",
+          parameters: patchDeckParameters(unionKeyword),
+        },
         run,
       } as unknown as ActionEntry,
     },
@@ -119,118 +135,120 @@ async function runPatchDeck(input: unknown) {
     result.indexOf("patch-deck: "),
     result.indexOf(". Received:"),
   );
-  return { run, events, result, errorClause };
+  return { run, result, errorClause };
 }
 
-describe("discriminated-union tool input", () => {
-  // The observed failure: a gateway pre-filled every optional field of the leaf
-  // `fields` object, so a title rename was rejected over `tweaks`/`aspectRatio`/
-  // `visibility` and re-sent verbatim until the identical-error breaker fired.
-  it("strips gateway placeholders nested inside a union branch", async () => {
-    const { run } = await runPatchDeck({
-      deckId: "MB8Yb3BKQe",
-      operations: [
-        {
-          op: "patch-deck-fields",
-          fields: {
-            title: "Giraffes vs Horses",
-            designSystemId: "",
-            tweaks: null,
-            aspectRatio: "",
-            shareToken: "",
-            visibility: "",
-            starred: false,
+describe.each(["oneOf", "anyOf"] as const)(
+  "discriminated-union tool input (%s)",
+  (unionKeyword) => {
+    // The observed failure: a gateway pre-filled every optional field of the
+    // leaf `fields` object, so a title rename was rejected over `tweaks` /
+    // `aspectRatio` / `visibility` and re-sent verbatim until the
+    // identical-error breaker fired.
+    it("strips gateway placeholders nested inside a union branch", async () => {
+      const { run } = await runPatchDeck(unionKeyword, {
+        deckId: "MB8Yb3BKQe",
+        operations: [
+          {
+            op: "patch-deck-fields",
+            fields: {
+              title: "Giraffes vs Horses",
+              designSystemId: "",
+              tweaks: null,
+              aspectRatio: "",
+              shareToken: "",
+              visibility: "",
+              starred: false,
+            },
           },
-        },
-      ],
+        ],
+      });
+
+      expect(run).toHaveBeenCalledTimes(1);
+      expect((run.mock.calls[0] as any)[0]).toEqual({
+        deckId: "MB8Yb3BKQe",
+        operations: [
+          { op: "patch-deck-fields", fields: { title: "Giraffes vs Horses" } },
+        ],
+      });
     });
 
-    expect(run).toHaveBeenCalledTimes(1);
-    expect((run.mock.calls[0] as any)[0]).toEqual({
-      deckId: "MB8Yb3BKQe",
-      operations: [
-        { op: "patch-deck-fields", fields: { title: "Giraffes vs Horses" } },
-      ],
-    });
-  });
+    it("keeps intentional clears when every empty value is schema-valid", async () => {
+      const { run } = await runPatchDeck(unionKeyword, {
+        deckId: "d1",
+        operations: [
+          {
+            op: "patch-deck-fields",
+            fields: { designSystemId: "", starred: false },
+          },
+        ],
+      });
 
-  it("keeps intentional clears when every empty value is schema-valid", async () => {
-    const { run } = await runPatchDeck({
-      deckId: "d1",
-      operations: [
-        {
-          op: "patch-deck-fields",
-          fields: { designSystemId: "", starred: false },
-        },
-      ],
+      expect((run.mock.calls[0] as any)[0].operations[0].fields).toEqual({
+        designSystemId: "",
+        starred: false,
+      });
     });
 
-    expect((run.mock.calls[0] as any)[0].operations[0].fields).toEqual({
-      designSystemId: "",
-      starred: false,
-    });
-  });
+    it("reports only the branch the discriminator selects", async () => {
+      const { run, errorClause } = await runPatchDeck(unionKeyword, {
+        deckId: "d1",
+        operations: [
+          {
+            op: "patch-deck-fields",
+            fields: { title: 42, visibility: "everyone" },
+          },
+        ],
+      });
 
-  it("reports only the branch the discriminator selects", async () => {
-    const { run, errorClause } = await runPatchDeck({
-      deckId: "d1",
-      operations: [
-        {
-          op: "patch-deck-fields",
-          fields: { title: 42, visibility: "everyone" },
-        },
-      ],
-    });
-
-    expect(run).not.toHaveBeenCalled();
-    // The branches the caller never meant must not be complained about.
-    expect(errorClause).not.toContain("slideId");
-    expect(errorClause).not.toContain("orderedIds");
-    expect(errorClause).not.toContain("must match exactly one schema in oneOf");
-    expect(errorClause).toContain("visibility");
-  });
-
-  it("spells out nested enums in the expected signature", async () => {
-    const { result } = await runPatchDeck({
-      deckId: "d1",
-      operations: [
-        {
-          op: "patch-deck-fields",
-          fields: { title: 42, visibility: "everyone" },
-        },
-      ],
+      expect(run).not.toHaveBeenCalled();
+      // The branches the caller never meant must not be complained about.
+      expect(errorClause).not.toContain("slideId");
+      expect(errorClause).not.toContain("orderedIds");
+      expect(errorClause).toContain("visibility");
     });
 
-    expect(result).toContain('"private"|"org"|"public"');
-    expect(result).toContain('"patch-deck-fields"');
-  });
+    it("spells out nested enums in the expected signature", async () => {
+      const { result } = await runPatchDeck(unionKeyword, {
+        deckId: "d1",
+        operations: [
+          {
+            op: "patch-deck-fields",
+            fields: { title: 42, visibility: "everyone" },
+          },
+        ],
+      });
 
-  // Every element of an array shares one `items` schema, so all their branch
-  // errors share a schemaPath and differ only by instancePath. Narrowing on
-  // schemaPath alone lets operation 0's chosen branch delete operation 1's
-  // errors, and vice versa, until nothing survives.
-  it("narrows each array element against its own discriminator", async () => {
-    const { errorClause } = await runPatchDeck({
-      deckId: "d1",
-      operations: [
-        { op: "patch-deck-fields", fields: { visibility: "everyone" } },
-        { op: "patch-slide", fields: { content: "hi" } },
-      ],
+      expect(result).toContain('"private"|"org"|"public"');
+      expect(result).toContain('"patch-deck-fields"');
     });
 
-    expect(errorClause).toContain("visibility");
-    expect(errorClause).toContain("slideId");
-    expect(errorClause).not.toContain("orderedIds");
-    expect(errorClause).not.toContain("must match exactly one schema in oneOf");
-  });
+    // Every element of an array shares one `items` schema, so all their branch
+    // errors share a schemaPath and differ only by instancePath. Narrowing on
+    // schemaPath alone lets operation 0's chosen branch delete operation 1's
+    // errors, and vice versa, until nothing survives.
+    it("narrows each array element against its own discriminator", async () => {
+      const { errorClause } = await runPatchDeck(unionKeyword, {
+        deckId: "d1",
+        operations: [
+          { op: "patch-deck-fields", fields: { visibility: "everyone" } },
+          { op: "patch-slide", fields: { content: "hi" } },
+        ],
+      });
 
-  it("keeps every branch error when no discriminator matches", async () => {
-    const { errorClause } = await runPatchDeck({
-      deckId: "d1",
-      operations: [{ op: "not-a-real-op", fields: {} }],
+      expect(errorClause).toContain("visibility");
+      expect(errorClause).toContain("slideId");
+      expect(errorClause).not.toContain("orderedIds");
     });
 
-    expect(errorClause).toContain("slideId");
-    expect(errorClause).toContain("orderedIds");
-  });
-});
+    it("keeps every branch error when no discriminator matches", async () => {
+      const { errorClause } = await runPatchDeck(unionKeyword, {
+        deckId: "d1",
+        operations: [{ op: "not-a-real-op", fields: {} }],
+      });
+
+      expect(errorClause).toContain("slideId");
+      expect(errorClause).toContain("orderedIds");
+    });
+  },
+);

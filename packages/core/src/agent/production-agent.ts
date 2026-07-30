@@ -3871,12 +3871,16 @@ function shouldValidateRawToolParameters(entry: ActionEntry): boolean {
 }
 
 /**
- * With `allErrors`, a failing `oneOf` reports every branch, so a five-branch
+ * With `allErrors`, a failing union reports every branch, so a five-branch
  * union answers "your `patch-deck-fields` op has a bad enum" with eight
  * complaints about `slideId`/`orderedIds` from the four branches the caller
  * never meant. The model reads the loudest, wrong advice and re-sends the same
  * arguments until the identical-error breaker ends the turn. When the
  * discriminator names a branch, report only that branch's errors.
+ *
+ * Both union keywords are load-bearing for the same Zod schema: Zod v4's own
+ * `toJSONSchema` emits `oneOf` for a discriminated union, while the manual
+ * fallback converter in `action.ts` emits `anyOf`.
  *
  * Scoped by `instancePath` as well as `schemaPath`: every element of an array
  * shares one `items` schema, so `operations[0]` and `operations[1]` produce
@@ -3887,14 +3891,17 @@ function isWithinInstancePath(candidate: string, root: string): boolean {
   return candidate === root || candidate.startsWith(`${root}/`);
 }
 
-function narrowOneOfErrors(
+function narrowUnionBranchErrors(
   errors: ErrorObject[] | null | undefined,
 ): ErrorObject[] | null | undefined {
   if (!errors?.length) return errors;
   let kept = errors;
   for (const error of errors) {
-    if (error.keyword !== "oneOf") continue;
-    const branches = (error.parentSchema as RawJsonSchema | undefined)?.oneOf;
+    const keyword = error.keyword;
+    if (keyword !== "oneOf" && keyword !== "anyOf") continue;
+    const branches = (error.parentSchema as RawJsonSchema | undefined)?.[
+      keyword
+    ];
     if (!branches?.length) continue;
     const index = discriminatedBranchIndex(branches, error.data);
     if (index < 0) continue;
@@ -3925,7 +3932,7 @@ function validateRawToolInput(
     return `tool schema is invalid: ${sanitizeToolErrorValue(err)}`;
   }
   if (validator(input === undefined ? {} : input)) return null;
-  return rawToolInputAjv.errorsText(narrowOneOfErrors(validator.errors), {
+  return rawToolInputAjv.errorsText(narrowUnionBranchErrors(validator.errors), {
     separator: "; ",
     dataVar: "input",
   });
