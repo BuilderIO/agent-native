@@ -53,6 +53,12 @@ Call the action with the destination so Assets can ground the generation:
 generate-image-api { prompt, deckId, slideId, slideContent }
 ```
 
+Do **not** reach for the generic `call-agent` tool to ask Assets for an image.
+It talks to the same app, so it looks equivalent, but it skips the slide
+grounding, the completed-vs-failed task handling, and the ready-to-render
+preview markdown this action returns — which is how image results end up in
+chat as bare links instead of visible images.
+
 Drop the returned `previewUrl` into the slide HTML's `<img src="...">`.
 
 ## Showing the result in chat
