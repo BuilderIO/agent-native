@@ -2,10 +2,12 @@
  * Storage layer for the framework secrets registry.
  *
  * Values are encrypted at rest with AES-256-GCM. The workspace-shared
- * encryption key is derived from `SECRETS_ENCRYPTION_KEY` (preferred) or the
- * workspace-wide `A2A_SECRET`. `BETTER_AUTH_SECRET` and app-scoped keys remain
- * read fallbacks for rows written before sibling apps converged on the shared
- * key. Successful fallback reads race-safely refresh the shared ciphertext.
+ * encryption key prefers `WORKSPACE_SECRETS_ENCRYPTION_KEY`, then the legacy
+ * combined `SECRETS_ENCRYPTION_KEY`, then the workspace-wide `A2A_SECRET`.
+ * A configured previous workspace key, `BETTER_AUTH_SECRET`, and app-scoped
+ * keys remain read fallbacks for rows written before sibling apps converged on
+ * the shared key. Successful fallback reads race-safely refresh the shared
+ * ciphertext.
  *
  * Secret values are NEVER logged and NEVER returned from any route handler.
  */

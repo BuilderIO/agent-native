@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.131.7
+
+### Patch Changes
+
+- 4f3a651: Harden delegated agent transport and provider selection, and support stable workspace-vault key rotation without changing app-local OAuth encryption.
+- 4f3a651: Keep interrupted Plan edits on small targeted writes instead of retrying oversized full-plan payloads.
+
 ## 0.131.6
 
 ### Patch Changes

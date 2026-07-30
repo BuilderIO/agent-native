@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.16.4
+
+### Patch Changes
+
+- 4f3a651: Harden delegated agent transport and provider selection, and support stable workspace-vault key rotation without changing app-local OAuth encryption.
+
 ## 0.16.3
 
 ### Patch Changes

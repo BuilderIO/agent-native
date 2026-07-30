@@ -172,6 +172,8 @@ describe("call-agent action", () => {
     expect(callAgentMock.mock.calls[0]?.[1]).toContain(
       "Return a concise caller-ready synthesis rather than raw tool output or full transcripts",
     );
+    expect(callAgentMock.mock.calls[0]?.[1]).toContain("<a2a-caller-hint>");
+    expect(callAgentMock.mock.calls[0]?.[1]).toContain("</a2a-caller-hint>");
   });
 
   it("forwards Slack source context as structured A2A data", async () => {

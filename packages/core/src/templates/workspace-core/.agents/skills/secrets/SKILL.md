@@ -227,15 +227,20 @@ Core routes plugin mounts these under `/_agent-native/secrets/` automatically:
   prefer `<APP_NAME>_SECRETS_ENCRYPTION_KEY` (for example,
   `ANALYTICS_SECRETS_ENCRYPTION_KEY`), then `SECRETS_ENCRYPTION_KEY`, then
   `BETTER_AUTH_SECRET`.
-- Workspace-shared `app_secrets` prefer `SECRETS_ENCRYPTION_KEY`, then a
-  purpose-derived key from `A2A_SECRET`. Better Auth and app-scoped keys remain
-  legacy read candidates; a successful legacy decrypt is compare-and-swap
-  migrated to the preferred shared key without changing the row timestamp.
-- Set the same stable `SECRETS_ENCRYPTION_KEY` in every app that reads a shared
-  vault. If the vault relies on `A2A_SECRET`, rotating A2A material also rotates
-  its encryption key. Before rotating A2A, add the stable vault key everywhere
-  and read/migrate every existing row while the old A2A material is still
-  available.
+- Workspace-shared `app_secrets` prefer
+  `WORKSPACE_SECRETS_ENCRYPTION_KEY`, then the legacy shared
+  `SECRETS_ENCRYPTION_KEY`, then a purpose-derived key from `A2A_SECRET`.
+  Better Auth and app-scoped keys remain legacy read candidates; a successful
+  legacy decrypt is compare-and-swap migrated to the preferred shared key
+  without changing the row timestamp.
+- Set the same stable `WORKSPACE_SECRETS_ENCRYPTION_KEY` in every app that
+  reads a shared vault. It is intentionally separate from app-local OAuth
+  encryption. If the vault still relies on `A2A_SECRET`, rotating A2A material
+  also rotates its encryption key. Add the stable vault key everywhere and
+  read/migrate existing rows before rotating A2A.
+- To rotate the dedicated workspace key itself, deploy the new value together
+  with `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS=<old value>`, let reads
+  migrate ciphertext, then remove the previous key after the migration window.
 - If no configured key material exists, development uses a machine-local
   fallback and logs a one-time warning. Production fails closed.
 
