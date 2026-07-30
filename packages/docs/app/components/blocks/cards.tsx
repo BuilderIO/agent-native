@@ -5,7 +5,7 @@ import { cardsSchema, cardsMdx, type CardsData } from "./cards.config";
 
 export type { CardsData };
 
-export function CardsBlock({ data }: BlockReadProps<CardsData>) {
+export function CardsBlock({ data, ctx }: BlockReadProps<CardsData>) {
   return (
     <ul className="docs-cards" role="list">
       {data.cards.map((card, i) => (
@@ -20,7 +20,9 @@ export function CardsBlock({ data }: BlockReadProps<CardsData>) {
           ) : (
             <p className="docs-card-title">{card.title}</p>
           )}
-          <p className="docs-card-body">{card.body}</p>
+          <div className="docs-card-body">
+            {ctx.renderMarkdown?.(card.body) ?? <p>{card.body}</p>}
+          </div>
         </li>
       ))}
     </ul>
