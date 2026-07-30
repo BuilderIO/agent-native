@@ -141,6 +141,13 @@ export function ExportMenu({
       "google-docs-oauth",
       "popup,width=520,height=720",
     );
+    if (!popup) {
+      toast.error(t("editorExport.exportFailed"), {
+        description: t("editorExport.exportGoogleSlidesError"),
+      });
+      return;
+    }
+
     try {
       const response = await fetch(authUrl.toString(), {
         credentials: "same-origin",
@@ -157,8 +164,7 @@ export function ExportMenu({
       if (typeof data.url !== "string") {
         throw new Error(t("editorExport.exportGoogleSlidesError"));
       }
-      if (popup) popup.location.href = data.url;
-      else window.location.href = data.url;
+      popup.location.href = data.url;
     } catch (err) {
       popup?.close();
       console.error("Google connection failed:", err);

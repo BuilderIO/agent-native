@@ -24,7 +24,7 @@ other analytics data.
   natural-language `message` and let Analytics decide which source or sources
   to use.
 - Useful Analytics operations include `hubspot-records` for bounded CRM
-  records, `hubspot-deals` or `hubspot-metrics` for pipeline and deal metrics,
+  records and `hubspot-deals` for pipeline and deal metrics,
   `account-deep-dive` for a named account or renewal/risk review, `gong-calls`
   for quotes/counts/transcripts and coverage, and `gong-native-insights` for
   bounded narrative synthesis. For first-party product activity, send a

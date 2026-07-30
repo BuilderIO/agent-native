@@ -7,7 +7,6 @@ import getSessionReplayTimeline from "../../actions/get-session-replay-timeline"
 import gongCalls from "../../actions/gong-calls";
 import gongNativeInsights from "../../actions/gong-native-insights";
 import hubspotDeals from "../../actions/hubspot-deals";
-import hubspotMetrics from "../../actions/hubspot-metrics";
 import hubspotRecords from "../../actions/hubspot-records";
 import listErrorIssues from "../../actions/list-error-issues";
 import listSessionRecordings from "../../actions/list-session-recordings";
@@ -19,7 +18,6 @@ const CONNECTOR_READ_ACTIONS = {
   "gong-calls": gongCalls,
   "gong-native-insights": gongNativeInsights,
   "hubspot-deals": hubspotDeals,
-  "hubspot-metrics": hubspotMetrics,
   "hubspot-records": hubspotRecords,
   "list-session-recordings": listSessionRecordings,
   "get-session-replay-summary": getSessionReplaySummary,
@@ -46,7 +44,6 @@ describe("Analytics MCP connector catalog", () => {
       "gong-calls",
       "gong-native-insights",
       "hubspot-deals",
-      "hubspot-metrics",
       "hubspot-records",
       "list-session-recordings",
       "get-session-replay-summary",

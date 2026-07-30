@@ -178,6 +178,24 @@ describe("<ExportMenu>", () => {
     );
   });
 
+  it("does not navigate the editor when the OAuth popup is blocked", async () => {
+    renderMenu();
+
+    const trigger = screen.getByRole("button", { name: /export/i });
+    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+    fireEvent.click(await screen.findByText("Connect Google"));
+
+    await waitFor(() =>
+      expect(toastErrorMock).toHaveBeenCalledWith(
+        "Export failed",
+        expect.objectContaining({
+          description: "Could not export Google Slides.",
+        }),
+      ),
+    );
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("falls back to the import dialog when Drive is unavailable", async () => {
     const openedTab = { location: { href: "" }, close: vi.fn() };
     vi.mocked(window.open).mockReturnValue(openedTab as unknown as Window);

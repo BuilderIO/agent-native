@@ -10,7 +10,6 @@ export const ANALYTICS_CONNECTOR_CATALOG = [
   "gong-calls",
   "gong-native-insights",
   "hubspot-deals",
-  "hubspot-metrics",
   "hubspot-records",
   "list-session-recordings",
   "get-session-replay-summary",
