@@ -1,5 +1,10 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { marked, type RendererThis, type Tokens } from "marked";
+import {
+  marked,
+  type MarkedExtension,
+  type RendererThis,
+  type Tokens,
+} from "marked";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { codeToHtml } from "shiki";
 
@@ -270,7 +275,7 @@ function imageDimensionsForHref(href: string): ImageDimensions | undefined {
  * Marked tokenizer extension: `[[Ctrl+K]]` → `<kbd>Ctrl+K</kbd>`
  * Lets authors write keyboard shortcuts inline without raw HTML.
  */
-const kbdExtension: marked.MarkedExtension = {
+const kbdExtension: MarkedExtension = {
   extensions: [
     {
       name: "kbd",
@@ -281,7 +286,7 @@ const kbdExtension: marked.MarkedExtension = {
         if (!match) return;
         return { type: "kbd", raw: match[0], text: match[1] };
       },
-      renderer(token: marked.Tokens.Generic) {
+      renderer(token: Tokens.Generic) {
         return `<kbd class="docs-kbd">${escapeHtml(token.text as string)}</kbd>`;
       },
     },
