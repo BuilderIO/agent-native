@@ -19,6 +19,7 @@ import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import {
   IconAlertTriangle,
   IconMaximize,
+  IconX,
   IconZoomIn,
   IconZoomOut,
 } from "@tabler/icons-react";
@@ -1180,6 +1181,8 @@ export default function SlideEditor({
     null,
   );
   const [isAskingAgentToFix, setIsAskingAgentToFix] = useState(false);
+  const [isOverflowWarningDismissed, setIsOverflowWarningDismissed] =
+    useState(false);
   const dims = getAspectRatioDims(aspectRatio);
   const [fitCanvasZoom, setFitCanvasZoom] = useState(100);
   const userSetCanvasZoomRef = useRef(false);
@@ -1298,6 +1301,7 @@ export default function SlideEditor({
   useEffect(() => {
     setOverflowInfo(null);
     setIsAskingAgentToFix(false);
+    setIsOverflowWarningDismissed(false);
     syncOverflowToAppState(null);
   }, [slide.id, slide.content]);
 
@@ -4086,27 +4090,47 @@ export default function SlideEditor({
                           )}
                         </div>
                       )}
-                      {overflowInfo && !readOnly && !agentActive && (
-                        <div className="absolute top-3 left-3 z-20 flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 backdrop-blur px-2.5 py-1.5 text-xs text-amber-100 shadow-lg">
-                          <IconAlertTriangle
-                            className="h-3.5 w-3.5 flex-shrink-0"
-                            stroke={2}
-                          />
-                          <span className="leading-tight">
-                            Layout overflows by {overflowInfo.verticalOverflow}
-                            px
-                          </span>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="ml-1 h-6 cursor-pointer px-2 text-[11px] font-medium text-amber-100 hover:bg-amber-500/20 hover:text-white"
-                            onClick={handleAskAgentToFixLayout}
-                            disabled={isAskingAgentToFix}
+                      {overflowInfo &&
+                        !readOnly &&
+                        !agentActive &&
+                        !isOverflowWarningDismissed && (
+                          <div
+                            role="status"
+                            aria-live="polite"
+                            className="absolute top-3 left-3 z-20 flex items-center gap-2 rounded-md border border-amber-400/70 bg-amber-950/95 px-2.5 py-1.5 text-xs text-amber-50 shadow-lg"
                           >
-                            {isAskingAgentToFix ? "Asking…" : "Fix with AI"}
-                          </Button>
-                        </div>
-                      )}
+                            <IconAlertTriangle
+                              className="h-3.5 w-3.5 flex-shrink-0"
+                              stroke={2}
+                            />
+                            <span className="leading-tight">
+                              Layout overflows by{" "}
+                              {overflowInfo.verticalOverflow}
+                              px
+                            </span>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="ml-1 h-6 cursor-pointer px-2 text-[11px] font-medium text-amber-50 hover:bg-amber-400/20 hover:text-white"
+                              onClick={handleAskAgentToFixLayout}
+                              disabled={isAskingAgentToFix}
+                            >
+                              {isAskingAgentToFix ? "Asking…" : "Fix with AI"}
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="size-6 cursor-pointer text-amber-50 hover:bg-amber-400/20 hover:text-white"
+                              onClick={() =>
+                                setIsOverflowWarningDismissed(true)
+                              }
+                              aria-label="Dismiss layout warning"
+                              title="Dismiss layout warning"
+                            >
+                              <IconX className="size-3.5" />
+                            </Button>
+                          </div>
+                        )}
                     </div>
                   </div>
                 </div>

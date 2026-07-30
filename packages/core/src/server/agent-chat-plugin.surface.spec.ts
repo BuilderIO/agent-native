@@ -163,6 +163,21 @@ describe("interactive agent run options — wiring guards", () => {
   });
 });
 
+describe("delegated agent run policy — wiring guards", () => {
+  it("forwards non-default delegated budgets to MCP ask_app", () => {
+    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+      encoding: "utf-8",
+    });
+    const mcpCallStart = source.indexOf("await runMCPAgentLoop(");
+    expect(mcpCallStart).toBeGreaterThan(-1);
+
+    const mcpCall = source.slice(mcpCallStart, mcpCallStart + 3200);
+    expect(mcpCall).toMatch(
+      /\{\s*delegatedRunPolicy: options\?\.delegatedRunPolicy,\s*finalResponseGuard: options\?\.finalResponseGuard,\s*runSoftTimeoutMs: options\?\.runSoftTimeoutMs,\s*\}/,
+    );
+  });
+});
+
 describe("agent teams prompt guidance", () => {
   const { frameworkCore, frameworkCoreCompact, frameworkContextSections } =
     _agentChatPromptSectionsForTests;

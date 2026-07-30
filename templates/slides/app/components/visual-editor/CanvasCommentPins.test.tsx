@@ -174,4 +174,57 @@ describe("CanvasCommentPins", () => {
     );
     expect(marker?.getAttribute("data-state")).toBe("closed");
   });
+
+  it("captures the parent-DOM target behind the iframe click plane", async () => {
+    const canvas = mountCanvas();
+    const heading = document.createElement("h1");
+    heading.setAttribute("data-builder-id", "hero-title");
+    heading.textContent = "Quarterly results";
+    canvas.appendChild(heading);
+    render(
+      <CanvasCommentPins
+        active
+        onClose={() => {}}
+        canvasSelector="[data-test-canvas]"
+        contextId="slide-1"
+        contextLabel="Slide 1"
+      />,
+    );
+
+    const clickPlane = await waitFor(() => {
+      const element = document.querySelector<HTMLElement>(
+        "[data-pin-click-overlay]",
+      );
+      expect(element).not.toBeNull();
+      return element!;
+    });
+    expect(canvas.contains(clickPlane)).toBe(false);
+    expect(canvas.contains(heading)).toBe(true);
+    const elementsFromPoint = vi.fn(() => [clickPlane, heading, canvas]);
+    Object.defineProperty(document, "elementsFromPoint", {
+      configurable: true,
+      value: elementsFromPoint,
+    });
+    fireEvent.click(clickPlane, { clientX: 300, clientY: 300 });
+    Reflect.deleteProperty(document, "elementsFromPoint");
+    expect(elementsFromPoint).toHaveBeenCalledWith(300, 300);
+
+    const textarea = await screen.findByPlaceholderText(
+      /Tell the agent what to change/i,
+    );
+    fireEvent.change(textarea, {
+      target: { value: "Make this heading bigger" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+    await waitFor(() =>
+      expect(sendToAgentChatAndConfirm).toHaveBeenCalledTimes(1),
+    );
+    const payload = sendToAgentChatAndConfirm.mock.calls[0][0];
+    expect(payload.message).toContain("Anchor id: hero-title");
+    expect(payload.message).toContain(
+      'Element: [data-builder-id="hero-title"]',
+    );
+    expect(payload.message).toContain('Nearby text: "Quarterly results"');
+  });
 });

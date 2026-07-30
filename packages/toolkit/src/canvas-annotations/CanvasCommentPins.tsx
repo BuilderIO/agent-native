@@ -138,6 +138,30 @@ function getTargetAnchor(target?: HTMLElement | null): {
   return {};
 }
 
+function getTargetBehindClickPlane(
+  clickPlane: HTMLElement,
+  canvas: HTMLElement,
+  clientX: number,
+  clientY: number,
+): HTMLElement | null {
+  const pointerEvents = clickPlane.style.pointerEvents;
+  clickPlane.style.pointerEvents = "none";
+  try {
+    const targets = document.elementsFromPoint
+      ? document.elementsFromPoint(clientX, clientY)
+      : [document.elementFromPoint(clientX, clientY)];
+    for (const target of targets) {
+      if (!(target instanceof HTMLElement) || !canvas.contains(target)) {
+        continue;
+      }
+      return target instanceof HTMLIFrameElement ? null : target;
+    }
+    return null;
+  } finally {
+    clickPlane.style.pointerEvents = pointerEvents;
+  }
+}
+
 /**
  * Purely visual "same spot" check used to spread overlapping markers apart on
  * screen. This also considers submitted pins so a new pin dropped on top of an
@@ -567,7 +591,16 @@ export function CanvasCommentPins({
             e.preventDefault();
             e.stopPropagation();
             if (!overlayDidDrag.current) {
-              dropPinAt(e.clientX, e.clientY);
+              dropPinAt(
+                e.clientX,
+                e.clientY,
+                getTargetBehindClickPlane(
+                  e.currentTarget,
+                  canvas,
+                  e.clientX,
+                  e.clientY,
+                ),
+              );
             }
             overlayDownPos.current = null;
             overlayDidDrag.current = false;

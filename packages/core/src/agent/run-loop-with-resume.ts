@@ -252,6 +252,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
   // never infer success from a rejected or canceled run.
   if (timeoutMs <= 0) {
     const directEvents: AgentChatEvent[] = [];
+    let directOutcome: AgentLoopOutcome | undefined;
     try {
       const result = await runAgentLoop({
         ...stableOpts,
@@ -259,7 +260,9 @@ export async function runAgentLoopDirectWithSoftTimeout(
           directEvents.push(event);
           stableOpts.send(event);
         },
-        onOutcome: reportFinalOutcome,
+        onOutcome: (outcome) => {
+          directOutcome = outcome;
+        },
       });
       const unfinishedReason =
         internalContinuationReasonForAttempt(directEvents);
@@ -276,7 +279,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
           message: `Agent stopped before finishing (${unfinishedReason}).`,
         });
       } else {
-        reportFinalOutcome({ state: "completed" });
+        reportFinalOutcome(directOutcome ?? { state: "completed" });
       }
       return result;
     } catch (err) {

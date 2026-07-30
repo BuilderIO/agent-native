@@ -2204,6 +2204,7 @@ export function createAgentChatPlugin(
                 signal: controller.signal,
               },
               {
+                delegatedRunPolicy: options?.delegatedRunPolicy,
                 finalResponseGuard: options?.finalResponseGuard,
                 runSoftTimeoutMs: options?.runSoftTimeoutMs,
               },

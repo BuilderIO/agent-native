@@ -944,10 +944,11 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     expect(outcomes).toEqual([{ state: "completed" }]);
   });
 
-  it("does not classify an unfinished direct auto-continuation as completed", async () => {
+  it("overrides an inner completed outcome for an unfinished direct auto-continuation", async () => {
     const outcomes: AgentLoopOutcome[] = [];
     mockRunAgentLoop.mockImplementation(async (opts) => {
       opts.send({ type: "auto_continue", reason: "stream_ended" });
+      opts.onOutcome?.({ state: "completed" });
       return {
         inputTokens: 1,
         outputTokens: 0,
