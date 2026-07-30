@@ -51,8 +51,7 @@ vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ ...rawClient, atomicBatch }),
   getDialect: () => dbMockState.dialect,
   intType: () => "INTEGER",
-  isConnectionError: (error: { code?: string }) =>
-    error?.code === "ECONNRESET",
+  isConnectionError: (error: { code?: string }) => error?.code === "ECONNRESET",
   isLocalDatabase: () => dbMockState.localDatabase,
   isPostgres: () => false,
 }));

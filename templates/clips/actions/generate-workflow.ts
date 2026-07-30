@@ -25,6 +25,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { withFullVideoAiInstructions } from "../shared/clips-ai-prefs.js";
+import { WorkflowKindSchema } from "../shared/workflow.js";
 import { readIncludeFullVideoInAi } from "./lib/clips-ai-prefs.js";
 
 const KIND_PROMPTS = {
@@ -64,7 +65,7 @@ export default defineAction({
     "Ask the agent to generate a structured workflow doc (pr/sop/ticket/email) from this recording's transcript (and the full video when Include full video is enabled). The agent writes the result to clips-workflow-<recordingId> in application_state.",
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
-    kind: z.enum(["pr", "sop", "ticket", "email"]).describe("Workflow kind"),
+    kind: WorkflowKindSchema.describe("Workflow kind"),
   }),
   run: async (args) => {
     await assertAccess("recording", args.recordingId, "viewer");

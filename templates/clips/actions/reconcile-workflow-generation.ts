@@ -7,9 +7,11 @@ import {
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
+import { WorkflowKindSchema } from "../shared/workflow.js";
+
 const WorkflowStateSchema = z
   .object({
-    kind: z.enum(["pr", "sop", "ticket", "email"]).optional(),
+    kind: WorkflowKindSchema.optional(),
     status: z.string().optional(),
     content: z.string().optional(),
     recordingId: z.string().optional(),
