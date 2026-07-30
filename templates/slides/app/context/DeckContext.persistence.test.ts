@@ -66,11 +66,11 @@ function wrapper({ children }: { children: ReactNode }) {
 function setupFetch(options?: {
   hangPut?: boolean;
   failDeckList?: boolean;
-  patchFailures?: number;
+  patchFailures?: { deckId: string; count: number };
 }) {
   let resolveCreate: (response: Response) => void = () => {};
   let accessibleDeck: Deck | null = null;
-  let patchAttempts = 0;
+  const patchAttempts = new Map<string, number>();
   let putAttempts = 0;
   const fetchMock = vi.fn((url: string | URL | Request, init?: RequestInit) => {
     const href =
@@ -133,8 +133,13 @@ function setupFetch(options?: {
     }
 
     if (href.includes("/_agent-native/actions/patch-deck")) {
-      patchAttempts += 1;
-      if (patchAttempts <= (options?.patchFailures ?? 0)) {
+      const deckId = String(actionCallBody(init).deckId ?? "");
+      const attempts = (patchAttempts.get(deckId) ?? 0) + 1;
+      patchAttempts.set(deckId, attempts);
+      if (
+        deckId === options?.patchFailures?.deckId &&
+        attempts <= options.patchFailures.count
+      ) {
         return Promise.reject(new Error("patch-deck failed"));
       }
       return Promise.resolve(
@@ -152,7 +157,7 @@ function setupFetch(options?: {
     setAccessibleDeck: (deck: Deck) => {
       accessibleDeck = deck;
     },
-    getPatchAttempts: () => patchAttempts,
+    getPatchAttempts: (deckId: string) => patchAttempts.get(deckId) ?? 0,
   };
 }
 
@@ -723,7 +728,7 @@ describe("DeckContext deck creation persistence", () => {
   it("retries failed immediate slide HTML ahead of a newer gesture commit", async () => {
     window.history.pushState({}, "", "/deck/gesture-deck");
     const { fetchMock, getPatchAttempts, setAccessibleDeck } = setupFetch({
-      patchFailures: 1,
+      patchFailures: { deckId: "gesture-deck", count: 1 },
     });
     const { result } = renderHook(() => useDecks(), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
@@ -763,7 +768,7 @@ describe("DeckContext deck creation persistence", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    expect(getPatchAttempts()).toBe(1);
+    expect(getPatchAttempts("gesture-deck")).toBe(1);
 
     act(() => {
       result.current.updateSlide(
@@ -776,7 +781,7 @@ describe("DeckContext deck creation persistence", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(250);
     });
-    expect(getPatchAttempts()).toBeGreaterThanOrEqual(2);
+    expect(getPatchAttempts("gesture-deck")).toBeGreaterThanOrEqual(2);
 
     const patchCalls = fetchMock.mock.calls.filter(([url]) =>
       String(url).includes("/_agent-native/actions/patch-deck"),
