@@ -90,7 +90,8 @@ const enUS = {
     pageHelpDescription:
       "Edit typography, spacing, sizing, borders and fill for whatever you select. Page defaults below.",
     sections: {
-      page: "Page",
+      page: "Screen",
+      canvas: "Canvas",
       typography: "Typography",
       autoLayout: "Auto layout",
       positionLayout: "Position",
@@ -145,6 +146,9 @@ const enUS = {
       shadow: "Shadow",
       filter: "Filter",
       addLayer: "Add layer",
+      addFill: "Add fill",
+      addStroke: "Add stroke",
+      addEffect: "Add effect",
       removeLayer: "Remove layer",
       showLayer: "Show layer",
       hideLayer: "Hide layer",
@@ -364,8 +368,13 @@ const enUS = {
       dotted: "Dotted",
       double: "Double",
     },
+    exportPreview: {
+      rendering: "Rendering preview…",
+      failed: "Preview unavailable",
+    },
     framePresets: {
       title: "Frame",
+      applyToFrame: "Resize to preset",
       categories: {
         phone: "Phone",
         tablet: "Tablet",
@@ -1154,6 +1163,8 @@ const enUS = {
     },
   },
   multiScreenCanvas: {
+    addBreakpointToAllScreens:
+      "Add {{label}} breakpoint ({{width}}px) to all screens",
     duplicate: "Duplicate",
     fork: "Fork",
     fullView: "Full view",
@@ -1718,7 +1729,8 @@ const designLocaleOverrides = {
       pageHelpDescription:
         "编辑您选择的任何版式、间距、大小、边框和填充。页面默认如下。",
       sections: {
-        page: "页",
+        page: "画面",
+        canvas: "画布",
         typography: "版式",
         flexLayout: "弹性布局",
         layout: "布局",
@@ -2119,7 +2131,8 @@ const designLocaleOverrides = {
       pageHelpDescription:
         "Edite tipografía, espaciado, tamaño, bordes y rellene lo que seleccione. Valores predeterminados de página a continuación.",
       sections: {
-        page: "Página",
+        page: "Pantalla",
+        canvas: "Lienzo",
         typography: "Tipografía",
         flexLayout: "Diseño flexible",
         layout: "Disposición",
@@ -2541,7 +2554,8 @@ const designLocaleOverrides = {
       pageHelpDescription:
         "Modifiez la typographie, l'espacement, le dimensionnement, les bordures et remplissez ce que vous sélectionnez. Valeurs par défaut de la page ci-dessous.",
       sections: {
-        page: "Page",
+        page: "Écran",
+        canvas: "Canevas",
         typography: "Typographie",
         flexLayout: "Disposition flexible",
         layout: "Mise en page",
@@ -2967,7 +2981,8 @@ const designLocaleOverrides = {
       pageHelpDescription:
         "Bearbeiten Sie Typografie, Abstände, Größen, Ränder und Füllung für alles, was Sie auswählen. Seitenstandards unten.",
       sections: {
-        page: "Seite",
+        page: "Screen",
+        canvas: "Arbeitsfläche",
         typography: "Typografie",
         flexLayout: "Flex-Layout",
         layout: "Layout",
@@ -3394,7 +3409,8 @@ const designLocaleOverrides = {
       pageHelpDescription:
         "選択した内容のタイポグラフィ、間隔、サイズ、境界線、塗りつぶしを編集します。ページのデフォルトは以下です。",
       sections: {
-        page: "ページ",
+        page: "画面",
+        canvas: "キャンバス",
         typography: "タイポグラフィ",
         flexLayout: "フレックスレイアウト",
         layout: "レイアウト",
@@ -3816,7 +3832,8 @@ const designLocaleOverrides = {
       pageHelpDescription:
         "선택한 항목에 대해 타이포그래피, 간격, 크기, 테두리 및 채우기를 편집하세요. 아래는 페이지 기본값입니다.",
       sections: {
-        page: "페이지",
+        page: "화면",
+        canvas: "캔버스",
         typography: "타이포그래피",
         flexLayout: "플렉스 레이아웃",
         layout: "공들여 나열한 것",
@@ -4231,7 +4248,8 @@ const designLocaleOverrides = {
       pageHelpDescription:
         "Edite tipografia, espaçamento, dimensionamento, bordas e preenchimento de acordo com o que você selecionar. Padrões de página abaixo.",
       sections: {
-        page: "Página",
+        page: "Tela",
+        canvas: "Tela de trabalho",
         typography: "Tipografia",
         flexLayout: "Layout flexível",
         layout: "Disposição",
@@ -4653,7 +4671,8 @@ const designLocaleOverrides = {
       pageHelpDescription:
         "टाइपोग्राफी, रिक्ति, आकार, सीमाएँ संपादित करें और जो भी आप चुनें उसे भरें। पृष्ठ डिफ़ॉल्ट नीचे है.",
       sections: {
-        page: "पेज",
+        page: "स्क्रीन",
+        canvas: "कैनवास",
         typography: "टाइपोग्राफी",
         flexLayout: "फ्लेक्स लेआउट",
         layout: "लेआउट",
@@ -5066,7 +5085,8 @@ const designLocaleOverrides = {
       pageHelpDescription:
         "تحرير الطباعة، والتباعد، والتحجيم، والحدود وملء ما تحدده. الإعدادات الافتراضية للصفحة أدناه.",
       sections: {
-        page: "صفحة",
+        page: "الشاشة",
+        canvas: "لوحة الرسم",
         typography: "الطباعة",
         flexLayout: "تخطيط مرن",
         layout: "تَخطِيط",
@@ -7889,6 +7909,8 @@ const designModeFeatureOverrides = {
       },
     },
     multiScreenCanvas: {
+      addBreakpointToAllScreens:
+        "為所有畫面新增 {{label}} 中斷點（{{width}}px）",
       duplicate: "複製",
       fork: "分支",
       fullView: "完整檢視",
@@ -8059,6 +8081,7 @@ const designModeFeatureOverrides = {
       },
     },
     multiScreenCanvas: {
+      addBreakpointToAllScreens: "为所有画面添加 {{label}} 断点（{{width}}px）",
       duplicate: "复制",
       fork: "分支",
       fullView: "完整视图",
@@ -8230,6 +8253,8 @@ const designModeFeatureOverrides = {
       },
     },
     multiScreenCanvas: {
+      addBreakpointToAllScreens:
+        "Añadir punto de ruptura {{label}} ({{width}}px) a todas las pantallas",
       duplicate: "Duplicar",
       fork: "Bifurcar",
       fullView: "Vista completa",
@@ -8422,6 +8447,8 @@ const designModeFeatureOverrides = {
       },
     },
     multiScreenCanvas: {
+      addBreakpointToAllScreens:
+        "Ajouter le point de rupture {{label}} ({{width}}px) à tous les écrans",
       duplicate: "Dupliquer",
       fork: "Créer une branche",
       fullView: "Vue complète",
@@ -8611,6 +8638,8 @@ const designModeFeatureOverrides = {
       },
     },
     multiScreenCanvas: {
+      addBreakpointToAllScreens:
+        "{{label}}-Breakpoint ({{width}}px) zu allen Screens hinzufügen",
       duplicate: "Duplizieren",
       fork: "Abzweigen",
       fullView: "Vollansicht",
@@ -8805,6 +8834,8 @@ const designModeFeatureOverrides = {
       },
     },
     multiScreenCanvas: {
+      addBreakpointToAllScreens:
+        "すべての画面に {{label}} ブレークポイント（{{width}}px）を追加",
       duplicate: "複製",
       fork: "分岐",
       fullView: "全体表示",
@@ -8994,6 +9025,8 @@ const designModeFeatureOverrides = {
       },
     },
     multiScreenCanvas: {
+      addBreakpointToAllScreens:
+        "모든 화면에 {{label}} 중단점({{width}}px) 추가",
       duplicate: "복제",
       fork: "분기",
       fullView: "전체 보기",
@@ -9180,6 +9213,8 @@ const designModeFeatureOverrides = {
       },
     },
     multiScreenCanvas: {
+      addBreakpointToAllScreens:
+        "Adicionar ponto de quebra {{label}} ({{width}}px) a todas as telas",
       duplicate: "Duplicar",
       fork: "Ramificar",
       fullView: "Vista completa",
@@ -9366,6 +9401,8 @@ const designModeFeatureOverrides = {
       },
     },
     multiScreenCanvas: {
+      addBreakpointToAllScreens:
+        "सभी स्क्रीन में {{label}} ब्रेकपॉइंट ({{width}}px) जोड़ें",
       duplicate: "डुप्लिकेट",
       fork: "फोर्क",
       fullView: "पूर्ण दृश्य",
@@ -9552,6 +9589,8 @@ const designModeFeatureOverrides = {
       },
     },
     multiScreenCanvas: {
+      addBreakpointToAllScreens:
+        "إضافة نقطة توقف {{label}} ({{width}}px) إلى جميع الشاشات",
       duplicate: "تكرار",
       fork: "تفريع",
       fullView: "عرض كامل",
@@ -9695,6 +9734,9 @@ const designCanvasFeatureOverrides = {
     editPanel: {
       labels: {
         addLayer: "新增图层",
+        addFill: "添加填充",
+        addStroke: "添加描边",
+        addEffect: "添加效果",
         removeLayer: "移除图层",
         showLayer: "显示图层",
         hideLayer: "隐藏图层",
@@ -9795,6 +9837,9 @@ const designCanvasFeatureOverrides = {
     editPanel: {
       labels: {
         addLayer: "Añadir capa",
+        addFill: "Añadir relleno",
+        addStroke: "Añadir trazo",
+        addEffect: "Añadir efecto",
         removeLayer: "Eliminar capa",
         showLayer: "Mostrar capa",
         hideLayer: "Ocultar capa",
@@ -9897,6 +9942,9 @@ const designCanvasFeatureOverrides = {
     editPanel: {
       labels: {
         addLayer: "Ajouter un calque",
+        addFill: "Ajouter un remplissage",
+        addStroke: "Ajouter un contour",
+        addEffect: "Ajouter un effet",
         removeLayer: "Supprimer le calque",
         showLayer: "Afficher le calque",
         hideLayer: "Masquer le calque",
@@ -9999,6 +10047,9 @@ const designCanvasFeatureOverrides = {
     editPanel: {
       labels: {
         addLayer: "Ebene hinzufügen",
+        addFill: "Füllung hinzufügen",
+        addStroke: "Kontur hinzufügen",
+        addEffect: "Effekt hinzufügen",
         removeLayer: "Ebene entfernen",
         showLayer: "Ebene anzeigen",
         hideLayer: "Ebene ausblenden",
@@ -10097,6 +10148,9 @@ const designCanvasFeatureOverrides = {
     editPanel: {
       labels: {
         addLayer: "レイヤーを追加",
+        addFill: "塗りを追加",
+        addStroke: "線を追加",
+        addEffect: "エフェクトを追加",
         removeLayer: "レイヤーを削除",
         showLayer: "レイヤーを表示",
         hideLayer: "レイヤーを非表示",
@@ -10195,6 +10249,9 @@ const designCanvasFeatureOverrides = {
     editPanel: {
       labels: {
         addLayer: "레이어 추가",
+        addFill: "칠 추가",
+        addStroke: "선 추가",
+        addEffect: "효과 추가",
         removeLayer: "레이어 제거",
         showLayer: "레이어 표시",
         hideLayer: "레이어 숨기기",
@@ -10295,6 +10352,9 @@ const designCanvasFeatureOverrides = {
     editPanel: {
       labels: {
         addLayer: "Adicionar camada",
+        addFill: "Adicionar preenchimento",
+        addStroke: "Adicionar contorno",
+        addEffect: "Adicionar efeito",
         removeLayer: "Remover camada",
         showLayer: "Mostrar camada",
         hideLayer: "Ocultar camada",
@@ -10393,6 +10453,9 @@ const designCanvasFeatureOverrides = {
     editPanel: {
       labels: {
         addLayer: "परत जोड़ें",
+        addFill: "भराव जोड़ें",
+        addStroke: "स्ट्रोक जोड़ें",
+        addEffect: "प्रभाव जोड़ें",
         removeLayer: "परत हटाएं",
         showLayer: "परत दिखाएं",
         hideLayer: "परत छिपाएं",
@@ -10491,6 +10554,9 @@ const designCanvasFeatureOverrides = {
     editPanel: {
       labels: {
         addLayer: "إضافة طبقة",
+        addFill: "إضافة تعبئة",
+        addStroke: "إضافة حدود",
+        addEffect: "إضافة تأثير",
         removeLayer: "إزالة طبقة",
         showLayer: "إظهار الطبقة",
         hideLayer: "إخفاء الطبقة",
@@ -13312,8 +13378,13 @@ const designFillStylesComingSoonOverrides = {
 const designFramePresetsOverrides = {
   "zh-CN": {
     editPanel: {
+      exportPreview: {
+        rendering: "正在生成预览…",
+        failed: "无法生成预览",
+      },
       framePresets: {
         title: "画框",
+        applyToFrame: "调整为预设尺寸",
         categories: {
           phone: "手机",
           tablet: "平板",
@@ -13329,8 +13400,13 @@ const designFramePresetsOverrides = {
   },
   "es-ES": {
     editPanel: {
+      exportPreview: {
+        rendering: "Generando vista previa…",
+        failed: "Vista previa no disponible",
+      },
       framePresets: {
         title: "Marco",
+        applyToFrame: "Cambiar a tamaño predefinido",
         categories: {
           phone: "Teléfono",
           tablet: "Tableta",
@@ -13346,8 +13422,13 @@ const designFramePresetsOverrides = {
   },
   "fr-FR": {
     editPanel: {
+      exportPreview: {
+        rendering: "Génération de l'aperçu…",
+        failed: "Aperçu indisponible",
+      },
       framePresets: {
         title: "Cadre",
+        applyToFrame: "Redimensionner selon un préréglage",
         categories: {
           phone: "Téléphone",
           tablet: "Tablette",
@@ -13363,8 +13444,13 @@ const designFramePresetsOverrides = {
   },
   "de-DE": {
     editPanel: {
+      exportPreview: {
+        rendering: "Vorschau wird erstellt…",
+        failed: "Vorschau nicht verfügbar",
+      },
       framePresets: {
         title: "Rahmen",
+        applyToFrame: "Auf Voreinstellung anpassen",
         categories: {
           phone: "Telefon",
           tablet: "Tablet",
@@ -13380,8 +13466,13 @@ const designFramePresetsOverrides = {
   },
   "ja-JP": {
     editPanel: {
+      exportPreview: {
+        rendering: "プレビューを生成中…",
+        failed: "プレビューを表示できません",
+      },
       framePresets: {
         title: "フレーム",
+        applyToFrame: "プリセットサイズに変更",
         categories: {
           phone: "電話",
           tablet: "タブレット",
@@ -13397,8 +13488,13 @@ const designFramePresetsOverrides = {
   },
   "ko-KR": {
     editPanel: {
+      exportPreview: {
+        rendering: "미리 보기 생성 중…",
+        failed: "미리 보기를 사용할 수 없음",
+      },
       framePresets: {
         title: "프레임",
+        applyToFrame: "사전 설정 크기로 조정",
         categories: {
           phone: "휴대폰",
           tablet: "태블릿",
@@ -13414,8 +13510,13 @@ const designFramePresetsOverrides = {
   },
   "pt-BR": {
     editPanel: {
+      exportPreview: {
+        rendering: "Gerando pré-visualização…",
+        failed: "Pré-visualização indisponível",
+      },
       framePresets: {
         title: "Quadro",
+        applyToFrame: "Redimensionar para predefinição",
         categories: {
           phone: "Celular",
           tablet: "Tablet",
@@ -13431,8 +13532,13 @@ const designFramePresetsOverrides = {
   },
   "hi-IN": {
     editPanel: {
+      exportPreview: {
+        rendering: "पूर्वावलोकन बन रहा है…",
+        failed: "पूर्वावलोकन उपलब्ध नहीं",
+      },
       framePresets: {
         title: "फ़्रेम",
+        applyToFrame: "प्रीसेट आकार में बदलें",
         categories: {
           phone: "फ़ोन",
           tablet: "टैबलेट",
@@ -13448,8 +13554,13 @@ const designFramePresetsOverrides = {
   },
   "ar-SA": {
     editPanel: {
+      exportPreview: {
+        rendering: "جارٍ إنشاء المعاينة…",
+        failed: "المعاينة غير متوفرة",
+      },
       framePresets: {
         title: "الإطار",
+        applyToFrame: "تغيير الحجم إلى إعداد مسبق",
         categories: {
           phone: "الهاتف",
           tablet: "الجهاز اللوحي",

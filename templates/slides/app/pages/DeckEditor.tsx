@@ -68,6 +68,7 @@ import { exportDeckAsPptx } from "@/lib/export-pptx-client";
 import {
   shouldClearNewDeckGeneratingState,
   shouldShowNewDeckGeneratingOverlay,
+  shouldShowNewDeckGeneratingProgress,
 } from "@/lib/generation-state";
 import { isMissingUploadProviderError } from "@/lib/image-drop-to-agent";
 import { imageFileLooksSupported } from "@/lib/slide-image-replacement";
@@ -76,6 +77,7 @@ import {
   replaceImageTargetInSlideHtml,
 } from "@/lib/slide-image-replacement";
 import { TAB_ID } from "@/lib/tab-id";
+import { shouldActivateTextTool } from "@/lib/text-tool-shortcut";
 import { shortcutLabel } from "@/lib/utils";
 
 const Pinpoint = lazy<ComponentType<PinpointProps>>(() =>
@@ -83,6 +85,8 @@ const Pinpoint = lazy<ComponentType<PinpointProps>>(() =>
     default: m.Pinpoint as ComponentType<PinpointProps>,
   })),
 );
+
+type EditorSidePanel = "style" | "comments" | null;
 
 function MissingDeckAccessPane({
   hasTeamJoinOption,
@@ -174,9 +178,16 @@ export default function DeckEditor() {
   } = useDecks();
   const [activeSlideId, setActiveSlideId] = useState<string | null>(null);
   const { generating } = useAgentGenerating();
-  // Track new-deck-creation intent: set once on mount if ?generating=1.
-  // The editor reveals partial slides as soon as the first one lands.
+  // Generation intent can arrive after this route mounts because the user
+  // answers pre-generation questions from the empty editor.
   const wasNewDeckCreation = useRef(searchParams.get("generating") === "1");
+  const newDeckGenerationStarted = useRef(false);
+  if (searchParams.get("generating") === "1") {
+    wasNewDeckCreation.current = true;
+  }
+  if (wasNewDeckCreation.current && generating) {
+    newDeckGenerationStarted.current = true;
+  }
   const [sidebarOpen, setSidebarOpen] = useState(
     () => typeof window !== "undefined" && window.innerWidth >= 768,
   );
@@ -195,12 +206,36 @@ export default function DeckEditor() {
   const [logoSearchOpen, setLogoSearchOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const historyButtonRef = useRef<HTMLButtonElement>(null);
-  const [commentsOpen, setCommentsOpen] = useState(false);
+  const [sidePanel, setSidePanel] = useState<EditorSidePanel>(null);
   const [animationsOpen, setAnimationsOpen] = useState(false);
   const [tweaksOpen, setTweaksOpen] = useState(false);
   const [drawMode, setDrawMode] = useState(false);
   const [pinMode, setPinMode] = useState(false);
   const [textBoxMode, setTextBoxMode] = useState(false);
+  const toggleDrawMode = useCallback(() => {
+    const next = !drawMode;
+    if (next) {
+      setPinMode(false);
+      setTextBoxMode(false);
+    }
+    setDrawMode(next);
+  }, [drawMode]);
+  const togglePinMode = useCallback(() => {
+    const next = !pinMode;
+    if (next) {
+      setDrawMode(false);
+      setTextBoxMode(false);
+    }
+    setPinMode(next);
+  }, [pinMode]);
+  const toggleTextBoxMode = useCallback(() => {
+    const next = !textBoxMode;
+    if (next) {
+      setDrawMode(false);
+      setPinMode(false);
+    }
+    setTextBoxMode(next);
+  }, [textBoxMode]);
   const [pendingComment, setPendingComment] = useState<{
     quotedText: string;
   } | null>(null);
@@ -236,14 +271,18 @@ export default function DeckEditor() {
   // disabled (rather than a separate "viewer" route). Owners/Editors/Admins
   // get the full editor.
   const { canEdit } = useDeckRole(id);
-  const isNewDeckGenerating = shouldShowNewDeckGeneratingOverlay({
+  const isNewDeckGenerating = shouldShowNewDeckGeneratingProgress({
+    generating,
+    isNewDeckCreation: wasNewDeckCreation.current,
+  });
+  const showNewDeckGeneratingOverlay = shouldShowNewDeckGeneratingOverlay({
     generating,
     isNewDeckCreation: wasNewDeckCreation.current,
     slideCount,
   });
-  const { designSystem, designSystemTitle } = useDeckDesignSystem(
-    deck?.designSystemId,
-  );
+  const { designSystem } = useDeckDesignSystem(deck?.designSystemId);
+  const commentsOpen = sidePanel === "comments";
+  const styleOpen = sidePanel === "style";
 
   const {
     questions: questionFlowQuestions,
@@ -293,7 +332,12 @@ export default function DeckEditor() {
   // Clean up the generating URL param/ref when generation completes or when
   // the first slide lands, so partial progress is visible during long decks.
   useEffect(() => {
-    if (!shouldClearNewDeckGeneratingState({ generating, slideCount })) {
+    if (
+      !shouldClearNewDeckGeneratingState({
+        generating,
+        generationStarted: newDeckGenerationStarted.current,
+      })
+    ) {
       return;
     }
     wasNewDeckCreation.current = false;
@@ -307,7 +351,7 @@ export default function DeckEditor() {
         { replace: true },
       );
     }
-  }, [generating, searchParams, setSearchParams, slideCount]);
+  }, [generating, searchParams, setSearchParams]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -522,6 +566,33 @@ export default function DeckEditor() {
     },
     [deck, deleteSlide, undo],
   );
+
+  useEffect(() => {
+    const handleTextToolShortcut = (event: KeyboardEvent) => {
+      if (
+        !shouldActivateTextTool(event, {
+          canEdit,
+          activeElement: document.activeElement,
+          blockingSurfaceOpen: Boolean(
+            document.querySelector(
+              "[role='dialog'], [role='menu'], [role='listbox']",
+            ),
+          ),
+        })
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      setDrawMode(false);
+      setPinMode(false);
+      setTextBoxMode(true);
+    };
+
+    document.addEventListener("keydown", handleTextToolShortcut);
+    return () =>
+      document.removeEventListener("keydown", handleTextToolShortcut);
+  }, [canEdit]);
 
   // Delete key deletes the current slide
   useEffect(() => {
@@ -744,8 +815,8 @@ export default function DeckEditor() {
   // The agent is "present"/"active" if EITHER the deck presence doc (action
   // edits) or the slide-content doc (Yjs edits) says so — a single unified
   // signal for the toolbar/slide chips.
-  const agentPresent = deckAgentPresent || slideAgentPresent;
-  const agentActive = deckAgentActive || slideAgentActive;
+  const agentPresent = generating || deckAgentPresent || slideAgentPresent;
+  const agentActive = generating || deckAgentActive || slideAgentActive;
 
   // Comments for the current slide (for badge count)
   const currentSlideCommentsQuery = useSlideComments(id ?? null, activeSlideId);
@@ -839,7 +910,13 @@ export default function DeckEditor() {
         agentPresent={agentPresent}
         agentActive={agentActive}
         commentsOpen={commentsOpen}
-        onToggleComments={() => setCommentsOpen((o) => !o)}
+        onToggleComments={() =>
+          setSidePanel((panel) => (panel === "comments" ? null : "comments"))
+        }
+        styleOpen={styleOpen}
+        onToggleStyle={() =>
+          setSidePanel((panel) => (panel === "style" ? null : "style"))
+        }
         unresolvedCommentCount={unresolvedCommentCount}
         currentUserEmail={session?.email}
         animationsOpen={animationsOpen}
@@ -847,11 +924,11 @@ export default function DeckEditor() {
         tweaksOpen={tweaksOpen}
         onToggleTweaks={() => setTweaksOpen((o) => !o)}
         drawMode={drawMode}
-        onToggleDrawMode={() => setDrawMode((v) => !v)}
+        onToggleDrawMode={toggleDrawMode}
         pinMode={pinMode}
-        onTogglePinMode={() => setPinMode((v) => !v)}
+        onTogglePinMode={togglePinMode}
         textBoxMode={textBoxMode}
-        onToggleTextBoxMode={() => setTextBoxMode((v) => !v)}
+        onToggleTextBoxMode={toggleTextBoxMode}
         onDuplicateDeck={() => {
           const newId = `deck-${nanoid()}`;
           const optimistic = duplicateDeck(id, newId);
@@ -898,7 +975,6 @@ export default function DeckEditor() {
           return exportDeckToGoogleSlides(deck.title, slides, deck.aspectRatio);
         }}
         aspectRatio={deck.aspectRatio}
-        designSystemTitle={designSystemTitle}
         onSetAspectRatio={(ratio: AspectRatio) => {
           const previous = deck.aspectRatio;
           // Optimistic UI: update local cache immediately so canvas resizes.
@@ -976,7 +1052,7 @@ export default function DeckEditor() {
           />
         )}
 
-        {isNewDeckGenerating &&
+        {showNewDeckGeneratingOverlay &&
           deck.slides.length === 0 &&
           !showQuestionFlow && <GeneratingOverlay />}
 
@@ -989,71 +1065,76 @@ export default function DeckEditor() {
           </div>
         )}
 
-        {!(isNewDeckGenerating && deck.slides.length === 0) &&
-          !showQuestionFlow &&
-          currentSlide && (
-            <SlideEditor
-              slide={currentSlide}
-              deckId={id}
-              readOnly={!canEdit}
-              onUpdateSlide={(updates, slideIdOverride) =>
-                updateSlide(id, slideIdOverride ?? currentSlide.id, updates)
-              }
-              onInlineEditStart={() => markDeckDirty(id)}
-              onGenerateImage={() => setImageGenOpen(true)}
-              onOpenAssetLibrary={(src) => {
-                setReplaceImageSrc(src);
-                setAssetLibraryOpen(true);
-              }}
-              onUploadImage={(src) => {
-                setReplaceImageSrc(src);
-                uploadInputRef.current?.click();
-              }}
-              onSearchImage={(src) => {
-                setReplaceImageSrc(src);
-                setImageSearchOpen(true);
-              }}
-              onLogoSearch={(src) => {
-                setReplaceImageSrc(src);
-                setLogoSearchOpen(true);
-              }}
-              onDropImage={uploadAndApplyImage}
-              onDropImageUrl={dropImageUrlOnSlide}
-              onToggleObjectFit={toggleObjectFit}
-              slideIndex={currentIndex >= 0 ? currentIndex : 0}
-              slideCount={deck.slides.length}
-              designSystem={designSystem}
-              aspectRatio={deck.aspectRatio}
-              collabUser={
-                currentUser
-                  ? { name: currentUser.name, color: currentUser.color }
-                  : undefined
-              }
-              agentActive={agentActive}
-              recentEdits={deckRecentEdits}
-              onComment={(quotedText) => {
-                setPendingComment({ quotedText });
-                setCommentsOpen(true);
-              }}
-              drawMode={drawMode}
-              onExitDrawMode={() => setDrawMode(false)}
-              pinMode={pinMode}
-              onExitPinMode={() => setPinMode(false)}
-              textBoxMode={textBoxMode}
-              onExitTextBoxMode={() => setTextBoxMode(false)}
-              slideId={currentSlide.id}
-              slideTitle={(() => {
-                const m = currentSlide.content?.match(
-                  /<h[12][^>]*>([^<]+)<\/h[12]>/i,
-                );
-                return (
-                  m?.[1]?.trim() ||
-                  `Slide ${(currentIndex >= 0 ? currentIndex : 0) + 1}`
-                );
-              })()}
-              presentUsers={slidePresence.get(currentSlide.id) ?? []}
-            />
-          )}
+        {!showNewDeckGeneratingOverlay && !showQuestionFlow && currentSlide && (
+          <SlideEditor
+            slide={currentSlide}
+            deckId={id}
+            readOnly={!canEdit}
+            onUpdateSlide={(updates, slideIdOverride) =>
+              updateSlide(id, slideIdOverride ?? currentSlide.id, updates)
+            }
+            onInlineEditStart={() => markDeckDirty(id)}
+            onGenerateImage={() => setImageGenOpen(true)}
+            onOpenAssetLibrary={(src) => {
+              setReplaceImageSrc(src);
+              setAssetLibraryOpen(true);
+            }}
+            onUploadImage={(src) => {
+              setReplaceImageSrc(src);
+              uploadInputRef.current?.click();
+            }}
+            onSearchImage={(src) => {
+              setReplaceImageSrc(src);
+              setImageSearchOpen(true);
+            }}
+            onLogoSearch={(src) => {
+              setReplaceImageSrc(src);
+              setLogoSearchOpen(true);
+            }}
+            onDropImage={uploadAndApplyImage}
+            onDropImageUrl={dropImageUrlOnSlide}
+            onToggleObjectFit={toggleObjectFit}
+            slideIndex={currentIndex >= 0 ? currentIndex : 0}
+            slideCount={deck.slides.length}
+            designSystem={designSystem}
+            stylePanelOpen={styleOpen}
+            onCloseStylePanel={() => setSidePanel(null)}
+            aspectRatio={deck.aspectRatio}
+            collabUser={
+              currentUser
+                ? { name: currentUser.name, color: currentUser.color }
+                : undefined
+            }
+            agentActive={
+              slideAgentActive ||
+              (deckAgentActive && agentSlideId === currentSlide.id) ||
+              (isNewDeckGenerating &&
+                currentSlide.id === deck.slides.at(-1)?.id)
+            }
+            recentEdits={deckRecentEdits}
+            onComment={(quotedText) => {
+              setPendingComment({ quotedText });
+              setSidePanel("comments");
+            }}
+            drawMode={drawMode}
+            onExitDrawMode={() => setDrawMode(false)}
+            pinMode={pinMode}
+            onExitPinMode={() => setPinMode(false)}
+            textBoxMode={textBoxMode}
+            onExitTextBoxMode={() => setTextBoxMode(false)}
+            slideId={currentSlide.id}
+            slideTitle={(() => {
+              const m = currentSlide.content?.match(
+                /<h[12][^>]*>([^<]+)<\/h[12]>/i,
+              );
+              return (
+                m?.[1]?.trim() ||
+                `Slide ${(currentIndex >= 0 ? currentIndex : 0) + 1}`
+              );
+            })()}
+            presentUsers={slidePresence.get(currentSlide.id) ?? []}
+          />
+        )}
 
         {commentsOpen && (
           <SlideCommentsPanel
@@ -1062,7 +1143,7 @@ export default function DeckEditor() {
             pendingComment={pendingComment}
             onPendingDone={() => setPendingComment(null)}
             onClose={() => {
-              setCommentsOpen(false);
+              setSidePanel(null);
               setPendingComment(null);
             }}
           />

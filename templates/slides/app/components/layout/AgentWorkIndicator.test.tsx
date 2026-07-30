@@ -10,6 +10,8 @@ import {
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { CHAT_STOP_DEBOUNCE_MS } from "@/hooks/use-agent-generating";
+
 vi.mock("@agent-native/core/client/agent-chat", () => ({
   focusAgentChat: vi.fn(),
 }));
@@ -55,6 +57,7 @@ function dispatchRunning(isRunning: boolean) {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   cleanup();
   document.body.innerHTML = "";
   vi.clearAllMocks();
@@ -114,5 +117,29 @@ describe("AgentWorkIndicator", () => {
     });
     expect(focusAgentChat).toHaveBeenCalledTimes(1);
     window.removeEventListener("agent-panel:set-mode", modeListener);
+  });
+
+  it("stays visible across brief continuation gaps", () => {
+    vi.useFakeTimers();
+    render(<AgentWorkIndicator />);
+    dispatchRunning(true);
+    dispatchRunning(false);
+
+    act(() => {
+      vi.advanceTimersByTime(CHAT_STOP_DEBOUNCE_MS - 1);
+    });
+    expect(screen.getByText("Agent is working")).toBeTruthy();
+
+    dispatchRunning(true);
+    act(() => {
+      vi.advanceTimersByTime(CHAT_STOP_DEBOUNCE_MS);
+    });
+    expect(screen.getByText("Agent is working")).toBeTruthy();
+
+    dispatchRunning(false);
+    act(() => {
+      vi.advanceTimersByTime(CHAT_STOP_DEBOUNCE_MS);
+    });
+    expect(screen.queryByText("Agent is working")).toBeNull();
   });
 });

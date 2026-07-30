@@ -497,6 +497,56 @@ describe("present-design-variants", () => {
     );
   });
 
+  it("spaces desktop directions by their whole painted row, not just the primary frame", async () => {
+    await action.run({
+      designId: "design_123",
+      prompt: "Landing page for a Super Mario game",
+      variants: [
+        { id: "retro", label: "Classic 8-Bit Retro" },
+        { id: "modern", label: "Modern 3D" },
+        { id: "comic", label: "Comic Poster" },
+      ],
+    });
+
+    const data = mocks.designData;
+    // Desktop-base directions (1440) each paint a 390 mobile preview to their
+    // right, so a cell is 1440 + 24 + 390 = 1854 wide before the 96 gap.
+    // Spacing by the primary width alone dropped the next direction 1110px
+    // inside the previous one's breakpoint row.
+    expect(Object.values(data.canvasFrames).map((frame) => frame.x)).toEqual([
+      0, 1950, 3900,
+    ]);
+    expect(
+      Object.values(data.canvasFrames).map((frame) => frame.width),
+    ).toEqual([1440, 1440, 1440]);
+  });
+
+  it("reserves every breakpoint the design already has", async () => {
+    mocks.designData.breakpointSet = {
+      id: "existing",
+      breakpoints: [
+        { id: "m", label: "Mobile", widthPx: 390 },
+        { id: "t", label: "Tablet", widthPx: 768 },
+        { id: "d", label: "Desktop", widthPx: 1440 },
+      ],
+    };
+
+    await action.run({
+      designId: "design_123",
+      prompt: "Landing page for a Super Mario game",
+      variants: [
+        { id: "retro", label: "Classic 8-Bit Retro" },
+        { id: "modern", label: "Modern 3D" },
+      ],
+    });
+
+    // 1440 base drops the redundant 1440 preview and reserves 768 + 390:
+    // 1440 + (24 + 768) + (24 + 390) = 2646, then the 96 gap.
+    expect(
+      Object.values(mocks.designData.canvasFrames).map((f) => f.x),
+    ).toEqual([0, 2742]);
+  });
+
   it("renders compact fallback variants from non-todo mobile direction data", async () => {
     await action.run({
       designId: "design_123",

@@ -4,6 +4,7 @@ import {
   deriveReferralSource,
   deriveSignupAttribution,
   parseCookieHeader,
+  readAnalyticsAnonymousId,
   readFirstTouchAttribution,
   signupAttributionFromCookieHeader,
   type FirstTouchAttribution,
@@ -77,6 +78,26 @@ describe("readFirstTouchAttribution", () => {
     expect(parsed?.via).toBeUndefined();
     expect((parsed as Record<string, unknown>)?.extra).toBeUndefined();
     expect(parsed?.landing_path).toBe("/p/abc");
+  });
+});
+
+describe("readAnalyticsAnonymousId", () => {
+  it("reads a valid browser identity handoff without changing attribution", () => {
+    expect(readAnalyticsAnonymousId("an_aid=anon_123-abc")).toBe(
+      "anon_123-abc",
+    );
+    expect(readFirstTouchAttribution("an_aid=anon_123-abc")).toBeNull();
+  });
+
+  it("rejects absent, malformed, and duplicate identity cookies", () => {
+    expect(readAnalyticsAnonymousId(undefined)).toBeUndefined();
+    expect(readAnalyticsAnonymousId("an_aid=has%20space")).toBeUndefined();
+    expect(readAnalyticsAnonymousId("an_aid=first; an_aid=second")).toBe(
+      "first",
+    );
+    expect(
+      readAnalyticsAnonymousId(`an_aid=${"a".repeat(129)}`),
+    ).toBeUndefined();
   });
 });
 

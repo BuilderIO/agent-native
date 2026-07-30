@@ -13,10 +13,17 @@ description: How to create a new deck with slides from scratch. Read this before
    from presentation structure. Respect `contextMode: "off"`.
 2. Unless the user named a reference deck or design system, call
    `get-workspace-defaults` and use what it returns. See "Workspace Defaults".
-3. Plan the slides (title, section dividers, content slides).
-4. Call `create-deck --title "..." --slides '[]'` to create an empty deck.
+3. Plan the slides (deck title, title slide, section dividers, content slides).
+4. Call `create-deck --title "..." --slides '[]'` with a concise, specific
+   title derived from the user's request and source material. Never use
+   `Untitled Deck` or another placeholder title for a generated deck.
 5. Navigate to the new deck.
 6. Call `add-slide` once per slide in slide order, waiting for each result.
+
+When the UI has already created the empty deck, keep its id and rename it before
+adding the first slide. Call `patch-deck` with a `patch-deck-fields` operation
+whose `fields.title` is the generated title. Do not leave the pre-created deck's
+placeholder title in place.
 
 Follow the creative-context reuse ladder before inventing a slide language:
 reuse an approved native template unchanged, compose approved pieces, lightly
