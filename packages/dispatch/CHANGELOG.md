@@ -1,5 +1,14 @@
 # @agent-native/dispatch
 
+## 0.16.1
+
+### Patch Changes
+
+- 901769d: Make new workspace app creation clearly show Builder branch progress and a focused success handoff.
+- Updated dependencies [901769d]
+- Updated dependencies [901769d]
+  - @agent-native/toolkit@0.11.1
+
 ## 0.16.0
 
 ### Minor Changes

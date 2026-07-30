@@ -7,7 +7,7 @@ import {
 import { appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { useActionQuery } from "@agent-native/core/client/hooks";
-import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
@@ -291,7 +291,7 @@ function AssetsChatsSection({ open }: { open: boolean }) {
             unpin: t("chat.unpinChat"),
             delete: t("chat.archiveChat"),
           }}
-          className="min-w-0 [&_.an-chat-history-rail__new-chat]:justify-start"
+          className="min-w-0"
         />
       </div>
     </div>
@@ -369,9 +369,6 @@ export function Sidebar() {
       </TooltipTrigger>
       <TooltipContent side="right">{t("root.commandSearch")}</TooltipContent>
     </Tooltip>
-  );
-  const translateButton = (
-    <LanguagePicker variant="ghost-icon" label={t("settings.languageLabel")} />
   );
   const feedbackButton = (
     <FeedbackButton
@@ -478,8 +475,8 @@ export function Sidebar() {
             return (
               <div key={item.href}>
                 {link}
-                {item.href === "/" && isCreateRoute ? (
-                  <AssetsChatsSection open />
+                {item.href === "/" ? (
+                  <AssetsChatsSection open={isCreateRoute} />
                 ) : null}
               </div>
             );
@@ -541,7 +538,6 @@ export function Sidebar() {
       <SidebarFooterActions
         collapsed={collapsed}
         feedback={feedbackButton}
-        translate={translateButton}
         search={searchButton}
         collapse={collapseButton}
       />

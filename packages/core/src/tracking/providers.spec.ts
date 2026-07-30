@@ -41,7 +41,14 @@ describe("tracking providers", () => {
       await freshTrackingModules();
 
     registerBuiltinProviders();
-    track("qa.event", { app: "qa", signed_in: true }, { userId: "u1" });
+    track(
+      "qa.event",
+      { app: "qa", signed_in: true },
+      {
+        userId: "u1",
+        anonymousId: "anon_1",
+      },
+    );
     await flushTracking();
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -53,6 +60,7 @@ describe("tracking providers", () => {
       event: "qa.event",
       properties: { app: "qa", signed_in: true },
       userId: "u1",
+      anonymousId: "anon_1",
     });
   });
 

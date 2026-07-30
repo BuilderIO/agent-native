@@ -768,9 +768,10 @@ function AgentPanelInner({
   ...assistantChatProps
 }: AgentPanelProps) {
   const t = useT();
-  const feedbackEnabled = resolveFeedbackUrl() !== null;
   const navigate = useNavigate();
   const mounted = useClientOnly();
+  const feedbackEnabled =
+    resolveFeedbackUrl(undefined, mounted ? undefined : null) !== null;
   const keyPrefix = storageKey ? `:${storageKey}` : "";
   const execModeKey = `${EXEC_MODE_KEY}${keyPrefix}`;
   const panelModeKey = `agent-native-panel-mode${keyPrefix}`;

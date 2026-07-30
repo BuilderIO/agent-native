@@ -235,6 +235,35 @@ describe("compose-dashboard", () => {
     );
   });
 
+  it("composes the anonymous pageview-to-signup bridge metric", async () => {
+    const result: any = await composeDashboard.run(
+      {
+        dashboardId: "signup-bridge",
+        metrics: ["signup-entry-pages-90d"],
+      },
+      { userEmail: "alice@example.com", orgId: null, caller: "tool" },
+    );
+
+    expect(result.invalidMetrics).toEqual([]);
+    expect(result.createdMetrics).toEqual(["signup-entry-pages-90d"]);
+
+    const panel = (
+      store.get("signup-bridge")!.config.panels as Array<
+        Record<string, unknown>
+      >
+    )[0]!;
+    expect(panel.sql).toContain(
+      "pageviews.anonymous_id = signups.anonymous_id",
+    );
+    expect(panel.sql).toContain(
+      "pageviews.timestamp::timestamptz < signups.signup_at",
+    );
+    expect(panel.sql).toContain(
+      "pageviews.timestamp::timestamptz >= signups.signup_at - INTERVAL '400 days'",
+    );
+    expect(panel.config).toMatchObject({ timeScope: "cohort-history" });
+  });
+
   it("uses indexed event-date expressions for daily first-party panels", () => {
     for (const metric of [
       "signups-over-time",

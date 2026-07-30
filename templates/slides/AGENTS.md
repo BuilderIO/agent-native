@@ -27,17 +27,17 @@ ladder.
   current layout is unclear.
 - Preserve deck structure and visual consistency. Prefer focused slide edits over
   regenerating whole decks unless requested.
+- Preserve freeform objects and their `data-slide-object-id` values. They are
+  absolutely positioned `.fmd-slide` children; keep generated flex/grid in
+  normal flow and mint ids only for duplicates. Use styled HTML, not inline SVG.
 - Follow linked design-system tokens and custom instructions.
 - Build reusable design systems from Figma, code, GitHub, or `design.md` via
   Builder-backed DSI indexing, never a duplicate local copy. Read
   `design-systems` for the per-source actions.
-- Treat import/export actions as shortcuts, not capability limits. When the
-  exact Google Drive endpoint, file metadata field, export format, pagination
-  mode, or API version matters, use `provider-api-catalog`,
-  `provider-api-docs`, and `provider-api-request` against the real provider
-  API. Slides resolves Google Drive auth from the user's connected Google Docs
-  OAuth account. For large scans, stage results with `stageAs` and analyze them
-  with `query-staged-dataset`.
+- Import/export actions are shortcuts, not capability limits. For exact Google
+  Drive API needs, use `provider-api-catalog`, `provider-api-docs`, and
+  `provider-api-request`; auth comes from the user's Google Docs OAuth. Stage
+  large scans with `stageAs` and analyze them via `query-staged-dataset`.
 - Use image-generation and image-selection actions only when the deck genuinely
   needs imagery; keep citations/asset provenance when available.
 - Use framework sharing actions for deck visibility and grants.
@@ -48,15 +48,10 @@ ladder.
 - When the user names no reference deck or design system, call
   `get-workspace-defaults` first so a bare "make a deck about X" is still on
   brand.
-- Before generation, follow the creative-context reuse ladder in
-  `.agents/skills/creative-context/SKILL.md`: explicit request and current deck
-  first, then a pinned/current pack, then narrow library search. Respect
-  `creative-context.contextMode: "off"` without silently restoring a pack.
-- To submit a deck to a governed Creative Context, use the Context tab or
-  `manage-context-membership`; it captures one immutable deck version. Reuse
-  only a returned opaque native clone reference through the Slides clone action.
-  Use `operation="submit-latest"` with a Library membership id when its native
-  update status reports `update-available`.
+- Before generation, follow `.agents/skills/creative-context/SKILL.md`: explicit
+  request/current deck, then pinned/current pack, then narrow library search.
+  Respect `contextMode: "off"`. Submit governed context through the Context tab
+  or `manage-context-membership`; reuse only its opaque clone reference.
 
 ## Persistence Model
 
@@ -88,6 +83,10 @@ extending the editor's save path, enqueue a granular op (`patch-slide`,
 - Browser PowerPoint export uses the rendered slide DOM to generate native,
   editable PPTX text/shapes/images. Do not replace it with full-slide images
   unless the user explicitly asks for non-editable visual snapshots.
+- The server-side `export-pptx` action cannot measure browser-rendered
+  freeform geometry. It must fail clearly for positioned objects and direct the
+  user to the editor's Export > PowerPoint path instead of silently reflowing
+  them.
 - Google Slides export is a PPTX import workflow: generate the same editable
   PPTX and have the user import it into Google Slides. Creating a native Google
   Slides file directly requires a separate Google Slides API batchUpdate path.

@@ -32,7 +32,6 @@ vi.mock("@agent-native/core/client/navigation", () => ({
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
-  LanguagePicker: () => null,
   useT: () => (key: string) =>
     ({
       "navigation.brand": "Slides",
@@ -40,7 +39,6 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "navigation.designSystems": "Design Systems",
       "navigation.settings": "Settings",
       "settings.agentTitle": "Manage agent",
-      "settings.languageLabel": "Language",
       "sidebar.search": "Search",
       "sidebar.expandSidebar": "Expand sidebar",
       "sidebar.collapseSidebar": "Collapse sidebar",
@@ -49,18 +47,15 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 vi.mock("@agent-native/toolkit/app-shell", () => ({
   SidebarFooterActions: ({
     feedback,
-    translate,
     search,
     collapse,
   }: {
     feedback?: ReactNode;
-    translate?: ReactNode;
     search?: ReactNode;
     collapse?: ReactNode;
   }) => (
     <div>
       {feedback}
-      {translate}
       {search}
       {collapse}
     </div>

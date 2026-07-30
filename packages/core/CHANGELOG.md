@@ -1,5 +1,27 @@
 # @agent-native/core
 
+## 0.131.2
+
+### Patch Changes
+
+- 8d4fac7: Exclude `.test.ts`/`.spec.ts` files from agent chat plugin action auto-discovery, so test/spec files are no longer registered as callable agent tools.
+- 901769d: Keep the session-authenticated remote-device relay routes under CSRF protection.
+  The `/integrations/` CSRF exemption exists for HMAC-verified webhooks, but
+  prefix matching extended it to `/integrations/remote/*`, where
+  `register`, `enqueue`, and `computer/{approvals,commands}` authenticate on the
+  `SameSite=None` session cookie. A cross-site simple-request POST could
+  therefore create and self-approve a browser-control operation — click, type, or
+  navigate on the victim's paired Chrome — without any first-party marker or
+  human approval step. Those routes are now excluded from the exemption; the
+  device's own bearer-token calls (`poll`, `result`, `heartbeat`) are unaffected.
+- 901769d: Keep completed chat history visible when a sidebar remounts.
+- 901769d: Keep background and scheduled recovery workers from starting duplicate recurring integration jobs that can exhaust shared database capacity and delay messaging replies.
+- 901769d: Keep Feedback visible in first-party Agent Native production apps even when the build-time feedback URL was not synced, while cloned apps remain opted out by default.
+- 901769d: Reuse an empty active chat for foreground requests that otherwise open a new tab.
+- Updated dependencies [901769d]
+- Updated dependencies [901769d]
+  - @agent-native/toolkit@0.11.1
+
 ## 0.131.1
 
 ### Patch Changes

@@ -152,6 +152,8 @@ export default defineAction({
         activeTool?: string;
         items?: Array<{
           selector?: string;
+          runtimeSelector?: string;
+          objectId?: string;
           text?: string;
           kind?: string;
           tagName?: string;
@@ -172,6 +174,10 @@ export default defineAction({
             lines.push(
               `selected ${index + 1}: ${item.kind ?? "element"} ${item.tagName ?? ""} selector=${item.selector ?? "(none)"}`,
             );
+            if (item.objectId) lines.push(`objectId: ${item.objectId}`);
+            if (item.runtimeSelector) {
+              lines.push(`runtimeSelector: ${item.runtimeSelector}`);
+            }
             if (item.text) lines.push(`text: ${item.text}`);
             if (item.imageSrc) lines.push(`imageSrc: ${item.imageSrc}`);
             if (item.style) {

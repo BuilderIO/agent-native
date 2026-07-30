@@ -1,5 +1,12 @@
 # @agent-native/toolkit
 
+## 0.11.1
+
+### Patch Changes
+
+- 901769d: Keep the chat history panel layout balanced.
+- 901769d: Remove the translate control slot from the shared sidebar footer actions.
+
 ## 0.11.0
 
 ### Minor Changes
