@@ -55,6 +55,21 @@ generate-image-api { prompt, deckId, slideId, slideContent }
 
 Drop the returned `previewUrl` into the slide HTML's `<img src="...">`.
 
+## Showing the result in chat
+
+Always show a generated image as an inline markdown image:
+
+```md
+![Monstera deliciosa](https://…/preview.png)
+```
+
+The chat renders `![]()` as a real image but `[]()` as a bare link, so a
+plain link (or a "View the photo" / "Open preview" link) leaves the user with
+nothing to look at. Use the action's `url` field, or the `previewUrl` from the
+Assets reply when the action could not parse one. This applies whether the
+request came from the editor's image panel or from a plain chat message like
+"generate a photo of a monstera".
+
 The delegation message already instructs Assets to mark generations with
 `source: "a2a"` and `callerAppId: "slides"` when it calls `generate-image-batch`
 or `refine-image`. That keeps the Assets audit log useful for design review.

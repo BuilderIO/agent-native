@@ -31,7 +31,7 @@ async function urlToReferenceImage(
 
 export default defineAction({
   description:
-    "Generate a slide image. Delegates to the Assets app over A2A so generations use the brand library, presets, and audit log; falls back to a local Gemini/OpenAI key only when Assets is unreachable.",
+    "Generate a slide image. Delegates to the Assets app over A2A so generations use the brand library, presets, and audit log; falls back to a local Gemini/OpenAI key only when Assets is unreachable. Show the returned `url` to the user as an inline markdown image (![alt](url)) so it renders in chat, never as a bare link.",
   schema: z.object({
     prompt: z.string().optional().describe("Image description (required)"),
     model: z
