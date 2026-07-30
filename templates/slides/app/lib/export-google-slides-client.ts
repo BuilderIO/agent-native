@@ -46,10 +46,23 @@ export async function exportDeckToGoogleSlides(
   form.append("file", blob, filename);
   form.append("title", deckTitle);
 
-  const res = await fetch(`${appBasePath()}/api/exports/google-slides`, {
-    method: "POST",
-    body: form,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${appBasePath()}/api/exports/google-slides`, {
+      method: "POST",
+      body: form,
+    });
+  } catch (error) {
+    triggerBlobDownload(blob, filename);
+    return {
+      url: null,
+      downloaded: true,
+      reason:
+        error instanceof Error
+          ? error.message
+          : "Google Slides upload request failed",
+    };
+  }
 
   const payload = (await res.json().catch(() => null)) as {
     url?: string;
