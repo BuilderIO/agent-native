@@ -757,6 +757,7 @@ export function CreateEventPopover({
 
     const payload: Parameters<typeof createEvent.mutate>[0] = {
       title: title.trim() || undefined,
+      titleIsGenerated: !title.trim(),
       description: isOutOfOffice ? "" : description,
       start: startValue,
       end: endValue,
