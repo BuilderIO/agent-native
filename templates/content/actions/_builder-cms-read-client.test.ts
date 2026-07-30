@@ -456,6 +456,47 @@ describe("Builder CMS read client", () => {
     });
   });
 
+  it("can project Builder bodies in paged list reads for bulk hydration", async () => {
+    process.env.BUILDER_CONTENT_API_HOST = "https://cdn.test.builder.io";
+    resolveBuilderCredentialMock.mockImplementation(async (key) =>
+      key === "BUILDER_PUBLIC_KEY" ? "public-key" : null,
+    );
+    const fetchImpl = vi.fn(async (input: URL) => {
+      expect(input.searchParams.get("enrich")).toBe("true");
+      expect(input.searchParams.get("fields")?.split(",")).toEqual(
+        expect.arrayContaining([
+          "data.title",
+          "data.blocks",
+          "data.blocksString",
+        ]),
+      );
+      return new Response(
+        JSON.stringify({
+          results: [
+            {
+              id: "builder-entry-with-body",
+              data: {
+                title: "Builder body",
+                blocks: [{ id: "block-1" }],
+              },
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    });
+
+    const result = await readBuilderCmsContentEntries({
+      model: "blog-article",
+      includeBodies: true,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    expect(result.entries[0]?.rawEntry?.data).toMatchObject({
+      blocks: [{ id: "block-1" }],
+    });
+  });
+
   it("performs authenticated, cachebusted raw fidelity reads without projection or enrichment", async () => {
     process.env.BUILDER_CONTENT_API_HOST = "https://cdn.test.builder.io";
     resolveBuilderCredentialMock.mockImplementation(async (key) => {

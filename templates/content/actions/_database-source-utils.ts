@@ -977,7 +977,7 @@ function builderBodyUsesCurrentMediaConverter(
 
 const BUILDER_BODY_HYDRATION_BACKGROUND_PRIORITY = 10;
 const BUILDER_BODY_HYDRATION_OPEN_PRIORITY = 0;
-const BUILDER_BODY_HYDRATION_BATCH_LIMIT = 100;
+const BUILDER_BODY_HYDRATION_BATCH_LIMIT = 600;
 const BUILDER_BODY_HYDRATION_PROCESS_CONCURRENCY = 72;
 const BUILDER_BODY_HYDRATION_MAX_ATTEMPTS = 5;
 const BUILDER_BODY_HYDRATION_CODEC_VERSION =
@@ -1744,6 +1744,7 @@ async function processBuilderBodyHydrationJob(
     sourceRow?: ContentDatabaseSourceRecordRowDb | null;
     documentContent?: string | null;
     bodyHydrationVersion?: string | null;
+    bodyEntry?: BuilderCmsSourceEntry | null;
   },
 ) {
   const db = getDb();
@@ -1753,9 +1754,19 @@ async function processBuilderBodyHydrationJob(
     entry.sourceValues,
     BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
   );
+  const bodyEntry =
+    preloaded?.bodyEntry?.id === entry.id
+      ? {
+          ...preloaded.bodyEntry,
+          sourceValues: {
+            ...entry.sourceValues,
+            ...preloaded.bodyEntry.sourceValues,
+          },
+        }
+      : entry;
   let activeSourceEntryJson = row.sourceEntryJson;
   let entryWithBody = await refreshBuilderBodySourceValuesFromStoredLossless(
-    await withBuilderBodySourceValues(entry),
+    await withBuilderBodySourceValues(bodyEntry),
   );
   const sourceRow =
     preloaded?.sourceRow != null
@@ -2275,6 +2286,7 @@ export async function processBuilderBodyHydrationQueue(args: {
   documentId?: string | null;
   limit?: number | null;
   preloadedJobs?: ContentDatabaseBodyHydrationQueueRowDb[];
+  preloadBodies?: boolean;
 }) {
   const db = getDb();
   const limit = normalizeHydrationLimit(args.limit);
@@ -2458,6 +2470,36 @@ export async function processBuilderBodyHydrationQueue(args: {
   const documentContentById = new Map(
     documents.map((document) => [document.id, document.content]),
   );
+  const claimedSourceRowIds = new Set(
+    claimedJobs.map((job) => job.sourceRowId),
+  );
+  const bodyEntryById = new Map<string, BuilderCmsSourceEntry>();
+  if (
+    !args.documentId &&
+    args.preloadBodies === true &&
+    claimedJobs.length > 0
+  ) {
+    const sourceTables = Array.from(
+      new Set(claimedJobs.map((job) => job.sourceTable)),
+    );
+    const bodyReads = await Promise.all(
+      sourceTables.map((model) =>
+        readBuilderCmsContentEntries({
+          model,
+          includeBodies: true,
+          limit: 10_000,
+        }),
+      ),
+    );
+    for (const read of bodyReads) {
+      if (read.state !== "live") continue;
+      for (const entry of read.entries) {
+        if (claimedSourceRowIds.has(entry.id)) {
+          bodyEntryById.set(entry.id, entry);
+        }
+      }
+    }
+  }
   await processInBatches(
     claimedJobs,
     BUILDER_BODY_HYDRATION_PROCESS_CONCURRENCY,
@@ -2470,6 +2512,7 @@ export async function processBuilderBodyHydrationQueue(args: {
           sourceRow: sourceRowsByItemId.get(job.databaseItemId) ?? null,
           bodyHydrationVersion:
             bodyHydrationVersionByItemId.get(job.databaseItemId) ?? null,
+          bodyEntry: bodyEntryById.get(job.sourceRowId) ?? null,
           documentContent: documentContentById.has(job.documentId)
             ? (documentContentById.get(job.documentId) ?? null)
             : undefined,

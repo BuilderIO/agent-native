@@ -787,6 +787,7 @@ async function initializeBuilderMcp(args: {
 async function readBuilderCmsContentEntriesViaMcp(args: {
   model: string;
   fieldPaths?: readonly string[];
+  includeBodies?: boolean;
   rawData?: boolean;
   limit?: number;
   maxPages?: number;
@@ -810,7 +811,9 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
   const contentEntries: BuilderCmsSourceEntry[] = [];
   const fields = args.rawData
     ? undefined
-    : builderCmsListEntryFields(args.fieldPaths);
+    : args.includeBodies
+      ? `${builderCmsListEntryFields(args.fieldPaths)},${BUILDER_CMS_HEAVY_BODY_FIELD_PATHS.join(",")}`
+      : builderCmsListEntryFields(args.fieldPaths);
   const seenContentIds = new Set<string>();
   let pagesRead = 0;
   let hasMore = false;
@@ -976,6 +979,7 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
 async function readBuilderCmsContentEntriesViaContentApi(args: {
   model: string;
   fieldPaths?: readonly string[];
+  includeBodies?: boolean;
   rawData?: boolean;
   limit?: number;
   maxPages?: number;
@@ -1001,7 +1005,12 @@ async function readBuilderCmsContentEntriesViaContentApi(args: {
   );
   url.searchParams.set("includeUnpublished", "true");
   if (args.rawData !== true) {
-    url.searchParams.set("fields", builderCmsListEntryFields(args.fieldPaths));
+    url.searchParams.set(
+      "fields",
+      args.includeBodies
+        ? `${builderCmsListEntryFields(args.fieldPaths)},${BUILDER_CMS_HEAVY_BODY_FIELD_PATHS.join(",")}`
+        : builderCmsListEntryFields(args.fieldPaths),
+    );
   }
 
   const limit = readLimit(args.limit);
@@ -1296,6 +1305,7 @@ export async function readBuilderCmsModelFields(args: {
 export async function readBuilderCmsContentEntries(args: {
   model: string;
   fieldPaths?: readonly string[];
+  includeBodies?: boolean;
   rawData?: boolean;
   requirePrivateKey?: boolean;
   limit?: number;
@@ -1330,6 +1340,7 @@ export async function readBuilderCmsContentEntries(args: {
     const contentApiRead = await readBuilderCmsContentEntriesViaContentApi({
       model: args.model,
       fieldPaths: args.fieldPaths,
+      includeBodies: args.includeBodies,
       rawData: args.rawData,
       limit: args.limit,
       maxPages: args.maxPages,
@@ -1354,6 +1365,7 @@ export async function readBuilderCmsContentEntries(args: {
         await readBuilderCmsContentEntriesViaMcp({
           model: args.model,
           fieldPaths: args.fieldPaths,
+          includeBodies: args.includeBodies,
           rawData: args.rawData,
           limit: args.limit,
           maxPages: args.maxPages,
