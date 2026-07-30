@@ -51,7 +51,8 @@ vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ ...rawClient, atomicBatch }),
   getDialect: () => dbMockState.dialect,
   intType: () => "INTEGER",
-  isConnectionError: () => false,
+  isConnectionError: (error: { code?: string }) =>
+    error?.code === "ECONNRESET",
   isLocalDatabase: () => dbMockState.localDatabase,
   isPostgres: () => false,
 }));
@@ -158,15 +159,18 @@ describe("application-state store", () => {
     );
   });
 
-  it("does not report read failures as missing state", async () => {
-    rawClient.execute.mockRejectedValueOnce(new Error("connection dropped"));
+  it("does not report connection failures as missing state", async () => {
+    const connectionError = () =>
+      Object.assign(new Error("connection reset"), { code: "ECONNRESET" });
+
+    rawClient.execute.mockRejectedValueOnce(connectionError());
     await expect(appStateGet(SESSION, "apollo")).rejects.toThrow(
-      "connection dropped",
+      "connection reset",
     );
 
-    rawClient.execute.mockRejectedValueOnce(new Error("connection dropped"));
+    rawClient.execute.mockRejectedValueOnce(connectionError());
     await expect(appStateGetMany(SESSION, ["apollo", "gong"])).rejects.toThrow(
-      "connection dropped",
+      "connection reset",
     );
   });
 

@@ -3421,7 +3421,11 @@ const AssistantChatInner = forwardRef<
           }
           window.dispatchEvent(
             new CustomEvent("agentNative.chatRunning", {
-              detail: { isRunning: false, tabId: tabId || threadId },
+              detail: {
+                isRunning: false,
+                tabId: tabId || threadId,
+                reason: "failed",
+              },
             }),
           );
           return;

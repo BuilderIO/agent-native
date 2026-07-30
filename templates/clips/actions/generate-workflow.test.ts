@@ -120,4 +120,15 @@ describe("generate-workflow action", () => {
     )?.[1];
     expect(queuedRequest.requestedAt).toBe(workflowState.requestedAt);
   });
+
+  it("does not enqueue when workflow state cannot be read", async () => {
+    mocks.readAppState.mockRejectedValueOnce(
+      Object.assign(new Error("connection reset"), { code: "ECONNRESET" }),
+    );
+
+    await expect(
+      action.run({ recordingId: "rec_1", kind: "email" }),
+    ).rejects.toThrow("connection reset");
+    expect(mocks.writeAppState).not.toHaveBeenCalled();
+  });
 });

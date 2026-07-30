@@ -98,7 +98,7 @@ export default defineAction({
 
       const includeFullVideoInAi = await readIncludeFullVideoInAi();
 
-      const existing = await readAppState(stateKey).catch(() => null);
+      const existing = await readAppState(stateKey);
       if (existing?.status === "generating") {
         const requestedAt = Date.parse(String(existing.requestedAt ?? ""));
         const isRecent =

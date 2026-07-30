@@ -108,7 +108,7 @@ export function useAutoTitleBridge(): void {
       const detail = (event as CustomEvent).detail;
       if (
         detail?.isRunning !== false ||
-        detail.reason !== "stopped" ||
+        (detail.reason !== "stopped" && detail.reason !== "failed") ||
         typeof detail.tabId !== "string"
       )
         return;

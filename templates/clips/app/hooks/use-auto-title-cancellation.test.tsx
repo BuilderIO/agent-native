@@ -330,5 +330,23 @@ describe("workflow generation cancellation", () => {
         ).toHaveLength(2),
       { timeout: 2500 },
     );
+
+    window.dispatchEvent(
+      new CustomEvent("agentNative.chatRunning", {
+        detail: {
+          isRunning: false,
+          tabId: workflowTabId,
+          reason: "failed",
+        },
+      }),
+    );
+
+    await vi.waitFor(() =>
+      expect(
+        mocks.callAction.mock.calls.filter(
+          ([, payload]) => payload?.operation === "stop",
+        ),
+      ).toHaveLength(3),
+    );
   });
 });
