@@ -296,7 +296,6 @@ export function DrawOverlay({ visible, onSend, onClose }: DrawOverlayProps) {
                 e.preventDefault();
                 commitTextAnnotation();
               }
-              if (e.key === "Escape") setTextInput(null);
             }}
             className="h-7 w-48 border-primary bg-background text-sm"
             autoFocus
@@ -414,7 +413,6 @@ export function DrawOverlay({ visible, onSend, onClose }: DrawOverlayProps) {
           onChange={(e) => setInstruction(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && hasContent) send();
-            if (e.key === "Escape") onClose();
           }}
           placeholder={t("raw.tellAgentDo")}
           className="h-7 w-48 border-border bg-background text-xs sm:w-56"

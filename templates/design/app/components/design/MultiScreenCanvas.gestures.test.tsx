@@ -896,6 +896,8 @@ describe("canvas iframe identity", () => {
       expect(iframe!.srcdoc).toContain(
         "body > [data-agent-native-node-id]{translate:4096px 4096px;}",
       );
+      expect(iframe!.srcdoc).toContain("background:hsl(0, 0%, 10%)");
+      expect(iframe!.getAttribute("data-screen-iframe-id")).toBeNull();
     } finally {
       await act(async () => root.unmount());
       rectSpy.mockRestore();
@@ -1057,6 +1059,8 @@ describe("canvas iframe identity", () => {
       );
       expect(staticIframe!.srcdoc).toContain("left-edge");
       expect(staticIframe!.srcdoc).toContain("right-edge");
+      expect(staticIframe!.srcdoc).toContain("background:hsl(0, 0%, 10%)");
+      expect(staticIframe!.style.background).toBe("hsl(0, 0%, 10%)");
       expect(staticIframe!.srcdoc).not.toContain("<script");
 
       const initialActiveIframe = activeIframe!;

@@ -50,6 +50,7 @@ import { useDesignSystems } from "@/hooks/use-design-systems";
 import { useWorkspaceDefaults } from "@/hooks/use-workspace-defaults";
 import { createDeckAgentMessage } from "@/lib/agent-visible-message";
 import { savePromptToComposerDraft } from "@/lib/composer-draft";
+import { cn } from "@/lib/utils";
 
 const NEW_DECK_DRAFT_SCOPE = "slides-new-deck";
 const PENDING_PROMPT_KEY = "slides:pending-deck-prompt";
@@ -444,6 +445,25 @@ export default function Index() {
     if (!deck) return;
     setNewDeckPromptOpen(false);
 
+    const persisted = await ensureDeckPersisted(deck.id);
+    if (!persisted) {
+      if (!savePromptForRetry(prompt)) {
+        setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
+      }
+      setNewDeckRetryFiles(filesForGeneration);
+      deleteDeck(deck.id);
+      toast.error(t("home.generationStartFailed"), {
+        description: t("home.generationStartFailedDescription"),
+      });
+      setShowNewDeckPrompt(true);
+      return;
+    }
+
+    clearPendingPromptForRetry();
+    setNewDeckInitialPrompt(null);
+    setNewDeckRetryFiles([]);
+    navigate(`/deck/${deck.id}`, { flushSync: true });
+
     // One quick, skippable decision so the agent doesn't guess the deck size.
     const deckLength = await askUserQuestion({
       question: t("home.deckLengthQuestion"),
@@ -521,6 +541,9 @@ export default function Index() {
       "",
       deckLengthContext,
       "Start a `manage-progress` run so progress appears in the app header. Add the first slide as soon as it is ready, then continue one slide at a time so the editor visibly fills in.",
+      "After reading any requested or imported source material, but before adding the first slide, choose a concise, specific deck title from the user's request and source material. Call `patch-deck` with `deckId: \"" +
+        deck.id +
+        '"` and `operations: [{ "op": "patch-deck-fields", "fields": { "title": "<generated title>" } }]`. Never leave a generated deck named "Untitled Deck" or another placeholder.',
       "If the user asks for a standalone visual, diagram, hero, one-pager, poster, or a couple of visuals, create only the requested one/few polished visual slides. Do not pad the result into a full presentation.",
       "Add slides ONE AT A TIME using the `add-slide` action with --deckId=" +
         deck.id +
@@ -531,28 +554,15 @@ export default function Index() {
       "Do NOT use create-deck (the deck already exists). Do NOT call db-schema, the resources tool, or search-files.",
     ].join("\n");
 
-    const persisted = await ensureDeckPersisted(deck.id);
-    if (!persisted) {
-      if (!savePromptForRetry(prompt)) {
-        setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
-      }
-      setNewDeckRetryFiles(filesForGeneration);
-      deleteDeck(deck.id);
-      toast.error(t("home.generationStartFailed"), {
-        description: t("home.generationStartFailedDescription"),
-      });
-      setShowNewDeckPrompt(true);
-      return;
-    }
-
-    clearPendingPromptForRetry();
-    setNewDeckInitialPrompt(null);
-    setNewDeckRetryFiles([]);
+    navigate(`/deck/${deck.id}?generating=1`, {
+      replace: true,
+      flushSync: true,
+    });
     agentSubmit(createDeckAgentMessage(trimmedPrompt), context, {
       newTab: true,
+      reuseEmptyTab: true,
       openSidebar: true,
     });
-    navigate(`/deck/${deck.id}?generating=1`);
   };
 
   const handleConfirmDelete = () => {
@@ -878,88 +888,101 @@ export default function Index() {
         initialText={newDeckInitialPrompt?.text}
         initialTextKey={newDeckInitialPrompt?.key}
       >
-        {designSystems.length > 0 && (
-          <div className="border-t border-border px-3.5 py-2">
-            <label className="mb-1.5 block text-[11px] font-medium text-muted-foreground">
-              {t("home.designSystem")}
-            </label>
-            <Select
-              value={selectedDesignSystemId || "none"}
-              onValueChange={(value) => {
-                designSystemAutoRef.current = false;
-                setSelectedDesignSystemId(value);
-              }}
-            >
-              <SelectTrigger className="h-8 w-full bg-accent/40 text-xs">
-                <SelectValue placeholder={t("raw.chooseDesignSystem")} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">{t("home.none")}</SelectItem>
-                {designSystems.map((ds) => (
-                  <SelectItem key={ds.id} value={ds.id}>
-                    {ds.title}
-                    {ds.isDefault || ds.id === workspaceDesignSystemId
-                      ? t("home.defaultSuffix")
-                      : ""}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
-        {decks.length > 0 && (
-          <div className="border-t border-border px-3.5 py-2">
-            <label className="mb-1.5 block text-[11px] font-medium text-muted-foreground">
-              {t("home.referenceDeck")}
-            </label>
-            <Select
-              value={selectedReferenceDeckId || "none"}
-              onValueChange={(value) => {
-                referenceDeckAutoRef.current = false;
-                setSelectedReferenceDeckId(value);
-              }}
-            >
-              <SelectTrigger className="h-8 w-full bg-accent/40 text-xs">
-                <SelectValue placeholder={t("home.referenceDeckPlaceholder")} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">
-                  {t("home.referenceDeckNone")}
-                </SelectItem>
-                {starredDecks.length > 0 && (
-                  <SelectGroup>
-                    <SelectLabel>
-                      {t("home.referenceDeckStarredGroup")}
-                    </SelectLabel>
-                    {starredDecks.map((deck) => (
-                      <SelectItem key={deck.id} value={deck.id}>
-                        {deck.title}
-                        {deck.id === workspaceReferenceDeckId
+        {(designSystems.length > 0 || decks.length > 0) && (
+          <div
+            className={cn(
+              "grid gap-3 border-t border-border px-3.5 py-2",
+              designSystems.length > 0 && decks.length > 0
+                ? "grid-cols-2"
+                : "grid-cols-1",
+            )}
+          >
+            {designSystems.length > 0 && (
+              <div className="min-w-0">
+                <label className="mb-1.5 block text-[11px] font-medium text-muted-foreground">
+                  {t("home.designSystem")}
+                </label>
+                <Select
+                  value={selectedDesignSystemId || "none"}
+                  onValueChange={(value) => {
+                    designSystemAutoRef.current = false;
+                    setSelectedDesignSystemId(value);
+                  }}
+                >
+                  <SelectTrigger className="h-8 w-full bg-accent/40 text-xs">
+                    <SelectValue placeholder={t("raw.chooseDesignSystem")} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">{t("home.none")}</SelectItem>
+                    {designSystems.map((ds) => (
+                      <SelectItem key={ds.id} value={ds.id}>
+                        {ds.title}
+                        {ds.isDefault || ds.id === workspaceDesignSystemId
                           ? t("home.defaultSuffix")
                           : ""}
                       </SelectItem>
                     ))}
-                  </SelectGroup>
-                )}
-                {unstarredDecks.length > 0 && (
-                  <SelectGroup>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            {decks.length > 0 && (
+              <div className="min-w-0">
+                <label className="mb-1.5 block text-[11px] font-medium text-muted-foreground">
+                  {t("home.referenceDeck")}
+                </label>
+                <Select
+                  value={selectedReferenceDeckId || "none"}
+                  onValueChange={(value) => {
+                    referenceDeckAutoRef.current = false;
+                    setSelectedReferenceDeckId(value);
+                  }}
+                >
+                  <SelectTrigger className="h-8 w-full bg-accent/40 text-xs">
+                    <SelectValue
+                      placeholder={t("home.referenceDeckPlaceholder")}
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">
+                      {t("home.referenceDeckNone")}
+                    </SelectItem>
                     {starredDecks.length > 0 && (
-                      <SelectLabel>
-                        {t("home.referenceDeckOtherGroup")}
-                      </SelectLabel>
+                      <SelectGroup>
+                        <SelectLabel>
+                          {t("home.referenceDeckStarredGroup")}
+                        </SelectLabel>
+                        {starredDecks.map((deck) => (
+                          <SelectItem key={deck.id} value={deck.id}>
+                            {deck.title}
+                            {deck.id === workspaceReferenceDeckId
+                              ? t("home.defaultSuffix")
+                              : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
                     )}
-                    {unstarredDecks.map((deck) => (
-                      <SelectItem key={deck.id} value={deck.id}>
-                        {deck.title}
-                        {deck.id === workspaceReferenceDeckId
-                          ? t("home.defaultSuffix")
-                          : ""}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                )}
-              </SelectContent>
-            </Select>
+                    {unstarredDecks.length > 0 && (
+                      <SelectGroup>
+                        {starredDecks.length > 0 && (
+                          <SelectLabel>
+                            {t("home.referenceDeckOtherGroup")}
+                          </SelectLabel>
+                        )}
+                        {unstarredDecks.map((deck) => (
+                          <SelectItem key={deck.id} value={deck.id}>
+                            {deck.title}
+                            {deck.id === workspaceReferenceDeckId
+                              ? t("home.defaultSuffix")
+                              : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </div>
         )}
       </PromptPopover>

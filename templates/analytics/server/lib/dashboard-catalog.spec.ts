@@ -167,8 +167,8 @@ describe("dashboard catalog", () => {
 
     const config = cloneDashboardConfig(entry!);
     expect(config.name).toBe("Agent Native Templates (First-party)");
-    expect(config.panels).toHaveLength(41);
-    expect(new Set(config.panels.map((panel) => panel.id)).size).toBe(41);
+    expect(config.panels).toHaveLength(42);
+    expect(new Set(config.panels.map((panel) => panel.id)).size).toBe(42);
     expect(
       config.filters?.find((filter) => filter.id === "emailFilter"),
     ).toMatchObject({ default: "exclude_builder" });
