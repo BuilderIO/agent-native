@@ -112,10 +112,13 @@ export function assertServerPptxExportable(
   html: string,
   slideNumber: number,
 ): void {
-  const hasPersistedFreeformObject = /\bdata-slide-object-id\s*=/i.test(html);
-  const hasAbsolutePositioning =
-    /\bstyle\s*=\s*["'][^"']*\bposition\s*:\s*absolute\b/i.test(html);
-  if (!hasPersistedFreeformObject && !hasAbsolutePositioning) return;
+  // Absolute positioning alone is not an editing-object contract: uploaded
+  // backgrounds are intentionally absolute but the normal-flow exporter can
+  // still include them. Only reject objects persisted by the freeform editor.
+  const hasPersistedFreeformObject =
+    /\bdata-slide-object-id\s*=/i.test(html) ||
+    /\bclass\s*=\s*["'][^"']*\bfmd-freeform-object\b/i.test(html);
+  if (!hasPersistedFreeformObject) return;
 
   const error = new Error(
     `Slide ${slideNumber} contains freeform positioned objects. Export this deck from the Slides editor with Export > PowerPoint so browser-rendered geometry is preserved. The server export stopped instead of silently reflowing those objects.`,

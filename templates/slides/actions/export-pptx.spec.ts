@@ -18,7 +18,11 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 
 vi.mock("../server/db/index.js", () => ({}));
 
-import { fetchImageAsBase64, parseSlideHtml } from "./export-pptx";
+import {
+  assertServerPptxExportable,
+  fetchImageAsBase64,
+  parseSlideHtml,
+} from "./export-pptx";
 
 describe("fetchImageAsBase64", () => {
   beforeEach(() => {
@@ -91,5 +95,30 @@ describe("parseSlideHtml", () => {
     ).toThrowError(
       /Slide 3 contains freeform positioned objects.*Export > PowerPoint.*stopped instead of silently reflowing/s,
     );
+  });
+
+  it("allows an absolute uploaded background without a persisted object id", () => {
+    expect(() =>
+      assertServerPptxExportable(
+        `<div class="fmd-slide">
+          <img
+            class="fmd-img-uploaded"
+            src="https://cdn.example/background.png"
+            style="position: absolute; inset: 0; width: 100%; height: 100%"
+          />
+          <h1>Title</h1>
+        </div>`,
+        2,
+      ),
+    ).not.toThrow();
+  });
+
+  it("rejects the persisted freeform class even if its object id is absent", () => {
+    expect(() =>
+      assertServerPptxExportable(
+        `<div class="fmd-slide"><div class="fmd-freeform-object" style="position: absolute">Text</div></div>`,
+        4,
+      ),
+    ).toThrowError(/Slide 4 contains freeform positioned objects/);
   });
 });

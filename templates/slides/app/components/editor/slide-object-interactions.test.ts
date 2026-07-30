@@ -10,6 +10,7 @@ import {
   escapedEditingSelection,
   findSlideObjectById,
   freezeSlideElementForFreeform,
+  getSelectedObjectDragStart,
   getSlideSelectionIdentity,
   getSlideSelectionMode,
   removeSlideObjectAndLayoutSpacer,
@@ -45,12 +46,27 @@ describe("slide object interactions", () => {
     const object = document.createElement("div");
     object.dataset.builderId = "b-1";
     object.dataset.slideObjectId = "original";
-    object.innerHTML = '<span data-builder-id="b-2">Text</span>';
+    object.innerHTML = `
+      <span data-builder-id="b-2">Text</span>
+      <div data-slide-object-id="nested-object">Nested object</div>
+    `;
 
     const clone = cloneSlideObject(object);
+    const originalIds = new Set(
+      [
+        object,
+        ...object.querySelectorAll<HTMLElement>("[data-slide-object-id]"),
+      ].map((node) => node.dataset.slideObjectId),
+    );
+    const cloneIds = [
+      clone,
+      ...clone.querySelectorAll<HTMLElement>("[data-slide-object-id]"),
+    ].map((node) => node.dataset.slideObjectId);
 
     expect(clone.dataset.slideObjectId).not.toBe(object.dataset.slideObjectId);
     expect(clone.querySelectorAll("[data-builder-id]")).toHaveLength(0);
+    expect(new Set(cloneIds)).toHaveLength(cloneIds.length);
+    expect(cloneIds.some((id) => originalIds.has(id))).toBe(false);
     expect(ensureSlideObjectId(object)).toBe("original");
   });
 
@@ -72,6 +88,27 @@ describe("slide object interactions", () => {
 
     expect(getSlideSelectionMode(absoluteObject)).toBe("box-selected");
     expect(getSlideSelectionMode(absoluteObject, "resizing")).toBe("resizing");
+  });
+
+  it("arms a selected object's body for dragging while reserving its perimeter", () => {
+    expect(
+      getSelectedObjectDragStart({
+        targetWithinSelectedObject: true,
+        pointerWithinMoveBand: false,
+      }),
+    ).toBe("body");
+    expect(
+      getSelectedObjectDragStart({
+        targetWithinSelectedObject: true,
+        pointerWithinMoveBand: true,
+      }),
+    ).toBe("perimeter");
+    expect(
+      getSelectedObjectDragStart({
+        targetWithinSelectedObject: false,
+        pointerWithinMoveBand: false,
+      }),
+    ).toBeNull();
   });
 
   it("publishes canvas text-tool state while the tool is armed", () => {

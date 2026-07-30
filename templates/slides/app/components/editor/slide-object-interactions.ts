@@ -2,6 +2,23 @@ export const MIN_SLIDE_OBJECT_SIZE = 24;
 
 export type ResizeHandle = "nw" | "n" | "ne" | "w" | "e" | "sw" | "s" | "se";
 
+export type SelectedObjectDragStart = "perimeter" | "body" | null;
+
+/**
+ * Resolve a selected freeform object's drag affordance without conflating a
+ * normal body click (which still enters inline text editing) with a drag.
+ */
+export function getSelectedObjectDragStart({
+  targetWithinSelectedObject,
+  pointerWithinMoveBand,
+}: {
+  targetWithinSelectedObject: boolean;
+  pointerWithinMoveBand: boolean;
+}): SelectedObjectDragStart {
+  if (pointerWithinMoveBand) return "perimeter";
+  return targetWithinSelectedObject ? "body" : null;
+}
+
 export interface SlideObjectGeometry {
   x: number;
   y: number;
@@ -158,6 +175,14 @@ export function cloneSlideObject(element: HTMLElement): HTMLElement {
   const clone = element.cloneNode(true) as HTMLElement;
   removeTransientBuilderIds(clone);
   clone.setAttribute("data-slide-object-id", createSlideObjectId());
+  // Nested freeform objects are independently addressable after a clone. Each
+  // one needs a new persisted identity so selector-based edits cannot resolve
+  // to the corresponding element in the original object.
+  clone
+    .querySelectorAll<HTMLElement>("[data-slide-object-id]")
+    .forEach((descendant) => {
+      descendant.setAttribute("data-slide-object-id", createSlideObjectId());
+    });
   return clone;
 }
 

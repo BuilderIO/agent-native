@@ -90,6 +90,7 @@ import {
   escapedEditingSelection,
   findSlideObjectById,
   freezeSlideElementForFreeform,
+  getSelectedObjectDragStart,
   getSlideSelectionIdentity,
   getSlideSelectionMode,
   removeSlideObjectAndLayoutSpacer,
@@ -2276,7 +2277,13 @@ export default function SlideEditor({
   );
 
   const startElementDrag = useCallback(
-    (e: React.PointerEvent, element: HTMLElement) => {
+    (
+      e: React.PointerEvent,
+      element: HTMLElement,
+      {
+        preserveClickWithoutMove = false,
+      }: { preserveClickWithoutMove?: boolean } = {},
+    ) => {
       if (readOnly) return;
       const fmdSlide = element.closest(".fmd-slide") as HTMLElement | null;
       if (!fmdSlide || getComputedStyle(element).position !== "absolute") {
@@ -2296,11 +2303,14 @@ export default function SlideEditor({
       }
 
       // Pointer-down on the selection perimeter is a move gesture, never a
-      // text caret placement. The following click is suppressed below so a
-      // click without movement still leaves the object selected.
-      e.preventDefault();
-      e.stopPropagation();
-      suppressNextClickRef.current = true;
+      // text caret placement. A selected object's body, however, has to keep
+      // an unmoved click available for inline editing. In that case wait until
+      // movement crosses the drag threshold before consuming its click.
+      if (!preserveClickWithoutMove) {
+        e.preventDefault();
+        e.stopPropagation();
+        suppressNextClickRef.current = true;
+      }
 
       const origin = getObjectGeometry(element);
       const originalObjectId = element.getAttribute("data-slide-object-id");
@@ -2373,6 +2383,7 @@ export default function SlideEditor({
       const onUp = (upEvent: PointerEvent) => {
         stop();
         if (!moved) {
+          if (preserveClickWithoutMove) return;
           // Pointer-up can occur outside the canvas, where React will not see
           // the click that normally clears this flag.
           window.setTimeout(function clearEdgeClickSuppression() {
@@ -2630,16 +2641,21 @@ export default function SlideEditor({
       if (editingEl) return; // avoid interfering with an active inline edit
 
       const selected = resolveSelectedElement();
-      if (
-        selected &&
-        getComputedStyle(selected).position === "absolute" &&
-        isWithinElementEdgeMoveBand(
-          selected.getBoundingClientRect(),
-          e.clientX,
-          e.clientY,
-        )
-      ) {
-        startElementDrag(e, selected);
+      const dragStart =
+        selected && getComputedStyle(selected).position === "absolute"
+          ? getSelectedObjectDragStart({
+              targetWithinSelectedObject: selected.contains(target),
+              pointerWithinMoveBand: isWithinElementEdgeMoveBand(
+                selected.getBoundingClientRect(),
+                e.clientX,
+                e.clientY,
+              ),
+            })
+          : null;
+      if (dragStart && selected) {
+        startElementDrag(e, selected, {
+          preserveClickWithoutMove: dragStart === "body",
+        });
         return;
       }
 
@@ -2676,6 +2692,7 @@ export default function SlideEditor({
       exitInlineEdit,
       placeTextBoxAt,
       onExitTextBoxMode,
+      getSelectedObjectDragStart,
       resolveSelectedElement,
       startElementDrag,
     ],
