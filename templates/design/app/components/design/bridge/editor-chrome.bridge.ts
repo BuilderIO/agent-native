@@ -321,6 +321,41 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
    */
   var lastSourceHeadHtml: string | null = null;
 
+  /**
+   * Swaps only the nodes the previous source head contributed. Assigning
+   * `document.head.innerHTML` instead destroys whatever the page's own runtime
+   * injected — @tailwindcss/browser's compiled sheet above all — and the
+   * `<script src>` re-inserted in its place can never rebuild it, because
+   * innerHTML does not execute scripts.
+   */
+  function replaceSourceHeadNodes(
+    previousSourceHtml: string | null,
+    nextSourceHtml: string,
+  ): void {
+    if (!document.head) return;
+    var stale = document.createElement("head");
+    stale.innerHTML = previousSourceHtml || "";
+    var staleCounts: Record<string, number> = {};
+    Array.prototype.forEach.call(stale.children, function (node: Element) {
+      var key = node.outerHTML;
+      staleCounts[key] = (staleCounts[key] || 0) + 1;
+    });
+    Array.prototype.slice.call(document.head.children).forEach(function (
+      node: Element,
+    ) {
+      var key = node.outerHTML;
+      if (!staleCounts[key]) return;
+      staleCounts[key] -= 1;
+      if (node.parentNode) node.parentNode.removeChild(node);
+    });
+    var next = document.createElement("head");
+    next.innerHTML = nextSourceHtml || "";
+    var anchor = document.head.firstChild;
+    Array.prototype.slice.call(next.children).forEach(function (node: Element) {
+      document.head.insertBefore(document.importNode(node, true), anchor);
+    });
+  }
+
   function chromeScaleX(): number {
     return 1 / Math.max(0.05, editorChromeScaleX);
   }
@@ -3239,14 +3274,13 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
 
     var nextHeadHtml = nextDoc.head ? nextDoc.head.innerHTML : "";
     ensureEditorChromeStyle();
-    if (lastSourceHeadHtml === null && !forceFullDocument) {
-      // First non-forced patch after a srcdoc build, so the document already
-      // carries this source head; adopting it keeps the runtime's own nodes in
-      // place. A forced replacement means the caller intends the whole document,
-      // so its head is authoritative and must not be adopted away.
+    if (lastSourceHeadHtml === null) {
+      // First patch after a srcdoc build, so the document already carries this
+      // source head. Forced replacements adopt too: treating the live head as
+      // the baseline is what wipes the runtime's own nodes.
       lastSourceHeadHtml = nextHeadHtml;
     }
-    var currentHeadHtml = forceFullDocument ? null : lastSourceHeadHtml;
+    var currentHeadHtml = lastSourceHeadHtml;
     if (nextHeadHtml === currentHeadHtml && activeCandidates.length > 0) {
       var currentMatch = null;
       var nextMatch = null;
@@ -3324,7 +3358,7 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       }
     }
     if (currentHeadHtml !== nextHeadHtml) {
-      document.head.innerHTML = nextHeadHtml;
+      replaceSourceHeadNodes(currentHeadHtml, nextHeadHtml);
       ensureEditorChromeStyle();
       lastSourceHeadHtml = nextHeadHtml;
     }

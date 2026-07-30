@@ -177,6 +177,28 @@ export const editorChromeBridgeScript: string = `"use strict";
       renderRuntimeInteractionStatePreviews();
     }
     var lastSourceHeadHtml = null;
+    function replaceSourceHeadNodes(previousSourceHtml, nextSourceHtml) {
+      if (!document.head) return;
+      var stale = document.createElement("head");
+      stale.innerHTML = previousSourceHtml || "";
+      var staleCounts = {};
+      Array.prototype.forEach.call(stale.children, function(node) {
+        var key = node.outerHTML;
+        staleCounts[key] = (staleCounts[key] || 0) + 1;
+      });
+      Array.prototype.slice.call(document.head.children).forEach(function(node) {
+        var key = node.outerHTML;
+        if (!staleCounts[key]) return;
+        staleCounts[key] -= 1;
+        if (node.parentNode) node.parentNode.removeChild(node);
+      });
+      var next = document.createElement("head");
+      next.innerHTML = nextSourceHtml || "";
+      var anchor = document.head.firstChild;
+      Array.prototype.slice.call(next.children).forEach(function(node) {
+        document.head.insertBefore(document.importNode(node, true), anchor);
+      });
+    }
     function chromeScaleX() {
       return 1 / Math.max(0.05, editorChromeScaleX);
     }
@@ -2141,10 +2163,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       var nextHeadHtml = nextDoc.head ? nextDoc.head.innerHTML : "";
       ensureEditorChromeStyle();
-      if (lastSourceHeadHtml === null && !forceFullDocument) {
+      if (lastSourceHeadHtml === null) {
         lastSourceHeadHtml = nextHeadHtml;
       }
-      var currentHeadHtml = forceFullDocument ? null : lastSourceHeadHtml;
+      var currentHeadHtml = lastSourceHeadHtml;
       if (nextHeadHtml === currentHeadHtml && activeCandidates.length > 0) {
         var currentMatch = null;
         var nextMatch = null;
@@ -2206,7 +2228,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
       }
       if (currentHeadHtml !== nextHeadHtml) {
-        document.head.innerHTML = nextHeadHtml;
+        replaceSourceHeadNodes(currentHeadHtml, nextHeadHtml);
         ensureEditorChromeStyle();
         lastSourceHeadHtml = nextHeadHtml;
       }
