@@ -21,6 +21,10 @@ import {
 import { isUniqueConstraintViolation } from "../shared/db-conflict.js";
 import { assertDesignHtmlWellFormed } from "../shared/html-integrity.js";
 import { widthToPrefix } from "../shared/responsive-classes.js";
+import {
+  getResponsiveGroupWidth,
+  visibleBreakpointWidths,
+} from "../shared/responsive-frame-layout.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
 
 const VARIANT_GAP = 96;
@@ -735,7 +739,19 @@ ${compact ? ".sidebar { padding: 16px; } .nav { grid-template-columns: repeat(2,
 </html>`;
 }
 
-function placeVariantScreens(screens: VariantScreen[]) {
+/**
+ * Lays the generated directions out in rows of up to three.
+ *
+ * Each cell reserves the screen's WHOLE painted footprint, not just its
+ * primary frame: this action also installs a design-wide breakpoint set, and
+ * the overview paints one preview per breakpoint to the right of every primary
+ * frame. Spacing by `width + VARIANT_GAP` alone drops the next direction on top
+ * of the previous one's breakpoint row.
+ */
+function placeVariantScreens(
+  screens: VariantScreen[],
+  breakpointWidths: readonly number[],
+) {
   const placements: CanvasFramePlacement[] = [];
   const columns = Math.min(MAX_COLUMNS, Math.max(1, screens.length));
   let rowY = 0;
@@ -755,7 +771,17 @@ function placeVariantScreens(screens: VariantScreen[]) {
         height: screen.height,
         z: rowStart + offset,
       });
-      x += screen.width + VARIANT_GAP;
+      x +=
+        getResponsiveGroupWidth({
+          primaryWidth: screen.width,
+          // Frames are placed at their natural device width, so the breakpoint
+          // previews beside them are drawn unscaled.
+          scale: 1,
+          visibleWidths: visibleBreakpointWidths(
+            breakpointWidths,
+            screen.width,
+          ),
+        }) + VARIANT_GAP;
       rowHeight = Math.max(rowHeight, screen.height);
     }
 
@@ -763,6 +789,22 @@ function placeVariantScreens(screens: VariantScreen[]) {
   }
 
   return placements;
+}
+
+/** Widths the overview will paint beside each primary frame once this call
+ * settles: the design's own set when it has one, otherwise the set this action
+ * is about to install. */
+function effectiveBreakpointWidths(currentBreakpointSet: unknown): number[] {
+  const breakpoints = hasBreakpointSet(currentBreakpointSet)
+    ? ((currentBreakpointSet as { breakpoints: Array<{ widthPx?: unknown }> })
+        .breakpoints ?? [])
+    : DEFAULT_RESPONSIVE_BREAKPOINTS;
+  return breakpoints
+    .map((breakpoint) => breakpoint.widthPx)
+    .filter(
+      (widthPx): widthPx is number =>
+        typeof widthPx === "number" && Number.isFinite(widthPx) && widthPx > 0,
+    );
 }
 
 export default defineAction({
@@ -933,13 +975,19 @@ export default defineAction({
       });
     }
 
-    const placements = placeVariantScreens(screens);
     await mutateDesignData({
       designId,
       mutate: (current, { updatedAt }) => {
+        // Placement depends on the breakpoint set in effect after this call, so
+        // it is resolved here (inside the compare-and-set body) rather than
+        // against a design snapshot that a concurrent write may have moved on
+        // from.
         const mergedFrames = mergeCanvasFramePlacements({
           existing: current.canvasFrames,
-          placements,
+          placements: placeVariantScreens(
+            screens,
+            effectiveBreakpointWidths(current.breakpointSet),
+          ),
           resolveFileId: (placement) => placement.fileId,
         });
         const previousMetadata = isRecord(current.screenMetadata)
