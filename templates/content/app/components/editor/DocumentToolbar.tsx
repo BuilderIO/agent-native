@@ -318,6 +318,15 @@ export function compactToolbarBreadcrumbItems(
   ];
 }
 
+export function firstSelectableBreadcrumbMenuItemId(
+  menuItems: ToolbarBreadcrumbItem["menuItems"],
+  currentDocumentId: string,
+): string | null {
+  return (
+    menuItems?.find((menuItem) => menuItem.id !== currentDocumentId)?.id ?? null
+  );
+}
+
 function ToolbarBreadcrumbMenu({
   item,
   label,
@@ -337,6 +346,12 @@ function ToolbarBreadcrumbMenu({
 }) {
   const [open, setOpen] = useState(false);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const openedWithKeyboardRef = useRef(false);
+  const firstSelectableItemRef = useRef<HTMLDivElement | null>(null);
+  const firstSelectableItemId = firstSelectableBreadcrumbMenuItemId(
+    item.menuItems,
+    currentDocumentId,
+  );
 
   function cancelClose() {
     if (!closeTimerRef.current) return;
@@ -349,8 +364,25 @@ function ToolbarBreadcrumbMenu({
     closeTimerRef.current = setTimeout(() => setOpen(false), 140);
   }
 
+  useEffect(() => {
+    if (!open || !openedWithKeyboardRef.current) return;
+    openedWithKeyboardRef.current = false;
+    const frame = requestAnimationFrame(() => {
+      firstSelectableItemRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [open]);
+
   return (
-    <DropdownMenu modal={false} open={open} onOpenChange={setOpen}>
+    <DropdownMenu
+      modal={false}
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (nextOpen) cancelClose();
+        else openedWithKeyboardRef.current = false;
+        setOpen(nextOpen);
+      }}
+    >
       <DropdownMenuTrigger asChild>
         <button
           type="button"
@@ -364,6 +396,16 @@ function ToolbarBreadcrumbMenu({
             setOpen(true);
           }}
           onPointerLeave={scheduleClose}
+          onKeyDown={(event) => {
+            if (
+              event.key === "Enter" ||
+              event.key === " " ||
+              event.key === "ArrowDown"
+            ) {
+              openedWithKeyboardRef.current = true;
+              cancelClose();
+            }
+          }}
         >
           {children}
         </button>
@@ -371,6 +413,7 @@ function ToolbarBreadcrumbMenu({
       <DropdownMenuContent
         align="start"
         className="w-64"
+        onKeyDown={cancelClose}
         onPointerEnter={cancelClose}
         onPointerLeave={scheduleClose}
       >
@@ -379,7 +422,13 @@ function ToolbarBreadcrumbMenu({
           return (
             <DropdownMenuItem
               key={menuItem.id}
+              ref={
+                menuItem.id === firstSelectableItemId
+                  ? firstSelectableItemRef
+                  : undefined
+              }
               className="gap-2"
+              disabled={menuItem.id === currentDocumentId}
               onSelect={() => onOpen(menuItem.id)}
             >
               <span className="flex size-4 shrink-0 items-center justify-center">
