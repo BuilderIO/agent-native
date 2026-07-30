@@ -34,7 +34,11 @@
     {
       "name": "docs",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--dir", "packages/docs", "dev"],
+      "runtimeArgs": [
+        "--dir",
+        "packages/docs",
+        "dev"
+      ],
       "port": 3000
     },
     {
@@ -493,6 +497,24 @@
         "3221"
       ],
       "port": 3221
+    },
+    {
+      "name": "slides-watchdog-verify",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=file:/private/tmp/claude-501/-Users-steve-Projects-builder-agent-native-framework/06043e25-bbb5-4b6e-80a8-02b99198a7d9/scratchpad/slides-watchdog.sqlite",
+        "PORT=3231",
+        "AUTH_MODE=local",
+        "AUTH_DISABLED=true",
+        "APP_URL=http://localhost:3231",
+        "pnpm",
+        "--dir",
+        "templates/slides",
+        "dev",
+        "--port",
+        "3231"
+      ],
+      "port": 3231
     }
   ]
 }
