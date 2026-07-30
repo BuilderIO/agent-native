@@ -48,18 +48,22 @@ function valuesEqual(left: unknown, right: unknown): boolean {
   return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
 }
 
-/** Design-level canvas background, or null when unset/unsafe.
- *  Validated because it is interpolated into a style attribute — an arbitrary
- *  persisted string there is a CSS injection vector. */
-export function getDesignCanvasBackground(
-  designData: Record<string, unknown> | null | undefined,
-): string | null {
-  if (!isRecord(designData)) return null;
-  const value = designData.canvasBackground;
+/** Accepts a canvas background only if it parses as a CSS colour. It is
+ *  interpolated into a style attribute, so an arbitrary string is an injection
+ *  vector — this gates both the persisted value and any in-flight draft. */
+export function sanitizeCanvasBackground(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   if (!trimmed) return null;
   return parseCssColor(trimmed) ? trimmed : null;
+}
+
+/** Design-level canvas background, or null when unset/unsafe. */
+export function getDesignCanvasBackground(
+  designData: Record<string, unknown> | null | undefined,
+): string | null {
+  if (!isRecord(designData)) return null;
+  return sanitizeCanvasBackground(designData.canvasBackground);
 }
 
 /** Breakpoint widths persisted on the design, ascending and de-duplicated.

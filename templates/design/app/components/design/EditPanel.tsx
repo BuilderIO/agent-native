@@ -418,7 +418,7 @@ interface EditPanelProps {
   /** Design-level canvas background — the surround, not a screen's document.
    *  Omit onCanvasBackgroundChange to hide the Canvas section (read-only). */
   canvasBackground?: string | null;
-  onCanvasBackgroundChange?: (value: string) => void;
+  onCanvasBackgroundChange?: (value: string, meta?: StyleChangeMeta) => void;
   onScreenGeometryChange?: (
     screenId: string,
     next: Partial<
@@ -1476,7 +1476,7 @@ function PageProperties({
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
   canvasBackground?: string | null;
-  onCanvasBackgroundChange?: (value: string) => void;
+  onCanvasBackgroundChange?: (value: string, meta?: StyleChangeMeta) => void;
 }) {
   const t = useT();
   const baseFontFamilyOptions = FONT_FAMILY_OPTIONS.map((option) => ({
@@ -1506,7 +1506,9 @@ function PageProperties({
           <ColorInput
             label={t("editPanel.labels.background")}
             value={canvasBackground ?? ""}
-            onChange={(value) => onCanvasBackgroundChange(value)}
+            // meta carries phase: "preview" while dragging vs "commit" on
+            // release. Dropping it persists every tick and the picker jumps.
+            onChange={(value, meta) => onCanvasBackgroundChange(value, meta)}
           />
         </PanelSection>
       ) : null}

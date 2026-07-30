@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { getDesignCanvasBackground } from "./data-operations";
+import {
+  getDesignCanvasBackground,
+  sanitizeCanvasBackground,
+} from "./data-operations";
 
 describe("getDesignCanvasBackground", () => {
   it("reads a persisted hex colour", () => {
@@ -44,5 +47,21 @@ describe("getDesignCanvasBackground", () => {
     expect(
       getDesignCanvasBackground({ canvasBackground: { hex: "#fff" } }),
     ).toBeNull();
+  });
+});
+
+describe("sanitizeCanvasBackground", () => {
+  it("accepts a colour a drag preview would produce", () => {
+    expect(sanitizeCanvasBackground("#1a2b3c")).toBe("#1a2b3c");
+    expect(sanitizeCanvasBackground("  #fff  ")).toBe("#fff");
+  });
+
+  it("rejects the same injection shapes as the persisted reader", () => {
+    // The draft goes straight into a style attribute during the drag, so it
+    // needs the same gate as the stored value.
+    expect(sanitizeCanvasBackground("red; position: fixed")).toBeNull();
+    expect(sanitizeCanvasBackground("")).toBeNull();
+    expect(sanitizeCanvasBackground(null)).toBeNull();
+    expect(sanitizeCanvasBackground(42)).toBeNull();
   });
 });

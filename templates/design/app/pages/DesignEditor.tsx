@@ -581,6 +581,7 @@ import {
   compactDesignDataOperations,
   getDesignBreakpointWidths,
   getDesignCanvasBackground,
+  sanitizeCanvasBackground,
   pendingDesignDataOperations,
   stagePendingDesignDataOperations,
   type DesignDataOperation,
@@ -26296,13 +26297,26 @@ function DesignEditor() {
    *  through handleGeometryCommit so it lands in the same undo entry, viewport
    *  metadata sync, and persist guard that a pointer resize uses. */
   /** Design-level canvas background (the surround, not a screen's body). */
-  const canvasBackground = useMemo(
+  const persistedCanvasBackground = useMemo(
     () => getDesignCanvasBackground(designDataJson),
     [designDataJson],
   );
+  /** Live value while the colour picker is being dragged. Persisting every
+   *  preview tick round-trips through the query cache and back into the
+   *  controlled picker, which makes its handle jump mid-drag. */
+  const [canvasBackgroundDraft, setCanvasBackgroundDraft] = useState<
+    string | null
+  >(null);
+  const canvasBackground = canvasBackgroundDraft ?? persistedCanvasBackground;
   const handleCanvasBackgroundChange = useCallback(
-    (value: string) => {
+    (value: string, meta?: { phase?: "preview" | "commit" }) => {
       if (!id || !canEditDesignRef.current) return;
+      if (meta?.phase === "preview") {
+        // Paint the canvas live, but do not touch persisted state yet.
+        setCanvasBackgroundDraft(sanitizeCanvasBackground(value));
+        return;
+      }
+      setCanvasBackgroundDraft(null);
       const trimmed = value.trim();
       const operations: DesignDataOperation[] = [
         trimmed
