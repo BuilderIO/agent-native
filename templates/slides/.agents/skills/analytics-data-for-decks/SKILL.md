@@ -26,9 +26,9 @@ other analytics data.
 - Useful Analytics operations include `hubspot-records` for bounded CRM
   records, `hubspot-deals` or `hubspot-metrics` for pipeline and deal metrics,
   `account-deep-dive` for a named account or renewal/risk review, `gong-calls`
-  for quotes/counts/transcripts and coverage, `gong-native-insights` for
-  bounded narrative synthesis, and `query-agent-native-analytics` for
-  first-party product activity.
+  for quotes/counts/transcripts and coverage, and `gong-native-insights` for
+  bounded narrative synthesis. For first-party product activity, send a
+  natural-language message and let Analytics choose its query.
 - Slides must not write SQL, choose a warehouse or provider, call HubSpot/Gong
   directly, or interpret a provider schema itself. Analytics owns source
   selection, data dictionary interpretation, filters, joins, and query

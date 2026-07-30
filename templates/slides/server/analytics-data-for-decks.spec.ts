@@ -22,7 +22,7 @@ describe("Slides analytics delegation contract", () => {
     expect(skill).toContain("call-agent");
     expect(skill).toContain("hubspot-records");
     expect(skill).toContain("account-deep-dive");
-    expect(skill).toContain("query-agent-native-analytics");
+    expect(skill).toContain("natural-language message");
   });
 
   it("prevents Slides from selecting providers or writing SQL", () => {

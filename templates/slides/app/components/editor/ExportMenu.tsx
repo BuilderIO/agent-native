@@ -126,23 +126,49 @@ export function ExportMenu({
     }
   };
 
-  const handleConnectGoogle = () => {
+  const handleConnectGoogle = async () => {
     const authUrl = new URL(
       agentNativePath("/_agent-native/google-docs/auth-url"),
       window.location.origin,
     );
-    authUrl.searchParams.set("redirect", "1");
     authUrl.searchParams.set(
       "return",
       window.location.pathname + window.location.search,
     );
 
     const popup = window.open(
-      authUrl.toString(),
+      "",
       "google-docs-oauth",
       "popup,width=520,height=720",
     );
-    if (!popup) window.location.href = authUrl.toString();
+    try {
+      const response = await fetch(authUrl.toString(), {
+        credentials: "same-origin",
+      });
+      if (!response.ok) {
+        throw new Error(
+          await readErrorMessage(
+            response,
+            t("editorExport.exportGoogleSlidesError"),
+          ),
+        );
+      }
+      const data = (await response.json()) as { url?: unknown };
+      if (typeof data.url !== "string") {
+        throw new Error(t("editorExport.exportGoogleSlidesError"));
+      }
+      if (popup) popup.location.href = data.url;
+      else window.location.href = data.url;
+    } catch (err) {
+      popup?.close();
+      console.error("Google connection failed:", err);
+      toast.error(t("editorExport.exportFailed"), {
+        description:
+          err instanceof Error
+            ? err.message
+            : t("editorExport.exportGoogleSlidesError"),
+      });
+    }
   };
 
   const handleExportHtml = async () => {

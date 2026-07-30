@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { ActionEntry } from "../../agent/production-agent.js";
-import { filterDirectA2AActions } from "./action-filters-a2a.js";
+import {
+  buildAuthenticatedAgentA2ASkills,
+  buildPublicAgentA2ASkills,
+  filterDirectA2AActions,
+} from "./action-filters-a2a.js";
 
 function action(overrides: Partial<ActionEntry> = {}): ActionEntry {
   return {
@@ -20,6 +24,36 @@ function action(overrides: Partial<ActionEntry> = {}): ActionEntry {
 }
 
 describe("filterDirectA2AActions", () => {
+  it("publishes input schemas for public and authenticated skill cards", () => {
+    const inputSchema = {
+      type: "object",
+      properties: { question: { type: "string" } },
+      required: ["question"],
+    };
+
+    const publicSkills = buildPublicAgentA2ASkills({
+      public: action({
+        tool: { description: "Ask", parameters: inputSchema },
+        publicAgent: {
+          expose: true,
+          readOnly: true,
+          requiresAuth: false,
+        },
+      }),
+    });
+    const authenticatedSkills = buildAuthenticatedAgentA2ASkills(
+      {
+        authenticated: action({
+          tool: { description: "Ask", parameters: inputSchema },
+        }),
+      },
+      { connectorCatalog: ["authenticated"] },
+    );
+
+    expect(publicSkills[0]?.inputSchema).toEqual(inputSchema);
+    expect(authenticatedSkills[0]?.inputSchema).toEqual(inputSchema);
+  });
+
   // The app that owns the data owns its schema, dictionary and reference
   // queries. A caller has none of that, so passing raw SQL across apps makes
   // every caller reimplement the owner's schema badly. Callers ask; the owner

@@ -147,6 +147,7 @@ export function buildPublicAgentA2ASkills(
   name: string;
   description: string;
   publicAgent: ActionEntry["publicAgent"];
+  inputSchema?: Record<string, unknown>;
 }> {
   return Object.entries(filterPublicAgentActions(actions)).map(
     ([name, entry]) => ({
@@ -154,6 +155,14 @@ export function buildPublicAgentA2ASkills(
       name,
       description: entry.tool.description,
       publicAgent: entry.publicAgent,
+      ...(entry.tool.parameters
+        ? {
+            inputSchema: entry.tool.parameters as unknown as Record<
+              string,
+              unknown
+            >,
+          }
+        : {}),
     }),
   );
 }

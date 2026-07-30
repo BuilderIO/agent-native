@@ -146,6 +146,14 @@ describe("<ExportMenu>", () => {
   it("opens the Google OAuth flow from the export menu", async () => {
     const openedTab = { location: { href: "" }, close: vi.fn() };
     vi.mocked(window.open).mockReturnValue(openedTab as unknown as Window);
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          url: "https://accounts.google.com/o/oauth2/v2/auth?state=test",
+        }),
+        { headers: { "Content-Type": "application/json" } },
+      ),
+    );
     renderMenu();
 
     const trigger = screen.getByRole("button", { name: /export/i });
@@ -153,13 +161,21 @@ describe("<ExportMenu>", () => {
     fireEvent.click(await screen.findByText("Connect Google"));
 
     expect(window.open).toHaveBeenCalledWith(
-      expect.stringContaining(
-        "/agent/_agent-native/google-docs/auth-url?redirect=1&return=",
-      ),
+      "",
       "google-docs-oauth",
       "popup,width=520,height=720",
     );
-    expect(openedTab.location.href).toBe("");
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining(
+          "/agent/_agent-native/google-docs/auth-url?return=",
+        ),
+        { credentials: "same-origin" },
+      ),
+    );
+    expect(openedTab.location.href).toBe(
+      "https://accounts.google.com/o/oauth2/v2/auth?state=test",
+    );
   });
 
   it("falls back to the import dialog when Drive is unavailable", async () => {
