@@ -124,6 +124,24 @@ export function builderCmsAttachReadMetadata(read: BuilderCmsReadResult) {
   };
 }
 
+export function initialBuilderAttachmentSetupOptions(args: {
+  builderRead: BuilderCmsReadResult | null;
+  importedEntriesByDocumentId: ReadonlyMap<string, BuilderCmsSourceEntry>;
+}) {
+  if (
+    args.builderRead?.state !== "live" ||
+    args.importedEntriesByDocumentId.size !== args.builderRead.entries.length
+  ) {
+    return undefined;
+  }
+  const documentIds = [...args.importedEntriesByDocumentId.keys()];
+  return {
+    documentIds,
+    limit: Math.max(1, documentIds.length),
+    offset: 0,
+  };
+}
+
 // Per-source key mapping the UI commits after the canonical-key confirm step.
 const normalizationFormulaSchema = z
   .string()
@@ -586,14 +604,12 @@ export default defineAction({
       importedEntriesByDocumentId = importResult.importedEntriesByDocumentId;
     }
 
-    const everyInitialEntryWasImported =
-      builderRead?.state === "live" &&
-      importedEntriesByDocumentId.size === builderEntries.length;
     const refreshedSetup = await sourceSetupPayload(
       database.id,
-      everyInitialEntryWasImported
-        ? { limit: args.limit, offset: args.offset }
-        : undefined,
+      initialBuilderAttachmentSetupOptions({
+        builderRead,
+        importedEntriesByDocumentId,
+      }),
     );
     const builderEntriesByDocumentId =
       builderRead?.state === "live"

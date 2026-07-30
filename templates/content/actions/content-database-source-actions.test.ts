@@ -10,6 +10,7 @@ import addSourceFieldProperty, {
 } from "./add-content-database-source-field-property";
 import attachSource, {
   builderCmsAttachReadMetadata,
+  initialBuilderAttachmentSetupOptions,
   readInitialBuilderCmsAttachEntries,
   readInitialBuilderCmsAttachSource,
 } from "./attach-content-database-source";
@@ -374,6 +375,43 @@ describe("content database source actions", () => {
       syncState: "error",
       activeReadSourceRowIds: undefined,
     });
+  });
+
+  it("binds a fully imported initial Builder page by exact document identity", () => {
+    const read = {
+      state: "live",
+      entries: [{ id: "entry-1" }, { id: "entry-2" }],
+    } as BuilderCmsReadResult;
+
+    expect(
+      initialBuilderAttachmentSetupOptions({
+        builderRead: read,
+        importedEntriesByDocumentId: new Map([
+          ["document-2", read.entries[1]!],
+          ["document-1", read.entries[0]!],
+        ]),
+      }),
+    ).toEqual({
+      documentIds: ["document-2", "document-1"],
+      limit: 2,
+      offset: 0,
+    });
+  });
+
+  it("keeps complete setup when an initial Builder entry was not imported", () => {
+    const read = {
+      state: "live",
+      entries: [{ id: "entry-1" }, { id: "entry-2" }],
+    } as BuilderCmsReadResult;
+
+    expect(
+      initialBuilderAttachmentSetupOptions({
+        builderRead: read,
+        importedEntriesByDocumentId: new Map([
+          ["document-1", read.entries[0]!],
+        ]),
+      }),
+    ).toBeUndefined();
   });
 
   it("rejects unsafe source federation normalization formulas", () => {

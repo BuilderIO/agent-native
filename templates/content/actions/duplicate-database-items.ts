@@ -192,19 +192,20 @@ export default defineAction({
     });
     const duplicatedPage = await getContentDatabaseResponse(database.id, {
       limit: duplicates.length,
-      offset: insertionPosition,
+      offset: 0,
+      documentIds: duplicates.map(
+        (duplicate) => duplicate.duplicatedDocumentId,
+      ),
     });
     const duplicatedItemIds = new Set(
       duplicates.map((duplicate) => duplicate.duplicatedItemId),
     );
-    const appendedDuplicatedItems = duplicatedPage.items.filter(
-      (item) =>
-        duplicatedItemIds.has(item.id) &&
-        !response.items.some((candidate) => candidate.id === item.id),
+    const duplicatedItems = duplicatedPage.items.filter((item) =>
+      duplicatedItemIds.has(item.id),
     );
     return {
       ...response,
-      duplicatedItems: appendedDuplicatedItems,
+      duplicatedItems,
       duplicatedItemId: duplicates[0]?.duplicatedItemId,
       duplicatedDocumentId: duplicates[0]?.duplicatedDocumentId,
       duplicatedItemIds: duplicates.map(

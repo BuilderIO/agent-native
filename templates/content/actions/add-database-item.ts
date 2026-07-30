@@ -217,13 +217,15 @@ export default defineAction({
       limit: 100,
       offset: 0,
     });
-    const createdPage = response.items.some((item) => item.id === itemId)
-      ? null
-      : await getContentDatabaseResponse(databaseId, {
+    const createdItem =
+      response.items.find((item) => item.id === itemId) ??
+      (
+        await getContentDatabaseResponse(databaseId, {
           limit: 1,
-          offset: Math.max(0, (response.pagination?.totalItems ?? 1) - 1),
-        });
-    const createdItem = createdPage?.items.find((item) => item.id === itemId);
+          offset: 0,
+          documentIds: [documentId],
+        })
+      ).items.find((item) => item.id === itemId);
     return {
       ...response,
       createdItem,

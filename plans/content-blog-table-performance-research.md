@@ -521,21 +521,26 @@ work-progress:
     - exact federated-field fallback without expanding ordinary large tables
     - source-free setup projections and a 100-row fast path for fresh Builder attachment
     - personal sort persistence that preserves existing visibility rules without source snapshots
-    - correlated loopback-only server and visible-row timing probe
+    - correlated loopback-only server and visible-row timing replay, with probes removed afterward
+    - exact imported-document reload for Builder source binding and hydration
+    - exact identity-based created and duplicated mutation response projections
   verification:
     - shared table-query TypeScript compilation passed
     - shared table-query focused Vitest passed
     - oxfmt and git diff whitespace checks passed
-    - independent technical review found no remaining P1 or P2 after three correction passes
+    - live PR review found four correctness defects; exact Builder binding and
+      identity-based mutation response repairs were implemented
+    - Content typecheck and 273 focused action, database, batching, table,
+      sidebar, personal-view, source, and query tests passed on Node 26
+    - independent repair review found no remaining P1 or P2 in the four paths
   pending:
-    - dependency-compatible full typecheck and focused database/UI suites
-    - real dev-database fixture creation and joined browser/server measurements
     - exact read-only Builder model identity and marker-absence baseline
-    - 584, 1000, and 5000 row acceptance runs
-    - temporary-probe removal and clean replay
-    - independent human QA, PR, and CI
+    - exact Builder-backed attach, hydration, property, and progressive-review acceptance
+    - independent human QA on a host that exposes the in-app browser
+    - final repair verification, exact-head PR prose receipt, review, and CI
 temporary-probes:
   - id: content-database-response-trace
+    status: removed
     gate: >-
       CONTENT_DATABASE_PERFORMANCE_TRACE=1 on a verified loopback action request
     records: >-
@@ -544,6 +549,7 @@ temporary-probes:
       count, and execution count; no titles, bodies, provider payloads, or secrets
     removal-trigger: after the final joined acceptance replay
   - id: content-database-visible-row-trace
+    status: removed
     gate: response carries content-database-response-trace
     records: >-
       response trace ID, local interaction ID, intent-to-row-commit duration,
@@ -616,30 +622,47 @@ test-resources:
     max-lifetime-minutes: 1440
     declared-at: 2026-07-29T19:00:06Z
     expires-at: 2026-07-30T19:00:06Z
-    status: active
+    status: cleaned
     active-run-id: 20260729_1715
     active-resources:
       - kind: sqlite-runtime
         path: /tmp/agent-native-content-perf.GnFBS0/app.db
-        state: acquired
+        state: removed-after-marker-free-proof
       - kind: content-database
         database-id: TYhMNt9YVgjW
         document-id: YXN4WiFhHCo0
         title: __an_content_perf_20260729_1715__ 1000 rows
         intended-row-count: 1000
-        state: created
+        state: permanently-deleted
       - kind: content-database
         database-id: pyehc2Pq3FT1
         document-id: 4h6N49c1GNkj
         title: __an_content_perf_20260729_1715__ 5000 rows
         intended-row-count: 5000
-        state: created
+        state: permanently-deleted
       - kind: content-database
         database-id: FLeIYkBrKXeC
         document-id: 4UiIEVdifuyF
         title: __an_content_perf_20260729_1715__ 584 rows
         intended-row-count: 584
-        state: created
+        state: permanently-deleted
+    cleanup-completed-at: 2026-07-30T03:58:00Z
+    cleanup-observation:
+      - >-
+        Content action-backed UI soft-deleted database IDs TYhMNt9YVgjW,
+        pyehc2Pq3FT1, and FLeIYkBrKXeC with their exact root documents.
+      - >-
+        permanently-delete-document removed root IDs YXN4WiFhHCo0,
+        4h6N49c1GNkj, and 4UiIEVdifuyF with 1001, 5001, and 585 subtree
+        documents respectively.
+      - >-
+        list-content-databases and search-documents returned zero marker
+        matches; get-content-database returned typed not_found for all three
+        exact database IDs; read-only SQL corroborated zero marker documents,
+        fixture databases, and fixture roots.
+      - >-
+        The marker-free SQLite runtime and generated task-local Content env
+        file were moved to macOS Trash and their original paths verified absent.
     phase: work
 governing-artifact:
   path: /Users/alicemoore/.codex/worktrees/8c63/agent-native/plans/content-blog-table-performance-research.md
@@ -771,6 +794,10 @@ acceptance-state:
     - >-
       final ABI-matched verification: Content typecheck and 228 focused action,
       batching, table, sidebar, personal-view, and query tests passed
+    - >-
+      post-review repair verification: Content typecheck and 273 focused tests
+      passed, including exact imported Builder binding, sparse-position
+      duplicate projections, and concurrent exact created-item responses
   blockers:
     - >-
       The isolated local runtime has no Builder vault credential, so the exact
@@ -779,12 +806,19 @@ acceptance-state:
     - >-
       Independent human QA preflight was blocked before H1-H5 because the tester
       host did not expose the in-app browser; no frozen-test action was executed.
-      PR review and CI have not yet run.
+      Exact-head PR prose, review, and CI must refresh after the repair commit.
   cleanup-evidence:
     - >-
-      Stopped the traced local Content server and moved the exact task database
-      directory plus task-local ignored environment copies to macOS Trash; all
-      three original paths were verified absent.
+      The first file-only cleanup was audited and rejected because the restored
+      database still contained every marker row. The exact fixture was then
+      recovered and cleaned through Content actions: all three database roots
+      were soft-deleted, permanently deleted by exact document ID, and proved
+      absent through list/search/not-found action reads plus corroborating SQL.
+    - >-
+      After action-level marker-absence proof, the stopped marker-free runtime
+      and regenerated task-local Content env file were moved to macOS Trash and
+      their original paths were verified absent; ambiguous older Trash env files
+      were preserved untouched.
     - >-
       Removed the environment-gated server phase trace, source snapshot trace,
       response trace fields, and correlated browser console timing after the

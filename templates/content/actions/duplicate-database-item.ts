@@ -180,15 +180,15 @@ export default defineAction({
       limit: 100,
       offset: 0,
     });
-    const duplicatedPage = response.items.some((item) => item.id === nextItemId)
-      ? null
-      : await getContentDatabaseResponse(row.item.databaseId, {
+    const duplicatedItem =
+      response.items.find((item) => item.id === nextItemId) ??
+      (
+        await getContentDatabaseResponse(row.item.databaseId, {
           limit: 1,
-          offset: nextPosition,
-        });
-    const duplicatedItem = duplicatedPage?.items.find(
-      (item) => item.id === nextItemId,
-    );
+          offset: 0,
+          documentIds: [nextDocumentId],
+        })
+      ).items.find((item) => item.id === nextItemId);
     return {
       ...response,
       duplicatedItems: duplicatedItem ? [duplicatedItem] : [],
