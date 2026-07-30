@@ -14,6 +14,8 @@ export const DESKTOP_IDENTITY_COMPLETE_PATH =
 
 const DESKTOP_SIGN_IN_PATH = "/_agent-native/sign-in";
 const DESKTOP_IDENTITY_LOGIN_PATH = "/_agent-native/identity/login";
+const DESKTOP_IDENTITY_AUTHORIZE_PATH = "/_agent-native/identity/authorize";
+const DESKTOP_IDENTITY_CALLBACK_PATH = "/_agent-native/identity/callback";
 const DESKTOP_LOGOUT_PATH = "/_agent-native/auth/logout";
 const DESKTOP_LOGOUT_ALL_PATH = "/_agent-native/auth/logout-all";
 const DEFAULT_CEREMONY_TIMEOUT_MS = 5 * 60 * 1000;
@@ -87,6 +89,10 @@ interface DesktopIdentityWindow {
 
 export interface DesktopIdentityBrokerOptions {
   identitySession: Session;
+  resolveLoginRedirect?: (
+    url: string,
+    identitySession: Session,
+  ) => Promise<string | null>;
   resolveApp: (appId: string) => DesktopIdentityApp | null;
   createWindow: (
     options: BrowserWindowConstructorOptions,
@@ -146,6 +152,28 @@ export function isDesktopIdentityCompletion(
       parsed.origin === app.origin &&
       parsed.pathname === DESKTOP_IDENTITY_COMPLETE_PATH &&
       parsed.searchParams.get("nonce") === nonce
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function isDesktopIdentityAuthorizeNavigation(
+  navigationUrl: string,
+  authorityApp: DesktopIdentityApp,
+  targetApp: DesktopIdentityApp,
+): boolean {
+  try {
+    const parsed = new URL(navigationUrl);
+    const callback = new URL(parsed.searchParams.get("redirect_uri") ?? "");
+    return (
+      authorityApp.identityAuthority === true &&
+      parsed.origin === authorityApp.origin &&
+      parsed.pathname === DESKTOP_IDENTITY_AUTHORIZE_PATH &&
+      parsed.searchParams.get("app") === targetApp.id &&
+      Boolean(parsed.searchParams.get("state")) &&
+      callback.origin === targetApp.origin &&
+      callback.pathname === DESKTOP_IDENTITY_CALLBACK_PATH
     );
   } catch {
     return false;
@@ -528,22 +556,34 @@ export class DesktopIdentityBroker {
     );
 
     let initialUrl = loginUrl.toString();
-    if (typeof this.options.identitySession.fetch === "function") {
+    if (this.options.resolveLoginRedirect) {
+      let redirectUrl: string | null;
       try {
-        const response = await this.options.identitySession.fetch(initialUrl, {
-          redirect: "manual",
-        });
-        if (!this.isCeremonyCurrent(generation)) return false;
-        const location = response.headers.get("location");
-        if (response.status < 300 || response.status >= 400 || !location) {
-          this.unsupportedAppIds.add(app.id);
-          this.setStatus("failed");
-          this.options.reloadApp(app);
-          return false;
-        }
-        initialUrl = new URL(location, initialUrl).toString();
+        redirectUrl = await this.options.resolveLoginRedirect(
+          initialUrl,
+          this.options.identitySession,
+        );
       } catch {
         if (!this.isCeremonyCurrent(generation)) return false;
+        console.warn("[desktop-identity] identity preflight failed");
+        this.unsupportedAppIds.add(app.id);
+        this.setStatus("failed");
+        this.options.reloadApp(app);
+        return false;
+      }
+      if (!this.isCeremonyCurrent(generation)) return false;
+      if (!redirectUrl) {
+        this.unsupportedAppIds.add(app.id);
+        this.setStatus("failed");
+        this.options.reloadApp(app);
+        return false;
+      }
+      initialUrl = redirectUrl;
+      const authorityApp = this.options.resolveApp("dispatch");
+      if (
+        !authorityApp ||
+        !isDesktopIdentityAuthorizeNavigation(initialUrl, authorityApp, app)
+      ) {
         this.unsupportedAppIds.add(app.id);
         this.setStatus("failed");
         this.options.reloadApp(app);

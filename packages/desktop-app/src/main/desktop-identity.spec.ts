@@ -4,6 +4,7 @@ import {
   DESKTOP_IDENTITY_COMPLETE_PATH,
   DesktopIdentityBroker,
   desktopWorkspaceLogoutPath,
+  isDesktopIdentityAuthorizeNavigation,
   isDesktopIdentityCompletion,
   isDesktopIdentityConfiguredAppEligible,
   isDesktopSignInNavigation,
@@ -54,6 +55,29 @@ function appFixture(): DesktopIdentityApp {
       fetch: vi.fn(async () => new Response(null, { status: 200 })),
     } as unknown as Electron.Session,
   };
+}
+
+function authorityFixture(): DesktopIdentityApp {
+  return {
+    ...appFixture(),
+    id: "dispatch",
+    origin: "https://dispatch.agent-native.com",
+    identityAuthority: true,
+  };
+}
+
+function authorizeUrl(
+  authority: DesktopIdentityApp,
+  target: DesktopIdentityApp,
+): string {
+  const result = new URL("/_agent-native/identity/authorize", authority.origin);
+  result.searchParams.set("app", target.id);
+  result.searchParams.set(
+    "redirect_uri",
+    new URL("/_agent-native/identity/callback", target.origin).toString(),
+  );
+  result.searchParams.set("state", "state_123");
+  return result.toString();
 }
 
 function deferred<T>() {
@@ -131,6 +155,33 @@ describe("Desktop identity navigation boundaries", () => {
     ).toBe(false);
   });
 
+  it("accepts authorize redirects only for the exact authority and callback", () => {
+    const app = appFixture();
+    const authority = authorityFixture();
+    expect(
+      isDesktopIdentityAuthorizeNavigation(
+        authorizeUrl(authority, app),
+        authority,
+        app,
+      ),
+    ).toBe(true);
+    expect(
+      isDesktopIdentityAuthorizeNavigation(
+        authorizeUrl(authority, { ...app, id: "calendar" }),
+        authority,
+        app,
+      ),
+    ).toBe(false);
+    const hostile = new URL(authorizeUrl(authority, app));
+    hostile.searchParams.set(
+      "redirect_uri",
+      "https://evil.example/_agent-native/identity/callback",
+    );
+    expect(
+      isDesktopIdentityAuthorizeNavigation(hostile.toString(), authority, app),
+    ).toBe(false);
+  });
+
   it("recognizes workspace logout only on the canonical app origin", () => {
     expect(
       isDesktopWorkspaceLogoutRequest(
@@ -172,6 +223,103 @@ describe("Desktop identity navigation boundaries", () => {
 });
 
 describe("DesktopIdentityBroker", () => {
+  it("loads the validated identity authority redirect", async () => {
+    const app = appFixture();
+    const authority = authorityFixture();
+    const resolvedUrl = authorizeUrl(authority, app);
+    const resolveLoginRedirect = vi.fn(async () => resolvedUrl);
+    let closedListener: (() => void) | undefined;
+    const identityWindow = {
+      webContents: {
+        on: vi.fn(),
+        setWindowOpenHandler: vi.fn(),
+      },
+      loadURL: vi.fn(async () => {}),
+      isDestroyed: vi.fn(() => false),
+      close: vi.fn(),
+      on: vi.fn((event: string, listener: () => void) => {
+        if (event === "closed") closedListener = listener;
+      }),
+    };
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: cookieStore(),
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      resolveLoginRedirect,
+      resolveApp: (id) =>
+        id === app.id ? app : id === authority.id ? authority : null,
+      createWindow: () => identityWindow as never,
+      reloadApp: vi.fn(),
+      clearLocalBroker: vi.fn(),
+    });
+
+    const ceremony = broker.ensureAppSession(app.id);
+    await vi.waitFor(() =>
+      expect(identityWindow.loadURL).toHaveBeenCalledWith(resolvedUrl),
+    );
+    expect(resolveLoginRedirect).toHaveBeenCalledWith(
+      expect.stringContaining("/_agent-native/identity/login"),
+      expect.objectContaining({ cookies: expect.anything() }),
+    );
+    closedListener?.();
+    await expect(ceremony).resolves.toBe(false);
+  });
+
+  it("sanitizes identity preflight failures before logging", async () => {
+    const app = appFixture();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const reloadApp = vi.fn();
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: cookieStore(),
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      resolveLoginRedirect: vi.fn(async () => {
+        throw new Error("redirect failed?state=secret&token=secret");
+      }),
+      resolveApp: (id) => (id === app.id ? app : null),
+      createWindow: vi.fn() as never,
+      reloadApp,
+      clearLocalBroker: vi.fn(),
+    });
+
+    await expect(broker.ensureAppSession(app.id)).resolves.toBe(false);
+    expect(warn).toHaveBeenCalledWith(
+      "[desktop-identity] identity preflight failed",
+    );
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("state=secret");
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("token=secret");
+    expect(reloadApp).toHaveBeenCalledWith(app);
+    warn.mockRestore();
+  });
+
+  it("rejects a redirect outside the identity authority", async () => {
+    const app = appFixture();
+    const authority = authorityFixture();
+    const createWindow = vi.fn();
+    const reloadApp = vi.fn();
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: cookieStore(),
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      resolveLoginRedirect: vi.fn(
+        async () => "https://evil.example/_agent-native/identity/authorize",
+      ),
+      resolveApp: (id) =>
+        id === app.id ? app : id === authority.id ? authority : null,
+      createWindow,
+      reloadApp,
+      clearLocalBroker: vi.fn(),
+    });
+
+    await expect(broker.ensureAppSession(app.id)).resolves.toBe(false);
+    expect(createWindow).not.toHaveBeenCalled();
+    expect(reloadApp).toHaveBeenCalledWith(app);
+    expect(broker.getStatus()).toBe("failed");
+  });
+
   it("coalesces duplicate requests and copies only the target cookie", async () => {
     const app = appFixture();
     const identityCookies = cookieStore([
@@ -546,16 +694,16 @@ describe("DesktopIdentityBroker", () => {
 
   it("invalidates a queued ceremony before it can open a window", async () => {
     const app = appFixture();
-    const fetchResponse = deferred<Response>();
-    const fetch = vi.fn(() => fetchResponse.promise);
+    const redirectResponse = deferred<string | null>();
+    const resolveLoginRedirect = vi.fn(() => redirectResponse.promise);
     const createWindow = vi.fn();
     const reloadApp = vi.fn();
     const broker = new DesktopIdentityBroker({
       identitySession: {
         cookies: cookieStore(),
         clearStorageData: vi.fn(async () => {}),
-        fetch,
       } as unknown as Electron.Session,
+      resolveLoginRedirect,
       resolveApp: (id) => (id === app.id ? app : null),
       createWindow,
       reloadApp,
@@ -563,14 +711,9 @@ describe("DesktopIdentityBroker", () => {
     });
 
     const ceremony = broker.ensureAppSession(app.id);
-    await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+    await vi.waitFor(() => expect(resolveLoginRedirect).toHaveBeenCalled());
     await broker.signOut([app]);
-    fetchResponse.resolve(
-      new Response(null, {
-        status: 302,
-        headers: { location: "https://dispatch.agent-native.com/sign-in" },
-      }),
-    );
+    redirectResponse.resolve("https://dispatch.agent-native.com/sign-in");
 
     await expect(ceremony).resolves.toBe(false);
     expect(createWindow).not.toHaveBeenCalled();
