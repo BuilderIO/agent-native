@@ -86,6 +86,20 @@ async function withNavigatorPlatform(
 }
 
 describe("useDesignHotkeys — current Figma tool bindings", () => {
+  it("routes standard canvas commands through their existing callbacks", async () => {
+    const onCopy = vi.fn();
+    const onDuplicate = vi.fn();
+    const onBringForward = vi.fn();
+    await withHotkeys({ onCopy, onDuplicate, onBringForward }, () => {
+      dispatchKey("c", { metaKey: true });
+      dispatchKey("d", { metaKey: true });
+      dispatchKey("}", { code: "BracketRight", metaKey: true });
+    });
+    expect(onCopy).toHaveBeenCalledTimes(1);
+    expect(onDuplicate).toHaveBeenCalledTimes(1);
+    expect(onBringForward).toHaveBeenCalledTimes(1);
+  });
+
   it("opens keyboard shortcuts with literal Ctrl+Shift+?", async () => {
     const onShowKeyboardShortcuts = vi.fn();
     await withHotkeys({ onShowKeyboardShortcuts }, () => {

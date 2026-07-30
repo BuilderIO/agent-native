@@ -414,6 +414,10 @@ const messages = {
     emerald: "Emerald",
     amber: "Amber",
     rose: "Rose",
+    arrange: "व्यवस्थित करें",
+    order: "क्रम",
+    bringToFront: "सबसे आगे लाएं",
+    sendToBack: "सबसे पीछे भेजें",
   },
   animations: {
     appear: "दिखाएं",
@@ -527,6 +531,7 @@ const messages = {
     deckHasNoSlides: "डेक में कोई स्लाइड नहीं है।",
     pdfRenderFailed: "PDF रेंडर नहीं हो सका।",
     buildingDeck: "डेक बनाया जा रहा है",
+    dismissLayoutWarning: "लेआउट चेतावनी बंद करें",
     slidesAdded_one: "{{count}} स्लाइड जोड़ी गई",
     slidesAdded_other: "{{count}} स्लाइड जोड़ी गईं",
   },

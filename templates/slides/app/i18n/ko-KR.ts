@@ -416,6 +416,10 @@ const messages = {
     emerald: "Emerald",
     amber: "Amber",
     rose: "Rose",
+    arrange: "정렬",
+    order: "순서",
+    bringToFront: "맨 앞으로 가져오기",
+    sendToBack: "맨 뒤로 보내기",
   },
   animations: {
     appear: "出现",
@@ -524,6 +528,7 @@ const messages = {
     deckHasNoSlides: "幻灯片没有页面。",
     pdfRenderFailed: "无法渲染 PDF。",
     buildingDeck: "正在构建幻灯片",
+    dismissLayoutWarning: "레이아웃 경고 닫기",
     slidesAdded_one: "已添加 {{count}} 张幻灯片",
     slidesAdded_other: "已添加 {{count}} 张幻灯片",
   },

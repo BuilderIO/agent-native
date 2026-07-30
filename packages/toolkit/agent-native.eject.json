@@ -152,6 +152,41 @@
       "verification": ["pnpm typecheck"]
     },
     {
+      "id": "toolkit/canvas-annotations",
+      "label": "Canvas drawing and pinned agent comments",
+      "catalog": "toolkit-ui",
+      "catalogItems": ["canvas-annotations"],
+      "entrypoints": ["./canvas-annotations", "./canvas-annotations/*"],
+      "strategy": "source-copy",
+      "sourceEntries": ["src/canvas-annotations"],
+      "targetRoot": "app/components/agent-native/toolkit",
+      "dependencies": [
+        "@radix-ui/react-slot",
+        "@radix-ui/react-tooltip",
+        "@tabler/icons-react",
+        "class-variance-authority",
+        "clsx",
+        "culori",
+        "react",
+        "react-dom",
+        "sonner",
+        "tailwind-merge"
+      ],
+      "verification": ["pnpm typecheck"]
+    },
+    {
+      "id": "toolkit/canvas-interactions",
+      "label": "Canvas gestures, geometry, and shortcuts",
+      "catalog": "toolkit-ui",
+      "catalogItems": ["canvas-interactions"],
+      "entrypoints": ["./canvas-interactions", "./canvas-interactions/*"],
+      "strategy": "source-copy",
+      "sourceEntries": ["src/canvas-interactions"],
+      "targetRoot": "app/components/agent-native/toolkit",
+      "dependencies": [],
+      "verification": ["pnpm typecheck"]
+    },
+    {
       "id": "toolkit/composer",
       "label": "Agent composer",
       "catalog": "toolkit-ui",
@@ -229,8 +264,11 @@
       "sourceEntries": ["src/design-tweaks"],
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": [
+        "@radix-ui/react-label",
         "@radix-ui/react-popover",
+        "@radix-ui/react-tooltip",
         "@tabler/icons-react",
+        "class-variance-authority",
         "clsx",
         "react",
         "tailwind-merge"

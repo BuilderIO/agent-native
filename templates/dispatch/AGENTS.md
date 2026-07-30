@@ -54,11 +54,19 @@ ladder.
   Hosted production sources appear only when Dispatch has their
   <APP>_DATABASE_URL connection variables (or an equivalent
   AGENT_NATIVE_THREAD_DEBUG_DATABASES configuration).
+- For reliability triage, call `list-agent-run-failures` first, then inspect a
+  returned run with `get-agent-thread-debug` using the same source id. Do not
+  infer run failure from thread text search. Cross-app results may be partial;
+  preserve the returned per-source health instead of treating an unavailable
+  source as zero failures.
 
 ## Application State
 
 - `navigation` exposes current Dispatch view, selected integration/resource,
   approval, route, or settings panel.
+- On Thread Debug, `navigation.threadDebugMode`, `sourceId`,
+  `inspectSourceId`, `ownerEmail`, `failureStatus`, `range`, `query`, `runId`,
+  and `threadId` expose the visible failure or thread filters and selection.
 - `navigate` moves the UI to setup, vault, integrations, resources, routing,
   approval, and operator surfaces.
 

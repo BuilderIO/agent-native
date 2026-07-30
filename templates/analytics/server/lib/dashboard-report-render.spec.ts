@@ -47,6 +47,14 @@ vi.mock("@resvg/resvg-js", () => ({
 const { fetchReportPanelData, renderReportEmail } =
   await import("./dashboard-report-render");
 
+function deferred<T = unknown>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
 function panel(overrides: Partial<SqlPanel> & { id: string }): SqlPanel {
   return {
     title: `Panel ${overrides.id}`,
@@ -152,6 +160,31 @@ describe("fetchReportPanelData", () => {
     });
   });
 
+  it("passes the panel timeout through to the source resolver", async () => {
+    mocks.resolveAnalyticsPanelSource.mockResolvedValue({
+      rows: [],
+      schema: [],
+    });
+
+    await fetchReportPanelData({
+      ...owner,
+      perPanelTimeoutMs: 147,
+      snapshot: snapshotOf([panel({ id: "a" })]),
+    });
+
+    expect(mocks.resolveAnalyticsPanelSource).toHaveBeenCalledWith(
+      {
+        source: "first-party",
+        query: "select 1",
+        timeoutMs: 147,
+      },
+      {
+        userEmail: "owner@example.test",
+        orgId: "org_1",
+      },
+    );
+  });
+
   it("does not query unscoped when there is no owner", async () => {
     const data = await fetchReportPanelData({
       ownerEmail: "  ",
@@ -182,14 +215,117 @@ describe("fetchReportPanelData", () => {
     expect(mocks.resolveAnalyticsPanelSource).not.toHaveBeenCalled();
   });
 
+  it("serializes first-party panels without blocking external panels", async () => {
+    const firstPartyFirst = deferred<{
+      rows: Record<string, unknown>[];
+      schema: never[];
+    }>();
+    const firstPartySecond = deferred<{
+      rows: Record<string, unknown>[];
+      schema: never[];
+    }>();
+    mocks.resolveAnalyticsPanelSource.mockImplementation(
+      (request: { query: string }) => {
+        if (request.query === "select first") return firstPartyFirst.promise;
+        if (request.query === "select second") return firstPartySecond.promise;
+        return Promise.resolve({
+          rows: [{ query: request.query }],
+          schema: [],
+        });
+      },
+    );
+
+    const dataPromise = fetchReportPanelData({
+      ...owner,
+      snapshot: snapshotOf([
+        panel({ id: "first", sql: "select first" }),
+        panel({ id: "second", sql: "select second" }),
+        panel({
+          id: "external",
+          source: "bigquery",
+          sql: "select external",
+        }),
+      ]),
+    });
+
+    await vi.waitFor(() => {
+      expect(mocks.resolveAnalyticsPanelSource).toHaveBeenCalledTimes(2);
+    });
+    expect(
+      mocks.resolveAnalyticsPanelSource.mock.calls.map(
+        ([request]) => request.query,
+      ),
+    ).toEqual(["select first", "select external"]);
+
+    firstPartyFirst.resolve({
+      rows: [{ query: "select first" }],
+      schema: [],
+    });
+    await vi.waitFor(() => {
+      expect(mocks.resolveAnalyticsPanelSource).toHaveBeenCalledTimes(3);
+    });
+    expect(mocks.resolveAnalyticsPanelSource.mock.calls[2]?.[0].query).toBe(
+      "select second",
+    );
+
+    firstPartySecond.resolve({
+      rows: [{ query: "select second" }],
+      schema: [],
+    });
+    await expect(dataPromise).resolves.toBeInstanceOf(Map);
+  });
+
+  it("preserves four-way concurrency for external panels", async () => {
+    const pending = Array.from({ length: 5 }, () =>
+      deferred<{ rows: Record<string, unknown>[]; schema: never[] }>(),
+    );
+    mocks.resolveAnalyticsPanelSource.mockImplementation(
+      (request: { query: string }) => {
+        const index = Number(request.query.replace("select ", ""));
+        return pending[index]!.promise;
+      },
+    );
+
+    const dataPromise = fetchReportPanelData({
+      ...owner,
+      snapshot: snapshotOf(
+        pending.map((_, index) =>
+          panel({
+            id: `external-${index}`,
+            source: "bigquery",
+            sql: `select ${index}`,
+          }),
+        ),
+      ),
+    });
+
+    await vi.waitFor(() => {
+      expect(mocks.resolveAnalyticsPanelSource).toHaveBeenCalledTimes(4);
+    });
+    expect(
+      mocks.resolveAnalyticsPanelSource.mock.calls.map(
+        ([request]) => request.query,
+      ),
+    ).toEqual(["select 0", "select 1", "select 2", "select 3"]);
+
+    pending[0]!.resolve({ rows: [{ index: 0 }], schema: [] });
+    await vi.waitFor(() => {
+      expect(mocks.resolveAnalyticsPanelSource).toHaveBeenCalledTimes(5);
+    });
+    pending.slice(1).forEach((item, index) => {
+      item.resolve({ rows: [{ index: index + 1 }], schema: [] });
+    });
+
+    await expect(dataPromise).resolves.toBeInstanceOf(Map);
+  });
+
   it("lets healthy panels resolve while another panel hangs past its timeout", async () => {
     mocks.resolveAnalyticsPanelSource.mockImplementation(
-      async (request: { query: string }) => {
+      (request: { query: string }) => {
         if (request.query.includes("slow")) {
-          await new Promise((resolve) => setTimeout(resolve, 5_000));
-          return { rows: [{ n: 1 }], schema: [] };
+          return new Promise(() => {});
         }
-        return { rows: [{ n: 2 }], schema: [] };
+        return Promise.resolve({ rows: [{ n: 2 }], schema: [] });
       },
     );
 
@@ -197,8 +333,8 @@ describe("fetchReportPanelData", () => {
       ...owner,
       perPanelTimeoutMs: 20,
       snapshot: snapshotOf([
-        panel({ id: "slow", sql: "select slow" }),
-        panel({ id: "fast", sql: "select fast" }),
+        panel({ id: "slow", source: "bigquery", sql: "select slow" }),
+        panel({ id: "fast", source: "bigquery", sql: "select fast" }),
       ]),
     });
 

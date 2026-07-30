@@ -419,6 +419,10 @@ const messages = {
     emerald: "Emerald",
     amber: "Amber",
     rose: "Rose",
+    arrange: "Organizar",
+    order: "Ordem",
+    bringToFront: "Trazer para frente",
+    sendToBack: "Enviar para trás",
   },
   animations: {
     appear: "Aparecer",
@@ -539,6 +543,7 @@ const messages = {
     deckHasNoSlides: "El deck no tiene diapositivas.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",
+    dismissLayoutWarning: "Dispensar aviso de layout",
     slidesAdded_one: "{{count}} diapositiva añadida",
     slidesAdded_other: "{{count}} diapositivas añadidas",
     slidesAdded_many: "{{count}} diapositivas añadidas",

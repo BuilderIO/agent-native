@@ -3,11 +3,9 @@
  *
  * Values are encrypted at rest with AES-256-GCM. The workspace-shared
  * encryption key is derived from `SECRETS_ENCRYPTION_KEY` (preferred) or the
- * existing `BETTER_AUTH_SECRET` env var (fallback so templates don't need a
- * second secret during development). Deployments that only have the legacy
- * app-scoped key continue to work until shared key material is configured;
- * once configured, new rows use the shared key and reads retain a legacy-key
- * fallback for existing rows.
+ * workspace-wide `A2A_SECRET`. `BETTER_AUTH_SECRET` and app-scoped keys remain
+ * read fallbacks for rows written before sibling apps converged on the shared
+ * key. Successful fallback reads race-safely refresh the shared ciphertext.
  *
  * Secret values are NEVER logged and NEVER returned from any route handler.
  */
@@ -19,7 +17,7 @@ import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 import {
   encryptSecretValue as encryptLegacyValue,
   encryptSharedSecretValue as encryptValue,
-  decryptSharedSecretValue as decryptValue,
+  decryptSharedSecretValueDetailed as decryptValue,
   decryptSecretValue as decryptLegacyValue,
   hasSharedSecretEncryptionKeyMaterial,
 } from "./crypto.js";
@@ -193,8 +191,9 @@ export async function writeAppSecret(args: WriteSecretArgs): Promise<string> {
   // pointing at data that's no longer current. Siblings then get an honest
   // cache miss (falling back to the legacy column or reporting missing) until
   // the owning app's next read repopulates shared_encrypted_value via
-  // `populateSharedAppSecret`, which only ever fills a NULL column. A
-  // temporary miss is safer than serving rotated-away plaintext.
+  // `populateSharedAppSecret`, which fills a NULL column or compare-and-swap
+  // replaces the exact legacy ciphertext it just decrypted. A temporary miss
+  // is safer than serving rotated-away plaintext.
   const upsertSql = `INSERT INTO app_secrets (id, scope, scope_id, key, encrypted_value, shared_encrypted_value, description, url_allowlist, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT (scope, scope_id, key) DO UPDATE SET
@@ -253,8 +252,13 @@ interface DecryptedAppSecretValue {
   value: string;
   /** True when the app-scoped fallback decrypted encrypted_value. */
   usedLegacyKey: boolean;
-  /** True when shared_encrypted_value was not the source of the plaintext. */
+  /** True when shared_encrypted_value needs to be created or refreshed. */
   needsSharedCiphertext: boolean;
+  /**
+   * Existing ciphertext that must still match before a refresh. Null means the
+   * migration may only fill an empty shared column.
+   */
+  sharedCiphertextToReplace?: string | null;
 }
 
 function decryptAppSecretValue(
@@ -263,10 +267,14 @@ function decryptAppSecretValue(
 ): DecryptedAppSecretValue {
   if (sharedEncrypted) {
     try {
+      const decrypted = decryptValue(sharedEncrypted);
       return {
-        value: decryptValue(sharedEncrypted),
+        value: decrypted.value,
         usedLegacyKey: false,
-        needsSharedCiphertext: false,
+        needsSharedCiphertext: decrypted.needsReencrypt,
+        sharedCiphertextToReplace: decrypted.needsReencrypt
+          ? sharedEncrypted
+          : undefined,
       };
     } catch {
       // Fall through to the legacy column. A partially migrated row may have
@@ -274,30 +282,34 @@ function decryptAppSecretValue(
     }
   }
   try {
+    const decrypted = decryptValue(encrypted);
     return {
-      value: decryptValue(encrypted),
+      value: decrypted.value,
       usedLegacyKey: false,
       needsSharedCiphertext: true,
+      sharedCiphertextToReplace: sharedEncrypted ?? null,
     };
   } catch {
     return {
       value: decryptLegacyValue(encrypted),
       usedLegacyKey: true,
       needsSharedCiphertext: true,
+      sharedCiphertextToReplace: sharedEncrypted ?? null,
     };
   }
 }
 
 /**
- * Populate the shared column without touching encrypted_value. This is
- * intentionally best-effort: a read must still succeed if a deployment's DB
- * role cannot update the row. The NULL predicate prevents a concurrent writer
- * from overwriting newly-populated shared ciphertext, and leaving updated_at
- * untouched preserves the row's user-visible ordering/metadata.
+ * Create or refresh the shared column without touching encrypted_value. This
+ * is intentionally best-effort: a read must still succeed if a deployment's
+ * DB role cannot update the row. The compare-and-swap predicate prevents a
+ * concurrent writer from being overwritten, and leaving updated_at untouched
+ * preserves the row's user-visible ordering/metadata.
  */
 async function populateSharedAppSecret(
   id: unknown,
   value: string,
+  sharedCiphertextToReplace: string | null,
 ): Promise<void> {
   if (
     id === undefined ||
@@ -307,10 +319,18 @@ async function populateSharedAppSecret(
     return;
   }
   try {
-    await getDbExec().execute({
-      sql: `UPDATE app_secrets SET shared_encrypted_value = ? WHERE id = ? AND shared_encrypted_value IS NULL`,
-      args: [encryptValue(value), id],
-    });
+    const encrypted = encryptValue(value);
+    if (sharedCiphertextToReplace === null) {
+      await getDbExec().execute({
+        sql: `UPDATE app_secrets SET shared_encrypted_value = ? WHERE id = ? AND shared_encrypted_value IS NULL`,
+        args: [encrypted, id],
+      });
+    } else {
+      await getDbExec().execute({
+        sql: `UPDATE app_secrets SET shared_encrypted_value = ? WHERE id = ? AND shared_encrypted_value = ?`,
+        args: [encrypted, id, sharedCiphertextToReplace],
+      });
+    }
   } catch {
     // Migration is opportunistic. Preserve the successful read if the update
     // is unavailable due to a read-only role, transient DB failure, or race.
@@ -371,7 +391,11 @@ export async function readAppSecret(
       rows[0].shared_encrypted_value as string | null,
     );
     if (decrypted.needsSharedCiphertext) {
-      await populateSharedAppSecret(rows[0].id, decrypted.value);
+      await populateSharedAppSecret(
+        rows[0].id,
+        decrypted.value,
+        decrypted.sharedCiphertextToReplace ?? null,
+      );
     }
     return {
       value: decrypted.value,
@@ -410,7 +434,11 @@ export async function readAppSecrets(args: {
         row.shared_encrypted_value as string | null,
       );
       if (decrypted.needsSharedCiphertext) {
-        await populateSharedAppSecret(row.id, decrypted.value);
+        await populateSharedAppSecret(
+          row.id,
+          decrypted.value,
+          decrypted.sharedCiphertextToReplace ?? null,
+        );
       }
       results.set(key, {
         value: decrypted.value,
@@ -473,7 +501,11 @@ export async function readAppSecretMeta(
       row.shared_encrypted_value as string | null,
     );
     if (decrypted.needsSharedCiphertext) {
-      await populateSharedAppSecret(row.id, decrypted.value);
+      await populateSharedAppSecret(
+        row.id,
+        decrypted.value,
+        decrypted.sharedCiphertextToReplace ?? null,
+      );
     }
     last4Value = last4(decrypted.value);
   } catch {
@@ -516,7 +548,11 @@ export async function listAppSecretsForScope(
         row.shared_encrypted_value as string | null,
       );
       if (decrypted.needsSharedCiphertext) {
-        await populateSharedAppSecret(row.id, decrypted.value);
+        await populateSharedAppSecret(
+          row.id,
+          decrypted.value,
+          decrypted.sharedCiphertextToReplace ?? null,
+        );
       }
       last4Value = last4(decrypted.value);
     } catch {

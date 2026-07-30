@@ -229,14 +229,24 @@ describe("scopedAnalyticsSql", () => {
       "2026-07-01",
     );
 
-    expect(scoped.sql).toContain("FROM analytics_events WHERE");
     expect(scoped.sql).toContain(
-      "(org_id = ? OR (org_id IS NULL AND owner_email = ?))",
+      "FROM (SELECT * FROM analytics_events WHERE org_id = ?",
     );
     expect(scoped.sql).toContain(
-      "COALESCE(NULLIF(event_date, ''), substr(timestamp, 1, 10)) <= ?",
+      "UNION ALL SELECT * FROM analytics_events WHERE org_id IS NULL AND owner_email = ?",
     );
-    expect(scoped.args).toEqual(["org_123", "alice@example.com", "2026-07-01"]);
+    expect(
+      scoped.sql.match(
+        /COALESCE\(NULLIF\(event_date, ''\), substr\(timestamp, 1, 10\)\) <= \?/g,
+      ),
+    ).toHaveLength(2);
+    expect(scoped.sql).not.toContain("org_id = ? OR");
+    expect(scoped.args).toEqual([
+      "org_123",
+      "2026-07-01",
+      "alice@example.com",
+      "2026-07-01",
+    ]);
   });
 
   it("adds freshness guards around session recording reads", () => {

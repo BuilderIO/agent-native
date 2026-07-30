@@ -417,6 +417,10 @@ const messages = {
     emerald: "Emerald",
     amber: "Amber",
     rose: "Rose",
+    arrange: "Arrange",
+    order: "Order",
+    bringToFront: "Bring to front",
+    sendToBack: "Send to back",
   },
   animations: {
     appear: "Appear",
@@ -533,6 +537,7 @@ const messages = {
     deckHasNoSlides: "Deck has no slides.",
     pdfRenderFailed: "Could not render PDF.",
     buildingDeck: "Building deck",
+    dismissLayoutWarning: "Dismiss layout warning",
     slidesAdded_one: "{{count}} slide added",
     slidesAdded_other: "{{count}} slides added",
   },

@@ -411,6 +411,10 @@ const messages = {
     emerald: "Emerald",
     amber: "Amber",
     rose: "Rose",
+    arrange: "排列",
+    order: "顺序",
+    bringToFront: "置于顶层",
+    sendToBack: "置于底层",
   },
   animations: {
     appear: "出现",
@@ -519,6 +523,7 @@ const messages = {
     deckHasNoSlides: "幻灯片没有页面。",
     pdfRenderFailed: "无法渲染 PDF。",
     buildingDeck: "正在构建幻灯片",
+    dismissLayoutWarning: "关闭布局警告",
     slidesAdded_one: "已添加 {{count}} 张幻灯片",
     slidesAdded_other: "已添加 {{count}} 张幻灯片",
   },

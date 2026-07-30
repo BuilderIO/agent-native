@@ -3921,9 +3921,6 @@ importers:
       '@agent-native/creative-context':
         specifier: workspace:*
         version: link:../../packages/creative-context
-      '@agent-native/pinpoint':
-        specifier: workspace:*
-        version: link:../../packages/pinpoint
       '@agent-native/toolkit':
         specifier: workspace:*
         version: link:../../packages/toolkit
@@ -5259,9 +5256,6 @@ importers:
       '@agent-native/creative-context':
         specifier: workspace:*
         version: link:../../packages/creative-context
-      '@agent-native/pinpoint':
-        specifier: workspace:*
-        version: link:../../packages/pinpoint
       '@agent-native/toolkit':
         specifier: workspace:*
         version: link:../../packages/toolkit

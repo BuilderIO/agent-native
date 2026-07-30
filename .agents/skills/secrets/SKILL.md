@@ -223,14 +223,21 @@ Core routes plugin mounts these under `/_agent-native/secrets/` automatically:
 
 - Values are stored in `app_secrets` (created on-demand; no migration
   needed).
-- Encrypted at rest with AES-256-GCM. Key material is derived from
-  `<APP_NAME>_SECRETS_ENCRYPTION_KEY` when set (for example,
+- Values are encrypted at rest with AES-256-GCM. Generic app-local secrets
+  prefer `<APP_NAME>_SECRETS_ENCRYPTION_KEY` (for example,
   `ANALYTICS_SECRETS_ENCRYPTION_KEY`), then `SECRETS_ENCRYPTION_KEY`, then
-  `BETTER_AUTH_SECRET`. App-scoped keys are useful when a local multi-app
-  workspace connects one app to its production database without replacing the
-  shared local authentication secret. If none is set, the framework uses a
-  machine-local fallback and logs a one-time warning — set stable key material
-  in production and in every runtime that reads the same encrypted data.
+  `BETTER_AUTH_SECRET`.
+- Workspace-shared `app_secrets` prefer `SECRETS_ENCRYPTION_KEY`, then a
+  purpose-derived key from `A2A_SECRET`. Better Auth and app-scoped keys remain
+  legacy read candidates; a successful legacy decrypt is compare-and-swap
+  migrated to the preferred shared key without changing the row timestamp.
+- Set the same stable `SECRETS_ENCRYPTION_KEY` in every app that reads a shared
+  vault. If the vault relies on `A2A_SECRET`, rotating A2A material also rotates
+  its encryption key. Before rotating A2A, add the stable vault key everywhere
+  and read/migrate every existing row while the old A2A material is still
+  available.
+- If no configured key material exists, development uses a machine-local
+  fallback and logs a one-time warning. Production fails closed.
 
 ## Ad-hoc Keys
 

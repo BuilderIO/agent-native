@@ -406,6 +406,10 @@ const messages = {
     emerald: "Emerald",
     amber: "Amber",
     rose: "Rose",
+    arrange: "排列",
+    order: "順序",
+    bringToFront: "移到最上層",
+    sendToBack: "移到最下層",
   },
   animations: {
     appear: "出現",
@@ -514,6 +518,7 @@ const messages = {
     deckHasNoSlides: "幻燈片沒有頁面。",
     pdfRenderFailed: "無法渲染 PDF。",
     buildingDeck: "正在建置幻燈片",
+    dismissLayoutWarning: "關閉版面警告",
     slidesAdded_one: "已新增 {{count}} 張幻燈片",
     slidesAdded_other: "已新增 {{count}} 張幻燈片",
   },
