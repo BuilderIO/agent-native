@@ -117,10 +117,11 @@ function groupIntoParagraphs(texts: ParsedTextRun[]): ParsedTextRun[][] {
 }
 
 /**
- * Determine slide layout and generate HTML. `imageUrl` is the hosted URL
- * for the slide's first embedded image (already uploaded by the caller) —
- * pass undefined when the slide has no image or the upload failed, and the
- * builders fall back to a text placeholder instead of a broken `<img>`.
+ * Determine slide layout and generate HTML. `imageUrls` contains the hosted
+ * URLs for the slide's embedded images (already uploaded by the caller), in
+ * the same order as `slide.images`. Missing entries remain visible as text
+ * placeholders instead of becoming broken `<img>` elements. A string is
+ * accepted for compatibility with older callers that only uploaded one image.
  * `themeFont` is the presentation's extracted theme font, if any, so
  * imported slides keep the source deck's typeface instead of always
  * rendering in Poppins.
