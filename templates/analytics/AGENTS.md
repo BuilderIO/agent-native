@@ -42,6 +42,11 @@ change the numbers.
 
 ## Core Rules
 
+- A sibling app asking over A2A sends a question or shaped input, never SQL. It
+  lacks this app's schema, data dictionary, dashboards, and dialect knowledge,
+  so raw-query actions (`sql`, `code`, `script`, `expression`) are not
+  sibling-invocable. For recurring numbers, add a shaped read action with
+  semantic parameters and let this app own the query.
 - Data integrity first. Never invent numbers, dimensions, filters, or source
   semantics; only present values you actually retrieved, and state uncertainty.
 - Every analytical answer carries audit context: source(s), time window,

@@ -1,13 +1,16 @@
 import { appPath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
+import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
+import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
   IconCheckbox,
   IconForms,
   IconInbox,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
+  IconSearch,
   IconSettings,
 } from "@tabler/icons-react";
 import { Link, useLocation } from "react-router";
@@ -84,6 +87,28 @@ export function Sidebar({
       </TooltipContent>
     </Tooltip>
   ) : null;
+  const searchButton = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={openCommandMenu}
+          aria-label={t("sidebar.search")}
+          className="flex size-8 items-center justify-center rounded-md text-sidebar-foreground/65 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <IconSearch className="size-4" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">{t("sidebar.search")}</TooltipContent>
+    </Tooltip>
+  );
+  const feedbackButton = (
+    <FeedbackButton
+      variant={collapsed ? "icon" : "sidebar"}
+      className={collapsed ? "size-8" : "min-w-0"}
+      side="right"
+    />
+  );
 
   return (
     <aside
@@ -219,14 +244,12 @@ export function Sidebar({
           />
         </div>
 
-        {!collapsed ? (
-          <div className="flex items-center justify-end gap-1 border-t border-sidebar-border px-3 py-2">
-            <FeedbackButton className="min-w-0 flex-1" side="right" />
-            {collapseButton}
-          </div>
-        ) : collapseButton ? (
-          <div className="flex justify-center px-1 py-1">{collapseButton}</div>
-        ) : null}
+        <SidebarFooterActions
+          collapsed={collapsed}
+          feedback={feedbackButton}
+          search={searchButton}
+          collapse={collapseButton}
+        />
       </div>
     </aside>
   );

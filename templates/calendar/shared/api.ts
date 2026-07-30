@@ -1,6 +1,8 @@
 export interface CalendarEvent {
   id: string;
   title: string;
+  /** Client-facing provenance for a display label synthesized from an absent title. */
+  titleIsGenerated?: boolean;
   description: string;
   start: string; // ISO 8601
   end: string; // ISO 8601

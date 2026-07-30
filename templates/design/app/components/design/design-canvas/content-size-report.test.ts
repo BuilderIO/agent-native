@@ -26,13 +26,13 @@ describe("appendContentSizeReporter", () => {
     expect(appendContentSizeReporter("plain")).toContain("content-size-bridge");
   });
 
-  it("pins full-height utilities to a device-viewport var (vh runaway guard)", () => {
+  it("pins viewport-relative CSS to a device viewport (vh runaway guard)", () => {
     const out = appendContentSizeReporter("<body></body>");
-    // The guard remaps min-h-screen/h-screen etc. to --agent-native-device-vh
-    // so a full-viewport hero stays one device tall and scrollHeight is stable.
     expect(out).toContain("--agent-native-device-vh");
     expect(out).toContain(".min-h-screen");
     expect(out).toContain(".h-screen");
+    expect(out).toContain("remapViewportHeightUnits");
+    expect(out).toContain('querySelectorAll("[style]")');
   });
 
   it("reports its own width so the parent can key by frame", () => {

@@ -1567,6 +1567,7 @@ const enUS = {
     writingAgentInstructions: "Writing Agent Instructions",
     embeddingSdk: "Embedding SDK",
     frames: "Frames",
+    docsComponents: "Docs Components",
     agentNativeCodeUi: "Agent-Native Code UI",
     harnessAgents: "Harness Agents",
     adapters: "Adapters",

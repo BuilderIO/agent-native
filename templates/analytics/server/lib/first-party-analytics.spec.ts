@@ -120,6 +120,24 @@ describe("isMarketingWebsiteSessionEvent", () => {
 });
 
 describe("recordAnalyticsEvents", () => {
+  it("persists both sides of a signup identity bridge", async () => {
+    await recordAnalyticsEvents("anpk_test", [
+      {
+        event: "signup",
+        userId: "new@example.com",
+        anonymousId: "anon_signup_1",
+      },
+    ]);
+
+    expect(analyticsDbMocks.insertValues).toHaveBeenCalledWith([
+      expect.objectContaining({
+        eventName: "signup",
+        userId: "new@example.com",
+        anonymousId: "anon_signup_1",
+      }),
+    ]);
+  });
+
   it("persists www session status as signed out", async () => {
     await recordAnalyticsEvents("anpk_test", [
       {

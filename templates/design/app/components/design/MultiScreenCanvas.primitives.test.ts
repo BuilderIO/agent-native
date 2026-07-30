@@ -273,6 +273,7 @@ describe("board surface pointer capture", () => {
 
     expect(content).toContain("transform:scale(0.03125)!important");
     expect(content).toContain("translate:65536px 65536px!important");
+    expect(content).toContain("background:hsl(0, 0%, 10%)!important");
     expect(content).toContain('data-agent-native-node-id="left"');
     expect(content).toContain('data-agent-native-node-id="right"');
     expect(content).not.toMatch(/<script|onload=|<iframe|<object|<embed/i);

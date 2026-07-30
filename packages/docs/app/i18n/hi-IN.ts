@@ -1650,6 +1650,7 @@ const hiIN = {
     formsOverview: "अवलोकन",
     formsBuildingPublishing: "निर्माण और प्रकाशन",
     formsResponses: "प्रतिक्रियाएं और इनसाइट्स",
+    docsComponents: "Docs Components",
     formsDevelopers: "डेवलपर गाइड",
   },
 } satisfies typeof enUS;

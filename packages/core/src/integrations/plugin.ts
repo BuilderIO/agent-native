@@ -12,6 +12,7 @@ import { createRemoteJWKSet, jwtVerify } from "jose";
 import {
   AGENT_BACKGROUND_PROCESSOR_FIELD,
   AGENT_BACKGROUND_PROCESSOR_INTEGRATION,
+  isInBackgroundFunctionRuntime,
 } from "../agent/durable-background.js";
 import { abortRun } from "../agent/run-manager.js";
 import { getOrgContext, resolveOrgIdForEmail } from "../org/context.js";
@@ -91,6 +92,7 @@ import {
   INTEGRATION_CAMPAIGN_PROCESSOR_FIELD,
   INTEGRATION_RETRY_SWEEP_TOKEN_SUBJECT,
   integrationDispatchScopeValue,
+  isInIntegrationRecoveryRuntime,
   isIntegrationDurableDispatchConfigured,
   isIntegrationDurableDispatchEnabledForTask,
 } from "./integration-durable-dispatch.js";
@@ -3414,42 +3416,49 @@ export function createIntegrationsPlugin(
       }),
     );
 
-    // ─── Start pending-tasks retry sweeper ────────────────────────
-    // Sweeps the integration_pending_tasks queue every 60s and re-fires the
-    // processor for any tasks that got stuck (initial dispatch lost or
-    // processor killed mid-flight). No-ops gracefully if the queue table
-    // hasn't been created yet on this deployment.
-    startPendingTasksRetryJob({
-      webhookBaseUrl: process.env.WEBHOOK_BASE_URL,
-    });
-    startA2AContinuationRetryJob(adapterMap);
-    startRemoteCommandsRetryJob();
-    startRemotePushDeliveryJob();
+    // Background agent and scheduled recovery functions mount the same Nitro
+    // app, but they are workers rather than hosts for recurring integration
+    // jobs. Starting these timers in every worker multiplies recovery sweeps
+    // and pollers across concurrent runs, exhausting the shared database
+    // precisely while those runs are trying to checkpoint and deliver replies.
+    if (!isInBackgroundFunctionRuntime() && !isInIntegrationRecoveryRuntime()) {
+      // ─── Start pending-tasks retry sweeper ────────────────────────
+      // Sweeps the integration_pending_tasks queue every 60s and re-fires the
+      // processor for any tasks that got stuck (initial dispatch lost or
+      // processor killed mid-flight). No-ops gracefully if the queue table
+      // hasn't been created yet on this deployment.
+      startPendingTasksRetryJob({
+        webhookBaseUrl: process.env.WEBHOOK_BASE_URL,
+      });
+      startA2AContinuationRetryJob(adapterMap);
+      startRemoteCommandsRetryJob();
+      startRemotePushDeliveryJob();
 
-    // ─── Start Google Docs poller/push ────────────────────────────
-    if (adapterMap.has("google-docs")) {
-      // Defer startup slightly so the server is fully ready
-      setTimeout(() => {
-        // We don't know the base URL at plugin init time — it depends on
-        // the incoming request. For push mode, the webhook URL needs to be
-        // resolved. We pass it as a special option; the poller will attempt
-        // to register a watch when the first request reveals the base URL,
-        // or use the WEBHOOK_BASE_URL env var if set.
-        const baseUrl = process.env.WEBHOOK_BASE_URL;
-        const webhookUrl = baseUrl
-          ? `${withConfiguredAppBasePath(baseUrl)}${P}/google-docs/webhook`
-          : undefined;
+      // ─── Start Google Docs poller/push ────────────────────────────
+      if (adapterMap.has("google-docs")) {
+        // Defer startup slightly so the server is fully ready
+        setTimeout(() => {
+          // We don't know the base URL at plugin init time — it depends on
+          // the incoming request. For push mode, the webhook URL needs to be
+          // resolved. We pass it as a special option; the poller will attempt
+          // to register a watch when the first request reveals the base URL,
+          // or use the WEBHOOK_BASE_URL env var if set.
+          const baseUrl = process.env.WEBHOOK_BASE_URL;
+          const webhookUrl = baseUrl
+            ? `${withConfiguredAppBasePath(baseUrl)}${P}/google-docs/webhook`
+            : undefined;
 
-        void startGoogleDocsPoller({
-          systemPrompt: baseSystemPrompt,
-          actions,
-          initialToolNames,
-          model: model ?? "",
-          apiKey: getApiKey(),
-          ownerEmail: "integration@google-docs",
-          webhookUrl,
-        });
-      }, 2000);
+          void startGoogleDocsPoller({
+            systemPrompt: baseSystemPrompt,
+            actions,
+            initialToolNames,
+            model: model ?? "",
+            apiKey: getApiKey(),
+            ownerEmail: "integration@google-docs",
+            webhookUrl,
+          });
+        }, 2000);
+      }
     }
 
     if (process.env.DEBUG)

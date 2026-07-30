@@ -106,7 +106,10 @@ import {
 } from "../shared/workspace-app-audience.js";
 import { isValidWorkspaceAppIdFormat } from "../shared/workspace-app-id.js";
 import { injectAnalyticsIntoHtml } from "./analytics.js";
-import { signupAttributionFromCookieHeader } from "./attribution.js";
+import {
+  readAnalyticsAnonymousId,
+  signupAttributionFromCookieHeader,
+} from "./attribution.js";
 import { getBetterAuth, getBetterAuthSync } from "./better-auth-instance.js";
 import type { BetterAuthConfig } from "./better-auth-instance.js";
 import {
@@ -2736,6 +2739,9 @@ async function mountBetterAuthRoutes(
         const signupAttribution = signupAttributionFromCookieHeader(
           getHeader(event, "cookie") ?? null,
         );
+        const signupAnonymousId = readAnalyticsAnonymousId(
+          getHeader(event, "cookie") ?? null,
+        );
         const state = encodeOAuthState({
           redirectUri,
           desktop,
@@ -2744,6 +2750,7 @@ async function mountBetterAuthRoutes(
           returnUrl,
           flowId,
           signupAttribution,
+          signupAnonymousId,
         });
         logGoogleOAuthDebug(event, "auth-url", {
           flowId,
@@ -2798,11 +2805,17 @@ async function mountBetterAuthRoutes(
         try {
           const query = getQuery(event);
           const code = query.code as string;
-          const { redirectUri, desktop, returnUrl, flowId, signupAttribution } =
-            decodeOAuthState(
-              query.state as string | undefined,
-              getAppUrl(event, "/_agent-native/google/callback"),
-            );
+          const {
+            redirectUri,
+            desktop,
+            returnUrl,
+            flowId,
+            signupAttribution,
+            signupAnonymousId,
+          } = decodeOAuthState(
+            query.state as string | undefined,
+            getAppUrl(event, "/_agent-native/google/callback"),
+          );
           callbackFlowId = flowId;
           callbackDesktop = desktop ?? false;
           logGoogleOAuthDebug(event, "callback-start", {
@@ -2923,6 +2936,7 @@ async function mountBetterAuthRoutes(
               authUserId: typeof user.id === "string" ? user.id : undefined,
               name: typeof user.name === "string" ? user.name : undefined,
               attribution: signupAttribution,
+              signupAnonymousId,
             },
           });
           logGoogleOAuthDebug(event, "callback-session-created", {

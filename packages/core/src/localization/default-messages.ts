@@ -336,6 +336,12 @@ const messages = {
     },
   },
   agentPanel: {
+    uiError: {
+      title: "Agent panel hit a glitch",
+      description: "The app's still usable. Reset to reload the chat.",
+      reset: "Reset agent panel",
+      reloading: "Reloading chat…",
+    },
     useBuilder: "Use Builder",
     openDesktopToEditCode: "Open Desktop to edit code",
     codeUnavailableDescription:
