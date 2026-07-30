@@ -5082,6 +5082,9 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     // read-only and typing guards below — the host matcher is deliberately
     // global for the same reason. Without this the chord never escapes the
     // canvas iframe, which is where focus lands the moment you click a frame.
+    // Not reached during a live text-edit session: that block returns before
+    // this function runs, deliberately — see the activeTextEditEl guard in
+    // the keydown listener.
     if (isShowShortcutsChord(e)) return true;
     // Read-only surfaces (e.g. background/inactive board screens) must never
     // forward edit hotkeys or preventDefault() native browser shortcuts —
@@ -10974,6 +10977,13 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         }
         // While a live session exists, never forward hotkeys to the host
         // (matches shouldForwardDesignHotkey's activeTextEditEl guard).
+        // The shortcut-help chord is deliberately included in that exclusion:
+        // the panel lives in the parent document, so opening it moves focus
+        // out of the iframe, blurs the editable and commits the in-progress
+        // edit. Ending someone's text entry to show help is a worse trade
+        // than help being unavailable for the duration of a typing session;
+        // it stays available everywhere else, including while a text layer is
+        // merely selected.
         return;
       }
       if (!shouldForwardDesignHotkey(e)) return;
