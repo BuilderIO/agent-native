@@ -37,6 +37,8 @@ interface SlideRendererProps {
    * The renderer no longer shrinks slides for vertical overflow — instead the
    * editor surfaces this so the agent can rewrite the slide to fit. */
   onOverflowChange?: (info: SlideOverflowInfo) => void;
+  /** Fires after AutoFit has applied its final transform for this render. */
+  onAutofitSettled?: () => void;
 }
 
 export const layoutClasses: Record<string, string> = {
@@ -311,9 +313,12 @@ function useSlideAutofit(
   canvasHeight: number,
   fitKey: string,
   onOverflowChange?: (info: SlideOverflowInfo) => void,
+  onAutofitSettled?: () => void,
 ) {
   const overflowCallbackRef = useRef(onOverflowChange);
   overflowCallbackRef.current = onOverflowChange;
+  const autofitSettledRef = useRef(onAutofitSettled);
+  autofitSettledRef.current = onAutofitSettled;
 
   useIsomorphicLayoutEffect(() => {
     const root = ref.current;
@@ -395,6 +400,7 @@ function useSlideAutofit(
             viewportHeight: 0,
           },
         );
+        autofitSettledRef.current?.();
       }
     };
 
@@ -437,6 +443,7 @@ function AutoFitContent({
   className = "",
   children,
   onOverflowChange,
+  onAutofitSettled,
 }: {
   canvasWidth: number;
   canvasHeight: number;
@@ -444,9 +451,17 @@ function AutoFitContent({
   className?: string;
   children: ReactNode;
   onOverflowChange?: (info: SlideOverflowInfo) => void;
+  onAutofitSettled?: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  useSlideAutofit(ref, canvasWidth, canvasHeight, fitKey, onOverflowChange);
+  useSlideAutofit(
+    ref,
+    canvasWidth,
+    canvasHeight,
+    fitKey,
+    onOverflowChange,
+    onAutofitSettled,
+  );
 
   return (
     <div
@@ -564,11 +579,13 @@ export function SlideInner({
   designSystem,
   aspectRatio,
   onOverflowChange,
+  onAutofitSettled,
 }: {
   slide: Slide;
   designSystem?: DesignSystemData;
   aspectRatio?: AspectRatio;
   onOverflowChange?: (info: SlideOverflowInfo) => void;
+  onAutofitSettled?: () => void;
 }) {
   const t = useT();
   const dims = getAspectRatioDims(aspectRatio);
@@ -651,6 +668,7 @@ export function SlideInner({
           fitKey={left}
           className="slide-content text-white/90"
           onOverflowChange={onOverflowChange}
+          onAutofitSettled={onAutofitSettled}
         >
           <ReactMarkdown
             components={markdownComponents}
@@ -664,6 +682,7 @@ export function SlideInner({
           canvasHeight={dims.height}
           fitKey={right}
           className="slide-content text-white/90"
+          onAutofitSettled={onAutofitSettled}
         >
           <ReactMarkdown
             components={markdownComponents}
@@ -689,6 +708,7 @@ export function SlideInner({
           fitKey={content}
           className="h-full w-full"
           onOverflowChange={onOverflowChange}
+          onAutofitSettled={onAutofitSettled}
         >
           <BlankSlideContent content={content} />
         </AutoFitContent>
@@ -714,6 +734,7 @@ export function SlideInner({
         fitKey={content}
         className="slide-content text-white/90 w-full"
         onOverflowChange={onOverflowChange}
+        onAutofitSettled={onAutofitSettled}
       >
         <ReactMarkdown
           components={markdownComponents}
@@ -733,6 +754,7 @@ export default function SlideRenderer({
   designSystem,
   aspectRatio,
   onOverflowChange,
+  onAutofitSettled,
 }: SlideRendererProps) {
   const dims = getAspectRatioDims(aspectRatio);
 
@@ -753,6 +775,7 @@ export default function SlideRenderer({
             designSystem={designSystem}
             aspectRatio={aspectRatio}
             onOverflowChange={onOverflowChange}
+            onAutofitSettled={onAutofitSettled}
           />
         </div>
         <ScaleHelper
@@ -783,6 +806,7 @@ export default function SlideRenderer({
           designSystem={designSystem}
           aspectRatio={aspectRatio}
           onOverflowChange={onOverflowChange}
+          onAutofitSettled={onAutofitSettled}
         />
       </div>
       <ScaleHelper targetWidth={dims.width} />

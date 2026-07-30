@@ -404,6 +404,10 @@ const messages = {
     emerald: "Emerald",
     amber: "Amber",
     rose: "Rose",
+    arrange: "排列",
+    order: "順序",
+    bringToFront: "移到最上層",
+    sendToBack: "移到最下層",
   },
   animations: {
     appear: "出現",

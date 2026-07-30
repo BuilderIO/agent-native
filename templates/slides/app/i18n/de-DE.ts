@@ -420,6 +420,10 @@ const messages = {
     emerald: "Emerald",
     amber: "Amber",
     rose: "Rose",
+    arrange: "Anordnen",
+    order: "Reihenfolge",
+    bringToFront: "In den Vordergrund",
+    sendToBack: "In den Hintergrund",
   },
   animations: {
     appear: "Aparecer",

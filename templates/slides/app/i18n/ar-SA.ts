@@ -417,6 +417,10 @@ const messages = {
     emerald: "Emerald",
     amber: "Amber",
     rose: "Rose",
+    arrange: "ترتيب",
+    order: "الترتيب",
+    bringToFront: "إحضار إلى الأمام",
+    sendToBack: "إرسال إلى الخلف",
   },
   animations: {
     appear: "Aparecer",

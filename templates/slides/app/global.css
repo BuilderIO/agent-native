@@ -109,6 +109,9 @@ button[title="Open agent sidebar"] {
 .slide-style-inspector {
   --slides-inspector-control-background: hsl(var(--muted) / 0.82);
   --slides-inspector-divider: hsl(var(--border) / 0.7);
+  --design-editor-control-bg: var(--slides-inspector-control-background);
+  --design-editor-control-border: transparent;
+  --design-editor-accent-color: #609ff8;
 }
 
 .slide-style-inspector > div:first-child {
@@ -1140,6 +1143,103 @@ button[title="Open agent sidebar"] {
 /* Selection highlight */
 .slide-tiptap-editor .tiptap ::selection {
   background: rgba(96, 159, 248, 0.35);
+}
+
+/* Google Slides-style object selection chrome. The edge hit targets are wider
+   than their visible bars, but both centers sit on the 1px outline rather than
+   drifting into the selected object through the outline's border box. */
+[data-slide-selection-chrome="true"] [data-slide-resize-handle] {
+  box-sizing: border-box;
+}
+
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="nw"],
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="ne"],
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="sw"],
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="se"],
+[data-slide-selection-chrome="true"] [data-slide-resize-handle-bar="true"] {
+  border: 1px solid #609ff8;
+  background: #fff;
+  box-shadow: none;
+}
+
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="nw"],
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="ne"],
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="sw"],
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="se"] {
+  width: 7px;
+  height: 7px;
+}
+
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="nw"] {
+  top: -4px;
+  left: -4px;
+}
+
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="ne"] {
+  top: -4px;
+  right: -4px;
+}
+
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="sw"] {
+  bottom: -4px;
+  left: -4px;
+}
+
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="se"] {
+  right: -4px;
+  bottom: -4px;
+}
+
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="n"],
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="s"] {
+  width: 22px;
+  height: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="n"] {
+  top: -6.5px;
+}
+
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="s"] {
+  bottom: -6.5px;
+}
+
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="e"],
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="w"] {
+  width: 12px;
+  height: 22px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="e"] {
+  right: -6.5px;
+}
+
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="w"] {
+  left: -6.5px;
+}
+
+[data-slide-selection-chrome="true"]
+  [data-slide-resize-handle="n"]
+  [data-slide-resize-handle-bar="true"],
+[data-slide-selection-chrome="true"]
+  [data-slide-resize-handle="s"]
+  [data-slide-resize-handle-bar="true"] {
+  width: 14px;
+  height: 4px;
+}
+
+[data-slide-selection-chrome="true"]
+  [data-slide-resize-handle="e"]
+  [data-slide-resize-handle-bar="true"],
+[data-slide-selection-chrome="true"]
+  [data-slide-resize-handle="w"]
+  [data-slide-resize-handle-bar="true"] {
+  width: 4px;
+  height: 14px;
 }
 
 /* ─── Slide Transition Keyframes ─── */

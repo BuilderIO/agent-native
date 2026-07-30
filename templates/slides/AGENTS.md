@@ -41,10 +41,10 @@ ladder.
 - Use image-generation and image-selection actions only when the deck genuinely
   needs imagery; keep citations/asset provenance when available.
 - Use framework sharing actions for deck visibility and grants.
-- For a known, read-only sibling-app operation, use `call-agent` with `action`
-  and `input` (or `invokeAgentAction`) instead of starting the sibling agent's
-  model loop. In Analytics, use `gong-native-insights` for provider-synthesized
-  briefs and `gong-calls` for quotes, counts, transcripts, and coverage claims.
+- Ask a sibling app's agent with a natural-language `call-agent` message by
+  default. Let that specialist use its own instructions, skills, sources, and
+  tools. Direct action invocation is only for an exact bounded read with a
+  fully known schema; never use it as a workaround for slow or failed A2A.
 - For data requests, read `.agents/skills/analytics-data-for-decks/SKILL.md` and
   delegate via Analytics over A2A; do not write SQL or call providers directly.
 - When the user names no reference deck or design system, call

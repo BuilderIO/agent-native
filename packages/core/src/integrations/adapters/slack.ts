@@ -2067,7 +2067,9 @@ function createSlackRunProgress(
             ? "in_progress"
             : event.status === "done"
               ? "complete"
-              : "error";
+              : event.status === "pending"
+                ? "in_progress"
+                : "error";
         const title = delegatedTaskTitle(event.agent);
         tasks.set(id, { title, status });
         await append({
@@ -2075,9 +2077,12 @@ function createSlackRunProgress(
           id,
           title,
           status,
-          ...(event.status === "start"
+          ...(event.status === "start" || event.status === "pending"
             ? {
-                details: `I’m contacting ${shortTaskTitle(event.agent)} for an answer.`,
+                details:
+                  event.status === "pending"
+                    ? `${shortTaskTitle(event.agent)} is still working and will need another status check.`
+                    : `I’m contacting ${shortTaskTitle(event.agent)} for an answer.`,
               }
             : {}),
         });

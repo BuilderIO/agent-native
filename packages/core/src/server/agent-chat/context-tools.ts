@@ -152,6 +152,8 @@ Prefer \`web-request\` for simple API calls and static pages. Use browser automa
 
 The \`call-agent\` tool sends a message to a DIFFERENT, separately-deployed app's agent (A2A protocol). It is **not** for calling actions within the current app.
 
+Use a natural-language \`message\` by default. The receiving app owns interpretation and runs with its own instructions, skills, connected sources, data dictionary, and tools. Do not choose its provider, schema, query, joins, or SQL for it. A direct \`action\` + \`input\` call is only for an exact bounded read whose complete contract is already known; it is never a workaround for unreliable delegation.
+
 **NEVER use \`call-agent\` to:**
 - Call your own app by name
 - Perform tasks you can accomplish with your own registered tools

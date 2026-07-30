@@ -56,6 +56,7 @@ import {
   trimOldToolResults,
   type ActionEntry,
   type AgentLoopFinalResponseGuardContext,
+  type AgentLoopOutcome,
 } from "./production-agent.js";
 import type { ActiveRun } from "./run-manager.js";
 import { attachToolSearch, searchToolRegistry } from "./tool-search.js";
@@ -7195,6 +7196,7 @@ describe("runAgentLoop", () => {
       },
     };
     const events: any[] = [];
+    const outcomes: AgentLoopOutcome[] = [];
 
     await runAgentLoop({
       engine,
@@ -7204,6 +7206,7 @@ describe("runAgentLoop", () => {
       messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
       actions: { noop: actionEntry({ readOnly: true }) },
       send: (event) => events.push(event),
+      onOutcome: (outcome) => outcomes.push(outcome),
       signal: new AbortController().signal,
       maxIterations: 2,
     });
@@ -7220,6 +7223,14 @@ describe("runAgentLoop", () => {
     // run-manager stashes `loop_limit` and `done` in the same terminal-event
     // slot, so a trailing `done` would erase the continuation boundary.
     expect(events.at(-1)).toEqual({ type: "loop_limit", maxIterations: 2 });
+    expect(outcomes).toEqual([
+      {
+        state: "failed",
+        code: "loop_limit",
+        retryable: false,
+        message: "Agent stopped after 2 iterations.",
+      },
+    ]);
   });
 
   it("stops the turn when the per-turn input-token budget is exceeded, counting tokens from earlier chunks", async () => {
@@ -7260,6 +7271,7 @@ describe("runAgentLoop", () => {
       },
     };
     const events: any[] = [];
+    const outcomes: AgentLoopOutcome[] = [];
 
     await runAgentLoop({
       engine,
@@ -7269,6 +7281,7 @@ describe("runAgentLoop", () => {
       messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
       actions: { noop: actionEntry({ readOnly: true }) },
       send: (event) => events.push(event),
+      onOutcome: (outcome) => outcomes.push(outcome),
       signal: new AbortController().signal,
       maxIterations: 50,
       maxRunInputTokens: 100_000,
@@ -7287,6 +7300,13 @@ describe("runAgentLoop", () => {
     expect(events).not.toContainEqual(
       expect.objectContaining({ type: "loop_limit" }),
     );
+    expect(outcomes).toEqual([
+      expect.objectContaining({
+        state: "failed",
+        code: "budget_exhausted",
+        retryable: false,
+      }),
+    ]);
   });
 
   it("clamps the per-tool timeout to what can actually fire inside the run's chunk budget", async () => {
@@ -7393,6 +7413,7 @@ describe("runAgentLoop", () => {
       },
     };
     const events: any[] = [];
+    const outcomes: AgentLoopOutcome[] = [];
 
     await runAgentLoop({
       engine,
@@ -7415,6 +7436,7 @@ describe("runAgentLoop", () => {
         },
       },
       send: (event) => events.push(event),
+      onOutcome: (outcome) => outcomes.push(outcome),
       signal: new AbortController().signal,
     });
 
@@ -7439,7 +7461,14 @@ describe("runAgentLoop", () => {
         completedSideEffect: false,
       },
       { type: "text", text: "BigQuery returned: nope" },
-      { type: "done" },
+    ]);
+    expect(outcomes).toEqual([
+      {
+        state: "failed",
+        code: "bigquery_query_failed",
+        retryable: false,
+        message: "BigQuery returned: nope",
+      },
     ]);
   });
 
@@ -9074,6 +9103,54 @@ describe("runAgentLoop", () => {
     expect(events).toContainEqual({ type: "text", text: "Recovered" });
   });
 
+  it("retries raw OpenAI TLS connection failures inside one serverless run", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          throw new Error(
+            "Failed after 2 attempts. Last error: Cannot connect to API: " +
+              "ERR_SSL_TLSV1_ALERT_INTERNAL_ERROR tlsv1 alert internal error",
+          );
+        }
+        yield { type: "text-delta", text: "Recovered" };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "Recovered" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const events: Array<{ type: string; text?: string }> = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {},
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(streamCalls).toBe(2);
+    expect(events).toContainEqual({ type: "clear" });
+    expect(events).toContainEqual({ type: "text", text: "Recovered" });
+  });
+
   // ─── Human-in-the-loop approval gate (opt-in needsApproval) ──────────────
   //
   // Builds an engine that emits a single tool call to `send-email` on the
@@ -9127,6 +9204,7 @@ describe("runAgentLoop", () => {
     const { engine } = approvalEngine();
     const run = vi.fn(async () => "delivered");
     const events: any[] = [];
+    const outcomes: AgentLoopOutcome[] = [];
 
     await runAgentLoop({
       engine,
@@ -9141,6 +9219,7 @@ describe("runAgentLoop", () => {
         },
       },
       send: (event) => events.push(event),
+      onOutcome: (outcome) => outcomes.push(outcome),
       signal: new AbortController().signal,
     });
 
@@ -9149,12 +9228,14 @@ describe("runAgentLoop", () => {
       false,
     );
     expect(events.at(-1)).toEqual({ type: "done" });
+    expect(outcomes).toEqual([{ state: "completed" }]);
   });
 
   it("needsApproval:true pauses the turn, never runs the action, and emits a stable approvalKey", async () => {
     const { engine, streamCalls } = approvalEngine();
     const run = vi.fn(async () => "delivered");
     const events: any[] = [];
+    const outcomes: AgentLoopOutcome[] = [];
 
     await runAgentLoop({
       engine,
@@ -9170,6 +9251,7 @@ describe("runAgentLoop", () => {
         },
       },
       send: (event) => events.push(event),
+      onOutcome: (outcome) => outcomes.push(outcome),
       signal: new AbortController().signal,
     });
 
@@ -9205,6 +9287,14 @@ describe("runAgentLoop", () => {
       type: "text",
       text: "Waiting for your approval to run send-email.",
     });
+    expect(events.some((event) => event.type === "done")).toBe(false);
+    expect(outcomes).toEqual([
+      {
+        state: "input_required",
+        code: "needs_approval",
+        message: "Waiting for your approval to run send-email.",
+      },
+    ]);
   });
 
   it("re-running with approvedToolCalls:[approvalKey] DOES run the action", async () => {
@@ -9502,6 +9592,17 @@ describe("isRetryableError", () => {
           errorCode: "provider_network_error",
           providerRetryable: true,
         }),
+      ),
+    ).toBe(true);
+  });
+
+  it("retries on raw OpenAI TLS connection failures", () => {
+    expect(
+      isRetryableError(
+        new Error(
+          "Failed after 2 attempts. Last error: Cannot connect to API: " +
+            "ERR_SSL_TLSV1_ALERT_INTERNAL_ERROR tlsv1 alert internal error",
+        ),
       ),
     ).toBe(true);
   });

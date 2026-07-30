@@ -2,6 +2,13 @@
 command = "pnpm install && NITRO_PRESET=netlify pnpm --filter @agent-native/docs build"
 publish = "packages/docs/dist"
 
+# Keep the apex domain on the canonical www origin, including deep links.
+[[redirects]]
+from = "https://agent-native.com/*"
+to = "https://www.agent-native.com/:splat"
+status = 301
+force = true
+
 # Slug redirects for renamed docs — keep in sync with SLUG_REDIRECTS in app/routes/docs.$slug.tsx.
 [[redirects]]
 from = "/docs/resources"

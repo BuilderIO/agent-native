@@ -51,6 +51,10 @@ describe("filterDirectA2AActions", () => {
     );
 
     expect(publicSkills[0]?.inputSchema).toEqual(inputSchema);
+    // Everything in the authenticated set is read-only by construction. Without
+    // the flag, discovery renders each one "(mutating)" and callers back off to
+    // open-ended delegation instead of invoking them.
+    expect(authenticatedSkills[0]?.readOnly).toBe(true);
     expect(authenticatedSkills[0]?.inputSchema).toEqual(inputSchema);
   });
 

@@ -17,8 +17,6 @@ import {
   IconLayoutSidebar,
   IconPhoto,
   IconHistory,
-  IconArrowBackUp,
-  IconArrowForwardUp,
   IconFolderOpen,
   IconSettings,
   IconSchema,
@@ -67,7 +65,6 @@ import {
 } from "@/lib/aspect-ratios";
 import type { GoogleSlidesExportResult } from "@/lib/export-google-slides-client";
 import { parseUploadResponse } from "@/lib/upload-response";
-import { shortcutLabel } from "@/lib/utils";
 
 import { ExportMenu } from "./ExportMenu";
 interface EditorToolbarProps {
@@ -90,10 +87,6 @@ interface EditorToolbarProps {
   historyOpen: boolean;
   onShowHistory: () => void;
   historyButtonRef: React.RefObject<HTMLButtonElement | null>;
-  onUndo: () => void;
-  onRedo: () => void;
-  canUndo: boolean;
-  canRedo: boolean;
   currentSlide?: Slide;
   onUpdateSlide?: (updates: Partial<Omit<Slide, "id">>) => void;
   /** Active users on the current slide (from collab awareness) */
@@ -171,6 +164,8 @@ const backgroundOptions = [
 ];
 
 const HEX_COLOR_PATTERN = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
+const TOOLBAR_ICON_BUTTON_CLASS =
+  "inline-flex size-8 flex-shrink-0 items-center justify-center rounded-md transition-colors";
 
 /** Native <input type="color"> only accepts 3/6-digit hex — fall back to
  * black for gradients or other raw CSS values so the picker still opens. */
@@ -247,10 +242,6 @@ export default function EditorToolbar({
   assetsButtonRef,
   onShowHistory,
   historyButtonRef,
-  onUndo,
-  onRedo,
-  canUndo,
-  canRedo,
   currentSlide,
   onUpdateSlide,
   activeUsers,
@@ -426,10 +417,10 @@ export default function EditorToolbar({
         <TooltipTrigger asChild>
           <Link
             to="/"
-            className="p-2.5 sm:p-1.5 rounded-md hover:bg-accent transition-colors flex-shrink-0"
+            className={`${TOOLBAR_ICON_BUTTON_CLASS} hover:bg-accent`}
             aria-label={t("editorToolbar.backToDecks")}
           >
-            <IconArrowLeft className="w-4 h-4 text-muted-foreground" />
+            <IconArrowLeft className="size-4 text-muted-foreground" />
           </Link>
         </TooltipTrigger>
         <TooltipContent>{t("editorToolbar.backToDecks")}</TooltipContent>
@@ -440,12 +431,12 @@ export default function EditorToolbar({
         <TooltipTrigger asChild>
           <button
             onClick={onToggleSidebar}
-            className={`md:hidden p-2.5 sm:p-1.5 rounded-md hover:bg-accent transition-colors flex-shrink-0 ${
+            className={`${TOOLBAR_ICON_BUTTON_CLASS} md:hidden hover:bg-accent ${
               sidebarOpen ? "text-muted-foreground" : "text-muted-foreground/70"
             }`}
             aria-label={t("editorToolbar.toggleSlideList")}
           >
-            <IconLayoutSidebar className="w-4 h-4" />
+            <IconLayoutSidebar className="size-4" />
           </button>
         </TooltipTrigger>
         <TooltipContent>{t("editorToolbar.toggleSlideList")}</TooltipContent>
@@ -486,14 +477,14 @@ export default function EditorToolbar({
                   closeAll();
                   setLayoutOpen(!layoutOpen);
                 }}
-                className={`flex items-center gap-1 p-2.5 sm:px-2 sm:py-1.5 rounded-md text-xs transition-colors flex-shrink-0 ${
+                className={`${TOOLBAR_ICON_BUTTON_CLASS} ${
                   layoutOpen
                     ? "text-foreground/90 bg-accent"
                     : "text-muted-foreground hover:text-foreground/70 hover:bg-accent"
                 }`}
                 aria-label={t("editorToolbar.slideSettings")}
               >
-                <IconSettings className="w-3.5 h-3.5" />
+                <IconSettings className="size-4" />
               </button>
             </TooltipTrigger>
             <TooltipContent>{t("editorToolbar.slideSettings")}</TooltipContent>
@@ -764,7 +755,7 @@ graph TD
               aria-label={t("editorToolbar.addTextBox")}
               aria-pressed={textBoxMode}
               aria-keyshortcuts="T"
-              className={`flex-shrink-0 rounded p-1.5 ${
+              className={`${TOOLBAR_ICON_BUTTON_CLASS} ${
                 textBoxMode
                   ? "bg-accent text-foreground"
                   : "text-muted-foreground hover:bg-accent hover:text-foreground/70"
@@ -796,14 +787,14 @@ graph TD
               <TooltipTrigger asChild>
                 <DropdownMenuTrigger asChild>
                   <button
-                    className={`relative p-1.5 rounded cursor-pointer flex-shrink-0 ${
+                    className={`${TOOLBAR_ICON_BUTTON_CLASS} relative cursor-pointer ${
                       anyToolActive || toolsOpen
                         ? "bg-accent text-foreground"
                         : "text-muted-foreground hover:text-foreground/70 hover:bg-accent"
                     }`}
                     aria-label={t("editorToolbar.slideTools")}
                   >
-                    <IconTool className="w-4 h-4" />
+                    <IconTool className="size-4" />
                     {anyToolActive && !toolsOpen && (
                       <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-[#609FF8]" />
                     )}
@@ -869,52 +860,6 @@ graph TD
           </DropdownMenu>
         )}
 
-      {/* Edit-only cluster — undo/redo */}
-      {canEdit && (
-        <>
-          {/* Separator */}
-          <div className="hidden h-5 w-px flex-shrink-0 bg-border/70 sm:block" />
-
-          {/* Undo/Redo */}
-          <div className="flex items-center flex-shrink-0">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={onUndo}
-                  disabled={!canUndo}
-                  className="p-2.5 sm:p-1.5 rounded-md hover:bg-accent disabled:opacity-20 transition-colors"
-                  aria-label={t("editorToolbar.undo")}
-                >
-                  <IconArrowBackUp className="w-3.5 h-3.5 text-muted-foreground" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {t("editorToolbar.undoWithShortcut", {
-                  shortcut: shortcutLabel("cmd+z"),
-                })}
-              </TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={onRedo}
-                  disabled={!canRedo}
-                  className="p-2.5 sm:p-1.5 rounded-md hover:bg-accent disabled:opacity-20 transition-colors"
-                  aria-label={t("editorToolbar.redo")}
-                >
-                  <IconArrowForwardUp className="w-3.5 h-3.5 text-muted-foreground" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {t("editorToolbar.redoWithShortcut", {
-                  shortcut: shortcutLabel("cmd+shift+z"),
-                })}
-              </TooltipContent>
-            </Tooltip>
-          </div>
-        </>
-      )}
-
       {/* Save status — subtle "Saving…" / "Saved" / offline pill. Renders
           nothing when idle. Only meaningful for editors. */}
       {canEdit && (
@@ -941,14 +886,14 @@ graph TD
             <button
               onClick={onToggleStyle}
               data-slide-style-trigger="true"
-              className={`relative flex-shrink-0 rounded-md p-2.5 transition-colors sm:p-1.5 ${
+              className={`${TOOLBAR_ICON_BUTTON_CLASS} relative ${
                 styleOpen
                   ? "bg-accent text-foreground"
                   : "text-muted-foreground hover:bg-accent hover:text-foreground/70"
               }`}
               aria-label={t("styleInspector.title")}
             >
-              <IconPalette className="h-3.5 w-3.5" />
+              <IconPalette className="size-4" />
             </button>
           </TooltipTrigger>
           <TooltipContent>{t("styleInspector.title")}</TooltipContent>
@@ -961,14 +906,14 @@ graph TD
           <TooltipTrigger asChild>
             <button
               onClick={onToggleComments}
-              className={`relative p-2.5 sm:p-1.5 rounded-md transition-colors flex-shrink-0 ${
+              className={`${TOOLBAR_ICON_BUTTON_CLASS} relative ${
                 commentsOpen
                   ? "text-foreground bg-accent"
                   : "text-muted-foreground hover:text-foreground/70 hover:bg-accent"
               }`}
               aria-label={t("editorToolbar.comments")}
             >
-              <IconMessage className="w-3.5 h-3.5" />
+              <IconMessage className="size-4" />
               {unresolvedCommentCount > 0 && (
                 <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-[#609FF8] text-[8px] font-bold text-black flex items-center justify-center leading-none">
                   {unresolvedCommentCount > 9 ? "9+" : unresolvedCommentCount}
@@ -1053,10 +998,10 @@ graph TD
             <DropdownMenuTrigger asChild>
               <button
                 ref={historyButtonRef}
-                className="p-2.5 sm:p-1.5 rounded-md hover:bg-accent transition-colors flex-shrink-0 text-muted-foreground hover:text-foreground/70 cursor-pointer"
+                className={`${TOOLBAR_ICON_BUTTON_CLASS} cursor-pointer text-muted-foreground hover:bg-accent hover:text-foreground/70`}
                 aria-label={t("editorToolbar.more")}
               >
-                <IconDotsVertical className="w-4 h-4" />
+                <IconDotsVertical className="size-4" />
               </button>
             </DropdownMenuTrigger>
           </TooltipTrigger>

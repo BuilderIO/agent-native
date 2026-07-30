@@ -28,14 +28,15 @@ describe("Slides analytics delegation contract", () => {
     expect(agentsGuide).toContain("delegate via Analytics");
     expect(skill).toContain('agent: "analytics"');
     expect(skill).toContain("call-agent");
-    expect(skill).toContain("hubspot-records");
-    expect(skill).toContain("account-deep-dive");
-    expect(skill).toContain("natural-language message");
+    expect(skill).toContain("natural-language `message`");
+    expect(skill).toContain("Analytics decides which sources");
+    expect(skill).toContain("not a fallback");
+    expect(skill).not.toContain("use `gong-calls`");
   });
 
   it("prevents Slides from selecting providers or writing SQL", () => {
     expect(skill).toContain("must not write SQL");
-    expect(skill).toContain("let Analytics decide");
+    expect(skill).toContain("Analytics decides which sources");
     expect(skill).toContain("data dictionary interpretation");
     expect(skill).not.toMatch(/Slides.*(?:SELECT|FROM)\s+\w+/i);
   });

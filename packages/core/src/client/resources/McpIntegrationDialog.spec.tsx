@@ -118,4 +118,34 @@ describe("McpIntegrationDialog", () => {
     expect(document.body.textContent).not.toContain("Organization");
     expect(document.body.textContent).not.toContain("owners and admins");
   });
+
+  it("does not offer an unauthenticated test for setup-gated integrations", () => {
+    const slack = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "slack",
+    )!;
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            initialIntegrationId="slack"
+            defaultScope="user"
+            canCreateOrgMcp={false}
+            hasOrg
+            onCreateMcpServer={vi.fn()}
+            integrations={[slack]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(
+      [...document.body.querySelectorAll("button")].find(
+        (button) => button.textContent === "Test",
+      ),
+    ).toBeUndefined();
+    expect(document.body.textContent).toContain("View setup");
+  });
 });

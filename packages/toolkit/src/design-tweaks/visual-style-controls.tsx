@@ -13,6 +13,29 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover.js";
 import { cn } from "../utils.js";
 
+export {
+  VisualScrubInput,
+  resolvePendingScrubCommit,
+  type PendingScrubCommit,
+  type ScrubInputChangeMeta,
+  type ScrubInputProps,
+} from "./scrub-input.js";
+export {
+  formatScrubValue,
+  getScrubStepFromEvent,
+  normalizeScrubNumber,
+  parseScrubExpression,
+  roundScrubDragValue,
+  scrubSnapsToInteger,
+  SCRUB_DRAG_THRESHOLD_PX,
+  startScrubDrag,
+  updateScrubDrag,
+  type ParsedScrubExpression,
+  type ScrubDragState,
+  type ScrubDragTick,
+  type ScrubExpressionOptions,
+} from "./scrub-input-utils.js";
+
 export type VisualControlValue = string | number | boolean;
 
 export interface VisualControlOption {
@@ -44,13 +67,6 @@ function clampNumber(value: number, min?: number, max?: number) {
 function formatNumber(value: number, unit?: string) {
   const rounded = Number.isInteger(value) ? value : Number(value.toFixed(2));
   return unit ? `${rounded}${unit}` : String(rounded);
-}
-
-function parseDraftNumber(value: string, fallback: number) {
-  const match = value.trim().match(/-?\d+(?:\.\d+)?/);
-  if (!match) return fallback;
-  const next = Number(match[0]);
-  return Number.isFinite(next) ? next : fallback;
 }
 
 interface RgbaColor {
@@ -899,167 +915,6 @@ export function VisualSliderControl({
       <span className="w-9 text-right text-[11px] tabular-nums text-muted-foreground">
         {formatNumber(safeValue, unit)}
       </span>
-    </div>
-  );
-}
-
-export function VisualScrubInput({
-  label,
-  value,
-  onChange,
-  min,
-  max,
-  step = 1,
-  unit,
-  disabled = false,
-  mixed = false,
-  mixedLabel = "Mixed",
-}: {
-  label: string;
-  value: number;
-  onChange: (value: number) => void;
-  min?: number;
-  max?: number;
-  step?: number;
-  unit?: string;
-  disabled?: boolean;
-  mixed?: boolean;
-  mixedLabel?: string;
-}) {
-  const id = useId();
-  const [draft, setDraft] = useState(() =>
-    mixed ? mixedLabel : formatNumber(value, unit),
-  );
-  const [focused, setFocused] = useState(false);
-  const [hasInteracted, setHasInteracted] = useState(false);
-  const dragRef = useRef<{
-    pointerId: number;
-    prevX: number;
-    dragged: boolean;
-  } | null>(null);
-
-  useEffect(() => {
-    if (!focused) {
-      setDraft(
-        mixed && !hasInteracted ? mixedLabel : formatNumber(value, unit),
-      );
-    }
-  }, [focused, hasInteracted, mixed, mixedLabel, unit, value]);
-
-  useEffect(() => {
-    if (mixed) setHasInteracted(false);
-  }, [mixed]);
-
-  const startInteraction = () => {
-    if (!hasInteracted) {
-      setHasInteracted(true);
-      setDraft(formatNumber(value, unit));
-    }
-  };
-
-  const commit = (nextDraft = draft) => {
-    const parsed = parseDraftNumber(nextDraft, value);
-    const next = clampNumber(parsed, min, max);
-    onChange(next);
-    setDraft(formatNumber(next, unit));
-  };
-
-  const setNext = (next: number) => {
-    const clamped = clampNumber(next, min, max);
-    onChange(clamped);
-    setDraft(formatNumber(clamped, unit));
-  };
-
-  const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    startInteraction();
-    if (event.key === "Enter") {
-      event.preventDefault();
-      commit();
-      event.currentTarget.blur();
-      return;
-    }
-    if (event.key === "Escape") {
-      event.preventDefault();
-      setDraft(formatNumber(value, unit));
-      event.currentTarget.blur();
-      return;
-    }
-    if (event.key === "ArrowUp" || event.key === "ArrowDown") {
-      event.preventDefault();
-      const mult =
-        event.shiftKey || event.metaKey ? 10 : event.altKey ? 0.1 : 1;
-      const direction = event.key === "ArrowUp" ? 1 : -1;
-      const base = parseDraftNumber(draft, value);
-      setNext(base + direction * step * mult);
-    }
-  };
-
-  const onPointerDown = (event: PointerEvent<HTMLLabelElement>) => {
-    if (disabled || event.button !== 0) return;
-    event.preventDefault();
-    startInteraction();
-    dragRef.current = {
-      pointerId: event.pointerId,
-      prevX: event.clientX,
-      dragged: false,
-    };
-    event.currentTarget.setPointerCapture(event.pointerId);
-  };
-
-  const onPointerMove = (event: PointerEvent<HTMLLabelElement>) => {
-    const drag = dragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-    const delta = event.clientX - drag.prevX;
-    if (delta === 0) return;
-    drag.prevX = event.clientX;
-    drag.dragged = true;
-    const mult = event.shiftKey || event.metaKey ? 10 : event.altKey ? 0.1 : 1;
-    setNext(value + delta * step * mult);
-  };
-
-  const onPointerUp = (event: PointerEvent<HTMLLabelElement>) => {
-    const drag = dragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-    event.currentTarget.releasePointerCapture(event.pointerId);
-    dragRef.current = null;
-    if (!drag.dragged) {
-      document.getElementById(id)?.focus();
-    }
-  };
-
-  return (
-    <div className="flex items-center gap-1.5">
-      <label
-        htmlFor={id}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        className={cn(
-          "flex w-8 shrink-0 cursor-ew-resize select-none items-center justify-center rounded border border-transparent px-1 text-[10px] font-semibold text-muted-foreground hover:border-border hover:bg-accent/60",
-          disabled && "cursor-not-allowed opacity-50",
-        )}
-      >
-        {label}
-      </label>
-      <input
-        id={id}
-        value={draft}
-        disabled={disabled}
-        onFocus={() => {
-          setFocused(true);
-          startInteraction();
-        }}
-        onBlur={() => {
-          setFocused(false);
-          commit();
-        }}
-        onChange={(event) => {
-          startInteraction();
-          setDraft(event.currentTarget.value);
-        }}
-        onKeyDown={onKeyDown}
-        className="h-7 min-w-0 flex-1 rounded-md border border-input bg-background/70 px-2 text-right text-[11px] tabular-nums text-foreground outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring disabled:opacity-50"
-      />
     </div>
   );
 }

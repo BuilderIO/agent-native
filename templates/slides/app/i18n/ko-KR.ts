@@ -414,6 +414,10 @@ const messages = {
     emerald: "Emerald",
     amber: "Amber",
     rose: "Rose",
+    arrange: "정렬",
+    order: "순서",
+    bringToFront: "맨 앞으로 가져오기",
+    sendToBack: "맨 뒤로 보내기",
   },
   animations: {
     appear: "出现",

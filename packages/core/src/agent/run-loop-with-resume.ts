@@ -31,6 +31,7 @@ import {
   resolveFinalResponseGuardRequestText,
   SELF_CHAIN_MIN_CONTINUATION_BUDGET_MS,
   type AgentLoopContinuationReason,
+  type AgentLoopOutcome,
 } from "./production-agent.js";
 import { resolveRunSoftTimeoutMs } from "./run-manager.js";
 import type { ResolveRunSoftTimeoutOptions } from "./run-manager.js";
@@ -222,7 +223,70 @@ export async function runAgentLoopDirectWithSoftTimeout(
     resolveFinalResponseGuardRequestText(opts.messages);
   const stableOpts = { ...opts, finalResponseGuardRequestText };
   const timeoutMs = resolveRunSoftTimeoutMs(softTimeoutMs, timeoutOptions);
-  if (timeoutMs <= 0) return runAgentLoop(stableOpts);
+  let finalOutcomeReported = false;
+  const reportFinalOutcome = (outcome: AgentLoopOutcome) => {
+    if (finalOutcomeReported) return;
+    finalOutcomeReported = true;
+    try {
+      opts.onOutcome?.(outcome);
+    } catch {
+      // Outcome observers cannot alter recovery or completion.
+    }
+  };
+
+  // Disabling continuation recovery must not disable terminal classification.
+  // Keep the same outcome boundary around a direct loop so A2A/MCP callers
+  // never infer success from a rejected or canceled run.
+  if (timeoutMs <= 0) {
+    const directEvents: AgentChatEvent[] = [];
+    try {
+      const result = await runAgentLoop({
+        ...stableOpts,
+        send: (event) => {
+          directEvents.push(event);
+          stableOpts.send(event);
+        },
+        onOutcome: reportFinalOutcome,
+      });
+      const unfinishedReason =
+        internalContinuationReasonForAttempt(directEvents);
+      if (opts.signal.aborted) {
+        reportFinalOutcome({
+          state: "canceled",
+          message: "Agent run was aborted.",
+        });
+      } else if (unfinishedReason) {
+        reportFinalOutcome({
+          state: "failed",
+          code: unfinishedReason,
+          retryable: false,
+          message: `Agent stopped before finishing (${unfinishedReason}).`,
+        });
+      } else {
+        reportFinalOutcome({ state: "completed" });
+      }
+      return result;
+    } catch (err) {
+      const candidate = err as { errorCode?: unknown; message?: unknown };
+      reportFinalOutcome(
+        opts.signal.aborted
+          ? { state: "canceled", message: "Agent run was aborted." }
+          : {
+              state: "failed",
+              code:
+                typeof candidate?.errorCode === "string" && candidate.errorCode
+                  ? candidate.errorCode
+                  : "internal_error",
+              retryable: isResumableEngineError(err),
+              message:
+                typeof candidate?.message === "string"
+                  ? candidate.message
+                  : String(err),
+            },
+      );
+      throw err;
+    }
+  }
 
   const upstreamSignal = opts.signal;
   const usage: Awaited<ReturnType<typeof runAgentLoop>> = {
@@ -307,10 +371,14 @@ export async function runAgentLoopDirectWithSoftTimeout(
     };
 
     try {
+      let attemptOutcome: AgentLoopOutcome | undefined;
       const nextUsage = await runAgentLoop({
         ...stableOpts,
         send,
         signal: controller.signal,
+        onOutcome: (outcome) => {
+          attemptOutcome = outcome;
+        },
       });
       addUsage(nextUsage);
       const attemptEvents = localTurnEvents.slice(attemptStartIndex);
@@ -345,6 +413,11 @@ export async function runAgentLoopDirectWithSoftTimeout(
         );
         continue;
       }
+      reportFinalOutcome(
+        upstreamSignal.aborted
+          ? { state: "canceled", message: "Agent run was aborted." }
+          : (attemptOutcome ?? { state: "completed" }),
+      );
       return usage;
     } catch (err) {
       if (softTimedOut && !upstreamSignal.aborted) {
@@ -398,6 +471,26 @@ export async function runAgentLoopDirectWithSoftTimeout(
         );
         continue;
       }
+      if (upstreamSignal.aborted) {
+        reportFinalOutcome({
+          state: "canceled",
+          message: "Agent run was aborted.",
+        });
+        throw err;
+      }
+      const candidate = err as { errorCode?: unknown; message?: unknown };
+      reportFinalOutcome({
+        state: "failed",
+        code:
+          typeof candidate?.errorCode === "string" && candidate.errorCode
+            ? candidate.errorCode
+            : "internal_error",
+        retryable: false,
+        message:
+          typeof candidate?.message === "string"
+            ? candidate.message
+            : String(err),
+      });
       throw err;
     } finally {
       clearTimeout(timer);
@@ -430,6 +523,17 @@ export async function runAgentLoopDirectWithSoftTimeout(
       error: RUN_BUDGET_EXHAUSTED_MESSAGE,
       errorCode: RUN_BUDGET_EXHAUSTED_ERROR_CODE,
       recoverable: true,
+    });
+    reportFinalOutcome({
+      state: "failed",
+      code: RUN_BUDGET_EXHAUSTED_ERROR_CODE,
+      retryable: false,
+      message: RUN_BUDGET_EXHAUSTED_MESSAGE,
+    });
+  } else if (upstreamSignal.aborted) {
+    reportFinalOutcome({
+      state: "canceled",
+      message: "Agent run was aborted.",
     });
   }
 

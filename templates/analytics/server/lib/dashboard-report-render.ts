@@ -14,7 +14,10 @@ import type {
   TableColumnConfig,
 } from "../../app/pages/adhoc/sql-dashboard/types";
 import { DASHBOARD_REPORT_ACTION_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
-import { MAX_CONCURRENT_SQL_QUERIES } from "../../shared/sql-query-limits";
+import {
+  MAX_CONCURRENT_FIRST_PARTY_SQL_QUERIES,
+  MAX_CONCURRENT_SQL_QUERIES,
+} from "../../shared/sql-query-limits";
 import {
   normalizeDashboardPanelQuery,
   type DashboardPanelSource,
@@ -186,7 +189,7 @@ async function fetchOnePanel(
 
   try {
     const result = await withTimeout(
-      resolveAnalyticsPanelSource({ source, query }, ctx),
+      resolveAnalyticsPanelSource({ source, query, timeoutMs }, ctx),
       timeoutMs,
       `Panel query timed out after ${Math.round(timeoutMs / 1000)}s`,
     );
@@ -276,42 +279,57 @@ export async function fetchReportPanelData(args: {
     args.perPanelTimeoutMs ?? DEFAULT_PANEL_TIMEOUT_MS,
   );
 
-  let next = 0;
-  const worker = async (): Promise<void> => {
-    while (next < queue.length) {
-      const panel = queue[next++];
-      const remaining = args.deadlineAt
-        ? args.deadlineAt - Date.now()
-        : Infinity;
-      if (remaining <= 0) {
-        results.set(panel.id, {
-          status: "query-failed",
-          message:
-            "The report delivery deadline passed before this panel could run",
-        });
-        continue;
+  const runQueue = async (
+    panelQueue: SqlPanel[],
+    concurrency: number,
+  ): Promise<void> => {
+    let next = 0;
+    const worker = async (): Promise<void> => {
+      while (next < panelQueue.length) {
+        const panel = panelQueue[next++];
+        const remaining = args.deadlineAt
+          ? args.deadlineAt - Date.now()
+          : Infinity;
+        if (remaining <= 0) {
+          results.set(panel.id, {
+            status: "query-failed",
+            message:
+              "The report delivery deadline passed before this panel could run",
+          });
+          continue;
+        }
+        results.set(
+          panel.id,
+          await fetchOnePanel(
+            panel,
+            vars,
+            ctx,
+            Math.min(perPanelTimeoutMs, remaining),
+          ),
+        );
       }
-      results.set(
-        panel.id,
-        await fetchOnePanel(
-          panel,
-          vars,
-          ctx,
-          Math.min(perPanelTimeoutMs, remaining),
-        ),
-      );
-    }
+    };
+
+    await Promise.all(
+      Array.from({ length: Math.min(concurrency, panelQueue.length) }, () =>
+        worker(),
+      ),
+    );
   };
 
   await runWithRequestContext(
     { userEmail: ownerEmail, ...(args.orgId ? { orgId: args.orgId } : {}) },
     async () => {
-      await Promise.all(
-        Array.from(
-          { length: Math.min(MAX_CONCURRENT_SQL_QUERIES, queue.length) },
-          () => worker(),
+      await Promise.all([
+        runQueue(
+          queue.filter((panel) => panel.source === "first-party"),
+          MAX_CONCURRENT_FIRST_PARTY_SQL_QUERIES,
         ),
-      );
+        runQueue(
+          queue.filter((panel) => panel.source !== "first-party"),
+          MAX_CONCURRENT_SQL_QUERIES,
+        ),
+      ]);
     },
   );
 

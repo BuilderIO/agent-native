@@ -9,12 +9,20 @@ import {
 } from "@agent-native/toolkit/design-tweaks";
 import type { DesignSystemData } from "@shared/api";
 import {
+  IconAngle,
+  IconArrowAutofitHeight,
+  IconArrowAutofitWidth,
   IconBorderRadius,
+  IconBorderStyle,
   IconBoxPadding,
   IconDroplet,
+  IconGridDots,
   IconLetterCase,
   IconRuler2,
   IconSpacingHorizontal,
+  IconSpacingVertical,
+  IconStackBack,
+  IconStackFront,
   IconX,
 } from "@tabler/icons-react";
 
@@ -24,6 +32,8 @@ import { cn } from "@/lib/utils";
 import type { InlineTextStyleKey } from "./rich-text-selection";
 
 export interface SlideStyleSnapshot {
+  /** Omitted snapshots are existing object snapshots for backward compatibility. */
+  mode?: "object";
   selector: string;
   label: string;
   tagName: string;
@@ -50,9 +60,24 @@ export interface SlideStyleSnapshot {
   borderColor: string;
   paddingX: number;
   paddingY: number;
+  zIndex: number;
   textStyleScope?: "block" | "selection";
   mixedTextStyles?: InlineTextStyleKey[];
 }
+
+/**
+ * Slide backgrounds are a surface, rather than selectable canvas objects.
+ * The editor passes this mode while its Style panel is open without an object
+ * selection, so the inspector exposes only background-safe controls.
+ */
+export interface SlideBackgroundStyleSnapshot {
+  mode: "background";
+  backgroundColor: string;
+}
+
+export type SlideStyleInspectorSnapshot =
+  | SlideStyleSnapshot
+  | SlideBackgroundStyleSnapshot;
 
 export type SlideStylePatch = Partial<{
   color: string;
@@ -74,7 +99,12 @@ export type SlideStylePatch = Partial<{
   width: string;
   height: string;
   transform: string;
+  zIndex: string;
 }>;
+
+export type SlideBackgroundStylePatch = Required<
+  Pick<SlideStylePatch, "backgroundColor">
+>;
 
 function tokenPalette(
   designSystem: DesignSystemData | undefined,
@@ -153,21 +183,79 @@ export function SlideStyleInspector({
   designSystem,
   className,
   onChange,
+  onArrange,
   onClose,
 }: {
-  snapshot: SlideStyleSnapshot;
+  snapshot: SlideStyleInspectorSnapshot;
   designSystem?: DesignSystemData;
   className?: string;
   onChange: (patch: SlideStylePatch) => void;
+  /** Bring-to-front / send-to-back for the selected freeform object. Omitted
+   *  (or the snapshot not being a freeform object) hides the Arrange row. */
+  onArrange?: (target: "front" | "back") => void;
   onClose: () => void;
 }) {
   const t = useT();
   const palette = tokenPalette(designSystem, t);
   const documentColors = palette.map((option) => option.value);
-  const mixedTextStyles = snapshot.mixedTextStyles ?? [];
   const inlineEditSurfaceProps = {
     "data-slide-inline-edit-surface": "true",
   };
+  const inspectorClassName = cn(
+    "slide-style-inspector h-full w-full rounded-none border-0 bg-transparent text-foreground shadow-none backdrop-blur-none",
+    className,
+  );
+  const headerAction = (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon"
+      className="size-7 shrink-0 text-muted-foreground hover:text-foreground"
+      onClick={onClose}
+      aria-label={t("styleInspector.close")}
+    >
+      <IconX className="size-3.5" />
+    </Button>
+  );
+
+  if (snapshot.mode === "background") {
+    return (
+      <VisualInspectorPanel
+        title={t("styleInspector.title")}
+        subtitle={t("styleInspector.background")}
+        className={inspectorClassName}
+        headerAction={headerAction}
+      >
+        <VisualInspectorSection
+          title={
+            <span className="inline-flex items-center gap-1.5">
+              <IconDroplet className="size-3.5" />
+              {t("styleInspector.fill")}
+            </span>
+          }
+          className="slides-inspector-section"
+        >
+          <VisualControlRow
+            label={t("styleInspector.color")}
+            className="slides-inspector-control"
+          >
+            <VisualColorPicker
+              label={t("styleInspector.fill")}
+              value={snapshot.backgroundColor}
+              documentColors={documentColors}
+              allowTransparent
+              variant="filled"
+              className="rounded-sm bg-[var(--slides-inspector-control-background)] hover:bg-[var(--slides-inspector-control-background)]"
+              contentProps={inlineEditSurfaceProps}
+              onChange={(value) => onChange({ backgroundColor: value })}
+            />
+          </VisualControlRow>
+        </VisualInspectorSection>
+      </VisualInspectorPanel>
+    );
+  }
+
+  const mixedTextStyles = snapshot.mixedTextStyles ?? [];
   const targetLabel =
     snapshot.textPreview || snapshot.label || snapshot.tagName.toUpperCase();
   const horizontalAlignment =
@@ -208,22 +296,8 @@ export function SlideStyleInspector({
     <VisualInspectorPanel
       title={t("styleInspector.title")}
       subtitle={targetLabel}
-      className={cn(
-        "slide-style-inspector h-full w-full rounded-none border-0 bg-transparent text-foreground shadow-none backdrop-blur-none",
-        className,
-      )}
-      headerAction={
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="size-7 shrink-0 text-muted-foreground hover:text-foreground"
-          onClick={onClose}
-          aria-label={t("styleInspector.close")}
-        >
-          <IconX className="size-3.5" />
-        </Button>
-      }
+      className={inspectorClassName}
+      headerAction={headerAction}
     >
       {snapshot.isAbsolute ? (
         <VisualInspectorSection
@@ -268,12 +342,16 @@ export function SlideStyleInspector({
           <div className="grid grid-cols-2 gap-2">
             <VisualScrubInput
               label={t("styleInspector.x")}
+              icon={null}
+              labelClassName="w-8 justify-center"
               value={snapshot.x}
               unit="px"
               onChange={(x) => onChange({ left: `${formatValue(x)}px` })}
             />
             <VisualScrubInput
               label={t("styleInspector.y")}
+              icon={null}
+              labelClassName="w-8 justify-center"
               value={snapshot.y}
               unit="px"
               onChange={(y) => onChange({ top: `${formatValue(y)}px` })}
@@ -281,6 +359,8 @@ export function SlideStyleInspector({
           </div>
           <VisualScrubInput
             label={t("styleInspector.rotation")}
+            icon={IconAngle}
+            prefix="icon"
             value={snapshot.rotation}
             min={-360}
             max={360}
@@ -289,6 +369,46 @@ export function SlideStyleInspector({
               onChange({ transform: rotationTransform(rotation) })
             }
           />
+        </VisualInspectorSection>
+      ) : null}
+
+      {snapshot.isAbsolute && onArrange ? (
+        <VisualInspectorSection
+          title={
+            <span className="inline-flex items-center gap-1.5">
+              <IconStackFront className="size-3.5" />
+              {t("styleInspector.arrange")}
+            </span>
+          }
+          className="slides-inspector-section"
+        >
+          <VisualControlRow
+            label={t("styleInspector.order")}
+            className="slides-inspector-control"
+          >
+            <div className="flex items-center gap-1">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-7 cursor-pointer rounded-sm bg-[var(--slides-inspector-control-background)] text-muted-foreground hover:bg-[var(--slides-inspector-control-background)] hover:text-foreground"
+                onClick={() => onArrange("back")}
+                aria-label={t("styleInspector.sendToBack")}
+              >
+                <IconStackBack className="size-3.5" />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-7 cursor-pointer rounded-sm bg-[var(--slides-inspector-control-background)] text-muted-foreground hover:bg-[var(--slides-inspector-control-background)] hover:text-foreground"
+                onClick={() => onArrange("front")}
+                aria-label={t("styleInspector.bringToFront")}
+              >
+                <IconStackFront className="size-3.5" />
+              </Button>
+            </div>
+          </VisualControlRow>
         </VisualInspectorSection>
       ) : null}
 
@@ -304,6 +424,8 @@ export function SlideStyleInspector({
         <div className="grid grid-cols-2 gap-2">
           <VisualScrubInput
             label={t("styleInspector.width")}
+            icon={IconArrowAutofitWidth}
+            prefix="icon"
             value={snapshot.width}
             min={0}
             unit="px"
@@ -311,6 +433,8 @@ export function SlideStyleInspector({
           />
           <VisualScrubInput
             label={t("styleInspector.height")}
+            icon={IconArrowAutofitHeight}
+            prefix="icon"
             value={snapshot.height}
             min={0}
             unit="px"
@@ -333,6 +457,8 @@ export function SlideStyleInspector({
         <div className="grid grid-cols-2 gap-2">
           <VisualScrubInput
             label={t("styleInspector.opacity")}
+            icon={IconGridDots}
+            prefix="icon"
             value={snapshot.opacity}
             min={0}
             max={100}
@@ -342,6 +468,8 @@ export function SlideStyleInspector({
           />
           <VisualScrubInput
             label={t("styleInspector.cornerRadius")}
+            icon={IconBorderRadius}
+            prefix="icon"
             value={snapshot.borderRadius}
             min={0}
             max={96}
@@ -396,6 +524,8 @@ export function SlideStyleInspector({
       >
         <VisualScrubInput
           label={t("styleInspector.strokeWeight")}
+          icon={IconBorderStyle}
+          prefix="icon"
           value={snapshot.borderWidth}
           min={0}
           max={16}
@@ -449,6 +579,8 @@ export function SlideStyleInspector({
           <div className="grid grid-cols-2 gap-2">
             <VisualScrubInput
               label={t("styleInspector.size")}
+              icon={IconLetterCase}
+              prefix="icon"
               value={snapshot.fontSize}
               min={8}
               max={160}
@@ -461,6 +593,8 @@ export function SlideStyleInspector({
             />
             <VisualScrubInput
               label={t("styleInspector.line")}
+              icon={IconArrowAutofitHeight}
+              prefix="icon"
               value={snapshot.lineHeight}
               min={0.8}
               max={3}
@@ -512,6 +646,8 @@ export function SlideStyleInspector({
           <div className="grid grid-cols-2 gap-2">
             <VisualScrubInput
               label={t("styleInspector.horizontal")}
+              icon={IconSpacingHorizontal}
+              prefix="icon"
               value={snapshot.paddingX}
               min={0}
               max={120}
@@ -526,6 +662,8 @@ export function SlideStyleInspector({
             />
             <VisualScrubInput
               label={t("styleInspector.vertical")}
+              icon={IconSpacingVertical}
+              prefix="icon"
               value={snapshot.paddingY}
               min={0}
               max={120}

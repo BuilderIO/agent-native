@@ -848,8 +848,9 @@ export default createAgentChatPlugin({
   connectorCatalog: [...ANALYTICS_CONNECTOR_CATALOG],
   externalAgents: {
     // Keep the direct MCP surface deliberately curated. External agents
-    // should use ask_app for multi-step investigation; cataloged actions are
-    // bounded fallback reads for callers that already know what they need.
+    // should use ask_app by default; cataloged actions are optional stable
+    // semantic reads for callers with an exact, fully known contract. They are
+    // never a fallback for slow or failed delegation.
     authenticatedReads: "off",
     writes: "ask_app_only",
   },
