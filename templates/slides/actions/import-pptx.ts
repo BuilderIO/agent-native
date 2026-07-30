@@ -17,6 +17,11 @@ import {
   parsePptx,
   type ParsedSlide,
 } from "../server/handlers/import/pptx-parser.js";
+import {
+  ASPECT_RATIOS,
+  DEFAULT_ASPECT_RATIO,
+  type AspectRatio,
+} from "../shared/aspect-ratios.js";
 import { getDeckUrl } from "./_app-url.js";
 import { readUserUploadedFile } from "./_uploaded-files.js";
 
@@ -31,6 +36,28 @@ const BROWSER_RENDERABLE_IMAGE_MIME_TYPES = new Set([
   "image/svg+xml",
   "image/bmp",
 ]);
+
+function nearestConfiguredAspectRatio(
+  slideSize: { widthEmu: number; heightEmu: number } | undefined,
+): AspectRatio | undefined {
+  if (!slideSize || slideSize.widthEmu <= 0 || slideSize.heightEmu <= 0) {
+    return undefined;
+  }
+  const target = slideSize.widthEmu / slideSize.heightEmu;
+  return (Object.keys(ASPECT_RATIOS) as AspectRatio[]).reduce(
+    (best, candidate) => {
+      const bestDiff = Math.abs(
+        ASPECT_RATIOS[best].width / ASPECT_RATIOS[best].height - target,
+      );
+      const candidateDiff = Math.abs(
+        ASPECT_RATIOS[candidate].width / ASPECT_RATIOS[candidate].height -
+          target,
+      );
+      return candidateDiff < bestDiff ? candidate : best;
+    },
+    DEFAULT_ASPECT_RATIO,
+  );
+}
 
 async function uploadSlideImages(
   slide: ParsedSlide,
@@ -151,7 +178,16 @@ export default defineAction({
         throw new Error(`Deck ${deckId} not found`);
       }
 
-      const data = { title: deckTitle, slides, updatedAt: now };
+      const data = {
+        title: deckTitle,
+        slides,
+        updatedAt: now,
+        ...(nearestConfiguredAspectRatio(presentation.slideSize)
+          ? {
+              aspectRatio: nearestConfiguredAspectRatio(presentation.slideSize),
+            }
+          : {}),
+      };
       await db
         .update(schema.decks)
         .set({ title: deckTitle, data: JSON.stringify(data), updatedAt: now })
@@ -176,7 +212,16 @@ export default defineAction({
 
     // Create new deck
     const id = `deck-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    const data = { title: deckTitle, slides, createdAt: now, updatedAt: now };
+    const importedAspectRatio = nearestConfiguredAspectRatio(
+      presentation.slideSize,
+    );
+    const data = {
+      title: deckTitle,
+      slides,
+      createdAt: now,
+      updatedAt: now,
+      ...(importedAspectRatio ? { aspectRatio: importedAspectRatio } : {}),
+    };
     await db.insert(schema.decks).values({
       id,
       title: deckTitle,

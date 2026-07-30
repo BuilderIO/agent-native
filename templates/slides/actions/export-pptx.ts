@@ -85,6 +85,16 @@ function pxToPt(px: number): number {
   return Math.round(px * 0.75);
 }
 
+function cssFontFace(value: string | null): string {
+  const firstFamily = value?.split(",")[0]?.replace(/["']/g, "").trim();
+  return firstFamily || "Poppins";
+}
+
+function cssTextAlign(value: string | null): TextElement["align"] {
+  if (value === "center" || value === "right") return value;
+  return "left";
+}
+
 interface TextElement {
   text: string;
   fontSize: number; // in pt
@@ -151,6 +161,9 @@ export function parseSlideHtml(
 
   // Check for background color on the outer .fmd-slide div
   const slideStyleMatch = html.match(/class="fmd-slide"[^>]*style="([^"]*)"/);
+  const slideFontFace = cssFontFace(
+    slideStyleMatch ? getStyle(slideStyleMatch[1], "font-family") : null,
+  );
   if (slideStyleMatch) {
     const bg = getStyle(slideStyleMatch[1], "background(?:-color)?");
     if (bg) bgColor = colorToHex(bg);
@@ -214,6 +227,33 @@ export function parseSlideHtml(
     });
   }
 
+  // Full-bleed imported slides place their background image directly under
+  // the slide wrapper, not inside a flow element. Include only images at
+  // depth zero so nested card images are still handled by their parent div.
+  const topLevelImageRegex = /<div\b[^>]*>|<\/div\s*>|<img\b[^>]*\/?>/gi;
+  let containerDepth = 0;
+  while ((match = topLevelImageRegex.exec(innerContent)) !== null) {
+    const token = match[0];
+    if (/^<\/div/i.test(token)) {
+      containerDepth = Math.max(0, containerDepth - 1);
+      continue;
+    }
+    if (/^<div\b/i.test(token)) {
+      if (!/\/\s*>$/.test(token)) containerDepth += 1;
+      continue;
+    }
+    if (containerDepth !== 0) continue;
+    const attrs = token.replace(/^<img\b/i, "").replace(/\/?>$/i, "");
+    const styleMatch = attrs.match(/style="([^"]*)"/i);
+    elements.push({
+      tag: "img",
+      style: styleMatch?.[1] ?? "",
+      innerHtml: token,
+      index: match.index,
+    });
+  }
+  elements.sort((a, b) => a.index - b.index);
+
   // If centered, estimate the content height and adjust starting Y
   if (isCentered && elements.length > 0) {
     let totalHeight = 0;
@@ -246,6 +286,10 @@ export function parseSlideHtml(
     const color = getStyle(style, "(?<!background-)color") || "#FFFFFF";
     const letterSpacing = getStyle(style, "letter-spacing");
     const lineHeight = getStyle(style, "line-height");
+    const fontFace = cssFontFace(
+      getStyle(style, "font-family") ?? slideFontFace,
+    );
+    const align = cssTextAlign(getStyle(style, "text-align"));
 
     // Extract text from inner HTML, stripping nested tags
     const text = el.innerHtml
@@ -264,20 +308,36 @@ export function parseSlideHtml(
     if (!text && !el.innerHtml.includes("<img")) continue;
 
     // Check for images within this element
-    const imgRegex =
-      /<img[^>]*src="([^"]*)"[^>]*(?:style="([^"]*)")?[^>]*\/?>/gi;
+    const imgRegex = /<img\b([^>]*)\/?>/gi;
     let imgMatch;
     while ((imgMatch = imgRegex.exec(el.innerHtml)) !== null) {
-      const imgSrc = imgMatch[1];
-      const imgStyle = imgMatch[2] || "";
+      const imgAttrs = imgMatch[1];
+      const imgSrc = imgAttrs.match(/\bsrc="([^"]*)"/i)?.[1];
+      if (!imgSrc) continue;
+      const imgStyle = imgAttrs.match(/\bstyle="([^"]*)"/i)?.[1] || "";
       const imgW = getStyle(imgStyle, "width");
       const imgH = getStyle(imgStyle, "height");
+      const isFullBleed =
+        /position\s*:\s*absolute/i.test(imgStyle) &&
+        /(?:^|;)\s*inset\s*:/i.test(imgStyle);
       images.push({
         src: imgSrc,
-        x: xMargin,
-        y: yPos,
-        w: imgW ? pxToIn(parseInt(imgW), dims) : contentW,
-        h: imgH ? pxToIn(parseInt(imgH), dims) : pxToIn(300, dims),
+        x: isFullBleed ? 0 : xMargin,
+        y: isFullBleed ? 0 : yPos,
+        w: isFullBleed
+          ? slideW
+          : imgW?.endsWith("%")
+            ? (parseFloat(imgW) / 100) * contentW
+            : imgW
+              ? pxToIn(parseInt(imgW), dims)
+              : contentW,
+        h: isFullBleed
+          ? slideH
+          : imgH?.endsWith("%")
+            ? (parseFloat(imgH) / 100) * slideH
+            : imgH
+              ? pxToIn(parseInt(imgH), dims)
+              : pxToIn(300, dims),
       });
       yPos += imgH
         ? pxToIn(parseInt(imgH), dims) + 0.2
@@ -306,9 +366,10 @@ export function parseSlideHtml(
       texts.push({
         text,
         fontSize: pxToPt(fontSize),
-        fontFace: "Poppins",
+        fontFace,
         color: colorToHex(color),
         bold,
+        align,
         x: xMargin,
         y: yPos,
         w: contentW,

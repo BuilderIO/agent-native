@@ -151,7 +151,13 @@ export default defineAction({
           (total, r) => total + r.imageSkippedCount,
           0,
         );
-        await appendDeckSlides(deckId, title, slides, "import-file:pptx");
+        await appendDeckSlides(
+          deckId,
+          title,
+          slides,
+          "import-file:pptx",
+          nearestConfiguredAspectRatio(presentation.slideSize),
+        );
         return {
           format: "pptx",
           title,
@@ -456,6 +462,28 @@ async function importPdfPagesAsFullBleedSlides(args: {
 
 function newSlideId(): string {
   return `slide-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function nearestConfiguredAspectRatio(
+  slideSize: { widthEmu: number; heightEmu: number } | undefined,
+): AspectRatio | undefined {
+  if (!slideSize || slideSize.widthEmu <= 0 || slideSize.heightEmu <= 0) {
+    return undefined;
+  }
+  const target = slideSize.widthEmu / slideSize.heightEmu;
+  return (Object.keys(ASPECT_RATIOS) as AspectRatio[]).reduce(
+    (best, candidate) => {
+      const bestDiff = Math.abs(
+        ASPECT_RATIOS[best].width / ASPECT_RATIOS[best].height - target,
+      );
+      const candidateDiff = Math.abs(
+        ASPECT_RATIOS[candidate].width / ASPECT_RATIOS[candidate].height -
+          target,
+      );
+      return candidateDiff < bestDiff ? candidate : best;
+    },
+    DEFAULT_ASPECT_RATIO,
+  );
 }
 
 // EMF/WMF (Windows metafiles) and TIFF are valid PPTX embed formats but
