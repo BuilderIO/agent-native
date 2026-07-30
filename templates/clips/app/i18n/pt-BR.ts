@@ -1531,6 +1531,10 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (Localizado)",
     connectGoogleCalendar: "Connect Google Calendar (Localizado)",
+    googleMayShowWarning: "Revisar o acesso do Google",
+    googleNotVerifiedTitle: "Verifique o app antes de conectar",
+    googleWarningBeforeAdvanced:
+      "Confirme se o nome do app e o acesso solicitado ao Calendar correspondem à implantação do Clips em que você confia. Se o Google mostrar um aviso de app não verificado ou a identidade parecer desconhecida, pare e entre em contato com o administrador do workspace.",
     desktopReminder:
       "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins. (Localizado)",
     getDesktopApp: "Get desktop app (Localizado)",

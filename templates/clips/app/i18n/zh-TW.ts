@@ -1437,6 +1437,10 @@ const messages = {
     calendarNeedsReconnect:
       "需要重新連線 Google Calendar，才能繼續顯示即將到來的會議。",
     connectGoogleCalendar: "連線 Google Calendar",
+    googleMayShowWarning: "檢查 Google 存取權",
+    googleNotVerifiedTitle: "連線前請驗證應用程式",
+    googleWarningBeforeAdvanced:
+      "請確認應用程式名稱和要求的 Calendar 存取權與你信任的 Clips 部署相符。如果 Google 顯示未驗證應用程式警告，或應用程式身分看起來陌生，請停止操作並聯絡工作區管理員。",
     desktopReminder:
       "連線 Google Calendar，保持 Clips Desktop 開啟，會議開始時從提醒或選單列點選 Start notes。",
     getDesktopApp: "取得桌面應用程式",

@@ -604,8 +604,36 @@ async function engineCreateConfigForEntry(
   entry: AgentEngineEntry,
   apiKey: string | undefined,
   extra?: Record<string, unknown>,
+  preferResolvedCredential = false,
 ): Promise<Record<string, unknown>> {
   const safeExtra = { ...(extra ?? {}) };
+  let matchingApiKey = apiKey;
+  // Automatic engine selection must also select that engine's credential.
+  // Callers historically passed one untagged "active" key before the registry
+  // chose an engine, which could hand an Anthropic key to an app-default
+  // OpenAI engine (or vice versa). Explicit engineOption branches retain their
+  // paired key; automatic branches opt into matching the chosen provider here.
+  if (
+    preferResolvedCredential &&
+    entry.name !== "builder" &&
+    entry.requiredEnvVars.length > 0
+  ) {
+    let foundMatchingCredential = false;
+    for (const key of entry.requiredEnvVars) {
+      const resolved = (await resolveUsableProviderSecret(key)) ?? undefined;
+      if (!resolved) continue;
+      foundMatchingCredential = true;
+      const deployFallback =
+        canUseDeployCredentialFallbackForRequest(key) &&
+        readDeployCredentialEnv(key) === resolved;
+      // Keep deploy-only credentials implicit so provider SDKs retain their
+      // established env-fallback behavior. Scoped credentials must be passed
+      // explicitly, and replace an unrelated preselected provider key.
+      if (matchingApiKey || !deployFallback) matchingApiKey = resolved;
+      break;
+    }
+    if (!foundMatchingCredential) matchingApiKey = undefined;
+  }
   if (entry.name === "ai-sdk:openai") {
     if (typeof safeExtra.baseURL === "string" && safeExtra.baseUrl == null) {
       safeExtra.baseUrl = normalizeOpenAiBaseUrl(safeExtra.baseURL);
@@ -615,7 +643,7 @@ async function engineCreateConfigForEntry(
       if (baseUrl) safeExtra.baseUrl = baseUrl;
     }
   }
-  return engineCreateConfig(entry, apiKey, safeExtra);
+  return engineCreateConfig(entry, matchingApiKey, safeExtra);
 }
 
 /**
@@ -816,7 +844,9 @@ export async function resolveEngine(
     const entry = _registry.get(envEngine);
     if (entry) {
       assertAgentEnginePackageInstalled(entry);
-      return entry.create(await engineCreateConfigForEntry(entry, apiKey));
+      return entry.create(
+        await engineCreateConfigForEntry(entry, apiKey, undefined, true),
+      );
     }
   }
 
@@ -824,7 +854,9 @@ export async function resolveEngine(
   if (appDefault?.engine) {
     const entry = _registry.get(appDefault.engine);
     if (entry && (await isStoredEngineUsableForRequest(appDefault, entry))) {
-      return entry.create(await engineCreateConfigForEntry(entry, apiKey));
+      return entry.create(
+        await engineCreateConfigForEntry(entry, apiKey, undefined, true),
+      );
     }
   }
 
@@ -857,6 +889,7 @@ export async function resolveEngine(
           stripInlineApiKeyConfig(
             storedConfig as Record<string, unknown> | undefined,
           ),
+          true,
         ),
       );
     }
@@ -864,7 +897,12 @@ export async function resolveEngine(
 
   if (detectedFromUser) {
     return detectedFromUser.create(
-      await engineCreateConfigForEntry(detectedFromUser, apiKey),
+      await engineCreateConfigForEntry(
+        detectedFromUser,
+        apiKey,
+        undefined,
+        true,
+      ),
     );
   }
 
@@ -873,7 +911,9 @@ export async function resolveEngine(
   // auth-failure markers so a rejected deploy key cannot permanently win.
   const detected = await detectEngineFromEnvForRequest();
   if (detected) {
-    return detected.create(await engineCreateConfigForEntry(detected, apiKey));
+    return detected.create(
+      await engineCreateConfigForEntry(detected, apiKey, undefined, true),
+    );
   }
 
   // 9. Default: anthropic

@@ -544,8 +544,10 @@ Slack, ग्रेनोला, और GitHub स्रोत एक के स
   एजेंट के लिए मार्ग, फ़िल्टर और चयनित आईडी `application_state` में प्रतिबिंबित होते हैं
   संदर्भ.
 
-एजेंट से आपके लिए परिवर्तन करने के लिए कहें - वह अपने स्वयं के स्रोत को संपादित कर सकता है। देखें
-[Self-Modifying Code](/docs/key-concepts#agent-modifies-code).
+ये बदलाव repository development workflow में करें। Embedded agent source edits
+में केवल तभी मदद कर सकता है जब host जानबूझकर repository/workspace write tooling
+दे; अन्यथा वह actions और data के माध्यम से काम करता है। देखें
+[Key Concepts](/docs/key-concepts#agent-modifies-code).
 
 ## आगे क्या है
 

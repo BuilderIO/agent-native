@@ -9,6 +9,14 @@ Les modèles sont des applications natives d'agent complètes et exploitables qu
 
 Utilisez `@agent-native/core` pour le contrat de runtime : actions, plugins serveur, aides de base de données, état de l'application, aides de routage et chat de l'agent. Utilisez `@agent-native/toolkit` pour l'UI réutilisable de construction d'applications et les aides comme les primitives partagées, les hooks toast/mobile, les sélecteurs de date et les slots simples de shell d'application. Gardez les variantes propres au modèle locales lorsqu'elles encodent un comportement produit ou une identité visuelle.
 
+Gardez les trois couches à l’esprit pour choisir où placer une capacité :
+
+- **Core - le framework :** le contrat d’exécution et de données requis que toute app peut utiliser.
+- **Toolkit - éléments réutilisables facultatifs :** UI et systèmes produit partagés que les apps peuvent adopter, composer ou forker.
+- **Templates - apps facultatives :** produits métier complets bâtis sur Core, souvent avec Toolkit, que l’on peut forker comme point de départ.
+
+Toolkit et Templates sont facultatifs. Un template n’est pas le framework lui-même, et Toolkit ne remplace pas Core.
+
 Un bon modèle :
 
 - Résout un flux de travail de bout en bout, avec des données de départ utiles ou un flux à état vide.

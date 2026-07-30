@@ -183,6 +183,35 @@ Real credential values belong only in local `.env` files, deployment configurati
 | `DATABASE_URL`        | Production yes, local dev no    | Persistent SQL connection string (local dev default: `file:./data/app.db`) |
 | `DATABASE_AUTH_TOKEN` | Only when the provider needs it | Auth token for providers such as Turso/libSQL                              |
 
+### Cross-app Thread Debug sources
+
+Dispatch can inspect agent runs from other apps without moving their trace data
+out of the app-owned database. Configure these connections only on the
+production Dispatch runtime, and use database credentials that are restricted
+to read-only access.
+
+For one source, set an app-prefixed URL such as
+`CLIPS_DATABASE_URL` and, when required, `CLIPS_DATABASE_AUTH_TOKEN`. For
+multiple or explicitly named sources, set `AGENT_NATIVE_THREAD_DEBUG_DATABASES`
+to JSON that refers to separate environment variable names:
+
+```json
+[
+  {
+    "id": "clips",
+    "label": "Clips",
+    "databaseUrlEnv": "DISPATCH_THREAD_DEBUG_CLIPS_DATABASE_URL",
+    "databaseAuthTokenEnv": "DISPATCH_THREAD_DEBUG_CLIPS_DATABASE_AUTH_TOKEN"
+  }
+]
+```
+
+Set the referenced values in the deployment's secret configuration. Never put
+database URLs or tokens in this file, `netlify.toml`, source code, fixtures, or
+logs. Do not grant deploy previews access to production app databases by
+default. Thread Debug reports configured-but-missing or unreadable sources
+separately from sources that returned zero failures.
+
 ## Extensions (Framework Feature)
 
 The framework provides **Extensions** — mini sandboxed Alpine.js apps that run inside iframes. Extensions let users (or the agent) create interactive widgets, dashboards, and utilities without modifying the app's source code. They appear in the sidebar under an "Extensions" section. (Distinct from LLM tools — the function-calling primitives the agent invokes.)
