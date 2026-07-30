@@ -174,6 +174,7 @@ export function buildAuthenticatedAgentA2ASkills(
   name: string;
   description: string;
   publicAgent: ActionEntry["publicAgent"];
+  inputSchema?: Record<string, unknown>;
 }> {
   return Object.entries(filterDirectA2AActions(actions, options)).map(
     ([name, entry]) => ({
@@ -181,6 +182,16 @@ export function buildAuthenticatedAgentA2ASkills(
       name,
       description: entry.tool.description,
       publicAgent: entry.publicAgent,
+      // Naming an action without its parameters is what makes a caller invoke
+      // it with `{}` and fail on a required field.
+      ...(entry.tool.parameters
+        ? {
+            inputSchema: entry.tool.parameters as unknown as Record<
+              string,
+              unknown
+            >,
+          }
+        : {}),
     }),
   );
 }
