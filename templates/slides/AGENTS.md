@@ -45,6 +45,8 @@ ladder.
   and `input` (or `invokeAgentAction`) instead of starting the sibling agent's
   model loop. In Analytics, use `gong-native-insights` for provider-synthesized
   briefs and `gong-calls` for quotes, counts, transcripts, and coverage claims.
+- For data requests, read `.agents/skills/analytics-data-for-decks/SKILL.md` and
+  delegate via Analytics over A2A; do not write SQL or call providers directly.
 - When the user names no reference deck or design system, call
   `get-workspace-defaults` first so a bare "make a deck about X" is still on
   brand.
@@ -102,3 +104,4 @@ Read the relevant skill before deeper work:
 - `design-systems`, `frontend-design`, `shadcn-ui`, and `actions` as needed.
 - `creative-context` for cross-app source reuse, pinned packs, provenance, and
   context opt-out.
+- `analytics-data-for-decks` for delegated data.
