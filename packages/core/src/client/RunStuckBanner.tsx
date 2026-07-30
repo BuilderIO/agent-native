@@ -329,6 +329,7 @@ export function RunStuckBanner({
     state.runId,
     state.stuckSinceMs,
     threadId,
+    awaitingResponse,
   ]);
 
   // A stale progress timestamp is not actionable while the server is still
