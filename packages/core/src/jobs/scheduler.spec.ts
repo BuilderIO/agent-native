@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { processRecurringJobs } from "./scheduler.js";
+import {
+  buildTriggerContent,
+  parseTriggerFrontmatter,
+} from "../triggers/dispatcher.js";
+import { classifyJobResource, processRecurringJobs } from "./scheduler.js";
 
 const resourceListAllOwnersMock = vi.hoisted(() => vi.fn());
 const resourcePutMock = vi.hoisted(() => vi.fn());
@@ -173,6 +177,76 @@ Summarize the inbox.`,
     recordUsageMock.mockResolvedValue(undefined);
   });
 
+  it("seeds a scheduled automation without dropping its automation metadata", async () => {
+    resourceListAllOwnersMock.mockResolvedValueOnce([
+      {
+        id: "resource-scheduled-automation",
+        owner: "alice+jobs@agent-native.test",
+        path: "jobs/calendar-digest.md",
+        content: buildTriggerContent(
+          {
+            schedule: "0 9 * * 1-5",
+            enabled: true,
+            triggerType: "schedule",
+            condition: 'only when the calendar says "busy"',
+            mode: "agentic",
+            domain: "calendar",
+            delegatedPolicyId: "calendar-safe:v1",
+            createdBy: "alice+jobs@agent-native.test",
+            orgId: "org-1",
+            runAs: "creator",
+            originScopeId: "scope-1",
+            deliveryPlatform: "slack",
+            deliveryDestination: "C012345",
+            deliveryThreadRef: "1785343277.030909",
+            deliveryTenantId: "T012345",
+            model: "test-model",
+            mcpTools: ["mcp__calendar__list_events"],
+          },
+          "Send the calendar digest.",
+        ),
+      },
+    ]);
+
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+    });
+
+    expect(resourcePutMock).toHaveBeenCalledOnce();
+    const persistedContent: string = resourcePutMock.mock.calls[0][2];
+    expect(classifyJobResource(persistedContent)).toEqual({
+      kind: "automation",
+      hasExplicitTriggerType: true,
+      triggerType: "schedule",
+    });
+    const { meta, body } = parseTriggerFrontmatter(persistedContent);
+    expect(meta).toMatchObject({
+      schedule: "0 9 * * 1-5",
+      enabled: true,
+      triggerType: "schedule",
+      condition: 'only when the calendar says "busy"',
+      mode: "agentic",
+      domain: "calendar",
+      delegatedPolicyId: "calendar-safe:v1",
+      createdBy: "alice+jobs@agent-native.test",
+      orgId: "org-1",
+      runAs: "creator",
+      originScopeId: "scope-1",
+      deliveryPlatform: "slack",
+      deliveryDestination: "C012345",
+      deliveryThreadRef: "1785343277.030909",
+      deliveryTenantId: "T012345",
+      model: "test-model",
+      mcpTools: ["mcp__calendar__list_events"],
+    });
+    expect(meta.nextRun).toBeTruthy();
+    expect(body).toBe("Send the calendar digest.");
+    expect(createThreadMock).not.toHaveBeenCalled();
+  });
+
   it("creates run history threads owned by the job user", async () => {
     await processRecurringJobs({
       getActions: () => ({}),
@@ -206,7 +280,15 @@ mcpTools: ["mcp__meeting-notes__list_meetings"]
 Import action items.`,
       },
     ]);
-    const getActions = vi.fn(() => ({}));
+    const getActions = vi.fn(() => ({
+      "mcp__meeting-notes__list_meetings": {
+        tool: {
+          description: "List meetings",
+          parameters: { type: "object", properties: {} },
+        },
+        run: async () => "ok",
+      },
+    }));
     const getInitialToolNames = vi.fn(() => ["manage-jobs"]);
 
     await processRecurringJobs({

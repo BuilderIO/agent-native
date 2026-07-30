@@ -117,6 +117,11 @@ in the moment of agent use.
   missing-secret states, OAuth grants, and provider connection health.
 - **Agent UX kit**: sidebar, composer, staged context, mentions, voice, human
   approval, generative UI, progress, and screen-state exposure.
+- **Custom block kit**: optional extension creation, viewer chrome, slots, and
+  promotion affordances. Apps must opt in; Core keeps the sandbox, SQL storage,
+  access checks, and compatibility routes, while Toolkit owns reusable adoption
+  UI. Analytics may expose this as one-off **Custom Blocks**; durable behavior
+  should be promoted to app code.
 - **Chat history kit**: presentational chat lists and recent-chat rails belong
   in Toolkit; Core keeps thread persistence, agent execution, transport, and
   page-to-sidebar handoff. Use Toolkit's `ChatHistoryRail` for the standard

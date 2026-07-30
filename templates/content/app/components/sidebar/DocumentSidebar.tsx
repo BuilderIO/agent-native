@@ -7,7 +7,7 @@ import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
-import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { useT } from "@agent-native/core/client/i18n";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
 import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
@@ -1610,9 +1610,6 @@ export function DocumentSidebar({
       <TooltipContent side="right">{t("sidebar.search")}</TooltipContent>
     </Tooltip>
   );
-  const translateButton = (
-    <LanguagePicker variant="ghost-icon" label={t("settings.languageLabel")} />
-  );
   const feedbackButton = (
     <FeedbackButton
       variant={collapsed ? "icon" : "sidebar"}
@@ -2141,7 +2138,6 @@ export function DocumentSidebar({
         <SidebarFooterActions
           collapsed
           feedback={feedbackButton}
-          translate={translateButton}
           search={searchButton}
           collapse={collapseButton}
         />
@@ -2387,7 +2383,6 @@ export function DocumentSidebar({
         {isCodeMode ? <DevDatabaseLink /> : null}
         <SidebarFooterActions
           feedback={feedbackButton}
-          translate={translateButton}
           search={searchButton}
           collapse={collapseButton}
           className="px-0 py-0"

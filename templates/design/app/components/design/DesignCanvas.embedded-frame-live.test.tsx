@@ -128,6 +128,106 @@ describe("DesignCanvas live embedded-frame offset", () => {
     }
   });
 
+  it("releases native wheel scrolling in embedded Interact mode", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const content =
+      '<!doctype html><html><body style="min-height:900px"></body></html>';
+    const render = (interactMode: boolean) => (
+      <DesignCanvas
+        content={content}
+        contentKey="embedded-wheel-mode"
+        screenId="screen-a"
+        zoom={100}
+        deviceFrame="none"
+        interactMode={interactMode}
+        editMode={!interactMode}
+        onElementSelect={() => {}}
+        onElementHover={() => {}}
+        tweakValues={{}}
+        embeddedFrame={{
+          viewportWidth: 400,
+          viewportHeight: 300,
+          displayWidth: 400,
+          displayHeight: 300,
+        }}
+      />
+    );
+    try {
+      await act(async () => root.render(render(false)));
+      const editIframe = container.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      expect(editIframe?.contentWindow).toBeTruthy();
+      const editPostMessage = vi.spyOn(
+        editIframe!.contentWindow!,
+        "postMessage",
+      );
+      const wheelEnabledMessages = () =>
+        editPostMessage.mock.calls
+          .map(
+            (call) =>
+              call[0] as { type?: string; wheelEnabled?: boolean } | undefined,
+          )
+          .filter(
+            (message): message is { type: string; wheelEnabled?: boolean } =>
+              message?.type === "embedded-canvas-gesture-mode",
+          );
+      await act(async () => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            data: { type: "agent-native:editor-chrome-ready" },
+            origin: window.location.origin,
+            source: editIframe!.contentWindow,
+          }),
+        );
+      });
+      await vi.waitFor(() => {
+        expect(wheelEnabledMessages().slice(-1)[0]).toMatchObject({
+          wheelEnabled: true,
+        });
+      });
+
+      await act(async () => root.render(render(true)));
+      const interactIframe = container.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      expect(interactIframe?.contentWindow).toBeTruthy();
+      const interactPostMessage = vi.spyOn(
+        interactIframe!.contentWindow!,
+        "postMessage",
+      );
+      const interactWheelEnabledMessages = () =>
+        interactPostMessage.mock.calls
+          .map(
+            (call) =>
+              call[0] as { type?: string; wheelEnabled?: boolean } | undefined,
+          )
+          .filter(
+            (message): message is { type: string; wheelEnabled?: boolean } =>
+              message?.type === "embedded-canvas-gesture-mode",
+          );
+      await act(async () => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            data: { type: "agent-native:editor-chrome-ready" },
+            origin: window.location.origin,
+            source: interactIframe!.contentWindow,
+          }),
+        );
+      });
+      await vi.waitFor(() => {
+        expect(interactWheelEnabledMessages().slice(-1)[0]).toMatchObject({
+          wheelEnabled: false,
+        });
+      });
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+    }
+  });
+
   it("queues and deduplicates runtime structure move requests until the bridge is ready", async () => {
     const container = document.createElement("div");
     document.body.append(container);

@@ -62,6 +62,10 @@ const messages = {
     title: "CRM 설정",
     description:
       "네이티브 SQL은 CRM 소유 레코드를 로컬에 두고 이식 가능하게 유지합니다. HubSpot과 Salesforce는 작업 공간 연결을 사용하며, 그 미러에는 허용된 필드, 범위가 제한된 메타데이터, 한정된 증거 참조만 저장됩니다.",
+    languageTitle: "언어",
+    languageDescription:
+      "인터페이스 언어를 선택하세요. 이 기본 설정은 계정에 저장됩니다.",
+    languageLabel: "인터페이스 언어",
   },
   connection: {
     tab: "연결",

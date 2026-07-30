@@ -58,6 +58,29 @@ export function parseCanvasFrameGeometryById(
   );
 }
 
+/** Y a new group must start at to clear existing frames, or 0 when the board is
+ *  empty. Placing at y=0 unconditionally stacks each new group on the last. */
+export function nextFreeCanvasRowY(
+  existing: unknown,
+  gap: number,
+  options: { ignoreFileIds?: readonly string[] } = {},
+): number {
+  const ignored = new Set(options.ignoreFileIds ?? []);
+  const frames = Object.entries(parseCanvasFrameGeometryById(existing)).filter(
+    ([id]) => !ignored.has(id),
+  );
+  let bottom = 0;
+  let sawFrame = false;
+  for (const [, frame] of frames) {
+    const y = frame.y ?? 0;
+    const height = frame.height ?? 0;
+    if (!Number.isFinite(y) || !Number.isFinite(height)) continue;
+    sawFrame = true;
+    bottom = Math.max(bottom, y + height);
+  }
+  return sawFrame ? bottom + gap : 0;
+}
+
 export function mergeCanvasFramePlacements({
   existing,
   placements,

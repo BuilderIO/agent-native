@@ -53,6 +53,7 @@ const recoverDueA2AContinuationsMock = vi.hoisted(() =>
   vi.fn(async () => ({ dispatched: 0, failed: 0 })),
 );
 const processDueA2AContinuationsMock = vi.hoisted(() => vi.fn(async () => {}));
+const startPendingTasksRetryJobMock = vi.hoisted(() => vi.fn());
 const processA2AContinuationByIdMock = vi.hoisted(() => vi.fn());
 const recoverA2AContinuationAfterProcessorFailureMock = vi.hoisted(() =>
   vi.fn(),
@@ -119,7 +120,7 @@ vi.mock("./config-store.js", () => ({
 }));
 
 vi.mock("./pending-tasks-retry-job.js", () => ({
-  startPendingTasksRetryJob: vi.fn(),
+  startPendingTasksRetryJob: startPendingTasksRetryJobMock,
   retryStuckPendingTasks: retryStuckPendingTasksMock,
 }));
 
@@ -393,6 +394,21 @@ describe("integrations plugin routes", () => {
     });
     resourceGetByPathMock.mockImplementation(async () => null);
   });
+
+  it.each([
+    "__AGENT_NATIVE_BACKGROUND_RUNTIME__",
+    "__AGENT_NATIVE_INTEGRATION_RECOVERY_RUNTIME__",
+  ])(
+    "does not start recurring integration jobs in the %s worker",
+    async (key) => {
+      vi.stubGlobal(key, true);
+      const nitroApp = createNitroApp();
+
+      await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+      expect(startPendingTasksRetryJobMock).not.toHaveBeenCalled();
+    },
+  );
 
   it("requires a session for integration status", async () => {
     getSessionMock.mockResolvedValueOnce(null);

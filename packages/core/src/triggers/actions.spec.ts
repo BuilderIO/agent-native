@@ -11,7 +11,13 @@ const emitMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../resources/store.js", () => ({
   SHARED_OWNER: "__shared__",
+  organizationIdFromResourceOwner: (owner: string) =>
+    owner.startsWith("__organization__:")
+      ? owner.slice("__organization__:".length)
+      : null,
+  organizationResourceOwner: (orgId: string) => `__organization__:${orgId}`,
   resourceListAllOwners: resourceListAllOwnersMock,
+  resourceList: resourceListAllOwnersMock,
   resourceGetByPath: resourceGetByPathMock,
   resourcePut: resourcePutMock,
   resourceDelete: resourceDeleteMock,
@@ -46,8 +52,20 @@ describe("manage-automations tool", () => {
     return createAutomationToolEntries(() => owner)["manage-automations"];
   }
 
-  it("lists only the current user's and shared automations", async () => {
-    resourceListAllOwnersMock.mockResolvedValue([
+  it("allows only list operations in Plan mode", () => {
+    const entry = tool();
+    const effect = entry.planMode?.effect;
+    expect(typeof effect).toBe("function");
+    if (typeof effect !== "function") throw new Error("Missing classifier");
+
+    expect(effect({ action: "list-events" })).toBe("read");
+    expect(effect({ action: "list" })).toBe("read");
+    expect(effect({ action: "define" })).toBe("write");
+    expect(effect({ action: "fire-test" })).toBe("write");
+  });
+
+  it("lists only the selected personal scope", async () => {
+    const resources = [
       {
         id: "owned",
         owner,
@@ -93,12 +111,19 @@ domain: qa
 
 Other body`,
       },
-    ]);
+    ];
+    resourceListAllOwnersMock.mockResolvedValue(
+      resources.filter((resource) => resource.owner === owner),
+    );
+    resourceGetByPathMock.mockImplementation(
+      async (_owner: string, path: string) =>
+        resources.find((resource) => resource.path === path) ?? null,
+    );
 
     const result = await tool().run({ action: "list" });
 
     expect(result).toContain("owned");
-    expect(result).toContain("shared");
+    expect(result).not.toContain("shared");
     expect(result).not.toContain("other");
   });
 
@@ -155,7 +180,16 @@ Record the QA signal.`,
       id: "resource-1",
       owner,
       path: "jobs/qa-alert.md",
-      content: "",
+      content: `---
+schedule: ""
+enabled: false
+triggerType: event
+event: test.event.fired
+mode: agentic
+createdBy: ${owner}
+---
+
+Updated body.`,
     });
 
     await tool().run({ action: "delete", name: "qa-alert" });
@@ -207,6 +241,102 @@ Record the QA signal.`,
       "jobs/qa-omitted-mode.md",
       expect.stringContaining("mode: agentic"),
     );
+  });
+
+  it("validates trigger-specific fields before defining an automation", async () => {
+    await expect(
+      tool().run({
+        action: "define",
+        name: "missing-event",
+        trigger_type: "event",
+        body: "Record the signal.",
+      }),
+    ).resolves.toContain("event is required");
+
+    await expect(
+      tool().run({
+        action: "define",
+        name: "invalid-schedule",
+        trigger_type: "schedule",
+        schedule: "tomorrow",
+        body: "Record the signal.",
+      }),
+    ).resolves.toContain("invalid cron expression");
+
+    await expect(
+      tool().run({
+        action: "define",
+        name: "missing-body",
+        trigger_type: "schedule",
+        schedule: "0 9 * * *",
+      }),
+    ).resolves.toContain("body is required");
+
+    expect(resourcePutMock).not.toHaveBeenCalled();
+  });
+
+  it("seeds the next run for scheduled automations", async () => {
+    await tool().run({
+      action: "define",
+      name: "daily-digest",
+      trigger_type: "schedule",
+      schedule: "0 9 * * *",
+      body: "Summarize the inbox.",
+    });
+
+    const content = resourcePutMock.mock.calls[0]?.[2] as string;
+    expect(content).toContain("triggerType: schedule");
+    expect(content).toMatch(/nextRun: "/);
+  });
+
+  it("leaves legacy scheduled jobs on the compatibility tool", async () => {
+    resourceGetByPathMock.mockResolvedValueOnce({
+      id: "legacy-job",
+      owner,
+      path: "jobs/daily-digest.md",
+      content: `---
+schedule: "0 9 * * *"
+enabled: true
+createdBy: ${owner}
+model: custom-model
+mcpTools: ["mcp__mail__list_messages"]
+deliveryPlatform: slack
+deliveryDestination: C123
+---
+
+Summarize the inbox.`,
+    });
+
+    const result = await tool().run({
+      action: "update",
+      name: "daily-digest",
+      enabled: "false",
+    });
+
+    expect(result).toContain("legacy scheduled job");
+    expect(resourcePutMock).not.toHaveBeenCalled();
+  });
+
+  it("refreshes event subscriptions after deletion", async () => {
+    resourceGetByPathMock.mockResolvedValueOnce({
+      id: "resource-1",
+      owner,
+      path: "jobs/qa-alert.md",
+      content: `---
+schedule: ""
+enabled: true
+triggerType: event
+event: test.event.fired
+mode: agentic
+---
+
+Record the signal.`,
+    });
+
+    await tool().run({ action: "delete", name: "qa-alert" });
+
+    expect(resourceDeleteMock).toHaveBeenCalledWith("resource-1");
+    expect(refreshEventSubscriptionsMock).toHaveBeenCalledOnce();
   });
 
   it("scopes fire-test events to the current user", async () => {

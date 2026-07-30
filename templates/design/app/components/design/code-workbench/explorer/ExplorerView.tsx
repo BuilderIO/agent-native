@@ -63,6 +63,15 @@ export function ExplorerView({
   const localhostProviders = providers.filter(
     (provider) => provider.kind === "localhost",
   );
+  const localhostProviderKeys = localhostProviders
+    .map((provider) => provider.key)
+    .join(",");
+  const providersRef = useRef(providers);
+  providersRef.current = providers;
+  const translateRef = useRef(t);
+  translateRef.current = t;
+  const refetchSourceFilesRef = useRef(sourceFilesQuery.refetch);
+  refetchSourceFilesRef.current = sourceFilesQuery.refetch;
   const [localhostFileLists, setLocalhostFileLists] = useState<
     Record<string, LocalhostFileListState>
   >({});
@@ -77,76 +86,72 @@ export function ExplorerView({
     };
   }, []);
 
-  const loadLocalhostFiles = useCallback(
-    async (providerKey: string) => {
-      const provider = providers.find((entry) => entry.key === providerKey);
-      if (!provider || !mountedRef.current) return;
-      const requestId = (requestIdsRef.current[providerKey] ?? 0) + 1;
-      requestIdsRef.current[providerKey] = requestId;
+  const loadLocalhostFiles = useCallback(async (providerKey: string) => {
+    const provider = providersRef.current.find(
+      (entry) => entry.key === providerKey,
+    );
+    if (!provider || !mountedRef.current) return;
+    const requestId = (requestIdsRef.current[providerKey] ?? 0) + 1;
+    requestIdsRef.current[providerKey] = requestId;
+    setLocalhostFileLists((current) => ({
+      ...current,
+      [providerKey]: {
+        files: current[providerKey]?.files ?? [],
+        loading: true,
+      },
+    }));
+    try {
+      const files = await provider.listFiles();
+      if (
+        !mountedRef.current ||
+        requestIdsRef.current[providerKey] !== requestId
+      ) {
+        return;
+      }
+      setLocalhostFileLists((current) => ({
+        ...current,
+        [providerKey]: { files, loading: false },
+      }));
+    } catch (error) {
+      if (
+        !mountedRef.current ||
+        requestIdsRef.current[providerKey] !== requestId
+      ) {
+        return;
+      }
       setLocalhostFileLists((current) => ({
         ...current,
         [providerKey]: {
           files: current[providerKey]?.files ?? [],
-          loading: true,
+          loading: false,
+          error:
+            error instanceof Error
+              ? error.message
+              : translateRef.current("common.genericError"),
         },
       }));
-      try {
-        const files = await provider.listFiles();
-        if (
-          !mountedRef.current ||
-          requestIdsRef.current[providerKey] !== requestId
-        ) {
-          return;
-        }
-        setLocalhostFileLists((current) => ({
-          ...current,
-          [providerKey]: { files, loading: false },
-        }));
-      } catch (error) {
-        if (
-          !mountedRef.current ||
-          requestIdsRef.current[providerKey] !== requestId
-        ) {
-          return;
-        }
-        setLocalhostFileLists((current) => ({
-          ...current,
-          [providerKey]: {
-            files: current[providerKey]?.files ?? [],
-            loading: false,
-            error:
-              error instanceof Error ? error.message : t("common.genericError"),
-          },
-        }));
-      }
-    },
-    [providers, t],
-  );
+    }
+  }, []);
 
   useEffect(() => {
-    for (const provider of localhostProviders) {
-      void loadLocalhostFiles(provider.key);
+    for (const providerKey of localhostProviderKeys
+      .split(",")
+      .filter(Boolean)) {
+      void loadLocalhostFiles(providerKey);
     }
     // Re-run when the set of localhost providers changes (connections added).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    localhostProviders.map((provider) => provider.key).join(","),
-    loadLocalhostFiles,
-  ]);
+  }, [localhostProviderKeys, loadLocalhostFiles]);
 
   useEffect(() => {
     return api.onFilesChanged(() => {
-      sourceFilesQuery.refetch();
-      for (const provider of localhostProviders) {
-        void loadLocalhostFiles(provider.key);
+      refetchSourceFilesRef.current();
+      for (const providerKey of localhostProviderKeys
+        .split(",")
+        .filter(Boolean)) {
+        void loadLocalhostFiles(providerKey);
       }
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    api,
-    loadLocalhostFiles,
-    localhostProviders.map((provider) => provider.key).join(","),
-  ]);
+  }, [api, loadLocalhostFiles, localhostProviderKeys]);
 
   const activeUri = state.activeUri;
   const dirtyUris = useMemo(() => {

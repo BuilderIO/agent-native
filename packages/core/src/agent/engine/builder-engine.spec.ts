@@ -897,6 +897,35 @@ describe("createBuilderEngine", () => {
     expect(stop?.errorCode).toBe("builder_gateway_network_error");
   });
 
+  it("tags retry-wrapped OpenAI TLS connection failures as gateway network errors", async () => {
+    const error =
+      "Failed after 2 attempts. Last error: Cannot connect to API: " +
+      "0029217D3D7F0000:error:0A000438:SSL routines:ssl3_read_bytes:" +
+      "tlsv1 alert internal error";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "error",
+            error,
+          },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(
+      engine.stream({ ...BASE_OPTS, model: "gpt-5-6-terra" }),
+    );
+
+    const stop = events.find((event) => event.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.error).toBe(error);
+    expect(stop?.errorCode).toBe("builder_gateway_network_error");
+  });
+
   it("keeps the hard timeout active while reading the gateway stream", async () => {
     vi.stubEnv("AGENT_NATIVE_BUILDER_GATEWAY_TIMEOUT_MS", "1");
     const fetchSpy = vi.fn((_url: string, init?: RequestInit) => {

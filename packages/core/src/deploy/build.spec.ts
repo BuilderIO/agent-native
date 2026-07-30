@@ -1806,6 +1806,9 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     expect(entry).toContain(
       'const SWEEP_PATH = "/_agent-native/integrations/retry-stuck-tasks"',
     );
+    expect(entry).toContain(
+      "globalThis.__AGENT_NATIVE_INTEGRATION_RECOVERY_RUNTIME__ = true",
+    );
     expect(entry).toContain('createHmac("sha256", secret)');
     expect(entry).toContain(
       "if (!enabled()) return new Response(null, { status: 204 })",

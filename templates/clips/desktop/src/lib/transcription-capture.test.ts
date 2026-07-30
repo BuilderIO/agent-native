@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { __test } from "./transcription-capture";
+import {
+  __test,
+  shouldStartLocalRecordingTranscription,
+} from "./transcription-capture";
 
 function result(transcript: string, isFinal: boolean) {
   return {
@@ -38,5 +41,12 @@ describe("Web Speech transcription buffer", () => {
     buffer.commitSession({ preserveInterim: true });
 
     expect(buffer.text()).toBe("final text trailing interim");
+  });
+});
+
+describe("local recording transcription", () => {
+  it("does not open a microphone capture for a system-audio-only recording", () => {
+    expect(shouldStartLocalRecordingTranscription(false)).toBe(false);
+    expect(shouldStartLocalRecordingTranscription(true)).toBe(true);
   });
 });

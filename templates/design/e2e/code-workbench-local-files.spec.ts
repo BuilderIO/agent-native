@@ -149,8 +149,12 @@ test("lists the spawned folder, preserves dirty buffers, and saves a local file"
   await expect(localRoot).toBeVisible({ timeout: 20_000 });
   await expect(localRoot).toHaveAttribute("title", rootPath);
 
-  await page.getByText("src", { exact: true }).click();
-  await page.getByText("App.tsx", { exact: true }).click();
+  const localTree = page.getByRole("tree", {
+    name: `LOCAL FILES — ${rootName}`,
+    exact: true,
+  });
+  await localTree.getByText("src", { exact: true }).click();
+  await localTree.getByText("App.tsx", { exact: true }).click();
   await expect(page.getByTestId("design-code-monaco-editor")).toBeVisible();
 
   for (const [filename, language] of [
@@ -160,32 +164,69 @@ test("lists the spawned folder, preserves dirty buffers, and saves a local file"
     ["Component.svelte", "html"],
     ["Component.astro", "html"],
   ] as const) {
-    await page.getByText(filename, { exact: true }).click();
+    await localTree.getByText(filename, { exact: true }).click();
     await expect
-      .poll(() =>
-        page.evaluate(() => {
-          const workbench = (
-            window as typeof window & { __designCodeWorkbench?: any }
-          ).__designCodeWorkbench;
-          const uri = workbench?.api.getState().activeUri;
-          return uri
-            ? workbench?.modelRegistry.get(uri)?.model.getLanguageId()
-            : null;
-        }),
+      .poll(
+        () =>
+          page.evaluate((expectedFilename) => {
+            const workbench = (
+              window as typeof window & { __designCodeWorkbench?: any }
+            ).__designCodeWorkbench;
+            const state = workbench?.api.getState();
+            const uri = state?.activeUri;
+            const tab = state?.tabs.find(
+              (entry: { uri: string }) => entry.uri === uri,
+            );
+            const buffer = uri ? state?.buffers[uri] : null;
+            return {
+              path: tab?.path ?? null,
+              loading: buffer?.loading ?? null,
+              error: buffer?.error ?? null,
+              language: uri
+                ? (workbench?.modelRegistry.get(uri)?.model.getLanguageId() ??
+                  null)
+                : null,
+              expectedFilename,
+            };
+          }, filename),
+        { message: `${filename} loads into the expected Monaco language` },
       )
-      .toBe(language);
+      .toEqual({
+        path: `src/${filename}`,
+        loading: false,
+        error: null,
+        language,
+        expectedFilename: filename,
+      });
     await expect
-      .poll(() =>
-        page
-          .locator(
-            '[data-testid="design-code-monaco-editor"] .view-line span[class*="mtk"]',
-          )
-          .count(),
+      .poll(
+        () =>
+          page.evaluate(() => {
+            const host = document.querySelector(
+              '[data-testid="design-code-monaco-editor"]',
+            );
+            const visibleTokens = [
+              ...(host?.querySelectorAll<HTMLElement>(
+                ".view-lines .view-line span",
+              ) ?? []),
+            ].filter(
+              (element) =>
+                element.childElementCount === 0 &&
+                Boolean(element.textContent?.trim()),
+            );
+            const syntaxColors = new Set(
+              visibleTokens.map((element) => getComputedStyle(element).color),
+            );
+            return visibleTokens.length > 3 && syntaxColors.size > 1;
+          }),
+        {
+          message: `${filename} renders visible syntax-highlighted tokens in Monaco`,
+        },
       )
-      .toBeGreaterThan(3);
+      .toBe(true);
   }
 
-  await page.getByText("App.tsx", { exact: true }).click();
+  await localTree.getByText("App.tsx", { exact: true }).click();
   const localUri = await page.evaluate(async () => {
     const workbench = (
       window as typeof window & {
@@ -255,7 +296,11 @@ test("lists the spawned folder, preserves dirty buffers, and saves a local file"
     )
     .toBe(false);
 
-  await expect(page.getByText("Dockerfile", { exact: true })).toBeVisible();
-  await expect(page.getByText(".prettierrc", { exact: true })).toBeVisible();
-  await expect(page.getByText(".env", { exact: true })).toHaveCount(0);
+  await expect(
+    localTree.getByText("Dockerfile", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    localTree.getByText(".prettierrc", { exact: true }),
+  ).toBeVisible();
+  await expect(localTree.getByText(".env", { exact: true })).toHaveCount(0);
 });

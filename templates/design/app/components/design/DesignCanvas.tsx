@@ -524,6 +524,10 @@ interface DesignCanvasProps {
       /** Set when the subject is markup this change introduced, not an
        * element the running app already had. */
       insertedHtml?: string;
+      /** The inserted subject replaced the anchor as one undoable gesture. */
+      replaced?: true;
+      replacementSelector?: string;
+      replacementSourceId?: string;
     },
   ) => boolean | "pending" | void;
   onVisualDuplicateChange?: (
@@ -2630,6 +2634,7 @@ export function DesignCanvas({
         const selector = String(e.data.selector || "");
         const anchorSelector = String(e.data.anchorSelector || "");
         const placement = String(e.data.placement || "after");
+        const replaced = e.data.replaced === true;
         dndHostLog("recv:structure-change", {
           selector,
           anchorSelector,
@@ -2685,14 +2690,16 @@ export function DesignCanvas({
             placement === "inside")
         ) {
           const applied = onVisualStructureChange?.(
-            selector,
-            anchorSelector,
+            replaced ? anchorSelector : selector,
+            replaced ? "" : anchorSelector,
             placement,
-            e.data.payload,
+            replaced && isElementInfoPayload(e.data.anchorPayload)
+              ? e.data.anchorPayload
+              : e.data.payload,
             {
               requestId,
-              sourceId,
-              anchorSourceId,
+              sourceId: replaced ? anchorSourceId : sourceId,
+              anchorSourceId: replaced ? undefined : anchorSourceId,
               dropMode,
               forceFlowPositionOverride:
                 e.data.forceFlowPositionOverride === true,
@@ -2705,6 +2712,13 @@ export function DesignCanvas({
                 typeof e.data.insertedHtml === "string"
                   ? e.data.insertedHtml
                   : undefined,
+              ...(replaced
+                ? {
+                    replaced: true as const,
+                    replacementSelector: selector,
+                    replacementSourceId: sourceId,
+                  }
+                : {}),
             },
           );
           dndHostLog("persist:result", {
@@ -3394,7 +3408,7 @@ export function DesignCanvas({
   useEffect(() => {
     postOneShotBridgeMessage({
       type: "embedded-canvas-gesture-mode",
-      wheelEnabled: isEmbeddedFrame,
+      wheelEnabled: isEmbeddedFrame && !interactMode,
       spaceKeyForwardingEnabled: interactMode || readOnly,
       // Interact hands the app its own native interaction back; every other
       // mode keeps the editing shield armed.
@@ -3794,14 +3808,37 @@ export function DesignCanvas({
     }
     lastRuntimeStructureInsertRequestIdRef.current =
       runtimeStructureInsertRequest.requestId;
-    postOneShotBridgeMessage({
-      type: "runtime-structure-insert",
-      requestId: runtimeStructureInsertRequest.requestId,
-      html: runtimeStructureInsertRequest.html,
-      anchorSelector: runtimeStructureInsertRequest.anchor.selector,
-      anchorSourceId: runtimeStructureInsertRequest.anchor.sourceId,
-      anchorPendingNodeId: runtimeStructureInsertRequest.anchor.pendingNodeId,
-      placement: runtimeStructureInsertRequest.placement,
+    let anchorSelector = runtimeStructureInsertRequest.anchor.selector;
+    let anchorSourceId = runtimeStructureInsertRequest.anchor.sourceId;
+    [
+      runtimeStructureInsertRequest.html,
+      ...(runtimeStructureInsertRequest.additionalHtml ?? []),
+    ].forEach((html, index) => {
+      postOneShotBridgeMessage({
+        type: "runtime-structure-insert",
+        requestId: runtimeStructureInsertRequest.requestId + index / 1_000,
+        html,
+        anchorSelector,
+        anchorSourceId,
+        anchorPendingNodeId: runtimeStructureInsertRequest.anchor.pendingNodeId,
+        placement: runtimeStructureInsertRequest.placement,
+        ...(runtimeStructureInsertRequest.replaceAnchor === true && index === 0
+          ? { replaceAnchor: true }
+          : {}),
+      });
+      // Repeated "after" inserts against the original anchor reverse their
+      // order. Chain each subsequent root after the clone before it so a
+      // multi-layer clipboard lands in the same order the user copied.
+      if (runtimeStructureInsertRequest.placement === "after") {
+        const root = new DOMParser()
+          .parseFromString(`<template>${html}</template>`, "text/html")
+          .querySelector("template")?.content.firstElementChild;
+        const rootNodeId = root?.getAttribute("data-agent-native-node-id");
+        if (rootNodeId) {
+          anchorSelector = `[data-agent-native-node-id="${rootNodeId}"]`;
+          anchorSourceId = rootNodeId;
+        }
+      }
     });
   }, [postOneShotBridgeMessage, runtimeStructureInsertRequest]);
 

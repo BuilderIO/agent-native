@@ -436,6 +436,233 @@ h4 {
   font-size: 13px;
 }
 
+/* ─── Docs components ──────────────────────────────────────────────────────── */
+
+/* kbd: inline keyboard shortcut
+   Usage in markdown: [[Ctrl+K]]  or  [[⌘K]]
+   Renders as: <kbd class="docs-kbd"> */
+.docs-kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--fg);
+  background: var(--bg-secondary);
+  border: 1px solid var(--docs-border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+/* Steps: numbered procedure with circled step numbers
+   Usage in MDX: <Steps> ### Step title\n\nBody </Steps> */
+.docs-steps {
+  list-style: none;
+  margin: 24px 0;
+  padding: 0;
+}
+
+.docs-step {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.docs-step + .docs-step {
+  margin-top: 0;
+}
+
+.docs-step-aside {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+  padding-top: 2px;
+}
+
+.docs-step-number {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1.5px solid var(--docs-accent);
+  color: var(--docs-accent);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  flex-shrink: 0;
+  background: var(--bg);
+  z-index: 1;
+}
+
+.docs-step-connector {
+  display: block;
+  width: 1.5px;
+  flex: 1;
+  min-height: 24px;
+  background: var(--docs-border);
+  margin: 6px 0;
+}
+
+.docs-step-content {
+  flex: 1;
+  padding-bottom: 28px;
+  min-width: 0;
+}
+
+.docs-step:last-child .docs-step-content {
+  padding-bottom: 0;
+}
+
+.docs-step-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+  margin: 2px 0 8px;
+  line-height: 1.5;
+}
+
+.docs-step-body {
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--fg-secondary);
+}
+
+/* Forward docs-content styles into step bodies */
+.docs-step-content .docs-content p,
+.docs-step-content .docs-content ul,
+.docs-step-content .docs-content ol,
+.docs-step-content .docs-content li {
+  font-size: 14px;
+}
+
+/* Cards: responsive card grid for feature overviews
+   Usage in MDX: <Cards> ### [Title](/link)\n\nDescription </Cards> */
+.docs-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+  list-style: none;
+  margin: 24px 0;
+  padding: 0;
+}
+
+.docs-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px;
+  border: 1px solid var(--docs-border);
+  border-radius: 8px;
+  background: var(--bg);
+  transition: border-color 0.15s;
+}
+
+.docs-card:has(.docs-card-link):hover {
+  border-color: var(--docs-accent);
+}
+
+.docs-card-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+  margin: 0;
+  line-height: 1.4;
+}
+
+.docs-card-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  color: var(--fg);
+  text-decoration: none;
+}
+
+.docs-card-link:hover {
+  color: var(--docs-accent);
+}
+
+.docs-card-arrow {
+  font-size: 14px;
+  opacity: 0.4;
+  flex-shrink: 0;
+}
+
+.docs-card:has(.docs-card-link):hover .docs-card-arrow {
+  opacity: 1;
+  color: var(--docs-accent);
+}
+
+.docs-card-body {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--fg-secondary);
+  margin: 0;
+}
+
+/* Comparison: side-by-side columns with labeled headers
+   Usage in MDX: <Comparison> ### Before\n\nOld way ### After\n\nNew way </Comparison> */
+.docs-comparison {
+  display: grid;
+  grid-template-columns: repeat(var(--comparison-cols, 2), 1fr);
+  gap: 0;
+  border: 1px solid var(--docs-border);
+  border-radius: 8px;
+  overflow: hidden;
+  margin: 24px 0;
+}
+
+@media (max-width: 640px) {
+  .docs-comparison {
+    grid-template-columns: 1fr;
+  }
+  .docs-comparison-col:not(:last-child) {
+    border-inline-end: none;
+    border-block-end: 1px solid var(--docs-border);
+  }
+}
+
+.docs-comparison-col {
+  padding: 20px;
+  border-inline-end: 1px solid var(--docs-border);
+}
+
+.docs-comparison-col:last-child {
+  border-inline-end: none;
+}
+
+.docs-comparison-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-secondary);
+  margin: 0 0 12px;
+}
+
+.docs-comparison-col--before .docs-comparison-label {
+  color: color-mix(in srgb, #ef4444 70%, var(--fg-secondary));
+}
+
+.docs-comparison-col--after .docs-comparison-label {
+  color: color-mix(in srgb, #22c55e 70%, var(--fg-secondary));
+}
+
+.docs-comparison-body {
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--fg-secondary);
+}
+
+.docs-comparison-body p {
+  margin: 0;
+  font-size: 14px;
+}
+
 /* Sidebar nav */
 .docs-sidebar-nav {
   overflow-anchor: none;
@@ -1316,18 +1543,31 @@ html.dark .shiki span {
   margin-top: 0;
 }
 
-/* Embedded blocks ship with the block library's own surface, which is a touch
- * lighter than the docs' code blocks (the plan `--muted`, ~#262626 in dark, vs.
- * our ~#111 code fences). Align inner code surfaces (annotated-code, API
- * examples) and code-like block containers to the docs code palette
- * (`--code-bg` / `--code-border`) so an embedded block reads as the same unified
- * surface as a plain ``` fence on the page. */
+/* Embedded plan blocks use Shiki's github-light/dark themes, which set
+ * --shiki-light-bg (#fff) and --shiki-dark-bg (#0d1117) via inline styles.
+ * Override the plan-code-surface and its pre/shiki wrapper to use the docs'
+ * own code palette so Tabs/Columns code blocks match plain ``` fences. */
+.docs-article .docs-block .plan-code-surface {
+  border-color: var(--code-border) !important;
+  background: var(--code-bg) !important;
+}
+.docs-article .docs-block .plan-code-surface .plan-shiki,
+.docs-article .docs-block .plan-code-surface pre,
+.docs-article .docs-block .plan-code-surface code {
+  background: var(--code-bg) !important;
+}
 .docs-article .docs-block .bg-plan-code,
 .docs-article .docs-block .bg-plan-block {
   background-color: var(--code-bg) !important;
 }
 .docs-article .docs-block .border-plan-line {
   border-color: var(--code-border) !important;
+}
+.docs-article .docs-block .text-plan-code-text {
+  color: var(--fg) !important;
+}
+.docs-article .docs-block .text-plan-muted {
+  color: var(--fg-secondary) !important;
 }
 .docs-article .docs-block .plan-diagram-frame[data-frame="hide"] {
   --wf-paper: transparent;

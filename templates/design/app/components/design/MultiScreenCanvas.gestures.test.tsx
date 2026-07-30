@@ -220,9 +220,13 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     expect(badge?.textContent).toContain(
       "designEditor.nodeRewrite.reviewCandidate",
     );
+    // Counter-scaled to stay a constant screen size at 25% zoom. The live
+    // value comes from the --an-chrome-scale custom property that
+    // applyViewToDom writes every gesture frame; React still renders the same
+    // number as the var's fallback, which is what this asserts.
     expect(
       badge?.closest<HTMLElement>("[data-frame-label]")?.style.transform,
-    ).toContain("scale(4)");
+    ).toContain("scale(var(--an-chrome-scale, 4))");
     await act(async () => badge?.click());
     expect(onReviewPendingScreen).toHaveBeenCalledWith("screen-review");
   });
@@ -896,6 +900,8 @@ describe("canvas iframe identity", () => {
       expect(iframe!.srcdoc).toContain(
         "body > [data-agent-native-node-id]{translate:4096px 4096px;}",
       );
+      expect(iframe!.srcdoc).toContain("background:hsl(0, 0%, 10%)");
+      expect(iframe!.getAttribute("data-screen-iframe-id")).toBeNull();
     } finally {
       await act(async () => root.unmount());
       rectSpy.mockRestore();
@@ -1057,6 +1063,8 @@ describe("canvas iframe identity", () => {
       );
       expect(staticIframe!.srcdoc).toContain("left-edge");
       expect(staticIframe!.srcdoc).toContain("right-edge");
+      expect(staticIframe!.srcdoc).toContain("background:hsl(0, 0%, 10%)");
+      expect(staticIframe!.style.background).toBe("hsl(0, 0%, 10%)");
       expect(staticIframe!.srcdoc).not.toContain("<script");
 
       const initialActiveIframe = activeIframe!;

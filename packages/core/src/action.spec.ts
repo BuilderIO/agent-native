@@ -94,6 +94,39 @@ describe("defineAction", () => {
     expect(action.dedupe).toBe(false);
   });
 
+  it("preserves a typed Plan-mode effect policy", () => {
+    const classify = (args: { operation?: string }): "read" | "write" =>
+      args.operation === "list" ? "read" : "write";
+    const action = defineAction({
+      description: "Manage records",
+      parameters: {
+        operation: {
+          type: "string",
+          enum: ["list", "create"],
+        },
+        persist: { type: "string" },
+      },
+      planMode: {
+        effect: classify,
+        allowedValues: { operation: ["list"] },
+        allowedProperties: ["operation"],
+        requiredProperties: ["operation"],
+        omittedProperties: ["persist"],
+        description: "Only listing is available.",
+      },
+      run: async () => "ok",
+    });
+
+    expect(action.planMode).toEqual({
+      effect: classify,
+      allowedValues: { operation: ["list"] },
+      allowedProperties: ["operation"],
+      requiredProperties: ["operation"],
+      omittedProperties: ["persist"],
+      description: "Only listing is available.",
+    });
+  });
+
   it("preserves per-tool timeout and result limits", () => {
     const action = defineAction({
       description: "slow provider call",

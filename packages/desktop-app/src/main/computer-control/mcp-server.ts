@@ -17,7 +17,10 @@ import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 
 import type { BrowserControlLoopbackBridge } from "../browser-control/bridge";
-import type { BrowserTaskRegistration } from "../browser-control/protocol";
+import type {
+  BrowserCommand,
+  BrowserTaskRegistration,
+} from "../browser-control/protocol";
 import type { ComputerControlBroker } from "./broker";
 import { normalizeOrigin } from "./policy";
 import type { EphemeralScreenObserver } from "./screen-observer";
@@ -880,6 +883,12 @@ export class DesktopComputerMcpBridge {
           text: String(input.text ?? "").slice(0, 100_000),
           replace: input.replace === true,
         });
+      case "browser.key":
+        return bridge.execute(registration, {
+          type: "key",
+          key: remoteBrowserKey(input.key),
+          modifiers: remoteBrowserModifiers(input.modifiers),
+        });
       case "browser.navigate":
         return bridge.execute(registration, {
           type: "navigate",
@@ -890,6 +899,8 @@ export class DesktopComputerMcpBridge {
           type: "scroll",
           deltaX: boundedRemoteNumber(input.deltaX),
           deltaY: boundedRemoteNumber(input.deltaY),
+          ...(input.x === undefined ? {} : { x: boundedRemoteNumber(input.x) }),
+          ...(input.y === undefined ? {} : { y: boundedRemoteNumber(input.y) }),
         });
       case "browser.stop":
         await bridge.stopTask(registration);
@@ -1065,6 +1076,49 @@ function boundedRemoteNumber(value: unknown): number {
     throw new Error("Remote browser numeric input is out of bounds.");
   }
   return number;
+}
+
+function remoteBrowserKey(
+  value: unknown,
+): Extract<BrowserCommand, { type: "key" }>["key"] {
+  const keys = new Set([
+    "ArrowDown",
+    "ArrowLeft",
+    "ArrowRight",
+    "ArrowUp",
+    "Backspace",
+    "Delete",
+    "End",
+    "Enter",
+    "Escape",
+    "Home",
+    "PageDown",
+    "PageUp",
+    "Space",
+    "Tab",
+  ]);
+  if (typeof value !== "string" || !keys.has(value)) {
+    throw new Error("Remote browser key is invalid.");
+  }
+  return value as Extract<BrowserCommand, { type: "key" }>["key"];
+}
+
+function remoteBrowserModifiers(
+  value: unknown,
+): Extract<BrowserCommand, { type: "key" }>["modifiers"] {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) {
+    throw new Error("Remote browser modifiers are invalid.");
+  }
+  const allowed = new Set(["alt", "control", "meta", "shift"]);
+  if (
+    value.some(
+      (modifier) => typeof modifier !== "string" || !allowed.has(modifier),
+    )
+  ) {
+    throw new Error("Remote browser modifiers are invalid.");
+  }
+  return value as Extract<BrowserCommand, { type: "key" }>["modifiers"];
 }
 
 function scopeForSnapshot(snapshot: SemanticSnapshot) {

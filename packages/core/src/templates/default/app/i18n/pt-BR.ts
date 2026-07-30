@@ -74,6 +74,23 @@ const messages = {
       suggestionGrantKey: "Conceda minha chave OpenAI para este aplicativo",
     },
     pages: {
+      browserChatUnavailableTitle: "Sessão de chat do navegador indisponível",
+      browserChatUnavailableDescription:
+        "Reconecte pela extensão Agent-Native.",
+      browserChatPlaceholder: "Pergunte sobre esta página…",
+      browserChatAttachedPlaceholder: "Pergunte sobre {{page}}…",
+      browserConnectTitle: "Conectar chat do navegador",
+      browserConnectDescription:
+        "Permita que a extensão Agent-Native do Chrome abra esta sessão do Dispatch. A conexão usa um ticket único e de curta duração.",
+      browserConnectInvalid:
+        "Esta solicitação de conexão é inválida. Recomece pela extensão.",
+      browserConnectConnected:
+        "Chat do navegador conectado. Você pode fechar esta aba.",
+      browserConnectConnecting: "Conectando…",
+      browserConnectButton: "Conectar",
+      browserConnectOpenFromExtension:
+        "Abra esta página pela extensão Agent-Native do Chrome.",
+      browserConnectFailed: "A extensão do navegador não se conectou.",
       appsDescription:
         "Abra aplicativos de espaço de trabalho e inicie a criação de novos aplicativos em Dispatch.",
       appsDescriptionWithWorkspace:
@@ -366,6 +383,16 @@ const messages = {
     deleting: "Arquivando...",
     openFullView: "Abrir visualização completa",
     removeFromWidgetArea: "Remover desta área de widget",
+    customBlockSandboxed: "Bloco personalizado · isolado",
+    sandboxedCustomBlock: "Bloco SQL personalizado e isolado",
+    sandboxedCustomBlockCreatedBy:
+      "Bloco SQL personalizado e isolado criado por {{email}}",
+    promoteToAppCode: "Promover para código do aplicativo",
+    historyShowsSourceVersions: "O histórico mostra versões do código",
+    createdByHistoryShowsSourceVersions:
+      "Criado por {{email}}. O histórico mostra versões do código.",
+    createdByHistoryShowsSourceVersionsCompact:
+      "Criado por {{email}} · O histórico mostra versões do código",
     deleteExtensionEllipsis: "Arquivar extensão...",
     removeFromMyListEllipsis: "Remover da minha lista...",
     removeFromWidgetAreaForMe: "Remove from this widget area (for me)",

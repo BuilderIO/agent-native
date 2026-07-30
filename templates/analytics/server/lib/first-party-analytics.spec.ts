@@ -1,15 +1,42 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const execute = vi.fn();
+const analyticsDbMocks = vi.hoisted(() => {
+  const selectLimit = vi.fn();
+  const insertValues = vi.fn();
+  const updateWhere = vi.fn();
+  return {
+    selectLimit,
+    insertValues,
+    updateWhere,
+    db: {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({ limit: selectLimit })),
+        })),
+      })),
+      insert: vi.fn(() => ({ values: insertValues })),
+      update: vi.fn(() => ({
+        set: vi.fn(() => ({ where: updateWhere })),
+      })),
+    },
+  };
+});
 
 vi.mock("@agent-native/core/db", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/db")>()),
   getDbExec: () => ({ execute }),
 }));
+vi.mock("../db/index.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../db/index.js")>()),
+  getDb: () => analyticsDbMocks.db,
+}));
 
 import {
+  isMarketingWebsiteSessionEvent,
   normalizeAnalyticsTimestamp,
   queryFirstPartyAnalytics,
+  recordAnalyticsEvents,
   resolveAnalyticsEventDimensions,
   scopedAnalyticsSql,
   validateFirstPartyAnalyticsSql,
@@ -17,6 +44,14 @@ import {
 
 beforeEach(() => {
   execute.mockReset();
+  analyticsDbMocks.selectLimit.mockReset();
+  analyticsDbMocks.insertValues.mockReset();
+  analyticsDbMocks.updateWhere.mockReset();
+  analyticsDbMocks.selectLimit.mockResolvedValue([
+    { id: "apk_123", ownerEmail: "owner@example.com", orgId: null },
+  ]);
+  analyticsDbMocks.insertValues.mockResolvedValue(undefined);
+  analyticsDbMocks.updateWhere.mockResolvedValue(undefined);
 });
 
 describe("resolveAnalyticsEventDimensions", () => {
@@ -46,6 +81,81 @@ describe("resolveAnalyticsEventDimensions", () => {
         hostname: "mail.agent-native.com",
       }),
     ).toEqual({ app: "analytics", template: "docs" });
+  });
+});
+
+describe("isMarketingWebsiteSessionEvent", () => {
+  it("keeps www.agent-native.com out of signed-in session cohorts", () => {
+    expect(
+      isMarketingWebsiteSessionEvent({
+        eventName: "session status",
+        hostname: "www.agent-native.com",
+        app: "www",
+        template: "www",
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps legacy host-derived www events out when hostname was omitted", () => {
+    expect(
+      isMarketingWebsiteSessionEvent({
+        eventName: "session status",
+        hostname: null,
+        app: " WWW ",
+        template: "WWW",
+      }),
+    ).toBe(true);
+  });
+
+  it("does not suppress product-template session events", () => {
+    expect(
+      isMarketingWebsiteSessionEvent({
+        eventName: "session status",
+        hostname: "plan.agent-native.com",
+        app: "plan",
+        template: "plan",
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("recordAnalyticsEvents", () => {
+  it("persists both sides of a signup identity bridge", async () => {
+    await recordAnalyticsEvents("anpk_test", [
+      {
+        event: "signup",
+        userId: "new@example.com",
+        anonymousId: "anon_signup_1",
+      },
+    ]);
+
+    expect(analyticsDbMocks.insertValues).toHaveBeenCalledWith([
+      expect.objectContaining({
+        eventName: "signup",
+        userId: "new@example.com",
+        anonymousId: "anon_signup_1",
+      }),
+    ]);
+  });
+
+  it("persists www session status as signed out", async () => {
+    await recordAnalyticsEvents("anpk_test", [
+      {
+        event: "session status",
+        properties: {
+          url: "https://www.agent-native.com/docs",
+          signed_in: true,
+        },
+      },
+    ]);
+
+    expect(analyticsDbMocks.insertValues).toHaveBeenCalledWith([
+      expect.objectContaining({
+        app: "www",
+        template: "www",
+        signedIn: "false",
+      }),
+    ]);
   });
 });
 

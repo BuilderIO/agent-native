@@ -57,6 +57,46 @@ describe("provider API action factories", () => {
     expect(actions.register).toBeUndefined();
   });
 
+  it("classifies only non-persisting GET and HEAD requests as Plan-mode reads", () => {
+    const action = createProviderApiRequestAction({
+      executeRequest: vi.fn(),
+    });
+    const effect = action.planMode?.effect;
+    expect(typeof effect).toBe("function");
+    if (typeof effect !== "function") throw new Error("Missing classifier");
+
+    expect(effect({ provider: "github", path: "/repos" })).toBe("read");
+    expect(effect({ provider: "github", path: "/repos", method: "HEAD" })).toBe(
+      "read",
+    );
+    expect(effect({ provider: "github", path: "/repos", method: "POST" })).toBe(
+      "write",
+    );
+    expect(
+      effect({
+        provider: "github",
+        path: "/repos",
+        method: "GET",
+        stageAs: "repos",
+      }),
+    ).toBe("write");
+    expect(
+      effect({
+        provider: "github",
+        path: "/repos",
+        method: "GET",
+        saveToFile: "repos.json",
+      }),
+    ).toBe("write");
+    expect(action.planMode?.allowedValues).toEqual({
+      method: ["GET", "HEAD"],
+    });
+    expect(action.planMode?.omittedProperties).toEqual([
+      "stageAs",
+      "saveToFile",
+    ]);
+  });
+
   it("keeps custom provider registration opt-in", () => {
     const runtime = {
       executeRequest: vi.fn(),

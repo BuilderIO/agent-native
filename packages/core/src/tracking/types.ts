@@ -3,6 +3,7 @@ export interface TrackingEvent {
   properties?: Record<string, unknown>;
   timestamp?: string;
   userId?: string;
+  anonymousId?: string;
 }
 
 export interface TrackingProvider {

@@ -239,6 +239,20 @@ describe("progress action entries", () => {
     });
   });
 
+  it("allows only list in Plan mode", () => {
+    const tool = createProgressToolEntries(() => "boni@local")[
+      "manage-progress"
+    ];
+    const effect = tool.planMode?.effect;
+    expect(typeof effect).toBe("function");
+    if (typeof effect !== "function") throw new Error("Missing classifier");
+
+    expect(effect({ action: "list" })).toBe("read");
+    expect(effect({ action: "start" })).toBe("write");
+    expect(effect({ action: "update" })).toBe("write");
+    expect(effect({ action: "complete" })).toBe("write");
+  });
+
   it("rejects invalid terminal statuses at runtime", async () => {
     const tool = createProgressToolEntries(() => "boni@local")[
       "manage-progress"

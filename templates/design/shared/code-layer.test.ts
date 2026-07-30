@@ -4,6 +4,7 @@ import {
   applyVisualEdit,
   buildCodeLayerProjection,
   buildCodeLayerTree,
+  clearCodeLayerProjectionCache,
   ensureCodeLayerNodeIdsInHtml,
   findEnclosingTemplateClose,
   moveNodeBetweenDocuments,
@@ -11,6 +12,66 @@ import {
   stripEditorOnlyAttributes,
   type EditIntent,
 } from "./code-layer";
+
+describe("code-layer projection cache", () => {
+  const html = "<main><h1>Cached</h1></main>";
+
+  it("returns the same projection for an unchanged document", () => {
+    clearCodeLayerProjectionCache();
+    const first = buildCodeLayerProjection(html);
+    const second = buildCodeLayerProjection(html);
+    expect(second).toBe(first);
+  });
+
+  it("re-projects when the document changes", () => {
+    clearCodeLayerProjectionCache();
+    const first = buildCodeLayerProjection(html);
+    const changed = buildCodeLayerProjection("<main><h1>Edited</h1></main>");
+    expect(changed).not.toBe(first);
+    expect(
+      changed.nodes.some((node) => node.textSnippet?.includes("Edited")),
+    ).toBe(true);
+  });
+
+  it("keys on the source, not just the html", () => {
+    clearCodeLayerProjectionCache();
+    const inline = buildCodeLayerProjection(html, {
+      source: { kind: "inline-html" },
+    });
+    const asFile = buildCodeLayerProjection(html, {
+      source: { kind: "design-file", fileId: "file-1" },
+    });
+    expect(asFile).not.toBe(inline);
+    expect(asFile.source.fileId).toBe("file-1");
+    // A different file id must never reuse another file's projection.
+    const otherFile = buildCodeLayerProjection(html, {
+      source: { kind: "design-file", fileId: "file-2" },
+    });
+    expect(otherFile.source.fileId).toBe("file-2");
+  });
+
+  it("evicts the least recently used document past the cache bound", () => {
+    clearCodeLayerProjectionCache();
+    const first = buildCodeLayerProjection("<main><p>doc-0</p></main>");
+    for (let i = 1; i <= 24; i += 1) {
+      buildCodeLayerProjection(`<main><p>doc-${i}</p></main>`);
+    }
+    expect(buildCodeLayerProjection("<main><p>doc-0</p></main>")).not.toBe(
+      first,
+    );
+  });
+
+  it("keeps a re-read document alive instead of evicting it by insertion age", () => {
+    clearCodeLayerProjectionCache();
+    const kept = buildCodeLayerProjection("<main><p>keep</p></main>");
+    for (let i = 1; i <= 20; i += 1) {
+      buildCodeLayerProjection(`<main><p>filler-${i}</p></main>`);
+      // Re-reading must refresh recency, or a hot document is evicted by the
+      // cold ones streaming past it.
+      expect(buildCodeLayerProjection("<main><p>keep</p></main>")).toBe(kept);
+    }
+  });
+});
 
 describe("code-layer projection", () => {
   it("projects HTML elements with stable selectors, source spans, layout, and capabilities", () => {

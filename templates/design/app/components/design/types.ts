@@ -27,6 +27,10 @@ export interface RuntimeStructureMoveRequest {
 export interface RuntimeStructureInsertRequest {
   requestId: number;
   html: string;
+  /** Additional clipboard roots inserted by the same paste gesture. */
+  additionalHtml?: string[];
+  /** Replace the resolved anchor instead of inserting beside/inside it. */
+  replaceAnchor?: boolean;
   anchor: {
     selector: string;
     sourceId?: string | null;
