@@ -14,6 +14,7 @@ import rehypeRaw from "rehype-raw";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Slide } from "@/context/DeckContext";
 import { type AspectRatio, getAspectRatioDims } from "@/lib/aspect-ratios";
+import { extractMermaidBlocks } from "@/lib/mermaid-blocks";
 import {
   sanitizeCssValue,
   sanitizeSlideHtml,
@@ -469,18 +470,9 @@ function BlankSlideContent({ content }: { content: string }) {
   // includes the per-block `contentEditable="true"` set by SlideEditor's
   // double-click-to-edit flow, which made inline text editing appear to do nothing.
   const { mermaidBlocks, htmlWithPlaceholders, dangerousHtml } = useMemo(() => {
-    // Extract mermaid blocks BEFORE sanitization. The sanitizer round-trips
-    // HTML through DOMParser + innerHTML, which HTML-escapes `>` in text
-    // nodes to `&gt;` — that mangles diagram arrows like `A --> B` into
-    // `A --&gt; B` and breaks the mermaid parser.
-    const blocks: string[] = [];
-    const contentWithPlaceholders = content.replace(
-      /<div\s+class="mermaid"[^>]*>([\s\S]*?)<\/div>/gi,
-      (_, definition) => {
-        blocks.push(String(definition).trim());
-        return `<div data-mermaid-index="${blocks.length - 1}"></div>`;
-      },
-    );
+    // Extract mermaid blocks BEFORE sanitization — see mermaid-blocks.ts for
+    // why (sanitizer HTML-escaping breaks the mermaid parser).
+    const { blocks, contentWithPlaceholders } = extractMermaidBlocks(content);
 
     // Apply white filter to all logo images (brandfetch, logo.dev, etc.) for dark backgrounds
     const processed = sanitizeSlideHtml(
@@ -547,6 +539,7 @@ function MermaidHtmlContent({
             <MermaidRenderer
               key={`mermaid-${i}`}
               definition={mermaidBlocks[idx]}
+              index={idx}
               className="my-4 w-full"
             />
           );

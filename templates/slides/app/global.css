@@ -61,6 +61,8 @@ button[title="Open agent sidebar"] {
   --sidebar-accent-foreground: 0 0% 93%;
   --sidebar-border: 0 0% 20%;
   --sidebar-ring: 0 0% 50%;
+
+  --accent-cyan: 187 100% 50%;
 }
 
 .light {
@@ -102,6 +104,9 @@ button[title="Open agent sidebar"] {
   --sidebar-accent-foreground: 0 0% 10%;
   --sidebar-border: 0 0% 90%;
   --sidebar-ring: 0 0% 65%;
+
+  /* Darker than the dark-theme #00E5FF so text stays >= 4.5:1 against a white popover. */
+  --accent-cyan: 193 82% 31%;
 }
 
 /* Slides keeps the shared visual inspector behavior, but the dock needs the

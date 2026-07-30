@@ -17,7 +17,7 @@ import {
 import { nanoid } from "nanoid";
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { flushSync } from "react-dom";
-import { useNavigate, useSearchParams } from "react-router";
+import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import DeckCard from "@/components/deck/DeckCard";
@@ -55,6 +55,13 @@ import { cn } from "@/lib/utils";
 
 const NEW_DECK_DRAFT_SCOPE = "slides-new-deck";
 const PENDING_PROMPT_KEY = "slides:pending-deck-prompt";
+
+/** Router-state payload for recovering the new-deck prompt after a failed
+ *  generation kickoff forces a navigate away from and back to this route. */
+interface DeckGenerationRetryState {
+  retryPrompt?: string;
+  retryFiles?: UploadedFile[];
+}
 
 function savePromptForRetry(
   prompt: string,
@@ -213,6 +220,7 @@ export default function Index() {
   } = useWorkspaceDefaults();
   const { session } = useSession();
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const [deckToDelete, setDeckToDelete] = useState<string | null>(null);
   const [workspaceDefaultCandidate, setWorkspaceDefaultCandidate] =
@@ -398,6 +406,25 @@ export default function Index() {
     setShowNewDeckPrompt(true);
   }, [initialDesignSystemId, workspaceReferenceDeckId, session]);
 
+  // Recovering from a failed deck-generation kickoff (see
+  // recoverFromGenerationSetupFailure below) navigates back to this route
+  // from an Index instance that already unmounted, so that instance's own
+  // setShowNewDeckPrompt/setNewDeckInitialPrompt calls landed on a dead
+  // component and did nothing. Carry the retry payload through router state
+  // instead and restore it here, on the freshly mounted instance.
+  useEffect(() => {
+    const state = location.state as DeckGenerationRetryState | null;
+    if (!state?.retryPrompt) return;
+    if (savePromptToComposerDraft(NEW_DECK_DRAFT_SCOPE, state.retryPrompt)) {
+      setNewDeckInitialPrompt(null);
+    } else {
+      setNewDeckInitialPrompt({ text: state.retryPrompt, key: Date.now() });
+    }
+    setNewDeckRetryFiles(state.retryFiles ?? []);
+    setShowNewDeckPrompt(true);
+    navigate(".", { replace: true, state: null });
+  }, [location.state, navigate]);
+
   const handleCreateDeckBlank = () => {
     const selectedDesignSystem =
       selectedDesignSystemId && selectedDesignSystemId !== "none"
@@ -443,6 +470,7 @@ export default function Index() {
       });
     });
     if (!deck) return;
+    const deckId = deck.id;
     setNewDeckPromptOpen(false);
 
     const persisted = await ensureDeckPersisted(deck.id);
@@ -451,7 +479,7 @@ export default function Index() {
         setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
       }
       setNewDeckRetryFiles(filesForGeneration);
-      deleteDeck(deck.id);
+      deleteDeck(deckId);
       toast.error(t("home.generationStartFailed"), {
         description: t("home.generationStartFailedDescription"),
       });
@@ -464,25 +492,51 @@ export default function Index() {
     setNewDeckRetryFiles([]);
     navigate(`/deck/${deck.id}`, { flushSync: true });
 
-    // One quick, skippable decision so the agent doesn't guess the deck size.
-    const deckLength = await askUserQuestion({
-      question: t("home.deckLengthQuestion"),
-      header: t("home.deckLengthHeader"),
-      options: [
-        { label: t("home.deckLengthShort"), value: "3–5 slides" },
-        {
-          label: t("home.deckLengthMedium"),
-          value: "6–10 slides",
-          recommended: true,
-        },
-        { label: t("home.deckLengthLong"), value: "11+ slides" },
-        {
-          label: t("home.deckLengthSingleVisual"),
-          value: "a single standalone visual slide",
-        },
-      ],
-      allowFreeText: false,
-    });
+    // The deck now exists server-side and the user is looking at it, so a
+    // failure past this point (e.g. askUserQuestion rejecting on an
+    // application-state write error) must undo the navigation and restore
+    // the prompt instead of stranding the user on a permanently empty deck.
+    const recoverFromGenerationSetupFailure = () => {
+      deleteDeck(deckId);
+      toast.error(t("home.generationStartFailed"), {
+        description: t("home.generationStartFailedDescription"),
+      });
+      // This Index instance is about to unmount (we already navigated away
+      // to the deck page above), so state setters here would land on a dead
+      // component. Hand the retry payload to the next Index mount via router
+      // state instead; the effect above restores it.
+      const retryState: DeckGenerationRetryState = {
+        retryPrompt: prompt,
+        retryFiles: filesForGeneration,
+      };
+      navigate("/", { state: retryState });
+    };
+
+    let deckLength: Awaited<ReturnType<typeof askUserQuestion>> = null;
+    try {
+      // One quick, skippable decision so the agent doesn't guess the deck size.
+      deckLength = await askUserQuestion({
+        question: t("home.deckLengthQuestion"),
+        header: t("home.deckLengthHeader"),
+        options: [
+          { label: t("home.deckLengthShort"), value: "3–5 slides" },
+          {
+            label: t("home.deckLengthMedium"),
+            value: "6–10 slides",
+            recommended: true,
+          },
+          { label: t("home.deckLengthLong"), value: "11+ slides" },
+          {
+            label: t("home.deckLengthSingleVisual"),
+            value: "a single standalone visual slide",
+          },
+        ],
+        allowFreeText: false,
+      });
+    } catch {
+      recoverFromGenerationSetupFailure();
+      return;
+    }
     const deckLengthContext =
       typeof deckLength === "string" && deckLength
         ? `Target length: aim for ${deckLength} unless the user's request clearly specifies a different count.`
@@ -495,7 +549,7 @@ export default function Index() {
       : extractGoogleDocUrls(trimmedPrompt);
     const fileContext = describeUploadedFilesForAgent(
       filesForGeneration,
-      deck.id,
+      deckId,
     );
     const googleDocContext =
       googleDocUrls.length > 0
@@ -532,7 +586,7 @@ export default function Index() {
         ].join("\n");
 
     const context = [
-      `The user just created a new empty deck (id: "${deck.id}") and wants to create a presentation or standalone visual.`,
+      `The user just created a new empty deck (id: "${deckId}") and wants to create a presentation or standalone visual.`,
       "The visible user message above contains the user's request and/or pasted source material for the deck. Treat pasted memo content as source material even if the user did not explicitly say they are pasting it.",
       googleDocContext,
       fileContext,
@@ -542,11 +596,11 @@ export default function Index() {
       deckLengthContext,
       "Start a `manage-progress` run so progress appears in the app header. Add the first slide as soon as it is ready, then continue one slide at a time so the editor visibly fills in.",
       "After reading any requested or imported source material, but before adding the first slide, choose a concise, specific deck title from the user's request and source material. Call `patch-deck` with `deckId: \"" +
-        deck.id +
+        deckId +
         '"` and `operations: [{ "op": "patch-deck-fields", "fields": { "title": "<generated title>" } }]`. Never leave a generated deck named "Untitled Deck" or another placeholder.',
       "If the user asks for a standalone visual, diagram, hero, one-pager, poster, or a couple of visuals, create only the requested one/few polished visual slides. Do not pad the result into a full presentation.",
       "Add slides ONE AT A TIME using the `add-slide` action with --deckId=" +
-        deck.id +
+        deckId +
         ". Wait for each `add-slide` result before calling it again; do not batch or parallelize slide writes.",
       "If the user asked for a specific slide count, keep going sequentially until that count is reached unless a tool error blocks you.",
       "Every slide is rendered into a fixed native canvas (default 16:9 is 960x540 CSS pixels). Keep each slide within the density limits in AGENTS.md; split dense source material across more slides instead of packing it tightly.",
