@@ -20,6 +20,74 @@ function action(overrides: Partial<ActionEntry> = {}): ActionEntry {
 }
 
 describe("filterDirectA2AActions", () => {
+  // The app that owns the data owns its schema, dictionary and reference
+  // queries. A caller has none of that, so passing raw SQL across apps makes
+  // every caller reimplement the owner's schema badly. Callers ask; the owner
+  // forms the query.
+  it("never exposes a raw query or code input to a sibling app", () => {
+    const rawInput = (field: string) =>
+      action({
+        tool: {
+          description: "Run it",
+          parameters: {
+            type: "object",
+            properties: { [field]: { type: "string" } },
+            required: [field],
+          },
+        },
+      });
+    const actions = {
+      "raw-sql": rawInput("sql"),
+      "raw-query": rawInput("query"),
+      "raw-code": rawInput("code"),
+      "raw-script": rawInput("script"),
+      semantic: action({
+        tool: {
+          description: "Metrics",
+          parameters: {
+            type: "object",
+            properties: { days: { type: "number" } },
+          },
+        },
+      }),
+    };
+
+    expect(
+      Object.keys(
+        filterDirectA2AActions(actions, {
+          connectorCatalog: Object.keys(actions),
+        }),
+      ),
+    ).toEqual(["semantic"]);
+  });
+
+  it("allows a raw query input only with an explicit opt-in", () => {
+    const actions = {
+      "raw-sql": action({
+        tool: {
+          description: "Run SQL",
+          parameters: {
+            type: "object",
+            properties: { sql: { type: "string" } },
+            required: ["sql"],
+          },
+        },
+        publicAgent: {
+          expose: true,
+          readOnly: true,
+          requiresAuth: true,
+          allowRawQueryInput: true,
+        },
+      }),
+    };
+
+    expect(
+      Object.keys(
+        filterDirectA2AActions(actions, { connectorCatalog: ["raw-sql"] }),
+      ),
+    ).toEqual(["raw-sql"]);
+  });
+
   it("allows only cataloged authenticated reads", () => {
     const actions = {
       allowed: action(),
