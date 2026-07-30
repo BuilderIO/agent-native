@@ -17,7 +17,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { isDirectPillClick, type ScreenPoint } from "../lib/pill-interaction";
-import { speakerFor } from "../lib/transcription-engine";
+import { speakerFor, type TranscriptLine } from "../lib/transcription-engine";
 import { LiveAudioBars } from "./live-audio-bars";
 import { LiveTranscript, type FinalLine } from "./live-transcript";
 import { PillLogo } from "./pill-logo";
@@ -52,7 +52,7 @@ export function RecordingPill() {
   );
   const finished = finishedMeetingId !== null;
   const [error, setError] = useState<string | null>(null);
-  const transcriptLinesRef = useRef<FinalLine[]>([]);
+  const transcriptLinesRef = useRef<TranscriptLine[]>([]);
   const [hasTranscriptLines, setHasTranscriptLines] = useState(false);
   const [transcriptCopied, setTranscriptCopied] = useState(false);
   const [preloadedLines, setPreloadedLines] = useState<FinalLine[]>([]);
@@ -269,7 +269,7 @@ export function RecordingPill() {
 
   // Stable callback for LiveTranscript to push locked-in lines up. Stable
   // identity matters — it's a dep of an effect inside LiveTranscript.
-  const handleTranscriptLines = useCallback((lines: FinalLine[]) => {
+  const handleTranscriptLines = useCallback((lines: TranscriptLine[]) => {
     transcriptLinesRef.current = lines;
     setHasTranscriptLines(lines.length > 0);
   }, []);
