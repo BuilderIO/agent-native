@@ -2743,6 +2743,19 @@ fn extract_interleaved_stereo(
     Some((out, pts_seconds))
 }
 
+pub(crate) fn extract_mono_audio(
+    sample: &screencapturekit::cm::CMSampleBuffer,
+    label: &str,
+) -> Option<Vec<f32>> {
+    let (interleaved, _) = extract_interleaved_stereo(sample, label)?;
+    Some(
+        interleaved
+            .chunks_exact(2)
+            .map(|channels| (channels[0] + channels[1]) * 0.5)
+            .collect(),
+    )
+}
+
 /// Record whether decoded source PCM contains a real signal before it reaches
 /// the timeline mixer. This distinguishes capture/format failures from mixer
 /// or writer failures without persisting any audio content.

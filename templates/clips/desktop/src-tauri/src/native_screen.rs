@@ -128,6 +128,8 @@ const NATIVE_CAPTURE_FPS: u32 = 24;
 #[cfg(target_os = "macos")]
 mod custom_capture;
 #[cfg(target_os = "macos")]
+pub(crate) use custom_capture::extract_mono_audio;
+#[cfg(target_os = "macos")]
 use custom_capture::{
     prepare_clip_sink, start_custom_screencapturekit_backend_at, ClosedSegmentFile,
     CustomCaptureResume, CustomScreenCaptureWriter, PreparedClipSink, SegmentFence,
