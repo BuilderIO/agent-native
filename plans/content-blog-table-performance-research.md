@@ -474,8 +474,8 @@ Stop and return to Shape if meeting the target requires changing the action arch
 ## Lifecycle
 
 ```yaml
-stage: work
-ledger-revision: work-blog-table-latency-r7
+stage: land
+ledger-revision: land-blog-table-latency-r8
 authority-source: >-
   Alice invoked $work on 2026-07-29 against the frozen
   shape-blog-table-latency-r5 artifact after approving the operation budgets
@@ -499,6 +499,7 @@ allowed-mutations:
   - pull-request
   - deploy
   - schema
+  - merge
 write-targets:
   artifacts:
     - /Users/alicemoore/.codex/worktrees/8c63/agent-native/plans/content-blog-table-performance-research.md
@@ -768,13 +769,12 @@ product-boundary-gates:
     not a runtime dependency or hard-coded identity
   bowerbird-product-boundary: not-applicable
 acceptance-state:
-  status: pending
+  status: blocked
   summary: >-
-    Local implementation and synthetic browser acceptance are complete. The
-    5000-row table returns and paints only 100 rows, retained-row sorting meets
-    the warm target, and reconciliation now remains portable at 5000 rows.
-    Exact Builder-provider acceptance and independent human QA remain pending;
-    task-local fixture cleanup is complete.
+    Local implementation, deterministic large-database acceptance, repair
+    verification, independent technical review, and resource cleanup are
+    complete. Exact Builder-provider acceptance and independent human QA remain
+    unproved, so the system-ready risk strategy prohibits merge and closure.
   local-evidence:
     - >-
       5000-row warm open, ten settled repetitions: first useful React commit
@@ -823,7 +823,34 @@ acceptance-state:
       Removed the environment-gated server phase trace, source snapshot trace,
       response trace fields, and correlated browser console timing after the
       final joined replay; no temporary Content performance probe remains.
-  last-land-packet: null
+  last-land-packet:
+    observed-at: 2026-07-30T04:13:17Z
+    artifact-revision: land-audit-blocked-r8
+    passed: >-
+      deterministic 584/1000/5000-row browser budgets; Content typecheck and
+      273 focused tests; exact imported-row and identity-projection repairs;
+      independent no-P1/P2 repair review; 28 exact-head CI checks with zero
+      failures at observation time; action-level fixture marker-absence proof
+    missing-acceptance-evidence:
+      - >-
+        exact isolated Builder model identity, attach, hydration, property,
+        row, and progressive-review budgets on a credentialed runtime
+      - >-
+        frozen H1-H5 independent human QA on a host exposing the in-app browser
+      - >-
+        two CI jobs were still pending at the observation time, and the
+        external Review Agent skipped the repair rerun
+    feature-flags: >-
+      none; the frozen system-ready strategy has no code-ready-only or off-state
+      merge fallback
+    repository-governance: not-satisfied
+    independent-technical-review: evidenced
+    acceptance-story: not-satisfied
+    merge-permitted: false
+    enablement-permitted: false
+    may-call-shipped: false
+    task-may-close: false
+    readiness: blocked
 status: active
 ```
 
@@ -831,12 +858,16 @@ Frozen-five status: **frozen at `shape-blog-table-latency-r5`**.
 
 Output: `/Users/alicemoore/.codex/worktrees/8c63/agent-native/plans/content-blog-table-performance-research.md`
 
-Authority: Work on the current branch. Product code, tests, changelog, this
-artifact, and recoverable task-local fixtures changed; no Builder record, branch
-operation, deployment, or merge is authorized by this phase.
+Authority: Land under `land-blog-table-latency-r8`. Bare Land carries the frozen
+PR merge action, but the persisted no-go packet prohibits exercising it. No
+Builder record, branch operation, deployment, merge, cleanup, or archival was
+performed by Land.
 
 Invalidated by: a change to the approved outcome/budgets, named Agent Native Content shipping surface or constituency, action/SQL/progressive-provider architecture, acceptance story, or system-ready risk strategy.
 
-Task attention: `shape-complete`; title unchanged because no calling-task title adapter is available in this surface.
+Task attention: `manual-custody`; exact Builder credentials and an independent
+browser-capable QA host are required before Land can recompute system-ready.
 
-Next: `/work /Users/alicemoore/.codex/worktrees/8c63/agent-native/plans/content-blog-table-performance-research.md`
+Next: Work resumes internally when the credentialed Builder runtime and
+independent browser-capable QA host are available; then rerun exact-provider and
+H1-H5 acceptance against the unchanged frozen story.
