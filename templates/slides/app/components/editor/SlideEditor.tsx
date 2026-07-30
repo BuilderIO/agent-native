@@ -1187,6 +1187,27 @@ export default function SlideEditor({
     setSelectedStyleSnapshot(null);
   }, []);
 
+  // `slide.background` paints the canvas wrapper, but a generated `.fmd-slide`
+  // root usually carries its own inline background that covers the whole
+  // canvas. Writing only the field would leave the picker looking broken on
+  // exactly the slides the agent produces, so repaint the root as well when it
+  // declares one.
+  const applySlideBackground = useCallback(
+    (background: string) => {
+      const updates: Partial<Omit<Slide, "id">> = { background };
+      const root = getSlideContent()?.querySelector(
+        ".fmd-slide",
+      ) as HTMLElement | null;
+      if (root && (root.style.background || root.style.backgroundColor)) {
+        root.style.background = background;
+        const html = readCurrentSlideContentHtml();
+        if (html !== null) updates.content = html;
+      }
+      onUpdateSlideRef.current(updates);
+    },
+    [getSlideContent, readCurrentSlideContentHtml],
+  );
+
   const selectElementForStyling = useCallback(
     (element: HTMLElement, selector: string) => {
       const slideContent = getSlideContent();
@@ -2498,7 +2519,7 @@ export default function SlideEditor({
                 background={slide.background}
                 designSystem={designSystem}
                 className="h-full w-full rounded-none border-0 bg-transparent shadow-none"
-                onChange={(background) => onUpdateSlide({ background })}
+                onChange={applySlideBackground}
               />
             )}
           </div>

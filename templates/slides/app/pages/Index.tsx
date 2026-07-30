@@ -236,8 +236,6 @@ export default function Index() {
   const designSystemAutoRef = useRef(true);
   const referenceDeckAutoRef = useRef(true);
   const [showSignInDialog, setShowSignInDialog] = useState(false);
-  const [duplicating, setDuplicating] = useState<string | null>(null);
-  const duplicatingRef = useRef<string | null>(null);
   const { generating, submit: agentSubmit } = useAgentGenerating();
   const anchorElRef = useRef<HTMLElement | null>(null);
   const anchorRef = useRef<HTMLElement | null>(null);
@@ -653,23 +651,17 @@ export default function Index() {
   // that; the background action reconciles or rolls the copy back.
   const handleDuplicate = useCallback(
     (id: string) => {
-      if (duplicatingRef.current) return;
-      duplicatingRef.current = id;
-      setDuplicating(id);
-      try {
-        let optimistic: Deck | null = null;
-        flushSync(() => {
-          optimistic = duplicateDeck(id, `deck-${nanoid()}`);
-        });
-        if (!optimistic) {
-          toast.error(t("home.duplicateFailed"));
-          return;
-        }
-        navigate(`/deck/${(optimistic as Deck).id}`);
-      } finally {
-        duplicatingRef.current = null;
-        setDuplicating(null);
+      let copy: ReturnType<typeof duplicateDeck> | undefined;
+      flushSync(() => {
+        copy = duplicateDeck(id, `deck-${nanoid()}`);
+      });
+      // The context refuses a second copy of the same deck while the first
+      // one's action is still in flight.
+      if (!copy) {
+        toast.error(t("home.duplicateFailed"));
+        return;
       }
+      navigate(`/deck/${copy.id}`);
     },
     [duplicateDeck, navigate, t],
   );
@@ -802,7 +794,6 @@ export default function Index() {
                   onRename={handleRename}
                   onDuplicate={handleDuplicate}
                   onToggleStar={handleToggleStar}
-                  isDuplicating={duplicating === deck.id}
                   designSystemTitle={
                     deck.designSystemId
                       ? designSystemTitleById.get(deck.designSystemId)
