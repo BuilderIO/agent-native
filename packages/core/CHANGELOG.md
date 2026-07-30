@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.131.4
+
+### Patch Changes
+
+- 13f7e6b: Simplify the agent panel's error-recovery copy and move it into the message catalog, so it no longer shows untranslated English or explains the failure as an "internal UI error".
+
 ## 0.131.3
 
 ### Patch Changes
