@@ -198,6 +198,34 @@ describe("progress routes", () => {
     });
   });
 
+  it("forwards a complete keyset cursor for subsequent run pages", async () => {
+    const handler = createProgressHandler() as any;
+    const event = createEvent(
+      "/?limit=200&active=true&beforeStartedAt=2026-07-30T12%3A00%3A00.000Z&beforeId=run-0200",
+    );
+
+    await handler(event);
+
+    expect(mockListRuns).toHaveBeenCalledWith("boni@local", {
+      activeOnly: true,
+      before: {
+        startedAt: "2026-07-30T12:00:00.000Z",
+        id: "run-0200",
+      },
+      event,
+      limit: 200,
+    });
+  });
+
+  it("rejects incomplete keyset cursors instead of repeating the first page", async () => {
+    const handler = createProgressHandler() as any;
+
+    await expect(
+      handler(createEvent("/?beforeStartedAt=2026-07-30T12%3A00%3A00.000Z")),
+    ).rejects.toMatchObject({ statusCode: 400 });
+    expect(mockListRuns).not.toHaveBeenCalled();
+  });
+
   it("short-circuits OPTIONS before auth", async () => {
     const handler = createProgressHandler() as any;
     mockGetSession.mockRejectedValue(new Error("should not authenticate"));
