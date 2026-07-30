@@ -86,13 +86,16 @@ export function createWorkspaceFilesTool(): Record<string, ActionEntry> {
                 'MIME type for new files. Default: "text/plain". Use "application/json" for JSON, "text/markdown" for Markdown.',
             },
             offset: {
-              type: "number",
+              type: "integer",
+              minimum: 0,
               description:
-                "Character offset to start reading from (for paging large files). Default: 0.",
+                "Non-negative character offset to start reading from (for paging large files). Default: 0.",
             },
             maxChars: {
-              type: "number",
-              description: `Maximum characters to return when reading. Default: ${DEFAULT_READ_CHARS}. Max: ${MAX_READ_CHARS}.`,
+              type: "integer",
+              minimum: 1,
+              maximum: MAX_READ_CHARS,
+              description: `Positive maximum characters to return when reading. Default: ${DEFAULT_READ_CHARS}. Max: ${MAX_READ_CHARS}.`,
             },
             pattern: {
               type: "string",
@@ -168,11 +171,13 @@ export function createWorkspaceFilesTool(): Record<string, ActionEntry> {
               if (!path) return "Error: path is required for read.";
               const rawOffset = Number(args.offset);
               const offset =
-                Number.isFinite(rawOffset) && rawOffset > 0 ? rawOffset : 0;
+                Number.isFinite(rawOffset) && rawOffset > 0
+                  ? Math.floor(rawOffset)
+                  : 0;
               const rawMax = Number(args.maxChars);
               const maxChars =
                 Number.isFinite(rawMax) && rawMax > 0
-                  ? Math.min(rawMax, MAX_READ_CHARS)
+                  ? Math.min(Math.max(1, Math.floor(rawMax)), MAX_READ_CHARS)
                   : DEFAULT_READ_CHARS;
 
               // The sentinel character distinguishes an exact page from a truncated one.

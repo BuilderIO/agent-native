@@ -127,4 +127,37 @@ describe("workspace-files tool", () => {
       { offset: 0, maxChars: 5 },
     );
   });
+
+  it("normalizes fractional paging values to advancing integer boundaries", async () => {
+    mockStoredContent("abcdef");
+    const entry = createWorkspaceFilesTool()["workspace-files"];
+
+    expect(entry!.tool.parameters?.properties).toMatchObject({
+      offset: { type: "integer" },
+      maxChars: { type: "integer" },
+    });
+
+    const result = await runWithRequestContext(
+      { userEmail: "alice@example.com" },
+      () =>
+        entry!.run({
+          action: "read",
+          path: metadata.path,
+          offset: 1.9,
+          maxChars: 0.5,
+        }),
+    );
+
+    expect(JSON.parse(String(result))).toMatchObject({
+      ok: true,
+      content: "b",
+      truncated: true,
+      nextOffset: 2,
+    });
+    expect(mockReadWorkspaceFile).toHaveBeenCalledWith(
+      expect.anything(),
+      metadata.path,
+      { offset: 1, maxChars: 2 },
+    );
+  });
 });
