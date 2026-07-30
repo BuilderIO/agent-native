@@ -595,7 +595,7 @@ export function useChatThreads(
 
     (async () => {
       const loadedThreads = await fetchThreads();
-      const savedId = activeThreadIdRef.current;
+      const restoredId = activeThreadIdRef.current;
       if (loadedThreads === undefined) {
         // Thread-list fetch failed. Do not reclassify a saved id as a new
         // optimistic tab; AssistantChat should still get a chance to restore
@@ -603,6 +603,22 @@ export function useChatThreads(
         setIsLoading(false);
         return;
       }
+      // The synchronous restore trusts a pointer written under an older key,
+      // which can name a thread that has since gained its own scope. Route-owned
+      // threads are exempt: the URL names the thread the user asked for.
+      const restoredThread = restoredId
+        ? loadedThreads.find((t) => t.id === restoredId)
+        : undefined;
+      const restoredBelongsElsewhere = Boolean(
+        !routeControlsActiveThread &&
+        restoredThread &&
+        !threadCanStayVisibleInScope(
+          restoredThread.scope ?? null,
+          scopeRef.current,
+        ),
+      );
+      if (restoredBelongsElsewhere) setActiveThreadId(null);
+      const savedId = restoredBelongsElsewhere ? null : restoredId;
       const loadedHasSavedId = Boolean(
         savedId && loadedThreads.some((t) => t.id === savedId),
       );

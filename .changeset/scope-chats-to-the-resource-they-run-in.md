@@ -22,7 +22,10 @@ Now the run's scope is used when the row is created, a thread with no scope adop
 the scope of the resource it is used in (`resolveRunThreadScope`, which never
 retags or clears an already-scoped thread), and the client only mirrors a scope it
 actually knows — `detachThread` remains the single path that clears one. Adoption
-also heals threads already stored with `scope: null`. A saved active-chat pointer
-is no longer trusted when the thread's known scope belongs to another resource.
+also heals threads already stored with `scope: null`, and claims the row with a
+compare-and-set on the unscoped state so two workers racing to adopt the same
+legacy thread cannot retag it to the wrong resource. A saved active-chat pointer
+is no longer trusted when the thread's known scope belongs to another resource,
+on a direct mount as well as when moving between resources.
 
 Genuinely general chats are unaffected until they are used inside a resource.

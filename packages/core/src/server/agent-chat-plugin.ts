@@ -106,6 +106,7 @@ import type {
 import { readAppStateForCurrentTab } from "../application-state/script-helpers.js";
 import { runChatThreadDataMigrations } from "../chat-threads/migrations.js";
 import {
+  adoptThreadScopeIfUnscoped,
   createThread,
   forkThread,
   getThread,
@@ -2549,9 +2550,11 @@ export function createAgentChatPlugin(
           // every resource — leave it unscoped and one chat follows the user
           // into all of them.
           const nextScope = resolveRunThreadScope(thread.scope, runScope);
-          if (nextScope !== thread.scope) {
-            await setThreadScope(threadId, nextScope);
-            thread = { ...thread, scope: nextScope };
+          if (nextScope && nextScope !== thread.scope) {
+            thread = {
+              ...thread,
+              scope: await adoptThreadScopeIfUnscoped(threadId, nextScope),
+            };
           }
 
           let repo: any;
