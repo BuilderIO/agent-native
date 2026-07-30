@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const callAgentMock = vi.hoisted(() => vi.fn());
 const invokeActionMock = vi.hoisted(() => vi.fn());
 const insertA2AContinuationMock = vi.hoisted(() => vi.fn());
+const getA2AContinuationsMock = vi.hoisted(() => vi.fn());
 const dispatchA2AContinuationMock = vi.hoisted(() => vi.fn());
 const bumpRunProgressMock = vi.hoisted(() => vi.fn(async () => {}));
 const integrationRequestContextMock = vi.hoisted(() => vi.fn());
@@ -60,7 +61,7 @@ vi.mock("../server/request-context.js", () => ({
 
 vi.mock("../integrations/a2a-continuations-store.js", () => ({
   insertA2AContinuation: insertA2AContinuationMock,
-  getA2AContinuationsForIntegrationTaskAgent: vi.fn(async () => []),
+  getA2AContinuationsForIntegrationTaskAgent: getA2AContinuationsMock,
 }));
 
 vi.mock("../integrations/a2a-continuation-processor.js", () => ({
@@ -127,8 +128,14 @@ describe("call-agent action", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     delete process.env.NETLIFY;
+    delete process.env.NETLIFY_LOCAL;
+    delete process.env.SITE_ID; // guard:allow-env-credential -- tests isolate Netlify's public runtime host marker.
+    delete process.env.AWS_LAMBDA_FUNCTION_NAME;
+    delete process.env.VERCEL;
+    delete process.env.AGENT_NATIVE_INTEGRATION_A2A_TIMEOUT_MS;
     integrationRequestContextMock.mockReturnValue(slackIntegrationContext);
     insertA2AContinuationMock.mockResolvedValue({ id: "cont-1" });
+    getA2AContinuationsMock.mockResolvedValue([]);
     dispatchA2AContinuationMock.mockResolvedValue(undefined);
   });
 
@@ -430,6 +437,122 @@ describe("call-agent action", () => {
       expect.any(Object),
     );
   });
+
+  it("uses the bounded Netlify handoff when SITE_ID is the only runtime marker", async () => {
+    process.env.SITE_ID = "00000000-0000-0000-0000-000000000000"; // guard:allow-env-credential -- fake value exercises Netlify's public runtime host marker.
+    const timeout = Object.assign(
+      new Error(
+        "A2A task remote-task-site-id did not complete within 2000ms (last state: processing)",
+      ),
+      {
+        name: "A2ATaskTimeoutError",
+        taskId: "remote-task-site-id",
+      },
+    );
+    callAgentMock.mockRejectedValueOnce(timeout);
+    const { run } = await import("./call-agent.js");
+
+    const result = await run(
+      { agent: "content", message: "create the QA design ask" },
+      { send: vi.fn() } as any,
+    );
+
+    expect(callAgentMock).toHaveBeenCalledWith(
+      "https://slides.agent-native.test",
+      expect.any(String),
+      expect.objectContaining({ timeoutMs: 2_000 }),
+    );
+    expect(insertA2AContinuationMock).toHaveBeenCalledTimes(1);
+    expect(insertA2AContinuationMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        integrationTaskId: "integration-task-1",
+        externalThreadId: "C123:123.456",
+        a2aTaskId: "remote-task-site-id",
+        dedupeKey: expect.any(String),
+        progressRef: {
+          kind: "slack-stream",
+          streamTs: "1719000000.000001",
+        },
+      }),
+    );
+    expect(dispatchA2AContinuationMock).toHaveBeenCalledTimes(1);
+    expect(dispatchA2AContinuationMock).toHaveBeenCalledWith("cont-1");
+    expect(result).toContain("[agent-native:a2a-continuation-queued]");
+  });
+
+  it("reuses an existing SITE_ID continuation without calling the downstream agent again", async () => {
+    process.env.SITE_ID = "00000000-0000-0000-0000-000000000000"; // guard:allow-env-credential -- fake value exercises Netlify's public runtime host marker.
+    integrationRequestContextMock.mockReturnValue({
+      ...slackIntegrationContext,
+      attempts: 2,
+    });
+    getA2AContinuationsMock.mockResolvedValueOnce([
+      { id: "cont-existing", status: "pending" },
+    ]);
+    const { run } = await import("./call-agent.js");
+
+    const result = await run(
+      { agent: "content", message: "create the QA design ask" },
+      { send: vi.fn() } as any,
+    );
+
+    expect(getA2AContinuationsMock).toHaveBeenCalledWith(
+      "integration-task-1",
+      "https://slides.agent-native.test",
+      expect.any(String),
+    );
+    expect(result).toContain("[agent-native:a2a-continuation-queued]");
+    expect(result).toContain("already accepted this delegated subtask");
+    expect(callAgentMock).not.toHaveBeenCalled();
+    expect(insertA2AContinuationMock).not.toHaveBeenCalled();
+    expect(dispatchA2AContinuationMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["explicit NETLIFY=false", "NETLIFY", "false"],
+    ["NETLIFY_LOCAL=true", "NETLIFY_LOCAL", "true"],
+  ])(
+    "lets %s override runtime-only SITE_ID detection",
+    async (_label, key, value) => {
+      process.env.SITE_ID = "00000000-0000-0000-0000-000000000000"; // guard:allow-env-credential -- fake value exercises Netlify's public runtime host marker.
+      process.env.AWS_LAMBDA_FUNCTION_NAME = "server";
+      process.env[key] = value;
+      callAgentMock.mockResolvedValueOnce("Handled");
+      const { run } = await import("./call-agent.js");
+
+      await run({ agent: "content", message: "create the QA design ask" }, {
+        send: vi.fn(),
+      } as any);
+
+      expect(callAgentMock).toHaveBeenCalledWith(
+        "https://slides.agent-native.test",
+        expect.any(String),
+        expect.not.objectContaining({ timeoutMs: expect.any(Number) }),
+      );
+    },
+  );
+
+  it.each([
+    ["AWS Lambda", "AWS_LAMBDA_FUNCTION_NAME", "server"],
+    ["Vercel", "VERCEL", "1"],
+  ])(
+    "keeps the existing non-Netlify timeout on %s",
+    async (_label, key, value) => {
+      process.env[key] = value;
+      callAgentMock.mockResolvedValueOnce("Handled");
+      const { run } = await import("./call-agent.js");
+
+      await run({ agent: "content", message: "create the QA design ask" }, {
+        send: vi.fn(),
+      } as any);
+
+      expect(callAgentMock).toHaveBeenCalledWith(
+        "https://slides.agent-native.test",
+        expect.any(String),
+        expect.objectContaining({ timeoutMs: 18_000 }),
+      );
+    },
+  );
 
   it("returns receiver-verified artifacts when continuation enqueue fails", async () => {
     process.env.NETLIFY = "true";
