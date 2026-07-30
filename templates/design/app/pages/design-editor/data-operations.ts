@@ -47,6 +47,32 @@ function valuesEqual(left: unknown, right: unknown): boolean {
   return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
 }
 
+/** Breakpoint widths persisted on the design, ascending and de-duplicated.
+ *  Reads the live design data rather than a screen's mirrored copy so callers
+ *  running after a mutation see what is actually stored. */
+export function getDesignBreakpointWidths(
+  designData: Record<string, unknown> | null | undefined,
+): number[] {
+  if (!isRecord(designData)) return [];
+  const breakpointSet = designData.breakpointSet;
+  if (!isRecord(breakpointSet)) return [];
+  const breakpoints = breakpointSet.breakpoints;
+  if (!Array.isArray(breakpoints)) return [];
+  const widths = new Set<number>();
+  for (const entry of breakpoints) {
+    if (!isRecord(entry)) continue;
+    const widthPx = entry.widthPx;
+    if (
+      typeof widthPx === "number" &&
+      Number.isFinite(widthPx) &&
+      widthPx > 0
+    ) {
+      widths.add(widthPx);
+    }
+  }
+  return [...widths].sort((a, b) => a - b);
+}
+
 export function viewportSizeFromFrameGeometry(
   geometry: CanvasFrameGeometry | undefined,
 ): { width: number; height: number } | null {

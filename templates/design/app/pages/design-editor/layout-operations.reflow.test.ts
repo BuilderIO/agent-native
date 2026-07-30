@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   computeOverlapReflowGeometry,
+  computeTidyPositions,
   type ReflowCandidate,
 } from "./layout-operations";
 
@@ -75,6 +76,37 @@ describe("computeOverlapReflowGeometry", () => {
         candidate("a", { x: 0, y: 0, width: 320, height: 640 }, 5000),
       ]).size,
     ).toBe(0);
+  });
+
+  it("moves a rotated frame by the footprint delta, not to the footprint origin", () => {
+    // A rotated group's AABB origin is not its frame origin. Adopting the packed
+    // origin as the frame origin would teleport the frame by that offset.
+    const rotated: ReflowCandidate = {
+      id: "rotated",
+      geometry: { x: 200, y: 100, width: 320, height: 640 },
+      // AABB sits up and to the left of the frame box, as rotation produces.
+      footprint: { id: "rotated", x: 40, y: 20, width: 900, height: 900 },
+    };
+    const other: ReflowCandidate = {
+      id: "other",
+      geometry: { x: 260, y: 100, width: 320, height: 640 },
+      footprint: { id: "other", x: 100, y: 20, width: 900, height: 900 },
+    };
+    const result = computeOverlapReflowGeometry([rotated, other]);
+    const moved = result.get("other")!;
+    // Oracle is the packer itself, so this does not restate its heuristic.
+    const packed = computeTidyPositions([rotated.footprint, other.footprint]);
+    const packedOrigin = packed.get("other")!;
+    expect(moved.x).toBe(
+      other.geometry.x + (packedOrigin.x - other.footprint.x),
+    );
+    expect(moved.y).toBe(
+      other.geometry.y + (packedOrigin.y - other.footprint.y),
+    );
+    // The distinguishing check: adopting the packed AABB origin as the frame
+    // origin would land here instead.
+    expect(moved.x).not.toBe(packedOrigin.x);
+    expect(moved).toMatchObject({ width: 320, height: 640 });
   });
 
   it("treats touching-but-not-overlapping footprints as no collision", () => {

@@ -156,7 +156,14 @@ export function computeOverlapReflowGeometry(
   for (const candidate of candidates) {
     const position = positions.get(candidate.id);
     if (!position) continue;
-    result.set(candidate.id, { ...candidate.geometry, ...position });
+    // Translate by the footprint's delta rather than adopting the packed origin
+    // as the frame origin. A rotated group's AABB origin is not its frame
+    // origin, so assigning it directly shifts the frame by the rotation offset.
+    result.set(candidate.id, {
+      ...candidate.geometry,
+      x: candidate.geometry.x + (position.x - candidate.footprint.x),
+      y: candidate.geometry.y + (position.y - candidate.footprint.y),
+    });
   }
   return result;
 }

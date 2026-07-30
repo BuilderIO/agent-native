@@ -16,6 +16,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 import {
   mergeCanvasFramePlacements,
+  nextFreeCanvasRowY,
   type CanvasFramePlacement,
 } from "../shared/canvas-frames.js";
 import { isUniqueConstraintViolation } from "../shared/db-conflict.js";
@@ -751,10 +752,12 @@ ${compact ? ".sidebar { padding: 16px; } .nav { grid-template-columns: repeat(2,
 function placeVariantScreens(
   screens: VariantScreen[],
   breakpointWidths: readonly number[],
+  /** Y to start the lineup at, so an additional set clears the existing one. */
+  originY = 0,
 ) {
   const placements: CanvasFramePlacement[] = [];
   const columns = Math.min(MAX_COLUMNS, Math.max(1, screens.length));
-  let rowY = 0;
+  let rowY = originY;
 
   for (let rowStart = 0; rowStart < screens.length; rowStart += columns) {
     const row = screens.slice(rowStart, rowStart + columns);
@@ -987,6 +990,12 @@ export default defineAction({
           placements: placeVariantScreens(
             screens,
             effectiveBreakpointWidths(current.breakpointSet),
+            // Start below what is already on the board. The set being written is
+            // excluded so re-running the same set lands where it was instead of
+            // marching further down each time.
+            nextFreeCanvasRowY(current.canvasFrames, VARIANT_GAP, {
+              ignoreFileIds: screens.map((screen) => screen.id),
+            }),
           ),
           resolveFileId: (placement) => placement.fileId,
         });

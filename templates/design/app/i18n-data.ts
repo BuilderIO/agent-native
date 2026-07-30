@@ -145,6 +145,9 @@ const enUS = {
       shadow: "Shadow",
       filter: "Filter",
       addLayer: "Add layer",
+      addFill: "Add fill",
+      addStroke: "Add stroke",
+      addEffect: "Add effect",
       removeLayer: "Remove layer",
       showLayer: "Show layer",
       hideLayer: "Hide layer",
@@ -9721,6 +9724,9 @@ const designCanvasFeatureOverrides = {
     editPanel: {
       labels: {
         addLayer: "新增图层",
+        addFill: "添加填充",
+        addStroke: "添加描边",
+        addEffect: "添加效果",
         removeLayer: "移除图层",
         showLayer: "显示图层",
         hideLayer: "隐藏图层",
@@ -9821,6 +9827,9 @@ const designCanvasFeatureOverrides = {
     editPanel: {
       labels: {
         addLayer: "Añadir capa",
+        addFill: "Añadir relleno",
+        addStroke: "Añadir trazo",
+        addEffect: "Añadir efecto",
         removeLayer: "Eliminar capa",
         showLayer: "Mostrar capa",
         hideLayer: "Ocultar capa",
@@ -9923,6 +9932,9 @@ const designCanvasFeatureOverrides = {
     editPanel: {
       labels: {
         addLayer: "Ajouter un calque",
+        addFill: "Ajouter un remplissage",
+        addStroke: "Ajouter un contour",
+        addEffect: "Ajouter un effet",
         removeLayer: "Supprimer le calque",
         showLayer: "Afficher le calque",
         hideLayer: "Masquer le calque",
@@ -10025,6 +10037,9 @@ const designCanvasFeatureOverrides = {
     editPanel: {
       labels: {
         addLayer: "Ebene hinzufügen",
+        addFill: "Füllung hinzufügen",
+        addStroke: "Kontur hinzufügen",
+        addEffect: "Effekt hinzufügen",
         removeLayer: "Ebene entfernen",
         showLayer: "Ebene anzeigen",
         hideLayer: "Ebene ausblenden",
@@ -10123,6 +10138,9 @@ const designCanvasFeatureOverrides = {
     editPanel: {
       labels: {
         addLayer: "レイヤーを追加",
+        addFill: "塗りを追加",
+        addStroke: "線を追加",
+        addEffect: "エフェクトを追加",
         removeLayer: "レイヤーを削除",
         showLayer: "レイヤーを表示",
         hideLayer: "レイヤーを非表示",
@@ -10221,6 +10239,9 @@ const designCanvasFeatureOverrides = {
     editPanel: {
       labels: {
         addLayer: "레이어 추가",
+        addFill: "칠 추가",
+        addStroke: "선 추가",
+        addEffect: "효과 추가",
         removeLayer: "레이어 제거",
         showLayer: "레이어 표시",
         hideLayer: "레이어 숨기기",
@@ -10321,6 +10342,9 @@ const designCanvasFeatureOverrides = {
     editPanel: {
       labels: {
         addLayer: "Adicionar camada",
+        addFill: "Adicionar preenchimento",
+        addStroke: "Adicionar contorno",
+        addEffect: "Adicionar efeito",
         removeLayer: "Remover camada",
         showLayer: "Mostrar camada",
         hideLayer: "Ocultar camada",
@@ -10419,6 +10443,9 @@ const designCanvasFeatureOverrides = {
     editPanel: {
       labels: {
         addLayer: "परत जोड़ें",
+        addFill: "भराव जोड़ें",
+        addStroke: "स्ट्रोक जोड़ें",
+        addEffect: "प्रभाव जोड़ें",
         removeLayer: "परत हटाएं",
         showLayer: "परत दिखाएं",
         hideLayer: "परत छिपाएं",
@@ -10517,6 +10544,9 @@ const designCanvasFeatureOverrides = {
     editPanel: {
       labels: {
         addLayer: "إضافة طبقة",
+        addFill: "إضافة تعبئة",
+        addStroke: "إضافة حدود",
+        addEffect: "إضافة تأثير",
         removeLayer: "إزالة طبقة",
         showLayer: "إظهار الطبقة",
         hideLayer: "إخفاء الطبقة",

@@ -579,6 +579,7 @@ import {
   buildFrameGeometryDataOperations,
   clearAcknowledgedDesignDataOperationsThroughRevision,
   compactDesignDataOperations,
+  getDesignBreakpointWidths,
   pendingDesignDataOperations,
   stagePendingDesignDataOperations,
   type DesignDataOperation,
@@ -26299,8 +26300,21 @@ function DesignEditor() {
       next: Partial<{ x: number; y: number; width: number; height: number }>,
     ) => {
       const before = getCanvasFrameGeometry(designDataJsonRef.current);
-      const current = before[screenId] ?? canvasFrameGeometryById[screenId];
-      if (!current) return;
+      // Same fallback getSelectedScreenGeometryForInspector displays, or a
+      // screen with no canvasFrames entry gets fields whose edits do nothing.
+      const screenIndex = overviewScreens.findIndex(
+        (screen) => screen.id === screenId,
+      );
+      const screen =
+        screenIndex >= 0 ? overviewScreens[screenIndex] : undefined;
+      if (!screen) return;
+      const current = {
+        ...getInitialFrameGeometry(screenIndex, {
+          width: screen.width ?? 1280,
+          height: screen.height ?? 2560,
+        }),
+        ...(before[screenId] ?? canvasFrameGeometryById[screenId] ?? {}),
+      };
       const after = {
         ...before,
         [screenId]: {
@@ -26317,7 +26331,7 @@ function DesignEditor() {
       };
       handleGeometryCommit(before, after);
     },
-    [canvasFrameGeometryById, handleGeometryCommit],
+    [canvasFrameGeometryById, handleGeometryCommit, overviewScreens],
   );
 
   const layerPanelSelectedIds = useMemo(
@@ -29618,12 +29632,30 @@ function DesignEditor() {
     },
     [clearPendingOverviewLayerSelectionTimer, handleBreakpointBarSelect],
   );
-  const handleBreakpointBarAdd = useCallback(
-    (widthPx: number, label: string) => {
+  /** The one add-breakpoint path; every entry point must route through it,
+   *  since the mutation is design-wide and widens every screen's row. Widths are
+   *  derived on resolve and unioned with what is persisted — capturing them at
+   *  call time makes concurrent adds under-measure the group. */
+  const addDesignBreakpoint = useCallback(
+    (widthPx: number, label?: string) => {
       if (!id) return;
-      void addBreakpointMutation.mutateAsync({ designId: id, label, widthPx });
+      const resolvedLabel = label ?? breakpointLabelForWidth(widthPx);
+      void addBreakpointMutation
+        .mutateAsync({ designId: id, label: resolvedLabel, widthPx })
+        .then(() => {
+          const persisted = getDesignBreakpointWidths(
+            designDataJsonRef.current,
+          );
+          reflowOverviewScreensForBreakpoints([
+            ...new Set([...persisted, widthPx]),
+          ]);
+        });
     },
-    [id, addBreakpointMutation],
+    [addBreakpointMutation, id, reflowOverviewScreensForBreakpoints],
+  );
+  const handleBreakpointBarAdd = useCallback(
+    (widthPx: number, label: string) => addDesignBreakpoint(widthPx, label),
+    [addDesignBreakpoint],
   );
   const handleBreakpointBarRemove = useCallback(
     (breakpointId: string) => {
@@ -29727,28 +29759,8 @@ function DesignEditor() {
    * action does not have.
    */
   const handleOverviewAddBreakpoint = useCallback(
-    (widthPx: number) => {
-      if (!id) return;
-      const breakpointLabel =
-        widthPx <= 480 ? "Mobile" : widthPx <= 1024 ? "Tablet" : "Desktop";
-      const nextWidths = [
-        ...(overviewScreens[0]?.breakpointWidths ?? []),
-        widthPx,
-      ];
-      void addBreakpointMutation
-        .mutateAsync({
-          designId: id,
-          label: breakpointLabel,
-          widthPx,
-        })
-        .then(() => reflowOverviewScreensForBreakpoints(nextWidths));
-    },
-    [
-      addBreakpointMutation,
-      id,
-      overviewScreens,
-      reflowOverviewScreensForBreakpoints,
-    ],
+    (widthPx: number) => addDesignBreakpoint(widthPx),
+    [addDesignBreakpoint],
   );
   const handleOverviewActiveBreakpointChange = useCallback(
     (_screenId: string, widthPx: number | undefined) => {

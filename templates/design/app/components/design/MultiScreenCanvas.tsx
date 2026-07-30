@@ -920,6 +920,17 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   // externally-driven (toolbar/keyboard) zoom change without a TDZ error.
   const recomputePenPointerForViewChangeRef = useRef<() => void>(() => {});
   const suppressNextPick = useRef(false);
+  /** Where the last frame-body double-click landed, so consecutive
+   *  double-clicks descend one level further instead of re-selecting the same
+   *  layer. Reset whenever the pointer moves to a different screen. */
+  const drillInTargetRef = useRef<{ screenId: string; key: string } | null>(
+    null,
+  );
+  /** Generation counter for drill-in requests. Collecting candidates is an
+   *  async iframe round-trip, so ANY newer selection — another double-click, a
+   *  plain click, a marquee — must invalidate an in-flight one, or its late
+   *  reply overwrites the selection the user actually made. */
+  const drillInRequestRef = useRef(0);
   const feedbackTimerRef = useRef<number | null>(null);
   const pendingWheelGestureRef = useRef<PendingWheelGesture | null>(null);
   const wheelGestureFrameRef = useRef<number | null>(null);
@@ -3375,6 +3386,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     (e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
+      // Supersede any in-flight drill-in: its reply must not overwrite this
+      // gesture's selection (see drillInRequestRef).
+      drillInRequestRef.current += 1;
       const originCanvas = getCanvasPoint(e.clientX, e.clientY);
       let latestRect = normalizeRectFromPoints(originCanvas, originCanvas);
       let layerCandidates: CanvasLayerMarqueeCandidate[] = [];
@@ -6093,6 +6107,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         suppressNextPick.current = false;
         return;
       }
+      // Supersede any in-flight drill-in: its reply must not overwrite this pick.
+      drillInRequestRef.current += 1;
 
       if (e.shiftKey) {
         updateSelectedDraftIds(() => []);
@@ -6147,17 +6163,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       updateSelectedIds,
     ],
   );
-
-  /** Where the last frame-body double-click landed, so consecutive
-   *  double-clicks descend one level further instead of re-selecting the same
-   *  layer. Reset whenever the pointer moves to a different screen. */
-  const drillInTargetRef = useRef<{ screenId: string; key: string } | null>(
-    null,
-  );
-  /** Latest drill-in request. The candidate collection is an async iframe
-   *  round-trip, so a double-click on another frame must invalidate an
-   *  in-flight one — otherwise the late reply clobbers the newer selection. */
-  const drillInRequestRef = useRef(0);
 
   /**
    * Figma parity: double-clicking a frame's body descends into its layers so
