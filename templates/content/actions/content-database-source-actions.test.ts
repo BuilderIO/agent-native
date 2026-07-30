@@ -11,6 +11,7 @@ import addSourceFieldProperty, {
 import attachSource, {
   builderCmsAttachReadMetadata,
   initialBuilderAttachmentSetupOptions,
+  readCompleteBuilderCmsAttachSource,
   readInitialBuilderCmsAttachEntries,
   readInitialBuilderCmsAttachSource,
 } from "./attach-content-database-source";
@@ -266,6 +267,46 @@ describe("content database source actions", () => {
         model: "blog-article",
         maxPages: 1,
         fieldPaths: ["topics", "tags"],
+      },
+    ]);
+  });
+
+  it("reads complete projected metadata for the canonical Builder attachment", async () => {
+    const calls: Array<{
+      model: string;
+      limit?: number;
+      maxPages?: number;
+      fieldPaths?: readonly string[];
+    }> = [];
+    await readCompleteBuilderCmsAttachSource("blog-article", {
+      readModelFields: async () => [],
+      readEntries: async (args) => {
+        calls.push(args);
+        return {
+          state: "live",
+          entries: [],
+          fetchedAt: "2026-01-01T00:00:00.000Z",
+          message: null,
+          progress: {
+            requestedLimit: args.limit ?? 500,
+            pageSize: 100,
+            startOffset: 0,
+            nextOffset: 0,
+            fetchedEntryCount: 0,
+            hasMore: false,
+            partial: false,
+            readMode: "builder-api",
+          },
+        };
+      },
+      fieldPaths: ["topics", "tags"],
+    });
+
+    expect(calls).toEqual([
+      {
+        model: "blog-article",
+        fieldPaths: ["topics", "tags"],
+        limit: 10_000,
       },
     ]);
   });

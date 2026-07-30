@@ -977,8 +977,8 @@ function builderBodyUsesCurrentMediaConverter(
 
 const BUILDER_BODY_HYDRATION_BACKGROUND_PRIORITY = 10;
 const BUILDER_BODY_HYDRATION_OPEN_PRIORITY = 0;
-const BUILDER_BODY_HYDRATION_BATCH_LIMIT = 50;
-const BUILDER_BODY_HYDRATION_PROCESS_CONCURRENCY = 24;
+const BUILDER_BODY_HYDRATION_BATCH_LIMIT = 100;
+const BUILDER_BODY_HYDRATION_PROCESS_CONCURRENCY = 72;
 const BUILDER_BODY_HYDRATION_MAX_ATTEMPTS = 5;
 const BUILDER_BODY_HYDRATION_CODEC_VERSION =
   "readable-native-images-authoritative-raw-baseline-v9";
@@ -1090,7 +1090,10 @@ function normalizeHydrationLimit(limit: number | null | undefined) {
   if (typeof limit !== "number" || !Number.isFinite(limit)) {
     return BUILDER_BODY_HYDRATION_BATCH_LIMIT;
   }
-  return Math.max(1, Math.min(Math.floor(limit), 50));
+  return Math.max(
+    1,
+    Math.min(Math.floor(limit), BUILDER_BODY_HYDRATION_BATCH_LIMIT),
+  );
 }
 
 function builderBodyIsRawPlaceholderOnly(content: string | null | undefined) {

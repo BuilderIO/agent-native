@@ -49,6 +49,7 @@ const sourceTypeSchema = z
   .enum(["mock-local", "builder-cms", "local-table", "notion-database"])
   .default("mock-local");
 const BUILDER_CMS_ATTACH_INITIAL_PAGES = 1;
+const BUILDER_CMS_ATTACH_METADATA_LIMIT = 10_000;
 
 export async function readInitialBuilderCmsAttachEntries(
   sourceTable: string,
@@ -80,6 +81,28 @@ export async function readInitialBuilderCmsAttachSource(
       readEntries,
       dependencies.fieldPaths,
     ),
+  ]);
+  return { read, modelFields };
+}
+
+export async function readCompleteBuilderCmsAttachSource(
+  sourceTable: string,
+  dependencies: {
+    readModelFields?: typeof readBuilderCmsModelFields;
+    readEntries?: typeof readBuilderCmsContentEntries;
+    fieldPaths?: readonly string[];
+  } = {},
+) {
+  const readModelFields =
+    dependencies.readModelFields ?? readBuilderCmsModelFields;
+  const readEntries = dependencies.readEntries ?? readBuilderCmsContentEntries;
+  const [modelFields, read] = await Promise.all([
+    readModelFields({ model: sourceTable }),
+    readEntries({
+      model: sourceTable,
+      fieldPaths: dependencies.fieldPaths,
+      limit: BUILDER_CMS_ATTACH_METADATA_LIMIT,
+    }),
   ]);
   return { read, modelFields };
 }
@@ -582,8 +605,8 @@ export default defineAction({
       : [];
     const builderInitial =
       sourceType === "builder-cms"
-        ? await measure("provider-first-page", () =>
-            readInitialBuilderCmsAttachSource(sourceTable, {
+        ? await measure("provider-metadata", () =>
+            readCompleteBuilderCmsAttachSource(sourceTable, {
               fieldPaths: args.builderFieldPaths,
             }),
           )

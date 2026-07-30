@@ -16,7 +16,7 @@ export default defineAction({
   schema: z.object({
     sourceId: z.string(),
     documentId: z.string().optional(),
-    limit: z.number().int().positive().max(50).optional(),
+    limit: z.number().int().positive().max(100).optional(),
   }),
   agentTool: false,
   run: async (
