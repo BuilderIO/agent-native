@@ -980,6 +980,7 @@ async function readBuilderCmsContentEntriesViaContentApi(args: {
   model: string;
   fieldPaths?: readonly string[];
   includeBodies?: boolean;
+  allowCached?: boolean;
   rawData?: boolean;
   limit?: number;
   maxPages?: number;
@@ -998,11 +999,13 @@ async function readBuilderCmsContentEntriesViaContentApi(args: {
   // Fidelity reads intentionally do neither: Builder's raw data object is the
   // clone contract, including unresolved references and every nested field.
   url.searchParams.set("enrich", args.rawData === true ? "false" : "true");
-  url.searchParams.set("noCache", "true");
-  url.searchParams.set(
-    "cachebust",
-    args.rawData === true ? String(Date.now()) : "true",
-  );
+  if (args.allowCached !== true || args.rawData === true) {
+    url.searchParams.set("noCache", "true");
+    url.searchParams.set(
+      "cachebust",
+      args.rawData === true ? String(Date.now()) : "true",
+    );
+  }
   url.searchParams.set("includeUnpublished", "true");
   if (args.rawData !== true) {
     url.searchParams.set(
@@ -1306,6 +1309,7 @@ export async function readBuilderCmsContentEntries(args: {
   model: string;
   fieldPaths?: readonly string[];
   includeBodies?: boolean;
+  allowCached?: boolean;
   rawData?: boolean;
   requirePrivateKey?: boolean;
   limit?: number;
@@ -1341,6 +1345,7 @@ export async function readBuilderCmsContentEntries(args: {
       model: args.model,
       fieldPaths: args.fieldPaths,
       includeBodies: args.includeBodies,
+      allowCached: args.allowCached,
       rawData: args.rawData,
       limit: args.limit,
       maxPages: args.maxPages,

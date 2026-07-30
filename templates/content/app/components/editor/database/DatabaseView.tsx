@@ -7569,6 +7569,7 @@ function DatabaseSettingsPanelSheet({
             onReviewBuilderUpdate={onReviewBuilderUpdate}
             onSetBuilderLiveWrites={onSetBuilderLiveWrites}
             sourceActionPending={sourceActionPending}
+            builderAttachPreviewPending={builderAttachPreview.isFetching}
             sourcePendingOperations={sourcePendingOperations}
           />
         ) : panel === "layout" ? (
@@ -7970,6 +7971,7 @@ function DatabaseSettingsSourcePanel({
   onReviewBuilderUpdate,
   onSetBuilderLiveWrites,
   sourceActionPending,
+  builderAttachPreviewPending,
   sourcePendingOperations,
 }: {
   source: ContentDatabaseSource | null;
@@ -8003,12 +8005,15 @@ function DatabaseSettingsSourcePanel({
   onReviewBuilderUpdate: (sourceId: string) => void;
   onSetBuilderLiveWrites: (settings: BuilderSourceWriteSettingsInput) => void;
   sourceActionPending: boolean;
+  builderAttachPreviewPending: boolean;
   sourcePendingOperations: DatabaseSourcePendingOperations;
 }) {
   const { isCodeMode } = useCodeMode();
   const navigate = useNavigate();
   const builderSources = databaseAttachedBuilderSources(sources, source);
   const builderStatus = useBuilderStatus();
+  const builderAttachPending =
+    sourceActionPending || builderAttachPreviewPending;
   const builderConfigured = builderStatus.status?.configured === true;
   const builderModelsQuery = useBuilderCmsModels(builderConfigured);
   const builderOrgName = builderStatus.status?.orgName ?? null;
@@ -8313,7 +8318,7 @@ function DatabaseSettingsSourcePanel({
               displayName: model.displayName,
             }}
             canEdit={canEdit}
-            pending={sourceActionPending}
+            pending={builderAttachPending}
             onAddDetails={() =>
               onNavPush({
                 kind: "keyConfirm",
@@ -8335,7 +8340,7 @@ function DatabaseSettingsSourcePanel({
             <Button
               type="button"
               size="sm"
-              disabled={!canEdit || sourceActionPending}
+              disabled={!canEdit || builderAttachPending}
               onClick={async () => {
                 try {
                   await onAttachBuilderSource(model);
@@ -8350,7 +8355,7 @@ function DatabaseSettingsSourcePanel({
                 }
               }}
             >
-              {sourceActionPending ? (
+              {builderAttachPending ? (
                 <Spinner className="mr-1.5 size-3.5" />
               ) : (
                 <IconPlugConnected className="mr-1.5 size-3.5" />

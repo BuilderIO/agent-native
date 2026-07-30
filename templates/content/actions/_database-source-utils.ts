@@ -2353,7 +2353,7 @@ export async function processBuilderBodyHydrationQueue(args: {
   let succeeded = 0;
   let failed = 0;
   const claimedJobs: ContentDatabaseBodyHydrationQueueRowDb[] = [];
-  for (const jobChunk of chunks(jobs, bulkChunkSizeForColumnCount(2))) {
+  for (const jobChunk of chunks(jobs, bulkChunkSizeForColumnCount(3))) {
     const claimFilters = jobChunk.map((job) =>
       and(
         eq(schema.contentDatabaseBodyHydrationQueue.id, job.id),
@@ -2361,6 +2361,7 @@ export async function processBuilderBodyHydrationQueue(args: {
           schema.contentDatabaseBodyHydrationQueue.sourceEntryJson,
           job.sourceEntryJson,
         ),
+        eq(schema.contentDatabaseBodyHydrationQueue.attempts, job.attempts),
       ),
     );
     if (claimFilters.length === 0) continue;

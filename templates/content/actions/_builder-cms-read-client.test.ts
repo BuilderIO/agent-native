@@ -456,6 +456,45 @@ describe("Builder CMS read client", () => {
     });
   });
 
+  it("allows the read-only attach preview to use Builder's cached projection", async () => {
+    process.env.BUILDER_CONTENT_API_HOST = "https://cdn.test.builder.io";
+    resolveBuilderCredentialMock.mockImplementation(async (key) =>
+      key === "BUILDER_PUBLIC_KEY" ? "public-key" : null,
+    );
+    const fetchImpl = vi.fn(async (input: URL) => {
+      expect(input.searchParams.get("noCache")).toBeNull();
+      expect(input.searchParams.get("cachebust")).toBeNull();
+      expect(input.searchParams.get("includeUnpublished")).toBe("true");
+      expect(input.searchParams.get("fields")).toContain("data.title");
+      return new Response(
+        JSON.stringify({
+          results: [
+            {
+              id: "builder-preview-entry",
+              data: { title: "Cached preview" },
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    });
+
+    await expect(
+      readBuilderCmsContentEntries({
+        model: "blog_article",
+        fieldPaths: ["data.title"],
+        allowCached: true,
+        maxPages: 1,
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).resolves.toMatchObject({
+      state: "live",
+      entries: [{ id: "builder-preview-entry", title: "Cached preview" }],
+      progress: { partial: false },
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
   it("can project Builder bodies in paged list reads for bulk hydration", async () => {
     process.env.BUILDER_CONTENT_API_HOST = "https://cdn.test.builder.io";
     resolveBuilderCredentialMock.mockImplementation(async (key) =>

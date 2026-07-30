@@ -3571,7 +3571,6 @@ it("does not let open-row hydration promotion downgrade a queued full Builder bo
       ),
     )
     .where(eq(schema.documents.id, documentId));
-
   expect(after.content).toBe(fullBody);
   expect(after.status).toBe("hydrated");
   expect(after.queued).toBeNull();
@@ -4121,6 +4120,151 @@ it("rebuilds an empty queued Builder body from the current source row before giv
   expect(after.error).toBeNull();
   expect(after.queued).toBeNull();
   expect(after.attempts).toBeNull();
+});
+
+it("lets only one overlapping worker claim and finish the same Builder body job", async () => {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const databaseId = "db_hydration_overlapping_claim";
+  const databaseDocId = "doc_db_hydration_overlapping_claim";
+  const documentId = "doc_hydration_overlapping_claim";
+  const itemId = "item_hydration_overlapping_claim";
+  const sourceId = "src_hydration_overlapping_claim";
+  const sourceRowId = "entry_hydration_overlapping_claim";
+  const queueId = "queue_hydration_overlapping_claim";
+  const body = "Only the worker holding the queue claim may write this body.";
+  const entry = {
+    id: sourceRowId,
+    model: "collection-hydration-overlapping-claim",
+    title: "Hydration overlapping claim",
+    urlPath: "/blog/hydration-overlapping-claim",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    sourceValues: {
+      "data.title": "Hydration overlapping claim",
+      "data.url": "/blog/hydration-overlapping-claim",
+      lastUpdated: "2026-01-01T00:00:00.000Z",
+      [BUILDER_CMS_BODY_CONTENT_KEY]: body,
+    },
+  };
+
+  await db.insert(schema.documents).values([
+    {
+      id: databaseDocId,
+      ownerEmail: OWNER,
+      title: "DB hydration overlapping claim",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: documentId,
+      ownerEmail: OWNER,
+      parentId: databaseDocId,
+      title: "Hydration overlapping claim",
+      content: "",
+      createdAt: now,
+      updatedAt: now,
+    },
+  ]);
+  await db.insert(schema.contentDatabases).values({
+    id: databaseId,
+    ownerEmail: OWNER,
+    documentId: databaseDocId,
+    title: "DB hydration overlapping claim",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSources).values({
+    id: sourceId,
+    ownerEmail: OWNER,
+    databaseId,
+    sourceType: "builder-cms",
+    sourceName: "collection-hydration-overlapping-claim",
+    sourceTable: "collection-hydration-overlapping-claim",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseItems).values({
+    id: itemId,
+    ownerEmail: OWNER,
+    databaseId,
+    documentId,
+    position: 0,
+    bodyHydrationStatus: "pending",
+    bodyHydrationError: null,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSourceRows).values({
+    id: "row_hydration_overlapping_claim",
+    ownerEmail: OWNER,
+    sourceId,
+    databaseItemId: itemId,
+    documentId,
+    sourceRowId,
+    sourceQualifiedId: `builder-cms://collection-hydration-overlapping-claim/${sourceRowId}`,
+    sourceDisplayKey: "Hydration overlapping claim",
+    sourceValuesJson: JSON.stringify(entry.sourceValues),
+    provenance: "Builder CMS read adapter",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseBodyHydrationQueue).values({
+    id: queueId,
+    ownerEmail: OWNER,
+    sourceId,
+    databaseItemId: itemId,
+    documentId,
+    sourceRowId,
+    sourceTable: "collection-hydration-overlapping-claim",
+    sourceEntryJson: JSON.stringify(entry),
+    priority: 0,
+    attempts: 0,
+    createdAt: now,
+    updatedAt: now,
+  });
+  const [queuedJob] = await db
+    .select()
+    .from(schema.contentDatabaseBodyHydrationQueue)
+    .where(eq(schema.contentDatabaseBodyHydrationQueue.id, queueId));
+
+  const results = await Promise.all([
+    hydrateQueuedBodies({ sourceId, limit: 1, preloadedJobs: [queuedJob] }),
+    hydrateQueuedBodies({ sourceId, limit: 1, preloadedJobs: [queuedJob] }),
+  ]);
+
+  const [after] = await db
+    .select({
+      content: schema.documents.content,
+      status: schema.contentDatabaseItems.bodyHydrationStatus,
+      error: schema.contentDatabaseItems.bodyHydrationError,
+      queued: schema.contentDatabaseBodyHydrationQueue.id,
+    })
+    .from(schema.documents)
+    .innerJoin(
+      schema.contentDatabaseItems,
+      eq(schema.contentDatabaseItems.documentId, schema.documents.id),
+    )
+    .leftJoin(
+      schema.contentDatabaseBodyHydrationQueue,
+      eq(
+        schema.contentDatabaseBodyHydrationQueue.databaseItemId,
+        schema.contentDatabaseItems.id,
+      ),
+    )
+    .where(eq(schema.documents.id, documentId));
+  const remainingQueue = await db
+    .select({ id: schema.contentDatabaseBodyHydrationQueue.id })
+    .from(schema.contentDatabaseBodyHydrationQueue)
+    .where(eq(schema.contentDatabaseBodyHydrationQueue.sourceId, sourceId));
+
+  expect(results.map((result) => result.processed).sort()).toEqual([0, 1]);
+  expect(results.map((result) => result.succeeded).sort()).toEqual([0, 1]);
+  expect(results.every((result) => result.failed === 0)).toBe(true);
+  expect(after.content).toBe(body);
+  expect(after.status).toBe("hydrated");
+  expect(after.error).toBeNull();
+  expect(after.queued).toBeNull();
+  expect(remainingQueue).toEqual([]);
 });
 
 it("repairs a stale remote body hash without overwriting a locally diverged document", async () => {

@@ -31,6 +31,7 @@ export default defineAction({
     const read = await readBuilderCmsContentEntries({
       model: args.sourceTable,
       fieldPaths: args.fieldPaths,
+      allowCached: true,
       maxPages: 1,
     });
     if (read.state !== "live") {
