@@ -38,8 +38,8 @@ ladder.
   Drive API needs, use `provider-api-catalog`, `provider-api-docs`, and
   `provider-api-request`; auth comes from the user's Google Docs OAuth. Stage
   large scans with `stageAs` and analyze them via `query-staged-dataset`.
-- Use image-generation and image-selection actions only when the deck genuinely
-  needs imagery; keep citations/asset provenance when available.
+- Image generation belongs to Assets; the image actions delegate over A2A. Never
+  call an image API directly from slides. Keep asset provenance.
 - Use framework sharing actions for deck visibility and grants.
 - For a known, read-only sibling-app operation, use `call-agent` with `action`
   and `input` (or `invokeAgentAction`) instead of starting the sibling agent's

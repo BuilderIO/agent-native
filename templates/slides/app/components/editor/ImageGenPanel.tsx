@@ -69,7 +69,7 @@ export default function ImageGenPanel({
     const contextParts: string[] = [];
 
     contextParts.push(
-      "Generate 3 image variations by calling the registered `generate-image-api` action three times with the same prompt.",
+      "Generate 3 image variations by calling the registered `generate-image-api` action three times with the same prompt. That action delegates to the Assets app so the images come from the brand library; never call an image-generation API directly from slides.",
     );
     contextParts.push(
       "The deliverables must be actual generated image assets from the action. Do not create placeholder HTML/CSS, oversized icon compositions, inline SVGs, or text-only mockups.",
@@ -96,6 +96,9 @@ export default function ImageGenPanel({
       contextParts.push(`Current slide layout: ${slideContext.slideLayout}`);
       contextParts.push(
         `Current slide content:\n\`\`\`\n${slideContext.slideContent}\n\`\`\``,
+      );
+      contextParts.push(
+        `Pass deckId, slideId, and slideContent to the action so Assets can ground the generation in this slide.`,
       );
     }
 
