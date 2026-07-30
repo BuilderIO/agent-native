@@ -2546,9 +2546,6 @@ export function createAgentChatPlugin(
             });
           }
 
-          // An unscoped thread reads as general, and general renders inside
-          // every resource — leave it unscoped and one chat follows the user
-          // into all of them.
           const nextScope = resolveRunThreadScope(thread.scope, runScope);
           if (nextScope && nextScope !== thread.scope) {
             thread = {

@@ -829,8 +829,6 @@ describe("useChatThreads", () => {
   });
 
   it("ignores a saved active chat that belongs to a different resource", async () => {
-    // The pointer under design B's key names a thread scoped to design A —
-    // what an older unscoped pointer looks like once the thread gains a scope.
     window.localStorage.setItem(
       "agent-chat-active-thread:design-app:scope:design:design-b",
       "design-a-thread",
@@ -886,8 +884,6 @@ describe("useChatThreads", () => {
   });
 
   it("ignores a restored pointer for another resource's thread on a direct mount", async () => {
-    // No scope flip here — a fresh load straight into design B, where the
-    // pointer was written before the thread gained design A's scope.
     window.localStorage.setItem(
       "agent-chat-active-thread:design-app:scope:design:design-b",
       "design-a-thread",
@@ -1013,8 +1009,7 @@ describe("useChatThreads", () => {
       await Promise.resolve();
     });
 
-    // A thread this client has never listed — a null here would clear the
-    // server's scope and make the chat render inside every design.
+    // Deliberately absent from the list this client loaded.
     await act(async () => {
       await hook!.saveThreadData("thread-from-another-tab", {
         threadData: JSON.stringify({ messages: [{ id: "m-1" }] }),

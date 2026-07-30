@@ -411,9 +411,8 @@ export function useChatThreads(
       } catch {
         nextActiveThreadId = null;
       }
-      // A thread that gained a scope after this pointer was written is still
-      // named by the older key. Only a known mismatch disqualifies it — an
-      // unresolved scope must not be read as "belongs here".
+      // Only a known mismatch disqualifies the pointer — an unresolved scope
+      // must not be read as "belongs here".
       if (nextActiveThreadId) {
         const savedScope = readKnownThreadScope(nextActiveThreadId);
         if (
@@ -603,9 +602,8 @@ export function useChatThreads(
         setIsLoading(false);
         return;
       }
-      // The synchronous restore trusts a pointer written under an older key,
-      // which can name a thread that has since gained its own scope. Route-owned
-      // threads are exempt: the URL names the thread the user asked for.
+      // Route-owned threads are exempt: the URL names the thread the user asked
+      // for, whatever its scope.
       const restoredThread = restoredId
         ? loadedThreads.find((t) => t.id === restoredId)
         : undefined;
@@ -976,9 +974,9 @@ export function useChatThreads(
     [apiUrl, clearUserRenamedThread, createThread],
   );
 
-  // Mirrors only a scope this client actually knows: `scope: null` for a thread
-  // missing from the local list would clear the server's, and an unscoped chat
-  // renders in every resource. `detachThread` is the one path that may clear it.
+  // Reads scope through refs so this callback survives every setThreads. Sends
+  // only a scope this client knows: a `null` clears the server's, which only
+  // `detachThread` may do.
   const saveThreadData = useCallback(
     async (
       id: string,

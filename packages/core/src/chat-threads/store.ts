@@ -767,10 +767,9 @@ export async function searchThreads(
 }
 
 /**
- * Scope a thread should carry after a run inside a resource. A thread that
- * already has a scope keeps it — a run reaching a chat from somewhere else must
- * never retag or clear it, which is what turns one chat into every resource's
- * chat.
+ * Scope a thread should carry after a run inside a resource: adopt when it has
+ * none, otherwise keep what it has. An unscoped thread reads as general, and a
+ * general chat renders inside every resource — so never retag, never clear.
  */
 export function resolveRunThreadScope(
   existing: ChatThreadScope | null,
