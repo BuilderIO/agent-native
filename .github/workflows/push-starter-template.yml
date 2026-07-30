@@ -4,21 +4,21 @@ name: Push chat template to starter
 # to builder-agent-native-starter's `template` branch. The starter's own
 # `sync.yml` (on that branch) then git-merges it into `main`. This workflow only
 # ever handles pristine, public template output — no private starter content.
+#
+# The mirror always materializes main HEAD (freshest template content), but only
+# when the @agent-native/core version pinned in source is already on npm. During
+# the few-minute window between a Version Packages PR merging (which bumps the
+# source version) and its publish finishing, HEAD's pin isn't installable yet, so
+# the gate skips — and the publish dispatch re-runs the mirror the moment it lands.
 on:
   push:
     branches: [main]
-    # Template-only changes mirror promptly on push. Changes that also touch a
-    # template-pinned package (core / creative-context / toolkit) are deferred to
-    # the publish dispatch by the `decide` gate below — mirroring them now would
-    # pin the previously-published version (the bump lands only when the Version
-    # Packages PR merges). Post-processor (CLI) changes go out that way too.
     paths:
       - "templates/chat/**"
       - ".github/workflows/push-starter-template.yml"
-  # Fired by "Publish packages" only on an actual npm publish (published == true)
-  # of a package the template pins — not on every successful release run (a run
-  # that merely opens the Version Packages PR publishes nothing). Carries the
-  # published commit sha in client_payload.
+  # Fires when a publish completes (published == true). This is the reliable
+  # second chance for anything the gate skipped during a publish-in-flight
+  # window: by the time it fires, the just-published version is on npm.
   repository_dispatch:
     types: [agent-native-packages-published]
   workflow_dispatch:
@@ -31,48 +31,14 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # A push that touches a template-pinned package will publish and re-mirror via
-  # repository_dispatch with the correct pin. Mirroring on that push would emit
-  # new template source pinned to the *old* published version, leaving the
-  # starter temporarily inconsistent until the dispatch. Defer those pushes.
-  decide:
-    name: Decide whether to mirror this push
-    runs-on: ubuntu-latest
-    outputs:
-      skip: ${{ steps.gate.outputs.skip }}
-    steps:
-      - id: gate
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-        run: |
-          set -euo pipefail
-          if [ "$EVENT_NAME" != "push" ]; then
-            # Dispatch/manual runs always mirror.
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          files=$(jq -r '.commits[]? | (.added // [])[], (.modified // [])[], (.removed // [])[]' "$GITHUB_EVENT_PATH")
-          if printf '%s\n' "$files" | grep -qE '^packages/(core|creative-context|toolkit)/'; then
-            echo "Template-pinned package changed; deferring to the post-publish dispatch."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-          fi
-
   push:
     name: Materialize and push template branch
-    needs: [decide]
-    if: needs.decide.outputs.skip != 'true'
     runs-on: ubuntu-latest
     steps:
+      # Every trigger materializes main HEAD (the default ref for push /
+      # repository_dispatch / workflow_dispatch), so the mirror only ever moves
+      # forward — it can't revert to an older commit.
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-        with:
-          # On a publish dispatch, materialize the exact commit that was just
-          # published (carried in client_payload) rather than whatever main's
-          # HEAD happens to be — so the pinned version matches what's on npm.
-          ref: >-
-            ${{ github.event_name == 'repository_dispatch'
-            && github.event.client_payload.sha || github.sha }}
 
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
 
@@ -81,15 +47,37 @@ jobs:
           node-version: "24"
           cache: "pnpm"
 
-      - run: pnpm install --frozen-lockfile
+      # materialize pins @agent-native/core to the version in source. If that
+      # version isn't on npm yet (a publish is in flight), pushing it would make
+      # the starter's sync fail its install/build. Skip; the publish dispatch
+      # re-runs this once the version lands, and because we mirror HEAD it sweeps
+      # up everything that merged in the meantime.
+      - name: Gate on the pinned core version being published
+        id: gate
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./packages/core/package.json').version")"
+          if npm view "@agent-native/core@${version}" version >/dev/null 2>&1; then
+            echo "core ${version} is on npm — mirroring HEAD."
+            echo "publishable=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "core ${version} is not on npm yet (publish in flight); skipping."
+            echo "The publish dispatch will re-run this once ${version} lands."
+            echo "publishable=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.gate.outputs.publishable == 'true'
+        run: pnpm install --frozen-lockfile
 
       - name: Materialize post-processed templates/chat
+        if: steps.gate.outputs.publishable == 'true'
         run: >-
           pnpm exec tsx packages/core/src/cli/index.ts template materialize
           --template chat --out ./dist/template
 
       - name: Generate app token
         id: app-token
+        if: steps.gate.outputs.publishable == 'true'
         uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1
         with:
           app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
@@ -98,6 +86,7 @@ jobs:
           repositories: builder-agent-native-starter
 
       - name: Push to starter template branch
+        if: steps.gate.outputs.publishable == 'true'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
