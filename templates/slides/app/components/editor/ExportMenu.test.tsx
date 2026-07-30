@@ -30,6 +30,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) =>
     (
       ({
+        "editorExport.connectGoogle": "Connect Google",
         "editorExport.openInGoogleSlides": "Open in Google Slides",
         "editorExport.googleSlidesCreated": "Opened in Google Slides",
         "editorExport.googleSlidesCreatedHint":

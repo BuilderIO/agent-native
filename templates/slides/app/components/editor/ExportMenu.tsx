@@ -218,7 +218,7 @@ export function ExportMenu({
               className="cursor-pointer"
             >
               <IconPlugConnected className="w-4 h-4 mr-2" />
-              Connect Google
+              {t("editorExport.connectGoogle")}
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={handleExportGoogleSlides}

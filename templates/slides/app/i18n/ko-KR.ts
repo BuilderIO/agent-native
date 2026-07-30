@@ -261,6 +261,7 @@ const messages = {
     downloadHtml: "HTML로 다운로드",
     exportPdf: "PDF로 내보내기",
     exportPptx: "PPTX로 내보내기",
+    connectGoogle: "Google 연결",
     openInGoogleSlides: "Google Slides에서 열기",
     googleSlidesCreated: "Google Slides에서 열었습니다",
     googleSlidesCreatedHint: "이 덱의 사본이 Google 드라이브에 생성되었습니다.",

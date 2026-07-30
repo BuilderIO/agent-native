@@ -263,6 +263,7 @@ const messages = {
     downloadHtml: "HTML としてダウンロード",
     exportPdf: "PDF としてエクスポート",
     exportPptx: "PPTX としてエクスポート",
+    connectGoogle: "Google に接続",
     openInGoogleSlides: "Google Slides で開く",
     googleSlidesCreated: "Google Slides で開きました",
     googleSlidesCreatedHint:
