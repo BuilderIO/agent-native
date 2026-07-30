@@ -8,9 +8,21 @@ import {
   recordDashboardReportCaptureOutcome,
 } from "../lib/dashboard-report-subscriptions";
 
+declare global {
+  var __AGENT_NATIVE_DASHBOARD_REPORT_SCHEDULED_RUNTIME__: boolean | undefined;
+}
+
 let running = false;
 const DEFAULT_MAX_REPORTS_PER_SWEEP = 5;
 const SERVERLESS_REPORT_DELIVERY_BUDGET_MS = 220_000;
+const SERVERLESS_MAX_REPORTS_PER_SWEEP = 1;
+
+function serverlessDashboardReportRuntime(): boolean {
+  return (
+    process.env.NETLIFY === "true" ||
+    globalThis.__AGENT_NATIVE_DASHBOARD_REPORT_SCHEDULED_RUNTIME__ === true
+  );
+}
 
 async function persistDashboardReportResult(
   ...args: Parameters<typeof markDashboardReportResult>
@@ -46,7 +58,9 @@ async function persistDashboardReportCaptureOutcome(
 }
 
 function maxReportsPerSweep(): number {
-  if (process.env.NETLIFY === "true") return 1;
+  if (serverlessDashboardReportRuntime()) {
+    return SERVERLESS_MAX_REPORTS_PER_SWEEP;
+  }
   const raw = process.env.DASHBOARD_REPORT_SWEEP_LIMIT?.trim();
   if (!raw) return DEFAULT_MAX_REPORTS_PER_SWEEP;
   const parsed = Number.parseInt(raw, 10);
@@ -66,10 +80,6 @@ export async function runDashboardReportsOnce(): Promise<{
 }> {
   if (running) return { processed: 0, failed: 0, remaining: 0 };
   running = true;
-  const deliveryDeadlineAt =
-    process.env.NETLIFY === "true"
-      ? Date.now() + SERVERLESS_REPORT_DELIVERY_BUDGET_MS
-      : undefined;
   let processed = 0;
   let failed = 0;
   let remaining = 0;
@@ -80,8 +90,11 @@ export async function runDashboardReportsOnce(): Promise<{
     remaining = batch.length >= sweepLimit ? 1 : 0;
     for (const sub of batch) {
       processed++;
+      const deliveryDeadlineAt = serverlessDashboardReportRuntime()
+        ? Date.now() + SERVERLESS_REPORT_DELIVERY_BUDGET_MS
+        : undefined;
+      const retryAt = dashboardReportRetryAt(sub);
       try {
-        const retryAt = dashboardReportRetryAt(sub);
         const result = await runWithRequestContext(
           {
             userEmail: sub.ownerEmail,
@@ -89,50 +102,45 @@ export async function runDashboardReportsOnce(): Promise<{
           },
           () =>
             sendDashboardReportSubscription(sub, {
-              skipEmailWithoutScreenshot: retryAt !== null,
+              skipEmailWhenDegraded: retryAt !== null,
               onCaptureOutcome: (outcome) =>
                 persistDashboardReportCaptureOutcome(sub, outcome),
               ...(deliveryDeadlineAt ? { deadlineAt: deliveryDeadlineAt } : {}),
             }),
         );
-        if (result.screenshotMode === "partial" && result.emailsSent) {
+        const degradedReason =
+          result.reportError ??
+          `panels unavailable: ${result.degradedPanelIds.join(", ") || "unknown"}`;
+
+        if (!result.emailsSent) {
           failed++;
-          const message = result.screenshotError
-            ? `Dashboard screenshot partially available: ${result.screenshotError}`
-            : "Dashboard screenshot partially available";
+          const retryMessage = retryAt
+            ? `${degradedReason} (retry scheduled)`
+            : degradedReason;
           console.error(
-            `[dashboard-report] Subscription ${sub.id} sent with a partial screenshot:`,
-            message,
+            `[dashboard-report] Subscription ${sub.id} held back a degraded report${retryAt ? ", will retry" : ""}:`,
+            degradedReason,
           );
-          await persistDashboardReportResult(sub, "error", message);
-          continue;
-        }
-        if (!result.screenshotAttached) {
-          const message = result.screenshotError
-            ? `Dashboard screenshot unavailable: ${result.screenshotError}`
-            : "Dashboard screenshot unavailable";
-          if (retryAt && !result.emailsSent) {
-            console.error(
-              `[dashboard-report] Subscription ${sub.id} skipped sending without a screenshot, will retry:`,
-              message,
-            );
-            const persisted = await persistDashboardReportResult(
-              sub,
-              "error",
-              `${message} (retry scheduled)`,
-              { nextRunAt: retryAt },
-            );
-            if (!persisted) failed++;
-            continue;
+          if (retryAt) {
+            await persistDashboardReportResult(sub, "error", retryMessage, {
+              nextRunAt: retryAt,
+            });
+          } else {
+            await persistDashboardReportResult(sub, "error", retryMessage);
           }
-          failed++;
-          console.error(
-            `[dashboard-report] Subscription ${sub.id} sent without a screenshot:`,
-            message,
-          );
-          await persistDashboardReportResult(sub, "error", message);
           continue;
         }
+
+        if (result.reportMode === "degraded") {
+          failed++;
+          console.error(
+            `[dashboard-report] Subscription ${sub.id} sent a degraded report:`,
+            degradedReason,
+          );
+          await persistDashboardReportResult(sub, "error", degradedReason);
+          continue;
+        }
+
         if (!(await persistDashboardReportResult(sub, "success"))) failed++;
       } catch (err: any) {
         failed++;
@@ -141,7 +149,13 @@ export async function runDashboardReportsOnce(): Promise<{
           `[dashboard-report] Subscription ${sub.id} failed:`,
           message,
         );
-        await persistDashboardReportResult(sub, "error", message);
+        if (retryAt) {
+          await persistDashboardReportResult(sub, "error", message, {
+            nextRunAt: retryAt,
+          });
+        } else {
+          await persistDashboardReportResult(sub, "error", message);
+        }
       }
     }
   } finally {

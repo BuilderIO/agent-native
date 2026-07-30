@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Agent Native</title>
+    <link rel="stylesheet" href="./sidepanel.css" />
+  </head>
+  <body>
+    <div class="panel-shell">
+      <header class="topbar">
+        <img
+          class="brand-mark"
+          src="/icons/icon-32.png"
+          width="24"
+          height="24"
+          alt=""
+        />
+        <span class="brand-name" data-i18n="panelTitle">Agent Native</span>
+        <details class="connection-details">
+          <summary data-i18n="connectionSettings">Connection</summary>
+          <form id="connection-form" class="connection-form">
+            <label for="dispatch-url" data-i18n="dispatchBaseUrl">
+              Dispatch URL
+            </label>
+            <div class="connection-row">
+              <input
+                id="dispatch-url"
+                name="dispatch-url"
+                type="url"
+                inputmode="url"
+                autocomplete="url"
+                spellcheck="false"
+                required
+              />
+              <button
+                class="button button-secondary button-compact"
+                type="submit"
+                data-i18n="saveConnection"
+              >
+                Save
+              </button>
+            </div>
+          </form>
+        </details>
+      </header>
+
+      <section class="capture-bar" aria-labelledby="current-page-label">
+        <div class="page-copy">
+          <span id="current-page-label" class="eyebrow" data-i18n="currentPage">
+            Current page
+          </span>
+          <strong id="page-title" class="page-title">—</strong>
+          <span id="page-origin" class="page-origin"></span>
+          <span
+            id="page-access-state"
+            class="page-access-state"
+            data-i18n="pageAccessNeeded"
+          >
+            Access needed
+          </span>
+        </div>
+        <button
+          id="capture-button"
+          class="button button-primary"
+          type="button"
+          data-i18n="sharePage"
+        >
+          Use page
+        </button>
+      </section>
+
+      <div id="capture-status" class="status-line" role="status"></div>
+
+      <main class="chat-region">
+        <div id="connect-panel" class="connect-panel">
+          <p id="connect-copy" data-i18n="dispatchLoading">
+            Connecting to Dispatch…
+          </p>
+          <button
+            id="connect-button"
+            class="button button-primary"
+            type="button"
+            data-i18n="connectDispatch"
+          >
+            Connect Dispatch
+          </button>
+        </div>
+        <iframe
+          id="dispatch-frame"
+          title="Dispatch browser chat"
+          sandbox="allow-forms allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts"
+          hidden
+        ></iframe>
+      </main>
+
+      <footer class="control-footer">
+        <span
+          id="control-state"
+          class="control-state"
+          data-i18n="controlUnavailable"
+        >
+          Connect Agent Native to enable browser control.
+        </span>
+        <button
+          id="relay-access-button"
+          class="button button-secondary button-compact"
+          type="button"
+          data-i18n="enableBrowserRelay"
+          hidden
+        >
+          Enable browser relay
+        </button>
+      </footer>
+    </div>
+    <script type="module" src="./sidepanel.ts"></script>
+  </body>
+</html>

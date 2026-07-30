@@ -216,16 +216,35 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain(
       "group-focus-visible/workspace-toggle:opacity-100",
     );
-    expect(sidebar).not.toContain(
+    expect(sidebar).toContain(
       "group-focus-within/workspace-header:opacity-100",
     );
     expect(sidebar).not.toContain('className="group/workspace min-w-0"');
-    expect(sidebar).toContain("{expanded && (");
-    expect(sidebar).toContain("<WorkspaceFilesSection");
+    expect(sidebar).toContain("{expanded ? (");
+    expect(sidebar).toContain("<WorkspaceSidebarItem");
+    expect(sidebar).toContain("<IconArrowsSort size={14} />");
+    expect(sidebar).toContain("<DropdownMenuRadioGroup");
+    expect(sidebar).toContain(
+      "const activeFilesDatabaseId = expanded ? space.filesDatabaseId : null",
+    );
+    expect(sidebar).not.toContain("<SidebarDragHandle");
+    expect(sidebar).not.toContain("<SidebarReorderMenuItems");
+    expect(sidebar).toContain(
+      "data-sidebar-reorder-item-id={reorder?.controls.itemId}",
+    );
+    expect(sidebar).toContain('"touch-none cursor-pointer select-none"');
+    expect(sidebar).toContain(
+      '<span className="min-w-0 flex-1 truncate">{space.name}</span>',
+    );
+    expect(sidebar).toContain('className="min-w-0 pb-1 ps-4"');
+    expect(sidebar).not.toContain(
+      'className="ms-3 border-s border-border/70 pb-1 ps-1"',
+    );
+    expect(sidebar).toContain('role="link"');
     expect(sidebar).toContain(
       'aria-label={`${t("sidebar.newPage")} — ${space.name}`}',
     );
-    expect(sidebar).toContain("selected={selected}");
+    expect(sidebar).toContain("selected={selectedSpace?.id === space.id}");
     expect(sidebar).toContain("onOpenItem={(item: ContentDatabaseItem) =>");
     expect(sidebar).toContain("void handleSelectContentSpace(space, null)");
     expect(sidebar).toContain(
@@ -242,8 +261,11 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain(
       "text-[10px] font-semibold uppercase tracking-wider",
     );
+    expect(sidebar).toContain("to={`/page/${space.filesDocumentId}`}");
+    expect(sidebar).toContain("!event.metaKey");
+    expect(sidebar).toContain("event.preventDefault()");
     expect(sidebar).toContain(
-      'className="h-7 min-w-0 flex-1 truncate pe-2 text-start',
+      "void handleSelectContentSpace(nextSpace, documentId)",
     );
     expect(sidebar).toContain(
       'className="mb-2 min-w-0 overflow-x-hidden px-2"',
@@ -268,9 +290,37 @@ describe("document sidebar layout", () => {
     expect(sidebar).not.toContain("handleCreateWorkspace");
     expect(sidebar).toContain("workspaceCatalogDatabaseId");
     expect(sidebar).toContain("workspaceCatalogPersonalView.data?.overrides");
-    expect(sidebar).toContain("renderItem={(item) =>");
+    expect(sidebar).toContain("renderItem={(item, reorder) =>");
     expect(sidebar).toContain("name: item.document.title || space.name");
     expect(sidebar).toContain("scroll={false}");
+  });
+
+  it("uses the full row width until right-side actions are revealed", () => {
+    const databaseSidebar = readSidebarSource("../editor/database/sidebar.tsx");
+    const reorder = readSidebarSource("./sidebar-reorder.tsx");
+
+    expect(databaseSidebar).toContain(
+      '"group-hover:pe-12 group-focus-within:pe-12"',
+    );
+    expect(databaseSidebar).not.toContain(
+      '(hasMenuActions || canCreateChild) && "pe-12"',
+    );
+    expect(databaseSidebar).toContain(
+      "data-sidebar-reorder-item-id={reorder?.controls.itemId}",
+    );
+    expect(databaseSidebar).toContain(
+      '"touch-none cursor-pointer select-none"',
+    );
+    expect(databaseSidebar).toContain(
+      'className="grid min-w-0 gap-1 overflow-x-hidden py-1 ps-1"',
+    );
+    expect(databaseSidebar).toContain(
+      "pointer-events-none absolute end-0 top-1/2",
+    );
+    expect(reorder).toContain(
+      'document.addEventListener("click", preventDraggedLinkNavigation, true)',
+    );
+    expect(reorder).toContain("event.preventDefault()");
   });
 
   it("keeps a unified page and database Trash lifecycle visible in the sidebar", () => {
@@ -363,11 +413,9 @@ describe("document sidebar layout", () => {
     expect(agents).toContain("remove-local-file-source");
   });
 
-  it("keeps favorite rows constrained so long titles ellipsize", () => {
+  it("renders Pinned through exact database memberships with accessible reordering", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
-    const treeItem = readSidebarSource("./DocumentTreeItem.tsx");
 
-    expect(sidebar).toContain("const favoriteRowWidth =");
     expect(sidebar).toContain("{showFavorites && (");
     expect(sidebar).toContain('toggleSection("favorites")');
     expect(sidebar).toContain("!collapsedSections.favorites &&");
@@ -379,23 +427,27 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain('"mb-2 min-w-0 px-2"');
     expect(sidebar).toContain("favoritesDocumentId");
     expect(sidebar).toContain("`/page/${favoritesDocumentId}`");
-    expect(sidebar).toContain("handleOpenFavorite(doc)");
-    expect(sidebar).toContain("<FavoriteDocumentItem");
-    expect(treeItem).toContain("export function FavoriteDocumentItem");
+    expect(sidebar).toContain("data={favoritesDatabase.data}");
+    expect(sidebar).toContain("handlePinnedReorder");
+    expect(sidebar).toContain("movePinnedItem.isPending");
+    expect(sidebar).toContain("onReorder: handlePinnedReorder");
     expect(sidebar).toContain(
       "flex h-7 w-full min-w-0 items-center rounded-md px-1",
     );
-    expect(treeItem).toContain('paddingInlineStart: "26px"');
-    expect(treeItem).toContain('? "font-semibold text-foreground"');
-    expect(treeItem).not.toContain(
-      '"border-primary bg-accent font-medium text-accent-foreground"',
-    );
-    expect(treeItem).toContain("Remove from favorites");
-    expect(treeItem).toContain("aria-label={`Open ${title}`}");
-    expect(treeItem).toContain("onClick={(event) => event.stopPropagation()}");
-    expect(treeItem).toContain("onCreateChildPage()");
-    expect(treeItem).toContain("setDeleteDialogOpen(true)");
+    expect(sidebar).not.toContain("<FavoriteDocumentItem");
     expect(sidebar).not.toContain("!localFileMode && favorites.length > 0");
+  });
+
+  it("keeps the Content sidebar quiet while lists load", () => {
+    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
+
+    expect(sidebar).not.toContain('from "@/components/ThemeToggle"');
+    expect(sidebar).not.toContain('from "./NotionButton"');
+    expect(sidebar).not.toContain("border-s border-border/70");
+    expect(sidebar).not.toContain("border-t border-border/60");
+    expect(sidebar).toContain("isLoading");
+    expect(sidebar).toContain("renderTreeSkeleton()");
+    expect(sidebar).toContain("<Skeleton");
   });
 
   it("routes Favorites into its provisioned full database page", () => {

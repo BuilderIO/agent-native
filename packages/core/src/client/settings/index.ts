@@ -1,7 +1,9 @@
 export {
   AgentSettingsContent,
+  areExtensionSettingsEnabled,
   SettingsPanel,
   useAgentSettingsTabs,
+  type AgentSettingsTabsOptions,
   type SettingsPanelProps,
 } from "./SettingsPanel.js";
 export {

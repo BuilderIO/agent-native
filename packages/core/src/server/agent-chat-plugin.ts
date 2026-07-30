@@ -32,7 +32,6 @@ import {
   sanitizeA2ACorrelationId,
   sanitizeA2ACorrelationMetadata,
 } from "../a2a/correlation.js";
-import { applyAgentTextEventToBuffer } from "../a2a/response-text.js";
 import {
   createA2AApproval,
   updateTaskStatusMessage,
@@ -65,6 +64,7 @@ import {
   listAgentEngines,
   registerBuiltinEngines,
 } from "../agent/engine/index.js";
+import { SYSTEM_PROMPT_CACHE_SPLIT } from "../agent/engine/prompt-cache.js";
 import type { EngineMessage } from "../agent/engine/types.js";
 import {
   createProductionAgentHandler,
@@ -73,8 +73,10 @@ import {
   toolCallCacheKey,
   getActiveRunForThreadAsync,
   abortRunDurably,
+  abortTurnDurably,
   subscribeToRun,
   type ActionEntry,
+  type AgentLoopOutcome,
 } from "../agent/production-agent.js";
 import {
   callerHasRunAccess,
@@ -88,11 +90,14 @@ import {
 import {
   buildAssistantMessage,
   buildUserMessage,
+  claimQueuedMessage,
   extractThreadMeta,
   foldAssistantTurn,
+  hasClaimedQueuedMessage,
   mergeThreadDataForClientSave,
   upsertUserMessage,
 } from "../agent/thread-data-builder.js";
+import { appendThreadDebugHistory } from "../agent/thread-debug-history.js";
 import { attachToolSearch } from "../agent/tool-search.js";
 import type {
   AgentChatAttachment,
@@ -100,6 +105,7 @@ import type {
   MentionProvider,
 } from "../agent/types.js";
 import { readAppStateForCurrentTab } from "../application-state/script-helpers.js";
+import { runChatThreadDataMigrations } from "../chat-threads/migrations.js";
 import {
   createThread,
   forkThread,
@@ -269,6 +275,9 @@ import {
 // ---------------------------------------------------------------------------
 import {
   createA2AEngineToolSurface,
+  DEFAULT_DELEGATED_MAX_ITERATIONS,
+  DEFAULT_DELEGATED_MAX_RUN_INPUT_TOKENS,
+  DEFAULT_DELEGATED_MAX_TOOL_RESULT_CHARS,
   filterAgentTools,
   filterPublicAgentActions,
   filterDirectA2AActions,
@@ -278,6 +287,7 @@ import {
   runMCPAgentLoop,
   assembleA2AFinalResponse,
   buildPublicAgentA2ASkills,
+  buildAuthenticatedAgentA2ASkills,
   resolveArtifactBaseUrl,
 } from "./agent-chat/action-filters-a2a.js";
 import {
@@ -300,6 +310,7 @@ import {
   generateCorpusToolsPrompt,
 } from "./agent-chat/framework-prompts.js";
 import {
+  resolveA2AAgentDelegationEnabled,
   type AgentChatPluginOptions,
   type NitroPluginDef,
 } from "./agent-chat/plugin-options.js";
@@ -334,6 +345,11 @@ export type { AgentChatPluginOptions };
 export { runA2AAgentLoop };
 export { runMCPAgentLoop };
 export { createA2AEngineToolSurface };
+export {
+  DEFAULT_DELEGATED_MAX_ITERATIONS,
+  DEFAULT_DELEGATED_MAX_RUN_INPUT_TOKENS,
+  DEFAULT_DELEGATED_MAX_TOOL_RESULT_CHARS,
+};
 export { shouldBlockInProductCodeEditingSurface };
 export { loadRunCodeToolEntries };
 export { shouldDisableRecurringJobsRuntime };
@@ -441,6 +457,19 @@ const generateTitleRateLimit = new Map<string, number[]>();
 const RATE_LIMIT_SWEEP_THRESHOLD = 1000;
 
 /**
+ * Abort reasons that mean a human asked to stop, so `/runs/:id/abort` escalates
+ * to a turn-wide abort. Watchdog reasons (`no_progress`, `auto_stuck_retry`)
+ * stay single-run: they end a chunk the client believes is dead and must not
+ * kill a server-side continuation chain that is still making progress.
+ */
+export const USER_STOP_ABORT_REASONS = new Set([
+  "user",
+  "abort",
+  "user_stuck_cancel",
+  "user_stuck_retry",
+]);
+
+/**
  * Pick the URL allowlist to enforce for a `${keys.NAME}` reference used by
  * the agent fetch tool.
  *
@@ -487,21 +516,9 @@ export function createAgentChatPlugin(
       const { awaitBootstrap } = await import("./framework-request-handler.js");
       await awaitBootstrap(nitroApp);
 
-      // Reap phantom runs left over from the previous process (HMR restart,
-      // process crash, isolate eviction). Any run whose heartbeat is already
-      // stale by startup time had a dead producer; mark it errored so the
-      // next /runs/active check returns a terminal status and reconnecting
-      // clients don't spin on "Thinking...". Runs owned by OTHER live
-      // isolates are protected by their fresh heartbeats.
-      try {
-        const { reapAllStaleRuns } = await import("../agent/run-store.js");
-        const reaped = await reapAllStaleRuns();
-        if (reaped > 0) {
-          console.log(`[agent-chat] reaped ${reaped} stale run(s) on startup`);
-        }
-      } catch {
-        // Best effort — don't block plugin init if SQL isn't ready yet.
-      }
+      // Never make route readiness wait on an org-global stale-run sweep.
+      // `/runs/active` reaps the requested run on demand, and the periodic
+      // recovery sweep below handles abandoned runs with no connected client.
 
       const env = process.env.NODE_ENV;
       // AGENT_MODE=production forces production agent constraints even in dev
@@ -509,6 +526,8 @@ export function createAgentChatPlugin(
         (env === "development" || env === "test") &&
         process.env.AGENT_MODE !== "production";
       const routePath = options?.path ?? "/_agent-native/agent-chat";
+      const a2aAgentDelegationEnabled =
+        resolveA2AAgentDelegationEnabled(options);
 
       // Mutable mode flag — persisted to the `settings` table so a user who
       // toggles to "Production" stays in prod mode across server restarts.
@@ -546,44 +565,47 @@ export function createAgentChatPlugin(
         extensionTools: options?.extensionTools,
       });
 
-      // Initialize MCP client. Merges file/env config + auto-detected binaries
-      // + any remote servers users have added through the settings UI (persisted
-      // in the settings table, scanned across all scopes so we never drop
-      // another user's entries). Graceful-degrade: any failure yields zero MCP
-      // tools and agent-chat keeps working as before.
-      let mcpConfig = await buildMergedConfig().catch((err) => {
-        console.warn(
-          `[mcp-client] buildMergedConfig failed: ${err?.message ?? err}`,
-        );
-        return null;
-      });
-      if (!mcpConfig) {
-        const fileOrEnv = loadMcpConfig() ?? autoDetectMcpConfig();
-        mcpConfig = fileOrEnv;
-        if (mcpConfig?.source) {
-          console.log(
-            `[mcp-client] loaded config from ${mcpConfig.source} (${Object.keys(mcpConfig.servers).length} server(s))`,
+      // Route readiness must not wait on settings scans, remote hub fetches, or
+      // third-party MCP handshakes. Build the action surface against an empty
+      // manager, then hydrate it after every live action registry has subscribed
+      // to manager changes.
+      const mcpManager = new McpClientManager(null);
+      setGlobalMcpManager(mcpManager);
+      const mcpActionEntries: Record<string, ActionEntry> = {};
+      let mcpInitializationPromise: Promise<void> | null = null;
+      const initializeMcpManager = async (): Promise<void> => {
+        let mcpConfig = await buildMergedConfig().catch((err) => {
+          console.warn(
+            `[mcp-client] buildMergedConfig failed: ${err?.message ?? err}`,
           );
-        } else if (process.env.DEBUG) {
+          return null;
+        });
+        if (!mcpConfig) {
+          mcpConfig = loadMcpConfig() ?? autoDetectMcpConfig();
+          if (mcpConfig?.source) {
+            console.log(
+              `[mcp-client] loaded config from ${mcpConfig.source} (${Object.keys(mcpConfig.servers).length} server(s))`,
+            );
+          } else if (process.env.DEBUG) {
+            console.log(
+              "[mcp-client] no configured MCP servers — skipping MCP tools",
+            );
+          }
+        } else if (mcpConfig.source) {
           console.log(
-            "[mcp-client] no configured MCP servers — skipping MCP tools",
+            `[mcp-client] merged config (${Object.keys(mcpConfig.servers).length} server(s), source: ${mcpConfig.source})`,
           );
         }
-      } else if (mcpConfig.source) {
-        console.log(
-          `[mcp-client] merged config (${Object.keys(mcpConfig.servers).length} server(s), source: ${mcpConfig.source})`,
-        );
-      }
-      const mcpManager = new McpClientManager(mcpConfig);
-      try {
-        await mcpManager.start();
-      } catch (err: any) {
-        console.warn(
-          `[mcp-client] start() failed: ${err?.message ?? err}. Continuing without MCP tools.`,
-        );
-      }
-      setGlobalMcpManager(mcpManager);
-      const mcpActionEntries = mcpToolsToActionEntries(mcpManager);
+        try {
+          await mcpManager.reconfigure(mcpConfig);
+        } catch (err: any) {
+          console.warn(
+            `[mcp-client] initialization failed: ${err?.message ?? err}. Continuing without MCP tools.`,
+          );
+        } finally {
+          startMcpConfigRefresh(mcpManager);
+        }
+      };
       const getJobMcpActionEntries = (
         job?: RecurringJobContext,
       ): Record<string, ActionEntry> => {
@@ -595,7 +617,7 @@ export function createAgentChatPlugin(
         const missing = requested.filter((toolName) => !entries[toolName]);
         if (missing.length > 0) {
           throw new Error(
-            `Configured MCP tools are unavailable in this run: ${missing.join(", ")}. Reconnect the MCP server or update the job's capability list.`,
+            `Configured MCP tools are unavailable in this run: ${missing.join(", ")}. Reconnect the MCP server or update the automation's capability list.`,
           );
         }
         return entries;
@@ -604,8 +626,11 @@ export function createAgentChatPlugin(
       // Mount status + management routes so the settings UI can list / add /
       // remove remote MCP servers and hot-reload the running manager.
       mountMcpStatusRoute(nitroApp, mcpManager);
-      mountMcpServersRoutes(nitroApp, mcpManager);
-      startMcpConfigRefresh(mcpManager);
+      mountMcpServersRoutes(nitroApp, mcpManager, {
+        // Serialize an unusually early settings mutation behind the initial
+        // config snapshot so stale startup data cannot overwrite the write.
+        waitUntilReady: () => mcpInitializationPromise ?? Promise.resolve(),
+      });
       // Hub-serve: expose org-scope servers to other agent-native apps in the
       // workspace when `AGENT_NATIVE_MCP_HUB_TOKEN` is set (dispatch, by
       // convention). Gated by the env var so mounting is a no-op otherwise.
@@ -678,7 +703,7 @@ export function createAgentChatPlugin(
       );
       const databaseToolsEnabled = databaseToolsMode !== "off";
       const databaseWriteToolsEnabled = databaseToolsMode === "write";
-      const extensionToolsEnabled = options?.extensionTools !== false;
+      const extensionToolsEnabled = options?.extensionTools === true;
       const dbScripts = databaseToolsEnabled
         ? await createDbScriptEntries(databaseToolsMode, {
             extensionTools: extensionToolsEnabled,
@@ -705,7 +730,7 @@ export function createAgentChatPlugin(
         getOrigin: () =>
           getRequestRunContext()?.requestOrigin ?? "http://localhost:3000",
         getOwner: () => getRequestRunContext()?.owner ?? getRequestUserEmail(),
-        extensionTools: options?.extensionTools,
+        extensionTools: extensionToolsEnabled,
       });
 
       // Auto-mount A2A protocol endpoints so every app is discoverable
@@ -748,6 +773,7 @@ export function createAgentChatPlugin(
                 (f: string) =>
                   f.endsWith(".ts") &&
                   !f.startsWith("_") &&
+                  !/\.(test|spec)\.ts$/.test(f) &&
                   !skipFiles.has(f.replace(/\.ts$/, "")),
               );
             for (const file of files) {
@@ -1032,6 +1058,12 @@ export function createAgentChatPlugin(
           await import("../workspace-files/tool.js");
         workspaceFilesTool = createWorkspaceFilesTool();
       } catch {}
+      let workspaceFileActions: Record<string, ActionEntry> = {};
+      try {
+        const { createWorkspaceFileActionEntries } =
+          await import("../workspace-files/actions.js");
+        workspaceFileActions = createWorkspaceFileActionEntries();
+      } catch {}
       let toolActions: Record<string, ActionEntry> =
         createDataWidgetActionEntries();
       if (extensionToolsEnabled) {
@@ -1050,6 +1082,16 @@ export function createAgentChatPlugin(
           await import("../browser-sessions/actions.js");
         browserSessionTools = createBrowserSessionActionEntries({
           getOwnerEmail: () => requireCurrentRunOwner("use browser sessions"),
+        });
+      } catch {}
+      let remoteBrowserTools: Record<string, ActionEntry> = {};
+      try {
+        const { createRemoteBrowserActionEntries } =
+          await import("../integrations/remote-browser-actions.js");
+        remoteBrowserTools = createRemoteBrowserActionEntries({
+          getOwnerEmail: () =>
+            requireCurrentRunOwner("use a remote browser session"),
+          getOrgId: () => getRequestOrgId() ?? null,
         });
       } catch {}
 
@@ -1227,8 +1269,10 @@ export function createAgentChatPlugin(
               ...fetchTool,
               ...webSearchTool,
               ...workspaceFilesTool,
+              ...workspaceFileActions,
               ...toolActions,
               ...browserSessionTools,
+              ...remoteBrowserTools,
               ...coreEmailTools,
               ...coreAttachmentTools,
               ...browserTools,
@@ -1252,8 +1296,10 @@ export function createAgentChatPlugin(
               ...fetchTool,
               ...webSearchTool,
               ...workspaceFilesTool,
+              ...workspaceFileActions,
               ...toolActions,
               ...browserSessionTools,
+              ...remoteBrowserTools,
               ...coreEmailTools,
               ...coreAttachmentTools,
               ...browserTools,
@@ -1291,8 +1337,10 @@ export function createAgentChatPlugin(
             ...fetchTool,
             ...webSearchTool,
             ...workspaceFilesTool,
+            ...workspaceFileActions,
             ...toolActions,
             ...browserSessionTools,
+            ...remoteBrowserTools,
             ...coreEmailTools,
             ...coreAttachmentTools,
             ...browserTools,
@@ -1309,6 +1357,10 @@ export function createAgentChatPlugin(
           : "Agent",
         description: `Agent-native ${options?.appId ?? "app"} agent`,
         skills: buildPublicAgentA2ASkills(allScripts),
+        authenticatedSkills: buildAuthenticatedAgentA2ASkills(
+          mcpFullActions ?? allScripts,
+          options ?? {},
+        ),
         publicSkillsOnly: true,
         streaming: true,
         durableBackgroundRuns: options?.durableBackgroundRuns,
@@ -1583,38 +1635,50 @@ export function createAgentChatPlugin(
           // a day rollover (or the resources/extra content changing) only
           // invalidates the cached prompt prefix as late as possible.
           const runtimeContext = runtimeContextForEvent(context.event);
-          const systemPrompt = devActive
-            ? devPrompt +
-              resources +
-              schemaBlock +
-              extra +
-              modelOverlay +
-              runtimeContext
-            : basePrompt +
-              resources +
-              schemaBlock +
-              extra +
-              modelOverlay +
-              runtimeContext;
+          // Delegated turns use native template actions in every environment,
+          // so they must also receive the native-tool prompt. The interactive
+          // dev prompt teaches `pnpm action` and would send this receiver back
+          // into the shell loop the native action surface exists to prevent.
+          const systemPrompt =
+            basePrompt +
+            SYSTEM_PROMPT_CACHE_SPLIT +
+            resources +
+            schemaBlock +
+            extra +
+            modelOverlay +
+            runtimeContext;
           if (a2aRunContext) a2aRunContext.systemPrompt = systemPrompt;
 
-          // Build tools — same as interactive handler but WITHOUT call-agent
-          // to prevent infinite recursive A2A loops (agent calling itself).
-          // In dev mode, template actions are invoked via bash (not native tools),
-          // so they're omitted from the tool registry — see allScripts comment.
+          // Build tools — same as interactive handler. Cross-app delegation is
+          // enabled by default; call-agent carries a bounded visited-app path
+          // and rejects cycles/excessive hops before dispatch.
+          // Delegated turns keep template actions as NATIVE tools even in dev,
+          // unlike the interactive surface (see the allScripts comment). Dev
+          // routes template actions through bash there to dodge the degenerate
+          // empty-object tool call some models emit for complex schemas — a
+          // person can just retry. A delegated caller cannot: with no native
+          // action the sibling agent shells out, and an A2A turn that misfires
+          // has no one to correct it, so it retries the same command until the
+          // repetition guard kills the run minutes later. A rejected `{}` call
+          // returns a schema error the model can fix on the next step, which is
+          // strictly better than a shell loop nobody can see.
           const a2aActions = attachToolSearch(
             devActive
               ? {
+                  ...templateScripts,
                   ...resourceScripts,
                   ...docsScripts,
                   ...(lazyContext ? frameworkContextTool : {}),
                   ...urlTools,
                   ...chatScripts,
+                  ...(a2aAgentDelegationEnabled ? callAgentScript : {}),
                   ...fetchTool,
                   ...webSearchTool,
                   ...workspaceFilesTool,
+                  ...workspaceFileActions,
                   ...toolActions,
                   ...browserSessionTools,
+                  ...remoteBrowserTools,
                   ...coreEmailTools,
                   ...coreAttachmentTools,
                   ...browserTools,
@@ -1631,11 +1695,14 @@ export function createAgentChatPlugin(
                   ...(lazyContext ? frameworkContextTool : {}),
                   ...urlTools,
                   ...chatScripts,
+                  ...(a2aAgentDelegationEnabled ? callAgentScript : {}),
                   ...fetchTool,
                   ...webSearchTool,
                   ...workspaceFilesTool,
+                  ...workspaceFileActions,
                   ...toolActions,
                   ...browserSessionTools,
+                  ...remoteBrowserTools,
                   ...coreEmailTools,
                   ...coreAttachmentTools,
                   ...browserTools,
@@ -1665,6 +1732,7 @@ export function createAgentChatPlugin(
           // event stream so pre-tool narration never leaks as the A2A result.
           const a2aEvents: AgentChatEvent[] = [];
           const a2aToolResults: A2AToolResultSummary[] = [];
+          let a2aOutcome: AgentLoopOutcome | undefined;
           let lastRecoverableArtifactText = "";
           let activityState = createA2AAgentActivityState();
           let lastActivityCheckpointAt = 0;
@@ -1729,8 +1797,16 @@ export function createAgentChatPlugin(
               runId: context.taskId,
               networkProtocol: "a2a",
               networkId: context.taskId,
+              networkPeer: correlation.callerApp,
+              delegationDepth: correlation.delegationDepth ?? 1,
+              visitedApps:
+                correlation.visitedApps ??
+                (correlation.callerApp ? [correlation.callerApp] : []),
               threadId: context.taskId,
               turnId: context.taskId,
+              onOutcome: (outcome) => {
+                a2aOutcome = outcome;
+              },
               send: (event) => {
                 a2aEvents.push(event);
                 const nextActivityState = applyA2AAgentActivityEvent(
@@ -1787,10 +1863,15 @@ export function createAgentChatPlugin(
               signal: controller.signal,
             },
             {
+              delegatedRunPolicy: options?.delegatedRunPolicy,
               finalResponseGuard: options?.finalResponseGuard,
               runSoftTimeoutMs: options?.runSoftTimeoutMs,
             },
             {
+              // Without the hosted default an app that never sets
+              // `runSoftTimeoutMs` resolves to 0 and the wrapper degrades to a
+              // bare `runAgentLoop` — no resume at all on a delegated turn.
+              useHostedDefault: true,
               backgroundFunction:
                 options?.durableBackgroundRuns === true &&
                 isInBackgroundFunctionRuntime(),
@@ -1882,7 +1963,7 @@ export function createAgentChatPlugin(
           const { responseText, finalText } = assembleA2AFinalResponse(
             a2aEvents,
             a2aToolResults,
-            { event: context.event },
+            { event: context.event, outcome: a2aOutcome },
           );
 
           console.log(
@@ -1896,7 +1977,7 @@ export function createAgentChatPlugin(
               buildA2AAgentActivityPart(activityState),
               {
                 type: "text" as const,
-                text: finalText || "(no response)",
+                text: finalText,
               },
             ],
           };
@@ -1996,11 +2077,14 @@ export function createAgentChatPlugin(
             const model = normalizeModelForEngine(mcpEngine, mcpModelCandidate);
 
             // Same actions as A2A — without call-agent to prevent loops.
-            // In dev mode, template actions go through bash, not native tools.
+            // `ask_app` is delegated too, so template actions stay native in dev
+            // here for the same reason as the A2A surface above: an external
+            // caller cannot nurse a shell command that misfires.
             const devActiveMcp = isDevMode();
             const mcpActions = attachToolSearch(
               devActiveMcp
                 ? {
+                    ...templateScripts,
                     ...resourceScripts,
                     ...docsScripts,
                     ...(lazyContext ? frameworkContextTool : {}),
@@ -2009,6 +2093,7 @@ export function createAgentChatPlugin(
                     ...fetchTool,
                     ...webSearchTool,
                     ...workspaceFilesTool,
+                    ...workspaceFileActions,
                     ...toolActions,
                     ...mcpActionEntries,
                     ...devScriptsForA2A,
@@ -2026,6 +2111,7 @@ export function createAgentChatPlugin(
                     ...fetchTool,
                     ...webSearchTool,
                     ...workspaceFilesTool,
+                    ...workspaceFileActions,
                     ...toolActions,
                     ...mcpActionEntries,
                     ...(resolvedProdCodeExec !== "off" ? runCodeTool : {}),
@@ -2054,34 +2140,22 @@ export function createAgentChatPlugin(
             const schemaBlock = lazyContext
               ? ""
               : await buildSchemaBlock(SHARED_OWNER, databaseToolsMode);
-            // Build the MCP handler's own prompt — always use the bash-based
-            // dev prompt in dev mode because mcpActions routes template actions
-            // through bash (`devScriptsForA2A`), regardless of `nativeActionsInDev`.
-            const mcpDevPrompt =
-              (options?.devSystemPrompt
-                ? options.devSystemPrompt +
-                  (options?.systemPrompt ??
-                    (lazyContext
-                      ? PROD_FRAMEWORK_PROMPT_COMPACT
-                      : PROD_FRAMEWORK_PROMPT))
-                : lazyContext
-                  ? DEV_FRAMEWORK_PROMPT_COMPACT
-                  : DEV_FRAMEWORK_PROMPT) + devActionsPrompt;
             // Stable-first ordering: runtime-context (which changes daily)
             // goes last so the cached prompt prefix survives as long as
             // possible — same pattern as the other prompt-assembly sites in
             // this plugin (A2A above, prod/anonymous/dev handlers below).
-            const systemPrompt = devActiveMcp
-              ? mcpDevPrompt +
-                resources +
-                schemaBlock +
-                buildRuntimeContextPrompt()
-              : basePrompt +
-                resources +
-                schemaBlock +
-                buildRuntimeContextPrompt();
+            // ask_app receives native template actions even in dev, so the
+            // native-tool prompt is required here for the same reason as A2A.
+            const systemPrompt =
+              basePrompt +
+              SYSTEM_PROMPT_CACHE_SPLIT +
+              resources +
+              schemaBlock +
+              buildRuntimeContextPrompt();
 
-            let accumulatedText = "";
+            const mcpEvents: AgentChatEvent[] = [];
+            const mcpToolResults: A2AToolResultSummary[] = [];
+            let mcpOutcome: AgentLoopOutcome | undefined;
             const controller = new AbortController();
 
             await runMCPAgentLoop(
@@ -2113,19 +2187,31 @@ export function createAgentChatPlugin(
                 networkId: mcpRunId,
                 threadId: mcpRunId,
                 turnId: mcpRunId,
+                onOutcome: (outcome) => {
+                  mcpOutcome = outcome;
+                },
                 send: (event) => {
-                  accumulatedText = applyAgentTextEventToBuffer(
-                    accumulatedText,
-                    event,
-                  );
+                  mcpEvents.push(event);
+                  if (event.type === "tool_done") {
+                    mcpToolResults.push({
+                      tool: event.tool,
+                      result: event.result,
+                      isError: event.isError,
+                      completedSideEffect: event.completedSideEffect,
+                    });
+                  }
                 },
                 signal: controller.signal,
               },
               {
+                delegatedRunPolicy: options?.delegatedRunPolicy,
                 finalResponseGuard: options?.finalResponseGuard,
                 runSoftTimeoutMs: options?.runSoftTimeoutMs,
               },
               {
+                // Same as the A2A call site: without this a hosted app that
+                // never configured `runSoftTimeoutMs` gets no resume at all.
+                useHostedDefault: true,
                 backgroundFunction:
                   options?.durableBackgroundRuns === true &&
                   isInBackgroundFunctionRuntime(),
@@ -2140,7 +2226,9 @@ export function createAgentChatPlugin(
               },
             );
 
-            return accumulatedText || "(no response)";
+            return assembleA2AFinalResponse(mcpEvents, mcpToolResults, {
+              outcome: mcpOutcome,
+            }).finalText;
           },
         });
       }
@@ -2303,11 +2391,7 @@ export function createAgentChatPlugin(
               engine: runCtx?.engine?.name ?? "unknown",
               timestamp: Date.now(),
             };
-            repo._debug = debug;
-            const debugRuns = Array.isArray(repo._debugRuns)
-              ? repo._debugRuns
-              : [];
-            repo._debugRuns = [...debugRuns, debug].slice(-50);
+            repo = appendThreadDebugHistory(repo, debug);
 
             const meta = extractThreadMeta(repo);
             await updateThreadData(
@@ -2446,6 +2530,7 @@ export function createAgentChatPlugin(
         threadId: string | undefined;
         message: string;
         attachments?: AgentChatAttachment[];
+        queuedMessageId?: string;
       }) => {
         const threadId = details.threadId;
         if (!threadId) return;
@@ -2488,12 +2573,23 @@ export function createAgentChatPlugin(
             repo = {};
           }
 
+          if (details.queuedMessageId) {
+            if (hasClaimedQueuedMessage(repo, details.queuedMessageId)) {
+              throw createError({
+                statusCode: 409,
+                statusMessage: "Queued message was already submitted",
+              });
+            }
+            repo = claimQueuedMessage(repo, details.queuedMessageId);
+          }
+
           repo = upsertUserMessage(
             repo,
             buildUserMessage({
               text: details.message,
               attachments: details.attachments,
               runId: details.runId,
+              queuedMessageId: details.queuedMessageId,
             }),
           );
 
@@ -2628,8 +2724,10 @@ export function createAgentChatPlugin(
         ...fetchTool,
         ...webSearchTool,
         ...workspaceFilesTool,
+        ...workspaceFileActions,
         ...toolActions,
         ...browserSessionTools,
+        ...remoteBrowserTools,
         ...coreEmailTools,
         ...coreAttachmentTools,
         ...browserTools,
@@ -2928,6 +3026,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           // less-stable content would still invalidate the cached prefix for
           // everything that follows it — putting it last means a day
           // rollover invalidates as little of the prefix as possible.
+          // `SYSTEM_PROMPT_CACHE_SPLIT` marks where the cacheable prefix ends,
+          // so everything after it can change without a cache write.
           if (leanPrompt) {
             const leanRunPolicyPrompt = buildLeanRunPolicyPrompt(
               codeEditingSurfaceRestriction,
@@ -2947,6 +3047,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             return setSystemPromptOnContext(
               leanBasePrompt +
                 leanRunPolicyPrompt +
+                SYSTEM_PROMPT_CACHE_SPLIT +
                 extra +
                 modelOverlay +
                 runtimeContext,
@@ -2978,6 +3079,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           });
           return setSystemPromptOnContext(
             basePrompt +
+              SYSTEM_PROMPT_CACHE_SPLIT +
               resources +
               schemaBlock +
               codeEditingSurfaceRestriction +
@@ -3163,8 +3265,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   ...fetchTool,
                   ...webSearchTool,
                   ...workspaceFilesTool,
+                  ...workspaceFileActions,
                   ...toolActions,
                   ...browserSessionTools,
+                  ...remoteBrowserTools,
                   ...coreEmailTools,
                   ...coreAttachmentTools,
                   ...browserTools,
@@ -4443,6 +4547,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             const body = await readBody(event).catch(() => null);
             const threadId =
               typeof body?.threadId === "string" ? body.threadId : "";
+            const reason =
+              typeof body?.reason === "string" &&
+              /^[a-z0-9_-]{1,64}$/i.test(body.reason)
+                ? body.reason
+                : "user";
             if (
               !/^[a-zA-Z0-9_-]{1,160}$/.test(turnId) ||
               !threadId ||
@@ -4451,7 +4560,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               setResponseStatus(event, 404);
               return { error: "Run not found" };
             }
-            await markTurnAborted(threadId, turnId);
+            await markTurnAborted(threadId, turnId, reason);
             return { ok: true };
           }
 
@@ -4556,6 +4665,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             // the cross-isolate abort + terminal event to be durable. Returning
             // early lets Retry collide with the still-running row.
             await abortRunDurably(runId, reason);
+            if (USER_STOP_ABORT_REASONS.has(reason)) {
+              await abortTurnDurably(runId, reason);
+            }
             return { ok: true };
           }
 
@@ -5661,6 +5773,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         }
       }
 
+      mcpInitializationPromise = initializeMcpManager().catch((err) => {
+        console.warn(
+          `[mcp-client] deferred initialization failed: ${err?.message ?? err}`,
+        );
+      });
+      void mcpInitializationPromise;
+
       // ─── Agent Teams orphan sweep ─────────────────────────────────────
       // Re-fires stuck/queued dispatches when the browser is closed and the
       // RunsTray's per-user reconciliation never triggers. Runs every 2 minutes
@@ -5828,7 +5947,18 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 const {
                   listUnclaimedBackgroundRunRows,
                   shouldRedispatchUnclaimedBackgroundRun,
+                  reapAllStaleRuns,
                 } = await import("../agent/run-store.js");
+                // The unclaimed-background sweep below only matches
+                // dispatch_mode='background' — handoffs a worker never
+                // claimed. Once a worker CLAIMS a row nothing periodic looked
+                // at it again, so a dead producer was only reaped when some
+                // client request path or an unrelated run's cleanup happened
+                // to notice (prod: 24 minutes after the last heartbeat,
+                // against a 45s window). `reapAllStaleRuns` is per-row,
+                // idempotent, re-checks staleness at UPDATE time and honours
+                // the in-flight grace, so it is safe on this cadence.
+                await reapAllStaleRuns().catch(() => {});
                 let rows: { id: string; startedAt: number }[];
                 try {
                   rows = await listUnclaimedBackgroundRunRows();
@@ -5907,6 +6037,18 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         }, 20_000); // Start 20s after init (after the agent-teams sweep)
       })();
 
+      // ─── Legacy chat-thread message_count repair ──────────────────────
+      // Long-lived processes apply this name-tracked data migration once.
+      // Serverless isolates skip it: launching a full thread_data scan from
+      // every cold start would recreate the connection stampede this repair
+      // was extracted from table bootstrap to prevent.
+      void runChatThreadDataMigrations(nitroApp).catch((err: unknown) => {
+        console.error(
+          "[chat-threads] legacy message_count repair failed — retrying on the next long-lived boot:",
+          err,
+        );
+      });
+
       // ─── Trigger Dispatcher (event-based automations) ─────────────────
       if (disableRecurringJobsRuntime) {
         if (process.env.DEBUG) {
@@ -5919,7 +6061,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           const { initTriggerDispatcher } =
             await import("../triggers/dispatcher.js");
           await initTriggerDispatcher({
-            getActions: () => ({
+            getActions: (automation?: RecurringJobContext) => ({
               ...templateScripts,
               ...resourceScripts,
               ...docsScripts,
@@ -5932,6 +6074,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               ...fetchTool,
               ...webSearchTool,
               ...toolActions,
+              ...getJobMcpActionEntries(automation),
             }),
             getSystemPrompt: async (owner: string) => {
               const resources = await loadResourcesForPrompt(
@@ -5946,10 +6089,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             },
             // See the matching comment on schedulerDeps.getInitialToolNames
             // above — same shared `basePrompt`, same reasoning.
-            getInitialToolNames: () => [
+            getInitialToolNames: (automation?: RecurringJobContext) => [
               ...effectiveInitialToolNames,
               "manage-jobs",
               "manage-progress",
+              ...(automation?.meta.mcpTools ?? []),
             ],
             apiKey: options?.apiKey,
             model: options?.model,
@@ -5957,7 +6101,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           });
           if (process.env.DEBUG)
             console.log("[triggers] Trigger dispatcher initialized");
-        } catch (err) {
+        } catch {
           // Triggers module not available — skip silently
         }
       }

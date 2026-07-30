@@ -881,6 +881,7 @@ export async function listEvents(
           return {
             id: `google-${event.id}`,
             title: event.summary || "Untitled",
+            titleIsGenerated: !event.summary,
             description: event.description || "",
             start: event.start?.dateTime || event.start?.date || "",
             end: event.end?.dateTime || event.end?.date || "",
@@ -1153,6 +1154,7 @@ export async function getEvent(
   return {
     id: `google-${event.id}`,
     title: event.summary || "Untitled",
+    titleIsGenerated: !event.summary,
     description: event.description || "",
     start: event.start?.dateTime || event.start?.date || "",
     end: event.end?.dateTime || event.end?.date || "",

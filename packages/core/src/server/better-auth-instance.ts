@@ -45,7 +45,10 @@ import { acceptPendingInvitationsForEmail } from "../org/accept-pending.js";
 import { autoJoinDomainMatchingOrgs } from "../org/auto-join-domain.js";
 import { flushTracking, identify, track } from "../tracking/index.js";
 import { getAppProductionUrl } from "./app-url.js";
-import { signupAttributionFromCookieHeader } from "./attribution.js";
+import {
+  readAnalyticsAnonymousId,
+  signupAttributionFromCookieHeader,
+} from "./attribution.js";
 import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 import {
@@ -81,6 +84,7 @@ export async function trackSignupEvent({
   email,
   name,
   attribution,
+  anonymousId,
 }: {
   authProvider: string;
   authUserId?: string;
@@ -94,6 +98,7 @@ export async function trackSignupEvent({
    * `undefined` values are dropped; a missing object is a clean no-op.
    */
   attribution?: Record<string, string | undefined>;
+  anonymousId?: string;
 }): Promise<void> {
   identify(email, {
     email,
@@ -116,7 +121,7 @@ export async function trackSignupEvent({
       ...(authUserId ? { auth_user_id: authUserId } : {}),
       ...cleanAttribution,
     },
-    { userId: email },
+    { userId: email, ...(anonymousId ? { anonymousId } : {}) },
   );
   await flushSignupTracking();
 }
@@ -981,12 +986,14 @@ async function createBetterAuthInstance(
             // cookie header. Never let attribution parsing throw or block
             // signup — on any error fall back to `direct`.
             let attribution: Record<string, string> | undefined;
+            let anonymousId: string | undefined;
             try {
               const cookieHeader =
                 context?.headers?.get("cookie") ??
                 context?.request?.headers?.get("cookie") ??
                 null;
               attribution = signupAttributionFromCookieHeader(cookieHeader);
+              anonymousId = readAnalyticsAnonymousId(cookieHeader);
             } catch (err) {
               console.error("[auth] failed to derive signup attribution", err);
               attribution = undefined;
@@ -997,6 +1004,7 @@ async function createBetterAuthInstance(
               email,
               name: user.name,
               attribution,
+              anonymousId,
             });
             try {
               await acceptPendingInvitationsForEmail(email);

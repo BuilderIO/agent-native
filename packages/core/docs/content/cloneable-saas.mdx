@@ -1,13 +1,13 @@
 ---
 title: "Templates"
-description: "Fork a working SaaS product and make it yours — agent included."
+description: "Start from a working SaaS product and make it yours — agent included."
 ---
 
 # Templates
 
 Want to ship your own AI-powered analytics tool? Mail client? Forms builder? Pick a template, and you've got a working SaaS in minutes — agent, database, auth, and deploy pipeline already wired up.
 
-Most starter templates give you a blank scaffold and a long TODO list. Agent-native flips that. Each template is a **complete, SaaS-grade product** — already runnable on day one, already shippable, and entirely yours to customize, brand, and deploy. Think of them as cloneable SaaS, not starter kits: you're forking a finished product, not staring at boilerplate.
+Most starter templates give you a blank scaffold and a long TODO list. Agent-native flips that. Each template is a **complete, SaaS-grade product** — already runnable on day one, already shippable, and entirely yours to customize, brand, and deploy. Think of them as Cloneable SaaS, not starter kits: you're starting from a finished product, not staring at boilerplate.
 
 Building a workflow with no browser UI at all — a Slack bot, a nightly report, a webhook responder? See [Automation-First Apps](/docs/pure-agent-apps) instead; the templates on this page all ship a full browser UI alongside the agent.
 
@@ -35,6 +35,120 @@ Don't want a domain app? Use [Chat](/docs/template-chat) when you want a basic a
 
 See the full catalog under [Apps](/apps), or jump straight to one — for example, [Dispatch](/docs/template-dispatch) is a great place to start if you want a workspace-style app.
 
+## Community templates {#community-templates}
+
+The named templates in the CLI picker are **first-party**: Agent Native
+maintains, tests, documents, and releases them with the framework. A
+**community template** is maintained and versioned by its repository owner. It
+can use the same framework surface, but a community listing is not an
+endorsement or a promise of support from Agent Native.
+
+Run `create`, choose **Community template**, and paste a plain public GitHub
+repository URL:
+
+```bash
+https://github.com/owner/repo
+```
+
+If the repository root is a single Agent Native app, the CLI installs it
+directly without another picker. If the repository is an Agent Native workspace,
+the CLI discovers valid direct children of `apps/*`, excludes `dispatch`, and
+asks which app to install.
+
+A non-empty `agent-native.workspaceCore` marker makes the repository a
+workspace even when its root package also depends on `@agent-native/core`; a
+malformed marker is rejected.
+
+Pass the same plain URL to `--template` for scripts, or use the shorter
+`community:` form. Pin a branch, tag, or commit after `#` when you want a
+reproducible starting point. Without a ref, the CLI tries `main`, then `master`:
+
+```bash
+npx @agent-native/core@latest create my-app --template community:owner/repo#v1.2.0
+npx @agent-native/core@latest create my-app --template https://github.com/owner/repo#v1.2.0
+```
+
+For a workspace repository, make the source-app choice non-interactive with
+`?app=<app-name>`. The selector comes before the optional `#ref`. Keep the
+whole value quoted because shells such as zsh treat `?` as a glob:
+
+```bash
+npx @agent-native/core@latest create my-app --template 'community:owner/repo?app=analytics#v1.2.0'
+npx @agent-native/core@latest create my-app --template 'https://github.com/owner/repo?app=analytics#v1.2.0'
+```
+
+Outside a workspace, `create` makes the selected source app standalone. To add
+it to an existing workspace, pass the community repository explicitly because
+the `add-app` picker lists first-party templates only. Omit `?app` to choose
+from the source workspace interactively, or include it for a scriptable install:
+
+```bash
+npx @agent-native/core@latest add-app my-app --template community:owner/repo#v1.2.0
+npx @agent-native/core@latest add-app my-app --template 'community:owner/repo?app=analytics#v1.2.0'
+```
+
+Only public GitHub repositories are accepted. Private repositories, non-GitHub
+hosts, GitHub tree or subdirectory URLs, and nested app paths are not supported.
+A root app must have a readable `package.json` that lists
+`@agent-native/core` in `dependencies`, `devDependencies`, or
+`peerDependencies`. In a workspace repository, each selectable source app must
+meet the same requirement directly under `apps/<app-name>/`; `dispatch` is
+never selectable.
+
+Community workspace apps must be portable leaves, not arbitrary monorepo
+slices:
+
+- default `catalog:` dependency references are resolved from the source
+  repository's root `pnpm-workspace.yaml`; named catalog references are not
+  supported;
+- `workspace:*` references to `@agent-native/core`, `@agent-native/dispatch`,
+  and `@agent-native/toolkit` are rewritten to published versions. Other
+  sibling workspace packages are not copied, so publish them and use a concrete
+  version instead;
+- the source `workspaceCore` dependency is removed. Canonical inherited
+  workspace auth and agent-chat plugins are detached for a standalone install
+  or rebound to the destination workspace. Any other import of the source
+  `workspaceCore` package fails clearly; move that code into the app or publish
+  it as a concrete dependency.
+
+Keep the rest of each complete app with its `package.json`: `agent-native.json`
+when used, source, actions, agent instructions, and database setup. A
+catalog-ready repository should also include:
+
+- a license and a maintainer or support link;
+- a README with setup steps, required environment variables, and the exact CLI
+  command;
+- an `.env.example` containing placeholders only, with no secrets, customer
+  data, runtime databases, or generated build output;
+- a working install, development command, typecheck, and tests appropriate to
+  the template.
+
+The installer records the resolved `source` and `ref` under
+`agent-native.communityTemplate` in the installed app's `package.json`. Apps
+selected from a workspace repository also record the source app as
+`agent-native.communityTemplate.app`. `agent-native template sync` remains
+first-party-only; review a newer upstream ref and merge its changes yourself
+when updating a community template.
+
+See [Creating Templates](/docs/creating-templates) for the full app, action,
+state, security, and publishing checklist.
+
+> **Review community code before installing dependencies or running it.**
+> Community templates are downloaded from third-party repositories; Agent
+> Native does not sandbox, audit, or maintain them. The CLI downloads source
+> only; it does not install dependencies or run template scripts. Inspect the
+> source, license, dependencies, and package install scripts, and prefer a
+> pinned trusted ref.
+
+A hosted demo is optional. If you provide one, make it a public try-it link and
+document any sign-in, seed-data, or provider requirements. The repository
+remains the install source of truth, and the repository owner remains
+responsible for both the template and demo.
+
+Want to be listed? [Submit a community template](https://github.com/BuilderIO/agent-native/issues/new?template=community-template.yml)
+with the repository URL, a one-sentence description, maintainer and license
+details, the tested CLI command, and an optional hosted demo URL.
+
 ## What you get out of the box {#what-you-get}
 
 Every example app ships with the parts that normally take months to build:
@@ -52,7 +166,7 @@ This isn't a theoretical claim. The framework's author runs his actual inbox on 
 
 The path from "I want my own SaaS" to "I have my own SaaS" is short:
 
-<Diagram id="doc-block-1ab5jb9" title="Fork and customize" summary="Pick a finished product, brand it, evolve it in plain English, and ship it to your own domain.">
+<Diagram id="doc-block-1ab5jb9" title="Start from a working app" summary="Pick a finished product, brand it, evolve it in plain English, and ship it to your own domain.">
 
 ```html
 <div class="diagram-fork">
@@ -102,28 +216,28 @@ The path from "I want my own SaaS" to "I have my own SaaS" is short:
 
 1. **Pick an example app.** Use the CLI picker, or browse the docs and pick one to start from.
 2. **Brand it.** Change the name, colors, logo, and copy. Most example apps expose this in a single config file.
-3. **Customize it.** Ask the agent to add the column you need, change how the inbox groups, connect to your internal API, add a new view. The agent edits the code; you review the diff.
+3. **Customize it.** Make source changes in your own repository and development workflow. An agent can help when its frame is intentionally granted workspace and write tooling; otherwise the embedded agent operates the resulting app through its actions, data, and configured integrations.
 4. **Ship it.** Run the deploy command. You now have your own production SaaS at your own domain.
 
-Steps 2–4 typically take days, not months. Step 3 is open-ended — your forked SaaS evolves over time, in plain English, by talking to the agent.
+Steps 2–4 typically take days, not months. Step 3 is open-ended because the app is yours to evolve, while the embedded agent remains available to operate the deployed product and can assist with source changes when code access is explicitly enabled.
 
 ## Why this is practical {#why}
 
-A traditional fork-the-codebase model breaks down at scale: every user maintaining their own inbox sounds like a maintenance nightmare. Two framework decisions make it work:
+A separate-codebase-per-user model breaks down at scale: every user maintaining their own inbox sounds like a maintenance nightmare. Two framework decisions make it work:
 
-1. **The agent does the maintenance.** You don't write code to add a column or wire a new integration — you ask the agent. So "your own forked inbox" is a feature, not a burden.
+1. **The app keeps the framework contract.** Your source owns the domain behavior, while Core keeps actions, SQL, state, and sync consistent as the app evolves.
 2. **Per-user customization without per-user code.** Skills, memory, instructions, connected MCP servers, and sub-agents all live in SQL. Every user gets their own customization layer; the shared codebase hosts all of them at once.
 
 The result: Claude-Code-level flexibility for each user, with normal SaaS deployment economics.
 
-<Diagram id="doc-block-bhg7mw" title="Why per-user forks scale" summary={"Two ideas keep the fork-and-customize model practical: the agent does the maintenance, and per-user customization lives in SQL — not in per-user code."}>
+<Diagram id="doc-block-bhg7mw" title="Why per-user customization scales" summary={"Two ideas keep the start-from-a-working-app model practical: the app keeps the framework contract, and per-user customization lives in SQL — not in per-user code."}>
 
 ```html
 <div class="diagram-why">
   <div class="diagram-panel" data-rough>
     <strong>Shared codebase</strong
     ><small class="diagram-muted">one app, deployed once</small>
-    <div class="diagram-pill accent">agent does the maintenance</div>
+    <div class="diagram-pill accent">app keeps the framework contract</div>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
   <div class="diagram-panel" data-rough>
@@ -159,9 +273,9 @@ The result: Claude-Code-level flexibility for each user, with normal SaaS deploy
 
 </Diagram>
 
-## Don't want to fork? {#hosted}
+## Don't want to customize? {#hosted}
 
-You don't have to. Every example app is also available as a hosted app on `agent-native.com` — `mail.agent-native.com`, `calendar.agent-native.com`, and so on. Use the hosted version for free or paid; fork only when you want to change something the hosted version doesn't expose.
+You don't have to. Every example app is also available as a hosted app on `agent-native.com` — `mail.agent-native.com`, `calendar.agent-native.com`, and so on. Use the hosted version for free or paid; create your own app from a template when you want to change something the hosted version doesn't expose.
 
 ## Try it with a skill {#try-with-a-skill}
 
@@ -184,7 +298,13 @@ If you're scaffolding now, the CLI command is:
 npx @agent-native/core@latest create my-platform
 ```
 
-You'll get a multi-select picker. Pick one app (standalone) or several (workspace — apps share auth, brand, agent config, and database). Each picked app is scaffolded into `apps/<name>/` with every file you need. For a no-browser automation instead of an app UI, use `npx @agent-native/core@latest create my-agent --headless`.
+The CLI first asks **How do you want to start?** — pick **Full template(s)**
+to reach the multi-select picker (Chat and Headless each scaffold a single
+standalone app directly instead, skipping the picker). Pick one app
+(standalone) or several (workspace — apps share auth, brand, agent config, and
+database). Each picked app is scaffolded into `apps/<name>/` with every file
+you need. For a no-browser automation instead of an app UI, use
+`npx @agent-native/core@latest create my-agent --headless`.
 
 Fill in `.env` (mostly `ANTHROPIC_API_KEY` and `DATABASE_URL`), `pnpm install`, `pnpm dev`, and it works. No "TODO: implement login," no placeholder routes.
 

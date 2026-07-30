@@ -70,6 +70,36 @@ describe("verifyPendingStructureRuntime", () => {
     ).toEqual({ ok: false, failure: "wrong-order" });
   });
 
+  it("proves a replacement by the new identity and the old identity's absence", () => {
+    const replacement = `<!doctype html><body>
+      <section data-agent-native-node-id="replacement">Replacement</section>
+    </body>`;
+    const replaceEdit = edit({
+      selector: "#subject",
+      sourceId: "subject",
+      anchorSelector: "",
+      anchorSourceId: null,
+      insertedHtml:
+        '<section data-agent-native-node-id="replacement">Replacement</section>',
+      replaced: true,
+      replacementSelector: '[data-agent-native-node-id="replacement"]',
+      replacementSourceId: "replacement",
+    });
+
+    expect(verifyPendingStructureRuntime(replacement, replaceEdit)).toEqual({
+      ok: true,
+    });
+    expect(
+      verifyPendingStructureRuntime(
+        replacement.replace(
+          "</body>",
+          '<div data-agent-native-node-id="subject"></div></body>',
+        ),
+        replaceEdit,
+      ),
+    ).toEqual({ ok: false, failure: "subject-still-present" });
+  });
+
   it("requires every affected screen relationship", () => {
     const html = `<!doctype html><body><section data-agent-native-node-id="anchor"><div data-agent-native-node-id="subject">Subject</div></section></body>`;
     expect(

@@ -80,6 +80,18 @@ outdated. Never invent a source or silently overwrite source history.
 
 ## Assets reuse
 
+Before generation, follow the reuse ladder above: explicit request and current
+asset/kit first, then a pinned/current pack, then narrow library search. Respect
+`creative-context.contextMode: "off"` without silently restoring a pack. This
+shared Agent-page Library does not replace Assets' existing `/library` media
+workflow.
+
+To submit an asset to a governed Creative Context, use the Context tab or
+`manage-context-membership`; it pins immutable media bytes and metadata. Reuse
+only its opaque native clone reference through the Assets action path. Use
+`operation="submit-latest"` with a Library membership id when its native update
+status reports `update-available`.
+
 Search visual references separately from factual evidence. When a retrieved
 image should directly guide generation, import its stable media URL with
 `import-asset-from-url` as a reference asset in the selected brand kit, then

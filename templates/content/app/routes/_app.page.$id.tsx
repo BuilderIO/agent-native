@@ -1,5 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { useParams } from "react-router";
+import { useParams, useSearchParams } from "react-router";
 
 import { DocumentEditor } from "@/components/editor/DocumentEditor";
 import { messagesByLocale } from "@/i18n-data";
@@ -19,9 +19,16 @@ export function meta() {
 export default function DocumentPage() {
   const t = useT();
   const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
+  const databaseId = searchParams.get("databaseId");
+  const databaseDocumentId = searchParams.get("databaseDocumentId");
 
   return id ? (
-    <DocumentEditor documentId={id} />
+    <DocumentEditor
+      documentId={id}
+      databaseId={databaseId}
+      databaseDocumentId={databaseDocumentId}
+    />
   ) : (
     <div className="flex-1 flex items-center justify-center text-muted-foreground">
       {t("empty.documentNotFound")}

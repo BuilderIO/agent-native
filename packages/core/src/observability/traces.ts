@@ -1,4 +1,7 @@
-import type { AgentLoopUsage } from "../agent/production-agent.js";
+import type {
+  AgentLoopOutcome,
+  AgentLoopUsage,
+} from "../agent/production-agent.js";
 import type { AgentChatEvent, AgentToolInput } from "../agent/types.js";
 import { type AgentSpan, endAgentSpan, startAgentSpan } from "./tracing.js";
 import { trackingIdentityProperties } from "./tracking-identity.js";
@@ -74,12 +77,25 @@ function emitLlmGenerationTrackingEvent(args: {
   llmSpanId: string;
   engineName: string | undefined;
   model: string;
-  inputTokens: number;
-  outputTokens: number;
-  cacheReadTokens: number;
-  cacheWriteTokens: number;
-  costCentsX100: number;
+  /**
+   * Undefined means the engine never reported a usage figure for this run
+   * (e.g. killed for silence before any provider response arrived) — not
+   * that the count was zero. Callers must omit these from the emitted event
+   * rather than coerce to 0; a coerced 0 is indistinguishable from a real
+   * empty-input run and defeats analysis of failing runs by input size.
+   */
+  inputTokens: number | undefined;
+  outputTokens: number | undefined;
+  cacheReadTokens: number | undefined;
+  cacheWriteTokens: number | undefined;
+  /** Same "unknown vs zero" rule as the token fields — cost is derived from
+   *  them and is equally unmeasurable when they were never reported. */
+  costCentsX100: number | undefined;
   durationMs: number;
+  /** Elapsed ms from run start to the first non-heartbeat engine event.
+   *  Undefined when no such event ever arrived (the run never produced a
+   *  token before being aborted) — never coerced to 0. */
+  firstTokenMs: number | undefined;
   status: "success" | "error";
   errorMessage: string | null;
   toolCalls: number;
@@ -87,6 +103,7 @@ function emitLlmGenerationTrackingEvent(args: {
   failedTools: number;
   tools: GenerationToolCall[];
   toolsTruncated: boolean;
+  terminalOutcome?: AgentLoopOutcome;
   delegation?: {
     protocol: "a2a" | "mcp";
     callerApp?: string;
@@ -102,7 +119,14 @@ function emitLlmGenerationTrackingEvent(args: {
   modelSelectionSource?: string;
 }): void {
   const provider = llmProviderFromEngine(args.engineName, args.model);
-  const costUsd = costUsdFromCenticents(args.costCentsX100);
+  const costUsd =
+    args.costCentsX100 !== undefined
+      ? costUsdFromCenticents(args.costCentsX100)
+      : undefined;
+  const totalTokens =
+    args.inputTokens !== undefined && args.outputTokens !== undefined
+      ? args.inputTokens + args.outputTokens
+      : undefined;
   const error = args.errorMessage ?? undefined;
   const properties: Record<string, unknown> = {
     ...trackingIdentityProperties(),
@@ -116,18 +140,29 @@ function emitLlmGenerationTrackingEvent(args: {
     provider,
     input_tokens: args.inputTokens,
     output_tokens: args.outputTokens,
-    total_tokens: args.inputTokens + args.outputTokens,
+    total_tokens: totalTokens,
     cache_read_tokens: args.cacheReadTokens,
     cache_write_tokens: args.cacheWriteTokens,
     cost_cents_x100: args.costCentsX100,
     cost_usd: costUsd,
     duration_ms: args.durationMs,
+    time_to_first_token_ms: args.firstTokenMs,
     status: args.status,
     tool_calls: args.toolCalls,
     successful_tools: args.successfulTools,
     failed_tools: args.failedTools,
     tools: args.tools,
     tools_truncated: args.toolsTruncated,
+    terminal_state: args.terminalOutcome?.state,
+    terminal_code:
+      args.terminalOutcome?.state === "failed" ||
+      args.terminalOutcome?.state === "input_required"
+        ? args.terminalOutcome.code
+        : undefined,
+    terminal_retryable:
+      args.terminalOutcome?.state === "failed"
+        ? args.terminalOutcome.retryable
+        : undefined,
     delegated: args.delegation ? true : undefined,
     delegation_protocol: args.delegation?.protocol,
     caller_app: args.delegation?.callerApp,
@@ -247,6 +282,8 @@ export async function instrumentAgentLoop(opts: {
     actions: Record<string, any>;
     send: (event: AgentChatEvent) => void;
     signal: AbortSignal;
+    onUsage?: (usage: AgentLoopUsage) => void;
+    onOutcome?: (outcome: AgentLoopOutcome) => void;
     providerOptions?: any;
     runId?: string;
   }) => Promise<AgentLoopUsage>;
@@ -259,6 +296,8 @@ export async function instrumentAgentLoop(opts: {
     actions: Record<string, any>;
     send: (event: AgentChatEvent) => void;
     signal: AbortSignal;
+    onUsage?: (usage: AgentLoopUsage) => void;
+    onOutcome?: (outcome: AgentLoopOutcome) => void;
     providerOptions?: any;
     runId?: string;
   };
@@ -358,9 +397,62 @@ export async function instrumentAgentLoop(opts: {
   // Track in-flight OTel tool spans so they're all ended even if the loop
   // throws before a matching `tool_done` arrives.
   const openOtelToolSpans = new Set<AgentSpan>();
+  let usage: AgentLoopUsage | undefined;
+  let runStatus: "success" | "error" = "success";
+  let errorMessage: string | null = null;
+  let runMetadata: Record<string, unknown> | null = opts.metadata ?? null;
+  let terminalOutcome: AgentLoopOutcome | undefined;
+
+  const instrumentedOutcome = (outcome: AgentLoopOutcome): void => {
+    terminalOutcome = outcome;
+    if (outcome.state === "completed") {
+      runStatus = "success";
+      errorMessage = null;
+    } else {
+      runStatus = "error";
+      errorMessage =
+        outcome.state === "canceled"
+          ? (outcome.message ?? "Agent run was canceled.")
+          : outcome.message;
+    }
+    runMetadata = {
+      ...(runMetadata ?? {}),
+      terminal_state: outcome.state,
+      ...("code" in outcome ? { terminal_code: outcome.code } : {}),
+      ...(outcome.state === "failed"
+        ? { terminal_retryable: outcome.retryable }
+        : {}),
+    };
+    try {
+      loopOpts.onOutcome?.(outcome);
+    } catch {
+      // Observability adapters cannot alter the agent run.
+    }
+  };
 
   const instrumentedSend = (event: AgentChatEvent): void => {
     try {
+      // Some guardrails intentionally stop the loop by emitting a terminal
+      // event and returning usage instead of throwing. Preserve that terminal
+      // state in telemetry so a tripwire/loop-limit/provider error cannot be
+      // counted as a successful delegated generation. A later clear/done means
+      // the wrapper recovered and finished cleanly, so reset in that case.
+      if (event.type === "clear" || event.type === "done") {
+        runStatus = "success";
+        errorMessage = null;
+      } else if (event.type === "error") {
+        runStatus = "error";
+        errorMessage = event.error;
+      } else if (event.type === "tripwire") {
+        runStatus = "error";
+        errorMessage = event.reason;
+      } else if (event.type === "loop_limit") {
+        runStatus = "error";
+        errorMessage = "Agent stopped at the loop limit";
+      } else if (event.type === "missing_api_key") {
+        runStatus = "error";
+        errorMessage = "Missing API key";
+      }
       if (event.type === "tool_start") {
         const counter = toolInvocationCounter++;
         const sid = spanId();
@@ -531,15 +623,12 @@ export async function instrumentAgentLoop(opts: {
     loopOpts.send(event);
   };
 
-  let usage: AgentLoopUsage | undefined;
-  let runStatus: "success" | "error" = "success";
-  let errorMessage: string | null = null;
-  let runMetadata: Record<string, unknown> | null = opts.metadata ?? null;
   try {
     usage = await runAgentLoop({
       ...loopOpts,
       runId,
       send: instrumentedSend,
+      onOutcome: instrumentedOutcome,
     });
   } catch (err: any) {
     const classification = opts.classifyError?.(err) ?? null;
@@ -641,6 +730,16 @@ export async function instrumentAgentLoop(opts: {
         cacheWriteTokens: 0,
         model: loopOpts.model,
       };
+      // The engine never reported a `usage` event for this run (killed for
+      // silence before any provider response, or the loop threw before
+      // returning). `generationUsage`'s token fields are placeholder zeros in
+      // that case, not measured values — the tracking event below must omit
+      // them rather than report a fabricated 0.
+      const usageReported = usage?.usageReported === true;
+      const firstTokenMs =
+        usage?.firstEngineEventAtMs !== undefined
+          ? Math.max(0, usage.firstEngineEventAtMs - runStart)
+          : undefined;
       const llmSpanId = spanId();
       const llmSpan: TraceSpan = {
         id: llmSpanId,
@@ -673,12 +772,17 @@ export async function instrumentAgentLoop(opts: {
             ? loopOpts.engine.name
             : undefined,
         model: generationUsage.model,
-        inputTokens: generationUsage.inputTokens,
-        outputTokens: generationUsage.outputTokens,
-        cacheReadTokens: generationUsage.cacheReadTokens,
-        cacheWriteTokens: generationUsage.cacheWriteTokens,
-        costCentsX100,
+        inputTokens: usageReported ? generationUsage.inputTokens : undefined,
+        outputTokens: usageReported ? generationUsage.outputTokens : undefined,
+        cacheReadTokens: usageReported
+          ? generationUsage.cacheReadTokens
+          : undefined,
+        cacheWriteTokens: usageReported
+          ? generationUsage.cacheWriteTokens
+          : undefined,
+        costCentsX100: usageReported ? costCentsX100 : undefined,
         durationMs: totalDurationMs,
+        firstTokenMs,
         status: runStatus,
         errorMessage,
         toolCalls: toolCallCount,
@@ -689,6 +793,7 @@ export async function instrumentAgentLoop(opts: {
           .map(([, detail]) => detail),
         toolsTruncated:
           toolInvocationCounter > MAX_TRACKED_GENERATION_TOOL_CALLS,
+        terminalOutcome,
         delegation: opts.delegation,
         createdAt: runStart,
         experimentAssignments: opts.experimentAssignments,
@@ -773,6 +878,12 @@ export async function instrumentAgentLoop(opts: {
           "agent.input_tokens": usage?.inputTokens ?? 0,
           "agent.output_tokens": usage?.outputTokens ?? 0,
           "agent.cost_cents_x100": costCentsX100,
+          "agent.terminal_state": terminalOutcome?.state,
+          "agent.terminal_code":
+            terminalOutcome?.state === "failed" ||
+            terminalOutcome?.state === "input_required"
+              ? terminalOutcome.code
+              : undefined,
         },
       });
     } catch {

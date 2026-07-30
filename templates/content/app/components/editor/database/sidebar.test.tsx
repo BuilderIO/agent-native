@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import type { ContentDatabaseItem, ContentDatabaseResponse } from "@shared/api";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
@@ -12,6 +13,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import {
   ContentFilesSidebarView,
   DatabaseSidebarView,
+  contentSidebarOrderedItems,
+  databaseSidebarReorderItems,
   databaseSidebarItemTree,
   databaseSidebarRootItems,
   databaseSidebarRowIndent,
@@ -40,6 +43,178 @@ const item = (id: string, title: string, parentId: string | null = null) =>
   }) as ContentDatabaseItem;
 
 describe("DatabaseSidebarView", () => {
+  it("keeps a personal custom item order before new membership positions", () => {
+    const first = { ...item("first", "First"), position: 1 };
+    const second = { ...item("second", "Second"), position: 2 };
+    const newItem = { ...item("new", "New"), position: 0 };
+
+    expect(
+      contentSidebarOrderedItems([first, second, newItem], {
+        mode: "custom",
+        itemIds: [second.id, first.id],
+      }).map((candidate) => candidate.id),
+    ).toEqual([second.id, first.id, newItem.id]);
+  });
+
+  it("uses stable computed Files ordering without replacing the custom order", () => {
+    const alpha = {
+      ...item("alpha", "Alpha"),
+      document: {
+        ...item("alpha", "Alpha").document,
+        createdAt: "2026-01-03T00:00:00.000Z",
+        updatedAt: "2026-01-02T00:00:00.000Z",
+      },
+    };
+    const beta = {
+      ...item("beta", "Beta"),
+      document: {
+        ...item("beta", "Beta").document,
+        createdAt: "2026-01-02T00:00:00.000Z",
+        updatedAt: "2026-01-03T00:00:00.000Z",
+      },
+    };
+    const customItemIds = [beta.id, alpha.id];
+
+    expect(
+      contentSidebarOrderedItems([beta, alpha], {
+        mode: "name",
+        itemIds: customItemIds,
+      }).map((candidate) => candidate.id),
+    ).toEqual([alpha.id, beta.id]);
+    expect(
+      contentSidebarOrderedItems([alpha, beta], {
+        mode: "last_edited",
+        itemIds: customItemIds,
+      }).map((candidate) => candidate.id),
+    ).toEqual([beta.id, alpha.id]);
+    expect(
+      contentSidebarOrderedItems([beta, alpha], {
+        mode: "created",
+        itemIds: customItemIds,
+      }).map((candidate) => candidate.id),
+    ).toEqual([alpha.id, beta.id]);
+    expect(
+      contentSidebarOrderedItems([alpha, beta], {
+        mode: "custom",
+        itemIds: customItemIds,
+      }).map((candidate) => candidate.id),
+    ).toEqual(customItemIds);
+  });
+
+  it("treats flat reference rows as reorder siblings while preserving Files hierarchy", () => {
+    const rows = [
+      item("first", "First", "canonical-parent-a"),
+      item("second", "Second", "canonical-parent-b"),
+    ];
+
+    expect(
+      databaseSidebarReorderItems(rows, "Untitled", false).map(
+        (candidate) => candidate.parentId,
+      ),
+    ).toEqual([null, null]);
+    expect(
+      databaseSidebarReorderItems(rows, "Untitled", true).map(
+        (candidate) => candidate.parentId,
+      ),
+    ).toEqual(["canonical-parent-a", "canonical-parent-b"]);
+  });
+
+  it("disables manual reorder while the active saved view has sorts", () => {
+    const markup = renderToStaticMarkup(
+      <MemoryRouter>
+        <TooltipProvider>
+          <ContentFilesSidebarView
+            data={
+              {
+                database: {
+                  viewConfig: {
+                    version: 1,
+                    activeViewId: "default",
+                    views: [
+                      {
+                        id: "default",
+                        name: "Table",
+                        type: "table",
+                        filters: [],
+                        sorts: [
+                          {
+                            key: "name",
+                            label: "Name",
+                            direction: "asc",
+                          },
+                        ],
+                        filterMode: "and",
+                      },
+                    ],
+                  },
+                },
+                items: [item("first", "First")],
+                properties: [],
+              } as unknown as ContentDatabaseResponse
+            }
+            overrides={null}
+            isLoading={false}
+            sidebarOrder={{ mode: "custom", itemIds: ["item-first"] }}
+            manualReorder={{
+              onReorder: () => {},
+              labels: {
+                drag: (label) => `Drag ${label}`,
+                moveUp: "Move up",
+                moveDown: "Move down",
+                moveTo: "Move to",
+                moveToPosition: (position) => `Position ${position}`,
+              },
+            }}
+            labels={{
+              noMatchesLabel: "No matches",
+              clearLabel: "Clear",
+              navigationLabel: "Files",
+              untitledLabel: "Untitled",
+            }}
+          />
+        </TooltipProvider>
+      </MemoryRouter>,
+    );
+
+    expect(markup).not.toContain("Drag First");
+    expect(markup).toContain('role="link"');
+  });
+
+  it("leaves the compact order control to the workspace header", () => {
+    const markup = renderToStaticMarkup(
+      <MemoryRouter>
+        <TooltipProvider>
+          <ContentFilesSidebarView
+            data={
+              {
+                database: {
+                  viewConfig: {
+                    version: 1,
+                    activeViewId: "default",
+                    views: [],
+                  },
+                },
+                items: [],
+                properties: [],
+              } as unknown as ContentDatabaseResponse
+            }
+            overrides={null}
+            isLoading={false}
+            sidebarOrder={{ mode: "name", itemIds: [] }}
+            labels={{
+              noMatchesLabel: "No matches",
+              clearLabel: "Clear",
+              navigationLabel: "Files",
+              untitledLabel: "Untitled",
+            }}
+          />
+        </TooltipProvider>
+      </MemoryRouter>,
+    );
+
+    expect(markup).not.toContain("Order: name");
+  });
+
   it("aligns sibling icons whether or not a page has children", () => {
     expect(databaseSidebarRowIndent(1, false)).toBe(
       databaseSidebarRowIndent(1, true),
@@ -66,7 +241,6 @@ describe("DatabaseSidebarView", () => {
             overrides={null}
             isLoading={false}
             labels={{
-              loadingLabel: "Loading",
               noMatchesLabel: "No matches",
               clearLabel: "Clear",
               navigationLabel: "Files",
@@ -78,6 +252,30 @@ describe("DatabaseSidebarView", () => {
     );
 
     expect(markup).toContain('aria-label="Files"');
+  });
+
+  it("renders skeleton rows without loading copy or a spinner", () => {
+    const markup = renderToStaticMarkup(
+      <MemoryRouter>
+        <DatabaseSidebarView
+          groups={[]}
+          grouped={false}
+          isLoading
+          hasActiveConstraints={false}
+          openPagesIn="full_page"
+          noMatchesLabel="No pages"
+          clearLabel="Clear"
+          navigationLabel="Pages"
+          untitledLabel="Untitled"
+          onClearResultConstraints={() => {}}
+          onPreview={() => {}}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(markup).not.toContain("Loading");
+    expect(markup).not.toContain("animate-spin");
+    expect(markup).toContain("animate-pulse");
   });
 
   it("renders compact router links for an ungrouped saved view", () => {
@@ -98,7 +296,6 @@ describe("DatabaseSidebarView", () => {
             isLoading={false}
             hasActiveConstraints={false}
             openPagesIn="full_page"
-            loadingLabel="Loading list"
             noMatchesLabel="No rows match this view"
             clearLabel="Clear"
             navigationLabel="Database pages"
@@ -157,7 +354,6 @@ describe("DatabaseSidebarView", () => {
             isLoading={false}
             hasActiveConstraints
             openPagesIn="full_page"
-            loadingLabel="Loading list"
             noMatchesLabel="No rows match this view"
             clearLabel="Clear"
             navigationLabel="Database pages"
@@ -256,7 +452,6 @@ describe("DatabaseSidebarView", () => {
               isLoading={false}
               hasActiveConstraints={false}
               openPagesIn="full_page"
-              loadingLabel="Loading list"
               noMatchesLabel="No rows match this view"
               clearLabel="Clear"
               navigationLabel="Database pages"
@@ -324,7 +519,6 @@ describe("DatabaseSidebarView", () => {
             overrides={null}
             isLoading={false}
             labels={{
-              loadingLabel: "Loading",
               noMatchesLabel: "No matches",
               clearLabel: "Clear",
               navigationLabel: "Files",
@@ -383,7 +577,6 @@ describe("DatabaseSidebarView", () => {
             overrides={null}
             isLoading={false}
             labels={{
-              loadingLabel: "Loading",
               noMatchesLabel: "No matches",
               clearLabel: "Clear",
               navigationLabel: "Files",
@@ -416,7 +609,6 @@ describe("DatabaseSidebarView", () => {
           isLoading={false}
           hasActiveConstraints={false}
           openPagesIn="full_page"
-          loadingLabel="Loading workspaces"
           noMatchesLabel="No workspaces"
           clearLabel="Clear"
           navigationLabel="Content navigation"
@@ -471,7 +663,6 @@ describe("DatabaseSidebarView", () => {
           overrides={null}
           isLoading={false}
           labels={{
-            loadingLabel: "Loading workspaces",
             noMatchesLabel: "No workspaces match this view",
             clearLabel: "Show all",
             navigationLabel: "Content navigation",
@@ -508,7 +699,6 @@ describe("DatabaseSidebarView", () => {
             isLoading={false}
             hasActiveConstraints={false}
             openPagesIn="full_page"
-            loadingLabel="Loading list"
             noMatchesLabel="No rows match this view"
             clearLabel="Clear"
             navigationLabel="Database pages"
@@ -538,25 +728,20 @@ describe("DatabaseSidebarView", () => {
     await act(async () => root.unmount());
   });
 
-  it("restores contextual more and add-child controls for Files rows", () => {
-    const markup = renderToStaticMarkup(
-      <MemoryRouter>
-        <TooltipProvider>
+  it("leaves modified row clicks to the native link", async () => {
+    const onOpenItem = vi.fn(() => true);
+    const container = document.createElement("div");
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter>
           <DatabaseSidebarView
             groups={[
               {
                 id: "all",
                 label: "All pages",
-                items: [
-                  {
-                    ...item("page", "Project"),
-                    document: {
-                      ...item("page", "Project").document,
-                      canEdit: true,
-                      canManage: true,
-                    },
-                  },
-                ],
+                items: [item("workspace", "Builder.io")],
                 property: null,
                 value: "all",
               },
@@ -565,20 +750,87 @@ describe("DatabaseSidebarView", () => {
             isLoading={false}
             hasActiveConstraints={false}
             openPagesIn="full_page"
-            loadingLabel="Loading list"
             noMatchesLabel="No rows match this view"
             clearLabel="Clear"
             navigationLabel="Database pages"
             untitledLabel="Untitled"
             onClearResultConstraints={() => {}}
             onPreview={() => {}}
-            onCreateChildPage={() => {}}
-            onCreateChildDatabase={() => {}}
-            onDeleteItem={() => {}}
-            onToggleFavorite={() => {}}
+            onOpenItem={onOpenItem}
           />
-        </TooltipProvider>
-      </MemoryRouter>,
+        </MemoryRouter>,
+      );
+    });
+
+    const click = new MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      metaKey: true,
+    });
+    await act(async () => {
+      container.querySelector("a")?.dispatchEvent(click);
+    });
+
+    expect(onOpenItem).not.toHaveBeenCalled();
+    expect(click.defaultPrevented).toBe(false);
+    await act(async () => root.unmount());
+  });
+
+  it("restores contextual more and add-child controls for Files rows", () => {
+    const markup = renderToStaticMarkup(
+      <AgentNativeI18nProvider
+        initialLocale="en-US"
+        persistPreference={false}
+        catalog={{
+          sourceLocale: "en-US",
+          messages: {
+            sidebar: {
+              moreActionsFor: "More actions for {{label}}",
+              addChildTo: "Add child to {{title}}",
+            },
+          },
+        }}
+      >
+        <MemoryRouter>
+          <TooltipProvider>
+            <DatabaseSidebarView
+              groups={[
+                {
+                  id: "all",
+                  label: "All pages",
+                  items: [
+                    {
+                      ...item("page", "Project"),
+                      document: {
+                        ...item("page", "Project").document,
+                        canEdit: true,
+                        canManage: true,
+                      },
+                    },
+                  ],
+                  property: null,
+                  value: "all",
+                },
+              ]}
+              grouped={false}
+              isLoading={false}
+              hasActiveConstraints={false}
+              openPagesIn="full_page"
+              noMatchesLabel="No rows match this view"
+              clearLabel="Clear"
+              navigationLabel="Database pages"
+              untitledLabel="Untitled"
+              onClearResultConstraints={() => {}}
+              onPreview={() => {}}
+              onCreateChildPage={() => {}}
+              onCreateChildDatabase={() => {}}
+              onDeleteItem={() => {}}
+              onToggleFavorite={() => {}}
+            />
+          </TooltipProvider>
+        </MemoryRouter>
+      </AgentNativeI18nProvider>,
     );
 
     expect(markup).toContain('aria-label="More actions for Project"');
@@ -589,11 +841,13 @@ describe("DatabaseSidebarView", () => {
     expect(markup).not.toContain("shadow-sm");
   });
 
-  it("lets viewers invoke only the personal Favorite database-row action", async () => {
+  it("keeps the viewer add-child slot disabled beside the personal pin action", async () => {
     const container = document.createElement("div");
     document.body.append(container);
     const root = createRoot(container);
     const onToggleFavorite = vi.fn();
+    const onCreateChildPage = vi.fn();
+    const onCreateChildDatabase = vi.fn();
 
     await act(async () => {
       root.render(
@@ -623,15 +877,14 @@ describe("DatabaseSidebarView", () => {
               isLoading={false}
               hasActiveConstraints={false}
               openPagesIn="full_page"
-              loadingLabel="Loading list"
               noMatchesLabel="No rows match this view"
               clearLabel="Clear"
               navigationLabel="Database pages"
               untitledLabel="Untitled"
               onClearResultConstraints={() => {}}
               onPreview={() => {}}
-              onCreateChildPage={() => {}}
-              onCreateChildDatabase={() => {}}
+              onCreateChildPage={onCreateChildPage}
+              onCreateChildDatabase={onCreateChildDatabase}
               onDeleteItem={() => {}}
               onToggleFavorite={onToggleFavorite}
             />
@@ -647,12 +900,33 @@ describe("DatabaseSidebarView", () => {
     expect(
       container.querySelectorAll('button[aria-haspopup="menu"]'),
     ).toHaveLength(1);
-    expect(
-      container.querySelector('button[aria-label="Add child to Shared page"]'),
-    ).toBeNull();
+    const addChild = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Add child to Shared page"]',
+    );
+    if (!trigger || !addChild) {
+      throw new Error("Expected aligned viewer sidebar controls");
+    }
+    expect(addChild.disabled).toBe(true);
+    expect(addChild.className).toContain("size-6");
+    expect(addChild.className).toContain("text-muted-foreground/50");
+    expect(trigger.compareDocumentPosition(addChild)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+
+    addChild.focus();
+    addChild.click();
+    addChild.dispatchEvent(
+      new KeyboardEvent("keydown", { bubbles: true, key: "Enter" }),
+    );
+    addChild.dispatchEvent(
+      new KeyboardEvent("keydown", { bubbles: true, key: " " }),
+    );
+    expect(document.activeElement).not.toBe(addChild);
+    expect(onCreateChildPage).not.toHaveBeenCalled();
+    expect(onCreateChildDatabase).not.toHaveBeenCalled();
 
     await act(async () => {
-      trigger?.dispatchEvent(
+      trigger.dispatchEvent(
         new PointerEvent("pointerdown", {
           bubbles: true,
           button: 0,
@@ -666,7 +940,7 @@ describe("DatabaseSidebarView", () => {
       document.querySelectorAll<HTMLElement>("[role=menuitem]"),
     );
     expect(menuItems.map((menuItem) => menuItem.textContent?.trim())).toEqual([
-      "Add to favorites",
+      "Pin to sidebar",
     ]);
 
     await act(async () => {

@@ -74,6 +74,24 @@ const messages = {
       suggestionGrantKey: "Accorder ma clé OpenAI à cette application",
     },
     pages: {
+      browserChatUnavailableTitle:
+        "La session de chat du navigateur est indisponible",
+      browserChatUnavailableDescription:
+        "Reconnectez-vous depuis l’extension Agent-Native.",
+      browserChatPlaceholder: "Posez une question sur cette page…",
+      browserChatAttachedPlaceholder: "Posez une question sur {{page}}…",
+      browserConnectTitle: "Connecter le chat du navigateur",
+      browserConnectDescription:
+        "Autorisez l’extension Chrome Agent-Native à ouvrir cette session Dispatch. La connexion utilise un ticket unique de courte durée.",
+      browserConnectInvalid:
+        "Cette demande de connexion est invalide. Recommencez depuis l’extension.",
+      browserConnectConnected:
+        "Le chat du navigateur est connecté. Vous pouvez fermer cet onglet.",
+      browserConnectConnecting: "Connexion…",
+      browserConnectButton: "Connecter",
+      browserConnectOpenFromExtension:
+        "Ouvrez cette page depuis l’extension Chrome Agent-Native.",
+      browserConnectFailed: "L’extension du navigateur ne s’est pas connectée.",
       appsDescription:
         "Ouvrez les applications de l'espace de travail et démarrez la création d'une nouvelle application à partir de Dispatch.",
       appsDescriptionWithWorkspace:
@@ -93,19 +111,19 @@ const messages = {
       curatedTemplates: "Modèles sélectionnés",
       curatedTemplatesDescription:
         "Partez d’une structure d’application vérifiée et personnalisez-la.",
-      remix: "Remixer",
-      remixTemplate: "Remixer {{name}}",
+      remix: "Créer à partir du modèle",
+      remixTemplate: "Créer l’app {{name}}",
       remixAppIdLabel: "Nouvel identifiant d’application",
-      remixStarted: "Remix de {{name}} lancé",
+      remixStarted: "Création de {{name}} démarrée",
       viewLiveApp: "Voir l’application en direct",
       alreadyInWorkspace: "Déjà dans l’espace de travail",
       remixAppIdDescription:
         "Choisissez un identifiant compatible avec l’URL pour la nouvelle application.",
       integrationSetup: "Configuration de l’intégration",
       source: "Source",
-      remixing: "Remix en cours…",
-      remixSuccess: "Le remix du modèle a démarré.",
-      remixError: "Impossible de remixer ce modèle",
+      remixing: "Création de l’app…",
+      remixSuccess: "Création de l’app à partir du modèle démarrée.",
+      remixError: "Impossible de créer une app à partir de ce modèle",
       appIdRequired: "L’identifiant de l’application est requis.",
       hide: "Masquer",
       show: "Show",
@@ -367,6 +385,16 @@ const messages = {
     deleting: "Archivage...",
     openFullView: "Ouvrir la vue complète",
     removeFromWidgetArea: "Supprimer de cette zone de widget",
+    customBlockSandboxed: "Bloc personnalisé · isolé",
+    sandboxedCustomBlock: "Bloc SQL personnalisé et isolé",
+    sandboxedCustomBlockCreatedBy:
+      "Bloc SQL personnalisé et isolé créé par {{email}}",
+    promoteToAppCode: "Promouvoir vers le code de l’application",
+    historyShowsSourceVersions: "L’historique affiche les versions du code",
+    createdByHistoryShowsSourceVersions:
+      "Créé par {{email}}. L’historique affiche les versions du code.",
+    createdByHistoryShowsSourceVersionsCompact:
+      "Créé par {{email}} · L’historique affiche les versions du code",
     deleteExtensionEllipsis: "Archiver l'extension...",
     removeFromMyListEllipsis: "Supprimer de ma liste...",
     removeFromWidgetAreaForMe: "Remove from this widget area (for me)",
@@ -461,6 +489,14 @@ const messages = {
     remove: "Retirer",
     save: "Enregistrer",
     loading: "Chargement...",
+    dangerZone: "Zone de danger",
+    deleteOrg: "Supprimer l'organisation",
+    deleteOrgDescription:
+      "Supprime définitivement cette organisation, ses membres et ses invitations en attente. Les données appartenant à l'organisation deviennent inaccessibles. Cette action est irréversible.",
+    deleteOrgConfirmPrompt: "Saisissez {{name}} pour confirmer.",
+    deleteOrgConfirmPlaceholder: "Nom de l'organisation",
+    deleteOrgConfirmCta: "Supprimer l'organisation",
+    deleteOrgPending: "Suppression...",
   },
   integrations: {
     webhookUrl: "URL du webhook",

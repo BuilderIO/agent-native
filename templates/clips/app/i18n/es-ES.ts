@@ -563,6 +563,9 @@ const messages = {
     useColor: "Utilice {{color}}",
     logo: "Logo",
     logoPreview: "Vista previa del logotipo",
+    logoUsage:
+      "Se muestra a los destinatarios en los correos de uso compartido y en las páginas públicas de los clips.",
+    emailHeaderPreview: "Encabezado del correo de uso compartido",
     dropReplace: "Suelta una nueva imagen para reemplazar",
     dropHere: "Coloque un PNG / JPG / SVG aquí",
     uploading: "Subiendo…",
@@ -660,10 +663,6 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
 ### Añadido
 
 - Ahora puedes ver las novedades directamente dentro de Clips. El registro de cambios vive en el menú de comandos (Cmd+K) y en Ajustes.`,
-    profile: "Perfil",
-    email: "Correo electrónico",
-    displayName: "Nombre visible",
-    displayNamePlaceholder: "Tu nombre",
     playback: "Reproducción",
     defaultPlaybackSpeed: "Velocidad de reproducción predeterminada",
     playbackDescription:
@@ -807,6 +806,7 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     description:
       "Administración de organización: marca, miembros e invitaciones.",
     adminsOnlyBranding: "Solo los administradores pueden editar la marca.",
+    brandingLoadFailed: "No se pudo cargar la identidad de la organización.",
     members: "Miembros",
     pendingInvites: "Invitaciones pendientes",
     noPendingInvites: "No hay invitaciones pendientes.",
@@ -950,6 +950,7 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     replyingTo: "Respondiendo a",
     commentAt: "Comentar en",
     writeReply: "Escribe una respuesta...",
+    editComment: "Editar comentario",
     commentButton: "Comentar",
     composerPlaceholder: "Añadir un comentario…",
     mentionSomeone: "Mencionar a alguien",
@@ -1282,6 +1283,7 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     importLoom: "Import Loom (Localizado)",
     importing: "Importing... (Localizado)",
     import: "Import (Localizado)",
+    recordNew: "Nueva grabación",
   },
   playerSettings: {
     title: "Settings (Localizado)",
@@ -1354,12 +1356,32 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     downloadDesktopApp: "Download desktop app (Localizado)",
     technicalDetails: "Technical details (Localizado)",
     whatToCheck: "What to check (Localizado)",
-    downloadRecording: "Download recording (Localizado)",
+    downloadRecording: "Download (Localizado)",
     openRecorderInTab: "Open recorder in tab (Localizado)",
     connectStorageToFinish:
       "Conecta almacenamiento en la siguiente pantalla: Builder.io (almacenamiento + IA en el plan gratuito) o almacenamiento compatible con S3. Clips terminará de guardarlo.",
     connectStorageToRetryLoom:
       "Conecta almacenamiento en la siguiente pantalla: Builder.io (almacenamiento + IA en el plan gratuito) o almacenamiento compatible con S3. Clips reintentará la importación.",
+  },
+  importRoute: {
+    pageTitle: "Importar Loom — Clips",
+    title: "Importar Loom",
+    urlPlaceholder: "https://www.loom.com/share/...",
+    cta: "Importar",
+    helperText:
+      "Funciona muy bien con Loom. También puedes pegar un enlace a cualquier otra grabación de pantalla o archivo de vídeo.",
+    stageFetching: "Trayendo tu vídeo…",
+    stageUploading: "Subiendo el material original…",
+    stageTranscript:
+      "Haciendo que el habla y lo visual en pantalla sean legibles por el agente…",
+    stageFinalizing: "Haciéndolo Agent-Native…",
+    importingSubtitle:
+      "Convirtiendo una grabación plana en un primitivo Agent-Native.",
+    doneHeading: "¡Y listo! Tu vídeo ahora es:",
+    benefitTranscript: "Habla y visuales en pantalla, totalmente buscables",
+    benefitQueryable: "Comprendido y consultable por tu agente",
+    benefitSummaries: "Resúmenes y clips al instante bajo demanda",
+    benefitPrimitive: "Un primitivo Agent-Native de primera clase",
   },
   dictateRoute: {
     pageTitle: "Dictate · Clips (Localizado)",
@@ -1513,6 +1535,10 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (Localizado)",
     connectGoogleCalendar: "Connect Google Calendar (Localizado)",
+    googleMayShowWarning: "Revisar el acceso de Google",
+    googleNotVerifiedTitle: "Verifica la aplicación antes de conectarte",
+    googleWarningBeforeAdvanced:
+      "Confirma que el nombre de la aplicación y el acceso a Calendar solicitado coincidan con la implementación de Clips en la que confías. Si Google muestra una advertencia de aplicación no verificada o la identidad no te resulta familiar, detente y contacta con el administrador del espacio de trabajo.",
     desktopReminder:
       "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins. (Localizado)",
     getDesktopApp: "Get desktop app (Localizado)",

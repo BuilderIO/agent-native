@@ -566,6 +566,9 @@ const messages = {
     useColor: "Verwenden Sie {{color}}",
     logo: "Logo",
     logoPreview: "Logo-Vorschau",
+    logoUsage:
+      "Wird Empfängern in Freigabe-E-Mails und auf öffentlichen Clip-Seiten angezeigt.",
+    emailHeaderPreview: "Kopfbereich der Freigabe-E-Mail",
     dropReplace: "Legen Sie ein neues Bild ab, um es zu ersetzen",
     dropHere: "Geben Sie hier einen PNG / JPG / SVG ein",
     uploading: "Hochladen…",
@@ -666,10 +669,6 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
 ### Hinzugefügt
 
 - Du kannst Neuigkeiten jetzt direkt in Clips ansehen. Das Änderungsprotokoll ist im Befehlsmenü (Cmd+K) und in den Einstellungen verfügbar.`,
-    profile: "Profil",
-    email: "E-Mail",
-    displayName: "Anzeigename",
-    displayNamePlaceholder: "Dein Name",
     playback: "Wiedergabe",
     defaultPlaybackSpeed: "Standard-Wiedergabegeschwindigkeit",
     playbackDescription:
@@ -813,6 +812,8 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
       "Noch keine Organisation. Erstelle eine über den Organisationswechsler, um zu beginnen.",
     description: "Organisationsverwaltung: Branding, Mitglieder, Einladungen.",
     adminsOnlyBranding: "Nur Administratoren können das Branding bearbeiten.",
+    brandingLoadFailed:
+      "Das Branding der Organisation konnte nicht geladen werden.",
     members: "Mitglieder",
     pendingInvites: "Ausstehende Einladungen",
     noPendingInvites: "Keine ausstehenden Einladungen.",
@@ -957,6 +958,7 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     replyingTo: "Antwort an",
     commentAt: "Kommentar bei",
     writeReply: "Antwort schreiben...",
+    editComment: "Kommentar bearbeiten",
     commentButton: "Kommentar",
     composerPlaceholder: "Kommentar hinzufügen…",
     mentionSomeone: "Jemanden erwähnen",
@@ -1289,6 +1291,7 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     importLoom: "Import Loom (Lokalisiert)",
     importing: "Importing... (Lokalisiert)",
     import: "Import (Lokalisiert)",
+    recordNew: "Neu aufnehmen",
   },
   playerSettings: {
     title: "Settings (Lokalisiert)",
@@ -1361,12 +1364,31 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     downloadDesktopApp: "Download desktop app (Lokalisiert)",
     technicalDetails: "Technical details (Lokalisiert)",
     whatToCheck: "What to check (Lokalisiert)",
-    downloadRecording: "Download recording (Lokalisiert)",
+    downloadRecording: "Download (Lokalisiert)",
     openRecorderInTab: "Open recorder in tab (Lokalisiert)",
     connectStorageToFinish:
       "Verbinde Speicher im nächsten Bildschirm: Builder.io (Speicher + KI im kostenlosen Tarif) oder S3-kompatibler Speicher. Clips schließt das Speichern ab.",
     connectStorageToRetryLoom:
       "Verbinde Speicher im nächsten Bildschirm: Builder.io (Speicher + KI im kostenlosen Tarif) oder S3-kompatibler Speicher. Clips versucht den Import erneut.",
+  },
+  importRoute: {
+    pageTitle: "Loom importieren — Clips",
+    title: "Loom importieren",
+    urlPlaceholder: "https://www.loom.com/share/...",
+    cta: "Importieren",
+    helperText:
+      "Funktioniert hervorragend mit Loom. Du kannst auch einen Link zu einer anderen Bildschirmaufnahme oder Videodatei einfügen.",
+    stageFetching: "Dein Video wird geladen…",
+    stageUploading: "Rohmaterial wird hochgeladen…",
+    stageTranscript: "Sprache und Bildschirminhalte agentenlesbar machen…",
+    stageFinalizing: "Wird Agent-Native gemacht…",
+    importingSubtitle:
+      "Aus einer flachen Aufnahme wird ein Agent-Native-Primitive.",
+    doneHeading: "Und fertig! Dein Video ist jetzt:",
+    benefitTranscript: "Sprache & Bildschirminhalte, vollständig durchsuchbar",
+    benefitQueryable: "Von deinem Agenten verstanden & abfragbar",
+    benefitSummaries: "Sofortige Zusammenfassungen und Clips auf Abruf",
+    benefitPrimitive: "Ein erstklassiges Agent-Native-Primitive",
   },
   dictateRoute: {
     pageTitle: "Dictate · Clips (Lokalisiert)",
@@ -1520,6 +1542,10 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (Lokalisiert)",
     connectGoogleCalendar: "Connect Google Calendar (Lokalisiert)",
+    googleMayShowWarning: "Google-Zugriff prüfen",
+    googleNotVerifiedTitle: "App vor dem Verbinden überprüfen",
+    googleWarningBeforeAdvanced:
+      "Prüfe, ob App-Name und angeforderter Kalenderzugriff zu der vertrauenswürdigen Clips-Bereitstellung passen. Wenn Google vor einer nicht verifizierten App warnt oder die Identität unbekannt aussieht, brich ab und wende dich an die Workspace-Administration.",
     desktopReminder:
       "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins. (Lokalisiert)",
     getDesktopApp: "Get desktop app (Lokalisiert)",

@@ -39,13 +39,30 @@ export const OVERVIEW_CULLING_ENABLED = true;
  *  recomputes. */
 export const OVERVIEW_CULLING_OVERSCAN_FACTOR = 1.5;
 
-/** Maximum number of evictable overview browsing contexts kept mounted at
- * once. One screen costs its primary preview plus every breakpoint preview.
+/** Maximum number of evictable overview SCREENS kept mounted at once.
+ *
+ * The pool is budgeted in screens rather than iframes because a screen is the
+ * unit the user perceives: a board where every screen carries breakpoint
+ * previews costs several browsing contexts per screen, and charging those
+ * against one flat iframe budget shrank the pool to a third of its intended
+ * size. Past that point every committed pan/zoom re-ranked the in-viewport set
+ * by distance and admitted a different subset, so screens were destroyed and
+ * re-created — a document reload, i.e. a visible flash — on ordinary camera
+ * movement. Generating a variant set installs a design-wide breakpoint set, so
+ * this regressed the moment variants existed.
+ *
  * Interaction-protected screens are the sole safety exception: if the user
  * explicitly selects more than this budget, preserving their live editor
  * state wins until that interaction ends, after which the pool contracts on
  * the next culling pass. */
-export const OVERVIEW_LIVE_IFRAME_BUDGET = 32;
+export const OVERVIEW_LIVE_SCREEN_BUDGET = 32;
+
+/** Hard ceiling on total mounted browsing contexts, independent of the screen
+ * budget above. This is the memory backstop the original budget existed for —
+ * a long tour of a 100+ screen board still cannot accumulate contexts without
+ * bound — set high enough that a normal breakpoint-bearing board is limited by
+ * OVERVIEW_LIVE_SCREEN_BUDGET instead of by this. */
+export const OVERVIEW_LIVE_IFRAME_CEILING = 96;
 
 export type ScreenCullTier =
   /** Full content (iframe/DesignCanvas) is mounted and rendered normally. */
@@ -127,7 +144,8 @@ export function computeBoundedScreenCullState({
   everVisibleScreenIds,
   lastVisibleEpochByScreenId,
   accessEpoch,
-  liveIframeBudget = OVERVIEW_LIVE_IFRAME_BUDGET,
+  liveScreenBudget = OVERVIEW_LIVE_SCREEN_BUDGET,
+  liveIframeBudget = OVERVIEW_LIVE_IFRAME_CEILING,
 }: {
   candidates: readonly ScreenCullCandidate[];
   viewport: OverscannedViewportBounds | null;
@@ -136,6 +154,7 @@ export function computeBoundedScreenCullState({
   everVisibleScreenIds: ReadonlySet<string>;
   lastVisibleEpochByScreenId: ReadonlyMap<string, number>;
   accessEpoch: number;
+  liveScreenBudget?: number;
   liveIframeBudget?: number;
 }): BoundedScreenCullState {
   if (!OVERVIEW_CULLING_ENABLED) {
@@ -187,19 +206,25 @@ export function computeBoundedScreenCullState({
     if (protectedScreenIds.has(candidate.id)) add(candidate);
   }
   // Protected screens can temporarily exceed the normal pool. In that case
-  // no evictable iframe is admitted until the interaction set shrinks again.
-  const effectiveBudget = Math.max(
+  // no evictable screen is admitted until the interaction set shrinks again.
+  const effectiveScreenBudget = Math.max(
+    Math.max(0, Math.floor(liveScreenBudget)),
+    nextLive.size,
+  );
+  const effectiveIframeBudget = Math.max(
     Math.max(0, Math.floor(liveIframeBudget)),
     mountedIframeCount,
   );
   const tryAddWithinBudget = (candidate: ScreenCullCandidate) => {
     if (nextLive.has(candidate.id)) return;
+    if (nextLive.size + 1 > effectiveScreenBudget) return;
     if (
-      mountedIframeCount + normalizedIframeCount(candidate) <=
-      effectiveBudget
+      mountedIframeCount + normalizedIframeCount(candidate) >
+      effectiveIframeBudget
     ) {
-      add(candidate);
+      return;
     }
+    add(candidate);
   };
 
   const visibleCandidates = candidates

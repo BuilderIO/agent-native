@@ -199,6 +199,7 @@ export interface DocumentPropertiesResponse {
 export interface ConfigureDocumentPropertyRequest {
   id?: string;
   documentId: string;
+  databaseId: string;
   name: string;
   type: DocumentPropertyType;
   description?: string;
@@ -208,22 +209,26 @@ export interface ConfigureDocumentPropertyRequest {
 
 export interface SetDocumentPropertyRequest {
   documentId: string;
+  databaseId: string;
   propertyId: string;
   value: DocumentPropertyValue;
 }
 
 export interface DuplicateDocumentPropertyRequest {
   documentId: string;
+  databaseId: string;
   propertyId: string;
 }
 
 export interface DeleteDocumentPropertyRequest {
   documentId: string;
+  databaseId: string;
   propertyId: string;
 }
 
 export interface ReorderDocumentPropertyRequest {
   documentId: string;
+  databaseId: string;
   propertyId: string;
   targetPropertyId: string;
   position?: "before" | "after";
@@ -343,6 +348,25 @@ export interface ContentDatabaseViewConfig {
 
 export const CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION = 2;
 
+export type ContentSidebarOrderMode =
+  | "custom"
+  | "last_edited"
+  | "name"
+  | "created";
+
+export interface OrderedMembershipRef {
+  databaseId: string;
+  itemId: string;
+  documentId: string;
+  position: number;
+}
+
+export interface ContentSidebarViewOrder {
+  mode: ContentSidebarOrderMode;
+  /** Retained while a computed mode is active so Custom can be restored. */
+  itemIds: string[];
+}
+
 export interface ContentDatabasePersonalViewOverrides {
   version: number;
   activeViewId?: string;
@@ -351,6 +375,8 @@ export interface ContentDatabasePersonalViewOverrides {
     sorts: ContentDatabaseSort[];
     filters: ContentDatabaseFilter[];
     filterMode: ContentDatabaseFilterMode;
+    /** Personal-only ordering for this database's Files sidebar. */
+    sidebarOrder?: ContentSidebarViewOrder;
   }>;
 }
 
@@ -845,6 +871,8 @@ export interface DatabaseItemsBatchRequest {
 }
 
 export interface MoveDatabaseItemRequest {
+  /** Required with itemId for unambiguous membership moves. */
+  databaseId?: string;
   itemId?: string;
   documentId?: string;
   position: number;
@@ -957,6 +985,7 @@ export interface RefreshContentDatabaseSourceRequest {
   documentId?: string;
   sourceId?: string;
   fullRefresh?: boolean;
+  expectedBuilderContinuationOffset?: number;
 }
 
 export interface DisconnectContentDatabaseSourceRequest {

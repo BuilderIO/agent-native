@@ -1,6 +1,6 @@
 ---
 title: "应用"
-description: "分叉一个可用的 SaaS 产品并使其成为您的产品 - 包括代理。"
+description: "从一个可用的 SaaS 产品开始，将它变成您的产品 - 包括代理。"
 ---
 
 # 应用
@@ -33,6 +33,103 @@ description: "分叉一个可用的 SaaS 产品并使其成为您的产品 - 包
 
 查看 [Apps](/apps) 下的完整目录，或直接跳到其中一个 - 例如，如果您想要一款工作区风格的应用，[Dispatch](/docs/template-dispatch) 是一个很好的起点。
 
+## 社区模板 {#community-templates}
+
+CLI 选择器中按名称提供的模板是**第一方模板**：Agent Native 会随框架一起
+维护、测试、记录和发布它们。**社区模板**由其仓库所有者负责维护和版本管理。
+它可以使用相同的框架能力，但进入社区列表并不表示 Agent Native 对其背书或
+承诺提供支持。
+
+运行 `create`，选择**社区模板**，然后粘贴公开 GitHub 仓库的简单 URL：
+
+```bash
+https://github.com/owner/repo
+```
+
+如果仓库根目录是单个 Agent Native 应用，CLI 会直接安装，不再显示其他
+选择器。如果仓库是 Agent Native 工作区，CLI 会发现 `apps/*` 的有效直接
+子项，排除 `dispatch`，并询问要安装哪个应用。
+
+非空的 `agent-native.workspaceCore` 标记会使仓库被视为工作区，即使根
+package 也依赖 `@agent-native/core`；格式错误的标记会被拒绝。
+
+在脚本中，将相同的简单 URL 传给 `--template`，或使用更短的 `community:`
+形式。如果需要可复现的起点，请在 `#` 后固定 branch、tag 或 commit。如果
+未提供 ref，CLI 会先尝试 `main`，再尝试 `master`：
+
+```bash
+npx @agent-native/core@latest create my-app --template community:owner/repo#v1.2.0
+npx @agent-native/core@latest create my-app --template https://github.com/owner/repo#v1.2.0
+```
+
+要以非交互方式选择工作区仓库中的源应用，请使用 `?app=<app-name>`。
+选择器位于可选的 `#ref` 之前。请为整个值加引号，因为 zsh 等 shell 会将
+`?` 视为 glob：
+
+```bash
+npx @agent-native/core@latest create my-app --template 'community:owner/repo?app=analytics#v1.2.0'
+npx @agent-native/core@latest create my-app --template 'https://github.com/owner/repo?app=analytics#v1.2.0'
+```
+
+在工作区外，`create` 会将所选源应用创建为独立应用。要将其添加到现有
+工作区，请显式传入社区仓库，因为 `add-app` 选择器只列出第一方模板。
+省略 `?app` 可从源工作区进行交互式选择；包含它则可用于脚本化安装：
+
+```bash
+npx @agent-native/core@latest add-app my-app --template community:owner/repo#v1.2.0
+npx @agent-native/core@latest add-app my-app --template 'community:owner/repo?app=analytics#v1.2.0'
+```
+
+只接受公开 GitHub 仓库。不支持私有仓库、非 GitHub 主机、GitHub tree 或
+子目录 URL，以及嵌套应用路径。根应用必须包含可读取的 `package.json`，
+其中在 `dependencies`、`devDependencies` 或 `peerDependencies` 中列出
+`@agent-native/core`。在工作区仓库中，每个可选择的源应用都必须直接位于
+`apps/<app-name>/` 并满足相同要求；`dispatch` 永远不可选择。
+
+社区工作区应用必须是可移植的独立单元，而不是 monorepo 的任意切片：
+
+- 默认 `catalog:` 依赖引用从源仓库根目录的 `pnpm-workspace.yaml` 解析；
+  不支持命名 catalog 引用；
+- 对 `@agent-native/core`、`@agent-native/dispatch` 和
+  `@agent-native/toolkit` 的 `workspace:*` 引用会改写为已发布版本。其他
+  同级工作区 package 不会被复制；请发布它们并使用具体版本；
+- 源 `workspaceCore` 依赖项会被移除。继承的标准工作区 auth 和 agent-chat
+  plugin 会在独立安装时解除绑定，或重新绑定到目标工作区。对源
+  `workspaceCore` package 的任何其他 import 都会明确失败；请将该代码移入
+  应用，或将其发布为具体依赖项。
+
+每个完整应用的其余内容都应与其 `package.json` 放在一起，包括使用时的
+`agent-native.json`、源代码、actions、代理指令和数据库设置。准备列入目录
+的仓库还应包括：
+
+- 许可证以及维护者或支持链接；
+- 包含设置步骤、必需环境变量和准确 CLI 命令的 README；
+- 只包含占位符的 `.env.example`，不得包含 secrets、客户数据、运行时
+  数据库或生成的构建产物；
+- 可正常工作的安装和开发命令、typecheck，以及适合该模板的测试。
+
+安装程序会将解析后的 `source` 和 `ref` 记录在已安装应用的 `package.json`
+中的 `agent-native.communityTemplate` 下。从工作区仓库选择的应用还会将
+源应用记录为 `agent-native.communityTemplate.app`。`agent-native template
+sync` 仍然只适用于第一方模板；更新社区模板时，请检查较新的 upstream ref
+并自行合并其更改。
+
+有关应用、action、state、安全和发布的完整检查清单，请参阅
+[Creating Templates](/docs/creating-templates)。
+
+> **安装依赖项或运行社区代码之前，请先进行审查。** 社区模板从第三方仓库
+> 下载；Agent Native 不会对其进行 sandbox、审计或维护。CLI 只下载源代码，
+> 不会安装依赖项或运行模板脚本。请检查源代码、许可证、依赖项和 package
+> install scripts，并优先使用已固定且可信的 ref。
+
+托管 demo 是可选的。如果提供，请使用公开的试用链接，并说明登录、示例数据
+或 provider 要求。仓库仍然是安装内容的事实来源，仓库所有者仍然对模板和
+demo 负责。
+
+希望加入列表？请提交[社区模板](https://github.com/BuilderIO/agent-native/issues/new?template=community-template.yml)，
+并附上仓库 URL、一句话描述、维护者和许可证信息、已测试的 CLI 命令，以及
+可选的托管 demo URL。
+
 ## 开箱即用的东西 {#what-you-get}
 
 每个示例应用都附带通常需要数月才能构建的部件：
@@ -50,7 +147,7 @@ description: "分叉一个可用的 SaaS 产品并使其成为您的产品 - 包
 
 从“我想要自己的 SaaS”到“我拥有自己的 SaaS”的路径很短：
 
-<Diagram id="doc-block-ah38lu" title={"分叉并定制"} summary={"选择一个成品，对其进行品牌化，用简单的英语对其进行改进，然后将其发送到您自己的域。"}>
+<Diagram id="doc-block-ah38lu" title={"从一个可运行的 app 开始"} summary={"选择一个成品，对其进行品牌化，用简单的英语对其进行改进，然后将其发送到您自己的域。"}>
 
 ```html
 <div class="diagram-fork">
@@ -100,28 +197,28 @@ description: "分叉一个可用的 SaaS 产品并使其成为您的产品 - 包
 
 1. **选择一个示例应用。**使用 CLI 选择器，或浏览文档并选择一个开始。
 2. **打造品牌。**更改名称、颜色、徽标和文案。大多数示例应用都将其公开在单个配置文件中。
-3. **自定义它。** 要求代理添加您需要的列，更改收件箱分组的方式，连接到您的内部 API，添加新视图。代理编辑代码；您查看差异。
+3. **自定义它。** 在自己的仓库和开发工作流中更改源代码。如果代理 frame 被有意授予工作区和写入工具，它可以提供帮助；否则嵌入式代理通过 actions、数据和已配置的集成来操作应用。
 4. **发货。**运行部署命令。您现在在自己的域中拥有自己的生产 SaaS。
 
-步骤 2-4 通常需要几天而不是几个月的时间。第 3 步是开放式的 - 通过与代理交谈，用简单的英语来说，您的分叉 SaaS 会随着时间的推移而发展。
+步骤 2-4 通常需要几天而不是几个月。第 3 步是开放式的，因为应用归您所有并可持续演进；嵌入式代理仍可操作已部署的产品，并在明确启用代码访问时协助更改源代码。
 
 ## 为什么这是实用的 {#why}
 
 传统的代码库分叉模型会大规模崩溃：每个用户维护自己的收件箱听起来像是一场维护噩梦。两个框架决策使其发挥作用：
 
-1. **代理进行维护。**您无需编写代码来添加列或连接新的集成 - 您可以询问代理。所以“你自己的分叉收件箱”是一个功能，而不是一个负担。
+1. **应用保持框架契约。** 源代码拥有领域行为，而 Core 会随着应用演进保持 actions、SQL、状态和同步的一致性。
 2. **每用户自定义，无需每用户代码。** Skills、内存、指令、连接的 MCP 服务器和子代理都位于 SQL 中。每个用户都有自己的定制层；共享代码库同时托管所有这些内容。
 
 结果：Claude - 每个用户的代码级灵活性，以及正常的 SaaS 部署经济性。
 
-<Diagram id="doc-block-1v5me0v" title={"为什么每用户分叉规模"} summary={"有两个想法使分叉和定制模型保持实用：代理进行维护，每个用户的定制位于 SQL 中，而不是每个用户的代码中。"}>
+<Diagram id="doc-block-1v5me0v" title={"为什么每用户定制可以扩展"} summary={"有两个想法使从可运行 app 开始的模型保持实用：应用保持框架契约，每个用户的定制位于 SQL 中，而不是每个用户的代码中。"}>
 
 ```html
 <div class="diagram-why">
   <div class="diagram-panel" data-rough>
     <strong>分享d codebase</strong
     ><small class="diagram-muted">一个应用，一次部署</small>
-    <div class="diagram-pill accent">agent does the maintenance</div>
+    <div class="diagram-pill accent">应用保持框架契约</div>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
   <div class="diagram-panel" data-rough>
@@ -155,7 +252,7 @@ description: "分叉一个可用的 SaaS 产品并使其成为您的产品 - 包
 
 </Diagram>
 
-## 不想分叉？ {#hosted}
+## 不想定制？ {#hosted}
 
 你不必这样做。每个示例应用还可以作为 `agent-native.com` 上的托管应用程序使用 - `mail.agent-native.com`、`calendar.agent-native.com` 等。免费或付费使用托管版本；仅当您想要更改托管版本未公开的内容时才进行分叉。
 

@@ -23,6 +23,7 @@ import {
   supportsClaudeAdaptiveThinking,
 } from "../../shared/reasoning-effort.js";
 import { AI_SDK_MODEL_CONFIG, type AISDKProvider } from "../model-config.js";
+import { describeErrorWithCauses } from "./error-detail.js";
 import {
   createFirstEventAbortController,
   FIRST_STREAM_EVENT_TIMEOUT_MS,
@@ -37,6 +38,11 @@ import {
   aiSdkPartToEngineEvents,
   aiSdkStepToAssistantContent,
 } from "./translate-ai-sdk.js";
+import {
+  createStreamedToolInputState,
+  finalizeStreamedToolInputs,
+  observeStreamedToolInput,
+} from "./translate-anthropic.js";
 import type {
   AgentEngine,
   EngineCapabilities,
@@ -345,9 +351,30 @@ class AISDKEngine implements AgentEngine {
           };
         }
       } else if (this.provider === "openai") {
+        // OpenAI rejects `reasoning_effort` together with function tools on
+        // the legacy Chat Completions surface for some reasoning models
+        // ("Function tools with reasoning_effort are not supported for
+        // <model> in /v1/chat/completions. To use function tools, use
+        // /v1/responses or set reasoning_effort to 'none'.") — a real prod
+        // incident, e.g. Sentry AGENT-NATIVE-BROWSER-94 on gpt-5.6-terra.
+        // `createProviderModel` forces Chat Completions specifically when
+        // `this.baseUrl` is set (many OpenAI-compatible gateways/proxies
+        // don't implement Responses — see that comment). In that exact
+        // combination — forced Chat Completions AND tools present — send
+        // `"none"` rather than our resolved effort; Responses-API calls (no
+        // baseUrl) are unaffected and keep full effort control.
+        //
+        // Omitting the field does NOT work: OpenAI then applies the model's
+        // own default effort, which is not "none", and rejects the request
+        // exactly the same way. Only the explicit "none" clears it — the
+        // error text spells this out ("or set reasoning_effort to 'none'").
+        const forcedChatCompletionsWithTools =
+          Boolean(this.baseUrl) && aiSdkTools !== undefined;
         providerOpts.openai = {
           ...((providerOpts.openai as object) ?? {}),
-          reasoningEffort,
+          reasoningEffort: forcedChatCompletionsWithTools
+            ? "none"
+            : reasoningEffort,
         };
       } else if (this.provider === "openrouter") {
         providerOpts.openrouter = {
@@ -384,6 +411,7 @@ class AISDKEngine implements AgentEngine {
 
     let assistantContent: EngineContentPart[] = [];
     const firstEventAbort = createFirstEventAbortController(opts.abortSignal);
+    const toolInputs = createStreamedToolInputState();
 
     try {
       const result = streamText({
@@ -392,6 +420,10 @@ class AISDKEngine implements AgentEngine {
         messages,
         tools: aiSdkTools,
         maxOutputTokens: resolvedMaxOutputTokens,
+        // Explicit: the agent loop already retries a failed model call with
+        // backoff. Leaving the SDK on its default (2) multiplies the two retry
+        // layers into ~12 HTTP requests per failed run.
+        maxRetries: 1,
         ...(opts.temperature !== undefined
           ? { temperature: opts.temperature }
           : {}),
@@ -420,6 +452,7 @@ class AISDKEngine implements AgentEngine {
           firstEventAbort.markFirstEvent();
         }
         for (const event of aiSdkPartToEngineEvents(part)) {
+          observeStreamedToolInput(toolInputs, event);
           if (event.type === "stop") {
             bufferedStop = event;
           } else {
@@ -437,6 +470,26 @@ class AISDKEngine implements AgentEngine {
         );
       }
 
+      // A step can finish having announced a tool call it never delivered.
+      // Assemble it from its deltas, or report it in-band, rather than ending
+      // the turn as if the model never asked for it.
+      for (const recovered of finalizeStreamedToolInputs(
+        toolInputs,
+        assistantContent.flatMap((part) =>
+          part.type === "tool-call" ? [part.id] : [],
+        ),
+      )) {
+        if (recovered.type === "tool-call") {
+          assistantContent.push({
+            type: "tool-call",
+            id: recovered.id,
+            name: recovered.name,
+            input: recovered.input,
+          });
+        }
+        yield recovered;
+      }
+
       yield { type: "assistant-content", parts: assistantContent };
       await clearProviderCredentialAuthFailure({
         key: PROVIDER_ENV_VARS[this.provider][0],
@@ -445,19 +498,32 @@ class AISDKEngine implements AgentEngine {
       yield bufferedStop ?? { type: "stop", reason: "end_turn" };
     } catch (err: any) {
       const timedOut = firstEventAbort.didTimeout();
+      // AI SDK wraps exhausted retries in RetryError and keeps the final
+      // APICallError on `lastError`. Read classification fields from that
+      // provider error so the retry wrapper does not erase transport status.
+      const providerError =
+        err?.lastError instanceof Error ? err.lastError : err;
       // Surface structured fields from AI SDK's APICallError so
       // isRetryableError can check statusCode/providerRetryable directly
       // rather than keyword-matching the message string.
       const statusCode: number | undefined =
-        typeof err?.statusCode === "number" ? err.statusCode : undefined;
-      const errorMessage = err?.message ?? String(err);
+        typeof providerError?.statusCode === "number"
+          ? providerError.statusCode
+          : undefined;
+      const rawMessage: string =
+        providerError?.message ?? String(providerError);
+      // Classify on the bare message — the recorded `errorMessage` carries the
+      // cause chain, which is where the real transport failure lives.
+      const errorMessage = describeErrorWithCauses(err);
+      const normalizedRawMessage = rawMessage.trim().toLowerCase();
       const isConnectionError =
         !timedOut &&
         statusCode === undefined &&
-        String(errorMessage).trim().toLowerCase() === "connection error.";
+        (normalizedRawMessage === "connection error." ||
+          normalizedRawMessage.startsWith("cannot connect to api:"));
       const providerRetryable: boolean | undefined =
-        typeof err?.isRetryable === "boolean"
-          ? err.isRetryable
+        typeof providerError?.isRetryable === "boolean"
+          ? providerError.isRetryable
           : isConnectionError || timedOut
             ? true
             : undefined;

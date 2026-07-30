@@ -85,14 +85,14 @@ import {
   useChatThreads,
   type ChatThreadSummary,
 } from "@agent-native/core/client/agent-chat";
-import { appApiPath, appPath } from "@agent-native/core/client/api-path";
+import { appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import {
   callAction,
   useActionMutation,
   useChangeVersions,
 } from "@agent-native/core/client/hooks";
-import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
@@ -484,12 +484,28 @@ function SortableRow({
   const isFav = favoriteIds.has(favoriteKey);
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [openDeleteAfterMenuClose, setOpenDeleteAfterMenuClose] =
+    useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(name);
 
   useEffect(() => {
     if (!isRenaming) setRenameValue(name);
   }, [isRenaming, name]);
+
+  useEffect(() => {
+    if (menuOpen || !openDeleteAfterMenuClose) return;
+    const frame = requestAnimationFrame(() => {
+      setOpenDeleteAfterMenuClose(false);
+      setConfirmDeleteOpen(true);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [menuOpen, openDeleteAfterMenuClose]);
+
+  const requestDashboardDelete = useCallback(() => {
+    setOpenDeleteAfterMenuClose(true);
+    setMenuOpen(false);
+  }, []);
 
   const submitRename = useCallback(async () => {
     const trimmed = renameValue.trim();
@@ -773,8 +789,7 @@ function SortableRow({
                   <DropdownMenuItem
                     onSelect={(event) => {
                       event.preventDefault();
-                      setMenuOpen(false);
-                      setConfirmDeleteOpen(true);
+                      requestDashboardDelete();
                     }}
                     className="text-destructive focus:text-destructive"
                   >
@@ -786,8 +801,7 @@ function SortableRow({
                 <DropdownMenuItem
                   onSelect={(event) => {
                     event.preventDefault();
-                    setMenuOpen(false);
-                    setConfirmDeleteOpen(true);
+                    requestDashboardDelete();
                   }}
                   className="text-destructive focus:text-destructive"
                 >
@@ -1478,10 +1492,9 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     if (typeof window !== "undefined" && window.localStorage.getItem("theme")) {
       return;
     }
-    fetch(appApiPath("/api/theme"))
-      .then((r) => r.json())
+    callAction("get-theme", {}, { method: "GET" })
       .then((d) => {
-        if (d.theme === "light" || d.theme === "dark") {
+        if (d?.theme === "light" || d?.theme === "dark") {
           setTheme(d.theme);
         }
       })
@@ -1531,6 +1544,8 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const {
     data: favoritesData,
     isLoading: favoritesLoading,
+    isError: favoritesError,
+    isSuccess: favoritesLoaded,
     save: saveFavorites,
   } = useUserPref<{
     ids: string[];
@@ -1541,6 +1556,10 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   );
   const toggleFavorite = useCallback(
     (id: string) => {
+      if (favoritesError || !favoritesLoaded) {
+        toast.error(t("sidebar.favoritesUnavailable"));
+        return;
+      }
       const next = new Set(favoriteIds);
       if (next.has(id)) {
         next.delete(id);
@@ -1549,7 +1568,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       }
       saveFavorites({ ids: Array.from(next) });
     },
-    [favoriteIds, saveFavorites],
+    [favoriteIds, favoritesError, favoritesLoaded, saveFavorites],
   );
 
   const setDashboardSortMode = useCallback((mode: SidebarSortMode) => {
@@ -2117,9 +2136,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       </TooltipContent>
     </Tooltip>
   );
-  const footerTranslate = (
-    <LanguagePicker variant="ghost-icon" label={t("settings.languageLabel")} />
-  );
   const footerCollapse = !mobile ? (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -2198,7 +2214,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
           <SidebarFooterActions
             collapsed
             feedback={footerFeedback}
-            translate={footerTranslate}
             search={footerSearch}
             collapse={footerCollapse}
           />
@@ -2279,9 +2294,10 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                     />
                   </button>
                 </div>
-                {askOpen && isAskRoute ? (
-                  <AnalyticsChatsSection isAskRoute open />
-                ) : null}
+                <AnalyticsChatsSection
+                  isAskRoute={isAskRoute}
+                  open={askOpen && isAskRoute}
+                />
               </div>
 
               {/* Sessions link */}
@@ -2570,7 +2586,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                 <TooltipProvider delayDuration={200}>
                   <SidebarFooterActions
                     feedback={footerFeedback}
-                    translate={footerTranslate}
                     search={footerSearch}
                     collapse={footerCollapse}
                     className="px-0 py-0"

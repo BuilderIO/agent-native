@@ -1,13 +1,18 @@
-import {
-  DASHBOARD_REPORT_READY_TIMEOUT_MS,
-  FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS,
-} from "@shared/dashboard-report-timeouts";
+import { FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS } from "@shared/dashboard-report-timeouts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   addBytesProcessed: vi.fn(),
   callAction: vi.fn(),
 }));
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
 
 vi.mock("@agent-native/core/client/hooks", () => ({
   callAction: mocks.callAction,
@@ -64,7 +69,7 @@ describe("executeSqlQuery", () => {
     expect(mocks.addBytesProcessed).toHaveBeenCalledWith(128);
   });
 
-  it("ends report screenshot panel actions before the capture readiness deadline", async () => {
+  it("gives report panel actions their own timeout above the query timeout", async () => {
     const controller = new AbortController();
     mocks.callAction.mockResolvedValue({ rows: [] });
 
@@ -75,9 +80,6 @@ describe("executeSqlQuery", () => {
     expect(FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS).toBeLessThan(
       DASHBOARD_REPORT_ACTION_TIMEOUT_MS,
     );
-    expect(DASHBOARD_REPORT_ACTION_TIMEOUT_MS).toBeLessThan(
-      DASHBOARD_REPORT_READY_TIMEOUT_MS,
-    );
     expect(mocks.callAction).toHaveBeenCalledWith(
       "query-dashboard-panel",
       { query: "SELECT 1", source: "first-party" },
@@ -86,5 +88,91 @@ describe("executeSqlQuery", () => {
         timeoutMs: DASHBOARD_REPORT_ACTION_TIMEOUT_MS,
       },
     );
+  });
+
+  it("serializes first-party panel queries without blocking external sources", async () => {
+    const firstPartyFirst = deferred<{ rows: Record<string, unknown>[] }>();
+    const firstPartySecond = deferred<{ rows: Record<string, unknown>[] }>();
+    mocks.callAction.mockImplementation(
+      (
+        _name: string,
+        args: { query: string; source: string },
+      ): Promise<{ rows: Record<string, unknown>[] }> => {
+        if (args.query === "first") return firstPartyFirst.promise;
+        if (args.query === "second") return firstPartySecond.promise;
+        return Promise.resolve({ rows: [{ source: args.source }] });
+      },
+    );
+
+    const first = executeSqlQuery("first", "first-party");
+    const second = executeSqlQuery("second", "first-party");
+    const external = executeSqlQuery("external", "bigquery");
+
+    await vi.waitFor(() => {
+      expect(mocks.callAction).toHaveBeenCalledTimes(2);
+    });
+    expect(
+      mocks.callAction.mock.calls.map(([, args]) => [args.query, args.source]),
+    ).toEqual([
+      ["first", "first-party"],
+      ["external", "bigquery"],
+    ]);
+
+    firstPartyFirst.resolve({ rows: [{ query: "first" }] });
+    await first;
+    await vi.waitFor(() => {
+      expect(mocks.callAction).toHaveBeenCalledTimes(3);
+    });
+    expect(mocks.callAction.mock.calls[2]?.[1]).toEqual({
+      query: "second",
+      source: "first-party",
+    });
+
+    firstPartySecond.resolve({ rows: [{ query: "second" }] });
+    await expect(second).resolves.toEqual({
+      rows: [{ query: "second" }],
+      schema: undefined,
+    });
+    await expect(external).resolves.toEqual({
+      rows: [{ source: "bigquery" }],
+      schema: undefined,
+    });
+  });
+
+  it("preserves four-way concurrency for external panel queries", async () => {
+    const calls = Array.from({ length: 5 }, () =>
+      deferred<{ rows: Record<string, unknown>[] }>(),
+    );
+    mocks.callAction.mockImplementation(
+      (
+        _name: string,
+        args: { query: string },
+      ): Promise<{ rows: Record<string, unknown>[] }> =>
+        calls[Number(args.query)]!.promise,
+    );
+
+    const queries = calls.map((_, index) =>
+      executeSqlQuery(String(index), "bigquery"),
+    );
+
+    await vi.waitFor(() => {
+      expect(mocks.callAction).toHaveBeenCalledTimes(4);
+    });
+    expect(mocks.callAction.mock.calls.map(([, args]) => args.query)).toEqual([
+      "0",
+      "1",
+      "2",
+      "3",
+    ]);
+
+    for (let index = 0; index < 4; index += 1) {
+      calls[index]!.resolve({ rows: [{ index }] });
+    }
+    await vi.waitFor(() => {
+      expect(mocks.callAction).toHaveBeenCalledTimes(5);
+    });
+    calls[4]!.resolve({ rows: [{ index: 4 }] });
+
+    await expect(Promise.all(queries)).resolves.toHaveLength(5);
   });
 });

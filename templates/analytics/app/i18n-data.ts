@@ -46,6 +46,14 @@ const enUS = {
     historyRestoreQuestion: "Restore this dashboard version?",
     historyRestoreWarning:
       "This replaces the current dashboard layout and saves the current state in history.",
+    undo: "Undo",
+    undoSuccess: "Dashboard change undone",
+    undoFailed: "Couldn't undo dashboard change",
+    undoFailedWithMessage: "Couldn't undo dashboard change: {{message}}",
+    redo: "Redo",
+    redoSuccess: "Dashboard change redone",
+    redoFailed: "Couldn't redo dashboard change",
+    redoFailedWithMessage: "Couldn't redo dashboard change: {{message}}",
     panelSettings: "Panel settings",
     revenueOverTime: "Revenue over time",
     recentSales: "Recent Sales",
@@ -65,6 +73,7 @@ const enUS = {
     noAnalysesYet: "No analyses yet",
     dashboardsLoadFailed: "Couldn't load dashboards.",
     analysesLoadFailed: "Couldn't load analyses.",
+    favoritesUnavailable: "Favorites are unavailable right now",
     retry: "Retry",
     search: "Search",
     searchShortcut: "Search ({{shortcut}})",
@@ -628,11 +637,17 @@ const enUS = {
     off: "Off",
     since: "Since",
     sectionOptions: "Section options",
-    extensionMissingId: "This extension panel has no extension selected.",
+    extensionMissingId: "This custom block has no source selected.",
     extensionUnavailable:
-      "This extension isn't shared with you, or it no longer exists.",
+      "This custom block isn't shared with you, or it no longer exists.",
     panelOptions: "Panel options",
     chatWithPanel: "Chat with panel",
+    customBlock: "Custom block",
+    customBlockProvenance: "Sandboxed dashboard block",
+    customBlockAgentProvenance: "Agent-authored dashboard patch",
+    promoteToAppCode: "Promote to app code",
+    promoteCustomBlockMessage:
+      'Promote the custom block "{{title}}" into reusable native Analytics app code.',
     fullScreen: "Full screen",
     refresh: "Refresh",
     refreshing: "Refreshing...",
@@ -849,6 +864,9 @@ const enUS = {
     githubOAuthUnavailable:
       "OAuth app credentials are not configured on this deployment. Use the personal access token field below.",
     sharedIntegration: "Shared integration",
+    workspaceAdminRequiredTitle: "Organization connection requires an admin",
+    workspaceAdminRequiredDescription:
+      "Ask an organization owner or admin to connect {{name}} for everyone in this organization.",
     sharedReady:
       "Analytics can use this provider through a workspace connection granted from Dispatch.",
     sharedNeedsGrant:
@@ -884,6 +902,9 @@ const enUS = {
     sharedCredentials: "Shared credentials: {{credentials}}",
     ready: "Ready",
     notConfigured: "Not configured",
+    statusUnknown: "Couldn't check connection status",
+    statusUnknownDescription:
+      "The connection status couldn't be read, so this source may already be connected. Reload to check again before adding credentials.",
     back: "Back",
     continue: "Continue",
     saveCredentials: "Save Credentials",
@@ -926,22 +947,23 @@ const enUS = {
     chartTypePie: "Pie",
     chartTypeMetric: "Metric",
     chartTypeTable: "Table",
-    chartTypeExtension: "Extension",
+    chartTypeExtension: "Custom visualization",
     failedToSavePanel: "Failed to save panel",
     failedToFormatSql: "Failed to format SQL",
     title: "Title",
     titlePlaceholder: "e.g. Weekly signups",
     chartType: "Chart type",
     source: "Source",
-    extensionDisplay: "Extension display",
-    sharedExtension: "Shared extension",
+    extensionDisplay: "Custom block display",
+    sharedExtension: "Shared custom block",
     perViewerSlot: "Per-viewer slot",
-    extension: "Extension",
-    loadingExtensions: "Loading extensions...",
-    selectExtension: "Select an extension",
-    noExtensions: "No visible extensions. Create or share one first.",
+    extension: "Custom block",
+    loadingExtensions: "Loading custom blocks...",
+    selectExtension: "Select a custom block",
+    noExtensions:
+      "No visible custom blocks. Ask the agent to create one first.",
     sharedExtensionHelp:
-      "The selected extension is shared with this dashboard and appears in scheduled reports. Viewers still need access to the extension.",
+      "The selected custom block is shared with this dashboard and appears in scheduled reports. Viewers still need access to it.",
     slotIdOptional: "Slot ID (optional)",
     perViewerSlotHelp:
       "Each viewer installs their own extension. Scheduled reports may show an empty slot. Leave blank to generate a stable ID.",
@@ -1313,6 +1335,9 @@ const analyticsSliceTranslations: {
       githubOAuthUnavailable:
         "此部署中未配置 OAuth 应用程序凭据。使用下面的个人访问令牌字段。",
       sharedIntegration: "共享集成",
+      workspaceAdminRequiredTitle: "组织连接需要管理员",
+      workspaceAdminRequiredDescription:
+        "请让组织所有者或管理员为此组织中的所有人连接 {{name}}。",
       sharedReady:
         "Analytics 可以通过 Dispatch 授予的工作空间连接来使用此提供程序。",
       sharedNeedsGrant: "存在工作区连接。打开Dispatch，授予Analytics访问权限。",
@@ -1347,6 +1372,9 @@ const analyticsSliceTranslations: {
       sharedCredentials: "共享凭证：{{credentials}}",
       ready: "准备好",
       notConfigured: "未配置",
+      statusUnknown: "无法检查连接状态",
+      statusUnknownDescription:
+        "无法读取连接状态，此数据源可能已连接。请重新加载页面确认后再添加凭据。",
       back: "后退",
       continue: "继续",
       saveCredentials: "保存凭证",
@@ -1388,22 +1416,22 @@ const analyticsSliceTranslations: {
       chartTypePie: "馅饼",
       chartTypeMetric: "公制",
       chartTypeTable: "桌子",
-      chartTypeExtension: "扩展",
+      chartTypeExtension: "自定义可视化",
       failedToSavePanel: "保存面板失败",
       failedToFormatSql: "格式化SQL失败",
       title: "标题",
       titlePlaceholder: "例如每周注册人数",
       chartType: "图表类型",
       source: "来源",
-      extensionDisplay: "扩展显示方式",
-      sharedExtension: "共享扩展",
+      extensionDisplay: "自定义块显示方式",
+      sharedExtension: "共享自定义块",
       perViewerSlot: "每位查看者的插槽",
-      extension: "扩展",
-      loadingExtensions: "正在加载扩展...",
-      selectExtension: "选择扩展",
-      noExtensions: "没有可见的扩展。请先创建或共享一个。",
+      extension: "自定义块",
+      loadingExtensions: "正在加载自定义块...",
+      selectExtension: "选择自定义块",
+      noExtensions: "没有可见的自定义块。请让代理先创建一个。",
       sharedExtensionHelp:
-        "所选扩展会与此仪表板共享并显示在计划报告中。查看者仍需拥有该扩展的访问权限。",
+        "所选自定义块会与此仪表板共享并显示在计划报告中。查看者仍需拥有访问权限。",
       slotIdOptional: "插槽 ID（可选）",
       perViewerSlotHelp:
         "每位查看者各自安装扩展。计划报告可能显示空插槽。留空即可生成稳定 ID。",
@@ -1603,6 +1631,10 @@ const analyticsSliceTranslations: {
       githubOAuthUnavailable:
         "Las credenciales de la aplicación OAuth no están configuradas en esta implementación. Utilice el campo de token de acceso personal a continuación.",
       sharedIntegration: "Integración compartida",
+      workspaceAdminRequiredTitle:
+        "La conexión de la organización requiere un administrador",
+      workspaceAdminRequiredDescription:
+        "Pide a un propietario o administrador de la organización que conecte {{name}} para todos.",
       sharedReady:
         "Analytics puede utilizar este proveedor a través de una conexión de espacio de trabajo otorgada por Dispatch.",
       sharedNeedsGrant:
@@ -1639,6 +1671,9 @@ const analyticsSliceTranslations: {
       sharedCredentials: "Credenciales compartidas: {{credentials}}",
       ready: "Listo",
       notConfigured: "No configurado",
+      statusUnknown: "No se pudo comprobar el estado de la conexión",
+      statusUnknownDescription:
+        "No se pudo leer el estado de la conexión, así que esta fuente puede estar ya conectada. Vuelve a cargar la página para comprobarlo antes de añadir credenciales.",
       back: "Atrás",
       continue: "Continuar",
       saveCredentials: "Guardar credenciales",
@@ -1681,22 +1716,23 @@ const analyticsSliceTranslations: {
       chartTypePie: "Pastel",
       chartTypeMetric: "Métrico",
       chartTypeTable: "Mesa",
-      chartTypeExtension: "Extensión",
+      chartTypeExtension: "Visualización personalizada",
       failedToSavePanel: "No se pudo guardar el panel",
       failedToFormatSql: "No se pudo formatear SQL",
       title: "Título",
       titlePlaceholder: "p.ej. Inscripciones semanales",
       chartType: "Tipo de gráfico",
       source: "Fuente",
-      extensionDisplay: "Visualización de extensión",
-      sharedExtension: "Extensión compartida",
+      extensionDisplay: "Visualización del bloque personalizado",
+      sharedExtension: "Bloque personalizado compartido",
       perViewerSlot: "Espacio por usuario",
-      extension: "Extensión",
-      loadingExtensions: "Cargando extensiones...",
-      selectExtension: "Selecciona una extensión",
-      noExtensions: "No hay extensiones visibles. Crea o comparte una primero.",
+      extension: "Bloque personalizado",
+      loadingExtensions: "Cargando bloques personalizados...",
+      selectExtension: "Selecciona un bloque personalizado",
+      noExtensions:
+        "No hay bloques personalizados visibles. Pide al agente que cree uno.",
       sharedExtensionHelp:
-        "La extensión seleccionada se comparte con este panel y aparece en los informes programados. Los usuarios aún necesitan acceso a ella.",
+        "El bloque personalizado seleccionado se comparte con este panel y aparece en los informes programados. Los usuarios aún necesitan acceso.",
       slotIdOptional: "ID del espacio (opcional)",
       perViewerSlotHelp:
         "Cada usuario instala su propia extensión. Los informes programados pueden mostrar un espacio vacío. Déjalo en blanco para generar un ID estable.",
@@ -1912,6 +1948,10 @@ const analyticsSliceTranslations: {
       githubOAuthUnavailable:
         "Les informations d'identification de l'application OAuth ne sont pas configurées sur ce déploiement. Utilisez le champ du jeton d'accès personnel ci-dessous.",
       sharedIntegration: "Intégration partagée",
+      workspaceAdminRequiredTitle:
+        "La connexion de l’organisation nécessite un administrateur",
+      workspaceAdminRequiredDescription:
+        "Demandez à un propriétaire ou administrateur de l’organisation de connecter {{name}} pour tous.",
       sharedReady:
         "Analytics peut utiliser ce fournisseur via une connexion à l'espace de travail accordée par Dispatch.",
       sharedNeedsGrant:
@@ -1948,6 +1988,9 @@ const analyticsSliceTranslations: {
       sharedCredentials: "Identifiants partagés : {{credentials}}",
       ready: "Prêt",
       notConfigured: "Non configuré",
+      statusUnknown: "Impossible de vérifier l'état de la connexion",
+      statusUnknownDescription:
+        "L'état de la connexion n'a pas pu être lu ; cette source est peut-être déjà connectée. Rechargez la page pour vérifier avant d'ajouter des identifiants.",
       back: "Dos",
       continue: "Continuer",
       saveCredentials: "Enregistrer les informations d'identification",
@@ -1990,22 +2033,23 @@ const analyticsSliceTranslations: {
       chartTypePie: "Tarte",
       chartTypeMetric: "Métrique",
       chartTypeTable: "Tableau",
-      chartTypeExtension: "Extension",
+      chartTypeExtension: "Visualisation personnalisée",
       failedToSavePanel: "Échec de l'enregistrement du panneau",
       failedToFormatSql: "Échec du formatage du SQL",
       title: "Titre",
       titlePlaceholder: "par ex. Inscriptions hebdomadaires",
       chartType: "Type de graphique",
       source: "Source de données",
-      extensionDisplay: "Affichage de l'extension",
-      sharedExtension: "Extension partagée",
+      extensionDisplay: "Affichage du bloc personnalisé",
+      sharedExtension: "Bloc personnalisé partagé",
       perViewerSlot: "Emplacement par utilisateur",
-      extension: "Extension",
-      loadingExtensions: "Chargement des extensions...",
-      selectExtension: "Sélectionner une extension",
-      noExtensions: "Aucune extension visible. Créez-en ou partagez-en une.",
+      extension: "Bloc personnalisé",
+      loadingExtensions: "Chargement des blocs personnalisés...",
+      selectExtension: "Sélectionner un bloc personnalisé",
+      noExtensions:
+        "Aucun bloc personnalisé visible. Demandez à l’agent d’en créer un.",
       sharedExtensionHelp:
-        "L'extension sélectionnée est partagée avec ce tableau de bord et apparaît dans les rapports planifiés. Les utilisateurs doivent toujours y avoir accès.",
+        "Le bloc personnalisé sélectionné est partagé avec ce tableau de bord et apparaît dans les rapports planifiés. Les utilisateurs doivent toujours y avoir accès.",
       slotIdOptional: "ID de l'emplacement (facultatif)",
       perViewerSlotHelp:
         "Chaque utilisateur installe sa propre extension. Les rapports planifiés peuvent afficher un emplacement vide. Laissez ce champ vide pour générer un ID stable.",
@@ -2219,6 +2263,10 @@ const analyticsSliceTranslations: {
       githubOAuthUnavailable:
         "Die Anmeldeinformationen für die OAuth-App sind in dieser Bereitstellung nicht konfiguriert. Verwenden Sie das Feld für das persönliche Zugriffstoken unten.",
       sharedIntegration: "Gemeinsame Integration",
+      workspaceAdminRequiredTitle:
+        "Für die Organisationsverbindung ist ein Administrator erforderlich",
+      workspaceAdminRequiredDescription:
+        "Bitte einen Organisationsinhaber oder Administrator, {{name}} für alle zu verbinden.",
       sharedReady:
         "Analytics kann diesen Anbieter über eine von Dispatch gewährte Workspace-Verbindung nutzen.",
       sharedNeedsGrant:
@@ -2255,6 +2303,9 @@ const analyticsSliceTranslations: {
       sharedCredentials: "Gemeinsame Anmeldeinformationen: {{credentials}}",
       ready: "Bereit",
       notConfigured: "Nicht konfiguriert",
+      statusUnknown: "Verbindungsstatus konnte nicht geprüft werden",
+      statusUnknownDescription:
+        "Der Verbindungsstatus konnte nicht gelesen werden, diese Quelle ist möglicherweise bereits verbunden. Lade die Seite neu, um erneut zu prüfen, bevor du Zugangsdaten hinzufügst.",
       back: "Zurück",
       continue: "Weitermachen",
       saveCredentials: "Anmeldeinformationen speichern",
@@ -2297,23 +2348,23 @@ const analyticsSliceTranslations: {
       chartTypePie: "Torte",
       chartTypeMetric: "Metrisch",
       chartTypeTable: "Tisch",
-      chartTypeExtension: "Erweiterung",
+      chartTypeExtension: "Benutzerdefinierte Visualisierung",
       failedToSavePanel: "Das Panel konnte nicht gespeichert werden",
       failedToFormatSql: "SQL konnte nicht formatiert werden",
       title: "Titel",
       titlePlaceholder: "z.B. Wöchentliche Anmeldungen",
       chartType: "Diagrammtyp",
       source: "Datenquelle",
-      extensionDisplay: "Erweiterungsanzeige",
-      sharedExtension: "Geteilte Erweiterung",
+      extensionDisplay: "Anzeige des benutzerdefinierten Blocks",
+      sharedExtension: "Geteilter benutzerdefinierter Block",
       perViewerSlot: "Slot pro Betrachter",
-      extension: "Erweiterung",
-      loadingExtensions: "Erweiterungen werden geladen...",
-      selectExtension: "Erweiterung auswählen",
+      extension: "Benutzerdefinierter Block",
+      loadingExtensions: "Benutzerdefinierte Blöcke werden geladen...",
+      selectExtension: "Benutzerdefinierten Block auswählen",
       noExtensions:
-        "Keine sichtbaren Erweiterungen. Erstellen oder teilen Sie zuerst eine.",
+        "Keine sichtbaren benutzerdefinierten Blöcke. Bitten Sie den Agenten, einen zu erstellen.",
       sharedExtensionHelp:
-        "Die ausgewählte Erweiterung wird mit diesem Dashboard geteilt und erscheint in geplanten Berichten. Betrachter benötigen weiterhin Zugriff darauf.",
+        "Der ausgewählte benutzerdefinierte Block wird mit diesem Dashboard geteilt und erscheint in geplanten Berichten. Betrachter benötigen weiterhin Zugriff darauf.",
       slotIdOptional: "Slot-ID (optional)",
       perViewerSlotHelp:
         "Jeder Betrachter installiert eine eigene Erweiterung. Geplante Berichte können einen leeren Slot zeigen. Leer lassen, um eine stabile ID zu erzeugen.",
@@ -2524,6 +2575,9 @@ const analyticsSliceTranslations: {
       githubOAuthUnavailable:
         "OAuth アプリの資格情報は、この展開では構成されていません。以下の個人アクセス トークン フィールドを使用してください。",
       sharedIntegration: "共有統合",
+      workspaceAdminRequiredTitle: "組織の接続には管理者が必要です",
+      workspaceAdminRequiredDescription:
+        "組織の所有者または管理者に、組織全体で {{name}} を接続するよう依頼してください。",
       sharedReady:
         "Analytics は、Dispatch から付与されたワークスペース接続を通じてこのプロバイダーを使用できます。",
       sharedNeedsGrant:
@@ -2559,6 +2613,9 @@ const analyticsSliceTranslations: {
       sharedCredentials: "共有資格情報: {{credentials}}",
       ready: "準備ができて",
       notConfigured: "未設定",
+      statusUnknown: "接続状態を確認できませんでした",
+      statusUnknownDescription:
+        "接続状態を読み取れなかったため、このソースはすでに接続されている可能性があります。認証情報を追加する前に、再読み込みして確認してください。",
       back: "戻る",
       continue: "続く",
       saveCredentials: "認証情報の保存",
@@ -2601,23 +2658,23 @@ const analyticsSliceTranslations: {
       chartTypePie: "パイ",
       chartTypeMetric: "メトリック",
       chartTypeTable: "テーブル",
-      chartTypeExtension: "拡張機能",
+      chartTypeExtension: "カスタム可視化",
       failedToSavePanel: "パネルの保存に失敗しました",
       failedToFormatSql: "SQLのフォーマットに失敗しました",
       title: "タイトル",
       titlePlaceholder: "例えば毎週のサインアップ",
       chartType: "グラフの種類",
       source: "ソース",
-      extensionDisplay: "拡張機能の表示",
-      sharedExtension: "共有拡張機能",
+      extensionDisplay: "カスタムブロックの表示",
+      sharedExtension: "共有カスタムブロック",
       perViewerSlot: "閲覧者ごとのスロット",
-      extension: "拡張機能",
-      loadingExtensions: "拡張機能を読み込んでいます...",
-      selectExtension: "拡張機能を選択",
+      extension: "カスタムブロック",
+      loadingExtensions: "カスタムブロックを読み込んでいます...",
+      selectExtension: "カスタムブロックを選択",
       noExtensions:
-        "表示できる拡張機能がありません。先に作成または共有してください。",
+        "表示できるカスタムブロックがありません。エージェントに作成を依頼してください。",
       sharedExtensionHelp:
-        "選択した拡張機能はこのダッシュボードと共有され、スケジュール済みレポートにも表示されます。閲覧者には拡張機能へのアクセス権が必要です。",
+        "選択したカスタムブロックはこのダッシュボードと共有され、スケジュール済みレポートにも表示されます。閲覧者にはアクセス権が必要です。",
       slotIdOptional: "スロット ID（任意）",
       perViewerSlotHelp:
         "各閲覧者が自分の拡張機能をインストールします。スケジュール済みレポートでは空のスロットが表示される場合があります。空欄にすると安定した ID が生成されます。",
@@ -2823,6 +2880,9 @@ const analyticsSliceTranslations: {
       githubOAuthUnavailable:
         "이 배포에서는 OAuth 앱 자격 증명이 구성되지 않습니다. 아래의 개인 액세스 토큰 필드를 사용하세요.",
       sharedIntegration: "공유 통합",
+      workspaceAdminRequiredTitle: "조직 연결에는 관리자가 필요합니다",
+      workspaceAdminRequiredDescription:
+        "조직 소유자 또는 관리자에게 조직의 모든 사용자를 위해 {{name}} 연결을 요청하세요.",
       sharedReady:
         "Analytics는 Dispatch에서 부여된 작업 공간 연결을 통해 이 공급자를 사용할 수 있습니다.",
       sharedNeedsGrant:
@@ -2858,6 +2918,9 @@ const analyticsSliceTranslations: {
       sharedCredentials: "공유 자격 증명: {{credentials}}",
       ready: "준비가 된",
       notConfigured: "구성되지 않음",
+      statusUnknown: "연결 상태를 확인할 수 없습니다",
+      statusUnknownDescription:
+        "연결 상태를 읽을 수 없어 이 소스가 이미 연결되어 있을 수 있습니다. 자격 증명을 추가하기 전에 새로 고쳐 다시 확인하세요.",
       back: "뒤쪽에",
       continue: "계속하다",
       saveCredentials: "자격 증명 저장",
@@ -2899,23 +2962,23 @@ const analyticsSliceTranslations: {
       chartTypePie: "파이",
       chartTypeMetric: "미터법",
       chartTypeTable: "테이블",
-      chartTypeExtension: "확장 프로그램",
+      chartTypeExtension: "사용자 지정 시각화",
       failedToSavePanel: "패널을 저장하지 못했습니다.",
       failedToFormatSql: "SQL 포맷 실패",
       title: "제목",
       titlePlaceholder: "예를 들어 주간 가입",
       chartType: "차트 종류",
       source: "소스",
-      extensionDisplay: "확장 프로그램 표시",
-      sharedExtension: "공유 확장 프로그램",
+      extensionDisplay: "사용자 지정 블록 표시",
+      sharedExtension: "공유 사용자 지정 블록",
       perViewerSlot: "사용자별 슬롯",
-      extension: "확장 프로그램",
-      loadingExtensions: "확장 프로그램을 불러오는 중...",
-      selectExtension: "확장 프로그램 선택",
+      extension: "사용자 지정 블록",
+      loadingExtensions: "사용자 지정 블록을 불러오는 중...",
+      selectExtension: "사용자 지정 블록 선택",
       noExtensions:
-        "표시할 확장 프로그램이 없습니다. 먼저 만들거나 공유하세요.",
+        "표시할 사용자 지정 블록이 없습니다. 에이전트에게 생성을 요청하세요.",
       sharedExtensionHelp:
-        "선택한 확장 프로그램은 이 대시보드와 공유되며 예약 보고서에 표시됩니다. 사용자는 해당 확장 프로그램에 대한 액세스 권한이 필요합니다.",
+        "선택한 사용자 지정 블록은 이 대시보드와 공유되며 예약 보고서에 표시됩니다. 사용자는 해당 블록에 대한 액세스 권한이 필요합니다.",
       slotIdOptional: "슬롯 ID(선택 사항)",
       perViewerSlotHelp:
         "각 사용자가 자신의 확장 프로그램을 설치합니다. 예약 보고서에는 빈 슬롯이 표시될 수 있습니다. 비워 두면 안정적인 ID가 생성됩니다.",
@@ -3119,6 +3182,10 @@ const analyticsSliceTranslations: {
       githubOAuthUnavailable:
         "As credenciais do aplicativo OAuth não estão configuradas nesta implantação. Use o campo de token de acesso pessoal abaixo.",
       sharedIntegration: "Integração compartilhada",
+      workspaceAdminRequiredTitle:
+        "A conexão da organização requer um administrador",
+      workspaceAdminRequiredDescription:
+        "Peça a um proprietário ou administrador da organização para conectar {{name}} para todos.",
       sharedReady:
         "Analytics pode usar este provedor por meio de uma conexão de espaço de trabalho concedida pelo Dispatch.",
       sharedNeedsGrant:
@@ -3154,6 +3221,9 @@ const analyticsSliceTranslations: {
       sharedCredentials: "Credenciais compartilhadas: {{credentials}}",
       ready: "Preparar",
       notConfigured: "Não configurado",
+      statusUnknown: "Não foi possível verificar o status da conexão",
+      statusUnknownDescription:
+        "Não foi possível ler o status da conexão, então esta fonte pode já estar conectada. Recarregue a página para verificar antes de adicionar credenciais.",
       back: "Voltar",
       continue: "Continuar",
       saveCredentials: "Salvar credenciais",
@@ -3196,23 +3266,23 @@ const analyticsSliceTranslations: {
       chartTypePie: "Torta",
       chartTypeMetric: "Métrica",
       chartTypeTable: "Mesa",
-      chartTypeExtension: "Extensão",
+      chartTypeExtension: "Visualização personalizada",
       failedToSavePanel: "Falha ao salvar painel",
       failedToFormatSql: "Falha ao formatar SQL",
       title: "Título",
       titlePlaceholder: "por exemplo Inscrições semanais",
       chartType: "Tipo de gráfico",
       source: "Fonte",
-      extensionDisplay: "Exibição da extensão",
-      sharedExtension: "Extensão compartilhada",
+      extensionDisplay: "Exibição do bloco personalizado",
+      sharedExtension: "Bloco personalizado compartilhado",
       perViewerSlot: "Slot por usuário",
-      extension: "Extensão",
-      loadingExtensions: "Carregando extensões...",
-      selectExtension: "Selecione uma extensão",
+      extension: "Bloco personalizado",
+      loadingExtensions: "Carregando blocos personalizados...",
+      selectExtension: "Selecione um bloco personalizado",
       noExtensions:
-        "Nenhuma extensão visível. Crie ou compartilhe uma primeiro.",
+        "Nenhum bloco personalizado visível. Peça ao agente para criar um.",
       sharedExtensionHelp:
-        "A extensão selecionada é compartilhada com este painel e aparece nos relatórios agendados. Os usuários ainda precisam de acesso à extensão.",
+        "O bloco personalizado selecionado é compartilhado com este painel e aparece nos relatórios agendados. Os usuários ainda precisam de acesso.",
       slotIdOptional: "ID do slot (opcional)",
       perViewerSlotHelp:
         "Cada usuário instala sua própria extensão. Relatórios agendados podem mostrar um slot vazio. Deixe em branco para gerar um ID estável.",
@@ -3420,6 +3490,9 @@ const analyticsSliceTranslations: {
       githubOAuthUnavailable:
         "इस परिनियोजन पर OAuth ऐप क्रेडेंशियल कॉन्फ़िगर नहीं किए गए हैं। नीचे व्यक्तिगत एक्सेस टोकन फ़ील्ड का उपयोग करें।",
       sharedIntegration: "साझा एकीकरण",
+      workspaceAdminRequiredTitle: "संगठन कनेक्शन के लिए एडमिन आवश्यक है",
+      workspaceAdminRequiredDescription:
+        "संगठन के मालिक या एडमिन से सभी के लिए {{name}} कनेक्ट करने को कहें।",
       sharedReady:
         "Analytics इस प्रदाता का उपयोग Dispatch से दिए गए कार्यक्षेत्र कनेक्शन के माध्यम से कर सकता है।",
       sharedNeedsGrant:
@@ -3455,6 +3528,9 @@ const analyticsSliceTranslations: {
       sharedCredentials: "साझा क्रेडेंशियल: {{credentials}}",
       ready: "तैयार",
       notConfigured: "कॉन्फ़िगर नहीं किया गया",
+      statusUnknown: "कनेक्शन स्थिति जाँची नहीं जा सकी",
+      statusUnknownDescription:
+        "कनेक्शन स्थिति पढ़ी नहीं जा सकी, इसलिए हो सकता है कि यह स्रोत पहले से जुड़ा हो। क्रेडेंशियल जोड़ने से पहले पेज फिर से लोड करके जाँचें।",
       back: "पीछे",
       continue: "जारी रखना",
       saveCredentials: "क्रेडेंशियल सहेजें",
@@ -3496,22 +3572,22 @@ const analyticsSliceTranslations: {
       chartTypePie: "पाई",
       chartTypeMetric: "मीट्रिक",
       chartTypeTable: "मेज़",
-      chartTypeExtension: "एक्सटेंशन",
+      chartTypeExtension: "कस्टम विज़ुअलाइज़ेशन",
       failedToSavePanel: "पैनल सहेजने में विफल",
       failedToFormatSql: "SQL को फ़ॉर्मेट करने में विफल",
       title: "शीर्षक",
       titlePlaceholder: "जैसे साप्ताहिक साइनअप",
       chartType: "चार्ट प्रकार",
       source: "स्रोत",
-      extensionDisplay: "एक्सटेंशन प्रदर्शन",
-      sharedExtension: "साझा एक्सटेंशन",
+      extensionDisplay: "कस्टम ब्लॉक प्रदर्शन",
+      sharedExtension: "साझा कस्टम ब्लॉक",
       perViewerSlot: "प्रति-दर्शक स्लॉट",
-      extension: "एक्सटेंशन",
-      loadingExtensions: "एक्सटेंशन लोड हो रहे हैं...",
-      selectExtension: "एक एक्सटेंशन चुनें",
-      noExtensions: "कोई दृश्यमान एक्सटेंशन नहीं है। पहले एक बनाएं या साझा करें।",
+      extension: "कस्टम ब्लॉक",
+      loadingExtensions: "कस्टम ब्लॉक लोड हो रहे हैं...",
+      selectExtension: "कस्टम ब्लॉक चुनें",
+      noExtensions: "कोई कस्टम ब्लॉक दिखाई नहीं दे रहा है। एजेंट से एक बनाने को कहें।",
       sharedExtensionHelp:
-        "चुना गया एक्सटेंशन इस डैशबोर्ड के साथ साझा होता है और निर्धारित रिपोर्ट में दिखाई देता है। दर्शकों को फिर भी एक्सटेंशन की पहुंच चाहिए।",
+        "चुना गया कस्टम ब्लॉक इस डैशबोर्ड के साथ साझा होता है और निर्धारित रिपोर्ट में दिखाई देता है। दर्शकों को फिर भी इसकी पहुंच चाहिए।",
       slotIdOptional: "स्लॉट ID (वैकल्पिक)",
       perViewerSlotHelp:
         "हर दर्शक अपना एक्सटेंशन इंस्टॉल करता है। निर्धारित रिपोर्ट में खाली स्लॉट दिख सकता है। स्थिर ID बनाने के लिए खाली छोड़ें।",
@@ -3712,6 +3788,9 @@ const analyticsSliceTranslations: {
       githubOAuthUnavailable:
         "لم يتم تكوين بيانات اعتماد تطبيق OAuth في هذا النشر. استخدم حقل رمز الوصول الشخصي أدناه.",
       sharedIntegration: "التكامل المشترك",
+      workspaceAdminRequiredTitle: "يتطلب اتصال المؤسسة مشرفًا",
+      workspaceAdminRequiredDescription:
+        "اطلب من مالك المؤسسة أو أحد المشرفين ربط {{name}} لجميع أعضاء المؤسسة.",
       sharedReady:
         "يمكن لـ Analytics استخدام هذا الموفر من خلال اتصال مساحة العمل الممنوح من Dispatch.",
       sharedNeedsGrant:
@@ -3747,6 +3826,9 @@ const analyticsSliceTranslations: {
       sharedCredentials: "بيانات الاعتماد المشتركة: {{credentials}}",
       ready: "مستعد",
       notConfigured: "لم يتم تكوينه",
+      statusUnknown: "تعذّر التحقق من حالة الاتصال",
+      statusUnknownDescription:
+        "تعذّرت قراءة حالة الاتصال، لذا قد يكون هذا المصدر متصلاً بالفعل. أعد تحميل الصفحة للتحقق قبل إضافة بيانات الاعتماد.",
       back: "خلف",
       continue: "يكمل",
       saveCredentials: "حفظ بيانات الاعتماد",
@@ -3789,22 +3871,22 @@ const analyticsSliceTranslations: {
       chartTypePie: "فطيرة",
       chartTypeMetric: "متري",
       chartTypeTable: "طاولة",
-      chartTypeExtension: "إضافة",
+      chartTypeExtension: "عرض مرئي مخصص",
       failedToSavePanel: "فشل حفظ اللوحة",
       failedToFormatSql: "فشل تهيئة SQL",
       title: "عنوان",
       titlePlaceholder: "على سبيل المثال الاشتراكات الأسبوعية",
       chartType: "نوع الرسم البياني",
       source: "المصدر",
-      extensionDisplay: "عرض الإضافة",
-      sharedExtension: "إضافة مشتركة",
+      extensionDisplay: "عرض الكتلة المخصصة",
+      sharedExtension: "كتلة مخصصة مشتركة",
       perViewerSlot: "فتحة لكل مشاهد",
-      extension: "إضافة",
-      loadingExtensions: "جارٍ تحميل الإضافات...",
-      selectExtension: "اختر إضافة",
-      noExtensions: "لا توجد إضافات ظاهرة. أنشئ إضافة أو شاركها أولاً.",
+      extension: "كتلة مخصصة",
+      loadingExtensions: "جارٍ تحميل الكتل المخصصة...",
+      selectExtension: "اختر كتلة مخصصة",
+      noExtensions: "لا توجد كتل مخصصة ظاهرة. اطلب من الوكيل إنشاء واحدة.",
       sharedExtensionHelp:
-        "تتم مشاركة الإضافة المحددة مع لوحة المعلومات هذه وتظهر في التقارير المجدولة. لا يزال المشاهدون بحاجة إلى صلاحية الوصول إليها.",
+        "تتم مشاركة الكتلة المخصصة المحددة مع لوحة المعلومات هذه وتظهر في التقارير المجدولة. لا يزال المشاهدون بحاجة إلى صلاحية الوصول إليها.",
       slotIdOptional: "معرّف الفتحة (اختياري)",
       perViewerSlotHelp:
         "يثبّت كل مشاهد إضافته الخاصة. قد تعرض التقارير المجدولة فتحة فارغة. اتركه فارغاً لإنشاء معرّف ثابت.",
@@ -4018,6 +4100,7 @@ export const messagesByLocale = {
       noAnalysesYet: "还没有分析",
       dashboardsLoadFailed: "无法加载仪表板。",
       analysesLoadFailed: "无法加载分析。",
+      favoritesUnavailable: "收藏功能目前不可用",
       retry: "重试",
       search: "搜索",
       searchShortcut: "搜索（{{shortcut}}）",
@@ -4225,6 +4308,7 @@ export const messagesByLocale = {
       noAnalysesYet: "Aún no hay análisis",
       dashboardsLoadFailed: "No se pudieron cargar los paneles.",
       analysesLoadFailed: "No se pudieron cargar los análisis.",
+      favoritesUnavailable: "Los favoritos no están disponibles ahora",
       retry: "Reintentar",
       search: "Buscar",
       searchShortcut: "Buscar ({{shortcut}})",
@@ -4444,6 +4528,7 @@ export const messagesByLocale = {
       noAnalysesYet: "Aucune analyse pour le moment",
       dashboardsLoadFailed: "Impossible de charger les tableaux de bord.",
       analysesLoadFailed: "Impossible de charger les analyses.",
+      favoritesUnavailable: "Les favoris sont indisponibles pour le moment",
       retry: "Réessayer",
       search: "Rechercher",
       searchShortcut: "Rechercher ({{shortcut}})",
@@ -4669,6 +4754,7 @@ export const messagesByLocale = {
       noAnalysesYet: "Noch keine Analysen",
       dashboardsLoadFailed: "Dashboards konnten nicht geladen werden.",
       analysesLoadFailed: "Analysen konnten nicht geladen werden.",
+      favoritesUnavailable: "Favoriten sind momentan nicht verfügbar",
       retry: "Erneut versuchen",
       search: "Suchen",
       searchShortcut: "Suchen ({{shortcut}})",
@@ -4894,6 +4980,7 @@ export const messagesByLocale = {
       noAnalysesYet: "分析はまだありません",
       dashboardsLoadFailed: "ダッシュボードを読み込めませんでした。",
       analysesLoadFailed: "分析を読み込めませんでした。",
+      favoritesUnavailable: "お気に入りは現在利用できません",
       retry: "再試行",
       search: "検索",
       searchShortcut: "検索（{{shortcut}}）",
@@ -5112,6 +5199,7 @@ export const messagesByLocale = {
       noAnalysesYet: "아직 분석이 없습니다",
       dashboardsLoadFailed: "대시보드를 불러오지 못했습니다.",
       analysesLoadFailed: "분석을 불러오지 못했습니다.",
+      favoritesUnavailable: "즐겨찾기를 지금 사용할 수 없습니다",
       retry: "다시 시도",
       search: "검색",
       searchShortcut: "검색({{shortcut}})",
@@ -5330,6 +5418,7 @@ export const messagesByLocale = {
       noAnalysesYet: "Ainda não há análises",
       dashboardsLoadFailed: "Não foi possível carregar os painéis.",
       analysesLoadFailed: "Não foi possível carregar as análises.",
+      favoritesUnavailable: "Os favoritos não estão disponíveis no momento",
       retry: "Tentar novamente",
       search: "Pesquisar",
       searchShortcut: "Pesquisar ({{shortcut}})",
@@ -5555,6 +5644,7 @@ export const messagesByLocale = {
       noAnalysesYet: "अभी कोई विश्लेषण नहीं",
       dashboardsLoadFailed: "डैशबोर्ड लोड नहीं हो सके।",
       analysesLoadFailed: "विश्लेषण लोड नहीं हो सके।",
+      favoritesUnavailable: "पसंदीदा अभी उपलब्ध नहीं हैं",
       retry: "फिर से कोशिश करें",
       search: "खोजें",
       searchShortcut: "खोजें ({{shortcut}})",
@@ -5770,6 +5860,7 @@ export const messagesByLocale = {
       noAnalysesYet: "لا توجد تحليلات بعد",
       dashboardsLoadFailed: "تعذر تحميل لوحات المعلومات.",
       analysesLoadFailed: "تعذر تحميل التحليلات.",
+      favoritesUnavailable: "المفضلة غير متاحة الآن",
       retry: "إعادة المحاولة",
       search: "بحث",
       searchShortcut: "بحث ({{shortcut}})",
@@ -6142,14 +6233,20 @@ const translatedAnalyticsDebtTranslations = {
       noSavedViews: "尚未保存视图。",
       panelOptions: "面板选项",
       chatWithPanel: "与面板聊天",
+      customBlock: "自定义块",
+      customBlockProvenance: "沙盒化仪表板块",
+      customBlockAgentProvenance: "代理编写的仪表板补丁",
+      promoteToAppCode: "提升为应用代码",
+      promoteCustomBlockMessage:
+        "将自定义块“{{title}}”提升为可复用的原生 Analytics 应用代码。",
       saveAsView: "另存为视图",
       saveCurrentView: "保存当前视图",
       saveFailed: "无法保存仪表板",
       saveView: "保存视图",
       savedViews: "已保存的视图",
       sectionOptions: "部分选项",
-      extensionMissingId: "此扩展面板未选择任何扩展。",
-      extensionUnavailable: "此扩展未与您共享，或已不存在。",
+      extensionMissingId: "此自定义块未选择来源。",
+      extensionUnavailable: "此自定义块未与您共享，或已不存在。",
       sharedWithOrg: "与组织共享",
       unhideFailed: "无法取消隐藏仪表板",
       untitledDashboard: "无标题仪表板",
@@ -6361,6 +6458,12 @@ const translatedAnalyticsDebtTranslations = {
       noSavedViews: "Aún no hay vistas guardadas.",
       panelOptions: "Opciones de paneles",
       chatWithPanel: "Chatear sobre el panel",
+      customBlock: "Bloque personalizado",
+      customBlockProvenance: "Bloque de panel en entorno aislado",
+      customBlockAgentProvenance: "Parche de panel creado por el agente",
+      promoteToAppCode: "Promover a código de la aplicación",
+      promoteCustomBlockMessage:
+        'Promueve el bloque personalizado "{{title}}" a código nativo y reutilizable de Analytics.',
       saveAsView: "Guardar como vista",
       saveCurrentView: "Guardar vista actual",
       saveFailed: "No se pudo guardar el panel",
@@ -6368,9 +6471,9 @@ const translatedAnalyticsDebtTranslations = {
       savedViews: "Vistas guardadas",
       sectionOptions: "Opciones de sección",
       extensionMissingId:
-        "Este panel de extensión no tiene ninguna extensión seleccionada.",
+        "Este bloque personalizado no tiene una fuente seleccionada.",
       extensionUnavailable:
-        "Esta extensión no está compartida contigo o ya no existe.",
+        "Este bloque personalizado no está compartido contigo o ya no existe.",
       sharedWithOrg: "Compartido con la organización",
       unhideFailed: "No se pudo mostrar el panel",
       untitledDashboard: "Panel de control sin título",
@@ -6584,6 +6687,13 @@ const translatedAnalyticsDebtTranslations = {
       noSavedViews: "Aucune vue enregistrée pour l'instant.",
       panelOptions: "Options du panneau",
       chatWithPanel: "Discuter du panneau",
+      customBlock: "Bloc personnalisé",
+      customBlockProvenance: "Bloc de tableau de bord isolé",
+      customBlockAgentProvenance:
+        "Correctif de tableau de bord créé par l’agent",
+      promoteToAppCode: "Promouvoir en code d’application",
+      promoteCustomBlockMessage:
+        "Promouvoir le bloc personnalisé « {{title}} » en code Analytics natif et réutilisable.",
       saveAsView: "Enregistrer sous vue",
       saveCurrentView: "Enregistrer la vue actuelle",
       saveFailed: "Impossible d'enregistrer le tableau de bord",
@@ -6591,9 +6701,9 @@ const translatedAnalyticsDebtTranslations = {
       savedViews: "Vues enregistrées",
       sectionOptions: "Options de sections",
       extensionMissingId:
-        "Ce panneau d'extension n'a aucune extension sélectionnée.",
+        "Ce bloc personnalisé n’a aucune source sélectionnée.",
       extensionUnavailable:
-        "Cette extension n'est pas partagée avec vous ou n'existe plus.",
+        "Ce bloc personnalisé n’est pas partagé avec vous ou n’existe plus.",
       sharedWithOrg: "Partagé avec l'organisation",
       unhideFailed: "Impossible d'afficher le tableau de bord",
       untitledDashboard: "Tableau de bord sans titre",
@@ -6808,6 +6918,12 @@ const translatedAnalyticsDebtTranslations = {
       noSavedViews: "Noch keine gespeicherten Ansichten.",
       panelOptions: "Panel-Optionen",
       chatWithPanel: "Mit Panel chatten",
+      customBlock: "Benutzerdefinierter Block",
+      customBlockProvenance: "Sandbox-Dashboard-Block",
+      customBlockAgentProvenance: "Vom Agenten erstellter Dashboard-Patch",
+      promoteToAppCode: "In App-Code überführen",
+      promoteCustomBlockMessage:
+        "Den benutzerdefinierten Block „{{title}}“ in wiederverwendbaren nativen Analytics-App-Code überführen.",
       saveAsView: "Als Ansicht speichern",
       saveCurrentView: "Aktuelle Ansicht speichern",
       saveFailed: "Das Dashboard konnte nicht gespeichert werden",
@@ -6815,9 +6931,9 @@ const translatedAnalyticsDebtTranslations = {
       savedViews: "Gespeicherte Ansichten",
       sectionOptions: "Abschnittsoptionen",
       extensionMissingId:
-        "Für dieses Erweiterungs-Panel ist keine Erweiterung ausgewählt.",
+        "Für diesen benutzerdefinierten Block ist keine Quelle ausgewählt.",
       extensionUnavailable:
-        "Diese Erweiterung ist nicht für Sie freigegeben oder existiert nicht mehr.",
+        "Dieser benutzerdefinierte Block ist nicht für Sie freigegeben oder existiert nicht mehr.",
       sharedWithOrg: "Mit Org geteilt",
       unhideFailed: "Das Dashboard konnte nicht eingeblendet werden",
       untitledDashboard: "Unbenanntes Dashboard",
@@ -7027,6 +7143,12 @@ const translatedAnalyticsDebtTranslations = {
       noSavedViews: "保存されたビューはまだありません。",
       panelOptions: "パネルオプション",
       chatWithPanel: "パネルについてチャット",
+      customBlock: "カスタムブロック",
+      customBlockProvenance: "サンドボックス化されたダッシュボードブロック",
+      customBlockAgentProvenance: "エージェントが作成したダッシュボードパッチ",
+      promoteToAppCode: "アプリコードに昇格",
+      promoteCustomBlockMessage:
+        "カスタムブロック「{{title}}」を再利用可能なネイティブ Analytics アプリコードに昇格します。",
       saveAsView: "ビューとして保存",
       saveCurrentView: "現在のビューを保存する",
       saveFailed: "ダッシュボードを保存できませんでした",
@@ -7034,9 +7156,9 @@ const translatedAnalyticsDebtTranslations = {
       savedViews: "保存されたビュー",
       sectionOptions: "セクションのオプション",
       extensionMissingId:
-        "この拡張機能パネルには拡張機能が選択されていません。",
+        "このカスタムブロックにはソースが選択されていません。",
       extensionUnavailable:
-        "この拡張機能はあなたと共有されていないか、存在しません。",
+        "このカスタムブロックはあなたと共有されていないか、存在しません。",
       sharedWithOrg: "組織と共有",
       unhideFailed: "ダッシュボードを再表示できませんでした",
       untitledDashboard: "無題のダッシュボード",
@@ -7245,16 +7367,21 @@ const translatedAnalyticsDebtTranslations = {
       noSavedViews: "아직 저장된 보기가 없습니다.",
       panelOptions: "패널 옵션",
       chatWithPanel: "패널에 대해 채팅",
+      customBlock: "사용자 지정 블록",
+      customBlockProvenance: "샌드박스 대시보드 블록",
+      customBlockAgentProvenance: "에이전트가 작성한 대시보드 패치",
+      promoteToAppCode: "앱 코드로 승격",
+      promoteCustomBlockMessage:
+        '사용자 지정 블록 "{{title}}"을 재사용 가능한 네이티브 Analytics 앱 코드로 승격합니다.',
       saveAsView: "보기로 저장",
       saveCurrentView: "현재 보기 저장",
       saveFailed: "대시보드를 저장할 수 없습니다.",
       saveView: "보기 저장",
       savedViews: "저장된 보기",
       sectionOptions: "섹션 옵션",
-      extensionMissingId:
-        "이 확장 프로그램 패널에 선택된 확장 프로그램이 없습니다.",
+      extensionMissingId: "이 사용자 지정 블록에 선택된 소스가 없습니다.",
       extensionUnavailable:
-        "이 확장 프로그램이 공유되지 않았거나 더 이상 존재하지 않습니다.",
+        "이 사용자 지정 블록이 공유되지 않았거나 더 이상 존재하지 않습니다.",
       sharedWithOrg: "조직과 공유됨",
       unhideFailed: "대시보드를 숨기기 해제할 수 없습니다.",
       untitledDashboard: "제목 없는 대시보드",
@@ -7467,6 +7594,12 @@ const translatedAnalyticsDebtTranslations = {
       noSavedViews: "Nenhuma visualização salva ainda.",
       panelOptions: "Opções do painel",
       chatWithPanel: "Conversar sobre o painel",
+      customBlock: "Bloco personalizado",
+      customBlockProvenance: "Bloco de painel em sandbox",
+      customBlockAgentProvenance: "Patch de painel criado pelo agente",
+      promoteToAppCode: "Promover para código do app",
+      promoteCustomBlockMessage:
+        'Promova o bloco personalizado "{{title}}" para código nativo e reutilizável do Analytics.',
       saveAsView: "Salvar como visualização",
       saveCurrentView: "Salvar visualização atual",
       saveFailed: "Não foi possível salvar o painel",
@@ -7474,9 +7607,9 @@ const translatedAnalyticsDebtTranslations = {
       savedViews: "Visualizações salvas",
       sectionOptions: "Opções de seção",
       extensionMissingId:
-        "Este painel de extensão não tem nenhuma extensão selecionada.",
+        "Este bloco personalizado não tem uma fonte selecionada.",
       extensionUnavailable:
-        "Esta extensão não foi compartilhada com você ou não existe mais.",
+        "Este bloco personalizado não foi compartilhado com você ou não existe mais.",
       sharedWithOrg: "Compartilhado com a organização",
       unhideFailed: "Não foi possível exibir o painel",
       untitledDashboard: "Painel sem título",
@@ -7685,15 +7818,21 @@ const translatedAnalyticsDebtTranslations = {
       noSavedViews: "अभी तक कोई सहेजा गया दृश्य नहीं.",
       panelOptions: "पैनल विकल्प",
       chatWithPanel: "पैनल के बारे में चैट करें",
+      customBlock: "कस्टम ब्लॉक",
+      customBlockProvenance: "सैंडबॉक्स डैशबोर्ड ब्लॉक",
+      customBlockAgentProvenance: "एजेंट द्वारा बनाया गया डैशबोर्ड पैच",
+      promoteToAppCode: "ऐप कोड में प्रमोट करें",
+      promoteCustomBlockMessage:
+        'कस्टम ब्लॉक "{{title}}" को पुन: उपयोग योग्य नेटिव Analytics ऐप कोड में प्रमोट करें।',
       saveAsView: "दृश्य के रूप में सहेजें",
       saveCurrentView: "वर्तमान दृश्य सहेजें",
       saveFailed: "डैशबोर्ड सहेजा नहीं जा सका",
       saveView: "दृश्य सहेजें",
       savedViews: "सहेजे गए दृश्य",
       sectionOptions: "अनुभाग विकल्प",
-      extensionMissingId: "इस एक्सटेंशन पैनल में कोई एक्सटेंशन चयनित नहीं है।",
+      extensionMissingId: "इस कस्टम ब्लॉक में कोई स्रोत चयनित नहीं है।",
       extensionUnavailable:
-        "यह एक्सटेंशन आपके साथ साझा नहीं किया गया है, या अब मौजूद नहीं है।",
+        "यह कस्टम ब्लॉक आपके साथ साझा नहीं किया गया है, या अब मौजूद नहीं है।",
       sharedWithOrg: "संगठन के साथ साझा किया गया",
       unhideFailed: "डैशबोर्ड को उजागर नहीं किया जा सका",
       untitledDashboard: "शीर्षक रहित डैशबोर्ड",
@@ -7901,14 +8040,21 @@ const translatedAnalyticsDebtTranslations = {
       noSavedViews: "لا توجد طرق عرض محفوظة حتى الآن.",
       panelOptions: "خيارات اللوحة",
       chatWithPanel: "الدردشة حول اللوحة",
+      customBlock: "كتلة مخصصة",
+      customBlockProvenance: "كتلة لوحة معلومات معزولة",
+      customBlockAgentProvenance: "تصحيح لوحة معلومات أنشأه الوكيل",
+      promoteToAppCode: "ترقية إلى كود التطبيق",
+      promoteCustomBlockMessage:
+        'رقّ الكتلة المخصصة "{{title}}" إلى كود Analytics أصلي قابل لإعادة الاستخدام.',
       saveAsView: "حفظ كعرض",
       saveCurrentView: "حفظ العرض الحالي",
       saveFailed: "تعذر حفظ لوحة البيانات",
       saveView: "حفظ العرض",
       savedViews: "المشاهدات المحفوظة",
       sectionOptions: "خيارات القسم",
-      extensionMissingId: "لم يتم تحديد أي إضافة في لوحة الإضافة هذه.",
-      extensionUnavailable: "هذه الإضافة غير مشاركة معك، أو لم تعد موجودة.",
+      extensionMissingId: "لم يتم تحديد مصدر لهذه الكتلة المخصصة.",
+      extensionUnavailable:
+        "هذه الكتلة المخصصة غير مشتركة معك، أو لم تعد موجودة.",
       sharedWithOrg: "تمت المشاركة مع منظمة",
       unhideFailed: "تعذر إظهار لوحة البيانات",
       untitledDashboard: "لوحة تحكم بلا عنوان",
@@ -11762,6 +11908,14 @@ const translatedHistoryTranslations = {
       historyRestoreQuestion: "要還原此儀表板版本嗎？",
       historyRestoreWarning:
         "這會取代目前的儀表板版面，並將目前狀態保存到歷史記錄。",
+      undo: "復原",
+      undoSuccess: "已復原儀表板變更",
+      undoFailed: "無法復原儀表板變更",
+      undoFailedWithMessage: "無法復原儀表板變更：{{message}}",
+      redo: "重做",
+      redoSuccess: "已重做儀表板變更",
+      redoFailed: "無法重做儀表板變更",
+      redoFailedWithMessage: "無法重做儀表板變更：{{message}}",
     },
     analyses: {
       historyTitle: "分析歷史記錄",
@@ -11791,6 +11945,14 @@ const translatedHistoryTranslations = {
       historyRestoreQuestion: "要还原此仪表板版本吗？",
       historyRestoreWarning:
         "这会替换当前仪表板布局，并把当前状态保存到历史记录。",
+      undo: "撤销",
+      undoSuccess: "已撤销仪表板更改",
+      undoFailed: "无法撤销仪表板更改",
+      undoFailedWithMessage: "无法撤销仪表板更改：{{message}}",
+      redo: "重做",
+      redoSuccess: "已重做仪表板更改",
+      redoFailed: "无法重做仪表板更改",
+      redoFailedWithMessage: "无法重做仪表板更改：{{message}}",
     },
     analyses: {
       historyTitle: "分析历史记录",
@@ -11822,6 +11984,16 @@ const translatedHistoryTranslations = {
       historyRestoreQuestion: "¿Restaurar esta versión del panel?",
       historyRestoreWarning:
         "Esto reemplaza el diseño actual del panel y guarda el estado actual en el historial.",
+      undo: "Deshacer",
+      undoSuccess: "Cambio del panel deshecho",
+      undoFailed: "No se pudo deshacer el cambio del panel",
+      undoFailedWithMessage:
+        "No se pudo deshacer el cambio del panel: {{message}}",
+      redo: "Rehacer",
+      redoSuccess: "Cambio del panel rehecho",
+      redoFailed: "No se pudo rehacer el cambio del panel",
+      redoFailedWithMessage:
+        "No se pudo rehacer el cambio del panel: {{message}}",
     },
     analyses: {
       historyTitle: "Historial del análisis",
@@ -11855,6 +12027,16 @@ const translatedHistoryTranslations = {
       historyRestoreQuestion: "Restaurer cette version du tableau de bord ?",
       historyRestoreWarning:
         "Cela remplace la mise en page actuelle du tableau de bord et enregistre l'état actuel dans l'historique.",
+      undo: "Annuler",
+      undoSuccess: "Modification du tableau de bord annulée",
+      undoFailed: "Impossible d'annuler la modification du tableau de bord",
+      undoFailedWithMessage:
+        "Impossible d'annuler la modification du tableau de bord : {{message}}",
+      redo: "Rétablir",
+      redoSuccess: "Modification du tableau de bord rétablie",
+      redoFailed: "Impossible de rétablir la modification du tableau de bord",
+      redoFailedWithMessage:
+        "Impossible de rétablir la modification du tableau de bord : {{message}}",
     },
     analyses: {
       historyTitle: "Historique de l'analyse",
@@ -11888,6 +12070,16 @@ const translatedHistoryTranslations = {
       historyRestoreQuestion: "Diese Dashboard-Version wiederherstellen?",
       historyRestoreWarning:
         "Dies ersetzt das aktuelle Dashboard-Layout und speichert den aktuellen Stand im Verlauf.",
+      undo: "Rückgängig",
+      undoSuccess: "Dashboard-Änderung rückgängig gemacht",
+      undoFailed: "Dashboard-Änderung konnte nicht rückgängig gemacht werden",
+      undoFailedWithMessage:
+        "Dashboard-Änderung konnte nicht rückgängig gemacht werden: {{message}}",
+      redo: "Wiederholen",
+      redoSuccess: "Dashboard-Änderung wiederholt",
+      redoFailed: "Dashboard-Änderung konnte nicht wiederholt werden",
+      redoFailedWithMessage:
+        "Dashboard-Änderung konnte nicht wiederholt werden: {{message}}",
     },
     analyses: {
       historyTitle: "Analyseverlauf",
@@ -11921,6 +12113,16 @@ const translatedHistoryTranslations = {
       historyRestoreQuestion: "このダッシュボード版を復元しますか？",
       historyRestoreWarning:
         "現在のダッシュボードレイアウトを置き換え、現在の状態を履歴に保存します。",
+      undo: "元に戻す",
+      undoSuccess: "ダッシュボードの変更を元に戻しました",
+      undoFailed: "ダッシュボードの変更を元に戻せませんでした",
+      undoFailedWithMessage:
+        "ダッシュボードの変更を元に戻せませんでした：{{message}}",
+      redo: "やり直す",
+      redoSuccess: "ダッシュボードの変更をやり直しました",
+      redoFailed: "ダッシュボードの変更をやり直せませんでした",
+      redoFailedWithMessage:
+        "ダッシュボードの変更をやり直せませんでした：{{message}}",
     },
     analyses: {
       historyTitle: "分析履歴",
@@ -11954,6 +12156,16 @@ const translatedHistoryTranslations = {
       historyRestoreQuestion: "이 대시보드 버전을 복원할까요?",
       historyRestoreWarning:
         "현재 대시보드 레이아웃을 대체하고 현재 상태를 기록에 저장합니다.",
+      undo: "실행 취소",
+      undoSuccess: "대시보드 변경을 실행 취소했습니다",
+      undoFailed: "대시보드 변경을 실행 취소할 수 없습니다",
+      undoFailedWithMessage:
+        "대시보드 변경을 실행 취소할 수 없습니다: {{message}}",
+      redo: "다시 실행",
+      redoSuccess: "대시보드 변경을 다시 실행했습니다",
+      redoFailed: "대시보드 변경을 다시 실행할 수 없습니다",
+      redoFailedWithMessage:
+        "대시보드 변경을 다시 실행할 수 없습니다: {{message}}",
     },
     analyses: {
       historyTitle: "분석 기록",
@@ -11987,6 +12199,16 @@ const translatedHistoryTranslations = {
       historyRestoreQuestion: "Restaurar esta versão do painel?",
       historyRestoreWarning:
         "Isso substitui o layout atual do painel e salva o estado atual no histórico.",
+      undo: "Desfazer",
+      undoSuccess: "Alteração do painel desfeita",
+      undoFailed: "Não foi possível desfazer a alteração do painel",
+      undoFailedWithMessage:
+        "Não foi possível desfazer a alteração do painel: {{message}}",
+      redo: "Refazer",
+      redoSuccess: "Alteração do painel refeita",
+      redoFailed: "Não foi possível refazer a alteração do painel",
+      redoFailedWithMessage:
+        "Não foi possível refazer a alteração do painel: {{message}}",
     },
     analyses: {
       historyTitle: "Histórico da análise",
@@ -12020,6 +12242,14 @@ const translatedHistoryTranslations = {
       historyRestoreQuestion: "इस डैशबोर्ड संस्करण को पुनर्स्थापित करें?",
       historyRestoreWarning:
         "यह वर्तमान डैशबोर्ड layout को बदल देगा और वर्तमान स्थिति को इतिहास में सहेजेगा।",
+      undo: "पूर्ववत करें",
+      undoSuccess: "डैशबोर्ड बदलाव पूर्ववत किया गया",
+      undoFailed: "डैशबोर्ड बदलाव पूर्ववत नहीं किया जा सका",
+      undoFailedWithMessage: "डैशबोर्ड बदलाव पूर्ववत नहीं किया जा सका: {{message}}",
+      redo: "फिर से करें",
+      redoSuccess: "डैशबोर्ड बदलाव फिर से किया गया",
+      redoFailed: "डैशबोर्ड बदलाव फिर से नहीं किया जा सका",
+      redoFailedWithMessage: "डैशबोर्ड बदलाव फिर से नहीं किया जा सका: {{message}}",
     },
     analyses: {
       historyTitle: "विश्लेषण इतिहास",
@@ -12053,6 +12283,16 @@ const translatedHistoryTranslations = {
       historyRestoreQuestion: "هل تريد استعادة هذا الإصدار من لوحة المعلومات؟",
       historyRestoreWarning:
         "سيستبدل هذا تخطيط لوحة المعلومات الحالي ويحفظ الحالة الحالية في السجل.",
+      undo: "تراجع",
+      undoSuccess: "تم التراجع عن تغيير لوحة المعلومات",
+      undoFailed: "تعذر التراجع عن تغيير لوحة المعلومات",
+      undoFailedWithMessage:
+        "تعذر التراجع عن تغيير لوحة المعلومات: {{message}}",
+      redo: "إعادة",
+      redoSuccess: "تمت إعادة تطبيق تغيير لوحة المعلومات",
+      redoFailed: "تعذرت إعادة تطبيق تغيير لوحة المعلومات",
+      redoFailedWithMessage:
+        "تعذرت إعادة تطبيق تغيير لوحة المعلومات: {{message}}",
     },
     analyses: {
       historyTitle: "سجل التحليل",

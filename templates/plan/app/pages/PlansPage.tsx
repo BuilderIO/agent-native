@@ -19,6 +19,7 @@ import {
 } from "@agent-native/core/client/org";
 import { ShareButton } from "@agent-native/core/client/sharing";
 import {
+  buildSignInReturnHref,
   ErrorReportActions,
   type ErrorReportDebugItem,
 } from "@agent-native/core/client/ui";
@@ -1466,7 +1467,7 @@ function resolveInlineCommentPosition(input: {
   };
 }
 
-function buildPlanAgentContext(input: {
+export function buildPlanAgentContext(input: {
   bundle: PlanBundle & { html?: string };
   documentHtml: string;
   url: string;
@@ -1562,7 +1563,7 @@ function buildPlanAgentContext(input: {
         .join("\n");
     })
     .join("\n");
-  const recentReviewEvents = input.bundle.events
+  const recentReviewEvents = (input.bundle.events ?? [])
     .filter((event) => event.type === "plan.updated")
     .slice(-6)
     .map((event) => {
@@ -2151,11 +2152,9 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   );
   // Redirect to sign-in, returning to wherever the guest currently is.
   const openSignIn = useCallback((returnOverride?: string) => {
-    const returnPath =
-      returnOverride ?? planReturnPathFromLocation(window.location);
-    window.location.href = `${agentNativePath(
-      "/_agent-native/sign-in",
-    )}?return=${encodeURIComponent(returnPath)}`;
+    window.location.href = buildSignInReturnHref({
+      returnTo: returnOverride ?? planReturnPathFromLocation(window.location),
+    });
   }, []);
   const requestCreatePlan = useCallback(() => {
     if (sessionLoading) return;
@@ -6156,11 +6155,7 @@ function PlanShareControl({
   }, [planId]);
 
   const openAuthFlow = useCallback((authUrl?: string) => {
-    const returnPath = `${window.location.pathname}${window.location.search}`;
-    const target =
-      authUrl ||
-      `${agentNativePath("/_agent-native/sign-in")}?return=${encodeURIComponent(returnPath)}`;
-    window.location.href = target;
+    window.location.href = authUrl || buildSignInReturnHref();
   }, []);
 
   const copyPublishedUrl = useCallback(

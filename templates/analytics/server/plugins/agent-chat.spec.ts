@@ -1,16 +1,55 @@
-import type {
-  ActionEntry,
-  AgentLoopFinalResponseGuardContext,
-} from "@agent-native/core/server";
+import type { AgentLoopFinalResponseGuardContext } from "@agent-native/core/server";
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("../../.generated/actions-registry.js", () => ({ default: {} }));
+const { agentChatPluginOptions, representativeAnalyticsActions } = vi.hoisted(
+  () => ({
+    agentChatPluginOptions: [] as Array<Record<string, unknown>>,
+    representativeAnalyticsActions: {
+      "query-agent-native-analytics": {
+        readOnly: true,
+        tool: {
+          description: "Query first-party analytics",
+          parameters: { type: "object", properties: {} },
+        },
+        run: async () => "ok",
+      },
+      bigquery: {
+        readOnly: true,
+        tool: {
+          description: "Query BigQuery",
+          parameters: { type: "object", properties: {} },
+        },
+        run: async () => "ok",
+      },
+      "hubspot-records": {
+        readOnly: true,
+        tool: {
+          description: "Read HubSpot records",
+          parameters: { type: "object", properties: {} },
+        },
+        run: async () => "ok",
+      },
+    },
+  }),
+);
 
-import {
-  applyAnalyticsPlanModePolicy,
-  PLAN_MODE_ACT_ONLY_TOOLS,
-  INITIAL_TOOL_NAMES,
-} from "../lib/agent-chat-plan-mode";
+vi.mock("@agent-native/core/server", async (importOriginal) => {
+  const original =
+    await importOriginal<typeof import("@agent-native/core/server")>();
+  return {
+    ...original,
+    createAgentChatPlugin: (options: Record<string, unknown>) => {
+      agentChatPluginOptions.push(options);
+      return () => {};
+    },
+  };
+});
+
+vi.mock("../../.generated/actions-registry.js", () => ({
+  default: representativeAnalyticsActions,
+}));
+
+import { INITIAL_TOOL_NAMES } from "../lib/agent-chat-plan-mode";
 import {
   GENERIC_NO_DATA_FALLBACK_MESSAGE,
   looksLikeAnalyticsDataRequest,
@@ -19,6 +58,7 @@ import {
   analyticsDataDictionaryRoutingContext,
   analyticsSourceGuidanceOpening,
   ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE,
+  ANALYTICS_CUSTOM_BLOCK_GUIDANCE,
   ANALYTICS_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS,
   BOUNDED_STRUCTURED_LOOKUP_GUIDANCE,
   BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE,
@@ -27,19 +67,6 @@ import {
   NON_ANALYTICS_REQUEST_GUIDANCE,
   realDataFinalGuard,
 } from "./agent-chat";
-
-type PlanModePolicyEntry = ActionEntry & { allowInPlanMode?: boolean };
-
-function action(readOnly = true): ActionEntry {
-  return {
-    readOnly,
-    tool: {
-      description: "test action",
-      parameters: { type: "object", properties: {} },
-    },
-    run: async () => "ok",
-  };
-}
 
 describe("Analytics agent Plan mode policy", () => {
   it("recovers a silent background dashboard run before the long chunk timeout", () => {
@@ -106,7 +133,10 @@ describe("Analytics agent Plan mode policy", () => {
       "detailed error text, stacks, request metadata",
     );
     expect(ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE).toContain(
-      "In Plan mode, query-agent-native-analytics is intentionally unavailable",
+      "read-only investigation tools remain available in Plan mode",
+    );
+    expect(ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE).toContain(
+      "run the query instead of deferring it",
     );
   });
 
@@ -122,65 +152,17 @@ describe("Analytics agent Plan mode policy", () => {
     expect(context.length).toBeLessThan(1_000);
   });
 
-  it("marks substantive data-analysis tools as Act-only without changing lightweight planning tools", () => {
-    const actions = applyAnalyticsPlanModePolicy({
-      "data-source-status": action(),
-      "search-bigquery-schema": action(),
-      bigquery: action(),
-      "provider-api-request": action(),
-      "query-staged-dataset": action(),
-      "hubspot-deals": action(),
-      "hubspot-pipelines": action(),
-      "github-repo-files": action(),
-    });
+  it("leaves representative read-only Analytics tools available to the shared Plan-mode policy", () => {
+    const pluginActions = agentChatPluginOptions[0]?.actions as Record<
+      string,
+      Record<string, unknown>
+    >;
 
-    expect(
-      (actions["data-source-status"] as PlanModePolicyEntry).allowInPlanMode,
-    ).toBeUndefined();
-    expect(
-      (actions["search-bigquery-schema"] as PlanModePolicyEntry)
-        .allowInPlanMode,
-    ).toBeUndefined();
-    expect((actions.bigquery as PlanModePolicyEntry).allowInPlanMode).toBe(
-      false,
-    );
-    expect(
-      (actions["provider-api-request"] as PlanModePolicyEntry).allowInPlanMode,
-    ).toBe(false);
-    expect(
-      (actions["query-staged-dataset"] as PlanModePolicyEntry).allowInPlanMode,
-    ).toBe(false);
-    expect(
-      (actions["hubspot-deals"] as PlanModePolicyEntry).allowInPlanMode,
-    ).toBe(false);
-    expect(
-      (actions["hubspot-pipelines"] as PlanModePolicyEntry).allowInPlanMode,
-    ).toBe(false);
-    expect(
-      (actions["github-repo-files"] as PlanModePolicyEntry).allowInPlanMode,
-    ).toBe(false);
+    for (const name of Object.keys(representativeAnalyticsActions)) {
+      expect(pluginActions[name]?.readOnly).toBe(true);
+      expect(pluginActions[name]).not.toHaveProperty("allowInPlanMode", false);
+    }
   });
-
-  it("documents the complete Analytics Act-only Plan mode tool set", () => {
-    expect([...PLAN_MODE_ACT_ONLY_TOOLS].sort()).toEqual([
-      "account-deep-dive",
-      "bigquery",
-      "github-repo-files",
-      "gong-calls",
-      "gong-native-insights",
-      "hubspot-deals",
-      "hubspot-pipelines",
-      "hubspot-records",
-      "jira-search",
-      "provider-api-request",
-      "provider-corpus-job",
-      "query-agent-native-analytics",
-      "query-staged-dataset",
-      "sentry",
-      "slack-messages",
-    ]);
-  });
-
   it("keeps corpus tools discoverable without loading them initially", () => {
     expect(INITIAL_TOOL_NAMES).toEqual(
       expect.arrayContaining([
@@ -229,6 +211,40 @@ describe("Analytics agent Plan mode policy", () => {
 
   it("keeps the first-party query action on the initial tool surface", () => {
     expect(INITIAL_TOOL_NAMES).toContain("query-agent-native-analytics");
+  });
+
+  it("makes Custom Blocks a deliberate one-off exception to native dashboards", () => {
+    expect(ANALYTICS_CUSTOM_BLOCK_GUIDANCE).toContain(
+      "native dashboard panels and Data Programs first",
+    );
+    expect(ANALYTICS_CUSTOM_BLOCK_GUIDANCE).toContain(
+      "only when the user explicitly asks",
+    );
+    expect(ANALYTICS_CUSTOM_BLOCK_GUIDANCE).toContain(
+      "intended scope is this dashboard",
+    );
+    expect(ANALYTICS_CUSTOM_BLOCK_GUIDANCE).toContain("nativeGapReason");
+    expect(ANALYTICS_CUSTOM_BLOCK_GUIDANCE).toContain(
+      "never put prompt text, customer data",
+    );
+    expect(ANALYTICS_CUSTOM_BLOCK_GUIDANCE).toContain("call `connect-builder`");
+    expect(ANALYTICS_CUSTOM_BLOCK_GUIDANCE).toContain(
+      "preserve the existing Custom Block",
+    );
+    expect(ANALYTICS_CUSTOM_BLOCK_GUIDANCE).not.toContain(
+      "automatically create",
+    );
+  });
+
+  it("explicitly keeps extension creation enabled for Analytics Custom Blocks", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const [agentChatSource, coreRoutesSource] = await Promise.all([
+      readFile(new URL("./agent-chat.ts", import.meta.url), "utf8"),
+      readFile(new URL("./core-routes.ts", import.meta.url), "utf8"),
+    ]);
+
+    expect(agentChatSource).toContain("extensionTools: true");
+    expect(coreRoutesSource).toContain("extensionTools: true");
   });
 });
 
@@ -368,6 +384,46 @@ describe("realDataFinalGuard", () => {
     });
   });
 
+  it("does not demand a connect-sources link when data-source-status never ran", () => {
+    // A draft that ends in a question counts as a safe no-data response, and
+    // this turn only saved a panel. Nothing here shows a source is missing, so
+    // the guard must not instruct the model to say one is unavailable — the
+    // model recognizes that instruction as a prompt injection and refuses it
+    // out loud to the user.
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "yes add conversion rate",
+        draftText:
+          "Which denominator do you want for that rate — all visitors, or only the AN-tagged ones?",
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("still reports a real query failure without inventing a missing source", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "what was our signup conversion last week",
+        draftText: "Signup conversion was 4.2% last week.",
+        toolResults: [
+          {
+            name: "bigquery",
+            isError: true,
+            content: "Syntax error at [3:9]",
+          },
+        ],
+      }),
+    );
+
+    expect((result as { retryMessage: string }).retryMessage).toContain(
+      "Syntax error",
+    );
+    expect((result as { retryMessage: string }).retryMessage).not.toContain(
+      "which external source is missing",
+    );
+  });
+
   it("accepts the action's string setup link without overwriting it with the settings path", () => {
     const setupLink = "/_agent-native/open?app=analytics&view=data-sources";
     const result = realDataFinalGuard(
@@ -434,6 +490,184 @@ describe("realDataFinalGuard", () => {
       retryMessage: expect.stringContaining(setupLink),
       fallbackMessage: expect.stringContaining(setupLink),
     });
+  });
+
+  it("uses a focused native HubSpot setup link instead of the generic integrations page", () => {
+    const genericSetupLink =
+      "/_agent-native/open?app=analytics&view=data-sources";
+    const hubspotSetupLink =
+      "/_agent-native/open?app=analytics&view=data-sources&to=%2Fdata-sources%3Fsource%3Dhubspot%26returnTo%3Dask";
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "show me our HubSpot pipeline",
+        draftText: "HubSpot is not connected yet.",
+        toolResults: [
+          {
+            name: "data-source-status",
+            isError: false,
+            content: JSON.stringify({
+              configuredDataSources: [
+                {
+                  provider: "first-party",
+                  label: "First-party Analytics",
+                  via: "built-in",
+                },
+              ],
+              providers: [
+                {
+                  provider: "hubspot",
+                  label: "HubSpot",
+                  configured: false,
+                  setupLink: hubspotSetupLink,
+                },
+              ],
+              dataSourcesSetupLink: genericSetupLink,
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining(
+        `[Connect HubSpot](${hubspotSetupLink})`,
+      ),
+      fallbackMessage: expect.stringContaining(
+        `[Connect HubSpot](${hubspotSetupLink})`,
+      ),
+    });
+    expect((result as { retryMessage: string }).retryMessage).not.toContain(
+      `[Connect data sources](${genericSetupLink})`,
+    );
+  });
+
+  it("does not claim an unreadable provider is disconnected", () => {
+    const hubspotSetupLink =
+      "/_agent-native/open?app=analytics&view=data-sources&to=%2Fdata-sources%3Fsource%3Dhubspot%26returnTo%3Dask";
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "show me our HubSpot pipeline",
+        draftText: "I can't verify HubSpot because its status is unreadable.",
+        toolResults: [
+          {
+            name: "data-source-status",
+            isError: false,
+            content: JSON.stringify({
+              configuredDataSources: [
+                {
+                  provider: "first-party",
+                  label: "First-party Analytics",
+                  via: "built-in",
+                },
+              ],
+              providers: [
+                {
+                  provider: "hubspot",
+                  label: "HubSpot",
+                  configured: null,
+                  setupLink: hubspotSetupLink,
+                },
+              ],
+              workspaceConnections: {
+                appId: "analytics",
+                available: true,
+                error: null,
+                providers: [],
+              },
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("uses the most specific matching source that has a focused setup link", () => {
+    const genericSetupLink =
+      "/_agent-native/open?app=analytics&view=data-sources";
+    const hubspotCrmSetupLink =
+      "/_agent-native/open?app=analytics&view=data-sources&to=%2Fdata-sources%3Fsource%3Dhubspot-crm";
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "show me our HubSpot CRM pipeline",
+        draftText: "HubSpot CRM is not connected yet.",
+        toolResults: [
+          {
+            name: "data-source-status",
+            isError: false,
+            content: JSON.stringify({
+              configuredDataSources: [
+                {
+                  provider: "first-party",
+                  label: "First-party Analytics",
+                  via: "built-in",
+                },
+              ],
+              providers: [
+                {
+                  provider: "hubspot",
+                  label: "HubSpot",
+                  configured: false,
+                },
+                {
+                  provider: "hubspot-crm",
+                  label: "HubSpot CRM",
+                  configured: false,
+                  setupLink: hubspotCrmSetupLink,
+                },
+              ],
+              dataSourcesSetupLink: genericSetupLink,
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining(
+        `[Connect HubSpot CRM](${hubspotCrmSetupLink})`,
+      ),
+      fallbackMessage: expect.stringContaining(
+        `[Connect HubSpot CRM](${hubspotCrmSetupLink})`,
+      ),
+    });
+  });
+
+  it("does not demand a connect-sources link when the status result could not be read", () => {
+    // A failed workspace-connection lookup hides exactly the workspace-held
+    // connections it would take to prove a provider is missing, so the empty
+    // provider list is "we could not look", not "nothing is connected".
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "what were our HubSpot deals last week",
+        draftText:
+          "I can't retrieve HubSpot deals because that source is not configured yet.",
+        toolResults: [
+          {
+            name: "data-source-status",
+            isError: false,
+            content: JSON.stringify({
+              configuredDataSources: [
+                {
+                  provider: "first-party",
+                  label: "First-party Analytics",
+                  via: "built-in",
+                },
+              ],
+              workspaceConnections: {
+                appId: "analytics",
+                available: false,
+                error: "org_members lookup failed",
+                providers: [],
+              },
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toBeNull();
   });
 
   it("accepts a contextual missing-source response when it includes the setup link", () => {

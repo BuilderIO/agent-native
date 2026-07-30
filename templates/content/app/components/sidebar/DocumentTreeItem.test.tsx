@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import type {
   Document,
   DocumentAccessRole,
@@ -65,9 +66,30 @@ async function render(node: ReactNode) {
 
   await act(async () => {
     root.render(
-      <MemoryRouter>
-        <TooltipProvider>{node}</TooltipProvider>
-      </MemoryRouter>,
+      <AgentNativeI18nProvider
+        initialLocale="en-US"
+        persistPreference={false}
+        catalog={{
+          sourceLocale: "en-US",
+          messages: {
+            creativeContext: { addToContext: "Add to context" },
+            database: { delete: "Delete" },
+            sidebar: {
+              addChild: "Add child",
+              addChildTo: "Add child to {{title}}",
+              database: "Database",
+              page: "Page",
+              pinToSidebar: "Pin to sidebar",
+              unpinFromSidebar: "Unpin from sidebar",
+              untitled: "Untitled",
+            },
+          },
+        }}
+      >
+        <MemoryRouter>
+          <TooltipProvider>{node}</TooltipProvider>
+        </MemoryRouter>
+      </AgentNativeI18nProvider>,
     );
   });
 
@@ -106,6 +128,8 @@ async function openActions(container: HTMLElement) {
 function treeItem(
   document: Document,
   onToggleFavorite: (id: string, isFavorite: boolean) => void = () => {},
+  onCreateChildPage: (id: string) => void = () => {},
+  onCreateChildDatabase: (id: string) => void = () => {},
 ) {
   return (
     <DocumentTreeItem
@@ -115,8 +139,8 @@ function treeItem(
       expandedIds={new Set()}
       onToggleExpanded={() => {}}
       onSelect={() => {}}
-      onCreateChildPage={() => {}}
-      onCreateChildDatabase={() => {}}
+      onCreateChildPage={onCreateChildPage}
+      onCreateChildDatabase={onCreateChildDatabase}
       onDelete={() => {}}
       onToggleFavorite={onToggleFavorite}
     />
@@ -124,29 +148,48 @@ function treeItem(
 }
 
 describe("sidebar document permission menus", () => {
-  it("lets a viewer remove a page from personal Favorites and nothing else", async () => {
+  it("keeps the favorite-row add-child slot disabled beside Unpin", async () => {
     const onRemoveFavorite = vi.fn();
+    const onCreateChildPage = vi.fn();
+    const onCreateChildDatabase = vi.fn();
     const { container, root } = await render(
       <FavoriteDocumentItem
         document={documentForRole("viewer", true)}
         active={false}
         onSelect={() => {}}
-        onCreateChildPage={() => {}}
-        onCreateChildDatabase={() => {}}
+        onCreateChildPage={onCreateChildPage}
+        onCreateChildDatabase={onCreateChildDatabase}
         onRemoveFavorite={onRemoveFavorite}
         onDelete={() => {}}
       />,
     );
 
-    expect(
-      container.querySelector('button[aria-label="Add child to Shared page"]'),
-    ).toBeNull();
+    const moreActions = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="More actions for Shared page"]',
+    );
+    const addChild = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Add child to Shared page"]',
+    );
+    if (!moreActions || !addChild) {
+      throw new Error("Expected aligned viewer sidebar controls");
+    }
+    expect(addChild.disabled).toBe(true);
+    expect(addChild.className).toContain("h-7 w-7");
+    expect(addChild.className).toContain("text-muted-foreground/50");
+    expect(moreActions.compareDocumentPosition(addChild)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
     expect(
       container.querySelectorAll('button[aria-haspopup="menu"]'),
     ).toHaveLength(1);
+    addChild.focus();
+    addChild.click();
+    expect(document.activeElement).not.toBe(addChild);
+    expect(onCreateChildPage).not.toHaveBeenCalled();
+    expect(onCreateChildDatabase).not.toHaveBeenCalled();
     const menuItems = await openActions(container);
     expect(menuItems.map((item) => item.textContent?.trim())).toEqual([
-      "Remove from favorites",
+      "Unpin from sidebar",
     ]);
 
     await act(async () => {
@@ -158,15 +201,34 @@ describe("sidebar document permission menus", () => {
     cleanup(root, container);
   });
 
-  it("lets a viewer add a tree page to personal Favorites and nothing else", async () => {
+  it("keeps the tree-row add-child slot disabled beside Pin", async () => {
     const onToggleFavorite = vi.fn();
+    const onCreateChildPage = vi.fn();
+    const onCreateChildDatabase = vi.fn();
     const { container, root } = await render(
-      treeItem(documentForRole("viewer"), onToggleFavorite),
+      treeItem(
+        documentForRole("viewer"),
+        onToggleFavorite,
+        onCreateChildPage,
+        onCreateChildDatabase,
+      ),
     );
 
-    expect(
-      container.querySelector('button[aria-label="Add child to Shared page"]'),
-    ).toBeNull();
+    const moreActions = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="More actions for Shared page"]',
+    );
+    const addChild = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Add child to Shared page"]',
+    );
+    if (!moreActions || !addChild) {
+      throw new Error("Expected aligned viewer sidebar controls");
+    }
+    expect(addChild.disabled).toBe(true);
+    expect(addChild.className).toContain("h-7 w-7");
+    expect(addChild.className).toContain("text-muted-foreground/50");
+    expect(moreActions.compareDocumentPosition(addChild)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
     expect(
       container.querySelectorAll('button[aria-haspopup="menu"]'),
     ).toHaveLength(1);
@@ -177,10 +239,21 @@ describe("sidebar document permission menus", () => {
       id: "shared",
       disabled: true,
     });
+    addChild.focus();
+    addChild.click();
+    addChild.dispatchEvent(
+      new KeyboardEvent("keydown", { bubbles: true, key: "Enter" }),
+    );
+    addChild.dispatchEvent(
+      new KeyboardEvent("keydown", { bubbles: true, key: " " }),
+    );
+    expect(document.activeElement).not.toBe(addChild);
+    expect(onCreateChildPage).not.toHaveBeenCalled();
+    expect(onCreateChildDatabase).not.toHaveBeenCalled();
 
     const menuItems = await openActions(container);
     expect(menuItems.map((item) => item.textContent?.trim())).toEqual([
-      "Add to favorites",
+      "Pin to sidebar",
     ]);
 
     await act(async () => {
@@ -194,9 +267,9 @@ describe("sidebar document permission menus", () => {
   });
 
   it.each([
-    ["editor", ["Add to favorites", "Add to context"], false],
-    ["admin", ["Add to favorites", "Add to context", "Delete"], true],
-    ["owner", ["Add to favorites", "Add to context", "Delete"], true],
+    ["editor", ["Pin to sidebar", "Add to context"], false],
+    ["admin", ["Pin to sidebar", "Add to context", "Delete"], true],
+    ["owner", ["Pin to sidebar", "Add to context", "Delete"], true],
   ] as const)(
     "preserves the existing %s tree actions",
     async (role, expectedMenuItems, canManage) => {

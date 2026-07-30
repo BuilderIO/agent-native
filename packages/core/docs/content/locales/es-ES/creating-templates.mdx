@@ -9,6 +9,14 @@ Las plantillas son aplicaciones nativas del agente completas y bifurcables que r
 
 Use `@agent-native/core` para el contrato de runtime: actions, plugins de servidor, helpers de base de datos, estado de aplicación, helpers de rutas y chat del agente. Use `@agent-native/toolkit` para UI reutilizable y helpers de construcción de apps, como primitivas compartidas, hooks de toast/móvil, selectores de fecha y slots simples de shell de aplicación. Mantenga locales las variantes específicas de una plantilla cuando codifiquen comportamiento de producto o identidad visual.
 
+Ten presentes las tres capas al decidir dónde pertenece una capacidad:
+
+- **Core - el framework:** el contrato obligatorio de runtime y datos que cualquier app puede usar.
+- **Toolkit - piezas reutilizables opcionales:** UI y sistemas de producto compartidos que las apps pueden adoptar, componer o bifurcar.
+- **Templates - apps opcionales:** productos de dominio completos construidos sobre Core, que suelen usar Toolkit y pueden bifurcarse como punto de partida.
+
+Toolkit y Templates son opcionales. Un template no es el framework, y Toolkit no sustituye a Core.
+
 Una buena plantilla:
 
 - Resuelve un flujo de trabajo de principio a fin, con datos iniciales útiles o un flujo de estado vacío.
@@ -495,11 +503,23 @@ Antes de compartir:
 4. Documente las variables de entorno requeridas y los pasos de incorporación.
 5. Incluya ejemplos o filas de semillas a través de migraciones aditivas, no archivos de datos de tiempo de ejecución rastreados.
 
-Se pueden crear plantillas de comunidad desde un repositorio GitHub:
+Las plantillas de la comunidad se instalan directamente desde un repositorio público de GitHub. Coloca la aplicación Agent Native en la raíz:
 
 ```bash
-npx @agent-native/core@latest create my-app --template github:user/repo
+npx @agent-native/core@latest create my-app --template community:owner/repo
 ```
+
+Añade `#branch`, `#tag` o `#commit` para fijar una revisión concreta:
+
+```bash
+npx @agent-native/core@latest create my-app --template community:owner/repo#v1.0.0
+```
+
+La CLI solo descarga el código fuente; no instala dependencias ni ejecuta scripts de la plantilla. Las plantillas de la comunidad son código de terceros, así que revisa el repositorio, la licencia, las dependencias y los scripts antes de ejecutar `pnpm install`.
+
+Para aparecer en el catálogo, incluye una aplicación completa en la raíz, un repositorio público con licencia y README de configuración, una dependencia de `@agent-native/core`, y comprobaciones de tipos y pruebas correctas. La demo alojada y la captura de pantalla son opcionales.
+
+[Envía una plantilla de la comunidad](https://github.com/BuilderIO/agent-native/issues/new?template=community-template.yml) cuando el repositorio esté listo. Estas plantillas permanecen separadas del catálogo propio y las mantienen sus autores.
 
 ## Contribuyendo al marco monorepo {#contributing}
 

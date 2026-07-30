@@ -27,7 +27,7 @@ https://github.com/user-attachments/assets/ef51644b-6506-46d8-8083-0af7b7e5b65c
 
 ## Try an Agent-Native app
 
-Fork a working app and let the agent evolve it. **You can customize everything.**
+Start from a working app and let the agent evolve it. **You can customize everything.**
 
 <table>
 <tr>

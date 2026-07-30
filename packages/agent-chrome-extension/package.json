@@ -9,6 +9,9 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
+  "dependencies": {
+    "@agent-native/browser-control-extension-core": "workspace:*"
+  },
   "devDependencies": {
     "@types/chrome": "0.2.2",
     "typescript-7": "catalog:",

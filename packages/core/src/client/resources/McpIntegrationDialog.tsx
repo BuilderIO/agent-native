@@ -32,6 +32,7 @@ import {
   isCustomMcpIntegrationEnabled,
   navigateToMcpOAuthStart,
   resolveMcpIntegrationScope,
+  shouldOfferMcpOrganizationScope,
   type DefaultMcpIntegration,
 } from "./mcp-integration-catalog.js";
 import {
@@ -271,7 +272,7 @@ export function McpIntegrationDialog({
           name: args.name,
           url: args.url,
           description: args.description,
-          scope: safeDefaultScope,
+          scope,
           returnUrl,
         }),
       ),
@@ -403,11 +404,7 @@ export function McpIntegrationDialog({
   };
 
   const renderScopeSelector = () => {
-    const orgTooltip = !hasOrg
-      ? t("mcpIntegrations.orgNoOrg")
-      : !canCreateOrgMcp
-        ? t("mcpIntegrations.orgAdminOnly")
-        : null;
+    if (!shouldOfferMcpOrganizationScope(hasOrg, canCreateOrgMcp)) return null;
 
     return (
       <div className="flex gap-1 rounded-md border border-border bg-background p-0.5">
@@ -423,26 +420,18 @@ export function McpIntegrationDialog({
         >
           {t("mcpIntegrations.personal")}
         </button>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={() => hasOrg && canCreateOrgMcp && setScope("org")}
-              disabled={!hasOrg || !canCreateOrgMcp}
-              className={cn(
-                "flex-1 rounded px-2 py-1.5 text-[11px] font-medium",
-                scope === "org"
-                  ? "bg-accent text-foreground"
-                  : "text-muted-foreground hover:text-foreground",
-                (!hasOrg || !canCreateOrgMcp) &&
-                  "cursor-not-allowed opacity-50 hover:text-muted-foreground",
-              )}
-            >
-              {t("mcpIntegrations.organization")}
-            </button>
-          </TooltipTrigger>
-          {orgTooltip && <TooltipContent>{orgTooltip}</TooltipContent>}
-        </Tooltip>
+        <button
+          type="button"
+          onClick={() => setScope("org")}
+          className={cn(
+            "flex-1 rounded px-2 py-1.5 text-[11px] font-medium",
+            scope === "org"
+              ? "bg-accent text-foreground"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          {t("mcpIntegrations.organization")}
+        </button>
       </div>
     );
   };
@@ -773,28 +762,17 @@ export function McpIntegrationDialog({
               </div>
             </div>
             <div className="flex shrink-0 items-center justify-between gap-2 border-t border-border px-7 py-4">
-              <button
-                type="button"
-                onClick={runTest}
-                disabled={!url.trim() || busy}
-                className="rounded-md border border-border bg-background px-3 py-1.5 text-[12px] font-medium text-foreground hover:bg-accent disabled:pointer-events-none disabled:opacity-40"
-              >
-                {t("mcpIntegrations.test")}
-              </button>
-              {selected?.authMode === "oauth" && !selectedRequiresSetup ? (
+              {!selectedRequiresSetup && (
                 <button
                   type="button"
-                  onClick={() => connectWithOAuth(selected)}
-                  disabled={!name.trim() || !url.trim() || busy}
-                  aria-busy={busy}
+                  onClick={runTest}
+                  disabled={!url.trim() || busy}
                   className="rounded-md border border-border bg-background px-3 py-1.5 text-[12px] font-medium text-foreground hover:bg-accent disabled:pointer-events-none disabled:opacity-40"
                 >
-                  {busy && (
-                    <IconLoader2 className="me-1.5 inline h-3.5 w-3.5 animate-spin" />
-                  )}
-                  {t("mcpIntegrations.connectWithOAuth")}
+                  {t("mcpIntegrations.test")}
                 </button>
-              ) : !selected ? (
+              )}
+              {!selected ? (
                 <button
                   type="button"
                   onClick={connectCustomWithOAuth}
@@ -814,12 +792,23 @@ export function McpIntegrationDialog({
                     href={selected.docsUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex min-w-[92px] items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[12px] font-medium text-primary-foreground hover:bg-primary/90"
+                    className="ms-auto inline-flex min-w-[92px] items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[12px] font-medium text-primary-foreground hover:bg-primary/90"
                   >
                     {t("mcpIntegrations.viewSetup")}
                     <IconExternalLink className="h-3 w-3" />
                   </a>
                 ) : null
+              ) : selected?.authMode === "oauth" ? (
+                <button
+                  type="button"
+                  onClick={() => connectWithOAuth(selected)}
+                  disabled={!name.trim() || !url.trim() || busy}
+                  aria-busy={busy}
+                  className="inline-flex min-w-[92px] items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[12px] font-medium text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-40"
+                >
+                  {busy && <IconLoader2 className="h-3.5 w-3.5 animate-spin" />}
+                  {t("mcpIntegrations.connectWithOAuth")}
+                </button>
               ) : (
                 <button
                   type="button"

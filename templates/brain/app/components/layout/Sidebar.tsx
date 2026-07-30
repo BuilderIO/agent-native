@@ -5,7 +5,7 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
-import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
@@ -286,9 +286,6 @@ export function Sidebar({
       <TooltipContent side="right">{t("navigation.search")}</TooltipContent>
     </Tooltip>
   );
-  const translateButton = (
-    <LanguagePicker variant="ghost-icon" label={t("settings.languageLabel")} />
-  );
   const feedbackButton = (
     <FeedbackButton
       variant={collapsed ? "icon" : "sidebar"}
@@ -393,8 +390,8 @@ export function Sidebar({
                 ) : (
                   link
                 )}
-                {!collapsed && item.view === "ask" && isAskRoute ? (
-                  <BrainChatsSection open />
+                {!collapsed && item.view === "ask" ? (
+                  <BrainChatsSection open={isAskRoute} />
                 ) : null}
               </div>
             );
@@ -435,7 +432,7 @@ export function Sidebar({
       <div className="mt-auto shrink-0">
         {!collapsed ? (
           <div className="px-3 py-2">
-            <OrgSwitcher reserveSpace />
+            <OrgSwitcher />
           </div>
         ) : null}
 
@@ -447,7 +444,6 @@ export function Sidebar({
         <SidebarFooterActions
           collapsed={collapsed}
           feedback={feedbackButton}
-          translate={translateButton}
           search={searchButton}
           collapse={collapseButton}
         />

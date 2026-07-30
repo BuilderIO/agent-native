@@ -76,10 +76,12 @@ function emitBackgroundWorker(token: string) {
   cpSync(SERVER_DIR, dest, { recursive: true });
   rmSync(path.join(dest, "server.mjs"), { force: true });
 
-  const source = `globalThis.__AGENT_NATIVE_DASHBOARD_REPORT_SCHEDULED_RUNTIME__ = true;
+  const source = `globalThis.__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true;
+globalThis.__AGENT_NATIVE_DASHBOARD_REPORT_SCHEDULED_RUNTIME__ = true;
 
 const CRON_TOKEN = ${JSON.stringify(token)};
 const ROUTE_PATH = ${JSON.stringify(ROUTE_PATH)};
+const WORKER_PATH = "/.netlify/functions/${WORKER_NAME}";
 let cachedHandler;
 
 function timingSafeEquals(a, b) {
@@ -89,6 +91,27 @@ function timingSafeEquals(a, b) {
     diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
   }
   return diff === 0;
+}
+
+async function triggerNextSweep(request) {
+  const url = new URL(request.url);
+  url.pathname = WORKER_PATH;
+  url.search = "";
+  const response = await fetch(url.toString(), {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-agent-native-dashboard-report-cron": CRON_TOKEN,
+    },
+    body: JSON.stringify({ scheduled: true }),
+  });
+  if (!response.ok && response.status !== 202) {
+    console.error(
+      "[dashboard-report-cron] Follow-up sweep trigger failed:",
+      response.status,
+      await response.text().catch(() => ""),
+    );
+  }
 }
 
 export default async function handler(request, context) {
@@ -108,7 +131,12 @@ export default async function handler(request, context) {
     body: JSON.stringify({ scheduled: true }),
   });
 
-  return await cachedHandler(rewritten, context);
+  const response = await cachedHandler(rewritten, context);
+  const result = await response.clone().json().catch(() => null);
+  if (response.ok && result?.remaining > 0) {
+    await triggerNextSweep(request);
+  }
+  return response;
 }
 
 export const config = {
@@ -192,7 +220,8 @@ function emitAlertBackgroundWorker(token: string) {
   cpSync(SERVER_DIR, dest, { recursive: true });
   rmSync(path.join(dest, "server.mjs"), { force: true });
 
-  const source = `globalThis.__AGENT_NATIVE_ANALYTICS_ALERT_SCHEDULED_RUNTIME__ = true;
+  const source = `globalThis.__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true;
+globalThis.__AGENT_NATIVE_ANALYTICS_ALERT_SCHEDULED_RUNTIME__ = true;
 
 const CRON_TOKEN = ${JSON.stringify(token)};
 const ROUTE_PATH = ${JSON.stringify(ALERT_ROUTE_PATH)};
@@ -308,7 +337,8 @@ function emitUptimeBackgroundWorker(token: string) {
   cpSync(SERVER_DIR, dest, { recursive: true });
   rmSync(path.join(dest, "server.mjs"), { force: true });
 
-  const source = `globalThis.__AGENT_NATIVE_UPTIME_MONITOR_SCHEDULED_RUNTIME__ = true;
+  const source = `globalThis.__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true;
+globalThis.__AGENT_NATIVE_UPTIME_MONITOR_SCHEDULED_RUNTIME__ = true;
 
 const CRON_TOKEN = ${JSON.stringify(token)};
 const ROUTE_PATH = ${JSON.stringify(UPTIME_ROUTE_PATH)};

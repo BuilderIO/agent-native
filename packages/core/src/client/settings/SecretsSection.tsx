@@ -10,6 +10,15 @@ import {
   ButtonBase as ToolkitButtonBase,
 } from "@agent-native/toolkit/ui/button";
 import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+  CommandSeparator,
+} from "@agent-native/toolkit/ui/command";
+import {
   IconCheck,
   IconChevronRight,
   IconExternalLink,
@@ -23,18 +32,16 @@ import React, { useEffect, useMemo, useState, useCallback } from "react";
 
 import { agentNativePath } from "../api-path.js";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "../components/ui/dropdown-menu.js";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../components/ui/popover.js";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import { useT } from "../i18n.js";
 import { cn } from "../utils.js";
 
 const Button = React.forwardRef<
@@ -206,11 +213,13 @@ function KeysHeader({
   onSecret?: (key: string) => void;
   onCustomKey: () => void;
 }) {
+  const [open, setOpen] = useState(false);
+
   return (
     <div className="flex items-center justify-between gap-3">
       <p className="text-[11px] font-medium text-foreground">Keys</p>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
           <ToolkitButtonBase
             type="button"
             variant="outline"
@@ -219,34 +228,61 @@ function KeysHeader({
             <IconPlus size={11} />
             New
           </ToolkitButtonBase>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-60">
-          {availableSecrets.length > 0 && (
-            <>
-              <DropdownMenuLabel>Choose a key</DropdownMenuLabel>
-              {availableSecrets.map((secret) => (
-                <DropdownMenuItem
-                  key={secret.key}
-                  onSelect={() => onSecret?.(secret.key)}
-                  className="flex items-center justify-between gap-3"
+        </PopoverTrigger>
+        <PopoverContent align="end" className="w-60 p-0">
+          <Command
+            // cmdk's default scorer matches loose subsequences, so "logo"
+            // also surfaces every "G-o-o-g-l-e ... " key.
+            filter={(value, search) =>
+              value.toLowerCase().includes(search.toLowerCase()) ? 1 : 0
+            }
+          >
+            {availableSecrets.length > 0 && (
+              <CommandInput placeholder="Search keys..." />
+            )}
+            <CommandList>
+              <CommandEmpty>No keys found.</CommandEmpty>
+              {availableSecrets.length > 0 && (
+                <>
+                  <CommandGroup heading="Choose a key">
+                    {availableSecrets.map((secret) => (
+                      <CommandItem
+                        key={secret.key}
+                        value={`${secret.label} ${secret.key}`}
+                        onSelect={() => {
+                          setOpen(false);
+                          onSecret?.(secret.key);
+                        }}
+                        className="flex items-center justify-between gap-3"
+                      >
+                        <span className="truncate">{secret.label}</span>
+                        {secret.required && (
+                          <span className="shrink-0 text-[9px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
+                            Required
+                          </span>
+                        )}
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                  <CommandSeparator />
+                </>
+              )}
+              <CommandGroup>
+                <CommandItem
+                  value="custom key"
+                  onSelect={() => {
+                    setOpen(false);
+                    onCustomKey();
+                  }}
                 >
-                  <span className="truncate">{secret.label}</span>
-                  {secret.required && (
-                    <span className="text-[9px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
-                      Required
-                    </span>
-                  )}
-                </DropdownMenuItem>
-              ))}
-              <DropdownMenuSeparator />
-            </>
-          )}
-          <DropdownMenuItem onSelect={onCustomKey}>
-            <IconPlus size={14} />
-            Custom
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+                  <IconPlus size={14} />
+                  Custom
+                </CommandItem>
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
     </div>
   );
 }
@@ -608,6 +644,7 @@ function AdHocKeysSection({
   onShowFormChange: (show: boolean) => void;
   showEmptyState: boolean;
 }) {
+  const t = useT();
   const [keys, setKeys] = useState<AdHocKey[]>([]);
   const [loading, setLoading] = useState(true);
   const [reloadToken, setReloadToken] = useState(0);
@@ -769,48 +806,51 @@ function AdHocKeysSection({
             className="w-full text-[11px]"
             placeholder="Description (optional)"
           />
-          <div className="flex items-center gap-2">
-            <Picker
-              mode="select"
-              options={[
-                { value: "user", label: "Personal" },
-                { value: "workspace", label: "Workspace" },
-              ]}
-              value={formScope}
-              onChange={(value) => {
-                if (value === "user" || value === "workspace") {
-                  setFormScope(value);
-                }
-              }}
-              aria-label="Scope"
-              className="w-auto text-[11px]"
-            />
-            <div className="ms-auto flex items-center gap-1.5">
-              <Button
-                type="button"
-                intent="neutral"
-                emphasis="outline"
-                onClick={resetForm}
-                className="rounded border border-border px-2 py-1 text-[10px] font-medium text-muted-foreground hover:text-foreground"
-              >
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                intent="primary"
-                emphasis="solid"
-                onClick={handleAdd}
-                disabled={!formName.trim() || !formValue.trim() || formBusy}
-                className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium disabled:opacity-40"
-                style={{ backgroundColor: "#00B5FF", color: "white" }}
-              >
-                {formBusy ? (
-                  <IconLoader2 size={10} className="animate-spin" />
-                ) : (
-                  "Save"
-                )}
-              </Button>
-            </div>
+          <Picker
+            mode="select"
+            options={[
+              { value: "user", label: t("secrets.scopePersonal") },
+              { value: "workspace", label: t("secrets.scopeWorkspace") },
+            ]}
+            value={formScope}
+            onChange={(value) => {
+              if (value === "user" || value === "workspace") {
+                setFormScope(value);
+              }
+            }}
+            aria-label={t("secrets.scopeLabel")}
+            description={t(
+              formScope === "user"
+                ? "secrets.scopePersonalDescription"
+                : "secrets.scopeWorkspaceDescription",
+            )}
+            className="text-[11px]"
+          />
+          <div className="flex items-center justify-end gap-1.5">
+            <Button
+              type="button"
+              intent="neutral"
+              emphasis="outline"
+              onClick={resetForm}
+              className="rounded border border-border px-2 py-1 text-[10px] font-medium text-muted-foreground hover:text-foreground"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              intent="primary"
+              emphasis="solid"
+              onClick={handleAdd}
+              disabled={!formName.trim() || !formValue.trim() || formBusy}
+              className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium disabled:opacity-40"
+              style={{ backgroundColor: "#00B5FF", color: "white" }}
+            >
+              {formBusy ? (
+                <IconLoader2 size={10} className="animate-spin" />
+              ) : (
+                "Save"
+              )}
+            </Button>
           </div>
           {formError && <p className="text-[10px] text-red-500">{formError}</p>}
         </div>

@@ -99,17 +99,13 @@ describe("agent instruction size guard", () => {
     );
   });
 
-  it("reports known over-cap templates as warnings, not failures", () => {
-    const { errors, warnings } = checkAgentInstructionSizes(repoRoot);
+  it("fails any agent instruction file that overflows the compact-prompt cap", () => {
+    const { errors } = checkAgentInstructionSizes(repoRoot);
 
     assert.equal(
       errors.length,
       0,
       `unexpected instruction-size failures:\n${errors.join("\n")}`,
-    );
-    assert.ok(
-      warnings.length > 0,
-      "expected the baselined over-cap templates to still be reported",
     );
   });
 });

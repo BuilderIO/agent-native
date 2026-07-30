@@ -1,5 +1,4 @@
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
-import { appApiPath } from "@agent-native/core/client/api-path";
 import {
   useActionQuery,
   useActionMutation,
@@ -37,8 +36,12 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 
 import {
+  uploadAndIndexFigmaFiles,
+  pollDecodeJobStatus,
+  type DecodeJobStatus,
+} from "./builder-design-system-upload";
+import {
   MAX_BUILDER_INDEX_UPLOAD_BYTES,
-  readBuilderIndexResponse,
   formatFileSize,
   type BuilderIndexResult,
 } from "./builder-index-response";
@@ -117,6 +120,62 @@ export function DesignSystemSetup({
   const [builderIndexError, setBuilderIndexError] = useState<string | null>(
     null,
   );
+  const [decodeStatus, setDecodeStatus] = useState<DecodeJobStatus | null>(
+    null,
+  );
+  const decodePollRef = useRef<AbortController | null>(null);
+
+  const stopDecodePolling = useCallback(() => {
+    decodePollRef.current?.abort();
+    decodePollRef.current = null;
+  }, []);
+
+  const startDecodePolling = useCallback(
+    (jobId: string, indexResult: BuilderIndexResult) => {
+      decodePollRef.current?.abort();
+      const controller = new AbortController();
+      decodePollRef.current = controller;
+      setDecodeStatus({
+        status: "pending",
+        branchUrl: null,
+        error: null,
+        framesProcessed: 0,
+        totalFrames: 0,
+      });
+      pollDecodeJobStatus(jobId, {
+        signal: controller.signal,
+        onUpdate: (status) => {
+          if (!controller.signal.aborted) setDecodeStatus(status);
+        },
+      })
+        .then((status) => {
+          if (controller.signal.aborted) return;
+          setDecodeStatus(status);
+          setBuilderIndexResult(
+            status.branchUrl
+              ? { ...indexResult, builderUrl: status.branchUrl }
+              : indexResult,
+          );
+          setBuilderIndexing(false);
+        })
+        .catch((err: unknown) => {
+          if (controller.signal.aborted) return;
+          if (err instanceof DOMException && err.name === "AbortError") return;
+          setDecodeStatus((prev) => ({
+            status: "error",
+            branchUrl: prev?.branchUrl ?? null,
+            error: err instanceof Error ? err.message : String(err),
+            framesProcessed: prev?.framesProcessed ?? 0,
+            totalFrames: prev?.totalFrames ?? 0,
+          }));
+          setBuilderIndexResult(indexResult);
+          setBuilderIndexing(false);
+        });
+    },
+    [],
+  );
+
+  useEffect(() => stopDecodePolling, [stopDecodePolling]);
 
   const codeInputRef = useRef<HTMLInputElement>(null);
   const docInputRef = useRef<HTMLInputElement>(null);
@@ -170,8 +229,10 @@ export function DesignSystemSetup({
       setBuilderIndexing(false);
       setBuilderIndexResult(null);
       setBuilderIndexError(null);
+      stopDecodePolling();
+      setDecodeStatus(null);
     }
-  }, [open]);
+  }, [open, stopDecodePolling]);
 
   const hasAnySources = useMemo(() => {
     return (
@@ -269,30 +330,34 @@ export function DesignSystemSetup({
 
       setBuilderIndexError(null);
       setBuilderIndexResult(null);
+      stopDecodePolling();
+      setDecodeStatus(null);
       setBuilderIndexing(true);
       try {
-        const body = new FormData();
-        body.append("file", file);
-        const res = await fetch(
-          appApiPath("/api/index-design-system-with-builder"),
-          {
-            method: "POST",
-            body,
-          },
-        );
-        const parsed = await readBuilderIndexResponse(res);
-        setBuilderIndexResult(parsed);
+        const suggestedTitle =
+          file.name
+            .replace(/\.fig$/i, "")
+            .replace(/[-_]+/g, " ")
+            .trim() || "Imported brand";
+        const parsed = await uploadAndIndexFigmaFiles([file], {
+          projectName: suggestedTitle,
+        });
+        if (parsed.jobId) {
+          startDecodePolling(parsed.jobId, parsed);
+        } else {
+          setBuilderIndexResult(parsed);
+          setBuilderIndexing(false);
+        }
       } catch (err) {
         setBuilderIndexError(
           err instanceof Error
             ? err.message
             : t("designSystemSetup.figParseFailed"),
         );
-      } finally {
         setBuilderIndexing(false);
       }
     },
-    [t],
+    [t, startDecodePolling, stopDecodePolling],
   );
 
   const handleEditSave = async () => {
@@ -543,7 +608,10 @@ export function DesignSystemSetup({
                   ) : (
                     <BuilderIndexPreview
                       result={builderIndexResult}
+                      decodeStatus={decodeStatus}
                       onReset={() => {
+                        stopDecodePolling();
+                        setDecodeStatus(null);
                         setBuilderIndexResult(null);
                         setBuilderIndexError(null);
                       }}
@@ -880,12 +948,22 @@ function TagList({
 
 function BuilderIndexPreview({
   result,
+  decodeStatus,
   onReset,
 }: {
   result: BuilderIndexResult;
+  decodeStatus: DecodeJobStatus | null;
   onReset: () => void;
 }) {
   const t = useT();
+  const decodeDone =
+    decodeStatus == null ||
+    Boolean(decodeStatus.branchUrl) ||
+    decodeStatus.status === "complete";
+  const decodeFailed = decodeStatus?.status === "error";
+  const decodeText = decodeFailed
+    ? t("designSystemSetup.decodeFailed", { error: decodeStatus?.error ?? "" })
+    : null;
   return (
     <div className="space-y-4 rounded-lg border border-border bg-accent/40 p-4">
       <div className="flex items-start gap-3">
@@ -905,44 +983,39 @@ function BuilderIndexPreview({
         </div>
       </div>
 
-      <dl className="grid grid-cols-[112px_minmax(0,1fr)] gap-x-3 gap-y-2 rounded-md border border-border bg-card/50 p-3 text-xs">
-        <dt className="text-muted-foreground">
-          {t("designSystemSetup.builderDesignSystemId")}
-        </dt>
-        <dd className="truncate font-mono text-foreground/80">
-          {result.designSystemId}
-        </dd>
-        <dt className="text-muted-foreground">
-          {t("designSystemSetup.builderJobId")}
-        </dt>
-        <dd className="truncate font-mono text-foreground/80">
-          {result.jobId}
-        </dd>
-      </dl>
+      {decodeText && (
+        <div className="border-t border-border pt-3 text-xs text-destructive">
+          {decodeText}
+        </div>
+      )}
 
-      <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
-        <Button size="sm" asChild className="cursor-pointer">
-          <a
-            href={withBuilderUtmTrackingParams(result.builderUrl, {
-              campaign: "product",
-              content: "design_system_intelligence",
-            })}
-            target="_blank"
-            rel="noreferrer"
+      {(decodeDone || decodeFailed) && (
+        <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
+          {decodeDone && !decodeFailed && (
+            <Button size="sm" asChild className="cursor-pointer">
+              <a
+                href={withBuilderUtmTrackingParams(result.builderUrl, {
+                  campaign: "product",
+                  content: "design_system_intelligence",
+                })}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <IconExternalLink className="w-3.5 h-3.5" />
+                {t("designSystemSetup.openInBuilder")}
+              </a>
+            </Button>
+          )}
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={onReset}
+            className="cursor-pointer"
           >
-            <IconExternalLink className="w-3.5 h-3.5" />
-            {t("designSystemSetup.openInBuilder")}
-          </a>
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={onReset}
-          className="cursor-pointer"
-        >
-          {t("designSystemSetup.chooseAnotherFile")}
-        </Button>
-      </div>
+            {t("designSystemSetup.chooseAnotherFile")}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

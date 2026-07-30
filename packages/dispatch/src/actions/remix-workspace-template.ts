@@ -17,11 +17,11 @@ function buildRemixPrompt(input: {
   description?: string | null;
 }): string {
   return [
-    "Create a private workspace remix of a curated first-party template.",
+    "Create a private workspace app from a curated first-party template.",
     `Source template: ${input.templateName} (${input.templateId}).`,
     "Recreate the source template's product shape and capabilities as an independent workspace app.",
     "Never copy source-app data, records, user content, secrets, credentials, tokens, API keys, or private configuration.",
-    "Use empty or synthetic seed data only, keep the remix private to the current workspace, and do not create a public demo.",
+    "Use empty or synthetic seed data only, keep the new app private to the current workspace, and do not create a public demo.",
     `Setup note: ${input.setupNote}`,
     input.description?.trim()
       ? `Requested customization: ${input.description.trim()}`
@@ -31,7 +31,7 @@ function buildRemixPrompt(input: {
 
 export default defineAction({
   description:
-    "Create a private, independent remix of one of Dispatch's curated first-party workspace templates. Valid templates are mail, calendar, analytics, slides, content, clips, brain, assets, forms, and design. The remix must not copy source-app data, secrets, credentials, or private configuration; local workspaces scaffold the template, while hosted workspaces start a Builder app-creation branch.",
+    "Create a private, independent app from one of Dispatch's curated first-party workspace templates. Valid templates are mail, calendar, analytics, slides, content, clips, brain, assets, forms, and design. The new app must not copy source-app data, secrets, credentials, or private configuration; local workspaces scaffold the template, while hosted workspaces start a Builder app-creation branch.",
   schema: z.object({
     templateId: z
       .string()
@@ -56,7 +56,7 @@ export default defineAction({
       .max(500)
       .optional()
       .nullable()
-      .describe("Optional customization or purpose for the private remix."),
+      .describe("Optional customization or purpose for the private app."),
   }),
   run: async (input) => {
     const sourceTemplate = getCuratedWorkspaceTemplate(input.templateId);
@@ -83,7 +83,7 @@ export default defineAction({
       action: "workspace-app.remix-requested",
       targetType: "workspace-app",
       targetId: appId,
-      summary: `Requested private remix of ${sourceTemplate.name}`,
+      summary: `Requested private app from ${sourceTemplate.name}`,
       metadata: {
         sourceTemplate: sourceTemplate.template,
         mode:

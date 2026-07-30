@@ -109,6 +109,65 @@ export function computeDistributedPositions(
   return next;
 }
 
+/** One screen's own frame box plus the footprint its responsive row occupies. */
+export interface ReflowCandidate {
+  id: string;
+  /** Resolved frame geometry, including screens with no persisted entry yet. */
+  geometry: { x: number; y: number; width: number; height: number };
+  /** Space actually painted, breakpoint frames included. */
+  footprint: AlignableRect;
+}
+
+function footprintsOverlap(rects: readonly AlignableRect[]): boolean {
+  return rects.some((a, i) =>
+    rects.some(
+      (b, j) =>
+        i !== j &&
+        a.x < b.x + b.width &&
+        b.x < a.x + a.width &&
+        a.y < b.y + b.height &&
+        b.y < a.y + a.height,
+    ),
+  );
+}
+
+/**
+ * Re-packs a board whose responsive rows have grown into each other, returning
+ * complete geometry per screen — including screens that had no persisted entry
+ * and were positioned by `getInitialFrameGeometry`. Returning only the moved
+ * x/y would drop those screens at the write-back, which is exactly the
+ * default-layout board that needs the reflow most.
+ *
+ * Empty when there is nothing to do, so a deliberately arranged,
+ * non-overlapping board is never rearranged.
+ */
+export function computeOverlapReflowGeometry(
+  candidates: readonly ReflowCandidate[],
+): Map<string, { x: number; y: number; width: number; height: number }> {
+  const result = new Map<
+    string,
+    { x: number; y: number; width: number; height: number }
+  >();
+  if (candidates.length < 2) return result;
+  const footprints = candidates.map((candidate) => candidate.footprint);
+  if (!footprintsOverlap(footprints)) return result;
+  const positions = computeTidyPositions(footprints);
+  if (positions.size === 0) return result;
+  for (const candidate of candidates) {
+    const position = positions.get(candidate.id);
+    if (!position) continue;
+    // Translate by the footprint's delta rather than adopting the packed origin
+    // as the frame origin. A rotated group's AABB origin is not its frame
+    // origin, so assigning it directly shifts the frame by the rotation offset.
+    result.set(candidate.id, {
+      ...candidate.geometry,
+      x: candidate.geometry.x + (position.x - candidate.footprint.x),
+      y: candidate.geometry.y + (position.y - candidate.footprint.y),
+    });
+  }
+  return result;
+}
+
 export function computeTidyPositions(
   rects: readonly AlignableRect[],
 ): Map<string, { x: number; y: number }> {

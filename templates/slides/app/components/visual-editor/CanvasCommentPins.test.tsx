@@ -4,15 +4,22 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
 } from "@testing-library/react";
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { sendToAgentChat } = vi.hoisted(() => ({
-  sendToAgentChat: vi.fn(),
+const { sendToAgentChatAndConfirm } = vi.hoisted(() => ({
+  sendToAgentChatAndConfirm: vi.fn(
+    async (_input: {
+      message: string;
+      submit: boolean;
+      openSidebar: boolean;
+    }) => ({ delivered: true }),
+  ),
 }));
 vi.mock("@agent-native/core/client/agent-chat", () => ({
-  sendToAgentChat,
+  sendToAgentChatAndConfirm,
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -27,34 +34,6 @@ vi.mock("@agent-native/core/client/i18n", () => ({
         "raw.send": "Send",
       }) as Record<string, string>
     )[key] ?? key,
-}));
-
-// Tooltip primitives in shadcn portal to document.body. Render them inline
-// in the test so we can assert visibility without a TooltipProvider boilerplate.
-vi.mock("@/components/ui/tooltip", () => ({
-  Tooltip: ({
-    open,
-    children,
-  }: {
-    open?: boolean;
-    children: React.ReactNode;
-  }) => (
-    <div
-      data-testid="tooltip-root"
-      data-open={open === false ? "false" : "true"}
-    >
-      {children}
-    </div>
-  ),
-  TooltipTrigger: ({ children }: { children: React.ReactNode }) => (
-    <>{children}</>
-  ),
-  TooltipContent: ({ children }: { children: React.ReactNode }) => (
-    <div data-testid="tooltip-content">{children}</div>
-  ),
-  TooltipProvider: ({ children }: { children: React.ReactNode }) => (
-    <>{children}</>
-  ),
 }));
 
 import { CanvasCommentPins } from "./CanvasCommentPins";
@@ -86,11 +65,18 @@ function mountCanvas() {
 afterEach(() => {
   cleanup();
   document.body.innerHTML = "";
-  sendToAgentChat.mockReset();
+  sendToAgentChatAndConfirm.mockClear();
 });
 
 describe("CanvasCommentPins", () => {
-  it("sends pin draft to the agent via sendToAgentChat when Send is clicked", async () => {
+  it("confirms delivery before marking a pin as sent", async () => {
+    let confirmDelivery: ((result: { delivered: true }) => void) | undefined;
+    sendToAgentChatAndConfirm.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          confirmDelivery = resolve;
+        }),
+    );
     const canvas = mountCanvas();
     render(
       <CanvasCommentPins
@@ -131,12 +117,24 @@ describe("CanvasCommentPins", () => {
     expect((sendBtn as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(sendBtn);
 
-    expect(sendToAgentChat).toHaveBeenCalledTimes(1);
-    const payload = sendToAgentChat.mock.calls[0][0];
+    await waitFor(() =>
+      expect(sendToAgentChatAndConfirm).toHaveBeenCalledTimes(1),
+    );
+    expect(
+      screen.getByPlaceholderText(/Tell the agent what to change/i),
+    ).toBeTruthy();
+    const payload = sendToAgentChatAndConfirm.mock.calls[0][0];
     expect(payload.submit).toBe(true);
     expect(payload.openSidebar).toBe(true);
     expect(payload.message).toContain("[Comment pin on Slide 1]");
     expect(payload.message).toContain("Make this heading bigger");
+
+    await act(async () => confirmDelivery?.({ delivered: true }));
+    await waitFor(() =>
+      expect(
+        screen.queryByPlaceholderText(/Tell the agent what to change/i),
+      ).toBeNull(),
+    );
   });
 
   it("hides the pin-marker tooltip while the composer is open", async () => {
@@ -170,7 +168,63 @@ describe("CanvasCommentPins", () => {
     // around the pin marker must be force-closed (`open={false}`) so its
     // content (rendered at z-[250] by shadcn) cannot overlap and absorb
     // clicks on the Send button below it.
-    const root = await screen.findByTestId("tooltip-root");
-    expect(root.getAttribute("data-open")).toBe("false");
+    await screen.findByPlaceholderText(/Tell the agent what to change/i);
+    const marker = document.querySelector<HTMLButtonElement>(
+      "[data-pin-id] > button",
+    );
+    expect(marker?.getAttribute("data-state")).toBe("closed");
+  });
+
+  it("captures the parent-DOM target behind the iframe click plane", async () => {
+    const canvas = mountCanvas();
+    const heading = document.createElement("h1");
+    heading.setAttribute("data-builder-id", "hero-title");
+    heading.textContent = "Quarterly results";
+    canvas.appendChild(heading);
+    render(
+      <CanvasCommentPins
+        active
+        onClose={() => {}}
+        canvasSelector="[data-test-canvas]"
+        contextId="slide-1"
+        contextLabel="Slide 1"
+      />,
+    );
+
+    const clickPlane = await waitFor(() => {
+      const element = document.querySelector<HTMLElement>(
+        "[data-pin-click-overlay]",
+      );
+      expect(element).not.toBeNull();
+      return element!;
+    });
+    expect(canvas.contains(clickPlane)).toBe(false);
+    expect(canvas.contains(heading)).toBe(true);
+    const elementsFromPoint = vi.fn(() => [clickPlane, heading, canvas]);
+    Object.defineProperty(document, "elementsFromPoint", {
+      configurable: true,
+      value: elementsFromPoint,
+    });
+    fireEvent.click(clickPlane, { clientX: 300, clientY: 300 });
+    Reflect.deleteProperty(document, "elementsFromPoint");
+    expect(elementsFromPoint).toHaveBeenCalledWith(300, 300);
+
+    const textarea = await screen.findByPlaceholderText(
+      /Tell the agent what to change/i,
+    );
+    fireEvent.change(textarea, {
+      target: { value: "Make this heading bigger" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+    await waitFor(() =>
+      expect(sendToAgentChatAndConfirm).toHaveBeenCalledTimes(1),
+    );
+    const payload = sendToAgentChatAndConfirm.mock.calls[0][0];
+    expect(payload.message).toContain("Anchor id: hero-title");
+    expect(payload.message).toContain(
+      'Element: [data-builder-id="hero-title"]',
+    );
+    expect(payload.message).toContain('Nearby text: "Quarterly results"');
   });
 });

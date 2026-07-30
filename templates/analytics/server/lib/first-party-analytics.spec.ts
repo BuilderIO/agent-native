@@ -1,15 +1,42 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const execute = vi.fn();
+const analyticsDbMocks = vi.hoisted(() => {
+  const selectLimit = vi.fn();
+  const insertValues = vi.fn();
+  const updateWhere = vi.fn();
+  return {
+    selectLimit,
+    insertValues,
+    updateWhere,
+    db: {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({ limit: selectLimit })),
+        })),
+      })),
+      insert: vi.fn(() => ({ values: insertValues })),
+      update: vi.fn(() => ({
+        set: vi.fn(() => ({ where: updateWhere })),
+      })),
+    },
+  };
+});
 
 vi.mock("@agent-native/core/db", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/db")>()),
   getDbExec: () => ({ execute }),
 }));
+vi.mock("../db/index.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../db/index.js")>()),
+  getDb: () => analyticsDbMocks.db,
+}));
 
 import {
+  isMarketingWebsiteSessionEvent,
   normalizeAnalyticsTimestamp,
   queryFirstPartyAnalytics,
+  recordAnalyticsEvents,
   resolveAnalyticsEventDimensions,
   scopedAnalyticsSql,
   validateFirstPartyAnalyticsSql,
@@ -17,6 +44,14 @@ import {
 
 beforeEach(() => {
   execute.mockReset();
+  analyticsDbMocks.selectLimit.mockReset();
+  analyticsDbMocks.insertValues.mockReset();
+  analyticsDbMocks.updateWhere.mockReset();
+  analyticsDbMocks.selectLimit.mockResolvedValue([
+    { id: "apk_123", ownerEmail: "owner@example.com", orgId: null },
+  ]);
+  analyticsDbMocks.insertValues.mockResolvedValue(undefined);
+  analyticsDbMocks.updateWhere.mockResolvedValue(undefined);
 });
 
 describe("resolveAnalyticsEventDimensions", () => {
@@ -46,6 +81,81 @@ describe("resolveAnalyticsEventDimensions", () => {
         hostname: "mail.agent-native.com",
       }),
     ).toEqual({ app: "analytics", template: "docs" });
+  });
+});
+
+describe("isMarketingWebsiteSessionEvent", () => {
+  it("keeps www.agent-native.com out of signed-in session cohorts", () => {
+    expect(
+      isMarketingWebsiteSessionEvent({
+        eventName: "session status",
+        hostname: "www.agent-native.com",
+        app: "www",
+        template: "www",
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps legacy host-derived www events out when hostname was omitted", () => {
+    expect(
+      isMarketingWebsiteSessionEvent({
+        eventName: "session status",
+        hostname: null,
+        app: " WWW ",
+        template: "WWW",
+      }),
+    ).toBe(true);
+  });
+
+  it("does not suppress product-template session events", () => {
+    expect(
+      isMarketingWebsiteSessionEvent({
+        eventName: "session status",
+        hostname: "plan.agent-native.com",
+        app: "plan",
+        template: "plan",
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("recordAnalyticsEvents", () => {
+  it("persists both sides of a signup identity bridge", async () => {
+    await recordAnalyticsEvents("anpk_test", [
+      {
+        event: "signup",
+        userId: "new@example.com",
+        anonymousId: "anon_signup_1",
+      },
+    ]);
+
+    expect(analyticsDbMocks.insertValues).toHaveBeenCalledWith([
+      expect.objectContaining({
+        eventName: "signup",
+        userId: "new@example.com",
+        anonymousId: "anon_signup_1",
+      }),
+    ]);
+  });
+
+  it("persists www session status as signed out", async () => {
+    await recordAnalyticsEvents("anpk_test", [
+      {
+        event: "session status",
+        properties: {
+          url: "https://www.agent-native.com/docs",
+          signed_in: true,
+        },
+      },
+    ]);
+
+    expect(analyticsDbMocks.insertValues).toHaveBeenCalledWith([
+      expect.objectContaining({
+        app: "www",
+        template: "www",
+        signedIn: "false",
+      }),
+    ]);
   });
 });
 
@@ -119,14 +229,24 @@ describe("scopedAnalyticsSql", () => {
       "2026-07-01",
     );
 
-    expect(scoped.sql).toContain("FROM analytics_events WHERE");
     expect(scoped.sql).toContain(
-      "(org_id = ? OR (org_id IS NULL AND owner_email = ?))",
+      "FROM (SELECT * FROM analytics_events WHERE org_id = ?",
     );
     expect(scoped.sql).toContain(
-      "COALESCE(NULLIF(event_date, ''), substr(timestamp, 1, 10)) <= ?",
+      "UNION ALL SELECT * FROM analytics_events WHERE org_id IS NULL AND owner_email = ?",
     );
-    expect(scoped.args).toEqual(["org_123", "alice@example.com", "2026-07-01"]);
+    expect(
+      scoped.sql.match(
+        /COALESCE\(NULLIF\(event_date, ''\), substr\(timestamp, 1, 10\)\) <= \?/g,
+      ),
+    ).toHaveLength(2);
+    expect(scoped.sql).not.toContain("org_id = ? OR");
+    expect(scoped.args).toEqual([
+      "org_123",
+      "2026-07-01",
+      "alice@example.com",
+      "2026-07-01",
+    ]);
   });
 
   it("adds freshness guards around session recording reads", () => {
@@ -176,11 +296,107 @@ describe("queryFirstPartyAnalytics", () => {
       random.mockRestore();
     }
 
-    expect(execute).toHaveBeenCalledTimes(4);
+    expect(execute).toHaveBeenCalledTimes(3);
     expect(execute.mock.calls[0][0]).toEqual(
       expect.objectContaining({
         sql: expect.stringContaining("first_party_analytics_cache"),
+        maxAttempts: 1,
       }),
     );
+    expect(execute.mock.calls[0][0].timeoutMs).toBeLessThanOrEqual(1_000);
+    expect(execute.mock.calls[1][0]).toEqual(
+      expect.objectContaining({
+        timeoutMs: expect.any(Number),
+        maxAttempts: 1,
+      }),
+    );
+    expect(execute.mock.calls[2][0]).toEqual(
+      expect.objectContaining({
+        sql: expect.stringContaining("ON CONFLICT(key) DO UPDATE"),
+        maxAttempts: 1,
+      }),
+    );
+    expect(execute.mock.calls[2][0].timeoutMs).toBeLessThanOrEqual(1_000);
+  });
+
+  it("shares one deadline between the cache read and panel query", async () => {
+    let now = 1_000;
+    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
+    execute.mockImplementation(async ({ sql }: { sql: string }) => {
+      if (sql.includes("SELECT result FROM first_party_analytics_cache")) {
+        now += 125;
+        return { rows: [], rowsAffected: 0 };
+      }
+      return { rows: [{ count: "1" }], rowsAffected: 0 };
+    });
+
+    try {
+      await queryFirstPartyAnalytics(
+        "SELECT COUNT(*) AS count FROM analytics_events",
+        { userEmail: "deadline@example.com", orgId: null },
+        { cache: true, timeoutMs: 500 },
+      );
+    } finally {
+      dateNow.mockRestore();
+    }
+
+    expect(execute.mock.calls[0][0]).toEqual(
+      expect.objectContaining({ timeoutMs: 500, maxAttempts: 1 }),
+    );
+    expect(execute.mock.calls[1][0]).toEqual(
+      expect.objectContaining({ timeoutMs: 375, maxAttempts: 1 }),
+    );
+    expect(execute.mock.calls[2][0]).toEqual(
+      expect.objectContaining({ timeoutMs: 375, maxAttempts: 1 }),
+    );
+  });
+
+  it("does not start the panel query after the shared deadline expires", async () => {
+    let now = 2_000;
+    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
+    execute.mockImplementation(async ({ sql }: { sql: string }) => {
+      if (sql.includes("SELECT result FROM first_party_analytics_cache")) {
+        now += 500;
+        return { rows: [], rowsAffected: 0 };
+      }
+      return { rows: [{ count: "1" }], rowsAffected: 0 };
+    });
+
+    try {
+      await expect(
+        queryFirstPartyAnalytics(
+          "SELECT COUNT(*) AS count FROM analytics_events",
+          { userEmail: "expired-deadline@example.com", orgId: null },
+          { cache: true, timeoutMs: 500 },
+        ),
+      ).rejects.toThrow("First-party analytics query timed out after 500ms");
+    } finally {
+      dateNow.mockRestore();
+    }
+
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not hold a successful panel response on the cache write", async () => {
+    execute.mockImplementation(async ({ sql }: { sql: string }) => {
+      if (sql.includes("SELECT result FROM first_party_analytics_cache")) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      if (sql.includes("ON CONFLICT(key) DO UPDATE")) {
+        return await new Promise(() => {});
+      }
+      return { rows: [{ count: "1" }], rowsAffected: 0 };
+    });
+
+    await expect(
+      queryFirstPartyAnalytics(
+        "SELECT COUNT(*) AS count FROM analytics_events",
+        { userEmail: "nonblocking-cache@example.com", orgId: null },
+        { cache: true },
+      ),
+    ).resolves.toEqual({
+      rows: [{ count: "1" }],
+      schema: [{ name: "count", type: "string" }],
+    });
   });
 });

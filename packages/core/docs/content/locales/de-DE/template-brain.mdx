@@ -544,8 +544,11 @@ den passenden Bereich, und der Agent kann diese Änderungen für Sie vornehmen:
   Routen, Filter und ausgewählte IDs werden in `application_state` für Agenten gespiegelt
   Kontext.
 
-Bitten Sie den Agenten, Änderungen für Sie vorzunehmen – er kann seine eigene Quelle bearbeiten. Siehe
-[Self-Modifying Code](/docs/key-concepts#agent-modifies-code).
+Nehmen Sie diese Änderungen im Entwicklungsablauf des Repositorys vor. Der
+eingebettete Agent kann nur dann bei Quelländerungen helfen, wenn der Host
+bewusst Repository-/Workspace-Schreibwerkzeuge bereitstellt; andernfalls
+arbeitet er über Actions und Daten. Siehe
+[Key Concepts](/docs/key-concepts#agent-modifies-code).
 
 ## Was kommt als nächstes?
 

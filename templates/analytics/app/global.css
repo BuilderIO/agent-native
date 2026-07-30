@@ -138,32 +138,23 @@
   }
 }
 
-.dashboard-panel-skeleton {
-  background-color: hsl(var(--muted-foreground) / 0.18);
-  background-image: linear-gradient(
-    105deg,
-    transparent 24%,
-    hsl(var(--foreground) / 0.04) 42%,
-    hsl(var(--foreground) / 0.1) 50%,
-    hsl(var(--foreground) / 0.04) 58%,
-    transparent 76%
-  );
-  background-size: 220% 100%;
-  animation: dashboard-panel-skeleton-shimmer 1.8s linear infinite;
+.analytics-dashboard-panel-skeleton {
+  background-color: hsl(var(--muted-foreground) / 0.12);
+  animation: analytics-dashboard-skeleton-pulse 1.6s ease-in-out infinite;
 }
 
-@keyframes dashboard-panel-skeleton-shimmer {
-  from {
-    background-position: 120% 0;
+@keyframes analytics-dashboard-skeleton-pulse {
+  0%,
+  100% {
+    opacity: 1;
   }
-
-  to {
-    background-position: -120% 0;
+  50% {
+    opacity: 0.74;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .dashboard-panel-skeleton {
+  .analytics-dashboard-panel-skeleton {
     animation: none;
   }
 }

@@ -440,6 +440,45 @@ describe("stage-builder-source-bulk-update", () => {
     ]);
   });
 
+  it("stages Builder File URLs through Files & media properties", async () => {
+    const seeded = await seedBuilderDatabase({
+      propertyType: "files_media",
+      sourceFieldType: "file",
+    });
+    const logoUrl = "https://cdn.example.com/assets/product-logo";
+
+    const response = await asOwner(() =>
+      stageBulkUpdate.run({
+        documentId: seeded.databaseDocumentId,
+        sourceId: seeded.sourceId,
+        itemIds: seeded.rows.map((row) => row.itemId),
+        field: { propertyId: seeded.propertyId, value: [logoUrl] },
+        dryRun: false,
+      }),
+    );
+
+    expect(response.summary).toEqual({
+      total: 2,
+      staged: 2,
+      unchanged: 0,
+      blocked: 0,
+    });
+    expect(
+      response.review?.rows.map((row) => row.fieldChanges[0]?.proposedValue),
+    ).toEqual([[logoUrl], [logoUrl]]);
+    await expect(
+      valuesFor(
+        seeded.propertyId,
+        seeded.rows.map((row) => row.documentId),
+      ),
+    ).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ valueJson: JSON.stringify([logoUrl]) }),
+        expect.objectContaining({ valueJson: JSON.stringify([logoUrl]) }),
+      ]),
+    );
+  });
+
   it("blocks stale rows without partially staging the batch", async () => {
     const seeded = await seedBuilderDatabase({ staleRowIndex: 1 });
 

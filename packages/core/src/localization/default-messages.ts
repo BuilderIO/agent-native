@@ -4,6 +4,9 @@
 // templates ship as verbatim copy-only scaffolding (.ts), so their compiled
 // .js never exists in dist.
 const messages = {
+  workspaceFile: {
+    download: "Download",
+  },
   home: {
     settingsTitle: "Settings",
     settingsDescription: "Language and agent preferences",
@@ -54,6 +57,15 @@ const messages = {
     profileSaved: "Profile updated",
     profileSaveError: "Could not update profile",
     profileMenuItem: "Profile",
+  },
+  secrets: {
+    scopeLabel: "Scope",
+    scopePersonal: "Personal",
+    scopeWorkspace: "Workspace",
+    scopePersonalDescription:
+      "Only your own signed-in sessions use this key. Integration, webhook, scheduled job, automation, and agent-to-agent runs sign in as their owner rather than as you, so they cannot read it.",
+    scopeWorkspaceDescription:
+      "Everyone in this workspace uses this key, including integration, webhook, scheduled job, automation, and agent-to-agent runs.",
   },
   agentResources: {
     openDocs: "Open {{section}} documentation",
@@ -197,6 +209,7 @@ const messages = {
       otherAppsDescription: "Open other apps available to you.",
       availableCount: "{{count}} available",
       activeCount: "{{count}} active",
+      pendingCount: "{{count}} pending",
       hiddenCount: "{{count}} hidden",
       createApp: "Create app",
       templates: "Templates",
@@ -206,6 +219,16 @@ const messages = {
       show: "Show",
       hiddenApps: "Hidden apps",
       hiddenAppCount: "{{count}} hidden apps",
+      pendingApps: "Pending apps",
+      pendingAppsDescription:
+        "{{count}} pending apps are hidden by default. Show them only when you need to inspect work in progress.",
+      showPendingApps: "Show pending apps",
+      hidePendingApps: "Hide pending apps",
+      noActiveWorkspaceApps: "No active workspace apps yet",
+      noActiveWorkspaceAppsDescription:
+        "Pending apps are hidden by default. Expand Pending apps below to inspect them.",
+      appMetadataOwner: "Owner",
+      appMetadataTeams: "Teams",
       workspaceAppFallback: "Workspace App",
       workspaceAppDescription:
         "Open a deployed app or check the status of an app being created.",
@@ -293,9 +316,76 @@ const messages = {
       unknownPlatform: "unknown",
       attemptsCount: "{{count}} attempts",
       noErrorMessage: "(no error message)",
+      threadDebugInspectFailure: "Inspect failed run",
+      threadDebugFailureCode: "Failure code",
+      threadDebugTerminalReason: "Terminal reason",
+      threadDebugDispatchMode: "Dispatch mode",
+      threadDebugLastStage: "Last stage",
+      threadDebugDuration: "Duration",
+      threadDebugLastProgress: "Last progress",
+      threadDebugTitle: "Thread Debug",
+      threadDebugDescription:
+        "Inspect failed agent runs, persisted threads, run events, and AI internals.",
+      threadDebugFailedRuns: "Failed runs",
+      threadDebugThreads: "Threads",
+      threadDebugSource: "Source",
+      threadDebugAllSources: "All sources",
+      threadDebugOwner: "Owner email",
+      threadDebugStatus: "Status",
+      threadDebugAllStatuses: "All statuses",
+      threadDebugErrored: "Errored",
+      threadDebugAborted: "Aborted",
+      threadDebugTruncated: "Truncated",
+      threadDebugRange: "Time range",
+      threadDebugRange24h: "Last 24 hours",
+      threadDebugRange7d: "Last 7 days",
+      threadDebugRange30d: "Last 30 days",
+      threadDebugFailureResults: "failed runs",
+      threadDebugCurrentScope: "current scope",
+      threadDebugPartialResults: "Partial results",
+      threadDebugUnavailableSources: "Unavailable sources:",
+      threadDebugDisconnected: "disconnected",
+      threadDebugUnsupported: "unsupported",
+      threadDebugUnavailable: "unavailable",
+      threadDebugRefreshFailures: "Refresh failed runs",
+      threadDebugNoFailures: "No failed runs found.",
+      threadDebugCurrentDatabase: "Current Dispatch DB",
+      threadDebugSearchPlaceholder: "Search title, preview, messages, tools",
+      threadDebugSearch: "Search",
+      threadDebugLookupPlaceholder: "Paste thread or request/run ID",
+      threadDebugInspect: "Inspect",
+      threadDebugAdminScope: "admin scope",
+      threadDebugOwnScope: "own scope",
+      threadDebugResults: "results",
+      threadDebugRefreshThreads: "Refresh threads",
+      threadDebugNoThreads: "No threads found.",
+      threadDebugSelectPrompt: "Select a failed run or thread to inspect.",
+      browserChatUnavailableTitle: "Browser chat session unavailable",
+      browserChatUnavailableDescription:
+        "Reconnect from the Agent-Native browser extension.",
+      browserChatPlaceholder: "Ask about this page…",
+      browserChatAttachedPlaceholder: "Ask about {{page}}…",
+      browserConnectTitle: "Connect browser chat",
+      browserConnectDescription:
+        "Allow the Agent-Native Chrome extension to open this Dispatch chat session. The connection uses a one-time, short-lived ticket.",
+      browserConnectInvalid:
+        "This connection request is invalid. Start again from the extension.",
+      browserConnectConnected:
+        "Browser chat connected. You can close this tab.",
+      browserConnectConnecting: "Connecting…",
+      browserConnectButton: "Connect",
+      browserConnectOpenFromExtension:
+        "Open this page from the Agent-Native Chrome extension.",
+      browserConnectFailed: "The browser extension did not connect.",
     },
   },
   agentPanel: {
+    uiError: {
+      title: "Agent panel hit a glitch",
+      description: "The app's still usable. Reset to reload the chat.",
+      reset: "Reset agent panel",
+      reloading: "Reloading chat…",
+    },
     useBuilder: "Use Builder",
     openDesktopToEditCode: "Open Desktop to edit code",
     codeUnavailableDescription:
@@ -339,7 +429,6 @@ const messages = {
     addOwnKeys: "Add your own keys",
     configureProviderKeys: "Configure Anthropic, OpenAI, or another provider",
     checkingAiConnection: "Checking AI connection...",
-    connectionUnavailable: "Unable to check AI connection. Click to retry.",
     delegatedAgent: {
       asking: "Asking {{name}}...",
       asked: "Asked {{name}}",
@@ -474,79 +563,52 @@ const messages = {
     systemOrdered: "System · ordered, not evictable",
   },
   jobs: {
-    agent: "Agent",
-    pageTitle: "Jobs",
+    pageTitle: "Automations",
     pageDescription:
-      "See recurring jobs and automations that run work for you.",
-    recurringTitle: "Recurring jobs",
-    organizationRecurringDescription:
-      "Cron jobs shared with this organization. Members can view them; creators and admins can manage them.",
-    recurringDescription:
-      "Scheduled prompts that ask the agent to do work automatically.",
-    organizationMemberNote: "You can manage jobs you created.",
+      "Manage agent tasks that run on a schedule or in response to events.",
+    personalDescription:
+      "Scheduled and event-triggered automations that run for you.",
+    organizationDescription:
+      "Scheduled and event-triggered automations shared with this organization.",
+    organizationMemberNote: "You can manage automations you created.",
     loading: "Loading…",
-    recurringLoadError: "Could not load recurring jobs.",
-    organizationEmptyTitle: "No organization jobs yet",
+    loadError: "Could not load all automations.",
+    organizationEmptyTitle: "No organization automations yet",
     organizationEmptyDescription:
-      "Describe a shared job for this organization.",
-    recurringEmptyTitle: "No recurring jobs yet",
-    recurringEmptyDescription: "Describe what should run and when.",
-    organizationCreateTitle: "Create an organization job",
-    recurringCreateTitle: "Create a recurring job",
+      "Describe a scheduled or event-triggered automation for this organization.",
     organizationPrompt:
-      "Create a shared organization job that runs on a schedule and does this: ",
-    recurringPrompt:
-      "Create a recurring job that runs on a schedule and does this: every morning, summarize my inbox.",
-    organizationEmpty: "No organization jobs yet.",
-    recurringEmpty: "No recurring jobs yet.",
+      "Create a shared organization automation that does this: ",
     enabled: "Enabled",
     paused: "Paused",
-    disabled: "Disabled",
     nextRun: "Next run",
     lastRun: "Last run",
     details: "Details",
     pause: "Pause",
     resume: "Resume",
     delete: "Delete",
-    recurringUpdateError: "Could not update recurring job.",
-    automationUpdateError: "Could not update automation.",
-    automationsTitle: "Automations",
-    organizationAutomationsDescription:
-      "Automations are personal today, so none are shown in the organization view.",
-    automationsDescription:
-      "Event-triggered and scheduled agent tasks managed from one place.",
+    updateError: "Could not update automation.",
     automationsEmptyTitle: "No automations yet",
     automationsEmptyDescription: "Describe what should happen and when.",
     automationsCreateTitle: "Create an automation",
+    newAutomation: "New automation",
     automationPrompt: "Create an automation that does this: ",
-    automationsPersonalOnly: "Automations are personal today.",
-    deleteRecurringTitle: "Delete recurring job?",
-    deleteRecurringDescription:
-      "This permanently removes the job and cannot be undone.",
     cancel: "Cancel",
-    recurringDetails: "Recurring job details",
     instructions: "Instructions",
     mcpTools: "Connected MCP tools",
-    automationsLoadError: "Could not load automations.",
-    automationsEmpty: "No automations yet.",
     automationEventTrigger: "On {{event}}",
-    automationScheduleTrigger: "Scheduled task",
+    scheduledTrigger: "Scheduled",
+    eventTrigger: "Event-triggered",
     deleteAutomationTitle: "Delete automation?",
     deleteAutomationDescription:
       "This permanently removes the automation and cannot be undone.",
     automationDetails: "Automation details",
     automationEventDetails: "Runs when {{event}}.",
     condition: "Condition",
-    firingTestEvent: "Firing test event…",
-    fireEventError: "Failed to fire event ({{status}})",
-    eventFired: "Event fired",
-    fireEventErrorGeneric: "Failed to fire event.",
-    newAutomation: "New automation",
-    automationPlaceholder: "Describe what you want to automate…",
     personal: "Personal",
     organization: "Organization",
-    fireTestEvent: "Fire test event",
-    automationsEmptySettings: "Describe what should happen and when.",
+    settingsSummary:
+      "Manage scheduled and event-triggered agent tasks together from the Automations page.",
+    openAutomations: "Open Automations",
   },
   share: {
     titleWithResource: 'Share "{{title}}"',
@@ -677,6 +739,16 @@ const messages = {
     deleting: "Archiving...",
     openFullView: "Open full view",
     removeFromWidgetArea: "Remove from this widget area",
+    customBlockSandboxed: "Custom block · sandboxed",
+    sandboxedCustomBlock: "Sandboxed SQL custom block",
+    sandboxedCustomBlockCreatedBy:
+      "Sandboxed SQL custom block created by {{email}}",
+    promoteToAppCode: "Promote to app code",
+    historyShowsSourceVersions: "History shows source versions",
+    createdByHistoryShowsSourceVersions:
+      "Created by {{email}}. History shows source versions.",
+    createdByHistoryShowsSourceVersionsCompact:
+      "Created by {{email}} · History shows source versions",
     deleteExtensionEllipsis: "Archive extension...",
     removeFromMyListEllipsis: "Remove from my list...",
     removeFromWidgetAreaForMe: "Remove from this widget area (for me)",
@@ -745,6 +817,10 @@ const messages = {
     createOrgCardTitle: "Create an Organization",
     createOrgCardDescription:
       "Set up a team to collaborate with your colleagues.",
+    createOrgVaultNotice:
+      "Vault keys aren't shared between organizations. A new organization starts with an empty vault, so you'll need to add its own API keys and credentials before connected apps work.",
+    acceptInvitationOrgSwitchNotice:
+      "Joining makes {{name}} your active organization. Connected apps will switch to {{name}}'s vault keys, so anything using keys saved in your current organization may stop working until {{name}} has its own.",
     joinDomainOne:
       "An organization matching your email domain already exists. Join it to collaborate with your teammates.",
     joinDomainMany:
@@ -771,10 +847,20 @@ const messages = {
     remove: "Remove",
     save: "Save",
     loading: "Loading...",
+    dangerZone: "Danger zone",
+    deleteOrg: "Delete organization",
+    deleteOrgDescription:
+      "Permanently deletes this organization, its members, and its pending invitations. Data owned by the organization becomes inaccessible. This cannot be undone.",
+    deleteOrgConfirmPrompt: "Type {{name}} to confirm.",
+    deleteOrgConfirmPlaceholder: "Organization name",
+    deleteOrgConfirmCta: "Delete organization",
+    deleteOrgPending: "Deleting…",
   },
   integrations: {
     webhookUrl: "Webhook URL",
     copyWebhookUrl: "Copy webhook URL",
+    webhookUrlLocalOnly:
+      "{{platform}} can't call {{url}} — that address only exists on this machine. Deploy the app, or expose this server through an HTTPS tunnel, then open this page from the public address to get a webhook URL you can paste.",
     notConfigured:
       "Not configured. Set the required secrets to enable this integration.",
     enable: "Enable",
@@ -834,8 +920,6 @@ const messages = {
       "This provider usually requires an OAuth setup. Follow the provider docs, or add an Authorization header if your endpoint supports token-based access.",
     personal: "Personal",
     organization: "Organization",
-    orgNoOrg: "Join an organization to share MCP servers",
-    orgAdminOnly: "Only owners and admins can add org-scope servers",
     serverNameRequired: "Enter a server name before connecting with OAuth.",
     serverName: "Server name",
     url: "URL",

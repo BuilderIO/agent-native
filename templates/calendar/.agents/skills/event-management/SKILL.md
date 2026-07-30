@@ -2,9 +2,9 @@
 name: event-management
 description: >-
   How to create, search, list, update, and delete calendar events via Google
-  Calendar. Covers the list-events, search-events, create-event,
-  manage-event-draft, update-event, and delete-event scripts, date format
-  patterns, and recurrence updates.
+  Calendar: the event scripts, `list-events` result formats and source coverage,
+  working locations, guests and RSVP, date format patterns, and recurrence. Use
+  when reading, scheduling, editing, or deleting events.
 ---
 
 # Event Management
@@ -84,7 +84,9 @@ pnpm action create-event \
   --addZoom=true
 ```
 
-Required: `--title`, `--start`, `--end` (all ISO datetime format).
+Required for ordinary events: `--title`, `--start`, `--end` (ISO datetime
+format). Out-of-office events default the title to `Out of office` when it is
+omitted.
 Optional: `--description`, `--location`, `--attendees`, `--addGoogleMeet`, `--addZoom`, `--sendUpdates`, `--accountEmail`.
 
 When multiple Google accounts are connected, choose the destination account's
@@ -111,11 +113,22 @@ a Zoom/Meet/Teams link in the location or description, or asks for
 Native Google Calendar status events are supported:
 
 ```bash
-# Out of office
+# Full-day out of office. Start and end are inclusive human dates; Calendar
+# writes Google-compatible local-midnight timed bounds in this timezone.
 pnpm action create-event \
-  --title "OOO" \
-  --start 2026-04-03T09:00:00 \
-  --end 2026-04-03T17:00:00 \
+  --start 2026-04-03 \
+  --end 2026-04-07 \
+  --startTimeZone America/New_York \
+  --fullDay true \
+  --eventType outOfOffice \
+  --autoDeclineMode declineAllConflictingInvitations \
+  --declineMessage "Declined because I am out of office"
+
+# Partial-day out of office
+pnpm action create-event \
+  --start 2026-04-03T13:00:00-04:00 \
+  --end 2026-04-03T17:00:00-04:00 \
+  --startTimeZone America/New_York \
   --eventType outOfOffice
 
 # Focus time
@@ -140,6 +153,13 @@ render as native working locations in the UI instead of generic all-day events.
 They are transparent/non-blocking for availability. Google allows timed working
 locations or single-day all-day working locations; multi-day all-day ranges must
 be represented as separate daily working-location events.
+
+`--fullDay true` is semantic only for out-of-office creation. It does not send
+Google an all-day `date` event, which Google rejects for this event type.
+Instead, the action converts inclusive dates to timed local-midnight bounds,
+sets provider `allDay` false, and preserves the chosen IANA timezone across DST.
+The default auto-decline mode covers all conflicting invitations; override it
+with `declineOnlyNewConflictingInvitations` or `declineNone` when requested.
 
 For a visible occurrence in a recurring working-location series, default to
 `scope: "single"` and pass the occurrence's event `id`, not its
@@ -298,6 +318,59 @@ pnpm action rsvp-event \
   --accountEmail secondary@example.com \
   --status accepted
 ```
+
+## list-events Result Formats And Source Coverage
+
+`list-events` remains the UI-compatible event list by default. External MCP
+callers receive its compact, paginated version 1 inventory envelope unless they
+explicitly request `format: "legacy"`; use `format: "inventory"` for that same
+coverage-aware result from other callers.
+
+Preserve its account coverage, `sourceCoverage`, and `coverageComplete` fields:
+Google account, ICS feed, overlay, and local-booking sources are independent,
+and a partial source failure is not an empty calendar. Distinguish an empty
+calendar from missing auth, reauth-needed, or fetch failures instead of
+reporting "no events".
+
+Pass `accountEmails` only for connected accounts; the action validates the whole
+requested set before provider work.
+
+## Guests, RSVP, And Attendee Timezones
+
+Use `get-attendee-timezones` / `set-attendee-timezone` to read or save per-guest
+IANA timezone overrides (`attendee-timezones` user setting). The UI shows each
+guest's local event-start time when a timezone is known (self from the browser
+zone; others from `attendee.timeZone` or the override map, with the event zone
+as a fallback for the organizer).
+
+Use `rsvp-event` for invitation responses. Pass `note` when the user wants a
+visible RSVP comment on a declined or tentative response; pass an empty note to
+clear an existing RSVP comment.
+
+When adding guests to an existing event, prefer `update-event` with
+`addAttendees` so existing RSVP notes/statuses are preserved. Use
+`scope: "all"` only when the user wants a recurring-event guest change applied
+to the whole series.
+
+Pass `optional: true` on an attendee object to mark someone optional when
+creating, drafting, or adding guests. To change optional/required after the
+fact, replace the full `attendees` list with `optional` set on that guest.
+
+## Working Locations
+
+Google Calendar working locations are status events
+(`eventType: "workingLocation"`). Sync and display them as working locations,
+keep them transparent/non-blocking, and preserve `workingLocationProperties`
+instead of treating the summary as a generic all-day event title.
+
+When updating one visible occurrence in a recurring working-location series,
+pass that occurrence's event `id` with `scope: "single"` by default. Use the
+series scope only when the user explicitly chooses all days.
+
+Google Calendar API v3 exposes working locations through Events. The current
+Settings API and Calendar v3 discovery document do not expose working-hours
+settings, so do not promise working-hours UI or overlays unless a real provider
+data path has been verified first.
 
 ## Date Patterns
 

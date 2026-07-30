@@ -1,4 +1,5 @@
 import { getDbExec } from "../db/client.js";
+import { hasActiveIntegrationCampaign } from "./integration-campaigns-store.js";
 import {
   configuredIntegrationDurableDispatchScopes,
   dispatchPendingIntegrationTask,
@@ -231,6 +232,13 @@ export async function retryStuckPendingTasks(
 
   for (const row of stuckRows) {
     try {
+      if (
+        row.status === "processing" &&
+        (await hasActiveIntegrationCampaign(row.id))
+      ) {
+        result.skipped += 1;
+        continue;
+      }
       // Cap retries — mark failed and move on so the row stops bouncing
       // between pending and processing forever.
       if (row.attempts >= MAX_PENDING_TASK_ATTEMPTS) {
@@ -315,7 +323,8 @@ function getProcessingStuckAfterMs(): number {
     process.env.NETLIFY ||
     process.env.AWS_LAMBDA_FUNCTION_NAME ||
     process.env.VERCEL ||
-    "__cf_env" in globalThis
+    "__cf_env" in globalThis ||
+    "__env__" in globalThis
   ) {
     return SERVERLESS_PROCESSING_STUCK_AFTER_MS;
   }

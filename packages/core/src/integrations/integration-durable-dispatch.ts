@@ -10,8 +10,10 @@ import {
   INTEGRATION_DURABLE_DISPATCH_ENV,
   INTEGRATION_DURABLE_DISPATCH_SCOPES_ENV,
   INTEGRATION_PROCESS_TASK_PATH,
+  INTEGRATION_RECOVERY_RUNTIME_MARKER,
   INTEGRATION_RETRY_SWEEP_PATH,
   INTEGRATION_RETRY_SWEEP_TOKEN_SUBJECT,
+  isInIntegrationRecoveryRuntime,
   isIntegrationDurableDispatchConfigured,
 } from "./integration-durable-dispatch-config.js";
 import { recordPendingTaskDispatchAttempt } from "./pending-tasks-store.js";
@@ -20,8 +22,10 @@ export {
   INTEGRATION_DURABLE_DISPATCH_ENV,
   INTEGRATION_DURABLE_DISPATCH_SCOPES_ENV,
   INTEGRATION_PROCESS_TASK_PATH,
+  INTEGRATION_RECOVERY_RUNTIME_MARKER,
   INTEGRATION_RETRY_SWEEP_PATH,
   INTEGRATION_RETRY_SWEEP_TOKEN_SUBJECT,
+  isInIntegrationRecoveryRuntime,
   isIntegrationDurableDispatchConfigured,
 };
 
@@ -29,6 +33,9 @@ export type IntegrationDispatchOutcome =
   | "background-acknowledged"
   | "portable-unconfirmed"
   | "failed";
+
+export const INTEGRATION_CAMPAIGN_PROCESSOR_FIELD =
+  "__integrationCampaignContinuation";
 
 export interface IntegrationDispatchTaskScope {
   platform: string;
@@ -136,9 +143,19 @@ export async function dispatchPendingIntegrationTask(input: {
   event?: unknown;
   baseUrl?: string;
   portableSettleMs?: number;
+  campaignContinuation?: boolean;
+  allowPortableConfirmedReceiptReconciliation?: boolean;
 }): Promise<IntegrationDispatchOutcome> {
   const startedAt = Date.now();
   const durable = isIntegrationDurableDispatchEnabledForTask(input.task);
+  if (
+    input.campaignContinuation &&
+    !durable &&
+    !input.allowPortableConfirmedReceiptReconciliation
+  ) {
+    logDispatch(input.taskId, "failed", startedAt);
+    return "failed";
+  }
   if (durable) {
     const backgroundPath = resolveDurableBackgroundDispatchPath(
       INTEGRATION_PROCESS_TASK_PATH,
@@ -152,11 +169,16 @@ export async function dispatchPendingIntegrationTask(input: {
         body: {
           [AGENT_BACKGROUND_PROCESSOR_FIELD]:
             AGENT_BACKGROUND_PROCESSOR_INTEGRATION,
+          ...(input.campaignContinuation
+            ? { [INTEGRATION_CAMPAIGN_PROCESSOR_FIELD]: true }
+            : {}),
         },
         awaitResponse: true,
         responseTimeoutMs: 2_000,
       });
-      await recordDispatch(input.taskId, "background-acknowledged");
+      if (!input.campaignContinuation) {
+        await recordDispatch(input.taskId, "background-acknowledged");
+      }
       logDispatch(input.taskId, "background-acknowledged", startedAt);
       return "background-acknowledged";
     } catch (error) {
@@ -173,9 +195,14 @@ export async function dispatchPendingIntegrationTask(input: {
       baseUrl: input.baseUrl,
       path: INTEGRATION_PROCESS_TASK_PATH,
       taskId: input.taskId,
+      body: input.campaignContinuation
+        ? { [INTEGRATION_CAMPAIGN_PROCESSOR_FIELD]: true }
+        : undefined,
       settleMs: input.portableSettleMs,
     });
-    await recordDispatch(input.taskId, "portable-unconfirmed");
+    if (!input.campaignContinuation) {
+      await recordDispatch(input.taskId, "portable-unconfirmed");
+    }
     logDispatch(input.taskId, "portable-unconfirmed", startedAt);
     return "portable-unconfirmed";
   } catch (error) {
@@ -183,7 +210,9 @@ export async function dispatchPendingIntegrationTask(input: {
       `[integrations] Portable dispatch failed for ${input.taskId}:`,
       error,
     );
-    await recordDispatch(input.taskId, "failed");
+    if (!input.campaignContinuation) {
+      await recordDispatch(input.taskId, "failed");
+    }
     logDispatch(input.taskId, "failed", startedAt);
     return "failed";
   }

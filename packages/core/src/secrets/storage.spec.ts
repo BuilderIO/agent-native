@@ -301,7 +301,7 @@ describe("secrets storage CRUD (real sqlite)", () => {
       // ever available via A2A_SECRET derivation.
       delete process.env.SECRETS_ENCRYPTION_KEY;
       delete process.env.BETTER_AUTH_SECRET;
-      process.env.AGENT_NATIVE_WORKSPACE = "1";
+      delete process.env.AGENT_NATIVE_WORKSPACE;
       process.env.A2A_SECRET = "workspace-root";
       process.env.DISPATCH_SECRETS_ENCRYPTION_KEY = "dispatch-only-material"; // guard:allow-env-credential — test configures deploy-level app encryption material.
       process.env.COACH_SECRETS_ENCRYPTION_KEY = "coach-only-material"; // guard:allow-env-credential — test configures deploy-level app encryption material.
@@ -334,6 +334,87 @@ describe("secrets storage CRUD (real sqlite)", () => {
       if (originalCoachKey === undefined)
         delete process.env.COACH_SECRETS_ENCRYPTION_KEY; // guard:allow-env-credential — test restores deploy-level app encryption material.
       else process.env.COACH_SECRETS_ENCRYPTION_KEY = originalCoachKey; // guard:allow-env-credential — test restores deploy-level app encryption material.
+      if (originalSharedKey === undefined)
+        delete process.env.SECRETS_ENCRYPTION_KEY;
+      else process.env.SECRETS_ENCRYPTION_KEY = originalSharedKey;
+      if (originalAuthSecret === undefined)
+        delete process.env.BETTER_AUTH_SECRET;
+      else process.env.BETTER_AUTH_SECRET = originalAuthSecret;
+      if (originalWorkspace === undefined)
+        delete process.env.AGENT_NATIVE_WORKSPACE;
+      else process.env.AGENT_NATIVE_WORKSPACE = originalWorkspace;
+      if (originalA2ASecret === undefined) delete process.env.A2A_SECRET;
+      else process.env.A2A_SECRET = originalA2ASecret;
+    }
+  });
+
+  it("migrates legacy auth-secret shared ciphertext to the A2A-derived workspace key", async () => {
+    const originalAppName = process.env.APP_NAME; // guard:allow-env-credential — test configures deploy-level app scope.
+    const originalSharedKey = process.env.SECRETS_ENCRYPTION_KEY;
+    const originalAuthSecret = process.env.BETTER_AUTH_SECRET;
+    const originalWorkspace = process.env.AGENT_NATIVE_WORKSPACE;
+    const originalA2ASecret = process.env.A2A_SECRET;
+
+    try {
+      delete process.env.SECRETS_ENCRYPTION_KEY;
+      delete process.env.AGENT_NATIVE_WORKSPACE;
+      delete process.env.A2A_SECRET;
+      delete process.env.APP_NAME; // guard:allow-env-credential — test isolates deploy-level app scope.
+      process.env.BETTER_AUTH_SECRET = "dispatch-auth-secret";
+
+      await mod.writeAppSecret({
+        scope: "org",
+        scopeId: "org_builder",
+        key: "BUILDER_PRIVATE_KEY",
+        value: "builder-private-example",
+      });
+      const before = sqlite
+        .prepare(
+          `SELECT shared_encrypted_value, updated_at FROM app_secrets LIMIT 1`,
+        )
+        .get() as {
+        shared_encrypted_value: string;
+        updated_at: number;
+      };
+
+      process.env.AGENT_NATIVE_WORKSPACE = "1";
+      process.env.A2A_SECRET = "workspace-root-secret";
+      await expect(
+        mod.readAppSecret({
+          scope: "org",
+          scopeId: "org_builder",
+          key: "BUILDER_PRIVATE_KEY",
+        }),
+      ).resolves.toMatchObject({ value: "builder-private-example" });
+
+      const after = sqlite
+        .prepare(
+          `SELECT shared_encrypted_value, updated_at FROM app_secrets LIMIT 1`,
+        )
+        .get() as {
+        shared_encrypted_value: string;
+        updated_at: number;
+      };
+      expect(after.shared_encrypted_value).not.toBe(
+        before.shared_encrypted_value,
+      );
+      expect(after.updated_at).toBe(before.updated_at);
+
+      // A sibling with a different auth secret can now decrypt the migrated
+      // shared column because the workspace A2A-derived key owns it.
+      process.env.APP_NAME = "slides"; // guard:allow-env-credential — test switches deploy-level app scope.
+      process.env.BETTER_AUTH_SECRET = "slides-auth-secret";
+      await expect(
+        mod.readAppSecret({
+          scope: "org",
+          scopeId: "org_builder",
+          key: "BUILDER_PRIVATE_KEY",
+        }),
+      ).resolves.toMatchObject({ value: "builder-private-example" });
+    } finally {
+      if (originalAppName === undefined)
+        delete process.env.APP_NAME; // guard:allow-env-credential — test restores deploy-level app scope.
+      else process.env.APP_NAME = originalAppName; // guard:allow-env-credential — test restores deploy-level app scope.
       if (originalSharedKey === undefined)
         delete process.env.SECRETS_ENCRYPTION_KEY;
       else process.env.SECRETS_ENCRYPTION_KEY = originalSharedKey;

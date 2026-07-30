@@ -22,13 +22,14 @@ function resolveScope() {
 async function syncToCollab(
   dashboardId: string,
   config: Record<string, unknown>,
+  requestSource?: string,
 ): Promise<void> {
   const docId = `dash-${dashboardId}`;
   const configStr = JSON.stringify(config);
   try {
     const exists = await hasCollabState(docId);
     if (exists) {
-      await applyText(docId, configStr, "content", "agent");
+      await applyText(docId, configStr, "content", requestSource);
     } else {
       await seedFromText(docId, configStr);
     }
@@ -43,25 +44,36 @@ export default defineAction({
   schema: z.object({
     dashboardId: z.string().describe("Dashboard id to restore"),
     revisionId: z.string().describe("Revision id to restore"),
+    expectedUpdatedAt: z
+      .string()
+      .optional()
+      .describe("The dashboard updatedAt value observed before this restore"),
   }),
   http: { method: "POST" },
-  run: async (args) => {
-    const dashboard = await restoreDashboardRevision(
+  run: async (args, actionContext) => {
+    const restored = await restoreDashboardRevision(
       args.dashboardId,
       args.revisionId,
       resolveScope(),
+      args.expectedUpdatedAt,
     );
-    if (!dashboard) {
+    if (!restored) {
       throw new Error(
         `Dashboard revision "${args.revisionId}" was not found for dashboard "${args.dashboardId}".`,
       );
     }
-    await syncToCollab(dashboard.id, dashboard.config);
+    const { dashboard, snapshotRevisionId } = restored;
+    await syncToCollab(
+      dashboard.id,
+      dashboard.config,
+      actionContext?.caller === "frontend" ? undefined : "agent",
+    );
     return {
       id: dashboard.id,
       kind: dashboard.kind,
       name: dashboard.title,
       updatedAt: dashboard.updatedAt,
+      snapshotRevisionId,
       message: `Restored dashboard "${dashboard.title}" from history.`,
     };
   },

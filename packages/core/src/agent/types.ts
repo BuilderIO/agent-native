@@ -135,6 +135,8 @@ export interface AgentChatScope {
 
 export interface AgentChatRequest {
   message: string;
+  /** Stable identity of a durable queued message, used to reject replayed delivery. */
+  queuedMessageId?: string;
   /**
    * User-visible text to persist in chat history. `message` may be normalized
    * for the model (for example mention markup or internal continuation text).
@@ -274,8 +276,10 @@ export type AgentChatEvent =
   | {
       type: "agent_call";
       agent: string;
-      status: "start" | "done" | "error";
+      status: "start" | "done" | "pending" | "error";
       agentCallId?: string;
+      /** Remote task to resume when status is pending/input-required. */
+      taskId?: string;
       durationMs?: number;
     }
   | {
@@ -388,11 +392,15 @@ export type ContinuationReason = (typeof CONTINUATION_REASONS)[number];
 
 /**
  * True when an `agent_runs.terminal_reason` marks a CHUNK boundary rather than
- * the end of the turn. Both writers (`terminalReasonForRun` in run-manager and
- * `markBackgroundContinuationChunkTerminal` in production-agent) record
- * status='completed' with one of these while a chained successor run carries the
- * turn on, so such a row must never be reported to a client as a plain `done`.
- * Mirrored client-side by `BACKGROUND_CONTINUATION_TERMINAL_REASONS`.
+ * the end of the turn — i.e. the run was TRUNCATED at a budget/timeout/loop/
+ * no-progress boundary and did not finish what it was asked to do.
+ *
+ * This is the single predicate for "the reason says this run did not finish".
+ * `setRunTerminalReason` (run-store) uses it to record `status='truncated'`
+ * instead of `'completed'`, so consumers should read the status rather than
+ * re-deriving truncation from the reason. It stays exported for legacy
+ * `status='completed'` rows written before the `truncated` status existed,
+ * which linger for one retention window.
  */
 export function isContinuationTerminalReason(reason: unknown): boolean {
   return (
@@ -406,4 +414,17 @@ export interface RunEvent {
   event: AgentChatEvent;
 }
 
-export type RunStatus = "running" | "completed" | "errored" | "aborted";
+/**
+ * `agent_runs.status`. `completed` means the turn actually finished (terminal
+ * reason `done`); `truncated` means it stopped at a budget/timeout/loop/
+ * no-progress boundary with work still outstanding. Truncations were previously
+ * filed as `completed`, which made them invisible to every success-rate query
+ * and — because retention keys off status — deleted them a week before the
+ * genuine failures they belong with.
+ */
+export type RunStatus =
+  | "running"
+  | "completed"
+  | "truncated"
+  | "errored"
+  | "aborted";

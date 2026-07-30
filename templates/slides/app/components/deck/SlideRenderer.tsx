@@ -14,6 +14,7 @@ import rehypeRaw from "rehype-raw";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Slide } from "@/context/DeckContext";
 import { type AspectRatio, getAspectRatioDims } from "@/lib/aspect-ratios";
+import { extractMermaidBlocks } from "@/lib/mermaid-blocks";
 import {
   sanitizeCssValue,
   sanitizeSlideHtml,
@@ -37,6 +38,8 @@ interface SlideRendererProps {
    * The renderer no longer shrinks slides for vertical overflow — instead the
    * editor surfaces this so the agent can rewrite the slide to fit. */
   onOverflowChange?: (info: SlideOverflowInfo) => void;
+  /** Fires after AutoFit has applied its final transform for this render. */
+  onAutofitSettled?: () => void;
 }
 
 export const layoutClasses: Record<string, string> = {
@@ -219,6 +222,29 @@ function measureContentBounds(target: HTMLElement): {
   minX: number;
   minY: number;
 } {
+  const descendants = Array.from(
+    target.querySelectorAll<HTMLElement>("*"),
+  ).filter((element) => element.tagName.toLowerCase() !== "style");
+  const isFreeformElement = (element: HTMLElement) => {
+    let current: HTMLElement | null = element;
+    while (current && current !== target) {
+      const position =
+        current.style.position || window.getComputedStyle(current).position;
+      if (
+        current.classList.contains("fmd-freeform-object") ||
+        current.classList.contains("fmd-text-box") ||
+        current.hasAttribute("data-slide-object-id") ||
+        position === "absolute" ||
+        position === "fixed"
+      ) {
+        return true;
+      }
+      current = current.parentElement;
+    }
+    return false;
+  };
+  const hasFreeformContent = descendants.some(isFreeformElement);
+
   const targetRect = target.getBoundingClientRect();
   // `scrollWidth` / `clientWidth` return CSS pixels; `getBoundingClientRect`
   // returns layout pixels after every ancestor transform. In presentation
@@ -238,11 +264,16 @@ function measureContentBounds(target: HTMLElement): {
 
   let minX = 0;
   let minY = 0;
-  let maxX = target.scrollWidth;
-  let maxY = target.scrollHeight;
+  // Absolutely positioned objects intentionally move independently of the
+  // flow layout. They still expand scrollWidth/scrollHeight, but fitting the
+  // entire layer around them creates a feedback loop where dragging one object
+  // scales and shifts every sibling. When a layer contains freeform content,
+  // derive overflow from normal-flow element bounds instead.
+  let maxX = hasFreeformContent ? target.clientWidth : target.scrollWidth;
+  let maxY = hasFreeformContent ? target.clientHeight : target.scrollHeight;
 
-  for (const el of Array.from(target.querySelectorAll<HTMLElement>("*"))) {
-    if (el.tagName.toLowerCase() === "style") continue;
+  for (const el of descendants) {
+    if (isFreeformElement(el)) continue;
     const rect = el.getBoundingClientRect();
     if (rect.width === 0 && rect.height === 0) continue;
 
@@ -258,8 +289,8 @@ function measureContentBounds(target: HTMLElement): {
   }
 
   return {
-    contentWidth: Math.max(target.scrollWidth, maxX - minX),
-    contentHeight: Math.max(target.scrollHeight, maxY - minY),
+    contentWidth: Math.max(target.clientWidth, maxX - minX),
+    contentHeight: Math.max(target.clientHeight, maxY - minY),
     minX,
     minY,
   };
@@ -283,9 +314,12 @@ function useSlideAutofit(
   canvasHeight: number,
   fitKey: string,
   onOverflowChange?: (info: SlideOverflowInfo) => void,
+  onAutofitSettled?: () => void,
 ) {
   const overflowCallbackRef = useRef(onOverflowChange);
   overflowCallbackRef.current = onOverflowChange;
+  const autofitSettledRef = useRef(onAutofitSettled);
+  autofitSettledRef.current = onAutofitSettled;
 
   useIsomorphicLayoutEffect(() => {
     const root = ref.current;
@@ -316,7 +350,11 @@ function useSlideAutofit(
 
       for (const target of targets) {
         if (isEditing) {
-          resetTarget(target);
+          // Entering inline edit must not change the canvas geometry. The
+          // contenteditable attribute is observed below, so resetting the fit
+          // transform here made a horizontally fitted slide jump as soon as a
+          // user clicked its text. Freeze the most recent fit until the edit
+          // commits, then measure the saved HTML again.
           continue;
         }
 
@@ -363,6 +401,7 @@ function useSlideAutofit(
             viewportHeight: 0,
           },
         );
+        autofitSettledRef.current?.();
       }
     };
 
@@ -405,6 +444,7 @@ function AutoFitContent({
   className = "",
   children,
   onOverflowChange,
+  onAutofitSettled,
 }: {
   canvasWidth: number;
   canvasHeight: number;
@@ -412,9 +452,17 @@ function AutoFitContent({
   className?: string;
   children: ReactNode;
   onOverflowChange?: (info: SlideOverflowInfo) => void;
+  onAutofitSettled?: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  useSlideAutofit(ref, canvasWidth, canvasHeight, fitKey, onOverflowChange);
+  useSlideAutofit(
+    ref,
+    canvasWidth,
+    canvasHeight,
+    fitKey,
+    onOverflowChange,
+    onAutofitSettled,
+  );
 
   return (
     <div
@@ -437,18 +485,9 @@ function BlankSlideContent({ content }: { content: string }) {
   // includes the per-block `contentEditable="true"` set by SlideEditor's
   // double-click-to-edit flow, which made inline text editing appear to do nothing.
   const { mermaidBlocks, htmlWithPlaceholders, dangerousHtml } = useMemo(() => {
-    // Extract mermaid blocks BEFORE sanitization. The sanitizer round-trips
-    // HTML through DOMParser + innerHTML, which HTML-escapes `>` in text
-    // nodes to `&gt;` — that mangles diagram arrows like `A --> B` into
-    // `A --&gt; B` and breaks the mermaid parser.
-    const blocks: string[] = [];
-    const contentWithPlaceholders = content.replace(
-      /<div\s+class="mermaid"[^>]*>([\s\S]*?)<\/div>/gi,
-      (_, definition) => {
-        blocks.push(String(definition).trim());
-        return `<div data-mermaid-index="${blocks.length - 1}"></div>`;
-      },
-    );
+    // Extract mermaid blocks BEFORE sanitization — see mermaid-blocks.ts for
+    // why (sanitizer HTML-escaping breaks the mermaid parser).
+    const { blocks, contentWithPlaceholders } = extractMermaidBlocks(content);
 
     // Apply white filter to all logo images (brandfetch, logo.dev, etc.) for dark backgrounds
     const processed = sanitizeSlideHtml(
@@ -515,6 +554,7 @@ function MermaidHtmlContent({
             <MermaidRenderer
               key={`mermaid-${i}`}
               definition={mermaidBlocks[idx]}
+              index={idx}
               className="my-4 w-full"
             />
           );
@@ -532,11 +572,13 @@ export function SlideInner({
   designSystem,
   aspectRatio,
   onOverflowChange,
+  onAutofitSettled,
 }: {
   slide: Slide;
   designSystem?: DesignSystemData;
   aspectRatio?: AspectRatio;
   onOverflowChange?: (info: SlideOverflowInfo) => void;
+  onAutofitSettled?: () => void;
 }) {
   const t = useT();
   const dims = getAspectRatioDims(aspectRatio);
@@ -619,6 +661,7 @@ export function SlideInner({
           fitKey={left}
           className="slide-content text-white/90"
           onOverflowChange={onOverflowChange}
+          onAutofitSettled={onAutofitSettled}
         >
           <ReactMarkdown
             components={markdownComponents}
@@ -632,6 +675,7 @@ export function SlideInner({
           canvasHeight={dims.height}
           fitKey={right}
           className="slide-content text-white/90"
+          onAutofitSettled={onAutofitSettled}
         >
           <ReactMarkdown
             components={markdownComponents}
@@ -657,6 +701,7 @@ export function SlideInner({
           fitKey={content}
           className="h-full w-full"
           onOverflowChange={onOverflowChange}
+          onAutofitSettled={onAutofitSettled}
         >
           <BlankSlideContent content={content} />
         </AutoFitContent>
@@ -682,6 +727,7 @@ export function SlideInner({
         fitKey={content}
         className="slide-content text-white/90 w-full"
         onOverflowChange={onOverflowChange}
+        onAutofitSettled={onAutofitSettled}
       >
         <ReactMarkdown
           components={markdownComponents}
@@ -701,6 +747,7 @@ export default function SlideRenderer({
   designSystem,
   aspectRatio,
   onOverflowChange,
+  onAutofitSettled,
 }: SlideRendererProps) {
   const dims = getAspectRatioDims(aspectRatio);
 
@@ -721,6 +768,7 @@ export default function SlideRenderer({
             designSystem={designSystem}
             aspectRatio={aspectRatio}
             onOverflowChange={onOverflowChange}
+            onAutofitSettled={onAutofitSettled}
           />
         </div>
         <ScaleHelper
@@ -751,6 +799,7 @@ export default function SlideRenderer({
           designSystem={designSystem}
           aspectRatio={aspectRatio}
           onOverflowChange={onOverflowChange}
+          onAutofitSettled={onAutofitSettled}
         />
       </div>
       <ScaleHelper targetWidth={dims.width} />

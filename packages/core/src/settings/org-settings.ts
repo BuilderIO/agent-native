@@ -13,6 +13,7 @@ import {
   mutateSetting,
   putSetting,
   deleteSetting,
+  deleteSettingsByPrefix,
   getAllSettings,
   type StoreWriteOptions,
 } from "./store.js";
@@ -60,6 +61,14 @@ export async function deleteOrgSetting(
   options?: StoreWriteOptions,
 ): Promise<boolean> {
   return deleteSetting(orgKey(orgId, key), options);
+}
+
+/** Delete every setting belonging to an org. For org deletion. */
+export async function deleteAllOrgSettings(
+  orgId: string,
+  options?: StoreWriteOptions,
+): Promise<number> {
+  return deleteSettingsByPrefix(`o:${orgId}:`, options);
 }
 
 /**

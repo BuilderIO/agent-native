@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const resolveCredential = vi.fn();
+const describeCredentialScopeGap = vi.fn();
 const isBlockedExtensionUrlWithDns = vi.fn();
 const createSsrfSafeDispatcher = vi.fn();
 const listOAuthAccountsByOwner = vi.fn();
@@ -10,6 +11,7 @@ const resolveWorkspaceConnectionForApp = vi.fn();
 const resolveSecret = vi.fn();
 
 vi.mock("../credentials/index.js", () => ({
+  describeCredentialScopeGap,
   resolveCredential,
 }));
 
@@ -51,6 +53,8 @@ describe("provider API runtime", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     resolveCredential.mockReset();
+    describeCredentialScopeGap.mockReset();
+    describeCredentialScopeGap.mockResolvedValue(null);
     isBlockedExtensionUrlWithDns.mockReset();
     createSsrfSafeDispatcher.mockReset();
     listOAuthAccountsByOwner.mockReset();
@@ -1389,6 +1393,56 @@ describe("provider API runtime", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("explains an out-of-scope credential instead of reporting it missing", async () => {
+    resolveCredential.mockResolvedValue(null);
+    describeCredentialScopeGap.mockResolvedValue(
+      'A "HUBSPOT_ACCESS_TOKEN" key is saved in this workspace with Personal scope. ' +
+        "It needs Workspace or Organization scope instead.",
+    );
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["hubspot"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    const error = await runtime
+      .executeRequest({ provider: "hubspot", path: "/crm/v3/objects/deals" })
+      .then(
+        () => null,
+        (err: Error) => err,
+      );
+
+    expect(error?.message).toContain("hubspot credential not configured");
+    expect(error?.message).toContain("with Personal scope");
+    expect(error?.message).toContain("Workspace or Organization scope");
+    expect(describeCredentialScopeGap).toHaveBeenCalledWith(
+      expect.arrayContaining(["HUBSPOT_ACCESS_TOKEN"]),
+      credentialContext,
+    );
+  });
+
+  it("keeps the generic message when nothing safe can be said about scope", async () => {
+    resolveCredential.mockResolvedValue(null);
+    describeCredentialScopeGap.mockResolvedValue(null);
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["hubspot"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    const error = await runtime
+      .executeRequest({ provider: "hubspot", path: "/crm/v3/objects/deals" })
+      .then(
+        () => null,
+        (err: Error) => err,
+      );
+
+    expect(error?.message).toMatch(
+      /hubspot credential not configured\. Tried:/,
+    );
+    expect(error?.message).not.toContain("Personal scope");
+  });
+
   it("wraps provider transport failures with a sanitized request target", async () => {
     resolveCredential.mockResolvedValue("hubspot-token");
     const err = new TypeError("fetch failed") as TypeError & {
@@ -2298,6 +2352,29 @@ describe("provider API runtime", () => {
       deleteGitHubRepositoryFile: vi.fn(),
     };
     const action = createGitHubRepoFilesAction(runtime);
+    const planEffect = action.planMode?.effect;
+    expect(typeof planEffect).toBe("function");
+    if (typeof planEffect !== "function") {
+      throw new Error("Missing Plan-mode classifier");
+    }
+    expect(planEffect({ operation: "list", owner: "o", repo: "r" })).toBe(
+      "read",
+    );
+    expect(planEffect({ operation: "search", owner: "o", repo: "r" })).toBe(
+      "read",
+    );
+    expect(planEffect({ operation: "read", owner: "o", repo: "r" })).toBe(
+      "read",
+    );
+    expect(planEffect({ operation: "write", owner: "o", repo: "r" })).toBe(
+      "write",
+    );
+    expect(planEffect({ operation: "delete", owner: "o", repo: "r" })).toBe(
+      "write",
+    );
+    expect(action.planMode?.allowedValues).toEqual({
+      operation: ["list", "search", "read"],
+    });
 
     expect(typeof action.needsApproval).toBe("function");
     await expect(

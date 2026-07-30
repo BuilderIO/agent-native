@@ -23,8 +23,9 @@ import {
   shouldAllowMcpEmbedCredentials,
 } from "../shared/mcp-embed-headers.js";
 import {
-  resolveEmbedSessionFromRequest,
+  isEmbedCapabilityScope,
   requestHasEmbedAuthMarker,
+  resolveEmbedSessionFromRequest,
 } from "./embed-session.js";
 import type { H3AppShim } from "./framework-request-handler.js";
 
@@ -84,6 +85,12 @@ import { putSetting } from "../settings/store.js";
 import { resolveSsrCacheHeaders } from "../shared/cache-control.js";
 import { extractOAuthStateAppId } from "../shared/oauth-state.js";
 import {
+  SIGN_IN_CONTINUATION_PARAM,
+  SIGN_IN_LEGACY_RETURN_PARAM,
+  normalizeAppPath,
+  signInJourney,
+} from "../shared/sign-in-journey.js";
+import {
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
   AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
   AGENT_NATIVE_SOCIAL_IMAGE_PATH,
@@ -99,7 +106,10 @@ import {
 } from "../shared/workspace-app-audience.js";
 import { isValidWorkspaceAppIdFormat } from "../shared/workspace-app-id.js";
 import { injectAnalyticsIntoHtml } from "./analytics.js";
-import { signupAttributionFromCookieHeader } from "./attribution.js";
+import {
+  readAnalyticsAnonymousId,
+  signupAttributionFromCookieHeader,
+} from "./attribution.js";
 import { getBetterAuth, getBetterAuthSync } from "./better-auth-instance.js";
 import type { BetterAuthConfig } from "./better-auth-instance.js";
 import {
@@ -345,6 +355,7 @@ export function getCookieDomain(): string | undefined {
 export const COOKIE_NAME = AUTH_COOKIE_NAMESPACE.frameworkCookieName;
 export const BETTER_AUTH_COOKIE_PREFIX =
   AUTH_COOKIE_NAMESPACE.betterAuthCookiePrefix;
+const AUTH_DISABLED_OPT_OUT_COOKIE = `${COOKIE_NAME}_auth_disabled_opt_out`;
 
 /**
  * Cookie domain attribute spread into every `setCookie`/`deleteCookie`.
@@ -535,33 +546,19 @@ export function isDevEnvironment(): boolean {
 }
 
 /**
- * Validate a `?return=` URL for the /_agent-native/sign-in entrypoint.
+ * @deprecated Prefer `normalizeAppPath` from `@agent-native/core/shared`,
+ * which returns `null` for a rejected path instead of a `"/"` a caller cannot
+ * distinguish from a genuine request for the home page.
  *
- * Parses the candidate against a sentinel base origin; any input that
- * resolves to a different origin (network-path references, absolute URLs,
- * `data:` / `javascript:` schemes, backslash-bypass tricks WHATWG normalises
- * to `//`) gets rejected and falls back to "/". Control characters are
- * stripped up front to defend against header-injection. Returns the
- * normalised path the parser produced — never the raw input.
- *
- * Exported for unit tests.
+ * Retained because eight template call sites use it for PROVIDER OAuth
+ * returns (Google Calendar, Slack, Google Docs, …), which is a legitimately
+ * separate concern from the sign-in journey. Deliberately passes NO base path:
+ * provider return targets are not guaranteed to be base-path prefixed, and
+ * tightening that here would silently collapse working provider returns to
+ * "/" on base-path deploys. Base-path containment belongs to `signInJourney`.
  */
 export function safeReturnPath(raw: string | null | undefined): string {
-  if (!raw) return "/";
-  if (/[\x00-\x1f]/.test(raw)) return "/";
-  try {
-    const parsed = new URL(raw, "http://safe-base.invalid");
-    if (parsed.origin !== "http://safe-base.invalid") return "/";
-    // Never return to the sign-in entry point itself. A `return` that resolves
-    // back to `…/_agent-native/sign-in` re-enters the redirect loop — each hop
-    // nests the prior sign-in URL as a fresh `?return=`. Collapse it to "/" so
-    // the post-sign-in 302 lands on the app, not another sign-in page. Matches
-    // with or without an app base-path prefix (`/<app>/_agent-native/sign-in`).
-    if (parsed.pathname.endsWith("/_agent-native/sign-in")) return "/";
-    return parsed.pathname + parsed.search + parsed.hash;
-  } catch {
-    return "/";
-  }
+  return normalizeAppPath(raw) ?? "/";
 }
 
 /**
@@ -1915,14 +1912,21 @@ function createAuthGuardFn(): (
       // reaches this explicit entrypoint after discovering there is no
       // session; only a fresh local development DB can take this redirect.
       if (getMethod(event) === "GET") {
-        const queryStr = queryStart >= 0 ? url.slice(queryStart + 1) : "";
-        const safeReturn = safeReturnPath(
-          new URLSearchParams(queryStr).get("return"),
+        const query = new URLSearchParams(
+          queryStart >= 0 ? url.slice(queryStart + 1) : "",
         );
-        const autoSession = await maybeAutoCreateDevSession(
-          event,
-          safeReturn === "/" ? getAppBasePath() || "/" : safeReturn,
-        );
+        // `?return=` is read as a fallback FOREVER. Generated apps in the wild
+        // hand-write `/_agent-native/sign-in?return=…` and cannot be upgraded;
+        // dropping the fallback would send them all to "/" — a UX quirk no
+        // test would catch. New producers emit `c`; only NEW `?return=`
+        // producers are forbidden, never this consumer.
+        const { resumeHref } = signInJourney({
+          at: url,
+          continuation: query.get(SIGN_IN_CONTINUATION_PARAM),
+          legacyReturn: query.get(SIGN_IN_LEGACY_RETURN_PARAM),
+          basePath: getAppBasePath(),
+        });
+        const autoSession = await maybeAutoCreateDevSession(event, resumeHref);
         if (autoSession) return autoSession;
       }
       return loginHtmlResponse(loginHtml, event);
@@ -2001,7 +2005,14 @@ function createAuthGuardFn(): (
       // dev account, so production SSR remains one cacheable anonymous shell
       // and explicit sign-out still works.
       if (getMethod(event) === "GET") {
-        const autoSession = await maybeAutoCreateDevSession(event, url);
+        // Same source of truth as the sign-in entry above. This used to pass
+        // the raw request URL, which made one decision with two sources — the
+        // shape the sign-in unification exists to delete.
+        const { resumeHref } = signInJourney({
+          at: url,
+          basePath: getAppBasePath(),
+        });
+        const autoSession = await maybeAutoCreateDevSession(event, resumeHref);
         if (autoSession) return autoSession;
       }
       return;
@@ -2041,8 +2052,11 @@ function isAuthDisabled(): boolean {
   return value === "1" || value === "true";
 }
 
-function getAuthDisabledSession(): AuthSession | null {
+function getAuthDisabledSession(event: H3Event): AuthSession | null {
   if (!isAuthDisabled()) return null;
+  if (getCookieValues(event, AUTH_DISABLED_OPT_OUT_COOKIE).includes("1")) {
+    return null;
+  }
   if (!authDisabledWarningLogged) {
     authDisabledWarningLogged = true;
     console.warn(
@@ -2050,6 +2064,17 @@ function getAuthDisabledSession(): AuthSession | null {
     );
   }
   return { email: AUTO_DEV_ACCOUNT_EMAIL };
+}
+
+function optOutOfAuthDisabledSession(event: H3Event): void {
+  if (!isAuthDisabled()) return;
+  setCookie(event, AUTH_DISABLED_OPT_OUT_COOKIE, "1", {
+    httpOnly: true,
+    ...crossSiteCookieAttrs(event),
+    ...cookieDomainAttrs(),
+    path: "/",
+    maxAge: sessionMaxAge,
+  });
 }
 
 async function hasAutoDevAccountUser(
@@ -2308,7 +2333,7 @@ async function resolveSessionUncached(
   // an_session cookie prevents a stale cookie (common when an ACCESS_TOKEN is
   // configured) from shadowing the embed identity.
   const embedSession = await resolveEmbedSessionFromRequest(event);
-  if (embedSession) {
+  if (embedSession && !isEmbedCapabilityScope(embedSession.scope)) {
     return {
       email: embedSession.email,
       token: embedSession.token,
@@ -2388,7 +2413,7 @@ async function resolveSessionUncached(
   // 9. AUTH_DISABLED fallback — only when no session resolved above.
   // Must run after BYOA customGetSession so infrastructure/custom auth keeps
   // caller identity instead of collapsing to the shared preview user.
-  const authDisabledSession = getAuthDisabledSession();
+  const authDisabledSession = getAuthDisabledSession(event);
   if (authDisabledSession) return authDisabledSession;
 
   return null;
@@ -2446,8 +2471,9 @@ export function setFrameworkSessionCookie(event: H3Event, token: string): void {
 }
 
 /**
- * Build a redirect `Response` that carries whatever `Set-Cookie` headers were
- * just staged on the event (e.g. by `setFrameworkSessionCookie`).
+ * Build a redirect `Response` that carries the security-sensitive headers just
+ * staged on the event (e.g. by `setFrameworkSessionCookie` or query-session
+ * promotion).
  *
  * h3 v2's `setCookie` appends the cookie onto `event.res.headers`. When a
  * handler returns a plain object/string, h3's `prepareResponse` merges those
@@ -2465,7 +2491,7 @@ export function setFrameworkSessionCookie(event: H3Event, token: string): void {
  * any non-Response continuation path; h3 only skips the merge for the
  * Response branch, so there's no double-emit.)
  */
-function redirectWithStagedCookies(
+export function redirectWithStagedCookies(
   event: H3Event,
   location: string,
   status = 302,
@@ -2473,6 +2499,8 @@ function redirectWithStagedCookies(
   const headers = new Headers({ Location: location });
   const staged = event.res?.headers?.getSetCookie?.() ?? [];
   for (const cookie of staged) headers.append("set-cookie", cookie);
+  const referrerPolicy = event.res?.headers?.get?.("Referrer-Policy");
+  if (referrerPolicy) headers.set("Referrer-Policy", referrerPolicy);
   return new Response("", { status, headers });
 }
 
@@ -2711,6 +2739,9 @@ async function mountBetterAuthRoutes(
         const signupAttribution = signupAttributionFromCookieHeader(
           getHeader(event, "cookie") ?? null,
         );
+        const signupAnonymousId = readAnalyticsAnonymousId(
+          getHeader(event, "cookie") ?? null,
+        );
         const state = encodeOAuthState({
           redirectUri,
           desktop,
@@ -2719,6 +2750,7 @@ async function mountBetterAuthRoutes(
           returnUrl,
           flowId,
           signupAttribution,
+          signupAnonymousId,
         });
         logGoogleOAuthDebug(event, "auth-url", {
           flowId,
@@ -2773,11 +2805,17 @@ async function mountBetterAuthRoutes(
         try {
           const query = getQuery(event);
           const code = query.code as string;
-          const { redirectUri, desktop, returnUrl, flowId, signupAttribution } =
-            decodeOAuthState(
-              query.state as string | undefined,
-              getAppUrl(event, "/_agent-native/google/callback"),
-            );
+          const {
+            redirectUri,
+            desktop,
+            returnUrl,
+            flowId,
+            signupAttribution,
+            signupAnonymousId,
+          } = decodeOAuthState(
+            query.state as string | undefined,
+            getAppUrl(event, "/_agent-native/google/callback"),
+          );
           callbackFlowId = flowId;
           callbackDesktop = desktop ?? false;
           logGoogleOAuthDebug(event, "callback-start", {
@@ -2898,6 +2936,7 @@ async function mountBetterAuthRoutes(
               authUserId: typeof user.id === "string" ? user.id : undefined,
               name: typeof user.name === "string" ? user.name : undefined,
               attribution: signupAttribution,
+              signupAnonymousId,
             },
           });
           logGoogleOAuthDebug(event, "callback-session-created", {
@@ -3039,6 +3078,9 @@ async function mountBetterAuthRoutes(
       const isSendVerificationEmail =
         reqPath.includes("send-verification-email") &&
         getMethod(event) === "POST";
+      const isSignOut =
+        reqPath.includes("sign-out") && getMethod(event) === "POST";
+      if (isSignOut) optOutOfAuthDisabledSession(event);
       const authRequest = toWebRequest(event);
       let requestForAuth = authRequest;
 
@@ -3348,6 +3390,7 @@ async function mountBetterAuthRoutes(
       const bearerToken = getBearerSessionToken(event);
       if (bearerToken) await removeSession(bearerToken);
       clearFrameworkSessionCookies(event);
+      optOutOfAuthDisabledSession(event);
 
       try {
         await auth.api.signOut({ headers: event.headers });
@@ -3415,6 +3458,7 @@ async function mountBetterAuthRoutes(
         // 3. Drop the current request's cookie and best-effort sign out
         // of Better Auth (so the response sets the proper expiry header).
         clearFrameworkSessionCookies(event);
+        optOutOfAuthDisabledSession(event);
         try {
           await auth.api.signOut({ headers: event.headers });
         } catch {
@@ -3583,6 +3627,7 @@ function mountAuthFallbackRoutes(app: H3App): void {
       const bearerToken = getBearerSessionToken(event);
       if (bearerToken) await removeSession(bearerToken);
       clearFrameworkSessionCookies(event);
+      optOutOfAuthDisabledSession(event);
 
       try {
         const auth = await getBetterAuth();
@@ -3740,6 +3785,7 @@ export async function autoMountAuth(
         const bearerToken = getBearerSessionToken(event);
         if (bearerToken) await removeSession(bearerToken);
         clearFrameworkSessionCookies(event);
+        optOutOfAuthDisabledSession(event);
         if (isElectronRequest(event)) await clearDesktopSso();
         return { ok: true };
       }),

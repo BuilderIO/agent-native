@@ -320,7 +320,7 @@ useEffect(() => {
 템플릿은 문서에 대한 스레드 토론이 포함된 댓글 시스템을 추가할 수 있습니다. 콘텐츠 템플릿의 댓글 시스템에는 다음을 포함한 전체 구현이 포함됩니다.
 
 - `document_comments` SQL 테이블(스레드, 응답, 해결 상태)
-- `/api/comments/:id`에서 업데이트/삭제하기 위한 콘텐츠 템플릿의 REST 경로입니다. 생성 및 나열은 `add-comment` / `list-comments` actions를 통해 실행됩니다. 사용자 정의 템플릿은 핵심 `POST /_agent-native/collab/:docId/search-replace` 경로에 대해 자체적으로 동등한 엔드포인트를 구현합니다.
+- 업데이트 및 삭제는 `update-comment` / `delete-comment` actions를 통해 실행됩니다. 생성 및 나열은 `add-comment` / `list-comments` actions를 통해 실행됩니다. 사용자 정의 템플릿은 핵심 `POST /_agent-native/collab/:docId/search-replace` 경로에 대해 자체적으로 동등한 엔드포인트를 구현합니다.
 - 스레드 보기 및 답글 UI가 있는 댓글 사이드바
 - 스레드 해결/해결 취소
 - **AI로 보내기** 버튼 — `sendToAgentChat()`를 통해 상담원 채팅에 댓글 스레드 컨텍스트를 보냅니다.

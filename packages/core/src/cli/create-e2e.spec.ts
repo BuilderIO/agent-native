@@ -393,6 +393,10 @@ describe("standalone scaffold — headless template", { timeout: 60000 }, () => 
     );
     expect(workspaceYaml).toContain("allowBuilds:");
     expect(workspaceYaml).toContain("minimumReleaseAgeExclude:");
+    expect(workspaceYaml).toContain('"@modelcontextprotocol/client"');
+    expect(workspaceYaml).toContain('"@modelcontextprotocol/core"');
+    expect(workspaceYaml).toContain('"@modelcontextprotocol/node"');
+    expect(workspaceYaml).toContain('"@modelcontextprotocol/server"');
     expect(workspaceYaml).toContain('"@typescript/*"');
     expect(workspaceYaml).toContain('"@sentry/*"');
     expect(workspaceYaml).toContain("fast-xml-parser");
@@ -607,11 +611,10 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     expect(fs.existsSync(path.join(schedDir, "package.json"))).toBe(true);
   });
 
-  it("scaffolds the pinpoint package when design is included", async () => {
+  it("does not scaffold the optional pinpoint package with design", async () => {
     const wsDir = await scaffoldWorkspace("my-ws", ["chat", "design"]);
     const pinpointDir = path.join(wsDir, "packages", "pinpoint");
-    expect(fs.existsSync(pinpointDir)).toBe(true);
-    expect(fs.existsSync(path.join(pinpointDir, "package.json"))).toBe(true);
+    expect(fs.existsSync(pinpointDir)).toBe(false);
   });
 
   it("scaffolds the committed design bridge modules that DesignCanvas imports at module load", async () => {

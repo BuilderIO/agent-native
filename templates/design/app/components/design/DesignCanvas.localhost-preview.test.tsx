@@ -47,6 +47,87 @@ afterEach(async () => {
 });
 
 describe("DesignCanvas authenticated localhost source hydration", () => {
+  it("waits for registration without mounting srcdoc, then mounts one real live iframe", async () => {
+    iframeServer = http.createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      response.end("<!doctype html><html><body>Runtime</body></html>");
+    });
+    const iframePort = await new Promise<number>((resolve, reject) => {
+      iframeServer!.once("error", reject);
+      iframeServer!.listen(0, "127.0.0.1", () => {
+        const address = iframeServer!.address();
+        resolve(typeof address === "object" && address ? address.port : 0);
+      });
+    });
+    const bridgeUrl = `http://127.0.0.1:${iframePort}`;
+    let resolveRegistration!: (response: Response) => void;
+    const registration = new Promise<Response>((resolve) => {
+      resolveRegistration = resolve;
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => registration),
+    );
+
+    await act(async () => {
+      root.render(
+        <DesignCanvas
+          content="http://localhost:5173/account"
+          contentKey="screen-account"
+          screenId="screen-account"
+          sourceType="localhost"
+          bridgeUrl={bridgeUrl}
+          previewToken="registration-preview-token"
+          zoom={100}
+          deviceFrame="none"
+          editMode
+          interactMode={false}
+          onElementSelect={() => {}}
+          onElementHover={() => {}}
+          tweakValues={{}}
+        />,
+      );
+    });
+
+    expect(
+      container.querySelector("iframe[data-design-preview-iframe]"),
+    ).toBeNull();
+    expect(container.innerHTML.toLowerCase()).not.toContain("srcdoc");
+    expect(container.textContent).toContain("Preparing live editor");
+
+    resolveRegistration(
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    await vi.waitFor(() => {
+      expect(
+        container.querySelector<HTMLIFrameElement>(
+          "iframe[data-design-preview-iframe]",
+        )?.src,
+      ).toContain("/live-edit?");
+    });
+    const liveIframe = container.querySelector<HTMLIFrameElement>(
+      "iframe[data-design-preview-iframe]",
+    );
+    expect(liveIframe?.hasAttribute("srcdoc")).toBe(false);
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "agent-native:editor-chrome-ready" },
+          origin: bridgeUrl,
+          source: liveIframe?.contentWindow,
+        }),
+      );
+    });
+    expect(container.querySelector("iframe[data-design-preview-iframe]")).toBe(
+      liveIframe,
+    );
+  });
+
   it("mounts source verification in a separate hidden runtime without replacing the editable iframe", async () => {
     iframeServer = http.createServer((_request, response) => {
       response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
@@ -224,11 +305,12 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
     );
     expect(focusedIframe?.getAttribute("src")).toContain("/live-edit?");
     expect(focusedIframe?.getAttribute("srcdoc")).toBeNull();
-    const fallback = container.querySelector<HTMLIFrameElement>(
-      "[data-live-edit-transition-fallback]",
-    );
-    expect(fallback?.getAttribute("srcdoc")).toContain("Chat preview");
-    expect(fallback?.getAttribute("srcdoc")).not.toBe(previewUrl);
+    // No frozen copy is ever painted over the live frame, not even mid-swap:
+    // a snapshot that outlives a stalled swap is indistinguishable from a
+    // working screen.
+    expect(
+      container.querySelector("[data-live-edit-transition-fallback]"),
+    ).toBeNull();
 
     await act(async () => {
       window.dispatchEvent(
@@ -246,9 +328,9 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
       focusedIframe,
     );
 
-    // A source write that forces a Vite full reload must put the authenticated
-    // snapshot back over the SAME iframe until its replacement bridge is
-    // ready. This covers the unavoidable HMR navigation without a white flash.
+    // A source write that forces a Vite full reload must keep the SAME live
+    // iframe (no remount, no state loss) and must not cover it with a
+    // snapshot while the replacement bridge comes back.
     await act(async () => {
       window.dispatchEvent(
         new MessageEvent("message", {
@@ -259,15 +341,16 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
       );
     });
     expect(
-      container
-        .querySelector<HTMLIFrameElement>(
-          "[data-live-edit-transition-fallback]",
-        )
-        ?.getAttribute("srcdoc"),
-    ).toContain("Chat preview");
+      container.querySelector("[data-live-edit-transition-fallback]"),
+    ).toBeNull();
     expect(container.querySelector("[data-design-preview-iframe]")).toBe(
       focusedIframe,
     );
+    expect(
+      container
+        .querySelector<HTMLIFrameElement>("[data-design-preview-iframe]")
+        ?.getAttribute("src"),
+    ).toContain("/live-edit?");
 
     await act(async () => {
       window.dispatchEvent(
@@ -412,6 +495,97 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
       | undefined;
     expect(snapshotHeaders?.["x-design-preview-token"]).toBe(
       "example-preview-token",
+    );
+  });
+});
+
+describe("DesignCanvas localhost screens never render a source snapshot", () => {
+  // A viewer without a previewToken (public link, signed-out session, an inline
+  // browser with no cookies) used to get `externalSnapshotHtml` as srcdoc: a
+  // frozen copy that looks exactly like the running app but has no live DOM
+  // behind it, so selection, layers, and edits all silently addressed a corpse.
+  it("loads the dev-server URL live when the viewer has no bridge entitlement", async () => {
+    await act(async () => {
+      root.render(
+        <DesignCanvas
+          content="http://localhost:5173/settings"
+          contentKey="screen-settings"
+          screenId="screen-settings"
+          sourceType="localhost"
+          bridgeUrl="http://127.0.0.1:7331"
+          previewToken={undefined}
+          externalSnapshotHtml="<!doctype html><html><body>Frozen snapshot</body></html>"
+          zoom={100}
+          deviceFrame="none"
+          editMode={false}
+          readOnly
+          interactMode={false}
+          onElementSelect={() => {}}
+          onElementHover={() => {}}
+          tweakValues={{}}
+        />,
+      );
+    });
+
+    const iframe = container.querySelector<HTMLIFrameElement>(
+      "[data-design-preview-iframe]",
+    );
+    expect(iframe?.getAttribute("src")).toBe("http://localhost:5173/settings");
+    expect(iframe?.hasAttribute("srcdoc")).toBe(false);
+    expect(container.innerHTML).not.toContain("Frozen snapshot");
+  });
+
+  it("keeps an entitled viewer on the proxied document instead of the snapshot", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = requestInfoUrl(input);
+      if (url.endsWith("/live-edit-bridge")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ ok: true }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        );
+      }
+      return Promise.reject(new Error(`Unexpected fetch: ${url}`));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(
+        <DesignCanvas
+          content="http://localhost:5173/settings"
+          contentKey="screen-settings"
+          screenId="screen-settings"
+          sourceType="localhost"
+          bridgeUrl="http://127.0.0.1:7331"
+          previewToken="example-preview-token"
+          externalSnapshotHtml="<!doctype html><html><body>Frozen snapshot</body></html>"
+          zoom={100}
+          deviceFrame="none"
+          editMode
+          interactMode={false}
+          onElementSelect={() => {}}
+          onElementHover={() => {}}
+          tweakValues={{}}
+        />,
+      );
+    });
+
+    await vi.waitFor(() => {
+      expect(
+        container.querySelector<HTMLIFrameElement>(
+          "[data-design-preview-iframe]",
+        )?.src,
+      ).toContain("/live-edit?");
+    });
+    const iframe = container.querySelector<HTMLIFrameElement>(
+      "[data-design-preview-iframe]",
+    );
+    expect(iframe?.hasAttribute("srcdoc")).toBe(false);
+    // The transition fallback may briefly paint the snapshot, but only as an
+    // inert aria-hidden layer — never as the editable document.
+    expect(iframe?.getAttribute("srcdoc") ?? "").not.toContain(
+      "Frozen snapshot",
     );
   });
 });

@@ -1,3 +1,9 @@
+import {
+  BREAKPOINT_FRAME_GAP,
+  getResponsiveGroupWidth,
+  visibleBreakpointWidths,
+} from "@shared/responsive-frame-layout";
+
 import { DEVICE_FRAME_VIEWPORTS, type DeviceFrameType } from "../types";
 import { SURFACE_PADDING } from "./overview-layout";
 import type { FrameGeometry, FrameGeometryById, Point } from "./types";
@@ -5,7 +11,8 @@ import type { FrameGeometry, FrameGeometryById, Point } from "./types";
 const SCREEN_WIDTH = 320;
 const SCREEN_GAP = 56;
 const FRAME_LABEL_HEIGHT = 28;
-const BREAKPOINT_FRAME_GAP = 24;
+
+export { BREAKPOINT_FRAME_GAP, visibleBreakpointWidths };
 
 export interface BoundsRect {
   left: number;
@@ -26,9 +33,19 @@ type ResponsiveLayoutScreen = {
   layoutGroupId?: string;
 };
 
+/** Minimum height for a frame of the given width — one device viewport tall
+ * before it grows to content. Keep in sync with deviceViewportHeight in
+ * content-size-report.ts. */
+export function deviceViewportFloorForWidth(widthPx: number): number {
+  if (!Number.isFinite(widthPx) || widthPx <= 640) return 844;
+  if (widthPx <= 1024) return 1024;
+  return 900;
+}
+
 export function getResponsiveScreenGroupSize(
   screen: ResponsiveLayoutScreen,
   primaryGeometry?: Partial<FrameGeometry>,
+  resolveBreakpointHeightPx?: (widthPx: number) => number | undefined,
 ): {
   width: number;
   height: number;
@@ -42,21 +59,27 @@ export function getResponsiveScreenGroupSize(
   const sourceWidth = Math.max(1, screen.metadata?.width ?? 1280);
   const sourceHeight = Math.max(1, screen.metadata?.height ?? 2560);
   const scale = baseWidth / sourceWidth;
-  const breakpoints = (screen.breakpointWidths ?? []).filter(
-    (width) => Number.isFinite(width) && width > 0,
+  const breakpoints = visibleBreakpointWidths(
+    screen.breakpointWidths,
+    // The immutable device width, not the resizable on-canvas box width — a
+    // primary resized to a breakpoint width must not hide that breakpoint.
+    screen.metadata?.width ?? primaryGeometry?.width,
   );
+  const breakpointNaturalHeight = (width: number) => {
+    const measured = resolveBreakpointHeightPx?.(width);
+    return measured && measured > 0
+      ? Math.max(deviceViewportFloorForWidth(width), measured)
+      : (width * sourceHeight) / sourceWidth;
+  };
   return {
-    width:
-      baseWidth +
-      breakpoints.reduce(
-        (total, width) => total + BREAKPOINT_FRAME_GAP + width * scale,
-        0,
-      ),
+    width: getResponsiveGroupWidth({
+      primaryWidth: baseWidth,
+      scale,
+      visibleWidths: breakpoints,
+    }),
     height: Math.max(
       baseHeight,
-      ...breakpoints.map(
-        (width) => width * (sourceHeight / sourceWidth) * scale,
-      ),
+      ...breakpoints.map((width) => breakpointNaturalHeight(width) * scale),
     ),
   };
 }
@@ -73,8 +96,13 @@ export function getResponsiveScreenGroupSize(
 export function getResponsiveScreenCullGeometry(
   screen: ResponsiveLayoutScreen,
   primaryGeometry: FrameGeometry,
+  resolveBreakpointHeightPx?: (widthPx: number) => number | undefined,
 ): FrameGeometry {
-  const size = getResponsiveScreenGroupSize(screen, primaryGeometry);
+  const size = getResponsiveScreenGroupSize(
+    screen,
+    primaryGeometry,
+    resolveBreakpointHeightPx,
+  );
   const rotation = primaryGeometry.rotation ?? 0;
   if (!rotation) {
     return {
@@ -306,6 +334,9 @@ export function getBreakpointFrameGeometry(args: {
   widthPx: number;
   naturalAspect: number;
   primaryScale: number;
+  /** Measured content height at this width; wins over the primary-aspect
+   * projection, which clipped narrower frames (they reflow taller). */
+  contentHeightPx?: number;
 }): {
   frameWidth: number;
   frameHeight: number;
@@ -316,9 +347,16 @@ export function getBreakpointFrameGeometry(args: {
     Number.isFinite(args.primaryScale) && args.primaryScale > 0
       ? args.primaryScale
       : 1;
-  const naturalHeight = Math.round(
-    args.widthPx * Math.max(0.01, args.naturalAspect),
-  );
+  const measured =
+    args.contentHeightPx && args.contentHeightPx > 0
+      ? Math.round(args.contentHeightPx)
+      : undefined;
+  // Until the frame's own content is measured, use the pure aspect projection;
+  // the device-viewport floor only applies once a real height is known.
+  const naturalHeight =
+    measured !== undefined
+      ? Math.max(deviceViewportFloorForWidth(args.widthPx), measured)
+      : Math.round(args.widthPx * Math.max(0.01, args.naturalAspect));
   const frameWidth = Math.round(args.widthPx * scale);
   const frameHeight = Math.round(naturalHeight * scale);
   return { frameWidth, frameHeight, naturalHeight, scale };

@@ -10,6 +10,7 @@ import {
   mergeServerAddedSlides,
   useDecks,
   type Deck,
+  type DeckReloadStatus,
   type Slide,
 } from "./DeckContext";
 
@@ -62,9 +63,15 @@ function wrapper({ children }: { children: ReactNode }) {
   );
 }
 
-function setupFetch(options?: { hangPut?: boolean; failDeckList?: boolean }) {
+function setupFetch(options?: {
+  hangPut?: boolean;
+  failDeckList?: boolean;
+  patchFailures?: { deckId: string; count: number };
+}) {
   let resolveCreate: (response: Response) => void = () => {};
   let accessibleDeck: Deck | null = null;
+  const patchAttempts = new Map<string, number>();
+  let putAttempts = 0;
   const fetchMock = vi.fn((url: string | URL | Request, init?: RequestInit) => {
     const href =
       typeof url === "string"
@@ -73,12 +80,13 @@ function setupFetch(options?: { hangPut?: boolean; failDeckList?: boolean }) {
           ? url.toString()
           : url.url;
 
-    // Legacy full-replace PUT. When `hangPut` is set, the request never
+    // Legacy full-replace write. When `hangPut` is set, the request never
     // resolves on its own — it only rejects when its AbortSignal fires, which
-    // is exactly what `fetchWithTimeout` does after the timeout. This lets a
-    // test prove the timeout drains `inFlightSaves` instead of wedging it.
-    if (init?.method === "PUT" && href.includes("/api/decks/")) {
-      if (options?.hangPut) {
+    // is exactly what `callAction`'s timeout does. This lets a test prove the
+    // timeout drains `inFlightSaves` instead of wedging it.
+    if (href.includes("/_agent-native/actions/save-deck")) {
+      putAttempts += 1;
+      if (options?.hangPut && putAttempts === 1) {
         return new Promise<Response>((_resolve, reject) => {
           const signal = init?.signal;
           if (signal) {
@@ -95,7 +103,7 @@ function setupFetch(options?: { hangPut?: boolean; failDeckList?: boolean }) {
       );
     }
 
-    if (init?.method === "POST" && href.endsWith("/api/decks")) {
+    if (href.includes("/_agent-native/actions/add-deck")) {
       return new Promise<Response>((resolve) => {
         resolveCreate = resolve;
       });
@@ -125,22 +133,18 @@ function setupFetch(options?: { hangPut?: boolean; failDeckList?: boolean }) {
     }
 
     if (href.includes("/_agent-native/actions/patch-deck")) {
+      const deckId = String(actionCallBody(init).deckId ?? "");
+      const attempts = (patchAttempts.get(deckId) ?? 0) + 1;
+      patchAttempts.set(deckId, attempts);
+      if (
+        deckId === options?.patchFailures?.deckId &&
+        attempts <= options.patchFailures.count
+      ) {
+        return Promise.reject(new Error("patch-deck failed"));
+      }
       return Promise.resolve(
         new Response(JSON.stringify({ ok: true }), { status: 200 }),
       );
-    }
-
-    if (href.endsWith("/api/decks")) {
-      return Promise.resolve(new Response("[]", { status: 200 }));
-    }
-
-    if (href.includes("/api/decks/")) {
-      if (accessibleDeck) {
-        return Promise.resolve(
-          new Response(JSON.stringify(accessibleDeck), { status: 200 }),
-        );
-      }
-      return Promise.resolve(new Response("", { status: 404 }));
     }
 
     return Promise.resolve(new Response("", { status: 200 }));
@@ -153,12 +157,35 @@ function setupFetch(options?: { hangPut?: boolean; failDeckList?: boolean }) {
     setAccessibleDeck: (deck: Deck) => {
       accessibleDeck = deck;
     },
+    getPatchAttempts: (deckId: string) => patchAttempts.get(deckId) ?? 0,
   };
 }
 
 function deckFetchCalls(fetchMock: ReturnType<typeof setupFetch>["fetchMock"]) {
   return fetchMock.mock.calls.filter(([url]) =>
     String(url).includes("/_agent-native/actions/get-deck"),
+  );
+}
+
+function actionCallBody(
+  init: RequestInit | undefined,
+): Record<string, unknown> {
+  try {
+    return JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+function deletedDeck(
+  fetchMock: ReturnType<typeof setupFetch>["fetchMock"],
+  deckId: string,
+): boolean {
+  return fetchMock.mock.calls.some(
+    ([url, init]) =>
+      String(url).includes("/_agent-native/actions/delete-deck") &&
+      init?.method === "DELETE" &&
+      actionCallBody(init).id === deckId,
   );
 }
 
@@ -295,6 +322,56 @@ describe("DeckContext deck creation persistence", () => {
     });
 
     expect(result.current.getDeck("shared-deck")?.slides).toEqual([]);
+  });
+
+  it("keeps undo and redo available through keyboard shortcuts", async () => {
+    window.history.pushState({}, "", "/deck/shared-deck");
+    const { setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck({
+      id: "shared-deck",
+      title: "Shared Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [],
+    });
+
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    act(() => {
+      result.current.addSlide("shared-deck");
+    });
+
+    await waitFor(() => expect(result.current.canUndo).toBe(true));
+
+    act(() => {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "z", metaKey: true }),
+      );
+    });
+
+    await waitFor(() =>
+      expect(result.current.getDeck("shared-deck")?.slides).toEqual([]),
+    );
+
+    act(() => {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "z",
+          metaKey: true,
+          shiftKey: true,
+        }),
+      );
+    });
+
+    await waitFor(() =>
+      expect(result.current.getDeck("shared-deck")?.slides).toHaveLength(1),
+    );
   });
 
   it("persists a duplicated slide after the optimistic insert", async () => {
@@ -515,25 +592,11 @@ describe("DeckContext deck creation persistence", () => {
       result.current.undo();
     });
     expect(result.current.getDeck(deckId)).toBeUndefined();
-    expect(
-      fetchMock.mock.calls.some(
-        ([url, init]) =>
-          String(url).includes(`/api/decks/${deckId}`) &&
-          init?.method === "DELETE",
-      ),
-    ).toBe(false);
+    expect(deletedDeck(fetchMock, deckId)).toBe(false);
 
     resolveCreate(new Response("", { status: 200 }));
 
-    await waitFor(() =>
-      expect(
-        fetchMock.mock.calls.some(
-          ([url, init]) =>
-            String(url).includes(`/api/decks/${deckId}`) &&
-            init?.method === "DELETE",
-        ),
-      ).toBe(true),
-    );
+    await waitFor(() => expect(deletedDeck(fetchMock, deckId)).toBe(true));
   });
 
   it("records delete deck on the undo stack", async () => {
@@ -630,12 +693,15 @@ describe("DeckContext deck creation persistence", () => {
 
     const putCall = fetchMock.mock.calls.find(
       ([url, init]) =>
-        String(url).includes(`/api/decks/${deckId}`) && init?.method === "PUT",
+        String(url).includes("/_agent-native/actions/save-deck") &&
+        init?.method === "PUT" &&
+        actionCallBody(init).deckId === deckId,
     );
     expect(putCall).toBeTruthy();
-    expect(JSON.parse(String(putCall?.[1]?.body)).slides[0].content).toBe(
-      "<div>Generated</div>",
-    );
+    expect(
+      (actionCallBody(putCall?.[1]).deck as { slides: { content: string }[] })
+        .slides[0].content,
+    ).toBe("<div>Generated</div>");
 
     const patchCall = fetchMock.mock.calls.find(([url, init]) => {
       if (!String(url).includes("/_agent-native/actions/patch-deck")) {
@@ -657,6 +723,114 @@ describe("DeckContext deck creation persistence", () => {
         },
       ],
     });
+  });
+
+  it("retries failed immediate slide HTML ahead of a newer gesture commit", async () => {
+    window.history.pushState({}, "", "/deck/gesture-deck");
+    const { fetchMock, getPatchAttempts, setAccessibleDeck } = setupFetch({
+      patchFailures: { deckId: "gesture-deck", count: 1 },
+    });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const objectId = "durable-title";
+    const initialContent = `<div class="fmd-slide"><div data-slide-object-id="${objectId}" style="position:absolute;left:25px;top:85px;width:740px;height:218px">Title</div></div>`;
+    const movedContent = `<div class="fmd-slide"><div data-slide-object-id="${objectId}" style="position:absolute;left:65px;top:105px;width:740px;height:218px">Title</div></div>`;
+    const resizedContent = `<div class="fmd-slide"><div data-slide-object-id="${objectId}" style="position:absolute;left:65px;top:95.4px;width:740px;height:227.6px">Title</div></div>`;
+    setAccessibleDeck({
+      id: "gesture-deck",
+      title: "Gesture deck",
+      createdAt: "2026-07-30T00:00:00.000Z",
+      updatedAt: "2026-07-30T00:00:00.000Z",
+      slides: [
+        {
+          id: "gesture-slide",
+          content: initialContent,
+          notes: "",
+          layout: "blank",
+        },
+      ],
+    });
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.updateSlide(
+        "gesture-deck",
+        "gesture-slide",
+        { content: movedContent },
+        { persistence: "immediate" },
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(getPatchAttempts("gesture-deck")).toBe(1);
+
+    act(() => {
+      result.current.updateSlide(
+        "gesture-deck",
+        "gesture-slide",
+        { content: resizedContent },
+        { persistence: "immediate" },
+      );
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250);
+    });
+    expect(getPatchAttempts("gesture-deck")).toBeGreaterThanOrEqual(2);
+
+    const patchCalls = fetchMock.mock.calls.filter(([url]) =>
+      String(url).includes("/_agent-native/actions/patch-deck"),
+    );
+    const orderedRetry = patchCalls.find(([, init]) => {
+      const operations = actionCallBody(init).operations;
+      return (
+        Array.isArray(operations) &&
+        operations.some(
+          (operation) =>
+            (operation as { fields?: { content?: string } }).fields?.content ===
+            movedContent,
+        ) &&
+        operations.some(
+          (operation) =>
+            (operation as { fields?: { content?: string } }).fields?.content ===
+            resizedContent,
+        )
+      );
+    });
+    expect(actionCallBody(orderedRetry?.[1])).toMatchObject({
+      deckId: "gesture-deck",
+      operations: [
+        {
+          op: "patch-slide",
+          slideId: "gesture-slide",
+          fields: { content: movedContent },
+        },
+        {
+          op: "patch-slide",
+          slideId: "gesture-slide",
+          fields: { content: resizedContent },
+        },
+      ],
+    });
+    expect(result.current.getDeck("gesture-deck")?.slides[0].content).toBe(
+      resizedContent,
+    );
+
+    act(() => result.current.undo());
+    expect(result.current.getDeck("gesture-deck")?.slides[0].content).toBe(
+      initialContent,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(hasUncommittedDeckChanges("gesture-deck", new Set())).toBe(false);
   });
 
   it("ignores stale reload responses after the route changes", async () => {
@@ -720,25 +894,29 @@ describe("DeckContext deck creation persistence", () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     window.history.pushState({}, "", "/deck/first-deck");
-    let firstReload = Promise.resolve();
+    let firstReload: Promise<DeckReloadStatus> = Promise.resolve("stale");
     act(() => {
-      firstReload = result.current.reloadDecks();
+      firstReload = result.current.reloadDecksWithStatus();
     });
     await waitFor(() => expect(firstDeckRequestStarted).toBe(true));
 
     window.history.pushState({}, "", "/deck/second-deck");
+    let secondStatus: DeckReloadStatus | undefined;
     await act(async () => {
-      await result.current.reloadDecks();
+      secondStatus = await result.current.reloadDecksWithStatus();
     });
+    expect(secondStatus).toBe("loaded");
     expect(result.current.getDeck("second-deck")?.title).toBe("Second Deck");
 
+    let firstStatus: DeckReloadStatus | undefined;
     await act(async () => {
       resolveFirstDeck(
         new Response(JSON.stringify(firstDeck), { status: 200 }),
       );
-      await firstReload;
+      firstStatus = await firstReload;
     });
 
+    expect(firstStatus).toBe("stale");
     expect(result.current.getDeck("second-deck")?.title).toBe("Second Deck");
     expect(result.current.getDeck("first-deck")).toBeUndefined();
   });
@@ -833,6 +1011,9 @@ describe("DeckContext deck creation persistence", () => {
 
     const source = MockEventSource.lastInstance;
     expect(source?.onmessage).toBeTruthy();
+    await waitFor(() =>
+      expect(hasUncommittedDeckChanges("shared-deck", new Set())).toBe(false),
+    );
 
     await act(async () => {
       source!.onmessage?.(
@@ -1154,8 +1335,9 @@ describe("DeckContext deck creation persistence", () => {
       });
 
       vi.useFakeTimers();
-      // A local edit via setDeckSlides enqueues the legacy full-replace PUT.
-      // After the 500ms debounce it moves into inFlightSaves — then hangs.
+      // A local edit via setDeckSlides enqueues the legacy full-replace
+      // save-deck call. After the 500ms debounce it moves into inFlightSaves —
+      // then hangs.
       act(() => {
         result.current.setDeckSlides("hang-deck", [
           {
@@ -1174,10 +1356,11 @@ describe("DeckContext deck creation persistence", () => {
       // hasUncommittedDeckChanges directly by passing an EMPTY dirty set.
       expect(hasUncommittedDeckChanges("hang-deck", new Set())).toBe(true);
 
-      // Advance past the 60s raw-fetch timeout: the AbortController fires, the
-      // PUT rejects, and the save's `finally` deletes the inFlightSaves entry.
+      // Advance past the 60s action timeout and the bounded retry delay. The
+      // failed batch remains queued, then the retry commits it before the save
+      // state drains.
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(60_000);
+        await vi.advanceTimersByTimeAsync(60_250);
       });
       expect(hasUncommittedDeckChanges("hang-deck", new Set())).toBe(false);
 

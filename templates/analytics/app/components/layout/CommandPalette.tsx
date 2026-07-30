@@ -1,9 +1,4 @@
-import {
-  agentNativePath,
-  appApiPath,
-} from "@agent-native/core/client/api-path";
 import { ChangelogDialog } from "@agent-native/core/client/changelog";
-import { extensionPath } from "@agent-native/core/client/extensions";
 import { callAction, useChangeVersions } from "@agent-native/core/client/hooks";
 import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
 import { useOrgRole } from "@agent-native/core/client/org";
@@ -76,12 +71,6 @@ interface ExplorerDashboard {
   id: string;
   name: string;
   hiddenAt?: string | null;
-}
-
-interface ExtensionSearchItem {
-  id: string;
-  name: string;
-  description?: string;
 }
 
 const defaultTools = [
@@ -261,38 +250,8 @@ async function fetchSqlDashboards(
   );
 }
 
-async function fetchExtensions(): Promise<ExtensionSearchItem[]> {
-  const res = await fetch(agentNativePath("/_agent-native/extensions"));
-  if (!res.ok) throw new Error(`Failed to load extensions (${res.status})`);
-  const data = await res.json();
-  return uniqueCommandItems(
-    (Array.isArray(data) ? data : [])
-      .filter((extension: any) => {
-        return (
-          extension &&
-          typeof extension.id === "string" &&
-          extension.id.length > 0 &&
-          typeof extension.name === "string" &&
-          extension.name.trim().length > 0
-        );
-      })
-      .map((extension: any) => ({
-        id: extension.id,
-        name: extension.name,
-        description:
-          typeof extension.description === "string"
-            ? extension.description
-            : undefined,
-      })),
-  );
-}
-
 function persistThemePreference(theme: "light" | "dark") {
-  fetch(appApiPath("/api/theme"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ theme }),
-  }).catch(() => {});
+  callAction("set-theme", { theme }).catch(() => {});
 }
 
 export function CommandPalette() {
@@ -341,33 +300,21 @@ export function CommandPalette() {
     placeholderData: (prev) => prev,
   });
 
-  const extensionsQuery = useQuery<ExtensionSearchItem[]>({
-    queryKey: ["extensions"],
-    queryFn: fetchExtensions,
-    staleTime: 30_000,
-    enabled: open,
-    placeholderData: (prev) => prev,
-  });
-
   const savedCharts = savedChartsQuery.data ?? [];
   const explorerDashboards = explorerDashboardsQuery.data ?? [];
   const sqlDashboards = sqlDashboardsQuery.data ?? [];
-  const extensions = extensionsQuery.data ?? [];
   const savedChartsLoading = savedChartsQuery.isLoading;
   const explorerDashboardsLoading = explorerDashboardsQuery.isLoading;
   const sqlDashboardsLoading = sqlDashboardsQuery.isLoading;
-  const extensionsLoading = extensionsQuery.isLoading;
   const asyncGroupsErrored =
     savedChartsQuery.isError ||
     explorerDashboardsQuery.isError ||
-    sqlDashboardsQuery.isError ||
-    extensionsQuery.isError;
+    sqlDashboardsQuery.isError;
   const retryAsyncGroups = () => {
     void Promise.all([
       savedChartsQuery.refetch(),
       explorerDashboardsQuery.refetch(),
       sqlDashboardsQuery.refetch(),
-      extensionsQuery.refetch(),
     ]);
   };
 
@@ -407,7 +354,6 @@ export function CommandPalette() {
   const asyncGroupsLoading =
     (explorerDashboardsLoading && explorerDashboards.length === 0) ||
     (sqlDashboardsLoading && sqlDashboards.length === 0) ||
-    (extensionsLoading && extensions.length === 0) ||
     (savedChartsLoading && savedCharts.length === 0);
   const showHiddenResults = searchQuery.trim().length > 0;
   const visibleExplorerDashboards = showHiddenResults
@@ -519,32 +465,6 @@ export function CommandPalette() {
                         {t("commandPalette.hidden")}
                       </span>
                     ) : null}
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-            )}
-
-            {extensions.length > 0 && (
-              <CommandGroup
-                key="extensions"
-                heading={t("commandPalette.groupExtensions")}
-              >
-                {extensions.map((extension) => (
-                  <CommandItem
-                    key={`extension-${extension.id}`}
-                    value={`extension:${extension.id}:${extension.name}`}
-                    onSelect={() =>
-                      go(extensionPath(extension.id, extension.name))
-                    }
-                    keywords={commandPaletteKeywords(
-                      extension.name,
-                      extension.description,
-                      "extension",
-                      "tool",
-                    )}
-                  >
-                    <IconTool className="me-2 h-4 w-4 text-muted-foreground" />
-                    {extension.name}
                   </CommandItem>
                 ))}
               </CommandGroup>
@@ -738,14 +658,6 @@ export function CommandPalette() {
             <CommandLoadingGroup
               key="sql-dashboards-loading"
               heading={t("commandPalette.groupSqlDashboards")}
-              rows={3}
-            />
-          )}
-
-          {extensionsLoading && extensions.length === 0 && (
-            <CommandLoadingGroup
-              key="extensions-loading"
-              heading={t("commandPalette.groupExtensions")}
               rows={3}
             />
           )}

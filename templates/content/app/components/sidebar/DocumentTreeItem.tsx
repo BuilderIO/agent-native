@@ -174,7 +174,7 @@ export function FavoriteDocumentItem({
                   }}
                 >
                   <IconStar size={14} className="me-2 fill-current" />
-                  {t("sidebar.removeFromFavorites")}
+                  {t("sidebar.unpinFromSidebar")}
                 </DropdownMenuItem>
               )}
               {canFavorite && canManage && <DropdownMenuSeparator />}
@@ -193,7 +193,7 @@ export function FavoriteDocumentItem({
             </DropdownMenuContent>
           </DropdownMenu>
         )}
-        {canCreateChild && (
+        {canCreateChild ? (
           <DropdownMenu>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -202,6 +202,7 @@ export function FavoriteDocumentItem({
                     type="button"
                     className="flex h-7 w-7 items-center justify-center rounded hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     aria-label={t("sidebar.addChildTo", { title })}
+                    data-sidebar-add-child
                     onClick={(event) => event.stopPropagation()}
                   >
                     <IconPlus size={14} />
@@ -231,6 +232,16 @@ export function FavoriteDocumentItem({
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+        ) : (
+          <button
+            type="button"
+            className="flex h-7 w-7 cursor-not-allowed items-center justify-center rounded text-muted-foreground/50"
+            aria-label={t("sidebar.addChildTo", { title })}
+            data-sidebar-add-child
+            disabled
+          >
+            <IconPlus size={14} />
+          </button>
         )}
       </div>
 
@@ -414,8 +425,8 @@ export function DocumentTreeItem({
                       className={cn("me-2", node.isFavorite && "fill-current")}
                     />
                     {node.isFavorite
-                      ? "Remove from favorites"
-                      : "Add to favorites"}
+                      ? t("sidebar.unpinFromSidebar")
+                      : t("sidebar.pinToSidebar")}
                   </DropdownMenuItem>
                 )}
                 {canFavorite && canManage && <DropdownMenuSeparator />}
@@ -447,7 +458,7 @@ export function DocumentTreeItem({
             </DropdownMenu>
           )}
 
-          {canCreateChild && (
+          {canCreateChild ? (
             <DropdownMenu>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -458,6 +469,7 @@ export function DocumentTreeItem({
                       aria-label={t("sidebar.addChildTo", {
                         title: node.title || t("sidebar.untitled"),
                       })}
+                      data-sidebar-add-child
                       onClick={(e) => e.stopPropagation()}
                     >
                       <IconPlus size={14} />
@@ -487,6 +499,18 @@ export function DocumentTreeItem({
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+          ) : (
+            <button
+              type="button"
+              className="flex h-7 w-7 cursor-not-allowed items-center justify-center rounded text-muted-foreground/50"
+              aria-label={t("sidebar.addChildTo", {
+                title: node.title || t("sidebar.untitled"),
+              })}
+              data-sidebar-add-child
+              disabled
+            >
+              <IconPlus size={14} />
+            </button>
           )}
         </div>
       </div>

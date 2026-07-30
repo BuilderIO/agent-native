@@ -66,6 +66,12 @@ import { useChartTooltipPortalPosition } from "@/hooks/use-chart-tooltip-portal"
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 import { createDemoChartTrendRows } from "@/lib/demo-chart-trend";
 import { useSqlQuery } from "@/lib/sql-query";
+import {
+  resolveDualAxis,
+  type ChartAxisSide,
+  type ChartValueFormatter,
+  type DualAxisPlan,
+} from "@/pages/adhoc/sql-dashboard/dual-axis";
 import { serializePanelSql } from "@/pages/adhoc/sql-dashboard/panel-sql";
 import { pivotRows } from "@/pages/adhoc/sql-dashboard/pivot";
 import type {
@@ -236,6 +242,103 @@ function formatYValue(
     return `${pct.toFixed(2)}%`;
   }
   return value.toLocaleString();
+}
+
+const Y_AXIS_BASE_PROPS = {
+  stroke: "hsl(var(--muted-foreground))",
+  fontSize: 12,
+  tickLine: false,
+  axisLine: false,
+} as const;
+
+function axisLabelProps(value: string, side: ChartAxisSide) {
+  return {
+    value,
+    angle: side === "left" ? -90 : 90,
+    position:
+      side === "left" ? ("insideLeft" as const) : ("insideRight" as const),
+    style: {
+      textAnchor: "middle" as const,
+      fill: "hsl(var(--muted-foreground))",
+      fontSize: 11,
+    },
+  };
+}
+
+/**
+ * Recharts only discovers axes it finds among a chart's own children, so these
+ * come back as an array rather than a wrapper component.
+ */
+function renderChartYAxes(
+  plan: DualAxisPlan,
+  yFormatter?: ChartValueFormatter,
+): ReactNode[] {
+  if (!plan.enabled) {
+    return [
+      <YAxis
+        key="y"
+        {...Y_AXIS_BASE_PROPS}
+        tickFormatter={(v) => formatYValue(v, yFormatter)}
+      />,
+    ];
+  }
+
+  return [
+    <YAxis
+      key="y-left"
+      yAxisId="left"
+      {...Y_AXIS_BASE_PROPS}
+      tickFormatter={(v) => formatYValue(v, plan.leftFormatter)}
+      label={
+        plan.leftLabel ? axisLabelProps(plan.leftLabel, "left") : undefined
+      }
+    />,
+    <YAxis
+      key="y-right"
+      yAxisId="right"
+      orientation="right"
+      {...Y_AXIS_BASE_PROPS}
+      tickFormatter={(v) => formatYValue(v, plan.rightFormatter)}
+      label={
+        plan.rightLabel ? axisLabelProps(plan.rightLabel, "right") : undefined
+      }
+    />,
+  ];
+}
+
+function seriesAxisId(plan: DualAxisPlan, key: string): string | undefined {
+  return plan.enabled ? plan.sideFor(key) : undefined;
+}
+
+/**
+ * Tooltip values follow their own axis, so a count and a rate in the same
+ * tooltip each read with the right unit. Series arrive named by their display
+ * label, which for Prometheus panels differs from the data key.
+ */
+export function seriesValueFormatter(
+  yKeys: string[],
+  plan: DualAxisPlan,
+  seriesNameFormatter: (name: string) => string,
+  fallback?: ChartValueFormatter,
+): (value: number, name?: string | number) => string {
+  if (!plan.enabled) return (value) => formatYValue(value, fallback);
+
+  const byName = new Map<string, ChartValueFormatter | undefined>();
+  for (const key of yKeys) {
+    const formatter = plan.formatterFor(key);
+    byName.set(key, formatter);
+    byName.set(seriesNameFormatter(key), formatter);
+  }
+
+  return (value, name) => {
+    const lookup = name == null ? undefined : String(name);
+    return formatYValue(
+      value,
+      lookup !== undefined && byName.has(lookup)
+        ? byName.get(lookup)
+        : fallback,
+    );
+  };
 }
 
 /**
@@ -967,7 +1070,7 @@ export function ChartTooltip({
   coordinate?: { x?: number; y?: number };
   labelFormatter?: (value: string) => string;
   seriesNameFormatter?: (value: string) => string;
-  valueFormatter?: (value: number) => string;
+  valueFormatter?: (value: number, name?: string | number) => string;
 }) {
   const items = useMemo(
     () =>
@@ -1007,11 +1110,11 @@ export function ChartTooltip({
         {items.map((item) => {
           const raw = item.value;
           const numeric = typeof raw === "number" ? raw : Number(raw);
+          const name = String(item.name ?? item.dataKey ?? "");
           const value =
             Number.isFinite(numeric) && valueFormatter
-              ? valueFormatter(numeric)
+              ? valueFormatter(numeric, name)
               : String(raw ?? "");
-          const name = String(item.name ?? item.dataKey ?? "");
           return (
             <div key={name} className="flex items-center gap-2">
               <span
@@ -1104,6 +1207,9 @@ function configuredKeysMissingFromRows(
   if (!config?.pivot) {
     if (config?.yKey && !rowKeys.has(config.yKey)) missing.add(config.yKey);
     for (const key of config?.yKeys ?? []) {
+      if (!rowKeys.has(key)) missing.add(key);
+    }
+    for (const key of config?.rightYKeys ?? []) {
       if (!rowKeys.has(key)) missing.add(key);
     }
   }
@@ -1937,6 +2043,13 @@ function BarRenderer({
   const seriesNameFormatter = (name: string) =>
     formatSeriesLabelForPanel(panel, name);
   const { hiddenKeys, toggleSeries, filterSeries } = useSeriesVisibility(yKeys);
+  const dualAxis = resolveDualAxis(yKeys, panel.config, seriesNameFormatter);
+  const valueFormatter = seriesValueFormatter(
+    yKeys,
+    dualAxis,
+    seriesNameFormatter,
+    yFormatter,
+  );
 
   return (
     <ChartFrame
@@ -1959,13 +2072,7 @@ function BarRenderer({
               axisLine={false}
               tickFormatter={xLabelFormatter}
             />
-            <YAxis
-              stroke="hsl(var(--muted-foreground))"
-              fontSize={12}
-              tickLine={false}
-              axisLine={false}
-              tickFormatter={(v) => formatYValue(v, yFormatter)}
-            />
+            {renderChartYAxes(dualAxis, yFormatter)}
             <CartesianGrid
               strokeDasharray="3 3"
               stroke="hsl(var(--border))"
@@ -1979,7 +2086,7 @@ function BarRenderer({
                 <ChartTooltip
                   labelFormatter={xLabelFormatter}
                   seriesNameFormatter={seriesNameFormatter}
-                  valueFormatter={(v) => formatYValue(v, yFormatter)}
+                  valueFormatter={valueFormatter}
                 />
               }
               itemSorter={(item) => -(Number(item.value) || 0)}
@@ -1989,6 +2096,7 @@ function BarRenderer({
                 key={key}
                 dataKey={key}
                 name={seriesNameFormatter(key)}
+                yAxisId={seriesAxisId(dualAxis, key)}
                 fill={colors[i % colors.length]}
                 radius={
                   stacked && i < yKeys.length - 1 ? [0, 0, 0, 0] : [4, 4, 0, 0]
@@ -2030,6 +2138,13 @@ function TimeSeriesRenderer({
     formatSeriesLabelForPanel(panel, name);
   const { hiddenKeys, visibleKeys, toggleSeries, filterSeries } =
     useSeriesVisibility(yKeys);
+  const dualAxis = resolveDualAxis(yKeys, panel.config, seriesNameFormatter);
+  const valueFormatter = seriesValueFormatter(
+    yKeys,
+    dualAxis,
+    seriesNameFormatter,
+    yFormatter,
+  );
   const splitPartialDay = shouldSplitCurrentDayTimeSeries(panel, xKey);
   const { rows: chartRows, series } = useMemo(
     () =>
@@ -2068,13 +2183,7 @@ function TimeSeriesRenderer({
                 axisLine={false}
                 tickFormatter={xLabelFormatter}
               />
-              <YAxis
-                stroke="hsl(var(--muted-foreground))"
-                fontSize={12}
-                tickLine={false}
-                axisLine={false}
-                tickFormatter={(v) => formatYValue(v, yFormatter)}
-              />
+              {renderChartYAxes(dualAxis, yFormatter)}
               <CartesianGrid
                 strokeDasharray="3 3"
                 stroke="hsl(var(--border))"
@@ -2087,7 +2196,7 @@ function TimeSeriesRenderer({
                   <ChartTooltip
                     labelFormatter={xLabelFormatter}
                     seriesNameFormatter={seriesNameFormatter}
-                    valueFormatter={(v) => formatYValue(v, yFormatter)}
+                    valueFormatter={valueFormatter}
                   />
                 }
                 itemSorter={(item) => -(Number(item.value) || 0)}
@@ -2098,6 +2207,7 @@ function TimeSeriesRenderer({
                   type="monotone"
                   dataKey={item.solidKey}
                   name={seriesNameFormatter(item.key)}
+                  yAxisId={seriesAxisId(dualAxis, item.key)}
                   stroke={colors[i % colors.length]}
                   strokeWidth={2}
                   dot={false}
@@ -2112,6 +2222,7 @@ function TimeSeriesRenderer({
                     type="monotone"
                     dataKey={item.partialKey}
                     name={seriesNameFormatter(item.key)}
+                    yAxisId={seriesAxisId(dualAxis, item.key)}
                     stroke={colors[i % colors.length]}
                     strokeWidth={2}
                     strokeDasharray={PARTIAL_DAY_DASH}
@@ -2179,13 +2290,7 @@ function TimeSeriesRenderer({
               axisLine={false}
               tickFormatter={xLabelFormatter}
             />
-            <YAxis
-              stroke="hsl(var(--muted-foreground))"
-              fontSize={12}
-              tickLine={false}
-              axisLine={false}
-              tickFormatter={(v) => formatYValue(v, yFormatter)}
-            />
+            {renderChartYAxes(dualAxis, yFormatter)}
             <CartesianGrid
               strokeDasharray="3 3"
               stroke="hsl(var(--border))"
@@ -2198,7 +2303,7 @@ function TimeSeriesRenderer({
                 <ChartTooltip
                   labelFormatter={xLabelFormatter}
                   seriesNameFormatter={seriesNameFormatter}
-                  valueFormatter={(v) => formatYValue(v, yFormatter)}
+                  valueFormatter={valueFormatter}
                 />
               }
               itemSorter={(item) => -(Number(item.value) || 0)}
@@ -2209,6 +2314,7 @@ function TimeSeriesRenderer({
                 type="monotone"
                 dataKey={item.solidKey}
                 name={seriesNameFormatter(item.key)}
+                yAxisId={seriesAxisId(dualAxis, item.key)}
                 stroke={colors[i % colors.length]}
                 strokeWidth={2}
                 fillOpacity={showFill ? 1 : 0}
@@ -2225,6 +2331,7 @@ function TimeSeriesRenderer({
                   type="monotone"
                   dataKey={item.partialKey}
                   name={seriesNameFormatter(item.key)}
+                  yAxisId={seriesAxisId(dualAxis, item.key)}
                   stroke={colors[i % colors.length]}
                   strokeWidth={2}
                   strokeDasharray={PARTIAL_DAY_DASH}

@@ -1,6 +1,6 @@
 ---
 title: "앱"
-description: "작동하는 SaaS 제품을 포크하여 귀하의 것으로 만드세요. 에이전트가 포함됩니다."
+description: "작동하는 SaaS 제품에서 시작해 귀하의 것으로 만드세요. 에이전트가 포함됩니다."
 ---
 
 # 앱
@@ -33,6 +33,120 @@ description: "작동하는 SaaS 제품을 포크하여 귀하의 것으로 만�
 
 [Apps](/apps)에서 전체 카탈로그를 확인하거나 바로 카탈로그로 이동하세요. 예를 들어 작업 공간 스타일 앱을 원한다면 [Dispatch](/docs/template-dispatch)가 시작하기에 좋은 곳입니다.
 
+## 커뮤니티 템플릿 {#community-templates}
+
+CLI 선택기에 이름이 표시되는 템플릿은 **퍼스트 파티**입니다. Agent
+Native가 프레임워크와 함께 유지 관리하고 테스트하며 문서화하고
+출시합니다. **커뮤니티 템플릿**의 유지 관리와 버전 관리는 해당
+리포지토리 소유자의 책임입니다. 동일한 프레임워크 기능을 사용할 수 있지만
+커뮤니티 목록에 포함된 것이 Agent Native의 보증이나 지원 약속을 의미하지는
+않습니다.
+
+`create`를 실행하고 **커뮤니티 템플릿**을 선택한 다음, 공개 GitHub
+리포지토리의 단순한 URL을 붙여 넣으세요.
+
+```bash
+https://github.com/owner/repo
+```
+
+리포지토리 루트가 하나의 Agent Native 앱이면 CLI는 다른 picker 없이 직접
+설치합니다. Agent Native workspace 리포지토리이면 CLI는 `apps/*`의 유효한
+직접 자식을 찾고 `dispatch`를 제외한 뒤 설치할 앱을 묻습니다.
+
+비어 있지 않은 `agent-native.workspaceCore` marker가 있으면 root package도
+`@agent-native/core`에 의존하더라도 workspace로 처리합니다. 잘못된 marker는
+거부됩니다.
+
+Scripts에서는 동일한 단순 URL을 `--template`에 전달하거나 짧은
+`community:` 형식을 사용하세요. 재현 가능한 시작점이 필요하면 `#` 뒤에
+branch, tag 또는 commit을 고정하세요. Ref를 생략하면 CLI는 `main`,
+`master` 순서로 시도합니다.
+
+```bash
+npx @agent-native/core@latest create my-app --template community:owner/repo#v1.2.0
+npx @agent-native/core@latest create my-app --template https://github.com/owner/repo#v1.2.0
+```
+
+Workspace repository에서 source 앱을 비대화형으로 선택하려면
+`?app=<app-name>`을 사용하세요. Selector는 선택 사항인 `#ref` 앞에 옵니다.
+zsh 같은 shell은 `?`를 glob으로 처리하므로 전체 값을 따옴표로 묶으세요.
+
+```bash
+npx @agent-native/core@latest create my-app --template 'community:owner/repo?app=analytics#v1.2.0'
+npx @agent-native/core@latest create my-app --template 'https://github.com/owner/repo?app=analytics#v1.2.0'
+```
+
+Workspace 밖에서 `create`는 선택한 source 앱을 standalone으로 만듭니다.
+기존 workspace에 추가하려면 `add-app` picker에는 퍼스트 파티 템플릿만
+표시되므로 커뮤니티 리포지토리를 명시적으로 전달하세요. Source workspace에서
+대화형으로 선택하려면 `?app`을 생략하고, scriptable install에는 포함하세요.
+
+```bash
+npx @agent-native/core@latest add-app my-app --template community:owner/repo#v1.2.0
+npx @agent-native/core@latest add-app my-app --template 'community:owner/repo?app=analytics#v1.2.0'
+```
+
+공개 GitHub repositories만 허용됩니다. Private repositories, GitHub가 아닌
+host, GitHub tree 또는 subdirectory URL, nested app path는 지원되지 않습니다.
+Root 앱에는 `dependencies`, `devDependencies` 또는 `peerDependencies`에
+`@agent-native/core`를 나열하는 읽을 수 있는 `package.json`이 있어야 합니다.
+Workspace repository에서는 선택 가능한 각 source 앱이
+`apps/<app-name>/` 바로 아래에서 동일한 요구 사항을 충족해야 하며,
+`dispatch`는 선택할 수 없습니다.
+
+Community workspace 앱은 monorepo의 임의 조각이 아니라 portable leaf여야
+합니다.
+
+- 기본 `catalog:` dependency ref는 source repository 루트의
+  `pnpm-workspace.yaml`에서 resolve됩니다. Named catalog ref는 지원되지
+  않습니다.
+- `@agent-native/core`, `@agent-native/dispatch`,
+  `@agent-native/toolkit`에 대한 `workspace:*` ref는 published version으로
+  rewrite됩니다. 다른 sibling workspace package는 복사되지 않으므로
+  publish하고 concrete version을 사용하세요.
+- source `workspaceCore` dependency는 제거됩니다. 상속된 canonical workspace
+  auth 및 agent-chat plugin은 standalone install에서 분리되거나 destination
+  workspace에 다시 연결됩니다. Source `workspaceCore` package의 다른
+  import는 명확한 error를 내므로, 해당 code를 앱으로 옮기거나 concrete
+  dependency로 publish하세요.
+
+각 앱의 나머지도 해당 `package.json`과 함께 두세요. 사용하는 경우
+`agent-native.json`, source, actions, 에이전트 지침 및 데이터베이스 설정이
+포함됩니다. 카탈로그에 올릴 준비가 된 리포지토리에는 다음 항목도 포함해야
+합니다.
+
+- 라이선스와 메인테이너 또는 지원 링크
+- 설정 단계, 필수 environment variables 및 정확한 CLI 명령이 있는 README
+- placeholders만 포함하고 secret, 고객 데이터, runtime database 또는
+  generated build output이 없는 `.env.example`
+- 정상 작동하는 설치 및 개발 명령, typecheck, 템플릿에 적절한 tests
+
+Installer는 확인된 `source`와 `ref`를 설치된 앱의 `package.json`에 있는
+`agent-native.communityTemplate`에 기록합니다. Workspace repository에서
+선택한 앱은 source 앱도 `agent-native.communityTemplate.app`에 기록합니다.
+`agent-native template sync`는 계속 퍼스트 파티 템플릿 전용입니다.
+커뮤니티 템플릿을 업데이트하려면 새로운 upstream ref를 검토하고 변경 사항을
+직접 병합하세요.
+
+전체 앱, action, state, security 및 publishing 체크리스트는
+[Creating Templates](/docs/creating-templates)를 참고하세요.
+
+> **Dependencies를 설치하거나 코드를 실행하기 전에 커뮤니티 코드를
+> 검토하세요.** 커뮤니티 템플릿은 제3자 리포지토리에서 다운로드됩니다.
+> Agent Native는 이를 sandbox, audit 또는 유지 관리하지 않습니다. CLI는
+> source만 다운로드하며 dependencies를 설치하거나 template scripts를
+> 실행하지 않습니다. Source, license, dependencies 및 package install
+> scripts를 확인하고 고정된 신뢰할 수 있는 ref를 사용하세요.
+
+Hosted demo는 선택 사항입니다. 제공한다면 공개 try-it 링크로 만들고 sign-in,
+seed data 또는 provider 요구 사항을 문서화하세요. 설치의 source of truth는
+리포지토리이며 템플릿과 demo에 대한 책임은 모두 리포지토리 소유자에게
+있습니다.
+
+목록에 추가하고 싶으신가요? 리포지토리 URL, 한 문장 설명, 메인테이너와
+라이선스 세부 정보, 테스트한 CLI 명령, 선택 사항인 hosted demo URL을 포함해
+[커뮤니티 템플릿을 제출하세요](https://github.com/BuilderIO/agent-native/issues/new?template=community-template.yml).
+
 ## 상자에서 꺼내는 것 {#what-you-get}
 
 모든 예제 앱에는 일반적으로 제작하는 데 수개월이 걸리는 부품이 포함되어 있습니다.
@@ -50,7 +164,7 @@ description: "작동하는 SaaS 제품을 포크하여 귀하의 것으로 만�
 
 "나만의 SaaS를 원합니다"에서 "나만의 SaaS가 있습니다"로 가는 길은 짧습니다.
 
-<Diagram id="doc-block-q6okx4" title={"포크 및 사용자 정의"} summary={"완성된 제품을 선택하고 브랜드를 지정하고 일반 영어로 발전시킨 후 자신의 도메인으로 배송하세요."}>
+<Diagram id="doc-block-q6okx4" title={"작동하는 app에서 시작"} summary={"완성된 제품을 선택하고 브랜드를 지정하고 일반 영어로 발전시킨 후 자신의 도메인으로 배송하세요."}>
 
 ```html
 <div class="diagram-fork">
@@ -100,28 +214,28 @@ description: "작동하는 SaaS 제품을 포크하여 귀하의 것으로 만�
 
 1. **예제 앱을 선택하세요.** CLI 선택기를 사용하거나 문서를 찾아보고 시작할 앱을 선택하세요.
 2. **브랜드화.** 이름, 색상, 로고 및 문구를 변경합니다. 대부분의 예제 앱은 이를 단일 구성 파일에 공개합니다.
-3. **사용자 정의하세요.** 필요한 열을 추가하고, 받은편지함 그룹 방식을 변경하고, 내부 API에 연결하고, 새 보기를 추가하도록 상담원에게 요청하세요. 에이전트가 코드를 편집합니다. 차이점을 검토하세요.
+3. **사용자 정의하세요.** 자신의 저장소와 개발 워크플로에서 소스를 변경하세요. 에이전트 frame에 workspace 및 쓰기 도구를 의도적으로 부여하면 도움을 줄 수 있고, 그렇지 않으면 임베디드 에이전트가 actions, 데이터, 구성된 통합으로 앱을 운영합니다.
 4. **배송.** 배포 명령을 실행합니다. 이제 귀하의 도메인에 자체 프로덕션 SaaS가 있습니다.
 
-2~4단계는 일반적으로 몇 달이 아닌 며칠이 걸립니다. 3단계는 개방형입니다. 포크된 SaaS는 에이전트와 대화하여 일반 영어로 시간이 지남에 따라 발전합니다.
+2~4단계는 일반적으로 몇 달이 아닌 며칠이 걸립니다. 3단계는 앱을 직접 발전시킬 수 있어 개방형입니다. 임베디드 에이전트는 배포된 제품을 계속 운영하며 코드 접근이 명시적으로 활성화되면 소스 변경도 도울 수 있습니다.
 
 ## 이것이 실용적인 이유 {#why}
 
 전통적인 코드베이스 포크 모델은 규모에 따라 무너집니다. 자신의 받은 편지함을 유지 관리하는 모든 사용자는 유지 관리가 악몽처럼 들립니다. 두 가지 프레임워크 결정으로 작동하게 됩니다.
 
-1. **에이전트가 유지 관리를 수행합니다.** 열을 추가하거나 새 통합을 연결하는 코드를 작성하지 않고 에이전트에게 요청합니다. 따라서 "나만의 포크된 받은 편지함"은 기능이지 부담이 아닙니다.
+1. **앱이 프레임워크 계약을 유지합니다.** 소스는 도메인 동작을 소유하고 Core는 앱이 발전해도 actions, SQL, 상태, 동기화를 일관되게 유지합니다.
 2. **사용자별 코드 없이 사용자별 사용자 정의.** Skills, 메모리, 지침, 연결된 MCP 서버 및 하위 에이전트는 모두 SQL에 있습니다. 모든 사용자는 자신만의 맞춤화 레이어를 갖게 됩니다. 공유 코드베이스는 이 모든 것을 한 번에 호스팅합니다.
 
 결과: Claude-각 사용자에 대한 코드 수준의 유연성과 일반적인 SaaS 배포 경제성.
 
-<Diagram id="doc-block-1nh599" title={"사용자별 포크가 확장되는 이유"} summary={"포크 및 사용자 정의 모델을 실용적으로 유지하는 두 가지 아이디어는 에이전트가 유지 관리를 수행하고 사용자별 사용자 정의가 사용자별 코드가 아닌 SQL에 있다는 것입니다."}>
+<Diagram id="doc-block-1nh599" title={"사용자별 맞춤 설정이 확장되는 이유"} summary={"작동하는 app에서 시작하는 모델을 실용적으로 유지하는 두 가지 아이디어는 앱이 프레임워크 계약을 유지하고 사용자별 맞춤 설정이 사용자별 코드가 아닌 SQL에 있다는 것입니다."}>
 
 ```html
 <div class="diagram-why">
   <div class="diagram-panel" data-rough>
     <strong>공유d codebase</strong
     ><small class="diagram-muted">하나의 앱, 한 번 배포</small>
-    <div class="diagram-pill accent">agent does the maintenance</div>
+    <div class="diagram-pill accent">앱이 프레임워크 계약 유지</div>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
   <div class="diagram-panel" data-rough>
@@ -157,7 +271,7 @@ description: "작동하는 SaaS 제품을 포크하여 귀하의 것으로 만�
 
 </Diagram>
 
-## 포크하고 싶지 않으신가요? {#hosted}
+## 맞춤 설정하고 싶지 않으신가요? {#hosted}
 
 꼭 그럴 필요는 없습니다. 모든 예제 앱은 `agent-native.com`(`mail.agent-native.com`, `calendar.agent-native.com` 등)에서 호스팅된 앱으로도 사용할 수 있습니다. 무료 또는 유료로 호스팅 버전을 사용하세요. 호스팅 버전이 공개하지 않는 내용을 변경하려는 경우에만 포크하세요.
 

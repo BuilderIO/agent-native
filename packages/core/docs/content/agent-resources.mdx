@@ -241,6 +241,17 @@ Click the `?` icon in the Resources toolbar to jump back to these docs at any ti
 
 The built-in app agent manages resources with the unified `resources` tool: use `action: "list"`, `"read"`, `"effective"`, `"write"`, `"promote"`, or `"delete"`. External CLI/code agents can use the equivalent `pnpm action resource-*` commands.
 
+### Agent scratch vs workspace visibility {#agent-scratch}
+
+Every resource has a `visibility`: `workspace` (the normal, user-visible kind shown in the Resources tab) or `agent_scratch` (hidden working files the agent creates for itself — draft notes, intermediate results, a script it's iterating on). Agent writes default to `agent_scratch` unless the path is a durable instruction/skill/job/memory path, so the agent can work with temporary files without cluttering the Resources tab.
+
+Scratch resources auto-expire — 24 hours after creation unless the agent sets its own `expiresAt` — so abandoned working files don't accumulate. Use `action: "promote"` (personal or shared scope only, not `workspace`/`all`) to turn a scratch file into a permanent workspace resource once the user actually wants to keep it, e.g. "save that as a real file." Promote keeps the same path and content and clears the expiry.
+
+| Visibility      | Shown in Resources tab? | Expires?                            |
+| --------------- | ----------------------- | ----------------------------------- |
+| `workspace`     | Yes                     | No                                  |
+| `agent_scratch` | No (hidden by default)  | Yes — 24h unless `expiresAt` is set |
+
 At the start of every conversation, the agent automatically reads:
 
 ### AGENTS.md and instructions {#agents-md}

@@ -1,0 +1,142 @@
+---
+title: "Review, Handoff, and Full Apps"
+description: "Editing a real running app visually, leaving and resolving element-anchored review comments, exporting or handing a design to a coding agent, and building a full running app from Design."
+---
+
+# Review, Handoff, and Full Apps
+
+Once a prototype is in good shape, this page covers what happens next: pulling in a real running app to edit visually, collecting and resolving feedback from reviewers, getting the design out as files or code, and — behind a flag — turning a design into a real deployed app instead of a prototype.
+
+## Editing a real running app (/visual-edit) {#visual-edit}
+
+Design isn't only for prototypes generated from a prompt — a coding agent can install `/visual-edit` to bring a real, already-running local app into Design as its own screens. Each requested path or URL becomes its own screen on the canvas, and a numbered flow (an onboarding step 1, 2, 3) stays as separate ordered screens instead of collapsing into one. The entry route renders before sign-in, and a shared design link works read-only without an account — but saving the layout, generating new screens, or sharing still requires signing in first.
+
+### Keep the canvas beside your chat
+
+When your coding app has an inline browser, ask `/visual-edit` to open the returned Design URL there. In Codex Desktop, that means the built-in Browser; in Claude Code Desktop's Code tab, it means the Browser pane. Both can keep the canvas inside the coding app beside the conversation. In VS Code, the Agent Native extension opens the same Design URL in its side-panel webview. Browser panes can be disabled or unavailable in CLI, remote, or restricted sessions, so `/visual-edit` falls back to an **Open design** link instead of claiming the canvas opened.
+
+Once Design is open, choose **Show/Hide UI** from the `Cmd+K` menu or press Figma's `Shift+\` shortcut to toggle all editing chrome so only the canvas remains. The same action is available by right-clicking empty canvas space.
+
+When Design is rendered as an MCP App by a connected coding host, **Apply design updates** sends the pending source-edit handoff back to that host conversation after its normal confirmation. An ordinary inline Browser pane is still useful for the side-by-side canvas, but webpages cannot post into the active Codex or Claude Code task; there, Apply uses Design's local agent and **Copy prompt to your agent** is the coding-agent fallback.
+
+These are especially useful canvas sets:
+
+- **A multi-step flow:** `/visual-edit localhost:5173 — cart, shipping, payment, confirmation; open it beside this chat`
+- **Several pages:** `/visual-edit localhost:5173 — home, pricing, docs, and settings`
+- **One page at several sizes:** `/visual-edit localhost:5173/dashboard — desktop, tablet, and mobile side by side`
+- **Several states of one page:** `/visual-edit localhost:5173/inbox — empty, selected, and compose-open states`
+
+The agent keeps named steps in order and places responsive variants in aligned columns, so the canvas reads like a flow or comparison board rather than a pile of screenshots. Name the routes and sizes you care about; requesting every discovered route at every viewport can create a noisy canvas.
+
+<Diagram id="doc-block-design8" title="Three source modes" summary={"A design's source is inline, localhost, or fusion — the mode decides where an edit actually lands."}>
+
+```html
+<div class="diagram-sourcemodes">
+  <div class="diagram-box" data-rough>
+    <span class="diagram-pill accent">Inline</span
+    ><small class="diagram-muted"
+      >design_files rows · generate-design / edit-design write HTML
+      directly</small
+    >
+  </div>
+  <div class="diagram-box" data-rough>
+    <span class="diagram-pill">Localhost</span
+    ><small class="diagram-muted"
+      >your own dev server via /visual-edit · edits touch your local
+      files</small
+    >
+  </div>
+  <div class="diagram-box" data-rough>
+    <span class="diagram-pill ok">Fusion</span
+    ><small class="diagram-muted"
+      >cloud container · queue-fusion-edit dispatches to the app's own
+      agent</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-sourcemodes {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-sourcemodes .diagram-box {
+  flex: 1;
+  min-width: 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+```
+
+</Diagram>
+
+## Review feedback {#review-feedback}
+
+Anyone with access to a shared prototype can leave a comment pinned to a specific element rather than a generic note on the whole screen. A reviewer can leave it as a plain note, or send it straight to the agent to act on. When the agent works through a comment, it edits the exact part of the design the comment points at, checks that the change actually landed, then either resolves the thread with a one-line note of what changed, or replies asking the person to decide when it isn't something the agent should resolve on its own.
+
+<WireframeBlock id="doc-block-design9">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Onboarding screen</h1><span class='wf-pill accent'>2 open comments</span><div style='flex:1'></div><button class='primary'>Share</button></div><div class='wf-card' style='flex:1;display:grid;grid-template-columns:1fr 260px;gap:14px'><div class='wf-box' style='padding:24px;position:relative'><div style='display:flex;flex-direction:column;gap:10px;max-width:60%'><strong style='font-size:20px'>Welcome to Acme</strong><span class='wf-muted'>Set up your workspace in under a minute.</span><button class='primary' style='width:fit-content'>Continue</button></div><span class='wf-pill accent' style='position:absolute;top:20px;right:60px;border-radius:999px'>1</span></div><div style='display:flex;flex-direction:column;gap:8px;border-left:1.4px solid var(--wf-line);padding-left:14px'><strong>Comment</strong><span class='wf-muted'>\"Continue button reads oddly next to the muted subhead — bump contrast?\"</span><button class='primary'>Send to agent</button><button>Resolve</button></div></div></div>"
+    }
+  />
+</WireframeBlock>
+
+## Export and handoff {#export-and-handoff}
+
+<Table
+  id="doc-block-design10"
+  title="Export formats"
+  columns={["Format", "What it's for"]}
+  rows={[
+    [
+      "HTML",
+      "One self-contained file with Tailwind/Alpine CDN links baked in — opens directly in any browser",
+    ],
+    [
+      "ZIP",
+      "All design files organized by type (HTML/CSS/JSX/assets) plus a metadata file",
+    ],
+    [
+      "PDF",
+      "Client-side rendered PDF of the design — the print-size presets are built for this",
+    ],
+    [
+      "SVG",
+      "An SVG wrapper around the live HTML — good for embedding, not editable in Figma",
+    ],
+    [
+      "Figma-vector SVG",
+      "Real vector shapes, text, and gradients Figma can import as editable layers — copy/paste or drag in as a file",
+    ],
+    [
+      "Coding handoff",
+      "Design tokens, Alpine state, and a ready-to-paste prompt for an external coding agent to turn the prototype into production code",
+    ],
+  ]}
+/>
+
+Whatever the destination, exporting always reflects the design's current state — including any applied tweaks — not the first generated version. Duplicate the design first if you want to keep iterating on a copy after handing one version off.
+
+## Full App Building (fusion mode) {#full-app-building}
+
+<Callout id="doc-block-design13" tone="warning">
+
+Full App Building is off by default and has to be explicitly enabled for a workspace — most Design projects stay inline prototypes. Even when enabled, it also needs Builder credentials connected before it will run.
+
+</Callout>
+
+When enabled, Full App Building turns a design into a real, running app instead of an inline HTML prototype — backed by a live dev server in a cloud container, one branch per design. Screens on the canvas become real routes on that running app rather than saved HTML files, the same URL-backed model `/visual-edit` uses for a local dev server, just running remotely.
+
+Editing works differently here: a change gets queued first, then dispatched as a batch to the app's own coding agent, which applies it to the real codebase. This is asynchronous — dispatching a change doesn't mean it has landed yet, only that the app's agent has started on it. Once the app is in the shape you want, its branch can be pushed and deployed to a real URL, and a fusion-backed design's branch can also be diffed against an earlier version to review what changed before publishing.
+
+## What's next
+
+- [**Design**](/docs/template-design) — back to the overview
+- [**Brand Systems and Figma**](/docs/template-design-brand-and-figma) — design systems and Figma import
+- [**Quality Passes and Components**](/docs/template-design-quality-and-components) — the audit/screenshot pass and reusable components
+- [**Extending Design**](/docs/template-design-developers) — the full action reference, including the fusion action group

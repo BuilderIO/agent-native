@@ -5,11 +5,13 @@ description: "agent-native template récupère les modifications ultérieures ap
 
 # Synchroniser les modifications de modèle
 
-`agent-native create` copie un modèle propriétaire dans votre application, puis se l'approprie — en substituant le nom de l'application, en renommant `_gitignore`, en réécrivant `package.json`, en fixant les dépendances `workspace:*` et `catalog:` à des versions concrètes et (dans un espace de travail) en substituant les plugins d'authentification et de chat hérités. À partir de ce moment, l'application est un fork. Les correctifs et améliorations qui arrivent en amont dans le modèle ne l'atteignent plus.
+`agent-native create` copie un modèle propriétaire dans votre application, puis se l'approprie — en substituant le nom de l'application, en renommant `_gitignore`, en réécrivant `package.json`, en fixant les dépendances `workspace:*` et `catalog:` à des versions concrètes et (dans un espace de travail) en substituant les plugins d'authentification et de chat hérités. À partir de ce moment, l'application est une app indépendante créée à partir du modèle. Les correctifs et améliorations qui arrivent en amont dans le modèle ne l'atteignent plus.
 
 `agent-native upgrade` ne comble pas cet écart. Il fait évoluer les versions de packages, exécute des codemods d'import et actualise les répertoires de skills — il ne touche jamais un fichier qui a été copié depuis un modèle.
 
 `agent-native template` est la moitié manquante. Il récupère à nouveau le modèle dans une version plus récente, réapplique exactement les transformations que `create` a appliquées, et fusionne le résultat dans votre application fichier par fichier.
+
+Les modèles communautaires sont volontairement exclus de ce flux de synchronisation. Leurs métadonnées `agent-native.communityTemplate` enregistrent uniquement la source installée ; `agent-native template sync` ne récupère pas les changements de ce dépôt. Installez une révision épinglée pour un point de départ stable, puis portez manuellement les changements ultérieurs après vérification.
 
 ## Démarrage rapide {#quick-start}
 

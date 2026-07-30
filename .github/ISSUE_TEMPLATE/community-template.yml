@@ -1,0 +1,103 @@
+name: Submit a community template
+description: Propose a public Agent Native template for the community catalog.
+title: "Community template: "
+labels:
+  - community-template
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for sharing your template. Community templates are maintained by their authors and listed separately from Agent Native's first-party templates.
+
+  - type: input
+    id: name
+    attributes:
+      label: Template name
+      placeholder: Customer Support Hub
+    validations:
+      required: true
+
+  - type: input
+    id: repository
+    attributes:
+      label: Public GitHub repository
+      description: Provide either a single Agent Native app at the repository root or an Agent Native workspace with a non-empty agent-native.workspaceCore marker and community apps directly under apps/*.
+      placeholder: https://github.com/owner/repository
+    validations:
+      required: true
+
+  - type: input
+    id: workspace_app
+    attributes:
+      label: Workspace app
+      description: For a workspace repository, enter the direct apps/<name> child to list. Leave blank for a root single-app repository. Dispatch cannot be submitted as a community app.
+      placeholder: analytics
+
+  - type: input
+    id: cli_selector
+    attributes:
+      label: Tested CLI selector
+      description: "Provide the plain GitHub URL or community: selector you tested. For a workspace app, include ?app=<name> before an optional #ref."
+      placeholder: "community:owner/repository?app=analytics#v1.0.0"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What does it do?
+      description: In two or three sentences, explain the workflow and who it is for.
+    validations:
+      required: true
+
+  - type: input
+    id: maintainer
+    attributes:
+      label: Maintainer or support link
+      description: Link to the maintainer profile, support page, or repository support instructions.
+      placeholder: https://github.com/owner
+    validations:
+      required: true
+
+  - type: input
+    id: license
+    attributes:
+      label: License
+      description: Name the repository's open-source license.
+      placeholder: MIT
+    validations:
+      required: true
+
+  - type: input
+    id: demo
+    attributes:
+      label: Hosted demo
+      description: Optional. Link to a live version people can try before installing.
+      placeholder: https://example.com
+
+  - type: input
+    id: screenshot
+    attributes:
+      label: Screenshot
+      description: Optional. Link to a representative 16:9 or 4:3 product screenshot.
+      placeholder: https://example.com/screenshot.png
+
+  - type: checkboxes
+    id: readiness
+    attributes:
+      label: Submission checklist
+      options:
+        - label: The repository is public and has a license.
+          required: true
+        - label: The Agent Native app is at the repository root or directly under apps/<name>, and its package.json directly depends on @agent-native/core.
+          required: true
+        - label: A workspace repository has a valid non-empty agent-native.workspaceCore marker in its root package.json.
+          required: true
+        - label: For a workspace app, default catalog references resolve from the root catalog and the app does not rely on unpublished sibling workspace packages or other imports from the source workspaceCore package.
+          required: true
+        - label: I ran pnpm install, pnpm typecheck, and the template's tests.
+          required: true
+        - label: Required environment variables and setup steps are documented without including real secrets.
+          required: true
+        - label: I understand this remains a community-maintained template and is not supported as a first-party Agent Native app.
+          required: true

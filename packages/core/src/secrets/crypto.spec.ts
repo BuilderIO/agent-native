@@ -5,6 +5,7 @@ import {
   decryptSecretValue,
   encryptSharedSecretValue,
   decryptSharedSecretValue,
+  decryptSharedSecretValueDetailed,
   getSharedSecretEncryptionKey,
   getSecretEncryptionKey,
   hasSharedSecretEncryptionKeyMaterial,
@@ -247,12 +248,50 @@ describe("hosted workspace shared secret material (derived from A2A_SECRET)", ()
     expect(dispatchShared.equals(coachShared)).toBe(true);
   });
 
-  it("does not derive shared material outside a workspace runtime, even with A2A_SECRET set", () => {
+  it("uses the A2A-derived key across apps with different auth secrets", () => {
+    delete process.env.SECRETS_ENCRYPTION_KEY;
+    delete process.env.AGENT_NATIVE_WORKSPACE;
+    process.env.A2A_SECRET = "workspace-root-secret";
+
+    process.env.APP_NAME = "dispatch"; // guard:allow-env-credential — test switches deploy-level app scope.
+    process.env.BETTER_AUTH_SECRET = "dispatch-auth-secret";
+    const ciphertext = encryptSharedSecretValue("builder-private-value");
+
+    process.env.APP_NAME = "slides"; // guard:allow-env-credential — test switches deploy-level app scope.
+    process.env.BETTER_AUTH_SECRET = "slides-auth-secret";
+    expect(decryptSharedSecretValueDetailed(ciphertext)).toEqual({
+      value: "builder-private-value",
+      needsReencrypt: false,
+    });
+  });
+
+  it("reads legacy auth-secret ciphertext and marks it for re-encryption", () => {
+    delete process.env.SECRETS_ENCRYPTION_KEY;
+    delete process.env.AGENT_NATIVE_WORKSPACE;
+    delete process.env.A2A_SECRET;
+    delete process.env.APP_NAME; // guard:allow-env-credential — test isolates deploy-level app scope.
+    process.env.BETTER_AUTH_SECRET = "legacy-dispatch-auth-secret";
+    const legacyCiphertext = encryptSharedSecretValue("builder-public-value");
+
+    process.env.AGENT_NATIVE_WORKSPACE = "1";
+    process.env.A2A_SECRET = "workspace-root-secret";
+    expect(decryptSharedSecretValueDetailed(legacyCiphertext)).toEqual({
+      value: "builder-public-value",
+      needsReencrypt: true,
+    });
+  });
+
+  it("uses explicit A2A trust for vault sharing without a workspace wrapper flag", () => {
     delete process.env.SECRETS_ENCRYPTION_KEY;
     delete process.env.BETTER_AUTH_SECRET;
     delete process.env.AGENT_NATIVE_WORKSPACE;
     process.env.A2A_SECRET = "workspace-root-secret";
 
-    expect(hasSharedSecretEncryptionKeyMaterial()).toBe(false);
+    expect(hasSharedSecretEncryptionKeyMaterial()).toBe(true);
+    expect(
+      decryptSharedSecretValue(
+        encryptSharedSecretValue("independently-deployed-sibling"),
+      ),
+    ).toBe("independently-deployed-sibling");
   });
 });

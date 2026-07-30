@@ -52,12 +52,24 @@ height: 320
 
 Fence keys: `src` (required, same-origin path), `title`, and either `height` (px) or `aspect` (`16/9`, `4/3`, `1/1`, `21/9`, `3/2`, `2/1`; default `16/9`). A cross-origin `src` renders an "Embed blocked" notice instead of a chart.
 
+**This fence is the only supported syntax.** Never write a bare line like
+`` `/chart type=bar title="..." labels=[...] data=[...] color=#...` `` in chat
+text — that pattern comes from confusing `generate-chart`'s tool parameters
+(`title`, `labels`, `data`, `type`) with markdown; those are arguments to a
+tool call, not something to type into a chat message. The chat renderer has a
+best-effort compatibility fallback that tries to recover a chart from that
+exact shorthand shape, but it is not the contract: it rejects mismatched
+lengths, negative values, and malformed input (falling back to plain text),
+and it does not re-query live data the way the embed does. If you catch
+yourself typing `label` or `data` followed by `=` in a chat reply, stop and
+build the ` ```embed ` fence above instead.
+
 **Panel JSON.** The `/chart` route decodes `panel` into a `SqlPanel` (`app/pages/adhoc/sql-dashboard/types.ts`):
 
 - `sql` — required, non-empty.
 - `source` — required, one of `bigquery`, `ga4`, `amplitude`, `first-party`, `demo`, `prometheus`. `program` is deliberately **not** embeddable.
 - `chartType` — required, one of `line`, `area`, `bar`, `metric`, `table`, `pie`. Dashboard-layout types (`section`, `heatmap`, `callout`, `extension`) are rejected.
-- `id` (defaults `"embed"`), `title` (rendered above the chart), `width` (dashboard-only, ignored here), `config` (passed through unvalidated — `xKey`/`yKeys`, `colors`, `yFormatter`, `columns`, `stacked`, `legend`, …).
+- `id` (defaults `"embed"`), `title` (rendered above the chart), `width` (dashboard-only, ignored here), `config` (passed through unvalidated — `xKey`/`yKeys`, `colors`, `yFormatter`, `rightYKeys`/`rightYFormatter` for a dual-axis line/area/bar chart, `columns`, `stacked`, `legend`, …).
 
 An unknown `source`/`chartType` or blank `sql` renders an error card, not a chart.
 

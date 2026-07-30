@@ -1,6 +1,6 @@
 ---
 title: "Apps"
-description: "Forken Sie ein funktionierendes SaaS-Produkt und machen Sie es zu Ihrem – Agent inklusive."
+description: "Starten Sie mit einem funktionierenden SaaS-Produkt und machen Sie es zu Ihrem – Agent inklusive."
 ---
 
 # Apps
@@ -33,6 +33,132 @@ Sie möchten keine Domain-App? Verwenden Sie [Chat](/docs/template-chat), wenn S
 
 Sehen Sie sich den vollständigen Katalog unter [Apps](/apps) an oder springen Sie direkt zu einem – [Dispatch](/docs/template-dispatch) ist beispielsweise ein großartiger Ausgangspunkt, wenn Sie eine App im Workspace-Stil wünschen.
 
+## Community-Templates {#community-templates}
+
+Die benannten Templates in der CLI-Auswahl sind **offiziell**: Agent Native
+wartet, testet, dokumentiert und veröffentlicht sie zusammen mit dem Framework.
+Ein **Community-Template** wird vom Eigentümer seines Repositorys gewartet und
+versioniert. Es kann dieselbe Framework-Oberfläche verwenden, aber ein Eintrag
+in der Community-Liste ist weder eine Empfehlung noch ein Supportversprechen
+von Agent Native.
+
+Führen Sie `create` aus, wählen Sie **Community-Template**, und fügen Sie eine
+einfache öffentliche GitHub-Repository-URL ein:
+
+```bash
+https://github.com/owner/repo
+```
+
+Wenn das Repository-Stammverzeichnis eine einzelne Agent-Native-App enthält,
+installiert die CLI sie direkt ohne weitere Auswahl. Handelt es sich um einen
+Agent-Native-Workspace, erkennt die CLI gültige direkte Unterverzeichnisse von
+`apps/*`, schließt `dispatch` aus und fragt, welche App installiert werden soll.
+
+Eine nicht leere `agent-native.workspaceCore`-Markierung macht das Repository
+auch dann zu einem Workspace, wenn das Root-Paket von `@agent-native/core`
+abhängt; eine fehlerhafte Markierung wird abgelehnt.
+
+Übergeben Sie dieselbe einfache URL für Skripte an `--template`, oder verwenden
+Sie die kürzere `community:`-Form. Fixieren Sie Branch, Tag oder Commit nach `#`
+für einen reproduzierbaren Ausgangspunkt. Ohne Referenz versucht die CLI zuerst
+`main`, dann `master`:
+
+```bash
+npx @agent-native/core@latest create my-app --template community:owner/repo#v1.2.0
+npx @agent-native/core@latest create my-app --template https://github.com/owner/repo#v1.2.0
+```
+
+Treffen Sie die Quell-App-Auswahl für ein Workspace-Repository mit
+`?app=<app-name>` ohne Interaktion. Der Selektor steht vor der optionalen
+`#ref`. Setzen Sie den gesamten Wert in Anführungszeichen, da Shells wie zsh
+`?` als Glob behandeln:
+
+```bash
+npx @agent-native/core@latest create my-app --template 'community:owner/repo?app=analytics#v1.2.0'
+npx @agent-native/core@latest create my-app --template 'https://github.com/owner/repo?app=analytics#v1.2.0'
+```
+
+Außerhalb eines Workspace erstellt `create` aus der ausgewählten Quell-App eine
+eigenständige App. Für einen vorhandenen Workspace müssen Sie das
+Community-Repository explizit übergeben, weil die `add-app`-Auswahl nur
+offizielle Templates auflistet. Lassen Sie `?app` für die interaktive Auswahl
+aus dem Quell-Workspace weg, oder geben Sie es für eine skriptfähige
+Installation an:
+
+```bash
+npx @agent-native/core@latest add-app my-app --template community:owner/repo#v1.2.0
+npx @agent-native/core@latest add-app my-app --template 'community:owner/repo?app=analytics#v1.2.0'
+```
+
+Nur öffentliche GitHub-Repositorys werden akzeptiert. Private Repositorys,
+andere Hosts als GitHub, GitHub-Tree- oder Unterverzeichnis-URLs und
+verschachtelte App-Pfade werden nicht unterstützt. Eine Root-App benötigt eine
+lesbare `package.json`, die `@agent-native/core` unter `dependencies`,
+`devDependencies` oder `peerDependencies` auflistet. In einem
+Workspace-Repository muss jede auswählbare Quell-App dieselbe Anforderung
+direkt unter `apps/<app-name>/` erfüllen; `dispatch` ist nie auswählbar.
+
+Community-Workspace-Apps müssen portable Blätter sein, keine beliebigen
+Monorepo-Ausschnitte:
+
+- Standard-`catalog:`-Abhängigkeitsreferenzen werden aus der
+  `pnpm-workspace.yaml` im Stammverzeichnis des Quell-Repositorys aufgelöst;
+  benannte Katalogreferenzen werden nicht unterstützt;
+- `workspace:*`-Referenzen auf `@agent-native/core`,
+  `@agent-native/dispatch` und `@agent-native/toolkit` werden auf
+  veröffentlichte Versionen umgeschrieben. Andere benachbarte
+  Workspace-Pakete werden nicht kopiert; veröffentlichen Sie sie und verwenden
+  Sie stattdessen eine konkrete Version;
+- die Abhängigkeit vom Quellpaket `workspaceCore` wird entfernt. Die kanonisch
+  geerbten Workspace-Plugins für Auth und Agent Chat werden bei einer
+  eigenständigen Installation getrennt oder an den Ziel-Workspace gebunden.
+  Jeder andere Import des Quellpakets `workspaceCore` schlägt mit einer klaren
+  Meldung fehl; verschieben Sie den Code in die App oder veröffentlichen Sie ihn
+  als konkrete Abhängigkeit.
+
+Auch der Rest jeder vollständigen App gehört zu ihrer `package.json`:
+`agent-native.json`, falls verwendet, Quellcode, Actions, Agentenanweisungen und
+Datenbankeinrichtung. Ein katalogfähiges Repository sollte außerdem Folgendes
+enthalten:
+
+- eine Lizenz und einen Link zum Maintainer oder Support;
+- eine README mit Einrichtungsschritten, erforderlichen Umgebungsvariablen und
+  dem genauen CLI-Befehl;
+- eine `.env.example` ausschließlich mit Platzhaltern, ohne Secrets,
+  Kundendaten, Laufzeitdatenbanken oder generierte Build-Ausgaben;
+- eine funktionierende Installation und einen Entwicklungsbefehl sowie einen
+  angemessenen Typecheck und passende Tests.
+
+Das Installationsprogramm zeichnet die aufgelösten Werte `source` und `ref`
+unter `agent-native.communityTemplate` in der `package.json` der installierten
+App auf. Apps aus einem Workspace-Repository zeichnen außerdem die Quell-App
+als `agent-native.communityTemplate.app` auf. `agent-native template sync`
+bleibt auf offizielle Templates beschränkt; prüfen Sie zum Aktualisieren eines
+Community-Templates eine neuere Upstream-Referenz und führen Sie deren
+Änderungen selbst zusammen.
+
+Unter [Creating Templates](/docs/creating-templates) finden Sie die vollständige
+Checkliste zu App, Actions, Zustand, Sicherheit und Veröffentlichung.
+
+> **Prüfen Sie Community-Code, bevor Sie Abhängigkeiten installieren oder ihn
+> ausführen.** Community-Templates werden aus Repositorys von Drittanbietern
+> heruntergeladen; Agent Native isoliert, auditiert oder wartet sie nicht.
+> Die CLI lädt nur den Quellcode herunter; sie installiert keine Abhängigkeiten
+> und führt keine Template-Skripte aus. Prüfen Sie Quellcode, Lizenz,
+> Abhängigkeiten und Package-Installationsskripte und bevorzugen Sie eine
+> fixierte, vertrauenswürdige Referenz.
+
+Eine gehostete Demo ist optional. Falls Sie eine anbieten, verwenden Sie einen
+öffentlichen Link zum Ausprobieren und dokumentieren Sie Anforderungen an
+Anmeldung, Beispieldaten oder Anbieter. Das Repository bleibt die maßgebliche
+Installationsquelle, und sein Eigentümer bleibt für Template und Demo
+verantwortlich.
+
+Möchten Sie aufgenommen werden? [Reichen Sie ein Community-Template ein](https://github.com/BuilderIO/agent-native/issues/new?template=community-template.yml)
+und nennen Sie Repository-URL, eine Beschreibung in einem Satz, Maintainer- und
+Lizenzdetails, den getesteten CLI-Befehl und optional die URL einer gehosteten
+Demo.
+
 ## Was Sie im Lieferumfang enthalten {#what-you-get}
 
 Jede Beispiel-App wird mit den Teilen geliefert, deren Erstellung normalerweise Monate dauert:
@@ -50,7 +176,7 @@ Dies ist keine theoretische Behauptung. Der Autor des Frameworks führt seinen t
 
 Der Weg von „Ich möchte mein eigenes SaaS“ zu „Ich habe mein eigenes SaaS“ ist kurz:
 
-<Diagram id="doc-block-1y7a55" title="Gabeln und anpassen" summary={"Wählen Sie ein fertiges Produkt aus, versehen Sie es mit einem Branding, entwickeln Sie es in einfachem Englisch weiter und versenden Sie es an Ihre eigene Domain."}>
+<Diagram id="doc-block-1y7a55" title="Mit einer funktionierenden App starten" summary={"Wählen Sie ein fertiges Produkt aus, versehen Sie es mit einem Branding, entwickeln Sie es in einfachem Englisch weiter und versenden Sie es an Ihre eigene Domain."}>
 
 ```html
 <div class="diagram-fork">
@@ -100,28 +226,28 @@ Der Weg von „Ich möchte mein eigenes SaaS“ zu „Ich habe mein eigenes SaaS
 
 1. **Wählen Sie eine Beispiel-App.** Verwenden Sie die CLI-Auswahl oder durchsuchen Sie die Dokumente und wählen Sie eine aus, mit der Sie beginnen möchten.
 2. **Marken Sie es.** Ändern Sie den Namen, die Farben, das Logo und den Text. Die meisten Beispiel-Apps stellen dies in einer einzigen Konfigurationsdatei bereit.
-3. **Passen Sie es an.** Bitten Sie den Agenten, die benötigte Spalte hinzuzufügen, die Posteingangsgruppen zu ändern, eine Verbindung zu Ihrem internen API herzustellen und eine neue Ansicht hinzuzufügen. Der Agent bearbeitet den Code; Sie überprüfen den Unterschied.
+3. **Passen Sie es an.** Nehmen Sie Quelländerungen in Ihrem Repository und Entwicklungsworkflow vor. Ein Agent kann helfen, wenn seinem Frame bewusst Workspace- und Schreibwerkzeuge gewährt wurden; andernfalls bedient der eingebettete Agent die App über Actions, Daten und konfigurierte Integrationen.
 4. **Versenden Sie es.** Führen Sie den Bereitstellungsbefehl aus. Sie haben jetzt Ihr eigenes Produktions-SaaS in Ihrer eigenen Domain.
 
-Die Schritte 2–4 dauern normalerweise Tage, nicht Monate. Schritt 3 ist ergebnisoffen – Ihr geforktes SaaS entwickelt sich im Laufe der Zeit, im Klartext, durch Gespräche mit dem Agenten.
+Die Schritte 2–4 dauern normalerweise Tage, nicht Monate. Schritt 3 bleibt offen, weil Sie die App weiterentwickeln können. Der eingebettete Agent bedient weiterhin das bereitgestellte Produkt und kann bei Quelländerungen helfen, wenn Codezugriff ausdrücklich aktiviert ist.
 
 ## Warum das praktisch ist {#why}
 
 Ein traditionelles Fork-the-Codebase-Modell bricht im großen Maßstab zusammen: Jeder Benutzer, der seinen eigenen Posteingang verwaltet, klingt wie ein Wartungsalbtraum. Zwei Rahmenentscheidungen machen es möglich:
 
-1. **Der Agent übernimmt die Wartung.** Sie schreiben keinen Code, um eine Spalte hinzuzufügen oder eine neue Integration zu verbinden – Sie fragen den Agenten. „Ihr eigener gespaltener Posteingang“ ist also eine Funktion und keine Belastung.
+1. **Die App hält den Framework-Vertrag ein.** Ihre Quelle besitzt das Domänenverhalten, während Core Actions, SQL, Zustand und Synchronisierung konsistent hält, wenn sich die App entwickelt.
 2. **Anpassung pro Benutzer ohne Code pro Benutzer.** Skills, Speicher, Anweisungen, verbundene MCP-Server und Subagenten befinden sich alle in SQL. Jeder Benutzer erhält seine eigene Anpassungsebene; Die gemeinsame Codebasis hostet sie alle gleichzeitig.
 
 Das Ergebnis: Flexibilität auf Claude-Codeebene für jeden Benutzer, mit normaler SaaS-Bereitstellungsökonomie.
 
-<Diagram id="doc-block-tslhp4" title="Warum Forks pro Benutzer skalieren" summary={"Zwei Ideen sorgen dafür, dass das Fork-and-Customize-Modell praktisch bleibt: Der Agent übernimmt die Wartung und die benutzerspezifische Anpassung erfolgt in SQL – nicht im benutzerspezifischen Code."}>
+<Diagram id="doc-block-tslhp4" title="Warum Anpassungen pro Benutzer skalieren" summary={"Zwei Ideen sorgen dafür, dass das Start-from-a-working-app-Modell praktisch bleibt: Die App hält den Framework-Vertrag ein und die benutzerspezifische Anpassung erfolgt in SQL – nicht im benutzerspezifischen Code."}>
 
 ```html
 <div class="diagram-why">
   <div class="diagram-panel" data-rough>
     <strong>Teilend codebase</strong
     ><small class="diagram-muted">eine App, einmal deployt</small>
-    <div class="diagram-pill accent">agent does the maintenance</div>
+    <div class="diagram-pill accent">App hält den Framework-Vertrag ein</div>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
   <div class="diagram-panel" data-rough>
@@ -157,9 +283,9 @@ Das Ergebnis: Flexibilität auf Claude-Codeebene für jeden Benutzer, mit normal
 
 </Diagram>
 
-## Möchten Sie nicht forken? {#hosted}
+## Möchten Sie nicht anpassen? {#hosted}
 
-Das musst du nicht. Jede Beispiel-App ist auch als gehostete App auf `agent-native.com` – `mail.agent-native.com`, `calendar.agent-native.com` usw. verfügbar. Nutzen Sie die gehostete Version kostenlos oder kostenpflichtig; Fork nur, wenn Sie etwas ändern möchten, das die gehostete Version nicht offenlegt.
+Das musst du nicht. Jede Beispiel-App ist auch als gehostete App auf `agent-native.com` – `mail.agent-native.com`, `calendar.agent-native.com` usw. verfügbar. Nutzen Sie die gehostete Version kostenlos oder kostenpflichtig; erstellen Sie eine eigene App aus der Vorlage, wenn Sie etwas ändern möchten, das die gehostete Version nicht offenlegt.
 
 ## Probieren Sie es mit einer Fertigkeit aus {#try-with-a-skill}
 

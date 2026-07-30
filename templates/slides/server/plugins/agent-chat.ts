@@ -14,6 +14,7 @@ const INITIAL_TOOL_NAMES = [
   "view-screen",
   "list-decks",
   "get-deck",
+  "get-deck-reference-context",
   "create-deck",
   "add-slide",
   "update-slide",
@@ -35,6 +36,11 @@ export default createAgentChatPlugin({
   initialToolNames: INITIAL_TOOL_NAMES,
   durableBackgroundRuns: true,
   runSoftTimeoutMs: SLIDES_BACKGROUND_RUN_SOFT_TIMEOUT_MS,
+  a2aAgentDelegation: true,
+  // Customer and product activity data belongs to Analytics. Keep raw DB
+  // tools out of both the interactive and A2A Slides agent surfaces so the
+  // agent cannot bypass the Analytics data dictionary with local SQL.
+  databaseTools: "off",
   // Enable sandboxed JavaScript execution so Slides agents can fetch,
   // paginate, and reduce provider data through providerFetch() without us
   // hardcoding one action per Google Drive endpoint.

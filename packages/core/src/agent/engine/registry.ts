@@ -11,10 +11,11 @@
 import { createRequire } from "node:module";
 
 import {
+  assertCredentialStoreReadable,
   canUseDeployCredentialFallbackForRequest,
   getProviderCredentialAuthFailure,
   readDeployCredentialEnv,
-  resolveBuilderCredentials,
+  resolveBuilderCredentialsDetailed,
   resolveSecret,
 } from "../../server/credential-provider.js";
 import { getSetting } from "../../settings/store.js";
@@ -471,16 +472,12 @@ export async function detectEngineFromUserSecrets(): Promise<AgentEngineEntry | 
   const hasAllKeys = async (entry: AgentEngineEntry): Promise<boolean> => {
     if (!isAgentEnginePackageInstalled(entry)) return false;
     if (entry.requiredEnvVars.length === 0) return false;
-    if (entry.name === "builder") {
-      const creds = await resolveBuilderCredentials();
-      return Boolean(creds.privateKey && creds.publicKey);
-    }
+    if (entry.name === "builder") return hasUsableBuilderConnection();
     for (const key of entry.requiredEnvVars) {
-      try {
-        if (!(await resolveUsableProviderSecret(key))) return false;
-      } catch {
-        return false;
-      }
+      // A throw here means the credential store could not be read. Let it
+      // propagate: swallowing it reports "no provider connected" to a user
+      // whose key is sitting in a row we simply failed to load.
+      if (!(await resolveUsableProviderSecret(key))) return false;
     }
     return true;
   };
@@ -583,6 +580,17 @@ async function resolveOpenAiBaseUrl(): Promise<string | undefined> {
   return raw ? normalizeOpenAiBaseUrl(raw) : undefined;
 }
 
+/**
+ * A Builder connection we could not read is not a missing connection. Throwing
+ * keeps that distinction instead of reporting "connect a provider" to a user
+ * whose org-shared keys exist but were unreadable.
+ */
+async function hasUsableBuilderConnection(): Promise<boolean> {
+  const creds = await resolveBuilderCredentialsDetailed();
+  assertCredentialStoreReadable(creds);
+  return Boolean(creds.privateKey && creds.publicKey);
+}
+
 async function resolveUsableProviderSecret(
   key: string,
 ): Promise<string | null> {
@@ -596,8 +604,36 @@ async function engineCreateConfigForEntry(
   entry: AgentEngineEntry,
   apiKey: string | undefined,
   extra?: Record<string, unknown>,
+  preferResolvedCredential = false,
 ): Promise<Record<string, unknown>> {
   const safeExtra = { ...(extra ?? {}) };
+  let matchingApiKey = apiKey;
+  // Automatic engine selection must also select that engine's credential.
+  // Callers historically passed one untagged "active" key before the registry
+  // chose an engine, which could hand an Anthropic key to an app-default
+  // OpenAI engine (or vice versa). Explicit engineOption branches retain their
+  // paired key; automatic branches opt into matching the chosen provider here.
+  if (
+    preferResolvedCredential &&
+    entry.name !== "builder" &&
+    entry.requiredEnvVars.length > 0
+  ) {
+    let foundMatchingCredential = false;
+    for (const key of entry.requiredEnvVars) {
+      const resolved = (await resolveUsableProviderSecret(key)) ?? undefined;
+      if (!resolved) continue;
+      foundMatchingCredential = true;
+      const deployFallback =
+        canUseDeployCredentialFallbackForRequest(key) &&
+        readDeployCredentialEnv(key) === resolved;
+      // Keep deploy-only credentials implicit so provider SDKs retain their
+      // established env-fallback behavior. Scoped credentials must be passed
+      // explicitly, and replace an unrelated preselected provider key.
+      if (matchingApiKey || !deployFallback) matchingApiKey = resolved;
+      break;
+    }
+    if (!foundMatchingCredential) matchingApiKey = undefined;
+  }
   if (entry.name === "ai-sdk:openai") {
     if (typeof safeExtra.baseURL === "string" && safeExtra.baseUrl == null) {
       safeExtra.baseUrl = normalizeOpenAiBaseUrl(safeExtra.baseURL);
@@ -607,7 +643,7 @@ async function engineCreateConfigForEntry(
       if (baseUrl) safeExtra.baseUrl = baseUrl;
     }
   }
-  return engineCreateConfig(entry, apiKey, safeExtra);
+  return engineCreateConfig(entry, matchingApiKey, safeExtra);
 }
 
 /**
@@ -648,17 +684,9 @@ export async function isStoredEngineUsableForRequest(
   if (!isAgentEnginePackageInstalled(entry)) return false;
   if (isAgentEngineSettingConfigured(stored)) return true;
   if (entry.requiredEnvVars.length === 0) return true;
-  if (entry.name === "builder") {
-    const creds = await resolveBuilderCredentials();
-    return Boolean(creds.privateKey && creds.publicKey);
-  }
+  if (entry.name === "builder") return hasUsableBuilderConnection();
   for (const key of entry.requiredEnvVars) {
-    try {
-      if (await resolveUsableProviderSecret(key)) continue;
-    } catch {
-      return false;
-    }
-    return false;
+    if (!(await resolveUsableProviderSecret(key))) return false;
   }
   return true;
 }
@@ -680,10 +708,7 @@ export async function isResolvedEngineUsableForRequest(
   if (!isAgentEnginePackageInstalled(entry)) return false;
   if (entry.requiredEnvVars.length === 0) return true;
 
-  if (entry.name === "builder") {
-    const creds = await resolveBuilderCredentials();
-    return Boolean(creds.privateKey && creds.publicKey);
-  }
+  if (entry.name === "builder") return hasUsableBuilderConnection();
 
   if (options.apiKey?.trim()) {
     const key = entry.requiredEnvVars[0];
@@ -695,12 +720,7 @@ export async function isResolvedEngineUsableForRequest(
   }
 
   for (const key of entry.requiredEnvVars) {
-    try {
-      if (await resolveUsableProviderSecret(key)) continue;
-    } catch {
-      return false;
-    }
-    return false;
+    if (!(await resolveUsableProviderSecret(key))) return false;
   }
   return true;
 }
@@ -824,7 +844,9 @@ export async function resolveEngine(
     const entry = _registry.get(envEngine);
     if (entry) {
       assertAgentEnginePackageInstalled(entry);
-      return entry.create(await engineCreateConfigForEntry(entry, apiKey));
+      return entry.create(
+        await engineCreateConfigForEntry(entry, apiKey, undefined, true),
+      );
     }
   }
 
@@ -832,7 +854,9 @@ export async function resolveEngine(
   if (appDefault?.engine) {
     const entry = _registry.get(appDefault.engine);
     if (entry && (await isStoredEngineUsableForRequest(appDefault, entry))) {
-      return entry.create(await engineCreateConfigForEntry(entry, apiKey));
+      return entry.create(
+        await engineCreateConfigForEntry(entry, apiKey, undefined, true),
+      );
     }
   }
 
@@ -865,6 +889,7 @@ export async function resolveEngine(
           stripInlineApiKeyConfig(
             storedConfig as Record<string, unknown> | undefined,
           ),
+          true,
         ),
       );
     }
@@ -872,7 +897,12 @@ export async function resolveEngine(
 
   if (detectedFromUser) {
     return detectedFromUser.create(
-      await engineCreateConfigForEntry(detectedFromUser, apiKey),
+      await engineCreateConfigForEntry(
+        detectedFromUser,
+        apiKey,
+        undefined,
+        true,
+      ),
     );
   }
 
@@ -881,7 +911,9 @@ export async function resolveEngine(
   // auth-failure markers so a rejected deploy key cannot permanently win.
   const detected = await detectEngineFromEnvForRequest();
   if (detected) {
-    return detected.create(await engineCreateConfigForEntry(detected, apiKey));
+    return detected.create(
+      await engineCreateConfigForEntry(detected, apiKey, undefined, true),
+    );
   }
 
   // 9. Default: anthropic

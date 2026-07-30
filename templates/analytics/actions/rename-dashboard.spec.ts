@@ -187,4 +187,26 @@ describe("rename-dashboard", () => {
     const seededConfig = JSON.parse(mocks.seedFromText.mock.calls[0][1]);
     expect(seededConfig.name).toBe("New Name");
   });
+
+  it("does not mark a frontend rename as an AI edit", async () => {
+    mocks.getDashboard.mockResolvedValue({
+      id: "traffic",
+      kind: "sql",
+      config: dashboardConfig(),
+      updatedAt: "2026-07-09T00:00:00.000Z",
+    });
+    mocks.hasCollabState.mockResolvedValue(true);
+
+    await renameDashboard.run(
+      { id: "traffic", name: "New Name" },
+      { caller: "frontend" },
+    );
+
+    expect(mocks.applyText).toHaveBeenCalledWith(
+      "dash-traffic",
+      JSON.stringify({ ...dashboardConfig(), name: "New Name" }),
+      "content",
+      undefined,
+    );
+  });
 });

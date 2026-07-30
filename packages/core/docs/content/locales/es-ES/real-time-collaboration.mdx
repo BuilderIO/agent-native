@@ -325,7 +325,7 @@ La identidad del usuario se deriva del correo electrónico de la sesión. El mar
 Las plantillas pueden agregar un sistema de comentarios con discusiones encadenadas sobre documentos. El sistema de comentarios de la plantilla de contenido incluye una implementación completa con:
 
 - Tabla `document_comments` SQL (temas, respuestas, estado resuelto)
-- Las rutas REST de la plantilla de contenido para actualizar/eliminar en `/api/comments/:id`; crear y ejecutar la lista a través de `add-comment` / `list-comments` actions. Las plantillas personalizadas implementan sus propios puntos finales equivalentes en la ruta principal `POST /_agent-native/collab/:docId/search-replace`.
+- La actualización y eliminación se realizan mediante las acciones `update-comment` / `delete-comment`; crear y ejecutar la lista a través de `add-comment` / `list-comments` actions. Las plantillas personalizadas implementan sus propios puntos finales equivalentes en la ruta principal `POST /_agent-native/collab/:docId/search-replace`.
 - Barra lateral de comentarios con vista encadenada y respuesta UI
 - Resolver/anular resolución de hilos
 - Botón **Enviar a AI**: envía el contexto del hilo de comentarios al chat del agente a través de `sendToAgentChat()`

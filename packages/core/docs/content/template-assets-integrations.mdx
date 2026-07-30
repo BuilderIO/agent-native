@@ -1,0 +1,319 @@
+---
+title: "Using Assets from other apps and agents"
+description: "How to embed the Assets picker in another app, call Assets over A2A or MCP, reuse governed Creative Context, and install the Assets skill in a coding agent."
+---
+
+# Using Assets from other apps and agents
+
+This page is for developers integrating [Assets](/docs/template-assets) into another app, MCP host, or coding agent — embedding the picker, calling actions over A2A, or reusing shared brand context.
+
+## Embed the picker
+
+Use the picker route when a human is choosing or generating an asset inside
+another product. Image is the default media type; pass `mediaType=video` when
+you want video browsing/selection:
+
+<AnnotatedCode
+  id="doc-block-assets7"
+  title="Embedding the picker in another app"
+  filename="app/components/AssetPicker.tsx"
+  language="tsx"
+  code={
+    'import { EmbeddedApp } from "@agent-native/embedding";\n\n<EmbeddedApp\n  url="https://assets.agent-native.com/picker?mediaType=image"\n  onMessage={(name, payload) => {\n    if (name === "chooseAsset") {\n      insertAsset((payload as { url: string }).url);\n    }\n  }}\n/>;'
+  }
+  annotations={[
+    {
+      lines: "1",
+      label: "Embedding SDK",
+      note: "Sandboxes the iframe and wires the postMessage bridge for you; see the Embedding SDK docs.",
+    },
+    {
+      lines: "4",
+      label: "Media type",
+      note: "mediaType=image is the default. Pass mediaType=video to open a video-only picker.",
+    },
+    {
+      lines: "6-8",
+      label: "chooseAsset",
+      note: "Fires once the user picks a candidate. The legacy chooseImage alias fires alongside it for older image-only hosts.",
+    },
+  ]}
+/>
+
+## `open-asset-picker` for external MCP hosts
+
+External MCP hosts should call `open-asset-picker` instead of constructing this
+iframe by hand. The action returns a browser fallback link and MCP App metadata
+for inline hosts. When a user selects an asset, the picker emits `chooseAsset`,
+the legacy `chooseImage` alias for image assets, and updates MCP App model
+context where the host supports it. When a host opens the fallback link in a
+normal browser tab instead of rendering the MCP App inline, selecting an asset
+copies a handoff summary and shows a copyable context block; paste that summary
+back into the chat so the external agent can use the selected media URL and
+asset metadata.
+
+Codex, Claude Code, and Claude Desktop Code should be treated as link-out hosts
+for this flow. They may not render MCP Apps inline, and remote CDN markdown
+images may not display reliably in the chat transcript. Agents should keep the
+asset link as the source of truth; when a visible inline preview is needed in a
+code-editor chat, download the selected `previewUrl`/`downloadUrl` to a local
+image file and embed that absolute local path.
+
+For generate-and-choose flows, call `open-asset-picker` with `prompt`,
+`autoGenerate: true`, and `count: 3` (customizable from 1-6). The picker opens
+with candidate images and lets the user adjust count, aspect ratio, or a
+generation preset before choosing the final asset URL. Use `generate-asset`
+instead when you want a human to get freshly generated candidates and pick the
+winner in one call — it matches a library when `libraryId` is omitted,
+generates, and returns the picker filtered to those run IDs.
+
+<Diagram id="doc-block-assets8" title="External host to picker and back" summary={"An MCP host or A2A caller opens the picker, the user chooses a candidate, and the choice flows back through chooseAsset or a pasted handoff summary."}>
+
+```html
+<div class="diagram-a2aflow">
+  <div class="diagram-node">
+    External host<br /><small class="diagram-muted"
+      >Codex · Claude · ChatGPT · another app</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    <span class="diagram-pill accent">open-asset-picker · generate-asset</span
+    ><small class="diagram-muted">MCP tool call or A2A request</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    <span class="diagram-pill">Picker UI</span
+    ><small class="diagram-muted"
+      >inline MCP App, or a /picker fallback link</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    chooseAsset event<br /><small class="diagram-muted"
+      >assetId · url · media type</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    Back to host<br /><small class="diagram-muted"
+      >used in code, an artifact, or chat</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-a2aflow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-a2aflow .diagram-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.diagram-a2aflow .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## Calling Assets over A2A
+
+Use A2A when another agent needs to create, search, or export assets without a
+human picker UI:
+
+1. Call `match-library` or `list-libraries` when the library is ambiguous,
+   then call `generate-image-batch` with one slot per destination (one hero
+   per slide, for example).
+2. Pass `source: "a2a"` and `callerAppId` (the calling app's id, e.g. `slides`,
+   `design`, `content`, `mail`) so the Assets audit log can group cross-agent
+   generations by caller.
+3. Treat a batch as complete when the action returns — image generation is
+   synchronous. Use the returned successful `images` entries directly; only
+   regenerate slots where `ok: false`.
+4. For social/blog/diagram slots, call `list-generation-presets` and pass the
+   matching `presetId` so output rules travel with the run.
+5. For video, call `generate-video`, then poll `refresh-generation-run` until
+   the run completes.
+6. On feedback, call `refine-image` with the prior `assetId`, the same
+   `source: "a2a"` and `callerAppId`, and replace only the affected
+   destination — this keeps lineage back to the original asset.
+7. Preserve the returned `assetId`, `runId`, `previewUrl`, `downloadUrl`, and
+   `embedPath` exactly, and insert the chosen URL into the caller's own
+   artifact.
+
+Every Assets generation writes an `image_generation_runs` row with the
+prompt, compiled prompt, model, aspect ratio, references, source app, owner,
+org, status, error, output assets, and refinement lineage — reviewable in the
+Assets Audit Log or via `list-audit-runs` / `get-audit-run`. See
+[Generating, refining, and reviewing assets](/docs/template-assets-generation#the-generation-audit-log)
+for the human-facing view of that log.
+
+## Cross-app Creative Context reuse
+
+Assets is one of several apps (alongside Slides, Design, Content, and
+Analytics) that mount the shared `@agent-native/creative-context` package, so
+approved brand material stays reusable instead of being re-prompted from
+scratch in every app. This is a shared framework capability, not something
+Assets owns — Assets is a spoke into it, wired up in
+`server/plugins/creative-context.ts`.
+
+Two directions of reuse:
+
+- **Pulling context in.** When the agent generates in Assets, it retrieves
+  narrowly-scoped evidence and references through the shared
+  `search-creative-context` and `get-context-item` actions before falling back
+  to ad-hoc generation, respecting a pinned pack or an explicit
+  `contextMode: "off"` opt-out. When a retrieved image should directly guide a
+  generation, its media is imported as a real reference asset via
+  `import-asset-from-url` rather than passed straight to the image provider —
+  so it behaves like any other uploaded reference. Corrections flow back
+  through `record-context-feedback` against the exact item/version.
+- **Publishing Assets media into Context.** `manage-context-membership` submits
+  an existing asset into a governed Creative Context, pinning the immutable
+  media bytes and metadata so other apps can reuse it with provenance intact.
+  Approved context should be reused, not regenerated: `clone-creative-context-asset`
+  copies the approved governed media into an editable library without ever
+  exposing the private blob handle to the caller.
+
+The shared package also drives Assets' own canonical-logo confirmation flow
+when a logo is approved through Context — it projects the approved media into
+a real library asset and pins it as the library's `canonicalLogoAssetId`, the
+same field [`set-canonical-logo`](/docs/template-assets-developers#action-reference)
+sets directly.
+
+## Installing the Assets skill in a coding agent
+
+Generate and pick brand media without leaving Codex, Claude Code, Claude, or ChatGPT.
+
+1. **Install once.** This adds the skill instructions and registers the hosted MCP connector together:
+
+   ```bash
+   npx @agent-native/core@latest skills add assets   # alias: image-generation
+   ```
+
+   Default client is `codex`; add `--client claude-code` or `--client all` for others.
+   If you only want the portable skill instructions through the Vercel/open
+   Skills CLI, use:
+
+   ```bash
+   npx skills@latest add BuilderIO/agent-native --skill assets
+   ```
+
+   The Vercel/open Skills CLI installs the instruction file only; it does not
+   run MCP connector setup. Use the Agent Native CLI path above when you want
+   the one-command setup.
+
+2. **Ask for images.** In your agent's chat: "Generate three blog hero options from the Acme product shots." The agent opens the picker with candidate images you can regenerate, retune (prompt, aspect, count), and choose from.
+3. **Pick.** In inline hosts (ChatGPT, Claude.ai, Claude Desktop main chat) the picker renders right in the chat — click a candidate and the choice flows back automatically. On CLI/link-only hosts (Codex, Claude Code, Claude Desktop "Code" tab) you get an **"Open in Assets →"** link; open it, pick in the browser, then paste the copied handoff summary back into your chat — or just say "use image A".
+4. **Apply to code.** The chosen Media URL and `assetId` come back to the agent, which uses the URL directly in the code it writes (an `<img>` src, a download) or calls `export-asset`.
+
+### Distributing the app skill
+
+The Assets app skill has app id `assets` and hosted MCP URL
+`https://assets.agent-native.com/mcp`.
+
+```bash
+# Easiest hosted install: exported skill instructions plus MCP connector.
+npx @agent-native/core@latest skills add assets
+
+# Vercel/open Skills CLI install: exported instructions only, no MCP config.
+npx skills@latest add BuilderIO/agent-native --skill assets
+
+# Hosted install: URL-only MCP connector, no shared secrets in skill files.
+npx @agent-native/core@latest app-skill ensure --manifest templates/assets/agent-native.app-skill.json
+
+# Local editable launch.
+npx @agent-native/core@latest app-skill launch --manifest templates/assets/agent-native.app-skill.json --local --into ./assets-local
+
+# Marketplace package, including Claude Code marketplace and Vercel Labs skills adapters.
+npx @agent-native/core@latest app-skill pack --manifest templates/assets/agent-native.app-skill.json --out ./dist/assets-skill
+
+# Install a local exported Assets bundle with the open skills CLI.
+npx skills@latest add ./dist/assets-skill --skill assets -a codex -y
+
+# Install from the generated Claude Code marketplace adapter.
+claude plugin marketplace add ./dist/assets-skill/adapters/claude-marketplace
+claude plugin install agent-native-assets@agent-native-apps
+```
+
+`app-skill pack` reads the manifest's `hostAdapters` list and writes one
+adapter folder per target host, alongside the plain exported skill and a
+URL-only `.mcp.json`:
+
+<FileTree
+  id="doc-block-assets9"
+  title="dist/assets-skill/ — the packed marketplace bundle"
+  entries={[
+    {
+      path: "dist/assets-skill/agent-native.app-skill.json",
+      note: "Manifest copy, with local dev fields filled in",
+    },
+    {
+      path: "dist/assets-skill/skills/assets/SKILL.md",
+      note: 'Exported instructions — the asset-generation skill, exported as "assets"',
+    },
+    {
+      path: "dist/assets-skill/.mcp.json",
+      note: "URL-only MCP connector — no secrets stored here",
+    },
+    {
+      path: "dist/assets-skill/.codex-plugin/plugin.json",
+      note: "Codex plugin descriptor",
+    },
+    {
+      path: "dist/assets-skill/adapters/claude-marketplace/.claude-plugin/marketplace.json",
+      note: "Marketplace catalog listing one plugin: agent-native-assets",
+    },
+    {
+      path: "dist/assets-skill/adapters/claude-marketplace/plugins/agent-native-assets/skills/assets/SKILL.md",
+      note: "Same skill, nested for the Claude Code plugin",
+    },
+    {
+      path: "dist/assets-skill/adapters/claude-marketplace/README.md",
+      note: "The /plugin marketplace add, /plugin install, /mcp install commands",
+    },
+    {
+      path: "dist/assets-skill/adapters/vercel-skills/skills/assets/SKILL.md",
+      note: "For npx skills@latest add — instructions only, no MCP config",
+    },
+    {
+      path: "dist/assets-skill/adapters/generic-mcp/mcp.json",
+      note: "Plain MCP server config for any MCP-capable host",
+    },
+    {
+      path: "dist/assets-skill/adapters/chatgpt-mcp/connector.json",
+      note: "ChatGPT custom-connector descriptor",
+    },
+  ]}
+/>
+
+The exported skill teaches agents to use the picker for human-in-the-loop
+selection, direct actions for unattended image/video generation, and browser
+links when inline MCP Apps are unavailable.
+
+In interactive Claude Code, the same install is available as
+`/plugin marketplace add ./dist/assets-skill/adapters/claude-marketplace`,
+`/plugin install agent-native-assets@agent-native-apps`, `/reload-plugins`, and
+`/mcp` for MCP authentication.
+
+If you install from a raw marketplace bundle with `npx skills@latest`, register the
+hosted MCP connector so those instructions can call the live Assets app:
+
+```bash
+npx @agent-native/core@latest app-skill ensure --manifest ./dist/assets-skill/agent-native.app-skill.json --yes
+```
+
+## What's next
+
+- [**Assets — architecture and data model**](/docs/template-assets-developers) — the action reference and data model referenced above
+- [**A2A Protocol**](/docs/a2a-protocol) — the general cross-app calling convention
+- [**Embedding SDK**](/docs/embedding-sdk) — iframe picker and sidecar patterns
+- [**External Agents**](/docs/external-agents) — connecting any MCP host
+- [**Assets**](/docs/template-assets) — back to the overview

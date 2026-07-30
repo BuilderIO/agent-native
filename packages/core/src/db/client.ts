@@ -65,11 +65,11 @@ export interface DbExecConfig {
 /** Read the request-scoped Cloudflare binding without requiring every
  * consuming app's TypeScript program to include core's ambient Worker globals. */
 export function getCloudflareD1Binding(): unknown {
-  return (
-    globalThis as typeof globalThis & {
-      __cf_env?: { DB?: unknown };
-    }
-  ).__cf_env?.DB;
+  const runtime = globalThis as typeof globalThis & {
+    __cf_env?: { DB?: unknown };
+    __env__?: { DB?: unknown };
+  };
+  return runtime.__cf_env?.DB ?? runtime.__env__?.DB;
 }
 
 // ---------------------------------------------------------------------------
@@ -335,6 +335,20 @@ export function safeJsonParse<T>(value: unknown, fallback: T): T {
  * Used during WAL initialization and migrations where a stale WAL from a
  * previous crash or HMR restart can briefly lock the database.
  */
+export function isSqliteBusyError(error: unknown): boolean {
+  const candidate = error as { code?: unknown; message?: unknown };
+  const code = typeof candidate?.code === "string" ? candidate.code : "";
+  const message =
+    typeof candidate?.message === "string"
+      ? candidate.message
+      : String(error ?? "");
+  return (
+    code === "SQLITE_BUSY" ||
+    code.startsWith("SQLITE_BUSY_") ||
+    /database is locked|SQLITE_BUSY/i.test(message)
+  );
+}
+
 export async function retrySqliteBusy<T>(
   fn: () => Promise<T>,
   opts: { maxAttempts?: number; baseDelayMs?: number; rethrow?: boolean } = {},
@@ -344,10 +358,9 @@ export async function retrySqliteBusy<T>(
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
       return await fn();
-    } catch (e: any) {
+    } catch (e) {
       last = e;
-      const msg = String(e?.message || e);
-      if (msg.includes("SQLITE_BUSY") && attempt < maxAttempts - 1) {
+      if (isSqliteBusyError(e) && attempt < maxAttempts - 1) {
         await new Promise((r) => setTimeout(r, baseDelayMs * (attempt + 1)));
       } else {
         break;
@@ -451,7 +464,8 @@ export function getDialect(): Dialect {
     return _dialect;
   }
 
-  // Don't cache the fallthrough — on CF Workers, env bindings (__cf_env) aren't
+  // Don't cache the fallthrough — on CF Workers, env bindings (__cf_env/__env__)
+  // aren't
   // available at import time. If we cache "sqlite" here, D1 will never be
   // detected once the bindings are set in the fetch handler.
   return "sqlite";
@@ -635,6 +649,28 @@ function sqlAndArgs(sql: DbExecStatement): {
   return typeof sql === "string"
     ? { rawSql: sql, args: [] }
     : { rawSql: sql.sql, args: sql.args || [] };
+}
+
+const POSTGRES_STATEMENT_TIMEOUT_HEADROOM_MS = 250;
+const POSTGRES_STATEMENT_TIMEOUT_RESET_MS = 5_000;
+const POSTGRES_MAX_INT = 2_147_483_647;
+
+function hasExplicitDbTimeout(statement: DbExecStatement): boolean {
+  if (typeof statement === "string") return false;
+  const timeoutMs = Number(statement.timeoutMs);
+  return Number.isFinite(timeoutMs) && timeoutMs > 0;
+}
+
+function postgresStatementTimeoutMs(clientTimeoutMs: number): number {
+  const safeTimeoutMs = Math.max(
+    1,
+    Math.min(POSTGRES_MAX_INT, Math.floor(clientTimeoutMs)),
+  );
+  const headroomMs = Math.min(
+    POSTGRES_STATEMENT_TIMEOUT_HEADROOM_MS,
+    Math.max(1, Math.floor(safeTimeoutMs * 0.1)),
+  );
+  return Math.max(1, safeTimeoutMs - headroomMs);
 }
 
 export function dbExecQueryBudget(statement: DbExecStatement): {
@@ -1190,22 +1226,15 @@ async function createDbExecInternal(
     // with CONNECT_TIMEOUT. The serverless Pool handles wake-up transparently
     // and keeps the same `pg`-compatible query(...) interface we need here.
     if (isNeonUrl(url)) {
-      const { Pool, neonConfig } = await import("@neondatabase/serverless");
-      // In the durable background-function worker, route pool queries over Neon's
-      // stateless HTTP transport instead of a long-lived WebSocket. A frozen/thawed
-      // bg-fn instance can leave the pool's WebSocket connections half-dead, so
-      // queries after the first burst stall on connect()/query() — observed: the
-      // analytics worker stalls right after model resolution and never claims.
-      // HTTP-per-query (poolQueryViaFetch) has no persistent socket to die; the
-      // foreground keeps the WebSocket pool. See the bg-fn execute branch below.
+      const { Pool, neon } = await import("@neondatabase/serverless");
+      // A frozen/thawed background function can retain half-dead WebSocket
+      // connections, so its direct executions use stateless Neon HTTP instead.
+      // The foreground and transaction surface keep the WebSocket pool.
       const bgHttp = isBackgroundFunctionPoolContext();
-      if (bgHttp) {
-        (neonConfig as { poolQueryViaFetch?: boolean }).poolQueryViaFetch =
-          true;
-      }
       const pool = new Pool({ connectionString: url, max: neonPoolMax() });
       attachNeonPoolErrorLogger(pool);
       if (trackSingletonResources) _neonPool = pool;
+      const httpSql = bgHttp ? neon(url, { fullResults: true }) : null;
       async function queryNeonClient(
         client: any,
         sql: Parameters<DbExec["execute"]>[0],
@@ -1228,17 +1257,93 @@ async function createDbExecInternal(
           rowsAffected: result.rowCount ?? 0,
         };
       }
+      async function queryNeonClientWithStatementTimeout(
+        client: any,
+        sql: Parameters<DbExec["execute"]>[0],
+        remainingMs: () => number,
+        markClientForDiscard: () => void,
+      ) {
+        const statementTimeoutMs = postgresStatementTimeoutMs(remainingMs());
+        await queryNeonClient(
+          client,
+          `SET statement_timeout = ${statementTimeoutMs}`,
+          remainingMs(),
+        );
+        try {
+          return await queryNeonClient(client, sql, remainingMs());
+        } finally {
+          try {
+            await queryNeonClient(
+              client,
+              "RESET statement_timeout",
+              Math.max(remainingMs(), POSTGRES_STATEMENT_TIMEOUT_RESET_MS),
+            );
+          } catch (err) {
+            markClientForDiscard();
+            console.warn(
+              "[db/neon] statement timeout reset failed; discarding connection:",
+              err instanceof Error ? err.message : err,
+            );
+          }
+        }
+      }
+      async function queryNeonHttp(sql: Parameters<DbExec["execute"]>[0]) {
+        if (!httpSql) {
+          throw new Error("Neon HTTP query used outside a background function");
+        }
+        const { rawSql, args } = sqlAndArgs(sql);
+        const { timeoutMs } = dbExecQueryBudget(sql);
+        const pgSql = sqliteToPostgresParams(rawSql);
+        const controller = new AbortController();
+        const run = async () => {
+          if (!hasExplicitDbTimeout(sql)) {
+            return httpSql.query(pgSql, args as any[], {
+              fetchOptions: { signal: controller.signal },
+            });
+          }
+          const statementDeadlineMs =
+            Date.now() + postgresStatementTimeoutMs(timeoutMs);
+          const results = await httpSql.transaction(
+            [
+              httpSql.query(
+                `SELECT set_config(
+                  'statement_timeout',
+                  GREATEST(
+                    1,
+                    $1::bigint -
+                      FLOOR(EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::bigint
+                  )::text,
+                  true
+                )`,
+                [statementDeadlineMs],
+              ),
+              httpSql.query(pgSql, args as any[]),
+            ],
+            { fetchOptions: { signal: controller.signal } },
+          );
+          return results[1];
+        };
+        const result = await withDbTimeout("query", run, timeoutMs, () =>
+          controller.abort(),
+        );
+        return {
+          rows: result.rows,
+          rowsAffected: result.rowCount ?? 0,
+        };
+      }
       return {
         async execute(sql) {
           const { timeoutMs, maxAttempts } = dbExecQueryBudget(sql);
           if (bgHttp) {
-            // HTTP-per-query path (poolQueryViaFetch=true): no pool.connect(), no
-            // persistent socket to stall. queryNeonClient calls pool.query(),
-            // which the driver routes over HTTP when poolQueryViaFetch is set.
+            // HTTP-per-query path: no pool.connect() and no persistent socket
+            // to survive a background-function freeze. Explicitly budgeted
+            // statements run with SET LOCAL inside the same HTTP transaction,
+            // so the server cancels the SQL before the fetch deadline without
+            // leaking session state into Neon's pooled backends.
             return retryOnConnectionError<{
               rows: unknown[];
               rowsAffected: number;
-            }>(() => queryNeonClient(pool, sql), maxAttempts);
+            }>(() => queryNeonHttp(sql), maxAttempts);
           }
           const result = await retryOnConnectionError<{
             rows: unknown[];
@@ -1275,17 +1380,25 @@ async function createDbExecInternal(
               released = true;
               client.release(err);
             };
+            let discardClient = false;
 
             try {
-              const result = await queryNeonClient(
-                client,
-                sql,
-                remainingAttemptMs(),
-              );
-              releaseClient();
+              const result = hasExplicitDbTimeout(sql)
+                ? await queryNeonClientWithStatementTimeout(
+                    client,
+                    sql,
+                    remainingAttemptMs,
+                    () => {
+                      discardClient = true;
+                    },
+                  )
+                : await queryNeonClient(client, sql, remainingAttemptMs());
+              releaseClient(discardClient ? true : undefined);
               return result;
             } catch (err) {
-              releaseClient(isConnectionError(err) ? true : undefined);
+              releaseClient(
+                discardClient || isConnectionError(err) ? true : undefined,
+              );
               throw err;
             }
           }, maxAttempts);
@@ -1316,7 +1429,23 @@ async function createDbExecInternal(
               client.release(err);
             };
             const tx: DbExec = {
-              execute: (sql) => queryNeonClient(client, sql),
+              execute: async (sql) => {
+                if (!hasExplicitDbTimeout(sql)) {
+                  return queryNeonClient(client, sql);
+                }
+                const { timeoutMs } = dbExecQueryBudget(sql);
+                const startedAt = Date.now();
+                const remainingMs = () =>
+                  Math.max(1, timeoutMs - (Date.now() - startedAt));
+                const statementTimeoutMs =
+                  postgresStatementTimeoutMs(remainingMs());
+                await queryNeonClient(
+                  client,
+                  `SET LOCAL statement_timeout = ${statementTimeoutMs}`,
+                  remainingMs(),
+                );
+                return queryNeonClient(client, sql, remainingMs());
+              },
             };
             try {
               await queryNeonClient(client, "BEGIN");
@@ -1512,7 +1641,18 @@ async function createDbExecInternal(
     const { default: Database } = await import("better-sqlite3");
     const sqlite = new Database(sqliteFilenameFromUrl(url));
     sqlite.pragma("busy_timeout = 10000");
-    sqlite.pragma("journal_mode = WAL");
+    try {
+      // Vite can start a replacement Nitro runtime while the previous instance
+      // is still releasing app.db. The 10s busy_timeout can expire during that
+      // handoff, so retry the idempotent WAL negotiation before declaring the
+      // whole auth/database bootstrap failed.
+      await retrySqliteBusy(async () => sqlite.pragma("journal_mode = WAL"), {
+        rethrow: true,
+      });
+    } catch (error) {
+      sqlite.close();
+      throw error;
+    }
     if (trackSingletonResources) _sqlite = sqlite;
     const execute: DbExec["execute"] = async (sql) => {
       const { rawSql, args } = sqlAndArgs(sql);
@@ -1594,6 +1734,35 @@ async function initClient(): Promise<void> {
  * Get the singleton database client. Returns a `DbExec` whose first
  * `execute()` call lazily initializes the underlying driver.
  */
+/**
+ * Point a missing-table failure at the cause instead of the symptom.
+ *
+ * The driver reports `no such table: x` / `relation "x" does not exist` from
+ * whichever query happened to touch it first, so the stack lands in an action
+ * and reads as a bug in that action. The actual cause is almost always that no
+ * migration ever created the table — a template with no `server/plugins/db.ts`
+ * creates none, and core's own tables self-heal, so app tables are the only
+ * ones that fail this way. Appends rather than replaces: `isDuplicateColumnError`
+ * and friends match substrings of the driver's original text.
+ */
+export function annotateMissingTable(err: unknown, sql: unknown): unknown {
+  if (!(err instanceof Error)) return err;
+  const match =
+    /no such table:?\s*["'`]?([\w.]+)/i.exec(err.message) ??
+    /relation\s+["'`]?([\w.]+)["'`]?\s+does not exist/i.exec(err.message);
+  if (!match) return err;
+  if (err.message.includes("server/plugins/db.ts")) return err;
+  const statement =
+    typeof sql === "string" ? sql : (sql as { sql?: string })?.sql;
+  err.message =
+    `${err.message}\n` +
+    `  [agent-native] Table "${match[1]}" does not exist. App tables are created by migrations in ` +
+    `server/plugins/db.ts — check that the plugin exists and declares a migration for this table, ` +
+    `then restart the dev server so it runs.` +
+    (statement ? `\n  Statement: ${statement.slice(0, 200)}` : "");
+  return err;
+}
+
 export function getDbExec(): DbExec {
   if (_exec) return _exec;
 
@@ -1605,6 +1774,16 @@ export function getDbExec(): DbExec {
       return { ...sql, args: sql.args.map((a) => a ?? null) };
     }
     return sql;
+  }
+
+  async function execAnnotated(
+    s: string | { sql: string; args?: unknown[] },
+  ): ReturnType<DbExec["execute"]> {
+    try {
+      return await _exec!.execute(sanitize(s));
+    } catch (err) {
+      throw annotateMissingTable(err, s);
+    }
   }
 
   // Return a proxy that lazy-inits on first call
@@ -1623,7 +1802,7 @@ export function getDbExec(): DbExec {
       }
       // After init, swap to a sanitizing wrapper around the real client
       const wrapper: DbExec = {
-        execute: (s) => _exec!.execute(sanitize(s)),
+        execute: (s) => execAnnotated(s),
         atomicBatch: _exec!.atomicBatch
           ? (statements) =>
               _exec!.atomicBatch!(statements.map((s) => sanitize(s)))
@@ -1639,7 +1818,7 @@ export function getDbExec(): DbExec {
           : undefined,
       };
       Object.assign(proxy, wrapper);
-      return _exec!.execute(sanitize(sql));
+      return execAnnotated(sql);
     },
     async transaction(fn) {
       if (!_initPromise) _initPromise = initClient();
@@ -1651,7 +1830,7 @@ export function getDbExec(): DbExec {
         throw err;
       }
       const wrapper: DbExec = {
-        execute: (s) => _exec!.execute(sanitize(s)),
+        execute: (s) => execAnnotated(s),
         atomicBatch: _exec!.atomicBatch
           ? (statements) =>
               _exec!.atomicBatch!(statements.map((s) => sanitize(s)))

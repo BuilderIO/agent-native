@@ -58,6 +58,10 @@ type GranularOp =
   | { op: "full-replace"; deck: Deck };
 
 export type PatchDeckOp = Exclude<GranularOp, { op: "full-replace" }>;
+export type DeckReloadStatus = "loaded" | "failed" | "stale";
+export interface UpdateSlideOptions {
+  persistence?: "debounced" | "immediate";
+}
 
 // ---------------------------------------------------------------------------
 // Inverse-op undo
@@ -130,6 +134,8 @@ export interface Deck {
   designSystemId?: string;
   /** Per-deck tweak overrides (accent color, title case, etc.) */
   tweaks?: Record<string, string | number | boolean>;
+  /** Starred decks are offered first in the new-deck reference picker. */
+  starred?: boolean;
   /** Slide aspect ratio (defaults to 16:9 when absent for backwards compat) */
   aspectRatio?: AspectRatio;
 }
@@ -162,6 +168,7 @@ interface DeckContextType {
     updates: Partial<Omit<Deck, "id" | "createdAt">>,
   ) => void;
   reloadDecks: () => Promise<void>;
+  reloadDecksWithStatus: () => Promise<DeckReloadStatus>;
   getDeck: (id: string) => Deck | undefined;
   addSlide: (
     deckId: string,
@@ -172,6 +179,7 @@ interface DeckContextType {
     deckId: string,
     slideId: string,
     updates: Partial<Omit<Slide, "id">>,
+    options?: UpdateSlideOptions,
   ) => void;
   deleteSlide: (deckId: string, slideId: string) => void;
   duplicateSlide: (deckId: string, slideId: string) => void;
@@ -195,11 +203,30 @@ const DeckContext = createContext<DeckContextType | null>(null);
 
 const OPEN_DECK_FALLBACK_POLL_MS = 5_000;
 const DECK_LIST_FALLBACK_POLL_MS = 15_000;
+// Safety-net interval used while the SSE channel is actually connected. The
+// fast intervals above are for when the live channel is genuinely down; running
+// them unconditionally cost an idle deck page ~36 requests/minute.
+const LIVE_CHANNEL_IDLE_POLL_MS = 60_000;
 // Bounded exponential backoff for SSE reconnect after a fatal error (e.g. a
 // non-2xx response, which EventSource treats as terminal and never retries
 // on its own — see the SSE effect below). Doubles from BASE up to MAX.
 const SSE_RECONNECT_BASE_MS = 1_000;
 const SSE_RECONNECT_MAX_MS = 30_000;
+
+/**
+ * How long to wait before the next fallback poll. The poll only takes over at
+ * its fast intervals when the live channel is genuinely not carrying updates;
+ * while SSE is connected it drops to a slow safety net.
+ */
+export function fallbackPollIntervalMs(state: {
+  liveChannelConnected: boolean;
+  hasOpenDeck: boolean;
+}): number {
+  if (state.liveChannelConnected) return LIVE_CHANNEL_IDLE_POLL_MS;
+  return state.hasOpenDeck
+    ? OPEN_DECK_FALLBACK_POLL_MS
+    : DECK_LIST_FALLBACK_POLL_MS;
+}
 
 type DeckListActionResult = {
   decks?: unknown[];
@@ -239,35 +266,17 @@ function normalizeActionDeck(value: unknown): Deck | null {
 // uncommitted?" for the indicator.
 const pendingSaves = new Map<string, ReturnType<typeof setTimeout>>();
 const inFlightSaves = new Set<string>();
+const inFlightSaveChains = new Map<string, Promise<void>>();
+const immediateFlushRequests = new Set<string>();
+const deckSaveRetryAttempts = new Map<string, number>();
+const failedSaveDecks = new Set<string>();
 const saveStateListeners = new Set<() => void>();
+const MAX_DECK_SAVE_RETRIES = 2;
+const DECK_SAVE_RETRY_BASE_MS = 250;
 
 // Per-deck queue of granular ops waiting to be flushed. Keys are deck IDs.
 // Ops are appended by enqueueDeckOp and drained when the debounce fires.
 const pendingOpsQueue = new Map<string, GranularOp[]>();
-
-// Every raw deck fetch (the legacy full-replace PUT, the create POST) MUST be
-// bounded. Without a timeout, a stalled connection leaves the awaited promise
-// forever pending, so the `finally` that drains `inFlightSaves` /
-// `pendingCreateIdsRef` never runs — wedging the deck id in a set that
-// `hasUncommittedDeckChanges` reads, which permanently suppresses the poll's
-// and the SSE resync's open-deck refetch (the editor goes blind to agent edits
-// until a full page reload). Matches the granular `patch-deck` path, which is
-// already bounded at 60s by `actionFetch`'s DEFAULT_ACTION_TIMEOUT_MS.
-const RAW_DECK_FETCH_TIMEOUT_MS = 60_000;
-
-async function fetchWithTimeout(
-  input: string,
-  init: RequestInit = {},
-  timeoutMs = RAW_DECK_FETCH_TIMEOUT_MS,
-): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(input, { ...init, signal: controller.signal });
-  } finally {
-    clearTimeout(timer);
-  }
-}
 
 // Cached snapshot for useSyncExternalStore. MUST be stable when the boolean
 // is unchanged or React will infinite-loop (it compares snapshots with
@@ -276,7 +285,8 @@ async function fetchWithTimeout(
 let cachedSnapshot: { saving: boolean } = { saving: false };
 
 function recomputeSnapshot() {
-  const saving = pendingSaves.size > 0 || inFlightSaves.size > 0;
+  const saving =
+    pendingSaves.size > 0 || inFlightSaves.size > 0 || pendingOpsQueue.size > 0;
   if (saving !== cachedSnapshot.saving) {
     cachedSnapshot = { saving };
   }
@@ -303,6 +313,14 @@ export function getSaveSnapshot(): { saving: boolean } {
 }
 
 /**
+ * `Deck` is an interface, so it has no implicit index signature and cannot be
+ * passed straight to an action that takes an opaque JSON deck payload.
+ */
+function deckPayload(deck: Deck): Record<string, unknown> {
+  return { ...deck };
+}
+
+/**
  * Enqueue a granular operation for a deck and (re-)arm the debounce.
  *
  * When a `full-replace` op is enqueued, all previously-queued ops for that
@@ -314,13 +332,121 @@ export function getSaveSnapshot(): { saving: boolean } {
  *
  * The debounce fires after 500 ms of quiet, draining the queue via the
  * granular `patch-deck` action. If the queue starts with a `full-replace` op,
- * a direct PUT to `/api/decks/:id` is used first, then any trailing granular
- * ops are sent through `patch-deck`.
+ * the `save-deck` action is called first, then any trailing granular ops are
+ * sent through `patch-deck`.
  */
-function enqueueDeckOp(deckId: string, op: GranularOp) {
-  // Clear any pending save timer — we're about to reset it
+async function persistDeckOps(deckId: string, ops: GranularOp[]) {
+  if (ops[0].op === "full-replace") {
+    // Legacy full-deck write — used by undo/redo and setDeckSlides.
+    // `callAction` bounds it so a stalled save can't wedge `inFlightSaves`
+    // forever (its `finally` cleanup below only runs once this await
+    // settles; an AbortError from the timeout still reaches it).
+    const deck = ops[0].deck;
+    await callAction(
+      "save-deck",
+      { deckId, deck: deckPayload(deck) },
+      { method: "PUT" },
+    );
+    const trailingOps = ops.slice(1) as PatchDeckOp[];
+    if (trailingOps.length > 0) {
+      await callAction("patch-deck", {
+        deckId,
+        operations: trailingOps,
+      });
+    }
+  } else {
+    await callAction("patch-deck", {
+      deckId,
+      operations: ops as PatchDeckOp[],
+    });
+  }
+}
+
+/**
+ * Drain the current operation batch behind every earlier batch for this deck.
+ * Slide content patches replace the full HTML field, so overlapping requests
+ * could otherwise complete out of order and let a stale drag overwrite a
+ * newer resize.
+ */
+function drainPendingDeckOps(deckId: string): Promise<void> {
+  const timer = pendingSaves.get(deckId);
+  if (timer) clearTimeout(timer);
+  pendingSaves.delete(deckId);
+
+  const active = inFlightSaveChains.get(deckId);
+  if (active) {
+    immediateFlushRequests.add(deckId);
+    notifySaveListeners();
+    return active;
+  }
+
+  const ops = pendingOpsQueue.get(deckId) ?? [];
+  pendingOpsQueue.delete(deckId);
+  if (ops.length === 0) {
+    notifySaveListeners();
+    return Promise.resolve();
+  }
+
+  inFlightSaves.add(deckId);
+  let succeeded = false;
+  const next = persistDeckOps(deckId, ops)
+    .then(() => {
+      succeeded = true;
+      deckSaveRetryAttempts.delete(deckId);
+      failedSaveDecks.delete(deckId);
+    })
+    .catch((err) => {
+      console.error(`Failed to save deck ${deckId}:`, err);
+      const pending = pendingOpsQueue.get(deckId) ?? [];
+      pendingOpsQueue.set(deckId, [...ops, ...pending]);
+      const attempt = (deckSaveRetryAttempts.get(deckId) ?? 0) + 1;
+      deckSaveRetryAttempts.set(deckId, attempt);
+      immediateFlushRequests.delete(deckId);
+      const pendingTimer = pendingSaves.get(deckId);
+      if (pendingTimer) clearTimeout(pendingTimer);
+      pendingSaves.delete(deckId);
+      if (attempt <= MAX_DECK_SAVE_RETRIES) {
+        const retryTimer = setTimeout(
+          () => {
+            void drainPendingDeckOps(deckId);
+          },
+          DECK_SAVE_RETRY_BASE_MS * 2 ** (attempt - 1),
+        );
+        pendingSaves.set(deckId, retryTimer);
+      } else {
+        failedSaveDecks.add(deckId);
+      }
+    })
+    .finally(() => {
+      if (inFlightSaveChains.get(deckId) === next) {
+        inFlightSaveChains.delete(deckId);
+        inFlightSaves.delete(deckId);
+        const flushImmediately = immediateFlushRequests.delete(deckId);
+        notifySaveListeners();
+        if (succeeded && flushImmediately) {
+          void drainPendingDeckOps(deckId);
+        }
+      }
+    });
+  inFlightSaveChains.set(deckId, next);
+  notifySaveListeners();
+  return next;
+}
+
+function enqueueDeckOp(
+  deckId: string,
+  op: GranularOp,
+  options?: { persistence?: "debounced" | "immediate" },
+) {
   const existing = pendingSaves.get(deckId);
   if (existing) clearTimeout(existing);
+  if (
+    (deckSaveRetryAttempts.get(deckId) ?? 0) > MAX_DECK_SAVE_RETRIES &&
+    !inFlightSaveChains.has(deckId)
+  ) {
+    deckSaveRetryAttempts.delete(deckId);
+    failedSaveDecks.delete(deckId);
+  }
 
   if (op.op === "full-replace") {
     // Discard any accumulated granular ops — this is a wholesale replacement
@@ -331,59 +457,22 @@ function enqueueDeckOp(deckId: string, op: GranularOp) {
     pendingOpsQueue.set(deckId, queue);
   }
 
-  // Arm the debounce
-  const timer = setTimeout(async () => {
-    pendingSaves.delete(deckId);
-    inFlightSaves.add(deckId);
+  if (options?.persistence === "immediate") {
+    void drainPendingDeckOps(deckId);
+  } else {
+    const timer = setTimeout(() => {
+      void drainPendingDeckOps(deckId);
+    }, 500);
+    pendingSaves.set(deckId, timer);
     notifySaveListeners();
-
-    const ops = pendingOpsQueue.get(deckId) ?? [];
-    pendingOpsQueue.delete(deckId);
-
-    try {
-      if (ops.length === 0) return;
-
-      if (ops[0].op === "full-replace") {
-        // Legacy full-deck PUT — used by undo/redo and setDeckSlides.
-        // Bounded so a stalled PUT can't wedge `inFlightSaves` forever (its
-        // `finally` cleanup below only runs once this await settles; an
-        // AbortError from the timeout is a rejection that still reaches it).
-        const deck = ops[0].deck;
-        await fetchWithTimeout(`${appBasePath()}/api/decks/${deckId}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(deck),
-        });
-        const trailingOps = ops.slice(1) as PatchDeckOp[];
-        if (trailingOps.length > 0) {
-          await callAction("patch-deck", {
-            deckId,
-            operations: trailingOps,
-          });
-        }
-      } else {
-        // Granular patch — concurrent-safe
-        await callAction("patch-deck", {
-          deckId,
-          operations: ops as PatchDeckOp[],
-        });
-      }
-    } catch (err) {
-      console.error(`Failed to save deck ${deckId}:`, err);
-    } finally {
-      inFlightSaves.delete(deckId);
-      notifySaveListeners();
-    }
-  }, 500);
-
-  pendingSaves.set(deckId, timer);
-  notifySaveListeners();
+  }
 }
 
 /**
  * @deprecated Use enqueueDeckOp for new callers. This legacy helper still
- * does a full-deck PUT and is kept only for the initial deck creation path
- * which already inserts via POST — it is NOT called for edits any more.
+ * does a full-deck `save-deck` write and is kept only for the initial deck
+ * creation path which already inserts via `add-deck` — it is NOT called for
+ * edits any more.
  */
 function saveDeckToAPI(deck: Deck) {
   enqueueDeckOp(deck.id, { op: "full-replace", deck });
@@ -401,7 +490,9 @@ function saveDeckToAPI(deck: Deck) {
  * to send keepalive the normal debounce/poll path still catches up on reopen.
  */
 function flushPendingSaves() {
-  const actionUrl = `${agentNativePath("/_agent-native/actions")}/patch-deck`;
+  const actionsBase = agentNativePath("/_agent-native/actions");
+  const actionUrl = `${actionsBase}/patch-deck`;
+  const saveDeckUrl = `${actionsBase}/save-deck`;
   for (const [deckId, timer] of pendingSaves) {
     clearTimeout(timer);
     const ops = pendingOpsQueue.get(deckId);
@@ -410,10 +501,13 @@ function flushPendingSaves() {
     try {
       if (ops[0].op === "full-replace") {
         const deck = ops[0].deck;
-        void fetch(`${appBasePath()}/api/decks/${deckId}`, {
+        void fetch(saveDeckUrl, {
           method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(deck),
+          headers: {
+            "Content-Type": "application/json",
+            "X-Agent-Native-Frontend": "1",
+          },
+          body: JSON.stringify({ deckId, deck }),
           keepalive: true,
         });
         const trailingOps = ops.slice(1) as PatchDeckOp[];
@@ -457,6 +551,9 @@ function discardPendingDeckOps(deckId: string) {
   if (timer) clearTimeout(timer);
   pendingSaves.delete(deckId);
   pendingOpsQueue.delete(deckId);
+  deckSaveRetryAttempts.delete(deckId);
+  failedSaveDecks.delete(deckId);
+  immediateFlushRequests.delete(deckId);
   notifySaveListeners();
 }
 
@@ -796,33 +893,15 @@ async function fetchDecksForCurrentRoute(): Promise<Deck[] | null> {
 }
 
 async function deleteDeckFromAPI(id: string): Promise<void> {
-  try {
-    await fetch(`${appBasePath()}/api/decks/${id}`, { method: "DELETE" });
-  } catch (err) {
-    console.error(`Failed to delete deck ${id}:`, err);
-  }
+  await callAction("delete-deck", { id }, { method: "DELETE" });
 }
 
 async function createDeckOnAPI(deck: Deck): Promise<void> {
-  // Bounded so a stalled create response can't leave the deck id in
-  // `pendingCreateIdsRef` forever (cleared only in the caller's `.finally`,
-  // which needs this promise to settle). A wedged pending-create id would
-  // otherwise suppress the open-deck refetch just like a wedged save.
-  const res = await fetchWithTimeout(`${appBasePath()}/api/decks`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(deck),
-  });
-  if (!res.ok) {
-    let message = `HTTP ${res.status}`;
-    try {
-      const body = (await res.json()) as { error?: string; message?: string };
-      message = body.error || body.message || message;
-    } catch {
-      // Keep the HTTP status fallback.
-    }
-    throw new Error(message);
-  }
+  // `callAction` bounds the request so a stalled create response can't leave
+  // the deck id in `pendingCreateIdsRef` forever (cleared only in the caller's
+  // `.finally`, which needs this promise to settle). A wedged pending-create id
+  // would otherwise suppress the open-deck refetch just like a wedged save.
+  await callAction("add-deck", { deck: deckPayload(deck) });
 }
 
 export function changedDeckIds(before: Deck[], after: Deck[]): string[] {
@@ -844,7 +923,8 @@ export function hasUncommittedDeckChanges(
   return (
     dirtyDeckIds.has(deckId) ||
     pendingSaves.has(deckId) ||
-    inFlightSaves.has(deckId)
+    inFlightSaves.has(deckId) ||
+    failedSaveDecks.has(deckId)
   );
 }
 
@@ -974,25 +1054,51 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   const pendingDuplicateSourceIdsRef = useRef<Set<string>>(new Set());
   const dirtyDeckIdsRef = useRef<Set<string>>(new Set());
   const deckBaselineRequestIdRef = useRef(0);
+  // True only while the SSE channel is actually open. Stays false when SSE is
+  // never started (embed auth), so the poll keeps its fast intervals there.
+  const liveChannelConnectedRef = useRef(false);
+  // Lets the SSE effect wake the poll the moment the live channel drops.
+  const pollNowRef = useRef<() => void>(() => {});
+  // Bumped on every local deck create. A deck-list snapshot fetched before a
+  // deck's bump cannot prove that deck is absent server-side, so any
+  // reconciliation against such a snapshot must leave it alone. Keyed by id and
+  // deliberately outliving `pendingCreateIdsRef`, which clears the moment the
+  // create resolves — often before the older list response lands.
+  const localCreateSeqRef = useRef(0);
+  const localCreateSeqByIdRef = useRef<Map<string, number>>(new Map());
+  const noteLocalCreate = useCallback((deckId: string) => {
+    localCreateSeqRef.current += 1;
+    localCreateSeqByIdRef.current.set(deckId, localCreateSeqRef.current);
+  }, []);
+  /** True when `deckId` is local state a snapshot taken at `seq` cannot refute. */
+  const isNewerThanSnapshot = useCallback((deckId: string, seq: number) => {
+    return (
+      pendingCreateIdsRef.current.has(deckId) ||
+      (localCreateSeqByIdRef.current.get(deckId) ?? 0) >= seq
+    );
+  }, []);
 
   const markDeckDirty = useCallback((deckId: string) => {
     lastExternalUpdateRef.current = 0;
     dirtyDeckIdsRef.current.add(deckId);
   }, []);
 
-  const deleteDeckAfterPendingCreate = useCallback((deckId: string) => {
-    const pendingCreate = pendingCreatePromisesRef.current.get(deckId);
-    if (!pendingCreate) {
-      void deleteDeckFromAPI(deckId);
-      return;
-    }
-
-    void pendingCreate
-      .then(() => deleteDeckFromAPI(deckId))
-      .catch(() => {
-        // The create/duplicate failed, so there is nothing on the server to delete.
+  const deleteDeckAfterPendingCreate = useCallback(
+    (deckId: string, onFailure?: () => void) => {
+      const pendingCreate = pendingCreatePromisesRef.current.get(deckId);
+      const deletion = pendingCreate
+        ? pendingCreate.then(
+            () => deleteDeckFromAPI(deckId),
+            () => undefined,
+          )
+        : deleteDeckFromAPI(deckId);
+      void deletion.catch((err) => {
+        console.error(`Failed to delete deck ${deckId}:`, err);
+        onFailure?.();
       });
-  }, []);
+    },
+    [],
+  );
 
   // Plain local decks update. Undo entries are recorded explicitly by each
   // mutation via `recordUndo` (inverse ops), so this no longer snapshots the
@@ -1111,23 +1217,28 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   // (rare — usually zero per poll) get a follow-up full fetch so DeckCard can
   // still render an immediate preview for them.
   const refetchDeckListIfChanged = useCallback(async () => {
+    const createSeqAtRequest = localCreateSeqRef.current;
     const fresh = await fetchDeckListLightFromAPI();
     // A null result means the fetch failed (network error or non-2xx). Skip
     // the diff so we don't wipe local state on a transient failure.
     if (fresh === null) return;
     setLoadError(false);
-    const pending = pendingCreateIdsRef.current;
     const currentDecks = decksRef.current;
     const currentIds = new Set(currentDecks.map((d) => d.id));
     const freshIds = new Set(fresh.map((d) => d.id));
-    // Check if deck list changed (added or removed). Optimistic decks still
-    // in flight are preserved (not treated as removed).
+    // Check if deck list changed (added or removed). Decks this client created
+    // after the snapshot was taken are absent from the response because the
+    // snapshot predates them, not because the server dropped them — treating
+    // that as a removal is what wiped a just-created deck back to the "Create
+    // your first deck" empty state.
     const addedIds = fresh
       .filter((d) => !currentIds.has(d.id))
       .map((d) => d.id);
     const removed = currentDecks.filter(
-      (d) => !freshIds.has(d.id) && !pending.has(d.id),
+      (d) =>
+        !freshIds.has(d.id) && !isNewerThanSnapshot(d.id, createSeqAtRequest),
     );
+    for (const id of freshIds) localCreateSeqByIdRef.current.delete(id);
     if (addedIds.length === 0 && removed.length === 0) return;
 
     const addedDecks = (
@@ -1135,17 +1246,20 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     ).filter((d): d is Deck => d !== null);
 
     lastExternalUpdateRef.current = Date.now();
+    const removedIds = new Set(removed.map((d) => d.id));
     setDecks((prev) => {
       const prevIds = new Set(prev.map((d) => d.id));
+      // Drop only the decks this diff actually judged removed — a deck added to
+      // `prev` after the snapshot was taken must survive.
+      let next = prev.filter((d) => !removedIds.has(d.id));
       // Only add decks that aren't already in prev (prevents duplicates when
       // the closure's deck snapshot is stale compared to `prev`).
-      let next = prev.filter((d) => freshIds.has(d.id) || pending.has(d.id));
       for (const a of addedDecks) {
         if (!prevIds.has(a.id)) next = [...next, a];
       }
       return next;
     });
-  }, []);
+  }, [isNewerThanSnapshot]);
 
   // Re-fetch the currently-open deck's full slide data and reconcile it.
   //
@@ -1218,37 +1332,61 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     } catch {}
   }, [refetchDeckListIfChanged, refetchOpenDeckIfChanged]);
 
-  const resetDeckBaseline = useCallback((nextDecks: Deck[]) => {
-    setDecks(nextDecks);
-    // A baseline reset (initial mount, route change, or access reload) starts a
-    // fresh undo timeline. Note: this is NOT the SSE/poll "remote update" path —
-    // those call setDecks directly and intentionally leave the undo stack
-    // intact so a collaborator's edit doesn't wipe your local undo history.
-    undoControllerRef.current?.clear();
-  }, []);
+  const resetDeckBaseline = useCallback(
+    (nextDecks: Deck[], createSeqAtRequest: number) => {
+      const nextIds = new Set(nextDecks.map((d) => d.id));
+      setDecks((prev) => {
+        // A wholesale replace still can't discard state the snapshot never saw:
+        // a deck created here after the fetch started is missing from
+        // `nextDecks` because the response predates it.
+        const preserved = prev.filter(
+          (d) =>
+            !nextIds.has(d.id) && isNewerThanSnapshot(d.id, createSeqAtRequest),
+        );
+        return preserved.length === 0
+          ? nextDecks
+          : [...nextDecks, ...preserved];
+      });
+      for (const id of nextIds) localCreateSeqByIdRef.current.delete(id);
+      // A baseline reset (initial mount, route change, or access reload) starts a
+      // fresh undo timeline. Note: this is NOT the SSE/poll "remote update" path —
+      // those call setDecks directly and intentionally leave the undo stack
+      // intact so a collaborator's edit doesn't wipe your local undo history.
+      undoControllerRef.current?.clear();
+    },
+    [isNewerThanSnapshot],
+  );
+
+  const reloadDecksWithStatus =
+    useCallback(async (): Promise<DeckReloadStatus> => {
+      const requestId = ++deckBaselineRequestIdRef.current;
+      const createSeqAtRequest = localCreateSeqRef.current;
+      const requestedOpenDeckId = currentOpenDeckIdFromWindow();
+      const loaded = await fetchDecksForCurrentRoute();
+      if (
+        requestId !== deckBaselineRequestIdRef.current ||
+        requestedOpenDeckId !== currentOpenDeckIdFromWindow()
+      ) {
+        return "stale";
+      }
+      if (loaded === null) {
+        setLoadError(true);
+        return "failed";
+      }
+      lastExternalUpdateRef.current = Date.now();
+      resetDeckBaseline(loaded, createSeqAtRequest);
+      setLoadError(false);
+      return "loaded";
+    }, [resetDeckBaseline]);
 
   const reloadDecks = useCallback(async () => {
-    const requestId = ++deckBaselineRequestIdRef.current;
-    const requestedOpenDeckId = currentOpenDeckIdFromWindow();
-    const loaded = await fetchDecksForCurrentRoute();
-    if (
-      requestId !== deckBaselineRequestIdRef.current ||
-      requestedOpenDeckId !== currentOpenDeckIdFromWindow() ||
-      loaded === null
-    ) {
-      if (requestId === deckBaselineRequestIdRef.current) {
-        setLoadError(loaded === null);
-      }
-      return;
-    }
-    lastExternalUpdateRef.current = Date.now();
-    resetDeckBaseline(loaded);
-    setLoadError(false);
-  }, [resetDeckBaseline]);
+    await reloadDecksWithStatus();
+  }, [reloadDecksWithStatus]);
 
   // Load decks from API on mount
   useEffect(() => {
     const requestId = ++deckBaselineRequestIdRef.current;
+    const createSeqAtRequest = localCreateSeqRef.current;
     const requestedOpenDeckId = currentOpenDeckIdFromWindow();
     fetchDecksForCurrentRoute().then(async (loaded) => {
       if (
@@ -1263,7 +1401,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       // triggering the save effect (lastExternalUpdateRef is bumped).
       const initial = loaded ?? [];
       lastExternalUpdateRef.current = Date.now(); // Don't save initial load back
-      resetDeckBaseline(initial);
+      resetDeckBaseline(initial, createSeqAtRequest);
       setLoadError(loaded === null);
       setLoading(false);
     });
@@ -1304,10 +1442,13 @@ export function DeckProvider({ children }: { children: ReactNode }) {
 
     const schedule = () => {
       if (stopped || isHidden()) return;
-      const intervalMs = readOpenDeckId()
-        ? OPEN_DECK_FALLBACK_POLL_MS
-        : DECK_LIST_FALLBACK_POLL_MS;
-      timer = setTimeout(poll, intervalMs);
+      timer = setTimeout(
+        poll,
+        fallbackPollIntervalMs({
+          liveChannelConnected: liveChannelConnectedRef.current,
+          hasOpenDeck: Boolean(readOpenDeckId()),
+        }),
+      );
     };
 
     async function poll() {
@@ -1360,12 +1501,14 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     };
 
     void poll();
+    pollNowRef.current = pollNow;
     window.addEventListener("focus", pollNow);
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       stopped = true;
       if (timer) clearTimeout(timer);
+      if (pollNowRef.current === pollNow) pollNowRef.current = () => {};
       window.removeEventListener("focus", pollNow);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
@@ -1385,7 +1528,11 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       dirtyDeckIdsRef.current.delete(id);
       // Only fall back to full-replace if no granular ops were enqueued
       // for this deck (they handle the actual save).
-      if (!pendingOpsQueue.has(id) && !pendingSaves.has(id)) {
+      if (
+        !pendingOpsQueue.has(id) &&
+        !pendingSaves.has(id) &&
+        !inFlightSaves.has(id)
+      ) {
         const deck = decks.find((d) => d.id === id);
         if (!deck) continue;
         saveDeckToAPI(deck);
@@ -1465,6 +1612,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
 
     const connect = () => {
       if (stopped || isHidden()) return;
+      liveChannelConnectedRef.current = false;
       // Never leak the previous connection.
       if (es) {
         es.close();
@@ -1476,6 +1624,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       next.onmessage = handleMessage;
       next.onopen = () => {
         retryCount = 0;
+        liveChannelConnectedRef.current = true;
         // Every reconnect after the first can have missed broadcasts made
         // while we were disconnected — the SSE channel has no backlog, so
         // resync authoritative state instead of trusting the stream alone
@@ -1487,6 +1636,14 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       };
       next.onerror = () => {
         if (es !== next) return;
+        // Whether the browser is retrying (CONNECTING) or gave up (CLOSED),
+        // the live channel is not delivering — hand liveness back to the
+        // fallback poll instead of letting it idle at 60s. Only the
+        // connected→dropped transition wakes the poll, so a stream of retry
+        // errors during a long outage doesn't turn into a poll per error.
+        const wasConnected = liveChannelConnectedRef.current;
+        liveChannelConnectedRef.current = false;
+        if (wasConnected) pollNowRef.current();
         if (next.readyState === EventSource.CLOSED) {
           // Fatal per spec (non-2xx status, bad content-type, etc.) — the
           // browser will not retry on its own. Reconnect ourselves.
@@ -1516,6 +1673,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
 
     return () => {
       stopped = true;
+      liveChannelConnectedRef.current = false;
       clearReconnectTimer();
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       if (es) {
@@ -1615,6 +1773,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       // Save to API immediately (not debounced). Track as pending so the
       // poll doesn't wipe the optimistic deck before the POST completes.
       pendingCreateIdsRef.current.add(newDeck.id);
+      noteLocalCreate(newDeck.id);
       const createPromise = createDeckOnAPI(newDeck);
       pendingCreatePromisesRef.current.set(newDeck.id, createPromise);
       createPromise
@@ -1644,7 +1803,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       });
       return newDeck;
     },
-    [setDecksLocal],
+    [noteLocalCreate, setDecksLocal],
   );
 
   const ensureDeckPersisted = useCallback(async (id: string) => {
@@ -1688,12 +1847,13 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       };
       optimistic.slides = optimistic.slides.map((s) => ({
         ...s,
-        id: nanoid(8),
+        id: `slide-${nanoid(8)}`,
       }));
 
       // Track as pending so the poll doesn't wipe the optimistic deck before
       // the duplicate-deck action's INSERT lands.
       pendingCreateIdsRef.current.add(newId);
+      noteLocalCreate(newId);
       pendingDuplicateSourceIdsRef.current.add(sourceDeckId);
 
       // Fire the action in the background. On error, roll back.
@@ -1703,6 +1863,10 @@ export function DeckProvider({ children }: { children: ReactNode }) {
           deckId: sourceDeckId,
           newId,
           title,
+          // The user can start editing the copy before this resolves, so the
+          // persisted slides must carry the ids the optimistic ones already
+          // have — otherwise those edits address slides the server never had.
+          slideIds: optimistic.slides.map((s) => s.id),
         },
       ).then(() => undefined);
       pendingCreatePromisesRef.current.set(newId, duplicatePromise);
@@ -1737,7 +1901,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       });
       return optimistic;
     },
-    [decks, setDecksLocal],
+    [decks, noteLocalCreate, setDecksLocal],
   );
 
   const deleteDeck = useCallback(
@@ -1745,7 +1909,19 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       const beforeDeck = decksRef.current.find((deck) => deck.id === id);
       const beforeIndex = decksRef.current.findIndex((deck) => deck.id === id);
       discardPendingDeckOps(id);
-      deleteDeckAfterPendingCreate(id);
+      deleteDeckAfterPendingCreate(id, () => {
+        if (!beforeDeck) return;
+        setDecks((prev) => {
+          if (prev.some((deck) => deck.id === id)) return prev;
+          const next = [...prev];
+          next.splice(
+            Math.max(0, Math.min(beforeIndex, next.length)),
+            0,
+            beforeDeck,
+          );
+          return next;
+        });
+      });
       setDecksLocal((prev) => prev.filter((d) => d.id !== id));
       if (beforeDeck) {
         undoControllerRef.current?.push({
@@ -1866,7 +2042,12 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   );
 
   const updateSlide = useCallback(
-    (deckId: string, slideId: string, updates: Partial<Omit<Slide, "id">>) => {
+    (
+      deckId: string,
+      slideId: string,
+      updates: Partial<Omit<Slide, "id">>,
+      options?: UpdateSlideOptions,
+    ) => {
       markDeckDirty(deckId);
       const label = updates.layout
         ? "Change layout"
@@ -1890,7 +2071,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       );
       // Granular op — only this slide's changed fields reach the server.
       const op: PatchDeckOp = { op: "patch-slide", slideId, fields: updates };
-      enqueueDeckOp(deckId, op);
+      enqueueDeckOp(deckId, op, options);
       if (before) {
         // Coalesce a burst of edits to the SAME slide's SAME field-set into one
         // undo step (e.g. typing characters into inline text). Distinct
@@ -2046,6 +2227,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         deleteDeck,
         updateDeck,
         reloadDecks,
+        reloadDecksWithStatus,
         getDeck,
         addSlide,
         updateSlide,
