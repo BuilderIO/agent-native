@@ -14,7 +14,34 @@ hands-on build path.
 
 The quickest way in is the **Chat template**: a minimal app that gives you a
 working AI chat interface, durable threads, auth, and an `actions/` directory
-ready to extend. It's the foundation most Agent-Native apps grow from.
+ready to extend. This guide is split into four short pages so you can stop at
+any point with a working app.
+
+<Steps>
+
+### Create a chat app and connect AI
+
+Scaffold the Chat template, install dependencies, start the dev server, and
+connect an AI engine. You'll have a working agent chat in under five minutes.
+**You are here.**
+
+### Add an action
+
+Define your first typed action — a text analyzer — and register a React
+renderer so the result appears as a bar chart directly inside the chat
+transcript.
+
+### Persist data in SQL
+
+Wire up a database plugin, define a schema, and add read/write actions so the
+agent can save and recall results across conversations.
+
+### Add a page
+
+Build a React route that lists saved analyses, then extend the sidebar so users
+and the agent can navigate to it.
+
+</Steps>
 
 ## 1. Create a chat app {#create-your-app}
 
@@ -39,13 +66,16 @@ unavailable`. These are a normal race condition during the initial boot and
 resolve on their own. The app is ready once **VITE ready** displays in the
 terminal output.
 
-When the app starts, you might find yourself on the login screen rather than in the app. In this case, just sign up with a made up login to satisfy the login screen.
-For local development, no email verification is actually required.
+When the app starts, you might find yourself on the login screen rather than in the app. In this case, just sign up with a made-up login to satisfy the login screen. For local development, no email verification is actually required.
 
-> **Want to attach a real debugger?** Run `agent-native dev --inspect` (or
-> `--inspect-brk[=<port>]`) instead of `pnpm dev` to attach the Node inspector
-> to the dev server, on port `9229` by default. Override the dev runner with
-> the `NITRO_DEV_RUNNER` env var if your setup needs a different one.
+<Callout tone="info">
+
+**Want to attach a real debugger?** Run `agent-native dev --inspect` (or
+`--inspect-brk[=<port>]`) instead of `pnpm dev` to attach the Node inspector
+to the dev server, on port `9229` by default. Override the dev runner with
+the `NITRO_DEV_RUNNER` env var if your setup needs a different one.
+
+</Callout>
 
 ### If you want a different type of app
 
@@ -82,19 +112,37 @@ echo "ANTHROPIC_API_KEY=sk-ant-..." >> .env
 Restart the dev server. Once an AI engine is connected, the Setup panel
 hides itself and the agent is ready to chat.
 
-> **Blank screen?** Create a `.env` file in your `my-app/` directory with
-> `ANTHROPIC_API_KEY=sk-ant-...`, then restart `pnpm dev`. The in-app Setup
-> panel only appears once the app has loaded, so a missing key that prevents
-> the app from rendering needs to be fixed via the environment variable rather than
-> the UI.
+<Callout tone="warning">
+
+**Blank screen?** Create a `.env` file in your `my-app/` directory with
+`ANTHROPIC_API_KEY=sk-ant-...`, then restart `pnpm dev`. The in-app Setup
+panel only appears once the app has loaded, so a missing key that prevents
+the app from rendering needs to be fixed via the environment variable rather than
+the UI.
+
+</Callout>
 
 ## What's next {#next}
 
 Your app is running and the agent can respond. Continue the series to build it out:
 
-- **[Add an Action](/docs/getting-started-actions)**: define your first action and render its result inline in chat.
-- **[Persist Data in SQL](/docs/getting-started-database)**: save action results so the agent can reference them later.
-- **[Add a Page](/docs/getting-started-pages)**: build a React route and wire it into the sidebar.
+<Cards>
+
+### [Add an Action](/docs/getting-started-actions)
+
+Define your first typed action and render its result as a chart directly inside
+the chat transcript.
+
+### [Persist Data in SQL](/docs/getting-started-database)
+
+Save action results to a database so the agent can reference them across
+conversations.
+
+### [Add a Page](/docs/getting-started-pages)
+
+Build a React route that displays your saved data and wire it into the sidebar.
+
+</Cards>
 
 Or jump to a specific topic:
 

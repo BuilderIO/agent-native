@@ -7,7 +7,7 @@ description: "Define your first action and render its result as a UI component d
 
 This is part two of the Getting Started series. In [Getting Started](/docs/getting-started) you created a Chat app and connected an AI engine. Here you'll define your first action and render its result inline in chat.
 
-## 3. Add an action {#add-an-action}
+## Add an action {#add-an-action}
 
 An action is a typed operation that both your agent and your UI can call. It's
 how the agent does things in your app. Actions live in the `actions/` directory
@@ -111,7 +111,7 @@ scheduled jobs, and webhooks.
 
 TIP: Any time you want the agent to call a specific action without ambiguity, phrasing it as "Run the `<action-name>` action" is most reliable. Natural-language prompts work well once the agent has enough context about your app's domain. For a brand-new app with no data or context yet, explicit is safer.
 
-## 4. Render the result inline {#render-inline}
+## Render the result inline {#render-inline}
 
 When the agent runs `analyze-text`, it returns structured data: a title and an
 array of counts. By default the agent will describe that data in prose: "The
