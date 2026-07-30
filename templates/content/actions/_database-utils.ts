@@ -913,7 +913,12 @@ export async function getContentDatabaseResponse(
       description: schema.documents.description,
     })
     .from(schema.documents)
-    .where(eq(schema.documents.id, page.databaseRecord.documentId));
+    .where(
+      and(
+        eq(schema.documents.id, page.databaseRecord.documentId),
+        accessFilter(schema.documents, schema.documentShares),
+      ),
+    );
   const contextPath = databaseDocument
     ? await getDocumentContextPath(databaseDocument)
     : [];

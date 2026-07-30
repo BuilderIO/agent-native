@@ -344,12 +344,12 @@ Routine interaction is no longer the large-table problem: Builder model
 results paint in 43ms, attach feedback in 78-93ms, source columns in 34.2ms,
 and progressive review in 465ms. Four assertions still fail:
 
-| Boundary | Current | Required |
-| --- | ---: | ---: |
-| First useful Builder rows after Attach | 6.18s | <=2s |
-| Complete metadata for 584 rows | 29.38s | <=10s |
-| Usable bodies for the 584-row source | <=280.5s in the last completed run | 30-60s |
-| Cold Date-sort acknowledgement | 1.49-1.59s | <=1s |
+| Boundary                               |                            Current | Required |
+| -------------------------------------- | ---------------------------------: | -------: |
+| First useful Builder rows after Attach |                              6.18s |     <=2s |
+| Complete metadata for 584 rows         |                             29.38s |    <=10s |
+| Usable bodies for the 584-row source   | <=280.5s in the last completed run |   30-60s |
+| Cold Date-sort acknowledgement         |                         1.49-1.59s |     <=1s |
 
 The first three failures share one ingestion path. The initial attach waits on
 provider discovery, a projected first page, SQL import, source-row seeding, and
