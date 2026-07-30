@@ -182,7 +182,7 @@ function backgroundCssValue(background: string | undefined): string | null {
 }
 
 /**
- * Rendered in the style dock when no element is selected - otherwise the
+ * Rendered in the style dock when no element is selected — otherwise the
  * slide's own background is unreachable from the editor UI.
  */
 export function SlideBackgroundInspector({
