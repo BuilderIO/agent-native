@@ -74,8 +74,8 @@ delegation-ceiling:
 product-boundary-gates:
   agent-native-public-constituency: source-blind developers packaging Desktop with standard Core and Dispatch apps receive the reusable identity boundary without Alice-specific infrastructure
 acceptance-state:
-  status: blocked
-  summary: signed canary .13 passed updater isolation and a fresh-profile native Mail activation reached the canonical Dispatch credential ceremony; authenticated same-account continuity, restart, sign-out, account-switch, and isolation acceptance remain blocked on a safe Dispatch test identity
+  status: active
+  summary: Desktop now has a credential-free path to authenticate its dedicated identity partition directly against canonical production Dispatch; signed-canary and authenticated end-to-end acceptance remain
   verified:
     - Core identity protocol suite: 210 tests passed
     - Desktop main, renderer, shared, broker, and preload suites: 202 tests passed
@@ -118,6 +118,7 @@ acceptance-state:
     - the short locked production canary published immutable candidates 6a6a48cbd8ca3400088ba95f (Mail) and 6a6a48cbc9c76200085e212c (Dispatch); valid canonical routes returned the expected 302 chain and hostile redirect and forged callback requests returned 400
     - fresh-profile native acceptance on canary .13 passed Mail activation into the canonical Dispatch sign-in ceremony with the exact Mail app id and callback; the run stopped safely when Dispatch presented credential fields
     - the canary window rolled back in reverse order to current-main 13f7e6bceceb52f04b69201f911729c174524041 using Mail deploy 6a6b46a26b16cb0008e0cf26 and Dispatch deploy 6a6b46a2ef65c600082759f5; both sites were unlocked, temporary identity routes returned baseline 401, Mail root retained normal redirect behavior, and canary and updater processes were absent
+    - direct Dispatch authority sign-in implementation 652fc57b68408812af748302141df1f01d6ab95c passes all 232 Desktop tests, Desktop typecheck, production build, formatting, diff checks, and a credential-material diff scan
   implementation:
     - authenticated nonce-only app-local completion route in Core
     - dedicated persistent Dispatch identity partition in packaged Desktop
@@ -129,8 +130,9 @@ acceptance-state:
     - operator docs, all localized counterparts, authentication skill, and Core changeset
     - branch-scoped signed macOS canary workflow with no publishing, tags, releases, or updater feed
     - Dispatch primary-auth public-route configuration eliminating concurrent auth-initializer pre-emption
+    - explicit Desktop account sign-in authenticates the dedicated identity partition against canonical production Dispatch and requires an allowlisted Dispatch session cookie before reporting success
   blockers:
-    - a safe authenticated Dispatch test identity is required to complete same-account Mail data, restart, sign-out, account-switch, isolation, and hostile-flow acceptance
+    - the new exact-head signed canary must pass native Google sign-in before the short Mail and Dispatch candidate publication window can complete same-account continuity, restart, sign-out, account-switch, isolation, and hostile-flow acceptance
   last-land-packet: https://github.com/BuilderIO/agent-native/pull/2290#issuecomment-5062742844
 deployment-boundary:
   allowed:
@@ -143,6 +145,6 @@ deployment-boundary:
     - merge or stable Desktop publication without a separate decision
     - enabling arbitrary preview hosts, custom apps, or Builder credentials
 vault-brief: /Users/alicemoore/Developer/teenylilthoughts/briefs/Agent-Native Desktop workspace SSO canary implementation plan 2026-07-21.md
-ledger-revision: desktop-sso-work-r15
+ledger-revision: desktop-sso-work-r16
 status: active
 ```
