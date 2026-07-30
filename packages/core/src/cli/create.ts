@@ -278,7 +278,13 @@ function assertValidProjectName(
  * Resolve where a scaffold writes and guard the target. A named project writes
  * to a new sibling subfolder that must not already exist; `create .` writes
  * into the current directory, which must be empty apart from benign VCS/editor
- * files so we never merge over existing work (copyDir merges silently).
+ * files (a pre-existing repo is allowed).
+ *
+ * For an in-place scaffold we do NOT return the current directory: we build
+ * into a private staging directory and `finalizeScaffold` copies the result
+ * in afterward. Staging keeps the whole scaffold atomic — a mid-scaffold
+ * failure's cleanup can only ever delete the staging dir, never the user's
+ * current directory (including its `.git`).
  */
 function resolveScaffoldTarget(
   name: string,
@@ -286,9 +292,8 @@ function resolveScaffoldTarget(
   clack: typeof import("@clack/prompts"),
 ): string {
   if (inPlace) {
-    const targetDir = process.cwd();
     const conflicting = fs
-      .readdirSync(targetDir)
+      .readdirSync(process.cwd())
       .filter((entry) => !IN_PLACE_ALLOWLIST.has(entry));
     if (conflicting.length > 0) {
       const shown = conflicting.slice(0, 3).join(", ");
@@ -298,7 +303,7 @@ function resolveScaffoldTarget(
       );
       process.exit(1);
     }
-    return targetDir;
+    return fs.mkdtempSync(path.join(os.tmpdir(), "agent-native-create-"));
   }
   const targetDir = path.resolve(process.cwd(), name);
   if (fs.existsSync(targetDir)) {
@@ -421,13 +426,15 @@ async function createWorkspaceInteractive(
   } catch (err: any) {
     s.stop("Failed to scaffold workspace.");
     // Remove the partially-scaffolded workspace so a retry of `agent-native
-    // create <name>` doesn't trip the "Directory already exists" guard.
+    // create <name>` doesn't trip the "Directory already exists" guard. For an
+    // in-place scaffold `targetDir` is the private staging dir, so this never
+    // touches the user's current directory.
     cleanupOnFailure(targetDir);
     clack.cancel(err?.message ?? String(err));
     process.exit(1);
   }
 
-  tryGitInit(targetDir);
+  finalizeScaffold(targetDir, opts?.inPlace);
 
   // Show the user the tree we just built so the workspace/app distinction is
   // visible, not just described. First-time users routinely expect their
@@ -794,12 +801,14 @@ async function createStandaloneApp(
     s.stop("App created!");
   } catch (err: any) {
     s.stop("Failed to create app.");
+    // `targetDir` is the private staging dir for an in-place scaffold, so this
+    // only ever removes the staging copy, never the user's current directory.
     cleanupOnFailure(targetDir);
     clack.cancel(err?.message ?? String(err));
     process.exit(1);
   }
 
-  tryGitInit(targetDir);
+  finalizeScaffold(targetDir, opts?.inPlace);
 
   if (template === "headless") {
     clack.outro(
@@ -835,6 +844,35 @@ function cleanupOnFailure(targetDir: string): void {
   } catch {
     // Ignore — original error is more useful than a cleanup failure.
   }
+}
+
+/**
+ * Land a finished scaffold in its final home and initialize git. A named
+ * scaffold is already in place, so this only inits git. An in-place scaffold
+ * (`create .`) was built in `scaffoldDir` (a staging dir); copy only the files
+ * that don't already exist into the current directory so pre-existing files
+ * (`.git`, `README.md`, `.gitignore`, editor configs) are preserved, then drop
+ * the staging dir. Git init/commit is skipped when the current directory is
+ * already a repo so we never write an unexpected commit into the user's
+ * history.
+ */
+function finalizeScaffold(scaffoldDir: string, inPlace?: boolean): void {
+  if (!inPlace) {
+    tryGitInitUnlessRepo(scaffoldDir);
+    return;
+  }
+  const dest = process.cwd();
+  try {
+    copyDir(scaffoldDir, dest, undefined, { skipExisting: true });
+  } finally {
+    cleanupOnFailure(scaffoldDir);
+  }
+  tryGitInitUnlessRepo(dest);
+}
+
+function tryGitInitUnlessRepo(dir: string): void {
+  if (fs.existsSync(path.join(dir, ".git"))) return;
+  tryGitInit(dir);
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -2360,13 +2398,25 @@ function replacePlaceholders(
   }
 }
 
-function copyDir(src: string, dest: string, root?: string): void {
+function copyDir(
+  src: string,
+  dest: string,
+  root?: string,
+  opts?: { skipExisting?: boolean },
+): void {
   const resolvedRoot = root ?? path.resolve(src);
+  const skipExisting = opts?.skipExisting ?? false;
   fs.mkdirSync(dest, { recursive: true });
   for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
     const srcPath = path.join(src, entry.name);
     if (shouldSkipScaffoldEntry(entry.name, srcPath)) continue;
     const destPath = path.join(dest, entry.name);
+    // Preserve anything already at the destination (in-place scaffold merges
+    // into a directory the user may already own). Directories still recurse so
+    // new files land inside a pre-existing folder.
+    if (skipExisting && !entry.isDirectory() && fs.existsSync(destPath)) {
+      continue;
+    }
     if (entry.isSymbolicLink()) {
       const target = fs.readlinkSync(srcPath);
       const resolvedTarget = path.resolve(path.dirname(srcPath), target);
@@ -2376,7 +2426,7 @@ function copyDir(src: string, dest: string, root?: string): void {
         try {
           const stat = fs.statSync(srcPath);
           if (stat.isDirectory()) {
-            copyDir(srcPath, destPath, resolvedRoot);
+            copyDir(srcPath, destPath, resolvedRoot, opts);
           } else {
             fs.copyFileSync(srcPath, destPath);
           }
@@ -2385,7 +2435,7 @@ function copyDir(src: string, dest: string, root?: string): void {
         }
       }
     } else if (entry.isDirectory()) {
-      copyDir(srcPath, destPath, resolvedRoot);
+      copyDir(srcPath, destPath, resolvedRoot, opts);
     } else {
       fs.copyFileSync(srcPath, destPath);
     }
