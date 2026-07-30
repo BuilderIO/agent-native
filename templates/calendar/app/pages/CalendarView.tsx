@@ -86,6 +86,7 @@ import { useViewPreferences } from "@/hooks/use-view-preferences";
 import { resolveEventAccountEmail } from "@/lib/event-account-selection";
 import { getGoogleEventColorHex } from "@/lib/event-colors";
 import {
+  buildEventTitleUpdate,
   dateTimeInTimezoneToIso,
   getEditableEventTitle,
   getLocalTimezone,
@@ -705,6 +706,7 @@ export default function CalendarView() {
       const payload: Parameters<typeof createEvent.mutate>[0] = {
         _tempId: eventId,
         title,
+        titleIsGenerated: !editableTitle,
         description:
           eventType === "outOfOffice" ? "" : (draft.description ?? ""),
         start: semanticFullDay ? draft.start! : start.toISOString(),
@@ -1373,7 +1375,7 @@ export default function CalendarView() {
       });
       if (trimmedTitle) {
         const event = events.find((e) => e.id === eventId);
-        const updates = { title: trimmedTitle };
+        const updates = buildEventTitleUpdate(trimmedTitle);
         const guestNotification = event
           ? await promptGuestNotification({
               event,
@@ -1402,7 +1404,7 @@ export default function CalendarView() {
         return;
       }
       const event = events.find((e) => e.id === eventId);
-      const updates = { title: trimmedTitle };
+      const updates = buildEventTitleUpdate(trimmedTitle);
       const guestNotification = event
         ? await promptGuestNotification({
             event,

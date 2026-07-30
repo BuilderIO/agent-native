@@ -103,6 +103,12 @@ function getEventQueryKey(id: string) {
   return ["action", "get-event", { id }] as const;
 }
 
+export function getOptimisticTitleIsGenerated(
+  input: Pick<CreateEventInput, "title" | "titleIsGenerated">,
+): boolean {
+  return input.titleIsGenerated ?? !input.title?.trim();
+}
+
 function buildOptimisticCalendarEvent(
   newData: CreateEventInput,
   optimisticId: string,
@@ -130,7 +136,7 @@ function buildOptimisticCalendarEvent(
     title:
       newData.title?.trim() ||
       (newData.eventType === "outOfOffice" ? "Out of office" : ""),
-    titleIsGenerated: !newData.title?.trim(),
+    titleIsGenerated: getOptimisticTitleIsGenerated(newData),
     start,
     end,
     startTimeZone: newData.startTimeZone,

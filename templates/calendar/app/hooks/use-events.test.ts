@@ -9,6 +9,7 @@ import {
 } from "./event-list-cache";
 import {
   findEventByCurrentOrReplacedId,
+  getOptimisticTitleIsGenerated,
   mergeAttendeeLists,
   reconcileUpdatedEventList,
   shouldDeferOptimisticEventUpdate,
@@ -32,6 +33,18 @@ function calendarEvent(overrides: Partial<CalendarEvent> = {}): CalendarEvent {
 }
 
 describe("calendar event list cache helpers", () => {
+  it("preserves generated provenance when an optimistic display title is nonempty", () => {
+    expect(
+      getOptimisticTitleIsGenerated({
+        title: "Out of office",
+        titleIsGenerated: true,
+      }),
+    ).toBe(true);
+    expect(getOptimisticTitleIsGenerated({ title: "Out of office" })).toBe(
+      false,
+    );
+  });
+
   it("matches only list-event ranges overlapping the event", () => {
     const event = calendarEvent();
 

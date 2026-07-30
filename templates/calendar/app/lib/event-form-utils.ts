@@ -42,6 +42,12 @@ export function getEditableEventTitle(
   return event.titleIsGenerated ? "" : event.title;
 }
 
+export function buildEventTitleUpdate(
+  title: string,
+): Pick<CalendarEvent, "title" | "titleIsGenerated"> {
+  return { title: title.trim(), titleIsGenerated: false };
+}
+
 const DAY_CODES = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"] as const;
 const DAY_CODE_BY_LABEL: Record<string, (typeof DAY_CODES)[number]> = {
   Sun: "SU",

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildEventTitleUpdate,
   buildRecurrenceRules,
   dateTimeInTimezoneToIso,
   formatRecurrenceText,
@@ -23,6 +24,15 @@ describe("getEditableEventTitle", () => {
 
   it("preserves a real event title even when it matches a display label", () => {
     expect(getEditableEventTitle({ title: "(No title)" })).toBe("(No title)");
+  });
+});
+
+describe("buildEventTitleUpdate", () => {
+  it("clears generated provenance when a real title is saved", () => {
+    expect(buildEventTitleUpdate("  Team offsite  ")).toEqual({
+      title: "Team offsite",
+      titleIsGenerated: false,
+    });
   });
 });
 
