@@ -509,12 +509,16 @@ describe("call-agent action", () => {
   });
 
   it.each([
-    ["explicit NETLIFY=false", "NETLIFY", "false"],
-    ["NETLIFY_LOCAL=true", "NETLIFY_LOCAL", "true"],
+    ["explicit NETLIFY=false with SITE_ID", "NETLIFY", "false", true],
+    ["NETLIFY_LOCAL=true with SITE_ID", "NETLIFY_LOCAL", "true", true],
+    ["explicit NETLIFY=false without SITE_ID", "NETLIFY", "false", false],
+    ["NETLIFY_LOCAL=true without SITE_ID", "NETLIFY_LOCAL", "true", false],
   ])(
-    "lets %s override runtime-only SITE_ID detection",
-    async (_label, key, value) => {
-      process.env.SITE_ID = "00000000-0000-0000-0000-000000000000"; // guard:allow-env-credential -- fake value exercises Netlify's public runtime host marker.
+    "lets %s suppress Netlify and compatibility-host timeouts",
+    async (_label, key, value, withSiteId) => {
+      if (withSiteId) {
+        process.env.SITE_ID = "00000000-0000-0000-0000-000000000000"; // guard:allow-env-credential -- fake value exercises Netlify's public runtime host marker.
+      }
       process.env.AWS_LAMBDA_FUNCTION_NAME = "server";
       process.env[key] = value;
       callAgentMock.mockResolvedValueOnce("Handled");

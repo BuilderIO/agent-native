@@ -74,9 +74,14 @@ function parseTimeoutMs(value: string | undefined): number | undefined {
   return Math.floor(parsed);
 }
 
+function hasExplicitNonHostedNetlifyOverride(): boolean {
+  return (
+    process.env.NETLIFY_LOCAL === "true" || process.env.NETLIFY === "false"
+  );
+}
+
 function isNetlifyHostedRuntimeForIntegrationCall(): boolean {
-  if (process.env.NETLIFY_LOCAL === "true") return false;
-  if (process.env.NETLIFY === "false") return false;
+  if (hasExplicitNonHostedNetlifyOverride()) return false;
   if (process.env.NETLIFY && process.env.NETLIFY !== "false") return true;
 
   // NETLIFY is a build-time marker, while deployed Netlify Functions expose
@@ -87,12 +92,7 @@ function isNetlifyHostedRuntimeForIntegrationCall(): boolean {
 }
 
 function isServerlessHost(): boolean {
-  if (
-    process.env.SITE_ID &&
-    (process.env.NETLIFY_LOCAL === "true" || process.env.NETLIFY === "false")
-  ) {
-    return false;
-  }
+  if (hasExplicitNonHostedNetlifyOverride()) return false;
 
   // Detection mirrors db/migrations.ts:297-301. On Cloudflare Workers/Pages,
   // `process.env` is shimmed and CF_PAGES isn't reliably populated at runtime —
