@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.131.5
+
+### Patch Changes
+
+- 6cc81db: Add docs-components reference page with Steps, Cards, Comparison, and kbd components
+
 ## 0.131.4
 
 ### Patch Changes
