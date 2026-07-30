@@ -91,6 +91,25 @@ async function fetchThreadListPage(
   });
 }
 
+/**
+ * Look up one thread the list page did not carry. Distinguishes the three states
+ * the caller must not collapse: the thread (found), `null` (the server denies it
+ * exists), and `undefined` (unreachable — nothing was learned).
+ */
+async function fetchThreadById(
+  apiUrl: string,
+  id: string,
+): Promise<ChatThreadSummary | null | undefined> {
+  try {
+    const res = await fetch(`${apiUrl}/threads/${encodeURIComponent(id)}`);
+    if (res.status === 404) return null;
+    if (!res.ok) return undefined;
+    return (await res.json()) as ChatThreadSummary;
+  } catch {
+    return undefined;
+  }
+}
+
 function emitThreadsUpdated() {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent(THREADS_UPDATED_EVENT));
@@ -602,13 +621,29 @@ export function useChatThreads(
         setIsLoading(false);
         return;
       }
-      // Route-owned threads are exempt: the URL names the thread the user asked
-      // for, whatever its scope.
-      const restoredThread = restoredId
+      // Exempts route-owned threads (the URL names what the user asked for) and
+      // ids this client generated, which have never reached the server.
+      const lookupRestored = Boolean(
+        restoredId &&
+        !routeControlsActiveThread &&
+        !newlyCreatedRef.current.has(restoredId),
+      );
+      const restoredOnPage = restoredId
         ? loadedThreads.find((t) => t.id === restoredId)
         : undefined;
+      // One page, so absence from it is not absence from the server — this is what
+      // separates an older real thread from the ghost tab reclassified below.
+      const restoredThread =
+        lookupRestored && !restoredOnPage
+          ? await fetchThreadById(apiUrl, restoredId!)
+          : restoredOnPage;
+      if (restoredThread === undefined && lookupRestored && !restoredOnPage) {
+        // Lookup unreachable. Reclassifying now would stamp this thread with the
+        // current scope on a guess; leave it untouched for the next mount.
+        setIsLoading(false);
+        return;
+      }
       const restoredBelongsElsewhere = Boolean(
-        !routeControlsActiveThread &&
         restoredThread &&
         !threadCanStayVisibleInScope(
           restoredThread.scope ?? null,
@@ -618,7 +653,8 @@ export function useChatThreads(
       if (restoredBelongsElsewhere) setActiveThreadId(null);
       const savedId = restoredBelongsElsewhere ? null : restoredId;
       const loadedHasSavedId = Boolean(
-        savedId && loadedThreads.some((t) => t.id === savedId),
+        savedId &&
+        (restoredThread || loadedThreads.some((t) => t.id === savedId)),
       );
       const savedIdCameFromRoute =
         Boolean(savedId) &&
@@ -672,6 +708,7 @@ export function useChatThreads(
       setIsLoading(false);
     })();
   }, [
+    apiUrl,
     fetchThreads,
     addOptimisticThread,
     autoCreate,
@@ -974,9 +1011,9 @@ export function useChatThreads(
     [apiUrl, clearUserRenamedThread, createThread],
   );
 
-  // Reads scope through refs so this callback survives every setThreads. Sends
-  // only a scope this client knows: a `null` clears the server's, which only
-  // `detachThread` may do.
+  // Reads scope through refs so this callback survives every setThreads. Scope
+  // rides only on creation: a periodic save must never move an existing thread
+  // between resources, however stale this client's guess is.
   const saveThreadData = useCallback(
     async (
       id: string,
@@ -1000,11 +1037,7 @@ export function useChatThreads(
           titleSource,
           { preserveUserTitle },
         );
-        const payload = {
-          ...threadDataPayload,
-          title,
-          ...(knownScope ? { scope: knownScope } : {}),
-        };
+        const payload = { ...threadDataPayload, title };
         let response = await fetch(
           `${apiUrl}/threads/${encodeURIComponent(id)}`,
           {

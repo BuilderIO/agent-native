@@ -21,11 +21,16 @@ it and `production-agent` had already normalized it onto
 Now the run's scope is used when the row is created, a thread with no scope adopts
 the scope of the resource it is used in (`resolveRunThreadScope`, which never
 retags or clears an already-scoped thread), and the client only mirrors a scope it
-actually knows — `detachThread` remains the single path that clears one. Adoption
-also heals threads already stored with `scope: null`, and claims the row with a
-compare-and-set on the unscoped state so two workers racing to adopt the same
-legacy thread cannot retag it to the wrong resource. A saved active-chat pointer
-is no longer trusted when the thread's known scope belongs to another resource,
-on a direct mount as well as when moving between resources.
+actually knows. Adoption also heals threads already stored with `scope: null`, and
+claims the row with a compare-and-set on the unscoped state so two workers racing
+to adopt the same legacy thread cannot retag it to the wrong resource.
+
+Scope now rides only on thread creation: a periodic save no longer sends it, so a
+stale client guess cannot move an existing thread between resources, and
+`detachThread` is the only client path that clears one. A restored active-chat
+pointer is checked against the thread's real scope on a direct mount as well as
+when moving between resources — and because the thread list is one page, a pointer
+naming a thread the page did not reach is resolved by id rather than assumed to be
+a never-messaged local tab.
 
 Genuinely general chats are unaffected until they are used inside a resource.
