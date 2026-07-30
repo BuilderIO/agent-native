@@ -198,6 +198,12 @@ describe("delegated A2A final response guards", () => {
       12_345,
       { backgroundFunction: true },
     );
+    expect(delegatedRunner.mock.calls[0]?.[0]?.systemPrompt).toContain(
+      "best grounded partial answer",
+    );
+    expect(delegatedRunner.mock.calls[0]?.[0]?.systemPrompt).toContain(
+      "Do not bounce the work back",
+    );
   });
 
   it("keeps the MCP-local ask_app loop on the same guard contract", async () => {

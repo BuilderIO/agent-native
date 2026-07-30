@@ -13,10 +13,13 @@
  * The generic encryption key is derived from
  * `<APP_NAME>_SECRETS_ENCRYPTION_KEY` when set, then
  * `SECRETS_ENCRYPTION_KEY`, then `BETTER_AUTH_SECRET`. Workspace-shared vault
- * rows use a different precedence: `SECRETS_ENCRYPTION_KEY`, then material
- * derived from the workspace-wide `A2A_SECRET`, then the app-local auth/key
- * fallbacks retained for backward-compatible reads. This keeps sibling apps
- * on one key even when each app correctly has a different auth secret.
+ * rows use a different precedence: `WORKSPACE_SECRETS_ENCRYPTION_KEY`, then
+ * the legacy shared `SECRETS_ENCRYPTION_KEY`, then material derived from the
+ * workspace-wide `A2A_SECRET`, then the app-local auth/key fallbacks retained
+ * for backward-compatible reads. A previous workspace key can be supplied
+ * during rotation with `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS`. This keeps
+ * sibling apps on one stable key even when each app correctly has a different
+ * auth secret, and prevents A2A trust rotation from stranding vault data.
  *
  * In production we refuse to start without configured key material — a
  * CWD-derived fallback would be effectively static (e.g. `/var/task` on
@@ -95,6 +98,18 @@ function genericEncryptionKeyMaterial(): string | undefined {
   );
 }
 
+function workspaceSharedEncryptionKeyMaterial(): string | undefined {
+  if (typeof process === "undefined") return undefined;
+  return process.env.WORKSPACE_SECRETS_ENCRYPTION_KEY?.trim() || undefined;
+}
+
+function previousWorkspaceSharedEncryptionKeyMaterial(): string | undefined {
+  if (typeof process === "undefined") return undefined;
+  return (
+    process.env.WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS?.trim() || undefined
+  );
+}
+
 /**
  * Vault sharing follows configured A2A trust even on independently deployed
  * sibling apps that are not launched by the workspace wrapper. The wrapper's
@@ -116,14 +131,17 @@ function a2aSharedEncryptionKeyMaterial(): string | undefined {
  * Stable materials that may be used for workspace-shared vault rows, ordered
  * from current preference to legacy compatibility fallbacks.
  *
- * `BETTER_AUTH_SECRET` deliberately comes after the A2A-derived material:
- * sibling apps normally have different auth secrets but share A2A trust.
+ * `BETTER_AUTH_SECRET` deliberately comes after the workspace and A2A-derived
+ * materials: sibling apps normally have different auth secrets but share
+ * workspace trust.
  */
 function sharedEncryptionKeyMaterials(): string[] {
   if (typeof process === "undefined") return [];
   const candidates = [
+    workspaceSharedEncryptionKeyMaterial(),
     process.env.SECRETS_ENCRYPTION_KEY,
     a2aSharedEncryptionKeyMaterial(),
+    previousWorkspaceSharedEncryptionKeyMaterial(),
     process.env.BETTER_AUTH_SECRET,
     appScopedEncryptionKey(),
   ].filter((value): value is string => Boolean(value));
@@ -131,7 +149,14 @@ function sharedEncryptionKeyMaterials(): string[] {
 }
 
 function preferredSharedEncryptionKeyMaterial(): string | undefined {
-  return sharedEncryptionKeyMaterials()[0];
+  if (typeof process === "undefined") return undefined;
+  return (
+    workspaceSharedEncryptionKeyMaterial() ||
+    process.env.SECRETS_ENCRYPTION_KEY ||
+    a2aSharedEncryptionKeyMaterial() ||
+    process.env.BETTER_AUTH_SECRET ||
+    appScopedEncryptionKey()
+  );
 }
 
 function hashSecretEncryptionKey(material: string): Buffer {
@@ -187,20 +212,23 @@ export function getSecretEncryptionKey(): Buffer {
 /**
  * Derive the preferred workspace-shared key used by `app_secrets` rows.
  * Unlike generic column-level encryption, workspace vault data must decrypt
- * in sibling apps. An explicit `SECRETS_ENCRYPTION_KEY` wins; hosted
- * workspaces otherwise derive stable material from their shared `A2A_SECRET`
- * before considering app-local `BETTER_AUTH_SECRET` or app-scoped key
- * fallbacks. Reads try every configured legacy candidate and report when the
- * ciphertext should be refreshed under the preferred key.
+ * in sibling apps. An explicit `WORKSPACE_SECRETS_ENCRYPTION_KEY` wins without
+ * changing the key for app-local OAuth and credential ciphertext. The legacy
+ * shared `SECRETS_ENCRYPTION_KEY` remains supported; hosted workspaces
+ * otherwise derive material from their shared `A2A_SECRET` before considering
+ * app-local `BETTER_AUTH_SECRET` or app-scoped key fallbacks. Reads try every
+ * configured legacy/previous candidate and report when the ciphertext should
+ * be refreshed under the preferred key.
  */
 export function getSharedSecretEncryptionKey(): Buffer {
   return deriveSecretEncryptionKey(
     preferredSharedEncryptionKeyMaterial(),
     "[agent-native/secrets] Refusing to start in production without encryption key material for workspace secrets. " +
-      "Set SECRETS_ENCRYPTION_KEY, ensure a hosted workspace has A2A_SECRET, or set BETTER_AUTH_SECRET / an app-scoped " +
+      "Set WORKSPACE_SECRETS_ENCRYPTION_KEY (preferred), SECRETS_ENCRYPTION_KEY, ensure a hosted workspace has A2A_SECRET, " +
+      "or set BETTER_AUTH_SECRET / an app-scoped " +
       "*_SECRETS_ENCRYPTION_KEY compatibility fallback in the deploy environment.",
-    "[agent-native/secrets] SECRETS_ENCRYPTION_KEY not set — using app-scoped or machine-local fallback for workspace secrets. " +
-      "Set SECRETS_ENCRYPTION_KEY or rely on A2A_SECRET-derived material on hosted workspace deploys so sibling apps share vault rows.",
+    "[agent-native/secrets] Workspace encryption key not set — using app-scoped or machine-local fallback for workspace secrets. " +
+      "Set WORKSPACE_SECRETS_ENCRYPTION_KEY or rely on A2A_SECRET-derived material on hosted workspace deploys so sibling apps share vault rows.",
   );
 }
 
@@ -208,6 +236,7 @@ export function getSharedSecretEncryptionKey(): Buffer {
 export function hasSharedSecretEncryptionKeyMaterial(): boolean {
   if (typeof process === "undefined") return false;
   return Boolean(
+    workspaceSharedEncryptionKeyMaterial() ||
     process.env.SECRETS_ENCRYPTION_KEY ||
     a2aSharedEncryptionKeyMaterial() ||
     process.env.BETTER_AUTH_SECRET,

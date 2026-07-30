@@ -433,6 +433,8 @@ describe("secrets storage CRUD (real sqlite)", () => {
     const originalAppName = process.env.APP_NAME; // guard:allow-env-credential — test configures deploy-level app scope.
     const originalAppKey = process.env.ANALYTICS_SECRETS_ENCRYPTION_KEY; // guard:allow-env-credential — test configures deploy-level app encryption material.
     const originalSharedKey = process.env.SECRETS_ENCRYPTION_KEY;
+    const originalWorkspaceSharedKey =
+      process.env.WORKSPACE_SECRETS_ENCRYPTION_KEY;
     const originalAuthSecret = process.env.BETTER_AUTH_SECRET;
     const originalNodeEnv = process.env.NODE_ENV;
 
@@ -441,6 +443,7 @@ describe("secrets storage CRUD (real sqlite)", () => {
       process.env.APP_NAME = "analytics"; // guard:allow-env-credential — test configures deploy-level app scope.
       process.env.ANALYTICS_SECRETS_ENCRYPTION_KEY = "analytics-only-material"; // guard:allow-env-credential — test configures deploy-level app encryption material.
       delete process.env.SECRETS_ENCRYPTION_KEY;
+      delete process.env.WORKSPACE_SECRETS_ENCRYPTION_KEY;
       delete process.env.BETTER_AUTH_SECRET;
 
       await mod.writeAppSecret({
@@ -462,7 +465,8 @@ describe("secrets storage CRUD (real sqlite)", () => {
         shared_encrypted_value: string | null;
         updated_at: number;
       };
-      process.env.SECRETS_ENCRYPTION_KEY = "new-workspace-shared-material";
+      process.env.WORKSPACE_SECRETS_ENCRYPTION_KEY =
+        "new-workspace-shared-material";
       await expect(mod.readAppSecret(userRef)).resolves.toMatchObject({
         value: "legacy-deployment-secret",
       });
@@ -490,7 +494,7 @@ describe("secrets storage CRUD (real sqlite)", () => {
       // preserved shared ciphertext would let sibling apps silently decrypt
       // the old value. Siblings get an honest cache miss until the owning
       // app's next read repopulates shared_encrypted_value.
-      delete process.env.SECRETS_ENCRYPTION_KEY;
+      delete process.env.WORKSPACE_SECRETS_ENCRYPTION_KEY;
       await mod.writeAppSecret({
         ...userRef,
         value: "updated-by-legacy-app",
@@ -509,6 +513,12 @@ describe("secrets storage CRUD (real sqlite)", () => {
       if (originalSharedKey === undefined)
         delete process.env.SECRETS_ENCRYPTION_KEY;
       else process.env.SECRETS_ENCRYPTION_KEY = originalSharedKey;
+      if (originalWorkspaceSharedKey === undefined) {
+        delete process.env.WORKSPACE_SECRETS_ENCRYPTION_KEY;
+      } else {
+        process.env.WORKSPACE_SECRETS_ENCRYPTION_KEY =
+          originalWorkspaceSharedKey;
+      }
       if (originalAuthSecret === undefined)
         delete process.env.BETTER_AUTH_SECRET;
       else process.env.BETTER_AUTH_SECRET = originalAuthSecret;

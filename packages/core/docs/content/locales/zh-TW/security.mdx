@@ -320,7 +320,7 @@ pnpm action db-check-scoping --require-org  # 還需要 org_id
 | OAuth 代幣（Google、GitHub） | `oauth_tokens` 透過 `saveOAuthTokens()` 儲存       |
 | 工作階段權杖                 | 自動（Better Auth 可以處理此問題）                 |
 
-每使用者/每組織憑證和保管庫使用 AES-256-GCM 進行靜態加密，並由 `SECRETS_ENCRYPTION_KEY` 加密（回退到 `BETTER_AUTH_SECRET`）；如果沒有一個，正式環境就無法開始。要就地加密任何預先存在的明文憑證行，請執行 `pnpm action db-migrate-encrypt-credentials`（冪等、非破壞性）。
+每使用者/每組織憑證和保管庫使用 AES-256-GCM 進行靜態加密。共享工作區保管庫優先使用 `WORKSPACE_SECRETS_ENCRYPTION_KEY`，再使用由 `SECRETS_ENCRYPTION_KEY`、`A2A_SECRET` 和 `BETTER_AUTH_SECRET` 衍生的舊候選金鑰；輪替期間設定 `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS`，讓讀取操作移轉資料列。要就地加密現有明文憑證資料列，請執行 `pnpm action db-migrate-encrypt-credentials`（冪等、非破壞性）。
 
 切勿將機密儲存在 `settings`、`application_state`、來源程式碼或操作回應中。使用上面的憑證/保險庫 API - 它們處理加密和每使用者範圍。
 
@@ -363,7 +363,7 @@ A2A_SECRET=your-shared-secret-at-least-32-chars
 - [ ] `BETTER_AUTH_SECRET` 設定為隨機 32+ 字符字串 (`openssl rand -hex 32`)，除非這是從 `A2A_SECRET` 派生的託管工作區部署
 - [ ] `OAUTH_STATE_SECRET` 設定為單獨的隨機 32+ 字符字串（不要重複使用 `BETTER_AUTH_SECRET`） - 請參閱 [OAuth State Signing](#oauth-state)
 - [ ] 在呼叫或接收 A2A 流量的每個應用程式上設定 `A2A_SECRET` — 請參閱 [A2A Identity Verification](#a2a-identity)
-- [ ] `SECRETS_ENCRYPTION_KEY` 設定（或依賴 `BETTER_AUTH_SECRET` 後備） - 請參閱 [Secrets Management](#secrets)
+- [ ] 為共享多應用程式保管庫一致設定 `WORKSPACE_SECRETS_ENCRYPTION_KEY`；應用程式本機加密仍使用 `SECRETS_ENCRYPTION_KEY`/`BETTER_AUTH_SECRET` 後備 - 請參閱 [Secrets Management](#secrets)
 - [ ] `AUTH_SKIP_EMAIL_VERIFICATION` 在正式環境中**未**設定（或僅在 QA 預覽部署中設定）
 
 ### Webhook 秘密（為您使用的整合設定秘密）

@@ -263,9 +263,11 @@ export function buildAgentInvocationPrompt(
 ): string {
   return (
     `${prompt}\n\n` +
-    `[Note: this request comes from another app via A2A. The caller cannot see your local UI, resource list, or navigation - only the literal text you put in your reply. ` +
+    `<a2a-caller-hint>\n` +
+    `This request comes from another app via A2A. The caller cannot see your local UI, resource list, or navigation - only the literal text you put in your reply. ` +
     `If you create or reference a deck/document/design/dashboard/resource, include its FULLY-QUALIFIED URL (e.g. ${agentUrl.replace(/\/$/, "")}/<path>/<id>) in your reply, not a relative path. ` +
-    `Use only artifact IDs and URL paths returned by successful actions - never invent slugs, IDs, or hosts.]`
+    `Use only artifact IDs and URL paths returned by successful actions - never invent slugs, IDs, or hosts.\n` +
+    `</a2a-caller-hint>`
   );
 }
 
