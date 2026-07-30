@@ -180,8 +180,25 @@ export function isDesktopIdentityAuthorizeNavigation(
   }
 }
 
+export function isDesktopIdentityAuthorityLanding(
+  navigationUrl: string,
+  authorityApp: Pick<DesktopIdentityApp, "origin" | "identityAuthority">,
+): boolean {
+  try {
+    const parsed = new URL(navigationUrl);
+    return (
+      authorityApp.identityAuthority === true &&
+      parsed.origin === authorityApp.origin &&
+      parsed.pathname === "/"
+    );
+  } catch {
+    return false;
+  }
+}
+
 export class DesktopIdentityBroker {
   private readonly pendingByApp = new Map<string, Promise<boolean>>();
+  private pendingAuthority: Promise<boolean> | null = null;
   private readonly unsupportedAppIds = new Set<string>();
   private readonly activeSessionCopies = new Set<Promise<void>>();
   private queue: Promise<void> = Promise.resolve();
@@ -274,6 +291,26 @@ export class DesktopIdentityBroker {
     return this.ensureAppSession(appId);
   }
 
+  signInAuthority(appId: string): Promise<boolean> {
+    if (this.pendingAuthority) return this.pendingAuthority;
+
+    this.automaticSignInSuppressed = false;
+    const generation = this.ceremonyGeneration;
+    const operation = this.queue.then(async () => {
+      await this.signOutOperation;
+      return this.runAuthorityCeremony(appId, generation);
+    });
+    this.queue = operation.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.pendingAuthority = operation;
+    void operation.finally(() => {
+      if (this.pendingAuthority === operation) this.pendingAuthority = null;
+    });
+    return operation;
+  }
+
   async prepareExternalSignOut(
     apps: DesktopIdentityApp[],
     options: {
@@ -319,6 +356,7 @@ export class DesktopIdentityBroker {
     this.automaticSignInSuppressed = true;
     this.ceremonyGeneration += 1;
     this.pendingByApp.clear();
+    this.pendingAuthority = null;
     this.closeActiveWindow();
     this.updateSignOutIntent(options);
     if (this.signOutOperation) return this.signOutOperation;
@@ -673,6 +711,104 @@ export class DesktopIdentityBroker {
         finish(false, "failed");
       });
     });
+  }
+
+  private async runAuthorityCeremony(
+    appId: string,
+    generation: number,
+  ): Promise<boolean> {
+    if (!this.isCeremonyCurrent(generation)) return false;
+    const authorityApp = this.options.resolveApp(appId);
+    if (!authorityApp?.identityAuthority) return false;
+
+    this.setStatus("signing-in");
+    const signInUrl = new URL(DESKTOP_SIGN_IN_PATH, authorityApp.origin);
+    signInUrl.searchParams.set("return", "/");
+
+    const identityWindow = this.options.createWindow({
+      width: 520,
+      height: 720,
+      title: "Sign in to Agent Native",
+      backgroundColor: "#111111",
+      parent: this.options.parentWindow?.() ?? undefined,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: true,
+        session: this.options.identitySession,
+      },
+    });
+    this.activeWindow = identityWindow;
+
+    return new Promise<boolean>((resolve) => {
+      let settled = false;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const finish = (ok: boolean, status: DesktopIdentityStatus) => {
+        if (settled) return;
+        settled = true;
+        if (timer) clearTimeout(timer);
+        if (this.activeWindow === identityWindow) this.activeWindow = null;
+        if (this.isCeremonyCurrent(generation)) this.setStatus(status);
+        if (!identityWindow.isDestroyed()) identityWindow.close();
+        resolve(ok);
+      };
+
+      const inspectOAuthNavigation = (event: Electron.Event, url: string) => {
+        if (
+          this.options.handleOAuthNavigation?.(url, identityWindow.webContents)
+        ) {
+          event.preventDefault();
+        }
+      };
+      const inspectCompletedNavigation = (
+        _event: Electron.Event,
+        url: string,
+      ) => {
+        if (!isDesktopIdentityAuthorityLanding(url, authorityApp)) return;
+        void this.hasAuthoritySession(authorityApp).then(
+          (hasSession) => {
+            if (!this.isCeremonyCurrent(generation)) {
+              finish(false, "sign-in-required");
+              return;
+            }
+            if (hasSession) finish(true, "signed-in");
+          },
+          () => finish(false, "failed"),
+        );
+      };
+
+      identityWindow.webContents.on("will-navigate", inspectOAuthNavigation);
+      identityWindow.webContents.on("will-redirect", inspectOAuthNavigation);
+      identityWindow.webContents.on("did-navigate", inspectCompletedNavigation);
+      identityWindow.webContents.setWindowOpenHandler(({ url }) =>
+        this.options.handleWindowOpen
+          ? this.options.handleWindowOpen(identityWindow.webContents, url)
+          : { action: "deny" },
+      );
+      identityWindow.webContents.on("render-process-gone", () =>
+        finish(false, "failed"),
+      );
+      identityWindow.on("closed", () => finish(false, "sign-in-required"));
+
+      timer = setTimeout(
+        () => finish(false, "sign-in-required"),
+        this.options.timeoutMs ?? DEFAULT_CEREMONY_TIMEOUT_MS,
+      );
+
+      void identityWindow.loadURL(signInUrl.toString()).catch(() => {
+        finish(false, "failed");
+      });
+    });
+  }
+
+  private async hasAuthoritySession(
+    authorityApp: DesktopIdentityApp,
+  ): Promise<boolean> {
+    const cookies = await this.options.identitySession.cookies.get({
+      url: authorityApp.origin,
+    });
+    const allowed = new Set(authorityApp.cookieNames);
+    return cookies.some((cookie) => allowed.has(cookie.name));
   }
 
   private async copyTargetSession(

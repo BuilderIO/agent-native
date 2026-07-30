@@ -1099,11 +1099,9 @@ ipcMain.handle(IPC.IDENTITY_STATUS_GET, (event) => {
 
 ipcMain.handle(IPC.IDENTITY_SIGN_IN, async (event) => {
   if (!isShellIdentityIpc(event) || !desktopIdentityBroker) return false;
-  const targetApp =
-    resolveDesktopIdentityApp("mail") ??
-    listDesktopIdentityApps().find((candidate) => !candidate.identityAuthority);
-  if (!targetApp) return false;
-  return desktopIdentityBroker.signIn(targetApp.id);
+  const authorityApp = resolveDesktopIdentityApp("dispatch");
+  if (!authorityApp) return false;
+  return desktopIdentityBroker.signInAuthority(authorityApp.id);
 });
 
 ipcMain.handle(IPC.IDENTITY_SIGN_OUT, async (event) => {

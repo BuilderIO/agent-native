@@ -176,6 +176,11 @@ Electron transfers only that target app's session cookie into its isolated
 JWT, or one app's session to another app, and never expose those values through
 renderer IPC.
 
+The explicit Desktop account sign-in authenticates that dedicated partition
+directly against canonical production Dispatch before app-by-app federation.
+It must verify the resulting Dispatch session cookie rather than treating a
+navigation or OAuth callback as proof of authentication.
+
 Custom, user-added, and third-party apps are excluded. Preserve direct web
 sign-in and the per-app `AGENT_NATIVE_IDENTITY_HUB_URL` opt-in/canary behavior.
 The `desktop-sso.json` broker is only a loopback, non-production local
