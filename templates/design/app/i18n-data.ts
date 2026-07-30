@@ -91,6 +91,7 @@ const enUS = {
       "Edit typography, spacing, sizing, borders and fill for whatever you select. Page defaults below.",
     sections: {
       page: "Screen",
+      canvas: "Canvas",
       typography: "Typography",
       autoLayout: "Auto layout",
       positionLayout: "Position",
@@ -1729,6 +1730,7 @@ const designLocaleOverrides = {
         "编辑您选择的任何版式、间距、大小、边框和填充。页面默认如下。",
       sections: {
         page: "画面",
+        canvas: "画布",
         typography: "版式",
         flexLayout: "弹性布局",
         layout: "布局",
@@ -2130,6 +2132,7 @@ const designLocaleOverrides = {
         "Edite tipografía, espaciado, tamaño, bordes y rellene lo que seleccione. Valores predeterminados de página a continuación.",
       sections: {
         page: "Pantalla",
+        canvas: "Lienzo",
         typography: "Tipografía",
         flexLayout: "Diseño flexible",
         layout: "Disposición",
@@ -2552,6 +2555,7 @@ const designLocaleOverrides = {
         "Modifiez la typographie, l'espacement, le dimensionnement, les bordures et remplissez ce que vous sélectionnez. Valeurs par défaut de la page ci-dessous.",
       sections: {
         page: "Écran",
+        canvas: "Canevas",
         typography: "Typographie",
         flexLayout: "Disposition flexible",
         layout: "Mise en page",
@@ -2978,6 +2982,7 @@ const designLocaleOverrides = {
         "Bearbeiten Sie Typografie, Abstände, Größen, Ränder und Füllung für alles, was Sie auswählen. Seitenstandards unten.",
       sections: {
         page: "Screen",
+        canvas: "Arbeitsfläche",
         typography: "Typografie",
         flexLayout: "Flex-Layout",
         layout: "Layout",
@@ -3405,6 +3410,7 @@ const designLocaleOverrides = {
         "選択した内容のタイポグラフィ、間隔、サイズ、境界線、塗りつぶしを編集します。ページのデフォルトは以下です。",
       sections: {
         page: "画面",
+        canvas: "キャンバス",
         typography: "タイポグラフィ",
         flexLayout: "フレックスレイアウト",
         layout: "レイアウト",
@@ -3827,6 +3833,7 @@ const designLocaleOverrides = {
         "선택한 항목에 대해 타이포그래피, 간격, 크기, 테두리 및 채우기를 편집하세요. 아래는 페이지 기본값입니다.",
       sections: {
         page: "화면",
+        canvas: "캔버스",
         typography: "타이포그래피",
         flexLayout: "플렉스 레이아웃",
         layout: "공들여 나열한 것",
@@ -4242,6 +4249,7 @@ const designLocaleOverrides = {
         "Edite tipografia, espaçamento, dimensionamento, bordas e preenchimento de acordo com o que você selecionar. Padrões de página abaixo.",
       sections: {
         page: "Tela",
+        canvas: "Tela de trabalho",
         typography: "Tipografia",
         flexLayout: "Layout flexível",
         layout: "Disposição",
@@ -4664,6 +4672,7 @@ const designLocaleOverrides = {
         "टाइपोग्राफी, रिक्ति, आकार, सीमाएँ संपादित करें और जो भी आप चुनें उसे भरें। पृष्ठ डिफ़ॉल्ट नीचे है.",
       sections: {
         page: "स्क्रीन",
+        canvas: "कैनवास",
         typography: "टाइपोग्राफी",
         flexLayout: "फ्लेक्स लेआउट",
         layout: "लेआउट",
@@ -5077,6 +5086,7 @@ const designLocaleOverrides = {
         "تحرير الطباعة، والتباعد، والتحجيم، والحدود وملء ما تحدده. الإعدادات الافتراضية للصفحة أدناه.",
       sections: {
         page: "الشاشة",
+        canvas: "لوحة الرسم",
         typography: "الطباعة",
         flexLayout: "تخطيط مرن",
         layout: "تَخطِيط",

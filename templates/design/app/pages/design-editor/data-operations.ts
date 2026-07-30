@@ -2,6 +2,7 @@ import type {
   CanvasFrameGeometry,
   CanvasFrameGeometryById,
 } from "@shared/canvas-frames";
+import { parseCssColor } from "@shared/color-utils";
 
 export const KEEPALIVE_ACTION_MAX_BYTES = 60_000;
 
@@ -45,6 +46,20 @@ function operationPathKey(operation: DesignDataOperation): string {
 
 function valuesEqual(left: unknown, right: unknown): boolean {
   return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+}
+
+/** Design-level canvas background, or null when unset/unsafe.
+ *  Validated because it is interpolated into a style attribute — an arbitrary
+ *  persisted string there is a CSS injection vector. */
+export function getDesignCanvasBackground(
+  designData: Record<string, unknown> | null | undefined,
+): string | null {
+  if (!isRecord(designData)) return null;
+  const value = designData.canvasBackground;
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return parseCssColor(trimmed) ? trimmed : null;
 }
 
 /** Breakpoint widths persisted on the design, ascending and de-duplicated.

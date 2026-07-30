@@ -415,6 +415,10 @@ interface EditPanelProps {
    * full-panel preset list is only reachable *before* a frame exists, so
    * without this an existing frame could never be set to a device size.
    */
+  /** Design-level canvas background — the surround, not a screen's document.
+   *  Omit onCanvasBackgroundChange to hide the Canvas section (read-only). */
+  canvasBackground?: string | null;
+  onCanvasBackgroundChange?: (value: string) => void;
   onScreenGeometryChange?: (
     screenId: string,
     next: Partial<
@@ -1465,10 +1469,14 @@ function PageProperties({
   styles,
   onStyleChange,
   onStylesChange,
+  canvasBackground,
+  onCanvasBackgroundChange,
 }: {
   styles: Record<string, string>;
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
+  canvasBackground?: string | null;
+  onCanvasBackgroundChange?: (value: string) => void;
 }) {
   const t = useT();
   const baseFontFamilyOptions = FONT_FAMILY_OPTIONS.map((option) => ({
@@ -1490,6 +1498,18 @@ function PageProperties({
 
   return (
     <div>
+      {/* With nothing selected you are looking at the canvas, so this edits the
+          canvas surround. The section below still owns the SCREEN's own
+          document background and type defaults. */}
+      {onCanvasBackgroundChange ? (
+        <PanelSection title={t("editPanel.sections.canvas")}>
+          <ColorInput
+            label={t("editPanel.labels.background")}
+            value={canvasBackground ?? ""}
+            onChange={(value) => onCanvasBackgroundChange(value)}
+          />
+        </PanelSection>
+      ) : null}
       <PanelSection title={t("editPanel.sections.page")}>
         <ColorInput
           label={t("editPanel.labels.background")}
@@ -1727,6 +1747,8 @@ export const EditPanel = memo(function EditPanel({
   selectedElement,
   selectedElements,
   selectedScreenGeometry,
+  canvasBackground,
+  onCanvasBackgroundChange,
   onScreenGeometryChange,
   pageStyles = {},
   headerTrailing,
@@ -2257,6 +2279,10 @@ export const EditPanel = memo(function EditPanel({
                   styles={pageStyles}
                   onStyleChange={onStyleChange}
                   onStylesChange={onStylesChange}
+                  canvasBackground={canvasBackground}
+                  onCanvasBackgroundChange={
+                    readOnly ? undefined : onCanvasBackgroundChange
+                  }
                 />
               )}
 

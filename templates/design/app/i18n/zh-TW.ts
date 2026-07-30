@@ -137,6 +137,7 @@ const messages = {
       "編輯您選取的任何版式、間距、大小、邊框和填充。頁面預設如下。",
     sections: {
       page: "畫面",
+      canvas: "畫布",
       typography: "版式",
       flexLayout: "彈性布局",
       autoLayout: "自動布局",

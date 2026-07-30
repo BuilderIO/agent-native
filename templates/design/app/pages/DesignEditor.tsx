@@ -580,6 +580,7 @@ import {
   clearAcknowledgedDesignDataOperationsThroughRevision,
   compactDesignDataOperations,
   getDesignBreakpointWidths,
+  getDesignCanvasBackground,
   pendingDesignDataOperations,
   stagePendingDesignDataOperations,
   type DesignDataOperation,
@@ -26294,6 +26295,34 @@ function DesignEditor() {
   /** Applies a typed or preset frame size/position from the inspector. Routed
    *  through handleGeometryCommit so it lands in the same undo entry, viewport
    *  metadata sync, and persist guard that a pointer resize uses. */
+  /** Design-level canvas background (the surround, not a screen's body). */
+  const canvasBackground = useMemo(
+    () => getDesignCanvasBackground(designDataJson),
+    [designDataJson],
+  );
+  const handleCanvasBackgroundChange = useCallback(
+    (value: string) => {
+      if (!id || !canEditDesignRef.current) return;
+      const trimmed = value.trim();
+      const operations: DesignDataOperation[] = [
+        trimmed
+          ? { op: "set", path: ["canvasBackground"], value: trimmed }
+          : { op: "delete", path: ["canvasBackground"] },
+      ];
+      const nextData = applyDesignDataOperations(
+        designDataJsonRef.current,
+        operations,
+      );
+      designDataJsonRef.current = nextData;
+      queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
+        if (!old || typeof old !== "object") return old;
+        return { ...old, data: JSON.stringify(nextData) };
+      });
+      enqueueFrameGeometryDataSave(operations);
+    },
+    [enqueueFrameGeometryDataSave, id, queryClient],
+  );
+
   const handleScreenGeometryChange = useCallback(
     (
       screenId: string,
@@ -31314,6 +31343,15 @@ function DesignEditor() {
                 <div
                   ref={canvasContainerRef}
                   className="relative min-w-0 flex-1 overflow-hidden bg-[var(--design-editor-canvas-bg)]"
+                  // Overrides the themed canvas colour rather than a background
+                  // shorthand, so every descendant reading the var follows.
+                  style={
+                    canvasBackground
+                      ? ({
+                          "--design-editor-canvas-bg": canvasBackground,
+                        } as React.CSSProperties)
+                      : undefined
+                  }
                   onPointerMove={handleCanvasPointerMove}
                   onClick={handleCanvasBackgroundClick}
                 >
@@ -32016,6 +32054,10 @@ function DesignEditor() {
                   readOnly={!canEditDesign}
                   selectedElements={selectedInspectorElements}
                   selectedScreenGeometry={selectedScreenGeometry}
+                  canvasBackground={canvasBackground}
+                  onCanvasBackgroundChange={
+                    canEditDesign ? handleCanvasBackgroundChange : undefined
+                  }
                   onScreenGeometryChange={
                     canEditDesign ? handleScreenGeometryChange : undefined
                   }
@@ -32111,6 +32153,10 @@ function DesignEditor() {
                 readOnly={!canEditDesign}
                 selectedElements={selectedInspectorElements}
                 selectedScreenGeometry={selectedScreenGeometry}
+                canvasBackground={canvasBackground}
+                onCanvasBackgroundChange={
+                  canEditDesign ? handleCanvasBackgroundChange : undefined
+                }
                 onScreenGeometryChange={
                   canEditDesign ? handleScreenGeometryChange : undefined
                 }

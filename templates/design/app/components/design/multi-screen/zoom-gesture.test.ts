@@ -5,6 +5,7 @@ import {
   isPinchZoomDelta,
   MAX_ZOOM_FACTOR_PER_FRAME,
   MOUSE_WHEEL_NOTCH_PX,
+  resolveExternalZoomAnchor,
   resolveZoomFactor,
   ZOOM_STEP_PER_NOTCH,
   zoomFactorForWheelDelta,
@@ -97,5 +98,72 @@ describe("resolveZoomFactor", () => {
 
   it("keeps an ordinary notch below the cap", () => {
     expect(resolveZoomFactor(-100, false)).toBeCloseTo(ZOOM_STEP_PER_NOTCH, 6);
+  });
+});
+
+describe("resolveExternalZoomAnchor", () => {
+  const surfaceSize = { width: 800, height: 600 };
+
+  it("holds the frame centre while it is on screen", () => {
+    expect(
+      resolveExternalZoomAnchor({
+        frameCenter: { x: 320, y: 240 },
+        surfaceSize,
+      }),
+    ).toEqual({ x: 320, y: 240 });
+  });
+
+  it("falls back to the viewport centre when the frame centre is below the fold", () => {
+    // The reported "screens disappear entirely": a frame ~4x taller than the
+    // viewport has its centre far below it, so holding that point fixed pushes
+    // the visible content off screen on the next zoom step.
+    expect(
+      resolveExternalZoomAnchor({
+        frameCenter: { x: 400, y: 3200 },
+        surfaceSize,
+      }),
+    ).toEqual({ x: 400, y: 300 });
+  });
+
+  it("falls back for a centre above or left of the viewport too", () => {
+    expect(
+      resolveExternalZoomAnchor({
+        frameCenter: { x: 400, y: -50 },
+        surfaceSize,
+      }),
+    ).toEqual({ x: 400, y: 300 });
+    expect(
+      resolveExternalZoomAnchor({
+        frameCenter: { x: -10, y: 300 },
+        surfaceSize,
+      }),
+    ).toEqual({ x: 400, y: 300 });
+  });
+
+  it("uses the viewport centre when there is no reference frame", () => {
+    expect(
+      resolveExternalZoomAnchor({ frameCenter: null, surfaceSize }),
+    ).toEqual({ x: 400, y: 300 });
+  });
+
+  it("treats the viewport edges as on screen", () => {
+    expect(
+      resolveExternalZoomAnchor({ frameCenter: { x: 0, y: 600 }, surfaceSize }),
+    ).toEqual({ x: 0, y: 600 });
+  });
+
+  it("does not trust a non-finite or unmeasured surface", () => {
+    expect(
+      resolveExternalZoomAnchor({
+        frameCenter: { x: Number.NaN, y: 10 },
+        surfaceSize,
+      }),
+    ).toEqual({ x: 400, y: 300 });
+    expect(
+      resolveExternalZoomAnchor({
+        frameCenter: { x: 10, y: 10 },
+        surfaceSize: { width: 0, height: 0 },
+      }),
+    ).toEqual({ x: 0, y: 0 });
   });
 });

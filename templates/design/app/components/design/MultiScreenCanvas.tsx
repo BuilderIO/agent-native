@@ -349,6 +349,7 @@ import type { AlignmentGuide, CanvasFrameEntry } from "./multi-screen/types";
 import { vectorEditCanvasToLocalPoint } from "./multi-screen/vector-edit-geometry";
 import {
   isPinchZoomDelta,
+  resolveExternalZoomAnchor,
   resolveZoomFactor,
 } from "./multi-screen/zoom-gesture";
 
@@ -1341,7 +1342,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         : referenceId
           ? frameGeometryRef.current[referenceId]
           : undefined;
-    const cursor = activeGeometry
+    // A screen's frame is routinely much taller than the viewport, so its centre
+    // is often far off-screen; anchoring there holds a point the user cannot see
+    // and pushes the visible content out of frame entirely.
+    const frameCenter = activeGeometry
       ? canvasToScreenPoint(
           {
             x: activeGeometry.x + activeGeometry.width / 2,
@@ -1351,9 +1355,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           { x: 0, y: 0 },
           SURFACE_PADDING,
         )
-      : rect
-        ? { x: rect.width / 2, y: rect.height / 2 }
-        : { x: 0, y: 0 };
+      : null;
+    const cursor = resolveExternalZoomAnchor({
+      frameCenter,
+      surfaceSize: { width: rect?.width ?? 0, height: rect?.height ?? 0 },
+    });
     const nextPan = getPanForZoomToCursor({
       pan: panRef.current,
       cursor,

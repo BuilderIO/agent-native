@@ -64,3 +64,32 @@ export function clampZoomFactor(factor: number): number {
 export function resolveZoomFactor(deltaY: number, pinch: boolean): number {
   return clampZoomFactor(zoomFactorForWheelDelta(deltaY, pinch));
 }
+
+/** Anchor for an externally driven zoom change. Only hold the frame centre when
+ *  it is on screen: a frame taller than the viewport has its centre off-screen,
+ *  and holding an invisible point fixed pushes the visible part out of view. */
+export function resolveExternalZoomAnchor(args: {
+  frameCenter: { x: number; y: number } | null;
+  surfaceSize: { width: number; height: number };
+}): { x: number; y: number } {
+  const { frameCenter, surfaceSize } = args;
+  const viewportCenter = {
+    x: surfaceSize.width / 2,
+    y: surfaceSize.height / 2,
+  };
+  if (!frameCenter) return viewportCenter;
+  if (
+    !Number.isFinite(frameCenter.x) ||
+    !Number.isFinite(frameCenter.y) ||
+    surfaceSize.width <= 0 ||
+    surfaceSize.height <= 0
+  ) {
+    return viewportCenter;
+  }
+  const onScreen =
+    frameCenter.x >= 0 &&
+    frameCenter.x <= surfaceSize.width &&
+    frameCenter.y >= 0 &&
+    frameCenter.y <= surfaceSize.height;
+  return onScreen ? frameCenter : viewportCenter;
+}
