@@ -260,6 +260,17 @@ export function extractAssetUrl(reply: string): string | null {
 }
 
 /**
+ * Chat renders `![]()` as an image but `[]()` as a bare link, and an agent
+ * that only links the result leaves the user with nothing to look at. Handing
+ * back the finished markdown is more reliable than asking the model to
+ * remember the syntax.
+ */
+export function imagePreviewMarkdown(prompt: string, url: string): string {
+  const alt = prompt.replace(/[[\]]/g, "").slice(0, 80).trim();
+  return `![${alt || "Generated image"}](${url})`;
+}
+
+/**
  * Replies are agent prose, so a URL often ends a sentence: keep the trailing
  * punctuation out of the `<img src>`.
  */

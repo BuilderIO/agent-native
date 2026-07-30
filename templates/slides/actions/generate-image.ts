@@ -35,6 +35,7 @@ import pLimit from "p-limit";
 import {
   delegateImageGenerationToAssets,
   extractAssetUrl,
+  imagePreviewMarkdown,
   stripHtml,
 } from "../server/lib/assets-image-delegation.js";
 import { DEFAULT_STYLE_REFERENCE_URLS } from "../shared/api.js";
@@ -187,6 +188,15 @@ Options:
     // Print the reply verbatim so the calling agent parses URLs the Assets
     // agent actually returned.
     console.log(delegation.reply);
+    const previewUrl = extractAssetUrl(delegation.reply);
+    if (previewUrl) {
+      // Hand back finished markdown: a bare link renders as text in chat, so
+      // the user would see no image at all.
+      console.log(
+        `\nShow this to the user verbatim so the image renders inline:\n` +
+          imagePreviewMarkdown(prompt, previewUrl),
+      );
+    }
     if (outputPrefix) {
       await saveDelegatedImage(delegation.reply, outputPrefix);
     }

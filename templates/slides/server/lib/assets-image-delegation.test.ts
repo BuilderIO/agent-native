@@ -29,6 +29,7 @@ vi.mock("@agent-native/core/a2a", () => ({
 import {
   delegateImageGenerationToAssets,
   extractAssetUrl,
+  imagePreviewMarkdown,
 } from "./assets-image-delegation.js";
 
 function task(state: string, text?: string) {
@@ -128,5 +129,23 @@ describe("extractAssetUrl", () => {
 
   it("returns null when the reply has no url", () => {
     expect(extractAssetUrl("I could not generate that image.")).toBeNull();
+  });
+});
+
+describe("imagePreviewMarkdown", () => {
+  // A bare link renders as text in chat, so the user sees no image.
+  it("builds an image, not a link", () => {
+    expect(
+      imagePreviewMarkdown("a monstera", "https://cdn.example.com/a.png"),
+    ).toBe("![a monstera](https://cdn.example.com/a.png)");
+  });
+
+  it("strips brackets that would break the markdown", () => {
+    expect(
+      imagePreviewMarkdown(
+        "a [very] green plant",
+        "https://cdn.example.com/a.png",
+      ),
+    ).toBe("![a very green plant](https://cdn.example.com/a.png)");
   });
 });

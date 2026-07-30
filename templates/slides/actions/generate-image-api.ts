@@ -6,6 +6,7 @@ import { z } from "zod";
 import {
   delegateImageGenerationToAssets,
   extractAssetUrl,
+  imagePreviewMarkdown,
 } from "../server/lib/assets-image-delegation.js";
 import { DEFAULT_STYLE_REFERENCE_URLS } from "../shared/api.js";
 
@@ -68,7 +69,7 @@ export default defineAction({
         // The reply is the Assets agent's own text. Pass it through verbatim
         // rather than guessing at URLs it did not return.
         reply: delegation.reply,
-        ...(url ? { url } : {}),
+        ...(url ? { url, showToUser: imagePreviewMarkdown(prompt, url) } : {}),
       };
     }
 
@@ -117,6 +118,7 @@ export default defineAction({
     return {
       source: "slides-fallback" as const,
       fallbackReason: delegation.reason,
+      showToUser: imagePreviewMarkdown(prompt, uploaded.url),
       url: uploaded.url,
       model: result.model,
       prompt,
