@@ -481,42 +481,42 @@ async function buildPptxSlide(
 }> {
   const { convertToSlideHtml } =
     await import("../server/handlers/import/html-converter.js");
-  const image = slide.images[0];
-  const uploadable =
-    image && PPTX_BROWSER_RENDERABLE_IMAGE_MIME_TYPES.has(image.mimeType)
-      ? image
-      : undefined;
-  const imageUrl = uploadable
-    ? await uploadFile({
-        data: Buffer.from(uploadable.data),
-        filename:
-          "pptx-import-" +
-          Date.now() +
-          "-s" +
-          slideIndex +
-          "-" +
-          uploadable.name,
-        mimeType: uploadable.mimeType,
-        ownerEmail,
-        recordAsset: false,
-      })
-        .then((result) => result?.url)
-        // A single slide's upload failing (network/API/rate-limit)
-        // shouldn't abort the whole deck replacement — fall back to a
-        // placeholder like an unsupported format would.
-        .catch(() => undefined)
-    : undefined;
+  const imageUrls = await Promise.all(
+    slide.images.map(async (image, imageIndex) => {
+      if (!PPTX_BROWSER_RENDERABLE_IMAGE_MIME_TYPES.has(image.mimeType)) {
+        return undefined;
+      }
+      return (
+        uploadFile({
+          data: Buffer.from(image.data),
+          filename:
+            "pptx-import-" +
+            Date.now() +
+            "-s" +
+            slideIndex +
+            "-i" +
+            imageIndex +
+            "-" +
+            image.name,
+          mimeType: image.mimeType,
+          ownerEmail,
+          recordAsset: false,
+        })
+          .then((result) => result?.url)
+          // One image upload failing should not abort the deck replacement -
+          // keep a placeholder and continue with the other slide content.
+          .catch(() => undefined)
+      );
+    }),
+  );
   return {
     slide: {
       id: newSlideId(),
-      content: convertToSlideHtml(slide, imageUrl, themeFont),
+      content: convertToSlideHtml(slide, imageUrls, themeFont),
       layout: slide.layoutHint ?? "content",
       notes: slide.notes,
     },
-    // Only the first image on a slide is ever uploaded, so every other
-    // image on that slide is unconditionally dropped too — not just the
-    // first one when it's unsupported.
-    imageSkippedCount: Math.max(0, slide.images.length - (imageUrl ? 1 : 0)),
+    imageSkippedCount: imageUrls.filter((url) => !url).length,
   };
 }
 

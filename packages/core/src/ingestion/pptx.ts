@@ -4,6 +4,8 @@ export interface ParsedPptxTextRun {
   italic?: boolean;
   fontSize?: number;
   color?: string;
+  /** Zero-based source paragraph index, when the PPTX contains paragraph nodes. */
+  paragraph?: number;
 }
 
 export interface ParsedPptxImage {
@@ -27,6 +29,7 @@ export interface ParsedPptxPresentation {
   title: string;
   slides: ParsedPptxSlide[];
   theme?: { colors: string[]; fonts: string[] };
+  slideSize?: { widthEmu: number; heightEmu: number };
 }
 
 interface ZipFile {
@@ -186,7 +189,11 @@ export async function parsePptxPresentation(
       .sort((a, b) => (b.fontSize ?? 0) - (a.fontSize ?? 0))[0]
       ?.content.trim()
       .slice(0, 200) || "Imported Presentation";
-  return { title, slides, theme };
+  const slideSize =
+    slideWidthEmu && slideHeightEmu
+      ? { widthEmu: slideWidthEmu, heightEmu: slideHeightEmu }
+      : undefined;
+  return { title, slides, theme, slideSize };
 }
 
 async function parseTheme(
@@ -220,25 +227,90 @@ function collectTextRuns(
   value: unknown,
   runs: ParsedPptxTextRun[],
   inherited: Omit<ParsedPptxTextRun, "content"> = {},
+  state: { nextParagraph: number } = { nextParagraph: 0 },
 ): void {
   const node = record(value);
   if (!node) return;
+
+  const paragraphs = asArray(node["a:p"]);
+  if (paragraphs.length > 0) {
+    for (const paragraph of paragraphs) {
+      collectParagraphTextRuns(
+        paragraph,
+        runs,
+        inherited,
+        state.nextParagraph++,
+      );
+    }
+  }
+
+  // Keep a fallback for malformed/minimal XML that contains runs without an
+  // enclosing paragraph. Normal Office files take the branch above.
+  if (
+    paragraphs.length === 0 &&
+    (node["a:r"] !== undefined || node["a:t"] !== undefined)
+  ) {
+    collectParagraphTextRuns(value, runs, inherited, state.nextParagraph++);
+  }
+
+  for (const [key, child] of Object.entries(node)) {
+    if (key.startsWith("@_") || key === "a:p" || key === "a:r" || key === "a:t")
+      continue;
+    for (const item of asArray(child)) {
+      collectTextRuns(item, runs, inherited, state);
+    }
+  }
+}
+
+function collectParagraphTextRuns(
+  value: unknown,
+  runs: ParsedPptxTextRun[],
+  inherited: Omit<ParsedPptxTextRun, "content">,
+  paragraph: number,
+): void {
+  const node = record(value);
+  if (!node) return;
+
   for (const raw of asArray(node["a:r"])) {
     const run = record(raw);
     const content = innerText(run?.["a:t"]);
-    if (content)
+    if (content) {
       runs.push({
         content,
+        paragraph,
         ...runProperties(record(run?.["a:rPr"]), inherited),
       });
+    }
   }
+
+  // A break is part of the current paragraph, unlike a second a:p. Keep it
+  // in the run stream so the HTML converter can preserve explicit line breaks.
+  for (const raw of asArray(node["a:br"])) {
+    if (runs.at(-1)?.paragraph === paragraph) {
+      runs[runs.length - 1].content += "\n";
+    } else {
+      runs.push({ content: "\n", paragraph, ...inherited });
+    }
+    void raw;
+  }
+
   if (node["a:t"] !== undefined && node["a:r"] === undefined) {
     const content = innerText(node["a:t"]);
-    if (content) runs.push({ content, ...inherited });
+    if (content) runs.push({ content, paragraph, ...inherited });
   }
+
   for (const [key, child] of Object.entries(node)) {
-    if (key.startsWith("@_") || key === "a:r" || key === "a:t") continue;
-    for (const item of asArray(child)) collectTextRuns(item, runs, inherited);
+    if (
+      key.startsWith("@_") ||
+      key === "a:r" ||
+      key === "a:t" ||
+      key === "a:br"
+    ) {
+      continue;
+    }
+    for (const item of asArray(child)) {
+      collectParagraphTextRuns(item, runs, inherited, paragraph);
+    }
   }
 }
 

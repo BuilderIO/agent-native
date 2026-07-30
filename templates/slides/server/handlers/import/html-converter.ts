@@ -74,8 +74,20 @@ function cssFontFamily(themeFont: string | undefined): string {
 function groupIntoParagraphs(texts: ParsedTextRun[]): ParsedTextRun[][] {
   const paragraphs: ParsedTextRun[][] = [];
   let current: ParsedTextRun[] = [];
+  let currentParagraph: number | undefined;
 
   for (const run of texts) {
+    if (
+      current.length > 0 &&
+      run.paragraph !== undefined &&
+      currentParagraph !== undefined &&
+      run.paragraph !== currentParagraph
+    ) {
+      paragraphs.push(current);
+      current = [];
+    }
+    if (run.paragraph !== undefined) currentParagraph = run.paragraph;
+
     // Split on explicit newlines within content
     const parts = run.content.split(/\r?\n/);
     for (let i = 0; i < parts.length; i++) {
@@ -83,8 +95,8 @@ function groupIntoParagraphs(texts: ParsedTextRun[]): ParsedTextRun[][] {
         paragraphs.push(current);
         current = [];
       }
-      const text = parts[i].trim();
-      if (text) {
+      const text = parts[i];
+      if (text.length > 0) {
         current.push({ ...run, content: text });
       }
     }
@@ -107,17 +119,19 @@ function groupIntoParagraphs(texts: ParsedTextRun[]): ParsedTextRun[][] {
  */
 export function convertToSlideHtml(
   slide: ParsedSlide,
-  imageUrl?: string,
+  imageUrls?: string | Array<string | undefined>,
   themeFont?: string,
 ): string {
   const paragraphs = groupIntoParagraphs(slide.texts);
   const fontFamily = cssFontFamily(themeFont);
+  const normalizedImageUrls =
+    typeof imageUrls === "string" ? [imageUrls] : (imageUrls ?? []);
 
   // An embedded image always wins the layout choice — a forced title slide
   // has no room to show it, which is how imports used to silently drop
   // photos from otherwise short/title-shaped slides.
   if (slide.images.length > 0) {
-    return buildImageSlide(paragraphs, slide, imageUrl, fontFamily);
+    return buildImageSlide(paragraphs, slide, normalizedImageUrls, fontFamily);
   }
 
   if (slide.layoutHint === "title" || paragraphs.length <= 2) {
@@ -135,8 +149,8 @@ function buildTitleSlide(
   const titlePara = paragraphs[0] ?? [];
   const subtitlePara = paragraphs[1] ?? [];
 
-  const titleText = titlePara.map(formatRun).join(" ") || "Untitled Slide";
-  const subtitleText = subtitlePara.map(formatRun).join(" ");
+  const titleText = titlePara.map(formatRun).join("") || "Untitled Slide";
+  const subtitleText = subtitlePara.map(formatRun).join("");
 
   return `<div class="fmd-slide" style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; font-family: ${fontFamily};">
     <h1 style="font-size: 64px; font-weight: 900; color: #fff; line-height: 1.1; letter-spacing: -2px; margin: 0 0 24px 0;">${titleText}</h1>${subtitleText ? `\n    <p style="font-size: 22px; color: rgba(255,255,255,0.55); margin: 0;">${subtitleText}</p>` : ""}
@@ -152,13 +166,13 @@ function buildContentSlide(
   const headingPara = paragraphs[0] ?? [];
   const bulletParas = paragraphs.slice(1);
 
-  const headingText = headingPara.map(formatRun).join(" ") || "Slide";
+  const headingText = headingPara.map(formatRun).join("") || "Slide";
 
   let bulletsHtml = "";
   if (bulletParas.length > 0) {
     const bulletItems = bulletParas
       .map((para) => {
-        const text = para.map(formatRun).join(" ");
+        const text = para.map(formatRun).join("");
         return `      <div style="display: flex; align-items: flex-start; gap: 16px;">
         <span style="font-size: 8px; color: #fff; margin-top: 8px; flex-shrink: 0;">&#x25CF;</span>
         <span style="font-size: 22px; color: rgba(255,255,255,0.85); line-height: 1.5;">${text}</span>
@@ -213,19 +227,20 @@ function imageOrPlaceholder(
 function buildImageSlide(
   paragraphs: ParsedTextRun[][],
   slide: ParsedSlide,
-  imageUrl: string | undefined,
+  imageUrls: Array<string | undefined>,
   fontFamily: string,
 ): string {
-  if (imageUrl && slide.images[0]?.fullBleed) {
-    return buildOverlayImageSlide(paragraphs, imageUrl, fontFamily);
+  if (imageUrls[0] && slide.images[0]?.fullBleed) {
+    return buildOverlayImageSlide(paragraphs, slide, imageUrls, fontFamily);
   }
-  return buildStackedImageSlide(paragraphs, slide, imageUrl, fontFamily);
+  return buildStackedImageSlide(paragraphs, slide, imageUrls, fontFamily);
 }
 
 /** Full-bleed photo with the heading/caption overlaid at the bottom behind a gradient scrim. */
 function buildOverlayImageSlide(
   paragraphs: ParsedTextRun[][],
-  imageUrl: string,
+  slide: ParsedSlide,
+  imageUrls: Array<string | undefined>,
   fontFamily: string,
 ): string {
   const headingPara = paragraphs[0] ?? [];
@@ -233,15 +248,28 @@ function buildOverlayImageSlide(
 
   const captionParas = paragraphs.slice(1);
   const captionHtml = captionParas
-    .map((para) => para.map(formatRun).join(" "))
+    .map((para) => para.map(formatRun).join(""))
     .join(" ");
+  const additionalImages = slide.images
+    .slice(1)
+    .map((image, index) =>
+      imageOrPlaceholder(
+        imageUrls[index + 1],
+        image.name,
+        "width: 140px; height: 90px; border-radius: 8px;",
+      ),
+    )
+    .join("");
+  const additionalImagesHtml = additionalImages
+    ? `\n    <div style="position: absolute; top: 24px; right: 24px; display: flex; gap: 10px;">${additionalImages}</div>`
+    : "";
 
   return `<div class="fmd-slide" style="position: relative; width: 100%; height: 100%; overflow: hidden;">
-    <img src="${esc(imageUrl)}" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;" />
+    <img src="${esc(imageUrls[0]!)}" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;" />
     <div style="position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.35) 55%, rgba(0,0,0,0) 80%);"></div>
     <div style="position: absolute; left: 0; right: 0; bottom: 0; padding: 56px 70px; font-family: ${fontFamily};">
       <h2 style="font-size: 40px; font-weight: 900; color: #fff; line-height: 1.15; letter-spacing: -1px; margin: 0 0 ${captionHtml ? "12px" : "0"} 0;">${headingHtml}</h2>${captionHtml ? `\n      <p style="font-size: 18px; color: rgba(255,255,255,0.75); line-height: 1.5; margin: 0;">${captionHtml}</p>` : ""}
-    </div>
+    </div>${additionalImagesHtml}
 </div>`;
 }
 
@@ -249,35 +277,30 @@ function buildOverlayImageSlide(
 function buildStackedImageSlide(
   paragraphs: ParsedTextRun[][],
   slide: ParsedSlide,
-  imageUrl: string | undefined,
+  imageUrls: Array<string | undefined>,
   fontFamily: string,
 ): string {
   const headingPara = paragraphs[0] ?? [];
-  const headingText = headingPara.map(formatRun).join(" ") || "Slide";
+  const headingText = headingPara.map(formatRun).join("") || "Slide";
 
   const captionParas = paragraphs.slice(1);
   const captionText = captionParas
-    .map((para) => para.map(formatRun).join(" "))
+    .map((para) => para.map(formatRun).join(""))
     .join(" ");
 
-  const imageName = slide.images[0]?.name ?? "image";
-  // Size the box to the image's own placed aspect ratio instead of a fixed
-  // height, so portrait and landscape source photos both render undistorted
-  // — a fixed height forced `object-fit: cover` to crop whichever
-  // orientation didn't match the assumed box.
-  const aspectRatio = slide.images[0]?.aspectRatio ?? 16 / 9;
-  // `max-width` (not `width: 100%`) so the aspect-ratio box is never forced
-  // wider than the height cap allows — pinning width to 100% while also
-  // capping height made `object-fit: cover` crop the image to fit, which
-  // defeated the point of sizing the box to its real aspect ratio.
-  const imageHtml = imageOrPlaceholder(
-    imageUrl,
-    imageName,
-    `display: block; max-width: 100%; max-height: 320px; aspect-ratio: ${aspectRatio}; border-radius: 12px; margin: 0 auto 24px;`,
-  );
+  const imageHtml = slide.images
+    .map((image, index) => {
+      const aspectRatio = image.aspectRatio ?? 16 / 9;
+      return imageOrPlaceholder(
+        imageUrls[index],
+        image.name,
+        `display: block; flex: 1 1 240px; max-width: calc(50% - 8px); max-height: 320px; aspect-ratio: ${aspectRatio}; border-radius: 12px;`,
+      );
+    })
+    .join("");
 
   return `<div class="fmd-slide" style="padding: 64px 90px; display: flex; flex-direction: column; justify-content: flex-start; font-family: ${fontFamily};">
-    ${imageHtml}
+    <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 16px; margin: 0 0 24px;">${imageHtml}</div>
     <h2 style="font-size: 32px; font-weight: 900; color: #fff; line-height: 1.2; letter-spacing: -0.5px; margin: 0 0 12px 0;">${headingText}</h2>${captionText ? `\n    <p style="font-size: 16px; color: rgba(255,255,255,0.7); line-height: 1.5; margin: 0;">${captionText}</p>` : ""}
 </div>`;
 }

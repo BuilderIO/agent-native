@@ -32,32 +32,42 @@ const BROWSER_RENDERABLE_IMAGE_MIME_TYPES = new Set([
   "image/bmp",
 ]);
 
-async function uploadFirstSlideImage(
+async function uploadSlideImages(
   slide: ParsedSlide,
   slideIndex: number,
   ownerEmail: string,
-): Promise<string | undefined> {
-  const image = slide.images[0];
-  if (!image || !BROWSER_RENDERABLE_IMAGE_MIME_TYPES.has(image.mimeType)) {
-    return undefined;
-  }
-  const filename =
-    "pptx-import-" + Date.now() + "-s" + slideIndex + "-" + image.name;
-  try {
-    const result = await uploadFile({
-      data: Buffer.from(image.data),
-      filename,
-      mimeType: image.mimeType,
-      ownerEmail,
-      recordAsset: false,
-    });
-    return result?.url;
-  } catch {
-    // A single slide's upload failing (network/API/rate-limit) shouldn't
-    // abort the whole deck import — that slide's text still imports fine,
-    // it just falls back to a placeholder like an unsupported format would.
-    return undefined;
-  }
+): Promise<Array<string | undefined>> {
+  return Promise.all(
+    slide.images.map(async (image, imageIndex) => {
+      if (!BROWSER_RENDERABLE_IMAGE_MIME_TYPES.has(image.mimeType)) {
+        return undefined;
+      }
+      const filename =
+        "pptx-import-" +
+        Date.now() +
+        "-s" +
+        slideIndex +
+        "-i" +
+        imageIndex +
+        "-" +
+        image.name;
+      try {
+        const result = await uploadFile({
+          data: Buffer.from(image.data),
+          filename,
+          mimeType: image.mimeType,
+          ownerEmail,
+          recordAsset: false,
+        });
+        return result?.url;
+      } catch {
+        // A single image upload failing (network/API/rate-limit) shouldn't
+        // abort the whole deck import. Keep a placeholder for that image and
+        // continue importing the slide's other images and text.
+        return undefined;
+      }
+    }),
+  );
 }
 
 export default defineAction({
@@ -99,24 +109,17 @@ export default defineAction({
       await assertAccess("deck", deckId, "editor");
     }
 
-    // Convert each parsed slide to our HTML format, uploading the first
-    // embedded image (if any) so it renders as a real image instead of a
-    // text placeholder. Concurrency is capped so a large deck doesn't fire
-    // one outbound upload per slide at once. An image can end up unused
-    // (unsupported format, or upload storage not configured) without
-    // failing the whole import — the slide's text still imports fine — but
-    // that shouldn't be a silent, invisible degradation, so it's counted
-    // and returned to the caller.
+    // Convert each parsed slide to our HTML format, uploading every embedded
+    // browser-renderable image so multi-image slides do not silently lose
+    // content. Concurrency is capped so a large deck doesn't fire one
+    // outbound upload per slide at once. Unsupported formats and upload
+    // failures remain visible placeholders and are counted for the caller.
     const uploadLimit = pLimit(4);
     const results = await Promise.all(
       presentation.slides.map((parsedSlide, i) =>
         uploadLimit(async () => {
-          const imageUrl = await uploadFirstSlideImage(
-            parsedSlide,
-            i,
-            ownerEmail,
-          );
-          const html = convertToSlideHtml(parsedSlide, imageUrl, themeFont);
+          const imageUrls = await uploadSlideImages(parsedSlide, i, ownerEmail);
+          const html = convertToSlideHtml(parsedSlide, imageUrls, themeFont);
           return {
             slide: {
               id: `slide-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -124,13 +127,7 @@ export default defineAction({
               layout: parsedSlide.layoutHint ?? "content",
               notes: parsedSlide.notes,
             },
-            // Only the first image on a slide is ever uploaded, so every
-            // other image on that slide is unconditionally dropped too —
-            // not just the first one when it's unsupported.
-            imageSkippedCount: Math.max(
-              0,
-              parsedSlide.images.length - (imageUrl ? 1 : 0),
-            ),
+            imageSkippedCount: imageUrls.filter((url) => !url).length,
           };
         }),
       ),
