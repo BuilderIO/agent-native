@@ -3639,17 +3639,33 @@ function isStructurallyEmptyToolValue(value: unknown): boolean {
   );
 }
 
-function schemaAcceptsToolValue(schema: object, value: unknown): boolean {
-  let validator = optionalPlaceholderValidatorCache.get(schema);
-  if (!validator) {
-    try {
-      validator = optionalPlaceholderAjv.compile(schema);
-      optionalPlaceholderValidatorCache.set(schema, validator);
-    } catch {
-      return false;
-    }
+function compileToolValueValidator(schema: object): ValidateFunction | null {
+  const cached = optionalPlaceholderValidatorCache.get(schema);
+  if (cached) return cached;
+  try {
+    const validator = optionalPlaceholderAjv.compile(schema);
+    optionalPlaceholderValidatorCache.set(schema, validator);
+    return validator;
+  } catch {
+    return null;
   }
-  return Boolean(validator(value));
+}
+
+function schemaAcceptsToolValue(schema: object, value: unknown): boolean {
+  const validator = compileToolValueValidator(schema);
+  return validator ? Boolean(validator(value)) : false;
+}
+
+/**
+ * True only when the sub-schema compiled AND rejected the value. A sub-schema
+ * that cannot be compiled standalone — a `$ref` into the root `$defs`, say — is
+ * unknown, not invalid; counting it as invalid would let one unreadable
+ * sub-schema delete the caller's intentional empty values everywhere else in
+ * the same object.
+ */
+function schemaRejectsToolValue(schema: object, value: unknown): boolean {
+  const validator = compileToolValueValidator(schema);
+  return validator ? !validator(value) : false;
 }
 
 /** The `const`/single-value-`enum` a discriminated-union branch pins a key to. */
@@ -3751,7 +3767,7 @@ function stripOptionalToolPlaceholders(
     if (!propertySchema || typeof propertySchema !== "object") continue;
     if (!required.has(key) && isStructurallyEmptyToolValue(entry)) {
       placeholders.push(key);
-      if (!schemaAcceptsToolValue(propertySchema, entry)) {
+      if (schemaRejectsToolValue(propertySchema, entry)) {
         hasSchemaInvalidPlaceholder = true;
       }
       continue;
@@ -3861,7 +3877,16 @@ function shouldValidateRawToolParameters(entry: ActionEntry): boolean {
  * never meant. The model reads the loudest, wrong advice and re-sends the same
  * arguments until the identical-error breaker ends the turn. When the
  * discriminator names a branch, report only that branch's errors.
+ *
+ * Scoped by `instancePath` as well as `schemaPath`: every element of an array
+ * shares one `items` schema, so `operations[0]` and `operations[1]` produce
+ * branch errors under the same `schemaPath` and only the instance path says
+ * which element they belong to.
  */
+function isWithinInstancePath(candidate: string, root: string): boolean {
+  return candidate === root || candidate.startsWith(`${root}/`);
+}
+
 function narrowOneOfErrors(
   errors: ErrorObject[] | null | undefined,
 ): ErrorObject[] | null | undefined {
@@ -3876,6 +3901,9 @@ function narrowOneOfErrors(
     const branchPrefix = `${error.schemaPath}/`;
     kept = kept.filter((candidate) => {
       if (candidate === error) return false;
+      if (!isWithinInstancePath(candidate.instancePath, error.instancePath)) {
+        return true;
+      }
       if (!candidate.schemaPath.startsWith(branchPrefix)) return true;
       return candidate.schemaPath.startsWith(`${branchPrefix}${index}/`);
     });

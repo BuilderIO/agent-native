@@ -205,6 +205,25 @@ describe("discriminated-union tool input", () => {
     expect(result).toContain('"patch-deck-fields"');
   });
 
+  // Every element of an array shares one `items` schema, so all their branch
+  // errors share a schemaPath and differ only by instancePath. Narrowing on
+  // schemaPath alone lets operation 0's chosen branch delete operation 1's
+  // errors, and vice versa, until nothing survives.
+  it("narrows each array element against its own discriminator", async () => {
+    const { errorClause } = await runPatchDeck({
+      deckId: "d1",
+      operations: [
+        { op: "patch-deck-fields", fields: { visibility: "everyone" } },
+        { op: "patch-slide", fields: { content: "hi" } },
+      ],
+    });
+
+    expect(errorClause).toContain("visibility");
+    expect(errorClause).toContain("slideId");
+    expect(errorClause).not.toContain("orderedIds");
+    expect(errorClause).not.toContain("must match exactly one schema in oneOf");
+  });
+
   it("keeps every branch error when no discriminator matches", async () => {
     const { errorClause } = await runPatchDeck({
       deckId: "d1",
