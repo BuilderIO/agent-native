@@ -1301,11 +1301,21 @@ async function createDbExecInternal(
               fetchOptions: { signal: controller.signal },
             });
           }
-          const statementTimeoutMs = postgresStatementTimeoutMs(timeoutMs);
+          const statementDeadlineMs =
+            Date.now() + postgresStatementTimeoutMs(timeoutMs);
           const results = await httpSql.transaction(
             [
               httpSql.query(
-                `SET LOCAL statement_timeout = ${statementTimeoutMs}`,
+                `SELECT set_config(
+                  'statement_timeout',
+                  GREATEST(
+                    1,
+                    $1::bigint -
+                      FLOOR(EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::bigint
+                  )::text,
+                  true
+                )`,
+                [statementDeadlineMs],
               ),
               httpSql.query(pgSql, args as any[]),
             ],

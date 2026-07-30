@@ -1068,7 +1068,9 @@ describe("Neon background HTTP statement budgets", () => {
     vi.resetModules();
   });
 
-  it("uses a transaction-local server timeout without checking out a pooled client", async () => {
+  it("derives the transaction-local timeout from the server-side remaining deadline", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-30T18:00:00Z"));
     vi.stubEnv("NETLIFY", "true");
     (
       globalThis as Record<string, unknown>
@@ -1114,14 +1116,24 @@ describe("Neon background HTTP statement budgets", () => {
     ).resolves.toEqual({ rows: [{ value: 1 }], rowsAffected: 1 });
 
     expect(pool.connect).not.toHaveBeenCalled();
+    const statementDeadlineMs =
+      new Date("2026-07-30T18:00:00Z").getTime() + 3_750;
     expect(httpQuery).toHaveBeenNthCalledWith(
       1,
-      "SET LOCAL statement_timeout = 3750",
+      expect.stringContaining(
+        "FLOOR(EXTRACT(EPOCH FROM clock_timestamp()) * 1000)",
+      ),
+      [statementDeadlineMs],
     );
     expect(httpQuery).toHaveBeenNthCalledWith(2, "SELECT $1 AS value", [1]);
     expect(transaction).toHaveBeenCalledWith(
       [
-        { text: "SET LOCAL statement_timeout = 3750", values: undefined },
+        {
+          text: expect.stringContaining(
+            "FLOOR(EXTRACT(EPOCH FROM clock_timestamp()) * 1000)",
+          ),
+          values: [statementDeadlineMs],
+        },
         { text: "SELECT $1 AS value", values: [1] },
       ],
       {
