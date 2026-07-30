@@ -138,7 +138,9 @@ export interface CalendarEventDraft {
   endTimeZone?: string;
   location?: string;
   allDay?: boolean;
+  fullDay?: boolean;
   eventType?: "default" | "outOfOffice" | "focusTime" | "workingLocation";
+  outOfOfficeProperties?: CalendarEvent["outOfOfficeProperties"];
   transparency?: "opaque" | "transparent";
   visibility?: "default" | "public" | "private" | "confidential";
   colorId?: string;

@@ -46,6 +46,7 @@ import { getEventDisplayColor, allOtherDeclined } from "@/lib/event-colors";
 import {
   getFirstVisibleOutOfOfficeDayIndex,
   getOutOfOfficeSegment,
+  isFullDayOutOfOfficeEvent,
   isOutOfOfficeEvent,
 } from "@/lib/out-of-office";
 import {
@@ -684,10 +685,22 @@ export const WeekView = memo(function WeekView({
   );
 
   // Separate all-day and timed events
-  const allDayEvents = useMemo(() => events.filter((e) => e.allDay), [events]);
+  const allDayEvents = useMemo(
+    () =>
+      events.filter(
+        (event) => event.allDay || isFullDayOutOfOfficeEvent(event),
+      ),
+    [events],
+  );
 
   const outOfOfficeEvents = useMemo(
-    () => events.filter((event) => !event.allDay && isOutOfOfficeEvent(event)),
+    () =>
+      events.filter(
+        (event) =>
+          !event.allDay &&
+          isOutOfOfficeEvent(event) &&
+          !isFullDayOutOfOfficeEvent(event),
+      ),
     [events],
   );
 

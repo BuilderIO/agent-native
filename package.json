@@ -61,6 +61,8 @@
     "guard:template-list": "node scripts/guard-template-list.mjs",
     "guard:netlify-private-env": "tsx scripts/guard-netlify-private-env.ts",
     "guard:trusted-acceptance": "tsx scripts/guard-trusted-acceptance-workflow.ts",
+    "guard:content-product-docs": "tsx scripts/validate-content-product-docs.ts",
+    "test:content-product-docs": "tsx --test scripts/validate-content-product-docs.test.ts",
     "guard:workspace-skills": "tsx scripts/sync-workspace-core-skills.ts --check",
     "sync:template-standard": "tsx scripts/template-standard/index.ts",
     "guard:template-standard": "tsx scripts/template-standard/index.ts --check",

@@ -14,6 +14,7 @@ vi.mock("../server/lib/google-calendar.js", () => ({
 import {
   buildStatusEventFields,
   ensureOrganizerInAttendees,
+  normalizeCreateEventInput,
   validateStatusEventTiming,
   resolveOwnedAccountEmail,
 } from "./event-action-helpers";
@@ -101,7 +102,38 @@ describe("buildStatusEventFields", () => {
       eventType: "outOfOffice",
       transparency: "opaque",
       outOfOfficeProperties: {
+        autoDeclineMode: "declineAllConflictingInvitations",
+        declineMessage: "Declined because I am out of office",
+      },
+    });
+  });
+
+  it("preserves explicit out-of-office decline settings", () => {
+    expect(
+      buildStatusEventFields({
+        eventType: "outOfOffice",
+        autoDeclineMode: "declineOnlyNewConflictingInvitations",
+        declineMessage: "I will reply when I return.",
+      }),
+    ).toMatchObject({
+      outOfOfficeProperties: {
+        autoDeclineMode: "declineOnlyNewConflictingInvitations",
+        declineMessage: "I will reply when I return.",
+      },
+    });
+  });
+
+  it("omits a decline message when invitations will not be declined", () => {
+    expect(
+      buildStatusEventFields({
+        eventType: "outOfOffice",
         autoDeclineMode: "declineNone",
+        declineMessage: "This should not be sent.",
+      }),
+    ).toMatchObject({
+      outOfOfficeProperties: {
+        autoDeclineMode: "declineNone",
+        declineMessage: undefined,
       },
     });
   });
@@ -150,6 +182,136 @@ describe("buildStatusEventFields", () => {
         officeLocation: { label: "Pier 57" },
       },
     });
+  });
+});
+
+describe("normalizeCreateEventInput", () => {
+  it("defaults the OOO title and translates one inclusive date into timed bounds", () => {
+    expect(
+      normalizeCreateEventInput({
+        eventType: "outOfOffice",
+        start: "2026-07-31",
+        end: "2026-07-31",
+        startTimeZone: "America/Indiana/Indianapolis",
+        fullDay: true,
+      }),
+    ).toEqual({
+      title: "Out of office",
+      start: "2026-07-31T04:00:00.000Z",
+      end: "2026-08-01T04:00:00.000Z",
+      startTimeZone: "America/Indiana/Indianapolis",
+      endTimeZone: "America/Indiana/Indianapolis",
+      allDay: false,
+    });
+  });
+
+  it("uses the inclusive end date and preserves local midnight across DST", () => {
+    expect(
+      normalizeCreateEventInput({
+        title: "Winter break",
+        eventType: "outOfOffice",
+        start: "2026-10-31",
+        end: "2026-11-01",
+        startTimeZone: "America/New_York",
+        fullDay: true,
+      }),
+    ).toMatchObject({
+      title: "Winter break",
+      start: "2026-10-31T04:00:00.000Z",
+      end: "2026-11-02T05:00:00.000Z",
+      allDay: false,
+    });
+  });
+
+  it("normalizes full-day OOO across a skipped local midnight", () => {
+    expect(
+      normalizeCreateEventInput({
+        eventType: "outOfOffice",
+        start: "2026-09-06",
+        end: "2026-09-06",
+        startTimeZone: "America/Santiago",
+        fullDay: true,
+      }),
+    ).toMatchObject({
+      start: "2026-09-06T04:00:00.000Z",
+      end: "2026-09-07T03:00:00.000Z",
+      allDay: false,
+    });
+  });
+
+  it("requires dates in order and an explicit timezone for full-day OOO", () => {
+    expect(() =>
+      normalizeCreateEventInput({
+        eventType: "outOfOffice",
+        start: "2026-08-02",
+        end: "2026-08-01",
+        startTimeZone: "America/New_York",
+        fullDay: true,
+      }),
+    ).toThrow("end date must be on or after");
+    expect(() =>
+      normalizeCreateEventInput({
+        eventType: "outOfOffice",
+        start: "2026-08-01",
+        end: "2026-08-01",
+        fullDay: true,
+      }),
+    ).toThrow("require an IANA timezone");
+    expect(() =>
+      normalizeCreateEventInput({
+        eventType: "outOfOffice",
+        start: "2026-02-30",
+        end: "2026-02-30",
+        startTimeZone: "America/New_York",
+        fullDay: true,
+      }),
+    ).toThrow("valid YYYY-MM-DD dates");
+  });
+
+  it("rejects timed values masquerading as full-day semantics", () => {
+    expect(() =>
+      normalizeCreateEventInput({
+        eventType: "outOfOffice",
+        start: "2026-08-01T09:00:00-04:00",
+        end: "2026-08-01T17:00:00-04:00",
+        startTimeZone: "America/New_York",
+        fullDay: true,
+      }),
+    ).toThrow("require valid YYYY-MM-DD dates");
+  });
+
+  it("rejects fullDay for non-OOO events", () => {
+    expect(() =>
+      normalizeCreateEventInput({
+        title: "Ordinary event",
+        eventType: "default",
+        start: "2026-08-01T09:00:00-04:00",
+        end: "2026-08-01T17:00:00-04:00",
+        fullDay: true,
+      }),
+    ).toThrow("only supported for out-of-office events");
+  });
+
+  it("rejects a civil date skipped entirely by its timezone", () => {
+    expect(() =>
+      normalizeCreateEventInput({
+        eventType: "outOfOffice",
+        start: "2011-12-30",
+        end: "2011-12-30",
+        startTimeZone: "Pacific/Apia",
+        fullDay: true,
+      }),
+    ).toThrow("at least one valid local instant");
+  });
+
+  it("continues to require a title for ordinary events", () => {
+    expect(() =>
+      normalizeCreateEventInput({
+        eventType: "default",
+        start: "2026-08-01T13:00:00.000Z",
+        end: "2026-08-01T14:00:00.000Z",
+      }),
+    ).toThrow("Event title is required");
   });
 });
 
