@@ -125,6 +125,7 @@ vi.mock("@/hooks/use-content-database", () => ({
     };
   },
   useAddDatabaseItem: () => addItemMutation,
+  useAddContentDatabaseSourceFieldProperty: () => benignMutation,
   useAttachContentDatabaseSource: () => attachSourceMutation,
   useChangeContentDatabaseSourceRole: () => benignMutation,
   useRefreshContentDatabaseSource: () => benignMutation,

@@ -562,6 +562,46 @@ describe("add-content-database-source-field-property Builder refresh", () => {
     expect(JSON.stringify(result)).not.toContain("unrelated");
   });
 
+  it("materializes 584 already-projected rows without rereading Builder", async () => {
+    const f = await seedStaleBuilderTopicsSnapshot(584);
+    const db = getDb();
+    await db
+      .update(schema.contentDatabaseSourceRows)
+      .set({
+        sourceValuesJson: JSON.stringify({
+          "data.topics": ["Agent Native"],
+          "_builder.bodyContent": "unrelated".repeat(500),
+        }),
+      })
+      .where(eq(schema.contentDatabaseSourceRows.sourceId, f.sourceId));
+    const readBuilderEntries = vi.spyOn(
+      await import("./_builder-cms-read-client.js"),
+      "readBuilderCmsContentEntries",
+    );
+
+    const result = await asOwner(() =>
+      addSourceFieldPropertyAction.run({
+        documentId: f.databaseDocId,
+        sourceFieldId: f.fieldId,
+      }),
+    );
+
+    expect(readBuilderEntries).not.toHaveBeenCalled();
+    expect(result.itemValues).toHaveLength(584);
+    expect(result.itemValues[0]?.value).toEqual(["agent-native"]);
+    expect(JSON.stringify(result)).not.toContain("_builder.bodyContent");
+    const propertyValues = await db
+      .select()
+      .from(schema.documentPropertyValues)
+      .where(
+        eq(
+          schema.documentPropertyValues.propertyId,
+          result.property.definition.id,
+        ),
+      );
+    expect(propertyValues).toHaveLength(584);
+  });
+
   it("refreshes a stale Builder snapshot before creating and populating a Topics property", async () => {
     const f = await seedStaleBuilderTopicsSnapshot();
     const readBuilderEntries = vi
