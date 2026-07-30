@@ -9,12 +9,18 @@ import {
 } from "@agent-native/toolkit/design-tweaks";
 import type { DesignSystemData } from "@shared/api";
 import {
+  IconAngle,
+  IconArrowAutofitHeight,
+  IconArrowAutofitWidth,
   IconBorderRadius,
+  IconBorderStyle,
   IconBoxPadding,
   IconDroplet,
+  IconGridDots,
   IconLetterCase,
   IconRuler2,
   IconSpacingHorizontal,
+  IconSpacingVertical,
   IconX,
 } from "@tabler/icons-react";
 
@@ -147,6 +153,9 @@ function formatValue(value: number) {
 function rotationTransform(rotation: number) {
   return `rotate(${formatValue(rotation)}deg)`;
 }
+
+const compactScrubLabelClassName =
+  "w-8 justify-center gap-0 whitespace-nowrap [&>span]:sr-only";
 
 export function SlideStyleInspector({
   snapshot,
@@ -281,6 +290,8 @@ export function SlideStyleInspector({
           </div>
           <VisualScrubInput
             label={t("styleInspector.rotation")}
+            icon={IconAngle}
+            labelClassName={compactScrubLabelClassName}
             value={snapshot.rotation}
             min={-360}
             max={360}
@@ -304,6 +315,8 @@ export function SlideStyleInspector({
         <div className="grid grid-cols-2 gap-2">
           <VisualScrubInput
             label={t("styleInspector.width")}
+            icon={IconArrowAutofitWidth}
+            labelClassName={compactScrubLabelClassName}
             value={snapshot.width}
             min={0}
             unit="px"
@@ -311,6 +324,8 @@ export function SlideStyleInspector({
           />
           <VisualScrubInput
             label={t("styleInspector.height")}
+            icon={IconArrowAutofitHeight}
+            labelClassName={compactScrubLabelClassName}
             value={snapshot.height}
             min={0}
             unit="px"
@@ -333,6 +348,8 @@ export function SlideStyleInspector({
         <div className="grid grid-cols-2 gap-2">
           <VisualScrubInput
             label={t("styleInspector.opacity")}
+            icon={IconGridDots}
+            labelClassName={compactScrubLabelClassName}
             value={snapshot.opacity}
             min={0}
             max={100}
@@ -342,6 +359,8 @@ export function SlideStyleInspector({
           />
           <VisualScrubInput
             label={t("styleInspector.cornerRadius")}
+            icon={IconBorderRadius}
+            labelClassName={compactScrubLabelClassName}
             value={snapshot.borderRadius}
             min={0}
             max={96}
@@ -396,6 +415,8 @@ export function SlideStyleInspector({
       >
         <VisualScrubInput
           label={t("styleInspector.strokeWeight")}
+          icon={IconBorderStyle}
+          labelClassName={compactScrubLabelClassName}
           value={snapshot.borderWidth}
           min={0}
           max={16}
@@ -512,6 +533,8 @@ export function SlideStyleInspector({
           <div className="grid grid-cols-2 gap-2">
             <VisualScrubInput
               label={t("styleInspector.horizontal")}
+              icon={IconSpacingHorizontal}
+              labelClassName={compactScrubLabelClassName}
               value={snapshot.paddingX}
               min={0}
               max={120}
@@ -526,6 +549,8 @@ export function SlideStyleInspector({
             />
             <VisualScrubInput
               label={t("styleInspector.vertical")}
+              icon={IconSpacingVertical}
+              labelClassName={compactScrubLabelClassName}
               value={snapshot.paddingY}
               min={0}
               max={120}

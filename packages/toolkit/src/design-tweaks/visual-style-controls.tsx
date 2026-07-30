@@ -15,6 +15,11 @@ import { cn } from "../utils.js";
 
 export type VisualControlValue = string | number | boolean;
 
+type VisualScrubInputIcon = (props: {
+  className?: string;
+  "aria-hidden"?: boolean;
+}) => ReactNode;
+
 export interface VisualControlOption {
   label: string;
   value: string;
@@ -914,6 +919,10 @@ export function VisualScrubInput({
   disabled = false,
   mixed = false,
   mixedLabel = "Mixed",
+  icon: Icon,
+  className,
+  labelClassName,
+  inputClassName,
 }: {
   label: string;
   value: number;
@@ -925,6 +934,10 @@ export function VisualScrubInput({
   disabled?: boolean;
   mixed?: boolean;
   mixedLabel?: string;
+  icon?: VisualScrubInputIcon | null;
+  className?: string;
+  labelClassName?: string;
+  inputClassName?: string;
 }) {
   const id = useId();
   const [draft, setDraft] = useState(() =>
@@ -1028,7 +1041,7 @@ export function VisualScrubInput({
   };
 
   return (
-    <div className="flex items-center gap-1.5">
+    <div className={cn("flex items-center gap-1.5", className)}>
       <label
         htmlFor={id}
         onPointerDown={onPointerDown}
@@ -1037,9 +1050,11 @@ export function VisualScrubInput({
         className={cn(
           "flex w-8 shrink-0 cursor-ew-resize select-none items-center justify-center rounded border border-transparent px-1 text-[10px] font-semibold text-muted-foreground hover:border-border hover:bg-accent/60",
           disabled && "cursor-not-allowed opacity-50",
+          labelClassName,
         )}
       >
-        {label}
+        {Icon ? <Icon className="size-3 shrink-0" aria-hidden={true} /> : null}
+        <span>{label}</span>
       </label>
       <input
         id={id}
@@ -1058,7 +1073,10 @@ export function VisualScrubInput({
           setDraft(event.currentTarget.value);
         }}
         onKeyDown={onKeyDown}
-        className="h-7 min-w-0 flex-1 rounded-md border border-input bg-background/70 px-2 text-right text-[11px] tabular-nums text-foreground outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring disabled:opacity-50"
+        className={cn(
+          "h-7 min-w-0 flex-1 rounded-md border border-input bg-background/70 px-2 text-right text-[11px] tabular-nums text-foreground outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring disabled:opacity-50",
+          inputClassName,
+        )}
       />
     </div>
   );

@@ -91,6 +91,44 @@ describe("visual style controls", () => {
     expect(input?.value).toBe("24px");
   });
 
+  it("supports a compact icon prefix without removing the accessible label", () => {
+    const TestIcon = ({
+      className,
+      "aria-hidden": ariaHidden,
+    }: {
+      className?: string;
+      "aria-hidden"?: boolean;
+    }) => (
+      <svg
+        data-testid="scrub-icon"
+        className={className}
+        aria-hidden={ariaHidden}
+      />
+    );
+
+    act(() => {
+      root.render(
+        <VisualScrubInput
+          label="Corner radius"
+          value={12}
+          unit="px"
+          icon={TestIcon}
+          labelClassName="[&>span]:sr-only"
+          onChange={() => {}}
+        />,
+      );
+    });
+
+    const input = container.querySelector<HTMLInputElement>("input");
+    const label = container.querySelector<HTMLLabelElement>("label");
+    expect(label?.querySelector("svg")?.getAttribute("aria-hidden")).toBe(
+      "true",
+    );
+    expect(label?.className).toContain("[&>span]:sr-only");
+    expect(label?.querySelector("span")?.textContent).toBe("Corner radius");
+    expect(label?.htmlFor).toBe(input?.id);
+  });
+
   it("leaves every segment unselected for a mixed value", () => {
     act(() => {
       root.render(

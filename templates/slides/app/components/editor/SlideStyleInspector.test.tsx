@@ -79,21 +79,31 @@ vi.mock("@agent-native/toolkit/design-tweaks", () => ({
     mixed,
     mixedLabel,
     onChange,
+    icon: Icon,
+    labelClassName,
   }: {
     label: string;
     value: number;
     mixed?: boolean;
     mixedLabel?: string;
     onChange: (value: number) => void;
+    icon?: React.ElementType;
+    labelClassName?: string;
   }) => (
-    <input
-      aria-label={label}
-      type="number"
-      value={value}
-      data-mixed={mixed || undefined}
-      data-mixed-label={mixedLabel}
-      onChange={(event) => onChange(Number(event.currentTarget.value))}
-    />
+    <div>
+      <label data-testid={`scrub-label-${label}`} className={labelClassName}>
+        {Icon ? <Icon /> : null}
+        <span>{label}</span>
+      </label>
+      <input
+        aria-label={label}
+        type="number"
+        value={value}
+        data-mixed={mixed || undefined}
+        data-mixed-label={mixedLabel}
+        onChange={(event) => onChange(Number(event.currentTarget.value))}
+      />
+    </div>
   ),
   VisualSegmentedControl: ({
     options,
@@ -188,6 +198,26 @@ describe("SlideStyleInspector", () => {
       "styleInspector.typography",
       "styleInspector.spacing",
     ].forEach((section) => expect(screen.getByText(section)).toBeTruthy());
+  });
+
+  it("uses compact icon prefixes for long numeric labels", () => {
+    renderInspector();
+
+    [
+      "styleInspector.rotation",
+      "styleInspector.width",
+      "styleInspector.height",
+      "styleInspector.opacity",
+      "styleInspector.cornerRadius",
+      "styleInspector.strokeWeight",
+      "styleInspector.horizontal",
+      "styleInspector.vertical",
+    ].forEach((label) => {
+      const prefix = screen.getByTestId(`scrub-label-${label}`);
+      expect(prefix.querySelector("svg")).toBeTruthy();
+      expect(prefix.className).toContain("[&>span]:sr-only");
+      expect(screen.getByRole("spinbutton", { name: label })).toBeTruthy();
+    });
   });
 
   it("emits pixel alignment, dimensions, and rotation patches", () => {
