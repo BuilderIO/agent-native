@@ -57,7 +57,26 @@ jobs:
         run: |
           set -euo pipefail
           version="$(node -p "require('./packages/core/package.json').version")"
-          if npm view "@agent-native/core@${version}" version >/dev/null 2>&1; then
+          # Fetch the published version list. A successful query (exit 0) is an
+          # authoritative answer, so membership is definitive. A failed query
+          # means the registry was unreachable (timeout / DNS / 5xx / rate
+          # limit) — NOT that the version is unpublished; retry, then fail
+          # loudly, because a silent publishable=false on a template-only push
+          # has no guaranteed later dispatch to retry it.
+          versions=""; ok=""
+          for attempt in 1 2 3; do
+            if versions="$(npm view "@agent-native/core" versions --json --prefer-online 2>/dev/null)"; then
+              ok=1; break
+            fi
+            echo "npm registry lookup failed (attempt ${attempt}/3); retrying in 5s..."
+            sleep 5
+          done
+          if [ -z "$ok" ]; then
+            echo "::error::Could not reach npm to check @agent-native/core@${version}; failing rather than silently skipping."
+            exit 1
+          fi
+          if printf '%s' "$versions" \
+            | jq -e --arg v "$version" '(if type=="array" then . else [.] end) | index($v) != null' >/dev/null; then
             echo "core ${version} is on npm — mirroring HEAD."
             echo "publishable=true" >> "$GITHUB_OUTPUT"
           else
@@ -86,9 +105,26 @@ jobs:
         run: |
           set -euo pipefail
           version="$(node -p "require('./packages/core/package.json').version")"
-          range="$(npm view "@agent-native/core@${version}" dependencies.@agent-native/toolkit 2>/dev/null || true)"
+          # The exit code separates three cases; don't mask it with `|| true`:
+          #   exit 0, non-empty -> the range (pin it)
+          #   exit 0, empty     -> core declares no toolkit dep (benign; leave as
+          #                        materialized, which matches create's fallback)
+          #   exit != 0         -> registry error -> retry, then fail (never push
+          #                        an uncontrolled toolkit version)
+          range=""; ok=""
+          for attempt in 1 2 3; do
+            if range="$(npm view "@agent-native/core@${version}" dependencies.@agent-native/toolkit --prefer-online 2>/dev/null)"; then
+              ok=1; break
+            fi
+            echo "npm lookup failed (attempt ${attempt}/3); retrying in 5s..."
+            sleep 5
+          done
+          if [ -z "$ok" ]; then
+            echo "::error::Could not reach npm to read core ${version}'s toolkit range; failing rather than pushing an uncontrolled toolkit version."
+            exit 1
+          fi
           if [ -z "$range" ]; then
-            echo "::warning::core ${version} declares no @agent-native/toolkit range; leaving toolkit as materialized."
+            echo "::warning::core ${version} declares no @agent-native/toolkit dependency; leaving toolkit as materialized."
             exit 0
           fi
           # Surgical replace so the rest of package.json keeps materialize's exact
