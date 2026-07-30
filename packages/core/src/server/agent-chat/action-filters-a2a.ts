@@ -65,14 +65,15 @@ export function filterPublicAgentActions(
   );
 }
 
-/** Input fields that carry a query or program the receiver would execute. */
-const RAW_QUERY_INPUT_FIELDS = new Set([
-  "sql",
-  "query",
-  "code",
-  "script",
-  "expression",
-]);
+/**
+ * Input fields that unambiguously carry a program the receiver executes.
+ *
+ * Deliberately excludes `query`: across the templates that field is nearly
+ * always natural-language search text (Brain's `search-everything`,
+ * `search-knowledge`), and blocking it would break exactly the ask-don't-instruct
+ * calls this rule exists to encourage.
+ */
+const RAW_QUERY_INPUT_FIELDS = new Set(["sql", "code", "script", "expression"]);
 
 /**
  * True when an action takes a free-form query or program as input — raw SQL, a

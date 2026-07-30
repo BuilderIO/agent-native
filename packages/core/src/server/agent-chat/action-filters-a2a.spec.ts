@@ -38,9 +38,13 @@ describe("filterDirectA2AActions", () => {
       });
     const actions = {
       "raw-sql": rawInput("sql"),
-      "raw-query": rawInput("query"),
       "raw-code": rawInput("code"),
       "raw-script": rawInput("script"),
+      "raw-expression": rawInput("expression"),
+      // `query` is search text in every template that takes it (Brain's
+      // search-everything/search-knowledge), not a query language. Blocking it
+      // would break the ask-don't-instruct calls this rule encourages.
+      "search-text": rawInput("query"),
       semantic: action({
         tool: {
           description: "Metrics",
@@ -57,8 +61,8 @@ describe("filterDirectA2AActions", () => {
         filterDirectA2AActions(actions, {
           connectorCatalog: Object.keys(actions),
         }),
-      ),
-    ).toEqual(["semantic"]);
+      ).sort(),
+    ).toEqual(["search-text", "semantic"]);
   });
 
   it("allows a raw query input only with an explicit opt-in", () => {
