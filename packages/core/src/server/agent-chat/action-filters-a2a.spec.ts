@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { ActionEntry } from "../../agent/production-agent.js";
-import { filterDirectA2AActions } from "./action-filters-a2a.js";
+import {
+  buildAuthenticatedAgentA2ASkills,
+  filterDirectA2AActions,
+} from "./action-filters-a2a.js";
 
 function action(overrides: Partial<ActionEntry> = {}): ActionEntry {
   return {
@@ -71,5 +74,33 @@ describe("filterDirectA2AActions", () => {
     );
 
     expect(Object.keys(result)).toEqual(["allowed"]);
+  });
+
+  it("advertises the input schema for authenticated direct reads", () => {
+    expect(
+      buildAuthenticatedAgentA2ASkills(
+        {
+          allowed: action({
+            tool: {
+              description: "Read a record",
+              parameters: {
+                type: "object",
+                required: ["recordId"],
+                properties: { recordId: { type: "string" } },
+              },
+            },
+          }),
+        },
+        { connectorCatalog: ["allowed"] },
+      ),
+    ).toMatchObject([
+      {
+        id: "allowed",
+        inputSchema: {
+          required: ["recordId"],
+          properties: { recordId: { type: "string" } },
+        },
+      },
+    ]);
   });
 });

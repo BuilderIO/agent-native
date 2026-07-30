@@ -85,6 +85,12 @@ export interface AgentSkill {
   requiresAuth?: boolean;
   isConsequential?: boolean;
   publicAgent?: PublicAgentActionConfig;
+  /**
+   * JSON Schema for the action's `input`. Advertising a skill without it tells
+   * a caller the action exists but not how to call it, so callers invoke with
+   * `{}` and get a schema error back.
+   */
+  inputSchema?: Record<string, unknown>;
 }
 
 export interface AgentCapabilities {

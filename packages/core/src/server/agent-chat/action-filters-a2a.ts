@@ -135,6 +135,7 @@ export function buildAuthenticatedAgentA2ASkills(
   name: string;
   description: string;
   publicAgent: ActionEntry["publicAgent"];
+  inputSchema?: Record<string, unknown>;
 }> {
   return Object.entries(filterDirectA2AActions(actions, options)).map(
     ([name, entry]) => ({
@@ -142,6 +143,16 @@ export function buildAuthenticatedAgentA2ASkills(
       name,
       description: entry.tool.description,
       publicAgent: entry.publicAgent,
+      // Without the schema the caller knows the action exists but not what it
+      // takes, so it invokes with `{}` and the call fails on a required field.
+      ...(entry.tool.parameters
+        ? {
+            inputSchema: entry.tool.parameters as unknown as Record<
+              string,
+              unknown
+            >,
+          }
+        : {}),
     }),
   );
 }
