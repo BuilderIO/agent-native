@@ -219,6 +219,29 @@ function measureContentBounds(target: HTMLElement): {
   minX: number;
   minY: number;
 } {
+  const descendants = Array.from(
+    target.querySelectorAll<HTMLElement>("*"),
+  ).filter((element) => element.tagName.toLowerCase() !== "style");
+  const isFreeformElement = (element: HTMLElement) => {
+    let current: HTMLElement | null = element;
+    while (current && current !== target) {
+      const position =
+        current.style.position || window.getComputedStyle(current).position;
+      if (
+        current.classList.contains("fmd-freeform-object") ||
+        current.classList.contains("fmd-text-box") ||
+        current.hasAttribute("data-slide-object-id") ||
+        position === "absolute" ||
+        position === "fixed"
+      ) {
+        return true;
+      }
+      current = current.parentElement;
+    }
+    return false;
+  };
+  const hasFreeformContent = descendants.some(isFreeformElement);
+
   const targetRect = target.getBoundingClientRect();
   // `scrollWidth` / `clientWidth` return CSS pixels; `getBoundingClientRect`
   // returns layout pixels after every ancestor transform. In presentation
@@ -238,11 +261,16 @@ function measureContentBounds(target: HTMLElement): {
 
   let minX = 0;
   let minY = 0;
-  let maxX = target.scrollWidth;
-  let maxY = target.scrollHeight;
+  // Absolutely positioned objects intentionally move independently of the
+  // flow layout. They still expand scrollWidth/scrollHeight, but fitting the
+  // entire layer around them creates a feedback loop where dragging one object
+  // scales and shifts every sibling. When a layer contains freeform content,
+  // derive overflow from normal-flow element bounds instead.
+  let maxX = hasFreeformContent ? target.clientWidth : target.scrollWidth;
+  let maxY = hasFreeformContent ? target.clientHeight : target.scrollHeight;
 
-  for (const el of Array.from(target.querySelectorAll<HTMLElement>("*"))) {
-    if (el.tagName.toLowerCase() === "style") continue;
+  for (const el of descendants) {
+    if (isFreeformElement(el)) continue;
     const rect = el.getBoundingClientRect();
     if (rect.width === 0 && rect.height === 0) continue;
 
@@ -258,8 +286,8 @@ function measureContentBounds(target: HTMLElement): {
   }
 
   return {
-    contentWidth: Math.max(target.scrollWidth, maxX - minX),
-    contentHeight: Math.max(target.scrollHeight, maxY - minY),
+    contentWidth: Math.max(target.clientWidth, maxX - minX),
+    contentHeight: Math.max(target.clientHeight, maxY - minY),
     minX,
     minY,
   };
@@ -316,7 +344,11 @@ function useSlideAutofit(
 
       for (const target of targets) {
         if (isEditing) {
-          resetTarget(target);
+          // Entering inline edit must not change the canvas geometry. The
+          // contenteditable attribute is observed below, so resetting the fit
+          // transform here made a horizontally fitted slide jump as soon as a
+          // user clicked its text. Freeze the most recent fit until the edit
+          // commits, then measure the saved HTML again.
           continue;
         }
 

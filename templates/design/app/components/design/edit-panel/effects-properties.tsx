@@ -28,6 +28,11 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 import { ScrubInput } from "../inspector";
@@ -37,6 +42,7 @@ import {
   type GlslShaderPanelContext,
 } from "../inspector/GlslShaderPanel";
 import type { ElementInfo } from "../types";
+import { isTextElement } from "./element-classification";
 import { elementStableKey } from "./element-identity";
 import { FieldTrailer } from "./field-primitives";
 import { splitCssLayers } from "./fill-gradient-helpers";
@@ -151,6 +157,26 @@ export function serializeShadowLayers(layers: ShadowLayer[]) {
       ]
         .filter(Boolean)
         .join(" "),
+    )
+    .join(", ");
+}
+
+/**
+ * `text-shadow` form of the same layers: offsets, blur, colour. CSS text-shadow
+ * has no spread and no inset, so emitting the box-shadow string would produce a
+ * declaration the browser drops entirely.
+ */
+export function serializeTextShadowLayers(layers: ShadowLayer[]) {
+  const visible = layers.filter((layer) => !layer.inset);
+  if (!visible.length) return "none";
+  return visible
+    .map((layer) =>
+      [
+        `${roundToOneDecimal(layer.x)}px`,
+        `${roundToOneDecimal(layer.y)}px`,
+        `${Math.max(0, roundToOneDecimal(layer.blur))}px`,
+        layer.color,
+      ].join(" "),
     )
     .join(", ");
 }
@@ -479,13 +505,27 @@ export function EffectsProperties({
   const effectStashKey = elementStableKey(element);
   const layerBlurStashKey = `${effectStashKey}:filter:blur`;
   const backdropBlurStashKey = `${effectStashKey}:backdrop-filter:blur`;
+  const shadowTargetsText = isTextElement(element);
+  // Read from the same property the writer targets, or the rows would show a
+  // box-shadow that is no longer what this element uses.
   const shadowLayers = effectsAreMixed
     ? []
-    : parseShadowLayers(styles.boxShadow);
+    : parseShadowLayers(
+        shadowTargetsText ? styles.textShadow : styles.boxShadow,
+      );
   const setShadowLayers = (layers: ShadowLayer[], meta?: StyleChangeMeta) => {
     setHiddenEffectStash((stash) =>
       remapIndexedShadowStash(stash, effectStashKey, layers),
     );
+    // A shadow on text belongs on the glyphs. box-shadow paints the element's
+    // BOX, which on a text node reads as a rectangle floating behind the words
+    // instead of a shadow on the letters.
+    if (shadowTargetsText) {
+      const textShadow = serializeTextShadowLayers(layers);
+      if (onStylesChange) onStylesChange({ textShadow }, meta);
+      else onStyleChange("textShadow", textShadow, meta);
+      return;
+    }
     const boxShadow = serializeShadowLayers(layers);
     if (onStylesChange) onStylesChange({ boxShadow }, meta);
     else onStyleChange("boxShadow", boxShadow, meta);
@@ -551,17 +591,24 @@ export function EffectsProperties({
       title={t("editPanel.sections.effects")}
       actions={
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="size-6 cursor-pointer rounded-md text-muted-foreground hover:text-foreground"
-              aria-label={t("editPanel.labels.addLayer")}
-            >
-              <IconPlus className="size-3.5" />
-            </Button>
-          </DropdownMenuTrigger>
+          {/* Tooltip as well as aria-label: this was the one section-header +
+              that explained itself to screen readers only. */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-6 cursor-pointer rounded-md text-muted-foreground hover:text-foreground"
+                  aria-label={t("editPanel.labels.addEffect")}
+                >
+                  <IconPlus className="size-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent>{t("editPanel.labels.addEffect")}</TooltipContent>
+          </Tooltip>
           <DropdownMenuContent align="end" className="min-w-44">
             <DropdownMenuItem
               className="gap-2 !text-[11px]"

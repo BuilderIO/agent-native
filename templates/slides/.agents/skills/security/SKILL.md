@@ -159,6 +159,37 @@ whole site. Data scoping lives in actions and API routes; the client gates
 private UI after the shell loads. See the `authentication` skill and
 `guard:ssr-cache-shell` / `ssr-handler.spec.ts`.
 
+**Authorization beyond "is there a session" — `authorize`.** The auth guard only
+proves *someone* is signed in. To restrict an operation to some teammates, set
+`authorize` on the `defineAction`. It wraps `run`, so it applies at every
+dispatch site (agent tool, HTTP, frontend, MCP, A2A, CLI) — unlike
+`needsApproval`, which is honored by the agent loop and MCP 2026 hosts that
+support elicitation, but is not an authorization boundary for every dispatch
+site.
+
+```ts
+import { coachAccess } from "../lib/access.js"; // defineAppRoles(...)
+
+export default defineAction({
+  description: "Archive a client roster.",
+  schema: z.object({ id: z.string() }),
+  authorize: coachAccess.requireAny("coach-admin"),
+  run: async (args) => {
+    /* ... */
+  },
+});
+```
+
+A guard that throws denies with its own message; returning `false` denies
+generically; anything else (including `undefined`) allows. Guarded actions need
+a user identity — an unattended CLI/cron caller with no user email is denied.
+
+`authorize` is **not** a substitute for `accessFilter` / `assertAccess`. It
+decides whether this caller may perform the operation at all; `accessFilter` /
+`assertAccess` scope which rows a permitted caller may see or touch. A
+restricted write action needs both. See the `authentication` skill for
+`defineAppRoles` and the `actions` skill for the full surface.
+
 ## Human-in-the-Loop Approval for High-Consequence Actions
 
 For a small set of outward-facing, hard-to-undo operations — sending an email, charging a card, deleting an account, posting publicly — auth and access control are necessary but not sufficient: you also do not want the **agent** to perform them autonomously. Set `needsApproval` on the `defineAction` so the agent cannot run the action without a human approving the specific call.
@@ -174,7 +205,16 @@ export default defineAction({
 });
 ```
 
-When the gate is truthy and the call is not yet approved, the loop emits an `approval_required` event and **stops the turn — `run()` never executes**. The human approves via the chat UI's Approve affordance, which re-issues the turn with the call's stable `approvalKey`; only then does the action run. A predicate gates conditionally (e.g. only external recipients) and **fails closed** — a throw is treated as "approval required".
+When the gate is truthy and the call is not yet approved, the agent loop emits
+an `approval_required` event and **stops the turn — `run()` never executes**.
+The human approves via the chat UI's Approve affordance, which re-issues the
+turn with the call's stable `approvalKey`; only then does the action run. MCP
+2026 hosts receive an `input_required` approval request bound to the exact
+caller, action, and arguments. The signed response state is backed by a durable,
+single-use grant, so denial, expiry, replay, missing host support, or invalid
+state fails closed before `run()`. A predicate gates conditionally (e.g. only
+external recipients) and **fails closed** — a throw is treated as "approval
+required".
 
 Rules:
 
@@ -274,6 +314,8 @@ Run `pnpm action db-check-scoping` to verify. Use `--require-org` for multi-org 
 - [ ] New env vars in `.env` only, not committed
 - [ ] New user-data tables have `owner_email` column
 - [ ] Custom routes call `getSession` and reject unauthenticated requests
+- [ ] Actions only some teammates may run set `authorize` (in addition to any
+      `accessFilter` / `assertAccess` row scoping)
 
 ## Related Skills
 

@@ -1,9 +1,48 @@
 import { useLayoutEffect, useRef } from "react";
 
-const CHART_EDGE_PADDING = 8;
+const VIEWPORT_EDGE_PADDING = 8;
 const CURSOR_OFFSET = 14;
 
 type TooltipCoordinate = { x?: number; y?: number } | undefined;
+type Rect = { left: number; right: number; top: number; bottom: number };
+type Size = { width: number; height: number };
+
+export function getChartTooltipPortalPosition({
+  chartRect,
+  coordinate,
+  tooltipSize,
+  viewport,
+}: {
+  chartRect: Rect;
+  coordinate: TooltipCoordinate;
+  tooltipSize: Size;
+  viewport: { width: number; height: number; right?: number };
+}) {
+  const pointX = chartRect.left + (coordinate?.x ?? 0);
+  const pointY = chartRect.top + (coordinate?.y ?? 0);
+  const minLeft = VIEWPORT_EDGE_PADDING;
+  const maxLeft = Math.max(
+    minLeft,
+    (viewport.right ?? viewport.width) -
+      VIEWPORT_EDGE_PADDING -
+      tooltipSize.width,
+  );
+  let left = pointX + CURSOR_OFFSET;
+  if (left > maxLeft) left = pointX - CURSOR_OFFSET - tooltipSize.width;
+  left = Math.min(Math.max(left, minLeft), maxLeft);
+
+  const minTop = VIEWPORT_EDGE_PADDING;
+  const maxTop = Math.max(
+    minTop,
+    viewport.height - VIEWPORT_EDGE_PADDING - tooltipSize.height,
+  );
+  const top = Math.min(
+    Math.max(pointY - tooltipSize.height / 2, minTop),
+    maxTop,
+  );
+
+  return { left, top };
+}
 
 /**
  * Ancestors of a dashboard chart (the scrollable app shell, the dashboard
@@ -15,8 +54,9 @@ type TooltipCoordinate = { x?: number; y?: number } | undefined;
  * position off it. Instead, position the portaled box ourselves from the
  * `coordinate` Recharts already passes to custom tooltip content (the exact
  * pixel the cursor is over, relative to the chart) plus the chart's own
- * `.recharts-wrapper` rect, and clamp against that same rect so the tooltip
- * tracks the cursor but never crosses the chart's own edges.
+ * `.recharts-wrapper` rect. The chart rect is only the coordinate origin:
+ * the tooltip is constrained to the viewport so it can escape the chart and
+ * stay beside the cursor instead of covering it.
  */
 export function useChartTooltipPortalPosition(
   isVisible: boolean,
@@ -36,21 +76,22 @@ export function useChartTooltipPortalPosition(
     const chartRect = chartEl.getBoundingClientRect();
     const boxRect = box.getBoundingClientRect();
 
-    const pointX = chartRect.left + (coordinate?.x ?? 0);
-    const pointY = chartRect.top + (coordinate?.y ?? 0);
-
-    const minLeft = chartRect.left + CHART_EDGE_PADDING;
-    const maxLeft = chartRect.right - CHART_EDGE_PADDING - boxRect.width;
-    let left = pointX + CURSOR_OFFSET;
-    if (left > maxLeft) left = pointX - CURSOR_OFFSET - boxRect.width;
-    left = Math.min(Math.max(left, minLeft), Math.max(minLeft, maxLeft));
-
-    const minTop = chartRect.top + CHART_EDGE_PADDING;
-    const maxTop = chartRect.bottom - CHART_EDGE_PADDING - boxRect.height;
-    const top = Math.min(
-      Math.max(pointY - boxRect.height / 2, minTop),
-      Math.max(minTop, maxTop),
-    );
+    const sidebar = document.querySelector<HTMLElement>(".agent-sidebar-panel");
+    const sidebarRect = sidebar?.getBoundingClientRect();
+    const sidebarLeft =
+      sidebarRect && sidebarRect.width > 0 && sidebarRect.left > 0
+        ? sidebarRect.left
+        : window.innerWidth;
+    const { left, top } = getChartTooltipPortalPosition({
+      chartRect,
+      coordinate,
+      tooltipSize: boxRect,
+      viewport: {
+        width: window.innerWidth,
+        height: window.innerHeight,
+        right: sidebarLeft,
+      },
+    });
 
     box.style.left = `${left}px`;
     box.style.top = `${top}px`;

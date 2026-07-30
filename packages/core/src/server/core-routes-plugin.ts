@@ -1191,6 +1191,13 @@ function redactValues(text: string, values: Array<string | null | undefined>) {
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
 export interface CoreRoutesPluginOptions {
+  /**
+   * Allow authenticated extension creation through
+   * POST /_agent-native/extensions (and the legacy /tools alias).
+   * Existing extension runtime, read, edit, and deep-link routes stay mounted
+   * when this is false. Default: false.
+   */
+  extensionTools?: boolean;
   /** Route path for the SSE endpoint. Default: "/_agent-native/events" */
   sseRoute?: string;
   /** Disable the SSE endpoint entirely. */
@@ -1568,6 +1575,73 @@ export function createCoreRoutesPlugin(
       // registration in `getH3App()`'s one-time bootstrap makes it the first
       // middleware any plugin's route can possibly land behind, regardless of
       // plugin init ordering.
+
+      // Peer reachability + auth probe for the settings UI. Deliberately
+      // separate from `${P}/agents` (discovery) — this route makes live
+      // network calls to the peer, so it is session-gated and answers one
+      // peer (`?url=`) or every registered peer (no query) via `discoverAgents`.
+      //
+      // MUST be mounted BEFORE `${P}/agents` below: h3's `.use()` matches by
+      // path prefix, and that handler always returns a value (never calls
+      // `next()`), so it would swallow `/agents/probe` requests before they
+      // ever reached this route if registered second (same hazard as the A2A
+      // `_process-task` route vs. its `/a2a` catch-all — see a2a/server.ts).
+      getH3App(nitroApp).use(
+        `${P}/agents/probe`,
+        defineEventHandler(async (event) => {
+          if (getMethod(event) !== "GET") {
+            setResponseStatus(event, 405);
+            return { error: "Method not allowed" };
+          }
+          const session = await getSession(event).catch(() => null);
+          if (!session?.email) {
+            setResponseStatus(event, 401);
+            return { error: "Authentication required" };
+          }
+
+          return runWithRequestContext(
+            { userEmail: session.email, orgId: session.orgId ?? undefined },
+            async () => {
+              const { probePeerAgent, probeAllPeerAgents } =
+                await import("./agent-peer-probe.js");
+              const query = getRequestURL(event).searchParams;
+              const urlParam = query.get("url");
+
+              if (urlParam === null) {
+                const selfAppId = query.get("selfAppId") ?? undefined;
+                const { discoverAgents } = await import("./agent-discovery.js");
+                const agents = await discoverAgents(selfAppId);
+                const results = await probeAllPeerAgents(agents);
+                return { results };
+              }
+
+              if (!urlParam.trim()) {
+                setResponseStatus(event, 400);
+                return { error: "url is required" };
+              }
+
+              const result = await probePeerAgent({
+                id: "probe",
+                name: urlParam,
+                description: "",
+                url: urlParam,
+                color: "",
+              });
+
+              // Reachability and auth are independent, but a malformed/SSRF-blocked
+              // URL is a caller input error, not a peer that failed to answer — the
+              // one case where the probe's "unreachable" result is reclassified into
+              // a 400 instead of a 200 with `reachable: false`.
+              if (result.error?.startsWith("SSRF blocked:")) {
+                setResponseStatus(event, 400);
+                return { url: urlParam, error: result.error };
+              }
+
+              return result;
+            },
+          );
+        }),
+      );
 
       // Agent discovery primitive — shared by headless CLI/A2A surfaces and
       // UI shells that need to show connected peer apps without depending on
@@ -3774,7 +3848,9 @@ export function createCoreRoutesPlugin(
           await import("../extensions/routes.js");
         ensureExtensionsTables().catch(() => {});
         registerExtensionsShareable();
-        const extensionsHandler = createExtensionsHandler();
+        const extensionsHandler = createExtensionsHandler({
+          extensionTools: options.extensionTools,
+        });
         getH3App(nitroApp).use(`${P}/extensions`, extensionsHandler);
         // Legacy alias — the previous public API was /_agent-native/tools/*.
         // Mounted in addition to /extensions/* so any deployed iframes mid-flight
@@ -4184,8 +4260,13 @@ export function createCoreRoutesPlugin(
       }
       resolveInit();
     } catch (error) {
+      // Do NOT rethrow. Nitro invokes plugins as `try { plugin(app) } catch`,
+      // which cannot catch an async rejection, so rethrowing here surfaces as
+      // an unhandledRejection: Node exits, the serverless container dies, and
+      // every in-flight request on it returns a bare 502. `rejectInit` already
+      // routes this failure to the readiness gate, which answers the affected
+      // paths with a retryable 503 instead.
       rejectInit(error);
-      throw error;
     }
   };
 }

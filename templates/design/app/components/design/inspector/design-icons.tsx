@@ -109,7 +109,8 @@ export function IconPaddingVertical({ className }: IconProps) {
   );
 }
 
-// Flow horizontal: two filled boxes side-by-side inside a wide frame
+// Flow horizontal: item + arrow. Keep the arrow — two symmetric boxes read as
+// "this axis" but not "this direction", forcing a tooltip hover to disambiguate.
 export function IconFlowHorizontal({ className }: IconProps) {
   return (
     <svg
@@ -124,31 +125,24 @@ export function IconFlowHorizontal({ className }: IconProps) {
     >
       {/* Outer container — wide landscape frame */}
       <rect x="2" y="6" width="20" height="12" rx="2" strokeWidth={1.5} />
-      {/* Left item */}
+      {/* First item */}
       <rect
-        x="5"
+        x="4.5"
         y="9"
-        width="5"
+        width="4"
         height="6"
         rx="1"
         fill="currentColor"
         stroke="none"
       />
-      {/* Right item */}
-      <rect
-        x="14"
-        y="9"
-        width="5"
-        height="6"
-        rx="1"
-        fill="currentColor"
-        stroke="none"
-      />
+      {/* Direction arrow — left to right */}
+      <path d="M11 12H18.5" />
+      <path d="M16.3 9.8 18.5 12 16.3 14.2" />
     </svg>
   );
 }
 
-// Flow vertical: two filled boxes stacked inside a tall frame
+// Flow vertical: an item plus a downward arrow — see IconFlowHorizontal.
 export function IconFlowVertical({ className }: IconProps) {
   return (
     <svg
@@ -163,26 +157,19 @@ export function IconFlowVertical({ className }: IconProps) {
     >
       {/* Outer container — tall portrait frame */}
       <rect x="6" y="2" width="12" height="20" rx="2" strokeWidth={1.5} />
-      {/* Top item */}
+      {/* First item */}
       <rect
         x="9"
-        y="5"
+        y="4.5"
         width="6"
-        height="5"
+        height="4"
         rx="1"
         fill="currentColor"
         stroke="none"
       />
-      {/* Bottom item */}
-      <rect
-        x="9"
-        y="14"
-        width="6"
-        height="5"
-        rx="1"
-        fill="currentColor"
-        stroke="none"
-      />
+      {/* Direction arrow — top to bottom */}
+      <path d="M12 11V18.5" />
+      <path d="M9.8 16.3 12 18.5 14.2 16.3" />
     </svg>
   );
 }

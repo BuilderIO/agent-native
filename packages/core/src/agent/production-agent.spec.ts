@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { mockEvent } from "h3";
 import { describe, expect, it, vi } from "vitest";
 
 import { AgentActionStopError } from "../action.js";
@@ -21,6 +22,7 @@ import type {
 import { EngineError } from "./engine/types.js";
 import {
   AGENT_INTERNAL_CONTINUE_PROMPT,
+  AGENT_INTERNAL_GUARD_PROMPT,
   appendAgentLoopContinuation,
   backgroundContinuationReasonForRun,
   buildFirstRequestPayloadDetail,
@@ -29,6 +31,8 @@ import {
   claimBackgroundWorkerRunEarly,
   createConnectedAgentReferenceEventRelay,
   createPlanModeActionRegistry,
+  createProductionAgentHandler,
+  preloadPlanModeEngineTools,
   isPlanModeToolCallAllowed,
   isCachedToolResultVisibleInContext,
   isContextTooLongError,
@@ -61,6 +65,7 @@ function actionEntry(opts: {
   description?: string;
   readOnly?: boolean;
   allowInPlanMode?: boolean;
+  planMode?: ActionEntry["planMode"];
   parallelSafe?: boolean;
   actions?: string[];
 }): ActionEntry {
@@ -87,6 +92,7 @@ function actionEntry(opts: {
     ...(typeof opts.allowInPlanMode === "boolean"
       ? { allowInPlanMode: opts.allowInPlanMode }
       : {}),
+    ...(opts.planMode ? { planMode: opts.planMode } : {}),
     ...(typeof opts.parallelSafe === "boolean"
       ? { parallelSafe: opts.parallelSafe }
       : {}),
@@ -852,10 +858,71 @@ describe("buildUserContentWithAttachments", () => {
       }),
       write: actionEntry({ readOnly: false }),
       bash: actionEntry({ readOnly: false }),
+      "call-agent": {
+        ...actionEntry({ readOnly: false }),
+        tool: {
+          description: "Call another app",
+          parameters: {
+            type: "object",
+            properties: {
+              agent: { type: "string" },
+              message: { type: "string" },
+              taskId: { type: "string" },
+              action: { type: "string" },
+              input: { type: "object" },
+              approvedActions: { type: "array" },
+            },
+            required: ["agent"],
+          },
+        },
+      },
       "set-url-path": actionEntry({ readOnly: true }),
       resources: actionEntry({
         actions: ["list", "read", "write", "delete"],
+        planMode: {
+          effect: (args: any) =>
+            ["list", "read"].includes(args?.action) ? "read" : "write",
+          allowedValues: { action: ["list", "read"] },
+        },
       }),
+      "query-provider": {
+        ...actionEntry({
+          planMode: {
+            effect: "read",
+            allowedProperties: ["query"],
+            requiredProperties: ["query"],
+            omittedProperties: ["persist"],
+          },
+        }),
+        tool: {
+          description: "Query a provider",
+          parameters: {
+            type: "object",
+            properties: {
+              query: { type: "string" },
+              persist: { type: "boolean" },
+            },
+            required: ["persist"],
+          },
+        },
+      },
+      "required-plan-input": {
+        ...actionEntry({
+          planMode: {
+            effect: "read",
+            requiredProperties: ["query"],
+          },
+        }),
+        tool: {
+          description: "Inspect records",
+          parameters: {
+            type: "object",
+            properties: {
+              query: { type: "string" },
+            },
+          },
+        },
+      },
     });
 
     const planRegistry = createPlanModeActionRegistry(registry);
@@ -866,8 +933,11 @@ describe("buildUserContentWithAttachments", () => {
         .sort(),
     ).toEqual([
       "bash",
+      "call-agent",
+      "query-provider",
       "read",
       "read-but-act-only",
+      "required-plan-input",
       "resources",
       "set-url-path",
       "tool-search",
@@ -882,6 +952,17 @@ describe("buildUserContentWithAttachments", () => {
     expect(
       planRegistry.resources.tool.parameters?.properties.action.enum,
     ).toEqual(["list", "read"]);
+    expect(
+      Object.keys(
+        planRegistry["query-provider"].tool.parameters?.properties ?? {},
+      ),
+    ).toEqual(["query"]);
+    expect(planRegistry["query-provider"].tool.parameters?.required).toEqual([
+      "query",
+    ]);
+    expect(
+      planRegistry["required-plan-input"].tool.parameters?.required,
+    ).toEqual(["query"]);
     await expect(
       planRegistry.resources.run({ action: "read" }),
     ).resolves.toContain('"action":"read"');
@@ -897,6 +978,9 @@ describe("buildUserContentWithAttachments", () => {
     await expect(
       planRegistry.bash.run({ command: "rg button; node -e '1'" }),
     ).resolves.toContain("Plan mode blocked");
+    await expect(planRegistry["call-agent"].run({})).resolves.toContain(
+      "Plan mode blocked",
+    );
 
     const searchResult = await planRegistry["tool-search"].run({
       query: "write file",
@@ -925,6 +1009,7 @@ describe("buildUserContentWithAttachments", () => {
         "gong-calls": actionEntry({ readOnly: true }),
         gcloud: actionEntry({ readOnly: true }),
         "ordinary-rare-tool": actionEntry({ readOnly: true }),
+        "web-request": actionEntry({ readOnly: true }),
       }),
     );
 
@@ -934,6 +1019,7 @@ describe("buildUserContentWithAttachments", () => {
 
     expect(initialTools).toContain("starter");
     expect(initialTools).toContain("tool-search");
+    expect(initialTools).toContain("web-request");
     expect(initialTools).not.toContain("provider-api-request");
     expect(initialTools).not.toContain("provider-api-docs");
     expect(initialTools).not.toContain("run-code");
@@ -954,6 +1040,7 @@ describe("buildUserContentWithAttachments", () => {
         "docs-search": actionEntry({ readOnly: true }),
         "get-framework-context": actionEntry({ readOnly: true }),
         "read-attachment": actionEntry({ readOnly: true }),
+        "web-request": actionEntry({ readOnly: true }),
         "mcp__huge__rare-tool": actionEntry({ readOnly: true }),
       }),
     );
@@ -967,6 +1054,7 @@ describe("buildUserContentWithAttachments", () => {
       "docs-search",
       "get-framework-context",
       "read-attachment",
+      "web-request",
       "mcp__huge__rare-tool",
       "tool-search",
     ]);
@@ -1100,6 +1188,13 @@ describe("buildUserContentWithAttachments", () => {
 
   it("treats mixed tools as read-only only for allowed arguments", () => {
     const webRequest = actionEntry({ readOnly: true });
+    webRequest.planMode = {
+      effect: (args: any) =>
+        ["GET", "HEAD"].includes(String(args?.method ?? "GET").toUpperCase())
+          ? "read"
+          : "write",
+      allowedValues: { method: ["GET", "HEAD"] },
+    };
     expect(
       isPlanModeToolCallAllowed("web-request", { method: "GET" }, webRequest),
     ).toBe(true);
@@ -1136,6 +1231,84 @@ describe("buildUserContentWithAttachments", () => {
         bashTool,
       ),
     ).toBe(false);
+
+    const callAgent = actionEntry({ readOnly: false });
+    expect(isPlanModeToolCallAllowed("call-agent", {}, callAgent)).toBe(false);
+
+    const classifierThrows = actionEntry({
+      planMode: {
+        effect: () => {
+          throw new Error("bad classifier");
+        },
+      },
+    });
+    expect(isPlanModeToolCallAllowed("fragile", {}, classifierThrows)).toBe(
+      false,
+    );
+
+    const projectedRead = actionEntry({
+      planMode: {
+        effect: "read",
+        allowedProperties: ["query", "limit"],
+        omittedProperties: ["persist"],
+      },
+    });
+    expect(
+      isPlanModeToolCallAllowed(
+        "query-provider",
+        { query: "open", limit: 5 },
+        projectedRead,
+      ),
+    ).toBe(true);
+    expect(
+      isPlanModeToolCallAllowed(
+        "query-provider",
+        { query: "open", persist: true },
+        projectedRead,
+      ),
+    ).toBe(false);
+  });
+
+  it("preloads at most three matching callable Plan tool schemas", () => {
+    const registry = createPlanModeActionRegistry(
+      attachToolSearch({
+        "inspect-invoices": actionEntry({
+          description: "Inspect invoice records and totals",
+          readOnly: true,
+        }),
+        "inspect-payments": actionEntry({
+          description: "Inspect payment records",
+          readOnly: true,
+        }),
+        "inspect-customers": actionEntry({
+          description: "Inspect customer billing details",
+          readOnly: true,
+        }),
+        "inspect-refunds": actionEntry({
+          description: "Inspect refunded invoice payments",
+          readOnly: true,
+        }),
+        "delete-invoices": actionEntry({
+          description: "Delete invoice records",
+          readOnly: false,
+        }),
+      }),
+    );
+    const availableTools = actionsToEngineTools(registry);
+    const initialTools = availableTools.filter(
+      (tool) => tool.name === "tool-search",
+    );
+
+    const preloaded = preloadPlanModeEngineTools({
+      request: "Inspect invoice payments, refunds, and customer billing",
+      registry,
+      initialTools,
+      availableTools,
+    });
+
+    expect(preloaded).toHaveLength(4);
+    expect(preloaded.map((tool) => tool.name)).toContain("tool-search");
+    expect(preloaded.map((tool) => tool.name)).not.toContain("delete-invoices");
   });
 });
 
@@ -1160,6 +1333,59 @@ describe("resolveAgentOwnerEmail", () => {
     );
 
     expect(owner).toBe("context@example.com");
+  });
+});
+
+describe("createProductionAgentHandler", () => {
+  it("passes queued message identity to onRunPrepared", async () => {
+    const onRunPrepared = vi.fn();
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      onRunPrepared,
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Run the queued prompt",
+          queuedMessageId: " queued-1 ",
+        }),
+      }),
+    );
+
+    await runWithRequestContext(
+      { userEmail: "owner@example.com", run: {} },
+      () => handler(event),
+    );
+
+    expect(onRunPrepared).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "Run the queued prompt",
+        queuedMessageId: "queued-1",
+      }),
+    );
   });
 });
 
@@ -7217,6 +7443,81 @@ describe("runAgentLoop", () => {
     ]);
   });
 
+  it("tells the model the expected signature when raw-schema validation rejects a write", async () => {
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call",
+              id: "bad-write",
+              name: "update-extension",
+              input: { id: "ext-1", operation: "" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: any[] = [];
+    const run = vi.fn(async () => "should not execute");
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "update-extension": {
+          tool: {
+            description: "Update extension",
+            parameters: {
+              type: "object",
+              properties: {
+                id: { type: "string" },
+                operation: {
+                  type: "string",
+                  enum: ["edit", "replace", "metadata"],
+                },
+              },
+              required: ["id", "operation"],
+              additionalProperties: false,
+            },
+          },
+          readOnly: false,
+          run,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).not.toHaveBeenCalled();
+    const toolDone = events.find(
+      (event) =>
+        event.type === "tool_done" && event.tool === "update-extension",
+    );
+    // Without the allowed values in the error, the model re-sends the same
+    // rejected enum until the identical-error breaker ends the turn.
+    expect(toolDone?.result).toContain(
+      'operation*: "edit"|"replace"|"metadata"',
+    );
+    expect(toolDone?.result).toContain("* = required");
+  });
+
   it("returns tool input schema failures to the model instead of ending the run", async () => {
     let streamCalls = 0;
     const seenMessages: any[] = [];
@@ -7707,6 +8008,12 @@ describe("runAgentLoop", () => {
     expect(events.at(-1)).toEqual({ type: "done" });
     expect(JSON.stringify(seenMessages[1])).toContain(
       "This answer needs a real data-source query",
+    );
+    // The corrective instruction rides in on a user-role message. Without the
+    // framework label an aligned model reads it as an injected user turn and
+    // refuses it out loud to the real user.
+    expect(JSON.stringify(seenMessages[1])).toContain(
+      AGENT_INTERNAL_GUARD_PROMPT,
     );
   });
 

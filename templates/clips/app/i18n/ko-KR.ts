@@ -550,6 +550,8 @@ const messages = {
     useColor: "{{color}} 사용",
     logo: "로고",
     logoPreview: "로고 미리보기",
+    logoUsage: "공유 이메일과 공개 클립 페이지에서 수신자에게 표시됩니다.",
+    emailHeaderPreview: "공유 이메일 헤더",
     dropReplace: "교체할 새 이미지를 놓으세요",
     dropHere: "여기에 PNG / JPG / SVG를 놓으세요",
     uploading: "업로드 중…",
@@ -647,10 +649,6 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
 ### 추가됨
 
 - 이제 Clips 안에서 바로 새 소식을 볼 수 있습니다. 변경 로그는 명령 메뉴(Cmd+K)와 설정에 있습니다.`,
-    profile: "프로필",
-    email: "이메일",
-    displayName: "표시 이름",
-    displayNamePlaceholder: "이름",
     playback: "재생",
     defaultPlaybackSpeed: "기본 재생 속도",
     playbackDescription: "녹화를 열 때 자동으로 적용됩니다.",
@@ -788,6 +786,7 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
       "아직 조직이 없습니다. 시작하려면 조직 전환기에서 하나를 만드세요.",
     description: "조직 관리: 브랜딩, 멤버, 초대.",
     adminsOnlyBranding: "관리자만 브랜딩을 편집할 수 있습니다.",
+    brandingLoadFailed: "조직 브랜딩을 불러오지 못했습니다.",
     members: "멤버",
     pendingInvites: "대기 중인 초대",
     noPendingInvites: "대기 중인 초대가 없습니다.",
@@ -927,6 +926,7 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     replyingTo: "답글 대상",
     commentAt: "댓글 위치",
     writeReply: "답글 쓰기...",
+    editComment: "댓글 편집",
     commentButton: "댓글",
     composerPlaceholder: "댓글 추가…",
     mentionSomeone: "멘션하기",
@@ -1257,6 +1257,7 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     importLoom: "Import Loom (현지화됨)",
     importing: "Importing... (현지화됨)",
     import: "Import (현지화됨)",
+    recordNew: "새로 녹화",
   },
   playerSettings: {
     title: "Settings (현지화됨)",
@@ -1328,12 +1329,31 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     downloadDesktopApp: "Download desktop app (현지화됨)",
     technicalDetails: "Technical details (현지화됨)",
     whatToCheck: "What to check (현지화됨)",
-    downloadRecording: "Download recording (현지화됨)",
+    downloadRecording: "Download (현지화됨)",
     openRecorderInTab: "Open recorder in tab (현지화됨)",
     connectStorageToFinish:
       "다음 화면에서 스토리지를 연결하세요: Builder.io(무료 티어 스토리지 + AI) 또는 S3 호환 스토리지. Clips가 저장을 완료합니다.",
     connectStorageToRetryLoom:
       "다음 화면에서 스토리지를 연결하세요: Builder.io(무료 티어 스토리지 + AI) 또는 S3 호환 스토리지. Clips가 가져오기를 다시 시도합니다.",
+  },
+  importRoute: {
+    pageTitle: "Loom 가져오기 — Clips",
+    title: "Loom 가져오기",
+    urlPlaceholder: "https://www.loom.com/share/...",
+    cta: "가져오기",
+    helperText:
+      "Loom과 특히 잘 작동합니다. 다른 화면 녹화나 동영상 파일 링크도 붙여넣을 수 있습니다.",
+    stageFetching: "동영상을 가져오는 중…",
+    stageUploading: "원본 영상을 업로드하는 중…",
+    stageTranscript:
+      "음성과 화면의 시각 정보를 에이전트가 읽을 수 있게 만드는 중…",
+    stageFinalizing: "Agent-Native로 만드는 중…",
+    importingSubtitle: "밋밋한 녹화를 Agent-Native 프리미티브로 바꾸는 중.",
+    doneHeading: "완료됐어요! 이제 동영상은:",
+    benefitTranscript: "음성과 화면의 시각 정보, 완전히 검색 가능",
+    benefitQueryable: "에이전트가 이해하고 질의 가능",
+    benefitSummaries: "필요할 때 즉시 요약과 클립 생성",
+    benefitPrimitive: "일급 Agent-Native 프리미티브",
   },
   dictateRoute: {
     pageTitle: "Dictate · Clips (현지화됨)",

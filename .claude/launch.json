@@ -230,6 +230,41 @@
       "port": 3106
     },
     {
+      "name": "slides-modelpicker",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=file:/private/tmp/claude-501/-Users-steve-Projects-builder-agent-native-framework/4b6b0d66-427e-468c-afd6-aaf1ec21468d/scratchpad/slides-modelpicker.sqlite",
+        "PORT=3219",
+        "AUTH_MODE=local",
+        "APP_URL=http://localhost:3219",
+        "pnpm",
+        "--dir",
+        "templates/slides",
+        "dev",
+        "--port",
+        "3219"
+      ],
+      "port": 3219
+    },
+    {
+      "name": "slides-modelpicker-keyed",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=file:/private/tmp/claude-501/-Users-steve-Projects-builder-agent-native-framework/4b6b0d66-427e-468c-afd6-aaf1ec21468d/scratchpad/slides-modelpicker.sqlite",
+        "PORT=3220",
+        "AUTH_MODE=local",
+        "APP_URL=http://localhost:3220",
+        "OPENAI_API_KEY=local-test-placeholder",
+        "pnpm",
+        "--dir",
+        "templates/slides",
+        "dev",
+        "--port",
+        "3220"
+      ],
+      "port": 3220
+    },
+    {
       "name": "slides-feelcheck",
       "runtimeExecutable": "env",
       "runtimeArgs": [
@@ -422,6 +457,60 @@
         "3209"
       ],
       "port": 3209
+    },
+    {
+      "name": "slides-keysearch",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=file:/private/tmp/claude-501/-Users-steve-Projects-builder-agent-native-framework/84928637-4902-4916-9d06-9174ec3dd630/scratchpad/slides-keysearch.sqlite",
+        "PORT=3224",
+        "AUTH_MODE=local",
+        "AUTH_DISABLED=true",
+        "APP_URL=http://localhost:3224",
+        "pnpm",
+        "--dir",
+        "templates/slides",
+        "dev",
+        "--port",
+        "3224"
+      ],
+      "port": 3224
+    },
+    {
+      "name": "slides-presenter",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=file:/private/tmp/claude-501/-Users-steve-Projects-builder-agent-native-framework/61efc022-a794-4587-bb1a-516bdb01dfdc/scratchpad/slides-presenter.sqlite",
+        "PORT=3221",
+        "AUTH_MODE=local",
+        "AUTH_DISABLED=true",
+        "APP_URL=http://localhost:3221",
+        "pnpm",
+        "--dir",
+        "templates/slides",
+        "dev",
+        "--port",
+        "3221"
+      ],
+      "port": 3221
+    },
+    {
+      "name": "slides-watchdog-verify",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=file:/private/tmp/claude-501/-Users-steve-Projects-builder-agent-native-framework/06043e25-bbb5-4b6e-80a8-02b99198a7d9/scratchpad/slides-watchdog.sqlite",
+        "PORT=3231",
+        "AUTH_MODE=local",
+        "AUTH_DISABLED=true",
+        "APP_URL=http://localhost:3231",
+        "pnpm",
+        "--dir",
+        "templates/slides",
+        "dev",
+        "--port",
+        "3231"
+      ],
+      "port": 3231
     }
   ]
 }

@@ -7,10 +7,6 @@ const CHROME_OPACITY_TRANSITION = "opacity 150ms ease-out";
 const CHROME_BORDER_SETTLE_TRANSITION = `inset ${CHROME_SETTLE_MS}ms ease-out, border-width ${CHROME_SETTLE_MS}ms ease-out, border-radius ${CHROME_SETTLE_MS}ms ease-out, ${CHROME_OPACITY_TRANSITION}`;
 const SELECTION_BOX_SETTLE_TRANSITION = `border-width ${CHROME_SETTLE_MS}ms ease-out, border-radius ${CHROME_SETTLE_MS}ms ease-out, ${CHROME_OPACITY_TRANSITION}`;
 const CHROME_HANDLE_SETTLE_TRANSITION = `width ${CHROME_SETTLE_MS}ms ease-out, height ${CHROME_SETTLE_MS}ms ease-out, border-width ${CHROME_SETTLE_MS}ms ease-out, top ${CHROME_SETTLE_MS}ms ease-out, bottom ${CHROME_SETTLE_MS}ms ease-out, left ${CHROME_SETTLE_MS}ms ease-out, right ${CHROME_SETTLE_MS}ms ease-out, ${CHROME_OPACITY_TRANSITION}`;
-// Frame header (name + "Interact" button) is counter-scaled via
-// transform to stay a fixed screen size; ease that scale on zoom-settle. opacity
-// is included so the button's hover-fade (transition-opacity) keeps working.
-const CHROME_LABEL_SETTLE_TRANSITION = `transform ${CHROME_SETTLE_MS}ms ease-out, ${CHROME_OPACITY_TRANSITION}`;
 
 export function getChromeBorderTransition(chromeSettling: boolean) {
   return chromeSettling
@@ -28,8 +24,16 @@ export function getChromeHandleTransition(chromeSettling: boolean) {
     : CHROME_OPACITY_TRANSITION;
 }
 
-export function getChromeLabelTransition(chromeSettling: boolean) {
-  return chromeSettling
-    ? CHROME_LABEL_SETTLE_TRANSITION
-    : CHROME_OPACITY_TRANSITION;
+/**
+ * Frame header (name + "Interact" button). It is counter-scaled by transform to
+ * stay a fixed screen size, and that counter-scale now tracks the live zoom
+ * every gesture frame through the `--an-chrome-scale` custom property — so
+ * unlike the border/handle/selection chrome above there is no settle-time
+ * snap-back to ease, and no `chromeSettling` branch. Transitioning `transform`
+ * here would actively lag the label behind the canvas whenever a new zoom tick
+ * lands inside the settle window. Opacity is still eased so the button's
+ * hover-fade keeps working.
+ */
+export function getChromeLabelTransition() {
+  return CHROME_OPACITY_TRANSITION;
 }

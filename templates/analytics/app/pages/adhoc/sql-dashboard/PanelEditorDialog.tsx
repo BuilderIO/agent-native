@@ -204,6 +204,7 @@ export function formToPanel(
   const isExtension = form.chartType === "extension";
   if (isExtension && form.extensionMode === "slot") {
     delete config.extensionId;
+    delete config.customBlock;
     config.extensionSlotId =
       form.extensionSlotId.trim() || dashboardExtensionSlotId(dashboardId, id);
   } else if (isExtension) {
@@ -212,6 +213,7 @@ export function formToPanel(
   } else {
     delete config.extensionId;
     delete config.extensionSlotId;
+    delete config.customBlock;
   }
   const isSection = form.chartType === "section";
   return {
@@ -393,7 +395,7 @@ function PanelEditorContent({
         `For demo panels, sql uses the same Prometheus JSON descriptor shape as source 'prometheus': {"promql":"rate(http_requests_total[5m])","mode":"range","range":"1h","step":"30s"}. ` +
         `For prometheus panels, sql is a JSON descriptor: {"promql":"rate(http_requests_total[5m])","mode":"range","range":"1h","step":"30s"}. mode defaults to "range"; range defaults to "1h"; step is auto if omitted. Returned rows have shape {timestamp, series, value} — set config.xKey="timestamp", config.yKey="value", and a single series in config.yKeys for clean charting. ` +
         `For program panels (arbitrary provider data joins/cohorts not expressible in the other sources), first save-data-program (or reuse an existing one via list-data-programs), then set sql to a JSON descriptor: {"programId":"<id>","params":{...}}. See the data-programs skill for the emit(rows, schema) contract and the Risk Meeting worked example. ` +
-        `For extension panels, use config.extensionId by default so every dashboard viewer and scheduled report renders the author-selected shared extension. Use config.extensionSlotId only when the user explicitly asks for a personal/per-viewer slot; slot installs are per-user and automated report identities may have no install. ` +
+        `Native dashboard panels and Data Programs come first. Add an extension panel only when the user explicitly asks for a genuinely bespoke, one-off Custom Block for this dashboard and native panels cannot represent it faithfully. For a reusable/native capability call connect-builder instead. New agent-authored Custom Blocks use config.extensionId plus config.customBlock={authoredBy:"agent",intent:"one-off",scope:"dashboard",nativeGapReason:"custom-visualization"|"custom-interaction"|"custom-layout"|"other"}; never put prompt/customer text in that metadata. Use config.extensionSlotId only when the user explicitly asks for a personal/per-viewer slot; slot installs are per-user and automated report identities may have no install. ` +
         `Config is optional: { xKey, yKey, yKeys, yFormatter ('number'|'currency'|'percent'), rightYKeys, rightYFormatter, description, columns, pivot, limit, color, colors, stacked, legend, valueLabels }. ` +
         `For line/area/bar series that share an x-axis but not a unit (a count next to a rate), put the smaller-unit series on a second y-axis with config.rightYKeys (a subset of yKeys) and an optional config.rightYFormatter — do not build an extension for a dual-axis chart. ` +
         `Chart legends render automatically; set config.legend=false only when the user explicitly asks to hide the legend. ` +

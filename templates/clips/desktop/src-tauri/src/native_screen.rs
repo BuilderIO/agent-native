@@ -4225,7 +4225,7 @@ const SCK_FINALIZE_TIMEOUT: Duration = Duration::from_secs(10);
 const CUSTOM_SCK_STOP_TIMEOUT: Duration = Duration::from_secs(3);
 
 #[cfg(target_os = "macos")]
-fn run_bounded_capture_stop<F>(stop: F, timeout: Duration) -> Result<(), String>
+pub(crate) fn run_bounded_capture_stop<F>(stop: F, timeout: Duration) -> Result<(), String>
 where
     F: FnOnce() -> Result<(), String> + Send + 'static,
 {

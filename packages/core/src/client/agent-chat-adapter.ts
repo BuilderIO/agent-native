@@ -884,6 +884,9 @@ function lastCompletedTimeoutCandidateTool(
       part.activity !== true &&
       part.result !== undefined &&
       part.isError !== true &&
+      // A settled-interrupted tool has a result but an unknown outcome; claiming
+      // it completed is the same false-success this message exists to avoid.
+      part.outcome !== "unknown" &&
       isCompletedToolTimeoutCandidate(part)
     ) {
       return part;
@@ -1608,6 +1611,14 @@ export function createAgentChatAdapter(
         typeof runConfig.custom === "object" &&
         (runConfig.custom as { trackInRunsTray?: unknown }).trackInRunsTray ===
           true;
+      const queuedMessageId = (() => {
+        const raw =
+          runConfig?.custom && typeof runConfig.custom === "object"
+            ? (runConfig.custom as { agentNativeQueuedMessageId?: unknown })
+                .agentNativeQueuedMessageId
+            : undefined;
+        return typeof raw === "string" && raw.trim() ? raw.trim() : undefined;
+      })();
       // Human-in-the-loop approval keys (opt-in `needsApproval` actions). When
       // the user approves a paused tool call, the turn is re-issued with the
       // approval key so the server lets that specific call run.
@@ -1633,6 +1644,21 @@ export function createAgentChatAdapter(
             : execModeRef?.current === "build"
               ? "act"
               : undefined;
+      // Queued turns carry the model/engine/effort they were composed with.
+      // The refs track the live picker, so without this a queue that flushes
+      // after the user switches models runs under the wrong one.
+      const runConfigSelection = (key: "model" | "engine" | "effort") => {
+        const raw =
+          runConfig?.custom && typeof runConfig.custom === "object"
+            ? (runConfig.custom as Record<string, unknown>)[key]
+            : undefined;
+        return typeof raw === "string" && raw.length > 0 ? raw : undefined;
+      };
+      const model = runConfigSelection("model") ?? modelRef?.current;
+      const engine = runConfigSelection("engine") ?? engineRef?.current;
+      const effort =
+        (runConfigSelection("effort") as ReasoningEffort | undefined) ??
+        effortRef?.current;
 
       const withRequestModeMetadata = (
         result: ChatModelRunResult,
@@ -1735,6 +1761,12 @@ export function createAgentChatAdapter(
       let lastPreparingToolName: string | undefined;
       let repeatedActionPreparationCount = 0;
       let recoveryGaveUpOnActionPreparation = false;
+      // Set when the turn is stopped by MAX_TOTAL_TRANSIENT_CONTINUATIONS —
+      // the whole-turn continuation ceiling, not a dropped connection. This
+      // can trip on a turn that was making real progress the entire time, so
+      // it needs its own honest message instead of falling through to the
+      // generic "connection kept failing" copy below.
+      let recoveryGaveUpOnTransientBudget = false;
       const continuationHistoryFragments: string[] = [];
       const structuredContinuationFragments: AgentChatStructuredMessage[] = [];
       let visibleContinuationPrefix: ContentPart[] = [];
@@ -1813,6 +1845,9 @@ export function createAgentChatAdapter(
             ? ` the ${humanizeActionName(lastPreparingToolName)} action`
             : " the same action";
           return `The agent got stuck preparing${tool} input and never started the tool, so I stopped the automatic retries. Try a smaller first step or a more compact version of the request.`;
+        }
+        if (recoveryGaveUpOnTransientBudget) {
+          return "This turn reached the limit on how many times it can be automatically continued, so I stopped it here. It may have still been making progress — retry as a single, narrower request so it can finish within fewer continuations.";
         }
         if (
           content.length === 0 &&
@@ -3083,6 +3118,12 @@ export function createAgentChatAdapter(
               ? 0
               : stalledTransientContinuationAttempts + 1;
             if (
+              totalTransientContinuationAttempts >
+              MAX_TOTAL_TRANSIENT_CONTINUATIONS
+            ) {
+              recoveryGaveUpOnTransientBudget = true;
+            }
+            if (
               stalledTransientContinuationAttempts >
                 MAX_STALLED_TRANSIENT_CONTINUATIONS ||
               totalTransientContinuationAttempts >
@@ -3172,6 +3213,7 @@ export function createAgentChatAdapter(
                 body: JSON.stringify({
                   message: currentMessageText,
                   displayMessage: userMessageText,
+                  ...(queuedMessageId ? { queuedMessageId } : {}),
                   history: currentHistory,
                   structuredHistory: currentStructuredHistory,
                   turnId,
@@ -3181,9 +3223,9 @@ export function createAgentChatAdapter(
                     ? { internalContinuation: true }
                     : {}),
                   ...(requestMode ? { mode: requestMode } : {}),
-                  ...(modelRef?.current ? { model: modelRef.current } : {}),
-                  ...(engineRef?.current ? { engine: engineRef.current } : {}),
-                  ...(effortRef?.current ? { effort: effortRef.current } : {}),
+                  ...(model ? { model } : {}),
+                  ...(engine ? { engine } : {}),
+                  ...(effort ? { effort } : {}),
                   ...(browserTabId ? { browserTabId } : {}),
                   ...(scopeRef?.current ? { scope: scopeRef.current } : {}),
                   ...(includeAttachments ? { attachments } : {}),

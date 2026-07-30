@@ -19,6 +19,27 @@ export interface RuntimeStructureMoveRequest {
   placement: "before" | "after" | "inside";
 }
 
+/**
+ * Insert NEW markup into a live screen's running DOM. Unlike
+ * RuntimeStructureMoveRequest there is no subject in the running app yet —
+ * the html is the subject, already positioned by the host.
+ */
+export interface RuntimeStructureInsertRequest {
+  requestId: number;
+  html: string;
+  /** Additional clipboard roots inserted by the same paste gesture. */
+  additionalHtml?: string[];
+  /** Replace the resolved anchor instead of inserting beside/inside it. */
+  replaceAnchor?: boolean;
+  anchor: {
+    selector: string;
+    sourceId?: string | null;
+    /** Hit-test-minted id, live-DOM only. The only handle on an id-less anchor. */
+    pendingNodeId?: string | null;
+  };
+  placement: "before" | "after" | "inside";
+}
+
 export interface RuntimeVerificationRequest {
   requestId: number;
 }
@@ -52,6 +73,18 @@ export interface ElementInfo {
    */
   pendingNodeId?: string;
   selector?: string;
+  /**
+   * The `selector` / `sourceId` the canvas bridge originally reported, kept
+   * verbatim when the host canonicalizes the selection onto its own source
+   * projection (canonicalElementInfoForCodeLayerNode). For a live/localhost
+   * screen the two are DIFFERENT node-id namespaces — the running document
+   * carries the ids the bridge assigned there, the fetched source snapshot
+   * carries the ones ensureCodeLayerNodeIdsInHtml stamped — so the canonical
+   * selector cannot address the live DOM. Any host-initiated mutation of the
+   * running document (currently only delete) must target these instead.
+   */
+  runtimeSelector?: string;
+  runtimeSourceId?: string;
   classes: string[];
   computedStyles: Record<string, string>;
   /**

@@ -85,6 +85,12 @@ export interface AgentSkill {
   requiresAuth?: boolean;
   isConsequential?: boolean;
   publicAgent?: PublicAgentActionConfig;
+  /**
+   * JSON Schema for the action's `input`. Advertising a skill without it tells a
+   * caller the action exists but not how to call it, so callers invoke with `{}`
+   * and get a required-property error back.
+   */
+  inputSchema?: Record<string, unknown>;
 }
 
 export interface AgentCapabilities {
@@ -225,6 +231,13 @@ export interface A2AConfig {
   description: string;
   version?: string;
   skills: AgentSkill[];
+  /**
+   * Skills advertised only to a caller with a verified A2A identity — the set
+   * `actions/invoke` will actually run. Anonymous card fetches never see these.
+   * Without it the card advertises the public set, which is disjoint from the
+   * invocable set, so siblings are told nothing is directly callable.
+   */
+  authenticatedSkills?: AgentSkill[];
   /** If true, public agent-card discovery includes only explicit public-safe skills. */
   publicSkillsOnly?: boolean;
   handler?: A2AHandler;

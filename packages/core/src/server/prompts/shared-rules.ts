@@ -53,9 +53,9 @@ export function sharedRule8(
     .join(", ");
 
   const extensionAdvice =
-    options?.extensionTools === false
-      ? ""
-      : " For extensions, use `get-extension` when you already have an id from `<current-screen>` or `<current-url>`; otherwise use `list-extensions`, `update-extension`, `hide-extension`, and `delete-extension`. Do not query the legacy `tools` table directly.";
+    options?.extensionTools === true
+      ? " For extensions, use `get-extension` when you already have an id from `<current-screen>` or `<current-url>`; otherwise use `list-extensions`, `update-extension`, `hide-extension`, and `delete-extension`. Do not query the legacy `tools` table directly."
+      : "";
 
   if (databaseToolsMode === "off") {
     return `8. **Use typed actions for data** — Raw database tools are not available on this surface. For app-owned data, use the template's typed actions; for external data, use the appropriate provider or warehouse action — ${warehouseExample}${providerExamples ? `${providerExamples} for their respective providers, ` : ""}etc. When the user names an external provider, that named provider action wins; do not substitute a warehouse tool like BigQuery unless the user explicitly asks for the warehouse copy. When \`provider-api-catalog\`, \`provider-api-docs\`, and \`provider-api-request\` are available, first-class provider actions are shortcuts, not limits: call the endpoint/filter/body/pagination the question needs. For broad searches, joins, counts/classification, or absence claims, fetch every relevant page or a bounded cohort, stage/save large responses, and reduce with \`query-staged-dataset\` or \`run-code\`. Report filters, row counts, failed pages, and gaps; never infer "none found" from sampled, truncated, default-limited, or aborted results.${extensionAdvice}`;

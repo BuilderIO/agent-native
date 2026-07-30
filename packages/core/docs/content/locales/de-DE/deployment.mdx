@@ -311,6 +311,19 @@ export default defineConfig({
 });
 ```
 
+## Cloudflare Workers {#cloudflare-workers}
+
+Verwenden Sie die native Nitro-Modulausgabe für einen Cloudflare Worker mit
+aktiviertem SSR. Führen Sie `npx @agent-native/core@latest build` aus und
+deployen Sie anschließend mit `npx wrangler deploy --config
+.output/server/wrangler.json`.
+
+```ts
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "cloudflare_module" } })],
+});
+```
+
 ## AWS Lambda {#aws-lambda}
 
 ```ts
@@ -430,7 +443,14 @@ laufen über typisierte App-Actions, sofern die App nicht ausdrücklich rohe Sch
 export default createAgentChatPlugin({
   // Default: "read"
   databaseTools: "read", // "write" | "read" | "off"
-  extensionTools: false,
+  extensionTools: true,
+});
+```
+
+```ts
+// server/plugins/core-routes.ts
+export default createCoreRoutesPlugin({
+  extensionTools: true,
 });
 ```
 
@@ -441,9 +461,11 @@ export default createAgentChatPlugin({
   aktuellen Benutzer/die aktuelle Organisation beschränkt; Schemaänderungen werden blockiert.
 - `databaseTools: "off"` oder `false` – entfernt Rohdatenbank-Tools aus
   Agentenoberfläche, sodass die actions der App der einzige Datenzugriffspfad sind.
-- `extensionTools: false` – entfernt Framework-Erweiterungsverwaltung actions und
-  schnelle Anleitung (`create-extension`, `update-extension` usw.) für Apps, die
-  Sie möchten nicht, dass der Agent Sandbox-Mini-Apps erstellt.
+- `extensionTools: true` – aktiviert für die App die actions und Anweisungen
+  zur Framework-Erweiterungsverwaltung (`create-extension`,
+  `update-extension` usw.). Setzen Sie die Option in beiden Plugins, um auch
+  authentifizierte REST-Erstellung zu erlauben. Erweiterungen sind
+  standardmäßig deaktiviert.
 
 ## Produktionscode-Ausführung {#production-code-execution}
 

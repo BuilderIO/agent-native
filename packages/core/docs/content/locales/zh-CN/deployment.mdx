@@ -311,6 +311,18 @@ export default defineConfig({
 });
 ```
 
+## Cloudflare Workers {#cloudflare-workers}
+
+对于启用 SSR 的 Cloudflare Worker，请使用 Nitro 原生模块输出。运行
+`npx @agent-native/core@latest build`，然后使用
+`npx wrangler deploy --config .output/server/wrangler.json` 部署。
+
+```ts
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "cloudflare_module" } })],
+});
+```
+
 ## AWS 拉姆达 {#aws-lambda}
 
 ```ts
@@ -430,7 +442,14 @@ openssl rand -hex 32
 export default createAgentChatPlugin({
   // Default: "read"
   databaseTools: "read", // "write" | "read" | "off"
-  extensionTools: false,
+  extensionTools: true,
+});
+```
+
+```ts
+// server/plugins/core-routes.ts
+export default createCoreRoutesPlugin({
+  extensionTools: true,
 });
 ```
 
@@ -440,9 +459,9 @@ export default createAgentChatPlugin({
   用于有意的原始 SQL 维护。写入范围限定为当前用户/组织，并阻止架构更改。
 - `databaseTools: "off"` 或 `false` — 从
   代理表面，因此应用程序的 actions 是唯一的数据访问路径。
-- `extensionTools: false` — 删除框架扩展管理 actions 和
-  针对以下应用的提示指导（`create-extension`、`update-extension` 等）
-  不希望代理创建沙盒迷你应用程序。
+- `extensionTools: true` — 为应用启用框架扩展管理 actions 和提示指导
+  （`create-extension`、`update-extension` 等）。在两个 plugins 上都设置
+  此选项，也可允许经过身份验证的 REST 创建。扩展默认关闭。
 
 ## 生产代码执行 {#production-code-execution}
 

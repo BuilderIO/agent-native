@@ -18,10 +18,6 @@ describe("design data access policy", () => {
     },
   });
 
-  it("always resolves public-by-link access as viewer", () => {
-    expect(publicDesignAccessRole()).toBe("viewer");
-  });
-
   it.each(["owner", "admin", "editor"])(
     "preserves only read-only preview metadata for an explicitly resolved %s role",
     (role) => {
@@ -55,5 +51,43 @@ describe("design data access policy", () => {
         "viewer",
       ),
     ).toBeNull();
+  });
+
+  describe("local visual-edit capability", () => {
+    const resource = {
+      id: "design_1",
+      data: JSON.stringify({ sourceType: "localhost" }),
+    };
+    const capability = "capability:visual-edit:design:design_1";
+
+    it("keeps an ordinary public localhost design viewer-only", () => {
+      expect(publicDesignAccessRole(resource)).toBe("viewer");
+    });
+
+    it("grants editor only to the matching design capability", () => {
+      expect(
+        publicDesignAccessRole(resource, { authCapability: capability }),
+      ).toBe("editor");
+      expect(
+        publicDesignAccessRole(resource, {
+          authCapability: "capability:visual-edit:design:another-design",
+        }),
+      ).toBe("viewer");
+    });
+
+    it.each(["inline", "fusion"])(
+      "does not upgrade a matching %s design",
+      (sourceType) => {
+        expect(
+          publicDesignAccessRole(
+            {
+              ...resource,
+              data: JSON.stringify({ sourceType }),
+            },
+            { authCapability: capability },
+          ),
+        ).toBe("viewer");
+      },
+    );
   });
 });

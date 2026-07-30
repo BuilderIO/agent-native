@@ -404,7 +404,7 @@ describe("chat thread store", () => {
     await setThreadQueuedMessages("thread-1", []);
 
     const repo = JSON.parse(row!.thread_data);
-    expect(repo.queuedMessages).toBeUndefined();
+    expect(repo.queuedMessages).toEqual([]);
     expect(repo.messages.map((entry: any) => entry.message.id)).toEqual([
       "user-1",
       "assistant-1",
@@ -638,12 +638,12 @@ describe("chat thread store", () => {
     ]);
   });
 
-  it("backfills message_count for legacy rows so they stay in the list", async () => {
+  it("keeps the legacy message_count repair out of table bootstrap", async () => {
     // ensureTable caches its bootstrap promise at module scope, so reset the
-    // module registry to force a fresh bootstrap (and the one-time backfill)
-    // for this assertion.
+    // module registry to exercise a fresh bootstrap.
     vi.resetModules();
     const updates: Array<{ count: number; id: string }> = [];
+    let repairScans = 0;
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
       const args = typeof query === "string" ? [] : query.args;
@@ -652,6 +652,7 @@ describe("chat thread store", () => {
       }
       // The legacy backfill probe: a row that has messages but count = 0.
       if (/SELECT id, thread_data, message_count/i.test(sql)) {
+        repairScans++;
         return {
           rows: [
             {
@@ -683,7 +684,14 @@ describe("chat thread store", () => {
     const freshStore = await import("./store.js");
     await freshStore.listThreads("user@example.com");
 
+    expect(repairScans).toBe(0);
+    expect(updates).toEqual([]);
+
+    const result = await freshStore.repairLegacyChatThreadMessageCounts();
+
+    expect(repairScans).toBe(1);
     expect(updates).toEqual([{ count: 2, id: "legacy-1" }]);
+    expect(result).toEqual({ scanned: 1, updated: 1 });
   });
 
   it("renames threads with a durable title override", async () => {

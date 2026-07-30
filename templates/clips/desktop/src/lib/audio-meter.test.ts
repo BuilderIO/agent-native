@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   advanceMeterLevels,
+  combinedMeterLevel,
   decayMeterLevel,
+  EMPTY_METER_SOURCES,
+  foldMeterSources,
   METER_BAR_COUNT,
   METER_IDLE_HEIGHT,
   meterBarHeight,
@@ -46,6 +49,20 @@ describe("advanceMeterLevels", () => {
     levels = advanceMeterLevels(levels, 0.2);
     expect(levels).toEqual([0.2, 0.9, 0]);
     expect(levels).toHaveLength(METER_BAR_COUNT);
+  });
+});
+
+describe("foldMeterSources", () => {
+  it("keeps the far end's level up while the local mic is silent", () => {
+    let levels = EMPTY_METER_SOURCES;
+    // Mic and system buffers interleave on one event stream. Someone else
+    // talking on a muted-side call must still drive the meter.
+    for (let i = 0; i < 10; i++) {
+      levels = foldMeterSources(levels, "system", 0.6);
+      levels = foldMeterSources(levels, "mic", 0);
+    }
+    expect(combinedMeterLevel(levels)).toBe(0.6);
+    expect(levels.mic).toBe(0);
   });
 });
 

@@ -208,6 +208,7 @@ function resolveView(
   if (pathname === "/extensions" || pathname.startsWith("/extensions/")) {
     return "extensions";
   }
+  if (pathname.startsWith("/browser-chat")) return "browser-chat";
   if (pathname.startsWith("/chat")) return "chat";
   if (pathname.startsWith("/apps")) return "apps";
   if (pathname.startsWith("/metrics")) return "metrics";

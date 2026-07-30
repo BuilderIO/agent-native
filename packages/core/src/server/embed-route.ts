@@ -22,6 +22,7 @@ import { getConfiguredAppBasePath } from "./app-base-path.js";
 import type { AuthSession } from "./auth.js";
 import {
   consumeEmbedSessionTicket,
+  isEmbedCapabilityScope,
   normalizeEmbedTargetPath,
   setEmbedSessionCookie,
   signEmbedSessionToken,
@@ -263,6 +264,14 @@ export function createEmbedStartRouteHandler(
       orgId: consumed.orgId,
       targetPath: target,
       scope: consumed.scope,
+      ...(isEmbedCapabilityScope(consumed.scope)
+        ? {
+            ttlSeconds: Math.max(
+              1,
+              Math.floor((consumed.expiresAt - Date.now()) / 1000),
+            ),
+          }
+        : {}),
     });
     setEmbedSessionCookie(event, token);
     setResponseHeader(event, "Referrer-Policy", "no-referrer");

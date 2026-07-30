@@ -66,7 +66,7 @@ static PILL_HOVER_TRACKING: AtomicBool = AtomicBool::new(false);
 /// Collapsed dimensions (logical px). The collapsed pill is a vertical capsule
 /// — clips logo on top, waveform below — so it is taller than it is wide. The
 /// expanded form stretches horizontally to fit the live-transcript area.
-const PILL_W_LOGICAL: u32 = 44;
+const PILL_W_LOGICAL: u32 = 38;
 const PILL_W_EXPANDED_LOGICAL: u32 = 480;
 /// Meeting mode uses the same focused transcript width as other recordings;
 /// live notes are intentionally kept out of this compact overlay.
@@ -74,7 +74,7 @@ const PILL_W_EXPANDED_MEETING_LOGICAL: u32 = 480;
 /// Keep this close to the rendered capsule's height. The window frame is what
 /// hover is polled against, so slack here makes the pill light up while the
 /// cursor is still nowhere near it.
-const PILL_H_LOGICAL: u32 = 64;
+const PILL_H_LOGICAL: u32 = 60;
 const PILL_H_EXPANDED_LOGICAL: u32 = 340;
 /// Bottom margin from the screen edge, logical px. Granola uses ~24.
 const PILL_BOTTOM_MARGIN_LOGICAL: u32 = 24;
@@ -86,7 +86,8 @@ const PILL_DETACHED_W_LOGICAL: u32 = 180;
 const PILL_DETACHED_H_LOGICAL: u32 = 40;
 const PILL_DETACHED_TOP_MARGIN_LOGICAL: u32 = 24;
 const PILL_DETACHED_RIGHT_MARGIN_LOGICAL: u32 = 24;
-const PILL_RIGHT_MARGIN_LOGICAL: u32 = 24;
+/// Gap between the visible capsule and the right screen edge, logical px.
+const PILL_RIGHT_MARGIN_LOGICAL: u32 = 28;
 const OVERLAY_SHADOW_GUTTER_LOGICAL: f64 = 18.0;
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
@@ -105,6 +106,15 @@ fn scale_factor(app: &AppHandle) -> f64 {
 
 fn overlay_shadow_gutter_physical(app: &AppHandle) -> u32 {
     (OVERLAY_SHADOW_GUTTER_LOGICAL * scale_factor(app).max(1.0)).round() as u32
+}
+
+/// Screen-edge margin for the *visible* capsule. The window is padded out with
+/// a transparent shadow gutter, so that gutter comes off the window margin —
+/// measured from the window frame the pill floats a whole gutter further from
+/// the edge than the constant says.
+fn edge_margin_physical(app: &AppHandle, logical: u32) -> i32 {
+    let margin = (logical as f64 * scale_factor(app)) as i32;
+    (margin - overlay_shadow_gutter_physical(app) as i32).max(0)
 }
 
 /// Persist the last-known pill position so the next `show` re-opens at the
@@ -236,8 +246,7 @@ fn default_bottom_center(app: &AppHandle, w: u32, h: u32) -> (i32, i32) {
 }
 
 fn default_center_right(app: &AppHandle, w: u32, h: u32) -> (i32, i32) {
-    let scale = scale_factor(app);
-    let right_margin = (PILL_RIGHT_MARGIN_LOGICAL as f64 * scale) as i32;
+    let right_margin = edge_margin_physical(app, PILL_RIGHT_MARGIN_LOGICAL);
     let (mx, my, mw, mh) = tray_monitor_physical_rect(app);
     let x = (mx + mw as i32 - w as i32 - right_margin).max(mx);
     // Center whatever is actually on screen — meetings now open collapsed, so
@@ -283,9 +292,8 @@ fn pill_size_physical(app: &AppHandle, expanded: bool) -> (u32, u32) {
 
 /// Default top-right anchor (physical px) for detached mode.
 fn default_top_right(app: &AppHandle, w: u32, _h: u32) -> (i32, i32) {
-    let scale = scale_factor(app);
-    let top_margin = (PILL_DETACHED_TOP_MARGIN_LOGICAL as f64 * scale) as i32;
-    let right_margin = (PILL_DETACHED_RIGHT_MARGIN_LOGICAL as f64 * scale) as i32;
+    let top_margin = edge_margin_physical(app, PILL_DETACHED_TOP_MARGIN_LOGICAL);
+    let right_margin = edge_margin_physical(app, PILL_DETACHED_RIGHT_MARGIN_LOGICAL);
     let (mx, my, mw, _mh) = tray_monitor_physical_rect(app);
     let x = (mx + mw as i32 - w as i32 - right_margin).max(mx);
     let y = (my + top_margin).max(my);
@@ -398,15 +406,14 @@ pub async fn recording_pill_show(
     );
 
     if let Some(existing) = app.get_webview_window(PILL_LABEL) {
-        // Already alive — re-emit context and bring it back into view.
-        let prev_size = existing.outer_size().ok();
-        let prev_pos = existing.outer_position().ok();
-        let previous = match (prev_pos, prev_size) {
-            (Some(p), Some(s)) => Some((p.x, p.y, s.width, s.height)),
-            _ => None,
-        };
+        // Already alive — re-emit context and bring it back into view. Re-anchor
+        // from the saved/default position for this mode, never from where the
+        // window happens to sit: the pill window is reused across sessions, so
+        // carrying the previous rect over pins a meeting pill to the last clip
+        // recording's bottom-center spot. `previous` exists for expand/collapse,
+        // where the anchor must not move.
         let expanded = PILL_EXPANDED.load(Ordering::Relaxed);
-        let (w, h, x, y) = anchored_rect(&app, expanded, previous);
+        let (w, h, x, y) = anchored_rect(&app, expanded, None);
         let _ = existing.set_size(tauri::Size::Physical(PhysicalSize::new(w, h)));
         let _ = existing.set_position(PhysicalPosition::new(x, y));
         use tauri::Emitter;

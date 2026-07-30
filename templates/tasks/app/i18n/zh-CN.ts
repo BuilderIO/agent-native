@@ -16,6 +16,7 @@ const messages = {
     navInbox: "收件箱",
     navTasks: "任务",
     navFields: "字段",
+    search: "搜索",
     collapseSidebar: "收起侧边栏",
     expandSidebar: "展开侧边栏",
     navigationTitle: "导航",
@@ -28,6 +29,11 @@ const messages = {
     pageTeam: "团队",
     pageExtension: "扩展",
     pageExtensions: "扩展",
+  },
+  settings: {
+    languageTitle: "语言",
+    languageDescription: "选择界面语言。此偏好会保存到你的账户。",
+    languageLabel: "界面语言",
   },
   agent: {
     emptyState: "让智能体查看或修改这个应用。",

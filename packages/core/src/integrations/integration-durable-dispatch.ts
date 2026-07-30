@@ -10,8 +10,10 @@ import {
   INTEGRATION_DURABLE_DISPATCH_ENV,
   INTEGRATION_DURABLE_DISPATCH_SCOPES_ENV,
   INTEGRATION_PROCESS_TASK_PATH,
+  INTEGRATION_RECOVERY_RUNTIME_MARKER,
   INTEGRATION_RETRY_SWEEP_PATH,
   INTEGRATION_RETRY_SWEEP_TOKEN_SUBJECT,
+  isInIntegrationRecoveryRuntime,
   isIntegrationDurableDispatchConfigured,
 } from "./integration-durable-dispatch-config.js";
 import { recordPendingTaskDispatchAttempt } from "./pending-tasks-store.js";
@@ -20,8 +22,10 @@ export {
   INTEGRATION_DURABLE_DISPATCH_ENV,
   INTEGRATION_DURABLE_DISPATCH_SCOPES_ENV,
   INTEGRATION_PROCESS_TASK_PATH,
+  INTEGRATION_RECOVERY_RUNTIME_MARKER,
   INTEGRATION_RETRY_SWEEP_PATH,
   INTEGRATION_RETRY_SWEEP_TOKEN_SUBJECT,
+  isInIntegrationRecoveryRuntime,
   isIntegrationDurableDispatchConfigured,
 };
 

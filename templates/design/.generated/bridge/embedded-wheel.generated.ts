@@ -22,12 +22,28 @@ export const embeddedWheelBridgeScript: string = `"use strict";
     var lastMetaKey = false;
     var lastShiftKey = false;
     var lastAltKey = false;
-    if (editingSafetyEnabled) {
-      var freezeStyle = document.createElement("style");
+    var freezeStyle = null;
+    function syncEditingSafetyStyle() {
+      var currentStyle = freezeStyle || document.querySelector(
+        "style[data-agent-native-editing-safety-style]"
+      );
+      if (!editingSafetyEnabled) {
+        if (currentStyle && currentStyle.parentNode) {
+          currentStyle.parentNode.removeChild(currentStyle);
+        }
+        freezeStyle = null;
+        return;
+      }
+      if (currentStyle && currentStyle.isConnected) {
+        freezeStyle = currentStyle;
+        return;
+      }
+      freezeStyle = document.createElement("style");
       freezeStyle.setAttribute("data-agent-native-editing-safety-style", "");
       freezeStyle.textContent = "html,body{animation:none!important;transition:none!important;scroll-behavior:auto!important}body *:not([data-agent-native-edit-overlay]):not([data-agent-native-edit-overlay] *){animation:none!important;transition:none!important;scroll-behavior:auto!important}body *:not([data-agent-native-edit-overlay]):not([data-agent-native-edit-overlay] *)::before,body *:not([data-agent-native-edit-overlay]):not([data-agent-native-edit-overlay] *)::after{animation:none!important;transition:none!important}";
       (document.head || document.documentElement).appendChild(freezeStyle);
     }
+    syncEditingSafetyStyle();
     function clamp(value, limit) {
       var number = Number(value) || 0;
       if (number > limit) return limit;
@@ -206,6 +222,10 @@ export const embeddedWheelBridgeScript: string = `"use strict";
       if (e.data.type === "embedded-canvas-gesture-mode") {
         wheelEnabled = !!e.data.wheelEnabled;
         spaceKeyForwardingEnabled = !!e.data.spaceKeyForwardingEnabled;
+        if (typeof e.data.editingSafetyEnabled === "boolean") {
+          editingSafetyEnabled = e.data.editingSafetyEnabled;
+          syncEditingSafetyStyle();
+        }
       }
     }
     function cancelActivePan() {

@@ -70,6 +70,21 @@ const messages = {
       suggestionGrantKey: "इस ऐप को मेरी OpenAI कुंजी प्रदान करें",
     },
     pages: {
+      browserChatUnavailableTitle: "ब्राउज़र चैट सत्र उपलब्ध नहीं है",
+      browserChatUnavailableDescription:
+        "Agent-Native ब्राउज़र एक्सटेंशन से फिर से कनेक्ट करें।",
+      browserChatPlaceholder: "इस पेज के बारे में पूछें…",
+      browserChatAttachedPlaceholder: "{{page}} के बारे में पूछें…",
+      browserConnectTitle: "ब्राउज़र चैट कनेक्ट करें",
+      browserConnectDescription:
+        "Agent-Native Chrome एक्सटेंशन को यह Dispatch चैट सत्र खोलने दें। कनेक्शन एक बार उपयोग होने वाला अल्पकालिक टिकट इस्तेमाल करता है।",
+      browserConnectInvalid: "यह कनेक्शन अनुरोध अमान्य है। एक्सटेंशन से फिर शुरू करें।",
+      browserConnectConnected: "ब्राउज़र चैट कनेक्ट हो गई है। आप यह टैब बंद कर सकते हैं।",
+      browserConnectConnecting: "कनेक्ट हो रहा है…",
+      browserConnectButton: "कनेक्ट करें",
+      browserConnectOpenFromExtension:
+        "यह पेज Agent-Native Chrome एक्सटेंशन से खोलें।",
+      browserConnectFailed: "ब्राउज़र एक्सटेंशन कनेक्ट नहीं हुआ।",
       appsDescription: "वर्कस्पेस ऐप्स खोलें और Dispatch से नए ऐप निर्माण शुरू करें।",
       appsDescriptionWithWorkspace:
         'Apps in the "{{workspace}}" workspace. Each app gets its own route under this workspace and shares its database, auth, and agent chat.',
@@ -87,18 +102,18 @@ const messages = {
       curatedTemplates: "चयनित टेम्पलेट",
       curatedTemplatesDescription:
         "समीक्षित ऐप संरचना से शुरू करें और इसे अपने अनुसार बनाएं।",
-      remix: "रीमिक्स",
-      remixTemplate: "{{name}} रीमिक्स करें",
+      remix: "टेम्पलेट से बनाएं",
+      remixTemplate: "{{name}} ऐप बनाएं",
       remixAppIdLabel: "नया ऐप आईडी",
-      remixStarted: "{{name}} रीमिक्स शुरू हुआ",
+      remixStarted: "{{name}} बनाना शुरू किया",
       viewLiveApp: "लाइव ऐप देखें",
       alreadyInWorkspace: "वर्कस्पेस में पहले से मौजूद",
       remixAppIdDescription: "नए वर्कस्पेस ऐप के लिए URL-सुरक्षित आईडी चुनें।",
       integrationSetup: "इंटीग्रेशन सेटअप",
       source: "स्रोत",
-      remixing: "रीमिक्स हो रहा है…",
-      remixSuccess: "टेम्पलेट रीमिक्स शुरू हुआ।",
-      remixError: "यह टेम्पलेट रीमिक्स नहीं हो सका",
+      remixing: "ऐप बनाया जा रहा है…",
+      remixSuccess: "टेम्पलेट से ऐप बनाना शुरू किया गया।",
+      remixError: "इस टेम्पलेट से ऐप नहीं बना सके",
       appIdRequired: "ऐप आईडी आवश्यक है।",
       hide: "छिपाएं",
       show: "Show",
@@ -351,6 +366,16 @@ const messages = {
     deleting: "संग्रहित किया जा रहा है...",
     openFullView: "पूरा दृश्य खोलें",
     removeFromWidgetArea: "इस विजेट क्षेत्र से हटाएँ",
+    customBlockSandboxed: "कस्टम ब्लॉक · सैंडबॉक्स",
+    sandboxedCustomBlock: "सैंडबॉक्स किया गया SQL कस्टम ब्लॉक",
+    sandboxedCustomBlockCreatedBy:
+      "{{email}} द्वारा बनाया गया सैंडबॉक्स SQL कस्टम ब्लॉक",
+    promoteToAppCode: "ऐप कोड में प्रमोट करें",
+    historyShowsSourceVersions: "इतिहास स्रोत संस्करण दिखाता है",
+    createdByHistoryShowsSourceVersions:
+      "{{email}} द्वारा बनाया गया। इतिहास स्रोत संस्करण दिखाता है।",
+    createdByHistoryShowsSourceVersionsCompact:
+      "{{email}} द्वारा बनाया गया · इतिहास स्रोत संस्करण दिखाता है",
     deleteExtensionEllipsis: "एक्सटेंशन संग्रहित करें...",
     removeFromMyListEllipsis: "मेरी सूची से हटाएं...",
     removeFromWidgetAreaForMe: "Remove from this widget area (for me)",

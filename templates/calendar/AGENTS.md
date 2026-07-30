@@ -59,6 +59,11 @@ ladder.
   generic all-day events. See `event-management` for
   `workingLocationProperties`, single-occurrence scope, and the working-hours
   limitation.
+- Full-day out-of-office creation uses inclusive human dates plus an IANA
+  timezone. `create-event` translates them to local-midnight timed bounds and
+  sends provider `allDay: false`; do not expose Google's timed-only constraint
+  as a required pair of time inputs in the UI. See `event-management` for the
+  action contract and decline behavior.
 - Use framework sharing actions for calendars/events/booking resources when
   applicable.
 - Booking-link sharing controls who can manage the link. Public booking access

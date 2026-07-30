@@ -9,6 +9,7 @@ const INJECTED_CONTEXT_BLOCKS = [
   "available-jobs",
   "plan-mode-note",
   "non-analytics-retry",
+  "response-guard",
 ];
 
 export const DATA_QUERY_ACTIONS = new Set([

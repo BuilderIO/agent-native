@@ -287,6 +287,23 @@ const enUS = {
         "Route work, inspect status, or create something new from one place.",
       overviewPromptPlaceholder: "Ask Dispatch anything...",
       chatPromptPlaceholder: "Ask Dispatch...",
+      browserChatUnavailableTitle: "Browser chat session unavailable",
+      browserChatUnavailableDescription:
+        "Reconnect from the Agent-Native browser extension.",
+      browserChatPlaceholder: "Ask about this page…",
+      browserChatAttachedPlaceholder: "Ask about {{page}}…",
+      browserConnectTitle: "Connect browser chat",
+      browserConnectDescription:
+        "Allow the Agent-Native Chrome extension to open this Dispatch chat session. The connection uses a one-time, short-lived ticket.",
+      browserConnectInvalid:
+        "This connection request is invalid. Start again from the extension.",
+      browserConnectConnected:
+        "Browser chat connected. You can close this tab.",
+      browserConnectConnecting: "Connecting…",
+      browserConnectButton: "Connect",
+      browserConnectOpenFromExtension:
+        "Open this page from the Agent-Native Chrome extension.",
+      browserConnectFailed: "The browser extension did not connect.",
       suggestionWorkspaceHealth: "Summarize the current workspace health",
       suggestionOnboardingApp: "Create an app for onboarding requests",
       suggestionAnalyticsAgents: "Check which agents can help with analytics",
@@ -672,6 +689,21 @@ export const messagesByLocale = {
         chatAcrossAppsDescription: "在一个地方分派工作、检查状态或创建新内容。",
         overviewPromptPlaceholder: "向 Dispatch 提问...",
         chatPromptPlaceholder: "询问 Dispatch...",
+        browserChatUnavailableTitle: "浏览器聊天会话不可用",
+        browserChatUnavailableDescription:
+          "请从 Agent-Native 浏览器扩展重新连接。",
+        browserChatPlaceholder: "询问此页面…",
+        browserChatAttachedPlaceholder: "询问 {{page}}…",
+        browserConnectTitle: "连接浏览器聊天",
+        browserConnectDescription:
+          "允许 Agent-Native Chrome 扩展打开此 Dispatch 聊天会话。连接使用一次性的短期票据。",
+        browserConnectInvalid: "此连接请求无效。请从扩展重新开始。",
+        browserConnectConnected: "浏览器聊天已连接。你可以关闭此标签页。",
+        browserConnectConnecting: "正在连接…",
+        browserConnectButton: "连接",
+        browserConnectOpenFromExtension:
+          "请从 Agent-Native Chrome 扩展打开此页面。",
+        browserConnectFailed: "浏览器扩展未能连接。",
         suggestionWorkspaceHealth: "总结当前工作区运行状况",
         suggestionOnboardingApp: "为入职请求创建一个应用",
         suggestionAnalyticsAgents: "查看哪些代理可以协助分析",
@@ -994,6 +1026,24 @@ export const messagesByLocale = {
           "Dirige el trabajo, revisa el estado o crea algo nuevo desde un solo lugar.",
         overviewPromptPlaceholder: "Pregunta lo que quieras a Dispatch...",
         chatPromptPlaceholder: "Pregunta a Dispatch...",
+        browserChatUnavailableTitle:
+          "La sesión de chat del navegador no está disponible",
+        browserChatUnavailableDescription:
+          "Vuelve a conectarte desde la extensión Agent-Native.",
+        browserChatPlaceholder: "Pregunta sobre esta página…",
+        browserChatAttachedPlaceholder: "Pregunta sobre {{page}}…",
+        browserConnectTitle: "Conectar el chat del navegador",
+        browserConnectDescription:
+          "Permite que la extensión de Chrome Agent-Native abra esta sesión de Dispatch. La conexión usa un ticket único y de corta duración.",
+        browserConnectInvalid:
+          "Esta solicitud de conexión no es válida. Vuelve a empezar desde la extensión.",
+        browserConnectConnected:
+          "El chat del navegador está conectado. Puedes cerrar esta pestaña.",
+        browserConnectConnecting: "Conectando…",
+        browserConnectButton: "Conectar",
+        browserConnectOpenFromExtension:
+          "Abre esta página desde la extensión de Chrome Agent-Native.",
+        browserConnectFailed: "La extensión del navegador no se conectó.",
         suggestionWorkspaceHealth:
           "Resume el estado actual del espacio de trabajo",
         suggestionOnboardingApp:
@@ -1320,6 +1370,25 @@ export const messagesByLocale = {
           "Acheminez le travail, vérifiez l’état ou créez du contenu depuis un seul endroit.",
         overviewPromptPlaceholder: "Demandez n’importe quoi à Dispatch…",
         chatPromptPlaceholder: "Demandez à Dispatch…",
+        browserChatUnavailableTitle:
+          "La session de chat du navigateur est indisponible",
+        browserChatUnavailableDescription:
+          "Reconnectez-vous depuis l’extension Agent-Native.",
+        browserChatPlaceholder: "Posez une question sur cette page…",
+        browserChatAttachedPlaceholder: "Posez une question sur {{page}}…",
+        browserConnectTitle: "Connecter le chat du navigateur",
+        browserConnectDescription:
+          "Autorisez l’extension Chrome Agent-Native à ouvrir cette session Dispatch. La connexion utilise un ticket unique de courte durée.",
+        browserConnectInvalid:
+          "Cette demande de connexion est invalide. Recommencez depuis l’extension.",
+        browserConnectConnected:
+          "Le chat du navigateur est connecté. Vous pouvez fermer cet onglet.",
+        browserConnectConnecting: "Connexion…",
+        browserConnectButton: "Connecter",
+        browserConnectOpenFromExtension:
+          "Ouvrez cette page depuis l’extension Chrome Agent-Native.",
+        browserConnectFailed:
+          "L’extension du navigateur ne s’est pas connectée.",
         suggestionWorkspaceHealth:
           "Résumer l’état actuel de l’espace de travail",
         suggestionOnboardingApp:
@@ -1635,6 +1704,24 @@ export const messagesByLocale = {
           "Leite Arbeit weiter, prüfe den Status oder erstelle Neues an einem Ort.",
         overviewPromptPlaceholder: "Frage Dispatch alles...",
         chatPromptPlaceholder: "Dispatch fragen...",
+        browserChatUnavailableTitle: "Browser-Chat-Sitzung nicht verfügbar",
+        browserChatUnavailableDescription:
+          "Stelle die Verbindung über die Agent-Native-Erweiterung erneut her.",
+        browserChatPlaceholder: "Zu dieser Seite fragen…",
+        browserChatAttachedPlaceholder: "Zu {{page}} fragen…",
+        browserConnectTitle: "Browser-Chat verbinden",
+        browserConnectDescription:
+          "Erlaube der Agent-Native Chrome-Erweiterung, diese Dispatch-Sitzung zu öffnen. Die Verbindung verwendet ein einmaliges, kurzlebiges Ticket.",
+        browserConnectInvalid:
+          "Diese Verbindungsanfrage ist ungültig. Starte erneut über die Erweiterung.",
+        browserConnectConnected:
+          "Browser-Chat verbunden. Du kannst diesen Tab schließen.",
+        browserConnectConnecting: "Verbindung wird hergestellt…",
+        browserConnectButton: "Verbinden",
+        browserConnectOpenFromExtension:
+          "Öffne diese Seite über die Agent-Native Chrome-Erweiterung.",
+        browserConnectFailed:
+          "Die Browser-Erweiterung konnte keine Verbindung herstellen.",
         suggestionWorkspaceHealth:
           "Aktuellen Zustand des Workspace zusammenfassen",
         suggestionOnboardingApp: "Eine App für Onboarding-Anfragen erstellen",
@@ -1947,6 +2034,23 @@ export const messagesByLocale = {
           "1 か所から作業を振り分け、状況を確認し、新しいものを作成できます。",
         overviewPromptPlaceholder: "Dispatch に何でも質問...",
         chatPromptPlaceholder: "Dispatch に質問...",
+        browserChatUnavailableTitle: "ブラウザーチャットを利用できません",
+        browserChatUnavailableDescription:
+          "Agent-Native ブラウザー拡張機能から再接続してください。",
+        browserChatPlaceholder: "このページについて質問…",
+        browserChatAttachedPlaceholder: "{{page}} について質問…",
+        browserConnectTitle: "ブラウザーチャットを接続",
+        browserConnectDescription:
+          "Agent-Native Chrome 拡張機能がこの Dispatch チャットを開くことを許可します。接続には一度だけ使える短期チケットを使用します。",
+        browserConnectInvalid:
+          "この接続リクエストは無効です。拡張機能からやり直してください。",
+        browserConnectConnected:
+          "ブラウザーチャットに接続しました。このタブを閉じられます。",
+        browserConnectConnecting: "接続中…",
+        browserConnectButton: "接続",
+        browserConnectOpenFromExtension:
+          "Agent-Native Chrome 拡張機能からこのページを開いてください。",
+        browserConnectFailed: "ブラウザー拡張機能に接続できませんでした。",
         suggestionWorkspaceHealth: "現在のワークスペース状況を要約",
         suggestionOnboardingApp: "オンボーディング依頼用のアプリを作成",
         suggestionAnalyticsAgents: "分析を支援できるエージェントを確認",
@@ -2254,6 +2358,23 @@ export const messagesByLocale = {
           "한곳에서 작업을 전달하고 상태를 확인하거나 새로운 것을 만드세요.",
         overviewPromptPlaceholder: "Dispatch에 무엇이든 물어보세요...",
         chatPromptPlaceholder: "Dispatch에 질문...",
+        browserChatUnavailableTitle: "브라우저 채팅 세션을 사용할 수 없음",
+        browserChatUnavailableDescription:
+          "Agent-Native 브라우저 확장 프로그램에서 다시 연결하세요.",
+        browserChatPlaceholder: "이 페이지에 대해 질문…",
+        browserChatAttachedPlaceholder: "{{page}}에 대해 질문…",
+        browserConnectTitle: "브라우저 채팅 연결",
+        browserConnectDescription:
+          "Agent-Native Chrome 확장 프로그램이 이 Dispatch 채팅 세션을 열도록 허용합니다. 연결에는 일회용 단기 티켓이 사용됩니다.",
+        browserConnectInvalid:
+          "잘못된 연결 요청입니다. 확장 프로그램에서 다시 시작하세요.",
+        browserConnectConnected:
+          "브라우저 채팅이 연결되었습니다. 이 탭을 닫아도 됩니다.",
+        browserConnectConnecting: "연결 중…",
+        browserConnectButton: "연결",
+        browserConnectOpenFromExtension:
+          "Agent-Native Chrome 확장 프로그램에서 이 페이지를 여세요.",
+        browserConnectFailed: "브라우저 확장 프로그램이 연결되지 않았습니다.",
         suggestionWorkspaceHealth: "현재 워크스페이스 상태 요약",
         suggestionOnboardingApp: "온보딩 요청용 앱 만들기",
         suggestionAnalyticsAgents: "분석을 지원할 수 있는 에이전트 확인",
@@ -2573,6 +2694,23 @@ export const messagesByLocale = {
           "Encaminhe trabalhos, verifique o status ou crie algo novo em um só lugar.",
         overviewPromptPlaceholder: "Pergunte qualquer coisa ao Dispatch...",
         chatPromptPlaceholder: "Pergunte ao Dispatch...",
+        browserChatUnavailableTitle: "Sessão de chat do navegador indisponível",
+        browserChatUnavailableDescription:
+          "Reconecte pela extensão Agent-Native.",
+        browserChatPlaceholder: "Pergunte sobre esta página…",
+        browserChatAttachedPlaceholder: "Pergunte sobre {{page}}…",
+        browserConnectTitle: "Conectar chat do navegador",
+        browserConnectDescription:
+          "Permita que a extensão Agent-Native do Chrome abra esta sessão do Dispatch. A conexão usa um ticket único e de curta duração.",
+        browserConnectInvalid:
+          "Esta solicitação de conexão é inválida. Recomece pela extensão.",
+        browserConnectConnected:
+          "Chat do navegador conectado. Você pode fechar esta aba.",
+        browserConnectConnecting: "Conectando…",
+        browserConnectButton: "Conectar",
+        browserConnectOpenFromExtension:
+          "Abra esta página pela extensão Agent-Native do Chrome.",
+        browserConnectFailed: "A extensão do navegador não se conectou.",
         suggestionWorkspaceHealth:
           "Resumir a integridade atual do espaço de trabalho",
         suggestionOnboardingApp: "Criar um app para solicitações de integração",
@@ -2876,6 +3014,22 @@ export const messagesByLocale = {
           "एक ही स्थान से काम भेजें, स्थिति जाँचें या कुछ नया बनाएँ।",
         overviewPromptPlaceholder: "Dispatch से कुछ भी पूछें...",
         chatPromptPlaceholder: "Dispatch से पूछें...",
+        browserChatUnavailableTitle: "ब्राउज़र चैट सत्र उपलब्ध नहीं है",
+        browserChatUnavailableDescription:
+          "Agent-Native ब्राउज़र एक्सटेंशन से फिर से कनेक्ट करें।",
+        browserChatPlaceholder: "इस पेज के बारे में पूछें…",
+        browserChatAttachedPlaceholder: "{{page}} के बारे में पूछें…",
+        browserConnectTitle: "ब्राउज़र चैट कनेक्ट करें",
+        browserConnectDescription:
+          "Agent-Native Chrome एक्सटेंशन को यह Dispatch चैट सत्र खोलने दें। कनेक्शन एक बार उपयोग होने वाला अल्पकालिक टिकट इस्तेमाल करता है।",
+        browserConnectInvalid: "यह कनेक्शन अनुरोध अमान्य है। एक्सटेंशन से फिर शुरू करें।",
+        browserConnectConnected:
+          "ब्राउज़र चैट कनेक्ट हो गई है। आप यह टैब बंद कर सकते हैं।",
+        browserConnectConnecting: "कनेक्ट हो रहा है…",
+        browserConnectButton: "कनेक्ट करें",
+        browserConnectOpenFromExtension:
+          "यह पेज Agent-Native Chrome एक्सटेंशन से खोलें।",
+        browserConnectFailed: "ब्राउज़र एक्सटेंशन कनेक्ट नहीं हुआ।",
         suggestionWorkspaceHealth: "वर्तमान कार्यस्थान की स्थिति का सार बताएँ",
         suggestionOnboardingApp: "ऑनबोर्डिंग अनुरोधों के लिए ऐप बनाएँ",
         suggestionAnalyticsAgents: "देखें कि कौन से एजेंट विश्लेषण में मदद कर सकते हैं",
@@ -3215,6 +3369,23 @@ export const messagesByLocale = {
           "وجّه العمل وتحقق من الحالة أو أنشئ شيئًا جديدًا من مكان واحد.",
         overviewPromptPlaceholder: "اسأل Dispatch عن أي شيء...",
         chatPromptPlaceholder: "اسأل Dispatch...",
+        browserChatUnavailableTitle: "جلسة دردشة المتصفح غير متاحة",
+        browserChatUnavailableDescription:
+          "أعد الاتصال من إضافة Agent-Native للمتصفح.",
+        browserChatPlaceholder: "اسأل عن هذه الصفحة…",
+        browserChatAttachedPlaceholder: "اسأل عن {{page}}…",
+        browserConnectTitle: "ربط دردشة المتصفح",
+        browserConnectDescription:
+          "اسمح لإضافة Agent-Native في Chrome بفتح جلسة Dispatch هذه. يستخدم الاتصال تذكرة قصيرة الأجل لمرة واحدة.",
+        browserConnectInvalid:
+          "طلب الاتصال هذا غير صالح. ابدأ مرة أخرى من الإضافة.",
+        browserConnectConnected:
+          "تم ربط دردشة المتصفح. يمكنك إغلاق علامة التبويب هذه.",
+        browserConnectConnecting: "جارٍ الاتصال…",
+        browserConnectButton: "اتصال",
+        browserConnectOpenFromExtension:
+          "افتح هذه الصفحة من إضافة Agent-Native في Chrome.",
+        browserConnectFailed: "لم تتصل إضافة المتصفح.",
         suggestionWorkspaceHealth: "لخّص حالة مساحة العمل الحالية",
         suggestionOnboardingApp: "أنشئ تطبيقًا لطلبات الإعداد",
         suggestionAnalyticsAgents:

@@ -73,6 +73,24 @@ const messages = {
       suggestionGrantKey: "Gewähren Sie dieser App meinen OpenAI-Schlüssel",
     },
     pages: {
+      browserChatUnavailableTitle: "Browser-Chat-Sitzung nicht verfügbar",
+      browserChatUnavailableDescription:
+        "Stelle die Verbindung über die Agent-Native-Erweiterung erneut her.",
+      browserChatPlaceholder: "Zu dieser Seite fragen…",
+      browserChatAttachedPlaceholder: "Zu {{page}} fragen…",
+      browserConnectTitle: "Browser-Chat verbinden",
+      browserConnectDescription:
+        "Erlaube der Agent-Native Chrome-Erweiterung, diese Dispatch-Sitzung zu öffnen. Die Verbindung verwendet ein einmaliges, kurzlebiges Ticket.",
+      browserConnectInvalid:
+        "Diese Verbindungsanfrage ist ungültig. Starte erneut über die Erweiterung.",
+      browserConnectConnected:
+        "Browser-Chat verbunden. Du kannst diesen Tab schließen.",
+      browserConnectConnecting: "Verbindung wird hergestellt…",
+      browserConnectButton: "Verbinden",
+      browserConnectOpenFromExtension:
+        "Öffne diese Seite über die Agent-Native Chrome-Erweiterung.",
+      browserConnectFailed:
+        "Die Browser-Erweiterung konnte keine Verbindung herstellen.",
       appsDescription:
         "Öffnen Sie Workspace-Apps und starten Sie die Erstellung neuer Apps von Dispatch aus.",
       appsDescriptionWithWorkspace:
@@ -91,19 +109,19 @@ const messages = {
       curatedTemplates: "Kuratierte Vorlagen",
       curatedTemplatesDescription:
         "Starte mit einer geprüften App-Struktur und passe sie an.",
-      remix: "Remix",
-      remixTemplate: "{{name}} remixen",
+      remix: "Aus Vorlage erstellen",
+      remixTemplate: "{{name}}-App erstellen",
       remixAppIdLabel: "Neue App-ID",
-      remixStarted: "Remix für {{name}} gestartet",
+      remixStarted: "Erstellung von {{name}} gestartet",
       viewLiveApp: "Live-App öffnen",
       alreadyInWorkspace: "Bereits im Workspace",
       remixAppIdDescription:
         "Wähle eine URL-sichere ID für die neue Workspace-App.",
       integrationSetup: "Integration einrichten",
       source: "Quelle",
-      remixing: "Remix wird erstellt…",
-      remixSuccess: "Template-Remix gestartet.",
-      remixError: "Dieses Template konnte nicht geremixt werden",
+      remixing: "App wird erstellt…",
+      remixSuccess: "Erstellung der App aus der Vorlage gestartet.",
+      remixError: "App konnte nicht aus dieser Vorlage erstellt werden",
       appIdRequired: "App-ID ist erforderlich.",
       hide: "Ausblenden",
       show: "Show",
@@ -365,6 +383,16 @@ const messages = {
     deleting: "Wird archiviert...",
     openFullView: "Vollansicht öffnen",
     removeFromWidgetArea: "Aus diesem Widget-Bereich entfernen",
+    customBlockSandboxed: "Custom Block · isoliert",
+    sandboxedCustomBlock: "Isolierter SQL-Custom-Block",
+    sandboxedCustomBlockCreatedBy:
+      "Isolierter SQL-Custom-Block, erstellt von {{email}}",
+    promoteToAppCode: "In App-Code überführen",
+    historyShowsSourceVersions: "Der Verlauf zeigt Quellversionen",
+    createdByHistoryShowsSourceVersions:
+      "Erstellt von {{email}}. Der Verlauf zeigt Quellversionen.",
+    createdByHistoryShowsSourceVersionsCompact:
+      "Erstellt von {{email}} · Verlauf zeigt Quellversionen",
     deleteExtensionEllipsis: "Erweiterung archivieren...",
     removeFromMyListEllipsis: "Von meiner Liste entfernen...",
     removeFromWidgetAreaForMe: "Remove from this widget area (for me)",

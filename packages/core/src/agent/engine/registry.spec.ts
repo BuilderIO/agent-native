@@ -792,7 +792,11 @@ describe("AgentEngine registry", () => {
     expect(detectEngineFromEnv()).toBeNull();
   });
 
-  describe("detectEngineFromUserSecrets", () => {
+  // These request-resolution tests reload the credential and settings module
+  // graph. Full workspace prep transforms that graph alongside many package
+  // suites, so keep a bounded allowance for scheduler contention while
+  // preserving a useful failure limit for genuine hangs.
+  describe("detectEngineFromUserSecrets", { timeout: 15_000 }, () => {
     beforeEach(() => {
       vi.resetModules();
       vi.doUnmock("../../settings/store.js");

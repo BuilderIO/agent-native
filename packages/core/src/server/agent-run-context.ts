@@ -34,6 +34,13 @@ function eventContext(
   return event.context;
 }
 
+function requestWaitUntil(
+  event: H3Event,
+): ((promise: Promise<unknown>) => void) | undefined {
+  const waitUntil = event.req?.waitUntil;
+  return typeof waitUntil === "function" ? waitUntil : undefined;
+}
+
 function normalizeId(value: string | null | undefined): string | undefined {
   return typeof value === "string" && value.trim().length > 0
     ? value.trim()
@@ -179,14 +186,17 @@ export async function resolveAgentRunRequestContext(options: {
 }): Promise<RequestContext> {
   const orgId = await resolveAgentRunOrgId(options);
   const timezone = readAgentRunTimezone(options.event);
+  const waitUntil = requestWaitUntil(options.event);
+  const run = {
+    ...(options.isBackgroundWorker ? { isBackgroundWorker: true } : {}),
+    ...(waitUntil ? { waitUntil } : {}),
+  };
   return {
     userEmail: options.ownerContext.owner,
     userName: options.ownerContext.name,
     orgId,
     timezone,
-    ...(options.isBackgroundWorker
-      ? { run: { isBackgroundWorker: true } }
-      : {}),
+    ...(Object.keys(run).length > 0 ? { run } : {}),
   };
 }
 

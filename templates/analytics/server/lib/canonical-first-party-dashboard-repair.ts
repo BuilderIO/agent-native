@@ -10,8 +10,15 @@ export const LEGACY_NEW_VS_RECURRING_USERS_SQL = `WITH all_users AS (SELECT NULL
 const LEGACY_NEW_VS_RECURRING_USERS_DESCRIPTION =
   "Daily signed-in visitors split by first-ever session (New) vs return visit (Recurring), stacked with Recurring on the bottom and New on top. Docs excluded. A user is New only on their all-time first active day.";
 const NEW_VS_RECURRING_USERS_SQL = `WITH first_seen AS (SELECT NULLIF(user_key, '') AS user_key, MIN(event_date) AS first_date FROM analytics_events WHERE event_name = 'session status' AND signed_in = 'true' AND NULLIF(user_key, '') IS NOT NULL AND lower(COALESCE(NULLIF(template, ''), NULLIF(properties::jsonb ->> 'templateId', ''), NULLIF(app, ''), NULLIF(properties::jsonb ->> 'agent_native_app', ''), 'unknown')) <> 'docs' AND ('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND lower(coalesce(user_id, '')) NOT LIKE '%@builder.io') OR ('{{emailFilter}}' = 'only_builder' AND lower(coalesce(user_id, '')) LIKE '%@builder.io')) AND event_date >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD') GROUP BY 1), activity AS (SELECT NULLIF(user_key, '') AS user_key, event_date FROM analytics_events WHERE event_name = 'session status' AND signed_in = 'true' AND NULLIF(user_key, '') IS NOT NULL AND lower(COALESCE(NULLIF(template, ''), NULLIF(properties::jsonb ->> 'templateId', ''), NULLIF(app, ''), NULLIF(properties::jsonb ->> 'agent_native_app', ''), 'unknown')) <> 'docs' AND ('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND lower(coalesce(user_id, '')) NOT LIKE '%@builder.io') OR ('{{emailFilter}}' = 'only_builder' AND lower(coalesce(user_id, '')) LIKE '%@builder.io')) AND event_date >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD') AND ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '7d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '30d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '90d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '180d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '180 days', 'YYYY-MM-DD')) OR ('{{timeRange}}' = '365d' AND event_date >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD')))), daily AS (SELECT a.event_date AS date, CASE WHEN a.event_date = f.first_date THEN 'New' ELSE 'Recurring' END AS user_type, COUNT(DISTINCT a.user_key) AS users FROM activity a JOIN first_seen f ON f.user_key = a.user_key GROUP BY 1, 2) SELECT date, user_type, users FROM daily ORDER BY date, CASE WHEN user_type = 'Recurring' THEN 0 ELSE 1 END`;
+const MARKETING_SITE_TEMPLATE_FILTER =
+  "lower(COALESCE(NULLIF(template, ''), NULLIF(properties::jsonb ->> 'templateId', ''), NULLIF(app, ''), NULLIF(properties::jsonb ->> 'agent_native_app', ''), 'unknown')) <> 'www'";
+const NEW_VS_RECURRING_USERS_WITHOUT_MARKETING_SITE_SQL =
+  NEW_VS_RECURRING_USERS_SQL.replace(
+    " <> 'docs' AND ",
+    ` <> 'docs' AND ${MARKETING_SITE_TEMPLATE_FILTER} AND `,
+  );
 const NEW_VS_RECURRING_USERS_DESCRIPTION =
-  "Daily signed-in visitors split by first active day observed in the previous 365 days (New) vs return visit (Recurring), stacked with Recurring on the bottom and New on top. Docs excluded.";
+  "Daily signed-in visitors split by first active day observed in the previous 365 days (New) vs return visit (Recurring), stacked with Recurring on the bottom and New on top. Docs and marketing-site traffic are excluded.";
 
 const CANONICAL_CUSTOM_PANEL_REPLACEMENTS: readonly ExactFirstPartyPanelReplacement[] =
   [
@@ -25,8 +32,11 @@ const CANONICAL_CUSTOM_PANEL_REPLACEMENTS: readonly ExactFirstPartyPanelReplacem
     },
     {
       id: "new-vs-recurring-users",
-      legacySql: [LEGACY_NEW_VS_RECURRING_USERS_SQL],
-      sql: NEW_VS_RECURRING_USERS_SQL,
+      legacySql: [
+        LEGACY_NEW_VS_RECURRING_USERS_SQL,
+        NEW_VS_RECURRING_USERS_SQL,
+      ],
+      sql: NEW_VS_RECURRING_USERS_WITHOUT_MARKETING_SITE_SQL,
       legacyDescription: LEGACY_NEW_VS_RECURRING_USERS_DESCRIPTION,
       description: NEW_VS_RECURRING_USERS_DESCRIPTION,
     },

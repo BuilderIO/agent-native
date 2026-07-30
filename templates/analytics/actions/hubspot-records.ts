@@ -48,6 +48,7 @@ export default defineAction({
       .describe("Optional HubSpot pagination cursor from a previous result."),
   }),
   http: { method: "GET" },
+  publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   run: async ({ objectType, query, properties, limit, after }) => {
     const result = await searchHubSpotObjects({
       objectType,

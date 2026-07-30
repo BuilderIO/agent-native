@@ -78,7 +78,8 @@ export const DESIGN_SHORTCUTS: readonly DesignShortcutDefinition[] = [
   shortcut({
     id: "frame-tool",
     category: "tools",
-    bindings: ["f"],
+    // Figma binds both to the frame tool; A is the one long-time users reach for.
+    bindings: ["f", "a"],
     labelKey: "designEditor.keyboardShortcuts.commands.frameTool",
     handler: "onFrameTool",
   }),
@@ -142,7 +143,7 @@ export const DESIGN_SHORTCUTS: readonly DesignShortcutDefinition[] = [
   shortcut({
     id: "toggle-ui",
     category: "view",
-    bindings: ["$mod+\\"],
+    bindings: ["shift+\\"],
     labelKey: "designEditor.keyboardShortcuts.commands.toggleUi",
     handler: "onToggleUi",
   }),
@@ -171,7 +172,7 @@ export const DESIGN_SHORTCUTS: readonly DesignShortcutDefinition[] = [
   shortcut({
     id: "zoom-reset",
     category: "zoom",
-    bindings: ["$mod+0"],
+    bindings: ["shift+0", "$mod+0"],
     labelKey: "designEditor.keyboardShortcuts.commands.zoomReset",
     handler: "onZoomReset",
   }),
@@ -502,7 +503,7 @@ export const DESIGN_SHORTCUTS: readonly DesignShortcutDefinition[] = [
   shortcut({
     id: "ungroup",
     category: "layout",
-    bindings: ["$mod+backspace"],
+    bindings: ["$mod+shift+g", "$mod+backspace"],
     labelKey: "designEditor.keyboardShortcuts.commands.ungroup",
     handler: "onUngroup",
   }),

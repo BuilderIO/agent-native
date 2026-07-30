@@ -71,6 +71,23 @@ const messages = {
       suggestionGrantKey: "このアプリに OpenAI キーを付与します",
     },
     pages: {
+      browserChatUnavailableTitle: "ブラウザーチャットを利用できません",
+      browserChatUnavailableDescription:
+        "Agent-Native ブラウザー拡張機能から再接続してください。",
+      browserChatPlaceholder: "このページについて質問…",
+      browserChatAttachedPlaceholder: "{{page}} について質問…",
+      browserConnectTitle: "ブラウザーチャットを接続",
+      browserConnectDescription:
+        "Agent-Native Chrome 拡張機能がこの Dispatch チャットを開くことを許可します。接続には一度だけ使える短期チケットを使用します。",
+      browserConnectInvalid:
+        "この接続リクエストは無効です。拡張機能からやり直してください。",
+      browserConnectConnected:
+        "ブラウザーチャットに接続しました。このタブを閉じられます。",
+      browserConnectConnecting: "接続中…",
+      browserConnectButton: "接続",
+      browserConnectOpenFromExtension:
+        "Agent-Native Chrome 拡張機能からこのページを開いてください。",
+      browserConnectFailed: "ブラウザー拡張機能に接続できませんでした。",
       appsDescription:
         "ワークスペース アプリを開き、Dispatch から新しいアプリの作成を開始します。",
       appsDescriptionWithWorkspace:
@@ -89,19 +106,19 @@ const messages = {
       curatedTemplates: "厳選テンプレート",
       curatedTemplatesDescription:
         "レビュー済みのアプリ構成をベースに、自分用にカスタマイズできます。",
-      remix: "リミックス",
-      remixTemplate: "{{name}} をリミックス",
+      remix: "テンプレートから作成",
+      remixTemplate: "{{name}} アプリを作成",
       remixAppIdLabel: "新しいアプリ ID",
-      remixStarted: "{{name}} のリミックスを開始しました",
+      remixStarted: "{{name}} の作成を開始しました",
       viewLiveApp: "ライブアプリを見る",
       alreadyInWorkspace: "ワークスペースに追加済み",
       remixAppIdDescription:
         "新しいワークスペースアプリの URL セーフな ID を選択してください。",
       integrationSetup: "連携の設定",
       source: "提供元",
-      remixing: "リミックス中…",
-      remixSuccess: "テンプレートのリミックスを開始しました。",
-      remixError: "このテンプレートをリミックスできませんでした",
+      remixing: "アプリを作成中…",
+      remixSuccess: "テンプレートからのアプリ作成を開始しました。",
+      remixError: "このテンプレートからアプリを作成できませんでした",
       appIdRequired: "アプリ ID は必須です。",
       hide: "非表示",
       show: "Show",
@@ -357,6 +374,16 @@ const messages = {
     deleting: "アーカイブ中...",
     openFullView: "フルビューを開く",
     removeFromWidgetArea: "このウィジェット領域から削除する",
+    customBlockSandboxed: "カスタムブロック · サンドボックス",
+    sandboxedCustomBlock: "サンドボックス化された SQL カスタムブロック",
+    sandboxedCustomBlockCreatedBy:
+      "{{email}} が作成したサンドボックス SQL カスタムブロック",
+    promoteToAppCode: "アプリコードに昇格",
+    historyShowsSourceVersions: "履歴でソースのバージョンを確認できます",
+    createdByHistoryShowsSourceVersions:
+      "{{email}} が作成。履歴でソースのバージョンを確認できます。",
+    createdByHistoryShowsSourceVersionsCompact:
+      "{{email}} が作成 · 履歴でソースのバージョンを確認できます",
     deleteExtensionEllipsis: "拡張機能をアーカイブ...",
     removeFromMyListEllipsis: "リストから削除...",
     removeFromWidgetAreaForMe: "Remove from this widget area (for me)",

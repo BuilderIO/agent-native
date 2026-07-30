@@ -2,6 +2,7 @@ import {
   EMBED_MODE_QUERY_PARAM,
   EMBED_START_PATH,
   EMBED_TARGET_HEADER,
+  EMBED_TARGET_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
   MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
 } from "../shared/embed-auth.js";
@@ -463,6 +464,7 @@ function withEmbedAuthHeaders(
     isAgentNativeRuntimePath(url.pathname)
   ) {
     url.searchParams.set(EMBED_TOKEN_QUERY_PARAM, token);
+    url.searchParams.set(EMBED_TARGET_QUERY_PARAM, currentEmbedTarget(win));
     return [url.toString(), init];
   }
 

@@ -95,6 +95,7 @@ import {
   AGENT_CHAT_VIEW_TRANSITION_CLASS,
   getAgentChatViewTransitionStyle,
 } from "./chat-view-transition.js";
+import { fetchBuilderStatus } from "./client-status-requests.js";
 import { RealtimeVoiceModeProvider } from "./composer/index.js";
 import {
   getFramePostMessageTargetOrigin,
@@ -198,7 +199,9 @@ type PanelMode = "chat" | "cli" | "resources" | "settings";
 export function normalizeAgentPanelModeForSurface(
   mode: PanelMode,
   allowSettingsMode: boolean,
+  chatOnly = false,
 ): PanelMode {
+  if (chatOnly) return "chat";
   return mode === "settings" && !allowSettingsMode ? "chat" : mode;
 }
 const AGENT_PANEL_FONT_FAMILY =
@@ -479,13 +482,16 @@ function useBuilderConnectUrl() {
     // global), refresh fired again, and we'd loop forever.
     let lastConfigured = false;
     const refresh = () => {
-      fetch(agentNativePath("/_agent-native/builder/status"))
-        .then((res) => (res.ok ? res.json() : null))
+      fetchBuilderStatus<{
+        cliAuthUrl?: string;
+        connectUrl?: string;
+        configured?: boolean;
+      }>()
+        .then((result) => (result.state === "available" ? result.value : null))
         .then((data) => {
           if (cancelled || !data) return;
-          if (data.cliAuthUrl || data.connectUrl) {
-            setConnectUrl(data.cliAuthUrl || data.connectUrl);
-          }
+          const nextConnectUrl = data.cliAuthUrl || data.connectUrl;
+          if (nextConnectUrl) setConnectUrl(nextConnectUrl);
           const nextConfigured = !!data.configured;
           setConfigured(nextConfigured);
           if (nextConfigured && !lastConfigured) {
@@ -597,6 +603,8 @@ export interface AgentPanelProps extends Omit<
   showPageNewChatButton?: boolean;
   /** Allow the sidebar settings view to render inside this panel. Default: true. */
   allowSettingsMode?: boolean;
+  /** Keep this surface on chat even when mode controls are hidden. */
+  chatOnly?: boolean;
   /** Optional link shown in Resources and Settings modes for the full Agent page. */
   agentPageHref?: string;
   /** Capability gate for source edits and CLI access. */
@@ -754,14 +762,16 @@ function AgentPanelInner({
   showTabBar = true,
   showPageNewChatButton = false,
   allowSettingsMode = true,
+  chatOnly = false,
   agentPageHref,
   codeAccess,
   ...assistantChatProps
 }: AgentPanelProps) {
   const t = useT();
-  const feedbackEnabled = resolveFeedbackUrl() !== null;
   const navigate = useNavigate();
   const mounted = useClientOnly();
+  const feedbackEnabled =
+    resolveFeedbackUrl(undefined, mounted ? undefined : null) !== null;
   const keyPrefix = storageKey ? `:${storageKey}` : "";
   const execModeKey = `${EXEC_MODE_KEY}${keyPrefix}`;
   const panelModeKey = `agent-native-panel-mode${keyPrefix}`;
@@ -807,9 +817,17 @@ function AgentPanelInner({
         saved === "resources" ||
         saved === "settings"
       )
-        return normalizeAgentPanelModeForSurface(saved, allowSettingsMode);
+        return normalizeAgentPanelModeForSurface(
+          saved,
+          allowSettingsMode,
+          chatOnly,
+        );
     } catch {}
-    return normalizeAgentPanelModeForSurface(defaultMode, allowSettingsMode);
+    return normalizeAgentPanelModeForSurface(
+      defaultMode,
+      allowSettingsMode,
+      chatOnly,
+    );
   });
   useEffect(() => {
     try {
@@ -823,15 +841,21 @@ function AgentPanelInner({
   const switchMode = useCallback(
     (m: PanelMode) => {
       startTransition(() =>
-        setMode(normalizeAgentPanelModeForSurface(m, allowSettingsMode)),
+        setMode(
+          normalizeAgentPanelModeForSurface(m, allowSettingsMode, chatOnly),
+        ),
       );
     },
-    [allowSettingsMode],
+    [allowSettingsMode, chatOnly],
   );
   useEffect(() => {
-    const nextMode = normalizeAgentPanelModeForSurface(mode, allowSettingsMode);
+    const nextMode = normalizeAgentPanelModeForSurface(
+      mode,
+      allowSettingsMode,
+      chatOnly,
+    );
     if (nextMode !== mode) switchMode(nextMode);
-  }, [mode, allowSettingsMode, switchMode]);
+  }, [mode, allowSettingsMode, chatOnly, switchMode]);
   const openRunThread = useCallback(
     (threadId: string, run?: AgentRun) => {
       switchMode("chat");
@@ -2561,45 +2585,69 @@ class AgentPanelErrorBoundary extends React.Component<
       assistantUiRecoverableRenderErrorKind(this.state.error) &&
       this.state.staleIndexRecoveryCount < 2
     ) {
-      return (
-        <div className="flex h-full items-center justify-center p-6 text-center text-xs text-muted-foreground">
-          Reloading chat UI...
-        </div>
-      );
+      return <AgentPanelReloadingNotice />;
     }
 
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
-        <div className="max-w-[260px] space-y-1">
-          <p className="text-sm font-medium text-foreground">
-            Agent panel hit an internal UI error.
-          </p>
-          <p className="text-xs leading-relaxed text-muted-foreground">
-            The app is still usable. Reset the panel to reload the chat UI.
-          </p>
-        </div>
-        <button
-          type="button"
-          className="rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
-          onClick={() => {
-            this.setState({ error: null, staleIndexRecoveryCount: 0 });
-            this.props.onReset();
-          }}
-        >
-          Reset agent panel
-        </button>
-        <ErrorReportActions
-          appName="Agent panel"
-          title="Agent panel UI error"
-          details={this.state.error.message}
-          issueTitle="Agent panel UI error"
-          className="max-w-[260px]"
-          feedbackClassName="h-7"
-          githubClassName="h-7"
-        />
-      </div>
+      <AgentPanelErrorFallback
+        details={this.state.error.message}
+        onReset={() => {
+          this.setState({ error: null, staleIndexRecoveryCount: 0 });
+          this.props.onReset();
+        }}
+      />
     );
   }
+}
+
+// The boundary must stay a class (componentDidCatch), but its copy still has to
+// come from the catalog like every other string in this file — so the fallback
+// UI lives in function components that can call useT.
+function AgentPanelReloadingNotice() {
+  const t = useT();
+  return (
+    <div className="flex h-full items-center justify-center p-6 text-center text-xs text-muted-foreground">
+      {t("agentPanel.uiError.reloading")}
+    </div>
+  );
+}
+
+function AgentPanelErrorFallback({
+  details,
+  onReset,
+}: {
+  details: string;
+  onReset: () => void;
+}) {
+  const t = useT();
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
+      <div className="max-w-[260px] space-y-1">
+        <p className="text-sm font-medium text-foreground">
+          {t("agentPanel.uiError.title")}
+        </p>
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          {t("agentPanel.uiError.description")}
+        </p>
+      </div>
+      <button
+        type="button"
+        className="rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
+        onClick={onReset}
+      >
+        {t("agentPanel.uiError.reset")}
+      </button>
+      <ErrorReportActions
+        appName="Agent panel"
+        title={t("agentPanel.uiError.title")}
+        details={details}
+        issueTitle="Agent panel UI error"
+        className="max-w-[260px]"
+        feedbackClassName="h-7"
+        githubClassName="h-7"
+      />
+    </div>
+  );
 }
 
 export function AgentPanel(props: AgentPanelProps) {
@@ -3349,6 +3397,7 @@ export function AgentSidebar({
             threadUrlSync={threadUrlSync}
             agentPageHref={agentPageHref}
             allowSettingsMode={false}
+            chatOnly
           />
         </div>
       </div>

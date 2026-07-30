@@ -246,4 +246,57 @@ describe("CreateAppFlow", () => {
     expect(() => findButton(container, "Connect Builder")).toThrow();
     expect(() => findButton(container, "Try again")).toThrow();
   });
+
+  it("replaces the composer with Builder branch progress and success states", async () => {
+    let resolveBuilderRequest: ((response: Response) => void) | undefined;
+    fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("get-vault-access-settings")) {
+        return jsonResponse({ mode: "all-apps" });
+      }
+      if (
+        url.includes("list-vault-secret-options") ||
+        url.includes("list-workspace-resource-options")
+      ) {
+        return jsonResponse([]);
+      }
+      if (url.includes("start-workspace-app-creation")) {
+        return new Promise<Response>((resolve) => {
+          resolveBuilderRequest = resolve;
+        });
+      }
+      return jsonResponse({ error: `Unexpected URL: ${url}` }, 404);
+    });
+
+    await renderAndSubmit("Build a quality dashboard");
+
+    await act(async () => {
+      await vi.waitFor(() => {
+        expect(container.textContent).toContain("Creating your Builder branch");
+      });
+    });
+    expect(container.textContent).not.toContain("Dispatch keys");
+
+    await act(async () => {
+      resolveBuilderRequest?.(
+        jsonResponse({
+          mode: "builder",
+          appId: "quality-dashboard",
+          url: "https://branch.example.test",
+        }),
+      );
+    });
+
+    await act(async () => {
+      await vi.waitFor(() => {
+        expect(container.textContent).toContain("Your Builder branch is ready");
+      });
+    });
+    const branchLink = Array.from(container.querySelectorAll("a")).find(
+      (candidate) => candidate.textContent?.includes("Open Builder branch"),
+    );
+    expect(branchLink?.getAttribute("href")).toBe(
+      "https://branch.example.test",
+    );
+  });
 });

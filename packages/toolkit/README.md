@@ -63,8 +63,8 @@ continues to own thread persistence, sorting, routing, and mutations through
 Core.
 
 Use `SidebarFooterActions` for the shared left-sidebar utility row. Provide the
-app-owned controls through its slots; the rendered order is feedback, translate,
-search, then collapse, with the same order stacked in collapsed sidebars.
+app-owned controls through its slots; the rendered order is feedback, search,
+then collapse, with the same order stacked in collapsed sidebars.
 
 Inside template apps, prefer local adapters such as `@/components/ui/button` so
 apps can replace their primitives without changing every callsite.

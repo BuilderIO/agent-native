@@ -1988,7 +1988,16 @@ export async function processAgentTeamRun(
               resolve();
             }
           },
-          { useHostedSoftTimeoutDefault: true, turnId },
+          {
+            useHostedSoftTimeoutDefault: true,
+            turnId,
+            // No userId here: `ownerEmail` is the only identity known at
+            // this scope and is PII (email), which the terminal event must
+            // not carry.
+            model: config.model,
+            engineName: config.engine.name,
+            attemptCount: claimedAttempts,
+          },
         );
       });
 

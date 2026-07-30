@@ -4,7 +4,7 @@ import {
   type ChatThreadSummary,
 } from "@agent-native/core/client/agent-chat";
 import { appPath } from "@agent-native/core/client/api-path";
-import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
@@ -334,9 +334,6 @@ export function Sidebar({
       <TooltipContent side="right">{t("root.commandSearch")}</TooltipContent>
     </Tooltip>
   );
-  const translateButton = (
-    <LanguagePicker variant="ghost-icon" label={t("settings.languageLabel")} />
-  );
   const feedbackButton = (
     <FeedbackButton
       variant={collapsed ? "icon" : "sidebar"}
@@ -495,7 +492,6 @@ export function Sidebar({
         <SidebarFooterActions
           collapsed={collapsed}
           feedback={feedbackButton}
-          translate={translateButton}
           search={searchButton}
           collapse={collapseButton}
         />

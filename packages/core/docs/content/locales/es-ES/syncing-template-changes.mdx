@@ -5,11 +5,13 @@ description: "agent-native template incorpora los cambios posteriores upstream d
 
 # Sincronizar cambios de plantilla
 
-`agent-native create` copia una plantilla propia en su aplicación y luego la hace suya: sustituyendo el nombre de la aplicación, renombrando `_gitignore`, reescribiendo `package.json`, fijando las dependencias `workspace:*` y `catalog:` a versiones concretas y (en un espacio de trabajo) sustituyendo los plugins de autenticación y chat heredados. A partir de ese momento, la aplicación es un fork. Las correcciones y mejoras que llegan upstream en la plantilla no la alcanzan.
+`agent-native create` copia una plantilla propia en su aplicación y luego la hace suya: sustituyendo el nombre de la aplicación, renombrando `_gitignore`, reescribiendo `package.json`, fijando las dependencias `workspace:*` y `catalog:` a versiones concretas y (en un espacio de trabajo) sustituyendo los plugins de autenticación y chat heredados. A partir de ese momento, la aplicación es una app independiente creada desde la plantilla. Las correcciones y mejoras que llegan upstream en la plantilla no la alcanzan.
 
 `agent-native upgrade` no cierra esa brecha. Mueve versiones de paquetes, ejecuta codemods de importación y actualiza directorios de skills; nunca toca un archivo que se copió de una plantilla.
 
 `agent-native template` es la mitad que falta. Vuelve a obtener la plantilla en una versión más reciente, vuelve a aplicar exactamente las transformaciones que `create` aplicó, y fusiona el resultado en su aplicación archivo por archivo.
+
+Las plantillas de la comunidad quedan fuera de este flujo de sincronización. Sus metadatos `agent-native.communityTemplate` solo registran el origen instalado; `agent-native template sync` no obtiene cambios de ese repositorio. Instala una revisión fija para tener un punto de partida estable y porta manualmente los cambios posteriores tras revisarlos.
 
 ## Inicio rápido {#quick-start}
 

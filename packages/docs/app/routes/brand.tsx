@@ -92,7 +92,7 @@ function AssetPreview({
         <a
           href={asset.src}
           download
-          className="inline-flex shrink-0 items-center gap-2 rounded-full border border-[var(--docs-border)] px-4 py-2 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+          className="inline-flex shrink-0 items-center gap-2 rounded-md border border-[var(--docs-border)] px-4 py-2 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
         >
           <IconDownload className="size-4" aria-hidden />
           {t("brandPage.downloadSvg")}
@@ -109,7 +109,7 @@ export default function BrandPage() {
     <main className="min-w-0">
       <header className="border-b border-[var(--docs-border)] px-6 py-16 sm:py-20">
         <div className="mx-auto max-w-[1120px]">
-          <p className="mb-4 text-sm font-semibold uppercase tracking-[0.14em] text-[var(--docs-accent)]">
+          <p className="mb-4 font-mono text-sm font-semibold uppercase tracking-[0.14em] text-[var(--docs-accent)]">
             {t("brandPage.eyebrow")}
           </p>
           <h1 className="m-0 max-w-4xl text-4xl font-semibold leading-tight tracking-tight text-[var(--fg)] sm:text-6xl">

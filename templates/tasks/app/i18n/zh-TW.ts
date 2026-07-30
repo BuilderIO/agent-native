@@ -16,6 +16,7 @@ const messages = {
     navInbox: "收件匣",
     navTasks: "任務",
     navFields: "欄位",
+    search: "搜尋",
     collapseSidebar: "收合側邊欄",
     expandSidebar: "展開側邊欄",
     navigationTitle: "導覽",
@@ -28,6 +29,11 @@ const messages = {
     pageTeam: "團隊",
     pageExtension: "擴充功能",
     pageExtensions: "擴充功能",
+  },
+  settings: {
+    languageTitle: "語言",
+    languageDescription: "選取介面語言。此偏好會儲存到你的帳戶。",
+    languageLabel: "介面語言",
   },
   agent: {
     emptyState: "請代理人查看或修改這個應用程式。",

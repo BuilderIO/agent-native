@@ -547,6 +547,8 @@ const messages = {
     useColor: "Use {{color}}",
     logo: "Logo",
     logoPreview: "Logo preview",
+    logoUsage: "Shown to recipients in share emails and on public clip pages.",
+    emailHeaderPreview: "Share email header",
     dropReplace: "Drop a new image to replace",
     dropHere: "Drop a PNG / JPG / SVG here",
     uploading: "Uploading…",
@@ -643,10 +645,6 @@ All notable user-facing changes to Clips are documented here. Open it any time f
 ### Added
 
 - See what's new right inside Clips. A changelog now lives in the command menu (Cmd+K) and in Settings.`,
-    profile: "Profile",
-    email: "Email",
-    displayName: "Display name",
-    displayNamePlaceholder: "Your name",
     playback: "Playback",
     defaultPlaybackSpeed: "Default playback speed",
     playbackDescription: "Applied automatically when you open a recording.",
@@ -786,6 +784,7 @@ All notable user-facing changes to Clips are documented here. Open it any time f
       "No organization yet. Create one from the organization switcher to get started.",
     description: "Organization admin: branding, members, invites.",
     adminsOnlyBranding: "Only admins can edit branding.",
+    brandingLoadFailed: "Couldn't load organization branding.",
     members: "Members",
     pendingInvites: "Pending invites",
     noPendingInvites: "No pending invites.",
@@ -926,6 +925,7 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     replyingTo: "Replying to",
     commentAt: "Comment at",
     writeReply: "Write a reply...",
+    editComment: "Edit comment",
     commentButton: "Comment",
     composerPlaceholder: "Add a comment…",
     mentionSomeone: "Mention someone",
@@ -1254,6 +1254,7 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     importLoom: "Import Loom",
     importing: "Importing...",
     import: "Import",
+    recordNew: "Record new",
   },
   playerSettings: {
     title: "Settings",
@@ -1321,12 +1322,31 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     downloadDesktopApp: "Download desktop app",
     technicalDetails: "Technical details",
     whatToCheck: "What to check",
-    downloadRecording: "Download recording",
+    downloadRecording: "Download",
     openRecorderInTab: "Open recorder in tab",
     connectStorageToFinish:
       "Connect storage on the next screen: Builder.io (free tier storage + AI) or S3-compatible storage. Clips will finish saving it.",
     connectStorageToRetryLoom:
       "Connect storage on the next screen: Builder.io (free tier storage + AI) or S3-compatible storage. Clips will retry the import.",
+  },
+  importRoute: {
+    pageTitle: "Import Loom — Clips",
+    title: "Import Loom",
+    urlPlaceholder: "https://www.loom.com/share/...",
+    cta: "Import",
+    helperText:
+      "Works great with Loom. You can also paste a link to any other screen recording or video file.",
+    stageFetching: "Pulling in your video…",
+    stageUploading: "Uploading the raw footage…",
+    stageTranscript: "Making speech and on-screen visuals agent-readable…",
+    stageFinalizing: "Making it Agent-Native…",
+    importingSubtitle:
+      "Turning a flat recording into an Agent-Native primitive.",
+    doneHeading: "And we're done! Your video is now:",
+    benefitTranscript: "Speech & on-screen visuals, fully searchable",
+    benefitQueryable: "Understood & queryable by your agent",
+    benefitSummaries: "Instant summaries and clips on demand",
+    benefitPrimitive: "A first-class Agent-Native primitive",
   },
   dictateRoute: {
     pageTitle: "Dictate · Clips",

@@ -10,8 +10,7 @@
  * so the reset-password flow still works end-to-end for local development.
  */
 
-import { readFileSync } from "node:fs";
-
+import { FAVICON_PNG_BASE64 } from "../assets/branding/favicon-base64.js";
 import { resolveSecret } from "./credential-provider.js";
 import { AGENT_NATIVE_EMAIL_LOGO_CONTENT_ID } from "./email-template.js";
 
@@ -31,6 +30,13 @@ export interface SendEmailArgs {
   html: string;
   text?: string;
   from?: string;
+  /**
+   * Display-name-only override. Keeps the configured (domain-verified) sending
+   * address and just changes the name shown to the recipient, e.g.
+   * "Alice via Clips". Ignored when `from` is set. Prefer this over `from` for
+   * per-user senders: putting a user's own address in `From` breaks SPF/DKIM.
+   */
+  fromName?: string;
   cc?: string | string[];
   replyTo?: string;
   inReplyTo?: string;
@@ -42,9 +48,7 @@ export interface SendEmailArgs {
 let cachedAgentNativeLogo: Buffer | undefined;
 
 function getAgentNativeLogoAttachment(): EmailAttachment {
-  cachedAgentNativeLogo ??= readFileSync(
-    new URL("../../src/assets/branding/favicon.png", import.meta.url),
-  );
+  cachedAgentNativeLogo ??= Buffer.from(FAVICON_PNG_BASE64, "base64");
   return {
     filename: "agent-native-logo.png",
     content: cachedAgentNativeLogo,
@@ -113,9 +117,14 @@ export async function getEmailProvider(): Promise<EmailProvider> {
 function getFromAddress(
   config: EmailTransportConfig,
   override?: string,
+  fromName?: string,
 ): string {
-  const explicit = override || config.from;
-  if (explicit) return explicit;
+  if (override) return override;
+  const base = config.from ?? defaultFromAddress(config);
+  return fromName ? withDisplayName(base, fromName) : base;
+}
+
+function defaultFromAddress(config: EmailTransportConfig): string {
   // Resend lets unverified accounts send from its sandbox domain; SendGrid
   // does not, so falling back there would cause silent 403s at runtime.
   if (config.provider === "sendgrid") {
@@ -126,6 +135,21 @@ function getFromAddress(
   return "Agent Native <onboarding@resend.dev>";
 }
 
+/**
+ * Swap the display name while keeping the verified address. The name is
+ * sanitized and quoted because it lands in a header: CR/LF would allow header
+ * injection, and quotes/angle brackets would break address parsing.
+ */
+function withDisplayName(from: string, name: string): string {
+  const safe = name
+    .replace(/[\r\n"<>\\]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!safe) return from;
+  const address = from.match(/<([^>]+)>/)?.[1]?.trim() ?? from.trim();
+  return `"${safe}" <${address}>`;
+}
+
 async function sendEmailWithSignal(
   args: SendEmailArgs,
   signal?: AbortSignal,
@@ -133,7 +157,7 @@ async function sendEmailWithSignal(
   const config = await resolveEmailTransport();
   signal?.throwIfAborted();
   const provider = config.provider;
-  const from = getFromAddress(config, args.from);
+  const from = getFromAddress(config, args.from, args.fromName);
   const attachments = resolveAttachments(args);
 
   if (provider === "resend") {
@@ -273,8 +297,17 @@ export async function sendEmail(args: SendEmailArgs): Promise<void> {
 
 function parseSendGridFrom(from: string): { email: string; name?: string } {
   const m = from.match(/^\s*(.*?)\s*<(.+)>\s*$/);
-  if (m && m[2]) return { name: m[1] || undefined, email: m[2] };
+  if (m && m[2]) return { name: unquoteDisplayName(m[1]), email: m[2] };
   return { email: from.trim() };
+}
+
+function unquoteDisplayName(name: string): string | undefined {
+  const trimmed = name.trim();
+  const unquoted =
+    trimmed.startsWith('"') && trimmed.endsWith('"')
+      ? trimmed.slice(1, -1).replace(/\\(.)/g, "$1")
+      : trimmed;
+  return unquoted || undefined;
 }
 
 function stripHtml(html: string): string {

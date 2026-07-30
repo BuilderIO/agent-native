@@ -10,6 +10,7 @@
  *
  * Supported presets:
  * - cloudflare_pages: Outputs dist/ with _worker.js for Cloudflare Pages
+ * - cloudflare_module: Outputs a native Cloudflare Worker under .output/server
  *
  * Usage: node deploy/build.js (called automatically by `agent-native build`)
  */
@@ -32,6 +33,7 @@ import {
   isDurableBackgroundFlagEnabled,
 } from "../agent/durable-background.js";
 import {
+  INTEGRATION_RECOVERY_RUNTIME_MARKER,
   INTEGRATION_RETRY_SWEEP_PATH,
   INTEGRATION_RETRY_SWEEP_TOKEN_SUBJECT,
   isIntegrationDurableDispatchConfigured,
@@ -73,6 +75,171 @@ import {
 
 const cwd = process.cwd();
 const preset = process.env.NITRO_PRESET || "node";
+export const CLOUDFLARE_MODULE_PRESETS = [
+  "cloudflare_module",
+  "cloudflare-module",
+] as const;
+
+export function isCloudflareModulePreset(targetPreset: string): boolean {
+  return (CLOUDFLARE_MODULE_PRESETS as readonly string[]).includes(
+    targetPreset,
+  );
+}
+
+export const CLOUDFLARE_MODULE_WORKER_ENTRY = "worker.mjs";
+
+export function generateCloudflareModuleWorkerEntry(): string {
+  return `let handler;
+
+export * from "./index.mjs";
+
+async function loadHandler() {
+  handler ??= (await import("./index.mjs")).default;
+  return handler;
+}
+
+function initializeBindings(env) {
+  if (!env) return;
+  globalThis.__cf_env = env;
+  globalThis.__env__ = env;
+  globalThis.process = globalThis.process || { env: {} };
+  globalThis.process.env = globalThis.process.env || {};
+  for (const [key, value] of Object.entries(env)) {
+    if (typeof value === "string") globalThis.process.env[key] = value;
+  }
+}
+
+export default {
+  async fetch(request, env, ctx) {
+    if (typeof ctx?.waitUntil === "function") {
+      request.waitUntil = ctx.waitUntil.bind(ctx);
+    }
+    initializeBindings(env);
+    return (await loadHandler()).fetch(request, env, ctx);
+  },
+  async scheduled(controller, env, ctx) {
+    initializeBindings(env);
+    return (await loadHandler()).scheduled?.(controller, env, ctx);
+  },
+  async email(message, env, ctx) {
+    initializeBindings(env);
+    return (await loadHandler()).email?.(message, env, ctx);
+  },
+  async queue(batch, env, ctx) {
+    initializeBindings(env);
+    return (await loadHandler()).queue?.(batch, env, ctx);
+  },
+  async tail(traces, env, ctx) {
+    initializeBindings(env);
+    return (await loadHandler()).tail?.(traces, env, ctx);
+  },
+  async trace(traces, env, ctx) {
+    initializeBindings(env);
+    return (await loadHandler()).trace?.(traces, env, ctx);
+  },
+};
+`;
+}
+
+export function patchCloudflareModuleNitroEntry(code: string): string {
+  const factoryMatch = code.match(
+    /function ([A-Za-z_$][\w$]*)\(e\)\{let ([A-Za-z_$][\w$]*)=([A-Za-z_$][\w$]*)\(\),([A-Za-z_$][\w$]*)=([A-Za-z_$][\w$]*)\(\);return\{async fetch\(([A-Za-z_$][\w$]*),([A-Za-z_$][\w$]*),([A-Za-z_$][\w$]*)\)\{/,
+  );
+  if (!factoryMatch) {
+    throw new Error(
+      "[deploy] Could not find Nitro's Cloudflare module handler factory",
+    );
+  }
+
+  const [
+    ,
+    factoryName,
+    handlerName,
+    handlerFactoryName,
+    hooksName,
+    hooksFactoryName,
+    requestName,
+    envName,
+    contextName,
+  ] = factoryMatch;
+  const eagerInitialization = `let ${handlerName}=${handlerFactoryName}(),${hooksName}=${hooksFactoryName}();`;
+  if (!code.includes(eagerInitialization)) {
+    throw new Error(
+      `[deploy] Nitro's ${factoryName} handler changed its initialization shape`,
+    );
+  }
+
+  const bindingMatch = code.match(
+    new RegExp(
+      `globalThis\\.__env__=${envName},([A-Za-z_$][\\w$]*)\\(${requestName},\\{env:${envName},context:${contextName}\\}\\);?`,
+    ),
+  );
+  if (!bindingMatch) {
+    throw new Error(
+      `[deploy] Nitro's ${factoryName} handler does not initialize Cloudflare bindings as expected`,
+    );
+  }
+  const bindingInitialization = bindingMatch[0];
+
+  let patched = code.replace(
+    eagerInitialization,
+    `let ${handlerName},${hooksName};`,
+  );
+  patched = patched.replace(
+    bindingInitialization,
+    `${bindingInitialization}${handlerName}??=${handlerFactoryName}();`,
+  );
+  const hookCall = `${hooksName}.callHook(`;
+  if (!patched.includes(hookCall)) {
+    throw new Error(
+      `[deploy] Nitro's ${factoryName} handler has no Cloudflare lifecycle hooks`,
+    );
+  }
+  patched = patched
+    .split(hookCall)
+    .join(`(${hooksName}??=${hooksFactoryName}()).callHook(`);
+
+  return patched;
+}
+
+export function configureCloudflareModuleWorkerOutput(serverDir: string): void {
+  const configPath = path.join(serverDir, "wrangler.json");
+  if (!fs.existsSync(configPath)) {
+    throw new Error(
+      `[deploy] Nitro did not generate ${configPath} for cloudflare_module`,
+    );
+  }
+  const nitroEntryPath = path.join(serverDir, "index.mjs");
+  if (!fs.existsSync(nitroEntryPath)) {
+    throw new Error(
+      `[deploy] Nitro did not generate ${nitroEntryPath} for cloudflare_module`,
+    );
+  }
+
+  const config = JSON.parse(fs.readFileSync(configPath, "utf8")) as {
+    main?: string;
+    compatibility_flags?: unknown;
+    [key: string]: unknown;
+  };
+  config.main = CLOUDFLARE_MODULE_WORKER_ENTRY;
+  const compatibilityFlags = Array.isArray(config.compatibility_flags)
+    ? config.compatibility_flags.filter(
+        (flag): flag is string => typeof flag === "string",
+      )
+    : [];
+  config.compatibility_flags = [
+    ...new Set([...compatibilityFlags, "nodejs_compat"]),
+  ];
+  fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+  fs.writeFileSync(
+    nitroEntryPath,
+    patchCloudflareModuleNitroEntry(fs.readFileSync(nitroEntryPath, "utf8")),
+  );
+  fs.writeFileSync(
+    path.join(serverDir, CLOUDFLARE_MODULE_WORKER_ENTRY),
+    generateCloudflareModuleWorkerEntry(),
+  );
+}
 export const NITRO_RUNTIME_IGNORE_PATTERNS = [
   "**/*.spec.ts",
   "**/*.spec.tsx",
@@ -738,20 +905,48 @@ export function generateWorkerEntry(
   for (let i = 0; i < actions.length; i++) {
     const a = actions[i];
     const varName = `action_${i}`;
+    const handlerName = `action_handler_${i}`;
     actionImports.push(`import ${varName} from ${JSON.stringify(a.absPath)};`);
     // Mirror the runtime mount (action-routes.ts): `path = http?.path ?? name`.
     const routePath = `/_agent-native/actions/${a.path ?? a.name}`;
     actionRegistrations.push(
-      `  app.on(${JSON.stringify(a.method.toUpperCase())}, ${JSON.stringify(routePath)}, defineEventHandler(async (event) => {
+      `  const ${handlerName} = defineEventHandler(async (event) => {
+    const configuredMethod = ${JSON.stringify(a.method.toUpperCase())};
+    const requestMethod = event.req.method;
+    const isFrontendMutation =
+      event.req.headers.get("x-agent-native-frontend") === "1" &&
+      ["POST", "PUT", "DELETE"].includes(configuredMethod) &&
+      ["POST", "PUT", "DELETE"].includes(requestMethod);
+    if (requestMethod !== configuredMethod && !isFrontendMutation) {
+      return new Response(
+        JSON.stringify({ error: \`Method not allowed. Use \${configuredMethod}.\` }),
+        { status: 405, headers: { "Content-Type": "application/json" } }
+      );
+    }
     const params = ${a.method === "get" ? "parseActionSearchParams(event.url.searchParams)" : "(await readBody(event)) ?? {}"};
     try {
-      const result = await ${varName}.run(params, { caller: "http" });
+      const caller =
+        event.req.headers.get("x-agent-native-frontend") === "1"
+          ? "frontend"
+          : "http";
+      const result = await ${varName}.run(params, { caller });
       if (typeof result === "string") { try { return JSON.parse(result); } catch { return result; } }
       return result;
     } catch (err) {
       return new Response(JSON.stringify({ error: err?.message || "Action failed" }), { status: err?.message?.startsWith("Invalid action parameters") ? 400 : 500, headers: { "Content-Type": "application/json" } });
     }
-  }));`,
+  });
+  app.on(${JSON.stringify(a.method.toUpperCase())}, ${JSON.stringify(routePath)}, ${handlerName});
+${["post", "put", "delete"]
+  .filter(
+    (method) =>
+      method !== a.method && ["post", "put", "delete"].includes(a.method),
+  )
+  .map(
+    (method) =>
+      `  app.on(${JSON.stringify(method.toUpperCase())}, ${JSON.stringify(routePath)}, ${handlerName});`,
+  )
+  .join("\n")}`,
     );
   }
 
@@ -893,7 +1088,9 @@ function requestWithMountedApiPrefixStripped(request) {
     return request;
   }
   url.pathname = strippedPathname;
-  return new Request(url, request);
+  const rewritten = new Request(url, request);
+  rewritten.waitUntil = request.waitUntil;
+  return rewritten;
 }
 
 function prefixMountedPath(path, basePath) {
@@ -1347,8 +1544,10 @@ ${
 
 export default {
   async fetch(request, env, ctx) {
-    // Expose env and ctx bindings globally for compatibility
-    if (ctx) globalThis.__cf_ctx = ctx;
+    // Attach the request-scoped continuation hook before any URL rewrite.
+    if (typeof ctx?.waitUntil === "function") {
+      request.waitUntil = ctx.waitUntil.bind(ctx);
+    }
     if (env) {
       globalThis.process = globalThis.process || { env: {} };
       globalThis.process.env = globalThis.process.env || {};
@@ -1518,7 +1717,7 @@ export function generateCloudflarePagesStaticShellFromManifest(
     ? DEFAULT_ROOT_LOADER_REACT_ROUTER_TURBO_STREAM
     : EMPTY_REACT_ROUTER_TURBO_STREAM;
 
-  return `<!DOCTYPE html><html lang="en"><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/><link rel="manifest" href="/manifest.json"/><link rel="icon" type="image/svg+xml" href="/favicon.svg"/>${modulePreloads}${stylesheets}</head><body><div style="display:flex;align-items:center;justify-content:center;height:100vh;width:100%"><svg role="status" aria-label="Loading" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation:an-spin 1s linear infinite;opacity:0.7"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg><style>@keyframes an-spin { to { transform: rotate(360deg) } } @media (prefers-color-scheme: dark) { html { background: #09090b; color: #fafafa } }</style></div><script>window.__reactRouterContext = ${JSON.stringify(context)};window.__reactRouterContext.stream = new ReadableStream({start(controller){window.__reactRouterContext.streamController = controller;}}).pipeThrough(new TextEncoderStream());</script><script type="module" async="">${routeModuleScript}</script><!--$--><script>window.__reactRouterContext.streamController.enqueue(${JSON.stringify(encodedInitialState)});</script><!--$--><script>window.__reactRouterContext.streamController.close();</script><!--/$--><!--/$--></body></html>`;
+  return `<!DOCTYPE html><html lang="en"><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/><link rel="manifest" href="/manifest.json"/><link rel="icon" type="image/svg+xml" href="/favicon.svg"/>${modulePreloads}${stylesheets}</head><body><div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;height:100vh;width:100%"><svg role="status" aria-label="Loading" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation:an-spin 1s linear infinite;opacity:0.7"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg><p class="an-stall-hint">Still loading. If this does not finish, reload the page — the browser console may show what failed.</p><style>@keyframes an-spin { to { transform: rotate(360deg) } } @keyframes an-stall-in { to { opacity: 0.6 } } .an-stall-hint { opacity: 0; margin: 0; max-width: 32rem; padding: 0 1.5rem; text-align: center; font-size: 0.875rem; line-height: 1.5; font-family: ui-sans-serif, system-ui, sans-serif; animation: an-stall-in 0.4s ease-out 10s forwards } @media (prefers-reduced-motion: reduce) { .an-stall-hint { animation-duration: 0s } } @media (prefers-color-scheme: dark) { html { background: #09090b; color: #fafafa } }</style></div><script>window.__reactRouterContext = ${JSON.stringify(context)};window.__reactRouterContext.stream = new ReadableStream({start(controller){window.__reactRouterContext.streamController = controller;}}).pipeThrough(new TextEncoderStream());</script><script type="module" async="">${routeModuleScript}</script><!--$--><script>window.__reactRouterContext.streamController.enqueue(${JSON.stringify(encodedInitialState)});</script><!--$--><script>window.__reactRouterContext.streamController.close();</script><!--/$--><!--/$--></body></html>`;
 }
 
 function writeCloudflarePagesStaticShell({
@@ -2173,6 +2372,28 @@ const LIBSQL_NATIVE_PACKAGE_NAMES = [
 const FFMPEG_STATIC_PACKAGE_NAME = "ffmpeg-static";
 const RESVG_SCOPE = "@resvg";
 const RESVG_PACKAGE_PREFIX = "resvg-js";
+
+// Serverless functions only ever run on 64-bit Linux. The darwin/win32/android
+// and 32-bit-arm prebuilds of these native packages are ~100MB that can never
+// execute there, and Netlify copies the whole server dir again for every extra
+// emitted function — so the dead weight is paid once per function. Cold start
+// scales with bundle size, and a page that opens several requests at once
+// scales out to that many cold containers, which is how this surfaces: 502/504
+// on the first burst rather than as an obviously slow deploy.
+const SERVERLESS_NATIVE_PACKAGE_SUFFIXES = [
+  "linux-x64-gnu",
+  "linux-x64-musl",
+  "linux-arm64-gnu",
+  "linux-arm64-musl",
+];
+
+export function isServerlessNativePlatformPackage(
+  packageName: string,
+): boolean {
+  return SERVERLESS_NATIVE_PACKAGE_SUFFIXES.some((suffix) =>
+    packageName.endsWith(suffix),
+  );
+}
 const FFMPEG_STATIC_BINARY_NAMES =
   process.platform === "win32" ? ["ffmpeg.exe", "ffmpeg"] : ["ffmpeg"];
 const SERVERLESS_FFMPEG_STATIC_PLATFORM = "linux";
@@ -2783,6 +3004,7 @@ export function emitSingleTemplateNetlifyIntegrationRecoveryFunction(
 
 const SWEEP_PATH = ${JSON.stringify(INTEGRATION_RETRY_SWEEP_PATH)};
 const SWEEP_SUBJECT = ${JSON.stringify(INTEGRATION_RETRY_SWEEP_TOKEN_SUBJECT)};
+globalThis.${INTEGRATION_RECOVERY_RUNTIME_MARKER} = true;
 
 function enabled() {
   const raw = process.env.AGENT_INTEGRATION_DURABLE_DISPATCH;
@@ -2958,6 +3180,23 @@ export function bundleYjsRuntimeForServerlessOutput(
       ),
     );
   }
+
+  walkServerJavaScriptFiles(serverDir, (filePath) => {
+    const bundledImport = path
+      .relative(path.dirname(filePath), bundledYjsPath)
+      .split(path.sep)
+      .join("/");
+    const relativeBundledImport = bundledImport.startsWith(".")
+      ? bundledImport
+      : `./${bundledImport}`;
+    const source = fs.readFileSync(filePath, "utf-8");
+    const rewritten = source.replace(
+      /(\b(?:from\s*|import\s*\(\s*|import\s*))(["'])\.\.?\/(?:\.\.\/)*_libs\/yjs\.mjs\2/g,
+      (_match, importPrefix: string, quote: string) =>
+        `${importPrefix}${quote}${relativeBundledImport}${quote}`,
+    );
+    if (rewritten !== source) fs.writeFileSync(filePath, rewritten);
+  });
 
   return bareImports;
 }
@@ -3254,6 +3493,7 @@ function copyInstalledLibsqlNativePackages(serverDir: string | undefined) {
   let copied = 0;
 
   for (const packageName of LIBSQL_NATIVE_PACKAGE_NAMES) {
+    if (!isServerlessNativePlatformPackage(packageName)) continue;
     const src = findInstalledLibsqlNativePackage(nodeModulesRoots, packageName);
     if (!src) continue;
 
@@ -3270,7 +3510,13 @@ function copyInstalledLibsqlNativePackages(serverDir: string | undefined) {
 
 function copyInstalledResvgPackages(serverDir: string | undefined) {
   if (!serverDir || !fs.existsSync(serverDir)) return;
-  const packages = findInstalledResvgPackages(nodeModulesAncestors(cwd));
+  // `resvg-js` itself is the JS wrapper that gets imported; everything else in
+  // the scope is a per-platform prebuild.
+  const packages = findInstalledResvgPackages(nodeModulesAncestors(cwd)).filter(
+    ({ packageName }) =>
+      packageName === RESVG_PACKAGE_PREFIX ||
+      isServerlessNativePlatformPackage(packageName),
+  );
   if (packages.length === 0) return;
 
   const destScopeDir = path.join(serverDir, "node_modules", RESVG_SCOPE);
@@ -3602,6 +3848,53 @@ const BROWSER_ONLY_SERVER_LIBS = [
 ];
 
 /**
+ * Packages that Nitro can discover through the shared server graph but that
+ * cannot be evaluated in a Cloudflare Worker. Keep the network-capable SDKs
+ * real; these are limited to Node/native/browser-runtime packages whose
+ * server-side paths already fail closed when the capability is unavailable.
+ */
+export const CLOUDFLARE_MODULE_STUB_MODULES = [
+  "@napi-rs/canvas",
+  "@resvg/resvg-js",
+  "@sentry/node",
+  "@sparticuz/chromium-min",
+  "better-sqlite3",
+  "chartjs-node-canvas",
+  "chokidar",
+  "fsevents",
+  "node-pty",
+  "playwright",
+  "playwright-core",
+] as const;
+
+/**
+ * Mirror the fail-closed package stubs used by the Pages bundler in Nitro's
+ * Rolldown graph. Without this, the native module preset emits a valid module
+ * graph that still crashes at Worker cold start when a Node-only optional
+ * dependency is evaluated.
+ */
+export function createCloudflareModuleStubPlugin() {
+  const stubbed = new Set<string>(CLOUDFLARE_MODULE_STUB_MODULES);
+  const stubIdPrefix = "\0agent-native-cloudflare-module-stub:";
+
+  return {
+    name: "agent-native-cloudflare-module-stub",
+    resolveId(id: string) {
+      const packageName = id.startsWith("@")
+        ? id.split("/").slice(0, 2).join("/")
+        : id.split("/")[0];
+      if (!stubbed.has(packageName) || id !== packageName) return null;
+      return `${stubIdPrefix}${packageName}`;
+    },
+    load(id: string) {
+      if (!id.startsWith(stubIdPrefix)) return null;
+      const packageName = id.slice(stubIdPrefix.length);
+      return CLOUDFLARE_WORKER_STUB_MODULES[packageName] ?? null;
+    },
+  };
+}
+
+/**
  * Dependencies Nitro itself must bundle outside the controlled serverless
  * output pass. Netlify, Vercel, and Lambda keep Yjs external through Nitro;
  * `bundleYjsRuntimeForServerlessOutput` then creates their one portable copy.
@@ -3811,7 +4104,12 @@ export default bundle;
       ...(preset === "netlify" || preset === "vercel" || preset === "aws-lambda"
         ? { external: ["yjs"] }
         : {}),
-      plugins: [createBrowserOnlyServerStubPlugin()],
+      plugins: [
+        ...(preset.startsWith("cloudflare")
+          ? [createCloudflareModuleStubPlugin()]
+          : []),
+        createBrowserOnlyServerStubPlugin(),
+      ],
     },
     ...(providedPluginsNitroPlugin
       ? { plugins: [providedPluginsNitroPlugin] }
@@ -3833,11 +4131,19 @@ export default bundle;
     cwd,
   });
 
+  if (isCloudflareModulePreset(preset)) {
+    configureCloudflareModuleWorkerOutput(nitro.options.output.serverDir);
+  }
+
   if (preset === "netlify" || preset === "vercel" || preset === "aws-lambda") {
     copyInstalledLibsqlNativePackages(nitro.options.output.serverDir);
     copyInstalledResvgPackages(nitro.options.output.serverDir);
     copyInstalledFfmpegStaticPackage(nitro.options.output.serverDir);
     sanitizeServerlessFunctionPackageManifest(nitro.options.output.serverDir);
+    bundleYjsRuntimeForServerlessOutput(nitro.options.output.serverDir, cwd);
+  }
+
+  if (isCloudflareModulePreset(preset)) {
     bundleYjsRuntimeForServerlessOutput(nitro.options.output.serverDir, cwd);
   }
 
@@ -3949,8 +4255,43 @@ export default bundle;
     if (bareImports.size > 0) {
       const libsDir = path.join(outputDir, "_libs");
       fs.mkdirSync(libsDir, { recursive: true });
+      function rewriteExternalImports(mod: string, outFile: string) {
+        function rewriteImports(dir: string) {
+          if (!fs.existsSync(dir)) return;
+          for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+            const p = path.join(dir, entry.name);
+            if (entry.isDirectory()) {
+              rewriteImports(p);
+              continue;
+            }
+            if (!entry.name.endsWith(".mjs") && !entry.name.endsWith(".js"))
+              continue;
+            const code = fs.readFileSync(p, "utf8");
+            const relPath = path
+              .relative(path.dirname(p), outFile)
+              .replace(/\\/g, "/");
+            const importPath = relPath.startsWith(".")
+              ? relPath
+              : "./" + relPath;
+            const escaped = mod.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            const re = new RegExp(`from["']${escaped}["']`, "g");
+            const rewritten = code.replace(re, `from"${importPath}"`);
+            if (rewritten !== code) fs.writeFileSync(p, rewritten);
+          }
+        }
+        rewriteImports(outputDir);
+      }
       for (const mod of bareImports) {
         const outFile = path.join(libsDir, `${mod.replace(/[/@]/g, "_")}.mjs`);
+        // Nitro may already have emitted a correctly minified module wrapper
+        // for this dependency. Replacing that wrapper with an esbuild CJS
+        // adapter loses its public export aliases and makes otherwise valid
+        // sibling chunks fail during Worker module linking.
+        if (fs.existsSync(outFile)) {
+          console.log(`[deploy] Retaining Nitro external: ${mod}`);
+          rewriteExternalImports(mod, outFile);
+          continue;
+        }
         try {
           // Resolve the module — check workspace node_modules and pnpm store
           let resolvedMod = mod;
@@ -4243,6 +4584,10 @@ async function main() {
       // Nitro's native presets produce split chunks that wrangler can't upload
       // as multi-module Workers. Use the custom esbuild-based bundler.
       await buildCloudflarePages();
+      break;
+    case "cloudflare_module":
+    case "cloudflare-module":
+      await buildWithNitro();
       break;
     default:
       // All other presets (netlify, vercel, deno_deploy, aws-lambda, etc.)
