@@ -31,7 +31,11 @@ describe("SectionIconButton tooltip reachability", () => {
     await act(async () => {
       root.render(
         <TooltipProvider>
-          <SectionIconButton label="Add fill" disabled={disabled} onClick={vi.fn()}>
+          <SectionIconButton
+            label="Add fill"
+            disabled={disabled}
+            onClick={vi.fn()}
+          >
             <span>+</span>
           </SectionIconButton>
         </TooltipProvider>,
@@ -52,9 +56,9 @@ describe("SectionIconButton tooltip reachability", () => {
 
   it("still labels the control for assistive tech", async () => {
     await render(false);
-    expect(
-      container.querySelector("button")?.getAttribute("aria-label"),
-    ).toBe("Add fill");
+    expect(container.querySelector("button")?.getAttribute("aria-label")).toBe(
+      "Add fill",
+    );
   });
 });
 
