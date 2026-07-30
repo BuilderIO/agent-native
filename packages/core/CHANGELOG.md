@@ -1,5 +1,68 @@
 # @agent-native/core
 
+## 0.131.6
+
+### Patch Changes
+
+- c0e7d64: Clarify workspace `add-app` feedback when no app is selected, and report when every available app is already installed.
+- c0e7d64: Give delegated agent turns their app's actions as native tools in dev, so
+  asking a sibling app a question actually works.
+
+  In dev the interactive surface deliberately omits template actions from the tool
+  registry and lets the agent call them through `bash`, which sidesteps the
+  degenerate empty-object tool call some models emit for complex schemas. That
+  trade is fine for a person — they see the bad call and rephrase. It is the wrong
+  trade for a delegated turn. An A2A caller, or an external host calling `ask_app`
+  over MCP, has nobody to intervene: with no native action the receiving agent
+  shells out, the call misfires, and it repeats the same command until the
+  repetition guard ends the run minutes later with no answer. Observed in a
+  workspace as a sibling question that ran 4m45s and returned the wrong window,
+  and elsewhere as runs stopped after eight identical `bash` calls.
+
+  Both delegated surfaces now keep template actions native even in dev. A rejected
+  `{}` call returns a schema error the model can correct on its next step, which
+  is strictly better than a shell loop no caller can see or recover from.
+
+- c0e7d64: Prevent timed Neon queries from leaking statement timeouts across pooled sessions and cancel background HTTP queries at their deadline.
+- c0e7d64: Make cross-app delegation ask the receiving specialist agent by default, keep
+  typed remote terminal states intact, retry idempotent transient transport
+  failures, prevent recursive agent cycles, and bound delegated context growth.
+  Proven durable-background delegated runs also keep the full bounded
+  continuation allowance while sharing one cumulative wall-clock deadline, so a
+  slow successful child task cannot strand its caller before the caller finishes
+  its own tool work. After a provider exhausts its short in-call 429/529 retry
+  budget, a proven background delegation now gets one cooled-down continuation,
+  with a hard cap that prevents sustained throttling from becoming a request
+  storm.
+
+  Receiving agents keep ownership of source selection, schema interpretation,
+  queries, joins, and their local tools. Direct read actions remain available for
+  exact bounded contracts, but are no longer advertised as a workaround for an
+  unreliable agent call.
+
+  Dispatch now opts into the same durable background run contract it emits at
+  deploy time, so delegated control-plane work is not cut off by the foreground
+  40-second budget while already running in the 15-minute worker.
+
+  Workspace vault ciphertext now prefers the workspace A2A-derived encryption
+  key over each app's independent auth secret. Existing app-auth-encrypted rows
+  remain readable by their owning app and are compare-and-swap migrated on read,
+  so sibling agents can reliably resolve the same organization credentials
+  without exposing or copying their values. Automatic engine selection also
+  pairs the chosen provider with that provider's credential instead of reusing
+  an unrelated active key.
+
+  Documentation now distinguishes framework Core, optional Toolkit, and optional
+  Templates, and makes source editing an explicit workspace/write-tool capability
+  rather than assuming every embedded agent has filesystem access.
+
+- c0e7d64: Retry transient provider TLS connection failures before surfacing them in agent chat.
+- c0e7d64: Hide unauthenticated connection tests from MCP presets that require provider setup.
+- c0e7d64: Recover background agent turns that stay alive without making real progress, retry transient run-event subscription failures with bounded backoff, keep reconnect diagnostics honest, and deduplicate repeated system prompts in thread debug history.
+- Updated dependencies [c0e7d64]
+- Updated dependencies [c0e7d64]
+  - @agent-native/toolkit@0.12.0
+
 ## 0.131.5
 
 ### Patch Changes
