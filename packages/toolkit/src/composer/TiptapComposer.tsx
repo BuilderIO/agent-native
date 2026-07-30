@@ -654,11 +654,17 @@ export interface TiptapComposerProps {
   onRemoveContextItem?: (key: string) => void;
   /**
    * Controls the "+" menu next to the composer. `"full"` (default) shows the
-   * normal Upload / Skill / Job / Automation / Tool / MCP picker. `"upload-only"`
-   * collapses it to a single button that opens the file picker directly.
-   * `"hidden"` hides attachment controls for text-only prompt surfaces.
+   * normal Upload / Skill / Job / Automation / MCP picker, plus Extension when
+   * `extensionTools` is true. `"upload-only"` collapses it to a single button
+   * that opens the file picker directly. `"hidden"` hides attachment controls
+   * for text-only prompt surfaces.
    */
   plusMenuMode?: "full" | "upload-only" | "hidden";
+  /**
+   * Include extension creation in the full "+" menu. Defaults to false so
+   * apps opt into the extension capability deliberately.
+   */
+  extensionTools?: boolean;
   /**
    * When true and the composer is running inside the Builder.io webview/iframe,
    * intercept "build me an app/agent" prompts and forward them to the parent
@@ -839,6 +845,18 @@ export function shouldShowModelSelectorSkeleton(
   return isLoading && engineCount === 0;
 }
 
+/**
+ * With nothing connected, every family is a dead "needs API key" row, so the
+ * picker shows only the connect CTAs. Never hide the list unless a CTA is
+ * there to replace it — an empty popover reads as more broken, not less.
+ */
+export function shouldShowOnlyConnectPath(
+  showBuilderCta: boolean,
+  groups: ReadonlyArray<{ configured: boolean }>,
+): boolean {
+  return showBuilderCta && groups.every((group) => !group.configured);
+}
+
 function friendlyModelName(model: string): string {
   if (FRIENDLY_MODEL_NAMES[model]) return FRIENDLY_MODEL_NAMES[model];
   // Claude: claude-{tier}-{major}[-minor][-dateYYYYMMDD] → Tier Major[.Minor]
@@ -934,6 +952,50 @@ function latestModelsOnly(models: string[]): string[] {
     }
     return true;
   });
+}
+
+/**
+ * Coarse relative cost per model, rendered as a quiet `$`…`$$$` suffix.
+ *
+ * Tokens and their order mirror `MODEL_COST_ORDER` in `@agent-native/core`'s
+ * chat-model-groups, which sorts these same rows — the toolkit cannot import
+ * from core, so a new model family has to be added in both places. Tiers are
+ * each provider's own entry/mid/flagship ladder, not a cross-provider price
+ * claim; anything unlisted has no tier rather than a guessed one.
+ */
+const MODEL_COST_TIERS: ReadonlyArray<readonly [string, 1 | 2 | 3]> = [
+  ["luna", 1],
+  ["terra", 2],
+  ["sol", 3],
+  ["haiku", 1],
+  ["sonnet", 2],
+  ["opus", 3],
+  ["fable", 3],
+  ["flash", 1],
+  ["pro", 3],
+];
+
+const COST_TIER_LABELS = { 1: "Lower", 2: "Medium", 3: "Higher" } as const;
+
+export function composerModelCostTier(model: string): 1 | 2 | 3 | undefined {
+  const normalized = model.toLowerCase();
+  return MODEL_COST_TIERS.find(([token]) => normalized.includes(token))?.[1];
+}
+
+function ModelCostTier({ model }: { model: string }) {
+  const tier = composerModelCostTier(model);
+  if (!tier) return null;
+  return (
+    <>
+      <span
+        aria-hidden="true"
+        className="shrink-0 text-[11px] tabular-nums text-muted-foreground/60"
+      >
+        {"$".repeat(tier)}
+      </span>
+      <span className="sr-only">{COST_TIER_LABELS[tier]} cost</span>
+    </>
+  );
 }
 
 /**
@@ -1081,6 +1143,10 @@ function ModelSelector({
     !builderFlow.configured &&
     !builderFlow.envManaged &&
     !hasConfiguredBuilderModels;
+  const onlyConnectPathAvailable = shouldShowOnlyConnectPath(
+    showBuilderCta,
+    providerGroups,
+  );
   const openLlmSettings = useCallback(() => {
     try {
       window.location.hash = "llm";
@@ -1161,6 +1227,14 @@ function ModelSelector({
                 </span>
               </span>
             </button>
+            {!onConnectProvider && builderFlow.error && (
+              <p
+                role="alert"
+                className="px-3 pb-2 ps-9 text-[11px] text-destructive"
+              >
+                {builderFlow.error}
+              </p>
+            )}
             <button
               type="button"
               onClick={openLlmSettings}
@@ -1181,7 +1255,9 @@ function ModelSelector({
                 </span>
               </span>
             </button>
-            <div className="my-1 border-t border-border" />
+            {!onlyConnectPathAvailable && (
+              <div className="my-1 border-t border-border" />
+            )}
           </>
         )}
         {imageModel && imageModel.options.length > 0 && (
@@ -1231,7 +1307,7 @@ function ModelSelector({
           </>
         )}
         {showModelListSkeleton && <ModelSelectorSkeleton />}
-        {autoModelGroup && (
+        {autoModelGroup && !onlyConnectPathAvailable && (
           <button
             type="button"
             onClick={() => {
@@ -1248,136 +1324,143 @@ function ModelSelector({
             )}
           </button>
         )}
-        {autoModelGroup && providerGroups.length > 0 && (
-          <div className="my-1 border-t border-border" />
-        )}
-        {providerGroups.map((group) => {
-          const models = latestModelsOnly(group.models);
-          const groupKey = `${group.engine}:${group.label}`;
-          const isExpanded = expandedGroups.has(groupKey);
-          const ChevronIcon = isExpanded ? IconChevronDown : IconChevronRight;
-          return (
-            <div key={groupKey}>
+        {autoModelGroup &&
+          providerGroups.length > 0 &&
+          !onlyConnectPathAvailable && (
+            <div className="my-1 border-t border-border" />
+          )}
+        {!onlyConnectPathAvailable &&
+          providerGroups.map((group) => {
+            const models = latestModelsOnly(group.models);
+            const groupKey = `${group.engine}:${group.label}`;
+            const isExpanded = expandedGroups.has(groupKey);
+            const ChevronIcon = isExpanded ? IconChevronDown : IconChevronRight;
+            return (
+              <div key={groupKey}>
+                <div className="flex items-center hover:bg-accent/30">
+                  <button
+                    type="button"
+                    aria-expanded={isExpanded}
+                    onClick={() => toggleGroup(groupKey)}
+                    className="flex flex-1 min-w-0 items-center gap-1.5 px-2 py-1.5 cursor-pointer text-start"
+                  >
+                    <ChevronIcon className="h-3 w-3 shrink-0 text-muted-foreground rtl:-scale-x-100" />
+                    <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide shrink-0">
+                      {group.label}
+                    </span>
+                    {!isExpanded && groupKey === selectedGroupKey && (
+                      <span className="text-[11px] text-muted-foreground/80 truncate">
+                        {friendlyModelName(model)}
+                      </span>
+                    )}
+                  </button>
+                  {!group.configured && (
+                    <button
+                      type="button"
+                      className="text-[10px] text-muted-foreground/60 hover:text-foreground cursor-pointer pe-3 py-1.5"
+                      onClick={() =>
+                        group.engine === "codex-cli" && onConnectLocalRuntime
+                          ? connectLocalRuntime(group.engine)
+                          : openLlmSettings()
+                      }
+                    >
+                      {group.engine === "codex-cli" && onConnectLocalRuntime
+                        ? "sign in"
+                        : "needs API key"}
+                    </button>
+                  )}
+                </div>
+                {isExpanded &&
+                  models.map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => {
+                        if (!group.configured) {
+                          if (
+                            group.engine === "codex-cli" &&
+                            onConnectLocalRuntime
+                          ) {
+                            connectLocalRuntime(group.engine);
+                          } else {
+                            openLlmSettings();
+                          }
+                          return;
+                        }
+                        onChange(m, group.engine);
+                        const nextOptions =
+                          getReasoningEffortOptionsForModel(m);
+                        if (
+                          nextOptions.length > 0 &&
+                          !nextOptions.includes(selectedEffort)
+                        ) {
+                          onEffortChange?.(defaultEffort);
+                        }
+                        setOpen(false);
+                      }}
+                      className={`flex w-full items-center gap-3 ps-7 pe-3 py-1.5 text-start ${
+                        group.configured
+                          ? "hover:bg-accent/50"
+                          : "opacity-40 cursor-default"
+                      }`}
+                    >
+                      <span className="flex-1 min-w-0 text-[13px] text-foreground truncate">
+                        {friendlyModelName(m)}
+                      </span>
+                      <ModelCostTier model={m} />
+                      {m === model && group.configured && (
+                        <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+                      )}
+                    </button>
+                  ))}
+              </div>
+            );
+          })}
+        {!showModelListSkeleton &&
+          !onlyConnectPathAvailable &&
+          effortOptions.length > 0 && (
+            <>
+              <div className="my-1 border-t border-border" />
               <div className="flex items-center hover:bg-accent/30">
                 <button
                   type="button"
-                  aria-expanded={isExpanded}
-                  onClick={() => toggleGroup(groupKey)}
+                  aria-expanded={reasoningExpanded}
+                  onClick={() => setReasoningExpanded((prev) => !prev)}
                   className="flex flex-1 min-w-0 items-center gap-1.5 px-2 py-1.5 cursor-pointer text-start"
                 >
-                  <ChevronIcon className="h-3 w-3 shrink-0 text-muted-foreground rtl:-scale-x-100" />
+                  {reasoningExpanded ? (
+                    <IconChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
+                  ) : (
+                    <IconChevronRight className="h-3 w-3 shrink-0 text-muted-foreground rtl:-scale-x-100" />
+                  )}
                   <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide shrink-0">
-                    {group.label}
+                    Reasoning
                   </span>
-                  {!isExpanded && groupKey === selectedGroupKey && (
+                  {!reasoningExpanded && (
                     <span className="text-[11px] text-muted-foreground/80 truncate">
-                      {friendlyModelName(model)}
+                      {effortLabel(selectedEffort)}
                     </span>
                   )}
                 </button>
-                {!group.configured && (
-                  <button
-                    type="button"
-                    className="text-[10px] text-muted-foreground/60 hover:text-foreground cursor-pointer pe-3 py-1.5"
-                    onClick={() =>
-                      group.engine === "codex-cli" && onConnectLocalRuntime
-                        ? connectLocalRuntime(group.engine)
-                        : openLlmSettings()
-                    }
-                  >
-                    {group.engine === "codex-cli" && onConnectLocalRuntime
-                      ? "sign in"
-                      : "needs API key"}
-                  </button>
-                )}
               </div>
-              {isExpanded &&
-                models.map((m) => (
+              {reasoningExpanded &&
+                effortOptions.map((option) => (
                   <button
-                    key={m}
+                    key={option}
                     type="button"
-                    onClick={() => {
-                      if (!group.configured) {
-                        if (
-                          group.engine === "codex-cli" &&
-                          onConnectLocalRuntime
-                        ) {
-                          connectLocalRuntime(group.engine);
-                        } else {
-                          openLlmSettings();
-                        }
-                        return;
-                      }
-                      onChange(m, group.engine);
-                      const nextOptions = getReasoningEffortOptionsForModel(m);
-                      if (
-                        nextOptions.length > 0 &&
-                        !nextOptions.includes(selectedEffort)
-                      ) {
-                        onEffortChange?.(defaultEffort);
-                      }
-                      setOpen(false);
-                    }}
-                    className={`flex w-full items-center gap-3 ps-7 pe-3 py-1.5 text-start ${
-                      group.configured
-                        ? "hover:bg-accent/50"
-                        : "opacity-40 cursor-default"
-                    }`}
+                    onClick={() => onEffortChange?.(option)}
+                    className="flex w-full items-center gap-3 ps-7 pe-3 py-1.5 text-start hover:bg-accent/50"
                   >
                     <span className="flex-1 min-w-0 text-[13px] text-foreground truncate">
-                      {friendlyModelName(m)}
+                      {effortLabel(option)}
                     </span>
-                    {m === model && group.configured && (
+                    {option === selectedEffort && (
                       <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
                     )}
                   </button>
                 ))}
-            </div>
-          );
-        })}
-        {!showModelListSkeleton && effortOptions.length > 0 && (
-          <>
-            <div className="my-1 border-t border-border" />
-            <div className="flex items-center hover:bg-accent/30">
-              <button
-                type="button"
-                aria-expanded={reasoningExpanded}
-                onClick={() => setReasoningExpanded((prev) => !prev)}
-                className="flex flex-1 min-w-0 items-center gap-1.5 px-2 py-1.5 cursor-pointer text-start"
-              >
-                {reasoningExpanded ? (
-                  <IconChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
-                ) : (
-                  <IconChevronRight className="h-3 w-3 shrink-0 text-muted-foreground rtl:-scale-x-100" />
-                )}
-                <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide shrink-0">
-                  Reasoning
-                </span>
-                {!reasoningExpanded && (
-                  <span className="text-[11px] text-muted-foreground/80 truncate">
-                    {effortLabel(selectedEffort)}
-                  </span>
-                )}
-              </button>
-            </div>
-            {reasoningExpanded &&
-              effortOptions.map((option) => (
-                <button
-                  key={option}
-                  type="button"
-                  onClick={() => onEffortChange?.(option)}
-                  className="flex w-full items-center gap-3 ps-7 pe-3 py-1.5 text-start hover:bg-accent/50"
-                >
-                  <span className="flex-1 min-w-0 text-[13px] text-foreground truncate">
-                    {effortLabel(option)}
-                  </span>
-                  {option === selectedEffort && (
-                    <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
-                  )}
-                </button>
-              ))}
-          </>
-        )}
+            </>
+          )}
       </PopoverContent>
     </Popover>
   );
@@ -1449,6 +1532,7 @@ export function TiptapComposer({
   contextItems = [],
   onRemoveContextItem,
   plusMenuMode = "full",
+  extensionTools = false,
   interceptBuildRequestsForBuilder = false,
   onAttachmentError,
 }: TiptapComposerProps) {
@@ -2862,6 +2946,7 @@ export function TiptapComposer({
             <ComposerPlusMenu
               onSelectMode={handleSelectMode}
               mode={plusMenuMode}
+              extensionTools={extensionTools}
               onAttachmentError={onAttachmentError}
             />
           ))}

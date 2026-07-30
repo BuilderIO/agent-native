@@ -141,7 +141,11 @@ import {
 } from "../../../core/src/code-agents/background-run.js";
 import * as AppStore from "./app-store";
 import { BrowserControlLoopbackBridge } from "./browser-control/bridge";
-import { installBrowserNativeHost } from "./browser-control/native-host";
+import {
+  AGENT_NATIVE_BROWSER_EXTENSION_IDS_ENV,
+  installBrowserNativeHost,
+  parseAdditionalChromeExtensionIds,
+} from "./browser-control/native-host";
 import { guardCodeAgentPersistence } from "./code-agent-persistence-guard.js";
 import { resolveCodeAgentRunnerInvocation } from "./code-agent-runner.js";
 import {
@@ -3123,6 +3127,9 @@ async function initializeDesktopComputerMcpBridge(): Promise<void> {
       executablePath: process.execPath,
       hostEntryPath,
       stateDirectory: path.join(app.getPath("userData"), "browser-control"),
+      additionalExtensionIds: parseAdditionalChromeExtensionIds(
+        process.env[AGENT_NATIVE_BROWSER_EXTENSION_IDS_ENV],
+      ),
     }).manifestPath;
   } catch (error) {
     await browserBridge.close();
@@ -8609,7 +8616,9 @@ function installWebviewReloadGuard(contents: Electron.WebContents) {
     try {
       const current = new URL(contents.getURL());
       const next = new URL(url);
-      if (current.origin !== next.origin) return;
+      // Allow the targeted route navigation used by the app-side recovery
+      // handler. Only suppress a reload that points at the exact current URL.
+      if (current.origin !== next.origin || current.href !== next.href) return;
     } catch {
       return;
     }
@@ -8945,12 +8954,19 @@ function buildUpdateMenuItem(): Electron.MenuItemConstructorOptions {
     };
   }
 
+  if (currentUpdateStatus.state === "not-available") {
+    return {
+      label: `Up to Date — Version ${currentUpdateStatus.currentVersion}`,
+      click: () => void checkForAppUpdates({ notifyOnResult: true }),
+    };
+  }
+
   return {
     label:
       currentUpdateStatus.state === "error"
         ? "Retry Update Check"
         : "Check for Updates...",
-    click: () => void checkForAppUpdates(),
+    click: () => void checkForAppUpdates({ notifyOnResult: true }),
   };
 }
 

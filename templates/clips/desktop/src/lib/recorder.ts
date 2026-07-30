@@ -84,6 +84,7 @@ import { prepareRewindRecordingStart } from "./rewind-recording-start";
 import { singleFlight } from "./single-flight";
 import {
   startTranscriptionCapture,
+  shouldStartLocalRecordingTranscription,
   type CapturedTranscript,
   type TranscriptionCapture,
 } from "./transcription-capture";
@@ -138,6 +139,10 @@ const CLOUD_RECORDING_VIDEO_BITRATE_BPS = 8_000_000;
 const CLOUD_RECORDING_AUDIO_BITRATE_BPS = 128_000;
 const TRANSCRIPT_SAVE_TIMEOUT_MS = 8_000;
 const FINALIZING_RESULT_STORAGE_KEY = "clips-finalizing-result";
+const NO_SPEECH_TRANSCRIPT_FAILURE =
+  "No speech was captured during this recording. If you spoke or played system audio, check System Audio, Microphone input, Speech Recognition permission, and the selected mic, then retry transcription.";
+const TRANSCRIPTION_START_FAILURE =
+  "macOS Speech recognition could not start for this recording. Check Speech Recognition, System Audio, and Microphone permissions, then retry transcription.";
 
 function isMacPlatform(): boolean {
   if (typeof navigator === "undefined") return false;
@@ -2117,6 +2122,51 @@ async function tryStartRewindFullscreenRecording(
   const hasAudio = includeMic || includeSystemAudio;
   let id = folderName;
   let uploadMode: UploadMode = "buffered";
+  let transcriptionCapture: TranscriptionCapture | null = null;
+  let transcriptionAborted = false;
+  let transcriptFailureSaved = false;
+  const saveTranscriptFailure = async (
+    failureReason: string,
+  ): Promise<boolean> => {
+    if (localOnly || !hasAudio || transcriptFailureSaved || !id) return false;
+    transcriptFailureSaved = true;
+    return saveRecordingTranscriptFailure(
+      params.serverUrl,
+      id,
+      failureReason,
+      params.authToken,
+    );
+  };
+  // Whisper always subscribes to the shared Rewind producer's microphone leg,
+  // so a mic-off clip can only fall back to a competing physical capture. Leave
+  // those to server-side transcription instead of fighting the live producer.
+  const canTranscribeLocally = !localOnly && includeMic;
+  const startRewindTranscription = async () => {
+    if (!canTranscribeLocally || transcriptionCapture) return;
+    // Runs after `rewind_clip_prepare`, so the Rewind producer already carries
+    // mic (+system) and whisper attaches to it instead of opening its own
+    // ScreenCaptureKit stream — which would mute the clip's own audio legs.
+    // This runs inside the countdown's Promise.all: a transcription failure
+    // must never reject there, or it would abort the recording itself.
+    const capture = await startTranscriptionCapture(
+      { deviceId: params.micId, label: params.micLabel },
+      includeSystemAudio,
+      { voiceProcessing: false },
+    ).catch((err) => {
+      console.warn("[clips-recorder] rewind transcription start failed:", err);
+      return null;
+    });
+    // A countdown cancel can land while the engine was still starting; the
+    // catch below already ran, so tear this down instead of leaking capture.
+    if (transcriptionAborted) {
+      await capture?.cancel().catch(() => {});
+      return;
+    }
+    transcriptionCapture = capture;
+    if (!capture && shouldSaveLocalTranscriptionStartupFailure()) {
+      void saveTranscriptFailure(TRANSCRIPTION_START_FAILURE);
+    }
+  };
   await invoke("show_preparing");
   const recordingPromise = localOnly
     ? Promise.resolve<{ id: string; uploadMode: UploadMode }>({
@@ -2165,7 +2215,12 @@ async function tryStartRewindFullscreenRecording(
       async countdown() {
         console.log("[rewind-latency] countdown shown after preparation");
         await invoke("hide_preparing").catch(() => {});
-        await runRecordingCountdown(true);
+        // Overlap whisper startup with the countdown so the capture boundary
+        // never waits on it, but have both settled before activation.
+        await Promise.all([
+          runRecordingCountdown(true),
+          startRewindTranscription(),
+        ]);
         console.log("[rewind-latency] countdown completed");
       },
       async activate(preparedRecording) {
@@ -2174,6 +2229,13 @@ async function tryStartRewindFullscreenRecording(
         console.log(
           `[rewind-latency] countdown completion to start acknowledgement ${Math.round(performance.now() - activationStarted)}ms`,
         );
+        // Rebase transcript segment timestamps onto the real recording start.
+        await transcriptionCapture?.resetTimeline().catch((err) => {
+          console.warn(
+            "[clips-recorder] transcription timeline reset failed:",
+            err,
+          );
+        });
         return preparedRecording;
       },
       onActivated() {
@@ -2194,6 +2256,13 @@ async function tryStartRewindFullscreenRecording(
     }
   } catch (err) {
     await invoke("hide_preparing").catch(() => {});
+    transcriptionAborted = true;
+    // Cast: `transcriptionCapture` is only assigned inside the
+    // `startRewindTranscription` closure, which TS's control-flow analysis
+    // cannot see past — it narrows this read to `never`.
+    await (transcriptionCapture as TranscriptionCapture | null)
+      ?.cancel()
+      .catch(() => {});
     if (id) forgetRewindClipOrigin(id);
     await invoke("rewind_clip_cancel").catch(() => {});
     audioCue.cleanup();
@@ -2300,6 +2369,25 @@ async function tryStartRewindFullscreenRecording(
             `[rewind-latency] stop command dispatched in ${Math.round(performance.now() - stopStarted)}ms`,
           );
           uploadPromise.catch(() => {});
+          // Stop transcription only after the clip stop is dispatched (Rust
+          // measures duration when it runs, and stop() blocks on a settle
+          // window), then persist it alongside the upload.
+          const capturedTranscript = await transcriptionCapture
+            ?.stop()
+            .catch((err) => {
+              console.warn("[clips-recorder] transcript stop failed:", err);
+              return null;
+            });
+          const transcriptSavePromise = capturedTranscript?.text.trim()
+            ? saveRecordingTranscript(
+                params.serverUrl,
+                id,
+                capturedTranscript,
+                params.authToken,
+              )
+            : hasAudio
+              ? saveTranscriptFailure(NO_SPEECH_TRANSCRIPT_FAILURE)
+              : Promise.resolve(true);
           await invoke("hide_recording_chrome").catch(() => {});
           if (wantsCamera) await invoke("close_bubble").catch(() => {});
           await openNativeUploadUrl(
@@ -2314,6 +2402,19 @@ async function tryStartRewindFullscreenRecording(
                 recordingId: id,
                 authToken: params.authToken,
               });
+            }
+            if (
+              !(await transcriptSavePromise) &&
+              capturedTranscript?.text.trim()
+            ) {
+              // The first write races the upload; retry once after finalize so
+              // a pre-ready action request can't strand a captured transcript.
+              void saveRecordingTranscript(
+                params.serverUrl,
+                id,
+                capturedTranscript,
+                params.authToken,
+              );
             }
             return { recordingId: uploaded.recordingId, viewUrl };
           } catch (err) {
@@ -2346,6 +2447,10 @@ async function tryStartRewindFullscreenRecording(
       cancelPromise = (async () => {
         stopped = true;
         cleanupUi();
+        transcriptionAborted = true;
+        void transcriptionCapture?.cancel().catch((err) => {
+          console.warn("[clips-recorder] transcription cancel failed:", err);
+        });
         await invoke("rewind_clip_cancel").catch(() => {});
         audioCue.cleanup();
         await invoke("hide_overlays").catch(() => {});
@@ -2376,6 +2481,11 @@ async function tryStartRewindFullscreenRecording(
         pausedAt = null;
       }
       pauseRequestedAt = null;
+      // The Rewind producer keeps running while a clip is paused, so the
+      // transcript would otherwise keep collecting speech the clip never saw.
+      void (
+        paused ? transcriptionCapture?.pause() : transcriptionCapture?.resume()
+      )?.catch(() => {});
       emitState(paused);
     },
     onError(_err, _attemptedPaused) {
@@ -2430,6 +2540,8 @@ async function startNativeFullscreenRecording(
   let nativeTranscriptFailureSaved = false;
   const wantsSystemAudio = params.systemAudioOn !== false;
   const wantsRecordedAudio = wantsAudio || wantsSystemAudio;
+  const canTranscribeLocally =
+    shouldStartLocalRecordingTranscription(wantsAudio);
   let micDeviceLabel: string | null = params.micLabel || null;
   const saveTranscriptFailure = async (
     failureReason: string,
@@ -2445,7 +2557,7 @@ async function startNativeFullscreenRecording(
     );
   };
   const startNativeTranscriptionBeforeRecording = async () => {
-    if (localOnly || !wantsRecordedAudio || transcriptionCapture) return;
+    if (localOnly || !canTranscribeLocally || transcriptionCapture) return;
     transcriptionCapture = await startTranscriptionCapture(
       {
         deviceId: params.micId,
@@ -2455,13 +2567,11 @@ async function startNativeFullscreenRecording(
       { voiceProcessing: false },
     );
     if (
-      wantsRecordedAudio &&
+      canTranscribeLocally &&
       !transcriptionCapture &&
       shouldSaveLocalTranscriptionStartupFailure()
     ) {
-      void saveTranscriptFailure(
-        "macOS Speech recognition could not start for this recording. Check Speech Recognition, System Audio, and Microphone permissions, then retry transcription.",
-      );
+      void saveTranscriptFailure(TRANSCRIPTION_START_FAILURE);
     }
   };
 
@@ -2965,9 +3075,7 @@ async function startNativeFullscreenRecording(
                 params.authToken,
               )
             : wantsRecordedAudio
-              ? saveTranscriptFailure(
-                  "No speech was captured during this recording. If you spoke or played system audio, check System Audio, Microphone input, Speech Recognition permission, and the selected mic, then retry transcription.",
-                )
+              ? saveTranscriptFailure(NO_SPEECH_TRANSCRIPT_FAILURE)
               : Promise.resolve(true);
 
           // The finalizing window owns the whole stop -> optimized upload ->
@@ -3282,6 +3390,8 @@ async function startRecordingInner(
   const wantsAudio = params.micOn;
   const wantsSystemAudio = wantsScreen && params.systemAudioOn !== false;
   const wantsRecordedAudio = wantsAudio || wantsSystemAudio;
+  const canTranscribeLocally =
+    shouldStartLocalRecordingTranscription(wantsAudio);
   const audioCue = createAudioCue();
   const captureSource = params.source ?? "window";
   const localRecordingMode = params.localRecordingMode ?? "off";
@@ -4098,7 +4208,7 @@ async function startRecordingInner(
     // delaying capture, so the first ~1s the user expected to record was lost
     // (and the recording felt cut at the end). It's a separate capture from the
     // recorded audio tracks, so starting it slightly late is safe.
-    transcriptionCapture = wantsRecordedAudio
+    transcriptionCapture = canTranscribeLocally
       ? await startTranscriptionCapture(
           {
             deviceId: params.micId,
@@ -4123,13 +4233,11 @@ async function startRecordingInner(
       );
       void transcriptionCapture.pause().catch(() => {});
     } else if (
-      wantsRecordedAudio &&
+      canTranscribeLocally &&
       !transcriptionCapture &&
       shouldSaveLocalTranscriptionStartupFailure()
     ) {
-      void saveTranscriptFailure(
-        "macOS Speech recognition could not start for this recording. Check Speech Recognition, System Audio, and Microphone permissions, then retry transcription.",
-      );
+      void saveTranscriptFailure(TRANSCRIPTION_START_FAILURE);
     }
 
     // 6. Bubble + toolbar visibility are owned by the popover's session
@@ -4275,9 +4383,7 @@ async function startRecordingInner(
             params.authToken,
           );
         } else if (wantsRecordedAudio) {
-          await saveTranscriptFailure(
-            "No speech was captured during this recording. If you spoke or played system audio, check System Audio, Microphone input, Speech Recognition permission, and the selected mic, then retry transcription.",
-          );
+          await saveTranscriptFailure(NO_SPEECH_TRANSCRIPT_FAILURE);
         }
       }
       if (popoverOwnsCamera) {

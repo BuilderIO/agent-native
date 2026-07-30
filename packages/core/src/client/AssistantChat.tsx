@@ -24,6 +24,8 @@ import type {
 } from "@assistant-ui/react";
 import { CompositeAttachmentAdapter } from "@assistant-ui/react";
 import {
+  IconArrowUp,
+  IconClock,
   IconMessage,
   IconX,
   IconPlayerStopFilled,
@@ -123,6 +125,7 @@ import {
   getLoopLimitMetadata,
   getRunErrorMetadata,
   getRequestModeMetadata,
+  runErrorKey,
   type BuilderSetupCardLayout,
   type LoopLimitInfo,
   type RunErrorInfo,
@@ -223,7 +226,7 @@ export interface AssistantChatSendOptions {
   submitMessageId?: string;
 }
 
-function createUserMessageRunConfig(
+export function createUserMessageRunConfig(
   references?: Reference[],
   requestMode?: AgentRequestMode,
   recoveryAction?: AgentRecoveryAction,
@@ -231,6 +234,11 @@ function createUserMessageRunConfig(
   approvedToolCalls?: string[],
   queuedMessageId?: string,
   hideUserMessage?: boolean,
+  modelSnapshot?: {
+    model?: string;
+    engine?: string;
+    effort?: ReasoningEffort;
+  },
 ) {
   const custom: {
     references?: Reference[];
@@ -238,7 +246,13 @@ function createUserMessageRunConfig(
     trackInRunsTray?: boolean;
     agentNativeQueuedMessageId?: string;
     approvedToolCalls?: string[];
+    model?: string;
+    engine?: string;
+    effort?: ReasoningEffort;
   } = {};
+  if (modelSnapshot?.model) custom.model = modelSnapshot.model;
+  if (modelSnapshot?.engine) custom.engine = modelSnapshot.engine;
+  if (modelSnapshot?.effort) custom.effort = modelSnapshot.effort;
   if (references && references.length > 0) {
     custom.references = references;
   }
@@ -333,8 +347,16 @@ function activeRunStuckThresholdMs(runInfo: ActiveRunLookup): number {
 }
 
 function activeRunLooksStale(runInfo: ActiveRunLookup): boolean {
+  // A run killed before it emitted anything has no `lastProgressAt`. Falling
+  // back to the heartbeat keeps that case from reading as perpetually fresh —
+  // "never reported progress" is the worst case, not an exemption from the
+  // staleness check.
   const lastProgressAt =
-    typeof runInfo.lastProgressAt === "number" ? runInfo.lastProgressAt : null;
+    typeof runInfo.lastProgressAt === "number"
+      ? runInfo.lastProgressAt
+      : typeof runInfo.heartbeatAt === "number"
+        ? runInfo.heartbeatAt
+        : null;
   const nowMs =
     typeof runInfo.serverNow === "number" ? runInfo.serverNow : Date.now();
   const thresholdMs = activeRunStuckThresholdMs(runInfo);
@@ -344,6 +366,16 @@ function activeRunLooksStale(runInfo: ActiveRunLookup): boolean {
     nowMs - lastProgressAt > thresholdMs
   );
 }
+
+/**
+ * The stored active run is what keeps the "Thinking…" spinner up across a
+ * reload, and the `/runs/active` probe is the only path that clears it. A 5xx
+ * or a network drop there means "couldn't determine", NOT "still running" —
+ * collapsing the two is what strands the spinner forever when the server is
+ * briefly unreachable, because no caller reschedules the probe. Retry inside
+ * the call, then give up loudly.
+ */
+const ACTIVE_RUN_PROBE_RETRY_DELAYS_MS = [400, 1200];
 
 /**
  * Decide whether a reconnect should give up with "no progress". The signal is
@@ -1632,7 +1664,26 @@ type QueuedMessage = {
   recoveryAction?: AgentRecoveryAction;
   trackInRunsTray?: boolean;
   hideUserMessage?: boolean;
+  /**
+   * Model/engine/effort snapshotted at enqueue time, for the same reason
+   * `requestMode` is: the picker is global and live, so a queue that flushes
+   * after the user switches models would otherwise silently run the message
+   * under a model it was never composed for. Entries persisted before this
+   * existed simply lack the fields and fall back to the live selection.
+   */
+  model?: string;
+  engine?: string;
+  effort?: ReasoningEffort;
 };
+
+export function hoistQueuedMessageToFront<T extends { id: string }>(
+  messages: readonly T[],
+  id: string,
+): T[] {
+  const target = messages.find((message) => message.id === id);
+  if (!target) return [...messages];
+  return [target, ...messages.filter((message) => message.id !== id)];
+}
 
 export function queuedMessageImageSources(
   message: Pick<QueuedMessage, "attachments" | "images">,
@@ -2223,6 +2274,7 @@ const AssistantChatInner = forwardRef<
     planModeDisabledReason,
     selectedModel,
     defaultModel,
+    selectedEngine,
     selectedEffort,
     availableModels,
     modelListLoading,
@@ -3440,12 +3492,50 @@ const AssistantChatInner = forwardRef<
       if (isRuntimeRunningRef.current || isAutoResumingRef.current) {
         return false;
       }
+      const storedActiveRun = getActiveRun();
+      let runRes: Response | null = null;
+      for (let attempt = 0; ; attempt += 1) {
+        try {
+          const res = await fetch(
+            `${apiUrl}/runs/active?threadId=${encodeURIComponent(threadId)}`,
+          );
+          if (res.ok) {
+            runRes = res;
+            break;
+          }
+        } catch {
+          // Fall through to the retry/give-up path below.
+        }
+        const retryDelayMs = ACTIVE_RUN_PROBE_RETRY_DELAYS_MS[attempt];
+        if (retryDelayMs === undefined) break;
+        await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+      }
+
+      if (!runRes) {
+        // Still unreachable. Only a stored run for this thread is holding the
+        // spinner up, so that is also the only case worth interrupting the user
+        // for — drop it and say why, rather than leaving "Thinking…" forever.
+        if (storedActiveRun?.threadId === threadId) {
+          clearActiveRunIfMatches(threadId, storedActiveRun.runId);
+          window.dispatchEvent(
+            new CustomEvent("agent-chat:run-error", {
+              detail: {
+                message:
+                  "Couldn't reach the server to check whether the agent is still working. Send your message again to retry.",
+                errorCode: "run_status_unavailable",
+                recoverable: true,
+                ...(storedActiveRun.runId
+                  ? { runId: storedActiveRun.runId }
+                  : {}),
+                ...(tabId ? { tabId } : {}),
+              },
+            }),
+          );
+        }
+        return false;
+      }
+
       try {
-        const storedActiveRun = getActiveRun();
-        const runRes = await fetch(
-          `${apiUrl}/runs/active?threadId=${encodeURIComponent(threadId)}`,
-        );
-        if (!runRes.ok) return false;
         const runInfo = (await runRes.json()) as ActiveRunLookup;
         if (
           !runInfo.active ||
@@ -3464,7 +3554,7 @@ const AssistantChatInner = forwardRef<
       } catch {
         return false;
       }
-    }, [apiUrl, refreshThreadFromServer, startReconnectToRun, threadId]);
+    }, [apiUrl, refreshThreadFromServer, startReconnectToRun, tabId, threadId]);
 
   useEffect(() => {
     if (!threadId || !isNewThread) return;
@@ -4114,6 +4204,11 @@ const AssistantChatInner = forwardRef<
               undefined,
               next.id,
               next.hideUserMessage,
+              {
+                model: next.model,
+                engine: next.engine,
+                effort: next.effort,
+              },
             ),
           } as Parameters<typeof threadRuntime.append>[0]);
           appended = true;
@@ -4437,6 +4532,22 @@ const AssistantChatInner = forwardRef<
   // Keep the ref current so addToQueue can call it without a stale closure.
   stopActiveRunRef.current = stopActiveRun;
 
+  // Explicit opt-in interrupt from a queued bubble: hoist the entry to the
+  // front and abort the active run, letting auto-dequeue re-send it once the
+  // run clears. Plain Enter still queues — this is the only send-now gesture.
+  const sendQueuedMessageNow = useCallback(
+    (id: string) => {
+      applyLocalQueuedMessages((prev) => hoistQueuedMessageToFront(prev, id));
+      stopActiveRunRef.current({ preserveQueuedMessages: true });
+    },
+    [applyLocalQueuedMessages],
+  );
+
+  const visibleQueuedMessages = useMemo(
+    () => queuedMessages.filter((message) => !message.hideUserMessage),
+    [queuedMessages],
+  );
+
   const addToQueue = useCallback(
     async (
       text: string,
@@ -4607,6 +4718,12 @@ const AssistantChatInner = forwardRef<
           : execMode === "build"
             ? "act"
             : undefined);
+      // Same reasoning for the model picker — see `QueuedMessage.model`.
+      const modelSnapshot = {
+        model: selectedModel,
+        engine: selectedEngine,
+        effort: selectedEffort,
+      };
       if (isRunning && intent === "immediate") {
         // Explicit interrupt path: abort the active server run, then let the
         // auto-dequeue path append this message once the run is clear. Normal
@@ -4627,6 +4744,7 @@ const AssistantChatInner = forwardRef<
             recoveryAction,
             trackInRunsTray,
             hideUserMessage,
+            ...modelSnapshot,
           },
         ]);
         stopActiveRunRef.current({ preserveQueuedMessages: true });
@@ -4647,6 +4765,7 @@ const AssistantChatInner = forwardRef<
             recoveryAction,
             trackInRunsTray,
             hideUserMessage,
+            ...modelSnapshot,
           },
         ]);
       } else {
@@ -4698,6 +4817,9 @@ const AssistantChatInner = forwardRef<
       markOptimisticRunning,
       appendThreadMessage,
       requestMissingKeySetup,
+      selectedEffort,
+      selectedEngine,
+      selectedModel,
       updateComposerContextItems,
     ],
   );
@@ -4997,7 +5119,6 @@ const AssistantChatInner = forwardRef<
     () => ({ apiUrl, devMode: cpDevMode, threadId, checkpointRunIds }),
     [apiUrl, cpDevMode, threadId, checkpointRunIds],
   );
-  const messageActionsCtx = useMemo(() => ({ onForkChat }), [onForkChat]);
   const lastMessageLoopLimit = useMemo(() => {
     const last = messages[messages.length - 1];
     if (!last || last.role !== "assistant") return null;
@@ -5012,6 +5133,20 @@ const AssistantChatInner = forwardRef<
     () => latestNonRecoveryUserMessageText(messages),
     [messages],
   );
+  const retryAfterRunError = useCallback(() => {
+    setRunErrorInfo(null);
+    addToQueue(
+      lastUserText
+        ? `Retry the previous request from a clean approach. Do not rerun the exact same failed tool input unless the failure was transient or the user explicitly asked for an exact rerun. If a provider query failed because of schema, syntax, or type mismatch, diagnose the error and adjust the query first.\n\nOriginal request:\n\n${lastUserText}`
+        : "Retry the previous request from a clean approach. Do not rerun the exact same failed tool input unless the failure was transient or the user explicitly asked for an exact rerun. If a provider query failed because of schema, syntax, or type mismatch, diagnose the error and adjust the query first.",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "queued",
+      "retry",
+    );
+  }, [addToQueue, lastUserText]);
   const latestMessageRole = latestMessage?.role;
   const latestAssistantWasPlan =
     latestMessageRole === "assistant" &&
@@ -5045,7 +5180,7 @@ const AssistantChatInner = forwardRef<
     : lastMessageLoopLimit;
   const visibleRunError = runErrorInfo ?? lastMessageRunError;
   const visibleRunErrorKey = visibleRunError
-    ? `${visibleRunError.runId ?? ""}:${visibleRunError.errorCode ?? ""}:${visibleRunError.message}`
+    ? runErrorKey(visibleRunError)
     : null;
   const shouldShowRunError =
     !!visibleRunError &&
@@ -5058,6 +5193,16 @@ const AssistantChatInner = forwardRef<
         !visibleRunError.runId ||
         userStoppedRunRef.current.runId === visibleRunError.runId)
     );
+  // The banner covers one run; every failed turn it does not cover keeps its own
+  // inline marker, so a failure stays visible after the next prompt.
+  const messageActionsCtx = useMemo(
+    () => ({
+      onForkChat,
+      onRetryRunError: retryAfterRunError,
+      bannerRunErrorKey: shouldShowRunError ? visibleRunErrorKey : null,
+    }),
+    [onForkChat, retryAfterRunError, shouldShowRunError, visibleRunErrorKey],
+  );
   const hasActiveChatWork =
     showRunningInUI ||
     isAutoResuming ||
@@ -5428,20 +5573,7 @@ const AssistantChatInner = forwardRef<
                                         "continue",
                                       );
                                     }}
-                                    onRetry={() => {
-                                      setRunErrorInfo(null);
-                                      addToQueue(
-                                        lastUserText
-                                          ? `Retry the previous request from a clean approach. Do not rerun the exact same failed tool input unless the failure was transient or the user explicitly asked for an exact rerun. If a provider query failed because of schema, syntax, or type mismatch, diagnose the error and adjust the query first.\n\nOriginal request:\n\n${lastUserText}`
-                                          : "Retry the previous request from a clean approach. Do not rerun the exact same failed tool input unless the failure was transient or the user explicitly asked for an exact rerun. If a provider query failed because of schema, syntax, or type mismatch, diagnose the error and adjust the query first.",
-                                        undefined,
-                                        undefined,
-                                        undefined,
-                                        undefined,
-                                        "queued",
-                                        "retry",
-                                      );
-                                    }}
+                                    onRetry={retryAfterRunError}
                                     onFork={onForkChat}
                                     onDismiss={() => {
                                       if (visibleRunErrorKey) {
@@ -5483,52 +5615,79 @@ const AssistantChatInner = forwardRef<
                                   />
                                 </MessageScrollerItem>
                               )}
-                              {queuedMessages
-                                .filter((msg) => !msg.hideUserMessage)
-                                .map((msg) => {
-                                  const displayText =
-                                    displayableUserMessageText(msg.text);
-                                  const imageSources =
-                                    queuedMessageImageSources(msg);
-                                  return (
-                                    <MessageScrollerItem
-                                      key={msg.id}
-                                      messageId={msg.id}
-                                    >
-                                      <div className="group flex items-start justify-end gap-1.5">
-                                        <button
-                                          type="button"
-                                          onClick={() =>
-                                            applyLocalQueuedMessages((prev) =>
-                                              prev.filter(
-                                                (m) => m.id !== msg.id,
-                                              ),
-                                            )
-                                          }
-                                          aria-label="Remove from queue"
-                                          className="mt-1.5 flex h-5 w-5 items-center justify-center rounded-full border border-border bg-background text-muted-foreground opacity-0 shadow-sm transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
-                                        >
-                                          <IconX className="h-3 w-3" />
-                                        </button>
-                                        <div className="max-w-[85%] rounded-lg bg-accent/50 px-3 py-2 text-sm leading-relaxed text-foreground/60 whitespace-pre-wrap break-words">
-                                          {displayText}
-                                          {imageSources.length > 0 && (
-                                            <div className="flex flex-wrap gap-1.5 mt-1.5">
-                                              {imageSources.map((img, j) => (
-                                                <img
-                                                  key={j}
-                                                  src={img}
-                                                  alt=""
-                                                  className="h-12 w-12 rounded object-cover border border-border/50"
-                                                />
-                                              ))}
-                                            </div>
-                                          )}
-                                        </div>
+                              {visibleQueuedMessages.length > 0 && (
+                                <MessageScrollerItem>
+                                  <div className="flex items-center justify-end gap-1.5 pr-0.5 text-xs text-muted-foreground">
+                                    <IconClock className="h-3 w-3" />
+                                    <span>
+                                      {visibleQueuedMessages.length} queued
+                                    </span>
+                                  </div>
+                                </MessageScrollerItem>
+                              )}
+                              {visibleQueuedMessages.map((msg) => {
+                                const displayText = displayableUserMessageText(
+                                  msg.text,
+                                );
+                                const imageSources =
+                                  queuedMessageImageSources(msg);
+                                return (
+                                  <MessageScrollerItem
+                                    key={msg.id}
+                                    messageId={msg.id}
+                                  >
+                                    <div className="group flex items-start justify-end gap-1.5">
+                                      {isRunning && (
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                sendQueuedMessageNow(msg.id)
+                                              }
+                                              aria-label="Send now"
+                                              className="mt-1.5 flex h-5 w-5 cursor-pointer items-center justify-center rounded-full border border-border bg-background text-muted-foreground opacity-0 shadow-sm transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+                                            >
+                                              <IconArrowUp className="h-3 w-3" />
+                                            </button>
+                                          </TooltipTrigger>
+                                          <TooltipContent>
+                                            Send now (stops the current
+                                            response)
+                                          </TooltipContent>
+                                        </Tooltip>
+                                      )}
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          applyLocalQueuedMessages((prev) =>
+                                            prev.filter((m) => m.id !== msg.id),
+                                          )
+                                        }
+                                        aria-label="Remove from queue"
+                                        className="mt-1.5 flex h-5 w-5 cursor-pointer items-center justify-center rounded-full border border-border bg-background text-muted-foreground opacity-0 shadow-sm transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+                                      >
+                                        <IconX className="h-3 w-3" />
+                                      </button>
+                                      <div className="max-w-[85%] rounded-lg bg-accent/50 px-3 py-2 text-sm leading-relaxed text-foreground/60 whitespace-pre-wrap break-words">
+                                        {displayText}
+                                        {imageSources.length > 0 && (
+                                          <div className="flex flex-wrap gap-1.5 mt-1.5">
+                                            {imageSources.map((img, j) => (
+                                              <img
+                                                key={j}
+                                                src={img}
+                                                alt=""
+                                                className="h-12 w-12 rounded object-cover border border-border/50"
+                                              />
+                                            ))}
+                                          </div>
+                                        )}
                                       </div>
-                                    </MessageScrollerItem>
-                                  );
-                                })}
+                                    </div>
+                                  </MessageScrollerItem>
+                                );
+                              })}
                               {resolvedThreadFooterSlot ? (
                                 <MessageScrollerItem>
                                   <div className="agent-thread-footer-slot">

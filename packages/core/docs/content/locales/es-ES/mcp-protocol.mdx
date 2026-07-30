@@ -230,7 +230,11 @@ El agente ejecuta el mismo ciclo que el chat interactivo: puede llamar a múltip
 {
   "poll": {
     "tool": "ask_app_status",
-    "arguments": { "app": "mail", "taskId": "task_123" }
+    "arguments": {
+      "app": "mail",
+      "taskId": "task_123",
+      "taskHandle": "opaque_handle"
+    }
   }
 }
 ```
@@ -245,8 +249,9 @@ Si no está disponible una lectura de estado transitoria y acotada,
 `statusRead: "unavailable"`, `retryable: true`, el `app` y `taskId` originales,
 y `pollAfterMs` / `poll`. Esto significa que la lectura de estado no está
 disponible, no que la tarea duradera haya fallado. Vuelva a intentar
-`ask_app_status` con exactamente el mismo `app` y `taskId`; nunca reenvíe
-`ask_app` para recuperarse, porque el envío puede duplicar el trabajo. Los errores
+`ask_app_status` con los mismos `poll.arguments`, incluido el `taskHandle` cuando
+esté presente. Los resultados heredados sin identificador deben reutilizar el mismo
+`app` y `taskId`; nunca reenvíe `ask_app` para recuperarse, porque el envío puede duplicar el trabajo. Los errores
 permanentes de autenticación, de no encontrado y de protocolo siguen siendo errores.
 
 ## Autenticación {#authentication}

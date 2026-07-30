@@ -505,7 +505,9 @@ export function EditorToolbar({
             </DropdownMenuItem>
           ) : null}
           <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={() => setClearOpen(true)}>
+          <DropdownMenuItem
+            onSelect={() => setTimeout(() => setClearOpen(true), 0)}
+          >
             <IconTrash className="mr-2 h-4 w-4" />
             {t("editorToolbar.clearAllEdits")}
           </DropdownMenuItem>

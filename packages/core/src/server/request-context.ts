@@ -84,6 +84,8 @@ function processEnv(name: string): string | undefined {
  * the live per-request value via `getRequestRunContext()`.
  */
 export interface RequestRunContext {
+  /** Request-scoped serverless continuation hook, when the runtime provides one. */
+  waitUntil?: (promise: Promise<unknown>) => void;
   /** Origin of the current request (used by the builder-browser tool). */
   requestOrigin?: string;
   /** Stable browser tab id for tab-scoped app-state reads/writes. */
@@ -131,6 +133,12 @@ export interface RequestContext {
   userEmail?: string;
   userName?: string;
   orgId?: string;
+  /**
+   * Narrow authorization capability verified from an embed session. This is
+   * deliberately separate from user identity: capability-only sessions must
+   * not satisfy account-backed auth or inherit the ticket owner's privileges.
+   */
+  authCapability?: string;
   timezone?: string;
   /**
    * Set when code reads authenticated request context. Public SSR shell/data
@@ -146,6 +154,18 @@ export interface RequestContext {
    * fallback. Optional — absent on paths that don't populate it.
    */
   requestOrigin?: string;
+  /**
+   * True when the request's real socket peer is loopback, captured by the
+   * action-route handler while the h3 event is still in scope (nothing below
+   * that layer can see the event). Derived from `getRequestIP()` WITHOUT
+   * `x-forwarded-for`, so a remote client cannot set it via headers.
+   *
+   * A local-dev gate only. A tunnel or reverse proxy that reaches the dev
+   * server over loopback also presents as loopback, so this is necessary but
+   * not sufficient on its own — pair it with something that scopes the blast
+   * radius (a resource that is itself local-only, NODE_ENV, etc.).
+   */
+  isLoopbackRequest?: boolean;
   /**
    * True when this request is being processed by an integration-platform
    * webhook (Slack, Telegram, etc.) where the function timeout is the
@@ -386,9 +406,26 @@ export function getRequestOrgId(): string | undefined {
   return processEnv("AGENT_ORG_ID");
 }
 
+/** Return the verified capability for this request, without implying identity. */
+export function getRequestAuthCapability(): string | undefined {
+  const store = als.getStore();
+  if (!store) return undefined;
+  if (store.authCapability) markAuthContextAccess(store);
+  return store.authCapability;
+}
+
+/**
+ * Whether the current request came from a loopback socket peer. Fails closed:
+ * outside a request store (CLI, background job, agent run) there is no peer to
+ * vouch for, so this is `false` rather than inheriting an ambient default.
+ */
+export function getRequestIsLoopback(): boolean {
+  return als.getStore()?.isLoopbackRequest === true;
+}
+
 function markAuthContextAccess(ctx: RequestContext | undefined) {
   if (!ctx) return;
-  if (ctx.userEmail || ctx.userName || ctx.orgId) {
+  if (ctx.userEmail || ctx.userName || ctx.orgId || ctx.authCapability) {
     ctx.authContextAccessed = true;
   }
 }

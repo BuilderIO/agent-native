@@ -26,23 +26,34 @@ import { useQuestionFlow } from "./use-question-flow";
 
 let latestHook: ReturnType<typeof useQuestionFlow> | null = null;
 
-function Probe(props: {
+interface ProbeProps {
   designId?: string;
   continuationTabId?: string | null;
   onContinue?: (tabId: string) => void;
-}) {
+  model?: string;
+  engine?: string;
+  /**
+   * Stand-in for the caller's ref: starts null and is replaced with a fresh
+   * object after mount, so a render-time read genuinely sees nothing.
+   */
+  selectionRef?: { current: { model?: string; engine?: string } | null };
+}
+
+function Probe(props: ProbeProps) {
   latestHook = useQuestionFlow(props.designId, {
     continuationTabId: props.continuationTabId,
     onContinue: props.onContinue,
+    getModelSelection: () => {
+      if (props.selectionRef) return props.selectionRef.current;
+      return props.model || props.engine
+        ? { model: props.model, engine: props.engine }
+        : null;
+    },
   });
   return null;
 }
 
-async function renderProbe(props: {
-  designId?: string;
-  continuationTabId?: string | null;
-  onContinue?: (tabId: string) => void;
-}) {
+async function renderProbe(props: ProbeProps) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
@@ -103,6 +114,82 @@ describe("useQuestionFlow sendContinuation tab tracking", () => {
     expect(call.tabId).toBeUndefined();
     expect(onContinue).toHaveBeenCalledWith("generated-tab-id");
     expect(clearMock).toHaveBeenCalledTimes(1);
+
+    await cleanup();
+  });
+
+  // The continuation is the turn that actually generates. It must re-send the
+  // selection the design was started with: a fresh thread has no override, and
+  // a reused thread loses its in-memory one across a reload.
+  it("carries the starting model selection into the continuation", async () => {
+    const { cleanup } = await renderProbe({
+      designId: "design-1",
+      continuationTabId: null,
+      model: "gpt-5-6-luna",
+      engine: "builder",
+    });
+
+    await act(async () => {
+      latestHook!.handleSubmit({ q1: "answer" });
+    });
+
+    const call = agentChatMocks.sendToDesignAgentChat.mock.calls[0]![0] as {
+      model?: string;
+      engine?: string;
+    };
+    expect(call.model).toBe("gpt-5-6-luna");
+    expect(call.engine).toBe("builder");
+
+    await cleanup();
+  });
+
+  // The caller's source is a ref filled by the generation kickoff effect, which
+  // runs after the render that wires this hook up. Snapshotting a value during
+  // render captured the pre-kickoff null and sent no model at all.
+  it("reads the selection at send time, not at render time", async () => {
+    const selectionRef: {
+      current: { model?: string; engine?: string } | null;
+    } = { current: null };
+    const { cleanup } = await renderProbe({
+      designId: "design-1",
+      continuationTabId: null,
+      selectionRef,
+    });
+
+    // Filled after mount with no re-render, exactly as the generation kickoff
+    // effect fills the caller's ref.
+    selectionRef.current = { model: "gpt-5-6-terra", engine: "builder" };
+
+    await act(async () => {
+      latestHook!.handleSubmit({ q1: "answer" });
+    });
+
+    const call = agentChatMocks.sendToDesignAgentChat.mock.calls[0]![0] as {
+      model?: string;
+      engine?: string;
+    };
+    expect(call.model).toBe("gpt-5-6-terra");
+    expect(call.engine).toBe("builder");
+
+    await cleanup();
+  });
+
+  it("omits model keys entirely when the design was started without a selection", async () => {
+    const { cleanup } = await renderProbe({
+      designId: "design-1",
+      continuationTabId: null,
+    });
+
+    await act(async () => {
+      latestHook!.handleSkip();
+    });
+
+    const call = agentChatMocks.sendToDesignAgentChat.mock.calls[0]![0] as {
+      model?: string;
+      engine?: string;
+    };
+    expect("model" in call).toBe(false);
+    expect("engine" in call).toBe(false);
 
     await cleanup();
   });

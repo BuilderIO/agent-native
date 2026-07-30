@@ -311,6 +311,18 @@ export default defineConfig({
 });
 ```
 
+## Cloudflare Workers {#cloudflare-workers}
+
+استخدم إخراج Nitro الأصلي للوحدات لإنشاء Cloudflare Worker مع SSR. شغّل
+`npx @agent-native/core@latest build` ثم انشره باستخدام
+`npx wrangler deploy --config .output/server/wrangler.json`.
+
+```ts
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "cloudflare_module" } })],
+});
+```
+
 ## AWS لامدا {#aws-lambda}
 
 ```ts
@@ -430,7 +442,14 @@ openssl rand -hex 32
 export default createAgentChatPlugin({
   // Default: "read"
   databaseTools: "read", // "write" | "read" | "off"
-  extensionTools: false,
+  extensionTools: true,
+});
+```
+
+```ts
+// server/plugins/core-routes.ts
+export default createCoreRoutesPlugin({
+  extensionTools: true,
 });
 ```
 
@@ -441,9 +460,10 @@ export default createAgentChatPlugin({
   ويتم حظر تغييرات المخطط.
 - `databaseTools: "off"` أو `false` — يزيل أدوات قاعدة البيانات الأولية من
   سطح الوكيل، لذا فإن actions الخاص بالتطبيق هو المسار الوحيد للوصول إلى البيانات.
-- `extensionTools: false` — يزيل إدارة امتداد إطار العمل actions و
-  إرشادات سريعة (`create-extension`، `update-extension`، وما إلى ذلك) للتطبيقات التي
-  لا ترغب في أن يقوم الوكيل بإنشاء تطبيقات مصغرة في وضع الحماية.
+- `extensionTools: true` — يفعّل للتطبيق actions وإرشادات إدارة امتدادات
+  إطار العمل (`create-extension` و`update-extension` وغيرها). اضبطه على كلا
+  المكوّنين الإضافيين للسماح أيضًا بإنشاء REST الموثق. تكون الامتدادات معطلة
+  افتراضيًا.
 
 ## تنفيذ كود الإنتاج {#production-code-execution}
 

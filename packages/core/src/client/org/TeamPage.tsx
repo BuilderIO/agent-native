@@ -46,6 +46,7 @@ import {
   IconAlertTriangle,
   IconUsersGroup,
   IconHelpCircle,
+  IconExternalLink,
 } from "@tabler/icons-react";
 import {
   forwardRef,
@@ -56,6 +57,9 @@ import {
   type ReactNode,
 } from "react";
 
+// Type-only: erased at build time, so declaring app roles pulls no server or
+// database code into the browser bundle.
+import type { AppRolesDescriptor } from "../../org/app-roles.js";
 import type { DomainMatchOrg } from "../../org/types.js";
 import {
   Tooltip,
@@ -78,10 +82,13 @@ import {
   useDeleteOrg,
   useSwitchOrg,
   useSetOrgDomain,
+  useSetOrgWorkspaceUrl,
   useRevealA2ASecret,
   useSetA2ASecret,
   useSyncA2ASecret,
   useJoinByDomain,
+  useAppRoles,
+  useSetAppMemberRole,
   type InviteRole,
   type SyncA2ASecretResult,
 } from "./hooks.js";
@@ -127,6 +134,17 @@ export interface TeamPageProps {
    * tweak page width.
    */
   className?: string;
+  /**
+   * Opt in to an app-role column on the members table, using the same
+   * descriptor the app passes to `defineAppRoles`. Pass it explicitly rather
+   * than letting the page discover registered apps: a workspace can host
+   * several, and a members table that silently grows a column when some
+   * unrelated module registers itself is a surprise, not a feature.
+   *
+   * Only org owners/admins can change assignments; everyone else sees the
+   * column read-only.
+   */
+  appRoles?: AppRolesDescriptor;
 }
 
 function RoleIcon({ role }: { role: string }) {
@@ -383,7 +401,7 @@ interface PendingInviteListItem {
   role: string;
 }
 
-function MembersCard() {
+function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
   const t = useT();
   const { data: org } = useOrg();
   const { data: membersData, isLoading: isLoadingMembers } = useOrgMembers();
@@ -444,6 +462,8 @@ function MembersCard() {
               ownerEmail={org.email}
             />
 
+            <WorkspaceUrlSettingsSection workspaceUrl={org.workspaceUrl} />
+
             {isOwner && <A2ASecretSection isSet={Boolean(org.a2aSecretSet)} />}
           </div>
         )}
@@ -457,6 +477,7 @@ function MembersCard() {
         isLoadingMembers={isLoadingMembers}
         currentUserEmail={org.email}
         currentUserRole={org.role ?? null}
+        appRoles={appRoles}
       />
 
       {isOwner && <DangerZoneCard orgName={org.orgName ?? ""} />}
@@ -470,16 +491,26 @@ function MembersTableCard({
   isLoadingMembers,
   currentUserEmail,
   currentUserRole,
+  appRoles,
 }: {
   members: MemberListItem[];
   pendingInvites: PendingInviteListItem[];
   isLoadingMembers: boolean;
   currentUserEmail: string;
   currentUserRole: string | null;
+  appRoles?: AppRolesDescriptor;
 }) {
   const t = useT();
   const [showInviteForm, setShowInviteForm] = useState(false);
   const canInvite = currentUserRole === "owner" || currentUserRole === "admin";
+  const { data: appRoleData } = useAppRoles(appRoles?.appId);
+  const appRoleByEmail = new Map(
+    (appRoleData?.assignments ?? []).map((a) => [
+      a.email.toLowerCase(),
+      a.role,
+    ]),
+  );
+  const columnCount = appRoles ? 5 : 4;
 
   return (
     <section className="rounded-lg border border-border bg-card">
@@ -516,6 +547,9 @@ function MembersTableCard({
           <TableRow>
             <TableHead>{t("org.member")}</TableHead>
             <TableHead>{t("org.role")}</TableHead>
+            {appRoles && (
+              <TableHead>{appRoles.label ?? appRoles.appId}</TableHead>
+            )}
             <TableHead>{t("org.status")}</TableHead>
             <TableHead className="text-end">{t("org.actions")}</TableHead>
           </TableRow>
@@ -524,7 +558,7 @@ function MembersTableCard({
           {isLoadingMembers && members.length === 0 ? (
             [0, 1, 2].map((i) => (
               <TableRow key={i}>
-                <TableCell colSpan={4}>
+                <TableCell colSpan={columnCount}>
                   <div
                     className="h-3.5 rounded bg-muted animate-pulse"
                     style={{ width: `${180 + i * 48}px` }}
@@ -535,7 +569,7 @@ function MembersTableCard({
           ) : members.length === 0 && pendingInvites.length === 0 ? (
             <TableRow>
               <TableCell
-                colSpan={4}
+                colSpan={columnCount}
                 className="py-8 text-center text-sm text-muted-foreground"
               >
                 {t("org.noMembers")}
@@ -550,10 +584,17 @@ function MembersTableCard({
                   role={m.role}
                   isCurrentUser={m.email === currentUserEmail}
                   currentUserRole={currentUserRole}
+                  appRoles={appRoles}
+                  appRole={appRoleByEmail.get(m.email.toLowerCase()) ?? null}
+                  canManageAppRoles={Boolean(appRoleData?.canManage)}
                 />
               ))}
               {pendingInvites.map((inv) => (
-                <PendingInviteRow key={inv.id} invite={inv} />
+                <PendingInviteRow
+                  key={inv.id}
+                  invite={inv}
+                  hasAppRoleColumn={Boolean(appRoles)}
+                />
               ))}
             </>
           )}
@@ -665,7 +706,13 @@ function RoleBadge({ role }: { role: string }) {
   );
 }
 
-function PendingInviteRow({ invite }: { invite: PendingInviteListItem }) {
+function PendingInviteRow({
+  invite,
+  hasAppRoleColumn,
+}: {
+  invite: PendingInviteListItem;
+  hasAppRoleColumn?: boolean;
+}) {
   const t = useT();
   return (
     <TableRow className="opacity-70">
@@ -675,6 +722,13 @@ function PendingInviteRow({ invite }: { invite: PendingInviteListItem }) {
       <TableCell>
         <RoleBadge role={invite.role} />
       </TableCell>
+      {/* App roles hang off membership, so there is nothing to assign until the
+          invitation is accepted. */}
+      {hasAppRoleColumn && (
+        <TableCell>
+          <span className="text-muted-foreground">-</span>
+        </TableCell>
+      )}
       <TableCell>
         <span className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">
           {t("org.invited")}
@@ -685,16 +739,112 @@ function PendingInviteRow({ invite }: { invite: PendingInviteListItem }) {
   );
 }
 
+/** Sentinel for "clear the assignment" — Select cannot carry an empty value. */
+const UNASSIGNED = "__unassigned__";
+
+function AppRoleCell({
+  email,
+  appRoles,
+  appRole,
+  canManage,
+}: {
+  email: string;
+  appRoles: AppRolesDescriptor;
+  appRole: string | null;
+  canManage: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const setAppRole = useSetAppMemberRole(appRoles.appId);
+  const labelFor = (r: string) => appRoles.roleLabels?.[r] ?? r;
+
+  if (editing) {
+    return (
+      <TableCell>
+        <Select
+          defaultOpen
+          value={appRole ?? UNASSIGNED}
+          onOpenChange={(open) => {
+            if (!open) setEditing(false);
+          }}
+          onValueChange={(value) => {
+            const next = value === UNASSIGNED ? null : value;
+            if (next === appRole) {
+              setEditing(false);
+              return;
+            }
+            setAppRole.mutate(
+              { email, role: next },
+              { onSuccess: () => setEditing(false) },
+            );
+          }}
+          disabled={setAppRole.isPending}
+        >
+          <SelectTrigger
+            autoFocus
+            className="h-auto w-auto rounded-md border border-border bg-background px-1.5 py-0.5 text-[11px]"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={UNASSIGNED}>
+              {appRoles.defaultRole ? labelFor(appRoles.defaultRole) : "—"}
+            </SelectItem>
+            {appRoles.roles.map((r) => (
+              <SelectItem key={r} value={r}>
+                {labelFor(r)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </TableCell>
+    );
+  }
+
+  // An unassigned member shows the app's default only as a hint. The default
+  // never satisfies a server guard, so it must not read as a granted role.
+  const display = appRole ? (
+    <span className="inline-flex items-center rounded border border-border px-2 py-1 text-xs text-muted-foreground">
+      {labelFor(appRole)}
+    </span>
+  ) : (
+    <span className="text-xs text-muted-foreground/70">
+      {appRoles.defaultRole ? labelFor(appRoles.defaultRole) : "—"}
+    </span>
+  );
+
+  return (
+    <TableCell>
+      {canManage ? (
+        <Button
+          type="button"
+          onClick={() => setEditing(true)}
+          className="cursor-pointer rounded hover:opacity-80"
+        >
+          {display}
+        </Button>
+      ) : (
+        display
+      )}
+    </TableCell>
+  );
+}
+
 function MemberRow({
   email,
   role,
   isCurrentUser,
   currentUserRole,
+  appRoles,
+  appRole,
+  canManageAppRoles,
 }: {
   email: string;
   role: string;
   isCurrentUser: boolean;
   currentUserRole: string | null;
+  appRoles?: AppRolesDescriptor;
+  appRole?: string | null;
+  canManageAppRoles?: boolean;
 }) {
   const t = useT();
   const removeMember = useRemoveMember();
@@ -719,6 +869,14 @@ function MemberRow({
       <TableCell>
         <RoleBadge role={role} />
       </TableCell>
+      {appRoles && (
+        <AppRoleCell
+          email={email}
+          appRoles={appRoles}
+          appRole={appRole ?? null}
+          canManage={Boolean(canManageAppRoles)}
+        />
+      )}
       <TableCell>
         {isCurrentUser ? (
           <span className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">
@@ -1323,6 +1481,132 @@ function DomainSettingsSection({
   );
 }
 
+function WorkspaceUrlSettingsSection({
+  workspaceUrl,
+}: {
+  workspaceUrl: string | null;
+}) {
+  const setWorkspaceUrl = useSetOrgWorkspaceUrl();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(workspaceUrl ?? "");
+
+  function save() {
+    const trimmed = draft.trim();
+    if (trimmed === (workspaceUrl ?? "")) {
+      setEditing(false);
+      return;
+    }
+    setWorkspaceUrl.mutate(trimmed || null, {
+      onSuccess: () => setEditing(false),
+    });
+  }
+
+  return (
+    <div className="space-y-2 border-t border-border pt-3 first:border-t-0 first:pt-0">
+      <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+        Your workspace
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        If your team runs its own workspace, members who land on a different
+        deployment — opening a template from the catalog, for instance — get
+        pointed here instead of an app that looks empty.
+      </p>
+      {!editing ? (
+        <div className="flex items-center gap-2">
+          {workspaceUrl ? (
+            <>
+              <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm">
+                <IconExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
+                {workspaceUrl}
+              </span>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    onClick={() => {
+                      setDraft(workspaceUrl);
+                      setEditing(true);
+                    }}
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    <IconPencil size={14} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Edit workspace URL</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    intent="danger"
+                    emphasis="ghost"
+                    disabled={setWorkspaceUrl.isPending}
+                    onClick={() => setWorkspaceUrl.mutate(null)}
+                    className="text-muted-foreground hover:text-destructive disabled:opacity-50"
+                  >
+                    <IconX size={14} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Remove workspace URL</TooltipContent>
+              </Tooltip>
+            </>
+          ) : (
+            <Button
+              type="button"
+              intent="neutral"
+              emphasis="outline"
+              onClick={() => setEditing(true)}
+              className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
+            >
+              <IconExternalLink size={14} />
+              Set workspace URL
+            </Button>
+          )}
+        </div>
+      ) : (
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") save();
+              if (e.key === "Escape") setEditing(false);
+            }}
+            placeholder="workspace.example.com"
+            className="rounded-md border border-border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-foreground"
+            autoFocus
+          />
+          <Button
+            type="button"
+            intent="primary"
+            emphasis="solid"
+            disabled={setWorkspaceUrl.isPending}
+            onClick={save}
+            className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+          >
+            {setWorkspaceUrl.isPending ? (
+              <IconLoader2 size={14} className="animate-spin" />
+            ) : (
+              "Save"
+            )}
+          </Button>
+          <Button
+            type="button"
+            intent="neutral"
+            emphasis="outline"
+            onClick={() => setEditing(false)}
+            className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+          >
+            Cancel
+          </Button>
+        </div>
+      )}
+      <ErrorText error={setWorkspaceUrl.error} />
+    </div>
+  );
+}
+
 function A2ASecretSection({ isSet }: { isSet: boolean }) {
   const revealA2ASecret = useRevealA2ASecret();
   const setA2ASecret = useSetA2ASecret();
@@ -1620,6 +1904,7 @@ export function TeamPage({
   showTitle = true,
   createOrgDescription,
   className,
+  appRoles,
 }: TeamPageProps) {
   const t = useT();
   const { data: org, isLoading } = useOrg();
@@ -1652,7 +1937,7 @@ export function TeamPage({
           {!org?.orgId ? (
             <CreateOrgCard description={createOrgDescription} />
           ) : (
-            <MembersCard />
+            <MembersCard appRoles={appRoles} />
           )}
         </>
       )}

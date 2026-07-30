@@ -1,11 +1,11 @@
 ---
 title: "Dispatch — architecture for developers"
-description: "How Dispatch's package and generated-app source are split, the orchestrator's remote agent registry, scaffolding a workspace with Dispatch, and customizing or remixing a curated workspace template."
+description: "How Dispatch's package and generated-app source are split, the orchestrator's remote agent registry, scaffolding a workspace with Dispatch, and customizing a curated workspace template."
 ---
 
 # Dispatch — architecture for developers
 
-This page is for engineers extending Dispatch or forking the template: how the orchestrator finds other agents, how the published package and your generated app source are split, and how to add your own management screens or spin up a private remix of another template.
+This page is for engineers extending Dispatch or customizing the template: how the orchestrator finds other agents, how the published package and your generated app source are split, and how to add your own management screens or create a private app from another template.
 
 ## Orchestrator agent and remote agent registry {#orchestrator}
 
@@ -56,7 +56,7 @@ Server plugins register each connected channel's webhook (Slack, Microsoft Teams
 
 ```bash
 npx @agent-native/core@latest create my-platform
-# pick "Dispatch" in the multi-select picker, plus whichever domain apps you want
+# Dispatch is included automatically. Deselect Chat for Dispatch only, or select domain apps to scaffold alongside it
 ```
 
 If you prefer to name the template directly instead of using the picker:
@@ -104,12 +104,12 @@ For workspace-specific management screens, add local React Router pages and regi
   ]}
 />
 
-## Curated workspace template remix {#remix}
+## Create an app from a curated workspace template {#remix}
 
-Curated workspace templates are private remix sources for spinning up an independent app from a reviewed template — mail, calendar, analytics, slides, content, clips, brain, assets, forms, or design.
+Curated workspace templates are reviewed sources for creating an independent private app — mail, calendar, analytics, slides, content, clips, brain, assets, forms, or design.
 
 - **`list-curated-workspace-templates`** returns the reviewed catalog: stable metadata, the live product URL, setup guidance, and whether each source template is already installed in the current workspace.
-- **`remix-workspace-template`** creates a private, independent copy. In a local runtime it scaffolds the template directly; in a hosted workspace it starts a Builder app-creation branch instead. Either way, the remix defaults to a `<template>-remix` app id, and the request is required to use empty or synthetic seed data only — it must never copy the source app's records, credentials, secrets, or private configuration.
+- **`remix-workspace-template`** creates a private, independent app. In a local runtime it scaffolds the template directly; in a hosted workspace it starts a Builder app-creation branch instead. The existing action and `<template>-remix` app id remain stable for compatibility, while the request is required to use empty or synthetic seed data only — it must never copy the source app's records, credentials, secrets, or private configuration.
 
 ## What's next
 

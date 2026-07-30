@@ -128,7 +128,31 @@ export async function getDatabaseMembershipForDocument(
 
 export async function resolvePropertyDatabaseForDocument(
   document: DocumentRow,
+  databaseId?: string,
+  role: "viewer" | "editor" | "admin" = "viewer",
 ): Promise<ContentDatabaseRow | null> {
+  if (databaseId) {
+    const database = await getDatabaseById(databaseId);
+    if (!database) throw new Error(`Database "${databaseId}" not found`);
+    await assertAccess("document", database.documentId, role);
+    if (database.documentId === document.id) return database;
+
+    const db = getDb();
+    const [membership] = await db
+      .select({ id: schema.contentDatabaseItems.id })
+      .from(schema.contentDatabaseItems)
+      .where(
+        and(
+          eq(schema.contentDatabaseItems.databaseId, databaseId),
+          eq(schema.contentDatabaseItems.documentId, document.id),
+        ),
+      );
+    if (!membership) {
+      throw new Error("Document is not part of this database.");
+    }
+    return database;
+  }
+
   const ownedDatabase = await getDatabaseForDocument(document.id);
   if (ownedDatabase) return ownedDatabase;
   const membership = await getDatabaseMembershipForDocument(document.id);
@@ -456,8 +480,14 @@ function normalizeStringList(value: unknown) {
     : [];
 }
 
-export async function listPropertiesForDocument(document: DocumentRow) {
-  const database = await resolvePropertyDatabaseForDocument(document);
+export async function listPropertiesForDocument(
+  document: DocumentRow,
+  databaseId?: string,
+) {
+  const database = await resolvePropertyDatabaseForDocument(
+    document,
+    databaseId,
+  );
   if (!database) return [];
   // Read path: PURE read. Seeding the primary Blocks field happens at create
   // time and via the one-time startup repair (repairUnseededBlocksFields) —

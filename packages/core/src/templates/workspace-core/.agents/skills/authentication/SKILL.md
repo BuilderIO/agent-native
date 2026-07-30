@@ -39,8 +39,11 @@ Auth is powered by **Better Auth** with account-first design. Every new user cre
 Every app's `/mcp` endpoint is also a standard protected MCP
 resource. OAuth-capable hosts connect with the remote MCP URL only, receive a
 `WWW-Authenticate` challenge, discover `/.well-known/oauth-protected-resource`
-and `/.well-known/oauth-authorization-server`, dynamically register a public
-client, and complete authorization-code + PKCE at
+and `/.well-known/oauth-authorization-server`, then use a validated Client ID
+Metadata Document when the client id is an HTTPS URL or dynamically register a
+public client otherwise. URL-like client ids never fall back to dynamic
+registration when their metadata is missing or invalid. Clients complete
+authorization-code + PKCE at
 `/mcp/oauth/authorize` / `/mcp/oauth/token`.
 Access tokens are audience-bound to the exact MCP URL and carry user/org
 identity plus `mcp:read`, `mcp:write`, `mcp:apps`, and/or `offline_access`;
@@ -70,6 +73,46 @@ The auto-create path skips users with pending invites or a matching
 `allowed_domain` org so they can join the intended team instead. Set
 `AUTO_CREATE_DEFAULT_ORG=0` only for deployments that intentionally want manual
 org creation.
+
+### App-Specific Roles
+
+When a request needs "only some teammates may do this **inside this app**", the
+answer is per-app roles — **not** a second organization. App roles are an
+overlay on the one org membership, never a second roster. Three role systems
+coexist and never imply one another: the org role (`org_members.role`) says what
+a person may do to the *team*, an app role says what they may do inside *one
+app*, and a share role (`sharing` skill) says what they may do to *one row*. An
+app `admin` is not an org admin, and org handlers never read app roles.
+
+Declare the vocabulary once on the server and guard actions with it:
+
+```ts
+import { defineAppRoles } from "@agent-native/core/org-team";
+
+export const coachAccess = defineAppRoles({
+  appId: "coach",
+  roles: ["member", "coach-admin"] as const,
+  defaultRole: "member",
+});
+
+// in an action
+authorize: coachAccess.requireAny("coach-admin"),
+```
+
+Roles are an unordered set, not a ladder — declaration order carries no meaning,
+and every guard names its accepted roles explicitly. `defaultRole` is **display
+only**: `requireAny` matches an explicit assignment row and nothing else, so
+"nobody assigned this person" never reads as "granted", and widening the default
+cannot silently widen a guard. Org membership is a precondition, resolved in the
+same statement as the assignment, so a leftover assignment for a removed member
+can never authorize. Only org owners/admins may assign app roles; render the
+picker with `<TeamPage appRoles={descriptor} />`.
+
+`requireAny` validates at definition time — no roles, or a role outside the
+declared vocabulary, throws when the module loads rather than surfacing as an
+unexplained 403 later. When calling `resolve`/`assertAny` directly, note that an
+explicit `userEmail: null` / `orgId: null` means "this run has no identity" and
+does **not** fall back to the ambient request context; only `undefined` does.
 
 ### Stop And Confirm Before Creating Or Switching Organizations
 

@@ -565,12 +565,30 @@ export async function searchAgentThreads(input: {
   const scope = ownerScope(access, input.ownerEmail);
   const where = [scope.sql];
   const args: unknown[] = [...scope.args];
+  const runThreadIds = q
+    ? (
+        await optionalRows<{ thread_id: string }>(
+          exec,
+          "SELECT thread_id FROM agent_runs WHERE id = ? LIMIT 1",
+          [q],
+        )
+      )
+        .map((row) => String(row.thread_id ?? "").trim())
+        .filter(Boolean)
+    : [];
   if (q) {
-    const pattern = `%${escapeLike(q.toLowerCase())}%`;
+    const pattern = "%" + escapeLike(q.toLowerCase()) + "%";
+    const runIdClause =
+      runThreadIds.length > 0
+        ? " OR id IN (" + runThreadIds.map(() => "?").join(", ") + ")"
+        : "";
     where.push(
-      `(LOWER(title) LIKE ? ESCAPE '\\' OR LOWER(preview) LIKE ? ESCAPE '\\' OR LOWER(thread_data) LIKE ? ESCAPE '\\')`,
+      "(LOWER(title) LIKE ? ESCAPE '\\' OR LOWER(preview) LIKE ? ESCAPE '\\' OR LOWER(thread_data) LIKE ? ESCAPE '\\'" +
+        runIdClause +
+        ")",
     );
     args.push(pattern, pattern, pattern);
+    args.push(...runThreadIds);
   }
   args.push(limit);
 
@@ -603,7 +621,8 @@ export async function searchAgentThreads(input: {
 
 export async function getAgentThreadDebug(input: {
   sourceId?: string;
-  threadId: string;
+  threadId?: string;
+  runId?: string;
   ownerEmail?: string;
   maxRuns?: number;
   maxEvents?: number;
@@ -614,17 +633,49 @@ export async function getAgentThreadDebug(input: {
   assertSourceAccess(source, access);
   const exec = await execForSource(source);
   const scope = ownerScope(access, input.ownerEmail);
-  const rows = await queryRows<ChatThreadRow>(
+  const requestedId = input.runId?.trim() || input.threadId?.trim() || "";
+  if (!requestedId) {
+    throw new Error("A thread ID or request/run ID is required.");
+  }
+
+  let rows = await queryRows<ChatThreadRow>(
     exec,
     `SELECT id, owner_email, title, preview, thread_data, message_count, created_at, updated_at
        FROM chat_threads
       WHERE id = ? AND ${scope.sql}
       LIMIT 1`,
-    [input.threadId, ...scope.args],
+    [input.threadId?.trim() || requestedId, ...scope.args],
   );
+  let resolvedRunId = input.runId?.trim() || null;
+
+  if (!rows[0]) {
+    const runRows = await optionalRows<{ id: string; thread_id: string }>(
+      exec,
+      `SELECT id, thread_id
+         FROM agent_runs
+        WHERE id = ?
+        LIMIT 1`,
+      [requestedId],
+    );
+    const threadId = runRows[0]?.thread_id
+      ? String(runRows[0].thread_id).trim()
+      : "";
+    if (threadId) {
+      rows = await queryRows<ChatThreadRow>(
+        exec,
+        `SELECT id, owner_email, title, preview, thread_data, message_count, created_at, updated_at
+           FROM chat_threads
+          WHERE id = ? AND ${scope.sql}
+          LIMIT 1`,
+        [threadId, ...scope.args],
+      );
+      if (rows[0]) resolvedRunId = requestedId;
+    }
+  }
+
   const row = rows[0];
   if (!row) {
-    throw new Error(`Thread "${input.threadId}" was not found.`);
+    throw new Error(`Thread or request/run ID "${requestedId}" was not found.`);
   }
 
   const threadData = safeJsonParse<Record<string, unknown>>(
@@ -762,6 +813,11 @@ export async function getAgentThreadDebug(input: {
       messageCount: numberField(row.message_count),
       createdAt: numberField(row.created_at),
       updatedAt: numberField(row.updated_at),
+    },
+    lookup: {
+      requestedId,
+      threadId: String(row.id),
+      runId: resolvedRunId,
     },
     messages: normalizeMessages(threadData),
     debug: (threadData as any)?._debug ?? null,

@@ -67,8 +67,18 @@ vi.mock("@/hooks/use-events", () => ({
   useUpdateEvent: () => ({ mutate: updateEventMutate, isPending: false }),
 }));
 
+vi.mock("@/hooks/use-google-auth", () => ({
+  useGoogleAuthStatus: () => ({ data: { accounts: [] } }),
+}));
+
 vi.mock("@/hooks/use-mobile", () => ({
   useIsMobile: () => false,
+}));
+
+vi.mock("@/hooks/use-view-preferences", () => ({
+  useViewPreferences: () => ({
+    prefs: { accountColors: {}, singleColor: undefined },
+  }),
 }));
 
 vi.mock("@/hooks/use-zoom-auth", () => ({
@@ -222,6 +232,157 @@ describe("EventDetailPopover characterization", () => {
     container.remove();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+  });
+
+  it("shows the add-title placeholder instead of editable fallback text for a new unnamed event", () => {
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={baseEvent({
+            title: "(No title)",
+            titleIsGenerated: true,
+          })}
+          defaultOpen
+          onDelete={() => undefined}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    const titleInput = document.querySelector<HTMLInputElement>(
+      'input[placeholder="eventForm.addTitle"]',
+    );
+    expect(titleInput).toBeTruthy();
+    expect(titleInput!.value).toBe("");
+  });
+
+  it("keeps the fallback label out of the input when renaming an unnamed event", () => {
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={baseEvent({
+            title: "(No title)",
+            titleIsGenerated: true,
+          })}
+          onDelete={() => undefined}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    const openButton = findByExactText("button", "Mock open popover");
+    act(() => {
+      (openButton as HTMLElement).click();
+    });
+
+    const fallbackTitle = findByExactText("h2", "(No title)");
+    expect(fallbackTitle).toBeTruthy();
+    act(() => {
+      (fallbackTitle as HTMLElement).click();
+    });
+
+    const titleInput = document.querySelector<HTMLInputElement>(
+      'input[placeholder="eventForm.addTitle"]',
+    );
+    expect(titleInput).toBeTruthy();
+    expect(titleInput!.value).toBe("");
+  });
+
+  it("preserves a literal fallback label typed by the user", () => {
+    const onTitleSave = vi.fn();
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={baseEvent({ title: "(No title)" })}
+          defaultOpen
+          onDelete={() => undefined}
+          onTitleSave={onTitleSave}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    const titleInput = document.querySelector<HTMLInputElement>(
+      'input[placeholder="eventForm.addTitle"]',
+    );
+    expect(titleInput).toBeTruthy();
+
+    act(() => {
+      setNativeInputValue(titleInput!, "(No title)");
+      titleInput!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
+
+    expect(onTitleSave).toHaveBeenCalledWith(
+      "event-1",
+      "(No title)",
+      undefined,
+    );
+  });
+
+  it("dismisses a blank out-of-office draft without saving its generated title", () => {
+    const onTitleSave = vi.fn();
+    const onDismissNew = vi.fn();
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={baseEvent({
+            title: "Out of office",
+            titleIsGenerated: true,
+            eventType: "outOfOffice",
+          })}
+          isDraft
+          defaultOpen
+          onDelete={() => undefined}
+          onTitleSave={onTitleSave}
+          onDismissNew={onDismissNew}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    const titleInput = document.querySelector<HTMLInputElement>(
+      'input[placeholder="eventForm.addTitle"]',
+    );
+    expect(titleInput).toBeTruthy();
+    expect(titleInput!.value).toBe("");
+
+    const closeButton = findByExactText("button", "Mock close popover");
+    act(() => {
+      (closeButton as HTMLElement).click();
+    });
+
+    expect(onTitleSave).not.toHaveBeenCalled();
+    expect(onDismissNew).toHaveBeenCalledWith("event-1", undefined);
+  });
+
+  it("preserves an explicit Out of office title on a draft", () => {
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={baseEvent({
+            title: "Out of office",
+            eventType: "outOfOffice",
+          })}
+          isDraft
+          defaultOpen
+          onDelete={() => undefined}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    const titleInput = document.querySelector<HTMLInputElement>(
+      'input[placeholder="eventForm.addTitle"]',
+    );
+    expect(titleInput).toBeTruthy();
+    expect(titleInput!.value).toBe("Out of office");
   });
 
   it("does not show the event timezone as a standalone row", () => {

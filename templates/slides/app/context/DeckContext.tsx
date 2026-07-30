@@ -130,6 +130,8 @@ export interface Deck {
   designSystemId?: string;
   /** Per-deck tweak overrides (accent color, title case, etc.) */
   tweaks?: Record<string, string | number | boolean>;
+  /** Starred decks are offered first in the new-deck reference picker. */
+  starred?: boolean;
   /** Slide aspect ratio (defaults to 16:9 when absent for backwards compat) */
   aspectRatio?: AspectRatio;
 }

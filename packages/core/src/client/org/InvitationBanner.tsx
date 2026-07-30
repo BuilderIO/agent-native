@@ -2,13 +2,17 @@ import { IconLoader2 } from "@tabler/icons-react";
 import { useState } from "react";
 
 import { useOrg, useAcceptInvitation, useJoinByDomain } from "./hooks.js";
+import { WorkspaceNotice } from "./WorkspaceNotice.js";
 
 export interface InvitationBannerProps {
   className?: string;
 }
 
 /**
- * Top-of-app banner that surfaces:
+ * Top-of-app notice bar. Mounted in every template shell, so it owns the
+ * org-level notices a member needs before they can make sense of what they're
+ * looking at:
+ *   - They're on the wrong deployment ({@link WorkspaceNotice}).
  *   - Pending org invitations (one-click Accept).
  *   - Domain-match orgs the user can auto-join because their email domain
  *     matches `organizations.allowed_domain` (one-click Join). Lets a new
@@ -18,6 +22,15 @@ export interface InvitationBannerProps {
  * Renders nothing when there's nothing to surface.
  */
 export function InvitationBanner({ className }: InvitationBannerProps) {
+  return (
+    <>
+      <WorkspaceNotice className={className} />
+      <InvitationRows className={className} />
+    </>
+  );
+}
+
+function InvitationRows({ className }: InvitationBannerProps) {
   const { data: org } = useOrg();
   const acceptInvitation = useAcceptInvitation();
   const joinByDomain = useJoinByDomain();

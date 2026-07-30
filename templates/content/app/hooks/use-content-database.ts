@@ -110,6 +110,25 @@ export function removeOptimisticItemFromContentDatabase(
   };
 }
 
+export function moveOptimisticContentDatabaseItem(
+  current: ContentDatabaseResponse | undefined,
+  itemId: string,
+  position: number,
+) {
+  if (!current) return current;
+  const currentIndex = current.items.findIndex((item) => item.id === itemId);
+  if (currentIndex < 0 || current.items.length < 2) return current;
+  const nextIndex = Math.min(Math.max(position, 0), current.items.length - 1);
+  if (currentIndex === nextIndex) return current;
+  const items = [...current.items];
+  const [moved] = items.splice(currentIndex, 1);
+  items.splice(nextIndex, 0, moved);
+  return {
+    ...current,
+    items: items.map((item, index) => ({ ...item, position: index })),
+  };
+}
+
 export function preserveScopedDatabasePlaceholder<T>(
   previous: T | undefined,
   previousQuery: Pick<Query, "queryKey"> | undefined,
@@ -168,6 +187,57 @@ export function writeContentDatabaseResponseToCache(
     contentDatabaseQueryFilter(documentId),
     data,
   );
+}
+
+export function applyOptimisticBuilderWriteMode(
+  current: ContentDatabaseResponse | undefined,
+  request: SetContentDatabaseSourceWriteModeRequest,
+) {
+  if (!current || !request.writeMode) return current;
+  const sourceId = request.sourceId ?? current.source?.id;
+  if (!sourceId) return current;
+  const writeMode = request.writeMode;
+  const liveWritesEnabled = writeMode !== "read_only";
+  const allowPublicationTransitions =
+    writeMode === "publish_updates" &&
+    request.allowPublicationTransitions === true;
+  const allowedWriteModes =
+    writeMode === "publish_updates"
+      ? (["autosave", "publish"] as const)
+      : writeMode === "stage_only"
+        ? (["autosave"] as const)
+        : ([] as const);
+  const patchSource = (
+    source: ContentDatabaseResponse["source"],
+  ): ContentDatabaseResponse["source"] =>
+    source?.id === sourceId
+      ? {
+          ...source,
+          capabilities: {
+            ...source.capabilities,
+            liveWritesEnabled,
+          },
+          metadata: {
+            ...source.metadata,
+            writeMode,
+            allowPublicationTransitions,
+            allowedWriteModes: [...allowedWriteModes],
+            allowDraftWrites: false,
+            allowPublishWrites: writeMode === "publish_updates",
+            pushMode:
+              writeMode === "publish_updates"
+                ? "publish"
+                : writeMode === "stage_only"
+                  ? "autosave"
+                  : "none",
+          },
+        }
+      : source;
+  return {
+    ...current,
+    source: patchSource(current.source),
+    sources: current.sources?.map((source) => patchSource(source)!),
+  };
 }
 
 export function applyDocumentPropertyValueToDatabaseResponse(
@@ -679,7 +749,12 @@ export function useAddDatabaseItem(documentId: string) {
   return useActionMutation<ContentDatabaseResponse, AddDatabaseItemRequest>(
     "add-database-item",
     {
-      onSuccess: () => {
+      onSuccess: (data) => {
+        // The action returns the committed row and full database snapshot.
+        // Seed every active pagination key before invalidating so navigating
+        // away from the creation side-peek cannot briefly lose an appended row
+        // behind an older 100/200-row response.
+        writeContentDatabaseResponseToCache(queryClient, documentId, data);
         queryClient.invalidateQueries({
           queryKey: contentDatabaseQueryKey(documentId),
         });
@@ -767,10 +842,62 @@ export function useMoveDatabaseItem(documentId: string) {
   return useActionMutation<ContentDatabaseResponse, MoveDatabaseItemRequest>(
     "move-database-item",
     {
-      onSuccess: () => {
+      skipActionQueryInvalidation: true,
+      onMutate: async (variables) => {
+        await queryClient.cancelQueries({
+          queryKey: ["action", "get-content-database"],
+        });
+        const previous = queryClient.getQueriesData<ContentDatabaseResponse>({
+          queryKey: ["action", "get-content-database"],
+        });
+        if (variables.itemId) {
+          queryClient.setQueriesData<ContentDatabaseResponse>(
+            { queryKey: ["action", "get-content-database"] },
+            (current) => {
+              if (
+                variables.databaseId &&
+                current?.database.id !== variables.databaseId
+              ) {
+                return current;
+              }
+              return moveOptimisticContentDatabaseItem(
+                current,
+                variables.itemId!,
+                variables.position,
+              );
+            },
+          );
+        }
+        return { previous };
+      },
+      onError: (_error, _variables, context) => {
+        const rollback = context as
+          | {
+              previous?: Array<
+                [readonly unknown[], ContentDatabaseResponse | undefined]
+              >;
+            }
+          | undefined;
+        for (const [queryKey, data] of rollback?.previous ?? []) {
+          queryClient.setQueryData(queryKey, data);
+        }
+      },
+      onSuccess: (data) => {
+        writeContentDatabaseResponseToCache(queryClient, documentId, data);
+        queryClient.setQueryData(
+          contentDatabaseByIdQueryKey(data.database.id),
+          data,
+        );
+      },
+      onSettled: (_data, _error, variables) => {
         queryClient.invalidateQueries({
           queryKey: contentDatabaseQueryKey(documentId),
         });
+        if (variables.databaseId) {
+          queryClient.invalidateQueries({
+            queryKey: contentDatabaseByIdQueryKey(variables.databaseId),
+          });
+        }
         queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
@@ -819,12 +946,47 @@ export function useUpdateContentDatabasePersonalView(
     ContentDatabasePersonalViewResponse,
     UpdateContentDatabasePersonalViewRequest
   >("update-content-database-personal-view", {
+    skipActionQueryInvalidation: true,
+    onMutate: async (variables) => {
+      if (!databaseId) return undefined;
+      const queryKey = [
+        "action",
+        "get-content-database-personal-view",
+        { databaseId },
+      ] as const;
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData(queryKey);
+      queryClient.setQueryData(queryKey, {
+        databaseId,
+        overrides: variables.overrides,
+      });
+      return { previous };
+    },
+    onError: (_error, _variables, context) => {
+      if (!databaseId) return;
+      const previous = (context as { previous?: unknown } | undefined)
+        ?.previous;
+      queryClient.setQueryData(
+        ["action", "get-content-database-personal-view", { databaseId }],
+        previous,
+      );
+    },
     onSuccess: (data) => {
       if (!databaseId) return;
       queryClient.setQueryData(
         ["action", "get-content-database-personal-view", { databaseId }],
         data,
       );
+    },
+    onSettled: () => {
+      if (!databaseId) return;
+      queryClient.invalidateQueries({
+        queryKey: [
+          "action",
+          "get-content-database-personal-view",
+          { databaseId },
+        ],
+      });
     },
   });
 }
@@ -918,7 +1080,11 @@ export function useAddContentDatabaseSourceFieldProperty(documentId: string) {
         queryKey: ["action", "get-content-database-source", { documentId }],
       });
       queryClient.invalidateQueries({
-        queryKey: ["action", "list-document-properties", { documentId }],
+        queryKey: [
+          "action",
+          "list-document-properties",
+          { documentId, databaseId: data.databaseId },
+        ],
       });
     },
   });
@@ -939,7 +1105,11 @@ export function useMaterializeBuilderRequiredFields(documentId: string) {
         queryKey: ["action", "get-content-database-source", { documentId }],
       });
       queryClient.invalidateQueries({
-        queryKey: ["action", "list-document-properties", { documentId }],
+        queryKey: [
+          "action",
+          "list-document-properties",
+          { documentId, databaseId: data.database.id },
+        ],
       });
     },
   });
@@ -1218,7 +1388,8 @@ export function useSetContentDatabaseSourceWriteMode(documentId: string) {
     ContentDatabaseResponse,
     SetContentDatabaseSourceWriteModeRequest
   >("set-content-database-source-write-mode", {
-    onSuccess: () => {
+    onSuccess: (data) => {
+      writeContentDatabaseResponseToCache(queryClient, documentId, data);
       queryClient.invalidateQueries({
         queryKey: contentDatabaseQueryKey(documentId),
       });

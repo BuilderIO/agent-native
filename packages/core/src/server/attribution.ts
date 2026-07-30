@@ -1,3 +1,8 @@
+import {
+  ANALYTICS_ANONYMOUS_ID_COOKIE_NAME,
+  normalizeAnalyticsAnonymousId,
+} from "../shared/analytics-anonymous-id.js";
+
 /**
  * First-touch referral attribution — server side.
  *
@@ -127,6 +132,23 @@ export function readFirstTouchAttribution(
     return decodeFirstTouchValue(cookies[FIRST_TOUCH_COOKIE_NAME]);
   } catch {
     return null;
+  }
+}
+
+/**
+ * Read the browser identity handoff used to link anonymous pageviews to the
+ * signup event. This is analytics-only and intentionally does not authorize
+ * or identify a user.
+ */
+export function readAnalyticsAnonymousId(
+  cookieHeader: string | null | undefined,
+): string | undefined {
+  try {
+    return normalizeAnalyticsAnonymousId(
+      parseCookieHeader(cookieHeader)[ANALYTICS_ANONYMOUS_ID_COOKIE_NAME],
+    );
+  } catch {
+    return undefined;
   }
 }
 

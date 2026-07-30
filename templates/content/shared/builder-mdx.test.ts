@@ -536,6 +536,52 @@ describe("Builder MDX conversion", () => {
     ]);
   });
 
+  it("omits the editor's trailing empty paragraph inside a callout", async () => {
+    const blocks = await builderMdxBodyToBuilderBlocks(
+      [
+        '<callout icon="💡">',
+        "\tLark callout",
+        "\t<empty-block/>",
+        "</callout>",
+      ].join("\n"),
+      {},
+    );
+
+    expect(blocks).toMatchObject([
+      {
+        component: {
+          name: "Text",
+          options: {
+            text: "<blockquote><p><strong>💡</strong></p><p>Lark callout</p></blockquote>",
+          },
+        },
+      },
+    ]);
+    expect(JSON.stringify(blocks)).not.toContain("empty-block");
+  });
+
+  it("preserves an empty-block literal in fenced code inside a callout", async () => {
+    const blocks = await builderMdxBodyToBuilderBlocks(
+      ["<callout>", "\t```mdx", "\t<empty-block/>", "\t```", "</callout>"].join(
+        "\n",
+      ),
+      {},
+    );
+
+    expect(JSON.stringify(blocks)).toContain("empty-block");
+  });
+
+  it("preserves an empty-block literal in inline code inside a callout", async () => {
+    const blocks = await builderMdxBodyToBuilderBlocks(
+      ["<callout>", "\tUse `<empty-block/>` literally.", "</callout>"].join(
+        "\n",
+      ),
+      {},
+    );
+
+    expect(JSON.stringify(blocks)).toContain("empty-block");
+  });
+
   it("renders unsafe callout links as text without a stored script URL", async () => {
     const blocks = await builderMdxBodyToBuilderBlocks(
       [
@@ -617,6 +663,20 @@ describe("Builder MDX conversion", () => {
         {},
       ),
     ).rejects.toThrow("Unsupported dynamic syntax inside Builder callout");
+    await expect(
+      builderMdxBodyToBuilderBlocks(
+        ["<callout>", '\t<empty-block reason="unsafe" />', "</callout>"].join(
+          "\n",
+        ),
+        {},
+      ),
+    ).rejects.toThrow("Unsupported Builder callout empty-block syntax");
+    await expect(
+      builderMdxBodyToBuilderBlocks(
+        ["<callout>", "\t<empty-block></empty-block>", "</callout>"].join("\n"),
+        {},
+      ),
+    ).rejects.toThrow("Unsupported Builder callout empty-block syntax");
   });
 
   it("preserves ordered and unordered Markdown lists as distinct Builder HTML lists", async () => {

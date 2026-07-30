@@ -56,9 +56,26 @@ declare var __EDITING_SAFETY_ENABLED__: boolean;
   var lastMetaKey = false;
   var lastShiftKey = false;
   var lastAltKey = false;
+  var freezeStyle: HTMLStyleElement | null = null;
 
-  if (editingSafetyEnabled) {
-    var freezeStyle = document.createElement("style");
+  function syncEditingSafetyStyle(): void {
+    var currentStyle =
+      freezeStyle ||
+      (document.querySelector(
+        "style[data-agent-native-editing-safety-style]",
+      ) as HTMLStyleElement | null);
+    if (!editingSafetyEnabled) {
+      if (currentStyle && currentStyle.parentNode) {
+        currentStyle.parentNode.removeChild(currentStyle);
+      }
+      freezeStyle = null;
+      return;
+    }
+    if (currentStyle && currentStyle.isConnected) {
+      freezeStyle = currentStyle;
+      return;
+    }
+    freezeStyle = document.createElement("style");
     freezeStyle.setAttribute("data-agent-native-editing-safety-style", "");
     freezeStyle.textContent =
       "html,body{animation:none!important;transition:none!important;scroll-behavior:auto!important}" +
@@ -69,6 +86,7 @@ declare var __EDITING_SAFETY_ENABLED__: boolean;
       "animation:none!important;transition:none!important}";
     (document.head || document.documentElement).appendChild(freezeStyle);
   }
+  syncEditingSafetyStyle();
 
   function clamp(value: number, limit: number): number {
     var number = Number(value) || 0;
@@ -280,6 +298,15 @@ declare var __EDITING_SAFETY_ENABLED__: boolean;
     if (e.data.type === "embedded-canvas-gesture-mode") {
       wheelEnabled = !!e.data.wheelEnabled;
       spaceKeyForwardingEnabled = !!e.data.spaceKeyForwardingEnabled;
+      // Live-updatable so entering/leaving Interact does not change this
+      // script's text. The host keys its bridge registration on a hash of the
+      // script, so baking the mode in meant every Interact toggle minted a new
+      // key, forced a re-register, and left the canvas on "Preparing editable
+      // preview..." until that round trip finished.
+      if (typeof e.data.editingSafetyEnabled === "boolean") {
+        editingSafetyEnabled = e.data.editingSafetyEnabled;
+        syncEditingSafetyStyle();
+      }
     }
   }
 

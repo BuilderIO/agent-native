@@ -13,9 +13,15 @@ describe("Dispatch route registration", () => {
 
     expect(paths).toContain("chat");
     expect(paths).toContain("chat/:threadId");
+    expect(paths).toContain("browser-chat");
+    expect(paths).toContain("browser-connect");
     expect(paths).toContain("operations");
     expect(paths.indexOf("chat")).toBeLessThan(paths.indexOf(":appId"));
     expect(paths.indexOf("chat/:threadId")).toBeLessThan(
+      paths.indexOf(":appId"),
+    );
+    expect(paths.indexOf("browser-chat")).toBeLessThan(paths.indexOf(":appId"));
+    expect(paths.indexOf("browser-connect")).toBeLessThan(
       paths.indexOf(":appId"),
     );
     expect(paths.indexOf("operations")).toBeLessThan(paths.indexOf(":appId"));

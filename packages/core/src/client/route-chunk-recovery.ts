@@ -190,16 +190,27 @@ function recoverToIntendedNavigation(
   state: RouteChunkRecoveryState,
 ): boolean {
   const target = getFreshIntendedNavigation(state, win.location.href);
-  if (!target) return false;
+  const sameCurrentTarget =
+    !target &&
+    state.intendedHref === win.location.href &&
+    Date.now() - state.intendedAt <= INTENDED_NAV_MAX_AGE_MS
+      ? state.intendedHref
+      : null;
+  const recoveryTarget = target ?? sameCurrentTarget;
+  if (!recoveryTarget) return false;
   state.recovering = true;
-  state.recoveryHref = target;
-  // Desktop webviews stay open across many deploys; a forced navigation here
-  // reads as a random tab reload. Leave the current view alive instead.
-  if (isAgentNativeDesktop(win)) return true;
+  state.recoveryHref = recoveryTarget;
+  // Keep the desktop shell mounted, but replace only the route that failed to
+  // load. A current-page reload remains suppressed below when there is no
+  // intended cross-route destination to recover.
+  if (isAgentNativeDesktop(win)) {
+    hardNavigate(win, recoveryTarget);
+    return true;
+  }
   try {
-    win.history.replaceState(win.history.state, "", target);
+    win.history.replaceState(win.history.state, "", recoveryTarget);
   } catch {}
-  hardNavigate(win, target);
+  hardNavigate(win, recoveryTarget);
   return true;
 }
 

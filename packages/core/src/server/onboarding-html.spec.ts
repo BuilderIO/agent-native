@@ -150,6 +150,9 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain("'utm_source'");
     expect(html).toContain("var returnPath = __anJourney.normalizeAppPath");
     expect(html).toContain("__anExternalReferrerHost(document.referrer || '')");
+    expect(html).toContain("function __anSyncAnalyticsAnonymousId()");
+    expect(html).toContain("localStorage.getItem('agent-native.anonymous_id')");
+    expect(html).toContain("document.cookie = 'an_aid='");
   });
 
   it("omits hosted terms and privacy links on unhosted email signup", () => {

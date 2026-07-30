@@ -78,6 +78,19 @@ const ACTIVE_THREAD_KEY = "agent-chat-active-thread";
 const THREADS_UPDATED_EVENT = "agent-chat:threads-updated";
 const THREADS_PAGE_SIZE = 50;
 
+async function fetchThreadListPage(
+  apiUrl: string,
+  offset: number,
+): Promise<ChatThreadSummary[] | undefined> {
+  return fetch(
+    offset > 0 ? `${apiUrl}/threads?offset=${offset}` : `${apiUrl}/threads`,
+  ).then(async (res) => {
+    if (!res.ok) return undefined;
+    const data = await res.json();
+    return (data.threads ?? []) as ChatThreadSummary[];
+  });
+}
+
 function emitThreadsUpdated() {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent(THREADS_UPDATED_EVENT));
@@ -441,20 +454,14 @@ export function useChatThreads(
     async (options?: { append?: boolean }) => {
       try {
         const offset = options?.append ? nextThreadsOffsetRef.current : 0;
-        const res = await fetch(
-          offset > 0
-            ? `${apiUrl}/threads?offset=${offset}`
-            : `${apiUrl}/threads`,
-        );
-        if (!res.ok) {
+        const loaded = await fetchThreadListPage(apiUrl, offset);
+        if (!loaded) {
           if (!options?.append) {
             setThreadsLoadError("Could not load chat history.");
           }
           return;
         }
-        const data = await res.json();
         setThreadsLoadError(null);
-        const loaded = (data.threads ?? []) as ChatThreadSummary[];
         if (!options?.append) {
           nextThreadsOffsetRef.current = loaded.length;
         } else {
@@ -526,7 +533,7 @@ export function useChatThreads(
           }
           return [...optimisticOnly, ...merged];
         });
-        return data.threads as ChatThreadSummary[];
+        return loaded;
       } catch {
         if (!options?.append) {
           setThreadsLoadError("Could not load chat history.");
@@ -575,7 +582,6 @@ export function useChatThreads(
     fetchedRef.current = true;
 
     (async () => {
-      setIsLoading(true);
       const loadedThreads = await fetchThreads();
       const savedId = activeThreadIdRef.current;
       if (loadedThreads === undefined) {

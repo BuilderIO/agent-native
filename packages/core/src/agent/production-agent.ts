@@ -13,6 +13,7 @@ import type { EventHandler as H3EventHandler } from "h3";
 import { parseA2AAgentActivityPart } from "../a2a/activity.js";
 import type { Task } from "../a2a/types.js";
 import {
+  describeToolParameterSignature,
   isAgentActionStopError,
   type ActionAutomationContext,
   type ActionCaller,
@@ -141,6 +142,7 @@ import {
   getRun,
   abortRun,
   abortRunDurably,
+  abortTurnDurably,
   tryClaimRunSlot,
   isHostedRuntime,
   resolveRunSoftTimeoutMs,
@@ -182,6 +184,7 @@ import {
 } from "./tool-result-images.js";
 import {
   createToolSearchEntry,
+  searchToolRegistry,
   TOOL_SEARCH_ACTION_NAME,
 } from "./tool-search.js";
 import type {
@@ -602,6 +605,9 @@ export interface ActionEntry {
    *  Plan mode. Use for tools that perform substantive work even without
    *  mutating state. */
   allowInPlanMode?: boolean;
+  /** First-class Plan-mode effect policy. Mixed tools should classify each
+   *  invocation so read variants remain available while writes fail closed. */
+  planMode?: import("../action.js").ActionPlanModeConfig<any>;
   /** If true, this action can run concurrently with other same-turn
    *  read-only/parallel-safe tool calls. Only use for actions that handle
    *  their own write ordering and idempotency. */
@@ -664,7 +670,7 @@ export const PLAN_MODE_SYSTEM_PROMPT = `## Plan Mode Active
 You are in Plan mode. This turn is for research, clarification, and a proposed approach only.
 
 Hard rules:
-- Use only read-only tools. Do not edit files, write resources, run mutating bash commands, mutate SQL rows, navigate the UI, send notifications, create jobs, create tools, call external agents, or change external systems.
+- Use only read-only tools. Do not edit files, write resources, run mutating bash commands, mutate SQL rows, navigate the UI, send notifications, create jobs, create tools, send messages or tasks to external agents, or change external systems.
 - If a needed detail is unclear, ask a concise clarifying question before proposing a plan.
 - When ready, present a concrete plan with the files/tools you expect to touch, the intended changes, validation steps, and notable risks.
 - Do not treat approval as implicit while Plan mode is still active. Tell the user to switch to Act mode with the mode selector or /act before implementation.`;
@@ -675,18 +681,6 @@ const PLAN_MODE_BLOCKED_READONLY_TOOLS = new Set([
   "set-url-path",
 ]);
 
-const PLAN_MODE_ALLOWED_ACTIONS: Record<string, readonly string[]> = {
-  resources: ["list", "read"],
-  "chat-history": ["search"],
-  "agent-teams": ["status", "read-result", "list"],
-  "manage-jobs": ["list"],
-  "manage-automations": ["list-events", "list"],
-  "manage-notifications": ["list"],
-  "manage-progress": ["list"],
-  "manage-agent-engine": ["list"],
-};
-
-const PLAN_MODE_WEB_REQUEST_METHODS = new Set(["GET", "HEAD"]);
 const SOURCE_SWEEP_AGENT_TEAM_ALLOWED_ACTIONS = [
   "status",
   "read-result",
@@ -702,49 +696,85 @@ function getToolAction(name: string, args: unknown): string {
   return String(raw ?? "").toLowerCase();
 }
 
-function getWebRequestMethod(args: unknown): string {
-  const raw =
-    args && typeof args === "object" && "method" in args
-      ? (args as Record<string, unknown>).method
-      : undefined;
-  return String(raw ?? "GET").toUpperCase();
-}
-
-function restrictActionEnum(
+function projectPlanModeParameters(
   parameters: ActionTool["parameters"] | undefined,
-  allowedActions: readonly string[],
+  planMode: import("../action.js").ActionPlanModeConfig<any> | undefined,
 ): ActionTool["parameters"] | undefined {
-  if (!parameters) return parameters;
-  const actionParam = parameters.properties.action;
-  if (!actionParam) return parameters;
+  if (!parameters || !planMode) return parameters;
+  const allowedProperties = planMode.allowedProperties
+    ? new Set(planMode.allowedProperties)
+    : undefined;
+  const omittedProperties = new Set(planMode.omittedProperties ?? []);
+  const properties = Object.fromEntries(
+    Object.entries(parameters.properties).filter(
+      ([key]) =>
+        (!allowedProperties || allowedProperties.has(key)) &&
+        !omittedProperties.has(key),
+    ),
+  ) as typeof parameters.properties;
+  let changed = false;
+  for (const [key, values] of Object.entries(planMode.allowedValues ?? {})) {
+    const parameter = properties[key];
+    if (!parameter) continue;
+    properties[key] = { ...parameter, enum: [...values] };
+    changed = true;
+  }
+  if (
+    !changed &&
+    !allowedProperties &&
+    omittedProperties.size === 0 &&
+    (planMode.requiredProperties?.length ?? 0) === 0
+  ) {
+    return parameters;
+  }
+  const required = Array.from(
+    new Set([
+      ...(parameters.required?.filter((key) => key in properties) ?? []),
+      ...(planMode.requiredProperties?.filter((key) => key in properties) ??
+        []),
+    ]),
+  );
   return {
     ...parameters,
-    properties: {
-      ...parameters.properties,
-      action: {
-        ...actionParam,
-        enum: [...allowedActions],
-      },
-    },
+    properties,
+    ...(required.length > 0 ? { required } : {}),
   };
 }
 
-function restrictWebRequestMethods(
-  parameters: ActionTool["parameters"] | undefined,
-): ActionTool["parameters"] | undefined {
-  if (!parameters) return parameters;
-  const methodParam = parameters.properties.method;
-  if (!methodParam) return parameters;
-  return {
-    ...parameters,
-    properties: {
-      ...parameters.properties,
-      method: {
-        ...methodParam,
-        enum: [...PLAN_MODE_WEB_REQUEST_METHODS],
-      },
+function matchesPlanModeInputPolicy(
+  input: unknown,
+  planMode: import("../action.js").ActionPlanModeConfig<any>,
+): boolean {
+  const hasPropertyPolicy =
+    planMode.allowedProperties !== undefined ||
+    (planMode.omittedProperties?.length ?? 0) > 0 ||
+    planMode.allowedValues !== undefined;
+  if (!hasPropertyPolicy) return true;
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return false;
+  }
+  const values = input as Record<string, unknown>;
+  const allowedProperties = planMode.allowedProperties
+    ? new Set(planMode.allowedProperties)
+    : undefined;
+  const omittedProperties = new Set(planMode.omittedProperties ?? []);
+  if (
+    Object.keys(values).some(
+      (key) =>
+        (allowedProperties && !allowedProperties.has(key)) ||
+        omittedProperties.has(key),
+    )
+  ) {
+    return false;
+  }
+  return Object.entries(planMode.allowedValues ?? {}).every(
+    ([key, allowed]) => {
+      const value = values[key];
+      return (
+        value == null || (typeof value === "string" && allowed.includes(value))
+      );
     },
-  };
+  );
 }
 
 function planModeBlockedMessage(toolName: string, reason?: string): string {
@@ -763,17 +793,23 @@ export function isPlanModeToolCallAllowed(
   if (entry.allowInPlanMode === false) return false;
   if (PLAN_MODE_BLOCKED_READONLY_TOOLS.has(name)) return false;
 
-  if (name === "web-request") {
-    return PLAN_MODE_WEB_REQUEST_METHODS.has(getWebRequestMethod(input));
-  }
-
   if (name === "bash") {
     return isPlanModeReadOnlyBashCall(input);
   }
 
-  const allowedActions = PLAN_MODE_ALLOWED_ACTIONS[name];
-  if (allowedActions) {
-    return allowedActions.includes(getToolAction(name, input));
+  if (entry.planMode) {
+    if (!matchesPlanModeInputPolicy(input, entry.planMode)) {
+      return false;
+    }
+    try {
+      const effect =
+        typeof entry.planMode.effect === "function"
+          ? entry.planMode.effect(input)
+          : entry.planMode.effect;
+      return effect === "read";
+    } catch {
+      return false;
+    }
   }
 
   return entry.readOnly === true;
@@ -789,45 +825,35 @@ function isPlanModeReadOnlyBashCall(input: unknown): boolean {
 function createPlanModeGuardedAction(
   name: string,
   entry: ActionEntry,
-  allowedActions: readonly string[],
 ): ActionEntry {
+  const allowedValues = entry.planMode?.allowedValues;
+  const allowedDescription = allowedValues
+    ? Object.entries(allowedValues)
+        .map(
+          ([key, values]) =>
+            `\`${key}\`: ${values.map((value) => `"${value}"`).join(", ")}`,
+        )
+        .join("; ")
+    : "";
+  const guidance =
+    entry.planMode?.description ??
+    (allowedDescription
+      ? `only these argument values are available: ${allowedDescription}.`
+      : "only calls classified as read-only are available.");
   return {
     ...entry,
     readOnly: true,
     tool: {
       ...entry.tool,
-      description:
-        `${entry.tool.description}\n\nPlan mode: only these read-only actions are available: ` +
-        allowedActions.map((action) => `"${action}"`).join(", ") +
-        ".",
-      parameters: restrictActionEnum(entry.tool.parameters, allowedActions),
+      description: `${entry.tool.description}\n\nPlan mode: ${guidance}`,
+      parameters: projectPlanModeParameters(
+        entry.tool.parameters,
+        entry.planMode,
+      ),
     },
     run: async (args, context) => {
-      const action = getToolAction(name, args);
-      if (!allowedActions.includes(action)) {
-        return planModeBlockedMessage(
-          name,
-          `action="${action || "(missing)"}"`,
-        );
-      }
-      return entry.run(args, context);
-    },
-  };
-}
-
-function createPlanModeWebRequestAction(entry: ActionEntry): ActionEntry {
-  return {
-    ...entry,
-    readOnly: true,
-    tool: {
-      ...entry.tool,
-      description: `${entry.tool.description}\n\nPlan mode: only GET and HEAD requests are allowed.`,
-      parameters: restrictWebRequestMethods(entry.tool.parameters),
-    },
-    run: async (args, context) => {
-      const method = getWebRequestMethod(args);
-      if (!PLAN_MODE_WEB_REQUEST_METHODS.has(method)) {
-        return planModeBlockedMessage("web-request", `method="${method}"`);
+      if (!isPlanModeToolCallAllowed(name, args, entry)) {
+        return planModeBlockedMessage(name, "call is not read-only");
       }
       return entry.run(args, context);
     },
@@ -892,23 +918,24 @@ export function createPlanModeActionRegistry(
       continue;
     }
 
-    const allowedActions = PLAN_MODE_ALLOWED_ACTIONS[name];
-    if (allowedActions) {
-      filtered[name] = createPlanModeGuardedAction(name, entry, allowedActions);
-      continue;
-    }
-
-    if (name === "web-request") {
-      filtered[name] = createPlanModeWebRequestAction(entry);
-      continue;
-    }
-
     if (name === "bash") {
       filtered[name] = createPlanModeBashAction(entry);
       continue;
     }
 
-    if (entry.readOnly === true) {
+    if (entry.planMode) {
+      if (typeof entry.planMode.effect === "function") {
+        filtered[name] = createPlanModeGuardedAction(name, entry);
+      } else if (entry.planMode.effect === "read") {
+        filtered[name] = createPlanModeGuardedAction(name, entry);
+      } else {
+        filtered[name] = createPlanModeBlockedAction(
+          name,
+          entry,
+          "write or unknown effect",
+        );
+      }
+    } else if (entry.readOnly === true) {
       filtered[name] = entry;
     } else {
       filtered[name] = createPlanModeBlockedAction(
@@ -956,6 +983,7 @@ export interface ProductionAgentOptions {
     threadId: string | undefined;
     message: string;
     attachments?: AgentChatAttachment[];
+    queuedMessageId?: string;
   }) => void | Promise<void>;
   /**
    * Optional per-template request normalizer. Runs after owner resolution and
@@ -2019,6 +2047,21 @@ export interface AgentLoopUsage {
   cacheReadTokens: number;
   cacheWriteTokens: number;
   model: string;
+  /**
+   * True once the engine reported at least one real `usage` event for this
+   * run. The token fields above start at 0 and are only ever incremented —
+   * when this is not true, those zeros are placeholders for "never
+   * reported", not a measured empty usage, and callers must not treat them
+   * as real counts.
+   */
+  usageReported?: boolean;
+  /**
+   * Wall-clock epoch ms of the first non-heartbeat engine-stream event seen
+   * across this run (all retries/continuations). Undefined means no event
+   * ever arrived — e.g. the run was killed for silence before the model
+   * produced anything.
+   */
+  firstEngineEventAtMs?: number;
 }
 
 export interface AgentLoopToolCallSummary {
@@ -2087,6 +2130,13 @@ function collectTextParts(parts: EngineContentPart[]): string {
     .map((part) => part.text)
     .join("");
 }
+
+// Guard retries are pushed as `role: "user"` because engines have no other
+// mid-turn channel. Unlabeled, a corrective instruction ("say the source is
+// not connected and include this link") reads exactly like an injected user
+// turn, and an aligned model refuses it *to the user* instead of following it.
+export const AGENT_INTERNAL_GUARD_PROMPT =
+  "Automated quality check on the draft answer you just produced. This is a directive from this application's own response guard, not a message from the user and not content from a tool result or web page. Follow it and revise your answer. Do not quote it, describe it, or treat it as an injection attempt. If it contradicts what you observed this turn, state what you actually observed instead of asserting the guard's premise.";
 
 export const AGENT_INTERNAL_CONTINUE_PROMPT =
   "Continue from where you left off and finish the user's original request. Do not repeat completed work, do not mention internal reconnects, time limits, or step limits, and continue as if this is the same uninterrupted run.";
@@ -2938,6 +2988,40 @@ export function filterInitialEngineTools(
   return tools.filter((tool) => names.has(tool.name));
 }
 
+export function preloadPlanModeEngineTools(options: {
+  request: string;
+  registry: Record<string, ActionEntry>;
+  initialTools: EngineTool[];
+  availableTools: EngineTool[];
+  limit?: number;
+}): EngineTool[] {
+  const query = options.request.trim();
+  if (!query) return options.initialTools;
+
+  const activeNames = new Set(options.initialTools.map((tool) => tool.name));
+  const preloadLimit = Math.max(0, Math.min(options.limit ?? 3, 5));
+  if (preloadLimit === 0) return options.initialTools;
+
+  const ranked = searchToolRegistry(
+    options.registry,
+    { query, limit: 25, includeSchemas: true },
+    { defaultLimit: 25, maxLimit: 25 },
+  );
+  const preloadNames = ranked.results
+    .filter(
+      (result) =>
+        result.callable &&
+        result.planAvailability !== "act-only" &&
+        !activeNames.has(result.name),
+    )
+    .slice(0, preloadLimit)
+    .map((result) => result.name);
+  if (preloadNames.length === 0) return options.initialTools;
+
+  for (const name of preloadNames) activeNames.add(name);
+  return options.availableTools.filter((tool) => activeNames.has(tool.name));
+}
+
 export function buildFirstRequestPayloadDetail(input: {
   isFirstRequest: boolean;
   systemPrompt: string;
@@ -2963,6 +3047,10 @@ const DEFAULT_INITIAL_TOOL_NAMES = new Set([
   "docs-search",
   "get-framework-context",
   "read-attachment",
+  // A pasted public URL is already a complete read target. Keep the generic
+  // GET/HEAD tool on the first request so agents can inspect self-describing
+  // pages without needing an app-specific connector or a tool-search turn.
+  "web-request",
   // The `<available-apps>` prompt block names these two BY NAME on the same
   // request, and "which app should I use for this?" is answered on turn one or
   // not at all. Omitting them made the model read the instruction, find no
@@ -2987,7 +3075,9 @@ function extractToolSearchResultNames(value: unknown): string[] {
   const names: string[] = [];
   for (const item of result.results) {
     if (!item || typeof item !== "object") continue;
-    const name = (item as Record<string, unknown>).name;
+    const record = item as Record<string, unknown>;
+    if (record.callable === false) continue;
+    const name = record.name;
     if (typeof name === "string" && name.trim()) names.push(name);
   }
   return names;
@@ -3397,14 +3487,46 @@ function dedupeAssistantToolCallsById(
   return deduped;
 }
 
+/**
+ * Property names an Ajv `errorsText` line blames, e.g.
+ * `input/operations must be array; input must have required property 'id'`.
+ */
+function schemaErrorPropertyNames(error: string): string[] {
+  const names = new Set<string>();
+  for (const match of error.matchAll(/\binput\/([A-Za-z0-9_$-]+)/g)) {
+    names.add(match[1]);
+  }
+  for (const match of error.matchAll(
+    /must have required property '([^']+)'/g,
+  )) {
+    names.add(match[1]);
+  }
+  return [...names];
+}
+
+/**
+ * Raw-JSON-schema actions used to be told only that their arguments were wrong,
+ * never what shape was expected — so a model re-sent the same guess until the
+ * identical-error breaker ended the turn with the write never executed. Zod
+ * actions have echoed the expected signature since `wrapWithValidation`; this
+ * gives the raw path the same answer from the same helper.
+ */
 function toolInputSchemaErrorResult(
   toolName: string,
   input: unknown,
   error: string,
+  parameters?: ActionTool["parameters"],
 ): string {
+  const signature = describeToolParameterSignature(
+    parameters,
+    schemaErrorPropertyNames(error),
+  );
   return (
     `Invalid action parameters for ${toolName}: ${sanitizeToolErrorText(error)}. ` +
     `Received: ${stringifyToolInput(input)}. ` +
+    (signature
+      ? `Expected: ${signature} (where * = required, ? = optional). `
+      : "") +
     "The tool was not executed; retry with arguments that match the tool schema."
   );
 }
@@ -4189,6 +4311,7 @@ export async function runAgentLoop(opts: {
             if (event.type !== "gateway-heartbeat") {
               hasReceivedFirstEngineEvent = true;
               lastModelStreamProgressAt = Date.now();
+              usage.firstEngineEventAtMs ??= lastModelStreamProgressAt;
             }
             // In-loop processor seam (stream hook). Each chunk is offered to every
             // processor's `processOutputStream` before the loop handles it. A
@@ -4302,6 +4425,7 @@ export async function runAgentLoop(opts: {
               usage.outputTokens += eventUsage.outputTokens;
               usage.cacheReadTokens += eventUsage.cacheReadTokens;
               usage.cacheWriteTokens += eventUsage.cacheWriteTokens;
+              usage.usageReported = true;
               opts.onUsage?.(eventUsage);
             } else if (event.type === "stop") {
               terminalStopReason = event.reason;
@@ -4588,7 +4712,12 @@ export async function runAgentLoop(opts: {
           send({ type: "clear" });
           messages.push({
             role: "user",
-            content: [{ type: "text", text: retryMessage }],
+            content: [
+              {
+                type: "text",
+                text: `${AGENT_INTERNAL_GUARD_PROMPT}\n\n<response-guard>\n${retryMessage}\n</response-guard>`,
+              },
+            ],
           });
           continue;
         }
@@ -4710,11 +4839,14 @@ export async function runAgentLoop(opts: {
         const result =
           `Stopped after ${count} identical errors from ${toolCall.name} with the same arguments. ` +
           `Last error: ${sanitizedResult}`;
+        // This message is streamed to the USER, not back to the model — the
+        // model's copy is `result` above. Describe the failure and what they
+        // can do; never instruct them to "fix the arguments".
         requestedActionStop ??= {
           message:
-            `Stopped because ${toolCall.name} failed ${count} times with the same arguments and error. ` +
-            `Last error: ${sanitizedResult} ` +
-            "Fix the underlying issue or change the arguments before retrying.",
+            `I stopped because the ${toolCall.name} action failed ${count} times in a row the same way, ` +
+            "so retrying it again would not have worked. Anything completed before this is saved. " +
+            `Error: ${sanitizedResult}`,
           errorCode: "repeated_identical_tool_error",
         };
         return result;
@@ -5101,6 +5233,7 @@ export async function runAgentLoop(opts: {
             toolCall.name,
             toolCallSchemaError.input,
             toolCallSchemaError.error,
+            actionEntry?.tool.parameters,
           ),
         );
         send({
@@ -5133,6 +5266,7 @@ export async function runAgentLoop(opts: {
             toolCall.name,
             toolCall.input,
             rawToolInputError,
+            actionEntry.tool.parameters,
           ),
         );
         send({
@@ -5277,6 +5411,7 @@ export async function runAgentLoop(opts: {
           // Audit attribution: the action name + the agent thread/turn that
           // triggered this call, so a mutation can be traced to its run.
           actionName: toolCall.name,
+          ...(wasApproved ? { approvedToolCallKey: approvalKey } : {}),
           ...(opts.threadId ? { threadId: opts.threadId } : {}),
           ...(opts.runId ? { runId: opts.runId } : {}),
           ...(opts.turnId ? { turnId: opts.turnId } : {}),
@@ -5908,6 +6043,10 @@ export async function runAgentLoopWithMainChatInternalContinuations(
     usage.cacheReadTokens += next.cacheReadTokens;
     usage.cacheWriteTokens += next.cacheWriteTokens;
     usage.model = next.model;
+    if (next.usageReported) usage.usageReported = true;
+    // Keep the earliest attempt's first event — a later continuation
+    // attempt starting fresh must not overwrite genuine first-token timing.
+    usage.firstEngineEventAtMs ??= next.firstEngineEventAtMs;
   };
 
   const budgetStartedAt = opts.budgetStartedAt ?? Date.now();
@@ -7062,6 +7201,7 @@ export function createProductionAgentHandler(
       threadId,
       attachments,
       displayMessage,
+      queuedMessageId,
       internalContinuation,
       turnId: requestTurnId,
       model: requestModel,
@@ -7397,8 +7537,11 @@ export function createProductionAgentHandler(
     // sent from the model picker; `engine.name` is what resolveEngine picked.
     // Divergence between them is the usual cause of "status says builder but
     // no [builder-engine] log lines appear" confusion.
+    // `requestModel` differing from `model` means normalizeModelForEngine
+    // substituted the engine default — otherwise indistinguishable from the
+    // client never asking for one.
     console.log(
-      `[agent-chat] resolved engine=${engine.name} model=${effectiveModel} requestEngine=${requestEngine ?? "(none)"} modelSource=${modelSelectionSource}`,
+      `[agent-chat] resolved engine=${engine.name} model=${effectiveModel} requestModel=${requestModel ?? "(none)"} requestEngine=${requestEngine ?? "(none)"} modelSource=${modelSelectionSource} turnId=${requestTurnId ?? "(none)"}`,
     );
 
     if (
@@ -7798,10 +7941,19 @@ export function createProductionAgentHandler(
         ? createPlanModeActionRegistry(resolvedActions)
         : resolvedActions;
     const availableRequestTools = getEngineTools(requestActions);
-    const requestTools = filterInitialEngineTools(
+    const initialRequestTools = filterInitialEngineTools(
       availableRequestTools,
       options.initialToolNames,
     );
+    const requestTools =
+      requestMode === "plan"
+        ? preloadPlanModeEngineTools({
+            request: requestMessage,
+            registry: requestActions,
+            initialTools: initialRequestTools,
+            availableTools: availableRequestTools,
+          })
+        : initialRequestTools;
     // System sections are emitted by the prompt builder once per request. Tool
     // schemas become known just after prompt setup, so append their measured
     // contribution here and reuse the immutable result for every loop pass.
@@ -8000,6 +8152,9 @@ export function createProductionAgentHandler(
         threadId,
         message: messageToPersist,
         attachments: requestAttachments,
+        ...(typeof queuedMessageId === "string" && queuedMessageId.trim()
+          ? { queuedMessageId: queuedMessageId.trim() }
+          : {}),
       });
     }
 
@@ -8966,9 +9121,17 @@ export function createProductionAgentHandler(
         // assistant message. Falls back to the runId (turn == run) when the
         // client doesn't supply a turnId.
         turnId: effectiveTurnId,
+        waitUntil: getRequestRunContext()?.waitUntil,
         dispatchMode: foregroundSelfChainEligible
           ? "foreground-self-chain"
           : "foreground",
+        // Resolved AFTER stored-model/experiment overrides — the same value
+        // actually sent to the engine, not the raw client-requested model.
+        // No userId here: `ownerEmail` is the only identity known at this
+        // scope and is PII (email), which the terminal event must not carry.
+        model: effectiveModel,
+        engineName: engine.name,
+        attemptCount: backgroundContinuationCount,
       },
     );
 
@@ -9007,5 +9170,6 @@ export {
   getRun,
   abortRun,
   abortRunDurably,
+  abortTurnDurably,
   subscribeToRun,
 };

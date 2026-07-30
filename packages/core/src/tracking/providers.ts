@@ -342,6 +342,7 @@ function createAgentNativeAnalyticsProvider(
           event: event.name,
           properties: event.properties ?? {},
           userId: event.userId,
+          anonymousId: event.anonymousId,
           timestamp: event.timestamp,
         }),
         undefined,

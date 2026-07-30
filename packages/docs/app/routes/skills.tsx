@@ -112,7 +112,7 @@ function CliCopy({
   return (
     <button
       onClick={handleCopy}
-      className={`group flex w-full min-w-0 items-center gap-3 rounded-lg border border-[var(--code-border)] bg-[var(--code-bg)] px-4 py-3 font-mono text-sm transition hover:border-[var(--fg-secondary)] sm:px-5 ${className}`}
+      className={`group flex w-full min-w-0 items-center gap-3 rounded-md border border-[var(--code-border)] bg-[var(--code-bg)] px-4 py-3 font-mono text-sm transition hover:border-[var(--fg-secondary)] sm:px-5 ${className}`}
     >
       <span className="shrink-0 text-[var(--fg-secondary)]">$</span>
       <span className="min-w-0 truncate text-left text-[var(--fg)]">

@@ -82,6 +82,8 @@ const VOLATILE_VIDEO_QUERY_PARAMS = new Set([
   "Signature",
 ]);
 
+const PLAY_ATTEMPT_TIMEOUT_MS = 15_000;
+
 function videoSourceIdentity(url: string | undefined): string {
   if (!url) return "";
   try {
@@ -277,6 +279,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const suppressNextClickRef = useRef(false);
     const playAttemptPendingRef = useRef(false);
     const playAttemptIdRef = useRef(0);
+    const playAttemptTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+      null,
+    );
     // Position to restore after `v.load()` resets `currentTime` to 0 while
     // recovering from a media error (see `requestPlay`).
     const resumeAfterReloadMsRef = useRef<number | null>(null);
@@ -322,6 +327,47 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const [isPlayPending, setIsPlayPending] = useState(false);
     const [isBuffering, setIsBuffering] = useState(false);
     const [playError, setPlayError] = useState<string | null>(null);
+    const clearPlayAttemptWatchdog = useCallback(() => {
+      if (playAttemptTimeoutRef.current === null) return;
+      clearTimeout(playAttemptTimeoutRef.current);
+      playAttemptTimeoutRef.current = null;
+    }, []);
+    const armPlayAttemptWatchdog = useCallback(
+      (attemptId: number) => {
+        clearPlayAttemptWatchdog();
+        playAttemptTimeoutRef.current = setTimeout(() => {
+          playAttemptTimeoutRef.current = null;
+          if (
+            attemptId !== playAttemptIdRef.current ||
+            !playAttemptPendingRef.current
+          ) {
+            return;
+          }
+
+          playAttemptIdRef.current += 1;
+          playAttemptPendingRef.current = false;
+          videoRef.current?.pause();
+          setIsPlaying(false);
+          setIsPlayPending(false);
+          setIsBuffering(false);
+          setIsPreparing(false);
+          const timeoutError = new Error(
+            `Playback did not start within ${PLAY_ATTEMPT_TIMEOUT_MS}ms`,
+          );
+          reportPlaybackIssue(
+            "play-start-timeout",
+            timeoutError,
+            videoRef.current,
+            {
+              recordingId,
+              autoPlay: !!autoPlay,
+            },
+          );
+          setPlayError("Playback is taking too long to start. Try again.");
+        }, PLAY_ATTEMPT_TIMEOUT_MS);
+      },
+      [autoPlay, clearPlayAttemptWatchdog, recordingId],
+    );
     // MediaRecorder-created WebM files report `video.duration === Infinity`
     // until the browser has actually scrubbed to the end. When that happens
     // the scrubber's percentage math breaks (anything / Infinity = 0) and
@@ -447,13 +493,20 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         playAttemptPendingRef.current = true;
         setIsPlayPending(true);
         setIsBuffering(true);
+        armPlayAttemptWatchdog(nextId);
       } else {
+        clearPlayAttemptWatchdog();
         setIsPlaying(false);
         setIsBuffering(false);
       }
       setIsPreparing(true);
       setCanPlay(false);
-    }, [mse.mode, activeVideoSrc]);
+    }, [
+      activeVideoSrc,
+      armPlayAttemptWatchdog,
+      clearPlayAttemptWatchdog,
+      mse.mode,
+    ]);
 
     useEffect(() => {
       if (!resolvedVideoSrc) {
@@ -494,12 +547,14 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
 
     useEffect(() => {
       if (!isLoomEmbed) return;
+      clearPlayAttemptWatchdog();
+      playAttemptPendingRef.current = false;
       setCanPlay(true);
       setIsPreparing(false);
       setIsBuffering(false);
       setIsPlayPending(false);
       setPlayError(null);
-    }, [activeVideoSourceIdentity, isLoomEmbed]);
+    }, [activeVideoSourceIdentity, clearPlayAttemptWatchdog, isLoomEmbed]);
 
     // Hide controls after 2s of idle movement.
     const bumpControls = useCallback(() => {
@@ -511,23 +566,28 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       }, 2000);
     }, [alwaysShowControls]);
 
-    const resolvePlayAttempt = useCallback((attemptId: number) => {
-      if (attemptId !== playAttemptIdRef.current) return;
-      playAttemptPendingRef.current = false;
-      const v = videoRef.current;
-      if (v && !v.paused && !v.ended) {
-        setIsPlaying(true);
-        setHasPlaybackStarted(true);
-      }
-      setCanPlay(true);
-      setIsPlayPending(false);
-      setIsBuffering(false);
-      setIsPreparing(false);
-    }, []);
+    const resolvePlayAttempt = useCallback(
+      (attemptId: number) => {
+        if (attemptId !== playAttemptIdRef.current) return;
+        clearPlayAttemptWatchdog();
+        playAttemptPendingRef.current = false;
+        const v = videoRef.current;
+        if (v && !v.paused && !v.ended) {
+          setIsPlaying(true);
+          setHasPlaybackStarted(true);
+        }
+        setCanPlay(true);
+        setIsPlayPending(false);
+        setIsBuffering(false);
+        setIsPreparing(false);
+      },
+      [clearPlayAttemptWatchdog],
+    );
 
     const rejectPlayAttempt = useCallback(
       (attemptId: number, err: unknown) => {
         if (attemptId !== playAttemptIdRef.current) return;
+        clearPlayAttemptWatchdog();
         playAttemptPendingRef.current = false;
         setIsPlayPending(false);
         setIsBuffering(false);
@@ -547,7 +607,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         });
         setPlayError("Could not start playback. Try again.");
       },
-      [autoPlay, recordingId],
+      [autoPlay, clearPlayAttemptWatchdog, recordingId],
     );
 
     const attachPlayPromise = useCallback(
@@ -592,8 +652,13 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           v.currentTime > 1e7)
       ) {
         try {
-          v.currentTime = 0;
-          setCurrentMs(0);
+          const initialPlaybackMs = skipExcludedRange(
+            0,
+            excludedRanges,
+            resolvedDurationMs,
+          );
+          v.currentTime = initialPlaybackMs / 1000;
+          setCurrentMs(initialPlaybackMs);
         } catch {
           // If the browser refuses the rewind, continue with the normal play
           // attempt; playback is still better than blocking on a cosmetic seek.
@@ -622,6 +687,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       const attemptId = playAttemptIdRef.current + 1;
       playAttemptIdRef.current = attemptId;
       playAttemptPendingRef.current = true;
+      armPlayAttemptWatchdog(attemptId);
 
       try {
         attachPlayPromise(v.play(), attemptId);
@@ -630,11 +696,14 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       }
     }, [
       activeVideoSrc,
+      armPlayAttemptWatchdog,
       attachPlayPromise,
       bumpControls,
       currentMs,
+      excludedRanges,
       hasPlaybackStarted,
       rejectPlayAttempt,
+      resolvedDurationMs,
       startMs,
     ]);
 
@@ -653,10 +722,11 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const pauseVideo = useCallback(() => {
       playAttemptIdRef.current += 1;
       playAttemptPendingRef.current = false;
+      clearPlayAttemptWatchdog();
       setIsPlayPending(false);
       setIsBuffering(false);
       videoRef.current?.pause();
-    }, []);
+    }, [clearPlayAttemptWatchdog]);
 
     const togglePlayback = useCallback(() => {
       const v = videoRef.current;
@@ -995,11 +1065,12 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       setLoomStartMs(null);
       playAttemptIdRef.current += 1;
       playAttemptPendingRef.current = false;
+      clearPlayAttemptWatchdog();
       setCanPlay(false);
       setIsPlayPending(false);
       setIsBuffering(false);
       setPlayError(null);
-    }, [activeVideoSourceIdentity, recordingId]);
+    }, [activeVideoSourceIdentity, clearPlayAttemptWatchdog, recordingId]);
 
     useEffect(() => {
       setThumbnailLoadFailed(false);
@@ -1131,6 +1202,13 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         if (idleTimer.current) clearTimeout(idleTimer.current);
       };
     }, [bumpControls]);
+
+    useEffect(
+      () => () => {
+        clearPlayAttemptWatchdog();
+      },
+      [clearPlayAttemptWatchdog],
+    );
 
     // Keep isPip in sync with the browser's PiP state (React doesn't support
     // PiP events as JSX handlers; wire them via addEventListener instead).
@@ -1280,13 +1358,6 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             ref={setVideoNode}
             src={domVideoSrc}
             poster={resolveLocalUrl(thumbnailUrl)}
-            // `crossOrigin` is only needed so the owner's canvas thumbnail
-            // capture isn't tainted. For everyone else (viewers, and the Slack
-            // unfurl embed) it adds nothing — but if the player is ever framed
-            // into a sandboxed/opaque-origin context (Slack double-iframes the
-            // embed), the resulting CORS check on the media bytes fails and the
-            // video won't load. Scope it to owners so embeds load cleanly.
-            crossOrigin={role === "owner" ? "anonymous" : undefined}
             className={cn(
               "w-full h-full",
               cover ? "object-cover" : "object-contain",
@@ -1425,6 +1496,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               onTimeUpdate?.(ms, resolvedDurationMs);
             }}
             onEnded={() => {
+              clearPlayAttemptWatchdog();
+              playAttemptPendingRef.current = false;
               const endedMs =
                 resolvedDurationMs > 0
                   ? resolvedDurationMs
@@ -1442,6 +1515,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               onEnded?.();
             }}
             onError={(e) => {
+              clearPlayAttemptWatchdog();
               playAttemptPendingRef.current = false;
               setIsPlayPending(false);
 

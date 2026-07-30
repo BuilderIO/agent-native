@@ -5,7 +5,7 @@ import {
 import { appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
-import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import {
   InvitationBanner,
@@ -32,6 +32,8 @@ import {
   IconShare,
   IconSettings,
   IconSearch,
+  IconUpload,
+  IconLink,
 } from "@tabler/icons-react";
 import { ReactNode, useEffect, useMemo, useState } from "react";
 import { NavLink, useLocation, useParams } from "react-router";
@@ -198,9 +200,6 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
       </TooltipTrigger>
       <TooltipContent side="right">{t("root.commandSearch")}</TooltipContent>
     </Tooltip>
-  );
-  const translateButton = (
-    <LanguagePicker variant="ghost-icon" label={t("settings.languageLabel")} />
   );
   const feedbackButton = (
     <FeedbackButton
@@ -384,6 +383,37 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                 </Tooltip>
               </div>
 
+              <div className="flex flex-col items-center gap-1 px-2">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <NavLink
+                      to="/record?autoUpload=1"
+                      aria-label={t("preRecord.uploadVideo")}
+                      className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+                    >
+                      <IconUpload className="h-4 w-4" />
+                    </NavLink>
+                  </TooltipTrigger>
+                  <TooltipContent side="right">
+                    {t("preRecord.uploadVideo")}
+                  </TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <NavLink
+                      to="/import"
+                      aria-label={t("preRecord.importLoom")}
+                      className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+                    >
+                      <IconLink className="h-4 w-4" />
+                    </NavLink>
+                  </TooltipTrigger>
+                  <TooltipContent side="right">
+                    {t("preRecord.importLoom")}
+                  </TooltipContent>
+                </Tooltip>
+              </div>
+
               <nav className="mt-3 flex flex-col items-center gap-1 px-2">
                 {navItems.map(({ to, label, icon: Icon, match }) => {
                   const active = match(location.pathname);
@@ -415,6 +445,28 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                   <NavLink to="/record">
                     <IconPlayerRecord className="h-4 w-4" />
                     {t("navigation.newRecording")}
+                  </NavLink>
+                </Button>
+                <Button
+                  className="mt-1.5 w-full gap-1.5 text-muted-foreground"
+                  size="sm"
+                  variant="ghost"
+                  asChild
+                >
+                  <NavLink to="/record?autoUpload=1">
+                    <IconUpload className="h-4 w-4" />
+                    {t("preRecord.uploadVideo")}
+                  </NavLink>
+                </Button>
+                <Button
+                  className="mt-1.5 w-full gap-1.5 text-muted-foreground"
+                  size="sm"
+                  variant="ghost"
+                  asChild
+                >
+                  <NavLink to="/import">
+                    <IconLink className="h-4 w-4" />
+                    {t("preRecord.importLoom")}
                   </NavLink>
                 </Button>
               </div>
@@ -610,7 +662,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
             </div>
 
             <div className="shrink-0 space-y-2 px-3 py-2">
-              <OrgSwitcher settingsPath="/settings/organization" />
+              <OrgSwitcher settingsPath="/settings#organization" />
               <DevDatabaseLink />
             </div>
           </>
@@ -618,7 +670,6 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
         <SidebarFooterActions
           collapsed={showCollapsedSidebar}
           feedback={feedbackButton}
-          translate={translateButton}
           search={searchButton}
           collapse={collapseButton}
           className={showCollapsedSidebar ? undefined : "px-0 py-0"}

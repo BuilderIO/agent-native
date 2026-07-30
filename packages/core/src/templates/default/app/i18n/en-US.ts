@@ -71,6 +71,23 @@ const messages = {
       suggestionGrantKey: "Grant my OpenAI key to this app",
     },
     pages: {
+      browserChatUnavailableTitle: "Browser chat session unavailable",
+      browserChatUnavailableDescription:
+        "Reconnect from the Agent-Native browser extension.",
+      browserChatPlaceholder: "Ask about this page…",
+      browserChatAttachedPlaceholder: "Ask about {{page}}…",
+      browserConnectTitle: "Connect browser chat",
+      browserConnectDescription:
+        "Allow the Agent-Native Chrome extension to open this Dispatch chat session. The connection uses a one-time, short-lived ticket.",
+      browserConnectInvalid:
+        "This connection request is invalid. Start again from the extension.",
+      browserConnectConnected:
+        "Browser chat connected. You can close this tab.",
+      browserConnectConnecting: "Connecting…",
+      browserConnectButton: "Connect",
+      browserConnectOpenFromExtension:
+        "Open this page from the Agent-Native Chrome extension.",
+      browserConnectFailed: "The browser extension did not connect.",
       appsDescription:
         "Open workspace apps and start new app creation from Dispatch.",
       appsDescriptionWithWorkspace:
@@ -89,19 +106,19 @@ const messages = {
       curatedTemplates: "Curated templates",
       curatedTemplatesDescription:
         "Start from a reviewed app shape, then make it your own.",
-      remix: "Remix",
-      remixTemplate: "Remix {{name}}",
+      remix: "Create from template",
+      remixTemplate: "Create {{name}} app",
       remixAppIdLabel: "New app id",
-      remixStarted: "Started {{name}} remix",
+      remixStarted: "Started creating {{name}}",
       viewLiveApp: "View live app",
       alreadyInWorkspace: "Already in workspace",
       remixAppIdDescription:
         "Choose the URL-safe id for the new workspace app.",
       integrationSetup: "Integration setup",
       source: "Source",
-      remixing: "Remixing…",
-      remixSuccess: "Template remix started.",
-      remixError: "Could not remix this template",
+      remixing: "Creating app…",
+      remixSuccess: "Template app creation started.",
+      remixError: "Could not create an app from this template",
       appIdRequired: "App ID is required.",
       hide: "Hide",
       show: "Show",
@@ -356,6 +373,16 @@ const messages = {
     deleting: "Archiving...",
     openFullView: "Open full view",
     removeFromWidgetArea: "Remove from this widget area",
+    customBlockSandboxed: "Custom block · sandboxed",
+    sandboxedCustomBlock: "Sandboxed SQL custom block",
+    sandboxedCustomBlockCreatedBy:
+      "Sandboxed SQL custom block created by {{email}}",
+    promoteToAppCode: "Promote to app code",
+    historyShowsSourceVersions: "History shows source versions",
+    createdByHistoryShowsSourceVersions:
+      "Created by {{email}}. History shows source versions.",
+    createdByHistoryShowsSourceVersionsCompact:
+      "Created by {{email}} · History shows source versions",
     deleteExtensionEllipsis: "Archive extension...",
     removeFromMyListEllipsis: "Remove from my list...",
     removeFromWidgetAreaForMe: "Remove from this widget area (for me)",

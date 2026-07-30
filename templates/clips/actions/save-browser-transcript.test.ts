@@ -58,6 +58,7 @@ vi.mock("../server/lib/recordings.js", () => ({
   getCurrentOwnerEmail: vi.fn(() => "owner@example.com"),
 }));
 
+import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
 import saveBrowserTranscript from "./save-browser-transcript";
 
 describe("save-browser-transcript", () => {
@@ -112,5 +113,31 @@ describe("save-browser-transcript", () => {
     expect(mocks.update).not.toHaveBeenCalled();
     expect(mocks.insert).not.toHaveBeenCalled();
     expect(mocks.writeAppState).not.toHaveBeenCalled();
+  });
+
+  it("keeps a truncated capture out of 'ready' so the cloud fallback still runs", async () => {
+    const values = vi.fn();
+    mocks.insert.mockReturnValue({ values });
+    // Recording already has a title and summary: only the truncation itself
+    // should still dispatch the transcript job that runs the cloud fallback.
+    mocks.rows = [[], [{ status: "ready", title: "Clip", description: "x" }]];
+    vi.mocked(dispatchPostFinalizeJob).mockResolvedValue(undefined);
+
+    const result = await saveBrowserTranscript.run({
+      recordingId: "rec-1",
+      fullText: "Only the first few lines",
+      source: "web-speech",
+      failureReason: "Speech recognition stopped early and could not restart.",
+    });
+
+    expect(values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fullText: "Only the first few lines",
+        status: "failed",
+        failureReason:
+          "Speech recognition stopped early and could not restart.",
+      }),
+    );
+    expect(result).toMatchObject({ status: "failed", truncated: true });
   });
 });

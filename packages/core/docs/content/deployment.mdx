@@ -441,6 +441,29 @@ export default defineConfig({
 });
 ```
 
+## Cloudflare Workers {#cloudflare-workers}
+
+Use Nitro's native module output for a Cloudflare Worker. This keeps SSR
+enabled and emits the Worker entry point plus static assets under
+`.output/server` and `.output/public`:
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "cloudflare_module" } })],
+});
+```
+
+Build and deploy the generated Worker with Wrangler:
+
+```bash
+npx @agent-native/core@latest build
+npx wrangler deploy --config .output/server/wrangler.json
+```
+
+You can also select the preset explicitly with
+`NITRO_PRESET=cloudflare_module`. Configure a durable external SQL database
+before deploying; a Worker filesystem is not a persistent application store.
+
 ## AWS Lambda {#aws-lambda}
 
 ```ts filename="vite.config.ts"
@@ -559,7 +582,13 @@ write tools:
 export default createAgentChatPlugin({
   // Default: "read"
   databaseTools: "read", // "write" | "read" | "off"
-  extensionTools: false,
+  extensionTools: true,
+});
+```
+
+```ts filename="server/plugins/core-routes.ts"
+export default createCoreRoutesPlugin({
+  extensionTools: true,
 });
 ```
 
@@ -570,9 +599,10 @@ export default createAgentChatPlugin({
   current user/org and schema changes are blocked.
 - `databaseTools: "off"` or `false` — removes raw database tools from the
   agent surface so the app's actions are the only data access path.
-- `extensionTools: false` — removes framework extension-management actions and
-  prompt guidance (`create-extension`, `update-extension`, etc.) for apps that
-  do not want the agent creating sandboxed mini-apps.
+- `extensionTools: true` — opts the app into framework extension-management
+  actions and prompt guidance (`create-extension`, `update-extension`, etc.).
+  Set it on both plugins to also allow authenticated REST creation. Extensions
+  are disabled by default.
 
 ## Production Code Execution {#production-code-execution}
 

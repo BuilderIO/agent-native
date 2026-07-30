@@ -6,6 +6,7 @@ import {
   makeLocalhostRouteId,
   normalizeDesignSourceType,
   parseDataLocProvenance,
+  sourcePositionPrecision,
   titleFromRoutePath,
 } from "./source-mode";
 
@@ -107,5 +108,11 @@ describe("source mode helpers", () => {
       column: undefined,
     });
     expect(parseDataLocProvenance("not-a-location")).toBeNull();
+  });
+
+  it("labels compiler-authored Vue and Svelte metadata as authored", () => {
+    expect(sourcePositionPrecision("vue-inspector")).toBe("authored");
+    expect(sourcePositionPrecision("svelte-meta")).toBe("authored");
+    expect(sourcePositionPrecision("debug-stack")).toBe("transformed");
   });
 });

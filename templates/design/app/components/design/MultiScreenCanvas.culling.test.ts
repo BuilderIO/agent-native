@@ -11,7 +11,8 @@ import {
   isFrameWithinOverscannedViewport,
   OVERVIEW_CULLING_ENABLED,
   OVERVIEW_CULLING_OVERSCAN_FACTOR,
-  OVERVIEW_LIVE_IFRAME_BUDGET,
+  OVERVIEW_LIVE_IFRAME_CEILING,
+  OVERVIEW_LIVE_SCREEN_BUDGET,
   type ScreenCullCandidate,
   type OverscannedViewportBounds,
 } from "./multi-screen/culling";
@@ -80,8 +81,11 @@ describe("MultiScreenCanvas viewport culling", () => {
     expect(source.match(/getScreenContentCullState\(cullTier\)/g)).toHaveLength(
       2,
     );
+    // iframeCount must count only the breakpoint frames actually mounted —
+    // visibleBreakpointWidths filters duplicates of the device width — so the
+    // bounded live-iframe budget isn't over-consumed and evicting visible frames.
     expect(source).toContain(
-      "iframeCount: 1 + (screen.breakpointWidths?.length ?? 0)",
+      "visibleBreakpointWidths(screen.breakpointWidths, metadata.width)",
     );
     expect(
       source.match(/loading=\{cullTier === "visible" \? "eager" : "lazy"\}/g),
@@ -112,6 +116,7 @@ describe("MultiScreenCanvas viewport culling", () => {
         previous?: ReturnType<typeof computeBoundedScreenCullState>;
         epoch?: number;
         budget?: number;
+        screenBudget?: number;
       } = {},
     ) {
       return computeBoundedScreenCullState({
@@ -126,6 +131,7 @@ describe("MultiScreenCanvas viewport culling", () => {
           options.previous?.lastVisibleEpochByScreenId ??
           new Map<string, number>(),
         accessEpoch: options.epoch ?? 1,
+        liveScreenBudget: options.screenBudget,
         liveIframeBudget: options.budget,
       });
     }
@@ -136,19 +142,61 @@ describe("MultiScreenCanvas viewport culling", () => {
       );
       const result = compute(candidates);
 
-      expect(OVERVIEW_LIVE_IFRAME_BUDGET).toBeGreaterThan(0);
-      expect(result.liveScreenIds.size).toBe(OVERVIEW_LIVE_IFRAME_BUDGET);
-      expect(result.mountedIframeCount).toBe(OVERVIEW_LIVE_IFRAME_BUDGET);
+      expect(OVERVIEW_LIVE_SCREEN_BUDGET).toBeGreaterThan(0);
+      expect(result.liveScreenIds.size).toBe(OVERVIEW_LIVE_SCREEN_BUDGET);
+      expect(result.mountedIframeCount).toBe(OVERVIEW_LIVE_SCREEN_BUDGET);
       expect(
         [...result.tierByScreenId.values()].filter(
           (tier) => tier === "visible",
         ),
-      ).toHaveLength(OVERVIEW_LIVE_IFRAME_BUDGET);
+      ).toHaveLength(OVERVIEW_LIVE_SCREEN_BUDGET);
       expect(
         [...result.tierByScreenId.values()].filter(
           (tier) => tier === "placeholder",
         ),
-      ).toHaveLength(120 - OVERVIEW_LIVE_IFRAME_BUDGET);
+      ).toHaveLength(120 - OVERVIEW_LIVE_SCREEN_BUDGET);
+    });
+
+    it("keeps a breakpoint-bearing board fully mounted instead of evicting on camera moves", () => {
+      // The reported flicker: 14 screens x (primary + two breakpoint previews)
+      // = 42 contexts. Charged against one flat 32-iframe budget this admitted
+      // only ten screens, so every committed pan/zoom re-ranked the survivors
+      // and destroyed/recreated the losers' documents. Budgeting screens keeps
+      // the whole board live, and the iframe ceiling still bounds memory.
+      const candidates = Array.from({ length: 14 }, (_, index) =>
+        candidate(`responsive-${index}`, index * 2_700, 3),
+      );
+      const first = compute(candidates);
+      expect(first.liveScreenIds.size).toBe(14);
+      expect(first.mountedIframeCount).toBe(42);
+      expect(first.mountedIframeCount).toBeLessThanOrEqual(
+        OVERVIEW_LIVE_IFRAME_CEILING,
+      );
+      expect([...first.tierByScreenId.values()]).not.toContain("evicted");
+
+      // Same board one camera commit later: nothing may change hands.
+      const second = compute(candidates, { previous: first, epoch: 2 });
+      expect(second.liveScreenIds).toEqual(first.liveScreenIds);
+      expect([...second.tierByScreenId.values()]).not.toContain("evicted");
+    });
+
+    it("still bounds a huge breakpoint-bearing board by the iframe ceiling", () => {
+      const candidates = Array.from({ length: 120 }, (_, index) =>
+        candidate(
+          `responsive-${String(index).padStart(3, "0")}`,
+          index * 500,
+          4,
+        ),
+      );
+      const result = compute(candidates);
+
+      // 32 screens x 4 contexts would be 128, past the ceiling, so the ceiling
+      // binds first and no screen is ever partially mounted.
+      expect(result.mountedIframeCount).toBeLessThanOrEqual(
+        OVERVIEW_LIVE_IFRAME_CEILING,
+      );
+      expect(result.mountedIframeCount % 4).toBe(0);
+      expect(result.liveScreenIds.size).toBe(OVERVIEW_LIVE_IFRAME_CEILING / 4);
     });
 
     it("evicts least-recently-visible screens and restores them on revisit", () => {

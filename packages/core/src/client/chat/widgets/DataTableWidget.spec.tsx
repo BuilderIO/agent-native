@@ -7,31 +7,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { downloadFile } from "../../db-admin/export-utils.js";
 import { DataTableWidget } from "./DataTableWidget.js";
 
-vi.mock("../../components/ui/dropdown-menu.js", () => ({
-  DropdownMenu: ({ children }: { children: React.ReactNode }) => (
-    <div>{children}</div>
-  ),
-  DropdownMenuContent: ({ children }: { children: React.ReactNode }) => (
-    <div>{children}</div>
-  ),
-  DropdownMenuItem: ({
-    children,
-    disabled,
-    onSelect,
-  }: {
-    children: React.ReactNode;
-    disabled?: boolean;
-    onSelect?: () => void;
-  }) => (
-    <button type="button" disabled={disabled} onClick={() => onSelect?.()}>
-      {children}
-    </button>
-  ),
-  DropdownMenuTrigger: ({ children }: { children: React.ReactNode }) => (
-    <>{children}</>
-  ),
-}));
-
 vi.mock("../../db-admin/export-utils.js", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("../../db-admin/export-utils.js")>();
@@ -96,7 +71,26 @@ describe("DataTableWidget", () => {
     );
   });
 
-  it("exports visible table rows as CSV from the overflow menu", async () => {
+  it("keeps the widget action alongside a visible CSV download", async () => {
+    const container = await renderWidget({
+      label: "Open responses",
+      href: "/forms/form-1",
+    });
+
+    expect(container.querySelector("a")?.textContent).toContain(
+      "Open responses",
+    );
+    expect(
+      Array.from(container.querySelectorAll("button")).find((button) =>
+        button.textContent?.includes("Download CSV"),
+      ),
+    ).toBeTruthy();
+    expect(
+      container.querySelector('button[aria-label="Data table options"]'),
+    ).toBeNull();
+  });
+
+  it("exports visible table rows from the visible CSV download", async () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
     const root = createRoot(container);
