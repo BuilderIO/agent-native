@@ -5,6 +5,10 @@
 Make cross-app delegation ask the receiving specialist agent by default, keep
 typed remote terminal states intact, retry idempotent transient transport
 failures, prevent recursive agent cycles, and bound delegated context growth.
+Proven durable-background delegated runs also keep the full bounded
+continuation allowance while sharing one cumulative wall-clock deadline, so a
+slow successful child task cannot strand its caller before the caller finishes
+its own tool work.
 
 Receiving agents keep ownership of source selection, schema interpretation,
 queries, joins, and their local tools. Direct read actions remain available for

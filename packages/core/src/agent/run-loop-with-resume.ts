@@ -186,6 +186,19 @@ function internalContinuationReasonForAttempt(
  */
 export const MAX_RUN_LOOP_CONTINUATIONS = 6;
 
+/**
+ * A delegated turn that is proven to be running inside a durable background
+ * function has the same 15-minute host budget as main chat, but this wrapper
+ * historically kept the foreground-sized six-continuation cap. A healthy
+ * child A2A call can consume several minutes and the receiving model may then
+ * need more than six recovery/model-stream boundaries to finish its own tool
+ * work. Keep a hard cap, but give the proven background path the same bounded
+ * continuation allowance as the durable main-chat runner. The cumulative
+ * soft-timeout below still prevents these rounds from exceeding the one real
+ * background-function wall-clock budget.
+ */
+export const MAX_BACKGROUND_RUN_LOOP_CONTINUATIONS = 20;
+
 /** Machine-readable code carried on the give-up terminal `error` event so the
  * client renders a loud "stopped before finishing" terminal instead of an
  * ambiguous silent stall. Deliberately NOT in the client's auto-recoverable
@@ -324,6 +337,10 @@ export async function runAgentLoopDirectWithSoftTimeout(
   // pattern, already proven for the analogous foreground self-chain case).
   // The first round is unaffected — it always gets the full `timeoutMs`.
   const loopEntryAt = Date.now();
+  const maxRunLoopContinuations =
+    timeoutOptions?.backgroundFunction === true
+      ? MAX_BACKGROUND_RUN_LOOP_CONTINUATIONS
+      : MAX_RUN_LOOP_CONTINUATIONS;
   // Tracks whether the most recent attempt ended by scheduling another
   // continuation (soft-timeout or resumable error → `continue`) rather than
   // returning a finished turn. When the loop then exits because the budget is
@@ -331,7 +348,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
   // this is the silent give-up case: emit a loud terminal so the user sees an
   // unambiguous "stopped before finishing" instead of a bare done/"…".
   let lastAttemptWasUnfinishedContinuation = false;
-  while (!upstreamSignal.aborted && attempts < MAX_RUN_LOOP_CONTINUATIONS) {
+  while (!upstreamSignal.aborted && attempts < maxRunLoopContinuations) {
     const roundTimeoutMs =
       attempts === 0 ? timeoutMs : timeoutMs - (Date.now() - loopEntryAt);
     if (

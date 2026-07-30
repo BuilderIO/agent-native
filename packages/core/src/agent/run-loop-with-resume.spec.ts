@@ -12,6 +12,7 @@ import {
 } from "./production-agent.js";
 import {
   runAgentLoopDirectWithSoftTimeout,
+  MAX_BACKGROUND_RUN_LOOP_CONTINUATIONS,
   MAX_RUN_LOOP_CONTINUATIONS,
   RUN_BUDGET_EXHAUSTED_ERROR_CODE,
   RUN_BUDGET_EXHAUSTED_MESSAGE,
@@ -502,6 +503,51 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("lets a proven background delegated run finish after the foreground continuation cap", async () => {
+    const sentEvents: AgentChatEvent[] = [];
+    const outcomes: AgentLoopOutcome[] = [];
+    let attempts = 0;
+    mockRunAgentLoop.mockImplementation(async (opts) => {
+      attempts++;
+      if (attempts <= MAX_RUN_LOOP_CONTINUATIONS) {
+        opts.send({ type: "auto_continue", reason: "stream_ended" });
+        return {
+          inputTokens: 1,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "test-model",
+        };
+      }
+      opts.send({ type: "text", text: "finished" });
+      opts.onOutcome?.({ state: "completed" });
+      return {
+        inputTokens: 1,
+        outputTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "test-model",
+      };
+    });
+
+    await runAgentLoopDirectWithSoftTimeout(
+      makeOpts(
+        [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        new AbortController().signal,
+        (event) => sentEvents.push(event),
+        undefined,
+        outcomes,
+      ),
+      60_000,
+      { backgroundFunction: true },
+    );
+
+    expect(attempts).toBe(MAX_RUN_LOOP_CONTINUATIONS + 1);
+    expect(attempts).toBeLessThan(MAX_BACKGROUND_RUN_LOOP_CONTINUATIONS);
+    expect(sentEvents.some((event) => event.type === "error")).toBe(false);
+    expect(outcomes).toEqual([{ state: "completed" }]);
   });
 
   it("stops early instead of gambling a 2nd in-process round past the elapsed budget", async () => {
