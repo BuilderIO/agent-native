@@ -377,6 +377,8 @@ export function SlideStyleInspector({
             value={snapshot.backgroundColor}
             documentColors={documentColors}
             allowTransparent
+            variant="filled"
+            className="rounded-sm bg-[var(--slides-inspector-control-background)] hover:bg-[var(--slides-inspector-control-background)]"
             contentProps={inlineEditSurfaceProps}
             onChange={(value) => onChange({ backgroundColor: value })}
           />
@@ -410,6 +412,8 @@ export function SlideStyleInspector({
             label={t("styleInspector.strokeColor")}
             value={snapshot.borderColor}
             documentColors={documentColors}
+            variant="filled"
+            className="rounded-sm bg-[var(--slides-inspector-control-background)] hover:bg-[var(--slides-inspector-control-background)]"
             contentProps={inlineEditSurfaceProps}
             onChange={(value) => onChange({ borderColor: value })}
           />
@@ -436,6 +440,8 @@ export function SlideStyleInspector({
               documentColors={documentColors}
               mixed={mixedTextStyles.includes("color")}
               mixedLabel={t("styleInspector.mixed")}
+              variant="filled"
+              className="rounded-sm bg-[var(--slides-inspector-control-background)] hover:bg-[var(--slides-inspector-control-background)]"
               contentProps={inlineEditSurfaceProps}
               onChange={(value) => onChange({ color: value })}
             />

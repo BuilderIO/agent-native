@@ -63,6 +63,28 @@ function applyPatch(element: HTMLElement, patch: InlineTextStylePatch) {
   }
 }
 
+function selectedInlineWrapper(editable: HTMLElement, range: Range) {
+  let candidate =
+    range.startContainer instanceof HTMLElement
+      ? range.startContainer
+      : range.startContainer.parentElement;
+  const selectedText = range.toString();
+
+  while (candidate && candidate !== editable) {
+    if (
+      candidate instanceof HTMLSpanElement &&
+      candidate.dataset.slideInlineStyle === "true" &&
+      candidate.contains(range.startContainer) &&
+      candidate.contains(range.endContainer) &&
+      candidate.textContent === selectedText
+    ) {
+      return candidate;
+    }
+    candidate = candidate.parentElement;
+  }
+  return null;
+}
+
 function elementAttributesMatch(a: HTMLSpanElement, b: HTMLSpanElement) {
   if (a.attributes.length !== b.attributes.length) return false;
   return Array.from(a.attributes).every(
@@ -156,18 +178,22 @@ export function applyInlineTextStyle(
   if (!range || stylePatchEntries(patch).length === 0)
     return { scope: "block" };
 
-  const fragment = range.extractContents();
-  const wrapper = document.createElement("span");
-  wrapper.dataset.slideInlineStyle = "true";
-  applyPatch(wrapper, patch);
+  let wrapper = selectedInlineWrapper(editable, range);
+  if (!wrapper) {
+    const fragment = range.extractContents();
+    wrapper = document.createElement("span");
+    wrapper.dataset.slideInlineStyle = "true";
+    wrapper.append(fragment);
+    range.insertNode(wrapper);
+  }
 
-  // A wrapper supplies inherited values to plain text. Existing nested spans
-  // can carry explicit values, so give every extracted descendant the patch too.
-  for (const child of Array.from(fragment.querySelectorAll<HTMLElement>("*"))) {
+  applyPatch(wrapper, patch);
+  // Existing nested spans can carry explicit values, so give every selected
+  // descendant the patch too. Reusing an exact wrapper keeps scrub updates
+  // flat instead of nesting one span per pointermove.
+  for (const child of Array.from(wrapper.querySelectorAll<HTMLElement>("*"))) {
     applyPatch(child, patch);
   }
-  wrapper.append(fragment);
-  range.insertNode(wrapper);
   // The active wrapper must survive normalization so the returned Range stays
   // connected to the editable. A later edit may merge older adjacent runs.
   normalizeInlineTextSpans(editable, wrapper);

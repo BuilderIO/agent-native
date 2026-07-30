@@ -50,6 +50,26 @@ describe("visual style controls", () => {
     );
   });
 
+  it("renders the filled color trigger without an outer border", () => {
+    act(() => {
+      root.render(
+        <VisualColorPicker
+          label="Fill"
+          value="#609ff8"
+          variant="filled"
+          onChange={() => {}}
+        />,
+      );
+    });
+
+    const trigger = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Fill"]',
+    );
+    expect(trigger?.classList.contains("border-0")).toBe(true);
+    expect(trigger?.classList.contains("border")).toBe(false);
+    expect(trigger?.className).toContain("bg-muted/80");
+  });
+
   it("uses the numeric value after a mixed scrub field receives focus", () => {
     act(() => {
       root.render(

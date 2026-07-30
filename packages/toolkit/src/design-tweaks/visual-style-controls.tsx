@@ -366,6 +366,7 @@ export function VisualColorPicker({
   contentProps,
   mixed = false,
   mixedLabel = "Mixed",
+  variant = "outline",
 }: {
   label: string;
   value: string;
@@ -383,6 +384,7 @@ export function VisualColorPicker({
     Record<`data-${string}`, string | undefined>;
   mixed?: boolean;
   mixedLabel?: string;
+  variant?: "outline" | "filled";
 }) {
   const [open, setOpen] = useState(false);
   const color = parseCssColor(value) ?? FALLBACK_RGBA;
@@ -460,7 +462,10 @@ export function VisualColorPicker({
           type="button"
           aria-label={label}
           className={cn(
-            "flex h-7 w-full cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background/70 px-2 text-[11px] shadow-none transition-colors hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            "flex h-7 w-full cursor-pointer items-center gap-1.5 rounded-md px-2 text-[11px] shadow-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            variant === "filled"
+              ? "border-0 bg-muted/80 hover:bg-muted"
+              : "border border-border bg-background/70 hover:bg-accent/60",
             className,
           )}
         >
