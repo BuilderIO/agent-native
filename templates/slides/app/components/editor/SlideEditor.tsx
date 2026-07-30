@@ -72,6 +72,7 @@ import type { DesignSystemData } from "../../../shared/api";
 import { BlockBubbleMenu } from "./BlockBubbleMenu";
 import ImageOverlay from "./ImageOverlay";
 import {
+  SlideBackgroundInspector,
   SlideStyleInspector,
   type SlideStylePatch,
   type SlideStyleSnapshot,
@@ -2493,11 +2494,12 @@ export default function SlideEditor({
                 }}
               />
             ) : (
-              <div className="flex h-11 items-center border-b border-border/70 px-3">
-                <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/70">
-                  {t("styleInspector.title")}
-                </span>
-              </div>
+              <SlideBackgroundInspector
+                background={slide.background}
+                designSystem={designSystem}
+                className="h-full w-full rounded-none border-0 bg-transparent shadow-none"
+                onChange={(background) => onUpdateSlide({ background })}
+              />
             )}
           </div>
         )}
