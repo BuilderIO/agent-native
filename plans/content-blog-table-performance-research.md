@@ -259,6 +259,79 @@ Alice approved these values on 2026-07-29 as the acceptance target for this lane
 | Prepare selected Builder update   | Success or typed validation error within 2 seconds                                                          |
 | Close review surface              | Within 100 ms                                                                                               |
 
+## Hosted acceptance ledger — 2026-07-30
+
+The Builder connection was restored and the production-like 584-row source was
+tested on PR #2522's exact Netlify deploy previews. The writable fixture was a
+task-owned Content database; the Builder model remained read-only.
+
+### Runtime improvements verified
+
+- Before the source-field projection fix, revealing Author took **15.49s**.
+  The bounded SQL projection reduced that to **969ms**; the later single-scan
+  path produced three hosted acknowledgements of **1,087ms**, **977ms**, and
+  **745ms** (median **977ms**) while the column painted optimistically in
+  **34.2ms** and the existing 100 rows never disappeared.
+- Sort retained the existing rows immediately. The hosted background request
+  was **1.49-1.59s** cold, so visual continuity passes while the cold
+  acknowledgement remains above the 1s target.
+- Opening the Builder review showed progressive changes within **465ms**. The
+  complete review request remained slow at **29.97s** (`app=26.14s`,
+  `db=3.81s`), so progressive acceptance passes but eager full completion does
+  not.
+- Prefetching Builder models when Sources opens reduced the measured
+  space-to-model paint from **1,263ms** to **43ms**.
+
+### Fresh 584-row attach measurements
+
+Exact deploy `6a6b7e943e99e3000899a44a` at commit `83c45829f`:
+
+- feedback: **93ms**;
+- first 100 useful rows: **5.56s**;
+- attach request: **5.40s** (`app=5.20s`, `db=2.46s`);
+- one complete continuation replaced five client-driven page continuations,
+  but still took **22.61s** (`app=22.35s`, `db=11.15s`);
+- complete metadata was therefore about **28.1s**, improved from the earlier
+  run that was still at 300 rows after **59.5s** and only known complete by
+  **182s**.
+
+Exact deploy `6a6b8100dac828000830b1de` at commit `46ffed6a3` reused the
+persisted row cursor and field schema:
+
+- feedback: **78ms**;
+- first 100 useful rows: **6.18s**;
+- attach request: **5.94s** (`app=5.64s`, `db=2.97s`);
+- remaining-row continuation: **20.30s** (`app=20.07s`, `db=10.29s`);
+- complete metadata: **29.38s** from pointer intent.
+
+The model-picker and immediate-feedback budgets now pass. First useful rows,
+complete metadata, and background bodies do not: the prior completed run
+reached 584 metadata rows between **59.5s and 182s**, then reported 582/584
+usable bodies ready by **280.5s**. The single-continuation implementation makes
+metadata substantially faster, but the accepted **2s / 10s / 30-60s** attach
+ladder is not yet met.
+
+### Verification and cleanup
+
+- Focused UI tests: **64 passed**.
+- Focused Builder resync tests: **4 passed**, including explicit full refresh,
+  continuation convergence, a 597-row snapshot, and typed model-field failure.
+- Content typecheck passed (with the existing Node 22.21/react-router version
+  warning).
+- PR fast lanes, Content DB tests, typecheck, build, security, and parity were
+  green at `e717fdb3b`; the unrelated standalone Chat template E2E was red.
+- All five task-owned hosted pages/databases were moved to Trash and permanently
+  deleted. The final Personal and Trash snapshots contained no
+  `__an_content_perf_2522_` marker. No Builder provider rows were written or
+  deleted.
+
+### Land decision
+
+Do not merge yet. The remaining ingestion work needs a separate bounded slice:
+parallelize the Builder list-page reads, reduce hosted SQL round trips while
+importing the remaining 484 rows, and bulk/lazily schedule body conversion
+without making metadata acknowledgement await the full hydration queue.
+
 The acceptance run must measure visible intent-to-paint and action completion separately. Background completion cannot be reported as blocking latency, and an optimistic paint cannot be reported as success before acknowledgement or rollback is observed.
 
 ## Local Performance Environment
