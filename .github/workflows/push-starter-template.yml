@@ -35,10 +35,13 @@ jobs:
     name: Materialize and push template branch
     runs-on: ubuntu-latest
     steps:
-      # Every trigger materializes main HEAD (the default ref for push /
-      # repository_dispatch / workflow_dispatch), so the mirror only ever moves
-      # forward — it can't revert to an older commit.
+      # Always materialize main HEAD, so the mirror only ever moves forward.
+      # push and repository_dispatch already resolve to main HEAD, but
+      # workflow_dispatch lets the operator pick any branch/tag — pinning
+      # ref: main stops a manual run from pushing stale template content.
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: main
 
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
 
