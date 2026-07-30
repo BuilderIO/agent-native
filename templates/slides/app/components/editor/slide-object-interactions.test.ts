@@ -14,6 +14,7 @@ import {
   getSlideSelectionIdentity,
   getSlideSelectionMode,
   removeSlideObjectAndLayoutSpacer,
+  resolveSlideObjectContainingBlock,
   resizeSlideObject,
 } from "./slide-object-interactions";
 
@@ -40,6 +41,42 @@ describe("slide object interactions", () => {
         920,
       ),
     ).toEqual({ x: -30, y: -40 });
+  });
+
+  it("uses the nearest positioned ancestor for nested freeform coordinates", () => {
+    const layer = document.createElement("div");
+    const layoutGroup = document.createElement("div");
+    const positionedParent = document.createElement("div");
+    const text = document.createElement("p");
+    positionedParent.style.position = "absolute";
+    positionedParent.append(text);
+    layoutGroup.append(positionedParent);
+    layer.append(layoutGroup);
+    document.body.append(layer);
+
+    const containingBlock = resolveSlideObjectContainingBlock(text, layer);
+
+    expect(containingBlock).toBe(positionedParent);
+    expect(
+      clientPointToSlideCoordinates(
+        250,
+        130,
+        { left: 200, top: 100, width: 800, height: 600 },
+        800,
+        600,
+      ),
+    ).toEqual({ x: 50, y: 30 });
+  });
+
+  it("falls back to the autofit layer for normal nested layout", () => {
+    const layer = document.createElement("div");
+    const layoutGroup = document.createElement("div");
+    const text = document.createElement("p");
+    layoutGroup.append(text);
+    layer.append(layoutGroup);
+    document.body.append(layer);
+
+    expect(resolveSlideObjectContainingBlock(text, layer)).toBe(layer);
   });
 
   it("gives clones a distinct persisted identity and drops runtime ids", () => {

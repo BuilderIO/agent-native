@@ -129,6 +129,20 @@ describe("rich text selection", () => {
     expect(window.getSelection()!.toString()).toBe("two");
   });
 
+  it("reuses one wrapper for repeated styles on the same selection", () => {
+    const block = editable("resize me");
+    const text = block.firstChild as Text;
+    rangeFor(text, 0, text, text.length);
+
+    applyInlineTextStyle(block, { fontSize: "20px" });
+    applyInlineTextStyle(block, { fontSize: "32px" });
+
+    const wrappers = block.querySelectorAll("span[data-slide-inline-style]");
+    expect(wrappers).toHaveLength(1);
+    expect((wrappers[0] as HTMLSpanElement).style.fontSize).toBe("32px");
+    expect(window.getSelection()!.toString()).toBe("resize me");
+  });
+
   it("reports a single inline value and null for mixed selected runs", () => {
     const block = editable(
       '<span style="color: rgb(96, 159, 248); font-size: 20px">blue</span><span style="color: rgb(239, 68, 68); font-size: 20px">red</span>',

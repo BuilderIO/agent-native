@@ -164,6 +164,44 @@ export function findSlideObjectById(
   );
 }
 
+/**
+ * Absolute offsets resolve against the nearest ancestor that establishes a
+ * containing block, not necessarily the slide's autofit layer. Keeping the
+ * original parent preserves nested layout semantics while this resolver keeps
+ * the measured viewport position stable when that child becomes freeform.
+ */
+export function resolveSlideObjectContainingBlock(
+  element: HTMLElement,
+  slideLayer: HTMLElement,
+): HTMLElement {
+  let ancestor = element.parentElement;
+  while (ancestor && ancestor !== slideLayer) {
+    const style = window.getComputedStyle(ancestor);
+    const position = style.position || "static";
+    const hasTransform = Boolean(style.transform && style.transform !== "none");
+    const hasPerspective = Boolean(
+      style.perspective && style.perspective !== "none",
+    );
+    const hasFilter = Boolean(style.filter && style.filter !== "none");
+    const containment = style.contain ?? "";
+    const hasContainment = ["layout", "paint", "strict", "content"].some(
+      (value) => containment.split(/\s+/).includes(value),
+    );
+
+    if (
+      position !== "static" ||
+      hasTransform ||
+      hasPerspective ||
+      hasFilter ||
+      hasContainment
+    ) {
+      return ancestor;
+    }
+    ancestor = ancestor.parentElement;
+  }
+  return slideLayer;
+}
+
 export function removeTransientBuilderIds(element: HTMLElement): void {
   element.removeAttribute("data-builder-id");
   element.querySelectorAll("[data-builder-id]").forEach((node) => {

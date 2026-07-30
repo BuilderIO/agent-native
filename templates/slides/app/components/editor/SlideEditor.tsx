@@ -94,6 +94,7 @@ import {
   getSlideSelectionIdentity,
   getSlideSelectionMode,
   removeSlideObjectAndLayoutSpacer,
+  resolveSlideObjectContainingBlock,
   resizeSlideObject,
   type ResizeHandle,
   type SlideObjectGeometry,
@@ -1429,15 +1430,19 @@ export default function SlideEditor({
         : null;
       if (!positioningLayer) return element;
 
+      const containingBlock = resolveSlideObjectContainingBlock(
+        element,
+        positioningLayer,
+      );
       const elementRect = element.getBoundingClientRect();
-      const layerRect = positioningLayer.getBoundingClientRect();
+      const layerRect = containingBlock.getBoundingClientRect();
       if (
         !elementRect.width ||
         !elementRect.height ||
         !layerRect.width ||
         !layerRect.height ||
-        !positioningLayer.offsetWidth ||
-        !positioningLayer.offsetHeight
+        !containingBlock.offsetWidth ||
+        !containingBlock.offsetHeight
       ) {
         return element;
       }
@@ -1446,11 +1451,11 @@ export default function SlideEditor({
         elementRect.left,
         elementRect.top,
         layerRect,
-        positioningLayer.offsetWidth,
-        positioningLayer.offsetHeight,
+        containingBlock.offsetWidth,
+        containingBlock.offsetHeight,
       );
-      const scaleX = positioningLayer.offsetWidth / layerRect.width;
-      const scaleY = positioningLayer.offsetHeight / layerRect.height;
+      const scaleX = containingBlock.offsetWidth / layerRect.width;
+      const scaleY = containingBlock.offsetHeight / layerRect.height;
       const computed = window.getComputedStyle(element);
       freezeSlideElementForFreeform(
         element,
