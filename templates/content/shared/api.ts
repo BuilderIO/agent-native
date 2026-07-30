@@ -782,6 +782,9 @@ export interface ContentDatabaseResponse {
   duplicatedDocumentIds?: string[];
   deletedItemIds?: string[];
   deletedDocumentIds?: string[];
+  removedItemIds?: string[];
+  removedDocumentIds?: string[];
+  removedCount?: number;
   timings?: BuilderActionTiming[];
 }
 

@@ -22,6 +22,7 @@ import {
   IconList,
   IconMinus,
   IconSearch,
+  IconStarOff,
   IconTable,
   IconTimeline,
   IconTrash,
@@ -53,12 +54,22 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { useDuplicateDatabaseItem } from "@/hooks/use-content-database";
-import { useDeleteDocument } from "@/hooks/use-documents";
+import {
+  isContentDatabaseUnavailable,
+  useContentDatabase,
+  useDuplicateDatabaseItem,
+  useRemoveDatabaseItems,
+} from "@/hooks/use-content-database";
+import {
+  useContentSpaces,
+  useDeleteContentSpace,
+} from "@/hooks/use-content-spaces";
+import { useDocument } from "@/hooks/use-documents";
 import { cn } from "@/lib/utils";
 
 import { OPTION_COLOR_CLASSES, TYPE_ICONS } from "../DocumentProperties";
 import { databaseDuplicatedItemFromResponse } from "./navigation-state";
+import { databaseItemIsSourceBacked } from "./row-access";
 import type { DatabaseBoardGroup, DatabaseDropSide } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -518,11 +529,36 @@ export function RowActionsCell({
   onOpenPage: () => void;
 }) {
   const queryClient = useQueryClient();
-  const deleteDocument = useDeleteDocument();
+  const contentSpaces = useContentSpaces();
+  const { data: databaseDocument } = useDocument(databaseDocumentId);
+  const databaseQuery = useContentDatabase(databaseDocumentId);
   const duplicateItem = useDuplicateDatabaseItem(databaseDocumentId);
+  const removeItems = useRemoveDatabaseItems(databaseDocumentId);
+  const deleteContentSpace = useDeleteContentSpace();
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const title = item.document.title || "Untitled";
+  const removesFavoriteMembership =
+    contentSpaces.data?.favoritesDocumentId === databaseDocumentId;
+  const isWorkspaceCatalog =
+    contentSpaces.data?.catalogDocumentId === databaseDocumentId;
+  const workspaceSpace = contentSpaces.data?.spaces.find(
+    (space) => space.catalogDocumentId === item.document.id,
+  );
+  const canDeleteWorkspace =
+    isWorkspaceCatalog && workspaceSpace?.kind === "user";
+  const databaseData = isContentDatabaseUnavailable(databaseQuery.data)
+    ? undefined
+    : databaseQuery.data;
+  const databaseSources =
+    databaseData?.sources ??
+    (databaseData?.source ? [databaseData.source] : []);
+  const canRemoveFromDatabase = removesFavoriteMembership
+    ? databaseDocument?.canEdit === true
+    : databaseData !== undefined &&
+      databaseDocument?.canManage === true &&
+      !isWorkspaceCatalog &&
+      !databaseItemIsSourceBacked(item, databaseSources);
 
   async function duplicateRow() {
     setMenuOpen(false);
@@ -538,10 +574,17 @@ export function RowActionsCell({
     }
   }
 
-  async function deleteRow() {
+  async function removeRowOrDeleteWorkspace() {
     const previewMoved = onDeletedPreviewItem?.(item) ?? false;
     try {
-      await deleteDocument.mutateAsync({ id: item.document.id });
+      if (canDeleteWorkspace && workspaceSpace) {
+        await deleteContentSpace.mutateAsync({ spaceId: workspaceSpace.id });
+      } else {
+        await removeItems.mutateAsync({
+          documentId: databaseDocumentId,
+          documentIds: [item.document.id],
+        });
+      }
       await queryClient.invalidateQueries({
         queryKey: [
           "action",
@@ -554,10 +597,15 @@ export function RowActionsCell({
       });
     } catch (err) {
       if (previewMoved) onPreviewItem?.(item);
-      toast.error("Failed to delete row", {
-        description:
-          err instanceof Error ? err.message : "Something went wrong",
-      });
+      toast.error(
+        canDeleteWorkspace
+          ? "Failed to delete workspace"
+          : "Failed to remove row from database",
+        {
+          description:
+            err instanceof Error ? err.message : "Something went wrong",
+        },
+      );
     }
   }
 
@@ -584,48 +632,89 @@ export function RowActionsCell({
             <IconExternalLink className="mr-2 size-4 text-muted-foreground" />
             Open page
           </DropdownMenuItem>
-          <DropdownMenuItem
-            disabled={duplicateItem.isPending}
-            onSelect={(event) => {
-              event.preventDefault();
-              void duplicateRow();
-            }}
-          >
-            <IconCopy className="mr-2 size-4 text-muted-foreground" />
-            Duplicate row
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            className="text-destructive focus:bg-destructive/10 focus:text-destructive"
-            onSelect={(event) => {
-              event.preventDefault();
-              setMenuOpen(false);
-              setConfirmDeleteOpen(true);
-            }}
-          >
-            <IconTrash className="mr-2 size-4" />
-            Delete row
-          </DropdownMenuItem>
+          {!isWorkspaceCatalog ? (
+            <DropdownMenuItem
+              disabled={duplicateItem.isPending}
+              onSelect={(event) => {
+                event.preventDefault();
+                void duplicateRow();
+              }}
+            >
+              <IconCopy className="mr-2 size-4 text-muted-foreground" />
+              Duplicate row
+            </DropdownMenuItem>
+          ) : null}
+          {canRemoveFromDatabase || canDeleteWorkspace ? (
+            <DropdownMenuSeparator />
+          ) : null}
+          {canRemoveFromDatabase || canDeleteWorkspace ? (
+            <DropdownMenuItem
+              className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+              onSelect={(event) => {
+                event.preventDefault();
+                setMenuOpen(false);
+                if (removesFavoriteMembership) {
+                  void removeRowOrDeleteWorkspace();
+                } else {
+                  setConfirmDeleteOpen(true);
+                }
+              }}
+            >
+              {removesFavoriteMembership ? (
+                <IconStarOff className="mr-2 size-4 text-muted-foreground" />
+              ) : (
+                <IconTrash className="mr-2 size-4" />
+              )}
+              {removesFavoriteMembership
+                ? "Remove from favorites"
+                : canDeleteWorkspace
+                  ? "Delete workspace"
+                  : "Remove from database"}
+            </DropdownMenuItem>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
+      <AlertDialog
+        open={!removesFavoriteMembership && confirmDeleteOpen}
+        onOpenChange={setConfirmDeleteOpen}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete row?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {canDeleteWorkspace
+                ? "Delete workspace?"
+                : "Remove from database?"}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              &ldquo;{title}&rdquo; and any sub-pages will be permanently
-              deleted. This cannot be undone.
+              {canDeleteWorkspace ? (
+                <>
+                  &ldquo;{title}&rdquo; and every page and database inside it
+                  will be permanently deleted. This cannot be undone.
+                </>
+              ) : (
+                <>
+                  &ldquo;{title}&rdquo; will remain available in Files and any
+                  other databases. Values belonging only to this database will
+                  be removed.
+                </>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={deleteDocument.isPending}
-              onClick={() => void deleteRow()}
+              disabled={removeItems.isPending || deleteContentSpace.isPending}
+              onClick={() => void removeRowOrDeleteWorkspace()}
             >
-              {deleteDocument.isPending ? "Deleting..." : "Delete"}
+              {removeItems.isPending || deleteContentSpace.isPending
+                ? canDeleteWorkspace
+                  ? "Deleting..."
+                  : "Removing..."
+                : canDeleteWorkspace
+                  ? "Delete"
+                  : "Remove"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

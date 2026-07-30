@@ -16,9 +16,9 @@ let getDb: () => any;
 let schema: Schema;
 let duplicateDatabaseItemsAction: typeof import("./duplicate-database-items.js").default;
 let duplicateDatabaseItemAction: typeof import("./duplicate-database-item.js").default;
-let deleteDatabaseItemsAction: typeof import("./delete-database-items.js").default;
+let removeDatabaseItemsAction: typeof import("./remove-database-items.js").default;
 let addDatabaseItemAction: typeof import("./add-database-item.js").default;
-let restoreDocumentAction: typeof import("./restore-document.js").default;
+let lockDatabaseMemberships: typeof import("./_database-membership-lock.js").lockDatabaseMemberships;
 let spaceId: string;
 
 const OWNER = "owner@example.com";
@@ -33,10 +33,11 @@ beforeAll(async () => {
     .default;
   duplicateDatabaseItemAction = (await import("./duplicate-database-item.js"))
     .default;
-  deleteDatabaseItemsAction = (await import("./delete-database-items.js"))
+  removeDatabaseItemsAction = (await import("./remove-database-items.js"))
     .default;
   addDatabaseItemAction = (await import("./add-database-item.js")).default;
-  restoreDocumentAction = (await import("./restore-document.js")).default;
+  ({ lockDatabaseMemberships } =
+    await import("./_database-membership-lock.js"));
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
   const { systemIdsForContentSpace } = await import("./_content-spaces.js");
@@ -315,7 +316,7 @@ describe("database row batch actions", () => {
     expect(await orderedRows(second.databaseId)).toHaveLength(1);
   });
 
-  it("deletes selected rows recursively in one batch and renumbers survivors", async () => {
+  it("removes memberships and database-local values while preserving pages", async () => {
     const db = getDb();
     const { databaseId, databaseDocumentId, rows } =
       await createDatabaseWithRows(4);
@@ -325,11 +326,50 @@ describe("database row batch actions", () => {
     });
     const now = new Date().toISOString();
     const propertyId = nextId("property");
-    await db.insert(schema.documentPropertyDefinitions).values({
-      id: propertyId,
+    const blocksPropertyId = nextId("blocks_property");
+    await db.insert(schema.documentPropertyDefinitions).values([
+      {
+        id: propertyId,
+        ownerEmail: OWNER,
+        databaseId,
+        name: "Notes",
+        type: "text",
+        visibility: "always_show",
+        optionsJson: "{}",
+        position: 0,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: blocksPropertyId,
+        ownerEmail: OWNER,
+        databaseId,
+        name: "Research",
+        type: "blocks",
+        visibility: "always_show",
+        optionsJson: JSON.stringify({ blocksStorage: "field" }),
+        position: 1,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    const other = await createDatabaseWithRows(0);
+    const otherItemId = nextId("other_item");
+    const otherPropertyId = nextId("other_property");
+    await db.insert(schema.contentDatabaseItems).values({
+      id: otherItemId,
       ownerEmail: OWNER,
-      databaseId,
-      name: "Notes",
+      databaseId: other.databaseId,
+      documentId: rows[1].documentId,
+      position: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.documentPropertyDefinitions).values({
+      id: otherPropertyId,
+      ownerEmail: OWNER,
+      databaseId: other.databaseId,
+      name: "Other notes",
       type: "text",
       visibility: "always_show",
       optionsJson: "{}",
@@ -337,37 +377,58 @@ describe("database row batch actions", () => {
       createdAt: now,
       updatedAt: now,
     });
-    await db.insert(schema.documentPropertyValues).values({
-      id: nextId("value"),
+    await db.insert(schema.documentPropertyValues).values([
+      {
+        id: nextId("value"),
+        ownerEmail: OWNER,
+        documentId: rows[1].documentId,
+        propertyId,
+        valueJson: JSON.stringify("Remove me"),
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: nextId("value"),
+        ownerEmail: OWNER,
+        documentId: rows[1].documentId,
+        propertyId: otherPropertyId,
+        valueJson: JSON.stringify("Preserve me"),
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    await db.insert(schema.documentBlockFieldContents).values({
+      id: nextId("blocks_value"),
       ownerEmail: OWNER,
       documentId: rows[1].documentId,
-      propertyId,
-      valueJson: JSON.stringify("Delete me"),
+      propertyId: blocksPropertyId,
+      content: "Remove this database-local Blocks value",
       createdAt: now,
       updatedAt: now,
     });
 
     const result = await runWithRequestContext({ userEmail: OWNER }, () =>
-      deleteDatabaseItemsAction.run({
+      removeDatabaseItemsAction.run({
         documentId: databaseDocumentId,
         itemIds: [rows[1].itemId, rows[2].itemId],
       }),
     );
 
-    expect(result.deletedItemIds).toEqual([rows[1].itemId, rows[2].itemId]);
-    expect(result.deletedDocumentIds).toEqual([
+    expect(result.removedItemIds).toEqual([rows[1].itemId, rows[2].itemId]);
+    expect(result.removedDocumentIds).toEqual([
       rows[1].documentId,
       rows[2].documentId,
     ]);
-    expect(result.deletedCount).toBe(2);
+    expect(result.removedCount).toBe(2);
     const remainingRows = await orderedRows(databaseId);
     expect(remainingRows.map((row) => row.title)).toEqual(["Row 0", "Row 3"]);
     expect(remainingRows.map((row) => row.itemPosition)).toEqual([0, 1]);
 
-    const deletedDocs = await db
+    const preservedDocs = await db
       .select({
         id: schema.documents.id,
         trashedAt: schema.documents.trashedAt,
+        content: schema.documents.content,
       })
       .from(schema.documents)
       .where(
@@ -377,19 +438,51 @@ describe("database row batch actions", () => {
           childDocumentId,
         ]),
       );
-    expect(deletedDocs).toHaveLength(3);
-    expect(deletedDocs.every((document) => document.trashedAt)).toBe(true);
+    expect(preservedDocs).toHaveLength(3);
+    expect(preservedDocs.every((document) => document.trashedAt === null)).toBe(
+      true,
+    );
+    expect(
+      preservedDocs.find((document) => document.id === rows[1].documentId)
+        ?.content,
+    ).toBe("Content 1");
+    expect(await orderedRows(other.databaseId)).toEqual([
+      expect.objectContaining({
+        itemId: otherItemId,
+        documentId: rows[1].documentId,
+      }),
+    ]);
     const preservedValues = await db
       .select()
       .from(schema.documentPropertyValues)
       .where(eq(schema.documentPropertyValues.documentId, rows[1].documentId));
-    expect(preservedValues).toHaveLength(1);
+    expect(preservedValues).toEqual([
+      expect.objectContaining({ propertyId: otherPropertyId }),
+    ]);
+    await expect(
+      db
+        .select()
+        .from(schema.documentBlockFieldContents)
+        .where(
+          eq(schema.documentBlockFieldContents.documentId, rows[1].documentId),
+        ),
+    ).resolves.toEqual([]);
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        removeDatabaseItemsAction.run({
+          databaseId,
+          documentIds: [rows[1].documentId, rows[2].documentId],
+        }),
+      ),
+    ).rejects.toThrow("All requested rows must exist in the target database");
+    expect(await orderedRows(databaseId)).toHaveLength(2);
   });
 
-  it("rejects duplicating trashed rows and restores unique ordering", async () => {
+  it("keeps removed pages out of duplicate actions", async () => {
     const { databaseId, rows } = await createDatabaseWithRows(2);
     await runWithRequestContext({ userEmail: OWNER }, () =>
-      deleteDatabaseItemsAction.run({
+      removeDatabaseItemsAction.run({
         databaseId,
         itemIds: [rows[0].itemId],
       }),
@@ -409,15 +502,14 @@ describe("database row batch actions", () => {
       ),
     ).rejects.toThrow("All requested rows must exist in the target database");
 
-    await runWithRequestContext({ userEmail: OWNER }, () =>
-      restoreDocumentAction.run({ id: rows[0].documentId }),
-    );
-    const restoredRows = await orderedRows(databaseId);
-    expect(restoredRows.map((row) => row.itemPosition)).toEqual([0, 1]);
-    expect(restoredRows.map((row) => row.documentPosition)).toEqual([0, 1]);
+    const [page] = await getDb()
+      .select({ trashedAt: schema.documents.trashedAt })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, rows[0].documentId));
+    expect(page.trashedAt).toBeNull();
   });
 
-  it("rejects unauthorized delete batches before writing", async () => {
+  it("rejects Can edit entries removal before writing", async () => {
     const { databaseId, databaseDocumentId, rows } =
       await createDatabaseWithRows(2);
     const db = getDb();
@@ -433,14 +525,203 @@ describe("database row batch actions", () => {
 
     await expect(
       runWithRequestContext({ userEmail: COLLABORATOR }, () =>
-        deleteDatabaseItemsAction.run({
+        removeDatabaseItemsAction.run({
           databaseId,
           itemIds: [rows[0].itemId, rows[1].itemId],
         }),
       ),
-    ).rejects.toThrow(`No access to document ${rows[0].documentId}`);
+    ).rejects.toThrow(
+      `Requires admin role on document ${databaseDocumentId} (have editor)`,
+    );
 
     expect(await orderedRows(databaseId)).toHaveLength(2);
+  });
+
+  it("rejects mixed target and foreign memberships before writing", async () => {
+    const target = await createDatabaseWithRows(2);
+    const foreign = await createDatabaseWithRows(1);
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        removeDatabaseItemsAction.run({
+          databaseId: target.databaseId,
+          itemIds: [target.rows[0].itemId, foreign.rows[0].itemId],
+        }),
+      ),
+    ).rejects.toThrow("All requested rows must exist in the target database");
+
+    expect(await orderedRows(target.databaseId)).toHaveLength(2);
+    expect(await orderedRows(foreign.databaseId)).toHaveLength(1);
+  });
+
+  it("allows Can edit database with view-only access to the row pages", async () => {
+    const { databaseId, databaseDocumentId, rows } =
+      await createDatabaseWithRows(2);
+    const now = new Date().toISOString();
+    await getDb()
+      .insert(schema.documentShares)
+      .values([
+        {
+          id: nextId("share"),
+          resourceId: databaseDocumentId,
+          principalType: "user",
+          principalId: COLLABORATOR,
+          role: "admin",
+          createdBy: OWNER,
+          createdAt: now,
+        },
+        ...rows.map((row) => ({
+          id: nextId("share"),
+          resourceId: row.documentId,
+          principalType: "user" as const,
+          principalId: COLLABORATOR,
+          role: "viewer" as const,
+          createdBy: OWNER,
+          createdAt: now,
+        })),
+      ]);
+
+    const result = await runWithRequestContext(
+      { userEmail: COLLABORATOR },
+      () =>
+        removeDatabaseItemsAction.run({
+          databaseId,
+          documentIds: [rows[0].documentId],
+        }),
+    );
+
+    expect(result.removedDocumentIds).toEqual([rows[0].documentId]);
+    expect(await orderedRows(databaseId)).toHaveLength(1);
+    const [page] = await getDb()
+      .select({ trashedAt: schema.documents.trashedAt })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, rows[0].documentId));
+    expect(page.trashedAt).toBeNull();
+  });
+
+  it("rejects source-backed row removal before writing", async () => {
+    const { databaseId, rows } = await createDatabaseWithRows(1);
+    const now = new Date().toISOString();
+    const sourceId = nextId("source");
+    await getDb().insert(schema.contentDatabaseSources).values({
+      id: sourceId,
+      ownerEmail: OWNER,
+      databaseId,
+      sourceType: "notion",
+      sourceName: "Read-only source",
+      sourceTable: "pages",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await getDb()
+      .insert(schema.contentDatabaseSourceRows)
+      .values({
+        id: nextId("source_row"),
+        ownerEmail: OWNER,
+        sourceId,
+        databaseItemId: rows[0].itemId,
+        documentId: rows[0].documentId,
+        sourceRowId: "source-row-1",
+        sourceQualifiedId: "notion:source-row-1",
+        sourceDisplayKey: "Source row",
+        createdAt: now,
+        updatedAt: now,
+      });
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        removeDatabaseItemsAction.run({
+          databaseId,
+          itemIds: [rows[0].itemId],
+        }),
+      ),
+    ).rejects.toThrow("Source-backed rows cannot be removed");
+    expect(await orderedRows(databaseId)).toHaveLength(1);
+
+    await getDb()
+      .delete(schema.contentDatabaseSourceRows)
+      .where(
+        eq(schema.contentDatabaseSourceRows.databaseItemId, rows[0].itemId),
+      );
+    await getDb()
+      .insert(schema.contentDatabaseBodyHydrationQueue)
+      .values({
+        id: nextId("hydration"),
+        ownerEmail: OWNER,
+        sourceId,
+        databaseItemId: rows[0].itemId,
+        documentId: rows[0].documentId,
+        sourceRowId: "source-row-1",
+        sourceTable: "pages",
+        createdAt: now,
+        updatedAt: now,
+      });
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        removeDatabaseItemsAction.run({
+          databaseId,
+          itemIds: [rows[0].itemId],
+        }),
+      ),
+    ).rejects.toThrow("Source-backed rows cannot be removed");
+    expect(await orderedRows(databaseId)).toHaveLength(1);
+  });
+
+  it("serializes a racing source association before membership removal", async () => {
+    const { databaseId, rows } = await createDatabaseWithRows(1);
+    const now = new Date().toISOString();
+    const sourceId = nextId("source");
+    await getDb().insert(schema.contentDatabaseSources).values({
+      id: sourceId,
+      ownerEmail: OWNER,
+      databaseId,
+      sourceType: "notion",
+      sourceName: "Racing source",
+      sourceTable: "pages",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    let releaseWriter!: () => void;
+    const writerCanFinish = new Promise<void>((resolve) => {
+      releaseWriter = resolve;
+    });
+    let writerLocked!: () => void;
+    const writerHasLock = new Promise<void>((resolve) => {
+      writerLocked = resolve;
+    });
+    const writer = getDb().transaction(async (tx: any) => {
+      await lockDatabaseMemberships(tx, [rows[0].itemId]);
+      writerLocked();
+      await writerCanFinish;
+      await tx.insert(schema.contentDatabaseSourceRows).values({
+        id: nextId("source_row"),
+        ownerEmail: OWNER,
+        sourceId,
+        databaseItemId: rows[0].itemId,
+        documentId: rows[0].documentId,
+        sourceRowId: "racing-row",
+        sourceQualifiedId: "notion:racing-row",
+        sourceDisplayKey: "Racing row",
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+    await writerHasLock;
+
+    const removal = runWithRequestContext({ userEmail: OWNER }, () =>
+      removeDatabaseItemsAction.run({
+        databaseId,
+        itemIds: [rows[0].itemId],
+      }),
+    );
+    releaseWriter();
+    await writer;
+
+    await expect(removal).rejects.toThrow(
+      "Source-backed rows cannot be removed",
+    );
+    expect(await orderedRows(databaseId)).toHaveLength(1);
   });
 
   it("rejects oversized batches before mutation", async () => {

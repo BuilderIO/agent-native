@@ -299,7 +299,7 @@ export const parityMatrix: ParityRow[] = [
     status: "action-backed",
     actions: [
       "add-database-item",
-      "delete-database-items",
+      "remove-database-items",
       "delete-document",
       "duplicate-database-items",
       "duplicate-database-item",

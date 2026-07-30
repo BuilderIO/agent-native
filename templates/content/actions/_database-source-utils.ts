@@ -86,6 +86,7 @@ import {
   organizationContentSpaceId,
   provisionContentSpaces,
 } from "./_content-spaces.js";
+import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import { ensureFilesSystemPropertyDefinitions } from "./_files-system-properties.js";
 import {
   databaseItemsPositionScope,
@@ -1438,89 +1439,92 @@ async function enqueueBuilderBodyHydrations(
   const databaseItemIds = Array.from(
     new Set(uniqueRequests.map((request) => request.databaseItemId)),
   );
-  const existingRows: ContentDatabaseBodyHydrationQueueRowDb[] = [];
-  for (const idChunk of chunks(databaseItemIds, idChunkSize())) {
-    existingRows.push(
-      ...(await db
-        .select()
-        .from(schema.contentDatabaseBodyHydrationQueue)
-        .where(
-          inArray(
-            schema.contentDatabaseBodyHydrationQueue.databaseItemId,
-            idChunk,
-          ),
-        )),
+  return db.transaction(async (tx) => {
+    await lockDatabaseMemberships(tx, databaseItemIds);
+    const existingRows: ContentDatabaseBodyHydrationQueueRowDb[] = [];
+    for (const idChunk of chunks(databaseItemIds, idChunkSize())) {
+      existingRows.push(
+        ...(await tx
+          .select()
+          .from(schema.contentDatabaseBodyHydrationQueue)
+          .where(
+            inArray(
+              schema.contentDatabaseBodyHydrationQueue.databaseItemId,
+              idChunk,
+            ),
+          )),
+      );
+    }
+    const existingByItemId = new Map(
+      existingRows.map((row) => [row.databaseItemId, row]),
     );
-  }
-  const existingByItemId = new Map(
-    existingRows.map((row) => [row.databaseItemId, row]),
-  );
-  const queueRows: (typeof schema.contentDatabaseBodyHydrationQueue.$inferInsert)[] =
-    [];
-  for (const request of uniqueRequests) {
-    const existing = existingByItemId.get(request.databaseItemId);
-    const existingEntry = existing ? parseHydrationEntry(existing) : null;
-    const shouldPreserveExistingEntry =
-      builderEntryHasBodyContent(existingEntry) &&
-      !builderEntryHasBodyContent(request.entry);
-    const priority =
-      request.priority ??
-      builderBodyHydrationPriorityForRequest({ documentId: null });
-    queueRows.push({
-      id: existing?.id ?? crypto.randomUUID(),
-      ownerEmail: request.ownerEmail,
-      orgId: request.orgId,
-      sourceId: request.sourceId,
-      databaseItemId: request.databaseItemId,
-      documentId: request.documentId,
-      sourceRowId: request.entry.id,
-      sourceTable: request.sourceTable,
-      sourceEntryJson: shouldPreserveExistingEntry
-        ? existing!.sourceEntryJson
-        : JSON.stringify(request.entry),
-      priority: Math.min(existing?.priority ?? priority, priority),
-      attempts: existing?.attempts ?? 0,
-      lastAttemptedAt: existing?.lastAttemptedAt ?? null,
-      lastError: null,
-      createdAt: existing?.createdAt ?? request.now,
-      updatedAt: request.now,
-    });
-  }
-  const upsertedRows: ContentDatabaseBodyHydrationQueueRowDb[] = [];
-  for (const chunk of chunks(queueRows, bulkChunkSizeForColumnCount(15))) {
-    upsertedRows.push(
-      ...(await db
-        .insert(schema.contentDatabaseBodyHydrationQueue)
-        .values(chunk)
-        .onConflictDoUpdate({
-          target: schema.contentDatabaseBodyHydrationQueue.databaseItemId,
-          set: {
-            ownerEmail: sql`excluded.owner_email`,
-            orgId: sql`excluded.org_id`,
-            sourceId: sql`excluded.source_id`,
-            documentId: sql`excluded.document_id`,
-            sourceRowId: sql`excluded.source_row_id`,
-            sourceTable: sql`excluded.source_table`,
-            sourceEntryJson: sql`excluded.source_entry_json`,
-            priority: sql`excluded.priority`,
-            lastError: null,
-            updatedAt: sql`excluded.updated_at`,
-          },
+    const queueRows: (typeof schema.contentDatabaseBodyHydrationQueue.$inferInsert)[] =
+      [];
+    for (const request of uniqueRequests) {
+      const existing = existingByItemId.get(request.databaseItemId);
+      const existingEntry = existing ? parseHydrationEntry(existing) : null;
+      const shouldPreserveExistingEntry =
+        builderEntryHasBodyContent(existingEntry) &&
+        !builderEntryHasBodyContent(request.entry);
+      const priority =
+        request.priority ??
+        builderBodyHydrationPriorityForRequest({ documentId: null });
+      queueRows.push({
+        id: existing?.id ?? crypto.randomUUID(),
+        ownerEmail: request.ownerEmail,
+        orgId: request.orgId,
+        sourceId: request.sourceId,
+        databaseItemId: request.databaseItemId,
+        documentId: request.documentId,
+        sourceRowId: request.entry.id,
+        sourceTable: request.sourceTable,
+        sourceEntryJson: shouldPreserveExistingEntry
+          ? existing!.sourceEntryJson
+          : JSON.stringify(request.entry),
+        priority: Math.min(existing?.priority ?? priority, priority),
+        attempts: existing?.attempts ?? 0,
+        lastAttemptedAt: existing?.lastAttemptedAt ?? null,
+        lastError: null,
+        createdAt: existing?.createdAt ?? request.now,
+        updatedAt: request.now,
+      });
+    }
+    const upsertedRows: ContentDatabaseBodyHydrationQueueRowDb[] = [];
+    for (const chunk of chunks(queueRows, bulkChunkSizeForColumnCount(15))) {
+      upsertedRows.push(
+        ...(await tx
+          .insert(schema.contentDatabaseBodyHydrationQueue)
+          .values(chunk)
+          .onConflictDoUpdate({
+            target: schema.contentDatabaseBodyHydrationQueue.databaseItemId,
+            set: {
+              ownerEmail: sql`excluded.owner_email`,
+              orgId: sql`excluded.org_id`,
+              sourceId: sql`excluded.source_id`,
+              documentId: sql`excluded.document_id`,
+              sourceRowId: sql`excluded.source_row_id`,
+              sourceTable: sql`excluded.source_table`,
+              sourceEntryJson: sql`excluded.source_entry_json`,
+              priority: sql`excluded.priority`,
+              lastError: null,
+              updatedAt: sql`excluded.updated_at`,
+            },
+          })
+          .returning()),
+      );
+    }
+    for (const idChunk of chunks(databaseItemIds, idChunkSize())) {
+      await tx
+        .update(schema.contentDatabaseItems)
+        .set({
+          bodyHydrationStatus: "pending",
+          bodyHydrationError: null,
+          updatedAt: uniqueRequests[0]!.now,
         })
-        .returning()),
-    );
-  }
-  for (const idChunk of chunks(databaseItemIds, idChunkSize())) {
-    await db
-      .update(schema.contentDatabaseItems)
-      .set({
-        bodyHydrationStatus: "pending",
-        bodyHydrationError: null,
-        updatedAt: uniqueRequests[0]!.now,
-      })
-      .where(inArray(schema.contentDatabaseItems.id, idChunk));
-  }
-  return upsertedRows;
+        .where(inArray(schema.contentDatabaseItems.id, idChunk));
+    }
+    return upsertedRows;
+  });
 }
 
 export async function enqueueBuilderBodyHydrationForItems(args: {
@@ -4944,26 +4948,32 @@ export async function seedMockSourceRows(args: {
       updatedAt: args.now,
     };
   });
-  await db
-    .insert(schema.contentDatabaseSourceRows)
-    .values(rows)
-    .onConflictDoNothing();
+  await db.transaction(async (tx) => {
+    await lockDatabaseMemberships(
+      tx,
+      rows.map((row) => row.databaseItemId),
+    );
+    await tx
+      .insert(schema.contentDatabaseSourceRows)
+      .values(rows)
+      .onConflictDoNothing();
 
-  const fixtureItemIds = rows
-    .filter((row) => row.provenance === BUILDER_CMS_FIXTURE_ROW_PROVENANCE)
-    .map((row) => row.databaseItemId);
-  for (const idChunk of chunks(fixtureItemIds, idChunkSize())) {
-    await db
-      .update(schema.contentDatabaseItems)
-      .set({
-        bodyHydrationStatus: "unavailable",
-        bodyHydrationAttemptedAt: args.now,
-        bodyHydrationError: null,
-        bodyHydrationVersion: null,
-        updatedAt: args.now,
-      })
-      .where(inArray(schema.contentDatabaseItems.id, idChunk));
-  }
+    const fixtureItemIds = rows
+      .filter((row) => row.provenance === BUILDER_CMS_FIXTURE_ROW_PROVENANCE)
+      .map((row) => row.databaseItemId);
+    for (const idChunk of chunks(fixtureItemIds, idChunkSize())) {
+      await tx
+        .update(schema.contentDatabaseItems)
+        .set({
+          bodyHydrationStatus: "unavailable",
+          bodyHydrationAttemptedAt: args.now,
+          bodyHydrationError: null,
+          bodyHydrationVersion: null,
+          updatedAt: args.now,
+        })
+        .where(inArray(schema.contentDatabaseItems.id, idChunk));
+    }
+  });
 }
 
 export function sourceValuesForSeededSourceRow(args: {
