@@ -20,14 +20,24 @@ import {
 } from "../server/lib/documents.js";
 import type {
   ContentDatabaseBodyHydration,
+  ContentDatabaseItem,
   ContentDatabaseMembership,
   ContentDatabaseResponse,
   ContentDatabaseTableQuery,
+  DocumentProperty,
 } from "../shared/api.js";
 import {
   applyContentDatabaseTableQuery,
   contentDatabaseTableQueryUsesProperties,
 } from "../shared/database-query.js";
+import {
+  evaluatePropertyFormula,
+  isBlocksPropertyType,
+  isComputedPropertyType,
+  isPrimaryBlocksField,
+  parsePropertyValue,
+  type DocumentPropertyType,
+} from "../shared/properties.js";
 import { favoriteDocumentIds } from "./_content-favorites.js";
 import {
   listContentOrganizationMemberships,
@@ -51,6 +61,56 @@ import {
 export { getDocumentContextPath };
 
 export const CONTENT_DATABASE_MAX_READ_LIMIT = 5_000;
+
+const QUERY_PROJECTION_UNSUPPORTED_PROPERTY_TYPES =
+  new Set<DocumentPropertyType>(["rollup"]);
+
+function boundedTableQueryProjectionPropertyIds(
+  query: ContentDatabaseTableQuery,
+  properties: DocumentProperty[],
+) {
+  let propertyIds = new Set(
+    query.search.trim()
+      ? properties.map((property) => property.definition.id)
+      : [...query.filters, ...query.sorts]
+          .map((constraint) => constraint.key)
+          .filter((key) => key !== "name"),
+  );
+  if (
+    properties.some(
+      (property) =>
+        propertyIds.has(property.definition.id) &&
+        property.definition.type === "formula",
+    )
+  ) {
+    propertyIds = new Set(properties.map((property) => property.definition.id));
+  }
+  for (const property of properties) {
+    if (
+      propertyIds.has(property.definition.id) &&
+      QUERY_PROJECTION_UNSUPPORTED_PROPERTY_TYPES.has(property.definition.type)
+    ) {
+      return null;
+    }
+  }
+  return propertyIds;
+}
+
+function projectedComputedPropertyValue(
+  type: DocumentPropertyType,
+  document: {
+    ownerEmail: string;
+    createdAt: string;
+    updatedAt: string;
+  },
+) {
+  if (type === "created_time") return document.createdAt;
+  if (type === "created_by" || type === "last_edited_by") {
+    return document.ownerEmail;
+  }
+  if (type === "last_edited_time") return document.updatedAt;
+  return null;
+}
 
 export const contentDatabaseTableQuerySchema = z
   .object({
@@ -442,6 +502,7 @@ export async function resolveContentDatabaseRead(args: {
 type ContentDatabasePageBuild = ContentDatabasePageResponse & {
   databaseRecord: typeof schema.contentDatabases.$inferSelect;
   properties: ContentDatabaseResponse["properties"];
+  hydratedItemCount: number;
 };
 
 export async function getContentDatabasePageResponse(
@@ -615,18 +676,191 @@ export async function getContentDatabasePageResponse(
     );
   }
 
+  const databaseProperties = await listPropertiesForDatabase(databaseId);
+  const boundedProjectionPropertyIds =
+    serverTableQuery && !database.systemRole
+      ? boundedTableQueryProjectionPropertyIds(
+          serverTableQuery,
+          databaseProperties,
+        )
+      : null;
+
   let itemsQuery = db
     .select()
     .from(schema.contentDatabaseItems)
     .where(visibleItemFilter)
-    .orderBy(asc(schema.contentDatabaseItems.position))
+    .orderBy(
+      asc(schema.contentDatabaseItems.position),
+      asc(schema.contentDatabaseItems.createdAt),
+      asc(schema.contentDatabaseItems.id),
+    )
     .$dynamic();
   if (serverTableQuery) {
     itemsQuery = itemsQuery.limit(CONTENT_DATABASE_MAX_READ_LIMIT);
   } else if (limit !== null) {
     itemsQuery = itemsQuery.limit(limit).offset(offset);
   }
-  const items = await itemsQuery;
+  let items = await itemsQuery;
+  let boundedTableQueryTotal: number | null = null;
+  if (serverTableQuery && boundedProjectionPropertyIds) {
+    const candidateDocuments = await db
+      .select({
+        id: schema.documents.id,
+        title: schema.documents.title,
+        ownerEmail: schema.documents.ownerEmail,
+        createdAt: schema.documents.createdAt,
+        updatedAt: schema.documents.updatedAt,
+      })
+      .from(schema.documents)
+      .innerJoin(
+        schema.contentDatabaseItems,
+        eq(schema.contentDatabaseItems.documentId, schema.documents.id),
+      )
+      .where(
+        and(
+          visibleItemFilter,
+          eq(schema.documents.ownerEmail, database.ownerEmail),
+        ),
+      );
+    const candidateDocumentById = new Map(
+      candidateDocuments.map((document) => [document.id, document]),
+    );
+    const candidateValues =
+      boundedProjectionPropertyIds.size > 0
+        ? await db
+            .select({
+              documentId: schema.documentPropertyValues.documentId,
+              propertyId: schema.documentPropertyValues.propertyId,
+              valueJson: schema.documentPropertyValues.valueJson,
+            })
+            .from(schema.documentPropertyValues)
+            .innerJoin(
+              schema.contentDatabaseItems,
+              eq(
+                schema.contentDatabaseItems.documentId,
+                schema.documentPropertyValues.documentId,
+              ),
+            )
+            .where(
+              and(
+                visibleItemFilter,
+                inArray(schema.documentPropertyValues.propertyId, [
+                  ...boundedProjectionPropertyIds,
+                ]),
+              ),
+            )
+        : [];
+    const candidateValueByDocumentAndProperty = new Map(
+      candidateValues.map((value) => [
+        `${value.documentId}\0${value.propertyId}`,
+        parsePropertyValue(value.valueJson),
+      ]),
+    );
+    const queryProperties = databaseProperties.filter((property) =>
+      boundedProjectionPropertyIds.has(property.definition.id),
+    );
+    const additionalBlocksPropertyIds = queryProperties.flatMap((property) =>
+      isBlocksPropertyType(property.definition.type) &&
+      !isPrimaryBlocksField(property.definition.options)
+        ? [property.definition.id]
+        : [],
+    );
+    const candidateBlockContents =
+      additionalBlocksPropertyIds.length > 0
+        ? await db
+            .select({
+              documentId: schema.documentBlockFieldContents.documentId,
+              propertyId: schema.documentBlockFieldContents.propertyId,
+              content: schema.documentBlockFieldContents.content,
+            })
+            .from(schema.documentBlockFieldContents)
+            .innerJoin(
+              schema.contentDatabaseItems,
+              eq(
+                schema.contentDatabaseItems.documentId,
+                schema.documentBlockFieldContents.documentId,
+              ),
+            )
+            .where(
+              and(
+                visibleItemFilter,
+                inArray(
+                  schema.documentBlockFieldContents.propertyId,
+                  additionalBlocksPropertyIds,
+                ),
+              ),
+            )
+        : [];
+    const candidateBlockContentByDocumentAndProperty = new Map(
+      candidateBlockContents.map((row) => [
+        `${row.documentId}\0${row.propertyId}`,
+        row.content ?? "",
+      ]),
+    );
+    const candidateItems = items.flatMap((item, itemIndex) => {
+      const document = candidateDocumentById.get(item.documentId);
+      if (!document) return [];
+      const properties = queryProperties.map((property) => {
+        const type = property.definition.type;
+        const value =
+          type === "id"
+            ? itemIndex + 1
+            : isBlocksPropertyType(type)
+              ? isPrimaryBlocksField(property.definition.options)
+                ? ""
+                : (candidateBlockContentByDocumentAndProperty.get(
+                    `${document.id}\0${property.definition.id}`,
+                  ) ?? "")
+              : isComputedPropertyType(type)
+                ? projectedComputedPropertyValue(type, document)
+                : (candidateValueByDocumentAndProperty.get(
+                    `${document.id}\0${property.definition.id}`,
+                  ) ?? null);
+        return { ...property, value };
+      });
+      const valuesByName = Object.fromEntries(
+        properties
+          .filter((property) => property.definition.type !== "formula")
+          .map((property) => [property.definition.name, property.value]),
+      );
+      return [
+        {
+          id: item.id,
+          databaseId: item.databaseId,
+          document: { title: document.title },
+          properties: properties.map((property) =>
+            property.definition.type === "formula"
+              ? {
+                  ...property,
+                  value: evaluatePropertyFormula(
+                    property.definition.options.formula,
+                    valuesByName,
+                  ),
+                }
+              : property,
+          ),
+        } as ContentDatabaseItem,
+      ];
+    });
+    const constrainedCandidates = applyContentDatabaseTableQuery(
+      candidateItems,
+      databaseProperties,
+      serverTableQuery,
+    );
+    boundedTableQueryTotal = constrainedCandidates.length;
+    const pageItemIds = new Set(
+      limit === null
+        ? constrainedCandidates.map((item) => item.id)
+        : constrainedCandidates
+            .slice(offset, offset + limit)
+            .map((item) => item.id),
+    );
+    const itemById = new Map(items.map((item) => [item.id, item]));
+    items = [...pageItemIds].flatMap((itemId) => {
+      const item = itemById.get(itemId);
+      return item ? [item] : [];
+    });
+  }
 
   const documents =
     items.length > 0
@@ -730,7 +964,6 @@ export async function getContentDatabasePageResponse(
     // every document field it consumes except the deliberately omitted body.
     documents as Array<typeof schema.documents.$inferSelect>,
   );
-  const databaseProperties = await listPropertiesForDatabase(databaseId);
   const filesProjection = await filesSystemPropertyProjection({
     database,
     documents,
@@ -800,17 +1033,20 @@ export async function getContentDatabasePageResponse(
     });
   }
 
-  const constrainedItems = serverTableQuery
-    ? applyContentDatabaseTableQuery(
-        serializedCandidateItems,
-        responseProperties,
-        serverTableQuery,
-      )
-    : serializedCandidateItems;
+  const constrainedItems =
+    serverTableQuery && boundedTableQueryTotal === null
+      ? applyContentDatabaseTableQuery(
+          serializedCandidateItems,
+          responseProperties,
+          serverTableQuery,
+        )
+      : serializedCandidateItems;
   const serializedItems =
-    serverTableQuery && limit !== null
-      ? constrainedItems.slice(offset, offset + limit)
-      : constrainedItems;
+    boundedTableQueryTotal !== null
+      ? serializedCandidateItems
+      : serverTableQuery && limit !== null
+        ? constrainedItems.slice(offset, offset + limit)
+        : constrainedItems;
 
   const serializedDocumentIds = new Set(
     serializedItems.map((item) => item.document.id),
@@ -880,16 +1116,20 @@ export async function getContentDatabasePageResponse(
         ? {
             offset,
             limit,
-            totalItems: serverTableQuery
-              ? constrainedItems.length
-              : totalVisibleItems,
+            totalItems:
+              boundedTableQueryTotal ??
+              (serverTableQuery ? constrainedItems.length : totalVisibleItems),
             returnedItems: serializedItems.length,
             hasMore:
               offset + serializedItems.length <
-              (serverTableQuery ? constrainedItems.length : totalVisibleItems),
+              (boundedTableQueryTotal ??
+                (serverTableQuery
+                  ? constrainedItems.length
+                  : totalVisibleItems)),
           }
         : undefined,
     tableQueryMode,
+    hydratedItemCount: documents.length,
   };
 }
 

@@ -1999,6 +1999,104 @@ it("records freshly imported Builder row identities even when title and URL keys
   expect(concurrentSourceRows).toHaveLength(2);
 });
 
+it("repairs a deterministic Builder item whose source-row link is missing", async () => {
+  builderReadMock.mode = "full";
+  builderReadMock.calls = [];
+  const db = getDb();
+  const now = new Date().toISOString();
+  const databaseId = "db_interrupted_builder_attach";
+  const databaseDocId = "doc_db_interrupted_builder_attach";
+  const sourceId = "src_interrupted_builder_attach";
+  const sourceTable = "collection-metadata-only";
+  const entryId = "entry-metadata-only-1";
+  const { documentId, itemId } = (
+    await import("./_database-source-utils.js")
+  ).builderCmsImportIds({
+    ownerEmail: OWNER,
+    databaseId,
+    sourceTable,
+    entryId,
+  });
+
+  await db.insert(schema.documents).values([
+    {
+      id: databaseDocId,
+      spaceId: IMPORT_SPACE_ID,
+      ownerEmail: OWNER,
+      title: "Interrupted Builder attach",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: documentId,
+      spaceId: IMPORT_SPACE_ID,
+      ownerEmail: OWNER,
+      parentId: databaseDocId,
+      title: "Metadata-only hydration",
+      content: "",
+      createdAt: now,
+      updatedAt: now,
+    },
+  ]);
+  await db.insert(schema.contentDatabases).values({
+    id: databaseId,
+    spaceId: IMPORT_SPACE_ID,
+    ownerEmail: OWNER,
+    documentId: databaseDocId,
+    title: "Interrupted Builder attach",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseItems).values({
+    id: itemId,
+    ownerEmail: OWNER,
+    databaseId,
+    documentId,
+    position: 0,
+    bodyHydrationStatus: "pending",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSources).values({
+    id: sourceId,
+    ownerEmail: OWNER,
+    databaseId,
+    sourceType: "builder-cms",
+    sourceName: sourceTable,
+    sourceTable,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  const [database] = await db
+    .select()
+    .from(schema.contentDatabases)
+    .where(eq(schema.contentDatabases.id, databaseId));
+  const [source] = await db
+    .select()
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, sourceId));
+
+  await resync({ database, source, now, runFullRefresh: true });
+
+  const response = await (
+    await import("./_database-utils.js")
+  ).getContentDatabaseResponse(databaseId);
+  const sourceRows = await db
+    .select({
+      databaseItemId: schema.contentDatabaseSourceRows.databaseItemId,
+      documentId: schema.contentDatabaseSourceRows.documentId,
+      sourceRowId: schema.contentDatabaseSourceRows.sourceRowId,
+    })
+    .from(schema.contentDatabaseSourceRows)
+    .where(eq(schema.contentDatabaseSourceRows.sourceId, sourceId));
+
+  expect(response.items.map((item) => item.id)).toEqual([itemId]);
+  expect(sourceRows).toEqual([
+    { databaseItemId: itemId, documentId, sourceRowId: entryId },
+  ]);
+});
+
 it("repairs a legacy organization database into its organization space", async () => {
   builderReadMock.mode = "full";
   builderReadMock.calls = [];

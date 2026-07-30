@@ -17,7 +17,6 @@ import {
   type BuilderCmsReadResult,
 } from "./_builder-cms-read-client.js";
 import type { BuilderCmsSourceEntry } from "./_builder-cms-source-adapter.js";
-import { createBuilderSourceTiming } from "./_builder-source-timings.js";
 import { getContentDatabaseSourceAdapter } from "./_content-database-source-adapters.js";
 import {
   databaseSourceExistsForTable,
@@ -280,12 +279,6 @@ export default defineAction({
     const now = new Date().toISOString();
     const sourceType = (args.sourceType ??
       "mock-local") as ContentDatabaseSourceType;
-    const timing =
-      sourceType === "builder-cms"
-        ? createBuilderSourceTiming("attach-content-database-source")
-        : null;
-    const measure = <T>(name: string, operation: () => Promise<T>) =>
-      timing ? timing.measure(name, operation) : operation();
     if (sourceType === "notion-database" && !args.sourceTable?.trim()) {
       throw new Error(
         "sourceTable must be a Notion data-source ID returned by list-notion-database-sources.",
@@ -605,48 +598,40 @@ export default defineAction({
       : [];
     const builderInitial =
       sourceType === "builder-cms"
-        ? await measure("provider-metadata", () =>
-            readCompleteBuilderCmsAttachSource(sourceTable, {
-              fieldPaths: args.builderFieldPaths,
-            }),
-          )
+        ? await readCompleteBuilderCmsAttachSource(sourceTable, {
+            fieldPaths: args.builderFieldPaths,
+          })
         : null;
-    const sourceId = await measure("persist-source", () =>
-      replaceSourceMetadata({
-        database,
-        source: existingSource,
-        sourceType,
-        sourceName,
-        sourceTable,
-        now,
-      }),
-    );
+    const sourceId = await replaceSourceMetadata({
+      database,
+      source: existingSource,
+      sourceType,
+      sourceName,
+      sourceTable,
+      now,
+    });
     const builderModelFields = builderInitial?.modelFields ?? [];
     const builderRead = builderInitial?.read ?? null;
     const builderEntries =
       builderRead?.state === "live" ? builderRead.entries : [];
     let importedEntriesByDocumentId = new Map<string, BuilderCmsSourceEntry>();
     if (builderRead?.state === "live") {
-      const importResult = await measure("import-first-page", () =>
-        importBuilderCmsEntriesAsDatabaseItems({
-          database,
-          entries: builderEntries,
-          now,
-          sourceTable,
-          existingSourceRows,
-        }),
-      );
+      const importResult = await importBuilderCmsEntriesAsDatabaseItems({
+        database,
+        entries: builderEntries,
+        now,
+        sourceTable,
+        existingSourceRows,
+      });
       importedEntriesByDocumentId = importResult.importedEntriesByDocumentId;
     }
 
-    const refreshedSetup = await measure("read-imported-page", () =>
-      sourceSetupPayload(
-        database.id,
-        initialBuilderAttachmentSetupOptions({
-          builderRead,
-          importedEntriesByDocumentId,
-        }),
-      ),
+    const refreshedSetup = await sourceSetupPayload(
+      database.id,
+      initialBuilderAttachmentSetupOptions({
+        builderRead,
+        importedEntriesByDocumentId,
+      }),
     );
     const builderEntriesByDocumentId =
       builderRead?.state === "live"
@@ -662,7 +647,7 @@ export default defineAction({
       builderEntriesByDocumentId?.set(documentId, entry);
     }
 
-    await measure("persist-first-page", async () => {
+    await (async () => {
       await seedMockSourceFields({
         sourceId,
         ownerEmail: database.ownerEmail,
@@ -706,18 +691,11 @@ export default defineAction({
           ...builderCmsAttachReadMetadata(builderRead),
         });
       }
-    });
+    })();
 
-    const response = await measure("response", () =>
-      getContentDatabaseResponse(database.id, {
-        limit: args.limit,
-        offset: args.offset,
-      }),
-    );
-    if (timing) {
-      response.timings = timing.finish();
-      timing.log("succeeded");
-    }
-    return response;
+    return getContentDatabaseResponse(database.id, {
+      limit: args.limit,
+      offset: args.offset,
+    });
   },
 });

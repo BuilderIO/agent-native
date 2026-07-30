@@ -55,7 +55,11 @@ import {
   type DocumentPropertyOptionColor,
 } from "../shared/properties.js";
 import { sanitizeNormalizationFormula } from "../shared/properties.js";
-import { bulkChunkSizeForColumnCount, chunks } from "./_batch-utils.js";
+import {
+  bulkChunkSizeForColumnCount,
+  chunks,
+  processWithConcurrency,
+} from "./_batch-utils.js";
 export { bulkChunkSizeForColumnCount } from "./_batch-utils.js";
 import {
   readBuilderCmsContentEntry,
@@ -987,16 +991,6 @@ const BUILDER_BODY_NOT_AVAILABLE_ERROR = "body not yet available from Builder";
 
 function idChunkSize() {
   return bulkChunkSizeForColumnCount(1);
-}
-
-async function processInBatches<T>(
-  items: T[],
-  concurrency: number,
-  worker: (item: T) => Promise<void>,
-) {
-  for (const batch of chunks(items, concurrency)) {
-    await Promise.all(batch.map((item) => worker(item)));
-  }
 }
 
 function builderBodyHydrationDelayMs() {
@@ -2288,6 +2282,7 @@ export async function processBuilderBodyHydrationQueue(args: {
   preloadedJobs?: ContentDatabaseBodyHydrationQueueRowDb[];
   preloadBodies?: boolean;
 }) {
+  const diagnosticsStartedAt = Date.now();
   const db = getDb();
   const limit = normalizeHydrationLimit(args.limit);
   const now = new Date().toISOString();
@@ -2353,6 +2348,7 @@ export async function processBuilderBodyHydrationQueue(args: {
         });
       })()
     : persistedJobs(limit));
+  const jobsLoadedAt = Date.now();
 
   let succeeded = 0;
   let failed = 0;
@@ -2474,6 +2470,7 @@ export async function processBuilderBodyHydrationQueue(args: {
     claimedJobs.map((job) => job.sourceRowId),
   );
   const bodyEntryById = new Map<string, BuilderCmsSourceEntry>();
+  const providerReadStartedAt = Date.now();
   if (
     !args.documentId &&
     args.preloadBodies === true &&
@@ -2500,10 +2497,13 @@ export async function processBuilderBodyHydrationQueue(args: {
       }
     }
   }
-  await processInBatches(
+  const providerReadCompletedAt = Date.now();
+  const bodyJobDurations: number[] = [];
+  await processWithConcurrency(
     claimedJobs,
     BUILDER_BODY_HYDRATION_PROCESS_CONCURRENCY,
     async (job) => {
+      const jobStartedAt = Date.now();
       const attemptNow = new Date().toISOString();
       try {
         const delayMs = builderBodyHydrationDelayMs();
@@ -2589,9 +2589,12 @@ export async function processBuilderBodyHydrationQueue(args: {
             updatedAt: attemptNow,
           })
           .where(eq(schema.contentDatabaseItems.id, job.databaseItemId));
+      } finally {
+        bodyJobDurations.push(Date.now() - jobStartedAt);
       }
     },
   );
+  const persistenceCompletedAt = Date.now();
   const [remaining] = await db
     .select({ count: sql<number>`COUNT(*)` })
     .from(schema.contentDatabaseBodyHydrationQueue)
@@ -2604,6 +2607,16 @@ export async function processBuilderBodyHydrationQueue(args: {
     succeeded,
     failed,
     remaining: Number(remaining?.count ?? 0),
+    diagnosticTimings: {
+      totalMs: Date.now() - diagnosticsStartedAt,
+      loadAndClaimMs: providerReadStartedAt - diagnosticsStartedAt,
+      jobsLoadMs: jobsLoadedAt - diagnosticsStartedAt,
+      providerReadMs: providerReadCompletedAt - providerReadStartedAt,
+      persistenceMs: persistenceCompletedAt - providerReadCompletedAt,
+      jobMinMs: bodyJobDurations.length > 0 ? Math.min(...bodyJobDurations) : 0,
+      jobMaxMs: bodyJobDurations.length > 0 ? Math.max(...bodyJobDurations) : 0,
+      bodyEntriesPreloaded: bodyEntryById.size,
+    },
   };
 }
 
@@ -5938,6 +5951,7 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
             });
             importedEntriesByDocumentId.set(documentId, entry);
           }
+          const insertedItemIds = new Set<string>();
           await db.transaction(async (tx) => {
             for (const chunk of chunks(
               documentRows,
@@ -5952,10 +5966,14 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
               itemRows,
               bulkChunkSizeForColumnCount(10),
             )) {
-              await tx
+              const insertedItems = await tx
                 .insert(schema.contentDatabaseItems)
                 .values(chunk)
-                .onConflictDoNothing();
+                .onConflictDoNothing()
+                .returning({ id: schema.contentDatabaseItems.id });
+              for (const item of insertedItems) {
+                insertedItemIds.add(item.id);
+              }
             }
             await ensureDocumentsFilesMembership(
               tx,
@@ -5965,9 +5983,13 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
             );
           });
 
-          const importedItems: ContentDatabaseItem[] = itemRows.map(
-            (item, index) => {
-              const document = documentRows[index];
+          const candidateDocumentById = new Map(
+            documentRows.map((document) => [document.id!, document]),
+          );
+          const importedItems: ContentDatabaseItem[] = itemRows
+            .filter((item) => insertedItemIds.has(item.id!))
+            .map((item) => {
+              const document = candidateDocumentById.get(item.documentId)!;
               return {
                 id: item.id!,
                 databaseId: args.database.id,
@@ -5996,10 +6018,9 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
                   version: null,
                 },
               };
-            },
-          );
+            });
           return {
-            imported: itemRows.length,
+            imported: insertedItemIds.size,
             importedEntriesByDocumentId,
             importedItems,
           };

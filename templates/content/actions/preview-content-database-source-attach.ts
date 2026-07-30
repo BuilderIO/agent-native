@@ -7,7 +7,6 @@ import type {
   ContentDatabaseItem,
 } from "../shared/api.js";
 import { readBuilderCmsContentEntries } from "./_builder-cms-read-client.js";
-import { createBuilderSourceTiming } from "./_builder-source-timings.js";
 import {
   builderCmsImportIds,
   resolveDatabaseForSourceMutation,
@@ -25,29 +24,21 @@ export default defineAction({
   http: { method: "GET" },
   readOnly: true,
   run: async (args): Promise<BuilderCmsAttachPreviewResponse> => {
-    const timing = createBuilderSourceTiming("preview-builder-attach");
-    const database = await timing.measure("resolve-database", () =>
-      resolveDatabaseForSourceMutation(args),
-    );
+    const database = await resolveDatabaseForSourceMutation(args);
     if (!database) throw new Error("Database not found.");
-    await timing.measure("access", () =>
-      assertAccess("document", database.documentId, "editor"),
-    );
+    await assertAccess("document", database.documentId, "editor");
 
-    const read = await timing.measure("provider-first-page", () =>
-      readBuilderCmsContentEntries({
-        model: args.sourceTable,
-        fieldPaths: args.fieldPaths,
-        maxPages: 1,
-      }),
-    );
+    const read = await readBuilderCmsContentEntries({
+      model: args.sourceTable,
+      fieldPaths: args.fieldPaths,
+      maxPages: 1,
+    });
     if (read.state !== "live") {
       throw new Error(
         read.message ?? "Builder rows are not available for preview.",
       );
     }
 
-    const mapStartedAt = timing.start();
     const items: ContentDatabaseItem[] = read.entries.map((entry, index) => {
       const ids = builderCmsImportIds({
         ownerEmail: database.ownerEmail,
@@ -83,18 +74,13 @@ export default defineAction({
         },
       };
     });
-    timing.record("project-items", mapStartedAt);
-
-    const response = {
+    return {
       databaseId: database.id,
       documentId: database.documentId,
       sourceTable: args.sourceTable,
       items,
       fetchedAt: read.fetchedAt,
       hasMore: read.progress.hasMore,
-      timings: timing.finish(),
     };
-    timing.log("succeeded");
-    return response;
   },
 });

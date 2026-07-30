@@ -952,6 +952,120 @@ describe("content database soft-delete actions and reads", () => {
     ).rejects.toThrow(`Database "${databaseId}" not found`);
   });
 
+  it("keeps a 584-row Date sort page-bounded before document and property hydration", async () => {
+    const { databaseId, databaseDocumentId } = await createDatabase({});
+    const db = getDb();
+    const now = new Date().toISOString();
+    const datePropertyId = nextId("date_property");
+    await db.insert(schema.documentPropertyDefinitions).values({
+      id: datePropertyId,
+      ownerEmail: OWNER,
+      databaseId,
+      name: "Date",
+      type: "date",
+      visibility: "always_show",
+      optionsJson: "{}",
+      position: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const rows = Array.from({ length: 584 }, (_, index) => {
+      const documentId = nextId("date_row_doc");
+      return {
+        documentId,
+        itemId: nextId("date_row_item"),
+        valueId: nextId("date_row_value"),
+        index,
+        date: new Date(Date.UTC(2024, 0, 1) + index * 86_400_000)
+          .toISOString()
+          .slice(0, 10),
+      };
+    });
+    await db.insert(schema.documents).values(
+      rows.map((row) => ({
+        id: row.documentId,
+        ownerEmail: OWNER,
+        parentId: databaseDocumentId,
+        title: `Dated row ${row.index}`,
+        content: "",
+        position: row.index,
+        visibility: "private" as const,
+        createdAt: now,
+        updatedAt: now,
+      })),
+    );
+    await db.insert(schema.contentDatabaseItems).values(
+      rows.map((row) => ({
+        id: row.itemId,
+        ownerEmail: OWNER,
+        databaseId,
+        documentId: row.documentId,
+        position: row.index,
+        createdAt: now,
+        updatedAt: now,
+      })),
+    );
+    await db.insert(schema.documentPropertyValues).values(
+      rows.map((row) => ({
+        id: row.valueId,
+        ownerEmail: OWNER,
+        documentId: row.documentId,
+        propertyId: datePropertyId,
+        valueJson: JSON.stringify({ start: row.date, includeTime: false }),
+        createdAt: now,
+        updatedAt: now,
+      })),
+    );
+
+    const tableQuery = {
+      search: "",
+      filters: [],
+      sorts: [
+        {
+          key: datePropertyId,
+          label: "Date",
+          direction: "desc" as const,
+        },
+      ],
+      filterMode: "and" as const,
+    };
+    const startedAt = performance.now();
+    const response = await runWithRequestContext({ userEmail: OWNER }, () =>
+      queryContentDatabaseItemsAction.run({
+        databaseId,
+        limit: 1,
+        offset: 100,
+        tableQuery,
+      }),
+    );
+    const durationMs = performance.now() - startedAt;
+
+    expect(response.items.map((item) => item.document.title)).toEqual([
+      "Dated row 483",
+    ]);
+    expect(response.pagination).toEqual({
+      offset: 100,
+      limit: 1,
+      totalItems: 584,
+      returnedItems: 1,
+      hasMore: true,
+    });
+    expect(durationMs).toBeLessThan(1_000);
+
+    const { getContentDatabasePageResponse } =
+      await import("./_database-utils.js");
+    const page = await runWithRequestContext({ userEmail: OWNER }, () =>
+      getContentDatabasePageResponse(databaseId, {
+        limit: 1,
+        offset: 100,
+        tableQuery,
+        includeSources: false,
+      }),
+    );
+    expect(page.hydratedItemCount).toBe(1);
+  });
+
   it("blocks direct document and property reads for soft-deleted database pages", async () => {
     const deletedAt = new Date().toISOString();
     const { databaseId, databaseDocumentId } = await createDatabase({

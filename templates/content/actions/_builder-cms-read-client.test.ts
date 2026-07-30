@@ -1032,22 +1032,24 @@ describe("Builder CMS read client", () => {
 
     const read = readBuilderCmsContentEntries({
       model: "blog_article",
-      limit: 500,
+      limit: 900,
       fetchImpl: fetchImpl as unknown as typeof fetch,
     });
 
     await vi.waitFor(() => expect(resolvers.size).toBe(1));
     resolvers.get(0)?.();
-    await vi.waitFor(() => expect(resolvers.size).toBe(4));
-    expect(maxActiveRequests).toBe(4);
-    for (const offset of [400, 300, 200, 100]) resolvers.get(offset)?.();
+    await vi.waitFor(() => expect(resolvers.size).toBe(8));
+    expect(maxActiveRequests).toBe(8);
+    for (const offset of [800, 700, 600, 500, 400, 300, 200, 100]) {
+      resolvers.get(offset)?.();
+    }
 
     const result = await read;
 
     expect(result.entries.map((entry) => entry.id)).toEqual(
-      Array.from({ length: 500 }, (_, index) => `builder-entry-${index + 1}`),
+      Array.from({ length: 900 }, (_, index) => `builder-entry-${index + 1}`),
     );
-    expect(maxActiveRequests).toBeLessThanOrEqual(4);
+    expect(maxActiveRequests).toBeLessThanOrEqual(8);
   });
 
   it("stops at the first short projected page and ignores later in-flight pages", async () => {

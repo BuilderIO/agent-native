@@ -726,7 +726,6 @@ export interface ContentDatabaseSourceStatusResponse {
   mode: "local" | "source-backed";
   summary: string;
   source: ContentDatabaseSource | null;
-  timings?: BuilderActionTiming[];
 }
 
 export interface BuilderCmsModelFieldSummary {
@@ -808,7 +807,7 @@ export interface ContentDatabaseResponse {
 export type ContentDatabaseItemsPageResponse = Pick<
   ContentDatabaseResponse,
   "items" | "source" | "sources" | "pagination" | "tableQueryMode"
-> & { timings?: BuilderActionTiming[] };
+>;
 
 export interface BuilderActionTiming {
   name: string;
@@ -940,7 +939,6 @@ export interface BuilderCmsAttachPreviewResponse {
   items: ContentDatabaseItem[];
   fetchedAt: string;
   hasMore: boolean;
-  timings?: BuilderActionTiming[];
 }
 
 export interface ChangeContentDatabaseSourceRoleRequest {
@@ -1294,7 +1292,6 @@ export interface PreviewBuilderSourceReviewResponse {
   sourceTable: string;
   changeSetIds: string[];
   review: ContentDatabaseSourceReviewPayload | null;
-  timings?: BuilderActionTiming[];
 }
 
 export interface PrepareBuilderSourceReviewResponse {
@@ -1323,5 +1320,4 @@ export interface ProcessBuilderBodyHydrationResponse {
   succeeded: number;
   failed: number;
   remaining: number;
-  timings?: BuilderActionTiming[];
 }

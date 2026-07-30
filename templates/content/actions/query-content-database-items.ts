@@ -5,7 +5,6 @@ import type {
   ContentDatabaseItemsPageResponse,
   ContentDatabaseUnavailableResponse,
 } from "../shared/api.js";
-import { createBuilderSourceTiming } from "./_builder-source-timings.js";
 import {
   CONTENT_DATABASE_MAX_READ_LIMIT,
   contentDatabaseTableQuerySchema,
@@ -40,34 +39,26 @@ export default defineAction({
   }): Promise<
     ContentDatabaseItemsPageResponse | ContentDatabaseUnavailableResponse
   > => {
-    const timing = createBuilderSourceTiming("query-content-database-items");
-    const resolved = await timing.measure("resolve-access", () =>
-      resolveContentDatabaseRead({
-        databaseId,
-        documentId,
-      }),
-    );
+    const resolved = await resolveContentDatabaseRead({
+      databaseId,
+      documentId,
+    });
     if (!resolved.available) return resolved;
 
-    const page = await timing.measure("build-page", () =>
-      getContentDatabasePageResponse(resolved.database.id, {
-        // This action is the bounded table replacement path; unlike the legacy
-        // database response, an omitted limit must not turn it into a full read.
-        limit: limit ?? 100,
-        offset,
-        tableQuery,
-        database: resolved.database,
-      }),
-    );
-    const response = {
+    const page = await getContentDatabasePageResponse(resolved.database.id, {
+      // This action is the bounded table replacement path; unlike the legacy
+      // database response, an omitted limit must not turn it into a full read.
+      limit: limit ?? 100,
+      offset,
+      tableQuery,
+      database: resolved.database,
+    });
+    return {
       items: page.items,
       source: page.source,
       sources: page.sources,
       pagination: page.pagination,
       tableQueryMode: page.tableQueryMode,
-      timings: timing.finish(),
     };
-    timing.log("succeeded");
-    return response;
   },
 });

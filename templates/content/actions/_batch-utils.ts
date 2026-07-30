@@ -18,3 +18,24 @@ export function bulkChunkSizeForColumnCount(
   const budget = dialect === "d1" ? 90 : 900;
   return Math.max(1, Math.floor(budget / Math.max(1, columnCount)));
 }
+
+export async function processWithConcurrency<T>(
+  items: readonly T[],
+  concurrency: number,
+  worker: (item: T) => Promise<void>,
+) {
+  let nextIndex = 0;
+  const workerCount = Math.min(
+    items.length,
+    Math.max(1, Math.floor(concurrency)),
+  );
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextIndex < items.length) {
+        const item = items[nextIndex];
+        nextIndex += 1;
+        if (item !== undefined) await worker(item);
+      }
+    }),
+  );
+}
