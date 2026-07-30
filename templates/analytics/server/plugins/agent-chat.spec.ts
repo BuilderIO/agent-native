@@ -306,6 +306,34 @@ describe("realDataFinalGuard", () => {
     expect(result).toBeNull();
   });
 
+  it("does not let A2A transport hints trigger corpus or dashboard fallbacks", () => {
+    const request =
+      "Choose one useful current customer metric and return its value.";
+    const transportHint =
+      "If you create a dashboard, return a concise answer instead of full transcripts.";
+    const tagged = `${request}\n\n<a2a-caller-hint>\n${transportHint}\n</a2a-caller-hint>`;
+    const legacy = `${request}\n\n[Note: this request comes from another app via A2A. ${transportHint}]`;
+
+    for (const userText of [tagged, legacy]) {
+      const result = realDataFinalGuard(
+        guardContext({
+          userText,
+          draftText:
+            "Daily active customers: 123 for 2026-07-29 UTC. Source: HubSpot. This is a bounded current metric.",
+          toolResults: [
+            {
+              name: "hubspot-records",
+              isError: false,
+              content: '{"records":[{"count":123}]}',
+            },
+          ],
+        }),
+      );
+
+      expect(result).toBeNull();
+    }
+  });
+
   it("classifies a recovered greeting from the stable request instead of the synthetic continuation", () => {
     const internalContinuation =
       "Continue from where you left off. Internal note: The previous LLM call reached the model output-token cap before the response finished.";

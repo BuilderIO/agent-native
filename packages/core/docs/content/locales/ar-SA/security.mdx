@@ -320,7 +320,7 @@ pnpm action db-check-scoping --require-org  # يتطلب أيضًا org_id
 | رموز OAuth (Google، GitHub)             | قم بتخزين `oauth_tokens` عبر `saveOAuthTokens()`                 |
 | الرموز المميزة للجلسة                   | تلقائي (تتعامل المصادقة الأفضل مع هذا)                           |
 
-يتم تشفير بيانات الاعتماد لكل مستخدم/لكل مؤسسة والمخزن في حالة عدم النشاط باستخدام AES-256-GCM، بمفتاح `SECRETS_ENCRYPTION_KEY` (العودة إلى `BETTER_AUTH_SECRET`)؛ الإنتاج يرفض البدء بدون واحد. لتشفير أي صفوف بيانات اعتماد نص عادي موجودة مسبقًا في مكانها، قم بتشغيل `pnpm action db-migrate-encrypt-credentials` (غير فعال وغير مدمر).
+يتم تشفير بيانات الاعتماد لكل مستخدم/لكل مؤسسة والمخزن باستخدام AES-256-GCM. تفضل خزنة مساحة العمل `WORKSPACE_SECRETS_ENCRYPTION_KEY`، ثم المفاتيح القديمة المشتقة من `SECRETS_ENCRYPTION_KEY` و`A2A_SECRET` و`BETTER_AUTH_SECRET`؛ أثناء التدوير استخدم `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS` حتى تُرحّل القراءات الصفوف. لتشفير صفوف بيانات الاعتماد النصية الموجودة، شغّل `pnpm action db-migrate-encrypt-credentials` (غير فعال وغير مدمر).
 
 لا تقم مطلقًا بتخزين الأسرار في `settings` أو `application_state` أو التعليمات البرمجية المصدر أو الاستجابات الإجرائية. استخدم بيانات الاعتماد / المخزن APIs أعلاه - فهي تتعامل مع كل من التشفير وتحديد النطاق لكل مستخدم.
 
@@ -363,7 +363,7 @@ A2A_SECRET=your-shared-secret-at-least-32-chars
 - [ ] تم تعيين `BETTER_AUTH_SECRET` على سلسلة عشوائية تزيد عن 32 حرفًا (`openssl rand -hex 32`)، ما لم تكن هذه مساحة عمل مستضافة منشورة تشتقها من `A2A_SECRET`
 - [ ] تم تعيين `OAUTH_STATE_SECRET` على سلسلة عشوائية منفصلة تزيد عن 32 حرفًا (لا تعيد استخدام `BETTER_AUTH_SECRET`) - راجع [OAuth State Signing](#oauth-state)
 - [ ] تم تعيين `A2A_SECRET` على كل تطبيق يتصل أو يستقبل حركة مرور A2A - راجع [A2A Identity Verification](#a2a-identity)
-- [ ] قم بتعيين `SECRETS_ENCRYPTION_KEY` (أو اعتمد على البديل `BETTER_AUTH_SECRET`) - راجع [Secrets Management](#secrets)
+- [ ] عيّن `WORKSPACE_SECRETS_ENCRYPTION_KEY` باستمرار للخزن المشتركة متعددة التطبيقات؛ تبقى مفاتيح `SECRETS_ENCRYPTION_KEY` و`BETTER_AUTH_SECRET` بدائل للتشفير المحلي - راجع [Secrets Management](#secrets)
 - [ ] لم يتم تعيين `AUTH_SKIP_EMAIL_VERIFICATION` **لم** في الإنتاج (أو تم تعيينه فقط عند نشر معاينة ضمان الجودة)
 
 ### أسرار الرد التلقائي على الويب (قم بتعيين أسرار عمليات التكامل التي تستخدمها)

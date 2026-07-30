@@ -324,7 +324,7 @@ pnpm action db-check-scoping --require-org  # Também requer org_id
 | Tokens OAuth (Google, GitHub)                       | Armazenamento `oauth_tokens` via `saveOAuthTokens()`            |
 | Tokens de sessão                                    | Automático (melhor autenticação lida com isso)                  |
 
-As credenciais por usuário/por organização e o cofre são criptografados em repouso com AES-256-GCM, codificados por `SECRETS_ENCRYPTION_KEY` (retrocedendo para `BETTER_AUTH_SECRET`); a produção se recusa a começar sem ele. Para criptografar quaisquer linhas de credenciais de texto simples pré-existentes, execute `pnpm action db-migrate-encrypt-credentials` (idempotente, não destrutivo).
+As credenciais por usuário/organização e o cofre são criptografados em repouso com AES-256-GCM. O cofre compartilhado do workspace prefere `WORKSPACE_SECRETS_ENCRYPTION_KEY`, depois candidatos legados derivados de `SECRETS_ENCRYPTION_KEY`, `A2A_SECRET` e `BETTER_AUTH_SECRET`; durante uma rotação, `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS` mantém as linhas antigas legíveis até a migração. Para criptografar linhas existentes em texto simples, execute `pnpm action db-migrate-encrypt-credentials` (idempotente, não destrutivo).
 
 Nunca armazene segredos em `settings`, `application_state`, código-fonte ou respostas de ação. Use as credenciais/cofre APIs acima: elas lidam com criptografia e escopo por usuário.
 
@@ -367,7 +367,7 @@ Anteriormente, essa era uma postura de "avisar e aceitar" - defina o segredo que
 - [ ] `BETTER_AUTH_SECRET` definido como uma string aleatória com mais de 32 caracteres (`openssl rand -hex 32`), a menos que esta seja uma implantação de espaço de trabalho hospedado derivada de `A2A_SECRET`
 - [ ] `OAUTH_STATE_SECRET` definido como uma string aleatória separada com mais de 32 caracteres (não reutilize `BETTER_AUTH_SECRET`) — consulte [OAuth State Signing](#oauth-state)
 - [ ] `A2A_SECRET` definido em cada aplicativo que chama ou recebe tráfego A2A — consulte [A2A Identity Verification](#a2a-identity)
-- [ ] conjunto `SECRETS_ENCRYPTION_KEY` (ou confie no substituto `BETTER_AUTH_SECRET`) — consulte [Secrets Management](#secrets)
+- [ ] `WORKSPACE_SECRETS_ENCRYPTION_KEY` definido de forma consistente para cofres compartilhados multi-app; a criptografia local mantém os fallbacks `SECRETS_ENCRYPTION_KEY`/`BETTER_AUTH_SECRET` — consulte [Secrets Management](#secrets)
 - [ ] `AUTH_SKIP_EMAIL_VERIFICATION` **não** é definido em produção (ou definido apenas em implantações de visualização de controle de qualidade)
 
 ### Segredos do webhook (defina aqueles para integrações que você usa)
