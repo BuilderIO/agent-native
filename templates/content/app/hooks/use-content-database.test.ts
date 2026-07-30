@@ -14,6 +14,7 @@ import {
   applySourceFieldPropertyToDatabaseResponse,
   clearDeletedContentDatabaseFromCache,
   contentDatabaseResponseCanSeedQuery,
+  contentDatabaseItemsPageQueryKey,
   contentDatabaseQueryKey,
   invalidateBuilderBodyHydrationQueries,
   invalidateContentDatabaseSourceRefreshQueries,
@@ -23,6 +24,7 @@ import {
   removeDocumentPropertyFromDatabaseResponse,
   removeOptimisticItemFromContentDatabase,
   writeContentDatabaseResponseToCache,
+  writeBuilderAttachPreviewToCache,
 } from "./use-content-database";
 
 const createdAt = "2026-06-15T12:00:00.000Z";
@@ -64,6 +66,49 @@ describe("preserveScopedDatabasePlaceholder", () => {
 });
 
 describe("optimistic Content database items", () => {
+  it("shows stable read-only Builder rows while attachment is pending", () => {
+    const queryClient = new QueryClient();
+    const queryKey = [
+      "action",
+      "get-content-database",
+      { documentId: "database-page", limit: 100 },
+    ] as const;
+    queryClient.setQueryData(queryKey, databaseResponse());
+    const previewItem = {
+      ...databaseResponse().items[0]!,
+      id: "builder-item_stable",
+      document: {
+        ...databaseResponse().items[0]!.document,
+        id: "builder-doc_stable",
+        title: "Real Builder row",
+        accessRole: "viewer" as const,
+        canEdit: false,
+        canManage: false,
+      },
+    };
+
+    writeBuilderAttachPreviewToCache(queryClient, "database-page", {
+      databaseId: "database",
+      documentId: "database-page",
+      sourceTable: "agent-native-blog-article-test",
+      items: [previewItem],
+      fetchedAt: createdAt,
+      hasMore: true,
+    });
+
+    const preview =
+      queryClient.getQueryData<ContentDatabaseResponse>(queryKey)!;
+    expect(preview.items).toEqual([previewItem]);
+    expect(preview.attachPreview).toEqual({
+      sourceTable: "agent-native-blog-article-test",
+      fetchedAt: createdAt,
+    });
+    expect(preview.pagination).toMatchObject({
+      returnedItems: 1,
+      hasMore: true,
+    });
+  });
+
   it("adds a new page immediately and rolls it back by document id", () => {
     const current = {
       ...databaseResponse(),
@@ -547,7 +592,7 @@ describe("invalidateContentDatabaseSourceRefreshQueries", () => {
       );
     }
 
-    expect(invalidations).toHaveLength(10);
+    expect(invalidations).toHaveLength(15);
     expect(
       invalidations.filter(
         (filters) =>
@@ -557,6 +602,7 @@ describe("invalidateContentDatabaseSourceRefreshQueries", () => {
     expect(invalidations).toEqual(
       Array.from({ length: 5 }).flatMap(() => [
         { queryKey: contentDatabaseQueryKey("database-page") },
+        { queryKey: contentDatabaseItemsPageQueryKey },
         {
           queryKey: [
             "action",
@@ -792,10 +838,11 @@ describe("invalidateBuilderBodyHydrationQueries", () => {
       });
     }
 
-    expect(calls).toHaveLength(12);
+    expect(calls).toHaveLength(18);
     expect(calls).toEqual(
       Array.from({ length: 6 }).flatMap(() => [
         { queryKey: contentDatabaseQueryKey("database-page") },
+        { queryKey: contentDatabaseItemsPageQueryKey },
         {
           queryKey: [
             "action",
@@ -824,6 +871,7 @@ describe("invalidateBuilderBodyHydrationQueries", () => {
 
     expect(calls).toEqual([
       { queryKey: contentDatabaseQueryKey("database-page") },
+      { queryKey: contentDatabaseItemsPageQueryKey },
       {
         queryKey: [
           "action",

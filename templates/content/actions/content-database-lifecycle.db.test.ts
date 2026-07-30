@@ -21,6 +21,7 @@ let moveDocumentAction: typeof import("./move-document.js").default;
 let deleteContentDatabaseAction: typeof import("./delete-content-database.js").default;
 let restoreContentDatabaseAction: typeof import("./restore-content-database.js").default;
 let getContentDatabaseAction: typeof import("./get-content-database.js").default;
+let queryContentDatabaseItemsAction: typeof import("./query-content-database-items.js").default;
 let listDocumentsAction: typeof import("./list-documents.js").default;
 let listTrashedContentDatabasesAction: typeof import("./list-trashed-content-databases.js").default;
 let getDocumentAction: typeof import("./get-document.js").default;
@@ -53,6 +54,9 @@ beforeAll(async () => {
     .default;
   getContentDatabaseAction = (await import("./get-content-database.js"))
     .default;
+  queryContentDatabaseItemsAction = (
+    await import("./query-content-database-items.js")
+  ).default;
   listDocumentsAction = (await import("./list-documents.js")).default;
   listTrashedContentDatabasesAction = (
     await import("./list-trashed-content-databases.js")
@@ -864,6 +868,14 @@ describe("content database soft-delete actions and reads", () => {
       reason: "deleted",
       databaseId,
     });
+    const pageResponse = await runWithRequestContext({ userEmail: OWNER }, () =>
+      queryContentDatabaseItemsAction.run({ databaseId }),
+    );
+    expect(pageResponse).toMatchObject({
+      available: false,
+      reason: "deleted",
+      databaseId,
+    });
 
     const listResponse = await runWithRequestContext({ userEmail: OWNER }, () =>
       listDocumentsAction.run({}),
@@ -872,6 +884,72 @@ describe("content database soft-delete actions and reads", () => {
     expect(listedIds.has(hostDocumentId)).toBe(true);
     expect(listedIds.has(databaseDocumentId)).toBe(false);
     expect(listedIds.has(rowDocumentId)).toBe(false);
+  });
+
+  it("returns only the ordered, filtered database page and preserves read access", async () => {
+    const { databaseId, databaseDocumentId } = await createDatabase({});
+    const db = getDb();
+    const now = new Date().toISOString();
+    const rows = await Promise.all(
+      [
+        { title: "Zebra", position: 0 },
+        { title: "Apricot", position: 1 },
+        { title: "Banana", position: 2 },
+      ].map(async ({ title, position }) => {
+        const documentId = await createDocument({
+          parentId: databaseDocumentId,
+          title,
+        });
+        const id = nextId("item");
+        await db.insert(schema.contentDatabaseItems).values({
+          id,
+          ownerEmail: OWNER,
+          databaseId,
+          documentId,
+          position,
+          createdAt: now,
+          updatedAt: now,
+        });
+        return { id, documentId };
+      }),
+    );
+
+    const response = await runWithRequestContext({ userEmail: OWNER }, () =>
+      queryContentDatabaseItemsAction.run({
+        databaseId,
+        limit: 1,
+        offset: 1,
+        tableQuery: {
+          search: "a",
+          filters: [],
+          sorts: [{ key: "name", label: "Name", direction: "asc" }],
+          filterMode: "and",
+        },
+      }),
+    );
+    expect(response).toMatchObject({
+      tableQueryMode: "server",
+      pagination: {
+        offset: 1,
+        limit: 1,
+        totalItems: 3,
+        returnedItems: 1,
+        hasMore: true,
+      },
+    });
+    expect(response.items.map((item) => item.document.title)).toEqual([
+      "Banana",
+    ]);
+    expect(response).not.toHaveProperty("database");
+    expect(response).not.toHaveProperty("contextPath");
+    expect(response).not.toHaveProperty("properties");
+    expect(response.items[0].id).toBe(rows[2].id);
+
+    await expect(
+      runWithRequestContext({ userEmail: COLLABORATOR }, () =>
+        queryContentDatabaseItemsAction.run({ databaseId }),
+      ),
+    ).rejects.toThrow(`Database "${databaseId}" not found`);
   });
 
   it("blocks direct document and property reads for soft-deleted database pages", async () => {

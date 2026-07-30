@@ -124,6 +124,24 @@ function stableBuilderImportId(
     .slice(0, 24)}`;
 }
 
+export function builderCmsImportIds(args: {
+  ownerEmail: string;
+  databaseId: string;
+  sourceTable: string;
+  entryId: string;
+}) {
+  const identity = [
+    args.ownerEmail,
+    args.databaseId,
+    args.sourceTable,
+    args.entryId,
+  ];
+  return {
+    documentId: stableBuilderImportId("builder-doc", identity),
+    itemId: stableBuilderImportId("builder-item", identity),
+  };
+}
+
 const DEFAULT_SOURCE_CAPABILITIES: ContentDatabaseSourceCapabilities = {
   canRefresh: true,
   canCreateChangeSets: true,
@@ -959,8 +977,8 @@ function builderBodyUsesCurrentMediaConverter(
 
 const BUILDER_BODY_HYDRATION_BACKGROUND_PRIORITY = 10;
 const BUILDER_BODY_HYDRATION_OPEN_PRIORITY = 0;
-const BUILDER_BODY_HYDRATION_BATCH_LIMIT = 25;
-const BUILDER_BODY_HYDRATION_PROCESS_CONCURRENCY = 6;
+const BUILDER_BODY_HYDRATION_BATCH_LIMIT = 50;
+const BUILDER_BODY_HYDRATION_PROCESS_CONCURRENCY = 24;
 const BUILDER_BODY_HYDRATION_MAX_ATTEMPTS = 5;
 const BUILDER_BODY_HYDRATION_CODEC_VERSION =
   "readable-native-images-authoritative-raw-baseline-v9";
@@ -5680,10 +5698,11 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
 }): Promise<{
   imported: number;
   importedEntriesByDocumentId: Map<string, BuilderCmsSourceEntry>;
+  importedItems: ContentDatabaseItem[];
 }> {
   const importedEntriesByDocumentId = new Map<string, BuilderCmsSourceEntry>();
   if (args.entries.length === 0) {
-    return { imported: 0, importedEntriesByDocumentId };
+    return { imported: 0, importedEntriesByDocumentId, importedItems: [] };
   }
   const db = getDb();
   const [databaseDocument] = await db
@@ -5772,6 +5791,9 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
       .filter((row) => !representedDocumentIds.has(row.document.id))
       .map((row) => row.document.title.trim().toLowerCase()),
   );
+  const currentItemByDocumentId = new Map(
+    currentItems.map((row) => [row.document.id, row.item]),
+  );
 
   // Reads MAX(position) for both `documents` and `content_database_items`
   // then batch-inserts at MAX+1.. — serialize the whole read-through-write
@@ -5817,26 +5839,29 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
               continue;
             }
 
+            const { documentId, itemId } = builderCmsImportIds({
+              ownerEmail: args.database.ownerEmail,
+              databaseId: args.database.id,
+              sourceTable: args.sourceTable,
+              entryId: entry.id,
+            });
+            const existingDeterministicItem =
+              currentItemByDocumentId.get(documentId);
+            if (existingDeterministicItem?.id === itemId) {
+              // A prior attach can commit the deterministic document/item and
+              // fail before linking its source row. Treat that pair as the
+              // same Builder identity so refresh repairs the missing link
+              // without synthesizing a duplicate response item.
+              importedEntriesByDocumentId.set(documentId, entry);
+              continue;
+            }
+
             const title = entry.title.trim() || entry.id;
             const titleKey = title.toLowerCase();
             if (!args.skipTitleDedup && existingUnlinkedTitles.has(titleKey)) {
               continue;
             }
 
-            const importIdentity = [
-              args.database.ownerEmail,
-              args.database.id,
-              args.sourceTable,
-              entry.id,
-            ];
-            const documentId = stableBuilderImportId(
-              "builder-doc",
-              importIdentity,
-            );
-            const itemId = stableBuilderImportId(
-              "builder-item",
-              importIdentity,
-            );
             documentRows.push({
               id: documentId,
               spaceId: databaseSpaceId,
@@ -5894,7 +5919,44 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
             );
           });
 
-          return { imported: itemRows.length, importedEntriesByDocumentId };
+          const importedItems: ContentDatabaseItem[] = itemRows.map(
+            (item, index) => {
+              const document = documentRows[index];
+              return {
+                id: item.id!,
+                databaseId: args.database.id,
+                document: {
+                  id: document.id!,
+                  parentId: document.parentId ?? null,
+                  title: document.title ?? "Untitled",
+                  content: "",
+                  icon: document.icon ?? null,
+                  position: document.position ?? 0,
+                  isFavorite: false,
+                  hideFromSearch: Boolean(document.hideFromSearch),
+                  visibility: document.visibility ?? "private",
+                  accessRole: "owner",
+                  canEdit: true,
+                  canManage: true,
+                  createdAt: document.createdAt!,
+                  updatedAt: document.updatedAt!,
+                },
+                position: item.position ?? 0,
+                properties: [],
+                bodyHydration: {
+                  status: "pending",
+                  attemptedAt: null,
+                  error: null,
+                  version: null,
+                },
+              };
+            },
+          );
+          return {
+            imported: itemRows.length,
+            importedEntriesByDocumentId,
+            importedItems,
+          };
         },
       ),
   );
@@ -5908,7 +5970,7 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
   finishPagination?: boolean;
   refreshClaimId?: string;
 }) {
-  let { properties, response } = await sourceSetupPayload(args.database.id);
+  const setupPromise = sourceSetupPayload(args.database.id);
   const db = getDb();
   const sourceMetadata =
     parseObject<SourceMetadataRecord>(args.source.metadataJson) ?? {};
@@ -5955,6 +6017,10 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
     builderModelFields && builderModelFields.length > 0
       ? builderModelFields
       : (sourceMetadata.builderModelFields ?? []);
+  const existingRowsPromise = db
+    .select()
+    .from(schema.contentDatabaseSourceRows)
+    .where(eq(schema.contentDatabaseSourceRows.sourceId, args.source.id));
   const builderRead = await readBuilderCmsContentEntries({
     model: args.source.sourceTable,
     fieldPaths: [
@@ -5990,10 +6056,9 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
       "Builder source refresh claim was lost before snapshot mutation.",
     );
   }
-  let existingRows = await db
-    .select()
-    .from(schema.contentDatabaseSourceRows)
-    .where(eq(schema.contentDatabaseSourceRows.sourceId, args.source.id));
+  const { properties, response: initialResponse } = await setupPromise;
+  let response = initialResponse;
+  const existingRows = await existingRowsPromise;
   const readStartOffset = builderRead.progress?.startOffset ?? 0;
   const activeReadSourceRowIdSet = new Set(activeReadSourceRowIds);
   const suspiciousEmptyRead =
@@ -6040,11 +6105,14 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
     });
     importedEntriesByDocumentId = importResult.importedEntriesByDocumentId;
     if (importResult.imported > 0) {
-      ({ properties, response } = await sourceSetupPayload(args.database.id));
-      existingRows = await db
-        .select()
-        .from(schema.contentDatabaseSourceRows)
-        .where(eq(schema.contentDatabaseSourceRows.sourceId, args.source.id));
+      const existingItemIds = new Set(response.items.map((item) => item.id));
+      const importedItems = importResult.importedItems.filter(
+        (item) => !existingItemIds.has(item.id),
+      );
+      response = {
+        ...response,
+        items: [...response.items, ...importedItems],
+      };
     }
   }
   const builderEntriesByDocumentId =

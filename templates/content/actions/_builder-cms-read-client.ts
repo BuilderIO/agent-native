@@ -163,6 +163,7 @@ type BuilderMcpToolResult = {
 const BUILDER_CMS_DEFAULT_READ_LIMIT = 500;
 const BUILDER_CMS_MAX_READ_LIMIT = 10_000;
 const BUILDER_CMS_PAGE_SIZE = 100;
+const BUILDER_CMS_PROJECTED_READ_CONCURRENCY = 4;
 const BUILDER_CMS_READ_RETRIES = 2;
 const BUILDER_CMS_METADATA_ENTRY_FIELD_PATHS = [
   "id",
@@ -191,6 +192,10 @@ const BUILDER_CMS_HEAVY_BODY_FIELD_PATHS = [
 ] as const;
 const BUILDER_CMS_FIELD_PATH_PATTERN =
   /^[A-Za-z0-9_$-]+(?:\.[A-Za-z0-9_$-]+)*$/;
+
+type BuilderCmsContentPageResult =
+  | { pageLimit: number; pageEntries: BuilderCmsSourceEntry[] }
+  | { pageLimit: number; error: string };
 
 function normalizeBuilderCmsListFieldPath(fieldPath: string) {
   const trimmed = fieldPath.trim();
@@ -1008,73 +1013,103 @@ async function readBuilderCmsContentEntriesViaContentApi(args: {
   const seenIds = new Set<string>();
   let pagesRead = 0;
   let hasMore = false;
-  for (
-    let offset = startOffset;
-    entries.length < limit;
-    offset += BUILDER_CMS_PAGE_SIZE
-  ) {
-    const pageUrl = new URL(url);
-    const pageLimit = readPageLimit(limit - entries.length);
-    pageUrl.searchParams.set("limit", String(pageLimit));
-    pageUrl.searchParams.set("offset", String(offset));
+  const concurrency =
+    args.rawData === true ? 1 : BUILDER_CMS_PROJECTED_READ_CONCURRENCY;
+  const errorResult = (message: string): BuilderCmsReadResult => ({
+    state: "error",
+    entries: [],
+    fetchedAt,
+    message,
+    progress: {
+      requestedLimit: limit,
+      pageSize: BUILDER_CMS_PAGE_SIZE,
+      startOffset,
+      nextOffset: startOffset + entries.length,
+      fetchedEntryCount: startOffset + entries.length,
+      hasMore,
+      partial: Boolean(args.maxPages) && hasMore,
+      readMode: "builder-api",
+    },
+  });
 
-    let response: Response;
-    try {
-      response = await fetchBuilderContentPage({
-        fetchImpl: args.fetchImpl,
-        url: pageUrl,
-        privateKey: args.privateKey,
-      });
-    } catch (error) {
-      return {
-        state: "error",
-        entries: [],
-        fetchedAt,
-        message:
-          error instanceof Error
-            ? `Builder CMS read failed: ${error.message}`
-            : "Builder CMS read failed.",
-        progress: {
-          requestedLimit: limit,
-          pageSize: BUILDER_CMS_PAGE_SIZE,
-          startOffset,
-          nextOffset: startOffset + entries.length,
-          fetchedEntryCount: startOffset + entries.length,
-          hasMore,
-          partial: Boolean(args.maxPages) && hasMore,
-          readMode: "builder-api",
+  while (entries.length < limit) {
+    const pagesRemaining = args.maxPages
+      ? args.maxPages - pagesRead
+      : Number.POSITIVE_INFINITY;
+    if (pagesRemaining <= 0) break;
+    const pageCount = Math.min(
+      pagesRead === 0 ? 1 : concurrency,
+      pagesRemaining,
+      Math.ceil((limit - entries.length) / BUILDER_CMS_PAGE_SIZE),
+    );
+    const pageRequests = Array.from({ length: pageCount }, (_, index) => {
+      const pageUrl = new URL(url);
+      const pageLimit = readPageLimit(
+        limit - entries.length - index * BUILDER_CMS_PAGE_SIZE,
+      );
+      pageUrl.searchParams.set("limit", String(pageLimit));
+      pageUrl.searchParams.set(
+        "offset",
+        String(startOffset + (pagesRead + index) * BUILDER_CMS_PAGE_SIZE),
+      );
+      return { pageLimit, pageUrl };
+    });
+    const pageResults = await Promise.all(
+      pageRequests.map(
+        async ({
+          pageLimit,
+          pageUrl,
+        }): Promise<BuilderCmsContentPageResult> => {
+          try {
+            const response = await fetchBuilderContentPage({
+              fetchImpl: args.fetchImpl,
+              url: pageUrl,
+              privateKey: args.privateKey,
+            });
+            if (!response.ok) {
+              return {
+                pageLimit,
+                error: `Builder CMS read failed with HTTP ${response.status}.`,
+              };
+            }
+            const json = (await response.json()) as unknown;
+            const pageEntries = entryArrayFromResponse(json)
+              .map((entry) => normalizeBuilderCmsApiEntry(entry, args.model))
+              .filter((entry): entry is BuilderCmsSourceEntry =>
+                Boolean(entry),
+              );
+            return { pageLimit, pageEntries };
+          } catch (error) {
+            return {
+              pageLimit,
+              error:
+                error instanceof Error
+                  ? `Builder CMS read failed: ${error.message}`
+                  : "Builder CMS read failed.",
+            };
+          }
         },
-      };
-    }
+      ),
+    );
 
-    if (!response.ok) {
-      return {
-        state: "error",
-        entries: [],
-        fetchedAt,
-        message: `Builder CMS read failed with HTTP ${response.status}.`,
-        progress: {
-          requestedLimit: limit,
-          pageSize: BUILDER_CMS_PAGE_SIZE,
-          startOffset,
-          nextOffset: startOffset + entries.length,
-          fetchedEntryCount: startOffset + entries.length,
-          hasMore,
-          partial: Boolean(args.maxPages) && hasMore,
-          readMode: "builder-api",
-        },
-      };
+    let stoppedOnShortPage = false;
+    for (const pageResult of pageResults) {
+      if ("error" in pageResult) return errorResult(pageResult.error);
+      const appended = appendUniqueBuilderEntries(
+        entries,
+        seenIds,
+        pageResult.pageEntries,
+      );
+      pagesRead += 1;
+      hasMore =
+        pageResult.pageEntries.length >= pageResult.pageLimit && appended > 0;
+      if (args.maxPages && pagesRead >= args.maxPages) break;
+      if (!hasMore) {
+        stoppedOnShortPage = true;
+        break;
+      }
     }
-
-    const json = (await response.json()) as unknown;
-    const pageEntries = entryArrayFromResponse(json)
-      .map((entry) => normalizeBuilderCmsApiEntry(entry, args.model))
-      .filter((entry): entry is BuilderCmsSourceEntry => Boolean(entry));
-    const appended = appendUniqueBuilderEntries(entries, seenIds, pageEntries);
-    pagesRead += 1;
-    hasMore = pageEntries.length >= pageLimit && appended > 0;
-    if (args.maxPages && pagesRead >= args.maxPages) break;
-    if (!hasMore) break;
+    if (stoppedOnShortPage || !hasMore) break;
   }
 
   return {

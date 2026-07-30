@@ -167,6 +167,7 @@ import {
   useAddDatabaseItem,
   useAddContentDatabaseSourceFieldProperty,
   useAttachContentDatabaseSource,
+  useBuilderCmsAttachPreview,
   useBuilderCmsModels,
   useCancelPreparedBuilderSourceUpdate,
   useChangeContentDatabaseSourceRole,
@@ -190,6 +191,7 @@ import {
   useSuggestSourceJoinKey,
   useUpdateContentDatabasePersonalView,
   useUpdateContentDatabaseView,
+  writeBuilderAttachPreviewToCache,
 } from "@/hooks/use-content-database";
 import {
   useContentSpaces,
@@ -833,6 +835,8 @@ function DatabaseTable({
   const data = isContentDatabaseUnavailable(database.data)
     ? undefined
     : database.data;
+  const attachPreviewActive = Boolean(data?.attachPreview);
+  const effectiveCanEdit = canEdit && !attachPreviewActive;
   const isWorkspaceCatalog = data?.database.systemRole === "workspaces";
   const isCreatingDatabaseItem = addItem.isPending;
   const isDatabaseInitialLoading = database.isLoading && !data;
@@ -1235,19 +1239,35 @@ function DatabaseTable({
       ) {
         return false;
       }
-      processBuilderBodies.mutate(
-        { sourceId, ...request },
-        {
-          onSuccess: options.onSuccess,
-          onError: options.onError,
-          onSettled: () => {
-            releaseDatabaseSourceOperation(
-              hydrationSourceInFlightRef,
-              sourceId,
-            );
+      const pump = () => {
+        let result: ProcessBuilderBodyHydrationResponse | null = null;
+        processBuilderBodies.mutate(
+          { sourceId, ...request },
+          {
+            onSuccess: (nextResult) => {
+              result = nextResult;
+              options.onSuccess?.(nextResult);
+            },
+            onError: options.onError,
+            onSettled: () => {
+              if (
+                !request.documentId &&
+                result &&
+                builderBodyHydrationMutationMadeProgress(result) &&
+                result.remaining > 0
+              ) {
+                pump();
+                return;
+              }
+              releaseDatabaseSourceOperation(
+                hydrationSourceInFlightRef,
+                sourceId,
+              );
+            },
           },
-        },
-      );
+        );
+      };
+      pump();
       return true;
     },
     [processBuilderBodies.mutate],
@@ -2311,7 +2331,7 @@ function DatabaseTable({
       : viewConfig;
     const nextKey = databaseViewStateKey(databaseId, sharedViewConfig);
     if (databaseViewStateKey(databaseId, savedViewConfig) === nextKey) return;
-    if (!canEdit) return;
+    if (!effectiveCanEdit) return;
     if (saveViewTimerRef.current) {
       clearTimeout(saveViewTimerRef.current);
     }
@@ -2391,7 +2411,7 @@ function DatabaseTable({
       <div className="mb-1 flex min-h-8 flex-wrap items-center justify-between gap-x-3 gap-y-1 pb-1">
         <DatabaseViewTabs
           viewConfig={viewConfig}
-          canEdit={canEdit}
+          canEdit={effectiveCanEdit}
           onViewConfigChange={setViewConfig}
         />
         <div className="flex max-w-full flex-wrap items-center justify-end gap-1">
@@ -2545,7 +2565,12 @@ function DatabaseTable({
               )
             ) : null}
           </Button>
-          {canEdit && isWorkspaceCatalog ? (
+          {data?.attachPreview ? (
+            <span className="rounded border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+              Attaching · read-only
+            </span>
+          ) : null}
+          {effectiveCanEdit && isWorkspaceCatalog ? (
             <WorkspaceSourceMenu
               align="end"
               propertyValues={workspaceCreationPropertyValues}
@@ -2559,7 +2584,7 @@ function DatabaseTable({
                 New
               </Button>
             </WorkspaceSourceMenu>
-          ) : canEdit ? (
+          ) : effectiveCanEdit ? (
             <Button
               type="button"
               size="sm"
@@ -2637,7 +2662,7 @@ function DatabaseTable({
           <BuilderSourceContinuationBar
             key={builderSource.id}
             source={builderSource}
-            canEdit={canEdit}
+            canEdit={effectiveCanEdit}
             pending={
               sourcePendingOperations.refreshSourceId === builderSource.id
             }
@@ -2676,7 +2701,7 @@ function DatabaseTable({
           databaseTitle={data?.database.title ?? document.title}
           view={activeView}
           properties={orderedProperties}
-          canEdit={canEdit}
+          canEdit={effectiveCanEdit}
         />
       ) : activeView.type === "board" ? (
         <DatabaseBoardView
@@ -2686,7 +2711,7 @@ function DatabaseTable({
           items={visibleItems}
           groupProperty={boardGroupProperty}
           databaseDocumentId={document.id}
-          canEdit={canEdit}
+          canEdit={effectiveCanEdit}
           canCreateItems={!isWorkspaceCatalog}
           isLoading={isDatabaseViewLoading}
           isCreating={isCreatingDatabaseItem || setProperty.isPending}
@@ -2715,7 +2740,7 @@ function DatabaseTable({
           groupableProperties={orderedProperties}
           items={visibleItems}
           databaseDocumentId={document.id}
-          canEdit={canEdit}
+          canEdit={effectiveCanEdit}
           canCreateItems={!isWorkspaceCatalog}
           isLoading={isDatabaseViewLoading}
           isCreating={isCreatingDatabaseItem}
@@ -2739,7 +2764,7 @@ function DatabaseTable({
           groupableProperties={orderedProperties}
           items={visibleItems}
           databaseDocumentId={document.id}
-          canEdit={canEdit}
+          canEdit={effectiveCanEdit}
           canCreateItems={!isWorkspaceCatalog}
           isLoading={isDatabaseViewLoading}
           isCreating={isCreatingDatabaseItem}
@@ -2764,7 +2789,7 @@ function DatabaseTable({
           properties={orderedProperties}
           items={visibleItems}
           databaseDocumentId={document.id}
-          canEdit={canEdit}
+          canEdit={effectiveCanEdit}
           canCreateItems={!isWorkspaceCatalog}
           isLoading={isDatabaseViewLoading}
           isCreating={isCreatingDatabaseItem || setProperty.isPending}
@@ -2792,7 +2817,7 @@ function DatabaseTable({
           properties={orderedProperties}
           items={visibleItems}
           databaseDocumentId={document.id}
-          canEdit={canEdit}
+          canEdit={effectiveCanEdit}
           canCreateItems={!isWorkspaceCatalog}
           isLoading={isDatabaseViewLoading}
           isCreating={isCreatingDatabaseItem || setProperty.isPending}
@@ -2829,7 +2854,7 @@ function DatabaseTable({
           source={source}
           sources={sources}
           databaseDocumentId={document.id}
-          canEdit={canEdit}
+          canEdit={effectiveCanEdit}
           workspaceCreationPropertyValues={workspaceCreationPropertyValues}
           isLoading={isDatabaseViewLoading}
           isCreating={isCreatingDatabaseItem}
@@ -2950,6 +2975,7 @@ function DatabaseTable({
             sourceType: "builder-cms",
             sourceName: model.displayName,
             sourceTable: model.name,
+            builderFieldPaths: model.fields.map((field) => field.name),
             relationshipMode,
             mode:
               relationshipMode === "items"
@@ -7417,10 +7443,44 @@ function DatabaseSettingsPanelSheet({
   onHideEmptyGroupsChange: (hideEmptyGroups: boolean) => void;
   onGroupsCollapsedChange: (groupIds: string[], collapsed: boolean) => void;
 }) {
+  const queryClient = useQueryClient();
   // Local drill-down path *within* the Source(s) panel. Kept here (not in the
   // flat panel enum) because the levels are dynamic — space/model names aren't
   // known at compile time. The sheet's back button pops this stack first.
   const [sourceNavStack, setSourceNavStack] = useState<SourceNavStep[]>([]);
+  const sourceNavTop = sourceNavStack[sourceNavStack.length - 1];
+  const previewModel =
+    sourceNavTop?.kind === "model" ? (sourceNavTop.model ?? null) : null;
+  const previewFieldPaths = useMemo(
+    () => previewModel?.fields.map((field) => field.name),
+    [previewModel],
+  );
+  const previewAlreadyAttached = previewModel
+    ? Boolean(
+        databaseAttachedBuilderSource(sources, source, {
+          modelName: previewModel.name,
+        }),
+      )
+    : false;
+  const builderAttachPreview = useBuilderCmsAttachPreview({
+    documentId,
+    sourceTable: previewModel?.name ?? null,
+    fieldPaths: previewFieldPaths,
+    enabled:
+      open &&
+      panel === "source" &&
+      canEdit &&
+      Boolean(previewModel) &&
+      !previewAlreadyAttached,
+  });
+  useEffect(() => {
+    if (!sourceActionPending || !builderAttachPreview.data) return;
+    writeBuilderAttachPreviewToCache(
+      queryClient,
+      documentId,
+      builderAttachPreview.data,
+    );
+  }, [builderAttachPreview.data, documentId, queryClient, sourceActionPending]);
   useEffect(() => {
     // Always re-enter the Sources panel at its root, and don't retain a path
     // across close/reopen.

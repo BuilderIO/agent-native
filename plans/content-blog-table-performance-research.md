@@ -332,6 +332,228 @@ parallelize the Builder list-page reads, reduce hosted SQL round trips while
 importing the remaining 484 rows, and bulk/lazily schedule body conversion
 without making metadata acknowledgement await the full hydration queue.
 
+## Shaped implementation plan for the four remaining failures
+
+Shaped on 2026-07-30 after hosted acceptance at `46ffed6a3`. This section is
+the governing repair plan for PR #2522. It does not change the approved
+operation budgets or permit a code-ready-only merge.
+
+### Refresher and current truth
+
+Routine interaction is no longer the large-table problem: Builder model
+results paint in 43ms, attach feedback in 78-93ms, source columns in 34.2ms,
+and progressive review in 465ms. Four assertions still fail:
+
+| Boundary | Current | Required |
+| --- | ---: | ---: |
+| First useful Builder rows after Attach | 6.18s | <=2s |
+| Complete metadata for 584 rows | 29.38s | <=10s |
+| Usable bodies for the 584-row source | <=280.5s in the last completed run | 30-60s |
+| Cold Date-sort acknowledgement | 1.49-1.59s | <=1s |
+
+The first three failures share one ingestion path. The initial attach waits on
+provider discovery, a projected first page, SQL import, source-row seeding, and
+hydration-queue creation. The continuation then reads Builder pages serially
+and repeats database setup reads before scheduling bodies. Body hydration
+claims 25 jobs at a time but persists each converted row through its own
+multi-statement transaction. Sort is separate: it retains rows visually, but a
+constraint change still recomposes database/schema/source/context data when it
+only needs a newly ordered item page.
+
+### Frozen implementation boundary
+
+- **Outcome:** every approved operation budget passes on the read-only
+  `Agent Native Blog Article Test` model with more than 500 rows.
+- **Shipping surface:** `BuilderIO/agent-native`, Content database UI and
+  actions, for any Content user attaching and operating a large provider-backed
+  database; durable destination is the existing PR #2522 merged to `main`.
+- **Governing architecture:** actions remain the only data-operation surface;
+  SQL remains authoritative; provider reads are projected and bounded; useful
+  UI is optimistic/progressive; unfinished body work remains durable and typed.
+- **Acceptance story:** Alice attaches the 584-row Builder model, sees real
+  rows within 2s, receives complete metadata within 10s and bodies within 60s,
+  then sorts within 1s without blanking or losing the table.
+- **Risk strategy:** system-ready. No feature flag and no merge until all four
+  assertions and the already-passing interaction assertions pass on the exact
+  PR head.
+
+Architecture grounding is required because the repair touches the shared
+Content action contract, provider pagination, SQL import transactions, and the
+durable hydration queue. Existing primitives to preserve are
+`defineAction`, `useActionQuery`/`useActionMutation`, the Builder read client,
+stable Builder import identities, refresh claims/cursors, the hydration queue,
+targeted cache invalidation, and the current row-body conflict/CAS rules. No
+custom REST route, provider write, direct UI fetch, new scheduler, large SQL
+blob, or client-trusted provider snapshot belongs in this repair.
+
+### Slice 1 — make sort a page read, not a database re-open
+
+Add a page-shaped action, `query-content-database-items`, that reuses the
+existing access filter, server-side constraint evaluator, item serializer, and
+page-bounded source overlay but returns only:
+
+- the ordered/filtered 100-row item page;
+- pagination/count and `tableQueryMode`;
+- property values and source overlays needed by those rows.
+
+It must not reload database metadata, schema properties, full source status,
+context path, review state, or hydration state unrelated to the returned page.
+`DatabaseView` keeps the last good page visible with placeholder data and swaps
+only the page cache when a sort changes. Other-tab/agent invalidation must still
+refresh this action key.
+
+Instrumentation for this slice separates constraint planning, item IDs,
+documents, property values, overlay, and serialization, aligned to
+pointer-to-paint and request acknowledgement. Remove or gate temporary phase
+logging before completion.
+
+Acceptance:
+
+- existing rows never disappear;
+- sorted paint and acknowledgement are <=500ms warm / <=1s cold across five
+  hosted samples;
+- exactly one page action follows one sort gesture;
+- the response contains at most 100 rows and no document bodies/full source
+  snapshots;
+- access, filters, multi-sort, null ordering, pagination, federation, and
+  other-tab refresh tests remain green.
+
+Stop and reshape if the existing server constraint evaluator cannot produce a
+page without first materializing all documents/properties in application
+memory; that would require a broader SQL query-planner decision.
+
+### Slice 2 — show truthful rows before attachment persistence settles
+
+Add a read-only `preview-content-database-source-attach` action and query it
+when the user opens a Builder model leaf. It returns the same projected first
+100 provider rows the attach path consumes, without bodies or writes. On
+Attach, the hook paints those real provider rows immediately in a typed
+`attaching` state. They can be opened as read-only previews but are not
+represented as persisted/editable until the attach action succeeds. Failure
+rolls the preview back and leaves the original database intact.
+
+In parallel, make the server attach read model fields and the first projected
+content page concurrently, then batch the minimal document/item/source-identity
+writes. The server must independently read and validate Builder data; it must
+not trust provider rows echoed back by the browser. The successful response
+reconciles the optimistic preview to stable document/item IDs without reflow.
+
+Acceptance:
+
+- feedback remains <=100ms;
+- real first rows paint <=2s even when Attach is clicked before prefetch
+  completes;
+- rows are visibly typed as attaching/read-only until persistence succeeds;
+- success preserves selection/order and failure removes only the preview;
+- no provider body or credential enters the client cache or SQL list rows;
+- attach idempotency, duplicate-title identity, access, and rollback tests pass.
+
+Stop and reshape if a useful row must be editable before stable SQL identity
+exists. The approved plan treats early rows as truthful read-only provider
+previews, not fictional local rows.
+
+### Slice 3 — finish all metadata in one bounded provider/SQL pass
+
+Keep the current persisted continuation cursor, then change the complete read
+to a bounded parallel window:
+
+- fetch offsets 100-500 with at most four concurrent Builder requests;
+- preserve offset order and stable-ID deduplication;
+- stop at the first short page;
+- retry transient page failures through the existing retry policy;
+- report a typed incomplete/error result if any required page fails rather
+  than treating a hole as completion.
+
+On the SQL side, make `importBuilderCmsEntriesAsDatabaseItems` return the
+minimal serialized imported rows it just created. Use that result to avoid the
+second `sourceSetupPayload` and full existing-row reread. In one bounded
+transaction, bulk-write documents, memberships, database items, source rows,
+materialized values for already-bound properties, the compact hydration queue
+identity/version envelope, and final source progress. Do not reseed unchanged
+source fields. Body conversion is explicitly outside the metadata
+acknowledgement; only durable queue creation belongs inside it.
+
+Temporary spans must separately report provider-page wall time, import SQL
+round trips, source-row/value writes, queue insertion, and final metadata
+publication. The intended hosted budget allocation is <=3s provider,
+<=5s SQL, and <=2s framework/network margin.
+
+Acceptance:
+
+- 584 metadata rows are complete <=10s from Attach across five hosted runs;
+- the initial 100 rows remain visible throughout;
+- the final active-source identity set is exactly 584 and stale rows prune only
+  after complete coverage;
+- 584/597/1,000-row deterministic fixtures prove ordering, cursor completion,
+  duplicate IDs, short final pages, retries, suspicious-empty preservation,
+  concurrent refresh claims, and provider failure;
+- SQL/query-count assertions prove no second full setup read and no per-row
+  write loop.
+
+Stop and reduce provider concurrency if Builder returns 429s or the existing
+retry envelope cannot bound the window safely. Do not trade correctness for an
+optimistic completed count.
+
+### Slice 4 — bulk body conversion without per-row database chatter
+
+Retain the durable hydration queue and open-row priority, but refactor one pump
+into three explicit phases:
+
+1. claim and preload a bounded batch in bulk;
+2. convert bodies with measured bounded concurrency;
+3. persist successful, unavailable, superseded, and failed results with
+   chunked CASE/CAS updates rather than one multi-query transaction per row.
+
+The compare-and-swap protections remain mandatory: a local/Yjs edit, a newer
+queue payload, or a changed source baseline must win over stale hydration. Use
+portable Drizzle/shared SQL helpers and reviewed `getDbExec().execute()` only if
+the shared query builder cannot express the chunked CAS. Queue payloads remain
+compact identity/version/source references; raw bodies, screenshots, or large
+Builder entries do not move into SQL.
+
+Start with 50 jobs per pump and conversion concurrency 8, then tune from hosted
+phase spans rather than raising both blindly. The client immediately requests
+the next batch from the returned queue count without interleaving a complete
+database/source refetch. Existing `useDbSync` suppression and targeted
+invalidation remain in force. Two genuinely bodyless rows may end in typed
+`unavailable`; they count as settled, not hydrated.
+
+Acceptance:
+
+- the table remains interactive for the entire run;
+- 582 hydrated plus two typed unavailable rows settle <=60s in five hosted
+  runs, with first-open row priority still <=2s;
+- queue depth is monotonic except for explicit newer-version replacement;
+- closing/reopening the page resumes durable work without duplication;
+- supersession, local-edit conflict, retry cap, empty-body, bodyless-row,
+  source-change, and partial-batch failure tests pass;
+- query-count evidence shows O(chunks) writes, not O(rows) transactions.
+
+Stop and reshape toward the existing framework job substrate only if the
+durable client-driven pump cannot meet 60s while the table remains open. A new
+background scheduler is deliberately deferred from the first repair.
+
+### Cross-slice verification and Land gate
+
+Use one deterministic local 584-row fixture for regression speed and one
+task-owned hosted Content database attached read-only to
+`Agent Native Blog Article Test`. Every hosted run records visual marks,
+action request IDs, Server-Timing phases, request counts, row/body counts, and
+cleanup proof. Instrumentation must align each server request with the visible
+state transition it caused.
+
+Before Land, rerun all previously passing budgets as non-regression gates:
+43ms model results, <=100ms attach feedback, <=100ms source-column paint,
+<=1s median property acknowledgement with no >2s cold sample, progressive
+review <=2s, row shell/body targets, and no table blanking. Run Content DB,
+source/resync/hydration, hook/cache, parity, typecheck, format, build, security,
+and independent H1-H5 browser QA against the exact PR head. Permanently delete
+every task-owned hosted fixture and independently prove its marker absent.
+
+Land remains blocked until all four numbers and every preserved assertion pass.
+The next authorized stage, after Alice approves this shaped plan, is `/work`
+against this section of the existing brief.
+
 The acceptance run must measure visible intent-to-paint and action completion separately. Background completion cannot be reported as blocking latency, and an optimistic paint cannot be reported as success before acknowledgement or rollback is observed.
 
 ## Local Performance Environment
@@ -547,13 +769,12 @@ Stop and return to Shape if meeting the target requires changing the action arch
 ## Lifecycle
 
 ```yaml
-stage: land
-ledger-revision: land-blog-table-latency-r8
+stage: work
+ledger-revision: work-2026-07-30-four-failures-v1
 authority-source: >-
-  Alice invoked $work on 2026-07-29 against the frozen
-  shape-blog-table-latency-r5 artifact after approving the operation budgets
-  and authorizing the disconnected Builder test collection used in clip
-  BfEnyRiC4Pu7 as the proving surface
+  Alice invoked $work on 2026-07-30 after approving the four remaining
+  operation budgets and reconnecting the PR #2522 deployment to the isolated
+  Builder test collection used in clip BfEnyRiC4Pu7
 authorized-scope:
   repositories:
     - /Users/alicemoore/.codex/worktrees/8c63/agent-native
@@ -572,14 +793,13 @@ allowed-mutations:
   - pull-request
   - deploy
   - schema
-  - merge
 write-targets:
   artifacts:
     - /Users/alicemoore/.codex/worktrees/8c63/agent-native/plans/content-blog-table-performance-research.md
 execution-lane:
   worktree: /Users/alicemoore/.codex/worktrees/8c63/agent-native
   branch: codex/content-large-database-performance
-  refreshed-base: origin/main@ce426feef1ebeb370fca581291c9391339a757ed
+  refreshed-base: origin/main@58bdd10a7f60ba08c01fa425f836732c73c5f5b6
   remote-default-branch: origin/main
   calling-task-id: unavailable from current host surface
   parent-task-id: none
@@ -613,6 +833,23 @@ work-progress:
     - independent human QA on a host that exposes the in-app browser
     - final repair verification, exact-head PR prose receipt, review, and CI
 temporary-probes:
+  - id: content-four-failure-action-phases
+    status: active
+    gate: PR #2522 preview and isolated local performance runtime only
+    records: >-
+      content-free phase names and durations for Builder attach preview,
+      primary attach, metadata continuation, body hydration batches, and
+      constrained table pages; action responses carry the same timing array
+      so browser network evidence can be joined to the visible boundary
+    removal-trigger: after the final joined preview acceptance replay
+  - id: content-four-failure-browser-network-waterfall
+    status: active
+    gate: browser developer timing capture during the frozen H1-H5 replay
+    records: >-
+      pointer intent, semantic row/progress state, action URL, request and
+      response timestamps, x-agent-native-request-id, status, and response
+      timing phases; no bodies, credentials, or provider payloads
+    removal-trigger: after the final joined preview acceptance replay
   - id: content-database-response-trace
     status: removed
     gate: >-
@@ -938,9 +1175,8 @@ performed by Land.
 
 Invalidated by: a change to the approved outcome/budgets, named Agent Native Content shipping surface or constituency, action/SQL/progressive-provider architecture, acceptance story, or system-ready risk strategy.
 
-Task attention: `manual-custody`; exact Builder credentials and an independent
-browser-capable QA host are required before Land can recompute system-ready.
+Task attention: `autonomous`; the connected PR preview and in-app browser are
+available for the four-failure Work loop.
 
-Next: Work resumes internally when the credentialed Builder runtime and
-independent browser-capable QA host are available; then rerun exact-provider and
-H1-H5 acceptance against the unchanged frozen story.
+Next: deploy the exact Work artifact to PR #2522, run correlated exact-provider
+acceptance, remove temporary probes, and replay the clean artifact before Land.

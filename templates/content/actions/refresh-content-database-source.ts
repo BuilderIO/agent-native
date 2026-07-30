@@ -3,6 +3,7 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import type { ContentDatabaseSourceStatusResponse } from "../shared/api.js";
+import { createBuilderSourceTiming } from "./_builder-source-timings.js";
 import { getContentDatabaseSourceAdapter } from "./_content-database-source-adapters.js";
 import {
   claimBuilderCmsSourceRefresh,
@@ -51,11 +52,18 @@ export default defineAction({
       ),
   }),
   run: async (args): Promise<ContentDatabaseSourceStatusResponse> => {
-    const database = await resolveDatabaseForSourceMutation(args);
+    const timing = createBuilderSourceTiming("refresh-content-database-source");
+    const database = await timing.measure("resolve-database", () =>
+      resolveDatabaseForSourceMutation(args),
+    );
     if (!database) throw new Error("Database not found.");
-    await assertAccess("document", database.documentId, "editor");
+    await timing.measure("access", () =>
+      assertAccess("document", database.documentId, "editor"),
+    );
 
-    const source = await getExistingSourceForWrite(database.id, args.sourceId);
+    const source = await timing.measure("resolve-source", () =>
+      getExistingSourceForWrite(database.id, args.sourceId),
+    );
     if (!source) {
       return {
         database: serializeDatabase(database),
@@ -76,20 +84,24 @@ export default defineAction({
       });
       skippedOverlappingBuilderRefresh = !claimedSource;
       if (claimedSource) {
-        await resyncBuilderCmsSourceSnapshot({
-          database,
-          source: claimedSource.source,
-          now,
-          runFullRefresh: args.fullRefresh === true,
-          finishPagination: args.finishBuilderPagination === true,
-          refreshClaimId: claimedSource.claimId,
-        }).catch(async (error: unknown) => {
-          await releaseBuilderCmsSourceRefreshClaim({
-            sourceId: source.id,
-            claimId: claimedSource.claimId,
+        await timing
+          .measure("builder-resync", () =>
+            resyncBuilderCmsSourceSnapshot({
+              database,
+              source: claimedSource.source,
+              now,
+              runFullRefresh: args.fullRefresh === true,
+              finishPagination: args.finishBuilderPagination === true,
+              refreshClaimId: claimedSource.claimId,
+            }),
+          )
+          .catch(async (error: unknown) => {
+            await releaseBuilderCmsSourceRefreshClaim({
+              sourceId: source.id,
+              claimId: claimedSource.claimId,
+            });
+            throw error;
           });
-          throw error;
-        });
       }
     } else if (source.sourceType === "local-table") {
       // Read-only federated secondary; its rows are re-read on demand, nothing
@@ -130,9 +142,11 @@ export default defineAction({
     } else {
       throw new Error(`Unsupported source type "${source.sourceType}".`);
     }
-    const snapshot = args.sourceId
-      ? await getContentDatabaseSourceSnapshotById(database, args.sourceId)
-      : await getContentDatabaseSourceSnapshot(database);
+    const snapshot = await timing.measure("status-snapshot", () =>
+      args.sourceId
+        ? getContentDatabaseSourceSnapshotById(database, args.sourceId)
+        : getContentDatabaseSourceSnapshot(database),
+    );
 
     const builderProgress =
       snapshot?.sourceType === "builder-cms" ? snapshot.metadata : null;
@@ -144,7 +158,7 @@ export default defineAction({
         ? builderProgress.lastReadFetchedEntryCount
         : undefined;
 
-    return {
+    const response: ContentDatabaseSourceStatusResponse = {
       database: serializeDatabase(database),
       mode: "source-backed",
       summary: snapshot
@@ -157,6 +171,9 @@ export default defineAction({
               : `${snapshot.sourceName} resynced locally; field mappings and row identity now reflect the current database snapshot.`
         : "Source metadata refreshed.",
       source: snapshot,
+      timings: timing.finish(),
     };
+    timing.log("succeeded");
+    return response;
   },
 });

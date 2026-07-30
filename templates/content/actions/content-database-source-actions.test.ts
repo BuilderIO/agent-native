@@ -29,6 +29,7 @@ import prepareReview, {
   reviewPreparePriority,
 } from "./prepare-builder-source-review";
 import previewReview from "./preview-builder-source-review";
+import previewSourceAttach from "./preview-content-database-source-attach";
 import refreshSource from "./refresh-content-database-source";
 import reviewChangeSet from "./review-content-database-source-change-set";
 import setWriteMode from "./set-content-database-source-write-mode";
@@ -37,6 +38,20 @@ import stageBulkUpdate from "./stage-builder-source-bulk-update";
 import validateExecution from "./validate-builder-source-execution";
 
 describe("content database source actions", () => {
+  it("bounds Builder attachment previews to one database and safe field paths", () => {
+    expect(
+      previewSourceAttach.schema.parse({
+        documentId: "database-page",
+        sourceTable: "agent-native-blog-article-test",
+        fieldPaths: ["topics", "data.author"],
+      }),
+    ).toEqual({
+      documentId: "database-page",
+      sourceTable: "agent-native-blog-article-test",
+      fieldPaths: ["topics", "data.author"],
+    });
+  });
+
   it("accepts database or document IDs for source status reads", () => {
     expect(getSource.schema.parse({ documentId: "database-page" })).toEqual({
       documentId: "database-page",
@@ -285,6 +300,56 @@ describe("content database source actions", () => {
       }),
     ).rejects.toThrow("model discovery unavailable");
     expect(calls).toEqual(["model-fields", "entries"]);
+  });
+
+  it("starts Builder field discovery and the projected first page together", async () => {
+    const calls: string[] = [];
+    let releaseFields!: () => void;
+    let releaseEntries!: () => void;
+    const fieldsReady = new Promise<void>((resolve) => {
+      releaseFields = resolve;
+    });
+    const entriesReady = new Promise<void>((resolve) => {
+      releaseEntries = resolve;
+    });
+    const pending = readInitialBuilderCmsAttachSource("blog-article", {
+      fieldPaths: ["topics", "data.author"],
+      readModelFields: async () => {
+        calls.push("model-fields");
+        await fieldsReady;
+        return [];
+      },
+      readEntries: async (args) => {
+        calls.push("entries");
+        expect(args.fieldPaths).toEqual(["topics", "data.author"]);
+        await entriesReady;
+        return {
+          state: "live",
+          entries: [],
+          fetchedAt: "2026-01-01T00:00:00.000Z",
+          message: null,
+          progress: {
+            requestedLimit: 500,
+            pageSize: 100,
+            startOffset: 0,
+            nextOffset: 0,
+            fetchedEntryCount: 0,
+            hasMore: false,
+            partial: false,
+            readMode: "builder-api",
+          },
+        };
+      },
+    });
+
+    await Promise.resolve();
+    expect(calls).toEqual(["model-fields", "entries"]);
+    releaseEntries();
+    releaseFields();
+    await expect(pending).resolves.toMatchObject({
+      read: { state: "live" },
+      modelFields: [],
+    });
   });
 
   it("fails role-change preparation before mappings can be rewritten when model discovery fails", async () => {

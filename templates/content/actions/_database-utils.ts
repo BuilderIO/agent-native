@@ -5,9 +5,11 @@ import {
 import {
   accessFilter,
   ROLE_RANK,
+  resolveAccess,
   type ShareRole,
 } from "@agent-native/core/sharing";
 import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { getDocumentContextPath } from "../server/lib/document-context.js";
@@ -30,6 +32,7 @@ import { favoriteDocumentIds } from "./_content-favorites.js";
 import {
   listContentOrganizationMemberships,
   normalizeContentSpaceEmail,
+  resolveContentSpaceAccess,
 } from "./_content-space-access.js";
 import { getAllContentDatabaseSourceSnapshots } from "./_database-source-utils.js";
 import {
@@ -48,6 +51,47 @@ import {
 export { getDocumentContextPath };
 
 export const CONTENT_DATABASE_MAX_READ_LIMIT = 5_000;
+
+export const contentDatabaseTableQuerySchema = z
+  .object({
+    search: z.string().max(500),
+    filters: z
+      .array(
+        z.object({
+          key: z.string(),
+          label: z.string(),
+          operator: z.enum([
+            "contains",
+            "equals",
+            "does_not_equal",
+            "greater_than",
+            "less_than",
+            "before",
+            "after",
+            "between",
+            "is_checked",
+            "is_unchecked",
+            "is_empty",
+            "is_not_empty",
+          ]),
+          value: z.string(),
+          filterGroupId: z.string().optional(),
+          parentFilterGroupId: z.string().optional(),
+        }),
+      )
+      .max(50),
+    sorts: z
+      .array(
+        z.object({
+          key: z.string(),
+          label: z.string(),
+          direction: z.enum(["asc", "desc"]),
+        }),
+      )
+      .max(20),
+    filterMode: z.enum(["and", "or"]),
+  })
+  .optional();
 
 async function contentDatabaseTableQueryMode(
   databaseId: string,
@@ -320,7 +364,87 @@ function serializeDocument(
   };
 }
 
-export async function getContentDatabaseResponse(
+export type ContentDatabasePageResponse = Pick<
+  ContentDatabaseResponse,
+  "items" | "source" | "sources" | "pagination" | "tableQueryMode"
+>;
+
+export type ContentDatabaseReadResolution =
+  | {
+      available: true;
+      database: typeof schema.contentDatabases.$inferSelect;
+    }
+  | {
+      available: false;
+      reason: "not_found" | "deleted";
+      databaseId: string;
+      documentId: string | null;
+      deletedAt?: string | null;
+      message: string;
+    };
+
+export async function resolveContentDatabaseRead(args: {
+  databaseId?: string;
+  documentId?: string;
+}): Promise<ContentDatabaseReadResolution> {
+  const db = getDb();
+  let databaseId = args.databaseId;
+  if (!databaseId && args.documentId) {
+    const [database] = await db
+      .select({ id: schema.contentDatabases.id })
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.documentId, args.documentId));
+    databaseId = database?.id;
+  }
+  if (!databaseId) {
+    throw new Error("Either databaseId or documentId is required.");
+  }
+
+  const [database] = await db
+    .select()
+    .from(schema.contentDatabases)
+    .where(eq(schema.contentDatabases.id, databaseId));
+  if (!database) {
+    return {
+      available: false,
+      reason: "not_found",
+      databaseId,
+      documentId: args.documentId ?? null,
+      message: `Database "${databaseId}" not found`,
+    };
+  }
+
+  let canRead = Boolean(await resolveAccess("document", database.documentId));
+  if (!canRead && database.systemRole === "files" && database.spaceId) {
+    try {
+      await resolveContentSpaceAccess(database.spaceId);
+      canRead = true;
+    } catch {
+      canRead = false;
+    }
+  }
+  if (!canRead) throw new Error(`Database "${databaseId}" not found`);
+
+  if (database.deletedAt) {
+    return {
+      available: false,
+      reason: "deleted",
+      databaseId: database.id,
+      documentId: database.documentId,
+      deletedAt: database.deletedAt,
+      message: `Database "${database.id}" has been deleted`,
+    };
+  }
+
+  return { available: true, database };
+}
+
+type ContentDatabasePageBuild = ContentDatabasePageResponse & {
+  databaseRecord: typeof schema.contentDatabases.$inferSelect;
+  properties: ContentDatabaseResponse["properties"];
+};
+
+export async function getContentDatabasePageResponse(
   databaseId: string,
   options: {
     limit?: number;
@@ -328,26 +452,22 @@ export async function getContentDatabaseResponse(
     tableQuery?: ContentDatabaseTableQuery;
     includeSources?: boolean;
     documentIds?: string[];
+    database?: typeof schema.contentDatabases.$inferSelect;
   } = {},
-): Promise<ContentDatabaseResponse> {
+): Promise<ContentDatabasePageBuild> {
   const db = getDb();
-  const [database] = await db
-    .select()
-    .from(schema.contentDatabases)
-    .where(eq(schema.contentDatabases.id, databaseId));
+  const database =
+    options.database ??
+    (
+      await db
+        .select()
+        .from(schema.contentDatabases)
+        .where(eq(schema.contentDatabases.id, databaseId))
+    )[0];
 
   if (!database || database.deletedAt) {
     throw new Error(`Database "${databaseId}" not found`);
   }
-  const [databaseDocument] = await db
-    .select({
-      id: schema.documents.id,
-      parentId: schema.documents.parentId,
-      description: schema.documents.description,
-    })
-    .from(schema.documents)
-    .where(eq(schema.documents.id, database.documentId));
-
   // PURE read: the primary "Content" Blocks field is seeded at create time and
   // by the one-time startup repair — never here. Reading a database (including a
   // shared one a viewer is opening) must not mutate schema.
@@ -749,13 +869,8 @@ export async function getContentDatabaseResponse(
   // Opt-in federated columns (a secondary field the user added via the picker)
   // get their per-row values from the matched overlay at read time.
   const itemsWithOverlay = applyFederatedOverlayValues(federatedItems);
-  const contextPath = databaseDocument
-    ? await getDocumentContextPath(databaseDocument)
-    : [];
-
   return {
-    database: serializeDatabase(database, databaseDocument?.description ?? ""),
-    contextPath,
+    databaseRecord: database,
     properties: responseProperties,
     items: itemsWithOverlay,
     source: pagedPrimary,
@@ -775,6 +890,46 @@ export async function getContentDatabaseResponse(
           }
         : undefined,
     tableQueryMode,
+  };
+}
+
+export async function getContentDatabaseResponse(
+  databaseId: string,
+  options: {
+    limit?: number;
+    offset?: number;
+    tableQuery?: ContentDatabaseTableQuery;
+    includeSources?: boolean;
+    documentIds?: string[];
+    database?: typeof schema.contentDatabases.$inferSelect;
+  } = {},
+): Promise<ContentDatabaseResponse> {
+  const page = await getContentDatabasePageResponse(databaseId, options);
+  const db = getDb();
+  const [databaseDocument] = await db
+    .select({
+      id: schema.documents.id,
+      parentId: schema.documents.parentId,
+      description: schema.documents.description,
+    })
+    .from(schema.documents)
+    .where(eq(schema.documents.id, page.databaseRecord.documentId));
+  const contextPath = databaseDocument
+    ? await getDocumentContextPath(databaseDocument)
+    : [];
+
+  return {
+    database: serializeDatabase(
+      page.databaseRecord,
+      databaseDocument?.description ?? "",
+    ),
+    contextPath,
+    properties: page.properties,
+    items: page.items,
+    source: page.source,
+    sources: page.sources,
+    pagination: page.pagination,
+    tableQueryMode: page.tableQueryMode,
   };
 }
 

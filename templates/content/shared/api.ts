@@ -726,6 +726,7 @@ export interface ContentDatabaseSourceStatusResponse {
   mode: "local" | "source-backed";
   summary: string;
   source: ContentDatabaseSource | null;
+  timings?: BuilderActionTiming[];
 }
 
 export interface BuilderCmsModelFieldSummary {
@@ -797,7 +798,17 @@ export interface ContentDatabaseResponse {
   deletedDocumentIds?: string[];
   timings?: BuilderActionTiming[];
   tableQueryMode?: "server" | "client-required";
+  /** Client-only optimistic state while real provider rows are being attached. */
+  attachPreview?: {
+    sourceTable: string;
+    fetchedAt: string;
+  };
 }
+
+export type ContentDatabaseItemsPageResponse = Pick<
+  ContentDatabaseResponse,
+  "items" | "source" | "sources" | "pagination" | "tableQueryMode"
+> & { timings?: BuilderActionTiming[] };
 
 export interface BuilderActionTiming {
   name: string;
@@ -911,6 +922,8 @@ export interface AttachContentDatabaseSourceRequest {
   sourceType?: ContentDatabaseSourceType;
   sourceName?: string;
   sourceTable?: string;
+  /** Projected Builder model fields already visible in the model picker. */
+  builderFieldPaths?: string[];
   /** "items" adds more rows; "details" joins fields onto existing rows. */
   relationshipMode?: "items" | "details";
   join?: ContentDatabaseSourceJoinRequest;
@@ -918,6 +931,16 @@ export interface AttachContentDatabaseSourceRequest {
   mode?: "replace" | "add";
   limit?: number;
   offset?: number;
+}
+
+export interface BuilderCmsAttachPreviewResponse {
+  databaseId: string;
+  documentId: string;
+  sourceTable: string;
+  items: ContentDatabaseItem[];
+  fetchedAt: string;
+  hasMore: boolean;
+  timings?: BuilderActionTiming[];
 }
 
 export interface ChangeContentDatabaseSourceRoleRequest {
@@ -1300,4 +1323,5 @@ export interface ProcessBuilderBodyHydrationResponse {
   succeeded: number;
   failed: number;
   remaining: number;
+  timings?: BuilderActionTiming[];
 }

@@ -1951,6 +1951,22 @@ it("records freshly imported Builder row identities even when title and URL keys
   expect(concurrentRetryDocuments).toHaveLength(2);
   expect(concurrentRetryItems).toHaveLength(2);
 
+  const interruptedAttachRecovery = await importBuilderEntries({
+    database,
+    entries,
+    now,
+    sourceTable: "collection-duplicates",
+    existingSourceRows: [],
+    skipTitleDedup: true,
+  });
+  expect(interruptedAttachRecovery.imported).toBe(0);
+  expect(interruptedAttachRecovery.importedItems).toEqual([]);
+  expect(
+    Array.from(interruptedAttachRecovery.importedEntriesByDocumentId.values())
+      .map((entry) => entry.id)
+      .sort(),
+  ).toEqual(["entry-dup-1", "entry-dup-2"]);
+
   const importedItems = concurrentRetryItems.map(
     (item: { id: string; documentId: string }, index: number) => ({
       id: item.id,
