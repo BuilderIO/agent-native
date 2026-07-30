@@ -2,7 +2,7 @@
 
 import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import type { ContentDatabaseItem, ContentDatabaseResponse } from "@shared/api";
-import { act } from "react";
+import { act, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
@@ -839,5 +839,132 @@ describe("DatabaseSidebarView", () => {
     expect(markup).toContain("pointer-events-none");
     expect(markup).toContain("group-hover:pointer-events-auto");
     expect(markup).not.toContain("shadow-sm");
+  });
+
+  it("unlocks the page after a sidebar row is deleted from its row menu", async () => {
+    (
+      globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+    ).IS_REACT_ACT_ENVIRONMENT = true;
+    const manageable = (id: string, title: string) => {
+      const base = item(id, title);
+      return {
+        ...base,
+        document: { ...base.document, canEdit: true, canManage: true },
+      };
+    };
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    function Harness() {
+      const [items, setItems] = useState([
+        manageable("alpha", "Alpha"),
+        manageable("beta", "Beta"),
+      ]);
+      return (
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          persistPreference={false}
+          catalog={{
+            sourceLocale: "en-US",
+            messages: {
+              sidebar: {
+                moreActionsFor: "More actions for {{label}}",
+                deletePageQuestion: "Delete page?",
+                deletePageDescription: "Delete {{title}}?",
+              },
+              database: { delete: "Delete" },
+              comments: { cancel: "Cancel" },
+            },
+          }}
+        >
+          <MemoryRouter>
+            <TooltipProvider>
+              <DatabaseSidebarView
+                groups={[
+                  {
+                    id: "all",
+                    label: "All pages",
+                    items,
+                    property: null,
+                    value: "all",
+                  },
+                ]}
+                grouped={false}
+                isLoading={false}
+                hasActiveConstraints={false}
+                openPagesIn="full_page"
+                noMatchesLabel="No rows match this view"
+                clearLabel="Clear"
+                navigationLabel="Database pages"
+                untitledLabel="Untitled"
+                onClearResultConstraints={() => {}}
+                onPreview={() => {}}
+                onDeleteItem={(deleted) =>
+                  setItems((current) =>
+                    current.filter((candidate) => candidate.id !== deleted.id),
+                  )
+                }
+                onToggleFavorite={() => {}}
+              />
+            </TooltipProvider>
+          </MemoryRouter>
+        </AgentNativeI18nProvider>
+      );
+    }
+
+    const press = async (element: Element) => {
+      await act(async () => {
+        element.dispatchEvent(
+          new window.PointerEvent("pointerdown", {
+            bubbles: true,
+            cancelable: true,
+            button: 0,
+            pointerType: "mouse",
+          }),
+        );
+        element.dispatchEvent(
+          new window.PointerEvent("pointerup", {
+            bubbles: true,
+            cancelable: true,
+            button: 0,
+            pointerType: "mouse",
+          }),
+        );
+        element.dispatchEvent(
+          new window.MouseEvent("click", {
+            bubbles: true,
+            cancelable: true,
+            button: 0,
+          }),
+        );
+      });
+    };
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+
+    await press(
+      document.querySelector('[aria-label="More actions for Alpha"]')!,
+    );
+    await press(
+      [...document.querySelectorAll('[role="menuitem"]')].find((node) =>
+        node.textContent?.includes("Delete"),
+      )!,
+    );
+    await press(
+      [...document.querySelectorAll("button")].find(
+        (node) => node.textContent === "Delete",
+      )!,
+    );
+
+    expect(
+      document.querySelector('[aria-label="More actions for Alpha"]'),
+    ).toBeNull();
+    expect(document.body.style.pointerEvents).toBe("");
+
+    await act(async () => root.unmount());
+    container.remove();
   });
 });
