@@ -999,6 +999,7 @@ export interface RefreshContentDatabaseSourceRequest {
   documentId?: string;
   sourceId?: string;
   fullRefresh?: boolean;
+  finishBuilderPagination?: boolean;
   expectedBuilderContinuationOffset?: number;
 }
 

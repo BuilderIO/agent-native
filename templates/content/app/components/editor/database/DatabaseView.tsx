@@ -1188,6 +1188,7 @@ function DatabaseTable({
           sourceId,
           expectedBuilderContinuationOffset,
           fullRefresh: fullRefresh || undefined,
+          finishBuilderPagination: fullRefresh || undefined,
         },
         {
           onError,

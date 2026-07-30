@@ -5905,6 +5905,7 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
   source: ContentDatabaseSourceRowDb;
   now: string;
   runFullRefresh?: boolean;
+  finishPagination?: boolean;
   refreshClaimId?: string;
 }) {
   let { properties, response } = await sourceSetupPayload(args.database.id);
@@ -5917,7 +5918,7 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
       ? sourceMetadata.activeReadSourceRowIds
       : [];
   const continueOffset =
-    !args.runFullRefresh &&
+    (!args.runFullRefresh || args.finishPagination) &&
     sourceMetadata.sourceFetchState === "fetching" &&
     sourceMetadata.lastReadHasMore === true &&
     activeReadSourceRowIds.length > 0 &&
@@ -5931,20 +5932,24 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
     .where(eq(schema.contentDatabaseSourceFields.sourceId, args.source.id));
   let builderModelFields: BuilderCmsModelFieldSummary[] | undefined;
   let builderModelFieldsReadFailed = false;
-  try {
-    builderModelFields = await readBuilderCmsModelFields({
-      model: args.source.sourceTable,
-    });
-    builderModelFields = mergeBuilderCmsModelFieldsPreservingReferenceModels({
-      existing: sourceMetadata.builderModelFields,
-      refreshed: builderModelFields,
-    });
-  } catch (error) {
-    builderModelFieldsReadFailed = true;
-    const message = error instanceof Error ? error.message : String(error);
-    console.warn(
-      `[content] Builder model field read failed for ${args.source.sourceTable}; continuing source row sync without model field metadata. ${message}`,
-    );
+  if (continueOffset > 0 && sourceMetadata.builderModelFields?.length) {
+    builderModelFields = sourceMetadata.builderModelFields;
+  } else {
+    try {
+      builderModelFields = await readBuilderCmsModelFields({
+        model: args.source.sourceTable,
+      });
+      builderModelFields = mergeBuilderCmsModelFieldsPreservingReferenceModels({
+        existing: sourceMetadata.builderModelFields,
+        refreshed: builderModelFields,
+      });
+    } catch (error) {
+      builderModelFieldsReadFailed = true;
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(
+        `[content] Builder model field read failed for ${args.source.sourceTable}; continuing source row sync without model field metadata. ${message}`,
+      );
+    }
   }
   const projectionModelFields =
     builderModelFields && builderModelFields.length > 0
