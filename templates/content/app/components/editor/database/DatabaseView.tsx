@@ -2567,7 +2567,7 @@ function DatabaseTable({
           </Button>
           {data?.attachPreview ? (
             <span className="rounded border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-              Attaching · read-only
+              {dbText("attachingReadOnly")}
             </span>
           ) : null}
           {effectiveCanEdit && isWorkspaceCatalog ? (
