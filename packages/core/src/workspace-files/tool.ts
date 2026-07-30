@@ -175,9 +175,10 @@ export function createWorkspaceFilesTool(): Record<string, ActionEntry> {
                   ? Math.min(rawMax, MAX_READ_CHARS)
                   : DEFAULT_READ_CHARS;
 
+              // The sentinel character distinguishes an exact page from a truncated one.
               const file = await readWorkspaceFile(scope, path, {
                 offset,
-                maxChars,
+                maxChars: maxChars + 1,
               });
               if (!file) {
                 return JSON.stringify({
@@ -186,19 +187,20 @@ export function createWorkspaceFilesTool(): Record<string, ActionEntry> {
                 });
               }
 
-              const truncated = file.content.length >= maxChars;
+              const truncated = file.content.length > maxChars;
+              const content = file.content.slice(0, maxChars);
               return JSON.stringify({
                 ok: true,
                 path: file.path,
                 contentType: file.contentType,
                 sizeBytes: file.sizeBytes,
                 updatedAt: file.updatedAt,
-                content: file.content,
+                content,
                 ...(truncated
                   ? {
                       truncated: true,
-                      nextOffset: offset + file.content.length,
-                      hint: `File has more content. Call again with offset: ${offset + file.content.length}`,
+                      nextOffset: offset + content.length,
+                      hint: `File has more content. Call again with offset: ${offset + content.length}`,
                     }
                   : {}),
               });
