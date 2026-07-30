@@ -272,6 +272,7 @@ export function DrawOverlay({
   const [redoStack, setRedoStack] = useState<Array<Stroke | DrawAnnotation>>(
     [],
   );
+  const clearUndoGenerationRef = useRef(0);
   const [currentStroke, setCurrentStroke] = useState<Point[] | null>(null);
   // Pointer events can arrive down -> move -> up before React renders once.
   // This ref is the authoritative in-progress gesture; state is only a
@@ -307,6 +308,7 @@ export function DrawOverlay({
   // not hit this cleanup; only a real component unmount does.
   useEffect(() => {
     return () => {
+      clearUndoGenerationRef.current += 1;
       // A true unmount never runs the `!visible` effect above (the prop
       // never transitions — the component is simply gone), so a still-open
       // pending text box never gets its usual commit-on-hide chance. Count
@@ -377,6 +379,7 @@ export function DrawOverlay({
   );
 
   const clearAnnotationState = useCallback(() => {
+    clearUndoGenerationRef.current += 1;
     resetActiveStroke();
     strokesRef.current = [];
     textAnnotationsRef.current = [];
@@ -790,6 +793,7 @@ export function DrawOverlay({
   const clear = () => {
     if (sending) return;
     if (strokes.length === 0 && textAnnotations.length === 0) return;
+    const undoGeneration = ++clearUndoGenerationRef.current;
     const prevStrokes = strokesRef.current;
     const prevTexts = textAnnotationsRef.current;
     const prevRedo = redoStack;
@@ -802,6 +806,7 @@ export function DrawOverlay({
       action: {
         label: t("visualEditor.undo"),
         onClick: () => {
+          if (undoGeneration !== clearUndoGenerationRef.current) return;
           // Merge snapshot with any strokes/texts drawn during the toast window
           // so new work is not discarded; also restore the pre-clear redo stack.
           const restoredStrokes = [...prevStrokes, ...strokesRef.current];

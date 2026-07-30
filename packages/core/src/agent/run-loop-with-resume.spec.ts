@@ -6,12 +6,15 @@ import {
   AGENT_INTERNAL_CONTINUE_PROMPT,
   appendAgentLoopContinuation,
   isResumableEngineError,
+  isTransientProviderRateLimitError,
   continuationReasonForResumableError,
   runAgentLoop,
   type AgentLoopOutcome,
 } from "./production-agent.js";
 import {
   runAgentLoopDirectWithSoftTimeout,
+  BACKGROUND_RATE_LIMIT_CONTINUATION_DELAY_MS,
+  MAX_BACKGROUND_RATE_LIMIT_CONTINUATIONS,
   MAX_BACKGROUND_RUN_LOOP_CONTINUATIONS,
   MAX_RUN_LOOP_CONTINUATIONS,
   RUN_BUDGET_EXHAUSTED_ERROR_CODE,
@@ -158,6 +161,35 @@ describe("isResumableEngineError", () => {
     ).toBe(false);
     expect(isResumableEngineError(new Error("400 Bad Request"))).toBe(false);
     expect(isResumableEngineError("not an Error object")).toBe(false);
+  });
+});
+
+describe("isTransientProviderRateLimitError", () => {
+  it("recognizes structured transient provider limits", () => {
+    expect(
+      isTransientProviderRateLimitError(
+        new EngineError("rate limited", { statusCode: 429 }),
+      ),
+    ).toBe(true);
+    expect(
+      isTransientProviderRateLimitError(
+        new EngineError("overloaded", { errorCode: "http_529" }),
+      ),
+    ).toBe(true);
+    expect(
+      isTransientProviderRateLimitError(new Error("429 status code (no body)")),
+    ).toBe(false);
+  });
+
+  it("does not turn a hard daily cap into a continuation loop", () => {
+    expect(
+      isTransientProviderRateLimitError(
+        new EngineError("Daily gateway request cap reached", {
+          errorCode: "rate_limit_exceeded",
+          statusCode: 429,
+        }),
+      ),
+    ).toBe(false);
   });
 });
 
@@ -651,6 +683,116 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
       .map((m) => (m.content[0]?.type === "text" ? m.content[0].text : ""))
       .find((t) => t.startsWith(AGENT_INTERNAL_CONTINUE_PROMPT));
     expect(continuationText).toContain("transport-level interruption");
+  });
+
+  it("gives a background delegated run one cooled-down continuation after exhausted provider 429 retries", async () => {
+    vi.useFakeTimers();
+    try {
+      let attempts = 0;
+      const outcomes: AgentLoopOutcome[] = [];
+      const messages: EngineMessage[] = [
+        { role: "user", content: [{ type: "text", text: "go" }] },
+      ];
+      mockRunAgentLoop.mockImplementation(async (opts) => {
+        attempts++;
+        if (attempts === 1) {
+          throw new EngineError("429 status code (no body)", {
+            errorCode: "http_429",
+            statusCode: 429,
+          });
+        }
+        opts.onOutcome?.({ state: "completed" });
+        return {
+          inputTokens: 1,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "test-model",
+        };
+      });
+
+      const run = runAgentLoopDirectWithSoftTimeout(
+        makeOpts(
+          messages,
+          new AbortController().signal,
+          undefined,
+          undefined,
+          outcomes,
+        ),
+        60_000,
+        { backgroundFunction: true },
+      );
+      await vi.advanceTimersByTimeAsync(
+        BACKGROUND_RATE_LIMIT_CONTINUATION_DELAY_MS,
+      );
+      await run;
+
+      expect(attempts).toBe(2);
+      expect(outcomes).toEqual([{ state: "completed" }]);
+      const continuationText = messages
+        .map((message) =>
+          message.content[0]?.type === "text" ? message.content[0].text : "",
+        )
+        .find((text) => text.startsWith(AGENT_INTERNAL_CONTINUE_PROMPT));
+      expect(continuationText).toContain("temporarily rate limited");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("caps background provider-rate-limit continuation instead of storming requests", async () => {
+    vi.useFakeTimers();
+    try {
+      let attempts = 0;
+      mockRunAgentLoop.mockImplementation(async () => {
+        attempts++;
+        throw new EngineError("429 status code (no body)", {
+          errorCode: "http_429",
+          statusCode: 429,
+        });
+      });
+
+      const run = runAgentLoopDirectWithSoftTimeout(
+        makeOpts(
+          [{ role: "user", content: [{ type: "text", text: "go" }] }],
+          new AbortController().signal,
+        ),
+        60_000,
+        { backgroundFunction: true },
+      );
+      const rejected = expect(run).rejects.toThrow("429 status code (no body)");
+      await vi.advanceTimersByTimeAsync(
+        BACKGROUND_RATE_LIMIT_CONTINUATION_DELAY_MS,
+      );
+      await rejected;
+
+      expect(attempts).toBe(MAX_BACKGROUND_RATE_LIMIT_CONTINUATIONS + 1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not spend foreground delegated budget on a provider-rate-limit continuation", async () => {
+    let attempts = 0;
+    mockRunAgentLoop.mockImplementation(async () => {
+      attempts++;
+      throw new EngineError("429 status code (no body)", {
+        errorCode: "http_429",
+        statusCode: 429,
+      });
+    });
+
+    await expect(
+      runAgentLoopDirectWithSoftTimeout(
+        makeOpts(
+          [{ role: "user", content: [{ type: "text", text: "go" }] }],
+          new AbortController().signal,
+        ),
+        60_000,
+      ),
+    ).rejects.toThrow("429 status code (no body)");
+
+    expect(attempts).toBe(1);
   });
 
   it("rethrows non-resumable terminal errors immediately without continuing", async () => {

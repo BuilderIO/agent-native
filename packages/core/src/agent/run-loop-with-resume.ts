@@ -26,6 +26,7 @@ import {
   runAgentLoop,
   appendAgentLoopContinuation,
   isResumableEngineError,
+  isTransientProviderRateLimitError,
   continuationReasonForResumableError,
   lastUnfinishedPreparingActionToolFromEvents,
   resolveFinalResponseGuardRequestText,
@@ -113,7 +114,7 @@ function appendToolCallJournalNote(
 
 async function appendContinuationAndJournal(
   messages: EngineMessage[],
-  reason: AgentLoopContinuationReason,
+  reason: AgentLoopContinuationReason | "rate_limited",
   threadId: string | undefined,
   localEvents: readonly AgentChatEvent[] = [],
 ): Promise<void> {
@@ -198,6 +199,34 @@ export const MAX_RUN_LOOP_CONTINUATIONS = 6;
  * background-function wall-clock budget.
  */
 export const MAX_BACKGROUND_RUN_LOOP_CONTINUATIONS = 20;
+
+/**
+ * The engine already performs its own short provider retries. After those are
+ * exhausted, a proven durable background A2A/MCP run gets one cooled-down
+ * continuation for a transient 429/529. One extra round is enough to bridge a
+ * short provider bucket without multiplying a sustained rate limit into a
+ * request storm across the larger background continuation allowance.
+ */
+export const MAX_BACKGROUND_RATE_LIMIT_CONTINUATIONS = 1;
+export const BACKGROUND_RATE_LIMIT_CONTINUATION_DELAY_MS = 20_000;
+
+function waitForBackgroundRateLimitCooldown(
+  signal: AbortSignal,
+): Promise<void> {
+  if (signal.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const finish = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", finish);
+      resolve();
+    };
+    const timer = setTimeout(
+      finish,
+      BACKGROUND_RATE_LIMIT_CONTINUATION_DELAY_MS,
+    );
+    signal.addEventListener("abort", finish, { once: true });
+  });
+}
 
 /** Machine-readable code carried on the give-up terminal `error` event so the
  * client renders a loud "stopped before finishing" terminal instead of an
@@ -344,6 +373,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
     timeoutOptions?.backgroundFunction === true
       ? MAX_BACKGROUND_RUN_LOOP_CONTINUATIONS
       : MAX_RUN_LOOP_CONTINUATIONS;
+  let backgroundRateLimitContinuations = 0;
   // Tracks whether the most recent attempt ended by scheduling another
   // continuation (soft-timeout or resumable error → `continue`) rather than
   // returning a finished turn. When the loop then exits because the budget is
@@ -458,6 +488,39 @@ export async function runAgentLoopDirectWithSoftTimeout(
           opts.threadId,
           localTurnEvents,
         );
+        continue;
+      }
+      const transientRateLimit = isTransientProviderRateLimitError(err);
+      const rateLimitRetryFitsBudget =
+        timeoutOptions?.backgroundFunction === true &&
+        backgroundRateLimitContinuations <
+          MAX_BACKGROUND_RATE_LIMIT_CONTINUATIONS &&
+        timeoutMs -
+          (Date.now() - loopEntryAt) -
+          BACKGROUND_RATE_LIMIT_CONTINUATION_DELAY_MS >=
+          SELF_CHAIN_MIN_CONTINUATION_BUDGET_MS;
+      if (
+        !upstreamSignal.aborted &&
+        transientRateLimit &&
+        rateLimitRetryFitsBudget
+      ) {
+        lastAttemptWasUnfinishedContinuation = true;
+        backgroundRateLimitContinuations++;
+        if (
+          !(await hasCompletedSideEffectToolCallInCurrentTurn(
+            opts.threadId,
+            localTurnEvents,
+          ))
+        ) {
+          opts.send({ type: "clear" });
+        }
+        await appendContinuationAndJournal(
+          opts.messages,
+          "rate_limited",
+          opts.threadId,
+          localTurnEvents,
+        );
+        await waitForBackgroundRateLimitCooldown(upstreamSignal);
         continue;
       }
       // Resumable transport / gateway interruptions: the LLM call was cut off

@@ -2176,7 +2176,7 @@ export type AgentLoopContinuationReason =
 
 export function appendAgentLoopContinuation(
   messages: EngineMessage[],
-  reason: AgentLoopContinuationReason,
+  reason: AgentLoopContinuationReason | "rate_limited",
   options: { actionPreparationTool?: string } = {},
 ) {
   const note =
@@ -2188,11 +2188,13 @@ export function appendAgentLoopContinuation(
           ? "The previous stream ended before the agent sent a final completion signal."
           : reason === "gateway_timeout"
             ? "The previous LLM call hit an upstream gateway timeout before the response finished streaming."
-            : reason === "network_interrupted"
-              ? "The previous LLM call was cut off by a transport-level interruption (socket dropped, connection reset, or stream closed unexpectedly)."
-              : reason === "no_progress"
-                ? "The previous run stopped producing progress events while the connection stayed open."
-                : "The previous run reached an internal execution budget.";
+            : reason === "rate_limited"
+              ? "The previous LLM call was temporarily rate limited after exhausting its short provider retry budget."
+              : reason === "network_interrupted"
+                ? "The previous LLM call was cut off by a transport-level interruption (socket dropped, connection reset, or stream closed unexpectedly)."
+                : reason === "no_progress"
+                  ? "The previous run stopped producing progress events while the connection stayed open."
+                  : "The previous run reached an internal execution budget.";
   const actionInputNote = options.actionPreparationTool
     ? actionPreparationContinuationNote(options.actionPreparationTool)
     : "";
@@ -2273,6 +2275,34 @@ export function isResumableEngineError(err: unknown): boolean {
     text.includes("too much time has passed without sending any data") ||
     text.includes("terminated")
   );
+}
+
+/**
+ * True only for transient provider throttling that may recover after one
+ * cooled-down background continuation. This is deliberately narrower than
+ * `isRetryableError`: daily/account caps are terminal, and generic retryable
+ * transport errors keep using the normal resumable-error path.
+ *
+ * The engine has already spent its short in-call retry budget before this
+ * helper is consulted. Callers must add their own small continuation cap so a
+ * sustained provider limit cannot turn into an unbounded request storm.
+ */
+export function isTransientProviderRateLimitError(err: unknown): boolean {
+  if (!(err instanceof EngineError)) return false;
+  const code = (err.errorCode ?? "").toLowerCase();
+  const text = errorSearchText(err);
+
+  if (
+    code === "rate_limit_exceeded" ||
+    text.includes("daily gateway request cap")
+  ) {
+    return false;
+  }
+  if (err.statusCode === 429 || err.statusCode === 529) {
+    return true;
+  }
+  if (code === "http_429" || code === "http_529") return true;
+  return false;
 }
 
 /**
