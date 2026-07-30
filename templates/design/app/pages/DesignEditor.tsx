@@ -22957,6 +22957,10 @@ function DesignEditor() {
       // from toggling a second time on the same keystroke.
       event.preventDefault();
       event.stopPropagation();
+      // Swallowed above but not acted on: holding the chord auto-repeats
+      // keydown, and toggling per repeat would flap the panel open/closed.
+      // One physical press is one toggle.
+      if (event.repeat) return;
       handleToggleKeyboardShortcuts();
     };
     window.addEventListener("keydown", handleHelpHotkey, { capture: true });

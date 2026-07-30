@@ -75,6 +75,23 @@ describe("show-keyboard-shortcuts hotkey", () => {
       isShowKeyboardShortcutsHotkey(keydown({ key: "/", code: "Slash" })),
     ).toBe(false);
   });
+
+  it("still matches auto-repeat, leaving repeat filtering to the caller", () => {
+    // The panel toggles, so DesignEditor drops repeats to keep one physical
+    // press to one toggle — but it swallows them first, otherwise a held chord
+    // leaks "/" into the agent composer. Filtering repeat here would undo that.
+    expect(
+      isShowKeyboardShortcutsHotkey(
+        keydown({
+          key: "/",
+          code: "Slash",
+          ctrlKey: true,
+          shiftKey: true,
+          repeat: true,
+        }),
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("canvas iframe forwarding", () => {
