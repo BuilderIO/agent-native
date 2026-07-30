@@ -442,33 +442,58 @@ export default function Index() {
       });
     });
     if (!deck) return;
+    const deckId = deck.id;
     setNewDeckPromptOpen(false);
     // Switch to the new deck's own page/chat thread before the interactive
     // question below or any other async setup runs. askUserQuestion() and
     // agentSubmit() both target whatever chat thread is currently displayed,
     // so asking beforehand rendered the deck-length question (and later the
     // generation prompt) in the previously viewed deck's chat, not this one.
-    navigate("/deck/" + deck.id + "?generating=1");
+    navigate("/deck/" + deckId + "?generating=1");
 
-    // One quick, skippable decision so the agent doesn't guess the deck size.
-    const deckLength = await askUserQuestion({
-      question: t("home.deckLengthQuestion"),
-      header: t("home.deckLengthHeader"),
-      options: [
-        { label: t("home.deckLengthShort"), value: "3–5 slides" },
-        {
-          label: t("home.deckLengthMedium"),
-          value: "6–10 slides",
-          recommended: true,
-        },
-        { label: t("home.deckLengthLong"), value: "11+ slides" },
-        {
-          label: t("home.deckLengthSingleVisual"),
-          value: "a single standalone visual slide",
-        },
-      ],
-      allowFreeText: false,
-    });
+    // Recovery shared with the ensureDeckPersisted failure path below: the
+    // deck was already navigated to above, so any failure between here and
+    // agentSubmit (e.g. askUserQuestion rejecting on an application-state
+    // write error) must undo that navigation and restore the prompt instead
+    // of stranding the user on a permanently empty "generating" deck.
+    const recoverFromGenerationSetupFailure = () => {
+      if (!savePromptForRetry(prompt)) {
+        setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
+      }
+      setNewDeckRetryFiles(filesForGeneration);
+      deleteDeck(deckId);
+      toast.error(t("home.generationStartFailed"), {
+        description: t("home.generationStartFailedDescription"),
+      });
+      navigate("/");
+      setShowNewDeckPrompt(true);
+    };
+
+    let deckLength = null;
+    try {
+      // One quick, skippable decision so the agent doesn't guess the deck size.
+      deckLength = await askUserQuestion({
+        question: t("home.deckLengthQuestion"),
+        header: t("home.deckLengthHeader"),
+        options: [
+          { label: t("home.deckLengthShort"), value: "3–5 slides" },
+          {
+            label: t("home.deckLengthMedium"),
+            value: "6–10 slides",
+            recommended: true,
+          },
+          { label: t("home.deckLengthLong"), value: "11+ slides" },
+          {
+            label: t("home.deckLengthSingleVisual"),
+            value: "a single standalone visual slide",
+          },
+        ],
+        allowFreeText: false,
+      });
+    } catch {
+      recoverFromGenerationSetupFailure();
+      return;
+    }
     const deckLengthContext =
       typeof deckLength === "string" && deckLength
         ? `Target length: aim for ${deckLength} unless the user's request clearly specifies a different count.`
@@ -539,18 +564,9 @@ export default function Index() {
 
     const persisted = await ensureDeckPersisted(deck.id);
     if (!persisted) {
-      if (!savePromptForRetry(prompt)) {
-        setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
-      }
-      setNewDeckRetryFiles(filesForGeneration);
-      deleteDeck(deck.id);
-      toast.error(t("home.generationStartFailed"), {
-        description: t("home.generationStartFailedDescription"),
-      });
       // We already navigated to the (now-deleted) deck's page above; the
       // retry prompt dialog only renders on this Decks page, so go back to it.
-      navigate("/");
-      setShowNewDeckPrompt(true);
+      recoverFromGenerationSetupFailure();
       return;
     }
 

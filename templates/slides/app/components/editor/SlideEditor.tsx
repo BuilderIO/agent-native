@@ -1144,6 +1144,12 @@ export default function SlideEditor({
     // source of truth — before saving.
     const clone = slideContent.cloneNode(true) as HTMLElement;
     const placeholders = clone.querySelectorAll("[data-mermaid-index]");
+    // Look up source blocks by index before touching the DOM. If slide.content
+    // changed since this placeholder last rendered (e.g. a concurrent update),
+    // its index may no longer have a matching block — leave that placeholder's
+    // node untouched rather than swapping in a marker with nothing to restore
+    // it, which would otherwise persist as inert marker text.
+    const { blocks } = extractMermaidBlocks(slide.content);
     // Swap each rendered node for a plain-text marker now, and splice the
     // real `<div class="mermaid">` markup back in as a raw string AFTER
     // stripBuilderIds() below. stripBuilderIds round-trips through
@@ -1154,25 +1160,23 @@ export default function SlideEditor({
     // avoids that entirely.
     const nonce = Math.random().toString(36).slice(2);
     const markerFor = (idx: number) => `__mermaid_${nonce}_${idx}__`;
+    const restorable = new Map<number, string>();
     placeholders.forEach((placeholder) => {
       const idx = Number(placeholder.getAttribute("data-mermaid-index"));
+      const definition = blocks[idx];
+      if (definition === undefined) return;
+      restorable.set(idx, definition);
       placeholder.replaceWith(
         clone.ownerDocument.createTextNode(markerFor(idx)),
       );
     });
     let html = stripBuilderIds(clone.innerHTML);
-    if (placeholders.length > 0) {
-      const { blocks } = extractMermaidBlocks(slide.content);
-      placeholders.forEach((placeholder) => {
-        const idx = Number(placeholder.getAttribute("data-mermaid-index"));
-        const definition = blocks[idx];
-        if (definition === undefined) return;
-        html = html.replace(
-          markerFor(idx),
-          `<div class="mermaid">${definition}</div>`,
-        );
-      });
-    }
+    restorable.forEach((definition, idx) => {
+      html = html.replace(
+        markerFor(idx),
+        `<div class="mermaid">${definition}</div>`,
+      );
+    });
     return html;
   }, [slide.content]);
 

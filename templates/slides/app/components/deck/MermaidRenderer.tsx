@@ -108,7 +108,14 @@ export function MermaidRenderer({
     );
   }
 
-  if (!svg) return null;
+  if (!svg) {
+    // Mermaid's import + render is async, so this placeholder is the only
+    // thing in the DOM until it resolves. Without it, an edit to another
+    // element on the same slide made while the diagram is still loading
+    // would see zero `[data-mermaid-index]` nodes when serializing the
+    // slide, and silently drop the diagram from the saved content.
+    return <div data-mermaid-index={index} className={className} />;
+  }
 
   return (
     <div
