@@ -1091,17 +1091,13 @@ function isShellIdentityIpc(event: IpcMainInvokeEvent): boolean {
   );
 }
 
-ipcMain.handle(IPC.IDENTITY_STATUS_GET, (event) => {
+ipcMain.handle(IPC.IDENTITY_STATUS_GET, async (event) => {
   if (!isShellIdentityIpc(event))
     return "failed" satisfies DesktopIdentityStatus;
+  await desktopIdentityBroker?.refreshStatus(
+    resolveDesktopIdentityApp("dispatch"),
+  );
   return desktopIdentityBroker?.getStatus() ?? "idle";
-});
-
-ipcMain.handle(IPC.IDENTITY_SIGN_IN, async (event) => {
-  if (!isShellIdentityIpc(event) || !desktopIdentityBroker) return false;
-  const authorityApp = resolveDesktopIdentityApp("dispatch");
-  if (!authorityApp) return false;
-  return desktopIdentityBroker.signInAuthority(authorityApp.id);
 });
 
 ipcMain.handle(IPC.IDENTITY_SIGN_OUT, async (event) => {

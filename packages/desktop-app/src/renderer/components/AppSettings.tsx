@@ -32,7 +32,6 @@ import {
   IconFolderPlus,
   IconAlertCircle,
   IconKeyboard,
-  IconLogin2,
   IconLogout2,
   IconUserCircle,
 } from "@tabler/icons-react";
@@ -571,13 +570,6 @@ export default function AppSettings({
     return api.onStatusChange(setIdentityStatus);
   }, []);
 
-  const handleIdentitySignIn = useCallback(async () => {
-    const api = window.electronAPI?.identity;
-    if (!api) return;
-    await api.signIn();
-    setIdentityStatus(await api.getStatus());
-  }, []);
-
   const handleIdentitySignOut = useCallback(async () => {
     const api = window.electronAPI?.identity;
     if (!api) return;
@@ -913,33 +905,19 @@ export default function AppSettings({
                     : identityStatus === "signing-in"
                       ? "Signing in to your workspace…"
                       : identityStatus === "failed"
-                        ? "Sign-in failed. Try again."
-                        : "Sign in once, then open every first-party app"}
+                        ? "Sign-in failed. Return to the app and try again."
+                        : "Open any first-party app and sign in there once"}
                 </span>
               </div>
             </div>
             <div className="settings-update-actions">
-              {identityStatus === "signed-in" ? (
+              {identityStatus === "signed-in" && (
                 <button
                   type="button"
                   className="settings-btn settings-btn--ghost"
                   onClick={handleIdentitySignOut}
                 >
                   <IconLogout2 size={14} /> Sign out
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  className="settings-btn settings-btn--primary"
-                  onClick={handleIdentitySignIn}
-                  disabled={identityStatus === "signing-in"}
-                >
-                  {identityStatus === "signing-in" ? (
-                    <IconLoader2 size={14} className="settings-update-spin" />
-                  ) : (
-                    <IconLogin2 size={14} />
-                  )}
-                  {identityStatus === "signing-in" ? "Signing in…" : "Sign in"}
                 </button>
               )}
             </div>

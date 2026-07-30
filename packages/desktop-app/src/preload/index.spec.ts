@@ -156,7 +156,6 @@ describe("workspace identity preload API", () => {
       electron.exposed as {
         identity: {
           getStatus(): Promise<unknown>;
-          signIn(): Promise<unknown>;
           signOut(): Promise<unknown>;
           onStatusChange(callback: (status: string) => void): () => void;
         };
@@ -164,10 +163,8 @@ describe("workspace identity preload API", () => {
     ).identity;
 
     await api.getStatus();
-    await api.signIn();
     await api.signOut();
     expect(electron.invoke).toHaveBeenCalledWith(IPC.IDENTITY_STATUS_GET);
-    expect(electron.invoke).toHaveBeenCalledWith(IPC.IDENTITY_SIGN_IN);
     expect(electron.invoke).toHaveBeenCalledWith(IPC.IDENTITY_SIGN_OUT);
     expect(api).not.toHaveProperty("cookie");
     expect(api).not.toHaveProperty("token");

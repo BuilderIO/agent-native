@@ -2,7 +2,7 @@
 
 ```yaml
 stage: work
-authority-source: "Alice: $work after the desktop SSO Land no-go packet."
+authority-source: "Alice: Yes, you can work it, approving desktop-first-party-sso-front-door-v2."
 authorized-scope:
   repositories:
     - BuilderIO/agent-native
@@ -23,59 +23,101 @@ allowed-mutations:
 write-targets:
   artifacts:
     - packages/desktop-app
-    - packages/core
-    - docs
-    - .agents/skills/authentication
-    - .changeset
-    - .github/workflows/desktop-canary.yml
+    - .agents/skills/authentication/SKILL.md
     - plans/desktop-sso-intent/work-ledger.md
-    - /Users/alicemoore/Developer/teenylilthoughts/briefs/Agent-Native Desktop workspace SSO canary implementation plan 2026-07-21.md
 governing-artifact:
-  path: /Users/alicemoore/.codex/worktrees/52a5/agent-native/plans/desktop-sso-intent/implementation-brief.md
-  revision: desktop-sso-brief-r1
+  path: plans/desktop-sso-intent/work-ledger.md
+  revision: desktop-sso-work-r18
 architecture-fingerprint:
-  outcome: one Desktop workspace identity ceremony followed by silent app-local federation
+  outcome: one Agent Native workspace sign-in begun from the ordinary front door of any canonical first-party app, followed by silent app-local federation
   shipping-surfaces:
     - id: desktop-shell
       repository: BuilderIO/agent-native
       product-surface: signed packaged Agent Native Desktop app
       constituency: users of canonical first-party Agent Native apps
-      durable-destination: Agent Native Desktop release
+      durable-destination: PR #2290 exact head plus its signed branch-canary artifact; stable Desktop release remains outside this lane
+      integration-action: push
     - id: core-identity
       repository: BuilderIO/agent-native
       product-surface: public Core authentication and identity-federation runtime
       constituency: source-blind Agent Native developers and app users
-      durable-destination: published @agent-native/core package
+      durable-destination: PR #2290 exact head with its Core changeset; package publication remains outside this lane
+      integration-action: push
     - id: dispatch-authority
       repository: BuilderIO/agent-native
       product-surface: Dispatch identity authorize flow
       constituency: first-party workspace users and self-hosted workspace operators
-      durable-destination: Dispatch template and deployment
+      durable-destination: PR #2290 exact head; stable Dispatch integration remains outside this lane
+      integration-action: push
     - id: hosted-app-fleet
       repository: BuilderIO/agent-native
-      product-surface: canonical first-party hosted app deployments
-      constituency: Agent Native Desktop users
-      durable-destination: per-app production deployments and auth configuration
-  governing-architecture: Electron main owns one dedicated Dispatch identity partition and uses existing app-local federation; local development retains its loopback file broker; custom apps and Builder Connect remain outside the boundary
+      product-surface: short locked canonical-origin Mail and Dispatch canary deployments
+      constituency: supervised pre-merge canary testers
+      durable-destination: exact candidate and rollback receipts recorded in the ledger, with canonical production restored after the test
+      integration-action: deploy
+  governing-architecture: Electron main keeps one dedicated Dispatch identity partition, intercepts the ordinary sign-in entry of an eligible canonical app, and uses existing app-local federation; Settings is status, sign-out, and recovery rather than the primary identity front door; local development retains its loopback file broker; custom apps and Builder Connect remain outside the boundary
   acceptance-story:
-    id: desktop-first-party-sso-v1
-    summary: one Desktop sign-in opens every canonical first-party app as the same verified account while preserving app-local sessions, databases, authorization, and data isolation
+    id: desktop-first-party-sso-front-door-v2
+    summary: signing in normally from any eligible canonical first-party app establishes the shared Agent Native workspace identity, returns to that initiating app without exposing Dispatch home, and lets every later canonical app open as the same verified account while preserving app-local sessions, databases, authorization, and data isolation
     required-assertions:
       - signed packaged Desktop and real canary deployment pass before merge
+      - the ordinary sign-in entry in each enabled canonical first-party app, including Dispatch, can initiate the shared workspace ceremony and returns to the initiating app without using Dispatch home as a completion screen
+      - the Desktop Settings account card accurately reflects an existing authority session and never presents Dispatch home as successful sign-in; any signed-out action hands off to an app front door or is clearly labeled as recovery
       - every enabled canonical first-party app resolves the correct existing account and data without another credential ceremony
       - restart, workspace sign-out, account switch, standalone browser, custom app, and local-development behavior pass
       - hostile redirect, nonce, origin, cookie, concurrency, cancellation, and logging cases fail closed
+      - Agent Native identity sign-in remains separate from app-specific provider connection and consent
       - Builder internal and Builder credentials do not participate
   risk-strategy:
     kind: system-ready
     production-validation-after-merge: false
 delegation-ceiling:
   - read-only inventory and verification
+architecture-grounding:
+  applicability: required
+  reason: authentication spans Desktop, Core, Dispatch, and every participating first-party deployment
+  status: grounded
+  demonstrated-callers:
+    - pre-fix Desktop Settings account Sign in invoked IPC.IDENTITY_SIGN_IN and the direct Dispatch authority ceremony
+    - a canonical app webview reaching its exact /_agent-native/sign-in invokes the existing app-targeted Desktop federation ceremony
+  existing-primitives:
+    - DesktopIdentityBroker.ensureAppSession uses the initiating app's existing identity/login route and copies only that app's allowlisted local session
+    - the pre-fix DesktopIdentityBroker.signInAuthority opened Dispatch's generic sign-in document in the dedicated identity partition
+    - Core's generic sign-in document redirects an already-authenticated session to its validated continuation
+    - Dispatch remains the existing identity authority and authorize endpoint
+  ownership-boundaries:
+    - Desktop main owns partitions, ceremony lifecycle, trusted app resolution, cookie transfer, and bounded status IPC
+    - Core owns the generic sign-in journey and trusted-app federation client/callback
+    - Dispatch owns human authentication, redirect validation, and identity assertion minting
+    - each target app owns its local user, session, authorization, provider grants, and data
+  legacy-contracts:
+    - preserve legacy ?return= consumption on /_agent-native/sign-in
+    - preserve standalone browser, direct app login, local loopback broker, custom-app exclusion, app-local databases, and per-provider consent
+    - preserve the dedicated identity partition and exact app/origin/callback/cookie trust boundaries
+  shared-vocabulary:
+    - workspace sign-in means Agent Native identity federation, not provider connection sharing
+    - app front door means the app's ordinary sign-in entry, not a hidden Dispatch account page
+    - Settings account card is a secondary status, sign-out, and recovery surface
+  smallest-compatible-delta: route the Settings signed-out action through an eligible initiating app's existing ensureAppSession ceremony, preflight and reflect an already-valid authority session before opening any window, and retain Dispatch's generic sign-in only as the identity-provider step inside that app-led ceremony
+  deferred-capabilities:
+    - custom and third-party app federation
+    - shared provider OAuth grants or automatic provider-scope expansion
+    - replacing Dispatch, Better Auth, or app-local sessions
+  reversibility: Desktop-only routing and status behavior can be reverted without schema, credential, provider, or deployment-data migration; hosted federation remains opt-in per app
+  direct-evidence:
+    - the Clip shows Settings Sign in visibly landing on Dispatch home instead of returning to an initiating app
+    - pre-fix source routed Settings directly to signInAuthority(dispatch) and used Dispatch root as its completion observation
+    - current source already intercepts exact sign-in navigation for eligible canonical apps and completes app-local federation in the dedicated identity partition
+    - Core documentation defines federation as happening at the app front door and preserves app-local sessions
+  inferences:
+    - the Clip's immediate root redirect is consistent with a pre-existing Dispatch session in the identity partition, but the Clip does not expose cookie or IPC status evidence
+    - Dispatch self-federation is source-supported but still requires current signed-runtime acceptance
+  unresolved-owner-questions: []
 product-boundary-gates:
   agent-native-public-constituency: source-blind developers packaging Desktop with standard Core and Dispatch apps receive the reusable identity boundary without Alice-specific infrastructure
 acceptance-state:
-  status: active
-  summary: Desktop now has a credential-free path to authenticate its dedicated identity partition directly against canonical production Dispatch; signed-canary and authenticated end-to-end acceptance remain
+  status: pending
+  summary: Alice approved the app-front-door replacement story; implementation and exact-head acceptance are active while production remains on normal unlocked main deployments
   verified:
     - Core identity protocol suite: 210 tests passed
     - Desktop main, renderer, shared, broker, and preload suites: 202 tests passed
@@ -118,21 +160,26 @@ acceptance-state:
     - the short locked production canary published immutable candidates 6a6a48cbd8ca3400088ba95f (Mail) and 6a6a48cbc9c76200085e212c (Dispatch); valid canonical routes returned the expected 302 chain and hostile redirect and forged callback requests returned 400
     - fresh-profile native acceptance on canary .13 passed Mail activation into the canonical Dispatch sign-in ceremony with the exact Mail app id and callback; the run stopped safely when Dispatch presented credential fields
     - the canary window rolled back in reverse order to current-main 13f7e6bceceb52f04b69201f911729c174524041 using Mail deploy 6a6b46a26b16cb0008e0cf26 and Dispatch deploy 6a6b46a2ef65c600082759f5; both sites were unlocked, temporary identity routes returned baseline 401, Mail root retained normal redirect behavior, and canary and updater processes were absent
-    - direct Dispatch authority sign-in implementation 652fc57b68408812af748302141df1f01d6ab95c passes all 232 Desktop tests, Desktop typecheck, production build, formatting, diff checks, and a credential-material diff scan
+    - superseded direct Dispatch authority sign-in implementation 652fc57b68408812af748302141df1f01d6ab95c passed all 232 Desktop tests, Desktop typecheck, production build, formatting, diff checks, and a credential-material diff scan before the front-door acceptance story invalidated it
+    - front-door replacement removes the Settings authority sign-in command end to end across renderer, preload, IPC, main, broker, tests, and authentication guidance while retaining status and workspace sign-out
+    - live status refresh now rejects stale results when a sign-in ceremony or workspace sign-out begins during cookie I/O and skips authority-cookie inspection throughout an active sign-out
+    - Dispatch as the initiating app now accepts only its exact same-origin nonce-bound desktop completion when Core detects the existing authority session, copies only the allowlisted Dispatch app session, retains the dedicated authority cookie, and never opens Dispatch home
+    - replacement front-door Desktop verification: all 231 tests across 24 files passed; Desktop TypeScript, production build, formatting, and git diff checks passed
+    - final independent read-only review found no remaining source-level defect or requested coverage gap in the status concurrency, direct-completion, cancellation, or cookie-isolation paths
   implementation:
     - authenticated nonce-only app-local completion route in Core
     - dedicated persistent Dispatch identity partition in packaged Desktop
     - canonical-registry-only app session federation with target-cookie filtering
     - serialized and coalesced sign-in ceremonies with direct-login fallback
-    - renderer-safe status and sign-in/sign-out IPC without credential material
+    - renderer-safe status and sign-out IPC without credential material
     - workspace-wide Desktop sign-out preserves exact canonical POST logout and logout-all server semantics, retains request-start credentials only for the active cleanup operation, and reports partial failure truthfully
     - sign-out cleanup inventories every immutable canonical packaged production partition independently of sidebar enablement, Dev mode, or edited URLs while leaving localhost and custom origins untouched
     - operator docs, all localized counterparts, authentication skill, and Core changeset
     - branch-scoped signed macOS canary workflow with no publishing, tags, releases, or updater feed
     - Dispatch primary-auth public-route configuration eliminating concurrent auth-initializer pre-emption
-    - explicit Desktop account sign-in authenticates the dedicated identity partition against canonical production Dispatch and requires an allowlisted Dispatch session cookie before reporting success
+    - the ordinary sign-in entry in a canonical first-party app starts the app-targeted workspace ceremony; Settings exposes status and workspace sign-out but no separate authority sign-in command
   blockers:
-    - the new exact-head signed canary must pass native Google sign-in before the short Mail and Dispatch candidate publication window can complete same-account continuity, restart, sign-out, account-switch, isolation, and hostile-flow acceptance
+    - after renewed Work authority, a new exact-head signed canary must pass native Google sign-in from an ordinary app front door before the short Mail and Dispatch candidate publication window can complete same-account continuity, restart, sign-out, account-switch, isolation, and hostile-flow acceptance
   last-land-packet: https://github.com/BuilderIO/agent-native/pull/2290#issuecomment-5062742844
 deployment-boundary:
   allowed:
@@ -145,6 +192,52 @@ deployment-boundary:
     - merge or stable Desktop publication without a separate decision
     - enabling arbitrary preview hosts, custom apps, or Builder credentials
 vault-brief: /Users/alicemoore/Developer/teenylilthoughts/briefs/Agent-Native Desktop workspace SSO canary implementation plan 2026-07-21.md
-ledger-revision: desktop-sso-work-r16
+return-to-shape:
+  banner: resolved by Alice's explicit Work approval
+  invalidated-field: acceptance story
+  old-fingerprint:
+    outcome: one Desktop workspace identity ceremony followed by silent app-local federation
+    governing-architecture: dedicated Dispatch identity partition plus app-local federation, with Settings able to start a direct authority ceremony
+    acceptance-story: desktop-first-party-sso-v1
+    risk-strategy: system-ready, production validation before merge
+  proposed-fingerprint:
+    outcome: one workspace sign-in begun at any canonical app's ordinary front door, followed by silent app-local federation
+    governing-architecture: dedicated Dispatch identity partition plus existing app-targeted federation; Settings is secondary status, sign-out, and recovery and never exposes Dispatch home as completion
+    acceptance-story: desktop-first-party-sso-front-door-v2
+    risk-strategy: unchanged system-ready, production validation before merge
+  replacement-acceptance-story: desktop-first-party-sso-front-door-v2 approved
+production-safety-preflight:
+  verified-at: 2026-07-30T15:18:53-04:00
+  mail: normal main deploy 0f02c200b8a98914b0b5c3971b662eb7ebd8e5fa, unlocked, auto-publishing on, identity route baseline 401, root normal 302
+  dispatch: newer legitimate normal main production deploy 6a6ba1de6ddf791274a85daa, unlocked, auto-publishing on, identity authorize baseline 401
+  local: exact SSO Canary process was terminated after normal quit stalled; no Canary, ShipIt, or Squirrel process remains; stable Desktop untouched
+ledger-revision: desktop-sso-work-r18
 status: active
 ```
+
+## Return-to-shape review: the sign-in front door
+
+### What changed
+
+The original product destination was “one human sign-in for every canonical first-party app,” but the current Settings implementation added a direct authority ceremony whose visible success path is Dispatch's ordinary home page. Alice's Clip and feedback establish a more specific successful-user story: the normal sign-in inside any individual Agent Native app should be the front door to the shared workspace identity. Dispatch may remain the identity authority underneath, but Dispatch home is not a user-facing completion screen.
+
+### Evidence-backed diagnosis
+
+- The pre-fix Settings button called `signInAuthority("dispatch")`, opened `/_agent-native/sign-in?return=/` in the dedicated identity partition, and treated Dispatch `/` plus an allowlisted cookie as completion.
+- Core's generic sign-in document intentionally redirects an already-authenticated session to its validated return path. The Clip's immediate jump to `/` is therefore consistent with an existing authority session, although the recording alone cannot prove the cookie or final IPC status.
+- The app-led path already exists: an eligible canonical app reaching its ordinary sign-in entry is intercepted, federates through Dispatch in the dedicated identity partition, mints a normal session in the initiating app, and copies only that app's allowlisted cookie into its own partition.
+- Provider connection remains a separate concern. Signing into the Agent Native account once does not silently grant Gmail, Slack, Notion, or other provider scopes.
+
+### Options
+
+1. **Patch only the Dispatch-home flash.** Preflight the authority session before opening the Settings window. This is mechanically smallest, but it leaves Settings as a privileged direct sign-in path and does not fully answer the front-door feedback.
+2. **Use the app front door everywhere (recommended).** Keep the dedicated identity partition and existing federation. Make ordinary canonical-app sign-in the primary entry; have any Settings signed-out action hand off to the current eligible app's same ceremony, with a preflight so an existing authority session completes silently. Settings remains useful for status, workspace sign-out, and recovery, but never lands on Dispatch home.
+3. **Reuse or synchronize the visible Dispatch app partition.** This could make Dispatch itself the shared cookie jar, but it collapses or duplicates the existing authority/app partition boundary and adds account-switch and logout coupling without evidence that the larger change is needed.
+
+### Recommendation
+
+Approve option 2. It is the smallest delta that addresses both the concrete Clip defect and the product expectation. It keeps the existing identity authority, dedicated partition, per-app local sessions, and provider-consent boundaries. Implementation should delete or stop using the Settings-only direct-root completion path, route through the existing app-targeted ceremony, add an authority-session preflight, and test Dispatch as an initiating canonical app rather than assuming it works.
+
+### Replacement successful-user story
+
+A user opens any canonical first-party app in packaged Desktop and uses that app's normal sign-in. Agent Native performs one workspace identity ceremony, returns to the initiating app without exposing Dispatch home, and silently signs subsequent canonical apps into their correct existing local accounts. Settings accurately reports the shared account and supports workspace sign-out or recovery. Standalone browsers, custom apps, local development, Builder credentials, app-local authorization, and provider-specific connection consent remain unchanged.

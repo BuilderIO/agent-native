@@ -5,7 +5,6 @@ import {
   DesktopIdentityBroker,
   desktopWorkspaceLogoutPath,
   isDesktopIdentityAuthorizeNavigation,
-  isDesktopIdentityAuthorityLanding,
   isDesktopIdentityCompletion,
   isDesktopIdentityConfiguredAppEligible,
   isDesktopSignInNavigation,
@@ -63,6 +62,13 @@ function authorityFixture(): DesktopIdentityApp {
     ...appFixture(),
     id: "dispatch",
     origin: "https://dispatch.agent-native.com",
+    cookieNames: ["an_session_dispatch", "an_session"],
+    cookieNamesToClear: [
+      "an_session_dispatch",
+      "an_session",
+      "an_dispatch.session_token",
+      "__Secure-an_dispatch.session_token",
+    ],
     identityAuthority: true,
   };
 }
@@ -183,25 +189,6 @@ describe("Desktop identity navigation boundaries", () => {
     ).toBe(false);
   });
 
-  it("accepts an authority landing only on the exact authority origin", () => {
-    const authority = authorityFixture();
-    expect(
-      isDesktopIdentityAuthorityLanding(
-        "https://dispatch.agent-native.com/",
-        authority,
-      ),
-    ).toBe(true);
-    expect(
-      isDesktopIdentityAuthorityLanding("https://evil.example/", authority),
-    ).toBe(false);
-    expect(
-      isDesktopIdentityAuthorityLanding(
-        "https://dispatch.agent-native.com/_agent-native/sign-in",
-        authority,
-      ),
-    ).toBe(false);
-  });
-
   it("recognizes workspace logout only on the canonical app origin", () => {
     expect(
       isDesktopWorkspaceLogoutRequest(
@@ -243,167 +230,77 @@ describe("Desktop identity navigation boundaries", () => {
 });
 
 describe("DesktopIdentityBroker", () => {
-  it("signs in to the authority directly and requires its session cookie", async () => {
+  it("does not replace an active app-led ceremony with a stale cookie status", async () => {
+    const app = appFixture();
     const authority = authorityFixture();
-    const identityCookies = cookieStore();
-    const webContents = {
-      on: vi.fn(),
-      setWindowOpenHandler: vi.fn(),
-    };
-    let closedListener: (() => void) | undefined;
-    const identityWindow = {
-      webContents,
-      loadURL: vi.fn(async () => {}),
-      isDestroyed: vi.fn(() => false),
-      close: vi.fn(),
-      on: vi.fn((event: string, listener: () => void) => {
-        if (event === "closed") closedListener = listener;
-      }),
-    };
-    const handleOAuthNavigation = vi.fn(() => false);
+    const statusCookies = deferred<Electron.Cookie[]>();
+    const preflight = deferred<string | null>();
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: {
+          ...cookieStore(),
+          get: vi.fn(() => statusCookies.promise),
+        },
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      resolveLoginRedirect: vi.fn(() => preflight.promise),
+      resolveApp: (id) =>
+        id === app.id ? app : id === authority.id ? authority : null,
+      createWindow: vi.fn() as never,
+      reloadApp: vi.fn(),
+      clearLocalBroker: vi.fn(),
+    });
+
+    const refresh = broker.refreshStatus(authority);
+    const ceremony = broker.ensureAppSession(app.id);
+    await vi.waitFor(() => expect(broker.getStatus()).toBe("signing-in"));
+    statusCookies.resolve([
+      sessionCookie("an_session_dispatch", authority.origin),
+    ]);
+    await refresh;
+    expect(broker.getStatus()).toBe("signing-in");
+
+    preflight.resolve(null);
+    await expect(ceremony).resolves.toBe(false);
+  });
+
+  it("does not inspect or replace status during workspace sign-out", async () => {
+    const authority = authorityFixture();
+    const identityCookies = cookieStore([
+      sessionCookie("an_session_dispatch", authority.origin),
+    ]);
+    const centralCleanup = deferred<void>();
+    const clearStorageData = vi.fn(() => centralCleanup.promise);
     const broker = new DesktopIdentityBroker({
       identitySession: {
         cookies: identityCookies,
-        clearStorageData: vi.fn(async () => {}),
-      } as unknown as Electron.Session,
-      resolveApp: (id) => (id === authority.id ? authority : null),
-      createWindow: () => identityWindow as never,
-      handleOAuthNavigation,
-      reloadApp: vi.fn(),
-      clearLocalBroker: vi.fn(),
-    });
-
-    const first = broker.signInAuthority(authority.id);
-    expect(broker.signInAuthority(authority.id)).toBe(first);
-    await vi.waitFor(() => expect(identityWindow.loadURL).toHaveBeenCalled());
-    expect(identityWindow.loadURL).toHaveBeenCalledWith(
-      "https://dispatch.agent-native.com/_agent-native/sign-in?return=%2F",
-    );
-
-    const didNavigate = webContents.on.mock.calls.find(
-      ([event]) => event === "did-navigate",
-    )?.[1];
-    didNavigate({}, authority.origin);
-    await Promise.resolve();
-    expect(broker.getStatus()).toBe("signing-in");
-
-    await identityCookies.set({
-      url: authority.origin,
-      name: "an_session",
-      value: "fake-session-value",
-    });
-    didNavigate({}, `${authority.origin}/`);
-
-    await expect(first).resolves.toBe(true);
-    expect(broker.getStatus()).toBe("signed-in");
-    expect(identityWindow.close).toHaveBeenCalledOnce();
-    expect(closedListener).toBeDefined();
-  });
-
-  it("does not accept a hostile authority landing and still delegates OAuth", async () => {
-    const authority = authorityFixture();
-    const webContents = {
-      on: vi.fn(),
-      setWindowOpenHandler: vi.fn(),
-    };
-    let closedListener: (() => void) | undefined;
-    const identityWindow = {
-      webContents,
-      loadURL: vi.fn(async () => {}),
-      isDestroyed: vi.fn(() => false),
-      close: vi.fn(),
-      on: vi.fn((event: string, listener: () => void) => {
-        if (event === "closed") closedListener = listener;
-      }),
-    };
-    const handleOAuthNavigation = vi.fn(() => true);
-    const broker = new DesktopIdentityBroker({
-      identitySession: {
-        cookies: cookieStore(),
-        clearStorageData: vi.fn(async () => {}),
-      } as unknown as Electron.Session,
-      resolveApp: (id) => (id === authority.id ? authority : null),
-      createWindow: () => identityWindow as never,
-      handleOAuthNavigation,
-      reloadApp: vi.fn(),
-      clearLocalBroker: vi.fn(),
-    });
-
-    const ceremony = broker.signInAuthority(authority.id);
-    await vi.waitFor(() => expect(identityWindow.loadURL).toHaveBeenCalled());
-    const willNavigate = webContents.on.mock.calls.find(
-      ([event]) => event === "will-navigate",
-    )?.[1];
-    const didNavigate = webContents.on.mock.calls.find(
-      ([event]) => event === "did-navigate",
-    )?.[1];
-    const preventDefault = vi.fn();
-    willNavigate(
-      { preventDefault },
-      "https://accounts.google.com/o/oauth2/auth?client_id=fake-client-id",
-    );
-    didNavigate({}, "https://evil.example/");
-
-    expect(preventDefault).toHaveBeenCalledOnce();
-    expect(handleOAuthNavigation).toHaveBeenCalledWith(
-      expect.stringContaining("accounts.google.com"),
-      webContents,
-    );
-    expect(broker.getStatus()).toBe("signing-in");
-    closedListener?.();
-    await expect(ceremony).resolves.toBe(false);
-    expect(broker.getStatus()).toBe("sign-in-required");
-  });
-
-  it("allows a fresh authority sign-in after sign-out cancels the active one", async () => {
-    const authority = authorityFixture();
-    const windows: Array<{ close: () => void }> = [];
-    const createWindow = vi.fn(() => {
-      let closedListener: (() => void) | undefined;
-      const identityWindow = {
-        webContents: {
-          on: vi.fn(),
-          setWindowOpenHandler: vi.fn(),
-        },
-        loadURL: vi.fn(async () => {}),
-        isDestroyed: vi.fn(() => false),
-        close: vi.fn(() => closedListener?.()),
-        on: vi.fn((event: string, listener: () => void) => {
-          if (event === "closed") closedListener = listener;
-        }),
-      };
-      windows.push(identityWindow);
-      return identityWindow as never;
-    });
-    const broker = new DesktopIdentityBroker({
-      identitySession: {
-        cookies: cookieStore(),
-        clearStorageData: vi.fn(async () => {}),
+        clearStorageData,
         fetch: vi.fn(async () => new Response(null, { status: 200 })),
       } as unknown as Electron.Session,
       resolveApp: (id) => (id === authority.id ? authority : null),
-      createWindow,
+      createWindow: vi.fn() as never,
       reloadApp: vi.fn(),
       clearLocalBroker: vi.fn(),
     });
 
-    const first = broker.signInAuthority(authority.id);
-    await vi.waitFor(() => expect(createWindow).toHaveBeenCalledOnce());
-    await broker.signOut([authority]);
-    await expect(first).resolves.toBe(false);
+    const signOut = broker.signOut([authority]);
+    await vi.waitFor(() => expect(clearStorageData).toHaveBeenCalledOnce());
+    const cookieReadsBeforeRefresh = identityCookies.get.mock.calls.length;
+    await broker.refreshStatus(authority);
 
-    const second = broker.signInAuthority(authority.id);
-    expect(second).not.toBe(first);
-    await vi.waitFor(() => expect(createWindow).toHaveBeenCalledTimes(2));
-    windows[1]?.close();
-    await expect(second).resolves.toBe(false);
+    expect(identityCookies.get).toHaveBeenCalledTimes(cookieReadsBeforeRefresh);
+    centralCleanup.resolve();
+    await signOut;
+    expect(broker.getStatus()).toBe("sign-in-required");
   });
 
   it("loads the validated identity authority redirect", async () => {
     const app = appFixture();
     const authority = authorityFixture();
     const resolvedUrl = authorizeUrl(authority, app);
-    const resolveLoginRedirect = vi.fn(async () => resolvedUrl);
+    const resolveLoginRedirect = vi.fn(
+      async (_loginUrl: string) => resolvedUrl,
+    );
     let closedListener: (() => void) | undefined;
     const identityWindow = {
       webContents: {
@@ -581,6 +478,53 @@ describe("DesktopIdentityBroker", () => {
       "an_session_mail",
     );
     expect(closedListener).toBeDefined();
+  });
+
+  it("accepts Dispatch's nonce-bound front-door shortcut without consuming its authority session", async () => {
+    const dispatch = authorityFixture();
+    const identityCookies = cookieStore([
+      sessionCookie("an_session_dispatch", dispatch.origin, "dispatch-session"),
+      sessionCookie("unrelated_cookie", dispatch.origin, "do-not-copy"),
+    ]);
+    const resolveLoginRedirect = vi.fn(async (loginUrl: string) => {
+      const returnPath = new URL(loginUrl).searchParams.get("return")!;
+      return new URL(returnPath, dispatch.origin).toString();
+    });
+    const createWindow = vi.fn();
+    const reloadApp = vi.fn();
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: identityCookies,
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      resolveLoginRedirect,
+      resolveApp: (id) => (id === dispatch.id ? dispatch : null),
+      createWindow,
+      reloadApp,
+      clearLocalBroker: vi.fn(),
+    });
+
+    await expect(broker.ensureAppSession(dispatch.id)).resolves.toBe(true);
+    const loginUrl = String(resolveLoginRedirect.mock.calls[0]?.[0]);
+    const returnPath = new URL(loginUrl).searchParams.get("return")!;
+    const completion = new URL(returnPath, dispatch.origin).toString();
+
+    expect(new URL(loginUrl).pathname).toBe("/_agent-native/identity/login");
+    expect(new URL(completion).pathname).toBe(DESKTOP_IDENTITY_COMPLETE_PATH);
+    expect(createWindow).not.toHaveBeenCalled();
+    expect(dispatch.session.cookies.set).toHaveBeenCalledTimes(1);
+    expect(dispatch.session.cookies.set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "an_session_dispatch",
+        value: "dispatch-session",
+      }),
+    );
+    expect(dispatch.session.cookies.set).not.toHaveBeenCalledWith(
+      expect.objectContaining({ name: "unrelated_cookie" }),
+    );
+    expect(identityCookies.remove).not.toHaveBeenCalled();
+    expect(reloadApp).toHaveBeenCalledWith(dispatch);
+    expect(broker.getStatus()).toBe("signed-in");
   });
 
   it("revokes and clears canonical app sessions plus the central identity session", async () => {
