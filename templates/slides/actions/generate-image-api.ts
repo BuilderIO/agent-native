@@ -72,6 +72,19 @@ export default defineAction({
       };
     }
 
+    if (delegation.status === "pending") {
+      throw new Error(
+        `Assets is still generating (task ${delegation.taskId}, state "${delegation.lastState}"). ` +
+          `It was not cancelled — check the Assets app for the result instead of generating again.`,
+      );
+    }
+
+    if (delegation.status === "rejected") {
+      throw new Error(
+        `Assets could not generate this image (${delegation.state}): ${delegation.reason}`,
+      );
+    }
+
     // Assets is unreachable — standalone-deploy fallback. The caller is told
     // which path ran and why, so a brand-inconsistent image is never reported
     // as a library-grounded one.

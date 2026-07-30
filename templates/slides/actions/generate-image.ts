@@ -34,9 +34,43 @@ import pLimit from "p-limit";
 
 import {
   delegateImageGenerationToAssets,
+  extractAssetUrl,
   stripHtml,
 } from "../server/lib/assets-image-delegation.js";
 import { DEFAULT_STYLE_REFERENCE_URLS } from "../shared/api.js";
+
+/**
+ * `--output` promises files on disk, so a delegated generation has to download
+ * what Assets produced instead of only printing the reply.
+ */
+async function saveDelegatedImage(
+  reply: string,
+  outputPrefix: string,
+): Promise<void> {
+  const url = extractAssetUrl(reply);
+  if (!url) {
+    console.warn(
+      `Assets returned no parseable image URL, so nothing was written to ${outputPrefix}.`,
+    );
+    return;
+  }
+  if (await isBlockedExtensionUrlWithDns(url)) {
+    console.warn(`Refusing to download private/internal asset URL: ${url}`);
+    return;
+  }
+  const res = await fetch(url, {
+    signal: AbortSignal.timeout(30_000),
+    redirect: "manual",
+  });
+  if (!res.ok) {
+    console.warn(`Could not download ${url} (${res.status}).`);
+    return;
+  }
+  mkdirSync(dirname(outputPrefix), { recursive: true });
+  const filePath = `${outputPrefix}-v1.png`;
+  writeFileSync(filePath, Buffer.from(await res.arrayBuffer()));
+  console.log(`Saved: ${filePath}`);
+}
 
 function parseArgs(args: string[]): Record<string, string> {
   const result: Record<string, string> = {};
@@ -119,21 +153,58 @@ Options:
     throw new Error("Script failed");
   }
 
+  const count = parseInt(opts["count"] || "1", 10);
+  const outputPrefix = opts["output"];
+  const extraReferenceUrls = opts["reference-image-urls"]
+    ? opts["reference-image-urls"].split(",").map((u) => u.trim())
+    : [];
+
+  // Build context from slide content and/or deck. This runs before delegation
+  // so Assets receives the real slide text, not a bare deck id.
+  let slideContent = opts["slide-content"];
+  let deckText = "";
+
+  if (opts["deck-id"]) {
+    const deckCtx = loadDeckContext(opts["deck-id"], opts["slide-id"]);
+    if (!slideContent && deckCtx.slideContent) {
+      slideContent = deckCtx.slideContent;
+    }
+    deckText = deckCtx.deckText;
+    console.log(`Loaded deck context: ${deckCtx.deckText.length} chars`);
+  }
+
   // Assets owns image generation. Only fall through to the local providers
   // below when it cannot be reached, so a standalone slides deploy still
   // works. See the `image-generation-via-a2a` skill for the contract.
   const delegation = await delegateImageGenerationToAssets({
     prompt,
-    count: parseInt(opts["count"] || "1", 10),
+    count,
     deckId: opts["deck-id"],
     slideId: opts["slide-id"],
-    slideContent: opts["slide-content"],
+    slideContent,
   });
   if (delegation.status === "delegated") {
     // Print the reply verbatim so the calling agent parses URLs the Assets
     // agent actually returned.
     console.log(delegation.reply);
+    if (outputPrefix) {
+      await saveDelegatedImage(delegation.reply, outputPrefix);
+    }
     return;
+  }
+  if (delegation.status === "pending") {
+    console.error(
+      `Assets is still generating (task ${delegation.taskId}, last state ` +
+        `"${delegation.lastState}"). It was not cancelled — check the Assets ` +
+        `app rather than generating a duplicate.`,
+    );
+    throw new Error("Script failed");
+  }
+  if (delegation.status === "rejected") {
+    console.error(
+      `Assets could not generate this image (${delegation.state}): ${delegation.reason}`,
+    );
+    throw new Error("Script failed");
   }
   console.warn(
     `[slides/generate-image] Assets unavailable (${delegation.reason}); ` +
@@ -152,25 +223,6 @@ Options:
       "Error: No image generation provider configured. Save GEMINI_API_KEY or OPENAI_API_KEY in settings.",
     );
     throw new Error("Script failed");
-  }
-
-  const count = parseInt(opts["count"] || "1", 10);
-  const outputPrefix = opts["output"];
-  const extraReferenceUrls = opts["reference-image-urls"]
-    ? opts["reference-image-urls"].split(",").map((u) => u.trim())
-    : [];
-
-  // Build context from slide content and/or deck
-  let slideContent = opts["slide-content"];
-  let deckText = "";
-
-  if (opts["deck-id"]) {
-    const deckCtx = loadDeckContext(opts["deck-id"], opts["slide-id"]);
-    if (!slideContent && deckCtx.slideContent) {
-      slideContent = deckCtx.slideContent;
-    }
-    deckText = deckCtx.deckText;
-    console.log(`Loaded deck context: ${deckCtx.deckText.length} chars`);
   }
 
   const context =

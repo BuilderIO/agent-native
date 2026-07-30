@@ -24,13 +24,23 @@ matches `images`), so a workspace with both apps mounted needs no configuration.
 `IMAGES_A2A_URL` / `IMAGES_A2A_KEY` remain as overrides for standalone deploys
 that point at a remote Assets instance.
 
-## Fallback
+## Outcomes
 
-When Assets cannot be reached, both paths fall through to the local
-Gemini/OpenAI providers under `server/handlers/image-providers/` so a slides-only
-deploy still works. That output is **not** brand-grounded, and the action says so:
-it returns `source: "slides-fallback"` with a `fallbackReason`. Report that
-honestly rather than presenting a fallback image as a library generation.
+The helper distinguishes four outcomes, because "Assets did not return an
+image" has very different right answers:
+
+| Outcome | Meaning | What happens |
+| --- | --- | --- |
+| `delegated` | Task completed | Use the reply's `previewUrl` |
+| `rejected` | Task ended `failed`/`canceled`/`input-required` | Surface the reason; do NOT silently generate locally |
+| `pending` | Caller-side timeout; the Assets run is still going and owns a `taskId` | Tell the user to check Assets; generating again would duplicate the run |
+| `unavailable` | Assets could not be resolved or reached at all | Local fallback |
+
+Only `unavailable` falls through to the local Gemini/OpenAI providers under
+`server/handlers/image-providers/`, so a slides-only deploy still works. That
+output is **not** brand-grounded and the action says so: it returns
+`source: "slides-fallback"` with a `fallbackReason`. Report that honestly
+rather than presenting a fallback image as a library generation.
 
 There is no direct Builder.io image-generation path in slides. If a user wants
 Builder-managed generation, that belongs in Assets, behind the same delegation.
