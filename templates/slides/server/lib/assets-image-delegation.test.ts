@@ -36,7 +36,9 @@ function task(state: string, text?: string) {
     id: "task-1",
     status: {
       state,
-      ...(text ? { message: { role: "agent", parts: [{ type: "text", text }] } } : {}),
+      ...(text
+        ? { message: { role: "agent", parts: [{ type: "text", text }] } }
+        : {}),
     },
   };
 }
@@ -60,7 +62,9 @@ describe("delegateImageGenerationToAssets", () => {
     "does not report a %s run as delegated",
     async (state) => {
       sendAndWaitMock.mockResolvedValue(task(state, "no library matched"));
-      const result = await delegateImageGenerationToAssets({ prompt: "a hero" });
+      const result = await delegateImageGenerationToAssets({
+        prompt: "a hero",
+      });
       expect(result.status).toBe("rejected");
       if (result.status === "rejected") {
         expect(result.state).toBe(state);
@@ -104,14 +108,16 @@ describe("delegateImageGenerationToAssets", () => {
 describe("extractAssetUrl", () => {
   it("keeps a sentence-ending period out of the url", () => {
     expect(
-      extractAssetUrl("The previewUrl is https://cdn.example.com/a.png. Enjoy!"),
+      extractAssetUrl(
+        "The previewUrl is https://cdn.example.com/a.png. Enjoy!",
+      ),
     ).toBe("https://cdn.example.com/a.png");
   });
 
   it("reads a json-shaped reply", () => {
-    expect(extractAssetUrl('{"previewUrl": "https://cdn.example.com/b.png"}')).toBe(
-      "https://cdn.example.com/b.png",
-    );
+    expect(
+      extractAssetUrl('{"previewUrl": "https://cdn.example.com/b.png"}'),
+    ).toBe("https://cdn.example.com/b.png");
   });
 
   it("falls back to a markdown image", () => {
