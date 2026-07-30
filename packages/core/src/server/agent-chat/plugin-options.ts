@@ -342,6 +342,14 @@ export interface AgentChatPluginOptions {
   externalAgents?: ExternalAgentPolicy;
 
   /**
+   * Allow this app's A2A agent to delegate to a different app through the
+   * built-in `call-agent` tool. Disabled by default because an A2A receiver
+   * can otherwise create cross-app recursion; apps that intentionally use a
+   * sibling agent should opt in and rely on call-agent's self-call guard.
+   */
+  a2aAgentDelegation?: boolean;
+
+  /**
    * Skip mounting the remote MCP protocol route.
    *
    * Most apps should leave this off so agent chat, A2A, and MCP share one

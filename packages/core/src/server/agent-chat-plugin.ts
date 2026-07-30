@@ -1640,8 +1640,9 @@ export function createAgentChatPlugin(
               runtimeContext;
           if (a2aRunContext) a2aRunContext.systemPrompt = systemPrompt;
 
-          // Build tools — same as interactive handler but WITHOUT call-agent
-          // to prevent infinite recursive A2A loops (agent calling itself).
+          // Build tools — same as interactive handler. A2A delegation is
+          // opt-in because receivers must consciously accept the recursion
+          // surface; call-agent still rejects self-calls at execution time.
           // In dev mode, template actions are invoked via bash (not native tools),
           // so they're omitted from the tool registry — see allScripts comment.
           const a2aActions = attachToolSearch(
@@ -1652,6 +1653,7 @@ export function createAgentChatPlugin(
                   ...(lazyContext ? frameworkContextTool : {}),
                   ...urlTools,
                   ...chatScripts,
+                  ...(options?.a2aAgentDelegation ? callAgentScript : {}),
                   ...fetchTool,
                   ...webSearchTool,
                   ...workspaceFilesTool,
@@ -1675,6 +1677,7 @@ export function createAgentChatPlugin(
                   ...(lazyContext ? frameworkContextTool : {}),
                   ...urlTools,
                   ...chatScripts,
+                  ...(options?.a2aAgentDelegation ? callAgentScript : {}),
                   ...fetchTool,
                   ...webSearchTool,
                   ...workspaceFilesTool,
