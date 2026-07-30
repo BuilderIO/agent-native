@@ -244,11 +244,11 @@ export function VisualInspectorPanel({
   return (
     <aside
       className={cn(
-        "w-64 overflow-hidden rounded-xl border border-border bg-card/95 text-card-foreground shadow-2xl shadow-black/35 backdrop-blur",
+        "flex w-64 flex-col overflow-hidden rounded-xl border border-border bg-card/95 text-card-foreground shadow-2xl shadow-black/35 backdrop-blur",
         className,
       )}
     >
-      <div className="flex min-h-10 items-start justify-between gap-2 border-b border-border/70 px-3 py-2.5">
+      <div className="flex min-h-10 shrink-0 items-start justify-between gap-2 border-b border-border/70 px-3 py-2.5">
         <div className="min-w-0">
           <div className="truncate text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
             {title}
@@ -261,7 +261,7 @@ export function VisualInspectorPanel({
         </div>
         {headerAction}
       </div>
-      <div className="max-h-[min(680px,calc(100vh-7rem))] overflow-y-auto p-2">
+      <div className="min-h-0 flex-[1_1_auto] max-h-[min(680px,calc(100vh-7rem))] overflow-y-auto p-2">
         {children}
       </div>
     </aside>

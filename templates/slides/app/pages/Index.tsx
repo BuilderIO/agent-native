@@ -14,6 +14,7 @@ import {
   IconStack2,
   IconUserCircle,
 } from "@tabler/icons-react";
+import { nanoid } from "nanoid";
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { flushSync } from "react-dom";
 import { useNavigate, useSearchParams } from "react-router";
@@ -195,6 +196,7 @@ export default function Index() {
   const {
     decks,
     createDeck,
+    duplicateDeck,
     ensureDeckPersisted,
     deleteDeck,
     updateDeck,
@@ -235,8 +237,6 @@ export default function Index() {
   const designSystemAutoRef = useRef(true);
   const referenceDeckAutoRef = useRef(true);
   const [showSignInDialog, setShowSignInDialog] = useState(false);
-  const [duplicating, setDuplicating] = useState<string | null>(null);
-  const duplicatingRef = useRef<string | null>(null);
   const { generating, submit: agentSubmit } = useAgentGenerating();
   const anchorElRef = useRef<HTMLElement | null>(null);
   const anchorRef = useRef<HTMLElement | null>(null);
@@ -654,22 +654,26 @@ export default function Index() {
     void applyWorkspaceDefaultDeck(deck);
   }, [workspaceDefaultCandidate, applyWorkspaceDefaultDeck]);
 
+  // Navigating on the action's response raced the deck list: the editor reads
+  // the copy out of `useDecks()`, which had not seen the new row yet, so the
+  // route rendered "Deck unavailable". Insert the optimistic copy locally
+  // first (the same path the editor's own Duplicate uses) and navigate to
+  // that; the background action reconciles or rolls the copy back.
   const handleDuplicate = useCallback(
-    async (id: string) => {
-      if (duplicatingRef.current) return;
-      duplicatingRef.current = id;
-      setDuplicating(id);
-      try {
-        const { id: newId } = await callAction("duplicate-deck", {
-          deckId: id,
-        });
-        navigate(`/deck/${newId}`);
-      } finally {
-        duplicatingRef.current = null;
-        setDuplicating(null);
+    (id: string) => {
+      let copy: ReturnType<typeof duplicateDeck> | undefined;
+      flushSync(() => {
+        copy = duplicateDeck(id, `deck-${nanoid()}`);
+      });
+      // The context refuses a second copy of the same deck while the first
+      // one's action is still in flight.
+      if (!copy) {
+        toast.error(t("home.duplicateFailed"));
+        return;
       }
+      navigate(`/deck/${copy.id}`);
     },
-    [navigate],
+    [duplicateDeck, navigate, t],
   );
 
   useSetPageTitle(t("home.decksTitle"));
@@ -800,7 +804,6 @@ export default function Index() {
                   onRename={handleRename}
                   onDuplicate={handleDuplicate}
                   onToggleStar={handleToggleStar}
-                  isDuplicating={duplicating === deck.id}
                   designSystemTitle={
                     deck.designSystemId
                       ? designSystemTitleById.get(deck.designSystemId)

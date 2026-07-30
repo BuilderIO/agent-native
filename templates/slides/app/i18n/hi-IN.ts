@@ -353,6 +353,8 @@ const messages = {
   styleInspector: {
     title: "Style",
     close: "स्टाइल इंस्पेक्टर बंद करें",
+    slideBackground: "स्लाइड पृष्ठभूमि",
+    slide: "स्लाइड",
     deckStyle: "डेक शैली",
     designSystemTweaks: "डिज़ाइन सिस्टम ट्वीक",
     closeTweaks: "ट्वीक बंद करें",
@@ -625,6 +627,7 @@ const messages = {
     clearWorkspaceDefault: "कार्यस्थान डिफ़ॉल्ट हटाएँ",
     workspaceDefaultSet: "कार्यस्थान डिफ़ॉल्ट के रूप में सेट किया गया",
     workspaceDefaultCleared: "कार्यस्थान डिफ़ॉल्ट हटा दिया गया",
+    duplicateFailed: "उस डेक की प्रतिलिपि नहीं बनाई जा सकी",
     workspaceDefaultFailed: "कार्यस्थान डिफ़ॉल्ट अपडेट नहीं हो सका",
     workspaceDefaultConfirmTitle: "कार्यस्थान डिफ़ॉल्ट के रूप में सेट करें?",
     workspaceDefaultDeckShareBody:

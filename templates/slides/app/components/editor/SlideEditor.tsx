@@ -104,6 +104,7 @@ import {
 } from "./slide-object-interactions";
 import { getPassiveSlidePresenceUsers } from "./slide-presence";
 import {
+  SlideBackgroundInspector,
   SlideStyleInspector,
   type SlideStylePatch,
   type SlideStyleSnapshot,
@@ -1517,6 +1518,27 @@ export default function SlideEditor({
     setSelectedElementRect(null);
     setSelectedStyleSnapshot(null);
   }, []);
+
+  // `slide.background` paints the canvas wrapper, but a generated `.fmd-slide`
+  // root usually carries its own inline background that covers the whole
+  // canvas. Writing only the field would leave the picker looking broken on
+  // exactly the slides the agent produces, so repaint the root as well when it
+  // declares one.
+  const applySlideBackground = useCallback(
+    (background: string) => {
+      const updates: Partial<Omit<Slide, "id">> = { background };
+      const root = getSlideContent()?.querySelector(
+        ".fmd-slide",
+      ) as HTMLElement | null;
+      if (root && (root.style.background || root.style.backgroundColor)) {
+        root.style.background = background;
+        const html = readCurrentSlideContentHtml();
+        if (html !== null) updates.content = html;
+      }
+      onUpdateSlideRef.current(updates);
+    },
+    [getSlideContent, readCurrentSlideContentHtml],
+  );
 
   const selectElementForStyling = useCallback(
     (
@@ -3340,26 +3362,13 @@ export default function SlideEditor({
                 }}
               />
             ) : (
-              <div className="flex h-11 items-center justify-between border-b border-border/70 px-3">
-                <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/70">
-                  {t("styleInspector.title")}
-                </span>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="size-7 cursor-pointer text-muted-foreground hover:text-foreground"
-                      onClick={onCloseStylePanel}
-                      aria-label={t("styleInspector.close")}
-                    >
-                      <IconX className="size-3.5" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>{t("styleInspector.close")}</TooltipContent>
-                </Tooltip>
-              </div>
+              <SlideBackgroundInspector
+                background={slide.background}
+                designSystem={designSystem}
+                className="h-full w-full rounded-none border-0 bg-transparent shadow-none"
+                onChange={applySlideBackground}
+                onClose={onCloseStylePanel}
+              />
             )}
           </div>
         )}
@@ -3370,6 +3379,7 @@ export default function SlideEditor({
         onChange={(notes) => onUpdateSlide({ notes })}
         slideIndex={slideIndex}
         slideCount={slideCount}
+        readOnly={readOnly}
       />
 
       {selectionRect && (

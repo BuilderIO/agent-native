@@ -1030,6 +1030,7 @@ export default function DeckEditor() {
                     deleteSlideWithUndo(id, slideId);
                     if (nextSlide) setActiveSlideId(nextSlide.id);
                   }}
+                  readOnly={!canEdit}
                   slidePresence={slidePresence}
                   recentEdits={deckRecentEdits}
                   aspectRatio={deck.aspectRatio}

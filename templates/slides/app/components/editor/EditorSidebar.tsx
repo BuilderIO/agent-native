@@ -51,14 +51,14 @@ interface EditorSidebarProps {
   onDuplicateSlide: (id: string) => void;
   onDeleteSlide: (id: string) => void;
   onAddEmptySlide: () => void;
+  /** Viewer-role decks get thumbnails only: no add, duplicate, or delete. */
+  readOnly?: boolean;
   /** Presence map: slideId → list of users currently viewing that slide */
   slidePresence?: Map<string, CollabUser[]>;
   /** Lingering recent edits (e.g. agent edits) to highlight over thumbnails. */
   recentEdits?: AttributedRecentEdit[];
   /** Deck aspect ratio (defaults to 16:9 when omitted) */
   aspectRatio?: AspectRatio;
-  /** True while a newly-created deck is being populated slide by slide. */
-  deckGenerating?: boolean;
 }
 
 /** Extract the slide id from a `{kind:"paths",paths:["slides.<id>"]}` edit. */
@@ -183,6 +183,7 @@ function SortableSlideThumb({
   registerButtonRef,
   presenceUsers = [],
   aspectRatio,
+  readOnly = false,
 }: {
   slide: Slide;
   index: number;
@@ -190,6 +191,7 @@ function SortableSlideThumb({
   onSelect: () => void;
   onDuplicate: () => void;
   onDelete: () => void;
+  readOnly?: boolean;
   registerButtonRef: (slideId: string, node: HTMLButtonElement | null) => void;
   presenceUsers?: CollabUser[];
   aspectRatio?: AspectRatio;
@@ -204,6 +206,7 @@ function SortableSlideThumb({
     isDragging,
   } = useSortable({
     id: slide.id,
+    disabled: readOnly,
   });
 
   const style = {
@@ -270,38 +273,40 @@ function SortableSlideThumb({
       </button>
 
       {/* Actions - always visible on touch devices */}
-      <div className="absolute top-2 right-2 flex gap-0.5 sm:opacity-0 sm:group-hover:opacity-100">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onDuplicate();
-              }}
-              className="p-1.5 rounded bg-black/60 backdrop-blur-sm border border-white/10 hover:bg-black/80"
-              aria-label={t("editorSidebar.duplicateSlide")}
-            >
-              <IconCopy className="w-3 h-3 text-white/60" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{t("editorSidebar.duplicate")}</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete();
-              }}
-              className="p-1.5 rounded bg-black/60 backdrop-blur-sm border border-white/10 hover:bg-red-900/80"
-              aria-label={t("editorSidebar.deleteSlide")}
-            >
-              <IconTrash className="w-3 h-3 text-white/60" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{t("editorSidebar.delete")}</TooltipContent>
-        </Tooltip>
-      </div>
+      {!readOnly && (
+        <div className="absolute top-2 right-2 flex gap-0.5 sm:opacity-0 sm:group-hover:opacity-100">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDuplicate();
+                }}
+                className="p-1.5 rounded bg-black/60 backdrop-blur-sm border border-white/10 hover:bg-black/80"
+                aria-label={t("editorSidebar.duplicateSlide")}
+              >
+                <IconCopy className="w-3 h-3 text-white/60" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{t("editorSidebar.duplicate")}</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete();
+                }}
+                className="p-1.5 rounded bg-black/60 backdrop-blur-sm border border-white/10 hover:bg-red-900/80"
+                aria-label={t("editorSidebar.deleteSlide")}
+              >
+                <IconTrash className="w-3 h-3 text-white/60" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{t("editorSidebar.delete")}</TooltipContent>
+          </Tooltip>
+        </div>
+      )}
     </div>
   );
 }
@@ -550,10 +555,10 @@ export default function EditorSidebar({
   onDuplicateSlide,
   onDeleteSlide,
   onAddEmptySlide,
+  readOnly = false,
   slidePresence,
   recentEdits,
   aspectRatio,
-  deckGenerating = false,
 }: EditorSidebarProps) {
   const t = useT();
   const activeIndex = slides.findIndex((s) => s.id === activeSlideId);
@@ -577,7 +582,6 @@ export default function EditorSidebar({
     [],
   );
   const { generating, submit: agentSubmit } = useAgentGenerating();
-  const showGeneratingSlide = deckGenerating || addSlideGenerating;
 
   const registerSlideButton = useCallback(
     (slideId: string, node: HTMLButtonElement | null) => {
@@ -638,7 +642,7 @@ export default function EditorSidebar({
         <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
           {t("editorSidebar.slides")}
         </span>
-        {showGeneratingSlide ? (
+        {readOnly ? null : addSlideGenerating ? (
           <IconLoader2 className="w-4 h-4 text-muted-foreground animate-spin" />
         ) : (
           <Tooltip>
@@ -674,13 +678,14 @@ export default function EditorSidebar({
               onSelect={() => onSelectSlide(slide.id)}
               onDuplicate={() => onDuplicateSlide(slide.id)}
               onDelete={() => onDeleteSlide(slide.id)}
+              readOnly={readOnly}
               registerButtonRef={registerSlideButton}
               presenceUsers={slidePresence?.get(slide.id) ?? []}
               aspectRatio={aspectRatio}
             />
           ))}
         </SortableContext>
-        {showGeneratingSlide && (
+        {addSlideGenerating && (
           <GeneratingSlideSkeleton
             index={slides.length}
             aspectRatio={aspectRatio}
@@ -697,24 +702,26 @@ export default function EditorSidebar({
         )}
       </div>
 
-      <AddSlidePopover
-        open={addOpen}
-        onOpenChange={setAddOpen}
-        anchorRef={headerAddRef}
-        deckId={deckId}
-        deckTitle={deckTitle}
-        activeSlideId={activeSlideId}
-        slideCount={slides.length}
-        activeSlideIndex={activeIndex >= 0 ? activeIndex : 0}
-        agentSubmit={(msg, ctx) => {
-          setAddSlideGenerating(true);
-          agentSubmit(msg, ctx);
-        }}
-        onDuplicateCurrent={
-          activeSlideId ? () => onDuplicateSlide(activeSlideId) : undefined
-        }
-        onAddEmpty={onAddEmptySlide}
-      />
+      {!readOnly && (
+        <AddSlidePopover
+          open={addOpen}
+          onOpenChange={setAddOpen}
+          anchorRef={headerAddRef}
+          deckId={deckId}
+          deckTitle={deckTitle}
+          activeSlideId={activeSlideId}
+          slideCount={slides.length}
+          activeSlideIndex={activeIndex >= 0 ? activeIndex : 0}
+          agentSubmit={(msg, ctx) => {
+            setAddSlideGenerating(true);
+            agentSubmit(msg, ctx);
+          }}
+          onDuplicateCurrent={
+            activeSlideId ? () => onDuplicateSlide(activeSlideId) : undefined
+          }
+          onAddEmpty={onAddEmptySlide}
+        />
+      )}
     </div>
   );
 }
