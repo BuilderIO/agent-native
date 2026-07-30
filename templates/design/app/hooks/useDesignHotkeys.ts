@@ -283,12 +283,16 @@ export function isDesignHotkeyEditableTarget(target: EventTarget | null) {
 }
 
 export function isShowKeyboardShortcutsHotkey(event: KeyboardEvent) {
-  return (
-    (event.ctrlKey || event.metaKey) &&
-    event.shiftKey &&
-    !event.altKey &&
-    normalizedKey(event) === "?"
-  );
+  if (!(event.ctrlKey || event.metaKey) || !event.shiftKey || event.altKey) {
+    return false;
+  }
+  // macOS never sends "?" for this chord: holding Control suppresses the
+  // shifted character, so Control+Shift+/ arrives as key "/" while Windows
+  // sends "?". Matching only "?" left Macs with no pressable combination —
+  // the obvious ⌘⇧? alternative is the system Help-menu shortcut and the
+  // browser consumes it before the page ever sees it.
+  const key = normalizedKey(event);
+  return key === "?" || key === "/";
 }
 
 function isFocusableChromeTarget(target: EventTarget | null) {
@@ -786,7 +790,7 @@ const ALT_CODE_KEYS: Record<string, string> = {
   BracketLeft: "[",
 };
 
-function isApplePlatform() {
+export function isApplePlatform() {
   if (typeof navigator === "undefined") return false;
   const userAgentDataPlatform = (
     navigator as Navigator & {

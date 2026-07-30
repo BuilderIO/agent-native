@@ -5069,7 +5069,20 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     );
   }
 
+  function isShowShortcutsChord(e) {
+    if (!(e.metaKey || e.ctrlKey) || !e.shiftKey || e.altKey) return false;
+    // macOS delivers Control+Shift+/ as "/" — Control suppresses the shifted
+    // character — while Windows sends "?". Match both; see
+    // isShowKeyboardShortcutsHotkey in useDesignHotkeys.ts.
+    return e.key === "?" || e.key === "/";
+  }
+
   function shouldForwardDesignHotkey(e) {
+    // Shortcut help is not an editing affordance, so it forwards ahead of the
+    // read-only and typing guards below — the host matcher is deliberately
+    // global for the same reason. Without this the chord never escapes the
+    // canvas iframe, which is where focus lands the moment you click a frame.
+    if (isShowShortcutsChord(e)) return true;
     // Read-only surfaces (e.g. background/inactive board screens) must never
     // forward edit hotkeys or preventDefault() native browser shortcuts —
     // Escape/Enter/Tab/Delete/arrow-key/undo-redo forwarding is an editing

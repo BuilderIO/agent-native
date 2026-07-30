@@ -3403,7 +3403,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         'input, textarea, select, [contenteditable], [role="textbox"], [data-agent-native-text-editing]'
       );
     }
+    function isShowShortcutsChord(e) {
+      if (!(e.metaKey || e.ctrlKey) || !e.shiftKey || e.altKey) return false;
+      return e.key === "?" || e.key === "/";
+    }
     function shouldForwardDesignHotkey(e) {
+      if (isShowShortcutsChord(e)) return true;
       if (readOnly) return false;
       if (activeTextEditEl || isEditorTypingTarget(e.target) || e.isComposing)
         return false;

@@ -418,6 +418,7 @@ import {
 import { useQuestionFlow } from "@/hooks/use-question-flow";
 import {
   isDesignHotkeyEditableTarget,
+  isShowKeyboardShortcutsHotkey,
   useDesignHotkeys,
   type DesignHotkeyAlignEdge,
   type DesignHotkeyDistributeAxis,
@@ -22911,16 +22912,6 @@ function DesignEditor() {
     viewMode,
   ]);
 
-  const handleShowKeyboardShortcuts = useCallback(() => {
-    if (!keyboardShortcutsOpen) {
-      const activeElement = document.activeElement;
-      keyboardShortcutsReturnFocusRef.current =
-        activeElement instanceof HTMLElement ? activeElement : null;
-    }
-    setUiHidden(false);
-    setKeyboardShortcutsOpen(true);
-  }, [keyboardShortcutsOpen]);
-
   const handleShowKeyboardShortcutsFromMenu = useCallback(() => {
     keyboardShortcutsReturnFocusRef.current = projectMenuTriggerRef.current;
     suppressProjectMenuReturnFocusRef.current = true;
@@ -22938,6 +22929,42 @@ function DesignEditor() {
       }
     });
   }, []);
+
+  const handleToggleKeyboardShortcuts = useCallback(() => {
+    if (keyboardShortcutsOpen) {
+      handleCloseKeyboardShortcuts();
+      return;
+    }
+    const activeElement = document.activeElement;
+    keyboardShortcutsReturnFocusRef.current =
+      activeElement instanceof HTMLElement ? activeElement : null;
+    setUiHidden(false);
+    setKeyboardShortcutsOpen(true);
+  }, [handleCloseKeyboardShortcuts, keyboardShortcutsOpen]);
+
+  // Capture phase, and deliberately outside the useDesignHotkeys gate below.
+  // Two reasons, each of which broke this chord on its own: a bubble-phase
+  // listener runs after the agent composer has already inserted "/" and opened
+  // its slash menu, and that gate switches off during responsive-interact and
+  // agent question flows — it disables editing shortcuts, and shortcut help
+  // is not an editing shortcut.
+  useEffect(() => {
+    if (embedded) return;
+    const handleHelpHotkey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing) return;
+      if (!isShowKeyboardShortcutsHotkey(event)) return;
+      // preventDefault also keeps the bubble-phase useDesignHotkeys listener
+      // from toggling a second time on the same keystroke.
+      event.preventDefault();
+      event.stopPropagation();
+      handleToggleKeyboardShortcuts();
+    };
+    window.addEventListener("keydown", handleHelpHotkey, { capture: true });
+    return () =>
+      window.removeEventListener("keydown", handleHelpHotkey, {
+        capture: true,
+      });
+  }, [embedded, handleToggleKeyboardShortcuts]);
 
   const handleEscapeHotkey = useCallback(() => {
     if (keyboardShortcutsOpen) {
@@ -23677,7 +23704,7 @@ function DesignEditor() {
     // editing actions, so they work regardless of canEditDesign.
     onToggleUi: handleToggleUi,
     onToggleComments: handleToggleComments,
-    onShowKeyboardShortcuts: handleShowKeyboardShortcuts,
+    onShowKeyboardShortcuts: handleToggleKeyboardShortcuts,
   });
 
   const startRetryGeneration = useCallback(
@@ -30175,6 +30202,8 @@ function DesignEditor() {
           <IconKeyboard className="mr-2 h-4 w-4" />
           {t("designEditor.keyboardShortcuts.title")}
           <DropdownMenuShortcut>
+            {/* Control, not Command: ⌘⇧? is the macOS Help-menu shortcut and
+                the browser consumes it before the page ever sees it. */}
             {"⌃⇧?" /* i18n-ignore keyboard shortcut */}
           </DropdownMenuShortcut>
         </DropdownMenuItem>
@@ -31071,7 +31100,7 @@ function DesignEditor() {
             />
           )}
 
-        {!embedded && keyboardShortcutsOpen && !questionFlowActive ? (
+        {!embedded && keyboardShortcutsOpen ? (
           <KeyboardShortcutsPanel onClose={handleCloseKeyboardShortcuts} />
         ) : null}
 
