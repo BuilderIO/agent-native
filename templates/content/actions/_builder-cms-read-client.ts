@@ -218,6 +218,36 @@ function normalizeBuilderCmsListFieldPath(fieldPath: string) {
   return normalized;
 }
 
+function preserveProjectedBuilderFieldAbsence(
+  read: BuilderCmsReadResult,
+  fieldPaths: readonly string[] | undefined,
+  rawData: boolean | undefined,
+): BuilderCmsReadResult {
+  if (read.state !== "live" || rawData === true || !fieldPaths?.length) {
+    return read;
+  }
+  const projectedFieldPaths = [
+    ...new Set(
+      fieldPaths
+        .map(normalizeBuilderCmsListFieldPath)
+        .filter((fieldPath): fieldPath is string => fieldPath !== null),
+    ),
+  ];
+  if (projectedFieldPaths.length === 0) return read;
+  return {
+    ...read,
+    entries: read.entries.map((entry) => {
+      const sourceValues = { ...entry.sourceValues };
+      for (const fieldPath of projectedFieldPaths) {
+        if (!Object.prototype.hasOwnProperty.call(sourceValues, fieldPath)) {
+          sourceValues[fieldPath] = null;
+        }
+      }
+      return { ...entry, sourceValues };
+    }),
+  };
+}
+
 export function builderCmsListEntryFields(fieldPaths: readonly string[] = []) {
   const fields = new Map<string, string>();
   for (const fieldPath of [
@@ -1273,22 +1303,32 @@ export async function readBuilderCmsContentEntries(args: {
       publicKey,
       privateKey: privateKey ?? undefined,
     });
-    if (contentApiRead.state === "live") return contentApiRead;
+    if (contentApiRead.state === "live") {
+      return preserveProjectedBuilderFieldAbsence(
+        contentApiRead,
+        args.fieldPaths,
+        args.rawData,
+      );
+    }
     if (!privateKey) return contentApiRead;
   }
 
   if (privateKey) {
     try {
-      return await readBuilderCmsContentEntriesViaMcp({
-        model: args.model,
-        fieldPaths: args.fieldPaths,
-        rawData: args.rawData,
-        limit: args.limit,
-        maxPages: args.maxPages,
-        offset: args.offset,
-        fetchImpl,
-        privateKey,
-      });
+      return preserveProjectedBuilderFieldAbsence(
+        await readBuilderCmsContentEntriesViaMcp({
+          model: args.model,
+          fieldPaths: args.fieldPaths,
+          rawData: args.rawData,
+          limit: args.limit,
+          maxPages: args.maxPages,
+          offset: args.offset,
+          fetchImpl,
+          privateKey,
+        }),
+        args.fieldPaths,
+        args.rawData,
+      );
     } catch (error) {
       return {
         state: "error",

@@ -469,6 +469,47 @@ describe("bind-content-database-source-field (row-union)", () => {
 });
 
 describe("add-content-database-source-field-property Builder refresh", () => {
+  it("creates an explicitly empty projected field without rereading Builder", async () => {
+    const f = await seedStaleBuilderTopicsSnapshot();
+    const db = getDb();
+    const rows = await db
+      .select()
+      .from(schema.contentDatabaseSourceRows)
+      .where(eq(schema.contentDatabaseSourceRows.sourceId, f.sourceId));
+    await Promise.all(
+      rows.map((row) =>
+        db
+          .update(schema.contentDatabaseSourceRows)
+          .set({
+            sourceValuesJson: JSON.stringify({
+              ...JSON.parse(row.sourceValuesJson),
+              "data.topics": null,
+            }),
+          })
+          .where(eq(schema.contentDatabaseSourceRows.id, row.id)),
+      ),
+    );
+    const readBuilderEntries = vi.spyOn(
+      await import("./_builder-cms-read-client.js"),
+      "readBuilderCmsContentEntries",
+    );
+
+    const result = await asOwner(() =>
+      addSourceFieldPropertyAction.run({
+        documentId: f.databaseDocId,
+        sourceFieldId: f.fieldId,
+      }),
+    );
+
+    expect(readBuilderEntries).not.toHaveBeenCalled();
+    expect(result.itemValues).toEqual([]);
+    const properties = await db
+      .select()
+      .from(schema.documentPropertyDefinitions)
+      .where(eq(schema.documentPropertyDefinitions.databaseId, f.databaseId));
+    expect(properties).toHaveLength(1);
+  });
+
   it("refreshes a stale Builder snapshot before creating and populating a Topics property", async () => {
     const f = await seedStaleBuilderTopicsSnapshot();
     const readBuilderEntries = vi
