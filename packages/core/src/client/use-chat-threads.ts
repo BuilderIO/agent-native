@@ -411,6 +411,18 @@ export function useChatThreads(
       } catch {
         nextActiveThreadId = null;
       }
+      // A thread that gained a scope after this pointer was written is still
+      // named by the older key. Only a known mismatch disqualifies it — an
+      // unresolved scope must not be read as "belongs here".
+      if (nextActiveThreadId) {
+        const savedScope = readKnownThreadScope(nextActiveThreadId);
+        if (
+          savedScope !== undefined &&
+          !threadCanStayVisibleInScope(savedScope, scopeRef.current)
+        ) {
+          nextActiveThreadId = null;
+        }
+      }
       if (!nextActiveThreadId && autoCreate) {
         nextActiveThreadId = createLocalThreadId();
         newlyCreatedRef.current.add(nextActiveThreadId);
@@ -948,12 +960,9 @@ export function useChatThreads(
     [apiUrl, clearUserRenamedThread, createThread],
   );
 
-  // Ref to look up the latest scope of a known thread inside
-  // saveThreadData without making the callback re-create on every
-  // setThreads. The thread's scope is owned by createThread /
-  // detachThread / fetchThreads — saveThreadData just mirrors it on
-  // every save so the server eventually catches up after
-  // persistSubmittedUserMessage creates the row sans scope.
+  // Mirrors only a scope this client actually knows: `scope: null` for a thread
+  // missing from the local list would clear the server's, and an unscoped chat
+  // renders in every resource. `detachThread` is the one path that may clear it.
   const saveThreadData = useCallback(
     async (
       id: string,
@@ -968,7 +977,7 @@ export function useChatThreads(
       try {
         const { titleSource, ...threadDataPayload } = data;
         const localThread = threadsRef.current.find((t) => t.id === id);
-        const localScope = localThread?.scope ?? null;
+        const knownScope = readKnownThreadScope(id) ?? null;
         const preserveUserTitle = userRenamedThreadIdsRef.current.has(id);
         const title = nextThreadTitle(
           localThread?.title,
@@ -980,7 +989,7 @@ export function useChatThreads(
         const payload = {
           ...threadDataPayload,
           title,
-          scope: localScope,
+          ...(knownScope ? { scope: knownScope } : {}),
         };
         let response = await fetch(
           `${apiUrl}/threads/${encodeURIComponent(id)}`,
@@ -997,7 +1006,11 @@ export function useChatThreads(
           const created = await fetch(`${apiUrl}/threads`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ id, title, scope: localScope }),
+            body: JSON.stringify({
+              id,
+              title,
+              ...(knownScope ? { scope: knownScope } : {}),
+            }),
           });
           if (!created.ok) return;
           response = await fetch(
@@ -1059,7 +1072,7 @@ export function useChatThreads(
         });
       } catch {}
     },
-    [apiUrl],
+    [apiUrl, readKnownThreadScope],
   );
 
   const generateTitle = useCallback(

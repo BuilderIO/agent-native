@@ -110,6 +110,7 @@ import {
   forkThread,
   getThread,
   registerChatThreadsShareable,
+  resolveRunThreadScope,
   resolveThreadAccess,
   listThreads,
   searchThreads,
@@ -2511,11 +2512,16 @@ export function createAgentChatPlugin(
           getRequestRunContext()?.owner ?? getRequestUserEmail();
         if (!ownerEmail) return;
 
+        const runScope = getRequestRunContext()?.chatScope ?? null;
+
         await withThreadDataLock(threadId, async () => {
           let thread = await getThread(threadId);
           if (!thread) {
             try {
-              thread = await createThread(ownerEmail, { id: threadId });
+              thread = await createThread(ownerEmail, {
+                id: threadId,
+                scope: runScope,
+              });
             } catch {
               thread = await getThread(threadId);
             }
@@ -2537,6 +2543,15 @@ export function createAgentChatPlugin(
               statusCode: 404,
               statusMessage: "Thread not found",
             });
+          }
+
+          // An unscoped thread reads as general, and general renders inside
+          // every resource — leave it unscoped and one chat follows the user
+          // into all of them.
+          const nextScope = resolveRunThreadScope(thread.scope, runScope);
+          if (nextScope !== thread.scope) {
+            await setThreadScope(threadId, nextScope);
+            thread = { ...thread, scope: nextScope };
           }
 
           let repo: any;

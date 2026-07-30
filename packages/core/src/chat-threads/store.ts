@@ -767,6 +767,20 @@ export async function searchThreads(
 }
 
 /**
+ * Scope a thread should carry after a run inside a resource. A thread that
+ * already has a scope keeps it — a run reaching a chat from somewhere else must
+ * never retag or clear it, which is what turns one chat into every resource's
+ * chat.
+ */
+export function resolveRunThreadScope(
+  existing: ChatThreadScope | null,
+  incoming: ChatThreadScope | null | undefined,
+): ChatThreadScope | null {
+  if (existing) return existing;
+  return incoming ?? null;
+}
+
+/**
  * Detach or rebind a chat's scope. Used by the UI's "Detach from <resource>"
  * action and by templates that need to retag a chat after a rename. Pass
  * `null` to clear the scope (chat becomes general).

@@ -828,6 +828,140 @@ describe("useChatThreads", () => {
     });
   });
 
+  it("ignores a saved active chat that belongs to a different resource", async () => {
+    // The pointer under design B's key names a thread scoped to design A —
+    // what an older unscoped pointer looks like once the thread gains a scope.
+    window.localStorage.setItem(
+      "agent-chat-active-thread:design-app:scope:design:design-b",
+      "design-a-thread",
+    );
+    const designAThread: ChatThreadSummary = {
+      id: "design-a-thread",
+      title: "Design A edits",
+      preview: "make the button brighter",
+      messageCount: 2,
+      createdAt: 1,
+      updatedAt: 2,
+      scope: { type: "design", id: "design-a", label: "Design A" },
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [designAThread] });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness({ scope }: { scope: ChatThreadScope }) {
+      hook = useChatThreads("/chat", "design-app", scope);
+      return null;
+    }
+
+    await act(async () => {
+      root.render(
+        <Harness
+          scope={{ type: "design", id: "design-a", label: "Design A" }}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      root.render(
+        <Harness
+          scope={{ type: "design", id: "design-b", label: "Design B" }}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(hook!.activeThreadId).toBe("forked-thread");
+  });
+
+  it("omits scope when saving a thread whose scope this client does not know", async () => {
+    const scopedThread: ChatThreadSummary = {
+      id: "scoped-thread",
+      title: "Design A edits",
+      preview: "make the button brighter",
+      messageCount: 2,
+      createdAt: 1,
+      updatedAt: 2,
+      scope: { type: "design", id: "design-a", label: "Design A" },
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [scopedThread] });
+      }
+      if (init?.method === "PUT") return jsonResponse({ ok: true });
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "design-app", {
+        type: "design",
+        id: "design-a",
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // A thread this client has never listed — a null here would clear the
+    // server's scope and make the chat render inside every design.
+    await act(async () => {
+      await hook!.saveThreadData("thread-from-another-tab", {
+        threadData: JSON.stringify({ messages: [{ id: "m-1" }] }),
+        title: "Elsewhere",
+        preview: "hello",
+        messageCount: 1,
+      });
+    });
+
+    const unknownPut = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        url === "/chat/threads/thread-from-another-tab" &&
+        init?.method === "PUT",
+    );
+    expect(JSON.parse(unknownPut![1]!.body as string)).not.toHaveProperty(
+      "scope",
+    );
+
+    // A thread it does know still mirrors the scope so the server catches up.
+    await act(async () => {
+      await hook!.saveThreadData("scoped-thread", {
+        threadData: JSON.stringify({ messages: [{ id: "m-2" }] }),
+        title: "Design A edits",
+        preview: "make the button brighter",
+        messageCount: 3,
+      });
+    });
+
+    const knownPut = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        url === "/chat/threads/scoped-thread" && init?.method === "PUT",
+    );
+    expect(JSON.parse(knownPut![1]!.body as string).scope).toEqual({
+      type: "design",
+      id: "design-a",
+      label: "Design A",
+    });
+  });
+
   it("sends the current client snapshot when forking a thread", async () => {
     const sourceThread: ChatThreadSummary = {
       id: "source-thread",

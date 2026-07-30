@@ -21,6 +21,7 @@ import {
   grantThreadUserShare,
   listThreads,
   renameThread,
+  resolveRunThreadScope,
   revokeThreadShareLink,
   searchThreads,
   setThreadArchived,
@@ -990,5 +991,27 @@ describe("chat thread store", () => {
     expect(
       JSON.parse(rows.get("thread-forked-stale")!.thread_data).messages,
     ).toHaveLength(2);
+  });
+});
+
+describe("resolveRunThreadScope", () => {
+  const designA = { type: "design", id: "design-a" };
+  const designB = { type: "design", id: "design-b" };
+
+  it("adopts the run's scope when the thread has none", () => {
+    expect(resolveRunThreadScope(null, designA)).toEqual(designA);
+  });
+
+  it("keeps the thread's own scope when a run arrives from another resource", () => {
+    expect(resolveRunThreadScope(designA, designB)).toEqual(designA);
+  });
+
+  it("never clears a scope when the run carries none", () => {
+    expect(resolveRunThreadScope(designA, null)).toEqual(designA);
+    expect(resolveRunThreadScope(designA, undefined)).toEqual(designA);
+  });
+
+  it("leaves a general chat general when the run is also unscoped", () => {
+    expect(resolveRunThreadScope(null, null)).toBeNull();
   });
 });
