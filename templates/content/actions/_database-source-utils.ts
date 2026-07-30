@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { getDialect, type Dialect } from "@agent-native/core/db";
-import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 import type {
@@ -984,6 +984,8 @@ const BUILDER_BODY_HYDRATION_OPEN_PRIORITY = 0;
 const BUILDER_BODY_HYDRATION_BATCH_LIMIT = 600;
 const BUILDER_BODY_HYDRATION_PROCESS_CONCURRENCY = 72;
 const BUILDER_BODY_HYDRATION_MAX_ATTEMPTS = 5;
+const BUILDER_BODY_HYDRATION_CLAIM_LEASE_MS = 2 * 60 * 1000;
+const BUILDER_BODY_HYDRATION_BULK_LIMIT = 100;
 const BUILDER_BODY_HYDRATION_CODEC_VERSION =
   "readable-native-images-authoritative-raw-baseline-v9";
 const BUILDER_CMS_REFRESH_INITIAL_PAGES = 1;
@@ -1890,6 +1892,10 @@ async function processBuilderBodyHydrationJob(
                 schema.contentDatabaseBodyHydrationQueue.sourceEntryJson,
                 activeSourceEntryJson,
               ),
+              eq(
+                schema.contentDatabaseBodyHydrationQueue.attempts,
+                row.attempts,
+              ),
             ),
           )
           .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
@@ -1929,6 +1935,10 @@ async function processBuilderBodyHydrationJob(
                   schema.contentDatabaseBodyHydrationQueue.sourceEntryJson,
                   activeSourceEntryJson,
                 ),
+                eq(
+                  schema.contentDatabaseBodyHydrationQueue.attempts,
+                  row.attempts,
+                ),
               ),
             )
             .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
@@ -1943,12 +1953,9 @@ async function processBuilderBodyHydrationJob(
     if (!nextContent.trim()) {
       const attempts = row.attempts;
       await db.transaction(async (tx) => {
-        const queueRowCas = and(
-          eq(schema.contentDatabaseBodyHydrationQueue.id, row.id),
-          eq(
-            schema.contentDatabaseBodyHydrationQueue.sourceEntryJson,
-            activeSourceEntryJson,
-          ),
+        const queueRowCas = builderBodyHydrationQueueOwnershipFilter(
+          row,
+          activeSourceEntryJson,
         );
         const markPendingIfReplaced = async () => {
           const [replacedByNewerJob] = await tx
@@ -2038,12 +2045,9 @@ async function processBuilderBodyHydrationJob(
     });
   let wroteBody = false;
   await db.transaction(async (tx) => {
-    const queueRowCas = and(
-      eq(schema.contentDatabaseBodyHydrationQueue.id, row.id),
-      eq(
-        schema.contentDatabaseBodyHydrationQueue.sourceEntryJson,
-        activeSourceEntryJson,
-      ),
+    const queueRowCas = builderBodyHydrationQueueOwnershipFilter(
+      row,
+      activeSourceEntryJson,
     );
     const markPendingIfReplaced = async () => {
       const [replacedByNewerJob] = await tx
@@ -2202,6 +2206,275 @@ async function processBuilderBodyHydrationJob(
   // repersist the empty state over the newly hydrated Builder body.
 }
 
+type PreparedPristineBuilderBodyHydration = {
+  job: ContentDatabaseBodyHydrationQueueRowDb;
+  sourceRow: ContentDatabaseSourceRecordRowDb;
+  documentContent: string;
+  content: string;
+  sourceValuesJson: string;
+  lastSourceUpdatedAt: string;
+  bodyHydrationVersion: string;
+};
+
+class PristineBuilderBodyHydrationCasMiss extends Error {}
+
+function hydrationCaseSql<T>(
+  idColumn: unknown,
+  fallbackColumn: unknown,
+  values: Array<{ id: string; value: T }>,
+) {
+  const cases = values.map(({ id, value }) => sql`WHEN ${id} THEN ${value}`);
+  return sql<T>`CASE ${idColumn} ${sql.join(cases, sql` `)} ELSE ${fallbackColumn} END`;
+}
+
+function builderBodyHydrationQueueOwnershipFilter(
+  job: ContentDatabaseBodyHydrationQueueRowDb,
+  sourceEntryJson = job.sourceEntryJson,
+) {
+  return and(
+    eq(schema.contentDatabaseBodyHydrationQueue.id, job.id),
+    eq(
+      schema.contentDatabaseBodyHydrationQueue.sourceEntryJson,
+      sourceEntryJson,
+    ),
+    eq(schema.contentDatabaseBodyHydrationQueue.attempts, job.attempts),
+  );
+}
+
+async function preparePristineBuilderBodyHydration(args: {
+  job: ContentDatabaseBodyHydrationQueueRowDb;
+  sourceRow: ContentDatabaseSourceRecordRowDb | null;
+  documentContent: string | null | undefined;
+  bodyHydrationVersion: string | null;
+  bodyEntry: BuilderCmsSourceEntry | null;
+}): Promise<PreparedPristineBuilderBodyHydration | null> {
+  const { job, sourceRow, documentContent, bodyHydrationVersion, bodyEntry } =
+    args;
+  if (
+    job.attempts !== 1 ||
+    !sourceRow ||
+    !bodyEntry ||
+    bodyHydrationVersion !== null ||
+    !isEffectivelyEmptyDocumentContent(documentContent ?? "") ||
+    sourceRow.sourceRowId !== job.sourceRowId ||
+    bodyEntry.id !== job.sourceRowId
+  ) {
+    return null;
+  }
+  const queuedEntry = parseHydrationEntry(job);
+  if (!queuedEntry || queuedEntry.id !== bodyEntry.id) return null;
+  const sourceValues =
+    parseObject<Record<string, DocumentPropertyValue>>(
+      sourceRow.sourceValuesJson,
+    ) ?? {};
+  if (
+    stringSourceValue(sourceValues, BUILDER_CMS_BODY_CONTENT_KEY)?.trim() ||
+    stringSourceValue(sourceValues, BUILDER_CMS_BODY_BLOCKS_HASH_KEY)
+  ) {
+    return null;
+  }
+  const queuedLastUpdated =
+    stringSourceValue(queuedEntry.sourceValues, "lastUpdated") ??
+    queuedEntry.updatedAt;
+  const bodyLastUpdated =
+    stringSourceValue(bodyEntry.sourceValues, "lastUpdated") ??
+    bodyEntry.updatedAt;
+  if (
+    queuedLastUpdated &&
+    bodyLastUpdated &&
+    queuedLastUpdated !== bodyLastUpdated
+  ) {
+    return null;
+  }
+  const entryWithBody = await refreshBuilderBodySourceValuesFromStoredLossless(
+    await withBuilderBodySourceValues({
+      ...bodyEntry,
+      sourceValues: {
+        ...queuedEntry.sourceValues,
+        ...bodyEntry.sourceValues,
+      },
+    }),
+  );
+  const nextValues = {
+    ...sourceValues,
+    ...entryWithBody.sourceValues,
+  };
+  const content =
+    stringSourceValue(nextValues, BUILDER_CMS_BODY_CONTENT_KEY) ?? "";
+  if (!content.trim()) return null;
+  return {
+    job,
+    sourceRow,
+    documentContent: documentContent ?? "",
+    content,
+    sourceValuesJson: JSON.stringify(nextValues),
+    lastSourceUpdatedAt: entryWithBody.updatedAt ?? new Date().toISOString(),
+    bodyHydrationVersion: builderBodyHydrationVersion(entryWithBody),
+  };
+}
+
+async function persistPristineBuilderBodyHydrationsInBulk(
+  prepared: PreparedPristineBuilderBodyHydration[],
+  now: string,
+) {
+  const db = getDb();
+  const persistedJobIds = new Set<string>();
+  const chunkLimit = Math.min(
+    BUILDER_BODY_HYDRATION_BULK_LIMIT,
+    bulkChunkSizeForColumnCount(5),
+  );
+  for (const batch of chunks(prepared, chunkLimit)) {
+    try {
+      await db.transaction(async (tx) => {
+        const queueOwnership = batch.map(({ job }) =>
+          builderBodyHydrationQueueOwnershipFilter(job),
+        );
+        const owned = await tx
+          .update(schema.contentDatabaseBodyHydrationQueue)
+          .set({ updatedAt: now })
+          .where(or(...queueOwnership))
+          .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
+        if (owned.length !== batch.length) {
+          throw new PristineBuilderBodyHydrationCasMiss(
+            "Builder body hydration queue ownership changed.",
+          );
+        }
+
+        const updatedDocuments = await tx
+          .update(schema.documents)
+          .set({
+            content: hydrationCaseSql(
+              schema.documents.id,
+              schema.documents.content,
+              batch.map((row) => ({
+                id: row.job.documentId,
+                value: row.content,
+              })),
+            ),
+            updatedAt: now,
+          })
+          .where(
+            or(
+              ...batch.map((row) =>
+                and(
+                  eq(schema.documents.id, row.job.documentId),
+                  eq(schema.documents.content, row.documentContent),
+                ),
+              ),
+            ),
+          )
+          .returning({ id: schema.documents.id });
+        if (updatedDocuments.length !== batch.length) {
+          throw new PristineBuilderBodyHydrationCasMiss(
+            "Builder body hydration document changed.",
+          );
+        }
+
+        const updatedSourceRows = await tx
+          .update(schema.contentDatabaseSourceRows)
+          .set({
+            sourceValuesJson: hydrationCaseSql(
+              schema.contentDatabaseSourceRows.id,
+              schema.contentDatabaseSourceRows.sourceValuesJson,
+              batch.map((row) => ({
+                id: row.sourceRow.id,
+                value: row.sourceValuesJson,
+              })),
+            ),
+            lastSyncedAt: now,
+            lastSourceUpdatedAt: hydrationCaseSql(
+              schema.contentDatabaseSourceRows.id,
+              schema.contentDatabaseSourceRows.lastSourceUpdatedAt,
+              batch.map((row) => ({
+                id: row.sourceRow.id,
+                value: row.lastSourceUpdatedAt,
+              })),
+            ),
+            updatedAt: now,
+          })
+          .where(
+            or(
+              ...batch.map((row) =>
+                and(
+                  eq(schema.contentDatabaseSourceRows.id, row.sourceRow.id),
+                  eq(
+                    schema.contentDatabaseSourceRows.sourceId,
+                    row.job.sourceId,
+                  ),
+                  eq(
+                    schema.contentDatabaseSourceRows.databaseItemId,
+                    row.job.databaseItemId,
+                  ),
+                  eq(
+                    schema.contentDatabaseSourceRows.sourceValuesJson,
+                    row.sourceRow.sourceValuesJson,
+                  ),
+                ),
+              ),
+            ),
+          )
+          .returning({ id: schema.contentDatabaseSourceRows.id });
+        if (updatedSourceRows.length !== batch.length) {
+          throw new PristineBuilderBodyHydrationCasMiss(
+            "Builder body hydration source row changed.",
+          );
+        }
+
+        const deletedQueueRows = await tx
+          .delete(schema.contentDatabaseBodyHydrationQueue)
+          .where(or(...queueOwnership))
+          .returning({
+            id: schema.contentDatabaseBodyHydrationQueue.id,
+          });
+        if (deletedQueueRows.length !== batch.length) {
+          throw new PristineBuilderBodyHydrationCasMiss(
+            "Builder body hydration queue changed.",
+          );
+        }
+
+        const updatedItems = await tx
+          .update(schema.contentDatabaseItems)
+          .set({
+            bodyHydrationStatus: "hydrated",
+            bodyHydrationAttemptedAt: now,
+            bodyHydrationError: null,
+            bodyHydrationVersion: hydrationCaseSql(
+              schema.contentDatabaseItems.id,
+              schema.contentDatabaseItems.bodyHydrationVersion,
+              batch.map((row) => ({
+                id: row.job.databaseItemId,
+                value: row.bodyHydrationVersion,
+              })),
+            ),
+            updatedAt: now,
+          })
+          .where(
+            and(
+              inArray(
+                schema.contentDatabaseItems.id,
+                batch.map((row) => row.job.databaseItemId),
+              ),
+              eq(schema.contentDatabaseItems.bodyHydrationStatus, "hydrating"),
+            ),
+          )
+          .returning({ id: schema.contentDatabaseItems.id });
+        if (updatedItems.length !== batch.length) {
+          throw new PristineBuilderBodyHydrationCasMiss(
+            "Builder body hydration item changed.",
+          );
+        }
+      });
+      for (const row of batch) persistedJobIds.add(row.job.id);
+    } catch (error) {
+      if (!(error instanceof PristineBuilderBodyHydrationCasMiss)) throw error;
+      // The transaction rolled the whole chunk back. The existing per-row path
+      // below reloads its conflict-sensitive state and preserves the safer
+      // edit, migration, retry, and unavailable-body semantics.
+    }
+  }
+  return persistedJobIds;
+}
+
 async function enqueueStaleBuilderBodyHydrationForOpenDocument(args: {
   sourceId: string;
   documentId: string;
@@ -2349,11 +2622,17 @@ export async function processBuilderBodyHydrationQueue(args: {
       })()
     : persistedJobs(limit));
   const jobsLoadedAt = Date.now();
+  const claimLeaseCutoff = new Date(
+    Date.now() - BUILDER_BODY_HYDRATION_CLAIM_LEASE_MS,
+  ).toISOString();
 
   let succeeded = 0;
   let failed = 0;
   const claimedJobs: ContentDatabaseBodyHydrationQueueRowDb[] = [];
-  for (const jobChunk of chunks(jobs, bulkChunkSizeForColumnCount(3))) {
+  for (const jobChunk of chunks(
+    jobs,
+    bulkChunkSizeForColumnCount(args.preloadBodies === true ? 5 : 3),
+  )) {
     const claimFilters = jobChunk.map((job) =>
       and(
         eq(schema.contentDatabaseBodyHydrationQueue.id, job.id),
@@ -2362,6 +2641,27 @@ export async function processBuilderBodyHydrationQueue(args: {
           job.sourceEntryJson,
         ),
         eq(schema.contentDatabaseBodyHydrationQueue.attempts, job.attempts),
+        args.preloadBodies === true
+          ? and(
+              job.lastAttemptedAt
+                ? eq(
+                    schema.contentDatabaseBodyHydrationQueue.lastAttemptedAt,
+                    job.lastAttemptedAt,
+                  )
+                : isNull(
+                    schema.contentDatabaseBodyHydrationQueue.lastAttemptedAt,
+                  ),
+              or(
+                isNull(
+                  schema.contentDatabaseBodyHydrationQueue.lastAttemptedAt,
+                ),
+                lt(
+                  schema.contentDatabaseBodyHydrationQueue.lastAttemptedAt,
+                  claimLeaseCutoff,
+                ),
+              ),
+            )
+          : undefined,
       ),
     );
     if (claimFilters.length === 0) continue;
@@ -2499,9 +2799,36 @@ export async function processBuilderBodyHydrationQueue(args: {
     }
   }
   const providerReadCompletedAt = Date.now();
+  const preparedPristineHydrations: PreparedPristineBuilderBodyHydration[] = [];
+  if (!args.documentId && args.preloadBodies === true) {
+    await processWithConcurrency(
+      claimedJobs,
+      BUILDER_BODY_HYDRATION_PROCESS_CONCURRENCY,
+      async (job) => {
+        try {
+          const prepared = await preparePristineBuilderBodyHydration({
+            job,
+            sourceRow: sourceRowsByItemId.get(job.databaseItemId) ?? null,
+            documentContent: documentContentById.get(job.documentId),
+            bodyHydrationVersion:
+              bodyHydrationVersionByItemId.get(job.databaseItemId) ?? null,
+            bodyEntry: bodyEntryById.get(job.sourceRowId) ?? null,
+          });
+          if (prepared) preparedPristineHydrations.push(prepared);
+        } catch {
+          // The established per-row path below owns conversion and retry errors.
+        }
+      },
+    );
+  }
+  const bulkPersistedJobIds = await persistPristineBuilderBodyHydrationsInBulk(
+    preparedPristineHydrations,
+    now,
+  );
+  succeeded += bulkPersistedJobIds.size;
   const bodyJobDurations: number[] = [];
   await processWithConcurrency(
-    claimedJobs,
+    claimedJobs.filter((job) => !bulkPersistedJobIds.has(job.id)),
     BUILDER_BODY_HYDRATION_PROCESS_CONCURRENCY,
     async (job) => {
       const jobStartedAt = Date.now();
@@ -2523,13 +2850,7 @@ export async function processBuilderBodyHydrationQueue(args: {
         failed += 1;
         const message = error instanceof Error ? error.message : String(error);
         const attempts = job.attempts;
-        const queueRowCas = and(
-          eq(schema.contentDatabaseBodyHydrationQueue.id, job.id),
-          eq(
-            schema.contentDatabaseBodyHydrationQueue.sourceEntryJson,
-            job.sourceEntryJson,
-          ),
-        );
+        const queueRowCas = builderBodyHydrationQueueOwnershipFilter(job);
         const markPendingIfReplaced = async () => {
           const [replacedByNewerJob] = await db
             .select({ id: schema.contentDatabaseBodyHydrationQueue.id })

@@ -596,12 +596,14 @@ export default defineAction({
     const existingSourceRows = existingSource
       ? await getSourceRows(existingSource.id)
       : [];
+    const diagnosticsStartedAt = Date.now();
     const builderInitial =
       sourceType === "builder-cms"
         ? await readCompleteBuilderCmsAttachSource(sourceTable, {
             fieldPaths: args.builderFieldPaths,
           })
         : null;
+    const builderReadCompletedAt = Date.now();
     const sourceId = await replaceSourceMetadata({
       database,
       source: existingSource,
@@ -625,6 +627,7 @@ export default defineAction({
       });
       importedEntriesByDocumentId = importResult.importedEntriesByDocumentId;
     }
+    const importCompletedAt = Date.now();
 
     const refreshedSetup = await sourceSetupPayload(
       database.id,
@@ -633,6 +636,7 @@ export default defineAction({
         importedEntriesByDocumentId,
       }),
     );
+    const setupCompletedAt = Date.now();
     const builderEntriesByDocumentId =
       builderRead?.state === "live"
         ? mapBuilderCmsEntriesToLocalItems({
@@ -692,10 +696,20 @@ export default defineAction({
         });
       }
     })();
-
-    return getContentDatabaseResponse(database.id, {
+    const seedCompletedAt = Date.now();
+    const response = await getContentDatabaseResponse(database.id, {
       limit: args.limit,
       offset: args.offset,
+    });
+    return Object.assign(response, {
+      diagnosticTimings: {
+        totalMs: Date.now() - diagnosticsStartedAt,
+        builderReadMs: builderReadCompletedAt - diagnosticsStartedAt,
+        importMs: importCompletedAt - builderReadCompletedAt,
+        setupMs: setupCompletedAt - importCompletedAt,
+        seedMs: seedCompletedAt - setupCompletedAt,
+        responseMs: Date.now() - seedCompletedAt,
+      },
     });
   },
 });

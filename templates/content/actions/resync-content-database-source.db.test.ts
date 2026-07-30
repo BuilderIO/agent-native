@@ -191,6 +191,62 @@ vi.mock("./_builder-cms-read-client.js", async () => {
         offset?: number;
       }) => {
         builderReadMock.calls.push({ model, fieldPaths, maxPages, offset });
+        if (model === "collection-bulk-pristine") {
+          const entries = Array.from({ length: 120 }, (_, index) => {
+            const position = index + 1;
+            const id = `entry-bulk-pristine-${position}`;
+            const title = `Bulk pristine ${position}`;
+            return {
+              id,
+              model,
+              title,
+              urlPath: `/bulk-pristine-${position}`,
+              updatedAt: "2026-01-01T00:00:00.000Z",
+              sourceValues: {
+                "data.title": title,
+                "data.url": `/bulk-pristine-${position}`,
+                lastUpdated: "2026-01-01T00:00:00.000Z",
+              },
+              rawEntry: {
+                id,
+                model,
+                name: title,
+                lastUpdated: "2026-01-01T00:00:00.000Z",
+                data: {
+                  title,
+                  url: `/bulk-pristine-${position}`,
+                  blocks: [
+                    {
+                      "@type": "@builder.io/sdk:Element",
+                      "@version": 2,
+                      id: `text-bulk-pristine-${position}`,
+                      component: {
+                        name: "Text",
+                        options: { text: `<p>Bulk body ${position}</p>` },
+                      },
+                    },
+                  ],
+                },
+              },
+            };
+          });
+          return {
+            state: "live",
+            entries,
+            fetchedAt: "2026-01-01T00:00:00.000Z",
+            message: null,
+            progress: {
+              requestedLimit: 10_000,
+              pageSize: 100,
+              startOffset: 0,
+              nextOffset: entries.length,
+              fetchedEntryCount: entries.length,
+              hasMore: false,
+              partial: false,
+              readMode: "builder-api",
+            },
+          };
+        }
         if (model === "collection-suspicious-empty") {
           return {
             state: "live",
@@ -4265,6 +4321,170 @@ it("lets only one overlapping worker claim and finish the same Builder body job"
   expect(after.error).toBeNull();
   expect(after.queued).toBeNull();
   expect(remainingQueue).toEqual([]);
+});
+
+it("bulk-persists pristine first-attempt Builder bodies without per-row reads", async () => {
+  builderReadMock.calls = [];
+  builderReadMock.singleEntryCalls = [];
+  const db = getDb();
+  const now = new Date().toISOString();
+  const databaseId = "db_hydration_bulk_pristine";
+  const databaseDocId = "doc_db_hydration_bulk_pristine";
+  const sourceId = "src_hydration_bulk_pristine";
+  const count = 120;
+
+  await db.insert(schema.documents).values({
+    id: databaseDocId,
+    ownerEmail: OWNER,
+    title: "DB hydration bulk pristine",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabases).values({
+    id: databaseId,
+    ownerEmail: OWNER,
+    documentId: databaseDocId,
+    title: "DB hydration bulk pristine",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSources).values({
+    id: sourceId,
+    ownerEmail: OWNER,
+    databaseId,
+    sourceType: "builder-cms",
+    sourceName: "collection-bulk-pristine",
+    sourceTable: "collection-bulk-pristine",
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  const positions = Array.from({ length: count }, (_, index) => index + 1);
+  for (let offset = 0; offset < positions.length; offset += 40) {
+    const batch = positions.slice(offset, offset + 40);
+    await db.insert(schema.documents).values(
+      batch.map((position) => ({
+        id: `doc_hydration_bulk_pristine_${position}`,
+        ownerEmail: OWNER,
+        parentId: databaseDocId,
+        title: `Bulk pristine ${position}`,
+        content: "",
+        createdAt: now,
+        updatedAt: now,
+      })),
+    );
+    await db.insert(schema.contentDatabaseItems).values(
+      batch.map((position) => ({
+        id: `item_hydration_bulk_pristine_${position}`,
+        ownerEmail: OWNER,
+        databaseId,
+        documentId: `doc_hydration_bulk_pristine_${position}`,
+        position,
+        bodyHydrationStatus: "pending",
+        bodyHydrationError: null,
+        createdAt: now,
+        updatedAt: now,
+      })),
+    );
+    await db.insert(schema.contentDatabaseSourceRows).values(
+      batch.map((position) => ({
+        id: `row_hydration_bulk_pristine_${position}`,
+        ownerEmail: OWNER,
+        sourceId,
+        databaseItemId: `item_hydration_bulk_pristine_${position}`,
+        documentId: `doc_hydration_bulk_pristine_${position}`,
+        sourceRowId: `entry-bulk-pristine-${position}`,
+        sourceQualifiedId: `builder-cms://collection-bulk-pristine/entry-bulk-pristine-${position}`,
+        sourceDisplayKey: `Bulk pristine ${position}`,
+        sourceValuesJson: JSON.stringify({
+          "data.title": `Bulk pristine ${position}`,
+          "data.url": `/bulk-pristine-${position}`,
+          lastUpdated: "2026-01-01T00:00:00.000Z",
+        }),
+        provenance: "Builder CMS read adapter",
+        createdAt: now,
+        updatedAt: now,
+      })),
+    );
+    await db.insert(schema.contentDatabaseBodyHydrationQueue).values(
+      batch.map((position) => ({
+        id: `queue_hydration_bulk_pristine_${position}`,
+        ownerEmail: OWNER,
+        sourceId,
+        databaseItemId: `item_hydration_bulk_pristine_${position}`,
+        documentId: `doc_hydration_bulk_pristine_${position}`,
+        sourceRowId: `entry-bulk-pristine-${position}`,
+        sourceTable: "collection-bulk-pristine",
+        sourceEntryJson: JSON.stringify({
+          id: `entry-bulk-pristine-${position}`,
+          model: "collection-bulk-pristine",
+          title: `Bulk pristine ${position}`,
+          urlPath: `/bulk-pristine-${position}`,
+          updatedAt: "2026-01-01T00:00:00.000Z",
+          sourceValues: {
+            "data.title": `Bulk pristine ${position}`,
+            "data.url": `/bulk-pristine-${position}`,
+            lastUpdated: "2026-01-01T00:00:00.000Z",
+          },
+        }),
+        priority: 10,
+        attempts: 0,
+        createdAt: now,
+        updatedAt: now,
+      })),
+    );
+  }
+
+  const result = await hydrateQueuedBodies({
+    sourceId,
+    limit: count,
+    preloadBodies: true,
+  });
+  const hydrated = await db
+    .select({
+      content: schema.documents.content,
+      status: schema.contentDatabaseItems.bodyHydrationStatus,
+      version: schema.contentDatabaseItems.bodyHydrationVersion,
+      sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
+    })
+    .from(schema.contentDatabaseItems)
+    .innerJoin(
+      schema.documents,
+      eq(schema.documents.id, schema.contentDatabaseItems.documentId),
+    )
+    .innerJoin(
+      schema.contentDatabaseSourceRows,
+      eq(
+        schema.contentDatabaseSourceRows.databaseItemId,
+        schema.contentDatabaseItems.id,
+      ),
+    )
+    .where(eq(schema.contentDatabaseItems.databaseId, databaseId));
+  const remainingQueue = await db
+    .select({ id: schema.contentDatabaseBodyHydrationQueue.id })
+    .from(schema.contentDatabaseBodyHydrationQueue)
+    .where(eq(schema.contentDatabaseBodyHydrationQueue.sourceId, sourceId));
+
+  expect(result).toMatchObject({
+    processed: count,
+    succeeded: count,
+    failed: 0,
+    remaining: 0,
+  });
+  expect(hydrated).toHaveLength(count);
+  expect(hydrated.every((row) => row.status === "hydrated")).toBe(true);
+  expect(hydrated.every((row) => Boolean(row.version))).toBe(true);
+  expect(hydrated.every((row) => row.content.includes("Bulk body"))).toBe(true);
+  expect(
+    hydrated.every((row) =>
+      JSON.parse(row.sourceValuesJson)[BUILDER_CMS_BODY_CONTENT_KEY]?.includes(
+        "Bulk body",
+      ),
+    ),
+  ).toBe(true);
+  expect(remainingQueue).toEqual([]);
+  expect(builderReadMock.calls).toHaveLength(1);
+  expect(builderReadMock.singleEntryCalls).toEqual([]);
 });
 
 it("repairs a stale remote body hash without overwriting a locally diverged document", async () => {
