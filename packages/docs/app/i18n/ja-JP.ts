@@ -1657,6 +1657,7 @@ const jaJP = {
     formsOverview: "概要",
     formsBuildingPublishing: "作成と公開",
     formsResponses: "回答とインサイト",
+    docsComponents: "Docs Components",
     formsDevelopers: "開発者ガイド",
   },
 } satisfies typeof enUS;
