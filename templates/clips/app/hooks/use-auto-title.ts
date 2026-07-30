@@ -13,6 +13,8 @@ import { useRecordings, type RecordingSummary } from "./use-library";
 
 const DEFAULT_TITLE = "Untitled recording";
 const TWO_MINUTES_MS = 2 * 60 * 1000;
+export const WORKFLOW_ACTION_MAX_ATTEMPTS = 5;
+const WORKFLOW_ACTION_RETRY_DELAY_MS = 1000;
 
 /** True when `title` is blank or equal to the server-seeded default. */
 export function isDefaultTitle(title: string | null | undefined): boolean {
@@ -392,11 +394,11 @@ interface WorkflowRunRequest {
   tabId: string;
 }
 
-async function retryWorkflowAction(
+export async function retryWorkflowAction(
   request: WorkflowRunRequest & { operation: string },
   successKey: string,
 ): Promise<boolean> {
-  for (;;) {
+  for (let attempt = 0; attempt < WORKFLOW_ACTION_MAX_ATTEMPTS; attempt += 1) {
     try {
       const result = (await callAction(
         "reconcile-workflow-generation" as any,
@@ -407,8 +409,14 @@ async function retryWorkflowAction(
         return false;
       }
     } catch {}
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+
+    if (attempt === WORKFLOW_ACTION_MAX_ATTEMPTS - 1) return false;
+    await new Promise((resolve) =>
+      setTimeout(resolve, WORKFLOW_ACTION_RETRY_DELAY_MS * 2 ** attempt),
+    );
   }
+
+  return false;
 }
 
 async function consumeWorkflowRequest(
