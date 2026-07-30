@@ -1750,7 +1750,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       };
       optimistic.slides = optimistic.slides.map((s) => ({
         ...s,
-        id: nanoid(8),
+        id: `slide-${nanoid(8)}`,
       }));
 
       // Track as pending so the poll doesn't wipe the optimistic deck before
@@ -1766,6 +1766,10 @@ export function DeckProvider({ children }: { children: ReactNode }) {
           deckId: sourceDeckId,
           newId,
           title,
+          // The user can start editing the copy before this resolves, so the
+          // persisted slides must carry the ids the optimistic ones already
+          // have — otherwise those edits address slides the server never had.
+          slideIds: optimistic.slides.map((s) => s.id),
         },
       ).then(() => undefined);
       pendingCreatePromisesRef.current.set(newId, duplicatePromise);

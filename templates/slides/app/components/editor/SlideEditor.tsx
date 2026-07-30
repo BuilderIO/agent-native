@@ -3379,6 +3379,7 @@ export default function SlideEditor({
         onChange={(notes) => onUpdateSlide({ notes })}
         slideIndex={slideIndex}
         slideCount={slideCount}
+        readOnly={readOnly}
       />
 
       {selectionRect && (

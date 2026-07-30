@@ -140,12 +140,15 @@ function tokenPalette(
 
 // `slide.background` holds either a raw CSS value or a Tailwind arbitrary
 // class (`bg-[#000000]`), which SlideRenderer applies as a class rather than
-// an inline style. The picker only speaks CSS colors, so unwrap the class.
-function backgroundCssValue(background: string | undefined): string {
+// an inline style. The picker only speaks CSS colors, so unwrap the arbitrary
+// form and report anything else (named utilities, gradients) as unreadable
+// rather than guessing a hex the slide is not actually using.
+function backgroundCssValue(background: string | undefined): string | null {
+  // SlideRenderer's own fallback when the field is unset.
   if (!background) return "#000000";
   const arbitrary = background.match(/^bg-\[(.+)\]$/);
   if (arbitrary) return arbitrary[1].replace(/_/g, " ");
-  return background.startsWith("bg-") ? "#000000" : background;
+  return background.startsWith("bg-") ? null : background;
 }
 
 /**
@@ -169,6 +172,7 @@ export function SlideBackgroundInspector({
   const documentColors = tokenPalette(designSystem, t).map(
     (option) => option.value,
   );
+  const solid = backgroundCssValue(background);
 
   return (
     <VisualInspectorPanel
@@ -201,7 +205,9 @@ export function SlideBackgroundInspector({
         <VisualControlRow label={t("styleInspector.background")}>
           <VisualColorPicker
             label={t("styleInspector.slideBackground")}
-            value={backgroundCssValue(background)}
+            value={solid ?? "#000000"}
+            mixed={solid === null}
+            mixedLabel={t("styleInspector.mixed")}
             documentColors={documentColors}
             onChange={onChange}
           />
