@@ -200,6 +200,19 @@ export interface PublicAgentActionConfig {
   isConsequential?: boolean;
   title?: string;
   description?: string;
+  /**
+   * Allow a sibling app to invoke this action over A2A even though its input is
+   * a free-form query or program (`sql`, `query`, `code`, `script`,
+   * `expression`).
+   *
+   * Off by default and rarely correct. The app that owns the data owns its
+   * schema, data dictionary, and reference queries; a caller has none of that,
+   * so passing raw SQL across apps makes every caller reimplement the owner's
+   * schema knowledge and silently break when it changes. Prefer a semantic
+   * action the owner implements, or let the caller ask in natural language and
+   * form the query yourself.
+   */
+  allowRawQueryInput?: boolean;
 }
 
 export type ActionPlanModeEffect = "read" | "write" | "unknown";

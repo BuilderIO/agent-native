@@ -252,6 +252,7 @@ const messages = {
     downloadHtml: "下載為 HTML",
     exportPdf: "匯出為 PDF",
     exportPptx: "匯出為 PPTX",
+    connectGoogle: "連接 Google",
     openInGoogleSlides: "在 Google Slides 中開啟",
     googleSlidesCreated: "已在 Google Slides 中開啟",
     googleSlidesCreatedHint: "已在你的 Google 雲端硬碟中建立此簡報的副本。",

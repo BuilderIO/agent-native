@@ -271,6 +271,7 @@ const messages = {
     downloadHtml: "Télécharger en HTML",
     exportPdf: "Exporter en PDF",
     exportPptx: "Exporter en PPTX",
+    connectGoogle: "Connecter Google",
     openInGoogleSlides: "Ouvrir dans Google Slides",
     googleSlidesCreated: "Ouvert dans Google Slides",
     googleSlidesCreatedHint:

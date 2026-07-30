@@ -260,6 +260,7 @@ const messages = {
     downloadHtml: "HTML के रूप में डाउनलोड करें",
     exportPdf: "PDF के रूप में निर्यात करें",
     exportPptx: "PPTX के रूप में निर्यात करें",
+    connectGoogle: "Google कनेक्ट करें",
     openInGoogleSlides: "Google Slides में खोलें",
     googleSlidesCreated: "Google Slides में खोला गया",
     googleSlidesCreatedHint: "इस प्रस्तुति की एक प्रति आपके Google Drive में बनाई गई।",
