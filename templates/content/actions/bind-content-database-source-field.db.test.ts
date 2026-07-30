@@ -510,6 +510,58 @@ describe("add-content-database-source-field-property Builder refresh", () => {
     expect(properties).toHaveLength(1);
   });
 
+  it("materializes a projected field without returning unrelated source content", async () => {
+    const f = await seedStaleBuilderTopicsSnapshot();
+    const db = getDb();
+    const rows = await db
+      .select()
+      .from(schema.contentDatabaseSourceRows)
+      .where(eq(schema.contentDatabaseSourceRows.sourceId, f.sourceId));
+    await Promise.all(
+      rows.map((row, index) =>
+        db
+          .update(schema.contentDatabaseSourceRows)
+          .set({
+            sourceValuesJson: JSON.stringify({
+              ...JSON.parse(row.sourceValuesJson),
+              "data.topics": [
+                index === 0 ? "Agent Native" : "Developer Experience",
+              ],
+              "_builder.bodyContent": "unrelated".repeat(5_000),
+            }),
+          })
+          .where(eq(schema.contentDatabaseSourceRows.id, row.id)),
+      ),
+    );
+    const readBuilderEntries = vi.spyOn(
+      await import("./_builder-cms-read-client.js"),
+      "readBuilderCmsContentEntries",
+    );
+
+    const result = await asOwner(() =>
+      addSourceFieldPropertyAction.run({
+        documentId: f.databaseDocId,
+        sourceFieldId: f.fieldId,
+      }),
+    );
+
+    expect(readBuilderEntries).not.toHaveBeenCalled();
+    expect(result.itemValues).toEqual([
+      {
+        itemId: f.rows[0].itemId,
+        documentId: f.rows[0].documentId,
+        value: ["agent-native"],
+      },
+      {
+        itemId: f.rows[1].itemId,
+        documentId: f.rows[1].documentId,
+        value: ["developer-experience"],
+      },
+    ]);
+    expect(JSON.stringify(result)).not.toContain("_builder.bodyContent");
+    expect(JSON.stringify(result)).not.toContain("unrelated");
+  });
+
   it("refreshes a stale Builder snapshot before creating and populating a Topics property", async () => {
     const f = await seedStaleBuilderTopicsSnapshot();
     const readBuilderEntries = vi

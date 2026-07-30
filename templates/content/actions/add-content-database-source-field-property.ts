@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { getDialect } from "@agent-native/core/db";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -59,6 +60,32 @@ function hasSourceFieldValue(
     parseSourceValues(row.sourceValuesJson),
     sourceFieldKey,
   );
+}
+
+function sourceFieldValueJsonProjection(sourceFieldKey: string) {
+  const sourceValuesJson = schema.contentDatabaseSourceRows.sourceValuesJson;
+  if (getDialect() === "postgres") {
+    return sql<
+      string | null
+    >`(${sourceValuesJson}::jsonb -> ${sourceFieldKey})::text`;
+  }
+
+  const path = `$."${sourceFieldKey}"`;
+  const type = sql<string | null>`json_type(${sourceValuesJson}, ${path})`;
+  return sql<string | null>`CASE
+    WHEN ${type} IS NULL THEN NULL
+    WHEN ${type} = 'true' THEN 'true'
+    WHEN ${type} = 'false' THEN 'false'
+    ELSE json_quote(json_extract(${sourceValuesJson}, ${path}))
+  END`;
+}
+
+function compactSourceValuesJson(
+  sourceFieldKey: string,
+  sourceFieldValueJson: string,
+) {
+  const escapedKey = sourceFieldKey.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  return `{"${escapedKey}":${sourceFieldValueJson}}`;
 }
 
 function mergeBuilderFieldIntoSourceRows(args: {
@@ -386,15 +413,17 @@ export default defineAction({
     const initialSourceRows = isSecondary
       ? []
       : await db
-          .select()
+          .select({
+            sourceFieldValueJson: sourceFieldValueJsonProjection(
+              field.sourceFieldKey,
+            ),
+          })
           .from(schema.contentDatabaseSourceRows)
           .where(eq(schema.contentDatabaseSourceRows.sourceId, source.id));
     const shouldRefreshBuilderField =
       !isSecondary &&
       source.sourceType === "builder-cms" &&
-      initialSourceRows.some(
-        (row) => !hasSourceFieldValue(row, field.sourceFieldKey),
-      );
+      initialSourceRows.some((row) => row.sourceFieldValueJson === null);
     let builderEntries: BuilderCmsSourceEntry[] | null = null;
     if (shouldRefreshBuilderField) {
       // Read before writing so a Builder outage cannot leave behind a cleanly
@@ -458,15 +487,18 @@ export default defineAction({
         throw new Error("Source field does not belong to this database.");
       }
 
-      let sourceRows = isSecondary
-        ? []
-        : await tx
-            .select()
-            .from(schema.contentDatabaseSourceRows)
-            .where(eq(schema.contentDatabaseSourceRows.sourceId, source.id));
+      let sourceRows: Array<{
+        databaseItemId: string;
+        documentId: string;
+        sourceValuesJson: string | null;
+      }> = [];
       if (builderEntries) {
+        const currentSourceRows = await tx
+          .select()
+          .from(schema.contentDatabaseSourceRows)
+          .where(eq(schema.contentDatabaseSourceRows.sourceId, source.id));
         const merged = mergeBuilderFieldIntoSourceRows({
-          rows: sourceRows,
+          rows: currentSourceRows,
           entries: builderEntries,
           sourceTable: source.sourceTable,
           sourceFieldKey: currentField.sourceFieldKey,
@@ -478,7 +510,7 @@ export default defineAction({
           );
         }
         for (let index = 0; index < merged.rows.length; index += 1) {
-          const currentRow = sourceRows[index];
+          const currentRow = currentSourceRows[index];
           const mergedRow = merged.rows[index];
           if (
             !currentRow ||
@@ -510,14 +542,38 @@ export default defineAction({
           }
         }
         sourceRows = merged.rows;
-      } else if (
-        source.sourceType === "builder-cms" &&
-        sourceRows.some(
-          (row) => !hasSourceFieldValue(row, currentField.sourceFieldKey),
-        )
-      ) {
-        throw new Error(
-          "The Builder source changed while adding this property. No property was created; try again.",
+      } else if (!isSecondary) {
+        const projectedSourceRows = await tx
+          .select({
+            databaseItemId: schema.contentDatabaseSourceRows.databaseItemId,
+            documentId: schema.contentDatabaseSourceRows.documentId,
+            sourceFieldValueJson: sourceFieldValueJsonProjection(
+              currentField.sourceFieldKey,
+            ),
+          })
+          .from(schema.contentDatabaseSourceRows)
+          .where(eq(schema.contentDatabaseSourceRows.sourceId, source.id));
+        if (
+          source.sourceType === "builder-cms" &&
+          projectedSourceRows.some((row) => row.sourceFieldValueJson === null)
+        ) {
+          throw new Error(
+            "The Builder source changed while adding this property. No property was created; try again.",
+          );
+        }
+        sourceRows = projectedSourceRows.flatMap((row) =>
+          row.sourceFieldValueJson === null
+            ? []
+            : [
+                {
+                  databaseItemId: row.databaseItemId,
+                  documentId: row.documentId,
+                  sourceValuesJson: compactSourceValuesJson(
+                    currentField.sourceFieldKey,
+                    row.sourceFieldValueJson,
+                  ),
+                },
+              ],
         );
       }
 
