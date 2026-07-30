@@ -17,7 +17,7 @@ import {
 import { nanoid } from "nanoid";
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { flushSync } from "react-dom";
-import { useNavigate, useSearchParams } from "react-router";
+import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import DeckCard from "@/components/deck/DeckCard";
@@ -55,6 +55,13 @@ import { cn } from "@/lib/utils";
 
 const NEW_DECK_DRAFT_SCOPE = "slides-new-deck";
 const PENDING_PROMPT_KEY = "slides:pending-deck-prompt";
+
+/** Router-state payload for recovering the new-deck prompt after a failed
+ *  generation kickoff forces a navigate away from and back to this route. */
+interface DeckGenerationRetryState {
+  retryPrompt?: string;
+  retryFiles?: UploadedFile[];
+}
 
 function savePromptForRetry(
   prompt: string,
@@ -213,6 +220,7 @@ export default function Index() {
   } = useWorkspaceDefaults();
   const { session } = useSession();
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const [deckToDelete, setDeckToDelete] = useState<string | null>(null);
   const [workspaceDefaultCandidate, setWorkspaceDefaultCandidate] =
@@ -398,6 +406,25 @@ export default function Index() {
     setShowNewDeckPrompt(true);
   }, [initialDesignSystemId, workspaceReferenceDeckId, session]);
 
+  // Recovering from a failed deck-generation kickoff (see
+  // recoverFromGenerationSetupFailure below) navigates back to this route
+  // from an Index instance that already unmounted, so that instance's own
+  // setShowNewDeckPrompt/setNewDeckInitialPrompt calls landed on a dead
+  // component and did nothing. Carry the retry payload through router state
+  // instead and restore it here, on the freshly mounted instance.
+  useEffect(() => {
+    const state = location.state as DeckGenerationRetryState | null;
+    if (!state?.retryPrompt) return;
+    if (savePromptToComposerDraft(NEW_DECK_DRAFT_SCOPE, state.retryPrompt)) {
+      setNewDeckInitialPrompt(null);
+    } else {
+      setNewDeckInitialPrompt({ text: state.retryPrompt, key: Date.now() });
+    }
+    setNewDeckRetryFiles(state.retryFiles ?? []);
+    setShowNewDeckPrompt(true);
+    navigate(".", { replace: true, state: null });
+  }, [location.state, navigate]);
+
   const handleCreateDeckBlank = () => {
     const selectedDesignSystem =
       selectedDesignSystemId && selectedDesignSystemId !== "none"
@@ -470,16 +497,19 @@ export default function Index() {
     // application-state write error) must undo the navigation and restore
     // the prompt instead of stranding the user on a permanently empty deck.
     const recoverFromGenerationSetupFailure = () => {
-      if (!savePromptForRetry(prompt)) {
-        setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
-      }
-      setNewDeckRetryFiles(filesForGeneration);
       deleteDeck(deckId);
       toast.error(t("home.generationStartFailed"), {
         description: t("home.generationStartFailedDescription"),
       });
-      navigate("/");
-      setShowNewDeckPrompt(true);
+      // This Index instance is about to unmount (we already navigated away
+      // to the deck page above), so state setters here would land on a dead
+      // component. Hand the retry payload to the next Index mount via router
+      // state instead; the effect above restores it.
+      const retryState: DeckGenerationRetryState = {
+        retryPrompt: prompt,
+        retryFiles: filesForGeneration,
+      };
+      navigate("/", { state: retryState });
     };
 
     let deckLength: Awaited<ReturnType<typeof askUserQuestion>> = null;
