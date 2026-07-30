@@ -66,6 +66,12 @@ total is computed only from authorized rows and fields.
 Given a visible aggregate cell, when a viewer drills in, then Content opens the exact
 authorized contributing records rather than an inferred or copied collection.
 
+### Hide private records in an empty group
+
+Given a grouped View whose filters leave only private records in a possible group,
+when an unauthorized viewer opens it, then Content reveals neither the group nor an
+empty-state hint that matching private records exist.
+
 ## Current evidence
 
 Existing filters and renderer utilities are donor substrate. The repository does not
