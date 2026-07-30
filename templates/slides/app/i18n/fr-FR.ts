@@ -367,6 +367,8 @@ const messages = {
   styleInspector: {
     title: "Style",
     close: "Fermer l’inspecteur de style",
+    slideBackground: "Arrière-plan de la diapositive",
+    slide: "Diapositive",
     deckStyle: "Style du deck",
     designSystemTweaks: "Réglages du système de design",
     closeTweaks: "Fermer les réglages",

@@ -358,6 +358,8 @@ const messages = {
   styleInspector: {
     title: "Style",
     close: "スタイルインスペクターを閉じる",
+    slideBackground: "スライドの背景",
+    slide: "スライド",
     deckStyle: "デッキスタイル",
     designSystemTweaks: "デザインシステム調整",
     closeTweaks: "調整を閉じる",

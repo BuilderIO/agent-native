@@ -119,9 +119,9 @@ import {
 import { getPassiveSlidePresenceUsers } from "./slide-presence";
 import { SlideOverflowWarning } from "./SlideOverflowWarning";
 import {
+  SlideBackgroundInspector,
   SlideStyleInspector,
   type SlideStylePatch,
-  type SlideStyleInspectorSnapshot,
   type SlideStyleSnapshot,
 } from "./SlideStyleInspector";
 import { SpeakerNotesPanel } from "./SpeakerNotesPanel";
@@ -328,16 +328,6 @@ function cssPx(value: string): number {
 
 function normalizedColor(value: string): string {
   return value === "rgba(0, 0, 0, 0)" ? "transparent" : value;
-}
-
-function slideBackgroundInspectorColor(background: string | undefined): string {
-  if (!background) return "#000000";
-  if (!background.startsWith("bg-")) return background;
-
-  const embeddedHex = background.match(
-    /#[0-9a-f]{8}|#[0-9a-f]{6}|#[0-9a-f]{4}|#[0-9a-f]{3}/i,
-  );
-  return embeddedHex?.[0] ?? "#000000";
 }
 
 function normalizedFontWeight(value: string): string {
@@ -1607,6 +1597,27 @@ export default function SlideEditor({
     setSelectedElementMeasurement(null);
     setSelectedStyleSnapshot(null);
   }, []);
+
+  // `slide.background` paints the canvas wrapper, but a generated `.fmd-slide`
+  // root usually carries its own inline background that covers the whole
+  // canvas. Writing only the field would leave the picker looking broken on
+  // exactly the slides the agent produces, so repaint the root as well when it
+  // declares one.
+  const applySlideBackground = useCallback(
+    (background: string) => {
+      const updates: Partial<Omit<Slide, "id">> = { background };
+      const root = getSlideContent()?.querySelector(
+        ".fmd-slide",
+      ) as HTMLElement | null;
+      if (root && (root.style.background || root.style.backgroundColor)) {
+        root.style.background = background;
+        const html = readCurrentSlideContentHtml();
+        if (html !== null) updates.content = html;
+      }
+      onUpdateSlideRef.current(updates);
+    },
+    [getSlideContent, readCurrentSlideContentHtml],
+  );
 
   const selectElementForStyling = useCallback(
     (
@@ -3843,14 +3854,6 @@ export default function SlideEditor({
     ],
   );
 
-  const applySlideBackgroundStylePatch = useCallback(
-    (patch: SlideStylePatch) => {
-      if (patch.backgroundColor === undefined) return;
-      onUpdateSlideRef.current({ background: patch.backgroundColor });
-    },
-    [],
-  );
-
   /** Bring-to-front / send-to-back for the selected freeform object. */
   const handleArrangeSelected = useCallback(
     (target: SlideObjectZOrderTarget) => {
@@ -3954,12 +3957,6 @@ export default function SlideEditor({
   const isSelectedElementDraggable = selectedForDrag
     ? getComputedStyle(selectedForDrag).position === "absolute"
     : false;
-  const styleInspectorSnapshot: SlideStyleInspectorSnapshot =
-    selectedStyleSnapshot ?? {
-      mode: "background",
-      backgroundColor: slideBackgroundInspectorColor(slide.background),
-    };
-
   return (
     <div
       className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden"
@@ -4113,24 +4110,28 @@ export default function SlideEditor({
             data-slide-style-dock="true"
             onPointerDownCapture={preserveRichTextSelection}
           >
-            <SlideStyleInspector
-              snapshot={styleInspectorSnapshot}
-              designSystem={designSystem}
-              className="h-full w-full rounded-none border-0 bg-transparent shadow-none"
-              onChange={
-                selectedStyleSnapshot
-                  ? applySelectedStylePatch
-                  : applySlideBackgroundStylePatch
-              }
-              onArrange={
-                selectedStyleSnapshot ? handleArrangeSelected : undefined
-              }
-              onClose={() => {
-                clearSelectedElement();
-                syncSelectionToAppState(null);
-                onCloseStylePanel?.();
-              }}
-            />
+            {selectedStyleSnapshot ? (
+              <SlideStyleInspector
+                snapshot={selectedStyleSnapshot}
+                designSystem={designSystem}
+                className="h-full w-full rounded-none border-0 bg-transparent shadow-none"
+                onChange={applySelectedStylePatch}
+                onArrange={handleArrangeSelected}
+                onClose={() => {
+                  clearSelectedElement();
+                  syncSelectionToAppState(null);
+                  onCloseStylePanel?.();
+                }}
+              />
+            ) : (
+              <SlideBackgroundInspector
+                background={slide.background}
+                designSystem={designSystem}
+                className="h-full w-full rounded-none border-0 bg-transparent shadow-none"
+                onChange={applySlideBackground}
+                onClose={onCloseStylePanel}
+              />
+            )}
           </div>
         )}
       </div>
@@ -4140,6 +4141,7 @@ export default function SlideEditor({
         onChange={(notes) => onUpdateSlide({ notes })}
         slideIndex={slideIndex}
         slideCount={slideCount}
+        readOnly={readOnly}
       />
 
       {selectionRect && (

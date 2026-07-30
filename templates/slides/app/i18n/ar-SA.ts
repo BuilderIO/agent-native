@@ -358,6 +358,8 @@ const messages = {
   styleInspector: {
     title: "Style",
     close: "إغلاق مفتش الأنماط",
+    slideBackground: "خلفية الشريحة",
+    slide: "شريحة",
     deckStyle: "نمط العرض",
     designSystemTweaks: "تعديلات نظام التصميم",
     closeTweaks: "إغلاق التعديلات",

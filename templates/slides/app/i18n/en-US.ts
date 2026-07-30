@@ -356,6 +356,8 @@ const messages = {
   styleInspector: {
     title: "Style",
     close: "Close style inspector",
+    slideBackground: "Slide background",
+    slide: "Slide",
     deckStyle: "Deck style",
     designSystemTweaks: "Design system tweaks",
     closeTweaks: "Close tweaks",

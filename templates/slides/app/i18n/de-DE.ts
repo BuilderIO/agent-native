@@ -361,6 +361,8 @@ const messages = {
   styleInspector: {
     title: "Style",
     close: "Stilinspektor schließen",
+    slideBackground: "Folienhintergrund",
+    slide: "Folie",
     deckStyle: "Deck-Stil",
     designSystemTweaks: "Designsystem-Anpassungen",
     closeTweaks: "Anpassungen schließen",

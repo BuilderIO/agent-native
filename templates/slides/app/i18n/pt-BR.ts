@@ -358,6 +358,8 @@ const messages = {
   styleInspector: {
     title: "Style",
     close: "Fechar inspetor de estilo",
+    slideBackground: "Plano de fundo do slide",
+    slide: "Slide",
     deckStyle: "Estilo do deck",
     designSystemTweaks: "Ajustes do sistema de design",
     closeTweaks: "Fechar ajustes",

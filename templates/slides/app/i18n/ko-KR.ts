@@ -355,6 +355,8 @@ const messages = {
   styleInspector: {
     title: "Style",
     close: "스타일 검사기 닫기",
+    slideBackground: "슬라이드 배경",
+    slide: "슬라이드",
     deckStyle: "덱 스타일",
     designSystemTweaks: "디자인 시스템 조정",
     closeTweaks: "조정 닫기",

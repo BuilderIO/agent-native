@@ -345,6 +345,8 @@ const messages = {
   styleInspector: {
     title: "Style",
     close: "關閉樣式檢查器",
+    slideBackground: "投影片背景",
+    slide: "投影片",
     deckStyle: "簡報樣式",
     designSystemTweaks: "設計系統微調",
     closeTweaks: "關閉微調",

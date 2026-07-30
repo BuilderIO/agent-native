@@ -353,6 +353,8 @@ const messages = {
   styleInspector: {
     title: "Style",
     close: "स्टाइल इंस्पेक्टर बंद करें",
+    slideBackground: "स्लाइड पृष्ठभूमि",
+    slide: "स्लाइड",
     deckStyle: "डेक शैली",
     designSystemTweaks: "डिज़ाइन सिस्टम ट्वीक",
     closeTweaks: "ट्वीक बंद करें",
