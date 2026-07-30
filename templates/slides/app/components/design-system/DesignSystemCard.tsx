@@ -2,6 +2,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import { ShareButton } from "@agent-native/core/client/sharing";
 import { VisibilityBadge } from "@agent-native/toolkit/sharing";
 import {
+  IconBuildingCommunity,
   IconDots,
   IconPalette,
   IconStar,
@@ -34,6 +35,9 @@ interface DesignSystemCardProps {
   onClick: () => void;
   onSetDefault: () => void;
   onDelete: () => void;
+  isWorkspaceDefault?: boolean;
+  canSetWorkspaceDefault?: boolean;
+  onSetWorkspaceDefault?: (isDefault: boolean) => void;
 }
 
 function firstFontName(stack: string): string {
@@ -50,6 +54,9 @@ export function DesignSystemCard({
   onClick,
   onSetDefault,
   onDelete,
+  isWorkspaceDefault = false,
+  canSetWorkspaceDefault = false,
+  onSetWorkspaceDefault,
 }: DesignSystemCardProps) {
   const t = useT();
   const swatchColors = [
@@ -112,7 +119,7 @@ export function DesignSystemCard({
             resourceId={id}
             resourceTitle={title}
           />
-          {canManage && (
+          {(canManage || canSetWorkspaceDefault) && (
             <DropdownMenu modal={false}>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -125,13 +132,25 @@ export function DesignSystemCard({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem
-                  onClick={onDelete}
-                  className="text-red-400 focus:text-red-400"
-                >
-                  <IconTrash className="w-3.5 h-3.5 me-2" />
-                  {t("designSystems.delete")}
-                </DropdownMenuItem>
+                {canSetWorkspaceDefault && onSetWorkspaceDefault && (
+                  <DropdownMenuItem
+                    onClick={() => onSetWorkspaceDefault(!isWorkspaceDefault)}
+                  >
+                    <IconBuildingCommunity className="w-3.5 h-3.5 me-2" />
+                    {isWorkspaceDefault
+                      ? t("home.clearWorkspaceDefault")
+                      : t("home.setWorkspaceDefault")}
+                  </DropdownMenuItem>
+                )}
+                {canManage && (
+                  <DropdownMenuItem
+                    onClick={onDelete}
+                    className="text-red-400 focus:text-red-400"
+                  >
+                    <IconTrash className="w-3.5 h-3.5 me-2" />
+                    {t("designSystems.delete")}
+                  </DropdownMenuItem>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           )}
@@ -174,6 +193,12 @@ export function DesignSystemCard({
           >
             {title}
           </h3>
+          {isWorkspaceDefault && (
+            <span className="ms-auto inline-flex shrink-0 items-center gap-1 rounded border border-[#609FF8]/40 px-1.5 py-0.5 text-[10px] text-[#609FF8]">
+              <IconBuildingCommunity className="h-3 w-3 shrink-0" />
+              {t("home.workspaceDefaultBadge")}
+            </span>
+          )}
           {isDefault && (
             <span className="ml-auto shrink-0 text-[10px] font-medium uppercase text-[#609FF8] bg-[#609FF8]/10 px-1.5 py-0.5 rounded">
               Default

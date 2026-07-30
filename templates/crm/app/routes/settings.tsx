@@ -1,5 +1,5 @@
 import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
-import { useT } from "@agent-native/core/client/i18n";
+import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
 import {
   SettingsTabsPage,
   useAgentSettingsTabs,
@@ -20,6 +20,14 @@ import { AdvancedSettings } from "@/components/crm/settings/AdvancedSettings";
 import { ConnectionSettings } from "@/components/crm/settings/ConnectionSettings";
 import { FieldsSettings } from "@/components/crm/settings/FieldsSettings";
 import { ListsSettings } from "@/components/crm/settings/ListsSettings";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
 
 import changelog from "../../CHANGELOG.md?raw";
 
@@ -99,13 +107,30 @@ export default function SettingsRoute() {
       defaultTab={sectionFromPath(location.pathname)}
       extraTabs={tabs}
       general={
-        <div className="mx-auto w-full max-w-2xl space-y-3">
-          <h1 className="text-xl font-semibold tracking-tight">
-            {t("settings.title")}
-          </h1>
-          <p className="text-sm leading-6 text-muted-foreground">
-            {t("settings.description")}
-          </p>
+        <div className="mx-auto w-full max-w-2xl space-y-6">
+          <div className="space-y-3">
+            <h1 className="text-xl font-semibold tracking-tight">
+              {t("settings.title")}
+            </h1>
+            <p className="text-sm leading-6 text-muted-foreground">
+              {t("settings.description")}
+            </p>
+          </div>
+
+          <Card id="language" className="scroll-mt-16">
+            <CardHeader>
+              <CardTitle className="text-base">
+                {t("settings.languageTitle")}
+              </CardTitle>
+              <CardDescription>
+                {t("settings.languageDescription")}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="max-w-xs space-y-1.5">
+              <Label>{t("settings.languageLabel")}</Label>
+              <LanguagePicker label={t("settings.languageLabel")} />
+            </CardContent>
+          </Card>
         </div>
       }
       whatsNew={

@@ -720,9 +720,9 @@ async function* parseJsonlStream(
               Boolean(explicitErrMsg) &&
               !isCredentialAuthError &&
               isBuilderCredentialAuthError(String(errMsg));
-            // Anthropic's bare "Connection error." often arrives here with no
-            // gateway code. Tag it as a network error so in-run retries and
-            // run-level resume treat it as transient instead of terminal.
+            // Providers can report a bare "Connection error." or AI SDK's
+            // retry-wrapped "Cannot connect to API" without a gateway code.
+            // Tag both as network errors so retries can recover the turn.
             const isProviderConnectionError =
               typeof explicitErrMsg === "string" &&
               isProviderConnectionErrorMessage(String(explicitErrMsg));
@@ -1138,7 +1138,11 @@ function isBuilderGatewayNetworkError(err: unknown): boolean {
 }
 
 function isProviderConnectionErrorMessage(message: string): boolean {
-  return message.trim().toLowerCase() === "connection error.";
+  const normalized = message.trim().toLowerCase();
+  return (
+    normalized === "connection error." ||
+    normalized.includes("cannot connect to api:")
+  );
 }
 
 function captureBuilderGatewayTransportError(

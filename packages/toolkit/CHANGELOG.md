@@ -1,5 +1,20 @@
 # @agent-native/toolkit
 
+## 0.11.1
+
+### Patch Changes
+
+- 901769d: Keep the chat history panel layout balanced.
+- 901769d: Remove the translate control slot from the shared sidebar footer actions.
+
+## 0.11.0
+
+### Minor Changes
+
+- 24a5a20: Make extension creation and discovery opt-in, including authenticated REST
+  creation, label SQL-backed extensions as sandboxed custom blocks, and let
+  editors promote them into app code through a server-verified Builder handoff.
+
 ## 0.10.12
 
 ### Patch Changes

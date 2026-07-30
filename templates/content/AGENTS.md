@@ -8,6 +8,8 @@ actions and application state.
 
 Read the relevant skill before deeper work:
 
+- `content-product-development` — accepted product contracts, roadmap context,
+  dependency records, and proof boundaries for any Content change.
 - `content` — Markdown/MDX authoring, local folder sources, databases, intake
   forms, and Slack/A2A artifact replies.
 - `document-editing` — document and comment actions, screen context and IDs,

@@ -270,6 +270,8 @@ function resetThreadMocks() {
   threadMocks.createThread.mockImplementation(
     async (requestedId?: string) => requestedId ?? "thread-2",
   );
+  threadMocks.isNewThread.mockReset();
+  threadMocks.isNewThread.mockReturnValue(false);
   threadMocks.pinThread.mockReset();
   threadMocks.pinThread.mockImplementation(async () => true);
   threadMocks.renameThread.mockReset();
@@ -558,6 +560,82 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       undefined,
       { requestMode: "plan" },
     );
+  });
+
+  it("reuses a known-new empty active chat for opted-in foreground sends", () => {
+    threadMocks.isNewThread.mockReturnValue(true);
+    const targetEvents: Event[] = [];
+    const onTarget = (event: Event) => targetEvents.push(event);
+    window.addEventListener("agentNative.chatSubmitTarget", onTarget);
+
+    act(() => {
+      dispatchSubmitChat({
+        message: "Create a presentation",
+        submit: true,
+        newTab: true,
+        reuseEmptyTab: true,
+        tabId: "unused-new-thread",
+        submitMessageId: "submit-reused",
+      });
+    });
+
+    expect(threadMocks.createThread).not.toHaveBeenCalled();
+    expect(chatHandleMocks.sendMessage).toHaveBeenCalledWith(
+      "Create a presentation",
+      undefined,
+      { submitMessageId: "submit-reused" },
+    );
+    expect((targetEvents[0] as CustomEvent).detail).toEqual({
+      submitMessageId: "submit-reused",
+      tabId: "thread-1",
+    });
+    window.removeEventListener("agentNative.chatSubmitTarget", onTarget);
+  });
+
+  it("creates a foreground tab when the active chat has messages", async () => {
+    threadMocks.isNewThread.mockReturnValue(true);
+    chatHandleMocks.exportThreadSnapshot.mockReturnValueOnce({
+      threadData: "{}",
+      title: "Existing chat",
+      preview: "Existing request",
+      messageCount: 1,
+    });
+
+    act(() => {
+      dispatchSubmitChat({
+        message: "Create another presentation",
+        submit: true,
+        newTab: true,
+        reuseEmptyTab: true,
+        tabId: "thread-foreground",
+      });
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(threadMocks.createThread).toHaveBeenCalledWith("thread-foreground");
+  });
+
+  it("does not reuse a restoring chat that only appears empty", async () => {
+    act(() => {
+      dispatchSubmitChat({
+        message: "Create a presentation",
+        submit: true,
+        newTab: true,
+        reuseEmptyTab: true,
+        tabId: "thread-restoring",
+      });
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(threadMocks.createThread).toHaveBeenCalledWith("thread-restoring");
   });
 
   it("starts background new-tab sends without focusing the new tab", async () => {

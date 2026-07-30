@@ -66,9 +66,48 @@ export function filterPublicAgentActions(
 }
 
 /**
+ * Input fields that unambiguously carry a program the receiver executes.
+ *
+ * Deliberately excludes `query`: across the templates that field is nearly
+ * always natural-language search text (Brain's `search-everything`,
+ * `search-knowledge`), and blocking it would break exactly the ask-don't-instruct
+ * calls this rule exists to encourage.
+ */
+const RAW_QUERY_INPUT_FIELDS = new Set(["sql", "code", "script", "expression"]);
+
+/**
+ * True when an action takes a free-form query or program as input — raw SQL, a
+ * code body, an arbitrary expression.
+ *
+ * Such an action must not be sibling-invocable over A2A. The app that owns the
+ * data owns its schema, data dictionary, skills, and reference queries; a
+ * calling app has none of that, so letting it pass SQL means every caller
+ * reimplements the owner's schema knowledge badly and silently rots when the
+ * owner's shape changes. Callers ask the owning app a question; the owner
+ * forms the query. Set `publicAgent.allowRawQueryInput` to opt a specific
+ * action out of this rule.
+ */
+export function hasRawQueryInput(entry: ActionEntry): boolean {
+  const parameters = entry.tool?.parameters as
+    | { properties?: Record<string, { type?: unknown }> }
+    | undefined;
+  const properties = parameters?.properties;
+  if (!properties || typeof properties !== "object") return false;
+  return Object.entries(properties).some(([field, schema]) => {
+    const type = schema?.type;
+    const acceptsString =
+      type === "string" ||
+      type === undefined ||
+      (Array.isArray(type) && type.includes("string"));
+    return RAW_QUERY_INPUT_FIELDS.has(field.toLowerCase()) && acceptsString;
+  });
+}
+
+/**
  * Direct A2A action calls share the authenticated external-agent policy with
  * MCP, but remain stricter: only explicitly exposed, authenticated read-only
- * actions can skip the receiver's model loop.
+ * actions can skip the receiver's model loop, and never one that takes a raw
+ * query the caller wrote.
  */
 export function filterDirectA2AActions(
   actions: Record<string, ActionEntry>,
@@ -86,8 +125,11 @@ export function filterDirectA2AActions(
         (autoReads &&
           isAuthenticatedReadAction(entry) &&
           !isAutoReadExcludedActionName(name));
+      const rawQueryAllowed =
+        !hasRawQueryInput(entry) || exposure?.allowRawQueryInput === true;
       return (
         selected &&
+        rawQueryAllowed &&
         !denied.has(name) &&
         entry.agentTool !== false &&
         entry.readOnly === true &&
@@ -108,6 +150,7 @@ export function buildPublicAgentA2ASkills(
   name: string;
   description: string;
   publicAgent: ActionEntry["publicAgent"];
+  inputSchema?: Record<string, unknown>;
 }> {
   return Object.entries(filterPublicAgentActions(actions)).map(
     ([name, entry]) => ({
@@ -115,6 +158,14 @@ export function buildPublicAgentA2ASkills(
       name,
       description: entry.tool.description,
       publicAgent: entry.publicAgent,
+      ...(entry.tool.parameters
+        ? {
+            inputSchema: entry.tool.parameters as unknown as Record<
+              string,
+              unknown
+            >,
+          }
+        : {}),
     }),
   );
 }
@@ -135,6 +186,7 @@ export function buildAuthenticatedAgentA2ASkills(
   name: string;
   description: string;
   publicAgent: ActionEntry["publicAgent"];
+  inputSchema?: Record<string, unknown>;
 }> {
   return Object.entries(filterDirectA2AActions(actions, options)).map(
     ([name, entry]) => ({
@@ -142,6 +194,16 @@ export function buildAuthenticatedAgentA2ASkills(
       name,
       description: entry.tool.description,
       publicAgent: entry.publicAgent,
+      // Naming an action without its parameters is what makes a caller invoke
+      // it with `{}` and fail on a required field.
+      ...(entry.tool.parameters
+        ? {
+            inputSchema: entry.tool.parameters as unknown as Record<
+              string,
+              unknown
+            >,
+          }
+        : {}),
     }),
   );
 }

@@ -156,14 +156,35 @@ export function insertImageIntoSlideHtml(
     return serializeFragment(doc);
   }
 
-  const img = imageElementForPlaceholder(
-    doc,
-    null,
-    newSrc,
-    cleanAlt(options.alt),
+  // No placeholder to slot into: .fmd-slide is a flex column, so a plain
+  // appended <img> becomes a flex item that competes for space with (and
+  // visually squishes) the slide's existing content. Position it as a
+  // full-bleed background layer behind the existing content instead, which
+  // matches how the agent already inserts generated images onto slides that
+  // have none.
+  const img = doc.createElement("img");
+  img.setAttribute("src", newSrc);
+  img.setAttribute("alt", cleanAlt(options.alt));
+  img.className = "fmd-img-uploaded";
+  img.setAttribute(
+    "style",
+    "position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: -1;",
   );
   const slideRoot = doc.body.querySelector<HTMLElement>(".fmd-slide");
-  (slideRoot || doc.body).appendChild(img);
+  const root = slideRoot || doc.body;
+  if (
+    slideRoot &&
+    !/(?:^|;)\s*position\s*:/i.test(slideRoot.getAttribute("style") ?? "")
+  ) {
+    slideRoot.setAttribute(
+      "style",
+      `${(slideRoot.getAttribute("style") ?? "").trim().replace(/;+\s*$/, "")}; position: relative;`.replace(
+        /^;\s*/,
+        "",
+      ),
+    );
+  }
+  root.insertBefore(img, root.firstChild);
   return serializeFragment(doc);
 }
 

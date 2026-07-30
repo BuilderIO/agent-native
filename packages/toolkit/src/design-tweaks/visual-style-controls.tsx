@@ -6,6 +6,7 @@ import {
   useState,
   type KeyboardEvent,
   type PointerEvent,
+  type ComponentPropsWithoutRef,
   type ReactNode,
 } from "react";
 
@@ -362,6 +363,10 @@ export function VisualColorPicker({
   documentColorsLabel = "Document colors",
   transparentLabel = "Transparent",
   className,
+  contentProps,
+  mixed = false,
+  mixedLabel = "Mixed",
+  variant = "outline",
 }: {
   label: string;
   value: string;
@@ -372,6 +377,14 @@ export function VisualColorPicker({
   documentColorsLabel?: string;
   transparentLabel?: string;
   className?: string;
+  contentProps?: Omit<
+    ComponentPropsWithoutRef<typeof PopoverContent>,
+    "children"
+  > &
+    Record<`data-${string}`, string | undefined>;
+  mixed?: boolean;
+  mixedLabel?: string;
+  variant?: "outline" | "filled";
 }) {
   const [open, setOpen] = useState(false);
   const color = parseCssColor(value) ?? FALLBACK_RGBA;
@@ -433,11 +446,14 @@ export function VisualColorPicker({
         .filter(Boolean) as string[],
     ),
   ).slice(0, 16);
-  const displayValue =
-    value === "transparent" || color.a === 0
+  const displayValue = mixed
+    ? mixedLabel
+    : value === "transparent" || color.a === 0
       ? transparentLabel
       : colorHex.replace(/^#/, "");
   const hsv = rgbaToHsv(color);
+  const { className: contentClassName, ...popoverContentProps } =
+    contentProps ?? {};
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -446,13 +462,16 @@ export function VisualColorPicker({
           type="button"
           aria-label={label}
           className={cn(
-            "flex h-7 w-full cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background/70 px-2 text-[11px] shadow-none transition-colors hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            "flex h-7 w-full cursor-pointer items-center gap-1.5 rounded-md px-2 text-[11px] shadow-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            variant === "filled"
+              ? "border-0 bg-muted/80 hover:bg-muted"
+              : "border border-border bg-background/70 hover:bg-accent/60",
             className,
           )}
         >
           <span
             className="size-4 shrink-0 rounded-[3px] border border-border/70"
-            style={swatchBackground(value)}
+            style={swatchBackground(mixed ? "transparent" : value)}
           />
           <span className="min-w-0 flex-1 truncate text-left font-medium tabular-nums text-foreground">
             {displayValue}
@@ -467,8 +486,12 @@ export function VisualColorPicker({
         side="left"
         align="start"
         sideOffset={8}
-        className="z-[10000] w-[252px] p-0 text-[11px] shadow-xl"
+        className={cn(
+          "z-[10000] w-[252px] p-0 text-[11px] shadow-xl",
+          contentClassName,
+        )}
         onFocusOutside={(event) => event.preventDefault()}
+        {...popoverContentProps}
       >
         <div className="rounded-md bg-popover text-popover-foreground">
           <VisualSaturationBrightnessField
@@ -788,7 +811,7 @@ export function VisualSegmentedControl({
   className,
 }: {
   options: VisualControlOption[];
-  value: string;
+  value: string | null;
   onChange: (value: string) => void;
   className?: string;
 }) {
@@ -889,6 +912,8 @@ export function VisualScrubInput({
   step = 1,
   unit,
   disabled = false,
+  mixed = false,
+  mixedLabel = "Mixed",
 }: {
   label: string;
   value: number;
@@ -898,10 +923,15 @@ export function VisualScrubInput({
   step?: number;
   unit?: string;
   disabled?: boolean;
+  mixed?: boolean;
+  mixedLabel?: string;
 }) {
   const id = useId();
-  const [draft, setDraft] = useState(() => formatNumber(value, unit));
+  const [draft, setDraft] = useState(() =>
+    mixed ? mixedLabel : formatNumber(value, unit),
+  );
   const [focused, setFocused] = useState(false);
+  const [hasInteracted, setHasInteracted] = useState(false);
   const dragRef = useRef<{
     pointerId: number;
     prevX: number;
@@ -909,8 +939,23 @@ export function VisualScrubInput({
   } | null>(null);
 
   useEffect(() => {
-    if (!focused) setDraft(formatNumber(value, unit));
-  }, [focused, unit, value]);
+    if (!focused) {
+      setDraft(
+        mixed && !hasInteracted ? mixedLabel : formatNumber(value, unit),
+      );
+    }
+  }, [focused, hasInteracted, mixed, mixedLabel, unit, value]);
+
+  useEffect(() => {
+    if (mixed) setHasInteracted(false);
+  }, [mixed]);
+
+  const startInteraction = () => {
+    if (!hasInteracted) {
+      setHasInteracted(true);
+      setDraft(formatNumber(value, unit));
+    }
+  };
 
   const commit = (nextDraft = draft) => {
     const parsed = parseDraftNumber(nextDraft, value);
@@ -926,6 +971,7 @@ export function VisualScrubInput({
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    startInteraction();
     if (event.key === "Enter") {
       event.preventDefault();
       commit();
@@ -951,6 +997,7 @@ export function VisualScrubInput({
   const onPointerDown = (event: PointerEvent<HTMLLabelElement>) => {
     if (disabled || event.button !== 0) return;
     event.preventDefault();
+    startInteraction();
     dragRef.current = {
       pointerId: event.pointerId,
       prevX: event.clientX,
@@ -998,12 +1045,18 @@ export function VisualScrubInput({
         id={id}
         value={draft}
         disabled={disabled}
-        onFocus={() => setFocused(true)}
+        onFocus={() => {
+          setFocused(true);
+          startInteraction();
+        }}
         onBlur={() => {
           setFocused(false);
           commit();
         }}
-        onChange={(event) => setDraft(event.currentTarget.value)}
+        onChange={(event) => {
+          startInteraction();
+          setDraft(event.currentTarget.value);
+        }}
         onKeyDown={onKeyDown}
         className="h-7 min-w-0 flex-1 rounded-md border border-input bg-background/70 px-2 text-right text-[11px] tabular-nums text-foreground outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring disabled:opacity-50"
       />

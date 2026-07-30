@@ -5,7 +5,7 @@ import {
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { appApiPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
-import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
@@ -426,9 +426,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       </TooltipTrigger>
       <TooltipContent side="right">{t("mail.search.label")}</TooltipContent>
     </Tooltip>
-  );
-  const translateButton = (
-    <LanguagePicker variant="ghost-icon" label={t("settings.languageLabel")} />
   );
   const feedbackButton = (
     <FeedbackButton
@@ -1801,7 +1798,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
               <SidebarFooterActions
                 collapsed={showCollapsedSidebar}
                 feedback={feedbackButton}
-                translate={translateButton}
                 search={searchButton}
                 collapse={collapseButton}
                 className={showCollapsedSidebar ? undefined : "px-0 py-0"}
@@ -2030,9 +2026,6 @@ function StandardLayout({ children }: AppLayoutProps) {
       <TooltipContent side="right">{t("mail.search.label")}</TooltipContent>
     </Tooltip>
   );
-  const translateButton = (
-    <LanguagePicker variant="ghost-icon" label={t("settings.languageLabel")} />
-  );
   const feedbackButton = (
     <FeedbackButton variant="sidebar" side="right" className="min-w-0" />
   );
@@ -2198,7 +2191,6 @@ function StandardLayout({ children }: AppLayoutProps) {
             </div>
             <SidebarFooterActions
               feedback={feedbackButton}
-              translate={translateButton}
               search={searchButton}
               collapse={collapseButton}
               className="px-0 py-0"

@@ -8,7 +8,8 @@ import { injectDocumentMarkup } from "@agent-native/core/shared";
  * scrollHeight inside the frame and posts { type, width, height } out, keyed by
  * event.source. It first pins full-height utilities to a fixed per-frame
  * --agent-native-device-vh so a min-h-screen hero can't chase the growing frame
- * (runaway); raw inline 100vh is not remapped.
+ * (runaway), then remaps raw viewport-height units in authored CSS to the same
+ * fixed device viewport.
  */
 
 const CONTENT_SIZE_REPORT_BRIDGE = `
@@ -43,6 +44,53 @@ const CONTENT_SIZE_REPORT_BRIDGE = `
     document.documentElement.style.setProperty("--agent-native-device-vh", vh);
   }
 
+  function remapViewportHeightUnits(value) {
+    return value.replace(
+      /-?(?:\\d+\\.?\\d*|\\.\\d+)(?:d|s|l)?vh\\b/gi,
+      function (match) {
+        return "calc(var(--agent-native-device-vh, 900px) * " +
+          Number.parseFloat(match) + " / 100)";
+      },
+    );
+  }
+
+  function remapStyleDeclaration(style) {
+    var properties = [];
+    for (var i = 0; i < style.length; i++) properties.push(style[i]);
+    properties.forEach(function (property) {
+      var value = style.getPropertyValue(property);
+      var remapped = remapViewportHeightUnits(value);
+      if (remapped === value) return;
+      style.setProperty(
+        property,
+        remapped,
+        style.getPropertyPriority(property),
+      );
+    });
+  }
+
+  function remapRuleList(rules) {
+    for (var i = 0; i < rules.length; i++) {
+      var rule = rules[i];
+      if (rule.style) remapStyleDeclaration(rule.style);
+      if (rule.cssRules) remapRuleList(rule.cssRules);
+    }
+  }
+
+  function applyViewportHeightGuard() {
+    for (var i = 0; i < document.styleSheets.length; i++) {
+      try {
+        remapRuleList(document.styleSheets[i].cssRules);
+      } catch (err) {
+        /* Cross-origin stylesheet - the parent-side feedback guard remains. */
+      }
+    }
+    var inlineStyles = document.querySelectorAll("[style]");
+    for (var j = 0; j < inlineStyles.length; j++) {
+      remapStyleDeclaration(inlineStyles[j].style);
+    }
+  }
+
   function measure() {
     var doc = document.documentElement;
     var body = document.body;
@@ -59,6 +107,7 @@ const CONTENT_SIZE_REPORT_BRIDGE = `
   function report() {
     frame = 0;
     applyDeviceVh();
+    applyViewportHeightGuard();
     var height = measure();
     var width = window.innerWidth || 0;
     var viewportHeight = window.innerHeight || 0;

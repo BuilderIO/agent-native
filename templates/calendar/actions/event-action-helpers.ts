@@ -4,6 +4,10 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
+import {
+  addDaysToDateOnly,
+  zonedDateTimeToUtcIso,
+} from "../server/lib/find-time.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 
 export const cliBoolean = z
@@ -12,6 +16,14 @@ export const cliBoolean = z
 
 export const eventTypeInput = z
   .enum(["default", "outOfOffice", "focusTime", "workingLocation"])
+  .optional();
+
+export const autoDeclineModeInput = z
+  .enum([
+    "declineNone",
+    "declineAllConflictingInvitations",
+    "declineOnlyNewConflictingInvitations",
+  ])
   .optional();
 
 export const availabilityInput = z.enum(["opaque", "transparent"]).optional();
@@ -264,6 +276,11 @@ export function buildStatusEventFields(args: {
   eventType?: "default" | "outOfOffice" | "focusTime" | "workingLocation";
   location?: string;
   title?: string;
+  autoDeclineMode?:
+    | "declineNone"
+    | "declineAllConflictingInvitations"
+    | "declineOnlyNewConflictingInvitations";
+  declineMessage?: string;
   workingLocationType?: "homeOffice" | "officeLocation" | "customLocation";
   workingLocationLabel?: string;
 }) {
@@ -273,7 +290,12 @@ export function buildStatusEventFields(args: {
       eventType: args.eventType,
       transparency: "opaque" as const,
       outOfOfficeProperties: {
-        autoDeclineMode: "declineNone" as const,
+        autoDeclineMode:
+          args.autoDeclineMode ?? "declineAllConflictingInvitations",
+        declineMessage:
+          args.autoDeclineMode === "declineNone"
+            ? undefined
+            : (args.declineMessage ?? "Declined because I am out of office"),
       },
     };
   }
@@ -301,6 +323,114 @@ export function buildStatusEventFields(args: {
         : type === "officeLocation"
           ? { type, officeLocation: { label } }
           : { type, customLocation: { label } },
+  };
+}
+
+const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+function isValidDateOnly(value: string): boolean {
+  if (!DATE_ONLY_PATTERN.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return (
+    parsed.getUTCFullYear() === year &&
+    parsed.getUTCMonth() === month - 1 &&
+    parsed.getUTCDate() === day
+  );
+}
+
+function requireIanaTimezone(timezone: string | undefined): string {
+  if (!timezone) {
+    throw new Error("Full-day out-of-office events require an IANA timezone.");
+  }
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: timezone }).format();
+  } catch {
+    throw new Error(`Invalid IANA timezone: ${timezone}`);
+  }
+  return timezone;
+}
+
+function normalizedIso(value: string, label: "start" | "end"): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    throw new Error(`Invalid event ${label}: ${value}`);
+  }
+  return date.toISOString();
+}
+
+export function normalizeCreateEventInput(args: {
+  title?: string;
+  eventType?: "default" | "outOfOffice" | "focusTime" | "workingLocation";
+  start: string;
+  end: string;
+  startTimeZone?: string;
+  endTimeZone?: string;
+  allDay?: boolean;
+  fullDay?: boolean;
+}) {
+  if (args.fullDay === true && args.eventType !== "outOfOffice") {
+    throw new Error("fullDay is only supported for out-of-office events.");
+  }
+
+  const title =
+    args.title?.trim() ||
+    (args.eventType === "outOfOffice" ? "Out of office" : "");
+  if (!title) throw new Error("Event title is required.");
+
+  if (args.eventType === "outOfOffice" && args.fullDay === true) {
+    const timezone = requireIanaTimezone(
+      args.startTimeZone ?? args.endTimeZone,
+    );
+    if (
+      !DATE_ONLY_PATTERN.test(args.start) ||
+      !DATE_ONLY_PATTERN.test(args.end) ||
+      !isValidDateOnly(args.start) ||
+      !isValidDateOnly(args.end)
+    ) {
+      throw new Error(
+        "Full-day out-of-office events require valid YYYY-MM-DD dates.",
+      );
+    }
+    if (args.end < args.start) {
+      throw new Error(
+        "Full-day out-of-office end date must be on or after its start date.",
+      );
+    }
+    const start = zonedDateTimeToUtcIso(args.start, "00:00", timezone);
+    const end = zonedDateTimeToUtcIso(
+      addDaysToDateOnly(args.end, 1),
+      "00:00",
+      timezone,
+    );
+    if (new Date(end).getTime() <= new Date(start).getTime()) {
+      throw new Error(
+        "Full-day out-of-office dates must include at least one valid local instant.",
+      );
+    }
+
+    return {
+      title,
+      start,
+      end,
+      startTimeZone: timezone,
+      endTimeZone: timezone,
+      allDay: false,
+    };
+  }
+
+  const start = normalizedIso(args.start, "start");
+  const end = normalizedIso(args.end, "end");
+  if (new Date(end).getTime() <= new Date(start).getTime()) {
+    throw new Error("Event end must be after its start.");
+  }
+  return {
+    title,
+    start,
+    end,
+    startTimeZone: args.startTimeZone,
+    endTimeZone: args.endTimeZone ?? args.startTimeZone,
+    allDay: args.allDay ?? false,
   };
 }
 
