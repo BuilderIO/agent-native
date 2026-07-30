@@ -99,6 +99,13 @@ export const designFiles = table("design_files", {
   contentOperationSource: text("content_operation_source"),
   contentOperationRevision: integer("content_operation_revision"),
   contentOperationResultHash: text("content_operation_result_hash"),
+  // Keyed to the content that passed, so an edit invalidates the stamp without
+  // any writer remembering to clear it. `unavailable` is a third state on
+  // purpose: a host with no browser has not verified anything.
+  verifiedRenderHash: text("verified_render_hash"),
+  verifiedRenderStatus: text("verified_render_status"),
+  verifiedRenderAt: text("verified_render_at"),
+  verifiedRenderFindings: text("verified_render_findings"),
   fileType: text("file_type").notNull().default("html"),
   createdAt: text("created_at").default(now()),
   updatedAt: text("updated_at").default(now()),

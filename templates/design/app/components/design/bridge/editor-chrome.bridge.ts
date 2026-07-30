@@ -311,20 +311,15 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     renderRuntimeInteractionStatePreviews();
   }
 
-  function runtimeHeadHtmlWithoutEditorChrome(): string {
-    if (!document.head) return "";
-    var clone = document.head.cloneNode(true) as HTMLElement;
-    Array.prototype.slice
-      .call(
-        clone.querySelectorAll(
-          "[data-agent-native-editor-chrome-style], [data-agent-native-editing-safety-style]",
-        ),
-      )
-      .forEach(function (node) {
-        if (node.parentNode) node.parentNode.removeChild(node);
-      });
-    return clone.innerHTML;
-  }
+  /**
+   * The last source <head> this bridge applied. Compared against instead of the
+   * live head, which also carries nodes the page's own runtime injected —
+   * @tailwindcss/browser's compiled sheet above all. Against the live head the
+   * comparison always differs, the head gets wiped, the compiled CSS goes with
+   * it, and the re-inserted `<script src>` cannot rebuild it because innerHTML
+   * never executes scripts. The screen then renders unstyled for good.
+   */
+  var lastSourceHeadHtml: string | null = null;
 
   function chromeScaleX(): number {
     return 1 / Math.max(0.05, editorChromeScaleX);
@@ -3119,8 +3114,8 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
   // Both layer states are painted here, from the one `layer-states` message,
   // so every call site that re-runs after a runtime document swap restores
   // hide AND lock together. Locked paints an attribute only; the hairline
-  // treatment lives in the editor chrome stylesheet so it is stripped from
-  // runtimeHeadHtmlWithoutEditorChrome and never reaches source or export.
+  // treatment lives in the editor chrome stylesheet, which is never part of
+  // the source head and so never reaches source or export.
   function applyLayerStateSelectors(): void {
     document
       .querySelectorAll("[data-agent-native-runtime-hidden]")
@@ -3244,7 +3239,14 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
 
     var nextHeadHtml = nextDoc.head ? nextDoc.head.innerHTML : "";
     ensureEditorChromeStyle();
-    var currentHeadHtml = runtimeHeadHtmlWithoutEditorChrome();
+    if (lastSourceHeadHtml === null && !forceFullDocument) {
+      // First non-forced patch after a srcdoc build, so the document already
+      // carries this source head; adopting it keeps the runtime's own nodes in
+      // place. A forced replacement means the caller intends the whole document,
+      // so its head is authoritative and must not be adopted away.
+      lastSourceHeadHtml = nextHeadHtml;
+    }
+    var currentHeadHtml = forceFullDocument ? null : lastSourceHeadHtml;
     if (nextHeadHtml === currentHeadHtml && activeCandidates.length > 0) {
       var currentMatch = null;
       var nextMatch = null;
@@ -3324,6 +3326,7 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     if (currentHeadHtml !== nextHeadHtml) {
       document.head.innerHTML = nextHeadHtml;
       ensureEditorChromeStyle();
+      lastSourceHeadHtml = nextHeadHtml;
     }
     Array.prototype.slice.call(document.body.attributes).forEach(function (
       attribute: Attr,

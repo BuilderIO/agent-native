@@ -907,6 +907,10 @@ const generateDesignAction = defineAction({
           contentOperationSource: null,
           contentOperationRevision: null,
           contentOperationResultHash: null,
+          verifiedRenderHash: null,
+          verifiedRenderStatus: null,
+          verifiedRenderAt: null,
+          verifiedRenderFindings: null,
           createdAt: now,
           updatedAt: now,
         });

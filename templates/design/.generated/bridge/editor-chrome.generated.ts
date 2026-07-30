@@ -176,18 +176,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       renderRuntimeInteractionStatePreviews();
     }
-    function runtimeHeadHtmlWithoutEditorChrome() {
-      if (!document.head) return "";
-      var clone = document.head.cloneNode(true);
-      Array.prototype.slice.call(
-        clone.querySelectorAll(
-          "[data-agent-native-editor-chrome-style], [data-agent-native-editing-safety-style]"
-        )
-      ).forEach(function(node) {
-        if (node.parentNode) node.parentNode.removeChild(node);
-      });
-      return clone.innerHTML;
-    }
+    var lastSourceHeadHtml = null;
     function chromeScaleX() {
       return 1 / Math.max(0.05, editorChromeScaleX);
     }
@@ -2152,7 +2141,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       var nextHeadHtml = nextDoc.head ? nextDoc.head.innerHTML : "";
       ensureEditorChromeStyle();
-      var currentHeadHtml = runtimeHeadHtmlWithoutEditorChrome();
+      if (lastSourceHeadHtml === null && !forceFullDocument) {
+        lastSourceHeadHtml = nextHeadHtml;
+      }
+      var currentHeadHtml = forceFullDocument ? null : lastSourceHeadHtml;
       if (nextHeadHtml === currentHeadHtml && activeCandidates.length > 0) {
         var currentMatch = null;
         var nextMatch = null;
@@ -2216,6 +2208,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (currentHeadHtml !== nextHeadHtml) {
         document.head.innerHTML = nextHeadHtml;
         ensureEditorChromeStyle();
+        lastSourceHeadHtml = nextHeadHtml;
       }
       Array.prototype.slice.call(document.body.attributes).forEach(function(attribute) {
         document.body.removeAttribute(attribute.name);
