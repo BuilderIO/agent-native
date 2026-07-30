@@ -1,4 +1,7 @@
-import { appBasePath } from "@agent-native/core/client/api-path";
+import {
+  agentNativePath,
+  appBasePath,
+} from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   IconDownload,
@@ -8,6 +11,7 @@ import {
   IconCopy,
   IconShare2,
   IconBrandGoogle,
+  IconPlugConnected,
 } from "@tabler/icons-react";
 import { toast } from "sonner";
 
@@ -122,6 +126,25 @@ export function ExportMenu({
     }
   };
 
+  const handleConnectGoogle = () => {
+    const authUrl = new URL(
+      agentNativePath("/_agent-native/google-docs/auth-url"),
+      window.location.origin,
+    );
+    authUrl.searchParams.set("redirect", "1");
+    authUrl.searchParams.set(
+      "return",
+      window.location.pathname + window.location.search,
+    );
+
+    const popup = window.open(
+      authUrl.toString(),
+      "google-docs-oauth",
+      "popup,width=520,height=720",
+    );
+    if (!popup) window.location.href = authUrl.toString();
+  };
+
   const handleExportHtml = async () => {
     try {
       const res = await fetch(`${appBasePath()}/api/exports/html`, {
@@ -189,13 +212,22 @@ export function ExportMenu({
           {t("editorExport.exportPptx")}
         </DropdownMenuItem>
         {onExportGoogleSlides && (
-          <DropdownMenuItem
-            onClick={handleExportGoogleSlides}
-            className="cursor-pointer"
-          >
-            <IconBrandGoogle className="w-4 h-4 mr-2" />
-            {t("editorExport.openInGoogleSlides")}
-          </DropdownMenuItem>
+          <>
+            <DropdownMenuItem
+              onClick={handleConnectGoogle}
+              className="cursor-pointer"
+            >
+              <IconPlugConnected className="w-4 h-4 mr-2" />
+              Connect Google
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={handleExportGoogleSlides}
+              className="cursor-pointer"
+            >
+              <IconBrandGoogle className="w-4 h-4 mr-2" />
+              {t("editorExport.openInGoogleSlides")}
+            </DropdownMenuItem>
+          </>
         )}
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={onDuplicate} className="cursor-pointer">

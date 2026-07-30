@@ -142,6 +142,25 @@ describe("<ExportMenu>", () => {
     );
   });
 
+  it("opens the Google OAuth flow from the export menu", async () => {
+    const openedTab = { location: { href: "" }, close: vi.fn() };
+    vi.mocked(window.open).mockReturnValue(openedTab as unknown as Window);
+    renderMenu();
+
+    const trigger = screen.getByRole("button", { name: /export/i });
+    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+    fireEvent.click(await screen.findByText("Connect Google"));
+
+    expect(window.open).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "/agent/_agent-native/google-docs/auth-url?redirect=1&return=",
+      ),
+      "google-docs-oauth",
+      "popup,width=520,height=720",
+    );
+    expect(openedTab.location.href).toBe("");
+  });
+
   it("falls back to the import dialog when Drive is unavailable", async () => {
     const openedTab = { location: { href: "" }, close: vi.fn() };
     vi.mocked(window.open).mockReturnValue(openedTab as unknown as Window);
