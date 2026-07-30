@@ -5,7 +5,7 @@ import {
 import { appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
-import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import {
   InvitationBanner,
@@ -200,9 +200,6 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
       </TooltipTrigger>
       <TooltipContent side="right">{t("root.commandSearch")}</TooltipContent>
     </Tooltip>
-  );
-  const translateButton = (
-    <LanguagePicker variant="ghost-icon" label={t("settings.languageLabel")} />
   );
   const feedbackButton = (
     <FeedbackButton
@@ -665,7 +662,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
             </div>
 
             <div className="shrink-0 space-y-2 px-3 py-2">
-              <OrgSwitcher settingsPath="/settings/organization" />
+              <OrgSwitcher settingsPath="/settings#organization" />
               <DevDatabaseLink />
             </div>
           </>
@@ -673,7 +670,6 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
         <SidebarFooterActions
           collapsed={showCollapsedSidebar}
           feedback={feedbackButton}
-          translate={translateButton}
           search={searchButton}
           collapse={collapseButton}
           className={showCollapsedSidebar ? undefined : "px-0 py-0"}

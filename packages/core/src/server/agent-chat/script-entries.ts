@@ -81,7 +81,7 @@ export async function createDbScriptEntries(
   try {
     if (mode === "off") return {};
     const extensionQueryGuidance =
-      options.extensionTools === false
+      options.extensionTools !== true
         ? "Extension management tools are disabled for this app; do not query or mutate the legacy tools table as a workaround."
         : "For extension management, use list-extensions, update-extension, hide-extension, or delete-extension instead of querying the legacy tools table.";
     const [schemaMod, queryMod] = await Promise.all([
@@ -445,6 +445,17 @@ export async function createResourceScriptEntries(): Promise<
             required: ["action"],
           },
         },
+        planMode: {
+          effect: (args) =>
+            args.action === "list" ||
+            args.action === "read" ||
+            args.action === "effective"
+              ? "read"
+              : "write",
+          allowedValues: { action: ["list", "read", "effective"] },
+          description:
+            "Plan mode allows listing and reading workspace resources.",
+        },
         run: async (args: Record<string, string>) => {
           const { action: a, ...rest } = args;
           if (a === "list") return listEntry.run(rest);
@@ -681,6 +692,11 @@ export async function createChatScriptEntries(): Promise<
             required: ["action"],
           },
         },
+        planMode: {
+          effect: (args) => (args.action === "search" ? "read" : "write"),
+          allowedValues: { action: ["search"] },
+          description: "Plan mode allows searching chat history.",
+        },
         run: async (args) => {
           if (args?.action === "open") {
             return openEntry.run(args);
@@ -746,6 +762,11 @@ export async function createAgentEngineScriptEntries(
     return {
       "manage-agent-engine": {
         tool: mod.tool,
+        planMode: {
+          effect: (args) => (args.action === "list" ? "read" : "write"),
+          allowedValues: { action: ["list"] },
+          description: "Plan mode allows listing available agent engines.",
+        },
         run: (args) =>
           mod.run({
             ...args,
@@ -792,6 +813,35 @@ export async function createCallAgentScriptEntry(
     const mod = await import("../../scripts/call-agent.js");
     entries["call-agent"] = {
       tool: mod.tool,
+      planMode: {
+        effect: (args) => {
+          const keys = Object.keys(args);
+          if (
+            keys.some(
+              (key) => key !== "agent" && key !== "action" && key !== "input",
+            )
+          ) {
+            return "write";
+          }
+          if (
+            typeof args.agent !== "string" ||
+            !args.agent.trim() ||
+            typeof args.action !== "string" ||
+            !args.action.trim() ||
+            !Object.hasOwn(args, "input") ||
+            args.input === null ||
+            typeof args.input !== "object" ||
+            Array.isArray(args.input)
+          ) {
+            return "unknown";
+          }
+          return "read";
+        },
+        allowedProperties: ["agent", "action", "input"],
+        requiredProperties: ["agent", "action"],
+        description:
+          "Plan mode allows only exact read-only cross-app action calls with agent, action, and input.",
+      },
       run: (args, context) => mod.run(args, context, selfAppId),
     };
   } catch {
@@ -803,6 +853,7 @@ export async function createCallAgentScriptEntry(
     entries["describe-workspace-apps"] = {
       tool: mod.tool,
       run: (args, context) => mod.run(args, context, selfAppId),
+      readOnly: true,
     };
   } catch {
     // A missing built-in leaves the rest of the toolset usable.

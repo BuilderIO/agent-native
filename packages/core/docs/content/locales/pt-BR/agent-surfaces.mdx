@@ -26,17 +26,16 @@ A página compartilhada oferece atualmente cinco abas:
 - **Context** — prévia do escopo, orçamento de tokens, seções de sistema ordenadas por procedência, governança e fonte, visualização em lista/treemap e o snapshot da thread ativa mais recente.
 - **Files** — reutiliza `ResourcesPanel` para recursos pessoais ou da organização.
 - **Connections** — gerenciamento de servidores MCP e lista de agentes remotos A2A: o que o agente deste app pode chamar.
-- **Jobs** — jobs recorrentes e automações com os fluxos existentes de pausar/retomar, detalhes e excluir. As automações são pessoais por enquanto.
+- **Automations** — automações pessoais e da organização Scheduled e Event com pausar/retomar, detalhes e excluir. A URL de compatibilidade continua sendo `/agent#jobs`.
 - **Access** — URL MCP, cartão de agente A2A quando disponível e guias compartilhados de configuração; o fluxo completo e o fallback de token ficam em `/mcp/connect`.
 
-O seletor **Personal / Organization** fornece o escopo às abas. Os membros
-podem inspecionar os dados da organização, enquanto sua administração continua
-restrita a proprietários/administradores onde o componente hospedado impõe esse
-limite. O objetivo é
-tornar o contexto inspecionável, atribuível e governável, separando capacidade
-de acesso. A página é uma camada fina sobre componentes, ações e verificações de
-acesso existentes, não um novo console administrativo. Ela ainda não oferece UI
-para grants, edição de escopo, revogação ou histórico de procedência por iteração.
+A página usa atualmente o escopo pessoal e não oferece um seletor
+**Personal / Organization** para toda a página. Uma aba pode mostrar suas
+próprias seções de organização quando as actions subjacentes as suportam:
+**Automations** mostra seções pessoais e da organização para Scheduled e Event.
+Automações Event da organização sempre executam como seu criador. A página é uma camada
+fina sobre componentes, actions e verificações de acesso existentes, não um
+novo console administrativo.
 
 Agent-Native é deliberadamente combinável. Você pode usar o agente sem muito UI,
 use o UI sem o tempo de execução do agente integrado ou use os dois juntos como um pacote completo

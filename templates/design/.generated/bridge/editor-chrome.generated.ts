@@ -340,6 +340,14 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return null;
     }
+    function parentElementOrShadowHost(node) {
+      if (!node) return null;
+      if (node.parentElement) return node.parentElement;
+      if (typeof node.getRootNode !== "function") return null;
+      var rootNode = node.getRootNode();
+      var isShadowRoot = rootNode && typeof rootNode.host !== "undefined" && typeof rootNode.mode === "string";
+      return isShadowRoot && rootNode.host ? rootNode.host : null;
+    }
     var reactDebugProvenanceCache = typeof WeakMap !== "undefined" ? /* @__PURE__ */ new WeakMap() : null;
     var REACT_FIBER_KEY_PREFIXES = [
       "__reactFiber$",
@@ -440,7 +448,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             };
           }
         }
-        node = node.parentElement;
+        node = parentElementOrShadowHost(node);
       }
       return sawVue ? { framework: "vue", unavailableReason: "no-debug-info" } : null;
     }
@@ -464,9 +472,29 @@ export const editorChromeBridgeScript: string = `"use strict";
             method: "svelte-meta"
           };
         }
-        node = node.parentElement;
+        node = parentElementOrShadowHost(node);
       }
       return sawSvelte ? { framework: "svelte", unavailableReason: "no-debug-info" } : null;
+    }
+    function knownUnlocatedFramework(el) {
+      var node = el;
+      for (var depth = 0; node && depth < 8; depth += 1) {
+        if (node.getAttribute && node.attributes) {
+          var tagName = typeof node.tagName === "string" ? node.tagName.toLowerCase() : "";
+          if (node.hasAttribute("ng-version") || Array.prototype.some.call(node.attributes, function(attribute) {
+            return /^_ng(?:content|host)-/i.test(attribute.name);
+          })) {
+            return { framework: "angular", unavailableReason: "no-debug-info" };
+          }
+          if (tagName.indexOf("lightning-") === 0 || Array.prototype.some.call(node.attributes, function(attribute) {
+            return /^lwc-[a-z0-9]+(?:-host)?$/i.test(attribute.name);
+          })) {
+            return { framework: "lwc", unavailableReason: "no-debug-info" };
+          }
+        }
+        node = parentElementOrShadowHost(node);
+      }
+      return null;
     }
     function frameworkDebugProvenance(el) {
       var react = reactDebugProvenance(el);
@@ -477,7 +505,59 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (vue) return vue;
       var svelte = svelteDebugProvenance(el);
       if (svelte) return svelte;
+      var knownUnlocated = knownUnlocatedFramework(el);
+      if (knownUnlocated) return knownUnlocated;
       return { unavailableReason: "not-framework" };
+    }
+    function explicitDebugProvenance(el) {
+      var node = el;
+      var sourceNode = null;
+      for (var depth = 0; node && depth < 8; depth += 1) {
+        if (node.getAttribute && (node.getAttribute("data-source-file") || node.getAttribute("data-loc"))) {
+          sourceNode = node;
+          break;
+        }
+        node = parentElementOrShadowHost(node);
+      }
+      if (!sourceNode) return null;
+      var sourceFile = sourceNode.getAttribute("data-source-file");
+      var lineText = sourceNode.getAttribute("data-source-line");
+      var columnText = sourceNode.getAttribute("data-source-column");
+      var dataLoc = sourceNode.getAttribute("data-loc");
+      if (!sourceFile && dataLoc) {
+        var parsed = parseFrameworkDataLoc(dataLoc);
+        if (parsed) {
+          sourceFile = parsed.sourceFile;
+          lineText = String(parsed.line);
+          columnText = parsed.column !== void 0 ? String(parsed.column) : null;
+        }
+      }
+      if (!sourceFile) return null;
+      var line = lineText ? parseInt(lineText, 10) : void 0;
+      var column = columnText ? parseInt(columnText, 10) : void 0;
+      var declaredFramework = sourceNode.getAttribute("data-source-framework");
+      var declaredMethod = sourceNode.getAttribute("data-source-method");
+      return {
+        framework: declaredFramework === "react" || declaredFramework === "vue" || declaredFramework === "svelte" || declaredFramework === "angular" || declaredFramework === "lwc" || declaredFramework === "html" ? declaredFramework : "html",
+        sourceFile,
+        line: line !== void 0 && isFinite(line) ? line : void 0,
+        column: column !== void 0 && isFinite(column) ? column : void 0,
+        component: sourceNode.getAttribute("data-component-name") || void 0,
+        method: declaredMethod === "debug-source" || declaredMethod === "debug-stack" || declaredMethod === "vue-inspector" || declaredMethod === "svelte-meta" ? declaredMethod : "data-attribute"
+      };
+    }
+    function elementDebugProvenance(el) {
+      var framework = frameworkDebugProvenance(el);
+      var explicit = explicitDebugProvenance(el);
+      if (!explicit) return framework;
+      explicit.framework = explicit.framework === "html" && framework.framework ? framework.framework : explicit.framework;
+      explicit.ownerSourceFile = framework.ownerSourceFile;
+      explicit.ownerLine = framework.ownerLine;
+      explicit.ownerColumn = framework.ownerColumn;
+      explicit.ownerComponentName = framework.ownerComponentName;
+      explicit.ownerMethod = framework.ownerMethod;
+      explicit.ownerKey = framework.ownerKey;
+      return explicit;
     }
     var runtimeLayerSnapshotTimer = null;
     var runtimeLayerSnapshotMaxTimer = null;
@@ -633,7 +713,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           ensureRuntimeLayerNodeId(sourceNode)
         );
         inlineSnapshotComputedStyle(sourceNode, cloneNode);
-        var provenance = frameworkDebugProvenance(sourceNode);
+        var provenance = elementDebugProvenance(sourceNode);
         if (provenance.sourceFile) {
           if (provenance.framework) {
             cloneNode.setAttribute("data-source-framework", provenance.framework);
@@ -1264,65 +1344,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           reason: "Parent layout context decides whether movement means gap, order, alignment, or wrapper structure."
         });
       }
-      var provenance = void 0;
-      var dataSourceFile = el.getAttribute("data-source-file");
-      var dataSourceLine = el.getAttribute("data-source-line");
-      var dataSourceColumn = el.getAttribute("data-source-column");
-      var dataComponentName = el.getAttribute("data-component-name");
-      var dataSourceFramework = el.getAttribute("data-source-framework");
-      var dataLoc = el.getAttribute("data-loc");
-      if (!dataSourceFile && dataLoc) {
-        var lastColonIndex = dataLoc.lastIndexOf(":");
-        var lastPart = lastColonIndex >= 0 ? dataLoc.slice(lastColonIndex + 1) : "";
-        if (lastColonIndex >= 0 && /^\\d+$/.test(lastPart)) {
-          var beforeLastPart = dataLoc.slice(0, lastColonIndex);
-          var previousColonIndex = beforeLastPart.lastIndexOf(":");
-          var previousPart = previousColonIndex >= 0 ? beforeLastPart.slice(previousColonIndex + 1) : "";
-          var hasColumn = /^\\d+$/.test(previousPart);
-          dataSourceFile = hasColumn ? beforeLastPart.slice(0, previousColonIndex) : beforeLastPart;
-          dataSourceLine = hasColumn ? previousPart : lastPart;
-          if (hasColumn) dataSourceColumn = lastPart;
-        }
-      }
-      var hadDataSourceFile = !!dataSourceFile;
-      var frameworkProvenance = frameworkDebugProvenance(el);
-      if (!hadDataSourceFile && frameworkProvenance.sourceFile) {
-        dataSourceFile = frameworkProvenance.sourceFile;
-        dataSourceLine = String(frameworkProvenance.line);
-        dataSourceColumn = frameworkProvenance.column ? String(frameworkProvenance.column) : null;
-        dataComponentName = dataComponentName || frameworkProvenance.component || null;
-      }
-      if (dataSourceFile || dataSourceLine || dataSourceColumn || dataComponentName || frameworkProvenance.unavailableReason) {
-        provenance = {};
-        if (dataSourceFile) provenance.sourceFile = dataSourceFile;
-        if (dataSourceLine) {
-          var ln = parseInt(dataSourceLine, 10);
-          if (!isNaN(ln)) provenance.line = ln;
-        }
-        if (dataSourceColumn) {
-          var col = parseInt(dataSourceColumn, 10);
-          if (!isNaN(col)) provenance.column = col;
-        }
-        if (dataComponentName) provenance.component = dataComponentName;
-        if (dataSourceFile) {
-          var declaredMethod = el.getAttribute("data-source-method");
-          provenance.method = declaredMethod === "debug-source" || declaredMethod === "debug-stack" || declaredMethod === "vue-inspector" || declaredMethod === "svelte-meta" ? declaredMethod : hadDataSourceFile ? "data-attribute" : frameworkProvenance.method || "data-attribute";
-        }
-        provenance.framework = dataSourceFramework === "react" || dataSourceFramework === "vue" || dataSourceFramework === "svelte" || dataSourceFramework === "html" ? dataSourceFramework : hadDataSourceFile ? frameworkProvenance.framework || "html" : frameworkProvenance.framework;
-        if (frameworkProvenance.ownerSourceFile) {
-          provenance.ownerSourceFile = frameworkProvenance.ownerSourceFile;
-          provenance.ownerLine = frameworkProvenance.ownerLine;
-          provenance.ownerColumn = frameworkProvenance.ownerColumn;
-          provenance.ownerComponentName = frameworkProvenance.ownerComponentName;
-          provenance.ownerMethod = frameworkProvenance.ownerMethod;
-        }
-        if (frameworkProvenance.ownerKey) {
-          provenance.ownerKey = frameworkProvenance.ownerKey;
-        }
-        if (!dataSourceFile && frameworkProvenance.unavailableReason) {
-          provenance.unavailableReason = frameworkProvenance.unavailableReason;
-        }
-      }
+      var provenance = elementDebugProvenance(el);
       return {
         tagName: el.tagName.toLowerCase(),
         componentName: componentName || void 0,
@@ -5714,7 +5736,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       correctAbsoluteMemberClientPosition(el, desiredDropPoint);
     }
-    function postVisualStructureChange(el, target, origin, insertedHtml) {
+    function postVisualStructureChange(el, target, origin, insertedHtml, replaced) {
       if (!el || !target || !target.anchor) return;
       dndLog("post:structure-change", {
         el: getSelector(el),
@@ -5744,6 +5766,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           // the change. The host must NOT tell the coding agent to relocate an
           // element the source file has never contained.
           insertedHtml: typeof insertedHtml === "string" ? insertedHtml : void 0,
+          replaced: replaced === true ? true : void 0,
           sourceRect: rectInfoForElement(el),
           anchorRect: rectInfoForElement(target.anchor),
           payload: getElementInfo(el),
@@ -8400,6 +8423,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           return;
         }
         var insertPlacement = String(e.data.placement || "");
+        var replaceInsertAnchor = e.data.replaceAnchor === true;
         if (insertPlacement !== "before" && insertPlacement !== "after" && insertPlacement !== "inside") {
           rejectInsert("placement");
           return;
@@ -8469,6 +8493,33 @@ export const editorChromeBridgeScript: string = `"use strict";
           );
           return;
         }
+        if (replaceInsertAnchor) {
+          var replaceParent = insertAnchor.parentElement;
+          if (!replaceParent) {
+            rejectInsert("placement-unavailable");
+            return;
+          }
+          var replaceNextSibling = insertAnchor.nextSibling;
+          replaceParent.insertBefore(parsedInsertEl, insertAnchor);
+          selectedEl = parsedInsertEl;
+          positionOverlay(selectionOverlay, selectedEl);
+          refreshOverlays();
+          postVisualStructureChange(
+            parsedInsertEl,
+            insertTarget,
+            {
+              replaced: true,
+              originalElement: insertAnchor,
+              prevParent: replaceParent,
+              prevNextSibling: replaceNextSibling
+            },
+            parsedInsertEl.outerHTML,
+            true
+          );
+          replaceParent.removeChild(insertAnchor);
+          refreshOverlays();
+          return;
+        }
         if (insertPlacement === "inside") {
           insertAnchor.appendChild(parsedInsertEl);
         } else {
@@ -8498,6 +8549,25 @@ export const editorChromeBridgeScript: string = `"use strict";
         delete pendingStructureMoves[e.data.requestId];
         var moveWasInsert = Boolean(move.origin && "inserted" in move.origin);
         var moveWasRemoval = Boolean(move.origin && "removed" in move.origin);
+        var moveWasReplace = Boolean(move.origin && "replaced" in move.origin);
+        if (moveWasReplace && move.origin && "replaced" in move.origin) {
+          if (!e.data.applied) {
+            if (move.el && move.el.isConnected) move.el.remove();
+            var replaceParent = move.origin.prevParent;
+            var replaceNextSibling = move.origin.prevNextSibling;
+            if (replaceParent && replaceParent.isConnected && !move.origin.originalElement.isConnected) {
+              replaceParent.insertBefore(
+                move.origin.originalElement,
+                replaceNextSibling && replaceNextSibling.parentNode === replaceParent ? replaceNextSibling : null
+              );
+              selectedEl = move.origin.originalElement;
+              positionOverlay(selectionOverlay, selectedEl);
+              postElementSelect(selectedEl);
+            }
+          }
+          refreshOverlays();
+          return;
+        }
         if (moveWasRemoval) {
           if (!e.data.applied && move.origin && "removed" in move.origin) {
             var removedParent = move.origin.prevParent;

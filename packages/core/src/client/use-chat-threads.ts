@@ -78,33 +78,17 @@ const ACTIVE_THREAD_KEY = "agent-chat-active-thread";
 const THREADS_UPDATED_EVENT = "agent-chat:threads-updated";
 const THREADS_PAGE_SIZE = 50;
 
-const sharedThreadListRequests = new Map<
-  string,
-  Promise<ChatThreadSummary[] | undefined>
->();
-
-async function fetchSharedThreadListPage(
+async function fetchThreadListPage(
   apiUrl: string,
   offset: number,
 ): Promise<ChatThreadSummary[] | undefined> {
-  const requestKey = `${apiUrl}\n${offset}`;
-  const pending = sharedThreadListRequests.get(requestKey);
-  if (pending) return pending;
-
-  const request = fetch(
+  return fetch(
     offset > 0 ? `${apiUrl}/threads?offset=${offset}` : `${apiUrl}/threads`,
-  )
-    .then(async (res) => {
-      if (!res.ok) return undefined;
-      const data = await res.json();
-      const threads = (data.threads ?? []) as ChatThreadSummary[];
-      return threads;
-    })
-    .finally(() => {
-      sharedThreadListRequests.delete(requestKey);
-    });
-  sharedThreadListRequests.set(requestKey, request);
-  return request;
+  ).then(async (res) => {
+    if (!res.ok) return undefined;
+    const data = await res.json();
+    return (data.threads ?? []) as ChatThreadSummary[];
+  });
 }
 
 function emitThreadsUpdated() {
@@ -470,7 +454,7 @@ export function useChatThreads(
     async (options?: { append?: boolean }) => {
       try {
         const offset = options?.append ? nextThreadsOffsetRef.current : 0;
-        const loaded = await fetchSharedThreadListPage(apiUrl, offset);
+        const loaded = await fetchThreadListPage(apiUrl, offset);
         if (!loaded) {
           if (!options?.append) {
             setThreadsLoadError("Could not load chat history.");
@@ -598,7 +582,6 @@ export function useChatThreads(
     fetchedRef.current = true;
 
     (async () => {
-      setIsLoading(true);
       const loadedThreads = await fetchThreads();
       const savedId = activeThreadIdRef.current;
       if (loadedThreads === undefined) {

@@ -16,6 +16,7 @@ const messages = {
     navInbox: "الوارد",
     navTasks: "المهام",
     navFields: "الحقول",
+    search: "بحث",
     collapseSidebar: "طي الشريط الجانبي",
     expandSidebar: "توسيع الشريط الجانبي",
     navigationTitle: "التنقل",
@@ -28,6 +29,11 @@ const messages = {
     pageTeam: "الفريق",
     pageExtension: "الإضافة",
     pageExtensions: "الإضافات",
+  },
+  settings: {
+    languageTitle: "اللغة",
+    languageDescription: "اختر لغة الواجهة. يتم حفظ هذا التفضيل في حسابك.",
+    languageLabel: "لغة الواجهة",
   },
   agent: {
     emptyState: "اطلب من الوكيل فحص هذا التطبيق أو تعديله.",

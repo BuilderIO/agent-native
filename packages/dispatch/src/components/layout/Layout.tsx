@@ -8,7 +8,7 @@ import {
   type ChatThreadSummary,
 } from "@agent-native/core/client/agent-chat";
 import { appBasePath, appPath } from "@agent-native/core/client/api-path";
-import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
@@ -229,7 +229,7 @@ const ADVANCED_NAV_ITEMS = [
 
 const EMPTY_NAV_ITEMS: readonly DispatchNavItem[] = [];
 
-const CHROMELESS_PATHS = ["/approval"];
+const CHROMELESS_PATHS = ["/approval", "/browser-chat", "/browser-connect"];
 const SIDEBAR_COLLAPSE_KEY = "dispatch.sidebar.collapsed";
 
 // Routes whose page renders its own toolbar.
@@ -534,9 +534,6 @@ export function NavContent({
       <TooltipContent side="right">{t("sidebar.search")}</TooltipContent>
     </Tooltip>
   );
-  const translateButton = (
-    <LanguagePicker variant="ghost-icon" label={t("settings.languageLabel")} />
-  );
   const feedbackButton = (
     <FeedbackButton
       variant={collapsed ? "icon" : "sidebar"}
@@ -743,7 +740,6 @@ export function NavContent({
         <SidebarFooterActions
           collapsed={collapsed}
           feedback={feedbackButton}
-          translate={translateButton}
           search={searchButton}
           collapse={collapseButton}
         />

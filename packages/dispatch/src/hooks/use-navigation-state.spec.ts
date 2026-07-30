@@ -10,6 +10,13 @@ describe("buildDispatchNavigationState", () => {
     });
   });
 
+  it("recognizes the embedded browser chat route", () => {
+    expect(buildDispatchNavigationState("/browser-chat")).toEqual({
+      view: "browser-chat",
+      path: "/browser-chat",
+    });
+  });
+
   it("exposes the current extension id from extension routes", () => {
     expect(
       buildDispatchNavigationState("/extensions/ext-1/github-stars-over-time"),

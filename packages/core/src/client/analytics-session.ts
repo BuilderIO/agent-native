@@ -1,3 +1,5 @@
+import { serializeAnalyticsAnonymousIdCookie } from "../shared/analytics-anonymous-id.js";
+
 const ANONYMOUS_ID_STORAGE_KEY = "agent-native.anonymous_id";
 const SESSION_ID_STORAGE_KEY = "agent-native.session_id";
 const SESSION_LAST_ACTIVITY_STORAGE_KEY = "agent-native.session_last_activity";
@@ -39,6 +41,16 @@ function safeStorageSet(key: string, value: string): void {
   }
 }
 
+function syncAnalyticsAnonymousIdCookie(id: string): void {
+  try {
+    const cookie = serializeAnalyticsAnonymousIdCookie(id);
+    if (cookie) document.cookie = cookie;
+  } catch {
+    // Cookie access can be unavailable in sandboxed frames — local storage
+    // remains the browser-side source of truth in that case.
+  }
+}
+
 export function getOrCreateAnalyticsAnonymousId(): string | undefined {
   if (typeof window === "undefined") return undefined;
   let id = safeStorageGet(ANONYMOUS_ID_STORAGE_KEY);
@@ -46,6 +58,7 @@ export function getOrCreateAnalyticsAnonymousId(): string | undefined {
     id = generateVisitorId();
     safeStorageSet(ANONYMOUS_ID_STORAGE_KEY, id);
   }
+  syncAnalyticsAnonymousIdCookie(id);
   return id;
 }
 

@@ -207,14 +207,17 @@ export function useMeetingTranscription({
           if (reason !== "app-quit") await finalizePromise;
         }
         // Keep completed notes in Clips instead of interrupting the user by
-        // opening a browser tab. The pill's explicit Open notes action remains
-        // available through the clips:open-meeting listener below.
+        // opening a browser tab. On a normal stop the pill stays up and
+        // switches to its finished banner off `meetings:transcription-stopped`;
+        // it hides itself once the user opens the meeting or dismisses it.
         // Guard the shared Rust-side state writes and sessionRef null-out by
         // identity. App quit and other callers can still race a stop against a
         // new start that slips in between awaits, and stale teardown must not
         // clobber the session that has since taken over.
         if (sessionRef.current === session) {
-          await invoke("recording_pill_hide").catch(() => {});
+          if (reason === "app-quit" || reason === "replaced") {
+            await invoke("recording_pill_hide").catch(() => {});
+          }
           await invoke("set_recording_state", { active: false }).catch(
             () => {},
           );

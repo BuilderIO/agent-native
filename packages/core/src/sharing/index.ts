@@ -22,6 +22,7 @@ export {
   requireShareableResource,
   listShareableResources,
   type ShareableResourceRegistration,
+  type ShareEmailExtras,
 } from "./registry.js";
 
 export {

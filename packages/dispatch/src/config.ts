@@ -26,6 +26,11 @@ export interface DispatchIntegrationsConfig {
 export interface DispatchConfig {
   auth?: DispatchAuthConfig;
   /**
+   * Exact Chrome Web Store or managed-install extension ids allowed to pair
+   * with Dispatch browser chat. Wildcards are not supported.
+   */
+  browserExtensionIds?: readonly string[];
+  /**
    * App IDs to hide from `list-connected-agents` results. Used to filter
    * out first-party Builder apps (calls, issues, macros, …) from the
    * Connected Agents list when those apps aren't shipped to end users.

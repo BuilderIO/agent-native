@@ -217,6 +217,13 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   if (typeof entry.allowInPlanMode === "boolean") {
     out.allowInPlanMode = entry.allowInPlanMode;
   }
+  if (
+    entry.planMode &&
+    typeof entry.planMode === "object" &&
+    !Array.isArray(entry.planMode)
+  ) {
+    out.planMode = entry.planMode;
+  }
   if (typeof entry.parallelSafe === "boolean") {
     out.parallelSafe = entry.parallelSafe;
   }

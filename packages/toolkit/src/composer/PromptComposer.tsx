@@ -104,6 +104,10 @@ export interface PromptComposerProps {
    * prompt forms; chat surfaces can opt into the full sidebar menu.
    */
   plusMenuMode?: "full" | "upload-only" | "hidden";
+  /**
+   * Include extension creation in the full "+" menu. Defaults to false.
+   */
+  extensionTools?: boolean;
   /** Programmatically seed the composer with plain text. */
   initialText?: string;
   /** Stable key used to re-apply `initialText` when the host picks a preset. */
@@ -465,6 +469,7 @@ function PromptComposerInner({
   voiceEnabled = DEFAULT_VOICE_DICTATION_ENABLED,
   attachmentsEnabled = true,
   plusMenuMode,
+  extensionTools = false,
   initialText,
   initialTextKey,
   modeControl,
@@ -634,6 +639,7 @@ function PromptComposerInner({
           plusMenuMode={
             plusMenuMode ?? (attachmentsEnabled ? "upload-only" : "hidden")
           }
+          extensionTools={extensionTools}
           attachButton={attachButton}
           modeControl={modeControl}
           toolbarSlot={toolbarSlot}

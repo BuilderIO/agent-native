@@ -443,8 +443,10 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
    *     captured at element creation.
    * Vue's dev compiler exposes `vnode.props.__v_inspector`; Svelte's dev
    * compiler exposes `element.__svelte_meta.loc`. Both are authored compiler
-   * coordinates. When a runtime omits its dev metadata, report WHY
-   * (`unavailableReason`) instead of guessing.
+   * coordinates. Their ancestor walks cross open and closed shadow boundaries
+   * through `ShadowRoot.host`, matching the browser's composed tree rather than
+   * stopping at `parentElement === null`. When a runtime omits its dev metadata,
+   * report WHY (`unavailableReason`) instead of guessing.
    *
    * `sourceFile`/`line`/`column` are the element's OWN authoring site (a button
    * inside Card.jsx always resolves to Card.jsx). `owner*` is where the nearest
@@ -574,7 +576,7 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
   }
 
   type FrameworkDebugProvenance = {
-    framework?: "react" | "vue" | "svelte";
+    framework?: "html" | "react" | "vue" | "svelte" | "angular" | "lwc";
     sourceFile?: string;
     line?: number;
     column?: number;
@@ -585,13 +587,30 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     ownerComponentName?: string;
     ownerKey?: string;
     // Which tier produced line/column. "debug-stack" is a TRANSFORMED position.
-    method?: "debug-source" | "debug-stack" | "vue-inspector" | "svelte-meta";
+    method?:
+      | "data-attribute"
+      | "debug-source"
+      | "debug-stack"
+      | "vue-inspector"
+      | "svelte-meta";
     // Which tier produced ownerLine/ownerColumn. Tracked separately because an
     // element can carry an authored data-source-* position while its owner site
     // is only reachable through the (transformed) owner stack.
     ownerMethod?: "debug-source" | "debug-stack";
     unavailableReason?: "not-framework" | "no-debug-info";
   };
+
+  function parentElementOrShadowHost(node: any): Element | null {
+    if (!node) return null;
+    if (node.parentElement) return node.parentElement;
+    if (typeof node.getRootNode !== "function") return null;
+    var rootNode = node.getRootNode();
+    var isShadowRoot =
+      rootNode &&
+      typeof rootNode.host !== "undefined" &&
+      typeof rootNode.mode === "string";
+    return isShadowRoot && rootNode.host ? rootNode.host : null;
+  }
 
   // Fiber debug stacks are immutable for the lifetime of a mounted host node.
   // Keep the relatively expensive Object.keys + owner walk off the snapshot
@@ -735,7 +754,7 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
           };
         }
       }
-      node = node.parentElement;
+      node = parentElementOrShadowHost(node);
     }
     return sawVue
       ? { framework: "vue", unavailableReason: "no-debug-info" }
@@ -767,11 +786,46 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
           method: "svelte-meta",
         };
       }
-      node = node.parentElement;
+      node = parentElementOrShadowHost(node);
     }
     return sawSvelte
       ? { framework: "svelte", unavailableReason: "no-debug-info" }
       : null;
+  }
+
+  function knownUnlocatedFramework(
+    el: Element,
+  ): FrameworkDebugProvenance | null {
+    var node: any = el;
+    for (var depth = 0; node && depth < 8; depth += 1) {
+      if (node.getAttribute && node.attributes) {
+        var tagName =
+          typeof node.tagName === "string" ? node.tagName.toLowerCase() : "";
+        if (
+          node.hasAttribute("ng-version") ||
+          Array.prototype.some.call(node.attributes, function (attribute) {
+            return /^_ng(?:content|host)-/i.test(attribute.name);
+          })
+        ) {
+          // Angular does not expose an authored file/line on DOM nodes. The
+          // marker only distinguishes a known framework with no debug location;
+          // never turn a component class name into a fake source path.
+          return { framework: "angular", unavailableReason: "no-debug-info" };
+        }
+        if (
+          tagName.indexOf("lightning-") === 0 ||
+          Array.prototype.some.call(node.attributes, function (attribute) {
+            return /^lwc-[a-z0-9]+(?:-host)?$/i.test(attribute.name);
+          })
+        ) {
+          // LWC compiler scope attributes identify the runtime, not a source
+          // coordinate. Preserve that distinction instead of fabricating one.
+          return { framework: "lwc", unavailableReason: "no-debug-info" };
+        }
+      }
+      node = parentElementOrShadowHost(node);
+    }
+    return null;
   }
 
   function frameworkDebugProvenance(el: Element): FrameworkDebugProvenance {
@@ -783,7 +837,90 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     if (vue) return vue;
     var svelte = svelteDebugProvenance(el);
     if (svelte) return svelte;
+    var knownUnlocated = knownUnlocatedFramework(el);
+    if (knownUnlocated) return knownUnlocated;
     return { unavailableReason: "not-framework" };
+  }
+
+  function explicitDebugProvenance(
+    el: Element,
+  ): FrameworkDebugProvenance | null {
+    var node: any = el;
+    var sourceNode: any = null;
+    for (var depth = 0; node && depth < 8; depth += 1) {
+      if (
+        node.getAttribute &&
+        (node.getAttribute("data-source-file") || node.getAttribute("data-loc"))
+      ) {
+        sourceNode = node;
+        break;
+      }
+      node = parentElementOrShadowHost(node);
+    }
+    if (!sourceNode) return null;
+
+    var sourceFile = sourceNode.getAttribute("data-source-file");
+    var lineText = sourceNode.getAttribute("data-source-line");
+    var columnText = sourceNode.getAttribute("data-source-column");
+    var dataLoc = sourceNode.getAttribute("data-loc");
+    if (!sourceFile && dataLoc) {
+      var parsed = parseFrameworkDataLoc(dataLoc);
+      if (parsed) {
+        sourceFile = parsed.sourceFile;
+        lineText = String(parsed.line);
+        columnText = parsed.column !== undefined ? String(parsed.column) : null;
+      }
+    }
+    if (!sourceFile) return null;
+
+    var line = lineText ? parseInt(lineText, 10) : undefined;
+    var column = columnText ? parseInt(columnText, 10) : undefined;
+    var declaredFramework = sourceNode.getAttribute("data-source-framework");
+    var declaredMethod = sourceNode.getAttribute("data-source-method");
+    return {
+      framework:
+        declaredFramework === "react" ||
+        declaredFramework === "vue" ||
+        declaredFramework === "svelte" ||
+        declaredFramework === "angular" ||
+        declaredFramework === "lwc" ||
+        declaredFramework === "html"
+          ? declaredFramework
+          : "html",
+      sourceFile: sourceFile,
+      line: line !== undefined && isFinite(line) ? line : undefined,
+      column: column !== undefined && isFinite(column) ? column : undefined,
+      component: sourceNode.getAttribute("data-component-name") || undefined,
+      method:
+        declaredMethod === "debug-source" ||
+        declaredMethod === "debug-stack" ||
+        declaredMethod === "vue-inspector" ||
+        declaredMethod === "svelte-meta"
+          ? declaredMethod
+          : "data-attribute",
+    };
+  }
+
+  function elementDebugProvenance(el: Element): FrameworkDebugProvenance {
+    var framework = frameworkDebugProvenance(el);
+    var explicit = explicitDebugProvenance(el);
+    if (!explicit) return framework;
+
+    // An explicit compiler attribute is the element's authored site, but React
+    // owner metadata still carries the parent call site / key that distinguishes
+    // repeated instances. Merge only those owner fields; an explicit location
+    // must never retain a contradictory unavailableReason.
+    explicit.framework =
+      explicit.framework === "html" && framework.framework
+        ? framework.framework
+        : explicit.framework;
+    explicit.ownerSourceFile = framework.ownerSourceFile;
+    explicit.ownerLine = framework.ownerLine;
+    explicit.ownerColumn = framework.ownerColumn;
+    explicit.ownerComponentName = framework.ownerComponentName;
+    explicit.ownerMethod = framework.ownerMethod;
+    explicit.ownerKey = framework.ownerKey;
+    return explicit;
   }
 
   var runtimeLayerSnapshotTimer: number | null = null;
@@ -984,7 +1121,7 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         ensureRuntimeLayerNodeId(sourceNode),
       );
       inlineSnapshotComputedStyle(sourceNode, cloneNode);
-      var provenance = frameworkDebugProvenance(sourceNode);
+      var provenance = elementDebugProvenance(sourceNode);
       if (provenance.sourceFile) {
         if (provenance.framework) {
           cloneNode.setAttribute("data-source-framework", provenance.framework);
@@ -1843,114 +1980,10 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
           "Parent layout context decides whether movement means gap, order, alignment, or wrapper structure.",
       });
     }
-    // --- provenance: read explicit source-location attributes when present,
-    // then fall back to framework dev-runtime metadata. ---
-    var provenance: FrameworkDebugProvenance | undefined = undefined;
-    var dataSourceFile = el.getAttribute("data-source-file");
-    var dataSourceLine = el.getAttribute("data-source-line");
-    var dataSourceColumn = el.getAttribute("data-source-column");
-    var dataComponentName = el.getAttribute("data-component-name");
-    var dataSourceFramework = el.getAttribute("data-source-framework");
-    var dataLoc = el.getAttribute("data-loc");
-    // data-loc may encode "file:line:col" (Babel source plugin convention).
-    // Only parse it when data-source-file is absent, to avoid double-reads.
-    if (!dataSourceFile && dataLoc) {
-      var lastColonIndex = dataLoc.lastIndexOf(":");
-      var lastPart =
-        lastColonIndex >= 0 ? dataLoc.slice(lastColonIndex + 1) : "";
-      if (lastColonIndex >= 0 && /^\d+$/.test(lastPart)) {
-        var beforeLastPart = dataLoc.slice(0, lastColonIndex);
-        var previousColonIndex = beforeLastPart.lastIndexOf(":");
-        var previousPart =
-          previousColonIndex >= 0
-            ? beforeLastPart.slice(previousColonIndex + 1)
-            : "";
-        var hasColumn = /^\d+$/.test(previousPart);
-        dataSourceFile = hasColumn
-          ? beforeLastPart.slice(0, previousColonIndex)
-          : beforeLastPart;
-        dataSourceLine = hasColumn ? previousPart : lastPart;
-        if (hasColumn) dataSourceColumn = lastPart;
-      }
-    }
-    // Always consult runtime metadata, even when a source plugin already
-    // stamped data-source-*. For React those attributes describe the element's
-    // OWN site and never the owner call site, which is the only thing that
-    // separates `.map()` siblings. The attribute tier still wins below.
-    var hadDataSourceFile = !!dataSourceFile;
-    var frameworkProvenance: FrameworkDebugProvenance =
-      frameworkDebugProvenance(el);
-    if (!hadDataSourceFile && frameworkProvenance.sourceFile) {
-      dataSourceFile = frameworkProvenance.sourceFile;
-      dataSourceLine = String(frameworkProvenance.line);
-      dataSourceColumn = frameworkProvenance.column
-        ? String(frameworkProvenance.column)
-        : null;
-      dataComponentName =
-        dataComponentName || frameworkProvenance.component || null;
-    }
-    if (
-      dataSourceFile ||
-      dataSourceLine ||
-      dataSourceColumn ||
-      dataComponentName ||
-      frameworkProvenance.unavailableReason
-    ) {
-      provenance = {};
-      if (dataSourceFile) provenance.sourceFile = dataSourceFile;
-      if (dataSourceLine) {
-        var ln = parseInt(dataSourceLine, 10);
-        if (!isNaN(ln)) provenance.line = ln;
-      }
-      if (dataSourceColumn) {
-        var col = parseInt(dataSourceColumn, 10);
-        if (!isNaN(col)) provenance.column = col;
-      }
-      if (dataComponentName) provenance.component = dataComponentName;
-      // Which tier the line/column above actually came from. An attribute-borne
-      // location is authored by that transform's convention unless it says
-      // otherwise; a fiber one is only authored on the `_debugSource` tier.
-      if (dataSourceFile) {
-        var declaredMethod = el.getAttribute("data-source-method");
-        provenance.method =
-          declaredMethod === "debug-source" ||
-          declaredMethod === "debug-stack" ||
-          declaredMethod === "vue-inspector" ||
-          declaredMethod === "svelte-meta"
-            ? declaredMethod
-            : hadDataSourceFile
-              ? "data-attribute"
-              : frameworkProvenance.method || "data-attribute";
-      }
-      provenance.framework =
-        dataSourceFramework === "react" ||
-        dataSourceFramework === "vue" ||
-        dataSourceFramework === "svelte" ||
-        dataSourceFramework === "html"
-          ? dataSourceFramework
-          : hadDataSourceFile
-            ? frameworkProvenance.framework || "html"
-            : frameworkProvenance.framework;
-      if (frameworkProvenance.ownerSourceFile) {
-        provenance.ownerSourceFile = frameworkProvenance.ownerSourceFile;
-        provenance.ownerLine = frameworkProvenance.ownerLine;
-        provenance.ownerColumn = frameworkProvenance.ownerColumn;
-        provenance.ownerComponentName = frameworkProvenance.ownerComponentName;
-        // The owner's own tier: on a source-plugin element `method` is the
-        // attribute's authored position while this one is the owner stack's
-        // transformed line, so they must not share a single field.
-        provenance.ownerMethod = frameworkProvenance.ownerMethod;
-      }
-      if (frameworkProvenance.ownerKey) {
-        provenance.ownerKey = frameworkProvenance.ownerKey;
-      }
-      // Why there is no location, so the editor can say "this app exposes no
-      // debug info" instead of "still loading". Never alongside a resolved
-      // location — a plugin-stamped element on a non-React page has one.
-      if (!dataSourceFile && frameworkProvenance.unavailableReason) {
-        provenance.unavailableReason = frameworkProvenance.unavailableReason;
-      }
-    }
+    // Explicit compiler attributes win for the selected element's authored
+    // site; framework runtime metadata fills the React owner call site. The
+    // shared resolver crosses ShadowRoot.host for Vue, Svelte, and attributes.
+    var provenance: FrameworkDebugProvenance = elementDebugProvenance(el);
     return {
       tagName: el.tagName.toLowerCase(),
       componentName: componentName || undefined,
@@ -2834,6 +2867,12 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         // round-trip must REMOVE it. Restoring a prevParent it never had is
         // what would leave an orphan node behind after Cmd+Z.
         | { inserted: true }
+        | {
+            replaced: true;
+            originalElement: Element;
+            prevParent: Element;
+            prevNextSibling: Node | null;
+          }
         // A host-driven delete. The DETACHED element is kept alive here so an
         // undone deletion re-attaches the real node — with its live React
         // state, listeners and children — instead of re-parsing a sanitized
@@ -8633,7 +8672,13 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     correctAbsoluteMemberClientPosition(el, desiredDropPoint);
   }
 
-  function postVisualStructureChange(el, target, origin, insertedHtml?) {
+  function postVisualStructureChange(
+    el,
+    target,
+    origin,
+    insertedHtml?,
+    replaced?,
+  ) {
     if (!el || !target || !target.anchor) return;
     dndLog("post:structure-change", {
       el: getSelector(el),
@@ -8665,6 +8710,7 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         // element the source file has never contained.
         insertedHtml:
           typeof insertedHtml === "string" ? insertedHtml : undefined,
+        replaced: replaced === true ? true : undefined,
         sourceRect: rectInfoForElement(el),
         anchorRect: rectInfoForElement(target.anchor),
         payload: getElementInfo(el),
@@ -12450,6 +12496,7 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         return;
       }
       var insertPlacement = String(e.data.placement || "");
+      var replaceInsertAnchor = e.data.replaceAnchor === true;
       if (
         insertPlacement !== "before" &&
         insertPlacement !== "after" &&
@@ -12545,6 +12592,33 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         );
         return;
       }
+      if (replaceInsertAnchor) {
+        var replaceParent = insertAnchor.parentElement;
+        if (!replaceParent) {
+          rejectInsert("placement-unavailable");
+          return;
+        }
+        var replaceNextSibling = insertAnchor.nextSibling;
+        replaceParent.insertBefore(parsedInsertEl, insertAnchor);
+        selectedEl = parsedInsertEl;
+        positionOverlay(selectionOverlay, selectedEl);
+        refreshOverlays();
+        postVisualStructureChange(
+          parsedInsertEl,
+          insertTarget,
+          {
+            replaced: true,
+            originalElement: insertAnchor,
+            prevParent: replaceParent,
+            prevNextSibling: replaceNextSibling,
+          },
+          parsedInsertEl.outerHTML,
+          true,
+        );
+        replaceParent.removeChild(insertAnchor);
+        refreshOverlays();
+        return;
+      }
       // The host bakes flow/absolute positioning into the markup before it
       // gets here (it owns the drop point and the anchor rect), so the node
       // goes in verbatim — no reorder rebasing on a never-laid-out element.
@@ -12579,6 +12653,32 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       delete pendingStructureMoves[e.data.requestId];
       var moveWasInsert = Boolean(move.origin && "inserted" in move.origin);
       var moveWasRemoval = Boolean(move.origin && "removed" in move.origin);
+      var moveWasReplace = Boolean(move.origin && "replaced" in move.origin);
+      if (moveWasReplace && move.origin && "replaced" in move.origin) {
+        if (!e.data.applied) {
+          if (move.el && move.el.isConnected) move.el.remove();
+          var replaceParent = move.origin.prevParent;
+          var replaceNextSibling = move.origin.prevNextSibling;
+          if (
+            replaceParent &&
+            replaceParent.isConnected &&
+            !move.origin.originalElement.isConnected
+          ) {
+            replaceParent.insertBefore(
+              move.origin.originalElement,
+              replaceNextSibling &&
+                replaceNextSibling.parentNode === replaceParent
+                ? replaceNextSibling
+                : null,
+            );
+            selectedEl = move.origin.originalElement;
+            positionOverlay(selectionOverlay, selectedEl);
+            postElementSelect(selectedEl);
+          }
+        }
+        refreshOverlays();
+        return;
+      }
       if (moveWasRemoval) {
         // applied === true means the source now deletes it too, so the node
         // stays gone and this entry is simply released. applied === false is

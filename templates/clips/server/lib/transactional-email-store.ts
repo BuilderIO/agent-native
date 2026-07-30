@@ -180,6 +180,7 @@ export type TransactionalEmailStoreOptions = {
     afterInitialJobTempSynced?: () => Promise<void>;
     afterStaleLockSnapshot?: () => Promise<void>;
     afterJobLockAcquired?: () => Promise<void>;
+    afterFreshLockContention?: () => Promise<void>;
   };
 };
 
@@ -462,6 +463,17 @@ export function createTransactionalEmailStore(
         if (await takeoverMarkerBlocks(takeoverFile)) return null;
       } catch (error) {
         if (!isNodeError(error, "EEXIST")) throw error;
+        const existingLock = await stat(file).catch((statError: unknown) => {
+          if (isNodeError(statError, "ENOENT")) return null;
+          throw statError;
+        });
+        if (
+          existingLock &&
+          Date.now() - existingLock.mtimeMs <= LOCK_STALE_MS
+        ) {
+          await testHooks?.afterFreshLockContention?.();
+          return null;
+        }
         ownsTakeover = await acquireTakeoverMarker(ownerFile, takeoverFile);
         if (!ownsTakeover) return null;
         const lockStat = await stat(file).catch(() => null);
@@ -484,12 +496,10 @@ export function createTransactionalEmailStore(
       if (!sameIdentity(await fileIdentity(file), ownerIdentity)) return null;
       return await operation();
     } finally {
-      if (acquired && !ownsTakeover) {
-        ownsTakeover = await acquireTakeoverMarker(ownerFile, takeoverFile);
-      }
-      if (acquired && ownsTakeover) {
-        await unlinkIfIdentity(file, ownerIdentity);
-      }
+      // A holder only releases the inode it acquired. A stale reclaimer may
+      // replace that inode while the original holder is paused; identity-based
+      // release preserves the replacement without a cleanup-time takeover race.
+      if (acquired) await unlinkIfIdentity(file, ownerIdentity);
       if (ownsTakeover) {
         await unlinkIfIdentity(takeoverFile, ownerIdentity);
       }

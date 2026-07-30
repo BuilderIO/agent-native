@@ -31,11 +31,9 @@ describe("event account selection", () => {
 
   it("updates only the account when connected accounts resolve after form initialization", () => {
     const initialization = {
-      draftTimezone: "America/Indiana/Indianapolis",
       date: "2026-07-10",
       startTime: "09:00",
       endTime: "09:30",
-      defaultTimezone: "America/Indiana/Indianapolis",
     };
     const initializationKey = buildEventFormInitializationKey(initialization);
 
@@ -46,6 +44,18 @@ describe("event account selection", () => {
     expect(buildEventFormInitializationKey(initialization)).toBe(
       initializationKey,
     );
+  });
+
+  it("does not reinitialize edited fields when settings resolve", () => {
+    const initializationKey = buildEventFormInitializationKey({
+      date: "2026-07-26",
+    });
+
+    expect(
+      buildEventFormInitializationKey({
+        date: "2026-07-26",
+      }),
+    ).toBe(initializationKey);
   });
 
   it("keeps a valid user selection as accounts refetch", () => {

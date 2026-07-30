@@ -1,6 +1,10 @@
 import type { SqlDashboardConfig } from "../../app/pages/adhoc/sql-dashboard/types";
 import { loadDashboardSeed } from "./dashboard-seeds";
 import { listDashboards, type DashboardRecord } from "./dashboards-store";
+import {
+  FIRST_PARTY_DASHBOARD_ID,
+  repairFirstPartyObservedRetentionPanels,
+} from "./first-party-metric-catalog";
 
 export type DashboardTemplateCategory =
   | "Acquisition"
@@ -57,7 +61,11 @@ const CATALOG_VERSION = "2026-06-08";
 function seedConfig(id: string): SqlDashboardConfig {
   const seed = loadDashboardSeed(id);
   if (!seed) throw new Error(`Dashboard seed not found: ${id}`);
-  return seed as unknown as SqlDashboardConfig;
+  if (id !== FIRST_PARTY_DASHBOARD_ID) {
+    return seed as unknown as SqlDashboardConfig;
+  }
+  return repairFirstPartyObservedRetentionPanels(seed)
+    .config as unknown as SqlDashboardConfig;
 }
 
 function promPanelSql(

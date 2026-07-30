@@ -1,5 +1,90 @@
 # @agent-native/core
 
+## 0.131.3
+
+### Patch Changes
+
+- 5b67dea: Advertise A2A action input schemas in capability details.
+- 5b67dea: Stop apps from handing each other raw queries to execute. An action whose input
+  is a program the receiver runs — `sql`, `code`, `script`, `expression` — is no
+  longer invocable by a sibling app over A2A.
+
+  The app that owns the data owns its schema, data dictionary, reference
+  dashboards, and dialect quirks. A calling app has none of that, so passing SQL
+  across apps makes every caller reimplement the owner's schema knowledge from
+  guesses, and each copy silently rots the next time the owner's shape changes.
+  Callers ask the owning app a question, or call a shaped action that takes
+  semantic parameters; the owner forms the query. `publicAgent.allowRawQueryInput`
+  opts a specific action out when that is genuinely the right call.
+
+  `query` is deliberately not treated as a raw query field: across the templates
+  it is natural-language search text (Brain's `search-everything`,
+  `search-knowledge`), and blocking it would break the ask-don't-instruct calls
+  this rule exists to encourage. MCP and in-app tool surfaces are unchanged — this
+  narrows cross-app invocation only.
+
+  Agent cards also now publish each advertised skill's `inputSchema`, and
+  `describe-workspace-apps` renders it as `input: { field*: type }`. Advertising an
+  action without its parameters is what led callers to invoke it with `{}` and fail
+  on a required field.
+
+## 0.131.2
+
+### Patch Changes
+
+- 8d4fac7: Exclude `.test.ts`/`.spec.ts` files from agent chat plugin action auto-discovery, so test/spec files are no longer registered as callable agent tools.
+- 901769d: Keep the session-authenticated remote-device relay routes under CSRF protection.
+  The `/integrations/` CSRF exemption exists for HMAC-verified webhooks, but
+  prefix matching extended it to `/integrations/remote/*`, where
+  `register`, `enqueue`, and `computer/{approvals,commands}` authenticate on the
+  `SameSite=None` session cookie. A cross-site simple-request POST could
+  therefore create and self-approve a browser-control operation — click, type, or
+  navigate on the victim's paired Chrome — without any first-party marker or
+  human approval step. Those routes are now excluded from the exemption; the
+  device's own bearer-token calls (`poll`, `result`, `heartbeat`) are unaffected.
+- 901769d: Keep completed chat history visible when a sidebar remounts.
+- 901769d: Keep background and scheduled recovery workers from starting duplicate recurring integration jobs that can exhaust shared database capacity and delay messaging replies.
+- 901769d: Keep Feedback visible in first-party Agent Native production apps even when the build-time feedback URL was not synced, while cloned apps remain opted out by default.
+- 901769d: Reuse an empty active chat for foreground requests that otherwise open a new tab.
+- Updated dependencies [901769d]
+- Updated dependencies [901769d]
+  - @agent-native/toolkit@0.11.1
+
+## 0.131.1
+
+### Patch Changes
+
+- 49e7191: Export `mutateOrgSetting` from `@agent-native/core/settings` alongside the other org-scoped helpers, so app code can perform atomic read/merge/write updates on org settings instead of racing separate `getOrgSetting`/`putOrgSetting` calls.
+
+## 0.131.0
+
+### Minor Changes
+
+- 24a5a20: Add a typed, bounded `browser-context.v1` contract for reusable readable,
+  design, and ephemeral browser-control context.
+- 24a5a20: Make extension creation and discovery opt-in, including authenticated REST
+  creation, label SQL-backed extensions as sandboxed custom blocks, and let
+  editors promote them into app code through a server-verified Builder handoff.
+
+### Patch Changes
+
+- 24a5a20: Keep scheduled automations classified correctly across scheduler writes, unify Jobs and Automations management, and give Scheduled and Event triggers one identity-checked execution lifecycle with organization scope and enforced MCP allowlists.
+- 24a5a20: Preserve source provenance when copying rendered UI between live local apps and Design files.
+- 24a5a20: Make generic public URL reads immediately available to agents and preserve
+  machine-readable discovery metadata and alternate links when extracting page
+  content, including in Plan mode. Large extensions now default to bounded,
+  targeted source excerpts so focused edits do not stall a run by loading an
+  entire generated app body.
+- 24a5a20: Let Plan mode discover every agent tool, execute calls classified as read-only, narrow mixed-tool schemas to safe inputs, and keep writes and unknown effects runtime-blocked.
+- Updated dependencies [24a5a20]
+  - @agent-native/toolkit@0.11.0
+
+## 0.130.2
+
+### Patch Changes
+
+- ae02242: Share notification emails now lead with "<sharer> shared "<title>" with you" and support overridable body paragraphs, a second dark CTA, and closing paragraphs via the new `getShareEmailExtras` registration hook.
+
 ## 0.130.1
 
 ### Patch Changes
