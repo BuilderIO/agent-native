@@ -75,6 +75,32 @@ jobs:
           pnpm exec tsx packages/core/src/cli/index.ts template materialize
           --template chat --out ./dist/template
 
+      # materialize pins toolkit to "latest", because core declares it as
+      # workspace:^ in source and the resolver falls back to "latest" when it
+      # can't read a concrete range. A real `create` from a *published* core pins
+      # the compatible range changesets locked at release time, keeping toolkit in
+      # lockstep with core. Reproduce that: read the range the published core
+      # we're pinning declares, and rewrite it into the materialized package.json.
+      - name: Pin toolkit to the published core's compatible range
+        if: steps.gate.outputs.publishable == 'true'
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./packages/core/package.json').version")"
+          range="$(npm view "@agent-native/core@${version}" dependencies.@agent-native/toolkit 2>/dev/null || true)"
+          if [ -z "$range" ]; then
+            echo "::warning::core ${version} declares no @agent-native/toolkit range; leaving toolkit as materialized."
+            exit 0
+          fi
+          # Surgical replace so the rest of package.json keeps materialize's exact
+          # formatting (no churn on the template branch).
+          sed -i "s#\"@agent-native/toolkit\": \"[^\"]*\"#\"@agent-native/toolkit\": \"${range}\"#" \
+            ./dist/template/package.json
+          if ! grep -q "\"@agent-native/toolkit\": \"${range}\"" ./dist/template/package.json; then
+            echo "::error::Failed to pin @agent-native/toolkit to ${range}."
+            exit 1
+          fi
+          echo "Pinned @agent-native/toolkit to ${range} (from core ${version})."
+
       - name: Generate app token
         id: app-token
         if: steps.gate.outputs.publishable == 'true'
