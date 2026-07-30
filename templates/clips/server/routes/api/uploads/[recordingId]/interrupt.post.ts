@@ -8,6 +8,7 @@
  */
 
 import {
+  compareAndSetAppState,
   readAppState,
   writeAppState,
 } from "@agent-native/core/application-state";
@@ -118,72 +119,79 @@ export default defineEventHandler(async (event: H3Event) => {
         staleAttempt: true,
       };
     }
-    if (
+    const alreadyInterrupted =
       existing.status === "failed" &&
-      isRetryableUploadInterruption(existing.failureReason)
-    ) {
-      return {
-        ok: true,
-        recordingId,
-        status: "failed",
-        alreadyInterrupted: true,
-      };
-    }
-    if (existing.status !== "uploading") {
+      isRetryableUploadInterruption(existing.failureReason);
+    if (existing.status !== "uploading" && !alreadyInterrupted) {
       setResponseStatus(event, 409);
       return { error: "Recording upload is no longer active" };
     }
 
+    const uploadStateKey = `recording-upload-${recordingId}`;
+    const uploadStateRaw = await readAppState(uploadStateKey);
+    const uploadState = uploadStateRaw ?? {};
     const interruptedAt = new Date().toISOString();
-    const interrupted = await db
-      .update(schema.recordings)
-      .set({
-        status: "failed",
-        failureReason: RETRYABLE_UPLOAD_INTERRUPTION_REASON,
-        updatedAt: interruptedAt,
-      })
-      .where(
-        and(
-          eq(schema.recordings.id, recordingId),
-          ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
-          eq(schema.recordings.status, "uploading"),
-          attemptId === null
-            ? isNull(schema.recordings.uploadAttemptId)
-            : eq(schema.recordings.uploadAttemptId, attemptId),
-          uploadGenerationId === null
-            ? isNull(schema.recordings.uploadGenerationId)
-            : eq(schema.recordings.uploadGenerationId, uploadGenerationId),
-        ),
-      )
-      .returning({ id: schema.recordings.id });
+    if (!alreadyInterrupted) {
+      const interrupted = await db
+        .update(schema.recordings)
+        .set({
+          status: "failed",
+          failureReason: RETRYABLE_UPLOAD_INTERRUPTION_REASON,
+          updatedAt: interruptedAt,
+        })
+        .where(
+          and(
+            eq(schema.recordings.id, recordingId),
+            ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+            eq(schema.recordings.status, "uploading"),
+            attemptId === null
+              ? isNull(schema.recordings.uploadAttemptId)
+              : eq(schema.recordings.uploadAttemptId, attemptId),
+            uploadGenerationId === null
+              ? isNull(schema.recordings.uploadGenerationId)
+              : eq(schema.recordings.uploadGenerationId, uploadGenerationId),
+          ),
+        )
+        .returning({ id: schema.recordings.id });
 
-    if (interrupted.length !== 1) {
-      setResponseStatus(event, 409);
-      return { error: "Recording upload changed while it was interrupted" };
+      if (interrupted.length !== 1) {
+        setResponseStatus(event, 409);
+        return { error: "Recording upload changed while it was interrupted" };
+      }
     }
 
-    const uploadStateRaw = await readAppState(
-      `recording-upload-${recordingId}`,
-    ).catch(() => null);
-    const uploadState =
-      uploadStateRaw && typeof uploadStateRaw === "object"
-        ? (uploadStateRaw as Record<string, unknown>)
-        : {};
-    await writeAppState(`recording-upload-${recordingId}`, {
-      ...uploadState,
-      recordingId,
-      status: "failed",
-      failureReason: RETRYABLE_UPLOAD_INTERRUPTION_REASON,
-      retryableInterruption: true,
-      ...(interruptionDetail ? { interruptionDetail } : {}),
-      updatedAt: interruptedAt,
-    });
+    const uploadStateUpdated = await compareAndSetAppState(
+      uploadStateKey,
+      uploadStateRaw,
+      {
+        ...uploadState,
+        recordingId,
+        status: "failed",
+        failureReason: RETRYABLE_UPLOAD_INTERRUPTION_REASON,
+        retryableInterruption: true,
+        uploadAttemptId: attemptId,
+        uploadGenerationId,
+        ...(interruptionDetail ? { interruptionDetail } : {}),
+        updatedAt: interruptedAt,
+      },
+    );
+    if (!uploadStateUpdated) {
+      console.info(
+        `[upload-interrupt] upload state changed after interruption claim; preserving replacement state for ${recordingId}`,
+      );
+    }
     await writeAppState("refresh-signal", { ts: Date.now() });
 
     console.info("[upload-interrupt] resumable state preserved", {
       recordingId,
       hasInterruptionDetail: interruptionDetail !== null,
     });
-    return { ok: true, recordingId, status: "failed", resumable: true };
+    return {
+      ok: true,
+      recordingId,
+      status: "failed",
+      resumable: true,
+      ...(alreadyInterrupted ? { alreadyInterrupted: true } : {}),
+    };
   });
 });

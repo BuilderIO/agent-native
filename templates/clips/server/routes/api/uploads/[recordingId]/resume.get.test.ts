@@ -6,6 +6,7 @@ const mockListRecordingChunkKeys = vi.hoisted(() => vi.fn());
 const mockSumRecordingChunkBytes = vi.hoisted(() => vi.fn());
 const mockReadAppState = vi.hoisted(() => vi.fn());
 const mockWriteAppState = vi.hoisted(() => vi.fn());
+const mockCompareAndSetAppState = vi.hoisted(() => vi.fn());
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
 const mockGetQuery = vi.hoisted(() => vi.fn());
 const mockIsFeatureFlagEnabled = vi.hoisted(() => vi.fn());
@@ -32,6 +33,8 @@ const mockDb = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
+  compareAndSetAppState: (...args: unknown[]) =>
+    mockCompareAndSetAppState(...args),
   readAppState: (...args: unknown[]) => mockReadAppState(...args),
   writeAppState: (...args: unknown[]) => mockWriteAppState(...args),
 }));
@@ -107,6 +110,7 @@ describe("/api/uploads/:recordingId/resume route", () => {
     mockSumRecordingChunkBytes.mockResolvedValue(0);
     mockReadAppState.mockResolvedValue({ progress: 50 });
     mockWriteAppState.mockResolvedValue(undefined);
+    mockCompareAndSetAppState.mockResolvedValue(true);
     mockUpdateRows.rows = [{ id: "rec-1" }];
     mockIsFeatureFlagEnabled.mockResolvedValue(true);
   });
@@ -206,8 +210,9 @@ describe("/api/uploads/:recordingId/resume route", () => {
       }),
     );
     expect(mockDb.update).toHaveBeenCalledOnce();
-    expect(mockWriteAppState).toHaveBeenCalledWith(
+    expect(mockCompareAndSetAppState).toHaveBeenCalledWith(
       "recording-upload-rec-1",
+      expect.objectContaining({ progress: 50 }),
       expect.objectContaining({
         status: "uploading",
         progress: 40,
@@ -252,6 +257,68 @@ describe("/api/uploads/:recordingId/resume route", () => {
     });
     expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 409);
     expect(mockWriteAppState).not.toHaveBeenCalled();
+  });
+
+  it("fails before claiming the row when upload state is unreadable", async () => {
+    mockReadAppState.mockRejectedValue(new Error("state store unavailable"));
+
+    await expect(handler({} as any)).rejects.toThrow("state store unavailable");
+
+    expect(mockDb.update).not.toHaveBeenCalled();
+    expect(mockCompareAndSetAppState).not.toHaveBeenCalled();
+    expect(mockWriteAppState).not.toHaveBeenCalled();
+  });
+
+  it("does not return a stale resume plan when interruption wins publication", async () => {
+    mockCompareAndSetAppState.mockImplementation(async () => {
+      mockSelectRows.rows = [
+        {
+          id: "rec-1",
+          status: "failed",
+          uploadAttemptId: "client-attempt-0001",
+          uploadGenerationId: null,
+        },
+      ];
+      return false;
+    });
+
+    await expect(handler({} as any)).resolves.toEqual({
+      resumable: false,
+      recoveryEnabled: true,
+      recordingId: "rec-1",
+      status: "failed",
+      reason: "upload_state_changed",
+    });
+
+    expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 409);
+    expect(mockWriteAppState).not.toHaveBeenCalled();
+  });
+
+  it("preserves newer progress published by the same active claim", async () => {
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "uploading",
+        uploadAttemptId: "client-attempt-0001",
+        uploadGenerationId: null,
+      },
+    ];
+    mockCompareAndSetAppState.mockResolvedValue(false);
+    const consoleInfo = vi
+      .spyOn(console, "info")
+      .mockImplementation(() => undefined);
+
+    try {
+      await expect(handler({} as any)).resolves.toEqual(
+        expect.objectContaining({ resumable: true, status: "uploading" }),
+      );
+    } finally {
+      consoleInfo.mockRestore();
+    }
+
+    expect(mockWriteAppState).toHaveBeenCalledWith("refresh-signal", {
+      ts: expect.any(Number),
+    });
   });
 
   it("does not let a different claim steal an active retry", async () => {

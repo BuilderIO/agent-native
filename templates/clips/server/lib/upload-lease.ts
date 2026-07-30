@@ -140,6 +140,7 @@ export interface ReapedUpload {
   ownerEmail: string;
   status: string;
   leaseExpiresAt: string;
+  uploadGenerationId: string | null;
 }
 
 export interface ReapResult {
@@ -171,7 +172,7 @@ export async function reapExpiredUploads(
 
   // guard:allow-unscoped — system upload reaper, owner-agnostic by design.
   const probe = await exec.execute({
-    sql: `SELECT id, owner_email, status, upload_lease_expires_at
+    sql: `SELECT id, owner_email, status, upload_lease_expires_at, upload_generation_id
           FROM recordings
           WHERE status IN ('uploading', 'processing')
             AND upload_lease_expires_at IS NOT NULL
@@ -188,6 +189,10 @@ export async function reapExpiredUploads(
     ownerEmail: String(row.owner_email ?? ""),
     status: String(row.status ?? ""),
     leaseExpiresAt: String(row.upload_lease_expires_at ?? ""),
+    uploadGenerationId:
+      typeof row.upload_generation_id === "string"
+        ? row.upload_generation_id
+        : null,
   }));
 
   let failed = 0;
@@ -218,9 +223,16 @@ export async function reapExpiredUploads(
     failed = terminated.size;
 
     for (const id of terminated) {
+      const generationId = expired.find(
+        (row) => row.id === id,
+      )?.uploadGenerationId;
       await exec.execute({
         sql: `DELETE FROM application_state WHERE key = ${p(1)}`,
-        args: [`resumable-session-${id}`],
+        args: [
+          generationId
+            ? `resumable-session-${id}-${generationId}`
+            : `resumable-session-${id}`,
+        ],
       });
     }
   }

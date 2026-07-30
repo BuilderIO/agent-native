@@ -1765,6 +1765,7 @@ export class RecorderEngine {
       this.uploadAbort = null;
     }
     this.cleanupTracks();
+    const uploadGenerationId = this.uploadGenerationId;
     this.chunkIndex = 0;
     this.uploadFailure = null;
     this.uploadGenerationId = null;
@@ -1778,7 +1779,13 @@ export class RecorderEngine {
 
     if (this.opts.abortUrl) {
       try {
-        await fetch(this.opts.abortUrl, { method: "POST" });
+        await fetch(this.opts.abortUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...(uploadGenerationId ? { uploadGenerationId } : {}),
+          }),
+        });
       } catch {
         // ignore — best effort
       }

@@ -50,6 +50,7 @@ describe("RecorderEngine upload generation fencing", () => {
     await internals.uploadChunk(new Blob(["first"]), 0);
     await internals.resetUploadedChunks(null);
     await internals.uploadChunk(new Blob(["second"]), 0);
+    await engine.cancel();
 
     expect(requests[0]?.body).toMatchObject({ useGenerationFence: true });
     expect(requests[1]?.url).toContain("uploadGenerationId=generation-1");
@@ -58,5 +59,9 @@ describe("RecorderEngine upload generation fencing", () => {
       uploadGenerationId: "generation-1",
     });
     expect(requests[3]?.url).toContain("uploadGenerationId=generation-2");
+    expect(requests[4]).toMatchObject({
+      url: "/api/uploads/rec-1/abort",
+      body: JSON.stringify({ uploadGenerationId: "generation-2" }),
+    });
   });
 });

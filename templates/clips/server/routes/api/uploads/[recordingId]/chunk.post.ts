@@ -211,7 +211,12 @@ export default defineEventHandler(async (event: H3Event) => {
     mimeType,
   });
 
-  if (!Number.isFinite(index) || !Number.isInteger(index) || index < 0) {
+  if (
+    !Number.isFinite(index) ||
+    !Number.isInteger(index) ||
+    index < 0 ||
+    index > 999_999
+  ) {
     throw createError({ statusCode: 400, message: "Invalid chunk index" });
   }
 

@@ -17,6 +17,33 @@ function likePrefix(prefix: string): string {
   return `${escapeLike(prefix)}%`;
 }
 
+function exactChunkKeyArgs(
+  ownerEmail: string,
+  recordingId: string,
+  generationId?: string | null,
+): [string, string, number, string, string] {
+  const prefix = chunkPrefix(recordingId, generationId);
+  return [
+    ownerEmail,
+    likePrefix(prefix),
+    prefix.length + 6,
+    `${prefix}000000`,
+    `${prefix}999999`,
+  ];
+}
+
+const exactChunkKeyWhere = `session_id = ? AND key LIKE ? ESCAPE '!' AND length(key) = ? AND key >= ? AND key <= ?`;
+
+function isChunkKeyForGeneration(
+  key: string,
+  recordingId: string,
+  generationId?: string | null,
+): boolean {
+  const prefix = chunkPrefix(recordingId, generationId);
+  if (!key.startsWith(prefix)) return false;
+  return /^\d+$/.test(key.slice(prefix.length));
+}
+
 function numberFromRowValue(value: unknown): number {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "bigint") return Number(value);
@@ -89,10 +116,12 @@ export async function listRecordingChunkKeys(
   generationId?: string | null,
 ): Promise<string[]> {
   const { rows } = await getDbExec().execute({
-    sql: `SELECT key FROM application_state WHERE session_id = ? AND key LIKE ? ESCAPE '!'`,
-    args: [ownerEmail, likePrefix(chunkPrefix(recordingId, generationId))],
+    sql: `SELECT key FROM application_state WHERE ${exactChunkKeyWhere}`,
+    args: exactChunkKeyArgs(ownerEmail, recordingId, generationId),
   });
-  return rows.map((row) => String(row.key));
+  return rows
+    .map((row) => String(row.key))
+    .filter((key) => isChunkKeyForGeneration(key, recordingId, generationId));
 }
 
 export async function deleteRecordingChunks(
@@ -101,8 +130,8 @@ export async function deleteRecordingChunks(
   generationId?: string | null,
 ): Promise<number> {
   const result = await getDbExec().execute({
-    sql: `DELETE FROM application_state WHERE session_id = ? AND key LIKE ? ESCAPE '!'`,
-    args: [ownerEmail, likePrefix(chunkPrefix(recordingId, generationId))],
+    sql: `DELETE FROM application_state WHERE ${exactChunkKeyWhere}`,
+    args: exactChunkKeyArgs(ownerEmail, recordingId, generationId),
   });
   return result.rowsAffected ?? 0;
 }
@@ -116,8 +145,8 @@ export async function sumRecordingChunkBytes(
     ? `COALESCE(SUM((value::jsonb ->> 'bytes')::bigint), 0)`
     : `COALESCE(SUM(json_extract(value, '$.bytes')), 0)`;
   const { rows } = await getDbExec().execute({
-    sql: `SELECT ${bytesExpression} AS bytes FROM application_state WHERE session_id = ? AND key LIKE ? ESCAPE '!'`,
-    args: [ownerEmail, likePrefix(chunkPrefix(recordingId, generationId))],
+    sql: `SELECT ${bytesExpression} AS bytes FROM application_state WHERE ${exactChunkKeyWhere}`,
+    args: exactChunkKeyArgs(ownerEmail, recordingId, generationId),
   });
   return numberFromRowValue(rows[0]?.bytes);
 }

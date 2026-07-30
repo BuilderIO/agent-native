@@ -27,8 +27,9 @@
 import { randomUUID } from "node:crypto";
 
 import {
+  compareAndSetAppState,
+  readAppState,
   writeAppState,
-  deleteAppStateByPrefix,
 } from "@agent-native/core/application-state";
 import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import { getActiveFileUploadProviderForRequest } from "@agent-native/core/file-upload";
@@ -47,6 +48,7 @@ import {
 import { UPLOAD_RETRY_RESUME_FLAG } from "../../../../../shared/feature-flags.js";
 import { getDb, schema } from "../../../../db/index.js";
 import { isMediaVerificationPending } from "../../../../lib/media-verification-state.js";
+import { deleteRecordingChunks } from "../../../../lib/recording-upload-state.js";
 import {
   getEventOwnerContext,
   ownerEmailMatches,
@@ -56,7 +58,10 @@ import {
   setResumableSession,
 } from "../../../../lib/resumable-session.js";
 import { shouldEnableStreamingUpload } from "../../../../lib/streaming-upload-mode.js";
-import { uploadLeaseExpiry } from "../../../../lib/upload-lease.js";
+import {
+  renewUploadLease,
+  uploadLeaseExpiry,
+} from "../../../../lib/upload-lease.js";
 import { allowsSqlRecordingChunkScratch } from "../../../../lib/video-storage.js";
 
 interface CompressionMeta {
@@ -210,6 +215,8 @@ export default defineEventHandler(async (event: H3Event) => {
         requestedGenerationId !== null ||
         body?.useGenerationFence === true);
     const nextGenerationId = useGenerationFence ? randomUUID() : null;
+    const uploadStateKey = `recording-upload-${recordingId}`;
+    const uploadStateSnapshot = await readAppState(uploadStateKey);
     const reset = await db
       .update(schema.recordings)
       .set({
@@ -244,10 +251,10 @@ export default defineEventHandler(async (event: H3Event) => {
       };
     }
 
-    const cleared = await deleteAppStateByPrefix(
-      `recording-chunks-${recordingId}${
-        existingGenerationId ? `-${existingGenerationId}` : ""
-      }-`,
+    const cleared = await deleteRecordingChunks(
+      ownerEmail,
+      recordingId,
+      existingGenerationId,
     );
     // Clear any stale resumable session so a buffered retry does not
     // accidentally route through handleResumableChunk with stale offsets.
@@ -256,6 +263,7 @@ export default defineEventHandler(async (event: H3Event) => {
     );
 
     let uploadMode: UploadMode = "buffered";
+    let compensateStartedSession: (() => Promise<void>) | null = null;
     if (body?.requestStreaming === true) {
       const mimeType = normalizeVideoMimeType(body.mimeType);
       if (!mimeType) {
@@ -296,6 +304,18 @@ export default defineEventHandler(async (event: H3Event) => {
             },
             nextGenerationId,
           );
+          compensateStartedSession = async () => {
+            if (!uploadProvider.resumable?.abortSession) {
+              throw new Error(
+                `Resumable upload provider ${uploadProvider.id} cannot abort the discarded retry session`,
+              );
+            }
+            await uploadProvider.resumable.abortSession({
+              sessionId: session.sessionId,
+              meta: session.meta,
+            });
+            await deleteResumableSession(recordingId, nextGenerationId);
+          };
           uploadMode = "streaming";
         } catch (err) {
           if (!bufferedFallbackAvailable) {
@@ -320,19 +340,64 @@ export default defineEventHandler(async (event: H3Event) => {
       }
     }
 
+    const resetLease = await renewUploadLease(recordingId, {
+      attemptId: recoveryEnabled ? existingAttemptId : null,
+      generationId: nextGenerationId,
+    });
+    if (!resetLease.held) {
+      await compensateStartedSession?.();
+      setResponseStatus(event, 409);
+      return {
+        error: "Recording upload changed while its retry was starting.",
+        staleAttempt: true,
+      };
+    }
+
     // Reset the per-recording upload progress so the UI poller sees the
     // re-upload restart from 0 and doesn't briefly show "100% then
     // re-running" on the post-compression chunked upload pass.
-    await writeAppState(`recording-upload-${recordingId}`, {
-      recordingId,
-      status: "uploading",
-      progress: 0,
-      chunksReceived: 0,
-      bytesReceived: 0,
-      uploadGenerationId: nextGenerationId,
-      maxBytes: MAX_RECORDING_UPLOAD_BYTES,
-      updatedAt: now,
-    });
+    const uploadStateUpdated = await compareAndSetAppState(
+      uploadStateKey,
+      uploadStateSnapshot,
+      {
+        recordingId,
+        status: "uploading",
+        progress: 0,
+        chunksReceived: 0,
+        bytesReceived: 0,
+        uploadAttemptId: recoveryEnabled ? existingAttemptId : null,
+        uploadGenerationId: nextGenerationId,
+        maxBytes: MAX_RECORDING_UPLOAD_BYTES,
+        updatedAt: now,
+      },
+    );
+    if (!uploadStateUpdated) {
+      const [current] = await db
+        .select({
+          status: schema.recordings.status,
+          uploadAttemptId: schema.recordings.uploadAttemptId,
+          uploadGenerationId: schema.recordings.uploadGenerationId,
+        })
+        .from(schema.recordings)
+        .where(
+          and(
+            eq(schema.recordings.id, recordingId),
+            ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+          ),
+        );
+      if (
+        current?.status !== "uploading" ||
+        (current.uploadAttemptId ?? null) !==
+          (recoveryEnabled ? existingAttemptId : null) ||
+        (current.uploadGenerationId ?? null) !== nextGenerationId
+      ) {
+        setResponseStatus(event, 409);
+        return {
+          error: "Recording upload changed while its retry was starting.",
+          staleAttempt: true,
+        };
+      }
+    }
 
     // Stash compression metadata under its own key. We don't merge it into
     // `recording-upload-{id}` because the recorder client overwrites that

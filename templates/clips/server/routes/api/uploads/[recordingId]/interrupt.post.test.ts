@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockReadAppState = vi.hoisted(() => vi.fn());
 const mockWriteAppState = vi.hoisted(() => vi.fn());
+const mockCompareAndSetAppState = vi.hoisted(() => vi.fn());
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
 const mockIsFeatureFlagEnabled = vi.hoisted(() => vi.fn());
 const mockAbortUpload = vi.hoisted(() => vi.fn());
@@ -35,6 +36,8 @@ const mockDb = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
+  compareAndSetAppState: (...args: unknown[]) =>
+    mockCompareAndSetAppState(...args),
   readAppState: (...args: unknown[]) => mockReadAppState(...args),
   writeAppState: (...args: unknown[]) => mockWriteAppState(...args),
 }));
@@ -93,6 +96,7 @@ describe("/api/uploads/:recordingId/interrupt route", () => {
       progress: 40,
     });
     mockWriteAppState.mockResolvedValue(undefined);
+    mockCompareAndSetAppState.mockResolvedValue(true);
     mockIsFeatureFlagEnabled.mockResolvedValue(true);
     mockAbortUpload.mockResolvedValue({ ok: true, legacyAbort: true });
   });
@@ -123,8 +127,9 @@ describe("/api/uploads/:recordingId/interrupt route", () => {
           "Upload was interrupted. The local recording is safe; retry from the Clips desktop app.",
       }),
     ]);
-    expect(mockWriteAppState).toHaveBeenCalledWith(
+    expect(mockCompareAndSetAppState).toHaveBeenCalledWith(
       "recording-upload-rec-1",
+      expect.objectContaining({ bytesReceived: 7_864_320 }),
       expect.objectContaining({
         status: "failed",
         retryableInterruption: true,
@@ -162,6 +167,61 @@ describe("/api/uploads/:recordingId/interrupt route", () => {
     });
     expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 409);
     expect(mockWriteAppState).not.toHaveBeenCalled();
+  });
+
+  it("fails before claiming the row when upload state is unreadable", async () => {
+    mockReadAppState.mockRejectedValue(new Error("state store unavailable"));
+
+    await expect(handler({} as any)).rejects.toThrow("state store unavailable");
+
+    expect(mockDb.update).not.toHaveBeenCalled();
+    expect(mockCompareAndSetAppState).not.toHaveBeenCalled();
+    expect(mockWriteAppState).not.toHaveBeenCalled();
+  });
+
+  it("preserves replacement upload state after the row claim", async () => {
+    mockCompareAndSetAppState.mockResolvedValue(false);
+    const consoleInfo = vi
+      .spyOn(console, "info")
+      .mockImplementation(() => undefined);
+
+    try {
+      await expect(handler({} as any)).resolves.toEqual(
+        expect.objectContaining({ ok: true, resumable: true }),
+      );
+    } finally {
+      consoleInfo.mockRestore();
+    }
+
+    expect(mockCompareAndSetAppState).toHaveBeenCalledOnce();
+    expect(mockWriteAppState).toHaveBeenCalledTimes(1);
+    expect(mockWriteAppState).toHaveBeenCalledWith("refresh-signal", {
+      ts: expect.any(Number),
+    });
+  });
+
+  it("retries auxiliary reconciliation for an already interrupted row", async () => {
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "failed",
+        failureReason:
+          "Upload was interrupted. The local recording is safe; retry from the Clips desktop app.",
+        uploadAttemptId: null,
+        uploadGenerationId: null,
+      },
+    ];
+
+    await expect(handler({} as any)).resolves.toEqual(
+      expect.objectContaining({
+        ok: true,
+        alreadyInterrupted: true,
+        resumable: true,
+      }),
+    );
+
+    expect(mockDb.update).not.toHaveBeenCalled();
+    expect(mockCompareAndSetAppState).toHaveBeenCalledOnce();
   });
 
   it("does not let a delayed callback interrupt a newer retry", async () => {

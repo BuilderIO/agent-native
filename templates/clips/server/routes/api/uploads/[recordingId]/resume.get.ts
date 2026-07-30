@@ -12,6 +12,7 @@
  */
 
 import {
+  compareAndSetAppState,
   readAppState,
   writeAppState,
 } from "@agent-native/core/application-state";
@@ -153,6 +154,9 @@ export default defineEventHandler(async (event: H3Event) => {
       };
     }
 
+    const uploadStateKey = `recording-upload-${recordingId}`;
+    const uploadStateRaw = await readAppState(uploadStateKey);
+    const uploadState = uploadStateRaw ?? {};
     const attemptId = requestedAttemptId;
     const now = new Date().toISOString();
     const claimed = await getDb()
@@ -199,24 +203,54 @@ export default defineEventHandler(async (event: H3Event) => {
       };
     }
 
-    const uploadStateRaw = await readAppState(
-      `recording-upload-${recordingId}`,
-    ).catch(() => null);
-    const uploadState =
-      uploadStateRaw && typeof uploadStateRaw === "object"
-        ? (uploadStateRaw as Record<string, unknown>)
-        : {};
-    await writeAppState(`recording-upload-${recordingId}`, {
-      ...uploadState,
-      recordingId,
-      status: "uploading",
-      failureReason: null,
-      retryableInterruption: false,
-      progress: recording.uploadProgress,
-      ...(generationId ? { uploadGenerationId: generationId } : {}),
-      ...(session ? { bytesReceived: session.bytesUploaded } : {}),
-      updatedAt: now,
-    });
+    const uploadStateUpdated = await compareAndSetAppState(
+      uploadStateKey,
+      uploadStateRaw,
+      {
+        ...uploadState,
+        recordingId,
+        status: "uploading",
+        failureReason: null,
+        retryableInterruption: false,
+        progress: recording.uploadProgress,
+        uploadAttemptId: attemptId,
+        uploadGenerationId: generationId,
+        ...(session ? { bytesReceived: session.bytesUploaded } : {}),
+        updatedAt: now,
+      },
+    );
+    if (!uploadStateUpdated) {
+      const [current] = await getDb()
+        .select({
+          status: schema.recordings.status,
+          uploadAttemptId: schema.recordings.uploadAttemptId,
+          uploadGenerationId: schema.recordings.uploadGenerationId,
+        })
+        .from(schema.recordings)
+        .where(
+          and(
+            eq(schema.recordings.id, recordingId),
+            ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+          ),
+        );
+      if (
+        current?.status !== "uploading" ||
+        (current.uploadAttemptId ?? null) !== attemptId ||
+        (current.uploadGenerationId ?? null) !== generationId
+      ) {
+        setResponseStatus(event, 409);
+        return {
+          resumable: false,
+          recoveryEnabled: true,
+          recordingId,
+          status: current?.status ?? null,
+          reason: "upload_state_changed",
+        };
+      }
+      console.info(
+        `[upload-resume] upload state advanced under the same claim; preserving newer progress for ${recordingId}`,
+      );
+    }
     await writeAppState("refresh-signal", { ts: Date.now() });
 
     if (session) {

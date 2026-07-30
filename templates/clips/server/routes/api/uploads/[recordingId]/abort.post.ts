@@ -6,14 +6,13 @@
  */
 
 import {
-  deleteAppState,
+  compareAndSetManyAppState,
   readAppState,
   writeAppState,
-  deleteAppStateByPrefix,
 } from "@agent-native/core/application-state";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { isStoredButUnservableFinalizeError } from "@shared/finalize-recovery.js";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import {
   defineEventHandler,
   getRouterParam,
@@ -24,6 +23,7 @@ import {
 
 import { getDb, schema } from "../../../../db/index.js";
 import { mediaVerificationStateKey } from "../../../../lib/media-verification-state.js";
+import { deleteRecordingChunks } from "../../../../lib/recording-upload-state.js";
 import {
   getEventOwnerContext,
   ownerEmailMatches,
@@ -44,11 +44,25 @@ export default defineEventHandler(async (event: H3Event) => {
   const { userEmail: ownerEmail, orgId } = await getEventOwnerContext(event);
   const body = (await readBody(event).catch(() => null)) as {
     reason?: unknown;
+    attemptId?: unknown;
+    uploadGenerationId?: unknown;
   } | null;
   const failureReason =
     typeof body?.reason === "string" && body.reason.trim()
       ? body.reason.trim().slice(0, 1000)
       : "Upload aborted by user";
+  const requestedAttemptId =
+    typeof body?.attemptId === "string" &&
+    body.attemptId.length > 0 &&
+    body.attemptId.length <= 128
+      ? body.attemptId
+      : null;
+  const requestedGenerationId =
+    typeof body?.uploadGenerationId === "string" &&
+    body.uploadGenerationId.length > 0 &&
+    body.uploadGenerationId.length <= 128
+      ? body.uploadGenerationId
+      : null;
 
   return runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
     const db = getDb();
@@ -59,6 +73,8 @@ export default defineEventHandler(async (event: H3Event) => {
         status: schema.recordings.status,
         videoUrl: schema.recordings.videoUrl,
         failureReason: schema.recordings.failureReason,
+        uploadAttemptId: schema.recordings.uploadAttemptId,
+        uploadGenerationId: schema.recordings.uploadGenerationId,
       })
       .from(schema.recordings)
       .where(
@@ -73,17 +89,43 @@ export default defineEventHandler(async (event: H3Event) => {
       return { error: "Recording not found" };
     }
 
+    const existingAttemptId = existing.uploadAttemptId ?? null;
+    const existingGenerationId = existing.uploadGenerationId ?? null;
+    if (
+      requestedAttemptId !== existingAttemptId ||
+      requestedGenerationId !== existingGenerationId
+    ) {
+      setResponseStatus(event, 409);
+      return {
+        error: "A newer upload retry is already active.",
+        staleAttempt: true,
+      };
+    }
+
     if (existing.status === "ready" && existing.videoUrl) {
       return { ok: true, recordingId, alreadyReady: true, chunksCleared: 0 };
     }
 
-    const existingUploadStateRaw = await readAppState(
-      `recording-upload-${recordingId}`,
-    ).catch(() => null);
+    const uploadStateKey = `recording-upload-${recordingId}`;
+    const verificationStateKey = mediaVerificationStateKey(recordingId);
+    const [existingUploadStateRaw, existingVerificationStateRaw] =
+      await Promise.all([
+        readAppState(uploadStateKey),
+        readAppState(verificationStateKey),
+      ]);
     const existingUploadState =
       existingUploadStateRaw && typeof existingUploadStateRaw === "object"
         ? (existingUploadStateRaw as Record<string, unknown>)
         : {};
+    const existingUploadStateSnapshot =
+      existingUploadStateRaw && typeof existingUploadStateRaw === "object"
+        ? (existingUploadStateRaw as Record<string, unknown>)
+        : null;
+    const existingVerificationStateSnapshot =
+      existingVerificationStateRaw &&
+      typeof existingVerificationStateRaw === "object"
+        ? (existingVerificationStateRaw as Record<string, unknown>)
+        : null;
     if (
       existing.status === "processing" &&
       existingUploadState.pendingMediaVerification === true
@@ -99,46 +141,87 @@ export default defineEventHandler(async (event: H3Event) => {
     const preserveRecoveryState =
       isStoredButUnservableFinalizeError(failureReason) ||
       isStoredButUnservableFinalizeError(existing.failureReason);
-    const resumableSession = preserveRecoveryState
+    let resumableSession = preserveRecoveryState
       ? null
-      : await getResumableSession(recordingId).catch(() => null);
-
-    // Already a terminal failure (e.g. a duplicate/retried abort call, or
-    // finalize's own failChunkAssembly already flipped it) — no-op unless a
-    // prior provider cleanup failure intentionally retained a resumable
-    // session for this retry.
-    if (
-      existing.status === "failed" &&
-      !preserveRecoveryState &&
-      !resumableSession
-    ) {
-      return { ok: true, recordingId, alreadyFailed: true, chunksCleared: 0 };
-    }
+      : await getResumableSession(recordingId, existingGenerationId);
 
     const now = new Date().toISOString();
-    await db
+    const aborted = await db
       .update(schema.recordings)
       .set({
         status: "failed",
         failureReason,
         updatedAt: now,
       })
-      .where(eq(schema.recordings.id, recordingId));
+      .where(
+        and(
+          eq(schema.recordings.id, recordingId),
+          ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+          eq(schema.recordings.status, existing.status),
+          existingAttemptId === null
+            ? isNull(schema.recordings.uploadAttemptId)
+            : eq(schema.recordings.uploadAttemptId, existingAttemptId),
+          existingGenerationId === null
+            ? isNull(schema.recordings.uploadGenerationId)
+            : eq(schema.recordings.uploadGenerationId, existingGenerationId),
+        ),
+      )
+      .returning({ id: schema.recordings.id });
 
-    await writeAppState(`recording-upload-${recordingId}`, {
-      ...existingUploadState,
-      recordingId,
-      status: "failed",
-      failureReason,
-      updatedAt: now,
-    });
-    await deleteAppState(mediaVerificationStateKey(recordingId)).catch(
-      () => {},
-    );
+    if (aborted.length !== 1) {
+      setResponseStatus(event, 409);
+      return {
+        error: "A newer upload retry is already active.",
+        staleAttempt: true,
+      };
+    }
+
+    const auxiliaryStateUpdated = await compareAndSetManyAppState([
+      {
+        key: uploadStateKey,
+        expectedValue: existingUploadStateSnapshot,
+        nextValue: {
+          ...existingUploadState,
+          recordingId,
+          status: "failed",
+          failureReason,
+          updatedAt: now,
+        },
+      },
+      ...(existingVerificationStateSnapshot
+        ? [
+            {
+              key: verificationStateKey,
+              expectedValue: existingVerificationStateSnapshot,
+              nextValue: null,
+            },
+          ]
+        : []),
+    ]);
+    if (!auxiliaryStateUpdated) {
+      console.info(
+        `[abort] upload state changed after abort claim; preserving replacement state for ${recordingId}`,
+      );
+    }
+
+    // Reset may have started this exact generation's provider session after
+    // our preflight read but before the abort claim. Re-read after the row CAS
+    // so either abort observes the late handle or reset observes the lost row
+    // claim and compensates it.
+    if (!preserveRecoveryState) {
+      resumableSession = await getResumableSession(
+        recordingId,
+        existingGenerationId,
+      );
+    }
 
     const cleared = preserveRecoveryState
       ? 0
-      : await deleteAppStateByPrefix(`recording-chunks-${recordingId}-`);
+      : await deleteRecordingChunks(
+          ownerEmail,
+          recordingId,
+          existingGenerationId,
+        );
     if (!preserveRecoveryState) {
       if (resumableSession) {
         const provider = await resolveResumableUploadProvider(
@@ -166,10 +249,14 @@ export default defineEventHandler(async (event: H3Event) => {
         // retry can still address the multipart upload. Deleting it here would
         // permanently orphan the provider-side session.
         if (providerCleanupSucceeded) {
-          await deleteResumableSession(recordingId).catch(() => {});
+          await deleteResumableSession(recordingId, existingGenerationId).catch(
+            () => {},
+          );
         }
       } else {
-        await deleteResumableSession(recordingId).catch(() => {});
+        await deleteResumableSession(recordingId, existingGenerationId).catch(
+          () => {},
+        );
       }
     }
     await writeAppState("refresh-signal", { ts: Date.now() });

@@ -256,6 +256,25 @@ describe("/api/uploads/:recordingId/chunk route", () => {
     );
   });
 
+  it("rejects chunk indices that cannot fit the exact scratch-key contract", async () => {
+    setRequest({
+      query: {
+        index: "1000000",
+        total: "1000001",
+        mimeType: "video/webm",
+      },
+      body: new Uint8Array([1]),
+    });
+
+    await expect(handler({} as any)).rejects.toMatchObject({
+      message: "Invalid chunk index",
+      statusCode: 400,
+    });
+
+    expect(mockReadRawBody).not.toHaveBeenCalled();
+    expect(mockWriteAppState).not.toHaveBeenCalled();
+  });
+
   it("rejects a stale retry token before reading or storing its chunk", async () => {
     mockRenewUploadLease.mockResolvedValueOnce({
       held: false,
