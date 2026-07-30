@@ -75,6 +75,15 @@ describe("filterDirectA2AActions", () => {
       "raw-code": rawInput("code"),
       "raw-script": rawInput("script"),
       "raw-expression": rawInput("expression"),
+      "raw-optional-sql": action({
+        tool: {
+          description: "Run optional SQL",
+          parameters: {
+            type: "object",
+            properties: { sql: { type: ["string", "null"] } },
+          },
+        },
+      }),
       // `query` is search text in every template that takes it (Brain's
       // search-everything/search-knowledge), not a query language. Blocking it
       // would break the ask-don't-instruct calls this rule encourages.

@@ -93,11 +93,14 @@ export function hasRawQueryInput(entry: ActionEntry): boolean {
     | undefined;
   const properties = parameters?.properties;
   if (!properties || typeof properties !== "object") return false;
-  return Object.entries(properties).some(
-    ([field, schema]) =>
-      RAW_QUERY_INPUT_FIELDS.has(field.toLowerCase()) &&
-      (schema?.type === "string" || schema?.type === undefined),
-  );
+  return Object.entries(properties).some(([field, schema]) => {
+    const type = schema?.type;
+    const acceptsString =
+      type === "string" ||
+      type === undefined ||
+      (Array.isArray(type) && type.includes("string"));
+    return RAW_QUERY_INPUT_FIELDS.has(field.toLowerCase()) && acceptsString;
+  });
 }
 
 /**
