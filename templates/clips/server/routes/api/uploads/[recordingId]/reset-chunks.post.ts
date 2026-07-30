@@ -104,6 +104,7 @@ export default defineEventHandler(async (event: H3Event) => {
     mimeType?: string;
     attemptId?: string;
     uploadGenerationId?: string;
+    useGenerationFence?: boolean;
   } | null;
   const recoveryEnabled = await isFeatureFlagEnabled(UPLOAD_RETRY_RESUME_FLAG, {
     userEmail: ownerEmail,
@@ -200,7 +201,15 @@ export default defineEventHandler(async (event: H3Event) => {
     // Fence this reset before deleting any provider or buffered state. A
     // retry that lost the token race must not tear down the winner's session.
     const now = new Date().toISOString();
-    const nextGenerationId = recoveryEnabled ? randomUUID() : null;
+    // Only clients that can carry the returned generation may opt into the
+    // fence. Retry claims always opt in; legacy reset callers keep the null
+    // generation wire contract until they are upgraded.
+    const useGenerationFence =
+      recoveryEnabled &&
+      (requestedAttemptId !== null ||
+        requestedGenerationId !== null ||
+        body?.useGenerationFence === true);
+    const nextGenerationId = useGenerationFence ? randomUUID() : null;
     const reset = await db
       .update(schema.recordings)
       .set({

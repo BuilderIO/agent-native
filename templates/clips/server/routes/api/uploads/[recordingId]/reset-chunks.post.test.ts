@@ -22,6 +22,7 @@ const mockExistingRecording = vi.hoisted(() => ({
     status: "uploading",
     videoUrl: null as string | null,
     uploadAttemptId: null as string | null,
+    uploadGenerationId: null as string | null,
   },
 }));
 const mockDb = vi.hoisted(() => ({
@@ -87,6 +88,7 @@ vi.mock("../../../../db/index.js", () => ({
       status: "recordings.status",
       videoUrl: "recordings.videoUrl",
       uploadAttemptId: "recordings.uploadAttemptId",
+      uploadGenerationId: "recordings.uploadGenerationId",
       failureReason: "recordings.failureReason",
       uploadProgress: "recordings.uploadProgress",
       updatedAt: "recordings.updatedAt",
@@ -146,6 +148,7 @@ describe("/api/uploads/:recordingId/reset-chunks route", () => {
       status: "uploading",
       videoUrl: null,
       uploadAttemptId: null,
+      uploadGenerationId: null,
     };
     mockStartSession.mockResolvedValue({
       sessionId: "session-1",
@@ -163,13 +166,17 @@ describe("/api/uploads/:recordingId/reset-chunks route", () => {
     mockReadBody.mockResolvedValue({
       requestStreaming: true,
       mimeType: "video/webm",
+      useGenerationFence: true,
     });
 
     await expect(handler({} as any)).resolves.toEqual(
-      expect.objectContaining({ ok: true }),
+      expect.objectContaining({ ok: true, uploadGenerationId: null }),
     );
     expect(mockUpdateSets).toContainEqual(
-      expect.objectContaining({ uploadAttemptId: null }),
+      expect.objectContaining({
+        uploadAttemptId: null,
+        uploadGenerationId: null,
+      }),
     );
   });
 
@@ -177,6 +184,7 @@ describe("/api/uploads/:recordingId/reset-chunks route", () => {
     mockReadBody.mockResolvedValue({
       requestStreaming: true,
       mimeType: "video/webm;codecs=vp9,opus",
+      useGenerationFence: true,
     });
 
     await expect(handler({} as any)).resolves.toEqual(
@@ -185,6 +193,7 @@ describe("/api/uploads/:recordingId/reset-chunks route", () => {
         recordingId: "rec-1",
         uploadMode: "streaming",
         chunksCleared: 3,
+        uploadGenerationId: expect.any(String),
       }),
     );
 
@@ -207,6 +216,43 @@ describe("/api/uploads/:recordingId/reset-chunks route", () => {
     );
   });
 
+  it("fences a claimed retry even without the browser opt-in", async () => {
+    mockExistingRecording.current.uploadAttemptId = "attempt-1";
+    mockReadBody.mockResolvedValue({ attemptId: "attempt-1" });
+
+    await expect(handler({} as any)).resolves.toEqual(
+      expect.objectContaining({ uploadGenerationId: expect.any(String) }),
+    );
+
+    expect(mockUpdateSets).toContainEqual(
+      expect.objectContaining({ uploadGenerationId: expect.any(String) }),
+    );
+  });
+
+  it("keeps legacy native resets on the unfenced generation contract", async () => {
+    mockReadBody.mockResolvedValue({
+      requestStreaming: true,
+      mimeType: "video/mp4",
+    });
+
+    await expect(handler({} as any)).resolves.toEqual(
+      expect.objectContaining({
+        ok: true,
+        uploadMode: "streaming",
+        uploadGenerationId: null,
+      }),
+    );
+
+    expect(mockUpdateSets).toContainEqual(
+      expect.objectContaining({ uploadGenerationId: null }),
+    );
+    expect(mockSetResumableSession).toHaveBeenCalledWith(
+      "rec-1",
+      expect.any(Object),
+      null,
+    );
+  });
+
   it("keeps an explicitly buffered reset on the buffered path", async () => {
     mockReadBody.mockResolvedValue({});
     mockAllowsSqlRecordingChunkScratch.mockReturnValue(true);
@@ -226,6 +272,7 @@ describe("/api/uploads/:recordingId/reset-chunks route", () => {
       status: "ready",
       videoUrl: "https://cdn.example/video.webm",
       uploadAttemptId: null,
+      uploadGenerationId: null,
     };
 
     await expect(handler({} as any)).resolves.toEqual({
@@ -245,6 +292,7 @@ describe("/api/uploads/:recordingId/reset-chunks route", () => {
       status: "processing",
       videoUrl: "https://cdn.example/video.webm",
       uploadAttemptId: null,
+      uploadGenerationId: null,
     };
     mockIsMediaVerificationPending.mockResolvedValue(true);
 
