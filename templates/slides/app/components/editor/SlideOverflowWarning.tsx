@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 interface SlideOverflowWarningProps {
   verticalOverflow: number;
   isAskingAgentToFix: boolean;
+  dismissLabel: string;
   onFix: () => void;
   onDismiss: () => void;
 }
@@ -12,6 +13,7 @@ interface SlideOverflowWarningProps {
 export function SlideOverflowWarning({
   verticalOverflow,
   isAskingAgentToFix,
+  dismissLabel,
   onFix,
   onDismiss,
 }: SlideOverflowWarningProps) {
@@ -41,8 +43,8 @@ export function SlideOverflowWarning({
         variant="ghost"
         className="size-6 cursor-pointer text-amber-50 hover:bg-amber-400/20 hover:text-white"
         onClick={onDismiss}
-        aria-label="Dismiss layout warning"
-        title="Dismiss layout warning"
+        aria-label={dismissLabel}
+        title={dismissLabel}
       >
         <IconX className="size-3.5" />
       </Button>

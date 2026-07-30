@@ -529,6 +529,7 @@ const messages = {
     deckHasNoSlides: "डेक में कोई स्लाइड नहीं है।",
     pdfRenderFailed: "PDF रेंडर नहीं हो सका।",
     buildingDeck: "डेक बनाया जा रहा है",
+    dismissLayoutWarning: "लेआउट चेतावनी बंद करें",
     slidesAdded_one: "{{count}} स्लाइड जोड़ी गई",
     slidesAdded_other: "{{count}} स्लाइड जोड़ी गईं",
   },

@@ -21,6 +21,7 @@ describe("SlideEditor layout overflow warning", () => {
       <SlideOverflowWarning
         verticalOverflow={59}
         isAskingAgentToFix={false}
+        dismissLabel="Dismiss layout warning"
         onFix={() => {}}
         onDismiss={() => {}}
       />,
@@ -50,6 +51,7 @@ describe("SlideEditor layout overflow warning", () => {
         <SlideOverflowWarning
           verticalOverflow={59}
           isAskingAgentToFix={false}
+          dismissLabel="Dismiss layout warning"
           onFix={() => {}}
           onDismiss={onDismiss}
         />

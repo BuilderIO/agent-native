@@ -535,6 +535,7 @@ const messages = {
     deckHasNoSlides: "Deck has no slides.",
     pdfRenderFailed: "Could not render PDF.",
     buildingDeck: "Building deck",
+    dismissLayoutWarning: "Dismiss layout warning",
     slidesAdded_one: "{{count}} slide added",
     slidesAdded_other: "{{count}} slides added",
   },

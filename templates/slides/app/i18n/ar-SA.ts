@@ -547,6 +547,7 @@ const messages = {
     deckHasNoSlides: "El deck no tiene diapositivas.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",
+    dismissLayoutWarning: "تجاهل تحذير التخطيط",
     slidesAdded_zero: "{{count}} diapositivas añadidas",
     slidesAdded_one: "{{count}} diapositiva añadida",
     slidesAdded_two: "{{count}} diapositivas añadidas",

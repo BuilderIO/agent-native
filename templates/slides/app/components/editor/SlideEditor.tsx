@@ -4092,6 +4092,7 @@ export default function SlideEditor({
                           <SlideOverflowWarning
                             verticalOverflow={overflowInfo.verticalOverflow}
                             isAskingAgentToFix={isAskingAgentToFix}
+                            dismissLabel={t("deckEditor.dismissLayoutWarning")}
                             onFix={handleAskAgentToFixLayout}
                             onDismiss={() =>
                               setIsOverflowWarningDismissed(true)
