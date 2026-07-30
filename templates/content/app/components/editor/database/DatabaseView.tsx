@@ -1177,6 +1177,7 @@ function DatabaseTable({
       onError?: () => void,
       expectedBuilderContinuationOffset?: number,
       onSuccess?: () => void,
+      fullRefresh = false,
     ) => {
       if (!acquireDatabaseSourceOperation(refreshSourceInFlightRef, sourceId)) {
         return false;
@@ -1186,6 +1187,7 @@ function DatabaseTable({
           documentId: document.id,
           sourceId,
           expectedBuilderContinuationOffset,
+          fullRefresh: fullRefresh || undefined,
         },
         {
           onError,
@@ -1288,6 +1290,7 @@ function DatabaseTable({
         () => handleBuilderContinuationError(continuationKey),
         candidate.metadata.lastReadNextOffset,
         () => handleBuilderContinuationSuccess(continuationKey),
+        true,
       )
     ) {
       autoContinueBuilderSourceRef.current.delete(continuationKey);
@@ -1367,6 +1370,7 @@ function DatabaseTable({
           () => handleBuilderContinuationError(continuationKey),
           candidate.metadata.lastReadNextOffset,
           () => handleBuilderContinuationSuccess(continuationKey),
+          true,
         )
       ) {
         builderContinuationWatchdogRef.current.set(
@@ -2657,6 +2661,7 @@ function DatabaseTable({
                 () => handleBuilderContinuationError(continuationKey),
                 builderSource.metadata.lastReadNextOffset,
                 () => handleBuilderContinuationSuccess(continuationKey),
+                true,
               );
             }}
           />
@@ -7944,6 +7949,7 @@ function DatabaseSettingsSourcePanel({
   const builderSources = databaseAttachedBuilderSources(sources, source);
   const builderStatus = useBuilderStatus();
   const builderConfigured = builderStatus.status?.configured === true;
+  const builderModelsQuery = useBuilderCmsModels(builderConfigured);
   const builderOrgName = builderStatus.status?.orgName ?? null;
   // Real space name(s) from the Admin API, falling back to the generic org
   // name (then a constant) so the drill-down never renders a blank label.
@@ -8196,6 +8202,7 @@ function DatabaseSettingsSourcePanel({
     return (
       <BuilderSpaceModelsView
         attachedModelNames={databaseAttachedBuilderModelNames(sources, source)}
+        modelsQuery={builderModelsQuery}
         onOpenModel={(model) => {
           const attached = databaseAttachedBuilderSource(sources, source, {
             modelName: model.name,
@@ -9894,12 +9901,13 @@ function SourceDetailsFieldPicker({
 // is marked; selecting a row opens that model's leaf.
 function BuilderSpaceModelsView({
   attachedModelNames,
+  modelsQuery,
   onOpenModel,
 }: {
   attachedModelNames: string[];
+  modelsQuery: ReturnType<typeof useBuilderCmsModels>;
   onOpenModel: (model: BuilderCmsModelSummary) => void;
 }) {
-  const modelsQuery = useBuilderCmsModels(true);
   const models = modelsQuery.data?.models ?? [];
   const [query, setQuery] = useState("");
 
