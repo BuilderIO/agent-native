@@ -113,6 +113,33 @@ describe("parseSlideHtml", () => {
     ).not.toThrow();
   });
 
+  it("exports direct full-bleed images and preserves slide typography", () => {
+    const parsed = parseSlideHtml(
+      `<div class="fmd-slide" style="font-family: 'Inter', sans-serif;">
+        <img src="https://cdn.example/background.png" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;" />
+        <h1 style="font-size: 48px; font-weight: 700; color: #ff0000; text-align: center;">Headline</h1>
+      </div>`,
+      "16:9",
+      1,
+    );
+
+    expect(parsed.images).toEqual([
+      {
+        src: "https://cdn.example/background.png",
+        x: 0,
+        y: 0,
+        w: 13.33,
+        h: 7.5,
+      },
+    ]);
+    expect(parsed.texts[0]).toMatchObject({
+      text: "Headline",
+      fontFace: "Inter",
+      align: "center",
+      color: "FF0000",
+    });
+  });
+
   it("rejects the persisted freeform class even if its object id is absent", () => {
     expect(() =>
       assertServerPptxExportable(

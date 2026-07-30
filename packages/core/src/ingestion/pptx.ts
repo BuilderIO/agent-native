@@ -4,6 +4,7 @@ export interface ParsedPptxTextRun {
   italic?: boolean;
   fontSize?: number;
   color?: string;
+  fontFace?: string;
   /** Zero-based source paragraph index, when the PPTX contains paragraph nodes. */
   paragraph?: number;
 }
@@ -94,7 +95,7 @@ export async function parsePptxPresentation(
       continue;
     }
     const texts: ParsedPptxTextRun[] = [];
-    collectTextRuns(slide, texts);
+    collectTextRunsFromXml(xml, parseXml, texts);
     const images: ParsedPptxImage[] = [];
     const relationshipPath = slidePath.replace(
       /slides\/(slide\d+\.xml)/,
@@ -169,7 +170,7 @@ export async function parsePptxPresentation(
     let notes: string | undefined;
     if (notesXml) {
       const runs: ParsedPptxTextRun[] = [];
-      collectTextRuns(parseXml(notesXml), runs);
+      collectTextRunsFromXml(notesXml, parseXml, runs);
       const value = runs
         .map((run) => run.content)
         .join(" ")
@@ -259,6 +260,53 @@ function collectTextRuns(
     for (const item of asArray(child)) {
       collectTextRuns(item, runs, inherited, state);
     }
+  }
+}
+
+function collectTextRunsFromXml(
+  xml: string,
+  parseXml: (xml: string) => unknown,
+  runs: ParsedPptxTextRun[],
+): void {
+  const paragraphPattern = /<a:p\b[^>]*>([\s\S]*?)<\/a:p>/gi;
+  const tokenPattern = /<a:r\b[\s\S]*?<\/a:r>|<a:br\b[^>]*\/?>/gi;
+  let paragraphIndex = 0;
+  let matchedParagraph = false;
+  let paragraphMatch: RegExpExecArray | null;
+
+  while ((paragraphMatch = paragraphPattern.exec(xml))) {
+    matchedParagraph = true;
+    const paragraphXml = paragraphMatch[1];
+    tokenPattern.lastIndex = 0;
+    let tokenMatch: RegExpExecArray | null;
+    while ((tokenMatch = tokenPattern.exec(paragraphXml))) {
+      const token = tokenMatch[0];
+      if (/^<a:br\b/i.test(token)) {
+        const previous = runs.at(-1);
+        if (previous?.paragraph === paragraphIndex) {
+          previous.content += "\n";
+        } else {
+          runs.push({ content: "\n", paragraph: paragraphIndex });
+        }
+        continue;
+      }
+
+      const parsedRun = record(parseXml(token));
+      const run = record(parsedRun?.["a:r"]);
+      const content = innerText(run?.["a:t"]);
+      if (content) {
+        runs.push({
+          content,
+          paragraph: paragraphIndex,
+          ...runProperties(record(run?.["a:rPr"]), {}),
+        });
+      }
+    }
+    paragraphIndex += 1;
+  }
+
+  if (!matchedParagraph) {
+    collectTextRuns(parseXml(xml), runs);
   }
 }
 
@@ -539,6 +587,7 @@ function runProperties(
   const rgb = stringValue(
     record(record(value["a:solidFill"])?.["a:srgbClr"])?.["@_val"],
   );
+  const fontFace = stringValue(record(value["a:latin"])?.["@_typeface"]);
   return {
     ...inherited,
     ...(value["@_b"] === "1" || value["@_b"] === 1 || value["@_b"] === true
@@ -549,6 +598,9 @@ function runProperties(
       : {}),
     ...(Number.isFinite(size) && size > 0 ? { fontSize: size / 100 } : {}),
     ...(rgb ? { color: `#${rgb}` } : {}),
+    ...(fontFace && fontFace !== "+mj-lt" && fontFace !== "+mn-lt"
+      ? { fontFace }
+      : {}),
   };
 }
 

@@ -52,6 +52,14 @@ function formatRun(run: ParsedTextRun): string {
   let text = esc(run.content);
   if (run.color)
     text = `<span style="color: ${esc(run.color)};">${text}</span>`;
+  if (run.fontSize)
+    text = `<span style="font-size: ${run.fontSize * (4 / 3)}px;">${text}</span>`;
+  if (run.fontFace) {
+    const safeFont = run.fontFace.replace(/["']/g, "").trim();
+    if (safeFont) {
+      text = `<span style="font-family: '${esc(safeFont)}', sans-serif;">${text}</span>`;
+    }
+  }
   if (run.bold) text = `<strong>${text}</strong>`;
   if (run.italic) text = `<em>${text}</em>`;
   return text;
