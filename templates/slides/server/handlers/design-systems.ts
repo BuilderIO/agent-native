@@ -127,6 +127,7 @@ export const createDesignSystem = defineEventHandler(async (event) => {
       isDefault: body.isDefault ?? false,
       ownerEmail: email,
       orgId: orgId ?? null,
+      visibility: orgId ? "org" : "private",
       createdAt: now,
       updatedAt: now,
     });

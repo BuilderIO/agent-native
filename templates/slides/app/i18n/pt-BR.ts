@@ -419,6 +419,10 @@ const messages = {
     emerald: "Emerald",
     amber: "Amber",
     rose: "Rose",
+    arrange: "Organizar",
+    order: "Ordem",
+    bringToFront: "Trazer para frente",
+    sendToBack: "Enviar para trás",
   },
   animations: {
     appear: "Aparecer",
@@ -539,6 +543,7 @@ const messages = {
     deckHasNoSlides: "El deck no tiene diapositivas.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",
+    dismissLayoutWarning: "Dispensar aviso de layout",
     slidesAdded_one: "{{count}} diapositiva añadida",
     slidesAdded_other: "{{count}} diapositivas añadidas",
     slidesAdded_many: "{{count}} diapositivas añadidas",
@@ -551,6 +556,31 @@ const messages = {
     figParseFailed:
       "Não foi possível iniciar a indexação do Builder para esse arquivo Figma.",
     updated: "Sistema de design atualizado",
+    sourceLabel: "Fonte",
+    sourceFigma: "Arquivo do Figma",
+    sourceCode: "Arquivos de código",
+    sourceGitHub: "Repositório do GitHub",
+    sourceMixed: "Várias fontes",
+    sourceBuilder: "Inteligência de sistemas de design do Builder",
+    sourceIndexing: "Indexando",
+    sourceIndexed: "Indexado",
+    sourceUnavailable: "Resultados indisponíveis",
+    sourceIndexingDescription:
+      "O Builder ainda está processando esta fonte. Os resultados aparecerão aqui quando estiverem prontos.",
+    sourceIndexedDescription:
+      "{{docs}} documentos · {{tokens}} tokens indexados",
+    sourceIndexedDocsOnly: "{{docs}} documentos indexados",
+    sourceIndexedTokensOnly: "{{tokens}} tokens indexados",
+    sourceUnavailableDescription:
+      "O Builder não conseguiu carregar os resultados mais recentes da fonte.",
+    sourceOpenInBuilder: "Abrir no Builder",
+    loadFailed:
+      "Não foi possível carregar este sistema de design. Feche e tente novamente.",
+    otherSources: "Outro",
+    otherSourcesDescription:
+      "Conecte-se de um site, código, arquivos ou um sistema de design existente.",
+    chooseSourcePrompt: "Escolha uma fonte para configurar",
+    loading: "Carregando sistema de design",
     updateFailed: "Falha ao atualizar",
     generationStarted: "Geração do sistema de design iniciada",
     generationStartedDescription:

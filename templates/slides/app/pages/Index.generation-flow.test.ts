@@ -44,9 +44,13 @@ describe("new deck generation flow", () => {
     const addSlideInstructionIndex = flow.indexOf(
       "Add slides ONE AT A TIME using the `add-slide` action",
     );
+    const sparseTitleInstructionIndex = flow.indexOf(
+      "Include only `title` in `fields`; omit all other optional fields.",
+    );
 
     expect(titleInstructionIndex).toBeGreaterThan(-1);
     expect(titlePatchIndex).toBeGreaterThan(titleInstructionIndex);
+    expect(sparseTitleInstructionIndex).toBeGreaterThan(titlePatchIndex);
     expect(addSlideInstructionIndex).toBeGreaterThan(titlePatchIndex);
   });
 });

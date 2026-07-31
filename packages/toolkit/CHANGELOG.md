@@ -1,5 +1,20 @@
 # @agent-native/toolkit
 
+## 0.12.1
+
+### Patch Changes
+
+- 89e5910: Memoize the composer runtime adapters context value so consumer effects stop
+  re-running on every provider render. The voice input preference was re-read from
+  app state, and the sidebar-state listener re-subscribed, once per render.
+
+## 0.12.0
+
+### Minor Changes
+
+- c0e7d64: Add reusable canvas drawing, text annotation, and pinned agent-comment controls.
+- c0e7d64: Add a reusable canvas interaction controller for text activation, shortcuts, moving, resizing, duplication, and gesture lifecycle.
+
 ## 0.11.2
 
 ### Patch Changes

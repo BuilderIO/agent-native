@@ -88,6 +88,7 @@ import {
 } from "./agent-sidebar-state.js";
 import { trackEvent } from "./analytics.js";
 import { agentNativePath, appPath } from "./api-path.js";
+import { readClientAppState } from "./application-state.js";
 import { assistantUiRecoverableRenderErrorKind } from "./assistant-ui-recovery.js";
 import type { AssistantChatProps } from "./AssistantChat.js";
 import { shouldParentFrameOwnAgentPanel } from "./builder-frame.js";
@@ -2356,13 +2357,7 @@ function URLSync({ browserTabId }: { browserTabId?: string }) {
     queryKey: setUrlQueryKey,
     queryFn: async () => {
       const read = async (key: string) => {
-        const res = await fetch(
-          agentNativePath(`/_agent-native/application-state/${key}`),
-        );
-        if (!res.ok || res.status === 204) return null;
-        const text = await res.text();
-        if (!text) return null;
-        const data = JSON.parse(text);
+        const data = await readClientAppState<Record<string, unknown>>(key);
         return data ? { key, command: data } : null;
       };
       try {

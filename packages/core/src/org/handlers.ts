@@ -46,6 +46,7 @@ import { readBody } from "../server/h3-helpers.js";
 import { setActiveOrgId } from "./active-org.js";
 import { getOrgContext, createOrganization } from "./context.js";
 import { isFreeEmailProvider } from "./free-email-providers.js";
+import { invalidateRequestMemberOrgIds } from "./request-org-cache.js";
 import type { OrgRole } from "./types.js";
 import { parseWorkspaceUrl } from "./workspace-url.js";
 
@@ -505,6 +506,7 @@ export const acceptInvitationHandler = defineEventHandler(
       sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)`,
       args: [nanoid(), invOrgId, email, inviteRole, Date.now()],
     });
+    invalidateRequestMemberOrgIds();
 
     await e.execute({
       sql: `UPDATE org_invitations SET status = 'accepted' WHERE id = ?`,
@@ -574,6 +576,7 @@ export const removeMemberHandler = defineEventHandler(
       sql: `DELETE FROM org_members WHERE org_id = ? AND LOWER(email) = ?`,
       args: [ctx.orgId, memberEmailLower],
     });
+    invalidateRequestMemberOrgIds();
 
     return { success: true };
   },
@@ -772,6 +775,8 @@ export const deleteOrgHandler = defineEventHandler(async (event: H3Event) => {
     });
   }
 
+  invalidateRequestMemberOrgIds();
+
   const nextRes = await e.execute({
     sql: `SELECT org_id AS "orgId" FROM org_members WHERE LOWER(email) = ? LIMIT 1`,
     args: [ctx.email.toLowerCase()],
@@ -875,6 +880,7 @@ export const joinByDomainHandler = defineEventHandler(
       sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, 'member', ?)`,
       args: [nanoid(), orgId, email, Date.now()],
     });
+    invalidateRequestMemberOrgIds();
 
     await setActiveOrgId(email, orgId, "joined domain-matched organization");
 

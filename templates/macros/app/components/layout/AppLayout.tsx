@@ -254,13 +254,17 @@ function SidebarContent({
               src={appPath("/agent-native-icon-light.svg")}
               alt=""
               aria-hidden="true"
-              className="block h-4 w-auto shrink-0 dark:hidden"
+              width={28}
+              height={16}
+              className="block h-4 w-7 shrink-0 object-contain object-center dark:hidden"
             />
             <img
               src={appPath("/agent-native-icon-dark.svg")}
               alt=""
               aria-hidden="true"
-              className="hidden h-4 w-auto shrink-0 dark:block"
+              width={28}
+              height={16}
+              className="hidden h-4 w-7 shrink-0 object-contain object-center dark:block"
             />
             <span className="font-logo truncate text-sm font-bold tracking-tight text-foreground">
               {t("navigation.brand")}

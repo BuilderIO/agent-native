@@ -7,6 +7,7 @@ vi.mock("@agent-native/core/server", () => ({
 import {
   estimateTextWidth,
   REPORT_CHART_FONT_FAMILY,
+  renderFunnelChartSvg,
   renderReportChartSvg,
   type ReportChartType,
 } from "./report-chart-svg.js";
@@ -102,7 +103,12 @@ function xAxisLabels(
 }
 
 describe("renderReportChartSvg", () => {
-  const types: ReportChartType[] = ["bar", "line", "area", "pie"];
+  const types: Array<Exclude<ReportChartType, "funnel">> = [
+    "bar",
+    "line",
+    "area",
+    "pie",
+  ];
 
   it.each(types)("renders an svg for %s", (type) => {
     const svg = renderReportChartSvg({
@@ -551,5 +557,34 @@ describe("renderReportChartSvg", () => {
       series: [{ label: "Signups", data: [1, null, -3, 7] }],
     };
     expect(renderReportChartSvg(args)).toBe(renderReportChartSvg(args));
+  });
+});
+
+describe("renderFunnelChartSvg", () => {
+  it("renders ordered stages with conversion metadata", () => {
+    const svg = renderFunnelChartSvg({
+      title: "Pipeline",
+      rows: [
+        {
+          label: "Visited",
+          value: 100,
+          percentOfFirst: 100,
+          dropOffPercent: null,
+        },
+        {
+          label: "Signed up",
+          value: 50,
+          percentOfFirst: 50,
+          dropOffPercent: 50,
+        },
+      ],
+      width: 720,
+      height: 360,
+    });
+
+    expect(svg).toContain("Visited");
+    expect(svg).toContain("Signed up");
+    expect(svg).toContain("↓50.0%");
+    expect(svg).toContain('aria-label="Pipeline"');
   });
 });

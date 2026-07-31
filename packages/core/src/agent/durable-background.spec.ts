@@ -14,6 +14,7 @@ import {
   isAgentChatDurableBackgroundEnabled,
   isAgentChatForegroundSelfChainEnabled,
   isHostedRuntimeForDurableBackground,
+  isNetlifyHostedRuntimeForDurableBackground,
   isInBackgroundFunctionRuntime,
   prepareProcessRunRequest,
   resolveAgentChatProcessRunDispatchPath,
@@ -23,10 +24,9 @@ import {
 
 /**
  * The single gate that decides whether a long agent-chat turn is routed through
- * the server-driven background worker. Phase-1 GUARDRAIL: this must be false
- * (→ unchanged synchronous path) unless ALL of {deploy-emitted background
- * function, hosted runtime, A2A_SECRET set} hold. These tests pin every leg of
- * that AND.
+ * the server-driven background worker. On deployed Netlify it is enabled by
+ * default unless explicitly disabled; on other hosts it remains opt-in. These
+ * tests pin the host, secret, and opt-out legs of that gate.
  */
 
 // Env keys the gate reads, snapshotted/cleared so each case is isolated.
@@ -84,23 +84,23 @@ describe("durable-background constants", () => {
   });
 });
 
-describe("isAgentChatDurableBackgroundEnabled (default-off opt-in gate)", () => {
+describe("isAgentChatDurableBackgroundEnabled (Netlify default-on gate)", () => {
   it("is OFF with nothing configured (not hosted, no secret — gates compose)", () => {
     expect(isAgentChatDurableBackgroundEnabled()).toBe(false);
   });
 
-  it("is OFF BY DEFAULT (flag unset) even when hosted + secret are present", () => {
+  it("is ON BY DEFAULT when deployed on Netlify with a secret", () => {
     makeHosted();
     process.env.A2A_SECRET = "shhh";
     delete process.env.AGENT_CHAT_DURABLE_BACKGROUND;
-    expect(isAgentChatDurableBackgroundEnabled()).toBe(false);
+    expect(isAgentChatDurableBackgroundEnabled()).toBe(true);
   });
 
-  it("is OFF for a single-template app opt-in when the deploy-time env flag is unset", () => {
+  it("does not require an app plugin opt-in on deployed Netlify", () => {
     makeHosted();
     process.env.A2A_SECRET = "shhh";
     delete process.env.AGENT_CHAT_DURABLE_BACKGROUND;
-    expect(isAgentChatDurableBackgroundEnabled({ appOptIn: true })).toBe(false);
+    expect(isAgentChatDurableBackgroundEnabled({ appOptIn: true })).toBe(true);
   });
 
   it("is ON when a workspace app opts in through plugin options (hosted + secret)", () => {
@@ -111,7 +111,7 @@ describe("isAgentChatDurableBackgroundEnabled (default-off opt-in gate)", () => 
     expect(isAgentChatDurableBackgroundEnabled({ appOptIn: true })).toBe(true);
   });
 
-  it("is ON only when explicitly opted in via a truthy flag (hosted + secret)", () => {
+  it("stays ON for truthy flag values (hosted + secret)", () => {
     makeHosted();
     process.env.A2A_SECRET = "shhh";
     for (const val of ["1", "true", "yes", "on", " TRUE "]) {
@@ -129,22 +129,29 @@ describe("isAgentChatDurableBackgroundEnabled (default-off opt-in gate)", () => 
     );
   });
 
-  it("is OFF for falsy, unrecognized, or empty flag values (default-off)", () => {
+  it("is OFF for explicit falsy flag values", () => {
     makeHosted();
     process.env.A2A_SECRET = "shhh";
-    for (const val of [
-      "0",
-      "false",
-      "no",
-      "off",
-      "FALSE",
-      " Off ",
-      "",
-      "maybe",
-    ]) {
+    for (const val of ["0", "false", "no", "off", "FALSE", " Off "]) {
       process.env.AGENT_CHAT_DURABLE_BACKGROUND = val;
       expect(isAgentChatDurableBackgroundEnabled()).toBe(false);
     }
+  });
+
+  it("stays ON for empty or unrecognized values because only explicit false opts out", () => {
+    makeHosted();
+    process.env.A2A_SECRET = "shhh";
+    for (const val of ["", "maybe"]) {
+      process.env.AGENT_CHAT_DURABLE_BACKGROUND = val;
+      expect(isAgentChatDurableBackgroundEnabled()).toBe(true);
+    }
+  });
+
+  it("is OFF by default on other hosted runtimes", () => {
+    process.env.VERCEL = "1";
+    process.env.A2A_SECRET = "shhh";
+    expect(isNetlifyHostedRuntimeForDurableBackground()).toBe(false);
+    expect(isAgentChatDurableBackgroundEnabled()).toBe(false);
   });
 
   it("lets an explicit false env flag disable workspace app opt-in", () => {
@@ -261,6 +268,7 @@ describe("isAgentChatForegroundSelfChainEnabled (default-off opt-in gate)", () =
     makeHosted();
     process.env.A2A_SECRET = "shhh";
     process.env.AGENT_CHAT_FOREGROUND_SELF_CHAIN = "true";
+    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "false";
     expect(isAgentChatForegroundSelfChainEnabled()).toBe(true);
     expect(isAgentChatDurableBackgroundEnabled()).toBe(false);
 

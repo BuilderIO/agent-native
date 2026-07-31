@@ -40,6 +40,26 @@ describe("Analytics dashboard panel source resolver registry", () => {
     ).toEqual(["demo", "program"]);
   });
 
+  it("passes a panel timeout through to the Analytics query runner", async () => {
+    const context = { userEmail: "alice@example.com", orgId: "org-1" };
+    mocks.runDashboardPanelQuery.mockResolvedValue({
+      rows: [],
+      schema: [],
+    });
+
+    await resolveAnalyticsPanelSource(
+      { source: "demo", query: "up", timeoutMs: 147 },
+      context,
+    );
+
+    expect(mocks.runDashboardPanelQuery).toHaveBeenCalledWith({
+      source: "demo",
+      query: "up",
+      ctx: context,
+      timeoutMs: 147,
+    });
+  });
+
   it("fails loudly when no source resolver is registered", async () => {
     await expect(
       resolveAnalyticsPanelSource(

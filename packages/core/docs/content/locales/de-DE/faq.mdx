@@ -26,7 +26,7 @@ Agent-native ist für Leute gedacht, die möchten, dass eine echte App und ein K
 
 ### Wie unterscheidet sich das vom Hinzufügen von KI zu einer vorhandenen App? {#how-is-this-different}
 
-Bei den meisten Apps wird die KI nachträglich eingebaut, sodass sie in der App eigentlich keine Aufgaben erledigen kann. In einer agentennativen App ist der Agent ein erstklassiger Bürger, der dasselbe actions, dieselbe Datenbank und denselben Status wie UI verwendet, sodass er alles tun kann, was die Schaltflächen können – und den eigenen Code der App ändern kann. Siehe [What Is Agent-Native?](/docs/what-is-agent-native#the-ladder).
+Bei den meisten Apps wird die KI nachträglich eingebaut, sodass sie in der App eigentlich keine Aufgaben erledigen kann. In einer agentennativen App ist der Agent ein erstklassiger Bürger, der dasselbe actions, dieselbe Datenbank und denselben Status wie UI verwendet, sodass er alles tun kann, was die Schaltflächen können. Siehe [What Is Agent-Native?](/docs/what-is-agent-native#the-ladder).
 
 <Diagram id="doc-block-bhe28x" title="Angeschraubte KI vs. agent-native" summary={"Eine angeschraubte Chat-Seitenleiste lebt in einer eigenen Welt. Ein agent-native-Agent nutzt dieselben Aktionen, dieselben Datenbanken und denselben Status wie die Benutzeroberfläche."}>
 
@@ -126,7 +126,7 @@ Das Framework wird mit produktionsbereiten Vorlagen geliefert, darunter [Chat](/
 
 ### Kann ich Vorlagen anpassen? {#can-i-customize-templates}
 
-Das ist der springende Punkt. Forken Sie eine Vorlage und passen Sie sie an, indem Sie den Agenten fragen. „Fügen Sie den Formularen ein Prioritätsfeld hinzu.“ „Stellen Sie eine Verbindung zu unserer Salesforce-Instanz her.“ „Ändern Sie das Farbschema, damit es zu unserer Marke passt.“ Der Agent ändert den Code und Ihre App entwickelt sich im Laufe der Zeit weiter.
+Das ist der springende Punkt. Beginnen Sie mit einer Vorlage und passen Sie sie in Ihrem eigenen Repository und Entwicklungsablauf an. Der eingebettete Agent bedient die daraus entstehende App dann über ihre Actions und Daten.
 
 ### Kann ich etwas erstellen, das die Vorlagen nicht abdecken? {#build-from-scratch}
 
@@ -138,9 +138,9 @@ Ja – installieren Sie einen Skill in einem Codierungsagenten, den Sie bereits 
 
 ## Agentenfunktionen {#agent-capabilities}
 
-### Kann der Agent den eigenen Code der App wirklich ändern? {#can-the-agent-modify-code}
+### Bearbeitet der eingebettete Agent den Quellcode der App? {#can-the-agent-modify-code}
 
-Ja, und es ist eine Funktion. Der Agent kann Komponenten, Routen, Stile und actions sicher bearbeiten. Sie fragen „Kohortenanalysediagramm hinzufügen“ und der Agent erstellt es. Sie fragen „Mit unserem Stripe-Konto verbinden“ und der Agent schreibt die Integration. Alles ist normaler Git-verfolgter Code, sodass fehlerhafte Änderungen leicht rückgängig gemacht werden können.
+Nicht standardmäßig. Er kann Quellcode nur bearbeiten, wenn der Host ihm bewusst Repository-/Workspace-Schreibwerkzeuge bereitstellt. Andernfalls arbeitet der eingebettete Agent über actions, SQL-gestützten Zustand und konfigurierte Integrationen. Verwenden Sie zum Ändern von Komponenten, Routen, Stilen oder actions Ihren Repository-Workflow oder einen separaten codefähigen Entwicklungs-/Builder-Frame.
 
 ### Können Benutzer von außerhalb der App mit dem Agenten sprechen? {#external-channels}
 

@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * FIX 3 (durable-background incident, 2026-07-12): when a background chat-
@@ -85,7 +85,14 @@ const {
   markTurnAborted,
   reapIfStale,
   reapAllStaleRuns,
+  __resetNoRunningRunsProbeForTests,
 } = await import("./run-store.js");
+
+// The sweeps' shared `status='running'` probe caches a negative answer for
+// seconds; tests insert their rows in milliseconds, so clear it per test.
+beforeEach(() => {
+  __resetNoRunningRunsProbeForTests();
+});
 
 let seq = 0;
 function ids(): { runId: string; thread: string; turn: string } {

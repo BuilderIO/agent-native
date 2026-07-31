@@ -108,6 +108,7 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 vi.mock("drizzle-orm", () => ({
   and: (...conditions: unknown[]) => ({ and: conditions }),
   eq: (col: unknown, val: unknown) => ({ col, val }),
+  isNull: (col: unknown) => ({ isNull: col }),
   sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
 
@@ -125,6 +126,18 @@ beforeEach(() => {
 });
 
 describe("create-deck — aspectRatio", () => {
+  it("defaults omitted slides to an empty deck", async () => {
+    await action.run({
+      title: "T",
+      aspectRatio: "16:9",
+      contextModeOverride: "off",
+    } as never);
+
+    expect(insertedRow).toBeDefined();
+    const data = JSON.parse(insertedRow!.data as string);
+    expect(data.slides).toEqual([]);
+  });
+
   it("omits aspectRatio from the data JSON when not provided (legacy default)", async () => {
     await action.run({ title: "T", slides: [] });
     expect(insertedRow).toBeDefined();

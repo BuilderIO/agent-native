@@ -775,31 +775,60 @@ export function Sidebar({
             collapsed ? "px-1" : "px-4",
           )}
         >
-          {!collapsed && (
-            <>
-              <Link
-                to="/"
-                onClick={onClose}
-                className="flex items-center gap-2 rounded outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <img
-                  src={appPath("/agent-native-icon-light.svg")}
-                  alt=""
-                  aria-hidden="true"
-                  className="block h-4 w-auto shrink-0 dark:hidden"
-                />
-                <img
-                  src={appPath("/agent-native-icon-dark.svg")}
-                  alt=""
-                  aria-hidden="true"
-                  className="hidden h-4 w-auto shrink-0 dark:block"
-                />
-                <span className="text-base font-semibold tracking-tight">
-                  {t("navigation.brand")}
-                </span>
-              </Link>
-            </>
-          )}
+          <Link
+            to="/"
+            onClick={(event) => {
+              onClose();
+              if (
+                !onCollapsedChange ||
+                event.metaKey ||
+                event.ctrlKey ||
+                event.shiftKey ||
+                event.altKey ||
+                event.button !== 0
+              ) {
+                return;
+              }
+              event.preventDefault();
+              onCollapsedChange(!collapsed);
+            }}
+            className={cn(
+              "flex items-center gap-2 rounded outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              collapsed ? "size-8 justify-center" : "flex-1",
+            )}
+            aria-label={
+              onCollapsedChange
+                ? collapsed
+                  ? t("sidebar.expandSidebar")
+                  : t("sidebar.collapseSidebar")
+                : collapsed
+                  ? t("navigation.brand")
+                  : undefined
+            }
+            data-sidebar-brand-toggle
+          >
+            <img
+              src={appPath("/agent-native-icon-light.svg")}
+              alt=""
+              aria-hidden="true"
+              width={28}
+              height={16}
+              className="block h-4 w-7 shrink-0 object-contain object-center dark:hidden"
+            />
+            <img
+              src={appPath("/agent-native-icon-dark.svg")}
+              alt=""
+              aria-hidden="true"
+              width={28}
+              height={16}
+              className="hidden h-4 w-7 shrink-0 object-contain object-center dark:block"
+            />
+            {!collapsed && (
+              <span className="text-base font-semibold tracking-tight">
+                {t("navigation.brand")}
+              </span>
+            )}
+          </Link>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto">

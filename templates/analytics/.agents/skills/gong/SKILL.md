@@ -38,10 +38,12 @@ dive that asks what happened in customer conversations.
 - Consolidate related native questions into one narrowly scoped request. Each
   native operation independently consumes Gong credits, so do not make one call
   per slide, bullet, or sub-question.
-- From a sibling app, call the exact cataloged read action directly through
-  `call-agent`'s `action` + `input` mode. This skips Analytics' second model loop.
-  Use ordinary message delegation only when Analytics must plan, join sources,
-  or synthesize across multiple operations.
+- From a sibling app, ask Analytics a natural-language question by default.
+  Analytics owns Gong/HubSpot routing, source coverage, credentials, transcript
+  strategy, joins, and synthesis. Use `call-agent`'s direct `action` + `input`
+  mode only when a trusted integration explicitly names one stable semantic
+  read contract and supplies its complete bounded input. Never use direct
+  actions as a workaround for a slow or failed delegated run.
 
 ## Account Search Algorithm
 

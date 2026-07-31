@@ -17,6 +17,17 @@ Agents call other agents over A2A, a JSON-RPC protocol for discovery and
 delegation. Use it when work belongs to a different agent entirely — not the
 local agent chat.
 
+**No workarounds when A2A feels flaky.** The strong default is `ask_app` (or
+`call-agent`) working reliably, full stop — not apps reaching around it. Do
+not have app A generate and execute raw SQL against app B's database, and do
+not expose B's internal tools directly to A as a substitute for delegation.
+The receiving agent has context, skills, and guardrails the caller doesn't;
+bypassing it to work around a flaky A2A call reintroduces exactly the bugs A2A
+exists to prevent, and makes the real reliability problem invisible instead of
+fixing it. If A2A delegation is unreliable, fix A2A — file it as a bug in the
+delegation path (timeout handling, retries, typed terminal states), don't
+route around it app by app.
+
 Connecting app A to app B is two independent things, and both must be true:
 
 1. **B is registered on A** as a `remote-agents/<id>.json` resource.
@@ -136,11 +147,18 @@ log or return them.
 ## Advertising what this agent can do
 
 Card `skills` are derived from actions marked `publicAgent`. An app that marks
-none publishes `"skills": []` and peers cannot see what it offers, even though
-delegation still works. Mark the actions a peer should be able to see and
-invoke directly; leave the rest internal.
+none publishes `"skills": []`, but natural-language delegation still works
+because the receiving agent loads its own instructions, skills, data
+dictionary, credentials, and tools. Mark only stable machine contracts that a
+peer may intentionally invoke directly; leave implementation actions internal.
 
 ## Calling another agent
+
+Natural-language delegation is the default for agent-to-agent work. Tell the
+receiving specialist the objective, relevant IDs/date range, and desired result
+shape. The receiver owns source selection, schemas, queries, joins, SQL, and
+provider-specific details. Do not switch to a direct action merely because a
+delegated run is slow or flaky; fix the A2A path instead.
 
 ### Simple: `callAgent()` (text in, text out)
 
@@ -162,10 +180,12 @@ production. `resolveA2ACallerAuth()` pulls the authenticated email, org domain,
 and org secret out of request context; pass them explicitly only from CLI or
 cron, where there is no request.
 
-### Fast bounded read: `invokeAgentAction()`
+### Explicit machine-contract exception: `invokeAgentAction()`
 
-When the caller knows the exact receiver-owned read action and arguments, skip
-the receiver's model loop:
+Use direct invocation only when a trusted integration already specifies the
+exact receiver-owned semantic read action and complete arguments. It is an
+optional machine API, not an agent-performance shortcut or fallback for failed
+message delegation:
 
 ```ts
 import { invokeAgentAction } from "@agent-native/core/a2a";
@@ -184,7 +204,9 @@ The receiver still owns schema validation, credentials, access scoping, audit
 attribution, and exposure policy. Direct invocation is available only for
 cataloged, authenticated, explicitly exposed read-only actions that do not
 require approval. Its JWT is audience-bound to the receiving app. Use normal
-message delegation for planning, synthesis, multi-step work, or mutations.
+message delegation whenever the receiver must interpret the request, choose a
+source, consult its data dictionary, plan, synthesize, join data, or perform a
+multi-step workflow.
 
 Inside an agent loop, `call-agent` exposes the same path with `action` + `input`;
 omit `message` and `taskId` in that mode.

@@ -320,7 +320,7 @@ pnpm action db-check-scoping --require-org  # इसके अलावा org_i
 | OAuth टोकन (Google, GitHub)                 | `saveOAuthTokens()` के माध्यम से `oauth_tokens` स्टोर                 |
 | सत्र टोकन                                   | स्वचालित (बेहतर प्रमाणीकरण इसे संभालता है)                            |
 
-प्रति-उपयोगकर्ता/प्रति-संगठन क्रेडेंशियल्स और वॉल्ट को AES-256-GCM के साथ एन्क्रिप्ट किया गया है, जो `SECRETS_ENCRYPTION_KEY` द्वारा कुंजीबद्ध है (`BETTER_AUTH_SECRET` पर वापस आते हुए); इसके बिना उत्पादन शुरू होने से इंकार कर दिया जाता है। किसी भी पहले से मौजूद प्लेनटेक्स्ट क्रेडेंशियल पंक्तियों को एन्क्रिप्ट करने के लिए, `pnpm action db-migrate-encrypt-credentials` (निष्क्रिय, गैर-विनाशकारी) चलाएँ।
+प्रति-उपयोगकर्ता/प्रति-संगठन क्रेडेंशियल्स और वॉल्ट AES-256-GCM से एन्क्रिप्ट होते हैं। Shared workspace vault पहले `WORKSPACE_SECRETS_ENCRYPTION_KEY`, फिर `SECRETS_ENCRYPTION_KEY`, `A2A_SECRET` और `BETTER_AUTH_SECRET` से बने legacy candidates उपयोग करता है; rotation में `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS` rows को migration तक पढ़ने योग्य रखता है। मौजूदा plaintext rows के लिए `pnpm action db-migrate-encrypt-credentials` (idempotent, non-destructive) चलाएँ।
 
 `settings`, `application_state`, स्रोत कोड, या कार्रवाई प्रतिक्रियाओं में कभी भी रहस्य संग्रहीत न करें। उपरोक्त क्रेडेंशियल / वॉल्ट APIs का उपयोग करें - वे एन्क्रिप्शन और प्रति-उपयोगकर्ता स्कोपिंग दोनों को संभालते हैं।
 
@@ -363,7 +363,7 @@ A2A_SECRET=your-shared-secret-at-least-32-chars
 - [ ] `BETTER_AUTH_SECRET` को एक यादृच्छिक 32+ चार स्ट्रिंग (`openssl rand -hex 32`) पर सेट किया गया है, जब तक कि यह एक होस्टेड वर्कस्पेस तैनाती नहीं है जो इसे `A2A_SECRET` से प्राप्त करता है
 - [ ] `OAUTH_STATE_SECRET` को एक अलग यादृच्छिक 32+ चार स्ट्रिंग पर सेट करें (`BETTER_AUTH_SECRET` का पुन: उपयोग न करें) - [OAuth State Signing](#oauth-state) देखें
 - [ ] `A2A_SECRET` प्रत्येक ऐप पर सेट होता है जो कॉल करता है या A2A ट्रैफ़िक प्राप्त करता है - [A2A Identity Verification](#a2a-identity) देखें
-- [ ] `SECRETS_ENCRYPTION_KEY` सेट (या `BETTER_AUTH_SECRET` फ़ॉलबैक पर भरोसा करें) - [Secrets Management](#secrets) देखें
+- [ ] Shared multi-app vaults के लिए `WORKSPACE_SECRETS_ENCRYPTION_KEY` समान रूप से सेट करें; app-local encryption में `SECRETS_ENCRYPTION_KEY`/`BETTER_AUTH_SECRET` fallback रहते हैं - [Secrets Management](#secrets) देखें
 - [ ] `AUTH_SKIP_EMAIL_VERIFICATION` उत्पादन में **नहीं** सेट है (या केवल QA पूर्वावलोकन परिनियोजन पर सेट है)
 
 ### वेबहुक रहस्य (आपके द्वारा उपयोग किए जाने वाले एकीकरण के लिए सेट करें)

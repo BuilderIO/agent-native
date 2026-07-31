@@ -3997,8 +3997,14 @@ async function resolveRequiredCredential(options: {
   connectionId?: string | null;
 }): Promise<ProviderApiResolvedCredential> {
   const credential = await resolveOptionalCredential(options);
-  if (!credential?.value) throw new Error(`${options.key} not configured`);
-  return credential;
+  if (credential?.value) return credential;
+  const scopeGap = await describeCredentialScopeGap([options.key], options.ctx)
+    // coercion-ok: only enriches an error we throw either way — losing the scope
+    // hint still surfaces the real "not configured" failure, never a success.
+    .catch(() => null);
+  throw new Error(
+    `${options.key} not configured${scopeGap ? `. ${scopeGap}` : ""}`,
+  );
 }
 
 async function resolveOptionalCredential(options: {

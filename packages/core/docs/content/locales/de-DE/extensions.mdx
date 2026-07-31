@@ -16,10 +16,10 @@ Der Rahmen ist wichtig: Eine Erweiterung ist keine generische Sandbox „Machen 
 > Seite oder in einem benannten [Slot](#slots) dargestellt, den die Vorlage
 > bereitstellt. Sie kann keine Elemente in beliebige native Komponenten
 > einfügen – zum Beispiel neben jeden Teilnehmer im Kalender –, sofern dort
-> kein Slot vorhanden ist. Für tiefere Anpassungen bitten Sie den Agenten, den
-> Quellcode der Vorlage zu bearbeiten. Die vollständige Anpassbarkeit des Codes
-> ist eine Kernfunktion von Agent Native; Erweiterungen sind die schnelle Ebene
-> ohne Bereitstellung.
+> kein Slot vorhanden ist. Für tiefere Anpassungen ändern Sie die Vorlage in
+> Ihrem Repository und Entwicklungsablauf. Der eingebettete Agent kann nur
+> helfen, wenn der Host bewusst Repository-/Workspace-Schreibwerkzeuge
+> bereitstellt; Erweiterungen bleiben die schnelle Ebene ohne Bereitstellung.
 
 Drei Dinge sorgen dafür, dass Erweiterungen funktionieren:
 
@@ -427,9 +427,9 @@ Erweiterungen sind standardmäßig privat für den Benutzer, der sie erstellt ha
 
 Freigegebene Erweiterungen haben ihre eigenen URLs und werden in denselben Freigabedialog eingebunden wie Dokumente, Decks und Dashboards. Slot-Installationen sind immer persönlich – das Teilen einer Erweiterung bedeutet, dass andere sie installieren können; Es wird nicht automatisch an UI angeheftet.
 
-## Sollte ich eine Erweiterung verwenden oder den App-Code bearbeiten? {#vs-app-code}
+## Sollte ich eine Erweiterung oder den App-Quellworkflow verwenden? {#vs-app-code}
 
-Mit dem Framework kann der Agent den Quellcode der App direkt bearbeiten – Komponenten, Routen, Stile und Geschäftslogik. Verwenden Sie diese Frage, wenn beide Wege die Anfrage lösen könnten:
+Der eingebettete Agent bearbeitet Quellcode nicht standardmäßig; das ist nur mit bewusst bereitgestellten Repository-/Workspace-Schreibwerkzeugen möglich. Nutzen Sie den Quellworkflow für dauerhaftes Produktverhalten und Erweiterungen für schnelle Laufzeitanpassungen.
 
 - **Beginnen Sie mit App-Code** für Produktverhalten, native UI, Layout, Routen, Geschäftslogik oder alles, was wiederverwendet werden soll.
 - **Verwenden Sie einen Custom Block nur, wenn die App ihn aktiviert** und der Benutzer ausdrücklich eine einmalige Visualisierung oder Interaktion in einer vorhandenen Oberfläche wünscht. Er ist schnell und ohne Bereitstellung verfügbar, bleibt aber ein isolierter, vom Agenten erstellter Patch.
@@ -437,7 +437,7 @@ Mit dem Framework kann der Agent den Quellcode der App direkt bearbeiten – Kom
 
 |                                   | Erweiterung                                      | App-Code bearbeiten                 |
 | --------------------------------- | ------------------------------------------------ | ----------------------------------- |
-| **Erstellt von**                  | Agent (oder Benutzer) zur Laufzeit               | Agent bearbeitet Quelldateien       |
+| **Erstellt von**                  | Agent (oder Benutzer) zur Laufzeit               | Benutzer oder codefähiger Workflow  |
 | **Gespeichert in**                | Die Datenbank                                    | Das Git-Repository                  |
 | **Erfordert einen Build**         | Nein                                             | Ja                                  |
 | **Erfordert eine Bereitstellung** | Nein                                             | Ja                                  |

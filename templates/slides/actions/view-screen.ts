@@ -8,6 +8,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { hashSlideContent, type DeckFitState } from "../shared/slide-fit.js";
 import { readAppStateForCurrentTab } from "./_tab-state.js";
 
 export default defineAction({
@@ -191,29 +192,42 @@ export default defineAction({
 
       // ─── Layout-fit measurement ──────────────────────────────────────────
       // The editor measures the rendered slide and reports vertical overflow
-      // here whenever the natural content height exceeds the canvas content
-      // area. If this block is present, the current slide's HTML is too tall
-      // and needs to be rewritten to fit the canvas.
+      // here whenever the natural content bounds exceed the canvas content
+      // area. If this block is present, the current slide's HTML needs to be
+      // rewritten to fit the canvas.
       const overflow = (await readAppStateForCurrentTab("slide-fit-check")) as {
         slideId?: string;
+        contentHash?: string;
         verticalOverflow?: number;
+        horizontalOverflow?: number;
         contentHeight?: number;
+        contentWidth?: number;
         viewportHeight?: number;
+        viewportWidth?: number;
       } | null;
+      const verticalOverflow = overflow?.verticalOverflow ?? 0;
+      const horizontalOverflow = overflow?.horizontalOverflow ?? 0;
       if (
         overflow &&
-        typeof overflow.verticalOverflow === "number" &&
-        overflow.verticalOverflow > 0 &&
+        typeof overflow.contentHash === "string" &&
+        currentSlide?.content &&
+        overflow.contentHash === hashSlideContent(currentSlide.content) &&
+        Number.isFinite(overflow.verticalOverflow) &&
+        (overflow.horizontalOverflow === undefined ||
+          Number.isFinite(overflow.horizontalOverflow)) &&
+        Number.isFinite(overflow.contentHeight) &&
+        Number.isFinite(overflow.viewportHeight) &&
+        (verticalOverflow > 0 || horizontalOverflow > 0) &&
         overflow.slideId === currentSlide?.id
       ) {
         lines.push(``);
-        lines.push(`### ⚠ Layout overflows the canvas vertically`);
+        lines.push(`### ⚠ Layout overflows the canvas`);
         lines.push(
-          `This slide's natural rendered height is ${overflow.contentHeight}px, ` +
-            `but the canvas content area is only ${overflow.viewportHeight}px tall ` +
-            `(overflow: ${overflow.verticalOverflow}px). The renderer no longer ` +
+          `This slide's natural rendered content is ${overflow.contentWidth ?? "unknown"}x${overflow.contentHeight}px, ` +
+            `but the canvas content area is ${overflow.viewportWidth ?? "unknown"}x${overflow.viewportHeight}px ` +
+            `(overflow: ${verticalOverflow}px vertical, ${horizontalOverflow}px horizontal). The renderer no longer ` +
             `auto-shrinks overflowing slides — you must rewrite the slide HTML so ` +
-            `the rendered height is at most ${overflow.viewportHeight}px. Options, ` +
+            `the rendered content fits the measured content area. Options, ` +
             `in order of preference: (1) tighten copy — shorter headings/bullets, ` +
             `drop low-value lines; (2) reduce vertical density — fewer stacked ` +
             `cards, smaller gaps, slightly smaller body font (not below 16px); ` +
@@ -222,6 +236,69 @@ export default defineAction({
             `Do not solve this with transform: scale, overflow: scroll, or ` +
             `absolute positioning — only the HTML shape can fix it now.`,
         );
+      }
+
+      const deckFit = (await readAppStateForCurrentTab(
+        "deck-fit-checks",
+      )) as DeckFitState | null;
+      if (
+        deckFit?.deckId === rows[0].id &&
+        deckFit.aspectRatio === (deck.aspectRatio ?? "16:9") &&
+        deckFit.slides
+      ) {
+        type DeckFitSummary =
+          | { kind: "unknown"; index: number }
+          | {
+              kind: "overflow";
+              index: number;
+              measurement: (typeof deckFit.slides)[string];
+            };
+        const measured: DeckFitSummary[] = slides.flatMap(
+          (slide, index): DeckFitSummary[] => {
+            const measurement = deckFit.slides[slide.id];
+            if (
+              !measurement ||
+              measurement.contentHash !==
+                hashSlideContent(slide.content ?? "") ||
+              !Number.isFinite(measurement.verticalOverflow) ||
+              !Number.isFinite(measurement.horizontalOverflow) ||
+              !Number.isFinite(measurement.contentHeight) ||
+              !Number.isFinite(measurement.contentWidth) ||
+              !Number.isFinite(measurement.viewportHeight) ||
+              !Number.isFinite(measurement.viewportWidth) ||
+              !Number.isFinite(measurement.measuredAt)
+            ) {
+              return [{ kind: "unknown" as const, index }];
+            }
+            return measurement.verticalOverflow > 0 ||
+              measurement.horizontalOverflow > 0
+              ? [{ kind: "overflow" as const, index, measurement }]
+              : [];
+          },
+        );
+        const unknown = measured.filter((item) => item.kind === "unknown");
+        const overflows = measured.filter((item) => item.kind === "overflow");
+        lines.push(``);
+        lines.push(`### Deck-wide layout fit`);
+        if (unknown.length > 0) {
+          lines.push(
+            `Measured ${slides.length - unknown.length} of ${slides.length} slides; ` +
+              `the remaining slides need a fresh browser measurement before claiming the deck fits.`,
+          );
+        } else if (overflows.length > 0) {
+          lines.push(
+            `Overflow detected on ${overflows.length} slide(s): ${overflows
+              .map((item) => {
+                if (item.kind !== "overflow") return "";
+                return `slide ${item.index + 1} (${item.measurement.verticalOverflow}px vertical, ${item.measurement.horizontalOverflow}px horizontal)`;
+              })
+              .join(", ")}.`,
+          );
+        } else {
+          lines.push(
+            `All ${slides.length} slides fit their measured content area.`,
+          );
+        }
       }
 
       return lines.join("\n");

@@ -597,13 +597,13 @@ export default function Index() {
       "Start a `manage-progress` run so progress appears in the app header. Add the first slide as soon as it is ready, then continue one slide at a time so the editor visibly fills in.",
       "After reading any requested or imported source material, but before adding the first slide, choose a concise, specific deck title from the user's request and source material. Call `patch-deck` with `deckId: \"" +
         deckId +
-        '"` and `operations: [{ "op": "patch-deck-fields", "fields": { "title": "<generated title>" } }]`. Never leave a generated deck named "Untitled Deck" or another placeholder.',
+        '"` and `operations: [{ "op": "patch-deck-fields", "fields": { "title": "<generated title>" } }]`. Include only `title` in `fields`; omit all other optional fields. Never leave a generated deck named "Untitled Deck" or another placeholder.',
       "If the user asks for a standalone visual, diagram, hero, one-pager, poster, or a couple of visuals, create only the requested one/few polished visual slides. Do not pad the result into a full presentation.",
       "Add slides ONE AT A TIME using the `add-slide` action with --deckId=" +
         deckId +
         ". Wait for each `add-slide` result before calling it again; do not batch or parallelize slide writes.",
       "If the user asked for a specific slide count, keep going sequentially until that count is reached unless a tool error blocks you.",
-      "Every slide is rendered into a fixed native canvas (default 16:9 is 960x540 CSS pixels). Keep each slide within the density limits in AGENTS.md; split dense source material across more slides instead of packing it tightly.",
+      "Every slide is rendered into a fixed native canvas (default 16:9 is 960x540 CSS pixels, with 740x380px available inside standard 80px 110px padding). Keep the main content within that fit budget; split dense source material across more slides instead of packing it tightly. Never use zoom, transform: scale(), clipping, or scroll overflow to hide content overflow, and keep body text at least 16px.",
       "Each slide's --content must be full HTML. Slide HTML templates are in your AGENTS.md.",
       "Do NOT use create-deck (the deck already exists). Do NOT call db-schema, the resources tool, or search-files.",
     ].join("\n");
@@ -746,7 +746,7 @@ export default function Index() {
   );
 
   return (
-    <main className="flex-1 overflow-y-auto px-4 sm:px-6 py-6 sm:py-10">
+    <main className="min-w-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6 sm:py-10">
       {loading ? (
         <>
           <div className="flex items-center justify-end mb-4">

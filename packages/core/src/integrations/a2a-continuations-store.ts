@@ -777,6 +777,17 @@ export async function recoverDueA2AContinuationIds(
   const receiptFilter = confirmedDeliveryOnly
     ? " AND terminal_delivery_confirmed_at IS NOT NULL"
     : "";
+  // The two lease resets below and the due SELECT all only ever touch rows in
+  // these three statuses, so one probe short-circuits all three. Without it the
+  // 60s retry job pays two blind UPDATE round trips per app forever on a queue
+  // that has been empty since boot.
+  const live = await client.execute({
+    sql: `SELECT id FROM integration_a2a_continuations
+          WHERE status IN ('pending', 'processing', 'delivering')${taskFilter}${receiptFilter}
+          LIMIT 1`,
+    args: [...taskArgs],
+  });
+  if ((live.rows?.length ?? 0) === 0) return [];
   // If a processor dies after a provider receipt, retry history-only custody
   // as soon as its short follow-up deadline passes. A pre-receipt delivery
   // claim retains the longer stale cutoff before an at-least-once resend.

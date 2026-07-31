@@ -219,7 +219,7 @@ Voir [Ressources de l'agent](/docs/agent-resources) pour le concept complet.
 
 ## Développement de toute l'équipe {#whole-team-development}
 
-L'agent natif n'est pas réservé aux développeurs. Étant donné que l'agent peut modifier le propre code de l'application, le développement d'une application cesse d'être une activité réservée aux développeurs :
+L'agent natif n'est pas réservé aux développeurs. L'agent intégré donne à toute l'équipe une façon commune d'exploiter l'application, tandis que les modifications de source restent dans le flux de développement normal. Il ne peut modifier la source que si l'hôte accorde intentionnellement des outils d'écriture repository/workspace :
 
 - **Les concepteurs** mettent à jour les conceptions directement dans l'application en cours d'exécution via l'agent
 - **Les chefs de produit** ajoutent des fonctionnalités et mettent à jour les flux en les décrivant
@@ -235,10 +235,10 @@ Les applications natives d'agent suivent un modèle où vous partez d'une app fo
 1. Choisissez un modèle sur [agent-native.com/templates](/templates)
 2. Utilisez-le immédiatement en tant qu'application hébergée (par exemple mail.agent-native.com)
 3. Créez votre propre app à partir du modèle lorsque vous souhaitez personnaliser : "connectez notre compte Stripe", "ajoutez un graphique de cohorte"
-4. L'agent modifie le code pour correspondre à vos besoins
+4. Personnalisez la source dans votre dépôt et votre flux de développement
 5. Déployez votre app sur votre propre domaine — ou restez sur agent-native.com
 
-Comme il s'agit de _votre_ application, et non d'une infrastructure partagée, l'agent peut faire évoluer le code en toute sécurité. Votre application continue de s'améliorer au fur et à mesure que vous l'utilisez. Voir [Templates](/docs/cloneable-saas) pour l'histoire complète.
+Comme il s'agit de _votre_ application et non d'une infrastructure partagée, vous possédez sa source et pouvez la faire évoluer sans modifier le framework partagé. L'agent intégré agit via les actions et les données, et ne peut aider sur la source qu'avec des outils d'écriture accordés intentionnellement. Voir [Templates](/docs/cloneable-saas) pour l'histoire complète.
 
 Vous n'êtes pas prêt à créer un modèle complet ? Vous pouvez également essayer l'agent natif en ajoutant une **compétence** à un agent de codage que vous utilisez déjà : installez la compétence Plans avec `npx @agent-native/core@latest skills add visual-plan`. Voir le [Skills Guide](/docs/skills-guide#app-backed-skills).
 

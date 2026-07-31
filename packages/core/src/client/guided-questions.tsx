@@ -12,8 +12,11 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { sendToAgentChat } from "./agent-chat.js";
-import { agentNativePath } from "./api-path.js";
-import { setClientAppState } from "./application-state.js";
+import {
+  deleteClientAppState,
+  readClientAppState,
+  setClientAppState,
+} from "./application-state.js";
 import { useChangeVersions } from "./use-change-version.js";
 import { cn } from "./utils.js";
 
@@ -998,10 +1001,6 @@ export function useGuidedQuestionFlow({
     () => normalizeBrowserTabId(browserTabId),
     [browserTabId],
   );
-  const endpointFor = useCallback(
-    (key: string) => agentNativePath(`/_agent-native/application-state/${key}`),
-    [],
-  );
   const scopedKey = normalizedBrowserTabId
     ? `${stateKey}:${normalizedBrowserTabId}`
     : stateKey;
@@ -1036,17 +1035,11 @@ export function useGuidedQuestionFlow({
     enabled,
     queryFn: async () => {
       const read = async (key: string) => {
-        const res = await fetch(endpointFor(key));
-        if (!res.ok) return null;
-        const text = await res.text();
-        if (!text) return null;
-        try {
-          const parsed = JSON.parse(text);
-          if (Array.isArray(parsed?.questions) && parsed.questions.length > 0) {
-            return parsed as GuidedQuestionPayload;
-          }
-        } catch {
-          return null;
+        const parsed = await readClientAppState<GuidedQuestionPayload>(
+          key,
+        ).catch(() => null);
+        if (Array.isArray(parsed?.questions) && parsed.questions.length > 0) {
+          return parsed;
         }
         return null;
       };
@@ -1086,16 +1079,12 @@ export function useGuidedQuestionFlow({
   const clear = useCallback(() => {
     setPayload(null);
     queryClient.setQueryData(resolvedQueryKey, null);
-    const del = (key: string) =>
-      fetch(endpointFor(key), {
-        method: "DELETE",
-        headers: { "X-Agent-Native-CSRF": "1" },
-      }).catch(() => {});
+    const del = (key: string) => deleteClientAppState(key).catch(() => {});
     // Clear whichever key actually held the payload (scoped or bare) so the
     // card doesn't reappear on the next poll.
     del(scopedKey);
     if (scopedKey !== stateKey) del(stateKey);
-  }, [endpointFor, queryClient, resolvedQueryKey, scopedKey, stateKey]);
+  }, [queryClient, resolvedQueryKey, scopedKey, stateKey]);
 
   const handleSubmit = useCallback(
     (answers: GuidedQuestionAnswers) => {

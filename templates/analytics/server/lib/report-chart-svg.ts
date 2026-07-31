@@ -1,6 +1,8 @@
 import { OG_FONT_FAMILY } from "@agent-native/core/server";
 
-export type ReportChartType = "bar" | "line" | "area" | "pie";
+import type { DashboardFunnelItem } from "../../shared/dashboard-funnel";
+
+export type ReportChartType = "bar" | "line" | "area" | "pie" | "funnel";
 
 export type ReportChartAxis = "left" | "right";
 
@@ -784,6 +786,75 @@ function renderPieChartSvg({
 </svg>`;
 }
 
+export function renderFunnelChartSvg({
+  title,
+  subtitle,
+  rows,
+  width,
+  height,
+  formatter,
+  colors,
+}: {
+  title?: string;
+  subtitle?: string;
+  rows: DashboardFunnelItem[];
+  width: number;
+  height: number;
+  formatter?: ReportChartValueFormatter;
+  colors?: string[];
+}): string {
+  const theme = CHART_THEMES.light;
+  const palette = CHART_PALETTES.light;
+  const safeWidth = clampSize(width, 360, 2000);
+  const safeHeight = clampSize(height, 240, 1200);
+  const header = renderChartHeader({
+    title: title ?? "",
+    subtitle: subtitle ?? "",
+    width: safeWidth,
+    theme,
+    fontFamily: REPORT_CHART_FONT_FAMILY,
+    fit: true,
+  });
+  const top = header.headerBottom + 30;
+  const bottom = safeHeight - 24;
+  const labelWidth = Math.min(190, Math.max(120, safeWidth * 0.2));
+  const valueWidth = 150;
+  const barLeft = labelWidth;
+  const barRight = safeWidth - valueWidth;
+  const barWidth = Math.max(1, barRight - barLeft);
+  const rowHeight = 31;
+  const maxRows = Math.max(1, Math.floor((bottom - top) / rowHeight));
+  const visible = rows.slice(0, maxRows);
+  const hidden = rows.length - visible.length;
+  const maxValue = Math.max(...rows.map((row) => row.value), 1);
+  const bars = visible
+    .map((row, index) => {
+      const y = top + index * rowHeight;
+      const fillWidth = row.value > 0 ? (row.value / maxValue) * barWidth : 0;
+      const color = safeColor(colors?.[index], palette[index % palette.length]);
+      const dropOff =
+        row.dropOffPercent === null
+          ? ""
+          : `  ${row.dropOffPercent < 0 ? "↑" : "↓"}${Math.abs(row.dropOffPercent).toFixed(1)}%`;
+      return `<text x="${(labelWidth - 12).toFixed(1)}" y="${(y + 20).toFixed(1)}" text-anchor="end" font-size="12" fill="${theme.labelColor}">${escapeXml(truncate(row.label, 24))}</text><rect x="${barLeft.toFixed(1)}" y="${(y + 7).toFixed(1)}" width="${barWidth.toFixed(1)}" height="16" rx="4" fill="${theme.gridColor}"/><rect x="${barLeft.toFixed(1)}" y="${(y + 7).toFixed(1)}" width="${fillWidth.toFixed(1)}" height="16" rx="4" fill="${color}"/><text x="${(barRight + 12).toFixed(1)}" y="${(y + 19).toFixed(1)}" font-size="12" fill="${theme.labelColor}">${escapeXml(`${formatTick(row.value, formatter)}  ${row.percentOfFirst.toFixed(1)}%${dropOff}`)}</text>`;
+    })
+    .join("");
+  const overflow =
+    hidden > 0
+      ? `<text x="${barLeft.toFixed(1)}" y="${(top + visible.length * rowHeight + 18).toFixed(1)}" font-size="12" fill="${theme.tickColor}">${escapeXml(`+${hidden} more stages`)}</text>`
+      : "";
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${safeWidth}" height="${safeHeight}" viewBox="0 0 ${safeWidth} ${safeHeight}" font-family="${REPORT_CHART_FONT_FAMILY}" role="img" aria-label="${escapeXml(title ?? "Funnel chart")}">
+  <rect width="${safeWidth}" height="${safeHeight}" rx="8" fill="${theme.background}"/>
+  ${header.titleMarkup}
+  ${header.subtitleMarkup}
+  <g font-family="${REPORT_CHART_FONT_FAMILY}">
+    ${bars}
+    ${overflow}
+  </g>
+</svg>`;
+}
+
 /**
  * Browser-facing renderer: clamps every value to a non-negative number and uses
  * a system font stack. Kept for `generate-chart`'s saved-artifact fallback; the
@@ -867,7 +938,7 @@ export function renderReportChartSvg({
   subtitle?: string;
   labels: string[];
   series: ReportChartSeries[];
-  type: ReportChartType;
+  type: Exclude<ReportChartType, "funnel">;
   width: number;
   height: number;
   stacked?: boolean;
