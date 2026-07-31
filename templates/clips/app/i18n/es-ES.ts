@@ -844,6 +844,7 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     humanViews: "Vistas humanas",
     agentViews: "Vistas de agentes de IA",
     noAgentViewsYet: "Todavía no hay vistas de agentes de IA.",
+    unknownAgent: "Agente desconocido",
     totalVideoViews: "Visualizaciones totales del vídeo",
     averageCompletionRate: "Tasa media de finalización",
     moreInsights: "Más estadísticas",

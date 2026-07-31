@@ -786,6 +786,7 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     humanViews: "真人观看",
     agentViews: "AI 智能体观看",
     noAgentViewsYet: "暂无 AI 智能体观看记录。",
+    unknownAgent: "未知智能体",
     totalVideoViews: "视频观看总数",
     averageCompletionRate: "平均完成率",
     moreInsights: "更多洞察",

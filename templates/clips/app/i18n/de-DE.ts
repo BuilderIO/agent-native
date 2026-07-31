@@ -849,6 +849,7 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     humanViews: "Menschliche Aufrufe",
     agentViews: "Aufrufe durch KI-Agenten",
     noAgentViewsYet: "Noch keine Aufrufe durch KI-Agenten.",
+    unknownAgent: "Unbekannter Agent",
     totalVideoViews: "Videoaufrufe insgesamt",
     averageCompletionRate: "Durchschnittliche Abschlussrate",
     moreInsights: "Mehr Einblicke",

@@ -289,9 +289,15 @@ clip never hits them), so a request on one is the signal.
 
 - **Table:** `recording_agent_views` — one row per `(recordingId, agentKey, viewSessionId)`.
   `agentKey` is a sha256 of user-agent + request IP, so an agent is countable
-  across polls without ever storing its IP. `agentLabel` is the product name
-  parsed from the user-agent (Claude, ChatGPT, Perplexity, …), falling back to
-  `"Agent"` — never the raw user-agent string.
+  across polls without ever storing its IP. `agentLabel` resolves in that order:
+  the label the agent link was minted with (a signed `agentLabel` claim on the
+  `agent_access` token, set via `create-recording-agent-link --agentLabel`), then
+  the product name parsed from the user-agent (Claude, ChatGPT, Perplexity, …),
+  then NULL. NULL means unnamed, not a name — render it as "Unknown agent" and
+  never write a placeholder string, or an agent we could not identify becomes
+  indistinguishable from one that identified itself. `userAgent` keeps the raw
+  (truncated) string so unnamed agents stay identifiable and new `AGENT_LABELS`
+  patterns come from real traffic.
 - **Where it's written:** `recordAgentView` in `server/lib/agent-views.ts`,
   called from `loadPublicAgentAccess` — the one choke point all three agent
   routes share. Owner requests are skipped (they're previews, not views), and the

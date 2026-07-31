@@ -841,6 +841,7 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     humanViews: "Visualizações humanas",
     agentViews: "Visualizações de agentes de IA",
     noAgentViewsYet: "Ainda não há visualizações de agentes de IA.",
+    unknownAgent: "Agente desconhecido",
     totalVideoViews: "Total de visualizações do vídeo",
     averageCompletionRate: "Taxa média de conclusão",
     moreInsights: "Mais insights",

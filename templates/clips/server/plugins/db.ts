@@ -899,6 +899,21 @@ const migrations = runMigrations(
         `UPDATE recordings SET upload_lease_expires_at = '${uploadLeaseExpiry()}' WHERE upload_lease_expires_at IS NULL AND status IN ('uploading', 'processing')`,
       ].join("; "),
     },
+    {
+      version: 54,
+      name: "recording-agent-views-user-agent",
+      sql: `ALTER TABLE recording_agent_views ADD COLUMN IF NOT EXISTS user_agent TEXT`,
+    },
+    {
+      version: 55,
+      name: "recording-agent-views-clear-placeholder-label",
+      // Rows written before v54 stored the literal placeholder 'Agent' for any
+      // agent the user-agent patterns could not name, which is indistinguishable
+      // from an agent that really is called "Agent". NULL is the one value that
+      // means "we don't know", so unnamed history renders as unknown too.
+      // guard:allow-unscoped — startup migration normalizes a legacy placeholder across all rows.
+      sql: `UPDATE recording_agent_views SET agent_label = NULL WHERE agent_label = 'Agent'`,
+    },
   ],
   { table: "clips_migrations" },
 );

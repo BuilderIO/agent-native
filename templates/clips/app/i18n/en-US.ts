@@ -819,6 +819,7 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     humanViews: "Human views",
     agentViews: "Agent views",
     noAgentViewsYet: "No agent views yet.",
+    unknownAgent: "Unknown agent",
     totalVideoViews: "Total video views",
     averageCompletionRate: "Average completion rate",
     moreInsights: "More insights",

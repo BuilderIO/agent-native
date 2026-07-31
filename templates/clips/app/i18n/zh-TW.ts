@@ -779,6 +779,7 @@ const messages = {
     humanViews: "真人觀看",
     agentViews: "AI 代理觀看",
     noAgentViewsYet: "尚無 AI 代理觀看紀錄。",
+    unknownAgent: "未知代理",
     totalVideoViews: "影片觀看總數",
     averageCompletionRate: "平均完成率",
     moreInsights: "更多洞察",

@@ -26,7 +26,8 @@ interface ViewerRow {
 }
 
 interface AgentViewerRow {
-  agentLabel: string;
+  agentLabel: string | null;
+  userAgent: string | null;
   views: number;
   lastSeenAt: string;
 }
@@ -211,14 +212,17 @@ export function RecordingViewsBadge({
                 <ul className="space-y-0.5">
                   {agentViewers.map((a) => (
                     <li
-                      key={a.agentLabel}
+                      key={a.agentLabel ?? a.userAgent ?? "unknown"}
                       className="flex items-center gap-2 rounded-md px-2 py-1.5"
                     >
                       <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
                         <IconTerminal2 className="h-3.5 w-3.5" />
                       </span>
-                      <span className="min-w-0 flex-1 truncate text-sm text-foreground">
-                        {a.agentLabel}
+                      <span
+                        className="min-w-0 flex-1 truncate text-sm text-foreground"
+                        title={a.userAgent ?? undefined}
+                      >
+                        {a.agentLabel ?? t("recordingInsights.unknownAgent")}
                       </span>
                       <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
                         {t("recordingInsights.viewsCount", { count: a.views })}

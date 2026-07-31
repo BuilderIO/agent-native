@@ -34,6 +34,12 @@ export interface ShortLivedTokenClaims {
   resourceId: string;
   /** Optional viewer email for audit / analytics — not used for authorisation. */
   viewerEmail?: string;
+  /**
+   * Optional display name of the agent the token was minted for. Signed so a
+   * reader cannot rename itself, but audit/display-only like `viewerEmail` —
+   * never consult it for authorisation.
+   */
+  agentLabel?: string;
   /** Override default TTL (seconds). */
   ttlSeconds?: number;
 }
@@ -41,6 +47,7 @@ export interface ShortLivedTokenClaims {
 interface DecodedClaims {
   resourceId: string;
   viewerEmail?: string;
+  agentLabel?: string;
   exp: number;
 }
 
@@ -49,7 +56,7 @@ interface DecodedClaims {
  * `ok` field so callers can `if (!result.ok) return …`.
  */
 export type VerifyResult =
-  | { ok: true; viewerEmail?: string }
+  | { ok: true; viewerEmail?: string; agentLabel?: string }
   | { ok: false; reason: string };
 
 let _devSigningKey: string | undefined;
@@ -102,6 +109,7 @@ export function signShortLivedToken(claims: ShortLivedTokenClaims): string {
     exp: Math.floor(Date.now() / 1000) + ttl,
   };
   if (claims.viewerEmail) payload.viewerEmail = claims.viewerEmail;
+  if (claims.agentLabel) payload.agentLabel = claims.agentLabel;
 
   const payloadStr = base64UrlEncode(JSON.stringify(payload));
   const sig = base64UrlEncode(
@@ -166,7 +174,11 @@ export function verifyShortLivedToken(
     return { ok: false, reason: "wrong_resource" };
   }
 
-  return { ok: true, viewerEmail: claims.viewerEmail };
+  return {
+    ok: true,
+    viewerEmail: claims.viewerEmail,
+    agentLabel: claims.agentLabel,
+  };
 }
 
 // ── Realtime subscribe tokens ────────────────────────────────────────────────

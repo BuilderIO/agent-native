@@ -831,6 +831,7 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     humanViews: "人による視聴",
     agentViews: "AI エージェントの視聴",
     noAgentViewsYet: "AI エージェントによる視聴はまだありません。",
+    unknownAgent: "不明なエージェント",
     totalVideoViews: "動画の合計視聴数",
     averageCompletionRate: "平均完了率",
     moreInsights: "インサイトをもっと見る",

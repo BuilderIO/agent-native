@@ -813,6 +813,7 @@ Clips में उपयोगकर्ताओं को दिखने व�
     humanViews: "मानव व्यू",
     agentViews: "AI एजेंट व्यू",
     noAgentViewsYet: "अभी तक कोई AI एजेंट व्यू नहीं।",
+    unknownAgent: "अज्ञात एजेंट",
     totalVideoViews: "कुल वीडियो व्यू",
     averageCompletionRate: "औसत पूर्णता दर",
     moreInsights: "और इनसाइट्स",

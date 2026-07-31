@@ -26,6 +26,8 @@ export {
 
 export interface ScopedAgentAccessTokenOptions extends AgentAccessResourceScope {
   viewerEmail?: string;
+  /** Display name of the agent the link is for. Signed, but display-only. */
+  agentLabel?: string;
   ttlSeconds?: number;
 }
 
@@ -39,11 +41,13 @@ export function signScopedAgentAccessToken({
   resourceKind,
   resourceId,
   viewerEmail,
+  agentLabel,
   ttlSeconds = DEFAULT_AGENT_ACCESS_TTL_SECONDS,
 }: ScopedAgentAccessTokenOptions): string {
   return signShortLivedToken({
     resourceId: scopedAgentAccessResourceId(resourceKind, resourceId),
     viewerEmail,
+    agentLabel,
     ttlSeconds,
   });
 }

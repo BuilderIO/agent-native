@@ -5,7 +5,6 @@ import {
   agentKeyFor,
   agentLabelFromUserAgent,
   agentViewSessionId,
-  UNKNOWN_AGENT_LABEL,
 } from "./agent-views.js";
 
 describe("agentLabelFromUserAgent", () => {
@@ -17,11 +16,9 @@ describe("agentLabelFromUserAgent", () => {
     expect(agentLabelFromUserAgent("PerplexityBot/1.0")).toBe("Perplexity");
   });
 
-  it("falls back for unrecognized agents instead of leaking the raw UA", () => {
-    expect(agentLabelFromUserAgent("python-requests/2.32")).toBe(
-      UNKNOWN_AGENT_LABEL,
-    );
-    expect(agentLabelFromUserAgent("")).toBe(UNKNOWN_AGENT_LABEL);
+  it("returns null for an agent it cannot name", () => {
+    expect(agentLabelFromUserAgent("python-requests/2.32")).toBeNull();
+    expect(agentLabelFromUserAgent("")).toBeNull();
   });
 });
 

@@ -821,6 +821,7 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     humanViews: "사람 조회수",
     agentViews: "AI 에이전트 조회수",
     noAgentViewsYet: "아직 AI 에이전트 조회 기록이 없습니다.",
+    unknownAgent: "알 수 없는 에이전트",
     totalVideoViews: "총 동영상 조회수",
     averageCompletionRate: "평균 완료율",
     moreInsights: "인사이트 더 보기",
