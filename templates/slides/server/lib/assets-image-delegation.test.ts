@@ -106,12 +106,23 @@ describe("delegateImageGenerationToAssets", () => {
     if (result.status === "rejected") expect(result.state).toBe("unauthorized");
   });
 
-  it("sends a stable idempotency key for an identical repeat request", async () => {
+  // Requesting several variations means sending the same prompt repeatedly, so
+  // a content-derived key would make Assets reuse one task for every slot.
+  it("sends a distinct idempotency key per identical variation request", async () => {
     sendAndWaitMock.mockResolvedValue(task("completed", "done"));
     await delegateImageGenerationToAssets({ prompt: "a hero", deckId: "d1" });
     await delegateImageGenerationToAssets({ prompt: "a hero", deckId: "d1" });
     const [first, second] = sendAndWaitMock.mock.calls;
     expect(first[1].idempotencyKey).toBeTruthy();
+    expect(first[1].idempotencyKey).not.toBe(second[1].idempotencyKey);
+  });
+
+  it("reuses the idempotency key when a submission is retried", async () => {
+    sendAndWaitMock.mockResolvedValue(task("completed", "done"));
+    const request = { prompt: "a hero", deckId: "d1", submissionId: "sub-1" };
+    await delegateImageGenerationToAssets(request);
+    await delegateImageGenerationToAssets(request);
+    const [first, second] = sendAndWaitMock.mock.calls;
     expect(first[1].idempotencyKey).toBe(second[1].idempotencyKey);
   });
 

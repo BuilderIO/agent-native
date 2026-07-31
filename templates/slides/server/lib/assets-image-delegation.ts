@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import {
   A2AClient,
@@ -20,7 +20,6 @@ import {
 const ASSETS_AGENT_TARGET = "assets";
 const SELF_APP_ID = "slides";
 const DELEGATION_TIMEOUT_MS = 240_000;
-const IDEMPOTENCY_WINDOW_MS = 5 * 60_000;
 
 export interface AssetsImageRequest {
   prompt: string;
@@ -29,6 +28,12 @@ export interface AssetsImageRequest {
   deckId?: string;
   slideId?: string;
   slideContent?: string;
+  /**
+   * Identifies one logical submission. Only set it when re-sending the same
+   * submission after a lost response; asking for several variations of one
+   * prompt must leave it unset so each call is its own generation.
+   */
+  submissionId?: string;
 }
 
 /**
@@ -149,17 +154,21 @@ async function buildCallerTokens(
 }
 
 /**
- * Generation is billable, so an identical repeat submission inside a short
- * window is far more likely to be a retry after a lost response than a
- * deliberate second run. Keying on request content lets Assets dedupe it; the
- * time bucket keeps a genuine later regeneration from being swallowed.
+ * Generation is billable, so a retry after a lost response must reuse the
+ * Assets task rather than start a second one. The key therefore covers one
+ * submission, not the request content: identical prompts are how callers ask
+ * for multiple variations, and content keying would make Assets return the
+ * same asset for every variation slot.
  */
 function delegationIdempotencyKey(
   request: AssetsImageRequest,
   userEmail: string | undefined,
 ): string {
-  const bucket = Math.floor(Date.now() / IDEMPOTENCY_WINDOW_MS);
-  const payload = JSON.stringify({ ...request, userEmail, bucket });
+  const payload = JSON.stringify({
+    ...request,
+    userEmail,
+    submissionId: request.submissionId ?? randomUUID(),
+  });
   const digest = createHash("sha256").update(payload).digest("hex");
   return "slides-" + digest.slice(0, 32);
 }
