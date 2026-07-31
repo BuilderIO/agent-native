@@ -173,3 +173,18 @@ function optimisticPatch(variables: ManageJobInput) {
   if (variables.schedule !== undefined) patch.schedule = variables.schedule;
   return patch;
 }
+
+export function useAutomationRuns(
+  scope: JobsScope,
+  name: string | null,
+  active: boolean,
+) {
+  const params = {
+    scope: scope === "org" ? "organization" : "personal",
+    name: name || "",
+  } as const;
+  return useActionQuery<AutomationRun[]>("list-automation-runs", params, {
+    staleTime: 5_000,
+    enabled: active && Boolean(name),
+  });
+}

@@ -15,8 +15,8 @@ function nextRun(
   if (!meta.enabled) return null;
   const scheduled = Boolean(
     meta.triggerType === "schedule" &&
-      meta.schedule &&
-      isValidCron(meta.schedule),
+    meta.schedule &&
+    isValidCron(meta.schedule),
   );
   // A stored `nextRun` in the past means the dispatcher kept declining to run
   // this automation, not that it is overdue. Report the real next occurrence

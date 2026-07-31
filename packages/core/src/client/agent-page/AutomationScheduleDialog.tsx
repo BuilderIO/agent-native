@@ -1,4 +1,5 @@
 import { Button } from "@agent-native/toolkit/ui/button";
+import { Input } from "@agent-native/toolkit/ui/input";
 import { IconLoader2 } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 
@@ -10,7 +11,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../components/ui/dialog.js";
-import { Input } from "../components/ui/input.js";
 import { useT } from "../i18n.js";
 
 const PRESETS: { label: string; cron: string }[] = [
