@@ -83,7 +83,7 @@ describe("<Sidebar collapsed>", () => {
     const aside = screen.getByRole("complementary");
     expect(aside.className).toContain("w-12");
 
-    const expandBtn = screen.getByLabelText("Expand sidebar");
+    const expandBtn = screen.getAllByLabelText("Expand sidebar")[0];
     expect(expandBtn).toBeDefined();
     expandBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(onToggle).toHaveBeenCalledTimes(1);
@@ -118,7 +118,7 @@ describe("<Sidebar expanded>", () => {
     expect(screen.getByText("Design Systems")).toBeDefined();
     expect(screen.getByText("Settings")).toBeDefined();
 
-    const collapseBtn = screen.getByLabelText("Collapse sidebar");
+    const collapseBtn = screen.getAllByLabelText("Collapse sidebar")[0];
     collapseBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(onToggle).toHaveBeenCalledTimes(1);
 
@@ -158,7 +158,7 @@ describe("<Sidebar> without onToggleCollapsed (mobile drawer)", () => {
 describe("<Sidebar> accessibility", () => {
   it("gives icon-only controls aria-labels", () => {
     renderAt("/", <Sidebar collapsed={true} onToggleCollapsed={() => {}} />);
-    expect(screen.getByLabelText("Expand sidebar")).toBeDefined();
+    expect(screen.getAllByLabelText("Expand sidebar")).toHaveLength(2);
     expect(screen.getByLabelText("Decks")).toBeDefined();
     expect(screen.getByLabelText("Design Systems")).toBeDefined();
     expect(screen.getByLabelText("Settings")).toBeDefined();
@@ -166,6 +166,6 @@ describe("<Sidebar> accessibility", () => {
 
   it("labels the Collapse button in the expanded layout", () => {
     renderAt("/", <Sidebar collapsed={false} onToggleCollapsed={() => {}} />);
-    expect(screen.getByLabelText("Collapse sidebar")).toBeDefined();
+    expect(screen.getAllByLabelText("Collapse sidebar")).toHaveLength(2);
   });
 });
