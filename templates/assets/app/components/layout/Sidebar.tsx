@@ -377,6 +377,40 @@ export function Sidebar() {
       className={collapsed ? "h-8 w-8" : "min-w-0"}
     />
   );
+  const brandControl = (
+    <button
+      type="button"
+      onClick={() => setCollapsed((value) => !value)}
+      aria-label={
+        collapsed
+          ? t("navigation.expandSidebar")
+          : t("navigation.collapseSidebar")
+      }
+      className={cn(
+        "flex items-center gap-2 rounded outline-none transition-colors hover:bg-sidebar-accent/50 focus-visible:ring-2 focus-visible:ring-ring",
+        collapsed ? "size-8 justify-center" : "text-start",
+      )}
+      data-sidebar-brand-toggle
+    >
+      <img
+        src={appPath("/agent-native-icon-light.svg")}
+        alt=""
+        aria-hidden="true"
+        className="block h-4 w-auto shrink-0 dark:hidden"
+      />
+      <img
+        src={appPath("/agent-native-icon-dark.svg")}
+        alt=""
+        aria-hidden="true"
+        className="hidden h-4 w-auto shrink-0 dark:block"
+      />
+      {!collapsed && (
+        <span className="text-sm font-semibold tracking-tight">
+          {t("navigation.brand")}
+        </span>
+      )}
+    </button>
+  );
 
   return (
     <aside
@@ -391,25 +425,7 @@ export function Sidebar() {
           collapsed ? "justify-center px-2" : "justify-between px-4",
         )}
       >
-        {!collapsed && (
-          <div className="flex items-center gap-2">
-            <img
-              src={appPath("/agent-native-icon-light.svg")}
-              alt=""
-              aria-hidden="true"
-              className="block h-4 w-auto dark:hidden"
-            />
-            <img
-              src={appPath("/agent-native-icon-dark.svg")}
-              alt=""
-              aria-hidden="true"
-              className="hidden h-4 w-auto dark:block"
-            />
-            <span className="text-sm font-semibold tracking-tight">
-              {t("navigation.brand")}
-            </span>
-          </div>
-        )}
+        {brandControl}
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
