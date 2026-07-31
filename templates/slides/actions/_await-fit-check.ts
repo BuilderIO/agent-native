@@ -1,14 +1,16 @@
 import { readAppStateForCurrentTab } from "./_tab-state.js";
 
 /** A measurement record written by the editor after rendering a slide.
- * `verticalOverflow === 0` means the slide fits the canvas;
- * `verticalOverflow > 0` means the rendered content was too tall. */
+ * Both overflow fields must be zero for the slide to fit the canvas. */
 export interface SlideFitMeasurement {
   slideId: string;
   deckId?: string;
   contentHeight: number;
+  contentWidth?: number;
   viewportHeight: number;
+  viewportWidth?: number;
   verticalOverflow: number;
+  horizontalOverflow?: number;
   measuredAt: number;
 }
 
@@ -67,9 +69,11 @@ export async function awaitLayoutFitCheck(
       m.measuredAt >= since &&
       Number.isFinite(m.verticalOverflow) &&
       Number.isFinite(m.contentHeight) &&
-      Number.isFinite(m.viewportHeight)
+      Number.isFinite(m.viewportHeight) &&
+      (m.horizontalOverflow === undefined ||
+        Number.isFinite(m.horizontalOverflow))
     ) {
-      return m.verticalOverflow > 0
+      return m.verticalOverflow > 0 || (m.horizontalOverflow ?? 0) > 0
         ? { status: "overflows", measurement: m }
         : { status: "fits", measurement: m };
     }
@@ -88,7 +92,7 @@ export function formatOverflowForTool(
 ): string {
   return [
     ``,
-    `⚠ Layout overflows the canvas vertically — this slide rendered ${m.contentHeight}px tall but the canvas content area is only ${m.viewportHeight}px (overflow: ${m.verticalOverflow}px).`,
+    `⚠ Layout overflows the canvas${m.verticalOverflow > 0 ? ` vertically by ${m.verticalOverflow}px` : ""}${(m.horizontalOverflow ?? 0) > 0 ? ` and horizontally by ${m.horizontalOverflow}px` : ""} — natural content is ${m.contentWidth ?? "unknown"}x${m.contentHeight}px inside a ${m.viewportWidth ?? "unknown"}x${m.viewportHeight}px content area.`,
     ``,
     `Make one structural repair now with \`update-slide --deckId ${deckId} --slideId ${m.slideId}\`. Prefer small surgical patches (--find / --replace) over a full rewrite:`,
     `1. Tighten copy — shorter headings/bullets, drop low-value lines.`,

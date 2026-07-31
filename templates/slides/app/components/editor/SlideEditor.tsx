@@ -986,8 +986,11 @@ function syncOverflowToAppState(
     deckId?: string;
     contentHash: string;
     contentHeight: number;
+    contentWidth: number;
     viewportHeight: number;
+    viewportWidth: number;
     verticalOverflow: number;
+    horizontalOverflow: number;
   } | null,
 ) {
   const keys = Array.from(
@@ -1303,13 +1306,17 @@ export default function SlideEditor({
 
   const handleOverflowChange = useCallback(
     (info: SlideOverflowInfo) => {
-      const overflowing = info.verticalOverflow > 0 ? info : null;
+      const overflowing =
+        info.verticalOverflow > 0 || info.horizontalOverflow > 0 ? info : null;
       // Dedup the React state update — the renderer fires on every
       // measurement (so the action can confirm freshness via the app-state
       // `measuredAt` timestamp), but most measurements report the same
       // value and shouldn't churn the badge UI.
       setOverflowInfo((prev) => {
-        if (prev?.verticalOverflow === overflowing?.verticalOverflow) {
+        if (
+          prev?.verticalOverflow === overflowing?.verticalOverflow &&
+          prev?.horizontalOverflow === overflowing?.horizontalOverflow
+        ) {
           return prev;
         }
         return overflowing;
@@ -1322,15 +1329,24 @@ export default function SlideEditor({
         deckId,
         contentHash: hashSlideContent(slide.content),
         contentHeight: info.contentHeight,
+        contentWidth: info.contentWidth,
         viewportHeight: info.viewportHeight,
+        viewportWidth: info.viewportWidth,
         verticalOverflow: info.verticalOverflow,
+        horizontalOverflow: info.horizontalOverflow,
       });
     },
     [slide.id, deckId],
   );
 
   const handleAskAgentToFixLayout = useCallback(() => {
-    if (!overflowInfo || overflowInfo.verticalOverflow <= 0) return;
+    if (
+      !overflowInfo ||
+      (overflowInfo.verticalOverflow <= 0 &&
+        overflowInfo.horizontalOverflow <= 0)
+    ) {
+      return;
+    }
     const slideHeading = (() => {
       if (typeof document === "undefined") return null;
       const main = document.querySelector("[data-main-slide-canvas]");
@@ -1342,15 +1358,15 @@ export default function SlideEditor({
     setIsAskingAgentToFix(true);
     void sendToAgentChatAndConfirm({
       message: [
-        `The current slide's content vertically overflows the canvas by ${overflowInfo.verticalOverflow}px and needs to be rewritten to fit.`,
+        `The current slide's content overflows the canvas${overflowInfo.verticalOverflow > 0 ? ` vertically by ${overflowInfo.verticalOverflow}px` : ""}${overflowInfo.horizontalOverflow > 0 ? ` horizontally by ${overflowInfo.horizontalOverflow}px` : ""} and needs to be rewritten to fit.`,
         ``,
         `Slide id: \`${slide.id}\``,
         slideHeading ? `Slide heading: "${slideHeading}"` : null,
         `Canvas size: ${dimsW}x${dimsH}px (native render).`,
-        `Available content area inside the slide's padding: ${overflowInfo.viewportHeight}px tall.`,
-        `Natural rendered content height: ${overflowInfo.contentHeight}px → overflows by ${overflowInfo.verticalOverflow}px.`,
+        `Available content area inside the slide's padding: ${overflowInfo.viewportWidth}x${overflowInfo.viewportHeight}px.`,
+        `Natural rendered content: ${overflowInfo.contentWidth}x${overflowInfo.contentHeight}px inside a ${overflowInfo.viewportWidth}x${overflowInfo.viewportHeight}px content area.`,
         ``,
-        `Please use \`view-screen\` to read the current slide HTML, then make one bounded \`update-slide --fullContent\` repair so its rendered height is at most ${overflowInfo.viewportHeight}px. Options to shrink the layout, in order of preference:`,
+        `Please use \`view-screen\` to read the current slide HTML, then make one bounded \`update-slide --fullContent\` repair so its rendered content fits within ${overflowInfo.viewportWidth}x${overflowInfo.viewportHeight}px. Options to shrink the layout, in order of preference:`,
         `1. Tighten copy — shorten headings/body, drop low-value bullets, replace prose with terse phrases.`,
         `2. Reduce vertical density — fewer stacked cards, smaller gaps, smaller body font (don't go below 16px), shorter labels.`,
         `3. Reduce slide padding (e.g. 40px top/bottom instead of 60-80px) if the layout is genuinely tight.`,
@@ -4144,6 +4160,7 @@ export default function SlideEditor({
                         !isOverflowWarningDismissed && (
                           <SlideOverflowWarning
                             verticalOverflow={overflowInfo.verticalOverflow}
+                            horizontalOverflow={overflowInfo.horizontalOverflow}
                             isAskingAgentToFix={isAskingAgentToFix}
                             dismissLabel={t("deckEditor.dismissLayoutWarning")}
                             onFix={handleAskAgentToFixLayout}

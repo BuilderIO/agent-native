@@ -6487,9 +6487,9 @@ export async function claimBackgroundWorkerRunEarly(opts: {
       .join(" "),
   ).catch(() => {});
 
-  // A failed durable abort read is fail-closed: never let a worker execute
-  // after cancellation just because the database was temporarily unreadable.
-  if (await turnAborted(threadId, turnId).catch(() => true)) {
+  // A failed durable abort read must surface as infrastructure failure. It is
+  // not evidence that the user stopped the turn.
+  if (await turnAborted(threadId, turnId)) {
     await abortRun(opts.runId, "user").catch(() => {});
     return { claimed: false, skipped: "turn-aborted" };
   }
@@ -6500,7 +6500,7 @@ export async function claimBackgroundWorkerRunEarly(opts: {
     }).catch(() => {});
   }
 
-  if (await turnAborted(threadId, turnId).catch(() => true)) {
+  if (await turnAborted(threadId, turnId)) {
     await abortRun(opts.runId, "user").catch(() => {});
     return { claimed: false, skipped: "turn-aborted" };
   }
@@ -6513,7 +6513,7 @@ export async function claimBackgroundWorkerRunEarly(opts: {
 
   await record(opts.runId, RUN_DIAG_STAGE.workerClaimed).catch(() => {});
   await heartbeat(opts.runId).catch(() => {});
-  if (await turnAborted(threadId, turnId).catch(() => true)) {
+  if (await turnAborted(threadId, turnId)) {
     await abortRun(opts.runId, "user").catch(() => {});
     return { claimed: false, skipped: "turn-aborted" };
   }
@@ -6969,11 +6969,7 @@ export async function chainServerDrivenContinuation(opts: {
   };
   delete continuationBody[AGENT_CHAT_BACKGROUND_RUN_FIELD];
   try {
-    if (
-      await d
-        .isTurnAborted(effectiveThreadId, effectiveTurnId)
-        .catch(() => true)
-    ) {
+    if (await d.isTurnAborted(effectiveThreadId, effectiveTurnId)) {
       await d.markRunAborted(runId, "user").catch(() => {});
       return;
     }
@@ -7022,11 +7018,7 @@ export async function chainServerDrivenContinuation(opts: {
         insertErr instanceof Error ? insertErr.message : insertErr,
       );
     }
-    if (
-      await d
-        .isTurnAborted(effectiveThreadId, effectiveTurnId)
-        .catch(() => true)
-    ) {
+    if (await d.isTurnAborted(effectiveThreadId, effectiveTurnId)) {
       if (nextRowInserted)
         await d.markRunAborted(nextRunId, "user").catch(() => {});
       await d.markRunAborted(runId, "user").catch(() => {});
@@ -8162,7 +8154,7 @@ export function createProductionAgentHandler(
       if (
         typeof requestTurnId === "string" &&
         requestTurnId &&
-        (await isTurnAborted(threadId, requestTurnId).catch(() => true))
+        (await isTurnAborted(threadId, requestTurnId))
       ) {
         return { ok: true, stopped: true };
       }
@@ -8202,9 +8194,7 @@ export function createProductionAgentHandler(
           : runId;
     if (
       isBackgroundWorker &&
-      (await isTurnAborted(effectiveThreadId, effectiveTurnId).catch(
-        () => true,
-      ))
+      (await isTurnAborted(effectiveThreadId, effectiveTurnId))
     ) {
       await markRunAborted(runId, "user").catch(() => {});
       return { ok: true, stopped: true };
@@ -8321,9 +8311,7 @@ export function createProductionAgentHandler(
       // inserted. Terminalize that row before it can be handed to a worker.
       if (
         backgroundRowInserted &&
-        (await isTurnAborted(effectiveThreadId, effectiveTurnId).catch(
-          () => true,
-        ))
+        (await isTurnAborted(effectiveThreadId, effectiveTurnId))
       ) {
         await markRunAborted(runId, "user");
         return { ok: true, stopped: true };

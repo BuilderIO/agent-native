@@ -443,6 +443,7 @@ class AISDKEngine implements AgentEngine {
       // before it, regardless of where `finish` arrives in the stream.
       let bufferedStop: EngineEvent | undefined;
       let sawFirstEvent = false;
+      let credentialFailureRecorded = false;
 
       for await (const part of result.fullStream) {
         // "start" is a synthetic lifecycle marker the AI SDK enqueues
@@ -456,6 +457,21 @@ class AISDKEngine implements AgentEngine {
         }
         for (const event of aiSdkPartToEngineEvents(part)) {
           observeStreamedToolInput(toolInputs, event);
+          if (
+            event.type === "stop" &&
+            event.reason === "error" &&
+            event.statusCode === 401
+          ) {
+            await recordProviderCredentialAuthFailure({
+              key: PROVIDER_ENV_VARS[this.provider][0],
+              value: this.apiKey,
+              status: event.statusCode,
+              code: event.errorCode ?? "http_401",
+              message:
+                event.error || "The model provider rejected the saved API key.",
+            });
+            credentialFailureRecorded = true;
+          }
           if (event.type === "stop") {
             bufferedStop = event;
           } else {
@@ -494,10 +510,12 @@ class AISDKEngine implements AgentEngine {
       }
 
       yield { type: "assistant-content", parts: assistantContent };
-      await clearProviderCredentialAuthFailure({
-        key: PROVIDER_ENV_VARS[this.provider][0],
-        value: this.apiKey,
-      });
+      if (!credentialFailureRecorded) {
+        await clearProviderCredentialAuthFailure({
+          key: PROVIDER_ENV_VARS[this.provider][0],
+          value: this.apiKey,
+        });
+      }
       yield bufferedStop ?? { type: "stop", reason: "end_turn" };
     } catch (err: any) {
       const timedOut = firstEventAbort.didTimeout();

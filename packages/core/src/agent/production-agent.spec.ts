@@ -10559,7 +10559,7 @@ describe("claimBackgroundWorkerRunEarly", () => {
     expect(d.markRunAborted).toHaveBeenCalledWith("run-stopped", "user");
   });
 
-  it("fails closed when the durable abort marker cannot be read", async () => {
+  it("surfaces a durable abort-marker read failure", async () => {
     const d = deps();
     d.isTurnAborted.mockRejectedValue(new Error("database unavailable"));
 
@@ -10572,13 +10572,10 @@ describe("claimBackgroundWorkerRunEarly", () => {
         runsInBackgroundFunction: true,
         deps: d,
       }),
-    ).resolves.toEqual({ claimed: false, skipped: "turn-aborted" });
+    ).rejects.toThrow("database unavailable");
 
     expect(d.claimBackgroundRun).not.toHaveBeenCalled();
-    expect(d.markRunAborted).toHaveBeenCalledWith(
-      "run-unreadable-abort",
-      "user",
-    );
+    expect(d.markRunAborted).not.toHaveBeenCalled();
   });
 });
 

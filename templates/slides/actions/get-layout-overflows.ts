@@ -30,8 +30,11 @@ export default defineAction({
       slideId: string;
       slideNumber: number;
       verticalOverflow: number;
+      horizontalOverflow: number;
       contentHeight: number;
+      contentWidth: number;
       viewportHeight: number;
+      viewportWidth: number;
     }> = [];
 
     slides.forEach((slide, index) => {
@@ -41,19 +44,28 @@ export default defineAction({
         !measurement ||
         measurement.contentHash !== hashSlideContent(slide.content ?? "") ||
         !Number.isFinite(measurement.verticalOverflow) ||
+        !Number.isFinite(measurement.horizontalOverflow) ||
         !Number.isFinite(measurement.contentHeight) ||
-        !Number.isFinite(measurement.viewportHeight)
+        !Number.isFinite(measurement.contentWidth) ||
+        !Number.isFinite(measurement.viewportHeight) ||
+        !Number.isFinite(measurement.viewportWidth)
       ) {
         unknownSlideIds.push(slide.id);
         return;
       }
-      if (measurement.verticalOverflow > 0) {
+      if (
+        measurement.verticalOverflow > 0 ||
+        measurement.horizontalOverflow > 0
+      ) {
         overflows.push({
           slideId: slide.id,
           slideNumber: index + 1,
           verticalOverflow: measurement.verticalOverflow,
+          horizontalOverflow: measurement.horizontalOverflow,
           contentHeight: measurement.contentHeight,
+          contentWidth: measurement.contentWidth,
           viewportHeight: measurement.viewportHeight,
+          viewportWidth: measurement.viewportWidth,
         });
       }
     });

@@ -391,7 +391,10 @@ export default defineAction({
         ...base,
         layoutOverflow: {
           verticalOverflow: fit.measurement.verticalOverflow,
+          horizontalOverflow: fit.measurement.horizontalOverflow ?? 0,
+          contentWidth: fit.measurement.contentWidth,
           contentHeight: fit.measurement.contentHeight,
+          viewportWidth: fit.measurement.viewportWidth,
           viewportHeight: fit.measurement.viewportHeight,
         },
         message: formatOverflowForTool(deckId, fit.measurement),

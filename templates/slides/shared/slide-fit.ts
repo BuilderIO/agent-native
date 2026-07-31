@@ -1,8 +1,11 @@
 export interface SlideFitMeasurement {
   contentHash: string;
   contentHeight: number;
+  contentWidth: number;
   viewportHeight: number;
+  viewportWidth: number;
   verticalOverflow: number;
+  horizontalOverflow: number;
   measuredAt: number;
 }
 

@@ -130,6 +130,7 @@ const markdownComponents = {
 
 const MIN_AUTOFIT_SCALE = 0.65;
 const VERTICAL_OVERFLOW_TOLERANCE_PX = 8;
+const HORIZONTAL_OVERFLOW_TOLERANCE_PX = 8;
 
 const useIsomorphicLayoutEffect =
   typeof window === "undefined" ? useEffect : useLayoutEffect;
@@ -143,6 +144,8 @@ export interface SlideFitTransform {
    * rewrite the slide HTML to fit, instead of being papered over with a uniform
    * shrink that leaves ugly right/bottom margins. */
   verticalOverflow: number;
+  /** Horizontal overflow in CSS px (0 if content fits). */
+  horizontalOverflow: number;
 }
 
 export function computeSlideFitTransform({
@@ -150,6 +153,7 @@ export function computeSlideFitTransform({
   contentHeight,
   viewportWidth,
   viewportHeight,
+  measuredHorizontalOverflow = 0,
   minX = 0,
   minY = 0,
   minScale = MIN_AUTOFIT_SCALE,
@@ -161,6 +165,7 @@ export function computeSlideFitTransform({
   minX?: number;
   minY?: number;
   minScale?: number;
+  measuredHorizontalOverflow?: number;
 }): SlideFitTransform {
   // Only scale for horizontal overflow. For vertical overflow we surface a
   // `verticalOverflow` measurement so the agent can rewrite the slide HTML —
@@ -168,7 +173,19 @@ export function computeSlideFitTransform({
   // unbalanced right/bottom margins (with origin top-left), which looks worse
   // than asking the LLM to redo the layout to fit the canvas properly.
   const safeContentWidth = Math.max(1, contentWidth);
-  const rawScale = Math.min(1, Math.max(1, viewportWidth) / safeContentWidth);
+  const rawHorizontalOverflow = Math.max(
+    measuredHorizontalOverflow,
+    contentWidth - viewportWidth,
+    0,
+  );
+  // Do not visually zoom for the same small wrapper spill that the warning
+  // intentionally ignores. Positioned objects also report independently, so
+  // their overflow never becomes an accidental scale-to-fit transform.
+  const widthToFit =
+    rawHorizontalOverflow > HORIZONTAL_OVERFLOW_TOLERANCE_PX
+      ? safeContentWidth
+      : Math.max(1, viewportWidth);
+  const rawScale = Math.min(1, Math.max(1, viewportWidth) / widthToFit);
   const scale = Math.max(minScale, rawScale);
 
   const rawVerticalOverflow = Math.max(0, contentHeight - viewportHeight);
@@ -179,6 +196,10 @@ export function computeSlideFitTransform({
     rawVerticalOverflow > VERTICAL_OVERFLOW_TOLERANCE_PX
       ? Math.round(rawVerticalOverflow)
       : 0;
+  const horizontalOverflow =
+    rawHorizontalOverflow > HORIZONTAL_OVERFLOW_TOLERANCE_PX
+      ? Math.round(rawHorizontalOverflow)
+      : 0;
 
   return {
     scale,
@@ -186,6 +207,7 @@ export function computeSlideFitTransform({
     y: minY < 0 ? -minY * scale : 0,
     fitted: rawScale < 0.999,
     verticalOverflow,
+    horizontalOverflow,
   };
 }
 
@@ -225,6 +247,7 @@ function ensureRawHtmlFitLayers(root: HTMLElement): HTMLElement[] {
 function measureContentBounds(target: HTMLElement): {
   contentWidth: number;
   contentHeight: number;
+  horizontalOverflow: number;
   minX: number;
   minY: number;
 } {
@@ -249,6 +272,7 @@ function measureContentBounds(target: HTMLElement): {
     }
     return false;
   };
+  const hasFreeformContent = descendants.some(isFreeformElement);
   const targetRect = target.getBoundingClientRect();
   // `scrollWidth` / `clientWidth` return CSS pixels; `getBoundingClientRect`
   // returns layout pixels after every ancestor transform. In presentation
@@ -271,9 +295,11 @@ function measureContentBounds(target: HTMLElement): {
   // silently run off the canvas, but keep them out of the horizontal fit
   // transform. Using scrollHeight as the baseline makes full-size wrappers
   // look like overflowing content even when their visible children fit.
-  let flowMaxX = target.clientWidth;
+  let flowMaxX = hasFreeformContent ? target.clientWidth : target.scrollWidth;
   let flowMaxY = target.clientHeight;
   let contentMaxY = target.clientHeight;
+  let contentMinX = 0;
+  let contentMaxX = target.clientWidth;
   let hasFlowContent = false;
 
   for (const el of descendants) {
@@ -284,6 +310,9 @@ function measureContentBounds(target: HTMLElement): {
     const top = (rect.top - targetRect.top) * invScaleY;
     const right = (rect.right - targetRect.left) * invScaleX;
     const bottom = (rect.bottom - targetRect.top) * invScaleY;
+
+    contentMinX = Math.min(contentMinX, left);
+    contentMaxX = Math.max(contentMaxX, right);
 
     if (isFreeformElement(el)) {
       contentMaxY = Math.max(contentMaxY, bottom);
@@ -308,6 +337,11 @@ function measureContentBounds(target: HTMLElement): {
   return {
     contentWidth: Math.max(target.clientWidth, flowMaxX - minX),
     contentHeight: Math.max(target.clientHeight, flowMaxY - minY, contentMaxY),
+    horizontalOverflow: Math.max(
+      0,
+      -contentMinX,
+      contentMaxX - target.clientWidth,
+    ),
     minX,
     minY,
   };
@@ -319,10 +353,16 @@ function measureContentBounds(target: HTMLElement): {
 export interface SlideOverflowInfo {
   /** Vertical overflow in CSS px at native resolution (0 = fits). */
   verticalOverflow: number;
+  /** Horizontal overflow in CSS px at native resolution (0 = fits). */
+  horizontalOverflow: number;
   /** Total natural content height in CSS px. */
   contentHeight: number;
+  /** Total natural content width in CSS px. */
+  contentWidth: number;
   /** Available canvas height inside the slide padding. */
   viewportHeight: number;
+  /** Available canvas width inside the slide padding. */
+  viewportWidth: number;
 }
 
 function useSlideAutofit(
@@ -363,6 +403,7 @@ function useSlideAutofit(
           : [root].filter((target) => target.scrollHeight > 0);
 
       let worstOverflow = 0;
+      let worstHorizontalOverflow = 0;
       let worstInfo: SlideOverflowInfo | null = null;
 
       for (const target of targets) {
@@ -381,6 +422,7 @@ function useSlideAutofit(
         const viewportHeight = target.clientHeight || canvasHeight;
         const transform = computeSlideFitTransform({
           ...bounds,
+          measuredHorizontalOverflow: bounds.horizontalOverflow,
           viewportWidth,
           viewportHeight,
         });
@@ -394,10 +436,22 @@ function useSlideAutofit(
 
         if (transform.verticalOverflow > worstOverflow) {
           worstOverflow = transform.verticalOverflow;
+        }
+        worstHorizontalOverflow = Math.max(
+          worstHorizontalOverflow,
+          transform.horizontalOverflow,
+        );
+        if (
+          transform.verticalOverflow > 0 ||
+          transform.horizontalOverflow > 0
+        ) {
           worstInfo = {
-            verticalOverflow: transform.verticalOverflow,
+            verticalOverflow: worstOverflow,
+            horizontalOverflow: worstHorizontalOverflow,
             contentHeight: Math.round(bounds.contentHeight),
+            contentWidth: Math.round(bounds.contentWidth),
             viewportHeight: Math.round(viewportHeight),
+            viewportWidth: Math.round(viewportWidth),
           };
         }
       }
@@ -414,8 +468,11 @@ function useSlideAutofit(
         overflowCallbackRef.current?.(
           worstInfo ?? {
             verticalOverflow: 0,
+            horizontalOverflow: 0,
             contentHeight: 0,
+            contentWidth: 0,
             viewportHeight: 0,
+            viewportWidth: 0,
           },
         );
         autofitSettledRef.current?.();

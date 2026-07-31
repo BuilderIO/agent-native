@@ -603,8 +603,11 @@ export default function EditorSidebar({
           {
             contentHash: measurement.contentHash,
             contentHeight: measurement.info.contentHeight,
+            contentWidth: measurement.info.contentWidth,
             viewportHeight: measurement.info.viewportHeight,
+            viewportWidth: measurement.info.viewportWidth,
             verticalOverflow: measurement.info.verticalOverflow,
+            horizontalOverflow: measurement.info.horizontalOverflow,
             measuredAt: measurement.measuredAt,
           },
         ]),

@@ -11,7 +11,7 @@ import {
   IconPlus,
   IconRobot,
   IconShieldCheck,
-  IconTopologyStar3,
+  IconTransform,
   IconUserCheck,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -147,8 +147,7 @@ export function FactoryCanvas({
     if (node.kind === "gate") return <IconShieldCheck className="size-4" />;
     if (node.kind === "decision")
       return <IconAdjustmentsHorizontal className="size-4" />;
-    if (node.kind === "transform")
-      return <IconTopologyStar3 className="size-4" />;
+    if (node.kind === "transform") return <IconTransform className="size-4" />;
     return <IconMessageCircle className="size-4" />;
   }
 
@@ -209,9 +208,6 @@ export function FactoryCanvas({
     <div className="relative min-h-[560px] overflow-hidden rounded-xl border bg-muted/20">
       <div className="absolute inset-x-0 top-0 z-10 flex items-center justify-between border-b bg-background/90 px-3 py-2 backdrop-blur">
         <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
-          <span className="flex size-6 items-center justify-center rounded-md bg-primary/10 text-primary">
-            <IconTopologyStar3 className="size-4" />
-          </span>
           <span className="truncate">{t("factoryCanvas.dragHint")}</span>
         </div>
         <div className="flex items-center gap-1">
