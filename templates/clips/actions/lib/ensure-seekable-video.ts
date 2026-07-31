@@ -95,14 +95,22 @@ async function isAlreadyMarked(
   );
 }
 
-function isRemoteProviderUrl(videoUrl: string | null | undefined): boolean {
+export function isRemoteProviderUrl(
+  videoUrl: string | null | undefined,
+): boolean {
   return typeof videoUrl === "string" && /^https:\/\//i.test(videoUrl.trim());
 }
 
-async function fetchProviderBytes(
+/**
+ * Download stored provider media for server-side processing. Shared with the
+ * filmstrip sprite path — both need the same size cap and timeout, and both
+ * report the same two failure reasons rather than an empty buffer.
+ */
+export async function fetchProviderBytes(
   videoUrl: string,
 ): Promise<
-  { ok: true; bytes: Uint8Array } | { ok: false; reason: EnsureSeekableStatus }
+  | { ok: true; bytes: Uint8Array }
+  | { ok: false; reason: "skipped-fetch-failed" | "skipped-too-large" }
 > {
   const controller = new AbortController();
   const timeout = setTimeout(
