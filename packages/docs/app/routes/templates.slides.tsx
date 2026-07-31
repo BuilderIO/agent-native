@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Link } from "react-router";
 
 import { sitePathForLocale } from "../components/docs-locale";
+import { SlidesTryNow } from "../components/SlidesTryNow";
 import { TemplateDocsLink } from "../components/template-docs";
 import { templates, trackEvent } from "../components/TemplateCard";
 import { withTemplateSocialImage } from "../seo";
@@ -448,11 +449,12 @@ export default function SlidesTemplate() {
         <p className="mx-auto mb-8 max-w-lg text-base text-[var(--fg-secondary)]">
           {t("templateLanding.slides.s056")}
         </p>
-        <div className="template-detail-cta-actions flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center sm:gap-4">
+        <SlidesTryNow />
+        <div className="template-detail-cta-actions mt-10 flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center sm:gap-4">
           <TemplateDocsLink
             template={template}
             location="landing_page_cta"
-            className="inline-flex items-center gap-2 rounded-xl bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
+            className="inline-flex items-center gap-2 rounded-xl border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
           >
             {t("templateLanding.slides.s057")}
           </TemplateDocsLink>
