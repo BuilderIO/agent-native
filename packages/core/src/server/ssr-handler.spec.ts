@@ -110,7 +110,10 @@ describe("createH3SSRHandler", () => {
     const request = vi.fn(() => "started" as const);
     const markSsrSuccess = vi.fn();
     const unregister = registerReactRouterDevRecovery({
-      routeRoots: ["/tmp/agent-native-routes"],
+      routeScope: {
+        exactRouteFiles: [missingRoute],
+        discoveryRoots: [],
+      },
       requestFallback: request,
       markSsrSuccess,
     });
@@ -128,6 +131,10 @@ describe("createH3SSRHandler", () => {
       const fallback = await handler(createEvent("/deleted"));
       expect(fallback.status).toBe(503);
       expect(fallback.headers.get("cache-control")).toBe("no-store");
+      expect(fallback.headers.get("cdn-cache-control")).toBe("no-store");
+      expect(fallback.headers.get("netlify-cdn-cache-control")).toBe(
+        "no-store",
+      );
       expect(fallback.headers.get("retry-after")).toBe("1");
       expect(fallback.headers.get("content-type")).toBe(
         "text/plain; charset=utf-8",
@@ -135,13 +142,17 @@ describe("createH3SSRHandler", () => {
       await expect(fallback.text()).resolves.toBe(
         "Route graph is refreshing. Retry shortly.\n",
       );
-      expect(request).toHaveBeenCalledOnce();
+      expect(request).toHaveBeenCalledWith({
+        modulePath: missingRoute,
+        requestPathname: "/deleted",
+        reason: `missing route module ${missingRoute}`,
+      });
       expect(markSsrSuccess).not.toHaveBeenCalled();
 
       const recovered = await handler(createEvent("/recovered"));
       expect(recovered.status).toBe(200);
       await expect(recovered.text()).resolves.toBe("GET /recovered");
-      expect(markSsrSuccess).toHaveBeenCalledOnce();
+      expect(markSsrSuccess).toHaveBeenCalledWith("/recovered");
     } finally {
       unregister();
     }
@@ -150,7 +161,10 @@ describe("createH3SSRHandler", () => {
   it("preserves the original SSR failure after recovery attempts are bounded", async () => {
     const missingRoute = "/tmp/agent-native-routes/deleted.tsx";
     const unregister = registerReactRouterDevRecovery({
-      routeRoots: ["/tmp/agent-native-routes"],
+      routeScope: {
+        exactRouteFiles: [missingRoute],
+        discoveryRoots: [],
+      },
       requestFallback: () => "bounded",
       markSsrSuccess: vi.fn(),
     });

@@ -8,7 +8,36 @@ import {
   classifyStaleReactRouterRouteError,
   createReactRouterRecoveryCoordinator,
   extractViteLoadUrlPath,
+  type ReactRouterRecoveryCoordinator,
+  type ReactRouterRouteScope,
 } from "./react-router-dev-recovery.js";
+
+const EMPTY_SCOPE: ReactRouterRouteScope = {
+  exactRouteFiles: [],
+  discoveryRoots: [],
+};
+
+function discoveryScope(routes: string): ReactRouterRouteScope {
+  return {
+    exactRouteFiles: [],
+    discoveryRoots: [
+      {
+        appDirectory: path.dirname(routes),
+        directory: routes,
+        ignoredRouteFiles: [],
+      },
+    ],
+  };
+}
+
+function requestFallback(
+  coordinator: ReactRouterRecoveryCoordinator,
+  modulePath: string,
+  requestPathname: string,
+  reason = "stale SSR",
+) {
+  return coordinator.requestFallback({ modulePath, requestPathname, reason });
+}
 
 function loadError(file: string, overrides: Record<string, unknown> = {}) {
   return Object.assign(
@@ -33,35 +62,31 @@ describe("stale React Router route classification", () => {
     tempDirs.push(root);
     const routes = path.join(root, "app", "routes");
     fs.mkdirSync(routes, { recursive: true });
-    return { root, routes };
+    return { root, routes, scope: discoveryScope(routes) };
   }
 
   it("extracts resolved absolute and /@fs/ load paths", () => {
     const file = path.join(os.tmpdir(), "missing-route.tsx");
     expect(extractViteLoadUrlPath(loadError(file))).toBe(file);
     expect(
-      extractViteLoadUrlPath(
-        loadError(file, {
-          id: `/@fs/${file}?v=1`,
-        }),
-      ),
+      extractViteLoadUrlPath(loadError(file, { id: `/@fs/${file}?v=1` })),
     ).toBe(file);
   });
 
   it("finds a strict stale route error through nested causes", () => {
-    const { routes } = routeFixture();
+    const { routes, scope } = routeFixture();
     const file = path.join(routes, "deleted.tsx");
     const wrapped = new Error("SSR import failed", {
       cause: new Error("runner failed", { cause: loadError(file) }),
     });
 
-    expect(classifyStaleReactRouterRouteError(wrapped, [routes])).toEqual({
+    expect(classifyStaleReactRouterRouteError(wrapped, scope)).toEqual({
       file,
     });
   });
 
   it("combines code, importer, and route path evidence within one cause chain", () => {
-    const { routes } = routeFixture();
+    const { routes, scope } = routeFixture();
     const file = path.join(routes, "deleted.tsx");
     const pathError = Object.assign(new Error(`Failed to load url ${file}`), {
       id: file,
@@ -72,18 +97,16 @@ describe("stale React Router route classification", () => {
     });
     const wrapped = Object.assign(
       new Error("SSR import failed", { cause: codeError }),
-      {
-        importer: "virtual:react-router/server-build",
-      },
+      { importer: "virtual:react-router/server-build" },
     );
 
-    expect(classifyStaleReactRouterRouteError(wrapped, [routes])).toEqual({
+    expect(classifyStaleReactRouterRouteError(wrapped, scope)).toEqual({
       file,
     });
   });
 
   it("does not combine stale-load evidence across sibling error branches", () => {
-    const { routes } = routeFixture();
+    const { routes, scope } = routeFixture();
     const file = path.join(routes, "deleted.tsx");
     const wrapped = new AggregateError([
       Object.assign(new Error("Vite transform failed"), {
@@ -95,33 +118,31 @@ describe("stale React Router route classification", () => {
       }),
     ]);
 
-    expect(
-      classifyStaleReactRouterRouteError(wrapped, [routes]),
-    ).toBeUndefined();
+    expect(classifyStaleReactRouterRouteError(wrapped, scope)).toBeUndefined();
   });
 
   it.each([
     ["wrong code", { code: "ERR_MODULE_NOT_FOUND" }],
     ["wrong importer", { message: "Failed to load url /tmp/nope.tsx" }],
   ])("rejects %s", (_label, overrides) => {
-    const { routes } = routeFixture();
+    const { routes, scope } = routeFixture();
     const file = path.join(routes, "deleted.tsx");
     expect(
-      classifyStaleReactRouterRouteError(loadError(file, overrides), [routes]),
+      classifyStaleReactRouterRouteError(loadError(file, overrides), scope),
     ).toBeUndefined();
   });
 
-  it("rejects existing route transforms and missing imports outside route roots", () => {
-    const { root, routes } = routeFixture();
+  it("rejects existing transforms and missing imports outside route scope", () => {
+    const { root, routes, scope } = routeFixture();
     const existing = path.join(routes, "syntax-error.tsx");
     fs.writeFileSync(existing, "export default (");
     const outside = path.join(root, "lib", "missing.ts");
 
     expect(
-      classifyStaleReactRouterRouteError(loadError(existing), [routes]),
+      classifyStaleReactRouterRouteError(loadError(existing), scope),
     ).toBeUndefined();
     expect(
-      classifyStaleReactRouterRouteError(loadError(outside), [routes]),
+      classifyStaleReactRouterRouteError(loadError(outside), scope),
     ).toBeUndefined();
     expect(
       classifyStaleReactRouterRouteError(
@@ -129,8 +150,24 @@ describe("stale React Router route classification", () => {
           code: "ERR_LOAD_URL",
           importer: "virtual:react-router/server-build",
         }),
-        [routes],
+        scope,
       ),
+    ).toBeUndefined();
+  });
+
+  it("accepts an absent exact explicit route without broadening its parent", () => {
+    const { root } = routeFixture();
+    const exact = path.join(root, "app", "dashboard.tsx");
+    const sibling = path.join(root, "app", "not-a-route.tsx");
+    const scope = { exactRouteFiles: [exact], discoveryRoots: [] };
+
+    expect(classifyStaleReactRouterRouteError(loadError(exact), scope)).toEqual(
+      {
+        file: exact,
+      },
+    );
+    expect(
+      classifyStaleReactRouterRouteError(loadError(sibling), scope),
     ).toBeUndefined();
   });
 });
@@ -148,7 +185,7 @@ describe("React Router recovery coordinator", () => {
           finishRestart = resolve;
         }),
     );
-    const coordinator = createReactRouterRecoveryCoordinator(["/app/routes"], {
+    const coordinator = createReactRouterRecoveryCoordinator(EMPTY_SCOPE, {
       restart,
       now: () => now,
       cooldownMs: 100,
@@ -169,7 +206,7 @@ describe("React Router recovery coordinator", () => {
 
   it("continues proactive topology rebuilds beyond the fallback bound", async () => {
     const restart = vi.fn(async () => {});
-    const coordinator = createReactRouterRecoveryCoordinator(["/app/routes"], {
+    const coordinator = createReactRouterRecoveryCoordinator(EMPTY_SCOPE, {
       restart,
       cooldownMs: 0,
       maxConsecutiveAttempts: 3,
@@ -179,30 +216,69 @@ describe("React Router recovery coordinator", () => {
       expect(coordinator.requestTopology(`topology ${index}`)).toBe("started");
       await new Promise((resolve) => setImmediate(resolve));
     }
-
     expect(restart).toHaveBeenCalledTimes(5);
   });
 
-  it("keeps attempt bounds across coordinator replacement", () => {
+  it("shares fallback bounds by module across request paths", async () => {
+    const restart = vi.fn(async () => {});
+    const coordinator = createReactRouterRecoveryCoordinator(EMPTY_SCOPE, {
+      restart,
+      cooldownMs: 0,
+      maxConsecutiveAttempts: 2,
+    });
+    const module = "/app/routes/deleted.tsx";
+
+    expect(requestFallback(coordinator, module, "/one")).toBe("started");
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(requestFallback(coordinator, module, "/two")).toBe("started");
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(requestFallback(coordinator, module, "/three")).toBe("bounded");
+  });
+
+  it("does not reset a stale module bound after unrelated healthy SSR", async () => {
+    const restart = vi.fn(async () => {});
+    const coordinator = createReactRouterRecoveryCoordinator(EMPTY_SCOPE, {
+      restart,
+      cooldownMs: 0,
+      maxConsecutiveAttempts: 2,
+    });
+    const module = "/app/routes/deleted.tsx";
+
+    expect(requestFallback(coordinator, module, "/broken")).toBe("started");
+    await new Promise((resolve) => setImmediate(resolve));
+    coordinator.markSsrSuccess("/healthy");
+    expect(requestFallback(coordinator, module, "/also-broken")).toBe(
+      "started",
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(requestFallback(coordinator, module, "/third-path")).toBe("bounded");
+
+    coordinator.markSsrSuccess("/broken");
+    expect(requestFallback(coordinator, module, "/third-path")).toBe("started");
+  });
+
+  it("keeps module attempt bounds across coordinator replacement", () => {
     const key = `route-recovery-${crypto.randomUUID()}`;
-    const first = createReactRouterRecoveryCoordinator(["/app/routes"], {
+    const options = {
       restart: async () => {},
       cooldownMs: 0,
       maxConsecutiveAttempts: 1,
       persistentStateKey: key,
-    });
-    expect(first.requestFallback("first")).toBe("started");
+    };
+    const module = "/app/routes/deleted.tsx";
+    const first = createReactRouterRecoveryCoordinator(EMPTY_SCOPE, options);
+    expect(requestFallback(first, module, "/broken")).toBe("started");
     first.dispose();
 
-    const replacement = createReactRouterRecoveryCoordinator(["/app/routes"], {
-      restart: async () => {},
-      cooldownMs: 0,
-      maxConsecutiveAttempts: 1,
-      persistentStateKey: key,
-    });
-    expect(replacement.requestFallback("loop")).toBe("bounded");
-    replacement.markSsrSuccess();
-    expect(replacement.requestFallback("after success")).toBe("started");
+    const replacement = createReactRouterRecoveryCoordinator(
+      EMPTY_SCOPE,
+      options,
+    );
+    expect(requestFallback(replacement, module, "/other")).toBe("bounded");
+    replacement.markSsrSuccess("/broken");
+    expect(requestFallback(replacement, module, "/after-success")).toBe(
+      "started",
+    );
   });
 
   it("serializes mixed pending requests without bypassing fallback bounds", async () => {
@@ -214,15 +290,16 @@ describe("React Router recovery coordinator", () => {
           finishes.push(resolve);
         }),
     );
-    const coordinator = createReactRouterRecoveryCoordinator(["/app/routes"], {
+    const coordinator = createReactRouterRecoveryCoordinator(EMPTY_SCOPE, {
       restart,
       cooldownMs: 0,
       maxConsecutiveAttempts: 1,
     });
+    const module = "/app/routes/deleted.tsx";
 
-    expect(coordinator.requestFallback("stale SSR")).toBe("started");
+    expect(requestFallback(coordinator, module, "/broken")).toBe("started");
     expect(coordinator.requestTopology("route added")).toBe("pending");
-    expect(coordinator.requestFallback("another stale SSR")).toBe("bounded");
+    expect(requestFallback(coordinator, module, "/other")).toBe("bounded");
     expect(restart).toHaveBeenCalledOnce();
 
     finishes[0]?.();
@@ -230,33 +307,8 @@ describe("React Router recovery coordinator", () => {
     await Promise.resolve();
     await vi.runOnlyPendingTimersAsync();
     expect(restart).toHaveBeenCalledTimes(2);
-    expect(coordinator.requestFallback("still stale")).toBe("bounded");
-  });
-
-  it("enforces cooldown and a bounded consecutive fallback count", async () => {
-    vi.useFakeTimers();
-    let now = 1_000;
-    const restart = vi.fn(async () => {});
-    const coordinator = createReactRouterRecoveryCoordinator(["/app/routes"], {
-      restart,
-      now: () => now,
-      cooldownMs: 50,
-      maxConsecutiveAttempts: 2,
-    });
-
-    expect(coordinator.requestFallback("first")).toBe("started");
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(coordinator.requestFallback("too soon")).toBe("cooldown");
-    now += 50;
-    await vi.runOnlyPendingTimersAsync();
-    expect(restart).toHaveBeenCalledTimes(2);
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(coordinator.requestFallback("third")).toBe("bounded");
-
-    coordinator.markSsrSuccess();
-    now += 50;
-    expect(coordinator.requestFallback("after success")).toBe("started");
+    expect(requestFallback(coordinator, module, "/still-stale")).toBe(
+      "bounded",
+    );
   });
 });

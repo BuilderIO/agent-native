@@ -5,8 +5,12 @@ import type { Plugin, ResolvedConfig, ViteDevServer } from "vite";
 
 import {
   createReactRouterRecoveryCoordinator,
+  isReactRouterRouteDirectoryPath,
+  isReactRouterRouteModulePath,
   registerReactRouterDevRecovery,
+  type ReactRouterDiscoveryRoot,
   type ReactRouterRecoveryCoordinator,
+  type ReactRouterRouteScope,
 } from "../server/react-router-dev-recovery.js";
 
 const ROUTE_RESTART_DEBOUNCE_MS = 100;
@@ -25,14 +29,91 @@ type ReactRouterResolvedConfig = ResolvedConfig & {
 };
 
 export interface ReactRouterRecoveryPaths {
-  routeRoots: string[];
+  routeScope: ReactRouterRouteScope;
   configFiles: string[];
 }
 
-function existingConfigCandidate(base: string): string[] {
-  return CONFIG_EXTENSIONS.map((extension) => `${base}${extension}`).filter(
-    fs.existsSync,
-  );
+function relativeInside(file: string, root: string): string | undefined {
+  const relative = path.relative(root, file);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) return undefined;
+  return relative;
+}
+
+function configCandidates(base: string): string[] {
+  return CONFIG_EXTENSIONS.map((extension) => `${base}${extension}`);
+}
+
+function parseLiteralString(value: string): string | undefined {
+  const trimmed = value.trim();
+  const quote = trimmed[0];
+  if ((quote !== '"' && quote !== "'") || trimmed.at(-1) !== quote) {
+    return undefined;
+  }
+  const body = trimmed.slice(1, -1);
+  if (/\\(?![\\'"nrtbfv0])/.test(body)) return undefined;
+  return body.replace(/\\(['"\\])/g, "$1");
+}
+
+function parseLiteralStringArray(value: string): string[] | undefined {
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("[") || !trimmed.endsWith("]")) return undefined;
+  const body = trimmed.slice(1, -1).trim();
+  if (!body) return [];
+  const values: string[] = [];
+  let remaining = body;
+  const literal = /^\s*((?:"(?:[^"\\]|\\.)*")|(?:'(?:[^'\\]|\\.)*'))\s*(?:,|$)/;
+  while (remaining) {
+    const match = remaining.match(literal);
+    if (!match) return undefined;
+    const parsed = parseLiteralString(match[1]);
+    if (parsed === undefined) return undefined;
+    values.push(parsed);
+    remaining = remaining.slice(match[0].length);
+  }
+  return values;
+}
+
+export function parseFlatRoutesDiscovery(
+  source: string,
+  appDirectory: string,
+): ReactRouterDiscoveryRoot | undefined {
+  const hasFsRoutesImport =
+    /import\s*\{[^}]*\bflatRoutes\b[^}]*\}\s*from\s*["']@react-router\/fs-routes["']/.test(
+      source,
+    );
+  if (!hasFsRoutesImport) return undefined;
+  const call = source.match(/\bflatRoutes\s*\(\s*(\{[\s\S]*?\})?\s*\)/);
+  if (!call) return undefined;
+  const options = call[1];
+  let rootDirectory = "routes";
+  let ignoredRouteFiles: string[] = [];
+  if (options) {
+    if (options.includes("...")) return undefined;
+    const rootMatch = options.match(/\brootDirectory\s*:\s*([^,}]+)/);
+    if (rootMatch) {
+      const parsed = parseLiteralString(rootMatch[1]);
+      if (parsed === undefined) return undefined;
+      rootDirectory = parsed;
+    }
+    const ignoredMatch = options.match(
+      /\bignoredRouteFiles\s*:\s*(\[[\s\S]*?\])/,
+    );
+    if (ignoredMatch) {
+      const parsed = parseLiteralStringArray(ignoredMatch[1]);
+      if (!parsed) return undefined;
+      ignoredRouteFiles = parsed;
+    }
+    if (/\brootDirectory\s*:/.test(options) && !rootMatch) return undefined;
+    if (/\bignoredRouteFiles\s*:/.test(options) && !ignoredMatch)
+      return undefined;
+    let remaining = options.slice(1, -1);
+    if (rootMatch) remaining = remaining.replace(rootMatch[0], "");
+    if (ignoredMatch) remaining = remaining.replace(ignoredMatch[0], "");
+    if (remaining.replace(/[\s,]/g, "")) return undefined;
+  }
+  const directory = path.resolve(appDirectory, rootDirectory);
+  if (relativeInside(directory, appDirectory) === undefined) return undefined;
+  return { appDirectory, directory, ignoredRouteFiles };
 }
 
 export function resolveReactRouterRecoveryPaths(
@@ -41,29 +122,28 @@ export function resolveReactRouterRecoveryPaths(
   const context = config.__reactRouterPluginContext;
   if (!context) return undefined;
   const appDirectory = path.resolve(context.reactRouterConfig.appDirectory);
-  const routeRoots = new Set<string>([path.join(appDirectory, "routes")]);
-  for (const [id, route] of Object.entries(context.reactRouterConfig.routes)) {
-    if (id === "root") continue;
-    routeRoots.add(path.dirname(path.resolve(appDirectory, route.file)));
+  const rootDirectory = path.resolve(context.rootDirectory);
+  const routeConfigFiles = configCandidates(path.join(appDirectory, "routes"));
+  const routeConfigFile = routeConfigFiles.find(fs.existsSync);
+  const discoveryRoots: ReactRouterDiscoveryRoot[] = [];
+  if (routeConfigFile) {
+    const discovery = parseFlatRoutesDiscovery(
+      fs.readFileSync(routeConfigFile, "utf8"),
+      appDirectory,
+    );
+    if (discovery) discoveryRoots.push(discovery);
   }
-  const configFiles = new Set<string>([
-    ...CONFIG_EXTENSIONS.map((extension) =>
-      path.join(context.rootDirectory, `react-router.config${extension}`),
-    ),
-    ...existingConfigCandidate(path.join(appDirectory, "routes")),
-  ]);
+  const exactRouteFiles = Object.entries(context.reactRouterConfig.routes)
+    .filter(([id]) => id !== "root")
+    .map(([, route]) => path.resolve(appDirectory, route.file))
+    .filter((file) => relativeInside(file, appDirectory) !== undefined);
   return {
-    routeRoots: [...routeRoots].map((root) => path.resolve(root)),
-    configFiles: [...configFiles].map((file) => path.resolve(file)),
+    routeScope: { exactRouteFiles, discoveryRoots },
+    configFiles: [
+      ...configCandidates(path.join(rootDirectory, "react-router.config")),
+      ...routeConfigFiles,
+    ].map((file) => path.resolve(file)),
   };
-}
-
-function isWithin(file: string, root: string): boolean {
-  const relative = path.relative(root, file);
-  return (
-    relative === "" ||
-    (!relative.startsWith("..") && !path.isAbsolute(relative))
-  );
 }
 
 export function reactRouterRouteRecoveryPlugin(): Plugin {
@@ -92,7 +172,7 @@ export function reactRouterRouteRecoveryPlugin(): Plugin {
     configureServer(server: ViteDevServer) {
       if (!paths || process.env.NODE_ENV === "production") return;
       cleanup();
-      coordinator = createReactRouterRecoveryCoordinator(paths.routeRoots, {
+      coordinator = createReactRouterRecoveryCoordinator(paths.routeScope, {
         restart: () => server.restart(),
         persistentStateKey: server.config.root,
         onOutcome(message, error) {
@@ -116,7 +196,19 @@ export function reactRouterRouteRecoveryPlugin(): Plugin {
       };
       const onTopology = (file: string) => {
         const absolute = path.resolve(file);
-        if (paths?.routeRoots.some((root) => isWithin(absolute, root))) {
+        if (
+          paths?.configFiles.includes(absolute) ||
+          (paths && isReactRouterRouteModulePath(absolute, paths.routeScope))
+        ) {
+          schedule(absolute);
+        }
+      };
+      const onDirectory = (directory: string) => {
+        const absolute = path.resolve(directory);
+        if (
+          paths &&
+          isReactRouterRouteDirectoryPath(absolute, paths.routeScope)
+        ) {
           schedule(absolute);
         }
       };
@@ -126,8 +218,8 @@ export function reactRouterRouteRecoveryPlugin(): Plugin {
       };
       server.watcher.on("add", onTopology);
       server.watcher.on("unlink", onTopology);
-      server.watcher.on("addDir", onTopology);
-      server.watcher.on("unlinkDir", onTopology);
+      server.watcher.on("addDir", onDirectory);
+      server.watcher.on("unlinkDir", onDirectory);
       server.watcher.on("change", onChange);
       server.watcher.once("close", cleanup);
     },

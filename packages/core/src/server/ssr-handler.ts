@@ -21,7 +21,7 @@ import { createRequestHandler } from "react-router";
 import { isMcpPublicPath } from "../mcp/route-paths.js";
 import {
   DEFAULT_SPECULATION_RULES_PATH,
-  DISABLED_SSR_CACHE_CONTROL,
+  DISABLED_SSR_CACHE_HEADERS,
   resolveSsrCacheHeaders,
 } from "../shared/cache-control.js";
 import {
@@ -466,23 +466,25 @@ export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
         );
       }
       if (response.status < 500) {
-        getReactRouterDevRecovery()?.markSsrSuccess();
+        getReactRouterDevRecovery()?.markSsrSuccess(p);
       }
       return response;
     } catch (err) {
       const recovery = getReactRouterDevRecovery();
       const staleRoute =
         recovery &&
-        classifyStaleReactRouterRouteError(err, recovery.routeRoots);
+        classifyStaleReactRouterRouteError(err, recovery.routeScope);
       if (recovery && staleRoute) {
-        const result = recovery.requestFallback(
-          `missing route module ${staleRoute.file}`,
-        );
+        const result = recovery.requestFallback({
+          modulePath: staleRoute.file,
+          requestPathname: p,
+          reason: `missing route module ${staleRoute.file}`,
+        });
         if (result !== "bounded") {
           return new Response("Route graph is refreshing. Retry shortly.\n", {
             status: 503,
             headers: {
-              "cache-control": DISABLED_SSR_CACHE_CONTROL,
+              ...DISABLED_SSR_CACHE_HEADERS,
               "content-type": "text/plain; charset=utf-8",
               "retry-after": "1",
             },

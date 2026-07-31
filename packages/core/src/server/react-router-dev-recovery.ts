@@ -2,10 +2,29 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { minimatch } from "minimatch";
+
 const BRIDGE_KEY = Symbol.for("agent-native.react-router-dev-recovery");
 const ATTEMPT_STATE_KEY = Symbol.for(
   "agent-native.react-router-dev-recovery-attempts",
 );
+
+const ROUTE_MODULE_EXTENSIONS = new Set([
+  ".js",
+  ".jsx",
+  ".ts",
+  ".tsx",
+  ".md",
+  ".mdx",
+]);
+const NON_ROUTE_PATTERNS = [
+  "**/*.test.{js,jsx,ts,tsx,md,mdx}",
+  "**/*.spec.{js,jsx,ts,tsx,md,mdx}",
+  "**/*.test/**",
+  "**/*.spec/**",
+  "**/__tests__/**",
+  "**/__snapshots__/**",
+];
 
 export type ReactRouterRecoveryRequest =
   | "started"
@@ -13,10 +32,25 @@ export type ReactRouterRecoveryRequest =
   | "cooldown"
   | "bounded";
 
+export interface ReactRouterDiscoveryRoot {
+  appDirectory: string;
+  directory: string;
+  ignoredRouteFiles: readonly string[];
+}
+
+export interface ReactRouterRouteScope {
+  exactRouteFiles: readonly string[];
+  discoveryRoots: readonly ReactRouterDiscoveryRoot[];
+}
+
 export interface ReactRouterDevRecoveryBridge {
-  routeRoots: readonly string[];
-  requestFallback(reason: string): ReactRouterRecoveryRequest;
-  markSsrSuccess(): void;
+  routeScope: ReactRouterRouteScope;
+  requestFallback(input: {
+    modulePath: string;
+    requestPathname: string;
+    reason: string;
+  }): ReactRouterRecoveryRequest;
+  markSsrSuccess(requestPathname: string): void;
 }
 
 interface RecoveryCoordinatorOptions {
@@ -30,12 +64,13 @@ interface RecoveryCoordinatorOptions {
 }
 
 interface RecoveryAttemptState {
-  fallbackAttempts: number;
+  fallbackAttemptsByModule: Map<string, number>;
+  pathnameModules: Map<string, string>;
   lastStartedAt: number;
 }
 
 interface RecoveryRequest {
-  fallback: boolean;
+  fallbackModule?: string;
   reason: string;
 }
 
@@ -54,18 +89,21 @@ function globalBridgeStore(): typeof globalThis & {
   };
 }
 
+function newAttemptState(): RecoveryAttemptState {
+  return {
+    fallbackAttemptsByModule: new Map(),
+    pathnameModules: new Map(),
+    lastStartedAt: Number.NEGATIVE_INFINITY,
+  };
+}
+
 function recoveryAttemptState(key?: string): RecoveryAttemptState {
-  if (!key) {
-    return { fallbackAttempts: 0, lastStartedAt: Number.NEGATIVE_INFINITY };
-  }
+  if (!key) return newAttemptState();
   const store = globalBridgeStore();
   store[ATTEMPT_STATE_KEY] ??= new Map();
   const existing = store[ATTEMPT_STATE_KEY].get(key);
   if (existing) return existing;
-  const state = {
-    fallbackAttempts: 0,
-    lastStartedAt: Number.NEGATIVE_INFINITY,
-  };
+  const state = newAttemptState();
   store[ATTEMPT_STATE_KEY].set(key, state);
   return state;
 }
@@ -87,8 +125,86 @@ export function getReactRouterDevRecovery():
   return globalBridgeStore()[BRIDGE_KEY];
 }
 
+function normalizeFile(file: string): string {
+  return path.resolve(file);
+}
+
+function relativeInside(file: string, root: string): string | undefined {
+  const relative = path.relative(root, file);
+  if (relative === "") return "";
+  if (relative.startsWith("..") || path.isAbsolute(relative)) return undefined;
+  return relative.replaceAll(path.sep, "/");
+}
+
+function hasDotPathSegment(relative: string): boolean {
+  return relative.split("/").some((segment) => segment.startsWith("."));
+}
+
+function isIgnoredRoutePath(
+  relativeToApp: string,
+  ignoredRouteFiles: readonly string[],
+  directory = false,
+): boolean {
+  if (hasDotPathSegment(relativeToApp)) return true;
+  return [...NON_ROUTE_PATTERNS, ...ignoredRouteFiles].some(
+    (pattern) =>
+      minimatch(relativeToApp, pattern, { dot: true }) ||
+      (directory &&
+        minimatch(`${relativeToApp}/__route.tsx`, pattern, { dot: true })),
+  );
+}
+
+export function isReactRouterRouteModulePath(
+  file: string,
+  scope: ReactRouterRouteScope,
+): boolean {
+  const absolute = normalizeFile(file);
+  if (
+    scope.exactRouteFiles.some(
+      (candidate) => normalizeFile(candidate) === absolute,
+    )
+  ) {
+    return true;
+  }
+  if (!ROUTE_MODULE_EXTENSIONS.has(path.extname(absolute).toLowerCase())) {
+    return false;
+  }
+  return scope.discoveryRoots.some((root) => {
+    const directory = normalizeFile(root.directory);
+    const appDirectory = normalizeFile(root.appDirectory);
+    const relativeToRoot = relativeInside(absolute, directory);
+    const relativeToApp = relativeInside(absolute, appDirectory);
+    if (relativeToRoot === undefined || relativeToApp === undefined)
+      return false;
+    const segments = relativeToRoot.split("/");
+    if (segments.length > 2) return false;
+    if (segments.length === 2) {
+      const moduleName = path.basename(segments[1], path.extname(segments[1]));
+      if (moduleName !== "route" && moduleName !== "index") return false;
+    }
+    return !isIgnoredRoutePath(relativeToApp, root.ignoredRouteFiles);
+  });
+}
+
+export function isReactRouterRouteDirectoryPath(
+  directory: string,
+  scope: ReactRouterRouteScope,
+): boolean {
+  const absolute = normalizeFile(directory);
+  return scope.discoveryRoots.some((root) => {
+    const discoveryRoot = normalizeFile(root.directory);
+    const appDirectory = normalizeFile(root.appDirectory);
+    const relativeToRoot = relativeInside(absolute, discoveryRoot);
+    const relativeToApp = relativeInside(absolute, appDirectory);
+    if (relativeToRoot === undefined || relativeToApp === undefined)
+      return false;
+    if (relativeToRoot && relativeToRoot.includes("/")) return false;
+    return !isIgnoredRoutePath(relativeToApp, root.ignoredRouteFiles, true);
+  });
+}
+
 export function createReactRouterRecoveryCoordinator(
-  routeRoots: readonly string[],
+  routeScope: ReactRouterRouteScope,
   options: RecoveryCoordinatorOptions,
 ): ReactRouterRecoveryCoordinator {
   const cooldownMs = options.cooldownMs ?? 500;
@@ -100,6 +216,12 @@ export function createReactRouterRecoveryCoordinator(
   let pendingRequest: RecoveryRequest | undefined;
   let pendingTimer: ReturnType<typeof setTimeout> | undefined;
   let disposed = false;
+
+  const mergePending = (request: RecoveryRequest) => {
+    if (!pendingRequest || request.fallbackModule) {
+      pendingRequest = request;
+    }
+  };
 
   const schedulePending = () => {
     if (!pendingRequest || pendingTimer || disposed) return;
@@ -119,7 +241,14 @@ export function createReactRouterRecoveryCoordinator(
   const run = (request: RecoveryRequest) => {
     if (disposed) return;
     running = true;
-    if (request.fallback) attemptState.fallbackAttempts += 1;
+    if (request.fallbackModule) {
+      const attempts =
+        attemptState.fallbackAttemptsByModule.get(request.fallbackModule) ?? 0;
+      attemptState.fallbackAttemptsByModule.set(
+        request.fallbackModule,
+        attempts + 1,
+      );
+    }
     attemptState.lastStartedAt = now();
     void options
       .restart()
@@ -145,28 +274,12 @@ export function createReactRouterRecoveryCoordinator(
     nextRequest: RecoveryRequest,
   ): ReactRouterRecoveryRequest => {
     if (disposed) return "bounded";
-    if (
-      nextRequest.fallback &&
-      attemptState.fallbackAttempts >= maxConsecutiveAttempts
-    ) {
-      return "bounded";
-    }
     if (running) {
-      pendingRequest = pendingRequest
-        ? {
-            fallback: pendingRequest.fallback || nextRequest.fallback,
-            reason: nextRequest.reason,
-          }
-        : nextRequest;
+      mergePending(nextRequest);
       return "pending";
     }
     if (now() - attemptState.lastStartedAt < cooldownMs) {
-      pendingRequest = pendingRequest
-        ? {
-            fallback: pendingRequest.fallback || nextRequest.fallback,
-            reason: nextRequest.reason,
-          }
-        : nextRequest;
+      mergePending(nextRequest);
       schedulePending();
       return "cooldown";
     }
@@ -175,15 +288,33 @@ export function createReactRouterRecoveryCoordinator(
   };
 
   return {
-    routeRoots: routeRoots.map((root) => path.resolve(root)),
-    requestFallback(reason) {
-      return request({ fallback: true, reason });
+    routeScope: {
+      exactRouteFiles: routeScope.exactRouteFiles.map(normalizeFile),
+      discoveryRoots: routeScope.discoveryRoots.map((root) => ({
+        appDirectory: normalizeFile(root.appDirectory),
+        directory: normalizeFile(root.directory),
+        ignoredRouteFiles: [...root.ignoredRouteFiles],
+      })),
+    },
+    requestFallback({ modulePath, requestPathname, reason }) {
+      const module = normalizeFile(modulePath);
+      attemptState.pathnameModules.set(requestPathname, module);
+      const attempts = attemptState.fallbackAttemptsByModule.get(module) ?? 0;
+      if (attempts >= maxConsecutiveAttempts) return "bounded";
+      return request({ fallbackModule: module, reason });
     },
     requestTopology(reason) {
-      return request({ fallback: false, reason });
+      return request({ reason });
     },
-    markSsrSuccess() {
-      attemptState.fallbackAttempts = 0;
+    markSsrSuccess(requestPathname) {
+      const module = attemptState.pathnameModules.get(requestPathname);
+      if (!module) return;
+      attemptState.fallbackAttemptsByModule.delete(module);
+      for (const [pathname, associatedModule] of attemptState.pathnameModules) {
+        if (associatedModule === module) {
+          attemptState.pathnameModules.delete(pathname);
+        }
+      }
     },
     dispose() {
       disposed = true;
@@ -257,17 +388,9 @@ export function extractViteLoadUrlPath(error: unknown): string | undefined {
   return loaded ? cleanReferencedPath(loaded) : undefined;
 }
 
-function isWithinRoot(file: string, root: string): boolean {
-  const relative = path.relative(root, file);
-  return (
-    relative === "" ||
-    (!relative.startsWith("..") && !path.isAbsolute(relative))
-  );
-}
-
 export function classifyStaleReactRouterRouteError(
   error: unknown,
-  routeRoots: readonly string[],
+  routeScope: ReactRouterRouteScope,
 ): { file: string } | undefined {
   for (const chain of errorChains(error)) {
     if (!chain.some((candidate) => candidate.code === "ERR_LOAD_URL")) continue;
@@ -284,9 +407,7 @@ export function classifyStaleReactRouterRouteError(
     if (!context.includes("virtual:react-router/server-build")) continue;
     for (const candidate of chain) {
       const file = extractViteLoadUrlPath(candidate);
-      if (!file) continue;
-      if (!routeRoots.some((root) => isWithinRoot(file, path.resolve(root))))
-        continue;
+      if (!file || !isReactRouterRouteModulePath(file, routeScope)) continue;
       if (fs.existsSync(file)) continue;
       return { file };
     }

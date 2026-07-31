@@ -61,7 +61,7 @@ describe("React Router route topology recovery", () => {
     fixture = fs.mkdtempSync(
       path.join(process.cwd(), ".tmp-route-recovery-integration-"),
     );
-    routes = path.join(fixture, "app", "routes");
+    routes = path.join(fixture, "app", "pages");
     fs.mkdirSync(routes, { recursive: true });
     fs.writeFileSync(
       path.join(fixture, "react-router.config.ts"),
@@ -69,7 +69,7 @@ describe("React Router route topology recovery", () => {
     );
     fs.writeFileSync(
       path.join(fixture, "app", "routes.ts"),
-      'import { flatRoutes } from "@react-router/fs-routes";\nexport default flatRoutes();\n',
+      'import { flatRoutes } from "@react-router/fs-routes";\nexport default flatRoutes({ rootDirectory: "pages", ignoredRouteFiles: ["pages/**/*.ignored.tsx"] });\n',
     );
     fs.writeFileSync(
       path.join(fixture, "app", "root.tsx"),
@@ -90,7 +90,6 @@ export default function handleRequest(request, status, headers, context) {
 }
 `,
     );
-    fs.writeFileSync(path.join(routes, "old.tsx"), routeSource("Old v1"));
     const recoveryPluginUrl = pathToFileURL(
       path.join(
         process.cwd(),
@@ -141,25 +140,50 @@ export default defineConfig({
     delete (globalThis as Record<string, unknown>)[restartCountKey];
   });
 
-  it("updates route topology in-process while ordinary edits and failures stay HMR-only", async () => {
+  it("updates an initially empty custom route root while ordinary edits and failures stay HMR-only", async () => {
+    await eventuallyFetch(baseUrl, (response) => response.status === 200);
+    expect(process.pid).toBe(initialPid);
+    expect((globalThis as Record<string, number>)[restartCountKey]).toBe(0);
+
+    fs.writeFileSync(path.join(routes, "image.png"), "not a route");
+    fs.writeFileSync(
+      path.join(routes, "draft.test.tsx"),
+      routeSource("ignored"),
+    );
+    fs.writeFileSync(
+      path.join(routes, "draft.ignored.tsx"),
+      routeSource("ignored"),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect((globalThis as Record<string, number>)[restartCountKey]).toBe(0);
+
+    fs.writeFileSync(path.join(routes, "old.tsx"), routeSource("Old v1"));
     await eventuallyFetch(`${baseUrl}/old`, (_response, body) =>
       body.includes("Old v1"),
     );
-    expect(process.pid).toBe(initialPid);
-    expect((globalThis as Record<string, number>)[restartCountKey]).toBe(0);
+    await eventually(
+      () => (globalThis as Record<string, number>)[restartCountKey] >= 1,
+    );
+    const afterInitialAdd = (globalThis as Record<string, number>)[
+      restartCountKey
+    ];
 
     fs.writeFileSync(path.join(routes, "old.tsx"), routeSource("Old v2"));
     await eventuallyFetch(`${baseUrl}/old`, (_response, body) =>
       body.includes("Old v2"),
     );
-    expect((globalThis as Record<string, number>)[restartCountKey]).toBe(0);
+    expect((globalThis as Record<string, number>)[restartCountKey]).toBe(
+      afterInitialAdd,
+    );
 
     fs.renameSync(path.join(routes, "old.tsx"), path.join(routes, "new.tsx"));
     await eventuallyFetch(`${baseUrl}/new`, (_response, body) =>
       body.includes("Old v2"),
     );
     await eventually(
-      () => (globalThis as Record<string, number>)[restartCountKey] >= 1,
+      () =>
+        (globalThis as Record<string, number>)[restartCountKey] >
+        afterInitialAdd,
     );
     const afterRename = (globalThis as Record<string, number>)[restartCountKey];
     expect(process.pid).toBe(initialPid);
@@ -185,6 +209,7 @@ export default defineConfig({
     expect((globalThis as Record<string, number>)[restartCountKey]).toBe(
       afterRename,
     );
+    await new Promise((resolve) => setTimeout(resolve, 300));
 
     fs.unlinkSync(path.join(routes, "new.tsx"));
     await eventuallyFetch(
