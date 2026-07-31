@@ -175,6 +175,67 @@ const migrations = [
       ALTER TABLE factory_runs ADD COLUMN approval_email TEXT;
     `,
   },
+  {
+    version: 13,
+    name: "factory-definitions-table",
+    sql: `
+      CREATE TABLE IF NOT EXISTS factory_definitions (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        prompt TEXT NOT NULL DEFAULT '',
+        graph_version INTEGER NOT NULL DEFAULT 1,
+        graph_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        owner_email TEXT NOT NULL,
+        org_id TEXT
+      );
+      CREATE INDEX IF NOT EXISTS factory_definitions_org_updated_idx
+        ON factory_definitions (org_id, updated_at);
+    `,
+  },
+  {
+    version: 14,
+    name: "factory-graph-versions-table",
+    sql: `
+      CREATE TABLE IF NOT EXISTS factory_graph_versions (
+        id TEXT PRIMARY KEY,
+        factory_id TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        graph_json TEXT NOT NULL,
+        source TEXT NOT NULL DEFAULT 'manual',
+        change_summary TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        owner_email TEXT NOT NULL,
+        org_id TEXT
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS factory_graph_versions_unique_idx
+        ON factory_graph_versions (org_id, factory_id, version);
+      CREATE INDEX IF NOT EXISTS factory_graph_versions_created_idx
+        ON factory_graph_versions (org_id, factory_id, created_at);
+    `,
+  },
+  {
+    version: 15,
+    name: "factory-comments-table",
+    sql: `
+      CREATE TABLE IF NOT EXISTS factory_comments (
+        id TEXT PRIMARY KEY,
+        factory_id TEXT NOT NULL,
+        graph_version INTEGER NOT NULL,
+        target_type TEXT NOT NULL DEFAULT 'canvas',
+        target_id TEXT,
+        body TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        owner_email TEXT NOT NULL,
+        org_id TEXT
+      );
+      CREATE INDEX IF NOT EXISTS factory_comments_created_idx
+        ON factory_comments (org_id, factory_id, created_at);
+    `,
+  },
 ];
 
 export const runFactoryMigrations = runMigrations(migrations, {

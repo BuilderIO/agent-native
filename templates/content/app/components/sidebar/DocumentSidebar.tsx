@@ -1621,9 +1621,7 @@ export function DocumentSidebar({
     <button
       type="button"
       onClick={onToggleCollapsed}
-      aria-label={
-        isCollapsed ? t("sidebar.expand") : t("sidebar.collapse")
-      }
+      aria-label={isCollapsed ? t("sidebar.expand") : t("sidebar.collapse")}
       className={cn(
         "flex items-center gap-2 rounded outline-none text-foreground transition-colors hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring",
         isCollapsed ? "size-8 justify-center" : "min-w-0 text-start",
@@ -1634,13 +1632,17 @@ export function DocumentSidebar({
         src={appPath("/agent-native-icon-light.svg")}
         alt=""
         aria-hidden="true"
-        className="block h-4 w-auto shrink-0 dark:hidden"
+        width={28}
+        height={16}
+        className="block h-4 w-7 shrink-0 object-contain object-center dark:hidden"
       />
       <img
         src={appPath("/agent-native-icon-dark.svg")}
         alt=""
         aria-hidden="true"
-        className="hidden h-4 w-auto shrink-0 dark:block"
+        width={28}
+        height={16}
+        className="hidden h-4 w-7 shrink-0 object-contain object-center dark:block"
       />
       {!isCollapsed && (
         <span className="text-base font-semibold tracking-tight">Content</span>

@@ -119,3 +119,75 @@ export const triageConfig = table("factory_config", {
   ownerEmail: text("owner_email").notNull(),
   orgId: text("org_id"),
 });
+
+export const factoryDefinitions = table(
+  "factory_definitions",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    description: text("description").notNull().default(""),
+    prompt: text("prompt").notNull().default(""),
+    graphVersion: integer("graph_version").notNull().default(1),
+    graphJson: text("graph_json").notNull().default("{}"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+  },
+  (factory) => ({
+    orgUpdatedIdx: index("factory_definitions_org_updated_idx").on(
+      factory.orgId,
+      factory.updatedAt,
+    ),
+  }),
+);
+
+export const factoryGraphVersions = table(
+  "factory_graph_versions",
+  {
+    id: text("id").primaryKey(),
+    factoryId: text("factory_id").notNull(),
+    version: integer("version").notNull(),
+    graphJson: text("graph_json").notNull(),
+    source: text("source").notNull().default("manual"),
+    changeSummary: text("change_summary").notNull().default(""),
+    createdAt: text("created_at").notNull().default(now()),
+    createdBy: text("created_by").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+  },
+  (version) => ({
+    factoryVersionUnique: uniqueIndex("factory_graph_versions_unique_idx").on(
+      version.orgId,
+      version.factoryId,
+      version.version,
+    ),
+    factoryCreatedIdx: index("factory_graph_versions_created_idx").on(
+      version.orgId,
+      version.factoryId,
+      version.createdAt,
+    ),
+  }),
+);
+
+export const factoryComments = table(
+  "factory_comments",
+  {
+    id: text("id").primaryKey(),
+    factoryId: text("factory_id").notNull(),
+    graphVersion: integer("graph_version").notNull(),
+    targetType: text("target_type").notNull().default("canvas"),
+    targetId: text("target_id"),
+    body: text("body").notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+  },
+  (comment) => ({
+    factoryCreatedIdx: index("factory_comments_created_idx").on(
+      comment.orgId,
+      comment.factoryId,
+      comment.createdAt,
+    ),
+  }),
+);
