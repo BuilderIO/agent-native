@@ -630,24 +630,9 @@ export default function EditorSidebar({
   const handleSlideOverflowChange = useCallback(
     (slide: Slide, info: SlideOverflowInfo) => {
       const contentHash = hashSlideContent(slide.content);
-      const previous = measurementsRef.current.get(slide.id);
-      const mergedInfo =
-        previous?.contentHash === contentHash
-          ? {
-              ...info,
-              contentHeight: Math.max(
-                info.contentHeight,
-                previous.info.contentHeight,
-              ),
-              verticalOverflow: Math.max(
-                info.verticalOverflow,
-                previous.info.verticalOverflow,
-              ),
-            }
-          : info;
       measurementsRef.current.set(slide.id, {
         contentHash,
-        info: mergedInfo,
+        info,
         measuredAt: Date.now(),
       });
       if (writeTimerRef.current) clearTimeout(writeTimerRef.current);
