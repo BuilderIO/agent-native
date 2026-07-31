@@ -27,7 +27,11 @@ import {
   listChanges,
   listDocComments,
 } from "./adapters/google-docs.js";
-import { getIntegrationConfig, saveIntegrationConfig } from "./config-store.js";
+import {
+  getIntegrationConfig,
+  integrationConfigWriteEpoch,
+  saveIntegrationConfig,
+} from "./config-store.js";
 import { getThreadMapping, saveThreadMapping } from "./thread-mapping-store.js";
 import type { IncomingMessage } from "./types.js";
 
@@ -634,14 +638,34 @@ export async function startGoogleDocsPoller(
   }
 }
 
+/** Backoff for the config probe while google-docs is disabled. */
+const DISABLED_CONFIG_RECHECK_MS = 5 * 60 * 1000;
+
 function startPollLoop(
   options: GoogleDocsPollerOptions,
   intervalMs: number,
 ): void {
+  let disabledUntil = 0;
+  let disabledAtConfigWriteEpoch = -1;
+
   async function poll() {
     try {
+      // The loop starts even when google-docs was never configured (so it picks
+      // up a later enable), which used to mean one `integration_configs` read
+      // every 30s per app forever. While disabled, re-read only every
+      // DISABLED_CONFIG_RECHECK_MS — or immediately after any in-process config
+      // write, so enabling the integration still takes effect on the next tick.
+      const epoch = integrationConfigWriteEpoch();
+      if (Date.now() < disabledUntil && epoch === disabledAtConfigWriteEpoch) {
+        return;
+      }
       const config = await getIntegrationConfig(PLATFORM);
-      if (!config?.configData?.enabled) return;
+      if (!config?.configData?.enabled) {
+        disabledUntil = Date.now() + DISABLED_CONFIG_RECHECK_MS;
+        disabledAtConfigWriteEpoch = epoch;
+        return;
+      }
+      disabledUntil = 0;
       await processChanges(options);
     } catch (err) {
       // Unwrap ErrorEvent (Neon WS driver emits these on network failure) so logs show the real cause

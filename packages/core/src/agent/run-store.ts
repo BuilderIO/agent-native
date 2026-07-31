@@ -164,6 +164,46 @@ export const UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS = 5 * 60_000;
 export const UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS = 20_000;
 
 /**
+ * How long a negative `status='running'` probe stays trusted.
+ *
+ * MUST stay well below the tightest staleness window any sweep enforces
+ * (`RUN_STALE_MS`, 15s): the probe sees running rows of EVERY age, so a
+ * negative result proves there were zero running rows that instant, and a row
+ * inserted since — by this process or another one — cannot yet be old enough
+ * for a sweep to act on it. Widen this past a staleness window and a genuinely
+ * dead run becomes invisible for a whole extra tick.
+ */
+const NO_RUNNING_RUNS_CACHE_MS = 5_000;
+
+let _noRunningRunsUntil = 0;
+
+/** Test seam — the probe cache is module state, so suites must clear it. */
+export function __resetNoRunningRunsProbeForTests(): void {
+  _noRunningRunsUntil = 0;
+}
+
+/**
+ * `status = 'running'` is a strict superset of every sweep predicate in this
+ * file, so one probe answers all of them. The fast sweep runs `reapAllStaleRuns`
+ * and `listUnclaimedBackgroundRunRows` back to back every 20s; on an idle app
+ * both scan for rows that do not exist, which on a remote database is two
+ * round trips per tick per app, forever. The probe collapses that pair to one.
+ */
+async function hasRunningRuns(): Promise<boolean> {
+  if (Date.now() < _noRunningRunsUntil) return false;
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT id FROM agent_runs WHERE status = 'running' LIMIT 1`,
+    args: [],
+  });
+  if ((rows?.length ?? 0) > 0) {
+    _noRunningRunsUntil = 0;
+    return true;
+  }
+  _noRunningRunsUntil = Date.now() + NO_RUNNING_RUNS_CACHE_MS;
+  return false;
+}
+
+/**
  * FIX 3 (durable-background incident) per-turn run-count ceiling for
  * stale-run recovery — mirrors `chainServerDrivenContinuation`'s own ledger
  * guard in production-agent.ts (`MAX_BACKGROUND_RUN_CONTINUATIONS + 5` = 25).
@@ -920,6 +960,7 @@ export async function listUnclaimedBackgroundRunRows(): Promise<
   UnclaimedBackgroundRunRow[]
 > {
   await ensureRunTables();
+  if (!(await hasRunningRuns())) return [];
   const client = getDbExec();
   const { rows } = await client.execute({
     // CAST keeps the ms-epoch param 64-bit on Postgres (see
@@ -2538,6 +2579,7 @@ export async function getCurrentTurnEventsForThread(
  */
 export async function reapAllStaleRuns(): Promise<number> {
   await ensureRunTables();
+  if (!(await hasRunningRuns())) return 0;
   const client = getDbExec();
   const now = Date.now();
   // Background-dispatched runs use the wider window; everything else 15s. The
@@ -2570,9 +2612,9 @@ export async function reapAllStaleRuns(): Promise<number> {
   // `reapSingleStaleRun` re-applies the identical staleness clause per row
   // (same as the bulk UPDATE previously did), so a row whose heartbeat
   // landed between the SELECT above and this loop is still correctly
-  // excluded. This function only runs once, at process startup (see
-  // agent-chat-plugin.ts) — the extra per-row round trips are
-  // inconsequential.
+  // excluded. The per-row round trips only ever run for rows the SELECT above
+  // already found stale; on an idle app `hasRunningRuns` returns before any of
+  // this, so the 20s fast sweep (agent-chat-plugin.ts) costs one probe.
   let reapedCount = 0;
   for (const row of stale.rows) {
     const id = (row as { id?: unknown }).id;

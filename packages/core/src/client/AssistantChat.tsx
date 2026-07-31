@@ -3421,7 +3421,11 @@ const AssistantChatInner = forwardRef<
           }
           window.dispatchEvent(
             new CustomEvent("agentNative.chatRunning", {
-              detail: { isRunning: false, tabId: tabId || threadId },
+              detail: {
+                isRunning: false,
+                tabId: tabId || threadId,
+                reason: "failed",
+              },
             }),
           );
           return;
@@ -4510,7 +4514,11 @@ const AssistantChatInner = forwardRef<
       if (typeof window !== "undefined") {
         window.dispatchEvent(
           new CustomEvent("agentNative.chatRunning", {
-            detail: { isRunning: false, tabId: tabId || threadId },
+            detail: {
+              isRunning: false,
+              tabId: tabId || threadId,
+              reason: "stopped",
+            },
           }),
         );
       }

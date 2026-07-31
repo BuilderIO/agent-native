@@ -200,7 +200,8 @@ itself checkpoint).
 
 > Status: **Phase 0 shipped. Phase 1 + Phase 2 implemented** (the host-agnostic
 > durable-background worker and the Netlify 15-min `-background` optimization),
-> behind `AGENT_CHAT_DURABLE_BACKGROUND`, off by default. Internal per-step
+> default-on for deployed Netlify apps with an explicit opt-out via
+> `AGENT_CHAT_DURABLE_BACKGROUND=false`. Internal per-step
 > checkpointing (the Option A core of Phase 1) is recommended-not-yet-built; the
 > worker today gets its durability from the long single invocation plus
 > server-chained continuations rather than per-step idempotent checkpoints. See
@@ -251,13 +252,14 @@ checkpointed and durable runs remove the ceiling itself.
 
 # Final layered architecture
 
-Status: implemented (flagged, off by default)
+Status: implemented (default-on for deployed Netlify, explicit opt-out)
 Owner: core / run-manager + deploy
 
-Durable background runs ship as **two layers**. Both are gated behind
-`AGENT_CHAT_DURABLE_BACKGROUND` and default off; when off, the agent-chat run
-path and the deploy output are byte-for-byte the pre-existing synchronous
-behavior.
+Durable background runs ship as **two layers**. Deployed Netlify apps enable the
+path by default and can opt out with an explicit falsy
+`AGENT_CHAT_DURABLE_BACKGROUND` value. Other hosted platforms retain explicit
+opt-in. When off, the agent-chat run path and deploy output are byte-for-byte
+the pre-existing synchronous behavior.
 
 ### Layer 1 (portable baseline) — host-agnostic durable execution
 
@@ -600,8 +602,9 @@ Already strong; make the new claim match:
 
 > Status: \*\*Slices 0–1 implemented and the Slice-3 background-aware stale window
 >
-> - background→background continuation chaining are implemented\*\*, all behind
->   `AGENT_CHAT_DURABLE_BACKGROUND` (off by default). The host-agnostic baseline
+> - background→background continuation chaining are implemented\*\*, default-on
+>   for deployed Netlify apps with `AGENT_CHAT_DURABLE_BACKGROUND=false` as the
+>   opt-out. The host-agnostic baseline
 >   (Layer 1) carries the run on any host; the Netlify `-background` emit (Layer 2)
 >   is the deploy-time optimization. Slice 2's richer reconnect-first client UX and
 >   the internal per-step checkpointing (Option A) remain follow-ups; Slice 4
@@ -618,9 +621,10 @@ just writes a run event. Dispatch to it from a temporary test route via
 stub writes an event to `agent_run_events` from the background function, visible
 via `GET /runs/:id/events`. This de-risks the only genuinely new infra.
 
-**Slice 1 — route the real chat loop through the background function (flagged).**
-Behind `AGENT_CHAT_DURABLE_BACKGROUND` (off by default; hosted + `A2A_SECRET`
-only): foreground handler inserts the run row, dispatches, returns the SSE
+**Slice 1 — route the real chat loop through the background function.** On
+deployed Netlify it is enabled by default; `AGENT_CHAT_DURABLE_BACKGROUND=false`
+opts out. Other hosted platforms require explicit opt-in, and all hosts require
+`A2A_SECRET`: the foreground handler inserts the run row, dispatches, returns the SSE
 stream from `subscribeToRun`. The background `_process-run` claims the run and
 calls the same `startRun` + `runAgentLoop` the inline path uses, with
 `softTimeoutMs ≈ 13min` (new `backgroundFunction` option in

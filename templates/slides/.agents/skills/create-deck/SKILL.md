@@ -23,7 +23,8 @@ description: How to create a new deck with slides from scratch. Read this before
 When the UI has already created the empty deck, keep its id and rename it before
 adding the first slide. Call `patch-deck` with a `patch-deck-fields` operation
 whose `fields.title` is the generated title. Do not leave the pre-created deck's
-placeholder title in place.
+placeholder title in place. Include only `title` in that operation's `fields`;
+omit all other optional fields.
 
 Follow the creative-context reuse ladder before inventing a slide language:
 reuse an approved native template unchanged, compose approved pieces, lightly

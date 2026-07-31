@@ -1182,7 +1182,7 @@ describe("AgentEngine registry", () => {
       }));
       vi.doMock("../../server/request-context.js", () => ({
         getRequestUserEmail: () => "steve@example.com",
-        getRequestOrgId: () => undefined,
+        getRequestOrgId: () => "builder_org",
       }));
       vi.doMock("../../secrets/storage.js", () => {
         const readAppSecret = vi.fn(async ({ key }: { key: string }) => {

@@ -1206,6 +1206,11 @@ describe("resolveSecret (generic)", () => {
     expect(mockReadAppSecret.mock.calls.map((c) => c[0])).toEqual([
       { key: "ACADEMY_CONVEX_SITE_URL", scope: "user", scopeId: "tim@b.com" },
       { key: "ACADEMY_CONVEX_SITE_URL", scope: "org", scopeId: "builder_io" },
+      {
+        key: "ACADEMY_CONVEX_SITE_URL",
+        scope: "workspace",
+        scopeId: "builder_io",
+      },
     ]);
   });
 

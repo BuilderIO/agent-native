@@ -27,6 +27,7 @@ import {
   DASHBOARD_REDIRECT_VALUE,
   REF_PARAM,
 } from "@shared/share-attribution";
+import type { WorkflowKind } from "@shared/workflow";
 import {
   IconShare3,
   IconArrowLeft,
@@ -109,7 +110,6 @@ export function meta() {
 }
 
 type SidePanel = "transcript" | "comments" | "insights" | "agent" | "settings";
-type WorkflowKind = "pr" | "sop" | "ticket" | "email";
 
 const WORKFLOW_MENU_ITEMS: Array<{
   kind: WorkflowKind;

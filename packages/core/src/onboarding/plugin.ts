@@ -81,30 +81,34 @@ async function serializeSteps(
   options: { preview?: boolean } = {},
 ): Promise<OnboardingStepStatus[]> {
   const steps = listOnboardingSteps();
-  const out: OnboardingStepStatus[] = [];
-  for (const step of steps) {
-    let complete = false;
-    if (!options.preview) {
-      try {
-        complete = (await step.isComplete(context)) === true;
-      } catch {
-        complete = false;
+  // Steps are independent of each other, and each `isComplete()` is itself a
+  // chain of credential/settings reads — walking them one at a time made this
+  // route cost the SUM of every step's round trips against a remote database
+  // instead of the slowest one. `Promise.all` preserves `steps` order.
+  return Promise.all(
+    steps.map(async (step) => {
+      let complete = false;
+      if (!options.preview) {
+        try {
+          complete = (await step.isComplete(context)) === true;
+        } catch {
+          complete = false;
+        }
+        if (!complete) {
+          complete = await hasOverride(context.sessionId, step.id);
+        }
       }
-      if (!complete) {
-        complete = await hasOverride(context.sessionId, step.id);
-      }
-    }
-    out.push({
-      id: step.id,
-      title: step.title,
-      description: step.description,
-      order: step.order,
-      required: step.required ?? false,
-      complete,
-      methods: step.methods,
-    });
-  }
-  return out;
+      return {
+        id: step.id,
+        title: step.title,
+        description: step.description,
+        order: step.order,
+        required: step.required ?? false,
+        complete,
+        methods: step.methods,
+      };
+    }),
+  );
 }
 
 function withOnboardingRequestContext<T>(
@@ -240,11 +244,13 @@ export function createOnboardingPlugin(
         // doesn't surface as a 500 to the client.
         try {
           return await withOnboardingRequestContext(context, async () => {
-            const value = await appStateGet(context.sessionId, DISMISSED_KEY);
+            const [value, statuses] = await Promise.all([
+              appStateGet(context.sessionId, DISMISSED_KEY),
+              serializeSteps(context),
+            ]);
             const dismissed = !!(
               value && (value as { dismissed?: boolean }).dismissed
             );
-            const statuses = await serializeSteps(context);
             return {
               dismissed,
               allComplete: allRequiredComplete(statuses),

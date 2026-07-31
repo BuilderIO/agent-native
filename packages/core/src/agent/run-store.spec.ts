@@ -87,6 +87,20 @@ const mockDb = {
     ) {
       return { rows: unclaimedBackgroundRunRows, rowsAffected: 0 };
     }
+    // hasRunningRuns probe. `status = 'running'` is a superset of every sweep
+    // fixture below, so the double must report a row whenever ANY of them is
+    // populated — a probe that disagrees with the fixture it guards would
+    // short-circuit the very sweep the test is exercising.
+    if (
+      /SELECT id FROM agent_runs WHERE status = 'running' LIMIT 1/i.test(rawSql)
+    ) {
+      const anyRunning = [
+        ...staleSelectRows,
+        ...unclaimedBackgroundRunRows,
+        ...unclaimedBackgroundRunRowsWithStartedAt,
+      ];
+      return { rows: anyRunning.slice(0, 1), rowsAffected: 0 };
+    }
     if (/SELECT id FROM agent_runs[\s\S]*status = 'running'/i.test(rawSql)) {
       return { rows: staleSelectRows, rowsAffected: 0 };
     }
@@ -211,6 +225,7 @@ const {
   getRunEventsSince,
   CHECKPOINT_TERMINAL_EVENT_SEQ,
   getCurrentTurnEventsForThread,
+  __resetNoRunningRunsProbeForTests,
 } = await import("./run-store.js");
 
 // Mock storage for ledger SELECT responses, keyed by toolKey
@@ -236,6 +251,7 @@ describe("run store", () => {
     runCountRows = [];
     insertEventBehavior = () => {};
     abortRowsAffected = 1;
+    __resetNoRunningRunsProbeForTests();
     vi.clearAllMocks();
   });
 
@@ -1279,6 +1295,46 @@ describe("run store", () => {
     ];
     const rows = await listUnclaimedBackgroundRunRows();
     expect(rows).toEqual([{ id: "run-ok", startedAt: 100 }]);
+  });
+
+  // ─── Idle sweep cost ──────────────────────────────────────────────────────
+
+  it("an idle fast-sweep tick costs one query, not one per sweep", async () => {
+    // agent-chat-plugin's 20s fast sweep runs these two back to back. On an
+    // idle app both scan for rows that do not exist, which on a remote database
+    // is a round trip each, per app, forever. One shared `status='running'`
+    // probe must answer both.
+    await reapAllStaleRuns();
+    await listUnclaimedBackgroundRunRows();
+
+    const runTableReads = execCalls.filter((call) =>
+      /FROM agent_runs/i.test(call.sql),
+    );
+    expect(runTableReads).toHaveLength(1);
+    expect(runTableReads[0]?.sql).toContain("LIMIT 1");
+  });
+
+  it("a running row makes both sweeps run their own scan again", async () => {
+    staleSelectRows = [{ id: "run-stale" }];
+    unclaimedBackgroundRunRowsWithStartedAt = [
+      { id: "run-unclaimed", started_at: 1 },
+    ];
+
+    await reapAllStaleRuns();
+    await listUnclaimedBackgroundRunRows();
+
+    expect(
+      execCalls.some((call) =>
+        /SELECT id FROM agent_runs\s*WHERE status = 'running'\s*AND/i.test(
+          call.sql,
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      execCalls.some((call) =>
+        /SELECT id, started_at FROM agent_runs/i.test(call.sql),
+      ),
+    ).toBe(true);
   });
 
   it("UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS is a real bound wider than the grace window — never zero, never infinite", () => {

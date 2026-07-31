@@ -141,6 +141,27 @@ export const OperationSchema = z.discriminatedUnion("op", [
 
 export type Operation = z.infer<typeof OperationSchema>;
 
+// The browser uses the full operation union above, but the agent only needs
+// this action to rename the empty deck created by the UI. Keeping the
+// advertised schema sparse prevents the model from filling editor-only
+// metadata fields with empty defaults that the runtime correctly rejects.
+const AgentPatchDeckInputSchema = z.object({
+  deckId: z.string().describe("Deck ID"),
+  operations: z
+    .array(
+      z.object({
+        op: z.literal("patch-deck-fields"),
+        fields: z.object({
+          title: z
+            .string()
+            .describe("The concise, specific title to apply to the deck"),
+        }),
+      }),
+    )
+    .min(1)
+    .describe("Rename the pre-created deck before adding its first slide"),
+});
+
 const CreativeContextReuseLabelSchema = z.object({
   itemId: z.string().min(1).optional(),
   itemVersionId: z.string().min(1).optional(),
@@ -323,7 +344,9 @@ export default defineAction({
   description:
     "Granular deck patch used by the browser editor for concurrent-safe writes. " +
     "Each operation touches only the target slide or field — concurrent writers " +
-    "on different slides never overwrite each other's work.",
+    "on different slides never overwrite each other's work. When called by the " +
+    "agent, use it only to set the generated deck title and include no other " +
+    "fields.",
   schema: z.object({
     deckId: z.string().describe("Deck ID"),
     operations: z
@@ -344,6 +367,7 @@ export default defineAction({
         "Optional exact Creative Context provenance for context-backed slide patch operations.",
       ),
   }),
+  agentInputSchema: AgentPatchDeckInputSchema,
   run: async ({ deckId, operations, creativeContext }) => {
     await assertAccess("deck", deckId, "editor");
 

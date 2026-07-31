@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import Ajv, { type ValidateFunction } from "ajv";
+import Ajv, { type ErrorObject, type ValidateFunction } from "ajv";
 import {
   defineEventHandler,
   getHeader,
@@ -3596,6 +3596,9 @@ const rawToolInputAjv = new Ajv({
   coerceTypes: true,
   useDefaults: false,
   removeAdditional: false,
+  // `parentSchema`/`data` on each error are what let us drop the branches of a
+  // `oneOf` the caller never meant to match.
+  verbose: true,
 });
 
 const rawToolInputValidatorCache = new WeakMap<object, ValidateFunction>();
@@ -3636,17 +3639,83 @@ function isStructurallyEmptyToolValue(value: unknown): boolean {
   );
 }
 
-function schemaAcceptsToolValue(schema: object, value: unknown): boolean {
-  let validator = optionalPlaceholderValidatorCache.get(schema);
-  if (!validator) {
-    try {
-      validator = optionalPlaceholderAjv.compile(schema);
-      optionalPlaceholderValidatorCache.set(schema, validator);
-    } catch {
-      return false;
-    }
+function compileToolValueValidator(schema: object): ValidateFunction | null {
+  const cached = optionalPlaceholderValidatorCache.get(schema);
+  if (cached) return cached;
+  try {
+    const validator = optionalPlaceholderAjv.compile(schema);
+    optionalPlaceholderValidatorCache.set(schema, validator);
+    return validator;
+  } catch {
+    return null;
   }
-  return Boolean(validator(value));
+}
+
+function schemaAcceptsToolValue(schema: object, value: unknown): boolean {
+  const validator = compileToolValueValidator(schema);
+  return validator ? Boolean(validator(value)) : false;
+}
+
+/**
+ * True only when the sub-schema compiled AND rejected the value. A sub-schema
+ * that cannot be compiled standalone — a `$ref` into the root `$defs`, say — is
+ * unknown, not invalid; counting it as invalid would let one unreadable
+ * sub-schema delete the caller's intentional empty values everywhere else in
+ * the same object.
+ */
+function schemaRejectsToolValue(schema: object, value: unknown): boolean {
+  const validator = compileToolValueValidator(schema);
+  return validator ? !validator(value) : false;
+}
+
+/** The `const`/single-value-`enum` a discriminated-union branch pins a key to. */
+function schemaDiscriminatorValue(
+  schema: AgentNativeJsonSchema | undefined,
+): unknown {
+  if (!schema) return undefined;
+  if (schema.const !== undefined) return schema.const;
+  if (Array.isArray(schema.enum) && schema.enum.length === 1) {
+    return schema.enum[0];
+  }
+  return undefined;
+}
+
+/**
+ * Index of the `oneOf`/`anyOf` branch whose discriminator constants all match
+ * `value`, or -1 when the union is not discriminated or nothing matches.
+ */
+function discriminatedBranchIndex(
+  branches: readonly AgentNativeJsonSchema[],
+  value: unknown,
+): number {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return -1;
+  const record = value as Record<string, unknown>;
+  return branches.findIndex((branch) => {
+    const properties = branch.properties;
+    if (!properties) return false;
+    const discriminators = Object.entries(properties).filter(
+      ([, spec]) => schemaDiscriminatorValue(spec) !== undefined,
+    );
+    if (discriminators.length === 0) return false;
+    return discriminators.every(
+      ([key, spec]) => record[key] === schemaDiscriminatorValue(spec),
+    );
+  });
+}
+
+/**
+ * The object schema that actually governs `value` — the union branch its
+ * discriminator selects, or the schema itself. Undefined when a union cannot be
+ * resolved, since guessing a branch would strip the wrong keys.
+ */
+function resolveObjectSchemaBranch(
+  schema: RawJsonSchema,
+  value: unknown,
+): RawJsonSchema | undefined {
+  const branches = schema.oneOf ?? schema.anyOf;
+  if (!branches?.length) return schema;
+  const index = discriminatedBranchIndex(branches, value);
+  return index >= 0 ? branches[index] : undefined;
 }
 
 /**
@@ -3654,7 +3723,72 @@ function schemaAcceptsToolValue(schema: object, value: unknown): boolean {
  * instead of omitting it. One schema-invalid empty value proves that pattern;
  * only then strip the other optional empty/default sentinels from the call.
  * Calls whose empty values are all schema-valid keep their intentional clears.
+ *
+ * The proof is evaluated per object, and the walk descends through array items
+ * and discriminated-union branches: gateways pre-fill the leaf object they are
+ * building (`operations[0].fields`), which a top-level-only sweep never reaches.
  */
+function stripOptionalToolPlaceholders(
+  schema: RawJsonSchema | undefined,
+  value: unknown,
+): { value: unknown; changed: boolean } {
+  if (!schema) return { value, changed: false };
+
+  if (Array.isArray(value)) {
+    const itemSchema = schema.items;
+    if (!itemSchema) return { value, changed: false };
+    let changed = false;
+    const items = value.map((item) => {
+      const result = stripOptionalToolPlaceholders(itemSchema, item);
+      if (result.changed) changed = true;
+      return result.value;
+    });
+    return changed
+      ? { value: items, changed: true }
+      : { value, changed: false };
+  }
+
+  if (!value || typeof value !== "object") return { value, changed: false };
+
+  const objectSchema = resolveObjectSchemaBranch(schema, value);
+  const properties = objectSchema?.properties;
+  if (!properties) return { value, changed: false };
+
+  const required = new Set(
+    Array.isArray(objectSchema.required) ? objectSchema.required : [],
+  );
+  const record = value as Record<string, unknown>;
+  const placeholders: string[] = [];
+  let hasSchemaInvalidPlaceholder = false;
+  let normalized: Record<string, unknown> | null = null;
+
+  for (const [key, entry] of Object.entries(record)) {
+    const propertySchema = properties[key];
+    if (!propertySchema || typeof propertySchema !== "object") continue;
+    if (!required.has(key) && isStructurallyEmptyToolValue(entry)) {
+      placeholders.push(key);
+      if (schemaRejectsToolValue(propertySchema, entry)) {
+        hasSchemaInvalidPlaceholder = true;
+      }
+      continue;
+    }
+    const nested = stripOptionalToolPlaceholders(propertySchema, entry);
+    if (nested.changed) {
+      normalized ??= { ...record };
+      normalized[key] = nested.value;
+    }
+  }
+
+  if (hasSchemaInvalidPlaceholder) {
+    normalized ??= { ...record };
+    for (const key of placeholders) delete normalized[key];
+  }
+
+  return normalized
+    ? { value: normalized, changed: true }
+    : { value, changed: false };
+}
+
 function normalizeOptionalToolPlaceholders(
   schema: RawJsonSchema | undefined,
   input: unknown,
@@ -3663,26 +3797,8 @@ function normalizeOptionalToolPlaceholders(
     return { input, changed: false };
   }
   if (Array.isArray(input)) return { input, changed: false };
-
-  const required = new Set(
-    Array.isArray(schema.required) ? schema.required : [],
-  );
-  const placeholders: string[] = [];
-  let hasSchemaInvalidPlaceholder = false;
-  for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
-    if (required.has(key) || !isStructurallyEmptyToolValue(value)) continue;
-    const propertySchema = schema.properties[key];
-    if (!propertySchema || typeof propertySchema !== "object") continue;
-    placeholders.push(key);
-    if (!schemaAcceptsToolValue(propertySchema, value)) {
-      hasSchemaInvalidPlaceholder = true;
-    }
-  }
-  if (!hasSchemaInvalidPlaceholder) return { input, changed: false };
-
-  const normalized = { ...(input as Record<string, unknown>) };
-  for (const key of placeholders) delete normalized[key];
-  return { input: normalized, changed: true };
+  const result = stripOptionalToolPlaceholders(schema, input);
+  return { input: result.value, changed: result.changed };
 }
 
 /**
@@ -3754,6 +3870,54 @@ function shouldValidateRawToolParameters(entry: ActionEntry): boolean {
   return !maybeSchema?.["~standard"] && Boolean(entry.tool.parameters);
 }
 
+/**
+ * With `allErrors`, a failing union reports every branch, so a five-branch
+ * union answers "your `patch-deck-fields` op has a bad enum" with eight
+ * complaints about `slideId`/`orderedIds` from the four branches the caller
+ * never meant. The model reads the loudest, wrong advice and re-sends the same
+ * arguments until the identical-error breaker ends the turn. When the
+ * discriminator names a branch, report only that branch's errors.
+ *
+ * Both union keywords are load-bearing for the same Zod schema: Zod v4's own
+ * `toJSONSchema` emits `oneOf` for a discriminated union, while the manual
+ * fallback converter in `action.ts` emits `anyOf`.
+ *
+ * Scoped by `instancePath` as well as `schemaPath`: every element of an array
+ * shares one `items` schema, so `operations[0]` and `operations[1]` produce
+ * branch errors under the same `schemaPath` and only the instance path says
+ * which element they belong to.
+ */
+function isWithinInstancePath(candidate: string, root: string): boolean {
+  return candidate === root || candidate.startsWith(`${root}/`);
+}
+
+function narrowUnionBranchErrors(
+  errors: ErrorObject[] | null | undefined,
+): ErrorObject[] | null | undefined {
+  if (!errors?.length) return errors;
+  let kept = errors;
+  for (const error of errors) {
+    const keyword = error.keyword;
+    if (keyword !== "oneOf" && keyword !== "anyOf") continue;
+    const branches = (error.parentSchema as RawJsonSchema | undefined)?.[
+      keyword
+    ];
+    if (!branches?.length) continue;
+    const index = discriminatedBranchIndex(branches, error.data);
+    if (index < 0) continue;
+    const branchPrefix = `${error.schemaPath}/`;
+    kept = kept.filter((candidate) => {
+      if (candidate === error) return false;
+      if (!isWithinInstancePath(candidate.instancePath, error.instancePath)) {
+        return true;
+      }
+      if (!candidate.schemaPath.startsWith(branchPrefix)) return true;
+      return candidate.schemaPath.startsWith(`${branchPrefix}${index}/`);
+    });
+  }
+  return kept.length ? kept : errors;
+}
+
 function validateRawToolInput(
   entry: ActionEntry,
   input: unknown,
@@ -3768,7 +3932,7 @@ function validateRawToolInput(
     return `tool schema is invalid: ${sanitizeToolErrorValue(err)}`;
   }
   if (validator(input === undefined ? {} : input)) return null;
-  return rawToolInputAjv.errorsText(validator.errors, {
+  return rawToolInputAjv.errorsText(narrowUnionBranchErrors(validator.errors), {
     separator: "; ",
     dataVar: "input",
   });
@@ -5673,23 +5837,26 @@ export async function runAgentLoop(opts: {
         result = `${result}\n\n${formatAgentWarningsForToolResult(agentWarnings)}`;
       }
 
-      // Auto-refresh the UI after a successful mutating tool call. Any action
-      // that isn't explicitly read-only is assumed to mutate. The client's
-      // useDbSync listener sees a change event with source:"action" and
-      // invalidates ["action"] queries so list-* / get-* refetch. This makes
-      // refresh after agent writes reliable without the model needing to
-      // remember to call `refresh-screen` itself.
-      if (!isError && actionEntry.readOnly !== true) {
+      // Auto-refresh the UI after a successful mutating tool call. Any call
+      // that isn't read-only — by its own per-call Plan-mode effect, else the
+      // action's readOnly flag — is assumed to mutate. The client's useDbSync
+      // listener sees a change event with source:"action" and invalidates
+      // ["action"] queries so list-* / get-* refetch. This makes refresh after
+      // agent writes reliable without the model needing to remember to call
+      // `refresh-screen` itself.
+      if (!isError) {
         try {
-          const { notifyActionChange } =
+          const { actionCallIsReadOnly, notifyActionChange } =
             await import("../server/action-change.js");
-          const owner = opts.ownerEmail ?? getRequestUserEmail() ?? undefined;
-          const orgId = opts.orgId ?? getRequestOrgId() ?? undefined;
-          await notifyActionChange({
-            actionName: toolCall.name,
-            ...(owner ? { owner } : {}),
-            ...(orgId ? { orgId } : {}),
-          });
+          if (!actionCallIsReadOnly(actionEntry, toolCall.input, false)) {
+            const owner = opts.ownerEmail ?? getRequestUserEmail() ?? undefined;
+            const orgId = opts.orgId ?? getRequestOrgId() ?? undefined;
+            await notifyActionChange({
+              actionName: toolCall.name,
+              ...(owner ? { owner } : {}),
+              ...(orgId ? { orgId } : {}),
+            });
+          }
         } catch {
           // poll module may be unavailable in non-server contexts — ignore
         }

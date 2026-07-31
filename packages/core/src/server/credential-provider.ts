@@ -1277,10 +1277,49 @@ export async function deleteBuilderCredentials(
 // ---------------------------------------------------------------------------
 
 /**
+ * Warm this request's secret memo for many keys with one read per scope.
+ *
+ * `resolveSecret` walks four scopes per key, so a status endpoint asking about
+ * a dozen keys costs ~50 round trips against a remote database. Reading each
+ * scope once for the whole key set collapses that to four, and the subsequent
+ * `resolveSecret` calls answer from the per-request memo — same precedence,
+ * same identity scoping, no new cache to invalidate.
+ *
+ * Best-effort on purpose: `readAppSecrets` only memoizes keys a statement
+ * actually covered, so a failure here leaves each key's own lookup to run and
+ * report the failure. It must never turn an unreadable store into "not set".
+ */
+export async function prefetchSecrets(keys: readonly string[]): Promise<void> {
+  const email = getRequestUserEmail();
+  if (!email || keys.length === 0) return;
+  const { readAppSecrets } = await import("../secrets/storage.js");
+  const orgId =
+    getRequestOrgId() || (await resolveOrgIdForRequestEmail(email)).orgId;
+  const scopes: Array<{
+    scope: "user" | "org" | "workspace";
+    scopeId: string;
+  }> = [
+    { scope: "user", scopeId: email },
+    ...(orgId
+      ? ([
+          { scope: "org", scopeId: orgId },
+          { scope: "workspace", scopeId: orgId },
+        ] as const)
+      : []),
+    { scope: "workspace", scopeId: `solo:${email}` },
+  ];
+  await Promise.all(
+    scopes.map((s) => readAppSecrets({ keys, ...s }).catch(() => undefined)),
+  );
+}
+
+/**
  * Resolve a request-scoped secret. Reads from `app_secrets` first (current
  * user override, active org, workspace row for that org, then the solo
  * workspace row); falls back to `process.env` only when the deploy fallback
  * policy allows it.
+ *
+ * Resolving several keys in one request? Call `prefetchSecrets` first.
  */
 export async function resolveSecret(key: string): Promise<string | null> {
   const resolved = await resolveSecretDetailed(key);
@@ -1307,6 +1346,7 @@ export async function resolveSecretDetailed(
   if (email) {
     try {
       const { readAppSecret } = await import("../secrets/storage.js");
+
       // Per-user override first.
       const userSecret = await readAppSecret({
         key,
@@ -1333,14 +1373,25 @@ export async function resolveSecretDetailed(
         orgId = resolved.orgId;
       }
 
+      if (lookupFailed) {
+        return { value: null, lookupFailed: true, cause };
+      }
+
       if (orgId) {
+        // These rows are independent once the org is known, so read them in
+        // parallel while still applying precedence below in the same order.
+        const [orgRead, workspaceRead] = await Promise.allSettled([
+          readAppSecret({ key, scope: "org", scopeId: orgId }),
+          readAppSecret({ key, scope: "workspace", scopeId: orgId }),
+        ]);
+        const unwrap = <T>(settled: PromiseSettledResult<T>): T => {
+          if (settled.status === "rejected") throw settled.reason;
+          return settled.value;
+        };
+
         // Fall back to the active org's shared row, when present. Builder
         // Connect uses this first-class org scope.
-        const orgSecret = await readAppSecret({
-          key,
-          scope: "org",
-          scopeId: orgId,
-        });
+        const orgSecret = unwrap(orgRead);
         if (orgSecret?.value) {
           if (traceLookup) {
             console.log(
@@ -1353,11 +1404,7 @@ export async function resolveSecretDetailed(
         // Registered secrets historically used "workspace" scope for
         // org-shared configuration. Keep reading it so Settings status and
         // runtime resolution agree.
-        const workspaceSecret = await readAppSecret({
-          key,
-          scope: "workspace",
-          scopeId: orgId,
-        });
+        const workspaceSecret = unwrap(workspaceRead);
         if (workspaceSecret?.value) {
           if (traceLookup) {
             console.log(
@@ -1366,10 +1413,6 @@ export async function resolveSecretDetailed(
           }
           return { value: workspaceSecret.value, lookupFailed: false };
         }
-      }
-
-      if (lookupFailed) {
-        return { value: null, lookupFailed: true, cause };
       }
 
       // Solo-workspace fallback: always checked, even when an org id was found
