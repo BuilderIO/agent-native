@@ -32,6 +32,7 @@ function threadIdFromPath(pathname: string): string | null {
   try {
     const value = decodeURIComponent(match[1]).trim();
     return value || null;
+    // coercion-ok: malformed route input has no valid thread id and remains outside thread selection.
   } catch {
     return null;
   }

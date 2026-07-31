@@ -97,13 +97,22 @@ export async function startBuilderRun(
       `Builder executor rejected the run: HTTP ${response.status} ${await response.text()}`,
     );
   }
-  const payload = (await response.json().catch(() => ({}))) as {
+  let payload: {
     id?: string;
     taskId?: string;
     runId?: string;
   };
+  try {
+    payload = (await response.json()) as typeof payload;
+  } catch {
+    throw new Error("Builder executor returned invalid JSON.");
+  }
+  const providerTaskId = payload.id ?? payload.taskId ?? payload.runId;
+  if (!providerTaskId) {
+    throw new Error("Builder executor response did not include a task id.");
+  }
   return {
-    providerTaskId: payload.id ?? payload.taskId ?? payload.runId,
+    providerTaskId,
     branchName,
   };
 }

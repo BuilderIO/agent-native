@@ -108,6 +108,7 @@ function readPackageName(packagePath: string): string | undefined {
     };
     const name = packageJson.name?.split("/").at(-1);
     return name || undefined;
+    // coercion-ok: an unreadable package name falls back to APP_NAME or the directory name.
   } catch {
     return undefined;
   }

@@ -81,6 +81,7 @@ export function Layout({ children }: LayoutProps) {
     try {
       const stored = window.localStorage.getItem(SIDEBAR_COLLAPSE_KEY);
       if (stored !== null) setSidebarCollapsed(stored === "1");
+      // coercion-ok: browser storage may be unavailable; the default collapsed state remains usable.
     } catch {
       // Ignore storage access errors; the default collapsed state still works.
     }
@@ -92,6 +93,7 @@ export function Layout({ children }: LayoutProps) {
         SIDEBAR_COLLAPSE_KEY,
         sidebarCollapsed ? "1" : "0",
       );
+      // coercion-ok: persistence is best effort; the visible sidebar state remains authoritative.
     } catch {
       // Ignore storage access errors.
     }

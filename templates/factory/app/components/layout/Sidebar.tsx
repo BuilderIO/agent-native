@@ -103,6 +103,7 @@ function compareThreads(a: ChatThreadSummary, b: ChatThreadSummary) {
 function persistedActiveThreadId() {
   try {
     return localStorage.getItem(CHAT_ACTIVE_THREAD_KEY);
+    // coercion-ok: browser storage may be unavailable; no persisted thread is distinguishable from no saved selection.
   } catch {
     return null;
   }
@@ -111,6 +112,7 @@ function persistedActiveThreadId() {
 function persistActiveThreadId(threadId: string) {
   try {
     localStorage.setItem(CHAT_ACTIVE_THREAD_KEY, threadId);
+    // coercion-ok: persistence is best effort; the active thread remains usable for this session.
   } catch {}
 }
 
@@ -120,6 +122,7 @@ function threadIdFromPath(pathname: string) {
   try {
     const value = decodeURIComponent(match[1]).trim();
     return value || null;
+    // coercion-ok: malformed route input has no valid thread id and remains outside thread selection.
   } catch {
     return null;
   }

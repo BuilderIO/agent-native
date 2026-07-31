@@ -124,6 +124,7 @@ export async function pollSlackChannel({
       .replace(/^https?:\/\//, "")
       .replace(/\.slack\.com\/?$/, "")
       .replace(/\/$/, "");
+    // coercion-ok: workspace metadata is optional; fetched channel history remains valid without it.
   } catch {
     // History remains useful when Slack does not expose workspace metadata.
   }
