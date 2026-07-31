@@ -1427,17 +1427,22 @@ export class AppSyncState {
       // `lastAppStateTs` is maintained as MAX(updated_at) over the whole
       // `application_state` table (seeded in `seedVersionFromDb`, advanced by
       // the scan below over every key, not just the ones that emit events).
-      // All four application_state reads only report rows strictly newer than a
-      // watermark that is itself <= `lastAppStateTs`, so an unadvanced MAX
-      // proves all four are no-ops. Probing it first turns the no-change poll —
-      // which is nearly every poll — into one round trip on that table instead
-      // of four, and that cost repeats per app per connected client.
-      const [appStateMaxTs, settingsTs, extensionsMaxUpdatedAt] =
-        await Promise.all([
-          readMaxUpdatedAt(db, "application_state"),
-          readMaxUpdatedAt(db, "settings"),
-          readMaxUpdatedAtRaw(db, "tools"),
-        ]);
+      // The application-state row scan and screen/extension marker reads only
+      // report rows strictly newer than a watermark that is itself <=
+      // `lastAppStateTs`, so an unadvanced MAX proves those reads are no-ops.
+      // The action marker keeps its own max probe because its watermark must
+      // remain independent under cross-process clock skew.
+      const [
+        appStateMaxTs,
+        actionMarkerTs,
+        settingsTs,
+        extensionsMaxUpdatedAt,
+      ] = await Promise.all([
+        readMaxUpdatedAt(db, "application_state"),
+        readActionMarkerMaxUpdatedAt(db),
+        readMaxUpdatedAt(db, "settings"),
+        readMaxUpdatedAtRaw(db, "tools"),
+      ]);
 
       // The seed deliberately rewinds `lastActionMarkerTs` to 0 so a marker
       // written before this process booted still reaches the first poll. That
@@ -1448,26 +1453,23 @@ export class AppSyncState {
       const appStateChanged =
         appStateMaxTs > this.lastAppStateTs || replayActionMarker;
 
-      const [appResult, actionMarkerTs, refreshResult, extensionMarkerTs] =
-        appStateChanged
-          ? await Promise.all([
-              db.execute({
-                sql: "SELECT session_id, key, updated_at FROM application_state WHERE updated_at > ? ORDER BY updated_at ASC",
-                args: [this.lastAppStateTs],
-              }),
-              readActionMarkerMaxUpdatedAt(db),
-              db.execute({
-                sql: "SELECT session_id, updated_at, value FROM application_state WHERE key = ?",
-                args: [SCREEN_REFRESH_KEY],
-              }),
-              readExtensionMarkerMaxUpdatedAt(db),
-            ])
-          : ([
-              { rows: [] as Record<string, unknown>[] },
-              this.lastActionMarkerTs,
-              null,
-              this.lastExtensionMarkerTs,
-            ] as const);
+      const [appResult, refreshResult, extensionMarkerTs] = appStateChanged
+        ? await Promise.all([
+            db.execute({
+              sql: "SELECT session_id, key, updated_at FROM application_state WHERE updated_at > ? ORDER BY updated_at ASC",
+              args: [this.lastAppStateTs],
+            }),
+            db.execute({
+              sql: "SELECT session_id, updated_at, value FROM application_state WHERE key = ?",
+              args: [SCREEN_REFRESH_KEY],
+            }),
+            readExtensionMarkerMaxUpdatedAt(db),
+          ])
+        : ([
+            { rows: [] as Record<string, unknown>[] },
+            null,
+            this.lastExtensionMarkerTs,
+          ] as const);
 
       // Check application_state for external writes. Preserve the changed key so
       // clients can invalidate one-shot command queries (`navigate`, `__set_url__`)

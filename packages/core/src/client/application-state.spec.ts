@@ -96,6 +96,29 @@ describe("client application-state helpers", () => {
     expect(batch.values["stored-empty"]).toEqual({});
   });
 
+  it("rejects a queued read when its caller aborts", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse({ values: { navigation: {} }, missing: [] }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const controller = new AbortController();
+    const first = readClientAppState("navigation");
+    const queued = readClientAppState("selection", {
+      signal: controller.signal,
+    });
+
+    controller.abort(new Error("caller cancelled"));
+    await expect(queued).rejects.toThrow("caller cancelled");
+
+    await vi.runAllTimersAsync();
+    await expect(first).resolves.toEqual({});
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+
   it("writes app state with JSON, keepalive, request source, and safe scoped keys", async () => {
     vi.stubGlobal("window", {
       location: { pathname: "/plans/_agent-native/auth/session" },

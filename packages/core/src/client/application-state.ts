@@ -165,6 +165,35 @@ function scheduleBatchedRead(key: string): Promise<ClientAppStateBatch> {
   return promise;
 }
 
+function awaitWithAbort<T>(
+  promise: Promise<T>,
+  signal?: AbortSignal,
+): Promise<T> {
+  if (!signal) return promise;
+  const abortReason = () =>
+    signal.reason ?? new Error("The operation was aborted");
+  if (signal.aborted) return Promise.reject(abortReason());
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => {
+      cleanup();
+      reject(abortReason());
+    };
+    const cleanup = () => signal.removeEventListener("abort", onAbort);
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(
+      (value) => {
+        cleanup();
+        if (signal.aborted) reject(abortReason());
+        else resolve(value);
+      },
+      (error) => {
+        cleanup();
+        reject(error);
+      },
+    );
+  });
+}
+
 export async function readClientAppState<T = unknown>(
   key: string,
   options: ClientAppStateReadOptions = {},
@@ -173,10 +202,7 @@ export async function readClientAppState<T = unknown>(
   if (options.signal?.aborted) {
     throw options.signal.reason ?? new Error("Aborted");
   }
-  const batch = await scheduleBatchedRead(key);
-  if (options.signal?.aborted) {
-    throw options.signal.reason ?? new Error("Aborted");
-  }
+  const batch = await awaitWithAbort(scheduleBatchedRead(key), options.signal);
   return (batch.values[key] ?? null) as T | null;
 }
 
