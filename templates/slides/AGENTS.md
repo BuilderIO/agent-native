@@ -30,25 +30,16 @@ ladder.
 - Preserve freeform objects and their `data-slide-object-id` values. They are
   absolutely positioned `.fmd-slide` children; keep generated flex/grid in
   normal flow and mint ids only for duplicates. Use styled HTML, not inline SVG.
-- Fit the main content to the native content area, not merely to the outer
-  wrapper. For the default 16:9 canvas, the standard `80px 110px` padding
-  leaves 740x380px. Keep titles to two lines, content slides to three short
-  bullets or three compact cards, and two-column slides to two or three short
-  items per column. If the source is denser, split it across slides. Never use
-  zoom, `transform: scale()`, clipping, or scroll overflow to hide a fit issue;
-  body text must remain at least 16px. Explicitly reduced slide padding is
-  allowed when the content still needs the space.
-- Follow linked design-system tokens and custom instructions.
+- Read `slide-editing` before creating slides; it covers fit, density, and overflow.
+- Follow linked design-system tokens; read `design-systems` for per-source actions.
 - Build reusable design systems from Figma, code, GitHub, or `design.md` via
-  Builder-backed DSI indexing, never a duplicate local copy. Read
-  `design-systems` for the per-source actions.
+  Builder-backed DSI indexing, never a duplicate local copy.
 - Import/export actions are shortcuts, not capability limits. For exact Google
   Drive API needs, use `provider-api-catalog`, `provider-api-docs`, and
   `provider-api-request`; auth comes from the user's Google Docs OAuth. Stage
   large scans with `stageAs` and analyze them via `query-staged-dataset`.
-- Use image-generation and image-selection actions only when the deck genuinely
-  needs imagery; keep citations/asset provenance when available.
-- Use framework sharing actions for deck visibility and grants.
+- Use image actions only when needed; preserve asset provenance.
+- Use sharing actions for visibility and grants.
 - Ask a sibling app's agent with a natural-language `call-agent` message by
   default. Let that specialist use its own instructions, skills, sources, and
   tools. Direct action invocation is only for an exact bounded read with a

@@ -9,12 +9,12 @@ describe("Factory graph contract", () => {
     expect(graph.nodes.length).toBeGreaterThan(5);
     expect(graph.edges.length).toBeGreaterThan(4);
     expect(graph.executionMode).toBe("blueprint");
-    expect(graph.nodes.find((node) => node.id === "ai-triage")?.label).toContain(
-      "parallel",
-    );
-    expect(graph.edges.find((edge) => edge.id === "human-to-agent")?.source).toBe(
-      "human-gate",
-    );
+    expect(
+      graph.nodes.find((node) => node.id === "ai-triage")?.label,
+    ).toContain("parallel");
+    expect(
+      graph.edges.find((edge) => edge.id === "human-to-agent")?.source,
+    ).toBe("human-gate");
     expect(() => normalizeFactoryGraph(graph)).not.toThrow();
     expect(graph.edges.every((edge) => edge.source !== edge.target)).toBe(true);
   });
