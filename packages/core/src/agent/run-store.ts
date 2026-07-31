@@ -946,6 +946,16 @@ export interface UnclaimedBackgroundRunRow {
    *  pre-inserted — independent of any liveness bump a redispatch attempt
    *  makes along the way. */
   startedAt: number;
+  /**
+   * Whether the row still carries the `dispatch_payload` a redispatched worker
+   * would rehydrate its request body from. Eligibility for this sweep does NOT
+   * imply it: a background row can reach the grace window having never had a
+   * payload at all. Redispatching one of those asserts `payloadRef: true` to a
+   * worker that then cannot rehydrate, so it kills the run as
+   * `dispatch_payload_missing` — a reason that reads like data loss for what is
+   * really an un-redispatchable handoff.
+   */
+  hasDispatchPayload: boolean;
 }
 
 /**
@@ -965,7 +975,10 @@ export async function listUnclaimedBackgroundRunRows(): Promise<
   const { rows } = await client.execute({
     // CAST keeps the ms-epoch param 64-bit on Postgres (see
     // backgroundAwareStaleCutoffSql for the int4-inference failure mode).
-    sql: `SELECT id, started_at FROM agent_runs
+    // Report payload presence rather than filtering on it: a payload-less row
+    // must still be VISIBLE to the sweep so the slow pass can reap it. Filtering
+    // it out here would leave it `running` forever.
+    sql: `SELECT id, started_at, (dispatch_payload IS NOT NULL) AS has_dispatch_payload FROM agent_runs
           WHERE status = 'running'
             AND dispatch_mode = 'background'
             AND COALESCE(heartbeat_at, started_at) < (CAST(? AS BIGINT) - ${UNCLAIMED_BACKGROUND_RUN_GRACE_MS})`,
@@ -975,11 +988,15 @@ export async function listUnclaimedBackgroundRunRows(): Promise<
   for (const row of rows ?? []) {
     const id = (row as { id?: unknown }).id;
     const startedAt = (row as { started_at?: unknown }).started_at;
+    const hasPayload = (row as { has_dispatch_payload?: unknown })
+      .has_dispatch_payload;
     if (typeof id === "string" && id) {
       result.push({
         id,
         startedAt:
           typeof startedAt === "number" ? startedAt : Number(startedAt) || 0,
+        // SQLite returns 1/0 where Postgres returns a boolean.
+        hasDispatchPayload: hasPayload === true || hasPayload === 1,
       });
     }
   }
