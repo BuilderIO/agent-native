@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.131.9
+
+### Patch Changes
+
+- d80a9c9: Report workspace files as truncated only when more content exists beyond the requested read page, and normalize paging arguments to integer boundaries.
+- 3c538e4: Preserve application-state database read failures and distinguish explicit stops or exhausted reconnect failures from recoverable chat handoffs.
+
 ## 0.131.8
 
 ### Patch Changes
