@@ -39,7 +39,14 @@ describe("slide context toolbar", () => {
 
   it("mounts above the canvas for editable, non-Excalidraw slides", () => {
     expect(mountIndex).toBeGreaterThan(-1);
-    expect(editorSource).toContain("!readOnly && !slide.excalidrawData");
+    expect(editorSource).toContain(
+      "!readOnly && !stylePanelOpen && !slide.excalidrawData",
+    );
+  });
+
+  it("never shows the toolbar and the style dock at the same time", () => {
+    expect(editorSource).toContain("!readOnly && !stylePanelOpen &&");
+    expect(editorSource).toContain("!readOnly && stylePanelOpen");
   });
 
   it("keeps the rich text selection alive while the toolbar is pressed", () => {

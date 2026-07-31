@@ -109,9 +109,10 @@ button[title="Open agent sidebar"] {
   --accent-cyan: 193 82% 31%;
 }
 
-/* Slides keeps the shared visual inspector behavior, but the dock needs the
+/* Slides keeps the shared visual inspector behavior, but the dock and context toolbar need the
    flatter, filled-control treatment used by the slide editor. */
-.slide-style-inspector {
+.slide-style-inspector,
+.slide-context-toolbar {
   --slides-inspector-control-background: hsl(var(--muted) / 0.82);
   --slides-inspector-divider: hsl(var(--border) / 0.7);
   --design-editor-control-bg: var(--slides-inspector-control-background);
@@ -154,18 +155,21 @@ button[title="Open agent sidebar"] {
   background: transparent;
 }
 
-.slide-style-inspector input {
+.slide-style-inspector input,
+.slide-context-toolbar input {
   border: 0;
   border-radius: 0.125rem;
   background: var(--slides-inspector-control-background);
   box-shadow: none;
 }
 
-.slide-style-inspector input:focus {
+.slide-style-inspector input:focus,
+.slide-context-toolbar input:focus {
   border: 0;
 }
 
-.slide-style-inspector .slides-inspector-segment {
+.slide-style-inspector .slides-inspector-segment,
+.slide-context-toolbar .slides-inspector-segment {
   min-height: 1.5rem;
   border: 0;
   border-radius: 0.125rem;

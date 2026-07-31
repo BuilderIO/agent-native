@@ -4056,7 +4056,7 @@ export default function SlideEditor({
       className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden"
       data-slide-element-selected={slideElementSelected ? "true" : undefined}
     >
-      {!readOnly && !slide.excalidrawData && (
+      {!readOnly && !stylePanelOpen && !slide.excalidrawData && (
         <div
           className="hidden shrink-0 lg:block"
           onPointerDownCapture={preserveRichTextSelection}
