@@ -688,6 +688,58 @@ export function SlideInner({
       } as React.CSSProperties)
     : {};
 
+  const overflowByTargetRef = useRef(new Map<string, SlideOverflowInfo>());
+  const reportTargetOverflow = useCallback(
+    (targetKey: string, info: SlideOverflowInfo) => {
+      overflowByTargetRef.current.set(targetKey, info);
+      if (!onOverflowChange) return;
+      const measurements = [...overflowByTargetRef.current.values()];
+      onOverflowChange(
+        measurements.reduce(
+          (result, measurement) => ({
+            verticalOverflow: Math.max(
+              result.verticalOverflow,
+              measurement.verticalOverflow,
+            ),
+            horizontalOverflow: Math.max(
+              result.horizontalOverflow,
+              measurement.horizontalOverflow,
+            ),
+            contentHeight: Math.max(
+              result.contentHeight,
+              measurement.contentHeight,
+            ),
+            contentWidth: Math.max(
+              result.contentWidth,
+              measurement.contentWidth,
+            ),
+            viewportHeight: Math.max(
+              result.viewportHeight,
+              measurement.viewportHeight,
+            ),
+            viewportWidth: Math.max(
+              result.viewportWidth,
+              measurement.viewportWidth,
+            ),
+          }),
+          {
+            verticalOverflow: 0,
+            horizontalOverflow: 0,
+            contentHeight: 0,
+            contentWidth: 0,
+            viewportHeight: 0,
+            viewportWidth: 0,
+          },
+        ),
+      );
+    },
+    [onOverflowChange],
+  );
+
+  useEffect(() => {
+    overflowByTargetRef.current.clear();
+  }, [slide.id, slide.content, aspectRatio]);
+
   // If slide has excalidraw data, render it as a static SVG thumbnail
   if (
     slide.excalidrawData &&
@@ -741,7 +793,7 @@ export function SlideInner({
           canvasHeight={dims.height}
           fitKey={left}
           className="slide-content text-white/90"
-          onOverflowChange={onOverflowChange}
+          onOverflowChange={(info) => reportTargetOverflow("left", info)}
           onAutofitSettled={onAutofitSettled}
         >
           <ReactMarkdown
@@ -756,7 +808,7 @@ export function SlideInner({
           canvasHeight={dims.height}
           fitKey={right}
           className="slide-content text-white/90"
-          onOverflowChange={onOverflowChange}
+          onOverflowChange={(info) => reportTargetOverflow("right", info)}
           onAutofitSettled={onAutofitSettled}
         >
           <ReactMarkdown
@@ -782,7 +834,7 @@ export function SlideInner({
           canvasHeight={dims.height}
           fitKey={content}
           className="h-full w-full"
-          onOverflowChange={onOverflowChange}
+          onOverflowChange={(info) => reportTargetOverflow("raw", info)}
           onAutofitSettled={onAutofitSettled}
         >
           <BlankSlideContent content={content} />
@@ -808,7 +860,7 @@ export function SlideInner({
         canvasHeight={dims.height}
         fitKey={content}
         className="slide-content text-white/90 w-full"
-        onOverflowChange={onOverflowChange}
+        onOverflowChange={(info) => reportTargetOverflow("markdown", info)}
         onAutofitSettled={onAutofitSettled}
       >
         <ReactMarkdown
