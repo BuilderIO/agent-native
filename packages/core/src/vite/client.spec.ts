@@ -832,6 +832,7 @@ describe("agentNative Vite plugin preset", () => {
     expect(pluginNames).toContain("agent-native-app-changelog-raw");
     expect(pluginNames).toContain("agent-native-action-types");
     expect(pluginNames).toContain("agent-native-agents-bundle");
+    expect(pluginNames).toContain("agent-native-react-router-route-recovery");
     expect(pluginNames).toContain("agent-native-auto-reload-optimize-dep");
     expect(pluginNames).toContain("agent-native-port-exposer");
   });

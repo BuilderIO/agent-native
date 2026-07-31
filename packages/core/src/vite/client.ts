@@ -47,6 +47,7 @@ import {
 } from "../shared/route-warmup-config.js";
 import { actionTypesPlugin } from "./action-types-plugin.js";
 import { agentsBundlePlugin } from "./agents-bundle-plugin.js";
+import { reactRouterRouteRecoveryPlugin } from "./react-router-route-recovery-plugin.js";
 
 const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -3012,6 +3013,7 @@ function createAgentNativePlugins(
     appChangelogRawPlugin(),
     actionTypesPlugin(),
     agentsBundlePlugin(),
+    reactRouterRouteRecoveryPlugin(),
     autoReloadOnOptimizeDep(),
     fullReloadOnOptimizeDep504(),
     embedDevFrameHeaders(),
@@ -3434,4 +3436,5 @@ export {
   nitroStartupRecovery as _nitroStartupRecovery,
   nitroModuleGraphSignature as _nitroModuleGraphSignature,
   debounceNitroFullReloadHotUpdate as _debounceNitroFullReloadHotUpdate,
+  reactRouterRouteRecoveryPlugin as _reactRouterRouteRecoveryPlugin,
 };

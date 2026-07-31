@@ -21,6 +21,7 @@ import { createRequestHandler } from "react-router";
 import { isMcpPublicPath } from "../mcp/route-paths.js";
 import {
   DEFAULT_SPECULATION_RULES_PATH,
+  DISABLED_SSR_CACHE_CONTROL,
   resolveSsrCacheHeaders,
 } from "../shared/cache-control.js";
 import {
@@ -36,6 +37,10 @@ import {
   stripAppBasePath as canonicalStripAppBasePath,
 } from "./app-base-path.js";
 import { captureError } from "./capture-error.js";
+import {
+  classifyStaleReactRouterRouteError,
+  getReactRouterDevRecovery,
+} from "./react-router-dev-recovery.js";
 import { runWithRequestContext } from "./request-context.js";
 import {
   getRealtimeClientConfigScript,
@@ -432,33 +437,58 @@ export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
       // session here to "fix" a per-user page — that silently makes the page
       // uncacheable and/or leaks one user's data into another's cached copy.
       const ctx = { userEmail: undefined, orgId: undefined };
+      let response: Response;
       if (request.method === "HEAD") {
         const getRequest = new Request(request.url, {
           method: "GET",
           headers: request.headers,
           signal: request.signal,
         });
-        const response = await runWithRequestContext(ctx, () =>
+        const headResponse = await runWithRequestContext(ctx, () =>
           handler(getRequest),
         );
-        return await rewriteMountedResponse(
+        response = await rewriteMountedResponse(
           new Response(null, {
-            status: response.status,
-            statusText: response.statusText,
-            headers: response.headers,
+            status: headResponse.status,
+            statusText: headResponse.statusText,
+            headers: headResponse.headers,
           }),
           basePath,
           p,
           request.url,
         );
+      } else {
+        response = await rewriteMountedResponse(
+          await runWithRequestContext(ctx, () => handler(request)),
+          basePath,
+          p,
+          request.url,
+        );
       }
-      return await rewriteMountedResponse(
-        await runWithRequestContext(ctx, () => handler(request)),
-        basePath,
-        p,
-        request.url,
-      );
+      if (response.status < 500) {
+        getReactRouterDevRecovery()?.markSsrSuccess();
+      }
+      return response;
     } catch (err) {
+      const recovery = getReactRouterDevRecovery();
+      const staleRoute =
+        recovery &&
+        classifyStaleReactRouterRouteError(err, recovery.routeRoots);
+      if (recovery && staleRoute) {
+        const result = recovery.request(
+          `missing route module ${staleRoute.file}`,
+        );
+        if (result !== "bounded") {
+          return new Response("Route graph is refreshing. Retry shortly.\n", {
+            status: 503,
+            headers: {
+              "cache-control": DISABLED_SSR_CACHE_CONTROL,
+              "content-type": "text/plain; charset=utf-8",
+              "retry-after": "1",
+            },
+          });
+        }
+      }
       // Log the full stack server-side, but never leak it to the client.
       // Stack traces expose file paths, library versions, and code structure
       // that aid reconnaissance attacks. In dev we surface the message text

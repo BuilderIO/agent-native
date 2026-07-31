@@ -10,6 +10,7 @@ import {
   AGENT_NATIVE_SOCIAL_IMAGE_PATH,
 } from "../shared/social-meta.js";
 import { registerErrorCaptureProvider } from "./capture-error.js";
+import { registerReactRouterDevRecovery } from "./react-router-dev-recovery.js";
 import { getRequestUserEmail } from "./request-context.js";
 import {
   createH3SSRHandler,
@@ -102,6 +103,81 @@ describe("createH3SSRHandler", () => {
 
     await expect(response.text()).resolves.toBe("GET /inbox?view=unread");
     expect(mocks.requestHandler).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns a complete no-store 503 for a stale route and succeeds on retry", async () => {
+    const missingRoute = "/tmp/agent-native-routes/deleted.tsx";
+    const request = vi.fn(() => "started" as const);
+    const markSsrSuccess = vi.fn();
+    const unregister = registerReactRouterDevRecovery({
+      routeRoots: ["/tmp/agent-native-routes"],
+      request,
+      markSsrSuccess,
+    });
+    mocks.requestHandler.mockRejectedValueOnce(
+      Object.assign(
+        new Error(
+          `Failed to load url ${missingRoute} (resolved id: ${missingRoute}) in virtual:react-router/server-build. Does the file exist?`,
+        ),
+        { code: "ERR_LOAD_URL" },
+      ),
+    );
+    try {
+      const handler = createH3SSRHandler(() => ({})) as any;
+
+      const fallback = await handler(createEvent("/deleted"));
+      expect(fallback.status).toBe(503);
+      expect(fallback.headers.get("cache-control")).toBe("no-store");
+      expect(fallback.headers.get("retry-after")).toBe("1");
+      expect(fallback.headers.get("content-type")).toBe(
+        "text/plain; charset=utf-8",
+      );
+      await expect(fallback.text()).resolves.toBe(
+        "Route graph is refreshing. Retry shortly.\n",
+      );
+      expect(request).toHaveBeenCalledOnce();
+      expect(markSsrSuccess).not.toHaveBeenCalled();
+
+      const recovered = await handler(createEvent("/recovered"));
+      expect(recovered.status).toBe(200);
+      await expect(recovered.text()).resolves.toBe("GET /recovered");
+      expect(markSsrSuccess).toHaveBeenCalledOnce();
+    } finally {
+      unregister();
+    }
+  });
+
+  it("preserves the original SSR failure after recovery attempts are bounded", async () => {
+    const missingRoute = "/tmp/agent-native-routes/deleted.tsx";
+    const unregister = registerReactRouterDevRecovery({
+      routeRoots: ["/tmp/agent-native-routes"],
+      request: () => "bounded",
+      markSsrSuccess: vi.fn(),
+    });
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    mocks.requestHandler.mockRejectedValueOnce(
+      Object.assign(
+        new Error(
+          `Failed to load url ${missingRoute} (resolved id: ${missingRoute}) in virtual:react-router/server-build. Does the file exist?`,
+        ),
+        { code: "ERR_LOAD_URL" },
+      ),
+    );
+    try {
+      const handler = createH3SSRHandler(() => ({})) as any;
+      const response = await handler(createEvent("/deleted"));
+
+      expect(response.status).toBe(500);
+      expect(consoleError).toHaveBeenCalledWith(
+        "[ssr-handler] SSR error:",
+        expect.objectContaining({ code: "ERR_LOAD_URL" }),
+      );
+    } finally {
+      unregister();
+      consoleError.mockRestore();
+    }
   });
 
   it("captures SSR exceptions with request context before returning a safe 500", async () => {
