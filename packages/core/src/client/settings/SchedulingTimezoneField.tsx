@@ -60,12 +60,11 @@ export function SchedulingTimezoneField() {
       <p className="min-h-4 text-xs text-muted-foreground">
         {save.error ? (
           <span className="text-destructive">{save.error.message}</span>
-        ) : value === SYSTEM ? (
-          t("settings.timezoneFollowingBrowser", {
-            defaultValue:
-              "Schedules follow whichever browser creates them. Pick a zone to keep them fixed.",
+        ) : (
+          t("settings.timezoneHint", {
+            defaultValue: "Used for timestamps and scheduled automations.",
           })
-        ) : null}
+        )}
       </p>
     </div>
   );

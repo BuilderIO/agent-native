@@ -60,8 +60,7 @@ const messages = {
     manageAgentMenuItem: "Manage agent",
     timezoneLabel: "Timezone",
     timezoneSystem: "Follow this browser ({{zone}})",
-    timezoneFollowingBrowser:
-      "Schedules follow whichever browser creates them. Pick a zone to keep them fixed.",
+    timezoneHint: "Used for timestamps and scheduled automations.",
   },
   secrets: {
     scopeLabel: "Scope",
