@@ -8,8 +8,8 @@ import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { readAppStateForCurrentTab } from "./_tab-state.js";
 import { hashSlideContent, type DeckFitState } from "../shared/slide-fit.js";
+import { readAppStateForCurrentTab } from "./_tab-state.js";
 
 export default defineAction({
   description:
@@ -269,7 +269,9 @@ export default defineAction({
               .join(", ")}.`,
           );
         } else {
-          lines.push(`All ${slides.length} slides fit their measured content area.`);
+          lines.push(
+            `All ${slides.length} slides fit their measured content area.`,
+          );
         }
       }
 

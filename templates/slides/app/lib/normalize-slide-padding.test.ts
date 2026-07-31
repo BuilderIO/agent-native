@@ -6,9 +6,7 @@ describe("normalizeSlidePadding", () => {
   it("preserves explicit one-value padding", () => {
     const html =
       '<div class="fmd-slide" style="padding: 80px; display: flex;"><h1>Hi</h1></div>';
-    expect(normalizeSlidePadding(html)).toBe(
-      html,
-    );
+    expect(normalizeSlidePadding(html)).toBe(html);
   });
 
   it("preserves fit-tuned vertical and horizontal padding", () => {

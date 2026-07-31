@@ -5,9 +5,7 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import {
   IconAlertCircle,
-  IconCheck,
   IconExternalLink,
-  IconGitPullRequest,
   IconLoader2,
   IconPlayerPlay,
   IconPlus,
@@ -331,9 +329,7 @@ export default function FactoryRoute() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <h1 className="truncate text-base font-semibold">
-                {graph.name}
-              </h1>
+              <h1 className="truncate text-base font-semibold">{graph.name}</h1>
               <span className="shrink-0 text-xs text-muted-foreground">
                 v{graphVersion}
               </span>
@@ -406,15 +402,10 @@ export default function FactoryRoute() {
         {activeTab === "map" ? (
           <div className="grid min-h-full gap-0 xl:grid-cols-[minmax(0,1fr)_360px]">
             <section className="min-w-0 p-4 lg:p-6">
-              <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-                <div>
-                  <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                    {t("factoryRoute.mapEyebrow")}
-                  </p>
-                  <h2 className="mt-1 text-xl font-semibold tracking-tight">
-                    {t("factoryRoute.mapTitle")}
-                  </h2>
-                </div>
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                <span className="text-xs font-medium text-muted-foreground">
+                  {t("factoryRoute.mapEyebrow")}
+                </span>
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <Metric
                     label={t("factoryRoute.metricSignals")}

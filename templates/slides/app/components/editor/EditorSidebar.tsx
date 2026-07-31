@@ -16,6 +16,8 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
+import { hashSlideContent, type DeckFitState } from "@shared/slide-fit";
 import {
   IconPlus,
   IconGripVertical,
@@ -46,11 +48,6 @@ import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { addSlideAgentMessage } from "@/lib/agent-visible-message";
 import type { AspectRatio } from "@/lib/aspect-ratios";
 import { TAB_ID } from "@/lib/tab-id";
-import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
-import {
-  hashSlideContent,
-  type DeckFitState,
-} from "@shared/slide-fit";
 
 interface EditorSidebarProps {
   slides: Slide[];
@@ -589,7 +586,10 @@ export default function EditorSidebar({
   const slideButtonRefs = useRef(new Map<string, HTMLButtonElement>());
   const thumbScrollRef = useRef<HTMLDivElement>(null);
   const measurementsRef = useRef(
-    new Map<string, { contentHash: string; info: SlideOverflowInfo; measuredAt: number }>(),
+    new Map<
+      string,
+      { contentHash: string; info: SlideOverflowInfo; measuredAt: number }
+    >(),
   );
   const writeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -598,13 +598,16 @@ export default function EditorSidebar({
     const measuredSlides = Object.fromEntries(
       Array.from(measurementsRef.current.entries())
         .filter(([slideId]) => currentSlideIds.has(slideId))
-        .map(([slideId, measurement]) => [slideId, {
-          contentHash: measurement.contentHash,
-          contentHeight: measurement.info.contentHeight,
-          viewportHeight: measurement.info.viewportHeight,
-          verticalOverflow: measurement.info.verticalOverflow,
-          measuredAt: measurement.measuredAt,
-        }]),
+        .map(([slideId, measurement]) => [
+          slideId,
+          {
+            contentHash: measurement.contentHash,
+            contentHeight: measurement.info.contentHeight,
+            viewportHeight: measurement.info.viewportHeight,
+            verticalOverflow: measurement.info.verticalOverflow,
+            measuredAt: measurement.measuredAt,
+          },
+        ]),
     );
     const payload: DeckFitState = { deckId, slides: measuredSlides };
     const body = JSON.stringify(payload);
@@ -629,7 +632,10 @@ export default function EditorSidebar({
         previous?.contentHash === contentHash
           ? {
               ...info,
-              contentHeight: Math.max(info.contentHeight, previous.info.contentHeight),
+              contentHeight: Math.max(
+                info.contentHeight,
+                previous.info.contentHeight,
+              ),
               verticalOverflow: Math.max(
                 info.verticalOverflow,
                 previous.info.verticalOverflow,

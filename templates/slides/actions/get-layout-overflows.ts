@@ -14,7 +14,8 @@ export default defineAction({
   http: false,
   run: async ({ deckId }) => {
     const access = await resolveAccess("deck", deckId);
-    if (!access) throw Object.assign(new Error("Deck not found"), { statusCode: 404 });
+    if (!access)
+      throw Object.assign(new Error("Deck not found"), { statusCode: 404 });
 
     const deck = JSON.parse(access.resource.data) as {
       slides?: Array<{ id: string; content?: string }>;
@@ -34,7 +35,8 @@ export default defineAction({
     }> = [];
 
     slides.forEach((slide, index) => {
-      const measurement = state?.deckId === deckId ? state.slides?.[slide.id] : undefined;
+      const measurement =
+        state?.deckId === deckId ? state.slides?.[slide.id] : undefined;
       if (
         !measurement ||
         measurement.contentHash !== hashSlideContent(slide.content ?? "") ||

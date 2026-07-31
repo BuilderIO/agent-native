@@ -197,7 +197,7 @@ export function FactoryCanvas({
     if (dragState) {
       try {
         event.currentTarget.releasePointerCapture(event.pointerId);
-      // coercion-ok: pointer capture is optional and drag state is cleared below.
+        // coercion-ok: pointer capture is optional and drag state is cleared below.
       } catch {
         // Pointer capture may already have ended on touch browsers.
       }

@@ -127,8 +127,7 @@ const messages = {
     observeFirst: "Observe-first · shadow mode",
     mapEyebrow: "Factory map",
     mapTitle: "From signal to shipped outcome",
-    mapHint:
-      "Click a step or route to inspect it. Double-click a step to comment.",
+    mapHint: "Select a step or route to edit.",
     unsavedChanges: "Unsaved visual changes",
     inboxTitle: "Observation inbox",
     inboxDescription: "Evidence entering the factory, before autonomous work.",
@@ -147,7 +146,7 @@ const messages = {
     metricRuns: "Runs",
   },
   factoryCanvas: {
-    dragHint: "Drag nodes to reshape the factory",
+    dragHint: "Drag to arrange",
     zoomOut: "Zoom out",
     zoomIn: "Zoom in",
     fitToView: "Fit to view",
@@ -161,7 +160,7 @@ const messages = {
     commentMany: "comments",
   },
   factoryInspector: {
-    title: "Factory inspector",
+    title: "Inspector",
     askSelection: "Ask the agent about this selection",
     stepName: "Step name",
     stepDescription: "What happens here",
@@ -179,8 +178,7 @@ const messages = {
     routePlaceholder: "For example, when the decision is a low-risk docs fix",
     factoryComments: "Factory comments",
     selectionComments: "Comments on this selection",
-    commentEmpty:
-      "Add a note for a teammate or ask the agent to address this part of the factory.",
+    commentEmpty: "Add a note about this part of the factory.",
     leaveComment: "Leave a comment...",
     addComment: "Add comment",
     savingGraph: "Saving graph...",
