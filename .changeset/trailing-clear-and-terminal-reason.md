@@ -3,7 +3,7 @@
 ---
 
 Stop a retry storm from deleting the answer the user already read. A rebuild
-correctly refuses to apply a *trailing* `clear` — there is no successor chunk to
+correctly refuses to apply a _trailing_ `clear` — there is no successor chunk to
 re-emit what it wipes — but it only skipped the clear at the very last index.
 Each failed engine attempt emits its own `clear`, so three failures in a row is
 the ordinary shape, and the rebuild still applied the first two, splicing every
