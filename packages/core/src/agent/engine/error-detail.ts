@@ -68,6 +68,88 @@ export function isProviderConnectionError(err: unknown): boolean {
   return isProviderConnectionErrorMessage(describeErrorWithCauses(err));
 }
 
+/** Classification fields an AI SDK provider failure carries. */
+export interface ProviderErrorClassification {
+  errorCode?: string;
+  statusCode?: number;
+  providerRetryable?: boolean;
+}
+
+/**
+ * Classify a provider error from the AI SDK, whichever way it surfaced.
+ *
+ * `streamText` does not throw for a failed provider request — it emits an
+ * `error` part on `fullStream` — so there are two arrival paths, and only the
+ * thrown one used to be classified. The stream-part path discarded
+ * `statusCode`, `errorCode`, and `isRetryable` entirely, which is why every
+ * provider HTTP failure on an ai-sdk engine landed as `unknown`: a 429 was only
+ * retried if its prose happened to contain "rate_limit", and a
+ * 100%-reproducible config 400 was indistinguishable from any other unclassified
+ * failure, so it had no signature to alert on. Both call sites go through here.
+ *
+ * `timedOut` is the caller's own first-event deadline, which only the streaming
+ * path can know.
+ */
+export function classifyProviderError(
+  err: unknown,
+  timedOut = false,
+): ProviderErrorClassification {
+  // The AI SDK wraps exhausted retries in RetryError and keeps the final
+  // APICallError on `lastError`.
+  const wrapped = err as { lastError?: unknown } | null;
+  const providerError = (
+    wrapped?.lastError instanceof Error ? wrapped.lastError : err
+  ) as {
+    statusCode?: unknown;
+    isRetryable?: unknown;
+    message?: unknown;
+  } | null;
+
+  const statusCode =
+    typeof providerError?.statusCode === "number"
+      ? providerError.statusCode
+      : undefined;
+
+  // Classify on the cause chain of the ORIGINAL error, not the unwrapped one:
+  // when RetryError does not expose `lastError` as an Error the unwrap falls
+  // back to the wrapper, whose message ("Failed after 2 attempts. Last error:
+  // …") only *embeds* the transport failure. Matching the wrapper is the point.
+  const described = describeErrorWithCauses(err);
+  const isConnectionError =
+    !timedOut &&
+    statusCode === undefined &&
+    (isProviderConnectionErrorMessage(described) ||
+      isProviderConnectionErrorMessage(
+        typeof providerError?.message === "string"
+          ? providerError.message
+          : String(providerError),
+      ));
+
+  const providerRetryable =
+    typeof providerError?.isRetryable === "boolean"
+      ? providerError.isRetryable
+      : isConnectionError || timedOut
+        ? true
+        : undefined;
+
+  return {
+    // Tag every known status as `http_<status>` (not just 401) so a rate limit
+    // surfaces as `http_429`: the structured statusCode drives turn-level
+    // retries, but run-level continuation keys off the errorCode.
+    ...(statusCode !== undefined
+      ? { errorCode: `http_${statusCode}`, statusCode }
+      : isConnectionError || timedOut
+        ? { errorCode: "provider_network_error" }
+        : // Nothing structured — fall back to reading the message, so a
+          // stream-part 529/timeout is not silently unclassified.
+          (() => {
+            const code = classifyTerminalErrorCode(described);
+            return code ? { errorCode: code } : {};
+          })()),
+    ...(providerRetryable !== undefined ? { providerRetryable } : {}),
+  };
+}
+
 /**
  * Last-resort error code for a terminal error that reached persistence with no
  * structured code. Persisting `"unknown"` is not a neutral default: the client

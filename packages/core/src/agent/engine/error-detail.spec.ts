@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  classifyProviderError,
   classifyTerminalErrorCode,
   describeErrorWithCauses,
   isProviderConnectionError,
@@ -110,6 +111,60 @@ describe("isProviderConnectionErrorMessage", () => {
     expect(
       classifyTerminalErrorCode("Bad request (request_id: req_a529b429c)"),
     ).toBe(undefined);
+  });
+
+  // `streamText` reports most provider HTTP failures as a stream part, not a
+  // throw. That path discarded statusCode/isRetryable, so every one landed as
+  // `unknown` and was retried only if its prose matched a keyword.
+  it("classifies a provider error identically however it arrived", () => {
+    const apiError = Object.assign(new Error("Rate limit reached"), {
+      statusCode: 429,
+      isRetryable: true,
+    });
+    expect(classifyProviderError(apiError)).toEqual({
+      errorCode: "http_429",
+      statusCode: 429,
+      providerRetryable: true,
+    });
+
+    // Same error wrapped by the SDK's exhausted-retry RetryError.
+    const retryError = Object.assign(
+      new Error("Failed after 2 attempts. Last error: Rate limit reached"),
+      { lastError: apiError },
+    );
+    expect(classifyProviderError(retryError)).toEqual({
+      errorCode: "http_429",
+      statusCode: 429,
+      providerRetryable: true,
+    });
+  });
+
+  it("falls back to the message when the provider error carries no status", () => {
+    expect(
+      classifyProviderError(
+        new Error(
+          "Failed after 2 attempts. Last error: Cannot connect to API: reset",
+        ),
+      ),
+    ).toEqual({ errorCode: "provider_network_error", providerRetryable: true });
+
+    expect(
+      classifyProviderError(new Error("upstream reported overloaded_error")),
+    ).toEqual({ errorCode: "overloaded_error" });
+  });
+
+  it("leaves a deterministic provider 400 retryable-free", () => {
+    const badRequest = Object.assign(
+      new Error(
+        "Function tools with reasoning_effort are not supported for gpt-5.6-luna in /v1/chat/completions.",
+      ),
+      { statusCode: 400, isRetryable: false },
+    );
+    expect(classifyProviderError(badRequest)).toEqual({
+      errorCode: "http_400",
+      statusCode: 400,
+      providerRetryable: false,
+    });
   });
 
   it("finds the transport failure on the cause chain", () => {
