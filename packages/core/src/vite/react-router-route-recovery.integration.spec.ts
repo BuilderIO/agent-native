@@ -12,7 +12,7 @@ const restartCountKey = "__agentNativeRouteRecoveryRestartCount";
 function routeSource(label: string, loaderFailure = false): string {
   return `${
     loaderFailure
-      ? 'export function loader() { throw new Error("loader exploded"); }\n'
+      ? 'export function loader() { throw new Response("loader exploded", { status: 598 }); }\n'
       : ""
   }export default function Route() { return <main>${label}</main>; }\n`;
 }
@@ -90,23 +90,32 @@ export default function handleRequest(request, status, headers, context) {
 }
 `,
     );
-    const recoveryPluginUrl = pathToFileURL(
-      path.join(
-        process.cwd(),
-        "src/vite/react-router-route-recovery-plugin.ts",
-      ),
+    const ssrHandlerUrl = pathToFileURL(
+      path.join(process.cwd(), "src/server/ssr-handler.ts"),
+    ).href;
+    fs.mkdirSync(path.join(fixture, "server", "routes"), { recursive: true });
+    fs.writeFileSync(
+      path.join(fixture, "server", "routes", "[...page].get.ts"),
+      `import { createH3SSRHandler } from ${JSON.stringify(ssrHandlerUrl)};
+export default createH3SSRHandler(
+  () => import("virtual:react-router/server-build"),
+);
+`,
+    );
+    const agentNativePresetUrl = pathToFileURL(
+      path.join(process.cwd(), "src/vite/client.ts"),
     ).href;
     fs.writeFileSync(
       path.join(fixture, "vite.config.ts"),
       `import { defineConfig } from "vite";
 import { reactRouter } from "@react-router/dev/vite";
-import { reactRouterRouteRecoveryPlugin } from ${JSON.stringify(recoveryPluginUrl)};
+import { agentNative } from ${JSON.stringify(agentNativePresetUrl)};
 const key = ${JSON.stringify(restartCountKey)};
 export default defineConfig({
   logLevel: "silent",
   plugins: [
     reactRouter(),
-    reactRouterRouteRecoveryPlugin(),
+    agentNative(),
     {
       name: "count-route-recovery-restarts",
       configureServer(server) {
@@ -196,6 +205,7 @@ export default defineConfig({
     expect((globalThis as Record<string, number>)[restartCountKey]).toBe(
       afterRename,
     );
+    await new Promise((resolve) => setTimeout(resolve, 400));
 
     fs.writeFileSync(
       path.join(routes, "new.tsx"),
@@ -203,8 +213,7 @@ export default defineConfig({
     );
     await eventuallyFetch(
       `${baseUrl}/new`,
-      (response, body) =>
-        response.status >= 500 && body.includes("loader exploded"),
+      (response) => response.status === 598,
     );
     expect((globalThis as Record<string, number>)[restartCountKey]).toBe(
       afterRename,
