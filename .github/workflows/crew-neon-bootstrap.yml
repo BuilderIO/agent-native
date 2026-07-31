@@ -1,0 +1,140 @@
+name: Bootstrap Crew direct Neon database
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  provision:
+    runs-on: ubuntu-latest
+    env:
+      NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+      NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+      NETLIFY_ACCOUNT_ID: ${{ secrets.NETLIFY_ACCOUNT_ID }}
+      NETLIFY_SITE_ID: 6bffaa23-ad14-480c-8954-99f53ecabf05
+    steps:
+      - name: Provision direct Neon project and configure Netlify
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          neon_api='https://console.neon.tech/api/v2'
+          neon_auth="Authorization: Bearer $NEON_API_KEY"
+          project_name='agent-native-crew'
+
+          projects_response=$(curl -sS -H "$neon_auth" "$neon_api/projects?limit=100")
+          project_id=$(jq -r --arg name "$project_name" \
+            'first(.projects[]? | select(.name == $name) | .id) // empty' \
+            <<<"$projects_response")
+
+          if [[ -z "$project_id" ]]; then
+            create_response=$(curl -sS -X POST \
+              -H "$neon_auth" \
+              -H 'Content-Type: application/json' \
+              "$neon_api/projects" \
+              -d "$(jq -n --arg name "$project_name" \
+                '{project:{name:$name,region_id:"aws-us-east-1",pg_version:17}}')")
+            project_id=$(jq -r '.project.id // empty' <<<"$create_response")
+            if [[ -z "$project_id" ]]; then
+              echo '::error::Neon did not return a project id.'
+              exit 1
+            fi
+          fi
+
+          get_uri() {
+            local pooled="$1"
+            local response status body
+            response=$(curl -sS -w $'\n%{http_code}' \
+              -H "$neon_auth" \
+              "$neon_api/projects/$project_id/connection_uri?database_name=neondb&role_name=neondb_owner&pooled=$pooled")
+            status=$(tail -n1 <<<"$response")
+            body=$(sed '$d' <<<"$response")
+            if [[ "$status" != '200' ]]; then
+              return 1
+            fi
+            jq -r '.uri // .connection_uri // empty' <<<"$body"
+          }
+
+          pooled_uri=''
+          unpooled_uri=''
+          for _ in {1..30}; do
+            pooled_uri=$(get_uri true || true)
+            unpooled_uri=$(get_uri false || true)
+            if [[ -n "$pooled_uri" && -n "$unpooled_uri" ]]; then
+              break
+            fi
+            sleep 5
+          done
+
+          if [[ -z "$pooled_uri" || -z "$unpooled_uri" ]]; then
+            echo '::error::Neon did not expose both direct connection URIs before timeout.'
+            exit 1
+          fi
+
+          netlify_api='https://api.netlify.com/api/v1/accounts'
+          netlify_auth="Authorization: Bearer $NETLIFY_AUTH_TOKEN"
+          env_url="$netlify_api/$NETLIFY_ACCOUNT_ID/env?site_id=$NETLIFY_SITE_ID"
+
+          set_production_env() {
+            local key="$1"
+            local value="$2"
+            local body patch_body status
+            body=$(jq -n --arg key "$key" --arg value "$value" \
+              '[{key:$key,scopes:["builds","functions","runtime"],is_secret:true,values:[{value:$value,context:"production"}]}]')
+            patch_body=$(jq -n --arg value "$value" \
+              '{value:$value,context:"production"}')
+            status=$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
+              -H "$netlify_auth" -H 'Content-Type: application/json' \
+              "$env_url" -d "$body")
+            if [[ ! "$status" =~ ^2[0-9][0-9]$ ]]; then
+              status=$(curl -sS -o /dev/null -w '%{http_code}' -X PATCH \
+                -H "$netlify_auth" -H 'Content-Type: application/json' \
+                "$netlify_api/$NETLIFY_ACCOUNT_ID/env/$key?site_id=$NETLIFY_SITE_ID" \
+                -d "$patch_body")
+            fi
+            if [[ ! "$status" =~ ^2[0-9][0-9]$ ]]; then
+              echo "::error::Failed to configure Netlify production variable $key (HTTP $status)."
+              exit 1
+            fi
+          }
+
+          set_production_env DATABASE_URL "$pooled_uri"
+          set_production_env DATABASE_URL_UNPOOLED "$unpooled_uri"
+          set_production_env CREW_PUBLIC_URL 'https://agent-native-crew.netlify.app'
+
+          delete_production_env() {
+            local key="$1"
+            local response status body id
+            response=$(curl -sS -w $'\n%{http_code}' \
+              -H "$netlify_auth" \
+              "$netlify_api/$NETLIFY_ACCOUNT_ID/env/$key?site_id=$NETLIFY_SITE_ID")
+            status=$(tail -n1 <<<"$response")
+            body=$(sed '$d' <<<"$response")
+            if [[ "$status" == '404' ]]; then
+              return 0
+            fi
+            if [[ ! "$status" =~ ^2[0-9][0-9]$ ]]; then
+              echo "::error::Failed to inspect Netlify variable $key (HTTP $status)."
+              exit 1
+            fi
+            id=$(jq -r '.values[]? | select(.context == "production") | .id' <<<"$body" | head -n1)
+            if [[ -z "$id" || "$id" == 'null' ]]; then
+              return 0
+            fi
+            status=$(curl -sS -o /dev/null -w '%{http_code}' -X DELETE \
+              -H "$netlify_auth" \
+              "$netlify_api/$NETLIFY_ACCOUNT_ID/env/$key/value/$id?site_id=$NETLIFY_SITE_ID")
+            if [[ ! "$status" =~ ^2[0-9][0-9]$ && "$status" != '404' ]]; then
+              echo "::error::Failed to remove Netlify variable $key (HTTP $status)."
+              exit 1
+            fi
+          }
+
+          # These are Netlify Database names, not Crew's direct Neon contract.
+          delete_production_env NETLIFY_DB_URL
+          delete_production_env NETLIFY_DATABASE_URL
+          delete_production_env NETLIFY_DATABASE_URL_UNPOOLED
+
+          echo "Provisioned direct Neon project $project_id and configured Crew's direct DATABASE_URL variables."
