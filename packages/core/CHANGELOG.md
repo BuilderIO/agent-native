@@ -1,5 +1,104 @@
 # @agent-native/core
 
+## 0.132.0
+
+### Minor Changes
+
+- 89e5910: Enable durable agent-chat background runs by default for deployed Netlify apps, with an explicit opt-out.
+
+### Patch Changes
+
+- 89e5910: Batch application-state reads. `GET /_agent-native/application-state?keys=a,b,c`
+  returns many keys in one request, and `readClientAppState` coalesces reads
+  issued in the same tick into that single call, so a page load no longer pays one
+  HTTP round trip and one full identity resolution per key. The response reports
+  absent keys in `missing` rather than as `null` values, keeping "never written"
+  distinguishable from "written as null or empty"; the single-key routes are
+  unchanged.
+- 89e5910: Cut database round trips on the status endpoints a page load hits repeatedly.
+  - Added `prefetchSecrets(keys)`, which warms the per-request secret memo with
+    one batched read per scope instead of one read per key per scope, and used it
+    in `/_agent-native/env-status` (48 single-key `app_secrets` selects per request
+    → 4 batched) and `/_agent-native/voice-providers/status` (19 → 4).
+  - The change marker after an action now honours a per-call Plan-mode `effect`
+    before the action-level `readOnly` flag. A status poll shaped as a mutating
+    action — `manage-agent-engine` with `action: "list"`, polled every few seconds
+    — no longer bumps the `"action"` change version, so queries keyed on it stop
+    refetching on an idle page.
+  - The default database schema health probe runs its table checks in parallel and
+    memoizes a clean result for a few seconds. A probe reporting a missing table or
+    an unreadable database is never memoized.
+
+- 89e5910: Record tool arguments and result summaries in delegated-run traces. The A2A
+  agent-activity snapshot and the agent-team / harness background transcripts now
+  carry each tool call's arguments and a result preview in redacted, size-capped
+  form, so a delegated run that loops on the same tool is diagnosable from what
+  was recorded instead of needing a fresh repro. Captures reuse the audit
+  redaction helper (credential-looking keys and values become `[redacted]`),
+  oversized values keep an explicit `…(N more chars)` / `_auditTruncated` marker,
+  and a shared per-snapshot payload budget keeps the activity part inside its
+  wire limit.
+- 89e5910: Share one Postgres connection pool per URL across the whole process instead of
+  building a separate one for the `getDbExec` singleton, Better Auth, and every
+  `createGetDb` store. Against a remote database that removed five redundant
+  first-connect round trips per process, and it let the pool cap rise so a
+  request's concurrent reads no longer serialize behind a single connection.
+  Secret reads are now memoized per request, keyed on scope and scope id, so the
+  user/org/workspace credential waterfall is not re-walked on every lookup.
+  Onboarding step status, resource inheritance layers, and feature-flag rules now
+  resolve their independent reads concurrently.
+- 89e5910: Give delegated agent turns their app's actions as native tools in dev, so asking
+  a sibling app a question actually returns an answer.
+
+  In dev the interactive surface deliberately omits template actions from the tool
+  registry and lets the agent reach them through `bash`, which sidesteps the
+  degenerate empty-object tool call some models emit for complex schemas. That is
+  a reasonable trade for a person, who sees the bad call and rephrases. It is the
+  wrong trade for a delegated turn. An A2A caller, or an external host calling
+  `ask_app` over MCP, has nobody to intervene: with no native action the receiving
+  agent shells out, the call runs long, and the caller records "Interrupted before
+  this tool returned a result" — after which callers commonly fall back to
+  composing their own queries against a schema they do not own.
+
+  Both delegated surfaces now keep template actions native even in dev. A rejected
+  `{}` call returns a schema error the model can correct on its next step, which
+  is strictly better than a shell loop no caller can see or recover from.
+
+- 89e5910: Stop paying for background sweeps and no-change polls that find nothing.
+
+  A workspace runs one server per app, so every recurring sweep multiplies by app
+  count. Several of them queried unconditionally: the 20-second unclaimed-run
+  sweep issued two `agent_runs` scans back to back, the A2A continuation retry ran
+  two blind `UPDATE`s before ever checking whether anything was due, the MCP config
+  refresh scanned the whole settings table every minute to diff a signature that
+  had not moved since boot, and the Google Docs poller re-read its config every 30
+  seconds even on deployments where the integration was never enabled. On local
+  SQLite that was free; on a remote or metered database each one is a network round
+  trip, forever, per app.
+
+  Each of those now leads with a cheap existence probe or an in-process change
+  signal, so the idle case costs one round trip instead of several and the work
+  still runs the moment there is any. The poll route gets the same treatment: its
+  legacy watermark scan read `application_state` four separate times per check,
+  and now reads `MAX(updated_at)` once and only fans out when that advances — a
+  cost that repeated per app per connected client.
+
+  Detection latency is unchanged: every probe is a strict superset of the predicate
+  it guards, and the negative caches are all narrower than the staleness window
+  they sit in front of.
+
+- 89e5910: Cut one database round trip from every authenticated request. The membership
+  and `active-org-id` reads behind org resolution now overlap instead of queueing,
+  and `resolveOrgIdForEmail` memoizes its `org_members` read per request (keyed on
+  the AsyncLocalStorage request context and the email) so credential lookups,
+  agent runs, A2A, MCP, and adapter-authenticated action calls — none of which
+  carry an h3 event — stop each paying their own lookup.
+- 89e5910: Refresh derived database consumers after pool recycling, redact embedded
+  credentials from captured tool results, preserve multiline A2A previews, and
+  retry MCP configuration refreshes after transient failures.
+- Updated dependencies [89e5910]
+  - @agent-native/toolkit@0.12.1
+
 ## 0.131.9
 
 ### Patch Changes
