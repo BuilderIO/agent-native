@@ -75,10 +75,14 @@ export function createVoiceProvidersStatusHandler() {
     async function hasKey(key: string): Promise<boolean> {
       try {
         if (key === "GOOGLE_APPLICATION_CREDENTIALS") {
-          const resolved = await resolveGoogleRealtimeCredentials({
-            userEmail: session?.email,
-            orgId: orgCtx?.orgId ?? undefined,
-          });
+          // Same identity, passed explicitly — the context is here only so this
+          // scope sweep shares the prefetched per-request memo below.
+          const resolved = await withRequestContext(() =>
+            resolveGoogleRealtimeCredentials({
+              userEmail: session?.email,
+              orgId: orgCtx?.orgId ?? undefined,
+            }),
+          );
           return typeof resolved === "string" && resolved.length > 0;
         }
         const resolved = await withRequestContext(() => resolveSecret(key));
