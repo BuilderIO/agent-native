@@ -38,20 +38,12 @@ export function SchedulingTimezoneField() {
 
   return (
     <div className="space-y-2">
-      <div>
-        <label
-          className="text-sm font-medium"
-          htmlFor="agent-native-scheduling-timezone"
-        >
-          {t("settings.timezoneLabel", { defaultValue: "Timezone" })}
-        </label>
-        <p className="mt-0.5 text-xs text-muted-foreground">
-          {t("settings.timezoneDescription", {
-            defaultValue:
-              "Used when the agent schedules work for you, so a job set for 8:00 runs at 8:00 here.",
-          })}
-        </p>
-      </div>
+      <label
+        className="text-sm font-medium"
+        htmlFor="agent-native-scheduling-timezone"
+      >
+        {t("settings.timezoneLabel", { defaultValue: "Timezone" })}
+      </label>
 
       <TimezoneSelect
         id="agent-native-scheduling-timezone"

@@ -59,8 +59,6 @@ const messages = {
     profileMenuItem: "Profile",
     manageAgentMenuItem: "Manage agent",
     timezoneLabel: "Timezone",
-    timezoneDescription:
-      "Used when the agent schedules work for you, so a job set for 8:00 runs at 8:00 here.",
     timezoneSystem: "Follow this browser ({{zone}})",
     timezoneFollowingBrowser:
       "Schedules follow whichever browser creates them. Pick a zone to keep them fixed.",
