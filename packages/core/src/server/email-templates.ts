@@ -42,6 +42,17 @@ function resolveAppName(): string {
   return stripCrlf(getAppName() || "Agent Native");
 }
 
+/**
+ * Recipient-facing brand for auth emails. Only a recognized first-party
+ * template is presented as "Agent-Native <App>"; a custom deployment keeps its
+ * own name so its users aren't told they signed up for an Agent Native app.
+ */
+function resolveBrand(slug: string | undefined): string {
+  const appName = getAppName();
+  if (!appName) return "Agent Native";
+  return slug ? `Agent-Native ${stripCrlf(appName)}` : stripCrlf(appName);
+}
+
 // ---------------------------------------------------------------------------
 // Organization invitation
 // ---------------------------------------------------------------------------
@@ -120,14 +131,10 @@ export function renderVerifySignupEmail(
   args: RenderVerifySignupEmailArgs,
 ): RenderedEmailMessage {
   const email = stripCrlf(args.email);
-  const appName = getAppName();
-  // Brand each app's verification email as "Agent-Native <App>" so recipients
-  // can tell which app they signed up for. Fall back to the generic name when
-  // the app can't be resolved (unknown/serverless runtime).
-  const brand = appName ? `Agent-Native ${stripCrlf(appName)}` : "Agent Native";
-  const slug = appName ? getAppSlug() : undefined;
-  const description = appName
-    ? ((slug && VERIFY_EMAIL_DESCRIPTIONS[slug]) ?? getAppDescription())
+  const slug = getAppSlug();
+  const brand = resolveBrand(slug);
+  const description = slug
+    ? (VERIFY_EMAIL_DESCRIPTIONS[slug] ?? getAppDescription())
     : undefined;
 
   const paragraphs = [
@@ -172,11 +179,10 @@ export function renderResetPasswordEmail(
   args: RenderResetPasswordEmailArgs,
 ): RenderedEmailMessage {
   const email = stripCrlf(args.email);
-  const appName = getAppName();
   // Match the verification email branding so password resets are clearly tied
   // to the specific app. No value pitch here — it's a security email.
-  const brand = appName ? `Agent-Native ${stripCrlf(appName)}` : "Agent Native";
-  const slug = appName ? getAppSlug() : undefined;
+  const slug = getAppSlug();
+  const brand = resolveBrand(slug);
 
   const { html, text } = renderEmail({
     brandName: brand,
