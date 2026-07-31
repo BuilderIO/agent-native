@@ -41,9 +41,6 @@ export function SlideContextToolbar({
     "data-slide-inline-edit-surface": "true",
   };
   const mixedTextStyles = snapshot?.mixedTextStyles ?? [];
-  const targetLabel = snapshot
-    ? snapshot.textPreview || snapshot.label || snapshot.tagName.toUpperCase()
-    : t("styleInspector.slide");
 
   return (
     <div
@@ -55,13 +52,8 @@ export function SlideContextToolbar({
       role="toolbar"
       aria-label={t("styleInspector.title")}
     >
-      <span className="max-w-[9rem] shrink-0 truncate text-xs text-muted-foreground">
-        {targetLabel}
-      </span>
-
       {snapshot?.isText ? (
         <>
-          <div className={TOOLBAR_DIVIDER} />
           <VisualScrubInput
             label={t("styleInspector.size")}
             icon={IconLetterCase}
