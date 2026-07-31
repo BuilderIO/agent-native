@@ -17,15 +17,6 @@ const ROUTE_MODULE_EXTENSIONS = new Set([
   ".md",
   ".mdx",
 ]);
-const NON_ROUTE_PATTERNS = [
-  "**/*.test.{js,jsx,ts,tsx,md,mdx}",
-  "**/*.spec.{js,jsx,ts,tsx,md,mdx}",
-  "**/*.test/**",
-  "**/*.spec/**",
-  "**/__tests__/**",
-  "**/__snapshots__/**",
-];
-
 export type ReactRouterRecoveryRequest =
   | "started"
   | "pending"
@@ -143,14 +134,10 @@ function hasDotPathSegment(relative: string): boolean {
 function isIgnoredRoutePath(
   relativeToApp: string,
   ignoredRouteFiles: readonly string[],
-  directory = false,
 ): boolean {
   if (hasDotPathSegment(relativeToApp)) return true;
-  return [...NON_ROUTE_PATTERNS, ...ignoredRouteFiles].some(
-    (pattern) =>
-      minimatch(relativeToApp, pattern, { dot: true }) ||
-      (directory &&
-        minimatch(`${relativeToApp}/__route.tsx`, pattern, { dot: true })),
+  return ignoredRouteFiles.some((pattern) =>
+    minimatch(relativeToApp, pattern, { dot: true }),
   );
 }
 
@@ -181,6 +168,10 @@ export function isReactRouterRouteModulePath(
     if (segments.length === 2) {
       const moduleName = path.basename(segments[1], path.extname(segments[1]));
       if (moduleName !== "route" && moduleName !== "index") return false;
+      return !isIgnoredRoutePath(
+        path.posix.dirname(relativeToApp),
+        root.ignoredRouteFiles,
+      );
     }
     return !isIgnoredRoutePath(relativeToApp, root.ignoredRouteFiles);
   });
@@ -199,7 +190,7 @@ export function isReactRouterRouteDirectoryPath(
     if (relativeToRoot === undefined || relativeToApp === undefined)
       return false;
     if (relativeToRoot && relativeToRoot.includes("/")) return false;
-    return !isIgnoredRoutePath(relativeToApp, root.ignoredRouteFiles, true);
+    return !isIgnoredRoutePath(relativeToApp, root.ignoredRouteFiles);
   });
 }
 

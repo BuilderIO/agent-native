@@ -6,6 +6,10 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  isReactRouterRouteDirectoryPath,
+  isReactRouterRouteModulePath,
+} from "../server/react-router-dev-recovery.js";
+import {
   parseFlatRoutesDiscovery,
   reactRouterRouteRecoveryPlugin,
   resolveReactRouterRecoveryPaths,
@@ -132,6 +136,70 @@ describe("React Router route recovery Vite plugin", () => {
     );
   });
 
+  it("treats test-named files as routes unless caller ignores them", () => {
+    const { root, appDirectory } = fixture(
+      'import { flatRoutes } from "@react-router/fs-routes";\nexport default flatRoutes();\n',
+    );
+    const plainScope = resolveReactRouterRecoveryPaths(
+      resolvedConfig(root),
+    )!.routeScope;
+    expect(
+      isReactRouterRouteModulePath(
+        path.join(appDirectory, "routes", "report.test.tsx"),
+        plainScope,
+      ),
+    ).toBe(true);
+
+    fs.writeFileSync(
+      path.join(appDirectory, "routes.ts"),
+      'import { flatRoutes } from "@react-router/fs-routes";\nexport default flatRoutes({ ignoredRouteFiles: ["routes/**/*.test.tsx", "routes/**/*.spec.tsx"] });\n',
+    );
+    const ignoredScope = resolveReactRouterRecoveryPaths(
+      resolvedConfig(root),
+    )!.routeScope;
+    expect(
+      isReactRouterRouteModulePath(
+        path.join(appDirectory, "routes", "report.test.tsx"),
+        ignoredScope,
+      ),
+    ).toBe(false);
+    expect(
+      isReactRouterRouteModulePath(
+        path.join(appDirectory, "routes", "report.spec.tsx"),
+        ignoredScope,
+      ),
+    ).toBe(false);
+  });
+
+  it("matches folder ignores against the folder entry like fs-routes", () => {
+    const { root, appDirectory } = fixture(
+      'import { flatRoutes } from "@react-router/fs-routes";\nexport default flatRoutes({ ignoredRouteFiles: ["routes/admin", "**/route.tsx"] });\n',
+    );
+    const scope = resolveReactRouterRecoveryPaths(
+      resolvedConfig(root),
+    )!.routeScope;
+    const routes = path.join(appDirectory, "routes");
+
+    expect(
+      isReactRouterRouteDirectoryPath(path.join(routes, "admin"), scope),
+    ).toBe(false);
+    expect(
+      isReactRouterRouteModulePath(
+        path.join(routes, "admin", "route.tsx"),
+        scope,
+      ),
+    ).toBe(false);
+    expect(
+      isReactRouterRouteDirectoryPath(path.join(routes, "public"), scope),
+    ).toBe(true);
+    expect(
+      isReactRouterRouteModulePath(
+        path.join(routes, "public", "route.tsx"),
+        scope,
+      ),
+    ).toBe(true);
+  });
+
   it("uses exact route files only for unrecognized route config", () => {
     const { root, appDirectory } = fixture(
       'export default [route("dashboard", "dashboard.tsx")];\n',
@@ -150,7 +218,13 @@ describe("React Router route recovery Vite plugin", () => {
       `import { flatRoutes } from "@react-router/fs-routes";
       export default flatRoutes({
         rootDirectory: "pages",
-        ignoredRouteFiles: ["pages/**/*.ignored.tsx"],
+        ignoredRouteFiles: [
+          "pages/**/*.ignored.tsx",
+          "pages/**/*.test.tsx",
+          "pages/**/*.spec.ts",
+          "pages/__tests__",
+          "pages/__snapshots__",
+        ],
       });\n`,
     );
     const pages = path.join(appDirectory, "pages");

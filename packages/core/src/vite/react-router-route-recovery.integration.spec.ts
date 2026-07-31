@@ -69,7 +69,7 @@ describe("React Router route topology recovery", () => {
     );
     fs.writeFileSync(
       path.join(fixture, "app", "routes.ts"),
-      'import { flatRoutes } from "@react-router/fs-routes";\nexport default flatRoutes({ rootDirectory: "pages", ignoredRouteFiles: ["pages/**/*.ignored.tsx"] });\n',
+      'import { flatRoutes } from "@react-router/fs-routes";\nexport default flatRoutes({ rootDirectory: "pages", ignoredRouteFiles: ["pages/**/*.ignored.tsx", "pages/**/*.test.tsx"] });\n',
     );
     fs.writeFileSync(
       path.join(fixture, "app", "root.tsx"),
