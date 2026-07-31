@@ -1,6 +1,3 @@
-import { ActionButton } from "@agent-native/toolkit/design-system";
-import { useEffect, useState } from "react";
-
 import {
   TimezoneSelect,
   browserTimezone,
@@ -34,16 +31,10 @@ export function SchedulingTimezoneField() {
     { timezone: string }
   >("set-localization-preference");
 
+  // Selecting a zone commits it, matching the language picker beside it.
   const stored = preference.data?.timezone ?? SYSTEM;
-  const [value, setValue] = useState(SYSTEM);
-
-  useEffect(() => {
-    setValue(stored);
-  }, [stored]);
-
-  const usingDetected = value === SYSTEM;
-  const effective = usingDetected ? detected : value;
-  const changed = value !== stored;
+  const pending = save.isPending ? save.variables?.timezone : undefined;
+  const value = pending ?? stored;
 
   return (
     <div className="space-y-2">
@@ -64,41 +55,26 @@ export function SchedulingTimezoneField() {
 
       <TimezoneSelect
         id="agent-native-scheduling-timezone"
-        value={effective}
+        value={value}
         disabled={preference.isLoading || save.isPending}
         suggested={[detected]}
-        onChange={setValue}
+        systemLabel={t("settings.timezoneSystem", {
+          defaultValue: "Follow this browser ({{zone}})",
+          zone: detected,
+        })}
+        onChange={(timezone) => save.mutate({ timezone })}
       />
 
-      <div className="flex items-center justify-between gap-3">
-        <p className="min-h-4 text-xs text-muted-foreground">
-          {save.error ? (
-            <span className="text-destructive">{save.error.message}</span>
-          ) : save.isSuccess && !changed ? (
-            <span className="text-green-600 dark:text-green-400">
-              {t("settings.timezoneSaved", { defaultValue: "Timezone saved" })}
-            </span>
-          ) : usingDetected ? (
-            t("settings.timezoneFollowingBrowser", {
-              defaultValue:
-                "Following this browser ({{zone}}). Pick a zone to keep schedules fixed to it.",
-              zone: detected,
-            })
-          ) : null}
-        </p>
-        <ActionButton
-          type="button"
-          intent="primary"
-          emphasis="outline"
-          size="compact"
-          disabled={!changed || save.isPending}
-          onPress={() => save.mutate({ timezone: value })}
-        >
-          {save.isPending
-            ? t("settings.timezoneSaving", { defaultValue: "Saving…" })
-            : t("settings.timezoneSave", { defaultValue: "Save timezone" })}
-        </ActionButton>
-      </div>
+      <p className="min-h-4 text-xs text-muted-foreground">
+        {save.error ? (
+          <span className="text-destructive">{save.error.message}</span>
+        ) : value === SYSTEM ? (
+          t("settings.timezoneFollowingBrowser", {
+            defaultValue:
+              "Schedules follow whichever browser creates them. Pick a zone to keep them fixed.",
+          })
+        ) : null}
+      </p>
     </div>
   );
 }

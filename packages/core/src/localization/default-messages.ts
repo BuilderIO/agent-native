@@ -61,11 +61,9 @@ const messages = {
     timezoneLabel: "Timezone",
     timezoneDescription:
       "Used when the agent schedules work for you, so a job set for 8:00 runs at 8:00 here.",
-    timezoneSaved: "Timezone saved",
+    timezoneSystem: "Follow this browser ({{zone}})",
     timezoneFollowingBrowser:
-      "Following this browser ({{zone}}). Pick a zone to keep schedules fixed to it.",
-    timezoneSaving: "Saving…",
-    timezoneSave: "Save timezone",
+      "Schedules follow whichever browser creates them. Pick a zone to keep them fixed.",
   },
   secrets: {
     scopeLabel: "Scope",
