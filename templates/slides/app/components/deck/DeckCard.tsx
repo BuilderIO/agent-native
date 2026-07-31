@@ -23,6 +23,7 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import type { Deck } from "@/context/DeckContext";
+import { getAspectRatioDims } from "@/lib/aspect-ratios";
 
 import SlideRenderer from "./SlideRenderer";
 
@@ -51,6 +52,7 @@ export default function DeckCard({
 }: DeckCardProps) {
   const t = useT();
   const firstSlide = deck.slides?.[0];
+  const previewDims = getAspectRatioDims(deck.aspectRatio);
   const [isRenaming, setIsRenaming] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [renameValue, setRenameValue] = useState(deck.title);
@@ -104,7 +106,12 @@ export default function DeckCard({
         }}
       >
         {/* Slide Preview */}
-        <div className="overflow-hidden relative">
+        <div
+          className="relative overflow-hidden bg-muted/30"
+          style={{
+            aspectRatio: `${previewDims.width} / ${previewDims.height}`,
+          }}
+        >
           {firstSlide && (
             <SlideRenderer
               slide={firstSlide}
@@ -112,7 +119,7 @@ export default function DeckCard({
               aspectRatio={deck.aspectRatio}
             />
           )}
-          <div className="absolute inset-0 bg-gradient-to-t from-[hsl(240,5%,8%)] via-transparent to-transparent opacity-60" />
+          <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[hsl(240,5%,8%)] via-transparent to-transparent opacity-60" />
         </div>
 
         {/* Info */}
@@ -171,7 +178,9 @@ export default function DeckCard({
               onToggleStar(deck.id, !deck.starred);
             }}
             className={`rounded-md border border-border bg-black/60 p-2 backdrop-blur-sm hover:bg-black/80 sm:p-1.5 ${
-              deck.starred ? "" : "sm:opacity-0 sm:group-hover:opacity-100"
+              deck.starred
+                ? ""
+                : "sm:invisible sm:pointer-events-none sm:opacity-0 sm:group-hover:visible sm:group-hover:pointer-events-auto sm:group-hover:opacity-100 sm:group-focus-within:visible sm:group-focus-within:pointer-events-auto sm:group-focus-within:opacity-100"
             }`}
             aria-label={
               deck.starred ? t("home.unstarDeck") : t("home.starDeck")
@@ -192,7 +201,11 @@ export default function DeckCard({
                 e.preventDefault();
                 e.stopPropagation();
               }}
-              className="p-2 sm:p-1.5 rounded-md bg-black/60 backdrop-blur-sm border border-border hover:bg-black/80 sm:opacity-0 sm:group-hover:opacity-100"
+              className={`rounded-md border border-border bg-black/60 p-2 backdrop-blur-sm hover:bg-black/80 sm:p-1.5 ${
+                menuOpen
+                  ? "sm:visible sm:pointer-events-auto sm:opacity-100"
+                  : "sm:invisible sm:pointer-events-none sm:opacity-0 sm:group-hover:visible sm:group-hover:pointer-events-auto sm:group-hover:opacity-100 sm:group-focus-within:visible sm:group-focus-within:pointer-events-auto sm:group-focus-within:opacity-100"
+              }`}
               aria-label={t("raw.deckOptions")}
             >
               <IconDots className="w-3.5 h-3.5 text-foreground/70" />

@@ -746,7 +746,7 @@ export default function Index() {
   );
 
   return (
-    <main className="flex-1 overflow-y-auto px-4 sm:px-6 py-6 sm:py-10">
+    <main className="min-w-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6 sm:py-10">
       {loading ? (
         <>
           <div className="flex items-center justify-end mb-4">
