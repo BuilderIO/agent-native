@@ -14,6 +14,14 @@ describe("docs content parsing", () => {
     expect(paths).not.toContain("/docs/workspace");
   }, 15_000);
 
+  it("keeps headings after self-closing MDX components in the TOC", async () => {
+    const doc = await loadDoc("recurring-jobs");
+
+    expect(doc).toBeDefined();
+    const ids = doc!.headings.map((h) => h.id);
+    expect(ids).toContain("frontmatter");
+  });
+
   it("ignores fenced markdown headings when extracting page headings", async () => {
     const doc = await loadDoc("creating-templates");
 

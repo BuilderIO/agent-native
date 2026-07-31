@@ -110,10 +110,12 @@ function extractHeadings(
   let inMdxBlock = false;
   for (const line of nonFencedMarkdownLines(body)) {
     if (/^<[A-Z][A-Za-z]*[\s>]/.test(line.text)) {
-      inMdxBlock = true;
+      // Self-closing on one line (<Foo ... />) — don't enter block mode
+      if (!line.text.trimEnd().endsWith("/>")) inMdxBlock = true;
       continue;
     }
-    if (/^<\/[A-Z][A-Za-z]*>/.test(line.text)) {
+    // Closing tag or standalone /> (end of multi-line self-closing tag)
+    if (/^<\/[A-Z][A-Za-z]*>/.test(line.text) || /^\s*\/>/.test(line.text)) {
       inMdxBlock = false;
       continue;
     }
