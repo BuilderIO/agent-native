@@ -2388,6 +2388,7 @@ function FunnelRenderer({
 
   const maxValue = Math.max(...funnel.items.map((item) => item.value), 1);
   const formatter = panel.config?.yFormatter;
+  const funnelColors = colors.length > 0 ? colors : DEFAULT_COLORS;
 
   return (
     <div
@@ -2420,7 +2421,7 @@ function FunnelRenderer({
                 className="h-full rounded-sm transition-[width]"
                 style={{
                   width: `${width}%`,
-                  backgroundColor: colors[index % colors.length],
+                  backgroundColor: funnelColors[index % funnelColors.length],
                 }}
               />
             </div>

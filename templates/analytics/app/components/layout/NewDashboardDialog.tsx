@@ -22,9 +22,9 @@ const DASHBOARD_CONTEXT =
   "NATIVE PANELS — Create a SQL-driven dashboard by calling the `update-dashboard` action with `dashboardId` and `config`; use a Data Program first when reusable fetching or transformation is the missing layer. " +
   "The config shape is: { name: string, panels: [{ id, title, sql, source, chartType, width, tab?, config? }] }. " +
   "Each panel needs: id (unique string), title, sql (the query), source ('bigquery' | 'ga4' | 'amplitude' | 'first-party' | 'demo' | 'prometheus'), " +
-  "chartType ('line' | 'area' | 'bar' | 'metric' | 'table' | 'pie'), width (1 or 2). " +
+  "chartType ('line' | 'area' | 'bar' | 'metric' | 'table' | 'pie' | 'funnel' | 'heatmap' | 'callout' | 'section'), width (1 or 2). " +
   "Optional tab labels can use 'Group / Tab' for primary and secondary dashboard tabs. " +
-  "Optional config: { xKey, yKey, yKeys, color, colors, yFormatter ('number'|'currency'|'percent'), description, valueLabels }. " +
+  "Optional config: { xKey, yKey, yKeys, color, colors, yFormatter ('number'|'currency'|'percent'), description, valueLabels }. For funnel panels, xKey is the stage label, yKey is the non-negative value, and SQL ORDER BY defines stage order. " +
   "For first-party analytics, source is 'first-party' and sql may read analytics_events only; do not use db-query for datasource panels. " +
   "For the built-in demo dashboard, source is 'demo' and sql uses the same Prometheus JSON descriptor shape as source 'prometheus': { promql, mode, range, step }. " +
   "Call `data-source-status` if you need to see which data sources are connected. " +

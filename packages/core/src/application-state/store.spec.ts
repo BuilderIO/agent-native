@@ -65,6 +65,7 @@ const {
   appStatePut,
   appStateGet,
   appStateGetMany,
+  appStateGetManyEntries,
   appStateCompareAndSet,
   appStateCompareAndSetMany,
   appStateList,
@@ -156,6 +157,27 @@ describe("application-state store", () => {
         args: [SESSION, "apollo", "gong", "pylon"],
       }),
     );
+  });
+
+  it("returns only stored rows so absence stays distinct from a null value", async () => {
+    await appStatePut(SESSION, "stored-null", null as never);
+    await appStatePut(SESSION, "stored-empty", {});
+    await appStatePut("other@example.com", "other-session", { v: 1 });
+
+    const entries = await appStateGetManyEntries(SESSION, [
+      "stored-null",
+      "stored-empty",
+      "never-written",
+      "other-session",
+    ]);
+
+    expect(entries).toEqual(
+      expect.arrayContaining([
+        { key: "stored-null", value: null },
+        { key: "stored-empty", value: {} },
+      ]),
+    );
+    expect(entries).toHaveLength(2);
   });
 
   it("deletes literal prefixes without treating LIKE metacharacters as wildcards", async () => {

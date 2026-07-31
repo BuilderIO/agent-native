@@ -5673,23 +5673,26 @@ export async function runAgentLoop(opts: {
         result = `${result}\n\n${formatAgentWarningsForToolResult(agentWarnings)}`;
       }
 
-      // Auto-refresh the UI after a successful mutating tool call. Any action
-      // that isn't explicitly read-only is assumed to mutate. The client's
-      // useDbSync listener sees a change event with source:"action" and
-      // invalidates ["action"] queries so list-* / get-* refetch. This makes
-      // refresh after agent writes reliable without the model needing to
-      // remember to call `refresh-screen` itself.
-      if (!isError && actionEntry.readOnly !== true) {
+      // Auto-refresh the UI after a successful mutating tool call. Any call
+      // that isn't read-only — by its own per-call Plan-mode effect, else the
+      // action's readOnly flag — is assumed to mutate. The client's useDbSync
+      // listener sees a change event with source:"action" and invalidates
+      // ["action"] queries so list-* / get-* refetch. This makes refresh after
+      // agent writes reliable without the model needing to remember to call
+      // `refresh-screen` itself.
+      if (!isError) {
         try {
-          const { notifyActionChange } =
+          const { actionCallIsReadOnly, notifyActionChange } =
             await import("../server/action-change.js");
-          const owner = opts.ownerEmail ?? getRequestUserEmail() ?? undefined;
-          const orgId = opts.orgId ?? getRequestOrgId() ?? undefined;
-          await notifyActionChange({
-            actionName: toolCall.name,
-            ...(owner ? { owner } : {}),
-            ...(orgId ? { orgId } : {}),
-          });
+          if (!actionCallIsReadOnly(actionEntry, toolCall.input, false)) {
+            const owner = opts.ownerEmail ?? getRequestUserEmail() ?? undefined;
+            const orgId = opts.orgId ?? getRequestOrgId() ?? undefined;
+            await notifyActionChange({
+              actionName: toolCall.name,
+              ...(owner ? { owner } : {}),
+              ...(orgId ? { orgId } : {}),
+            });
+          }
         } catch {
           // poll module may be unavailable in non-server contexts — ignore
         }

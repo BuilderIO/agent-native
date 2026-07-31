@@ -351,7 +351,7 @@ function PanelEditorContent({
     setError(null);
     try {
       let sqlForSave = form.sql;
-      if (isProgramSource) {
+      if (isProgramSource && !isSectionPanel) {
         try {
           sqlForSave = serializeProgramDescriptor(
             selectedProgramId,

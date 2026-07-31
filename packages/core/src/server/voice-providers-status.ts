@@ -22,6 +22,7 @@ import {
 import { getOrgContext } from "../org/context.js";
 import { getSession } from "./auth.js";
 import {
+  prefetchSecrets,
   resolveHasCompleteBuilderConnection,
   resolveSecret,
 } from "./credential-provider.js";
@@ -86,6 +87,16 @@ export function createVoiceProvidersStatusHandler() {
         return false;
       }
     }
+
+    // One read per scope for every key below, instead of one per key per scope.
+    await withRequestContext(() =>
+      prefetchSecrets([
+        "GEMINI_API_KEY",
+        "OPENAI_API_KEY",
+        "GROQ_API_KEY",
+        "GOOGLE_APPLICATION_CREDENTIALS",
+      ]),
+    );
 
     let builder = false;
     try {

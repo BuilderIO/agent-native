@@ -1277,10 +1277,49 @@ export async function deleteBuilderCredentials(
 // ---------------------------------------------------------------------------
 
 /**
+ * Warm this request's secret memo for many keys with one read per scope.
+ *
+ * `resolveSecret` walks four scopes per key, so a status endpoint asking about
+ * a dozen keys costs ~50 round trips against a remote database. Reading each
+ * scope once for the whole key set collapses that to four, and the subsequent
+ * `resolveSecret` calls answer from the per-request memo — same precedence,
+ * same identity scoping, no new cache to invalidate.
+ *
+ * Best-effort on purpose: `readAppSecrets` only memoizes keys a statement
+ * actually covered, so a failure here leaves each key's own lookup to run and
+ * report the failure. It must never turn an unreadable store into "not set".
+ */
+export async function prefetchSecrets(keys: readonly string[]): Promise<void> {
+  const email = getRequestUserEmail();
+  if (!email || keys.length === 0) return;
+  const { readAppSecrets } = await import("../secrets/storage.js");
+  const orgId =
+    getRequestOrgId() || (await resolveOrgIdForRequestEmail(email)).orgId;
+  const scopes: Array<{
+    scope: "user" | "org" | "workspace";
+    scopeId: string;
+  }> = [
+    { scope: "user", scopeId: email },
+    ...(orgId
+      ? ([
+          { scope: "org", scopeId: orgId },
+          { scope: "workspace", scopeId: orgId },
+        ] as const)
+      : []),
+    { scope: "workspace", scopeId: `solo:${email}` },
+  ];
+  await Promise.all(
+    scopes.map((s) => readAppSecrets({ keys, ...s }).catch(() => undefined)),
+  );
+}
+
+/**
  * Resolve a request-scoped secret. Reads from `app_secrets` first (current
  * user override, active org, workspace row for that org, then the solo
  * workspace row); falls back to `process.env` only when the deploy fallback
  * policy allows it.
+ *
+ * Resolving several keys in one request? Call `prefetchSecrets` first.
  */
 export async function resolveSecret(key: string): Promise<string | null> {
   const resolved = await resolveSecretDetailed(key);
