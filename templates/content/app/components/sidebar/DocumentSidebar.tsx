@@ -1617,6 +1617,36 @@ export function DocumentSidebar({
       className={collapsed ? "size-8" : "h-8 min-w-0"}
     />
   );
+  const brandButton = (isCollapsed: boolean) => (
+    <button
+      type="button"
+      onClick={onToggleCollapsed}
+      aria-label={
+        isCollapsed ? t("sidebar.expand") : t("sidebar.collapse")
+      }
+      className={cn(
+        "flex items-center gap-2 rounded outline-none text-foreground transition-colors hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring",
+        isCollapsed ? "size-8 justify-center" : "min-w-0 text-start",
+      )}
+      data-sidebar-brand-toggle
+    >
+      <img
+        src={appPath("/agent-native-icon-light.svg")}
+        alt=""
+        aria-hidden="true"
+        className="block h-4 w-auto shrink-0 dark:hidden"
+      />
+      <img
+        src={appPath("/agent-native-icon-dark.svg")}
+        alt=""
+        aria-hidden="true"
+        className="hidden h-4 w-auto shrink-0 dark:block"
+      />
+      {!isCollapsed && (
+        <span className="text-base font-semibold tracking-tight">Content</span>
+      )}
+    </button>
+  );
 
   const toggleSection = (id: SidebarSectionId) => {
     setStoredCollapsedSections((current) => {
@@ -2118,6 +2148,7 @@ export function DocumentSidebar({
   if (collapsed) {
     return (
       <div className="agent-layout-left-drawer flex h-full w-12 flex-col items-center gap-1 border-e border-border bg-sidebar py-3 transition-[width] duration-200 ease-out">
+        {brandButton(true)}
         {renderCollapsedNewButton()}
         <Tooltip>
           <TooltipTrigger asChild>
@@ -2156,23 +2187,7 @@ export function DocumentSidebar({
     >
       {/* Header */}
       <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-3">
-        <div className="flex items-center gap-2 min-w-0">
-          <img
-            src={appPath("/agent-native-icon-light.svg")}
-            alt=""
-            aria-hidden="true"
-            className="block h-4 w-auto shrink-0 dark:hidden"
-          />
-          <img
-            src={appPath("/agent-native-icon-dark.svg")}
-            alt=""
-            aria-hidden="true"
-            className="hidden h-4 w-auto shrink-0 dark:block"
-          />
-          <span className="text-base font-semibold tracking-tight text-foreground">
-            Content
-          </span>
-        </div>
+        {brandButton(false)}
       </div>
 
       {/* Search */}
