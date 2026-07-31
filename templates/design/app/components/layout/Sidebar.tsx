@@ -124,7 +124,20 @@ export function Sidebar() {
           collapsed ? "justify-center px-2" : "justify-between px-4",
         )}
       >
-        <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setCollapsed((value) => !value)}
+          aria-label={
+            collapsed
+              ? t("navigation.expandSidebar")
+              : t("navigation.collapseSidebar")
+          }
+          className={cn(
+            "flex items-center gap-2 rounded outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            collapsed ? "size-8 justify-center" : "text-start",
+          )}
+          data-sidebar-brand-toggle
+        >
           <img
             src={appPath("/agent-native-icon-light.svg")}
             alt=""
@@ -142,7 +155,7 @@ export function Sidebar() {
               {t("navigation.brand")}
             </span>
           )}
-        </div>
+        </button>
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
