@@ -182,6 +182,17 @@ catalog template. Existing dashboards remain readable while the native
 replacement is validated. Bespoke interaction flows, arbitrary layouts, and
 visualizations outside these contracts may remain Custom Blocks.
 
+The source tree ships four provider-free v2 manifests in
+`server/lib/native-v2-dashboards.ts`: Customer ROI, Account Engagement,
+Cross-sell, and Win / Loss. They intentionally contain no customer names,
+provider ids, SQL, cached rows, or guessed joins. After deployment, an
+organization owner or admin provisions them with `ensure-native-v2-dashboards`
+by supplying one real Data Program per binding key. The action validates the
+stored program output contract, shares the programs with the organization,
+creates deterministic `native-*-v2-*` dashboard copies, and preserves the
+extension-backed originals and any existing v2 edits. Do not add these to the
+root demo bootstrap or silently auto-bind them to guessed provider schemas.
+
 ## When To Use An Extension Instead
 
 Native Analytics dashboards are JSON configs rendered by the built-in dashboard
