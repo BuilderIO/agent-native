@@ -92,27 +92,26 @@ export function classifyAgentFailure(input: {
     };
   }
 
-  const text = [
+  const evidence = [
     input.errorCode,
     input.errorDetail,
     input.terminalReason,
     input.terminalEvent,
-  ]
-    .filter((value) => value !== undefined && value !== null)
-    .map((value) =>
+  ].filter((value) => value !== undefined && value !== null);
+  for (const value of evidence) {
+    const text =
       typeof value === "string"
         ? value
-        : (JSON.stringify(value) ?? String(value)),
-    )
-    .join("\n");
-  const classified = knownCode(classifyTerminalErrorCode(text));
-  if (classified) {
-    return {
-      code: classified,
-      label: LABELS[classified],
-      regime,
-      source: "error_detail",
-    };
+        : (JSON.stringify(value) ?? String(value));
+    const classified = knownCode(classifyTerminalErrorCode(text));
+    if (classified) {
+      return {
+        code: classified,
+        label: LABELS[classified],
+        regime,
+        source: "error_detail",
+      };
+    }
   }
 
   return {
