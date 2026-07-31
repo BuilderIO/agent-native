@@ -70,9 +70,8 @@ interface RecoveryAttemptState {
 }
 
 interface RecoveryRequest {
-  fallbackModules: Set<string>;
-  topology: boolean;
-  reasons: Set<string>;
+  fallbackReasons: Map<string, string>;
+  topologyReason?: string;
 }
 
 export interface ReactRouterRecoveryCoordinator extends ReactRouterDevRecoveryBridge {
@@ -218,26 +217,54 @@ export function createReactRouterRecoveryCoordinator(
   let pendingTimer: ReturnType<typeof setTimeout> | undefined;
   let disposed = false;
 
+  const hasWork = (request: RecoveryRequest | undefined) =>
+    Boolean(
+      request && (request.topologyReason || request.fallbackReasons.size > 0),
+    );
+
+  const recoveryReason = (request: RecoveryRequest) =>
+    [request.topologyReason, ...request.fallbackReasons.values()]
+      .filter(Boolean)
+      .join(", ");
+
+  const clearPending = () => {
+    pendingRequest = undefined;
+    if (pendingTimer) clearTimeout(pendingTimer);
+    pendingTimer = undefined;
+  };
+
   const mergePending = (request: RecoveryRequest) => {
     if (!pendingRequest) {
-      pendingRequest = request;
+      pendingRequest = {
+        fallbackReasons: new Map(request.fallbackReasons),
+        topologyReason: request.topologyReason,
+      };
       return;
     }
-    pendingRequest.topology ||= request.topology;
-    for (const module of request.fallbackModules) {
-      pendingRequest.fallbackModules.add(module);
+    if (request.topologyReason) {
+      pendingRequest.topologyReason = request.topologyReason;
     }
-    for (const reason of request.reasons) pendingRequest.reasons.add(reason);
+    for (const [module, reason] of request.fallbackReasons) {
+      pendingRequest.fallbackReasons.set(module, reason);
+    }
   };
 
   const schedulePending = () => {
-    if (!pendingRequest || pendingTimer || disposed) return;
+    if (!hasWork(pendingRequest) || pendingTimer || disposed) return;
     const delay = Math.max(
       0,
       cooldownMs - (now() - attemptState.lastStartedAt),
     );
     pendingTimer = setTimer(() => {
       pendingTimer = undefined;
+      if (disposed || !hasWork(pendingRequest)) return;
+      if (running) return;
+      const remainingCooldown =
+        cooldownMs - (now() - attemptState.lastStartedAt);
+      if (remainingCooldown > 0) {
+        schedulePending();
+        return;
+      }
       const request = pendingRequest;
       pendingRequest = undefined;
       if (request) run(request);
@@ -247,28 +274,37 @@ export function createReactRouterRecoveryCoordinator(
 
   const run = (request: RecoveryRequest) => {
     if (disposed) return;
+    if (running) {
+      mergePending(request);
+      return;
+    }
     running = true;
-    for (const module of request.fallbackModules) {
+    for (const module of request.fallbackReasons.keys()) {
       const attempts = attemptState.fallbackAttemptsByModule.get(module) ?? 0;
       attemptState.fallbackAttemptsByModule.set(module, attempts + 1);
     }
     attemptState.lastStartedAt = now();
-    void options
-      .restart()
+    let restart: Promise<void>;
+    try {
+      restart = options.restart();
+    } catch (error) {
+      restart = Promise.reject(error);
+    }
+    void restart
       .then(
         () =>
           options.onOutcome?.(
-            `React Router route recovery completed: ${[...request.reasons].join(", ")}`,
+            `React Router route recovery completed: ${recoveryReason(request)}`,
           ),
         (error) =>
           options.onOutcome?.(
-            `React Router route recovery failed: ${[...request.reasons].join(", ")}`,
+            `React Router route recovery failed: ${recoveryReason(request)}`,
             error,
           ),
       )
       .finally(() => {
         running = false;
-        if (!pendingRequest || disposed) return;
+        if (disposed || !hasWork(pendingRequest)) return;
         schedulePending();
       });
   };
@@ -277,6 +313,11 @@ export function createReactRouterRecoveryCoordinator(
     nextRequest: RecoveryRequest,
   ): ReactRouterRecoveryRequest => {
     if (disposed) return "bounded";
+    if (hasWork(pendingRequest) || pendingTimer) {
+      mergePending(nextRequest);
+      if (!running) schedulePending();
+      return running ? "pending" : "cooldown";
+    }
     if (running) {
       mergePending(nextRequest);
       return "pending";
@@ -305,16 +346,13 @@ export function createReactRouterRecoveryCoordinator(
       const attempts = attemptState.fallbackAttemptsByModule.get(module) ?? 0;
       if (attempts >= maxConsecutiveAttempts) return "bounded";
       return request({
-        fallbackModules: new Set([module]),
-        topology: false,
-        reasons: new Set([reason]),
+        fallbackReasons: new Map([[module, reason]]),
       });
     },
     requestTopology(reason) {
       return request({
-        fallbackModules: new Set(),
-        topology: true,
-        reasons: new Set([reason]),
+        fallbackReasons: new Map(),
+        topologyReason: reason,
       });
     },
     markSsrSuccess(requestPathname) {
@@ -326,12 +364,12 @@ export function createReactRouterRecoveryCoordinator(
           attemptState.pathnameModules.delete(pathname);
         }
       }
+      pendingRequest?.fallbackReasons.delete(module);
+      if (!hasWork(pendingRequest)) clearPending();
     },
     dispose() {
       disposed = true;
-      pendingRequest = undefined;
-      if (pendingTimer) clearTimeout(pendingTimer);
-      pendingTimer = undefined;
+      clearPending();
     },
   };
 }

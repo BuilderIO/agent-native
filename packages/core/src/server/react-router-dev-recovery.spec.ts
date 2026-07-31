@@ -281,6 +281,188 @@ describe("React Router recovery coordinator", () => {
     );
   });
 
+  it("merges into an overdue cooldown timer without starting a concurrent or extra restart", async () => {
+    vi.useFakeTimers();
+    let now = 1_000;
+    const finishes: Array<() => void> = [];
+    const restart = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finishes.push(resolve);
+        }),
+    );
+    const coordinator = createReactRouterRecoveryCoordinator(EMPTY_SCOPE, {
+      restart,
+      now: () => now,
+      cooldownMs: 100,
+    });
+
+    expect(coordinator.requestTopology("initial")).toBe("started");
+    finishes[0]?.();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(coordinator.requestTopology("pending one")).toBe("cooldown");
+
+    now = 1_200;
+    expect(coordinator.requestTopology("pending two")).toBe("cooldown");
+    expect(restart).toHaveBeenCalledOnce();
+    await vi.runOnlyPendingTimersAsync();
+    expect(restart).toHaveBeenCalledTimes(2);
+
+    finishes[1]?.();
+    await Promise.resolve();
+    await Promise.resolve();
+    await vi.runOnlyPendingTimersAsync();
+    expect(restart).toHaveBeenCalledTimes(2);
+  });
+
+  it("cancels a pending module after matching SSR success", async () => {
+    vi.useFakeTimers();
+    let now = 1_000;
+    const finishes: Array<() => void> = [];
+    const restart = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finishes.push(resolve);
+        }),
+    );
+    const coordinator = createReactRouterRecoveryCoordinator(EMPTY_SCOPE, {
+      restart,
+      now: () => now,
+      cooldownMs: 100,
+      maxConsecutiveAttempts: 1,
+    });
+    const moduleA = "/app/routes/a.tsx";
+    const moduleB = "/app/routes/b.tsx";
+
+    expect(requestFallback(coordinator, moduleA, "/a", "module A")).toBe(
+      "started",
+    );
+    expect(requestFallback(coordinator, moduleB, "/b", "module B")).toBe(
+      "pending",
+    );
+    finishes[0]?.();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    coordinator.markSsrSuccess("/b");
+    now = 1_100;
+    await vi.runOnlyPendingTimersAsync();
+    expect(restart).toHaveBeenCalledOnce();
+    expect(requestFallback(coordinator, moduleB, "/b-next", "module B")).toBe(
+      "started",
+    );
+  });
+
+  it("removes a successful pending module while preserving topology and other modules", async () => {
+    vi.useFakeTimers();
+    let now = 1_000;
+    const finishes: Array<() => void> = [];
+    const onOutcome = vi.fn();
+    const restart = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finishes.push(resolve);
+        }),
+    );
+    const coordinator = createReactRouterRecoveryCoordinator(EMPTY_SCOPE, {
+      restart,
+      now: () => now,
+      cooldownMs: 100,
+      maxConsecutiveAttempts: 1,
+      onOutcome,
+    });
+    const moduleA = "/app/routes/a.tsx";
+    const moduleB = "/app/routes/b.tsx";
+    const moduleC = "/app/routes/c.tsx";
+
+    expect(requestFallback(coordinator, moduleA, "/a", "module A")).toBe(
+      "started",
+    );
+    expect(requestFallback(coordinator, moduleB, "/b", "module B")).toBe(
+      "pending",
+    );
+    expect(requestFallback(coordinator, moduleC, "/c", "module C")).toBe(
+      "pending",
+    );
+    expect(coordinator.requestTopology("route added")).toBe("pending");
+    finishes[0]?.();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    coordinator.markSsrSuccess("/b");
+    now = 1_100;
+    await vi.runOnlyPendingTimersAsync();
+    expect(restart).toHaveBeenCalledTimes(2);
+    finishes[1]?.();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const pendingOutcome = onOutcome.mock.calls
+      .map(([message]) => String(message))
+      .find((message) => message.includes("route added"));
+    expect(pendingOutcome).toContain("module C");
+    expect(pendingOutcome).not.toContain("module B");
+    expect(requestFallback(coordinator, moduleC, "/c-next")).toBe("bounded");
+    expect(requestFallback(coordinator, moduleB, "/b-next")).toBe("cooldown");
+  });
+
+  it("never has more than one active restart across timers and pending merges", async () => {
+    vi.useFakeTimers();
+    let now = 1_000;
+    let active = 0;
+    let maxActive = 0;
+    const finishes: Array<() => void> = [];
+    const restart = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          active += 1;
+          maxActive = Math.max(maxActive, active);
+          finishes.push(() => {
+            active -= 1;
+            resolve();
+          });
+        }),
+    );
+    const coordinator = createReactRouterRecoveryCoordinator(EMPTY_SCOPE, {
+      restart,
+      now: () => now,
+      cooldownMs: 100,
+    });
+
+    expect(coordinator.requestTopology("initial")).toBe("started");
+    expect(requestFallback(coordinator, "/app/routes/b.tsx", "/b")).toBe(
+      "pending",
+    );
+    finishes[0]?.();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    now = 1_200;
+    expect(coordinator.requestTopology("overdue merge")).toBe("cooldown");
+    await vi.runOnlyPendingTimersAsync();
+    expect(active).toBe(1);
+    expect(requestFallback(coordinator, "/app/routes/c.tsx", "/c")).toBe(
+      "pending",
+    );
+    expect(coordinator.requestTopology("running merge")).toBe("pending");
+    await vi.runOnlyPendingTimersAsync();
+    expect(active).toBe(1);
+
+    finishes[1]?.();
+    await Promise.resolve();
+    await Promise.resolve();
+    now = 1_300;
+    await vi.runOnlyPendingTimersAsync();
+    expect(active).toBe(1);
+    finishes[2]?.();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(maxActive).toBe(1);
+    expect(restart).toHaveBeenCalledTimes(3);
+  });
+
   it("coalesces pending fallback modules and topology into one bounded rerun", async () => {
     vi.useFakeTimers();
     const finishes: Array<() => void> = [];
