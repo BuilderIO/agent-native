@@ -17,6 +17,17 @@ export interface AiServicesPullRequestLookup {
   pullRequestNumber: number;
 }
 
+export interface AiServicesPullRequestRead extends AiServicesPullRequestSnapshot {
+  readonly comments: readonly ReviewCommentObservation[];
+  readonly commentsTruncated: boolean;
+}
+
+// ai-services fetches exactly one uncapped page of this many review comments
+// and returns no truncated flag, so a full page is the only evidence that
+// newer comments were dropped. GitHub returns them oldest-first, so the ones
+// lost are the most likely to still be open.
+const REVIEW_COMMENT_PAGE_SIZE = 100;
+
 type JsonResponse = {
   ok: boolean;
   status: number;
@@ -47,7 +58,7 @@ export function createAiServicesGitReadClient(
   return {
     async fetchPullRequest(
       lookup: AiServicesPullRequestLookup,
-    ): Promise<AiServicesPullRequestSnapshot> {
+    ): Promise<AiServicesPullRequestRead> {
       const [detail, reviews, checks, files] = await Promise.all([
         get<{
           pullRequest: {
@@ -65,6 +76,17 @@ export function createAiServicesGitReadClient(
             user: { login: string };
             state: string;
             submittedAt: string;
+            comments?: Array<{
+              id: number;
+              user: { login: string };
+              body: string;
+              createdAt: string;
+              path?: string;
+              // GitHub sends a literal null once the line leaves the diff.
+              line?: number | null;
+              inReplyToId?: number;
+              isResolved?: boolean;
+            }>;
           }>;
         }>("/projects/git/fetch-pull-request-reviews", lookup),
         get<{
@@ -92,6 +114,25 @@ export function createAiServicesGitReadClient(
           state: normalizeReviewState(review.state),
           observedAt: review.submittedAt || observedAt,
         }));
+      const reviewComments: ReviewCommentObservation[] =
+        reviews.reviews.flatMap((review) =>
+          (review.comments ?? []).map((comment) => ({
+            id: String(comment.id),
+            author: comment.user.login,
+            // `== null` on purpose: upstream omits this field on a
+            // thread-starting comment, so `=== null` would stringify undefined
+            // into "undefined" and no reply would ever match it.
+            inReplyToId:
+              comment.inReplyToId == null ? null : String(comment.inReplyToId),
+            body: comment.body,
+            path: comment.path,
+            line: comment.line ?? undefined,
+            // Never defaulted: undefined means the provider could not
+            // determine thread resolution, which is not "resolved".
+            isResolved: comment.isResolved,
+            createdAt: comment.createdAt,
+          })),
+        );
       const checkObservations: PullRequestCheckObservation[] =
         checks.checks.map((check) => ({
           name: check.name,
@@ -114,40 +155,9 @@ export function createAiServicesGitReadClient(
         coverage: "complete",
         reviews: reviewObservations,
         checks: checkObservations,
+        comments: reviewComments,
+        commentsTruncated: reviewComments.length >= REVIEW_COMMENT_PAGE_SIZE,
         observedAt,
-      };
-    },
-
-    async fetchPullRequestComments(
-      lookup: AiServicesPullRequestLookup,
-    ): Promise<{
-      comments: ReviewCommentObservation[];
-      truncated: boolean;
-    }> {
-      const result = await get<{
-        comments: Array<{
-          id: number;
-          user: { login: string };
-          inReplyToId: number | null;
-          body: string;
-          path?: string;
-          line?: number;
-          createdAt: string;
-        }>;
-        truncated?: boolean;
-      }>("/projects/git/fetch-pull-request-review-comments", lookup);
-
-      return {
-        comments: result.comments.map((c) => ({
-          id: String(c.id),
-          author: c.user.login,
-          inReplyToId: c.inReplyToId === null ? null : String(c.inReplyToId),
-          body: c.body,
-          path: c.path,
-          line: c.line,
-          createdAt: c.createdAt,
-        })),
-        truncated: result.truncated === true,
       };
     },
   };

@@ -556,6 +556,31 @@ const messages = {
     figParseFailed:
       "Die Builder-Indizierung für diese Figma-Datei konnte nicht gestartet werden.",
     updated: "Designsystem aktualisiert",
+    sourceLabel: "Quelle",
+    sourceFigma: "Figma-Datei",
+    sourceCode: "Codedateien",
+    sourceGitHub: "GitHub-Repository",
+    sourceMixed: "Mehrere Quellen",
+    sourceBuilder: "Builder-Intelligenz für Designsysteme",
+    sourceIndexing: "Indexierung läuft",
+    sourceIndexed: "Indexiert",
+    sourceUnavailable: "Ergebnisse nicht verfügbar",
+    sourceIndexingDescription:
+      "Builder verarbeitet diese Quelle noch. Die Ergebnisse erscheinen hier, sobald sie bereit sind.",
+    sourceIndexedDescription:
+      "{{docs}} Dokumente · {{tokens}} Tokens indexiert",
+    sourceIndexedDocsOnly: "{{docs}} Dokumente indexiert",
+    sourceIndexedTokensOnly: "{{tokens}} Tokens indexiert",
+    sourceUnavailableDescription:
+      "Builder konnte die neuesten Ergebnisse der Quelle nicht laden.",
+    sourceOpenInBuilder: "In Builder öffnen",
+    loadFailed:
+      "Dieses Designsystem konnte nicht geladen werden. Schließen Sie es und versuchen Sie es erneut.",
+    otherSources: "Andere",
+    otherSourcesDescription:
+      "Von einer Website, Code, Dateien oder einem vorhandenen Designsystem verbinden.",
+    chooseSourcePrompt: "Quelle zum Konfigurieren auswählen",
+    loading: "Designsystem wird geladen",
     updateFailed: "Aktualisierung fehlgeschlagen",
     generationStarted: "Generierung des Designsystems gestartet",
     generationStartedDescription:

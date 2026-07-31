@@ -33,6 +33,7 @@ describe("ai-services Git read client", () => {
               user: { login: "reviewer" },
               state: "APPROVED",
               submittedAt: "2026-07-31T10:00:00.000Z",
+              comments: [],
             },
           ],
         });
@@ -71,6 +72,8 @@ describe("ai-services Git read client", () => {
       changedFiles: ["src/a.ts"],
       diffLines: 6,
       coverage: "complete",
+      comments: [],
+      commentsTruncated: false,
     });
     expect(fetchImpl).toHaveBeenCalledTimes(4);
     expect(fetchImpl.mock.calls[0]?.[1]).toMatchObject({
@@ -93,14 +96,16 @@ describe("ai-services Git read client", () => {
     ).rejects.toThrow("ai-services GitHub read failed");
   });
 
-  it("maps review comments, keeping a null inReplyToId null and a real id a string", async () => {
-    const fetchImpl = vi.fn<typeof fetch>(async () =>
-      response({
+  it("maps review comments, keeping an absent inReplyToId null and a real id a string", async () => {
+    const snapshot = await readWithReviews([
+      {
+        user: { login: "reviewer" },
+        state: "COMMENTED",
+        submittedAt: "2026-07-31T10:00:00.000Z",
         comments: [
           {
             id: 111,
             user: { login: "reviewer" },
-            inReplyToId: null,
             body: "please fix",
             path: "src/a.ts",
             line: 4,
@@ -116,21 +121,11 @@ describe("ai-services Git read client", () => {
             createdAt: "2026-07-31T10:05:00.000Z",
           },
         ],
-      }),
-    );
+      },
+    ]);
 
-    const { comments, truncated } = await createAiServicesGitReadClient({
-      baseUrl: "https://ai-services.example.test",
-      authorization: "Bearer test-token",
-      fetchImpl,
-    }).fetchPullRequestComments({
-      projectId: "project-1",
-      repo: "a/b",
-      pullRequestNumber: 1,
-    });
-
-    expect(truncated).toBe(false);
-    expect(comments).toEqual([
+    expect(snapshot.commentsTruncated).toBe(false);
+    expect(snapshot.comments).toEqual([
       {
         id: "111",
         author: "reviewer",
@@ -138,6 +133,7 @@ describe("ai-services Git read client", () => {
         body: "please fix",
         path: "src/a.ts",
         line: 4,
+        isResolved: undefined,
         createdAt: "2026-07-31T10:00:00.000Z",
       },
       {
@@ -147,11 +143,97 @@ describe("ai-services Git read client", () => {
         body: "done",
         path: "src/a.ts",
         line: 4,
+        isResolved: undefined,
         createdAt: "2026-07-31T10:05:00.000Z",
       },
     ]);
-    expect(fetchImpl.mock.calls[0]?.[0]?.toString()).toContain(
-      "/projects/git/fetch-pull-request-review-comments",
-    );
+  });
+
+  it("passes isResolved through unchanged and leaves an absent one undefined", async () => {
+    const snapshot = await readWithReviews([
+      {
+        user: { login: "reviewer" },
+        state: "COMMENTED",
+        submittedAt: "2026-07-31T10:00:00.000Z",
+        comments: [
+          { ...commentPayload(1), isResolved: true },
+          { ...commentPayload(2), isResolved: false },
+          commentPayload(3),
+        ],
+      },
+    ]);
+
+    expect(snapshot.comments.map((c) => c.isResolved)).toEqual([
+      true,
+      false,
+      undefined,
+    ]);
+  });
+
+  it("flattens comments across reviews and flags a full upstream page as truncated", async () => {
+    const snapshot = await readWithReviews([
+      {
+        user: { login: "reviewer" },
+        state: "COMMENTED",
+        submittedAt: "2026-07-31T10:00:00.000Z",
+        comments: Array.from({ length: 60 }, (_, index) =>
+          commentPayload(index + 1),
+        ),
+      },
+      {
+        user: { login: "other" },
+        state: "COMMENTED",
+        submittedAt: "2026-07-31T10:00:00.000Z",
+        comments: Array.from({ length: 40 }, (_, index) =>
+          commentPayload(index + 61),
+        ),
+      },
+    ]);
+
+    expect(snapshot.comments).toHaveLength(100);
+    expect(snapshot.commentsTruncated).toBe(true);
   });
 });
+
+function commentPayload(id: number) {
+  return {
+    id,
+    user: { login: "reviewer" },
+    body: "please fix",
+    path: "src/a.ts",
+    line: 4,
+    createdAt: "2026-07-31T10:00:00.000Z",
+  };
+}
+
+function readWithReviews(reviews: unknown[]) {
+  const fetchImpl = vi.fn<typeof fetch>(async (input) => {
+    const path = new URL(String(input)).pathname;
+    if (path.endsWith("detail")) {
+      return response({
+        pullRequest: {
+          title: "Triage",
+          body: "Review this",
+          head: { sha: "sha-1" },
+          htmlUrl: "https://github.com/a/b/pull/1",
+          changedFiles: 1,
+          additions: 4,
+          deletions: 2,
+        },
+      });
+    }
+    if (path.endsWith("reviews")) return response({ reviews });
+    if (path.endsWith("checks")) return response({ checks: [] });
+    return response({ files: [] });
+  });
+
+  return createAiServicesGitReadClient({
+    baseUrl: "https://ai-services.example.test",
+    authorization: "Bearer test-token",
+    fetchImpl,
+  }).fetchPullRequest({
+    projectId: "project-1",
+    repo: "a/b",
+    pullRequestNumber: 1,
+  });
+}

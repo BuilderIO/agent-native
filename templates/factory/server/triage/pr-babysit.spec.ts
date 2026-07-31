@@ -65,6 +65,50 @@ describe("reconcileBabysitState", () => {
     expect(result.unansweredComments).toEqual([commentB]);
   });
 
+  it("keeps an unresolved thread unanswered even when a reply exists", () => {
+    const result = reconcileBabysitState({
+      ...baseInput,
+      comments: [
+        comment({ id: "c1", isResolved: false }),
+        comment({ id: "c2", author: "author", inReplyToId: "c1" }),
+      ],
+    });
+
+    expect(result.unansweredComments).toEqual([
+      comment({ id: "c1", isResolved: false }),
+    ]);
+  });
+
+  it("treats a resolved thread as answered even with no reply", () => {
+    const result = reconcileBabysitState({
+      ...baseInput,
+      comments: [comment({ id: "c1", isResolved: true })],
+    });
+
+    expect(result.unansweredComments).toEqual([]);
+    expect(result.isClean).toBe(true);
+  });
+
+  it("falls back to reply state when isResolved is undefined, never reading it as resolved", () => {
+    const unknownWithoutReply = reconcileBabysitState({
+      ...baseInput,
+      comments: [comment({ id: "c1", isResolved: undefined })],
+    });
+    expect(unknownWithoutReply.unansweredComments).toEqual([
+      comment({ id: "c1" }),
+    ]);
+    expect(unknownWithoutReply.isClean).toBe(false);
+
+    const unknownWithReply = reconcileBabysitState({
+      ...baseInput,
+      comments: [
+        comment({ id: "c1", isResolved: undefined }),
+        comment({ id: "c2", author: "author", inReplyToId: "c1" }),
+      ],
+    });
+    expect(unknownWithReply.unansweredComments).toEqual([]);
+  });
+
   it("parses MISSING_CHANGESET_PACKAGES from the failing job log", () => {
     const result = reconcileBabysitState({
       ...baseInput,

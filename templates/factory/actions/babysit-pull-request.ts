@@ -74,11 +74,17 @@ const fetchReviewCommentsFromAiServices: FetchReviewComments = async ({
     baseUrl,
     authorization: `Bearer ${privateKey.startsWith("bpk-") ? privateKey : `bpk-${privateKey}`}`,
   });
-  return client.fetchPullRequestComments({
+  // Review comments ride along on the reviews read; there is no separate
+  // comments endpoint in ai-services.
+  const snapshot = await client.fetchPullRequest({
     projectId,
     repo,
     pullRequestNumber,
   });
+  return {
+    comments: snapshot.comments,
+    truncated: snapshot.commentsTruncated,
+  };
 };
 
 export function createBabysitPullRequestAction(

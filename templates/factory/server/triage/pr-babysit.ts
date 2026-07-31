@@ -8,6 +8,9 @@ export interface ReviewCommentObservation {
   path?: string;
   line?: number;
   createdAt: string;
+  // Provider thread resolution. `undefined` means the provider could not tell
+  // us — its lookup can fail or page out — so it is unknown, never resolved.
+  isResolved?: boolean;
 }
 
 export interface BabysitInput {
@@ -38,6 +41,18 @@ function parseMissingChangesetPackages(log: string | undefined): string[] {
     .filter((pkg) => pkg.length > 0);
 }
 
+// Provider resolution wins when the provider knows it. `undefined` falls back
+// to reply state rather than clearing the thread: treating unknown as resolved
+// would silently mark every open thread handled whenever the provider's
+// resolution lookup fails.
+function isAnswered(
+  comment: ReviewCommentObservation,
+  repliedToIds: ReadonlySet<string>,
+): boolean {
+  if (comment.isResolved !== undefined) return comment.isResolved;
+  return repliedToIds.has(comment.id);
+}
+
 export function reconcileBabysitState(input: BabysitInput): BabysitProposal {
   const botAuthors = new Set(input.botAuthors ?? []);
   // Reply state, not a timestamp: a comment with any reply anywhere in the
@@ -52,7 +67,7 @@ export function reconcileBabysitState(input: BabysitInput): BabysitProposal {
   const unansweredComments = input.comments.filter(
     (comment) =>
       comment.inReplyToId === null &&
-      !repliedToIds.has(comment.id) &&
+      !isAnswered(comment, repliedToIds) &&
       !botAuthors.has(comment.author),
   );
   const failingChecks = input.checks.filter(

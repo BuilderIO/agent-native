@@ -561,6 +561,31 @@ const messages = {
     figParseFailed:
       "No se pudo iniciar la indexación de Builder para ese archivo de Figma.",
     updated: "Sistema de diseño actualizado",
+    sourceLabel: "Fuente",
+    sourceFigma: "Archivo de Figma",
+    sourceCode: "Archivos de código",
+    sourceGitHub: "Repositorio de GitHub",
+    sourceMixed: "Varias fuentes",
+    sourceBuilder: "Inteligencia de sistemas de diseño de Builder",
+    sourceIndexing: "Indexando",
+    sourceIndexed: "Indexado",
+    sourceUnavailable: "Resultados no disponibles",
+    sourceIndexingDescription:
+      "Builder sigue procesando esta fuente. Los resultados aparecerán aquí cuando estén listos.",
+    sourceIndexedDescription:
+      "{{docs}} documentos · {{tokens}} tokens indexados",
+    sourceIndexedDocsOnly: "{{docs}} documentos indexados",
+    sourceIndexedTokensOnly: "{{tokens}} tokens indexados",
+    sourceUnavailableDescription:
+      "Builder no pudo cargar los resultados más recientes de la fuente.",
+    sourceOpenInBuilder: "Abrir en Builder",
+    loadFailed:
+      "No se pudo cargar este sistema de diseño. Ciérralo y vuelve a intentarlo.",
+    otherSources: "Otros",
+    otherSourcesDescription:
+      "Conecta desde un sitio web, código, archivos o un sistema de diseño existente.",
+    chooseSourcePrompt: "Elige una fuente para configurar",
+    loading: "Cargando sistema de diseño",
     updateFailed: "No se pudo actualizar",
     generationStarted: "Generación del sistema de diseño iniciada",
     generationStartedDescription:

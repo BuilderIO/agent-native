@@ -543,6 +543,31 @@ const messages = {
     figParseFailed:
       "その Figma ファイルの Builder インデックス作成を開始できませんでした。",
     updated: "デザインシステムを更新しました",
+    sourceLabel: "ソース",
+    sourceFigma: "Figmaファイル",
+    sourceCode: "コードファイル",
+    sourceGitHub: "GitHubリポジトリ",
+    sourceMixed: "複数のソース",
+    sourceBuilder: "Builderデザインシステムインテリジェンス",
+    sourceIndexing: "インデックス作成中",
+    sourceIndexed: "インデックス済み",
+    sourceUnavailable: "結果を利用できません",
+    sourceIndexingDescription:
+      "Builderはこのソースを処理中です。準備ができた結果はここに表示されます。",
+    sourceIndexedDescription:
+      "{{docs}}件のドキュメント · {{tokens}}件のトークンをインデックス済み",
+    sourceIndexedDocsOnly: "{{docs}}件のドキュメントをインデックス済み",
+    sourceIndexedTokensOnly: "{{tokens}}件のトークンをインデックス済み",
+    sourceUnavailableDescription:
+      "Builderは最新のソース結果を読み込めませんでした。",
+    sourceOpenInBuilder: "Builderで開く",
+    loadFailed:
+      "このデザインシステムを読み込めませんでした。閉じてもう一度お試しください。",
+    otherSources: "その他",
+    otherSourcesDescription:
+      "Webサイト、コード、ファイル、または既存のデザインシステムから接続します。",
+    chooseSourcePrompt: "設定するソースを選択",
+    loading: "デザインシステムを読み込み中",
     updateFailed: "更新に失敗しました",
     generationStarted: "デザインシステム生成を開始しました",
     generationStartedDescription:
