@@ -5,11 +5,18 @@ import {
   VisualSegmentedControl,
 } from "@agent-native/toolkit/design-tweaks";
 import type { DesignSystemData } from "@shared/api";
-import { IconArrowAutofitHeight, IconLetterCase } from "@tabler/icons-react";
+import {
+  IconArrowAutofitHeight,
+  IconBorderRadius,
+  IconBorderStyle,
+  IconGridDots,
+  IconLetterCase,
+} from "@tabler/icons-react";
 
 import { cn } from "@/lib/utils";
 
 import {
+  backgroundCssValue,
   formatValue,
   tokenPalette,
   type SlideStylePatch,
@@ -17,6 +24,8 @@ import {
 } from "./SlideStyleInspector";
 
 const TOOLBAR_DIVIDER = "mx-1 h-4 w-px shrink-0 bg-border";
+const SWATCH_CLASS = "shrink-0 rounded-sm";
+const SCRUB_CLASS = "w-24 shrink-0";
 
 /**
  * Horizontal counterpart to the style dock: the same snapshot and patch
@@ -24,14 +33,18 @@ const TOOLBAR_DIVIDER = "mx-1 h-4 w-px shrink-0 bg-border";
  */
 export function SlideContextToolbar({
   snapshot,
+  background,
   designSystem,
   className,
   onChange,
+  onBackgroundChange,
 }: {
   snapshot: SlideStyleSnapshot | null;
+  background: string | undefined;
   designSystem?: DesignSystemData;
   className?: string;
   onChange: (patch: SlideStylePatch) => void;
+  onBackgroundChange: (background: string) => void;
 }) {
   const t = useT();
   const documentColors = tokenPalette(designSystem, t).map(
@@ -41,6 +54,9 @@ export function SlideContextToolbar({
     "data-slide-inline-edit-surface": "true",
   };
   const mixedTextStyles = snapshot?.mixedTextStyles ?? [];
+  // Null means the slide uses a background this picker cannot represent (named
+  // utility, gradient); surface that as Mixed rather than guessing a hex.
+  const slideBackground = backgroundCssValue(background);
 
   return (
     <div
@@ -52,7 +68,19 @@ export function SlideContextToolbar({
       role="toolbar"
       aria-label={t("styleInspector.title")}
     >
-      {snapshot?.isText ? (
+      {!snapshot ? (
+        <VisualColorPicker
+          label={t("styleInspector.slideBackground")}
+          value={slideBackground ?? ""}
+          mixed={slideBackground === null}
+          mixedLabel={t("styleInspector.mixed")}
+          documentColors={documentColors}
+          variant="filled"
+          className={SWATCH_CLASS}
+          contentProps={inlineEditSurfaceProps}
+          onChange={onBackgroundChange}
+        />
+      ) : snapshot.isText ? (
         <>
           <VisualScrubInput
             label={t("styleInspector.size")}
@@ -64,7 +92,7 @@ export function SlideContextToolbar({
             unit="px"
             mixed={mixedTextStyles.includes("fontSize")}
             mixedLabel={t("styleInspector.mixed")}
-            className="w-24 shrink-0"
+            className={SCRUB_CLASS}
             onChange={(fontSize) =>
               onChange({ fontSize: `${formatValue(fontSize)}px` })
             }
@@ -93,7 +121,7 @@ export function SlideContextToolbar({
             mixed={mixedTextStyles.includes("color")}
             mixedLabel={t("styleInspector.mixed")}
             variant="filled"
-            className="shrink-0 rounded-sm"
+            className={SWATCH_CLASS}
             contentProps={inlineEditSurfaceProps}
             onChange={(value) => onChange({ color: value })}
           />
@@ -118,13 +146,79 @@ export function SlideContextToolbar({
             min={0.8}
             max={3}
             step={0.05}
-            className="w-24 shrink-0"
+            className={SCRUB_CLASS}
             onChange={(lineHeight) =>
               onChange({ lineHeight: formatValue(lineHeight) })
             }
           />
         </>
-      ) : null}
+      ) : (
+        <>
+          <VisualColorPicker
+            label={
+              snapshot.isImage
+                ? t("styleInspector.tint")
+                : t("styleInspector.fill")
+            }
+            value={snapshot.backgroundColor}
+            documentColors={documentColors}
+            allowTransparent
+            variant="filled"
+            className={SWATCH_CLASS}
+            contentProps={inlineEditSurfaceProps}
+            onChange={(value) => onChange({ backgroundColor: value })}
+          />
+          <VisualScrubInput
+            label={t("styleInspector.opacity")}
+            icon={IconGridDots}
+            prefix="icon"
+            value={snapshot.opacity}
+            min={0}
+            max={100}
+            step={5}
+            unit="%"
+            className={SCRUB_CLASS}
+            onChange={(opacity) => onChange({ opacity: String(opacity / 100) })}
+          />
+          <VisualScrubInput
+            label={t("styleInspector.cornerRadius")}
+            icon={IconBorderRadius}
+            prefix="icon"
+            value={snapshot.borderRadius}
+            min={0}
+            max={96}
+            unit="px"
+            className={SCRUB_CLASS}
+            onChange={(radius) =>
+              onChange({ borderRadius: `${formatValue(radius)}px` })
+            }
+          />
+
+          <div className={TOOLBAR_DIVIDER} />
+          <VisualScrubInput
+            label={t("styleInspector.strokeWeight")}
+            icon={IconBorderStyle}
+            prefix="icon"
+            value={snapshot.borderWidth}
+            min={0}
+            max={16}
+            unit="px"
+            className={SCRUB_CLASS}
+            onChange={(width) =>
+              onChange({ borderWidth: `${formatValue(width)}px` })
+            }
+          />
+          <VisualColorPicker
+            label={t("styleInspector.strokeColor")}
+            value={snapshot.borderColor}
+            documentColors={documentColors}
+            variant="filled"
+            className={SWATCH_CLASS}
+            contentProps={inlineEditSurfaceProps}
+            onChange={(value) => onChange({ borderColor: value })}
+          />
+        </>
+      )}
     </div>
   );
 }

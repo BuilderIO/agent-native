@@ -173,7 +173,9 @@ export function tokenPalette(
 // an inline style. The picker only speaks CSS colors, so unwrap the arbitrary
 // form and report anything else (named utilities, gradients) as unreadable
 // rather than guessing a hex the slide is not actually using.
-function backgroundCssValue(background: string | undefined): string | null {
+export function backgroundCssValue(
+  background: string | undefined,
+): string | null {
   // SlideRenderer's own fallback when the field is unset.
   if (!background) return "#000000";
   const arbitrary = background.match(/^bg-\[(.+)\]$/);

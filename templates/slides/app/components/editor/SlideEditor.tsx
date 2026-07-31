@@ -4063,8 +4063,10 @@ export default function SlideEditor({
         >
           <SlideContextToolbar
             snapshot={selectedStyleSnapshot}
+            background={slide.background}
             designSystem={designSystem}
             onChange={applySelectedStylePatch}
+            onBackgroundChange={applySlideBackground}
           />
         </div>
       )}
