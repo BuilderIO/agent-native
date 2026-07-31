@@ -475,7 +475,7 @@ export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
         recovery &&
         classifyStaleReactRouterRouteError(err, recovery.routeRoots);
       if (recovery && staleRoute) {
-        const result = recovery.request(
+        const result = recovery.requestFallback(
           `missing route module ${staleRoute.file}`,
         );
         if (result !== "bounded") {

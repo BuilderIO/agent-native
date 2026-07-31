@@ -15,7 +15,7 @@ export type ReactRouterRecoveryRequest =
 
 export interface ReactRouterDevRecoveryBridge {
   routeRoots: readonly string[];
-  request(reason: string): ReactRouterRecoveryRequest;
+  requestFallback(reason: string): ReactRouterRecoveryRequest;
   markSsrSuccess(): void;
 }
 
@@ -30,11 +30,17 @@ interface RecoveryCoordinatorOptions {
 }
 
 interface RecoveryAttemptState {
-  attempts: number;
+  fallbackAttempts: number;
   lastStartedAt: number;
 }
 
+interface RecoveryRequest {
+  fallback: boolean;
+  reason: string;
+}
+
 export interface ReactRouterRecoveryCoordinator extends ReactRouterDevRecoveryBridge {
+  requestTopology(reason: string): ReactRouterRecoveryRequest;
   dispose(): void;
 }
 
@@ -50,13 +56,16 @@ function globalBridgeStore(): typeof globalThis & {
 
 function recoveryAttemptState(key?: string): RecoveryAttemptState {
   if (!key) {
-    return { attempts: 0, lastStartedAt: Number.NEGATIVE_INFINITY };
+    return { fallbackAttempts: 0, lastStartedAt: Number.NEGATIVE_INFINITY };
   }
   const store = globalBridgeStore();
   store[ATTEMPT_STATE_KEY] ??= new Map();
   const existing = store[ATTEMPT_STATE_KEY].get(key);
   if (existing) return existing;
-  const state = { attempts: 0, lastStartedAt: Number.NEGATIVE_INFINITY };
+  const state = {
+    fallbackAttempts: 0,
+    lastStartedAt: Number.NEGATIVE_INFINITY,
+  };
   store[ATTEMPT_STATE_KEY].set(key, state);
   return state;
 }
@@ -88,102 +97,123 @@ export function createReactRouterRecoveryCoordinator(
   const setTimer = options.setTimer ?? setTimeout;
   const attemptState = recoveryAttemptState(options.persistentStateKey);
   let running = false;
-  let pendingReason: string | undefined;
+  let pendingRequest: RecoveryRequest | undefined;
   let pendingTimer: ReturnType<typeof setTimeout> | undefined;
   let disposed = false;
 
   const schedulePending = () => {
-    if (!pendingReason || pendingTimer || disposed) return;
+    if (!pendingRequest || pendingTimer || disposed) return;
     const delay = Math.max(
       0,
       cooldownMs - (now() - attemptState.lastStartedAt),
     );
     pendingTimer = setTimer(() => {
       pendingTimer = undefined;
-      const reason = pendingReason;
-      pendingReason = undefined;
-      if (reason) run(reason);
+      const request = pendingRequest;
+      pendingRequest = undefined;
+      if (request) run(request);
     }, delay);
     pendingTimer.unref?.();
   };
 
-  const run = (reason: string) => {
-    if (disposed || attemptState.attempts >= maxConsecutiveAttempts) return;
+  const run = (request: RecoveryRequest) => {
+    if (disposed) return;
     running = true;
-    attemptState.attempts += 1;
+    if (request.fallback) attemptState.fallbackAttempts += 1;
     attemptState.lastStartedAt = now();
     void options
       .restart()
       .then(
         () =>
           options.onOutcome?.(
-            `React Router route recovery completed: ${reason}`,
+            `React Router route recovery completed: ${request.reason}`,
           ),
         (error) =>
           options.onOutcome?.(
-            `React Router route recovery failed: ${reason}`,
+            `React Router route recovery failed: ${request.reason}`,
             error,
           ),
       )
       .finally(() => {
         running = false;
-        if (!pendingReason || disposed) return;
-        if (attemptState.attempts >= maxConsecutiveAttempts) {
-          pendingReason = undefined;
-          return;
-        }
+        if (!pendingRequest || disposed) return;
         schedulePending();
       });
   };
 
+  const request = (
+    nextRequest: RecoveryRequest,
+  ): ReactRouterRecoveryRequest => {
+    if (disposed) return "bounded";
+    if (
+      nextRequest.fallback &&
+      attemptState.fallbackAttempts >= maxConsecutiveAttempts
+    ) {
+      return "bounded";
+    }
+    if (running) {
+      pendingRequest = pendingRequest
+        ? {
+            fallback: pendingRequest.fallback || nextRequest.fallback,
+            reason: nextRequest.reason,
+          }
+        : nextRequest;
+      return "pending";
+    }
+    if (now() - attemptState.lastStartedAt < cooldownMs) {
+      pendingRequest = pendingRequest
+        ? {
+            fallback: pendingRequest.fallback || nextRequest.fallback,
+            reason: nextRequest.reason,
+          }
+        : nextRequest;
+      schedulePending();
+      return "cooldown";
+    }
+    run(nextRequest);
+    return "started";
+  };
+
   return {
     routeRoots: routeRoots.map((root) => path.resolve(root)),
-    request(reason) {
-      if (disposed || attemptState.attempts >= maxConsecutiveAttempts) {
-        return "bounded";
-      }
-      if (running) {
-        pendingReason ??= reason;
-        return "pending";
-      }
-      if (now() - attemptState.lastStartedAt < cooldownMs) {
-        pendingReason ??= reason;
-        schedulePending();
-        return "cooldown";
-      }
-      run(reason);
-      return "started";
+    requestFallback(reason) {
+      return request({ fallback: true, reason });
+    },
+    requestTopology(reason) {
+      return request({ fallback: false, reason });
     },
     markSsrSuccess() {
-      attemptState.attempts = 0;
-      attemptState.lastStartedAt = Number.NEGATIVE_INFINITY;
-      pendingReason = undefined;
-      if (pendingTimer) clearTimeout(pendingTimer);
-      pendingTimer = undefined;
+      attemptState.fallbackAttempts = 0;
     },
     dispose() {
       disposed = true;
-      pendingReason = undefined;
+      pendingRequest = undefined;
       if (pendingTimer) clearTimeout(pendingTimer);
       pendingTimer = undefined;
     },
   };
 }
 
-function errorChain(error: unknown): Record<string, unknown>[] {
-  const chain: Record<string, unknown>[] = [];
-  const pending = [error];
-  const seen = new Set<unknown>();
-  while (pending.length > 0) {
-    const current = pending.shift();
-    if (!current || typeof current !== "object" || seen.has(current)) continue;
-    seen.add(current);
+function errorChains(error: unknown): Record<string, unknown>[][] {
+  const visit = (
+    current: unknown,
+    chain: Record<string, unknown>[],
+    seen: Set<unknown>,
+  ): Record<string, unknown>[][] => {
+    if (!current || typeof current !== "object" || seen.has(current)) {
+      return chain.length > 0 ? [chain] : [];
+    }
+    const nextSeen = new Set(seen).add(current);
     const record = current as Record<string, unknown>;
-    chain.push(record);
-    pending.push(record.cause);
-    if (Array.isArray(record.errors)) pending.push(...record.errors);
-  }
-  return chain;
+    const nextChain = [...chain, record];
+    const children = [
+      record.cause,
+      ...(Array.isArray(record.errors) ? record.errors : []),
+    ].filter(Boolean);
+    if (children.length === 0) return [nextChain];
+    return children.flatMap((child) => visit(child, nextChain, nextSeen));
+  };
+  return visit(error, [], new Set());
 }
 
 function cleanReferencedPath(value: string): string | undefined {
@@ -239,24 +269,27 @@ export function classifyStaleReactRouterRouteError(
   error: unknown,
   routeRoots: readonly string[],
 ): { file: string } | undefined {
-  for (const candidate of errorChain(error)) {
-    if (candidate.code !== "ERR_LOAD_URL") continue;
-    const context = [
-      candidate.message,
-      candidate.importer,
-      candidate.plugin,
-      candidate.id,
-      candidate.url,
-    ]
+  for (const chain of errorChains(error)) {
+    if (!chain.some((candidate) => candidate.code === "ERR_LOAD_URL")) continue;
+    const context = chain
+      .flatMap((candidate) => [
+        candidate.message,
+        candidate.importer,
+        candidate.plugin,
+        candidate.id,
+        candidate.url,
+      ])
       .filter((value): value is string => typeof value === "string")
       .join(" ");
     if (!context.includes("virtual:react-router/server-build")) continue;
-    const file = extractViteLoadUrlPath(candidate);
-    if (!file) continue;
-    if (!routeRoots.some((root) => isWithinRoot(file, path.resolve(root))))
-      continue;
-    if (fs.existsSync(file)) continue;
-    return { file };
+    for (const candidate of chain) {
+      const file = extractViteLoadUrlPath(candidate);
+      if (!file) continue;
+      if (!routeRoots.some((root) => isWithinRoot(file, path.resolve(root))))
+        continue;
+      if (fs.existsSync(file)) continue;
+      return { file };
+    }
   }
   return undefined;
 }

@@ -111,7 +111,7 @@ describe("createH3SSRHandler", () => {
     const markSsrSuccess = vi.fn();
     const unregister = registerReactRouterDevRecovery({
       routeRoots: ["/tmp/agent-native-routes"],
-      request,
+      requestFallback: request,
       markSsrSuccess,
     });
     mocks.requestHandler.mockRejectedValueOnce(
@@ -151,7 +151,7 @@ describe("createH3SSRHandler", () => {
     const missingRoute = "/tmp/agent-native-routes/deleted.tsx";
     const unregister = registerReactRouterDevRecovery({
       routeRoots: ["/tmp/agent-native-routes"],
-      request: () => "bounded",
+      requestFallback: () => "bounded",
       markSsrSuccess: vi.fn(),
     });
     const consoleError = vi

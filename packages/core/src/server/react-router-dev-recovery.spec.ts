@@ -60,6 +60,46 @@ describe("stale React Router route classification", () => {
     });
   });
 
+  it("combines code, importer, and route path evidence within one cause chain", () => {
+    const { routes } = routeFixture();
+    const file = path.join(routes, "deleted.tsx");
+    const pathError = Object.assign(new Error(`Failed to load url ${file}`), {
+      id: file,
+    });
+    const codeError = Object.assign(new Error("Vite transform failed"), {
+      code: "ERR_LOAD_URL",
+      cause: pathError,
+    });
+    const wrapped = Object.assign(
+      new Error("SSR import failed", { cause: codeError }),
+      {
+        importer: "virtual:react-router/server-build",
+      },
+    );
+
+    expect(classifyStaleReactRouterRouteError(wrapped, [routes])).toEqual({
+      file,
+    });
+  });
+
+  it("does not combine stale-load evidence across sibling error branches", () => {
+    const { routes } = routeFixture();
+    const file = path.join(routes, "deleted.tsx");
+    const wrapped = new AggregateError([
+      Object.assign(new Error("Vite transform failed"), {
+        code: "ERR_LOAD_URL",
+      }),
+      Object.assign(new Error(`Failed to load url ${file}`), {
+        id: file,
+        importer: "virtual:react-router/server-build",
+      }),
+    ]);
+
+    expect(
+      classifyStaleReactRouterRouteError(wrapped, [routes]),
+    ).toBeUndefined();
+  });
+
   it.each([
     ["wrong code", { code: "ERR_MODULE_NOT_FOUND" }],
     ["wrong importer", { message: "Failed to load url /tmp/nope.tsx" }],
@@ -114,9 +154,9 @@ describe("React Router recovery coordinator", () => {
       cooldownMs: 100,
     });
 
-    expect(coordinator.request("delete a")).toBe("started");
-    expect(coordinator.request("add b")).toBe("pending");
-    expect(coordinator.request("add c")).toBe("pending");
+    expect(coordinator.requestTopology("delete a")).toBe("started");
+    expect(coordinator.requestTopology("add b")).toBe("pending");
+    expect(coordinator.requestTopology("add c")).toBe("pending");
     expect(restart).toHaveBeenCalledOnce();
 
     finishRestart?.();
@@ -127,27 +167,73 @@ describe("React Router recovery coordinator", () => {
     expect(restart).toHaveBeenCalledTimes(2);
   });
 
+  it("continues proactive topology rebuilds beyond the fallback bound", async () => {
+    const restart = vi.fn(async () => {});
+    const coordinator = createReactRouterRecoveryCoordinator(["/app/routes"], {
+      restart,
+      cooldownMs: 0,
+      maxConsecutiveAttempts: 3,
+    });
+
+    for (let index = 0; index < 5; index += 1) {
+      expect(coordinator.requestTopology(`topology ${index}`)).toBe("started");
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+
+    expect(restart).toHaveBeenCalledTimes(5);
+  });
+
   it("keeps attempt bounds across coordinator replacement", () => {
     const key = `route-recovery-${crypto.randomUUID()}`;
     const first = createReactRouterRecoveryCoordinator(["/app/routes"], {
       restart: async () => {},
+      cooldownMs: 0,
       maxConsecutiveAttempts: 1,
       persistentStateKey: key,
     });
-    expect(first.request("first")).toBe("started");
+    expect(first.requestFallback("first")).toBe("started");
     first.dispose();
 
     const replacement = createReactRouterRecoveryCoordinator(["/app/routes"], {
       restart: async () => {},
+      cooldownMs: 0,
       maxConsecutiveAttempts: 1,
       persistentStateKey: key,
     });
-    expect(replacement.request("loop")).toBe("bounded");
+    expect(replacement.requestFallback("loop")).toBe("bounded");
     replacement.markSsrSuccess();
-    expect(replacement.request("after success")).toBe("started");
+    expect(replacement.requestFallback("after success")).toBe("started");
   });
 
-  it("enforces cooldown and a bounded consecutive attempt count", async () => {
+  it("serializes mixed pending requests without bypassing fallback bounds", async () => {
+    vi.useFakeTimers();
+    const finishes: Array<() => void> = [];
+    const restart = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finishes.push(resolve);
+        }),
+    );
+    const coordinator = createReactRouterRecoveryCoordinator(["/app/routes"], {
+      restart,
+      cooldownMs: 0,
+      maxConsecutiveAttempts: 1,
+    });
+
+    expect(coordinator.requestFallback("stale SSR")).toBe("started");
+    expect(coordinator.requestTopology("route added")).toBe("pending");
+    expect(coordinator.requestFallback("another stale SSR")).toBe("bounded");
+    expect(restart).toHaveBeenCalledOnce();
+
+    finishes[0]?.();
+    await Promise.resolve();
+    await Promise.resolve();
+    await vi.runOnlyPendingTimersAsync();
+    expect(restart).toHaveBeenCalledTimes(2);
+    expect(coordinator.requestFallback("still stale")).toBe("bounded");
+  });
+
+  it("enforces cooldown and a bounded consecutive fallback count", async () => {
     vi.useFakeTimers();
     let now = 1_000;
     const restart = vi.fn(async () => {});
@@ -158,19 +244,19 @@ describe("React Router recovery coordinator", () => {
       maxConsecutiveAttempts: 2,
     });
 
-    expect(coordinator.request("first")).toBe("started");
+    expect(coordinator.requestFallback("first")).toBe("started");
     await Promise.resolve();
     await Promise.resolve();
-    expect(coordinator.request("too soon")).toBe("cooldown");
+    expect(coordinator.requestFallback("too soon")).toBe("cooldown");
     now += 50;
     await vi.runOnlyPendingTimersAsync();
     expect(restart).toHaveBeenCalledTimes(2);
     await Promise.resolve();
     await Promise.resolve();
-    expect(coordinator.request("third")).toBe("bounded");
+    expect(coordinator.requestFallback("third")).toBe("bounded");
 
     coordinator.markSsrSuccess();
     now += 50;
-    expect(coordinator.request("after success")).toBe("started");
+    expect(coordinator.requestFallback("after success")).toBe("started");
   });
 });

@@ -110,7 +110,7 @@ export function reactRouterRouteRecoveryPlugin(): Plugin {
         if (timer) clearTimeout(timer);
         timer = setTimeout(() => {
           timer = undefined;
-          coordinator?.request(path.relative(server.config.root, file));
+          coordinator?.requestTopology(path.relative(server.config.root, file));
         }, ROUTE_RESTART_DEBOUNCE_MS);
         timer.unref?.();
       };
