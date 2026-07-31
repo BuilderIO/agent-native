@@ -264,10 +264,9 @@ class BuilderEngine implements AgentEngine {
       // Same guard as the ai-sdk engine's forced-Chat-Completions path.
       ...(reasoningEffort || gptToolsRequireExplicitNoReasoning
         ? {
-            reasoning_effort:
-              gptToolsRequireExplicitNoReasoning
-                ? "none"
-                : reasoningEffort,
+            reasoning_effort: gptToolsRequireExplicitNoReasoning
+              ? "none"
+              : reasoningEffort,
           }
         : {}),
     };
