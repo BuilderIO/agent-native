@@ -102,6 +102,39 @@ describe("formatMcpConnectError", () => {
   });
 });
 
+describe("startMcpConfigRefresh", () => {
+  it("re-reads the settings table only on a write or the backstop", async () => {
+    // `buildMergedConfig` scans the whole settings table. On an idle app that
+    // used to be a full-table round trip every 60s per app, forever, just to
+    // diff a signature that had not changed since boot.
+    vi.useFakeTimers();
+    const manager = {
+      getConfig: () => ({ servers: {} }),
+      reconfigure: vi.fn(async () => {}),
+    };
+    const stop = startMcpConfigRefresh(manager as never)!;
+    try {
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(mockedSettings.reads).toBe(1);
+
+      // Idle: no settings write, no scan.
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(mockedSettings.reads).toBe(1);
+
+      mockedSettings.emitter!.emit("settings", { source: "settings" });
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(mockedSettings.reads).toBe(2);
+
+      // Backstop still catches a write made by another process.
+      await vi.advanceTimersByTimeAsync(6 * 60_000);
+      expect(mockedSettings.reads).toBe(3);
+    } finally {
+      stop();
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("buildMergedConfig built-in MCP capabilities", () => {
   it("merges enabled user and org built-ins with scoped visibility keys", async () => {
     mockedSettings.all = {
