@@ -81,6 +81,33 @@ describe("renderClipsTransactionalEmail", () => {
       heading: "You’ve received two Agent-Native Clips",
       cta: "Record an Agent-Native Clip: https://clips.example/record",
     },
+    {
+      input: {
+        kind: "activity-comment" as const,
+        to: "owner@example.test",
+        recordingId: "rec-4",
+        title: "Product tour",
+        authorEmail: "jane.doe@example.test",
+        content: "The pricing step needs a callout.",
+        videoTimestampMs: 65_000,
+      },
+      subject: "Jane Doe commented on “Product tour”",
+      heading: "Jane Doe commented on your Clip",
+      cta: "Read and reply: https://clips.example/r/rec-4?panel=comments&t=65",
+    },
+    {
+      input: {
+        kind: "activity-reaction" as const,
+        to: "owner@example.test",
+        recordingId: "rec-5",
+        title: "Launch notes",
+        emoji: "🔥",
+        authorEmail: "sam@example.test",
+      },
+      subject: "Sam reacted 🔥 on “Launch notes”",
+      heading: "Someone reacted to your Clip",
+      cta: "See Clip activity: https://clips.example/r/rec-5?panel=comments",
+    },
   ])(
     "renders the approved $input.kind subject, heading, and CTA",
     (testCase) => {

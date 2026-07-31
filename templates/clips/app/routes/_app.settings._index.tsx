@@ -18,6 +18,7 @@ import {
   BUILDER_CREDITS_UPGRADE_URL,
   type BuilderCreditsStatus,
 } from "@shared/builder-credits";
+import type { ClipsDefaultVisibility } from "@shared/clips-ai-prefs";
 import {
   IconBrain,
   IconBolt,
@@ -168,6 +169,7 @@ interface ClipsUserSettings {
   emailNotifications?: boolean;
   transcriptCleanupEnabled?: boolean;
   includeFullVideoInAi?: boolean;
+  defaultRecordingVisibility?: ClipsDefaultVisibility;
 }
 
 interface SlackInstallation {
@@ -446,6 +448,8 @@ export default function SettingsIndexRoute() {
     useState<SlackInstallation | null>(null);
   const [defaultSpeed, setDefaultSpeed] = useState("1.2");
   const [emailNotifications, setEmailNotifications] = useState(true);
+  const [defaultVisibility, setDefaultVisibility] =
+    useState<ClipsDefaultVisibility>("private");
   const [transcriptCleanupEnabled, setTranscriptCleanupEnabled] =
     useState(true);
   const [s3Values, setS3Values] = useState<Record<string, string>>({});
@@ -511,6 +515,7 @@ export default function SettingsIndexRoute() {
       if (cancelled) return;
       setDefaultSpeed(v.defaultPlaybackSpeed ?? "1.2");
       setEmailNotifications(v.emailNotifications ?? true);
+      setDefaultVisibility(v.defaultRecordingVisibility ?? "private");
       setTranscriptCleanupEnabled(v.transcriptCleanupEnabled !== false);
       setLoading(false);
     });
@@ -546,6 +551,7 @@ export default function SettingsIndexRoute() {
         defaultPlaybackSpeed: defaultSpeed,
         emailNotifications,
         transcriptCleanupEnabled,
+        defaultRecordingVisibility: defaultVisibility,
       });
       toast.success(t("settings.saved"));
     } catch (err) {
@@ -825,6 +831,12 @@ export default function SettingsIndexRoute() {
         label: t("settings.transcript"),
         keywords: "transcript cleanup captions",
         hash: "transcript",
+      },
+      {
+        id: "clips-sharing",
+        label: t("settings.sharing"),
+        keywords: "sharing visibility private public organization default",
+        hash: "sharing",
       },
       {
         id: "clips-notifications",
@@ -1543,6 +1555,46 @@ export default function SettingsIndexRoute() {
                       onCheckedChange={setTranscriptCleanupEnabled}
                       disabled={loading}
                     />
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card id="sharing" className="scroll-mt-16">
+                <CardHeader>
+                  <CardTitle className="text-base">
+                    {t("settings.sharing")}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="default-visibility">
+                      {t("settings.defaultVisibility")}
+                    </Label>
+                    <Select
+                      value={defaultVisibility}
+                      onValueChange={(value) =>
+                        setDefaultVisibility(value as ClipsDefaultVisibility)
+                      }
+                      disabled={loading}
+                    >
+                      <SelectTrigger id="default-visibility" className="w-56">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="private">
+                          {t("settings.visibilityPrivate")}
+                        </SelectItem>
+                        <SelectItem value="org">
+                          {t("settings.visibilityOrg")}
+                        </SelectItem>
+                        <SelectItem value="public">
+                          {t("settings.visibilityPublic")}
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      {t("settings.defaultVisibilityDescription")}
+                    </p>
                   </div>
                 </CardContent>
               </Card>

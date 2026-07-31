@@ -36,7 +36,7 @@ import { parseEdits, serializeEdits } from "../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../server/db/index.js";
 import {
   getCurrentOwnerEmail,
-  getOrganizationDefaultVisibility,
+  getDefaultRecordingVisibility,
   nanoid,
   ownerEmailMatches,
 } from "../server/lib/recordings.js";
@@ -121,7 +121,7 @@ export default defineAction({
     }
     const organizationId = ordered[0].organizationId;
     const defaultVisibility =
-      await getOrganizationDefaultVisibility(organizationId);
+      await getDefaultRecordingVisibility(organizationId);
 
     const totalDuration =
       args.durationMs ??

@@ -17,7 +17,7 @@ import { getDb, schema } from "../server/db/index.js";
 import {
   getCurrentOwnerEmail,
   getActiveOrganizationId,
-  getOrganizationDefaultVisibility,
+  getDefaultRecordingVisibility,
   nanoid,
 } from "../server/lib/recordings.js";
 
@@ -191,7 +191,7 @@ export default defineAction({
     }
 
     const visibility =
-      args.visibility ?? (await getOrganizationDefaultVisibility(orgId));
+      args.visibility ?? (await getDefaultRecordingVisibility(orgId));
 
     try {
       await db.insert(schema.meetings).values({

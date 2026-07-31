@@ -653,9 +653,16 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     transcriptCleanupDescription:
       "Show the native transcript immediately, then clean it up in the background when available.",
     notifications: "Notifications",
+    sharing: "Sharing",
+    defaultVisibility: "Default visibility for new recordings",
+    defaultVisibilityDescription:
+      "Applied to every recording you create. You can still change visibility per recording.",
+    visibilityPrivate: "Private - only you",
+    visibilityOrg: "Organization - anyone in your workspace",
+    visibilityPublic: "Public - anyone with the link",
     emailNotifications: "Email notifications",
     emailNotificationsDescription:
-      "Get an email when someone comments, reacts, or shares a recording with you.",
+      "Get an email when someone comments on or reacts to your recording.",
     saved: "Settings saved",
     saveFailed: "Failed to save",
     builderConnectedToast: "Builder.io connected",

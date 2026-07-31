@@ -5,9 +5,14 @@ import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
+import { getUserSetting } from "@agent-native/core/settings";
 import { and, count, desc, eq, sql } from "drizzle-orm";
 import { HTTPError, type H3Event } from "h3";
 
+import {
+  CLIPS_USER_PREFS_KEY,
+  type ClipsUserPrefs,
+} from "../../shared/clips-ai-prefs.js";
 import { getDb, schema } from "../db/index.js";
 
 export function getCurrentOwnerEmail(): string {
@@ -97,6 +102,25 @@ export async function getOrganizationDefaultVisibility(
   } catch {
     return DEFAULT_RECORDING_VISIBILITY;
   }
+}
+
+/**
+ * Visibility for a new recording: the personal preference of the creator
+ * wins, then the organization default, then the built-in default.
+ */
+export async function getDefaultRecordingVisibility(
+  organizationId: string | null | undefined,
+): Promise<RecordingVisibility> {
+  const email = getRequestUserEmail();
+  if (email) {
+    const prefs = (await getUserSetting(
+      normalizeOwnerEmail(email),
+      CLIPS_USER_PREFS_KEY,
+    )) as ClipsUserPrefs | null;
+    const preferred = prefs?.defaultRecordingVisibility;
+    if (isRecordingVisibility(preferred)) return preferred;
+  }
+  return getOrganizationDefaultVisibility(organizationId);
 }
 
 const ORG_ROLE_RANK: Record<OrganizationAccessRole, number> = {

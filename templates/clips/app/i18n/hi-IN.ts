@@ -649,9 +649,16 @@ Clips में उपयोगकर्ताओं को दिखने व�
     transcriptCleanupDescription:
       "नेटिव ट्रांसक्रिप्ट तुरंत दिखाएँ, फिर उपलब्ध होने पर बैकग्राउंड में साफ़ करें।",
     notifications: "सूचनाएँ",
+    sharing: "साझा करना",
+    defaultVisibility: "नई रिकॉर्डिंग की डिफ़ॉल्ट दृश्यता",
+    defaultVisibilityDescription:
+      "आपकी बनाई हर रिकॉर्डिंग पर लागू होती है। आप हर रिकॉर्डिंग की दृश्यता बदल सकते हैं।",
+    visibilityPrivate: "निजी - केवल आप",
+    visibilityOrg: "संगठन - आपके वर्कस्पेस में कोई भी",
+    visibilityPublic: "सार्वजनिक - लिंक वाला कोई भी",
     emailNotifications: "ईमेल सूचनाएँ",
     emailNotificationsDescription:
-      "जब कोई टिप्पणी करे, प्रतिक्रिया दे या आपके साथ रिकॉर्डिंग शेयर करे तो ईमेल पाएँ।",
+      "जब कोई आपकी रिकॉर्डिंग पर टिप्पणी करे या प्रतिक्रिया दे तो ईमेल पाएँ।",
     saved: "सेटिंग्स सहेजी गईं",
     saveFailed: "सहेजने में विफल",
     builderConnectedToast: "Builder.io कनेक्टेड",

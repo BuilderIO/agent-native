@@ -629,9 +629,15 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     transcriptCleanup: "后台清理",
     transcriptCleanupDescription: "先立即显示原生转录，后台可用时再进行清理。",
     notifications: "通知",
+    sharing: "共享",
+    defaultVisibility: "新录制内容的默认可见性",
+    defaultVisibilityDescription:
+      "应用于你创建的每个录制内容，你仍可为单个录制内容更改可见性。",
+    visibilityPrivate: "私密 - 仅自己",
+    visibilityOrg: "组织 - 工作区中的任何人",
+    visibilityPublic: "公开 - 任何拥有链接的人",
     emailNotifications: "邮件通知",
-    emailNotificationsDescription:
-      "当有人评论、回应或与你分享录制时，收到邮件通知。",
+    emailNotificationsDescription: "当有人评论或回应你的录制时，收到邮件通知。",
     saved: "设置已保存",
     saveFailed: "保存失败",
     builderConnectedToast: "Builder.io 已连接",

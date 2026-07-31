@@ -19,7 +19,7 @@ const mocks = vi.hoisted(() => ({
   uploadFile: vi.fn(),
   getDb: vi.fn(),
   getCurrentOwnerEmail: vi.fn(),
-  getOrganizationDefaultVisibility: vi.fn(),
+  getDefaultRecordingVisibility: vi.fn(),
   nanoid: vi.fn(),
   parseSpaceIds: vi.fn(),
   requireOrganizationAccess: vi.fn(),
@@ -79,8 +79,8 @@ vi.mock("../server/lib/builder-media-compression.js", () => ({
 vi.mock("../server/lib/recordings.js", () => ({
   getCurrentOwnerEmail: (...args: unknown[]) =>
     mocks.getCurrentOwnerEmail(...args),
-  getOrganizationDefaultVisibility: (...args: unknown[]) =>
-    mocks.getOrganizationDefaultVisibility(...args),
+  getDefaultRecordingVisibility: (...args: unknown[]) =>
+    mocks.getDefaultRecordingVisibility(...args),
   nanoid: (...args: unknown[]) => mocks.nanoid(...args),
   ownerEmailMatches: (...args: unknown[]) => mocks.ownerEmailMatches(...args),
   parseSpaceIds: (...args: unknown[]) => mocks.parseSpaceIds(...args),
@@ -224,7 +224,7 @@ describe("first imported recording transactional email", () => {
     mocks.requireOrganizationAccess.mockResolvedValue({
       organizationId: "org-1",
     });
-    mocks.getOrganizationDefaultVisibility.mockResolvedValue("private");
+    mocks.getDefaultRecordingVisibility.mockResolvedValue("private");
     mocks.nanoid.mockReturnValue("recording-webm");
     mocks.parseSpaceIds.mockReturnValue([]);
     mocks.stringifySpaceIds.mockReturnValue("[]");
@@ -274,7 +274,7 @@ describe("first imported recording transactional email", () => {
     mocks.requireOrganizationAccess.mockResolvedValue({
       organizationId: "org-1",
     });
-    mocks.getOrganizationDefaultVisibility.mockResolvedValue("private");
+    mocks.getDefaultRecordingVisibility.mockResolvedValue("private");
     mocks.nanoid.mockReturnValue("recording-imported");
     mocks.parseSpaceIds.mockReturnValue([]);
     mocks.stringifySpaceIds.mockReturnValue("[]");

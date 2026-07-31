@@ -678,9 +678,16 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     transcriptCleanupDescription:
       "Zeige das native Transkript sofort an und bereinige es im Hintergrund, sobald es verfügbar ist.",
     notifications: "Benachrichtigungen",
+    sharing: "Teilen",
+    defaultVisibility: "Standard-Sichtbarkeit neuer Aufnahmen",
+    defaultVisibilityDescription:
+      "Gilt für jede Aufnahme, die du erstellst. Du kannst die Sichtbarkeit pro Aufnahme weiterhin ändern.",
+    visibilityPrivate: "Privat - nur du",
+    visibilityOrg: "Organisation - alle in deinem Workspace",
+    visibilityPublic: "Öffentlich - alle mit dem Link",
     emailNotifications: "E-Mail-Benachrichtigungen",
     emailNotificationsDescription:
-      "Erhalte eine E-Mail, wenn jemand eine Aufnahme kommentiert, reagiert oder mit dir teilt.",
+      "Erhalte eine E-Mail, wenn jemand deine Aufnahme kommentiert oder darauf reagiert.",
     saved: "Einstellungen gespeichert",
     saveFailed: "Speichern fehlgeschlagen",
     builderConnectedToast: "Builder.io verbunden",

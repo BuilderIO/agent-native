@@ -672,9 +672,16 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     transcriptCleanupDescription:
       "Affichez immédiatement la transcription native, puis nettoyez-la en arrière-plan lorsqu’elle est disponible.",
     notifications: "Alertes",
+    sharing: "Partage",
+    defaultVisibility: "Visibilité par défaut des nouveaux enregistrements",
+    defaultVisibilityDescription:
+      "Appliquée à chaque enregistrement que vous créez. Vous pouvez toujours la modifier enregistrement par enregistrement.",
+    visibilityPrivate: "Privé - vous uniquement",
+    visibilityOrg: "Organisation - tout le monde dans votre espace",
+    visibilityPublic: "Public - toute personne disposant du lien",
     emailNotifications: "Notifications par e-mail",
     emailNotificationsDescription:
-      "Recevez un e-mail lorsqu’une personne commente, réagit ou partage un enregistrement avec vous.",
+      "Recevez un e-mail lorsqu’une personne commente votre enregistrement ou y réagit.",
     saved: "Paramètres enregistrés",
     saveFailed: "Échec de l’enregistrement",
     builderConnectedToast: "Builder.io connecté",
