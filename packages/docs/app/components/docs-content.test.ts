@@ -28,34 +28,26 @@ describe("docs content parsing", () => {
     );
   });
 
-  it(
-    "keeps fenced markdown headings out of the search section index",
-    async () => {
-      const sections = (await buildSearchIndex()).filter(
-        (entry) => entry.path === "/docs/creating-templates",
-      );
+  it("keeps fenced markdown headings out of the search section index", async () => {
+    const sections = (await buildSearchIndex()).filter(
+      (entry) => entry.path === "/docs/creating-templates",
+    );
 
-      expect(sections.some((entry) => entry.section === "Actions")).toBe(false);
-      expect(
-        sections.some((entry) => entry.section === "Application State"),
-      ).toBe(false);
-    },
-    15_000,
-  );
+    expect(sections.some((entry) => entry.section === "Actions")).toBe(false);
+    expect(
+      sections.some((entry) => entry.section === "Application State"),
+    ).toBe(false);
+  }, 15_000);
 
-  it(
-    "indexes markdown mirror text instead of raw MDX component source",
-    async () => {
-      const indexText = (await buildSearchIndex())
-        .map((entry) => `${entry.section}\n${entry.text}`)
-        .join("\n");
+  it("indexes markdown mirror text instead of raw MDX component source", async () => {
+    const indexText = (await buildSearchIndex())
+      .map((entry) => `${entry.section}\n${entry.text}`)
+      .join("\n");
 
-      expect(indexText).not.toMatch(
-        /<(?:AnnotatedCode|Callout|Checklist|Columns|DataModel|Diff|Endpoint|FileTree|JsonExplorer|OpenApiSpec|Table|Tabs|Wireframe)\b/,
-      );
-      expect(indexText).not.toContain("doc-block-");
-      expect(indexText).not.toContain("params={[");
-    },
-    15_000,
-  );
+    expect(indexText).not.toMatch(
+      /<(?:AnnotatedCode|Callout|Checklist|Columns|DataModel|Diff|Endpoint|FileTree|JsonExplorer|OpenApiSpec|Table|Tabs|Wireframe)\b/,
+    );
+    expect(indexText).not.toContain("doc-block-");
+    expect(indexText).not.toContain("params={[");
+  }, 15_000);
 });
