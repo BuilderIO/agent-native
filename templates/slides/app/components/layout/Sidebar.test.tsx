@@ -106,6 +106,25 @@ describe("<Sidebar collapsed>", () => {
 });
 
 describe("<Sidebar expanded>", () => {
+  it("reserves fixed dimensions for the brand marks", () => {
+    const { container } = renderAt(
+      "/",
+      <Sidebar collapsed={false} onToggleCollapsed={() => {}} />,
+    );
+
+    const brandMarks = container.querySelectorAll(
+      'img[src="/agent-native-icon-light.svg"], img[src="/agent-native-icon-dark.svg"]',
+    );
+
+    expect(brandMarks).toHaveLength(2);
+    for (const brandMark of brandMarks) {
+      expect(brandMark.getAttribute("width")).toBe("28");
+      expect(brandMark.getAttribute("height")).toBe("16");
+      expect(brandMark.className).toContain("w-7");
+      expect(brandMark.className).toContain("object-contain");
+    }
+  });
+
   it("renders the full sidebar (w-56) with the Collapse button and labelled nav", () => {
     const onToggle = vi.fn();
     renderAt("/", <Sidebar collapsed={false} onToggleCollapsed={onToggle} />);
