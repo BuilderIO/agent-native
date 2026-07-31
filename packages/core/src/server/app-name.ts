@@ -56,24 +56,17 @@ export function getAppName(): string | undefined {
  * Resolve the app's slug — the machine-readable identifier used for the
  * per-app transactional email sender (e.g. `clips@agent-native.com`).
  *
- * Prefer the first-party template name matched by package.json (safe even on
- * serverless runtimes where `process.cwd()` may expose a bogus name). Fall
- * back to slugifying the resolved display name so custom `APP_NAME` overrides
- * still produce a usable local-part. Returns `undefined` when nothing resolves.
+ * Only a first-party template name matched by package.json qualifies. A slug
+ * derived from an arbitrary `APP_NAME` must not mint a mailbox on the
+ * agent-native.com domain: a custom app would then send as
+ * `<its-name>@agent-native.com` and route replies to the Builder mailbox.
+ * Returns `undefined` for anything unrecognized, which leaves the deployment's
+ * configured sender in place.
  */
 export function getAppSlug(): string | undefined {
   const pkg = readPkg();
-  if (pkg?.name) {
-    const tmpl = TEMPLATES.find((t) => t.name === pkg.name);
-    if (tmpl) return tmpl.name;
-  }
-  const name = getAppName();
-  if (!name) return undefined;
-  const slug = name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  return slug || undefined;
+  if (!pkg?.name) return undefined;
+  return TEMPLATES.find((t) => t.name === pkg.name)?.name;
 }
 
 /**
