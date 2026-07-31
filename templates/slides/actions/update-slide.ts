@@ -16,6 +16,7 @@ import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
 import { getDb, schema } from "../server/db/index.js"; // ensure registerShareableResource runs
 import { notifyClients } from "../server/handlers/decks.js";
 import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
+import { hashSlideContent } from "../shared/slide-fit.js";
 import { slideLabelFor, touchAgentSlidePresence } from "./_agent-presence.js";
 import {
   awaitLayoutFitCheck,
@@ -369,7 +370,12 @@ export default defineAction({
     // Wait briefly for the editor to re-render and measure. If the patched
     // slide still overflows, surface the new measurement so the agent can
     // tighten further. Timeout = no editor open / nothing to measure.
-    const fit = await awaitLayoutFitCheck(slideId, fitSince, 4000);
+    const fit = await awaitLayoutFitCheck(
+      slideId,
+      fitSince,
+      4000,
+      hashSlideContent(rmw.slide?.content ?? ""),
+    );
 
     const base = {
       ok: true,

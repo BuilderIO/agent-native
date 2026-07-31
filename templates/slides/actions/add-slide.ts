@@ -17,6 +17,7 @@ import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
+import { hashSlideContent } from "../shared/slide-fit.js";
 import { slideLabelFor, touchAgentSlidePresence } from "./_agent-presence.js";
 import {
   awaitLayoutFitCheck,
@@ -396,7 +397,12 @@ export default defineAction({
       // hint so the agent can make one bounded structural repair. Timeout = no
       // editor measurement available
       // (e.g. headless server) — return success without a fit hint.
-      const fit = await awaitLayoutFitCheck(newSlideId, fitSince, 5000);
+      const fit = await awaitLayoutFitCheck(
+        newSlideId,
+        fitSince,
+        5000,
+        hashSlideContent(newSlide.content),
+      );
 
       const base = {
         deckId,

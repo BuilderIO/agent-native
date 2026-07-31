@@ -1164,7 +1164,7 @@ export default function SlideEditor({
     w: number;
     h: number;
   } | null>(null);
-  /** Vertical overflow for the current slide (0 = fits). Reported by the
+  /** Content overflow for the current slide (both axes 0 = fits). Reported by the
    *  renderer so we can prompt the agent to rewrite the slide HTML instead of
    *  silently scaling it down (which created unbalanced right/bottom margins
    *  on slides whose content was too tall for the canvas). */
@@ -1172,6 +1172,9 @@ export default function SlideEditor({
     null,
   );
   const [isAskingAgentToFix, setIsAskingAgentToFix] = useState(false);
+  const repairRequestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const [isOverflowWarningDismissed, setIsOverflowWarningDismissed] =
     useState(false);
   const dims = getAspectRatioDims(aspectRatio);
@@ -1290,6 +1293,10 @@ export default function SlideEditor({
   // Reset overflow state whenever the slide changes — the renderer will
   // report the next measurement (or stay null if the new slide fits).
   useEffect(() => {
+    if (repairRequestTimerRef.current) {
+      clearTimeout(repairRequestTimerRef.current);
+      repairRequestTimerRef.current = null;
+    }
     setOverflowInfo(null);
     setIsAskingAgentToFix(false);
     setIsOverflowWarningDismissed(false);
@@ -1300,6 +1307,10 @@ export default function SlideEditor({
   // measurement never leaks into a different deck/slide context.
   useEffect(() => {
     return () => {
+      if (repairRequestTimerRef.current) {
+        clearTimeout(repairRequestTimerRef.current);
+        repairRequestTimerRef.current = null;
+      }
       syncOverflowToAppState(null);
     };
   }, []);
@@ -1356,6 +1367,16 @@ export default function SlideEditor({
     const dimsW = dims.width;
     const dimsH = dims.height;
     setIsAskingAgentToFix(true);
+    if (repairRequestTimerRef.current) {
+      clearTimeout(repairRequestTimerRef.current);
+    }
+    // Delivery only proves that the prompt reached chat, not that an action
+    // changed this slide. Release the control after one bounded repair window
+    // so a stalled or no-op agent run cannot strand the warning UI.
+    repairRequestTimerRef.current = setTimeout(() => {
+      repairRequestTimerRef.current = null;
+      setIsAskingAgentToFix(false);
+    }, 30_000);
     void sendToAgentChatAndConfirm({
       message: [
         `The current slide's content overflows the canvas${overflowInfo.verticalOverflow > 0 ? ` vertically by ${overflowInfo.verticalOverflow}px` : ""}${overflowInfo.horizontalOverflow > 0 ? ` horizontally by ${overflowInfo.horizontalOverflow}px` : ""} and needs to be rewritten to fit.`,

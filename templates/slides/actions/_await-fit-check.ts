@@ -11,6 +11,7 @@ export interface SlideFitMeasurement {
   viewportWidth?: number;
   verticalOverflow: number;
   horizontalOverflow?: number;
+  contentHash?: string;
   measuredAt: number;
 }
 
@@ -47,6 +48,7 @@ export async function awaitLayoutFitCheck(
   slideId: string,
   since: number,
   timeoutMs: number = DEFAULT_TIMEOUT_MS,
+  expectedContentHash?: string,
 ): Promise<SlideFitResult> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -65,6 +67,8 @@ export async function awaitLayoutFitCheck(
     if (
       m &&
       m.slideId === slideId &&
+      (expectedContentHash === undefined ||
+        m.contentHash === expectedContentHash) &&
       Number.isFinite(m.measuredAt) &&
       m.measuredAt >= since &&
       Number.isFinite(m.verticalOverflow) &&
