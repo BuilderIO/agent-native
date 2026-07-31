@@ -29,6 +29,7 @@ vi.mock("@agent-native/core/a2a", () => ({
 import {
   delegateImageGenerationToAssets,
   extractAssetUrl,
+  extractAssetUrls,
   imagePreviewMarkdown,
 } from "./assets-image-delegation.js";
 
@@ -92,6 +93,36 @@ describe("delegateImageGenerationToAssets", () => {
     expect(result.status).toBe("unavailable");
   });
 
+  // Falling back locally on an auth/permission refusal would bypass the Assets
+  // access checks and hand back an off-brand image instead of the real reason.
+  it.each([
+    "A2A request failed (401): Invalid or expired A2A token",
+    "A2A request failed (403): Forbidden",
+    "A verified, audience-bound user identity is required",
+  ])("treats %s as rejected, not unavailable", async (message) => {
+    sendAndWaitMock.mockRejectedValue(new Error(message));
+    const result = await delegateImageGenerationToAssets({ prompt: "a hero" });
+    expect(result.status).toBe("rejected");
+    if (result.status === "rejected") expect(result.state).toBe("unauthorized");
+  });
+
+  it("sends a stable idempotency key for an identical repeat request", async () => {
+    sendAndWaitMock.mockResolvedValue(task("completed", "done"));
+    await delegateImageGenerationToAssets({ prompt: "a hero", deckId: "d1" });
+    await delegateImageGenerationToAssets({ prompt: "a hero", deckId: "d1" });
+    const [first, second] = sendAndWaitMock.mock.calls;
+    expect(first[1].idempotencyKey).toBeTruthy();
+    expect(first[1].idempotencyKey).toBe(second[1].idempotencyKey);
+  });
+
+  it("sends a different idempotency key for a different prompt", async () => {
+    sendAndWaitMock.mockResolvedValue(task("completed", "done"));
+    await delegateImageGenerationToAssets({ prompt: "a hero" });
+    await delegateImageGenerationToAssets({ prompt: "a different hero" });
+    const [first, second] = sendAndWaitMock.mock.calls;
+    expect(first[1].idempotencyKey).not.toBe(second[1].idempotencyKey);
+  });
+
   it("prefers audience-bound signed tokens over the static override", async () => {
     process.env.IMAGES_A2A_KEY = "static-override";
     sendAndWaitMock.mockResolvedValue(task("completed", "done"));
@@ -129,6 +160,29 @@ describe("extractAssetUrl", () => {
 
   it("returns null when the reply has no url", () => {
     expect(extractAssetUrl("I could not generate that image.")).toBeNull();
+  });
+
+  // A --count 3 batch returns one URL per slot; keeping only the first
+  // silently drops the other candidates.
+  it("returns every candidate in reply order", () => {
+    const reply = [
+      "previewUrl: https://cdn.example.com/a.png",
+      "previewUrl: https://cdn.example.com/b.png",
+      "previewUrl: https://cdn.example.com/c.png",
+    ].join("\n");
+    expect(extractAssetUrls(reply)).toEqual([
+      "https://cdn.example.com/a.png",
+      "https://cdn.example.com/b.png",
+      "https://cdn.example.com/c.png",
+    ]);
+  });
+
+  it("does not repeat the same url twice", () => {
+    expect(
+      extractAssetUrls(
+        "previewUrl: https://cdn.example.com/a.png downloadUrl: https://cdn.example.com/a.png",
+      ),
+    ).toEqual(["https://cdn.example.com/a.png"]);
   });
 });
 

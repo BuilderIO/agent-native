@@ -29,12 +29,16 @@ const config = async () => {
 import { readFileSync, writeFileSync, mkdirSync } from "fs";
 import { dirname, join } from "path";
 
-import { isBlockedExtensionUrlWithDns } from "@agent-native/core/extensions/url-safety";
+import {
+  isBlockedExtensionUrlWithDns,
+  ssrfSafeFetch,
+} from "@agent-native/core/extensions/url-safety";
 import pLimit from "p-limit";
 
 import {
   delegateImageGenerationToAssets,
   extractAssetUrl,
+  extractAssetUrls,
   imagePreviewMarkdown,
   stripHtml,
 } from "../server/lib/assets-image-delegation.js";
@@ -44,33 +48,40 @@ import { DEFAULT_STYLE_REFERENCE_URLS } from "../shared/api.js";
  * `--output` promises files on disk, so a delegated generation has to download
  * what Assets produced instead of only printing the reply.
  */
-async function saveDelegatedImage(
+async function saveDelegatedImages(
   reply: string,
   outputPrefix: string,
 ): Promise<void> {
-  const url = extractAssetUrl(reply);
-  if (!url) {
+  const urls = extractAssetUrls(reply);
+  if (urls.length === 0) {
     console.warn(
       `Assets returned no parseable image URL, so nothing was written to ${outputPrefix}.`,
     );
     return;
   }
-  if (await isBlockedExtensionUrlWithDns(url)) {
-    console.warn(`Refusing to download private/internal asset URL: ${url}`);
-    return;
-  }
-  const res = await fetch(url, {
-    signal: AbortSignal.timeout(30_000),
-    redirect: "manual",
-  });
-  if (!res.ok) {
-    console.warn(`Could not download ${url} (${res.status}).`);
-    return;
-  }
   mkdirSync(dirname(outputPrefix), { recursive: true });
-  const filePath = `${outputPrefix}-v1.png`;
-  writeFileSync(filePath, Buffer.from(await res.arrayBuffer()));
-  console.log(`Saved: ${filePath}`);
+  for (const [i, url] of urls.entries()) {
+    // ssrfSafeFetch validates at connect time and on every redirect hop, so a
+    // DNS rebind between check and connect cannot reach an internal address.
+    const res = await ssrfSafeFetch(
+      url,
+      { signal: AbortSignal.timeout(30_000) },
+      { httpsOnly: true, maxRedirects: 2 },
+    ).catch((err: unknown) => {
+      console.warn(
+        `Could not download ${url}: ${err instanceof Error ? err.message : err}`,
+      );
+      return null;
+    });
+    if (!res) continue;
+    if (!res.ok) {
+      console.warn(`Could not download ${url} (${res.status}).`);
+      continue;
+    }
+    const filePath = `${outputPrefix}-v${i + 1}.png`;
+    writeFileSync(filePath, Buffer.from(await res.arrayBuffer()));
+    console.log(`Saved: ${filePath}`);
+  }
 }
 
 function parseArgs(args: string[]): Record<string, string> {
@@ -198,7 +209,7 @@ Options:
       );
     }
     if (outputPrefix) {
-      await saveDelegatedImage(delegation.reply, outputPrefix);
+      await saveDelegatedImages(delegation.reply, outputPrefix);
     }
     return;
   }

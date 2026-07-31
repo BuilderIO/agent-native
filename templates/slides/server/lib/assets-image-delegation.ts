@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import {
   A2AClient,
   buildAgentInvocationPrompt,
@@ -18,6 +20,7 @@ import {
 const ASSETS_AGENT_TARGET = "assets";
 const SELF_APP_ID = "slides";
 const DELEGATION_TIMEOUT_MS = 240_000;
+const IDEMPOTENCY_WINDOW_MS = 5 * 60_000;
 
 export interface AssetsImageRequest {
   prompt: string;
@@ -145,6 +148,22 @@ async function buildCallerTokens(
   return tokens;
 }
 
+/**
+ * Generation is billable, so an identical repeat submission inside a short
+ * window is far more likely to be a retry after a lost response than a
+ * deliberate second run. Keying on request content lets Assets dedupe it; the
+ * time bucket keeps a genuine later regeneration from being swallowed.
+ */
+function delegationIdempotencyKey(
+  request: AssetsImageRequest,
+  userEmail: string | undefined,
+): string {
+  const bucket = Math.floor(Date.now() / IDEMPOTENCY_WINDOW_MS);
+  const payload = JSON.stringify({ ...request, userEmail, bucket });
+  const digest = createHash("sha256").update(payload).digest("hex");
+  return "slides-" + digest.slice(0, 32);
+}
+
 function taskText(task: Task): string {
   const parts = task.status.message?.parts ?? [];
   return parts
@@ -205,6 +224,7 @@ export async function delegateImageGenerationToAssets(
           ...(auth.userEmail ? { userEmail: auth.userEmail } : {}),
           ...(auth.orgDomain ? { orgDomain: auth.orgDomain } : {}),
         },
+        idempotencyKey: delegationIdempotencyKey(request, auth.userEmail),
         timeoutMs: DELEGATION_TIMEOUT_MS,
       },
     );
@@ -234,11 +254,58 @@ export async function delegateImageGenerationToAssets(
       };
     }
     const reason = err instanceof Error ? err.message : String(err);
+    // Assets answered and refused. Falling back locally would bypass its
+    // access checks and quietly hand back an off-brand image instead of
+    // telling the user their token or library permissions are wrong.
+    if (isAuthRejection(reason)) {
+      return {
+        status: "rejected",
+        reason,
+        state: "unauthorized",
+        target: targetUrl,
+      };
+    }
     console.warn(
       `[slides/image-generation] Assets delegation to "${targetUrl}" failed: ${reason}`,
     );
     return { status: "unavailable", reason };
   }
+}
+
+/** Mirrors the receiver-side rejections in core's A2A client. */
+function isAuthRejection(message: string): boolean {
+  return (
+    /\((?:401|403)\)/.test(message) ||
+    /verified, audience-bound user identity/i.test(message) ||
+    /Invalid or expired A2A token|Invalid API key|Authentication required|Forbidden/i.test(
+      message,
+    )
+  );
+}
+
+/**
+ * Pull every hosted image URL out of an Assets reply, in reply order. A batch
+ * of candidates returns one per slot, so callers that asked for several must
+ * not silently keep only the first.
+ */
+export function extractAssetUrls(reply: string): string[] {
+  const urls: string[] = [];
+  const add = (candidate: string | undefined) => {
+    const url = normalizeUrl(candidate);
+    if (url && !urls.includes(url)) urls.push(url);
+  };
+
+  // Assets phrases these keys as JSON, `key: value`, or prose, so take the
+  // first URL that follows each key rather than requiring one delimiter.
+  const keyed = reply.matchAll(
+    /(?:previewUrl|downloadUrl)\D{0,40}?(https:\/\/[^\s"'<>)\]]+)/gi,
+  );
+  for (const match of keyed) add(match[1]);
+
+  for (const match of reply.matchAll(/!\[[^\]]*\]\((https:\/\/[^\s)]+)\)/g)) {
+    add(match[1]);
+  }
+  return urls;
 }
 
 /**
@@ -247,16 +314,7 @@ export async function delegateImageGenerationToAssets(
  * caller must surface the raw reply rather than guess at a URL.
  */
 export function extractAssetUrl(reply: string): string | null {
-  // Assets phrases these keys as JSON, `key: value`, or prose, so take the
-  // first URL that follows the key rather than requiring one delimiter.
-  const keyIndex = reply.search(/previewUrl|downloadUrl/i);
-  if (keyIndex >= 0) {
-    const afterKey = reply.slice(keyIndex).match(/https:\/\/[^\s"'<>)\]]+/);
-    const url = normalizeUrl(afterKey?.[0]);
-    if (url) return url;
-  }
-  const markdown = reply.match(/!\[[^\]]*\]\((https:\/\/[^\s)]+)\)/);
-  return normalizeUrl(markdown?.[1]);
+  return extractAssetUrls(reply)[0] ?? null;
 }
 
 /**
