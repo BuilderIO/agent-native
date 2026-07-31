@@ -27,18 +27,33 @@ jobs:
           neon_auth="Authorization: Bearer $NEON_API_KEY"
           project_name='agent-native-crew'
 
-          projects_response=$(curl -sS -H "$neon_auth" "$neon_api/projects?limit=100")
+          projects_response_with_status=$(curl -sS -w $'\n%{http_code}' \
+            -H "$neon_auth" "$neon_api/projects?limit=100")
+          projects_status=$(tail -n1 <<<"$projects_response_with_status")
+          projects_response=$(sed '$d' <<<"$projects_response_with_status")
+          if [[ ! "$projects_status" =~ ^2[0-9][0-9]$ ]]; then
+            message=$(jq -r '.message // .error // .code // "unknown Neon API error"' <<<"$projects_response")
+            echo "::error::Neon project lookup failed (HTTP $projects_status): $message"
+            exit 1
+          fi
           project_id=$(jq -r --arg name "$project_name" \
             'first(.projects[]? | select(.name == $name) | .id) // empty' \
             <<<"$projects_response")
 
           if [[ -z "$project_id" ]]; then
-            create_response=$(curl -sS -X POST \
+            create_response_with_status=$(curl -sS -w $'\n%{http_code}' -X POST \
               -H "$neon_auth" \
               -H 'Content-Type: application/json' \
               "$neon_api/projects" \
               -d "$(jq -n --arg name "$project_name" \
                 '{project:{name:$name,region_id:"aws-us-east-1",pg_version:17}}')")
+            create_status=$(tail -n1 <<<"$create_response_with_status")
+            create_response=$(sed '$d' <<<"$create_response_with_status")
+            if [[ ! "$create_status" =~ ^2[0-9][0-9]$ ]]; then
+              message=$(jq -r '.message // .error // .code // "unknown Neon API error"' <<<"$create_response")
+              echo "::error::Neon project creation failed (HTTP $create_status): $message"
+              exit 1
+            fi
             project_id=$(jq -r '.project.id // empty' <<<"$create_response")
             if [[ -z "$project_id" ]]; then
               echo '::error::Neon did not return a project id.'
