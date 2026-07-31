@@ -70,8 +70,9 @@ interface RecoveryAttemptState {
 }
 
 interface RecoveryRequest {
-  fallbackModule?: string;
-  reason: string;
+  fallbackModules: Set<string>;
+  topology: boolean;
+  reasons: Set<string>;
 }
 
 export interface ReactRouterRecoveryCoordinator extends ReactRouterDevRecoveryBridge {
@@ -218,9 +219,15 @@ export function createReactRouterRecoveryCoordinator(
   let disposed = false;
 
   const mergePending = (request: RecoveryRequest) => {
-    if (!pendingRequest || request.fallbackModule) {
+    if (!pendingRequest) {
       pendingRequest = request;
+      return;
     }
+    pendingRequest.topology ||= request.topology;
+    for (const module of request.fallbackModules) {
+      pendingRequest.fallbackModules.add(module);
+    }
+    for (const reason of request.reasons) pendingRequest.reasons.add(reason);
   };
 
   const schedulePending = () => {
@@ -241,13 +248,9 @@ export function createReactRouterRecoveryCoordinator(
   const run = (request: RecoveryRequest) => {
     if (disposed) return;
     running = true;
-    if (request.fallbackModule) {
-      const attempts =
-        attemptState.fallbackAttemptsByModule.get(request.fallbackModule) ?? 0;
-      attemptState.fallbackAttemptsByModule.set(
-        request.fallbackModule,
-        attempts + 1,
-      );
+    for (const module of request.fallbackModules) {
+      const attempts = attemptState.fallbackAttemptsByModule.get(module) ?? 0;
+      attemptState.fallbackAttemptsByModule.set(module, attempts + 1);
     }
     attemptState.lastStartedAt = now();
     void options
@@ -255,11 +258,11 @@ export function createReactRouterRecoveryCoordinator(
       .then(
         () =>
           options.onOutcome?.(
-            `React Router route recovery completed: ${request.reason}`,
+            `React Router route recovery completed: ${[...request.reasons].join(", ")}`,
           ),
         (error) =>
           options.onOutcome?.(
-            `React Router route recovery failed: ${request.reason}`,
+            `React Router route recovery failed: ${[...request.reasons].join(", ")}`,
             error,
           ),
       )
@@ -301,10 +304,18 @@ export function createReactRouterRecoveryCoordinator(
       attemptState.pathnameModules.set(requestPathname, module);
       const attempts = attemptState.fallbackAttemptsByModule.get(module) ?? 0;
       if (attempts >= maxConsecutiveAttempts) return "bounded";
-      return request({ fallbackModule: module, reason });
+      return request({
+        fallbackModules: new Set([module]),
+        topology: false,
+        reasons: new Set([reason]),
+      });
     },
     requestTopology(reason) {
-      return request({ reason });
+      return request({
+        fallbackModules: new Set(),
+        topology: true,
+        reasons: new Set([reason]),
+      });
     },
     markSsrSuccess(requestPathname) {
       const module = attemptState.pathnameModules.get(requestPathname);

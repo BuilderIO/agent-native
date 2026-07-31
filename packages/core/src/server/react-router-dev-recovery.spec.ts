@@ -281,9 +281,10 @@ describe("React Router recovery coordinator", () => {
     );
   });
 
-  it("serializes mixed pending requests without bypassing fallback bounds", async () => {
+  it("coalesces pending fallback modules and topology into one bounded rerun", async () => {
     vi.useFakeTimers();
     const finishes: Array<() => void> = [];
+    const onOutcome = vi.fn();
     const restart = vi.fn(
       () =>
         new Promise<void>((resolve) => {
@@ -294,12 +295,25 @@ describe("React Router recovery coordinator", () => {
       restart,
       cooldownMs: 0,
       maxConsecutiveAttempts: 1,
+      onOutcome,
     });
-    const module = "/app/routes/deleted.tsx";
+    const moduleA = "/app/routes/a.tsx";
+    const moduleB = "/app/routes/b.tsx";
+    const moduleC = "/app/routes/c.tsx";
 
-    expect(requestFallback(coordinator, module, "/broken")).toBe("started");
+    expect(requestFallback(coordinator, moduleA, "/a", "module A")).toBe(
+      "started",
+    );
+    expect(requestFallback(coordinator, moduleB, "/b", "module B")).toBe(
+      "pending",
+    );
+    expect(requestFallback(coordinator, moduleC, "/c", "module C")).toBe(
+      "pending",
+    );
+    expect(requestFallback(coordinator, moduleB, "/b-again", "module B")).toBe(
+      "pending",
+    );
     expect(coordinator.requestTopology("route added")).toBe("pending");
-    expect(requestFallback(coordinator, module, "/other")).toBe("bounded");
     expect(restart).toHaveBeenCalledOnce();
 
     finishes[0]?.();
@@ -307,8 +321,19 @@ describe("React Router recovery coordinator", () => {
     await Promise.resolve();
     await vi.runOnlyPendingTimersAsync();
     expect(restart).toHaveBeenCalledTimes(2);
-    expect(requestFallback(coordinator, module, "/still-stale")).toBe(
-      "bounded",
-    );
+    expect(requestFallback(coordinator, moduleB, "/b-third")).toBe("bounded");
+    expect(requestFallback(coordinator, moduleC, "/c-second")).toBe("bounded");
+
+    finishes[1]?.();
+    await Promise.resolve();
+    await Promise.resolve();
+    await vi.runOnlyPendingTimersAsync();
+    expect(restart).toHaveBeenCalledTimes(2);
+    const coalescedOutcome = onOutcome.mock.calls
+      .map(([message]) => String(message))
+      .find((message) => message.includes("route added"));
+    expect(coalescedOutcome).toContain("module B");
+    expect(coalescedOutcome).toContain("module C");
+    expect(coalescedOutcome?.match(/module B/g)).toHaveLength(1);
   });
 });
