@@ -572,6 +572,7 @@ const messages = {
     systemOrdered: "System · ordered, not evictable",
   },
   jobs: {
+    timezone: "Timezone",
     pageTitle: "Automations",
     pageDescription:
       "Manage agent tasks that run on a schedule or in response to events.",

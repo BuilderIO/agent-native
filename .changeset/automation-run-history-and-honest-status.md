@@ -12,11 +12,21 @@ resource when the failure state actually changes. The failure reason
 (`lastError`) is surfaced on the row and in the details view instead of being
 swallowed behind a bare `skipped` chip.
 
+Schedules are also timezone-aware. Cron expressions used to be read in the
+server's zone, so an automation created as "every day at 8am" ran at 8am UTC.
+A schedule now stores the IANA zone it was written in, taken from a new
+scheduling timezone preference in Account settings and falling back to the
+caller's browser zone. Descriptions name their zone ("Every day at 8 AM
+(America/New_York)"), and both the agent tools and the schedule editor accept a
+timezone. Existing schedules keep their current host-relative meaning until
+edited.
+
 Also adds:
 
 - `automation_runs` history for real executions, exposed through a new
   `list-automation-runs` action and a Past runs section in the details view.
 - A Details view that shows more than the list row: schedule, next/last run,
   last checked, last status, scope, creator and model.
-- An Edit affordance for changing a scheduled automation's cron expression.
+- An Edit affordance for changing a scheduled automation's cron expression and
+  timezone.
 - A "Manage agent" entry in the sidebar organization switcher.

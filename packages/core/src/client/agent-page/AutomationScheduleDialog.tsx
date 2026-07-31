@@ -60,7 +60,8 @@ export function AutomationScheduleDialog({
 
   const trimmed = value.trim();
   const valid = looksLikeCron(trimmed);
-  const changed = trimmed !== schedule.trim() || zone !== (timezone || null);
+  const changed =
+    trimmed !== schedule.trim() || zone !== (timezone || browserTimezone());
 
   return (
     <Dialog

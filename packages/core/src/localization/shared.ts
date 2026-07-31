@@ -33,7 +33,7 @@ export interface LocalizationPreference {
   timezone: TimezonePreference;
 }
 
-export type TimezonePreference = 'system' | (string & {});
+export type TimezonePreference = "system" | (string & {});
 
 export const DEFAULT_LOCALE: LocaleCode = "en-US";
 export const LOCALIZATION_SETTING_KEY = "localization";
@@ -196,10 +196,12 @@ export function normalizeLocalizationPreference(
 ): LocalizationPreference {
   if (value && typeof value === "object" && !Array.isArray(value)) {
     const record = value as { locale?: unknown; timezone?: unknown };
-    const locale = normalizeLocalePreference(record.locale);
-    if (locale) {
-      return { locale, timezone: normalizeTimezonePreference(record.timezone) };
-    }
+    // The two fields are independent: setting a timezone must not require
+    // also picking a language, which is the usual case.
+    return {
+      locale: normalizeLocalePreference(record.locale) ?? "system",
+      timezone: normalizeTimezonePreference(record.timezone),
+    };
   }
   const locale = normalizeLocalePreference(value);
   return { locale: locale ?? "system", timezone: "system" };
