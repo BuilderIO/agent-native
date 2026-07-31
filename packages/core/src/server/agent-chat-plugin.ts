@@ -107,10 +107,12 @@ import type {
 import { readAppStateForCurrentTab } from "../application-state/script-helpers.js";
 import { runChatThreadDataMigrations } from "../chat-threads/migrations.js";
 import {
+  adoptThreadScopeIfUnscoped,
   createThread,
   forkThread,
   getThread,
   registerChatThreadsShareable,
+  resolveRunThreadScope,
   resolveThreadAccess,
   listThreads,
   searchThreads,
@@ -2538,11 +2540,16 @@ export function createAgentChatPlugin(
           getRequestRunContext()?.owner ?? getRequestUserEmail();
         if (!ownerEmail) return;
 
+        const runScope = getRequestRunContext()?.chatScope ?? null;
+
         await withThreadDataLock(threadId, async () => {
           let thread = await getThread(threadId);
           if (!thread) {
             try {
-              thread = await createThread(ownerEmail, { id: threadId });
+              thread = await createThread(ownerEmail, {
+                id: threadId,
+                scope: runScope,
+              });
             } catch {
               thread = await getThread(threadId);
             }
@@ -2564,6 +2571,14 @@ export function createAgentChatPlugin(
               statusCode: 404,
               statusMessage: "Thread not found",
             });
+          }
+
+          const nextScope = resolveRunThreadScope(thread.scope, runScope);
+          if (nextScope && nextScope !== thread.scope) {
+            thread = {
+              ...thread,
+              scope: await adoptThreadScopeIfUnscoped(threadId, nextScope),
+            };
           }
 
           let repo: any;
