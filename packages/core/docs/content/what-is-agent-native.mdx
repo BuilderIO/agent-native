@@ -50,10 +50,10 @@ Here's why most products don't get there.
 There's a progression most teams climb, and most stop one rung too early.
 
 ```mermaid
-graph BT
-  R1["🔴 Rung 1 — A single LLM call<br/>Prompt in, string out. No persistence or audit trail."]
-  R2["🟡 Rung 2 — A chat with tools<br/>The AI can act — but only through a chat window."]
-  R3["🟢 Rung 3 — Agent + UI as equal partners<br/>Every agent action is also a button. One implementation."]
+graph LR
+  R1["🔴 Rung 1<br/><b>Single LLM call</b><br/>Prompt in, string out.<br/>No persistence or audit trail."]
+  R2["🟡 Rung 2<br/><b>Chat with tools</b><br/>The AI can act —<br/>but only through a chat window."]
+  R3["🟢 Rung 3<br/><b>Agent + UI as equal partners</b><br/>Every action is also a button.<br/>One implementation."]
   R1 --> R2 --> R3
 ```
 
