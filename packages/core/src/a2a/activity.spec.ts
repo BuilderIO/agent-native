@@ -114,6 +114,31 @@ describe("Agent Native A2A activity", () => {
     expect(call.result).toContain("more chars");
   });
 
+  it("round-trips normalized newlines in captured tool results", () => {
+    let state = createA2AAgentActivityState(1_000);
+    state = applyA2AAgentActivityEvent(
+      state,
+      { type: "tool_start", tool: "bash", id: "call-1", input: {} },
+      1_100,
+    );
+    state = applyA2AAgentActivityEvent(
+      state,
+      {
+        type: "tool_done",
+        tool: "bash",
+        id: "call-1",
+        result: "first line\nsecond line",
+      },
+      1_200,
+    );
+    const snapshot = buildA2AAgentActivitySnapshot(state);
+
+    expect(snapshot.toolCalls[0].result).toBe("first line\nsecond line");
+    expect(parseA2AAgentActivityPart(buildA2AAgentActivityPart(state))).toEqual(
+      snapshot,
+    );
+  });
+
   it("redacts credential-looking tool arguments", () => {
     const call = toolCallAfter({
       url: "https://api.example.test/v1/send",

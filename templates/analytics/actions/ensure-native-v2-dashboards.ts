@@ -80,6 +80,7 @@ async function validateAndShareBindings(
   const uniqueProgramIds = new Set(
     requiredKeys.map((key) => bindings[key]?.programId).filter(Boolean),
   );
+  const programsToShare: string[] = [];
   for (const programId of uniqueProgramIds) {
     const program = await getDataProgram(programId, ANALYTICS_APP_ID);
     if (!program) {
@@ -117,12 +118,16 @@ async function validateAndShareBindings(
     }
 
     if (program.visibility !== "org" || program.orgId !== admin.orgId) {
-      await setResourceVisibilityAction.run({
-        resourceType: "data_program",
-        resourceId: programId,
-        visibility: "org",
-      });
+      programsToShare.push(programId);
     }
+  }
+
+  for (const programId of programsToShare) {
+    await setResourceVisibilityAction.run({
+      resourceType: "data_program",
+      resourceId: programId,
+      visibility: "org",
+    });
   }
 }
 

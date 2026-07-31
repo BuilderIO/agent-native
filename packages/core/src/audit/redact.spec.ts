@@ -109,4 +109,16 @@ describe("redactTextToSummary", () => {
     );
     expect(redactTextToSummary("")).toBeNull();
   });
+
+  it("redacts credentials embedded in text and JSON fields", () => {
+    const summary = redactTextToSummary(
+      'request failed: Authorization: Bearer fake-bearer-value token=fake-token-value body={"apiKey":"fake-api-key"}',
+    );
+    expect(summary).toContain("Authorization: Bearer [redacted]");
+    expect(summary).toContain("token=[redacted]");
+    expect(summary).toContain('"apiKey":"[redacted]"');
+    expect(summary).not.toContain("fake-bearer-value");
+    expect(summary).not.toContain("fake-token-value");
+    expect(summary).not.toContain("fake-api-key");
+  });
 });

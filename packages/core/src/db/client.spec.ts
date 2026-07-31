@@ -1362,14 +1362,20 @@ describe("db/client shared connection pools", () => {
   });
 
   it("swaps in the replacement pool when a timed-out pool is recycled", async () => {
-    const { sharedDbPool, replaceSharedDbPool } = await import("./client.js");
+    const { sharedDbPool, replaceSharedDbPool, onSharedDbPoolReplaced } =
+      await import("./client.js");
     const original = { name: "original", end: async () => {} };
     const replacement = { name: "replacement", end: async () => {} };
     const url = "postgres://recycle.test/db";
+    let notified = 0;
 
     sharedDbPool("postgres-js", url, () => original);
+    onSharedDbPoolReplaced("postgres-js", url, () => {
+      notified += 1;
+    });
     replaceSharedDbPool("postgres-js", url, original, replacement);
     expect(sharedDbPool("postgres-js", url, () => original)).toBe(replacement);
+    expect(notified).toBe(1);
 
     // A stale caller holding the already-replaced pool must not clobber it.
     replaceSharedDbPool("postgres-js", url, original, {

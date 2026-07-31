@@ -10,6 +10,7 @@ import {
 
 const mockedSettings = vi.hoisted(() => ({
   all: {} as Record<string, Record<string, unknown>>,
+  readError: null as Error | null,
   reads: 0,
   emitter: null as null | import("node:events").EventEmitter,
 }));
@@ -34,6 +35,7 @@ vi.mock("../settings/store.js", async () => {
   return {
     getAllSettings: async () => {
       mockedSettings.reads += 1;
+      if (mockedSettings.readError) throw mockedSettings.readError;
       return mockedSettings.all;
     },
     getSettingsEmitter: () => mockedSettings.emitter,
@@ -59,6 +61,7 @@ vi.mock("./workspace-servers.js", () => ({
 
 beforeEach(() => {
   mockedSettings.all = {};
+  mockedSettings.readError = null;
   mockedSettings.reads = 0;
   getSessionMock.mockReset();
   getOrgContextMock.mockReset();
@@ -128,6 +131,30 @@ describe("startMcpConfigRefresh", () => {
       // Backstop still catches a write made by another process.
       await vi.advanceTimersByTimeAsync(6 * 60_000);
       expect(mockedSettings.reads).toBe(3);
+    } finally {
+      stop();
+      vi.useRealTimers();
+    }
+  });
+
+  it("retries a failed refresh on the next interval", async () => {
+    vi.useFakeTimers();
+    const reconfigure = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("temporary manager failure"))
+      .mockResolvedValue(undefined);
+    const manager = {
+      getConfig: () => ({ servers: { stale: {} } }),
+      reconfigure,
+    };
+    const stop = startMcpConfigRefresh(manager as never)!;
+    try {
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(mockedSettings.reads).toBe(1);
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(mockedSettings.reads).toBe(2);
+      expect(reconfigure).toHaveBeenCalledTimes(2);
     } finally {
       stop();
       vi.useRealTimers();

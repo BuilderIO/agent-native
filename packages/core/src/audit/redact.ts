@@ -12,7 +12,7 @@
  */
 
 const SENSITIVE_KEY =
-  /(pass(word|phrase)?|secret|token|api[_-]?key|apikey|authorization|bearer|credential|cookie|session[_-]?(id|token)|private[_-]?key|client[_-]?secret|signing[_-]?secret|access[_-]?key|refresh[_-]?token|webhook[_-]?(url|secret))/i;
+  /(?:pass(?:word|phrase)?|secret|token|api[_-]?key|apikey|authorization|bearer|credential|cookie|session[_-]?(?:id|token)|private[_-]?key|client[_-]?secret|signing[_-]?secret|access[_-]?key|refresh[_-]?token|webhook[_-]?(?:url|secret))/i;
 
 const REDACTED = "[redacted]";
 const MAX_STRING = 2000;
@@ -53,6 +53,15 @@ function redactString(value: string, maxString: number): string {
     return `${value.slice(0, maxString)}…(${value.length - maxString} more chars)`;
   }
   return value;
+}
+
+function redactEmbeddedSecrets(value: string): string {
+  const bearer = value.replace(/\b(bearer\s+)([^\s"',}]+)/gi, `$1${REDACTED}`);
+  const credentialField = new RegExp(
+    `(["']?\\b${SENSITIVE_KEY.source}\\b["']?\\s*[:=]\\s*)(["']?)(?!bearer\\b)([^"'\\s,}]+)\\2`,
+    "gi",
+  );
+  return bearer.replace(credentialField, `$1$2${REDACTED}$2`);
 }
 
 function redact(value: unknown, depth: number, maxString: number): unknown {
@@ -168,11 +177,19 @@ export function redactTextToSummary(
   // Only ever walk a bounded head: a multi-megabyte tool result must not be
   // scanned in full just to produce a preview of it.
   const head = text.slice(0, maxChars + MARKER_SLACK);
-  if (looksSecret(head.trim())) return REDACTED;
-  if (text.length <= maxChars) return head;
+  const redactedHead = redactEmbeddedSecrets(head);
+  if (looksSecret(redactedHead.trim())) return REDACTED;
+  if (text.length <= maxChars && redactedHead.length <= maxChars) {
+    return redactedHead;
+  }
   const keep = Math.max(0, maxChars - MARKER_SLACK);
-  return `${head.slice(0, keep)}…(${text.length - keep} more chars)`;
+  return `${redactedHead.slice(0, keep)}…(${text.length - keep} more chars)`;
 }
 
 /** Exposed for tests. */
-export const __test = { looksSecret, redact, SENSITIVE_KEY };
+export const __test = {
+  looksSecret,
+  redact,
+  redactEmbeddedSecrets,
+  SENSITIVE_KEY,
+};

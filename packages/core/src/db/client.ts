@@ -1128,6 +1128,7 @@ interface ClosablePool {
 
 const _sharedDbPools = new Map<string, ClosablePool>();
 const _sharedDbPoolCloseHooks = new Set<() => void>();
+const _sharedDbPoolReplacementHooks = new Map<string, Set<() => void>>();
 
 /**
  * One connection pool per (driver, URL) for the whole process.
@@ -1172,6 +1173,28 @@ export function replaceSharedDbPool<T extends ClosablePool>(
   const key = `${driver} ${url}`;
   if (_sharedDbPools.get(key) !== previous) return;
   _sharedDbPools.set(key, next);
+  for (const hook of _sharedDbPoolReplacementHooks.get(key) ?? []) {
+    try {
+      hook();
+    } catch {
+      // A consumer's reset must not block the replacement from being used.
+    }
+  }
+}
+
+/**
+ * Run `hook` when one shared pool is replaced, so derived consumers rebuild
+ * their handles instead of continuing to use the timed-out pool.
+ */
+export function onSharedDbPoolReplaced(
+  driver: string,
+  url: string,
+  hook: () => void,
+): void {
+  const key = `${driver}${String.fromCharCode(0)}${url}`;
+  const hooks = _sharedDbPoolReplacementHooks.get(key) ?? new Set();
+  hooks.add(hook);
+  _sharedDbPoolReplacementHooks.set(key, hooks);
 }
 
 /**

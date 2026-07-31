@@ -23,6 +23,7 @@ import {
   dbOpTimeoutMs,
   sharedDbPool,
   onSharedDbPoolsClosed,
+  onSharedDbPoolReplaced,
 } from "./client.js";
 
 // Lazy driver loaders — cached promises so dynamic import only runs once.
@@ -452,13 +453,19 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
   // branches only — `createGetDb` is called at module scope by every store, and
   // core's specs widely mock `db/client.js`.
   let _closeHookRegistered = false;
-  function resetOnPoolClose(): void {
+  function resetOnPoolClose(driver?: string, url?: string): void {
     if (_closeHookRegistered) return;
     _closeHookRegistered = true;
     onSharedDbPoolsClosed(() => {
       _db = undefined;
       _dbReady = undefined;
     });
+    if (driver && url) {
+      onSharedDbPoolReplaced(driver, url, () => {
+        _db = undefined;
+        _dbReady = undefined;
+      });
+    }
   }
 
   function startInit(): Promise<any> {
@@ -493,7 +500,7 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
           // Shared with the DbExec singleton, Better Auth, and every other
           // `createGetDb` store: one connect per process instead of one per
           // schema module. See `sharedDbPool` in client.ts.
-          resetOnPoolClose();
+          resetOnPoolClose("neon", url);
           const rawPool = sharedDbPool(
             "neon",
             url,
@@ -513,7 +520,7 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
           // concurrent frozen instances don't exhaust Neon/Postgres'
           // connection limit ("Max client connections reached"). Shared across
           // consumers — see `sharedDbPool` in client.ts.
-          resetOnPoolClose();
+          resetOnPoolClose("postgres-js", url);
           const client = sharedDbPool("postgres-js", url, () =>
             postgres(url, pgPoolOptions(url)),
           );

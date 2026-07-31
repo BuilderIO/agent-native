@@ -40,6 +40,7 @@ import {
   attachNeonPoolErrorLogger,
   sharedDbPool,
   onSharedDbPoolsClosed,
+  onSharedDbPoolReplaced,
 } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
 import { saveOAuthTokens } from "../oauth-tokens/store.js";
@@ -823,7 +824,7 @@ export async function resetBetterAuth(): Promise<void> {
 // `db/client.js`, and an import-time call into the mock breaks every one of
 // them that doesn't stub this export.
 let _poolCloseHookRegistered = false;
-function resetAuthOnPoolClose(): void {
+function resetAuthOnPoolClose(driver?: string, url?: string): void {
   if (_poolCloseHookRegistered) return;
   _poolCloseHookRegistered = true;
   onSharedDbPoolsClosed(() => {
@@ -831,6 +832,13 @@ function resetAuthOnPoolClose(): void {
     _initPromise = undefined;
     _neonAuthPool = undefined;
   });
+  if (driver && url) {
+    onSharedDbPoolReplaced(driver, url, () => {
+      _auth = undefined;
+      _initPromise = undefined;
+      _neonAuthPool = undefined;
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1174,7 +1182,7 @@ async function buildDatabaseConfig(
       // session lookup on essentially every authenticated request, so an
       // un-capped pool here is a primary contributor to "Max client
       // connections reached" across concurrent serverless instances.
-      resetAuthOnPoolClose();
+      resetAuthOnPoolClose("neon", url);
       _neonAuthPool = sharedDbPool(
         "neon",
         url,
@@ -1198,7 +1206,7 @@ async function buildDatabaseConfig(
     // un-capped pool here is a primary contributor to "Max client connections
     // reached" across concurrent serverless instances.
     const { default: postgres } = await import("postgres");
-    resetAuthOnPoolClose();
+    resetAuthOnPoolClose("postgres-js", url);
     const sql = sharedDbPool("postgres-js", url, () =>
       postgres(url, pgPoolOptions(url)),
     );

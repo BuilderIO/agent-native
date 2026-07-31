@@ -437,7 +437,7 @@ function isSafeCapturedText(value: unknown, maxChars: number): value is string {
   return (
     typeof value === "string" &&
     value.length <= maxChars &&
-    !/[\u0000-\u001f\u007f]/.test(value)
+    !/[\u0000-\u0008\u000b-\u001f\u007f]/.test(value)
   );
 }
 

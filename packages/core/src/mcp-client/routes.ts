@@ -332,8 +332,6 @@ export function startMcpConfigRefresh(
     ) {
       return;
     }
-    settingsDirty = false;
-    lastFullRefresh = Date.now();
     refreshing = true;
     try {
       const next = await buildMergedConfig();
@@ -342,7 +340,12 @@ export function startMcpConfigRefresh(
         await manager.reconfigure(next);
         currentSignature = nextSignature;
       }
+      settingsDirty = false;
+      lastFullRefresh = Date.now();
     } catch (err: any) {
+      // Keep this dirty so a transient database or manager failure is retried
+      // on the next interval instead of being hidden by the backstop window.
+      settingsDirty = true;
       console.warn(
         `[mcp-client] config refresh failed: ${err?.message ?? err}`,
       );
