@@ -693,6 +693,12 @@ async function findUpstreamDeletionReceipt(
     : null;
 }
 
+function captureMetadataFingerprint(metadata: Record<string, unknown>) {
+  const comparable = { ...metadata };
+  delete comparable.captureSanitization;
+  return stableJson(comparable);
+}
+
 export async function createCapture(values: {
   id?: string;
   sourceId: string;
@@ -773,13 +779,31 @@ export async function createCapture(values: {
     throw new BrainCaptureBlockedError(receipt);
   }
   const nextContentHash = await contentHash(sanitized.content);
+  const nextMetadataJson = stableJson(sanitized.metadata);
   const nextCapturedAt = values.capturedAt ?? existing?.capturedAt ?? now;
   const contentChanged = existing?.contentHash !== nextContentHash;
+  const metadataChanged = Boolean(
+    existing &&
+    captureMetadataFingerprint(
+      parseJson<Record<string, unknown>>(existing.metadataJson, {}),
+    ) !== captureMetadataFingerprint(sanitized.metadata),
+  );
   const indexedMetadataChanged = Boolean(
     existing &&
     (existing.title !== sanitized.title ||
       existing.capturedAt !== nextCapturedAt),
   );
+  const derivedInputChanged =
+    !existing || contentChanged || metadataChanged || indexedMetadataChanged;
+  const nextStatus =
+    values.status ??
+    (derivedInputChanged ? "queued" : (existing?.status ?? "queued"));
+  const nextDistilledAt =
+    values.status === "distilled"
+      ? now
+      : values.status !== undefined || derivedInputChanged
+        ? null
+        : (existing?.distilledAt ?? null);
   const captureId = existing?.id ?? id;
   try {
     if (!existing) {
@@ -791,11 +815,11 @@ export async function createCapture(values: {
         kind: values.kind,
         content: sanitized.content,
         contentHash: nextContentHash,
-        metadataJson: stableJson(sanitized.metadata),
+        metadataJson: nextMetadataJson,
         capturedAt: nextCapturedAt,
         importedBy: requireUserEmail(),
-        status: values.status ?? "queued",
-        distilledAt: values.status === "distilled" ? now : null,
+        status: nextStatus,
+        distilledAt: nextDistilledAt,
         sensitivityDisposition: "pending",
         sensitivityPolicyVersion: sanitized.decision.policyVersion,
         audienceAclHash: null,
@@ -875,10 +899,10 @@ export async function createCapture(values: {
       kind: values.kind,
       content: sanitized.content,
       contentHash: nextContentHash,
-      metadataJson: stableJson(sanitized.metadata),
+      metadataJson: nextMetadataJson,
       capturedAt: nextCapturedAt,
-      status: values.status ?? "queued",
-      distilledAt: values.status === "distilled" ? now : null,
+      status: nextStatus,
+      distilledAt: nextDistilledAt,
       sensitivityDisposition: "allowed",
       sensitivityPolicyVersion: sanitized.decision.policyVersion,
       audienceAclHash: audience.aclHash,
@@ -901,7 +925,7 @@ export async function createCapture(values: {
     if (receipt) throw new BrainCaptureBlockedError(receipt);
     throw new Error("Capture finalization was blocked");
   }
-  if (existing?.contentHash && contentChanged) {
+  if (existing?.contentHash && derivedInputChanged) {
     await invalidateDerivedForCapture(captureId);
   }
   const [capture] = await db
@@ -909,14 +933,13 @@ export async function createCapture(values: {
     .from(schema.brainRawCaptures)
     .where(eq(schema.brainRawCaptures.id, captureId))
     .limit(1);
-  const invalidationReason =
-    !existing || contentChanged || indexedMetadataChanged
-      ? "content-changed"
-      : existing.audienceAclHash !== audience.aclHash
-        ? "access-changed"
-        : existing.sensitivityPolicyVersion !== sanitized.decision.policyVersion
-          ? "sensitivity-changed"
-          : null;
+  const invalidationReason = derivedInputChanged
+    ? "content-changed"
+    : existing.audienceAclHash !== audience.aclHash
+      ? "access-changed"
+      : existing.sensitivityPolicyVersion !== sanitized.decision.policyVersion
+        ? "sensitivity-changed"
+        : null;
   if (!invalidationReason) return capture;
   try {
     await enqueueCaptureInvalidation({
@@ -1495,10 +1518,17 @@ async function evidenceSourceReviewPolicy(
       ),
     );
   if (sources.length !== sourceIds.length) return "required";
-  const values = sources.map(
-    (source) =>
-      parseJson<Record<string, unknown>>(source.configJson, {}).reviewRequired,
-  );
+  const values = sources.map((source) => {
+    const config = parseJson<Record<string, unknown>>(source.configJson, {});
+    const answerPolicy =
+      config.answerPolicy &&
+      typeof config.answerPolicy === "object" &&
+      !Array.isArray(config.answerPolicy)
+        ? (config.answerPolicy as Record<string, unknown>)
+        : null;
+    if (answerPolicy?.conflictBehavior === "require-review") return true;
+    return answerPolicy?.reviewRequired ?? config.reviewRequired;
+  });
   if (values.includes(true)) return "required";
   return values.every((value) => value === false) ? "disabled" : "legacy";
 }

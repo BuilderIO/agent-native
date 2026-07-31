@@ -708,6 +708,14 @@ export async function addAppToWorkspace(
   }
 
   const hasDispatch = installed.includes("dispatch");
+  const availableTemplates = coreTemplates().filter(
+    (template) => !installed.includes(template.name),
+  );
+  if (availableTemplates.length === 0) {
+    clack.cancel("All available apps are already installed.");
+    process.exit(0);
+  }
+
   const templates = await promptTemplatePicker(preselected, clack, {
     excludeNames: installed,
     message: "Which apps do you want to add?",
@@ -716,7 +724,9 @@ export async function addAppToWorkspace(
     recommendedNames: hasDispatch ? [] : ["dispatch"],
   });
   if (templates.length === 0) {
-    clack.cancel("No apps selected. Cancelled.");
+    clack.cancel(
+      "No apps selected. Press space to select an app, then press enter to continue.",
+    );
     process.exit(0);
   }
 

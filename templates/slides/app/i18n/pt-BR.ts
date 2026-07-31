@@ -358,6 +358,8 @@ const messages = {
   styleInspector: {
     title: "Style",
     close: "Fechar inspetor de estilo",
+    slideBackground: "Plano de fundo do slide",
+    slide: "Slide",
     deckStyle: "Estilo do deck",
     designSystemTweaks: "Ajustes do sistema de design",
     closeTweaks: "Fechar ajustes",
@@ -417,6 +419,10 @@ const messages = {
     emerald: "Emerald",
     amber: "Amber",
     rose: "Rose",
+    arrange: "Organizar",
+    order: "Ordem",
+    bringToFront: "Trazer para frente",
+    sendToBack: "Enviar para trás",
   },
   animations: {
     appear: "Aparecer",
@@ -537,6 +543,7 @@ const messages = {
     deckHasNoSlides: "El deck no tiene diapositivas.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",
+    dismissLayoutWarning: "Dispensar aviso de layout",
     slidesAdded_one: "{{count}} diapositiva añadida",
     slidesAdded_other: "{{count}} diapositivas añadidas",
     slidesAdded_many: "{{count}} diapositivas añadidas",
@@ -644,6 +651,7 @@ const messages = {
     clearWorkspaceDefault: "Remover o padrão do espaço de trabalho",
     workspaceDefaultSet: "Definido como padrão do espaço de trabalho",
     workspaceDefaultCleared: "Padrão do espaço de trabalho removido",
+    duplicateFailed: "Não foi possível duplicar esse deck",
     workspaceDefaultFailed:
       "Não foi possível atualizar o padrão do espaço de trabalho",
     workspaceDefaultConfirmTitle: "Definir como padrão do espaço de trabalho?",

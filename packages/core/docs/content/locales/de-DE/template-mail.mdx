@@ -361,7 +361,7 @@ Mail kann von Ihnen geändert werden. Alles Wichtige befindet sich an wenigen Or
 
 **Tastaturkürzel ändern.** Keybind-Handler leben in `templates/mail/app/components/email/` – suchen Sie nach `useHotkeys` oder `addEventListener("keydown"`, um herauszufinden, wo jede Taste verkabelt ist.
 
-Bitten Sie den Agenten, diese Änderungen für Sie vorzunehmen. Der Agent kann seine eigene Quelle bearbeiten – siehe [Self-Modifying Code](/docs/key-concepts#agent-modifies-code).
+Nehmen Sie diese Änderungen in Ihrem Repository- und Entwicklungsworkflow vor. Der eingebettete Agent kann nur dann bei Quelländerungen helfen, wenn der Host bewusst Repository-/Workspace-Schreibwerkzeuge bereitstellt; andernfalls arbeitet er über Actions und Daten. Siehe [Key Concepts](/docs/key-concepts#agent-modifies-code).
 
 ## Wie geht es weiter?
 

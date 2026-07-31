@@ -170,6 +170,10 @@ export interface A2ACorrelationMetadata {
   parentRunId?: string;
   parentTurnId?: string;
   invocationId?: string;
+  /** Number of cross-app edges already traversed by this logical request. */
+  delegationDepth?: number;
+  /** Bounded app ids already visited, used only for cycle prevention. */
+  visitedApps?: string[];
 }
 
 // --- Framework config ---

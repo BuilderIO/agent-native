@@ -322,7 +322,7 @@ pnpm action db-check-scoping --require-org  # org_id も必要です
 | OAuth トークン (Google、GitHub)              | `saveOAuthTokens()` 経由で `oauth_tokens` ストア        |
 | セッショントークン                           | 自動 (Better Auth がこれを処理します)                   |
 
-ユーザーごと/組織ごとの資格情報とボールトは、`SECRETS_ENCRYPTION_KEY` によってキー付けされた AES-256-GCM で保存時に暗号化されます (`BETTER_AUTH_SECRET` にフォールバック)。生産はこれなしでは開始できません。既存の平文認証情報行を暗号化するには、`pnpm action db-migrate-encrypt-credentials` (冪等、非破壊) を実行します。
+ユーザーごと/組織ごとの資格情報とボールトは AES-256-GCM で保存時に暗号化されます。共有ワークスペース Vault は `WORKSPACE_SECRETS_ENCRYPTION_KEY` を優先し、`SECRETS_ENCRYPTION_KEY`、`A2A_SECRET`、`BETTER_AUTH_SECRET` 由来の旧候補を続けて試します。ローテーション中は `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS` を設定し、読み取りで行を移行します。既存の平文行を暗号化するには `pnpm action db-migrate-encrypt-credentials` (冪等、非破壊) を実行します。
 
 シークレットを `settings`、`application_state`、ソース コード、またはアクション レスポンスに保存しないでください。上記の資格情報/ボールト API を使用します。これらは暗号化とユーザーごとのスコープの両方を処理します。
 
@@ -365,7 +365,7 @@ A2A_SECRET=your-shared-secret-at-least-32-chars
 - [ ] `BETTER_AUTH_SECRET` は、`A2A_SECRET` から派生したホストされたワークスペース デプロイでない限り、ランダムな 32 文字以上の文字列 (`openssl rand -hex 32`) に設定されます
 - [ ] `OAUTH_STATE_SECRET` は、別のランダムな 32 文字以上の文字列に設定されます (`BETTER_AUTH_SECRET` は再利用しないでください) — [OAuth State Signing](#oauth-state) を参照
 - [ ] A2A トラフィックを呼び出しまたは受信するすべてのアプリに `A2A_SECRET` が設定されます — [A2A Identity Verification](#a2a-identity) を参照
-- [ ] `SECRETS_ENCRYPTION_KEY` セット (または `BETTER_AUTH_SECRET` フォールバックに依存) — [Secrets Management](#secrets) を参照
+- [ ] 共有マルチアプリ Vault では `WORKSPACE_SECRETS_ENCRYPTION_KEY` を同じ値に設定し、アプリ固有の暗号化には `SECRETS_ENCRYPTION_KEY`/`BETTER_AUTH_SECRET` のフォールバックを使用 — [Secrets Management](#secrets) を参照
 - [ ] `AUTH_SKIP_EMAIL_VERIFICATION` は運用環境では**設定されていません** (または QA プレビュー展開でのみ設定されます)
 
 ### Webhook シークレット (使用する統合用に設定します)

@@ -1068,7 +1068,12 @@ export interface ProductionAgentOptions {
    * `maxResultChars` takes precedence; this sets the fallback for actions
    * that don't declare their own limits.
    */
-  toolLimits?: { timeoutMs?: number; maxResultChars?: number };
+  toolLimits?: {
+    timeoutMs?: number;
+    maxResultChars?: number;
+    /** Absolute cap applied after action-level overrides. */
+    hardMaxResultChars?: number;
+  };
 }
 
 export async function resolveAgentOwnerEmail(
@@ -1307,16 +1312,23 @@ export function isRetryableError(err: unknown): boolean {
     msg.includes("gateway error") ||
     msg.includes("socket hang up") ||
     msg.includes("connection reset") ||
-    // Anthropic SDK APIConnectionError default message is exactly
-    // "Connection error." — Builder gateway often forwards it as a stop
-    // event with no structured code. Without this match the run fails in
-    // ~3s and the client recovery loop storms POSTs.
-    msg.includes("connection error") ||
+    hasProviderConnectionErrorMessage(msg) ||
     msg.includes("too many requests") ||
     msg.includes("timeout") ||
     msg.includes("gateway timeout") ||
     msg.includes("inactivity timeout") ||
     msg.includes("too much time has passed without sending any data")
+  );
+}
+
+function hasProviderConnectionErrorMessage(message: string): boolean {
+  const normalized = message.toLowerCase();
+  // Anthropic's APIConnectionError uses "Connection error."; AI SDK wraps
+  // OpenAI TLS failures as "Cannot connect to API". Both can cross a worker
+  // boundary without their structured EngineError metadata.
+  return (
+    normalized.includes("connection error") ||
+    normalized.includes("cannot connect to api")
   );
 }
 
@@ -2064,6 +2076,18 @@ export interface AgentLoopUsage {
   firstEngineEventAtMs?: number;
 }
 
+/** Machine-readable terminal state for one agent-loop attempt. */
+export type AgentLoopOutcome =
+  | { state: "completed" }
+  | { state: "input_required"; code: string; message: string }
+  | {
+      state: "failed";
+      code: string;
+      retryable: boolean;
+      message: string;
+    }
+  | { state: "canceled"; message?: string };
+
 export interface AgentLoopToolCallSummary {
   name: string;
   input: unknown;
@@ -2152,7 +2176,7 @@ export type AgentLoopContinuationReason =
 
 export function appendAgentLoopContinuation(
   messages: EngineMessage[],
-  reason: AgentLoopContinuationReason,
+  reason: AgentLoopContinuationReason | "rate_limited",
   options: { actionPreparationTool?: string } = {},
 ) {
   const note =
@@ -2164,11 +2188,13 @@ export function appendAgentLoopContinuation(
           ? "The previous stream ended before the agent sent a final completion signal."
           : reason === "gateway_timeout"
             ? "The previous LLM call hit an upstream gateway timeout before the response finished streaming."
-            : reason === "network_interrupted"
-              ? "The previous LLM call was cut off by a transport-level interruption (socket dropped, connection reset, or stream closed unexpectedly)."
-              : reason === "no_progress"
-                ? "The previous run stopped producing progress events while the connection stayed open."
-                : "The previous run reached an internal execution budget.";
+            : reason === "rate_limited"
+              ? "The previous LLM call was temporarily rate limited after exhausting its short provider retry budget."
+              : reason === "network_interrupted"
+                ? "The previous LLM call was cut off by a transport-level interruption (socket dropped, connection reset, or stream closed unexpectedly)."
+                : reason === "no_progress"
+                  ? "The previous run stopped producing progress events while the connection stayed open."
+                  : "The previous run reached an internal execution budget.";
   const actionInputNote = options.actionPreparationTool
     ? actionPreparationContinuationNote(options.actionPreparationTool)
     : "";
@@ -2238,7 +2264,7 @@ export function isResumableEngineError(err: unknown): boolean {
     text.includes("econnaborted") ||
     text.includes("fetch failed") ||
     text.includes("network error") ||
-    text.includes("connection error") ||
+    hasProviderConnectionErrorMessage(text) ||
     text.includes("connection reset") ||
     text.includes("connection closed") ||
     text.includes("stream closed") ||
@@ -2249,6 +2275,34 @@ export function isResumableEngineError(err: unknown): boolean {
     text.includes("too much time has passed without sending any data") ||
     text.includes("terminated")
   );
+}
+
+/**
+ * True only for transient provider throttling that may recover after one
+ * cooled-down background continuation. This is deliberately narrower than
+ * `isRetryableError`: daily/account caps are terminal, and generic retryable
+ * transport errors keep using the normal resumable-error path.
+ *
+ * The engine has already spent its short in-call retry budget before this
+ * helper is consulted. Callers must add their own small continuation cap so a
+ * sustained provider limit cannot turn into an unbounded request storm.
+ */
+export function isTransientProviderRateLimitError(err: unknown): boolean {
+  if (!(err instanceof EngineError)) return false;
+  const code = (err.errorCode ?? "").toLowerCase();
+  const text = errorSearchText(err);
+
+  if (
+    code === "rate_limit_exceeded" ||
+    text.includes("daily gateway request cap")
+  ) {
+    return false;
+  }
+  if (err.statusCode === 429 || err.statusCode === 529) {
+    return true;
+  }
+  if (code === "http_429" || code === "http_529") return true;
+  return false;
 }
 
 /**
@@ -2825,6 +2879,9 @@ export interface ExecuteAgentToolCallOptions {
   networkProtocol?: "a2a" | "mcp" | "provider-api";
   networkId?: string;
   networkPeer?: string;
+  /** Bounded cross-app lineage used to prevent recursive delegation cycles. */
+  delegationDepth?: number;
+  visitedApps?: string[];
   threadId?: string;
   turnId?: string;
   approvedToolCalls?: string[];
@@ -3735,6 +3792,8 @@ export async function runAgentLoop(opts: {
   signal: AbortSignal;
   /** Observe usage as each model response reports it, including aborted loops. */
   onUsage?: (usage: AgentLoopUsage) => void;
+  /** Observe the attempt's typed terminal state separately from chat events. */
+  onOutcome?: (outcome: AgentLoopOutcome) => void;
   ownerEmail?: string | null;
   orgId?: string | null;
   /** Action invocation attribution. Defaults to the normal agent tool loop. */
@@ -3753,6 +3812,9 @@ export async function runAgentLoop(opts: {
   networkProtocol?: "a2a" | "mcp" | "provider-api";
   networkId?: string;
   networkPeer?: string;
+  /** Bounded cross-app lineage used to prevent recursive delegation cycles. */
+  delegationDepth?: number;
+  visitedApps?: string[];
   /**
    * Attachments submitted with this turn (pasted text, files, images), passed
    * through to each tool's `ActionRunContext.attachments` so actions can
@@ -3792,7 +3854,12 @@ export async function runAgentLoop(opts: {
    * App-level default limits applied to every tool call unless the individual
    * ActionEntry overrides them with its own timeoutMs / maxResultChars.
    */
-  toolLimits?: { timeoutMs?: number; maxResultChars?: number };
+  toolLimits?: {
+    timeoutMs?: number;
+    maxResultChars?: number;
+    /** Absolute cap applied after action-level overrides. */
+    hardMaxResultChars?: number;
+  };
   /**
    * Stable approval keys granted by a human for actions declared
    * `needsApproval`. A call whose key is present here runs even though the
@@ -3821,6 +3888,16 @@ export async function runAgentLoop(opts: {
     send,
     signal,
   } = opts;
+  let outcomeReported = false;
+  const reportOutcome = (outcome: AgentLoopOutcome) => {
+    if (outcomeReported) return;
+    outcomeReported = true;
+    try {
+      opts.onOutcome?.(outcome);
+    } catch {
+      // Outcome observers are telemetry/protocol adapters and cannot alter the run.
+    }
+  };
   const budgetStartedAt = opts.budgetStartedAt ?? Date.now();
   const finalResponseGuardRequestText =
     opts.finalResponseGuardRequestText ??
@@ -3951,6 +4028,7 @@ export async function runAgentLoop(opts: {
   // `loop_limit` and `done` share one terminal-event slot in run-manager, so a
   // trailing `done` would overwrite the boundary the continuation logic reads.
   let endedAtLoopLimit = false;
+  let terminalActionStop: { message: string; errorCode?: string } | null = null;
   // Overridden (raised tokens, lowered effort) only after an empty-final-
   // response retry below — kept separate from `opts.maxOutputTokens`/
   // `opts.reasoningEffort` so the very first attempt is unaffected and later
@@ -5044,10 +5122,17 @@ export async function runAgentLoop(opts: {
         runToolTimeoutCeilingMs > 0
           ? Math.min(requestedToolTimeoutMs, runToolTimeoutCeilingMs)
           : requestedToolTimeoutMs;
-      const toolMaxResultChars =
+      const configuredToolMaxResultChars =
         actionEntry.maxResultChars ??
         opts.toolLimits?.maxResultChars ??
         DEFAULT_TOOL_RESULT_CHARS;
+      const toolMaxResultChars =
+        typeof opts.toolLimits?.hardMaxResultChars === "number"
+          ? Math.min(
+              configuredToolMaxResultChars,
+              opts.toolLimits.hardMaxResultChars,
+            )
+          : configuredToolMaxResultChars;
 
       // TOOL-CALL JOURNAL HARD-BLOCK (resume safety, tool-layer enforcement).
       // The prompt-level resume journal already TELLS a resuming model not to
@@ -5406,6 +5491,8 @@ export async function runAgentLoop(opts: {
           networkProtocol: opts.networkProtocol,
           networkId: opts.networkId,
           networkPeer: opts.networkPeer,
+          delegationDepth: opts.delegationDepth,
+          visitedApps: opts.visitedApps,
           attachments: opts.attachments,
           signal,
           // Audit attribution: the action name + the agent thread/turn that
@@ -5702,6 +5789,7 @@ export async function runAgentLoop(opts: {
         message: string;
         errorCode?: string;
       };
+      terminalActionStop = stop;
       send({ type: "text", text: stop.message });
       break;
     }
@@ -5712,6 +5800,9 @@ export async function runAgentLoop(opts: {
   // ended on a guardrail, not a clean turn. The result hook still fires below
   // so processors can observe the (halted) final text.
   if (tripwire) {
+    // TypeScript cannot see assignments performed by the processor callback
+    // inside the loop, so preserve the runtime narrowing explicitly here.
+    const terminalTripwire = tripwire as TripWire;
     if (processorChain) {
       try {
         await processorChain.runResult(
@@ -5724,10 +5815,24 @@ export async function runAgentLoop(opts: {
         // A result-hook abort is a no-op: the run is already halting.
       }
     }
+    reportOutcome({
+      state: "failed",
+      code:
+        terminalTripwire.processor === "run-input-token-budget"
+          ? "budget_exhausted"
+          : terminalTripwire.processor
+            ? `guardrail:${terminalTripwire.processor}`
+            : "guardrail",
+      // Re-running the same request with the same deterministic guardrail
+      // would reproduce the stop. A caller can issue a smaller follow-up, but
+      // must not automatically replay this turn.
+      retryable: false,
+      message: terminalTripwire.message,
+    });
     return usage;
   }
 
-  if (!signal.aborted && !endedAtLoopLimit) {
+  if (!signal.aborted && !endedAtLoopLimit && !terminalActionStop) {
     // In-loop processor seam (result hook). Fires once at clean run end with the
     // final assistant text so processors (e.g. a proof-of-done gate) can record
     // a verdict. A result-hook abort cannot un-finish a completed run, so a
@@ -5772,6 +5877,32 @@ export async function runAgentLoop(opts: {
       }
     }
   }
+
+  if (signal.aborted) {
+    reportOutcome({ state: "canceled", message: "Agent run was aborted." });
+  } else if (endedAtLoopLimit) {
+    reportOutcome({
+      state: "failed",
+      code: "loop_limit",
+      retryable: false,
+      message: `Agent stopped after ${maxIterations} iterations.`,
+    });
+  } else if (terminalActionStop?.errorCode === "needs-approval") {
+    reportOutcome({
+      state: "input_required",
+      code: "needs_approval",
+      message: terminalActionStop.message,
+    });
+  } else if (terminalActionStop) {
+    reportOutcome({
+      state: "failed",
+      code: terminalActionStop.errorCode ?? "tool_failed",
+      retryable: false,
+      message: terminalActionStop.message,
+    });
+  } else {
+    reportOutcome({ state: "completed" });
+  }
   return usage;
 }
 
@@ -5806,7 +5937,7 @@ function isRecoverableContinuationError(event: {
     code === "http_529" ||
     code === "run_timeout" ||
     message.includes("timeout") ||
-    message.includes("connection error") ||
+    hasProviderConnectionErrorMessage(message) ||
     message.includes("temporarily unavailable")
   );
 }
@@ -7103,7 +7234,9 @@ function progressStepFromAgentChatEvent(event: AgentChatEvent): string | null {
         ? `Calling ${event.agent}.`
         : event.status === "done"
           ? `Finished ${event.agent}.`
-          : `${event.agent} failed.`;
+          : event.status === "pending"
+            ? `${event.agent} is still working.`
+            : `${event.agent} failed.`;
     case "agent_task":
       return event.status === "running"
         ? "Started background task."

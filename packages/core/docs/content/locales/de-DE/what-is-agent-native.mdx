@@ -218,7 +218,7 @@ Das vollständige Konzept finden Sie unter [Agent-Ressourcen](/docs/agent-resour
 
 ## Entwicklung des gesamten Teams {#whole-team-development}
 
-Agent-native ist nicht nur für Entwickler. Da der Agent den eigenen Code der App bearbeiten kann, ist die Weiterentwicklung einer App keine reine Entwickleraktivität mehr:
+Agent-native ist nicht nur für Entwickler. Der eingebettete Agent gibt dem ganzen Team eine gemeinsame Möglichkeit, die App zu bedienen, während Quelländerungen im normalen Entwicklungsablauf bleiben. Quellcode wird nur bearbeitet, wenn der Host bewusst Repository-/Workspace-Schreibwerkzeuge bereitstellt:
 
 - **Designer** aktualisieren Designs direkt in der laufenden App über den Agent
 - **Produktmanager** fügen Funktionalität hinzu und aktualisieren Abläufe, indem sie sie beschreiben
@@ -234,10 +234,10 @@ Agent-native Apps folgen einem Modell, bei dem Sie mit einer funktionierenden Ap
 1. Wählen Sie eine Vorlage auf [agent-native.com/templates](/templates)
 2. Sofort als gehostete App verwenden (z. B. mail.agent-native.com)
 3. Erstellen Sie Ihre eigene App aus der Vorlage, wenn Sie sie anpassen möchten – „Verbinden Sie unser Stripe-Konto“, „fügen Sie ein Kohortendiagramm hinzu“
-4. Der Agent ändert den Code entsprechend Ihren Anforderungen
+4. Passen Sie den Quellcode in Ihrem Repository und Entwicklungsablauf an
 5. Stellen Sie Ihre App in Ihrer eigenen Domain bereit – oder bleiben Sie auf agent-native.com
 
-Da es sich um _Ihre_ App und nicht um eine gemeinsam genutzte Infrastruktur handelt, kann der Agent den Code sicher weiterentwickeln. Ihre App verbessert sich ständig, während Sie sie verwenden. Die ganze Geschichte finden Sie unter [Templates](/docs/cloneable-saas).
+Da es sich um _Ihre_ App und nicht um gemeinsam genutzte Infrastruktur handelt, besitzen Sie den Quellcode und können ihn weiterentwickeln, ohne das gemeinsame Framework zu ändern. Der eingebettete Agent arbeitet über Actions und Daten und kann Quelländerungen nur mit bewusst bereitgestellten Schreibwerkzeugen unterstützen. Die ganze Geschichte finden Sie unter [Templates](/docs/cloneable-saas).
 
 Sie sind nicht bereit, eine ganze Vorlage zu teilen? Sie können Agent-nativ auch ausprobieren, indem Sie einen **Skill** zu einem Codierungsagenten hinzufügen, den Sie bereits verwenden – installieren Sie den Plans-Skill mit `npx @agent-native/core@latest skills add visual-plan`. Siehe [Skills Guide](/docs/skills-guide#app-backed-skills).
 

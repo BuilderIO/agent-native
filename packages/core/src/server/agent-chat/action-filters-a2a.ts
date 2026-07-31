@@ -12,6 +12,7 @@ import {
   filterInitialEngineTools,
   resolveAgentRequestReasoningEffort,
   type ActionEntry,
+  type AgentLoopOutcome,
 } from "../../agent/production-agent.js";
 import { runAgentLoopDirectWithSoftTimeout } from "../../agent/run-loop-with-resume.js";
 import type { AgentChatEvent } from "../../agent/types.js";
@@ -194,6 +195,10 @@ export function buildAuthenticatedAgentA2ASkills(
       name,
       description: entry.tool.description,
       publicAgent: entry.publicAgent,
+      // Every action in this set is read-only by construction. Omitting the
+      // flag made discovery label all of them "(mutating)", which pushes a
+      // caller away from invoking them and back into open-ended delegation.
+      readOnly: true,
       // Naming an action without its parameters is what makes a caller invoke
       // it with `{}` and fail on a required field.
       ...(entry.tool.parameters
@@ -230,9 +235,14 @@ export function resolveArtifactBaseUrl(
 export function assembleA2AFinalResponse(
   events: readonly AgentChatEvent[],
   toolResults: readonly A2AToolResultSummary[],
-  options: A2AArtifactResponseOptions & { event?: any } = {},
+  options: A2AArtifactResponseOptions & {
+    event?: any;
+    outcome?: AgentLoopOutcome;
+  } = {},
 ): { responseText: string; finalText: string } {
-  const terminalError = getA2ATerminalErrorEvent(events);
+  const terminalError = options.outcome
+    ? terminalErrorFromOutcome(options.outcome)
+    : getA2ATerminalErrorEvent(events);
   const responseText = collectFinalResponseTextFromAgentEvents(events, {
     fallbackToPreToolText: !terminalError,
   });
@@ -241,10 +251,46 @@ export function assembleA2AFinalResponse(
     includeReferencedArtifacts: true,
     includePersistedArtifactMarker: true,
   });
-  if (terminalError && !finalText.trim()) {
-    throw new Error(formatA2ATerminalError(terminalError));
+  if (terminalError) {
+    const partialResult = finalText.trim()
+      ? `\n\nPartial verified results before the failure:\n${finalText.trim()}`
+      : "";
+    throw new Error(formatA2ATerminalError(terminalError) + partialResult);
+  }
+  if (!finalText.trim()) {
+    throw new Error(
+      "Agent completed without a response or verified artifact.\ncode: empty_agent_response",
+    );
   }
   return { responseText, finalText };
+}
+
+function terminalErrorFromOutcome(
+  outcome: AgentLoopOutcome,
+): Extract<AgentChatEvent, { type: "error" }> | null {
+  if (outcome.state === "completed") return null;
+  if (outcome.state === "failed") {
+    return {
+      type: "error",
+      error: outcome.message,
+      errorCode: outcome.code,
+      recoverable: outcome.retryable,
+    };
+  }
+  if (outcome.state === "input_required") {
+    return {
+      type: "error",
+      error: outcome.message,
+      errorCode: outcome.code,
+      recoverable: true,
+    };
+  }
+  return {
+    type: "error",
+    error: outcome.message ?? "Agent run was canceled.",
+    errorCode: "canceled",
+    recoverable: false,
+  };
 }
 
 function getA2ATerminalErrorEvent(
@@ -255,6 +301,23 @@ function getA2ATerminalErrorEvent(
     if (event.type === "clear") continue;
     if (event.type === "done") return null;
     if (event.type === "error") return event;
+    if (event.type === "tripwire") {
+      return {
+        type: "error",
+        error: event.reason || "Agent stopped at a delegated-run guardrail.",
+        errorCode: event.processor ? `tripwire:${event.processor}` : "tripwire",
+        recoverable: true,
+      };
+    }
+    if (event.type === "loop_limit") {
+      return {
+        type: "error",
+        error:
+          "Agent stopped before finishing at the delegated-run step limit.",
+        errorCode: "loop_limit",
+        recoverable: true,
+      };
+    }
     if (event.type === "auto_continue") {
       return {
         type: "error",
@@ -280,6 +343,29 @@ function formatA2ATerminalError(
 
 type A2AAgentLoopRunner = typeof runAgentLoopDirectWithSoftTimeout;
 
+/**
+ * Delegated turns should do specialist work with the receiver's own tools,
+ * but must return a bounded caller-ready result. Interactive defaults allow
+ * extremely deep work (400 iterations / 20M cumulative input tokens), which
+ * made healthy Slides -> Analytics calls take 4-13 minutes and consume up to
+ * millions of input tokens as tool results accumulated. These defaults leave
+ * ample room for multi-source analysis while failing before a delegated turn
+ * can silently become an unbounded research session.
+ */
+export const DEFAULT_DELEGATED_MAX_ITERATIONS = 80;
+export const DEFAULT_DELEGATED_MAX_RUN_INPUT_TOKENS = 750_000;
+export const DEFAULT_DELEGATED_MAX_TOOL_RESULT_CHARS = 20_000;
+
+export const DELEGATED_AGENT_EXECUTION_CONTRACT = `
+<delegated-agent-contract>
+This request was delegated by another app. You are the specialist owner of the work.
+- Interpret the caller's natural-language objective using your own instructions, skills, data dictionary, credentials, and tools. Choose providers, schemas, queries, and joins here; never ask the caller to invent SQL or source-specific implementation details for you.
+- Finish the objective autonomously in this delegated turn whenever a safe, reasonable default exists. Do not bounce the work back with UI-navigation requests, implementation questions, or intermediate status. Ask for input only when authorization, missing credentials, or a consequential user choice truly blocks progress.
+- When evidence is incomplete, return the best grounded partial answer with explicit coverage gaps instead of refusing or asking the caller to choose your source, filter, dashboard, or workflow.
+- Minimize round trips. Filter, join, aggregate, paginate, stage, and reduce large datasets inside your own tools rather than returning raw records or transcripts.
+- Return a concise caller-ready result with the answer, source and coverage details, relevant counts or IDs, caveats/partial gaps, and exact artifact URLs. Do not return tool transcripts or large raw payloads.
+</delegated-agent-contract>`;
+
 export interface DelegatedAgentLoopTelemetry {
   runId: string;
   threadId: string | null;
@@ -302,14 +388,19 @@ async function runDelegatedAgentLoop(
   runOptions: Parameters<A2AAgentLoopRunner>[0],
   pluginOptions: Pick<
     AgentChatPluginOptions,
-    "finalResponseGuard" | "runSoftTimeoutMs"
+    "delegatedRunPolicy" | "finalResponseGuard" | "runSoftTimeoutMs"
   >,
   timeoutOptions: Parameters<A2AAgentLoopRunner>[2],
   options: DelegatedAgentLoopOptions,
 ) {
   const runner = options.runner ?? runAgentLoopDirectWithSoftTimeout;
+  const policy = pluginOptions.delegatedRunPolicy;
+  const configuredHardToolResultCap = runOptions.toolLimits?.hardMaxResultChars;
+  const delegatedHardToolResultCap =
+    policy?.maxToolResultChars ?? DEFAULT_DELEGATED_MAX_TOOL_RESULT_CHARS;
   const resolvedRunOptions = {
     ...runOptions,
+    systemPrompt: runOptions.systemPrompt + DELEGATED_AGENT_EXECUTION_CONTRACT,
     // Delegated runs resolve their own model and do not pass through the
     // interactive request handler's output-token setup. Use the same
     // model-aware headroom here so reasoning models (notably GPT-5.x) do
@@ -321,6 +412,21 @@ async function runDelegatedAgentLoop(
     reasoningEffort:
       runOptions.reasoningEffort ??
       resolveAgentRequestReasoningEffort({ model: runOptions.model }),
+    maxIterations:
+      runOptions.maxIterations ??
+      policy?.maxIterations ??
+      DEFAULT_DELEGATED_MAX_ITERATIONS,
+    maxRunInputTokens:
+      runOptions.maxRunInputTokens ??
+      policy?.maxRunInputTokens ??
+      DEFAULT_DELEGATED_MAX_RUN_INPUT_TOKENS,
+    toolLimits: {
+      ...(runOptions.toolLimits ?? {}),
+      hardMaxResultChars:
+        typeof configuredHardToolResultCap === "number"
+          ? Math.min(configuredHardToolResultCap, delegatedHardToolResultCap)
+          : delegatedHardToolResultCap,
+    },
     finalResponseGuard: pluginOptions.finalResponseGuard,
   };
   const execute = (loopOptions = resolvedRunOptions) =>
@@ -369,7 +475,7 @@ export function runA2AAgentLoop(
   runOptions: Parameters<A2AAgentLoopRunner>[0],
   pluginOptions: Pick<
     AgentChatPluginOptions,
-    "finalResponseGuard" | "runSoftTimeoutMs"
+    "delegatedRunPolicy" | "finalResponseGuard" | "runSoftTimeoutMs"
   >,
   timeoutOptions: Parameters<A2AAgentLoopRunner>[2],
   options: DelegatedAgentLoopOptions = {},
@@ -391,7 +497,7 @@ export function runMCPAgentLoop(
   runOptions: Parameters<A2AAgentLoopRunner>[0],
   pluginOptions: Pick<
     AgentChatPluginOptions,
-    "finalResponseGuard" | "runSoftTimeoutMs"
+    "delegatedRunPolicy" | "finalResponseGuard" | "runSoftTimeoutMs"
   >,
   timeoutOptions: Parameters<A2AAgentLoopRunner>[2],
   options: DelegatedAgentLoopOptions = {},

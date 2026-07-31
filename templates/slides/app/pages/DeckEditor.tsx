@@ -8,7 +8,6 @@ import {
 import { useSession, callAction } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useOrg } from "@agent-native/core/client/org";
-import type { PinpointProps } from "@agent-native/pinpoint/react";
 import {
   DndContext,
   closestCenter,
@@ -24,21 +23,14 @@ import {
   IconUsersGroup,
 } from "@tabler/icons-react";
 import { nanoid } from "nanoid";
-import {
-  useState,
-  useCallback,
-  useRef,
-  useEffect,
-  lazy,
-  Suspense,
-} from "react";
-import type { ComponentType } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useParams, useSearchParams, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { SlideCommentsPanel } from "@/components/comments/SlideCommentsPanel";
 import { AnimationsPanel } from "@/components/editor/AnimationsPanel";
 import AssetLibraryPanel from "@/components/editor/AssetLibraryPanel";
+import { DeckEditorSkeleton } from "@/components/editor/DeckEditorSkeleton";
 import EditorSidebar from "@/components/editor/EditorSidebar";
 import EditorToolbar from "@/components/editor/EditorToolbar";
 import GeneratingOverlay from "@/components/editor/GeneratingOverlay";
@@ -61,6 +53,10 @@ import {
   type CommentThread,
 } from "@/hooks/use-slide-comments";
 import type { AspectRatio } from "@/lib/aspect-ratios";
+import {
+  deckAccessCheckKey,
+  shouldShowDeckEditorSkeleton,
+} from "@/lib/deck-editor-loading";
 import { getPreset } from "@/lib/design-systems";
 import { exportDeckToGoogleSlides } from "@/lib/export-google-slides-client";
 import { exportDeckAsPdf } from "@/lib/export-pdf-client";
@@ -79,12 +75,6 @@ import {
 import { TAB_ID } from "@/lib/tab-id";
 import { shouldActivateTextTool } from "@/lib/text-tool-shortcut";
 import { shortcutLabel } from "@/lib/utils";
-
-const Pinpoint = lazy<ComponentType<PinpointProps>>(() =>
-  import("@agent-native/pinpoint/react").then((m) => ({
-    default: m.Pinpoint as ComponentType<PinpointProps>,
-  })),
-);
 
 type EditorSidePanel = "style" | "comments" | null;
 
@@ -162,6 +152,7 @@ export default function DeckEditor() {
   const {
     getDeck,
     reloadDecks,
+    reloadDecksWithStatus,
     updateDeck,
     updateSlide,
     deleteSlide,
@@ -171,10 +162,8 @@ export default function DeckEditor() {
     reorderSlides,
     markDeckDirty,
     undo,
-    redo,
-    canUndo,
-    canRedo,
     loading,
+    loadError,
   } = useDecks();
   const [activeSlideId, setActiveSlideId] = useState<string | null>(null);
   const { generating } = useAgentGenerating();
@@ -192,6 +181,9 @@ export default function DeckEditor() {
     () => typeof window !== "undefined" && window.innerWidth >= 768,
   );
   const [retryingMissingDeck, setRetryingMissingDeck] = useState(false);
+  const [checkedDeckAccessKey, setCheckedDeckAccessKey] = useState<
+    string | null
+  >(null);
   const {
     data: org,
     isLoading: orgLoading,
@@ -262,6 +254,7 @@ export default function DeckEditor() {
   }, []);
 
   const deck = getDeck(id || "");
+  const currentDeckAccessKey = deckAccessCheckKey(id, org?.orgId);
   const hasTeamJoinOption =
     !org?.orgId &&
     ((org?.pendingInvitations?.length ?? 0) > 0 ||
@@ -315,9 +308,44 @@ export default function DeckEditor() {
   const showQuestionFlow = Boolean(questionFlowQuestions?.length);
 
   useEffect(() => {
-    if (loading || deck || !id || !org?.orgId) return;
-    void reloadDecks();
-  }, [deck, id, loading, org?.orgId, reloadDecks]);
+    if (
+      loading ||
+      deck ||
+      !id ||
+      !currentDeckAccessKey ||
+      orgLoading ||
+      checkedDeckAccessKey === currentDeckAccessKey
+    ) {
+      return;
+    }
+
+    if (!org?.orgId) {
+      setCheckedDeckAccessKey(currentDeckAccessKey);
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      let status = await reloadDecksWithStatus();
+      while (!cancelled && status === "stale") {
+        status = await reloadDecksWithStatus();
+      }
+      if (!cancelled) setCheckedDeckAccessKey(currentDeckAccessKey);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    checkedDeckAccessKey,
+    currentDeckAccessKey,
+    deck,
+    id,
+    loading,
+    org?.orgId,
+    orgLoading,
+    reloadDecksWithStatus,
+  ]);
 
   const retryOpenDeck = useCallback(async () => {
     setRetryingMissingDeck(true);
@@ -826,13 +854,24 @@ export default function DeckEditor() {
     (t) => !t.resolved,
   ).length;
 
-  if (loading) return <div className="h-screen bg-background" />;
+  if (
+    shouldShowDeckEditorSkeleton({
+      deckFound: Boolean(deck),
+      decksLoading: loading,
+      orgLoading,
+      accessCheckKey: currentDeckAccessKey,
+      checkedAccessKey: checkedDeckAccessKey,
+      retrying: retryingMissingDeck,
+    })
+  ) {
+    return <DeckEditorSkeleton label={t("deckEditor.lookingForDeck")} />;
+  }
   if (!deck || !id) {
     return (
       <MissingDeckAccessPane
         hasTeamJoinOption={hasTeamJoinOption}
         orgLoading={orgLoading}
-        orgError={orgError}
+        orgError={orgError || loadError}
         refreshing={retryingMissingDeck}
         onRetry={() => void retryOpenDeck()}
         onBack={() => navigate("/")}
@@ -898,10 +937,6 @@ export default function DeckEditor() {
         historyOpen={historyOpen}
         onShowHistory={() => setHistoryOpen(!historyOpen)}
         historyButtonRef={historyButtonRef}
-        onUndo={undo}
-        onRedo={redo}
-        canUndo={canUndo}
-        canRedo={canRedo}
         currentSlide={currentSlide}
         onUpdateSlide={(updates) =>
           currentSlide && updateSlide(id, currentSlide.id, updates)
@@ -1030,6 +1065,7 @@ export default function DeckEditor() {
                     deleteSlideWithUndo(id, slideId);
                     if (nextSlide) setActiveSlideId(nextSlide.id);
                   }}
+                  readOnly={!canEdit}
                   slidePresence={slidePresence}
                   recentEdits={deckRecentEdits}
                   aspectRatio={deck.aspectRatio}
@@ -1070,8 +1106,13 @@ export default function DeckEditor() {
             slide={currentSlide}
             deckId={id}
             readOnly={!canEdit}
-            onUpdateSlide={(updates, slideIdOverride) =>
-              updateSlide(id, slideIdOverride ?? currentSlide.id, updates)
+            onUpdateSlide={(updates, slideIdOverride, options) =>
+              updateSlide(
+                id,
+                slideIdOverride ?? currentSlide.id,
+                updates,
+                options,
+              )
             }
             onInlineEditStart={() => markDeckDirty(id)}
             onGenerateImage={() => setImageGenOpen(true)}
@@ -1171,14 +1212,6 @@ export default function DeckEditor() {
             onClose={() => setTweaksOpen(false)}
           />
         )}
-
-        <Suspense>
-          <Pinpoint
-            author={session?.email || "anonymous"}
-            colorScheme="dark"
-            compactPopup
-          />
-        </Suspense>
       </div>
 
       {/* Hidden upload input */}

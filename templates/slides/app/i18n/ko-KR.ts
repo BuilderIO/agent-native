@@ -355,6 +355,8 @@ const messages = {
   styleInspector: {
     title: "Style",
     close: "스타일 검사기 닫기",
+    slideBackground: "슬라이드 배경",
+    slide: "슬라이드",
     deckStyle: "덱 스타일",
     designSystemTweaks: "디자인 시스템 조정",
     closeTweaks: "조정 닫기",
@@ -414,6 +416,10 @@ const messages = {
     emerald: "Emerald",
     amber: "Amber",
     rose: "Rose",
+    arrange: "정렬",
+    order: "순서",
+    bringToFront: "맨 앞으로 가져오기",
+    sendToBack: "맨 뒤로 보내기",
   },
   animations: {
     appear: "出现",
@@ -522,6 +528,7 @@ const messages = {
     deckHasNoSlides: "幻灯片没有页面。",
     pdfRenderFailed: "无法渲染 PDF。",
     buildingDeck: "正在构建幻灯片",
+    dismissLayoutWarning: "레이아웃 경고 닫기",
     slidesAdded_one: "已添加 {{count}} 张幻灯片",
     slidesAdded_other: "已添加 {{count}} 张幻灯片",
   },
@@ -621,6 +628,7 @@ const messages = {
     clearWorkspaceDefault: "워크스페이스 기본값 해제",
     workspaceDefaultSet: "워크스페이스 기본값으로 설정했습니다",
     workspaceDefaultCleared: "워크스페이스 기본값을 해제했습니다",
+    duplicateFailed: "해당 덱을 복제하지 못했습니다",
     workspaceDefaultFailed: "워크스페이스 기본값을 업데이트하지 못했습니다",
     workspaceDefaultConfirmTitle: "워크스페이스 기본값으로 설정할까요?",
     workspaceDefaultDeckShareBody:

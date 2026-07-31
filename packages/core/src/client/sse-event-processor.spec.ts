@@ -3302,6 +3302,40 @@ describe("SSE event processor error classification", () => {
     });
   });
 
+  it("auto-continues provider network errors", async () => {
+    const message =
+      "Failed after 2 attempts. Last error: Cannot connect to API: " +
+      "ERR_SSL_TLSV1_ALERT_INTERNAL_ERROR tlsv1 alert internal error";
+    const err = await readSSEStream(
+      eventStream([
+        {
+          type: "error",
+          error: message,
+          errorCode: "provider_network_error",
+        },
+      ]),
+      [],
+      { value: 0 },
+      "tab-provider-network",
+    )
+      [Symbol.asyncIterator]()
+      .next()
+      .then(
+        () => undefined,
+        (caught) => caught,
+      );
+
+    expect(err).toBeInstanceOf(AgentAutoContinueSignal);
+    expect((err as AgentAutoContinueSignal).reason).toBe("stream_ended");
+    expect((err as AgentAutoContinueSignal).errorInfo).toMatchObject({
+      errorCode: "provider_network_error",
+      message:
+        "The model provider could not be reached. Check your connection and retry.",
+      details: message,
+      recoverable: true,
+    });
+  });
+
   it("surfaces run_budget_exhausted as a loud terminal error without auto-continuing", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });

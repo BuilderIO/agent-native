@@ -361,6 +361,8 @@ const messages = {
   styleInspector: {
     title: "Style",
     close: "Stilinspektor schließen",
+    slideBackground: "Folienhintergrund",
+    slide: "Folie",
     deckStyle: "Deck-Stil",
     designSystemTweaks: "Designsystem-Anpassungen",
     closeTweaks: "Anpassungen schließen",
@@ -420,6 +422,10 @@ const messages = {
     emerald: "Emerald",
     amber: "Amber",
     rose: "Rose",
+    arrange: "Anordnen",
+    order: "Reihenfolge",
+    bringToFront: "In den Vordergrund",
+    sendToBack: "In den Hintergrund",
   },
   animations: {
     appear: "Aparecer",
@@ -538,6 +544,7 @@ const messages = {
     deckHasNoSlides: "El deck no tiene diapositivas.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",
+    dismissLayoutWarning: "Layout-Warnung schließen",
     slidesAdded_one: "{{count}} diapositiva añadida",
     slidesAdded_other: "{{count}} diapositivas añadidas",
   },
@@ -643,6 +650,7 @@ const messages = {
     clearWorkspaceDefault: "Arbeitsbereichs-Standard entfernen",
     workspaceDefaultSet: "Als Arbeitsbereichs-Standard festgelegt",
     workspaceDefaultCleared: "Arbeitsbereichs-Standard entfernt",
+    duplicateFailed: "Dieses Deck konnte nicht dupliziert werden",
     workspaceDefaultFailed:
       "Arbeitsbereichs-Standard konnte nicht aktualisiert werden",
     workspaceDefaultConfirmTitle: "Als Arbeitsbereichs-Standard festlegen?",

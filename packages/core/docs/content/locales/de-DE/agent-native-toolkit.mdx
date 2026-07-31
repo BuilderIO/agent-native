@@ -31,12 +31,12 @@ being rebuilt in slightly different ways every time.
   />
 </WireframeBlock>
 
-<Diagram id="doc-block-toolkits-boundary" title="So passen Kits zusammen" summary={"Die Framework-Laufzeit liefert dauerhafte Garantien. Toolkit macht daraus wiederverwendbare Produktsysteme. Apps ergänzen Domänendaten, Routen und visuelle Identität."}>
+<Diagram id="doc-block-toolkits-boundary" title="So passen die drei Ebenen zusammen" summary={"Core ist die Framework-Grundlage. Toolkit bietet optionale wiederverwendbare Infrastruktur und UI. Templates sind optionale Apps auf Core, die häufig Toolkit nutzen."}>
 
 ```html
 <div class="diagram-row">
   <div class="diagram-card">
-    <span class="diagram-pill accent">Runtime</span><br />
+    <span class="diagram-pill accent">Core</span><br />
     Aktionen, SQL, Authentifizierung, App-Zustand, Zugriffskontrollen,
     Echtzeittransport
   </div>
@@ -47,7 +47,7 @@ being rebuilt in slightly different ways every time.
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-card">
-    <span class="diagram-pill accent">Apps</span><br />
+    <span class="diagram-pill accent">Templates</span><br />
     Domänenschema, Routen, Aktionen, Marke, spezialisierte Abläufe
   </div>
 </div>
@@ -71,6 +71,8 @@ being rebuilt in slightly different ways every time.
 ```
 
 </Diagram>
+
+Core ist das Framework. Toolkit ist ein optionaler Vorrat wiederverwendbarer Framework-Bausteine. Templates sind optionale Apps auf Core; sie können Toolkit verwenden und als vollständige Ausgangspunkte geforkt werden. Eine App kann Core auch direkt ohne Toolkit oder Template nutzen.
 
 ## Katalog {#catalog}
 

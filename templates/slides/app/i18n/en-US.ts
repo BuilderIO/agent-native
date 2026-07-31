@@ -356,6 +356,8 @@ const messages = {
   styleInspector: {
     title: "Style",
     close: "Close style inspector",
+    slideBackground: "Slide background",
+    slide: "Slide",
     deckStyle: "Deck style",
     designSystemTweaks: "Design system tweaks",
     closeTweaks: "Close tweaks",
@@ -415,6 +417,10 @@ const messages = {
     emerald: "Emerald",
     amber: "Amber",
     rose: "Rose",
+    arrange: "Arrange",
+    order: "Order",
+    bringToFront: "Bring to front",
+    sendToBack: "Send to back",
   },
   animations: {
     appear: "Appear",
@@ -531,6 +537,7 @@ const messages = {
     deckHasNoSlides: "Deck has no slides.",
     pdfRenderFailed: "Could not render PDF.",
     buildingDeck: "Building deck",
+    dismissLayoutWarning: "Dismiss layout warning",
     slidesAdded_one: "{{count}} slide added",
     slidesAdded_other: "{{count}} slides added",
   },
@@ -632,6 +639,7 @@ const messages = {
     clearWorkspaceDefault: "Clear workspace default",
     workspaceDefaultSet: "Set as the workspace default",
     workspaceDefaultCleared: "Workspace default cleared",
+    duplicateFailed: "Couldn't duplicate that deck",
     workspaceDefaultFailed: "Couldn't update the workspace default",
     workspaceDefaultConfirmTitle: "Set as workspace default?",
     workspaceDefaultDeckShareBody:

@@ -32,7 +32,6 @@ interface DeckCardProps {
   onRename: (id: string, newTitle: string) => void;
   onDuplicate: (id: string) => void;
   onToggleStar: (id: string, starred: boolean) => void;
-  isDuplicating?: boolean;
   designSystemTitle?: string | null;
   isWorkspaceDefault?: boolean;
   canSetWorkspaceDefault?: boolean;
@@ -45,7 +44,6 @@ export default function DeckCard({
   onRename,
   onDuplicate,
   onToggleStar,
-  isDuplicating = false,
   designSystemTitle,
   isWorkspaceDefault = false,
   canSetWorkspaceDefault = false,
@@ -230,15 +228,9 @@ export default function DeckCard({
               <IconPencil className="w-3.5 h-3.5 me-2" />
               Rename
             </DropdownMenuItem>
-            <DropdownMenuItem
-              onSelect={() => {
-                if (isDuplicating) return;
-                onDuplicate(deck.id);
-              }}
-              disabled={isDuplicating}
-            >
+            <DropdownMenuItem onSelect={() => onDuplicate(deck.id)}>
               <IconCopy className="w-3.5 h-3.5 me-2" />
-              {isDuplicating ? "Duplicating..." : "Duplicate"}
+              Duplicate
             </DropdownMenuItem>
             <DropdownMenuItem
               onSelect={(event) => {

@@ -535,6 +535,183 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(JSON.stringify(events[0])).not.toContain("must-not-be-tracked");
   });
 
+  it.each([
+    {
+      event: {
+        type: "tripwire" as const,
+        reason: "Delegated input budget exhausted",
+        processor: "run-input-token-budget",
+      },
+      error: "Delegated input budget exhausted",
+    },
+    {
+      event: { type: "loop_limit" as const, maxIterations: 80 },
+      error: "Agent stopped at the loop limit",
+    },
+  ])(
+    "marks a non-throwing $event.type terminal as an errored generation",
+    async ({ event, error }) => {
+      const events: TrackingEvent[] = [];
+      registerTrackingProvider({
+        name: `qa-terminal-${event.type}`,
+        track(tracked) {
+          events.push(tracked);
+        },
+      });
+      const loopOpts: any = {
+        engine: { name: "builder" },
+        model: "gpt-test",
+        systemPrompt: "",
+        tools: [],
+        messages: [],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      };
+
+      await instrumentAgentLoop({
+        runAgentLoop: async ({ send }) => {
+          send(event);
+          return {
+            inputTokens: 100,
+            outputTokens: 10,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            usageReported: true,
+            model: "gpt-test",
+          };
+        },
+        loopOpts,
+        runId: `run-${event.type}`,
+        threadId: "thread-parent",
+        userId: "user@example.com",
+        config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+        delegation: {
+          protocol: "a2a",
+          callerApp: "slides",
+          taskId: `task-${event.type}`,
+        },
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(events).toHaveLength(1);
+      expect(events[0]?.properties).toMatchObject({
+        status: "error",
+        error_message: error,
+        delegated: true,
+      });
+    },
+  );
+
+  it("reports success when a transient terminal event is cleared and recovered", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-terminal-recovered",
+      track(tracked) {
+        events.push(tracked);
+      },
+    });
+    const loopOpts: any = {
+      engine: { name: "builder" },
+      model: "gpt-test",
+      systemPrompt: "",
+      tools: [],
+      messages: [],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send }) => {
+        send({ type: "error", error: "transient network failure" });
+        send({ type: "clear" });
+        send({ type: "text", text: "recovered" });
+        send({ type: "done" });
+        return {
+          inputTokens: 100,
+          outputTokens: 10,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          usageReported: true,
+          model: "gpt-test",
+        };
+      },
+      loopOpts,
+      runId: "run-recovered-terminal",
+      threadId: null,
+      userId: "user@example.com",
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(events[0]?.properties).toMatchObject({ status: "success" });
+  });
+
+  it("uses the typed terminal outcome when legacy events would look successful", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-typed-terminal",
+      track(tracked) {
+        events.push(tracked);
+      },
+    });
+    const loopOpts: any = {
+      engine: { name: "builder" },
+      model: "gpt-test",
+      systemPrompt: "",
+      tools: [],
+      messages: [],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send, onOutcome }) => {
+        send({ type: "text", text: "partial" });
+        send({ type: "done" });
+        onOutcome?.({
+          state: "failed",
+          code: "provider_network_error",
+          retryable: false,
+          message: "The delegated provider failed.",
+        });
+        return {
+          inputTokens: 100,
+          outputTokens: 10,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          usageReported: true,
+          model: "gpt-test",
+        };
+      },
+      loopOpts,
+      runId: "run-typed-terminal",
+      threadId: "thread-parent",
+      userId: "user@example.com",
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+      delegation: {
+        protocol: "a2a",
+        callerApp: "slides",
+        taskId: "task-typed-terminal",
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(events).toHaveLength(1);
+    expect(events[0]?.properties).toMatchObject({
+      status: "error",
+      error_message: "The delegated provider failed.",
+      terminal_state: "failed",
+      terminal_code: "provider_network_error",
+      terminal_retryable: false,
+      delegated: true,
+      delegation_protocol: "a2a",
+      caller_app: "slides",
+    });
+  });
+
   it("omits usage/cost figures when the run ends for no-progress without throwing", async () => {
     // Mirrors the real no-progress abort path (production-agent.ts returns
     // `usage` normally with placeholder zeros instead of throwing) rather

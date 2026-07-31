@@ -358,6 +358,8 @@ const messages = {
   styleInspector: {
     title: "Style",
     close: "スタイルインスペクターを閉じる",
+    slideBackground: "スライドの背景",
+    slide: "スライド",
     deckStyle: "デッキスタイル",
     designSystemTweaks: "デザインシステム調整",
     closeTweaks: "調整を閉じる",
@@ -417,6 +419,10 @@ const messages = {
     emerald: "Emerald",
     amber: "Amber",
     rose: "Rose",
+    arrange: "配置",
+    order: "順序",
+    bringToFront: "最前面へ移動",
+    sendToBack: "最背面へ移動",
   },
   animations: {
     appear: "出现",
@@ -525,6 +531,7 @@ const messages = {
     deckHasNoSlides: "幻灯片没有页面。",
     pdfRenderFailed: "无法渲染 PDF。",
     buildingDeck: "正在构建幻灯片",
+    dismissLayoutWarning: "レイアウト警告を閉じる",
     slidesAdded_one: "已添加 {{count}} 张幻灯片",
     slidesAdded_other: "已添加 {{count}} 张幻灯片",
   },
@@ -627,6 +634,7 @@ const messages = {
     clearWorkspaceDefault: "ワークスペースのデフォルトを解除",
     workspaceDefaultSet: "ワークスペースのデフォルトに設定しました",
     workspaceDefaultCleared: "ワークスペースのデフォルトを解除しました",
+    duplicateFailed: "このデッキを複製できませんでした",
     workspaceDefaultFailed: "ワークスペースのデフォルトを更新できませんでした",
     workspaceDefaultConfirmTitle: "ワークスペースのデフォルトに設定しますか？",
     workspaceDefaultDeckShareBody:

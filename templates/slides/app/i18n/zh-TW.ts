@@ -345,6 +345,8 @@ const messages = {
   styleInspector: {
     title: "Style",
     close: "關閉樣式檢查器",
+    slideBackground: "投影片背景",
+    slide: "投影片",
     deckStyle: "簡報樣式",
     designSystemTweaks: "設計系統微調",
     closeTweaks: "關閉微調",
@@ -404,6 +406,10 @@ const messages = {
     emerald: "Emerald",
     amber: "Amber",
     rose: "Rose",
+    arrange: "排列",
+    order: "順序",
+    bringToFront: "移到最上層",
+    sendToBack: "移到最下層",
   },
   animations: {
     appear: "出現",
@@ -512,6 +518,7 @@ const messages = {
     deckHasNoSlides: "幻燈片沒有頁面。",
     pdfRenderFailed: "無法渲染 PDF。",
     buildingDeck: "正在建置幻燈片",
+    dismissLayoutWarning: "關閉版面警告",
     slidesAdded_one: "已新增 {{count}} 張幻燈片",
     slidesAdded_other: "已新增 {{count}} 張幻燈片",
   },
@@ -608,6 +615,7 @@ const messages = {
     clearWorkspaceDefault: "清除工作區預設",
     workspaceDefaultSet: "已設為工作區預設",
     workspaceDefaultCleared: "已清除工作區預設",
+    duplicateFailed: "無法複製該簡報",
     workspaceDefaultFailed: "無法更新工作區預設設定",
     workspaceDefaultConfirmTitle: "設為工作區預設？",
     workspaceDefaultDeckShareBody:

@@ -130,7 +130,7 @@ export function formatCapabilitySummary(
     "",
     lines.join("\n\n"),
     "",
-    "Delegate with call-agent: pass action + input for a listed action, or message for open-ended work. Prefer the app that owns the data over rebuilding its capability here.",
+    "Delegate with call-agent using a natural-language message by default. The receiving app owns interpretation and its local tools. Use action + input only for an exact bounded read with a fully known schema, never as a workaround for failed delegation. Prefer the app that owns the data over rebuilding its capability here.",
   ]
     .filter(Boolean)
     .join("\n");

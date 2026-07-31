@@ -358,6 +358,8 @@ const messages = {
   styleInspector: {
     title: "Style",
     close: "إغلاق مفتش الأنماط",
+    slideBackground: "خلفية الشريحة",
+    slide: "شريحة",
     deckStyle: "نمط العرض",
     designSystemTweaks: "تعديلات نظام التصميم",
     closeTweaks: "إغلاق التعديلات",
@@ -417,6 +419,10 @@ const messages = {
     emerald: "Emerald",
     amber: "Amber",
     rose: "Rose",
+    arrange: "ترتيب",
+    order: "الترتيب",
+    bringToFront: "إحضار إلى الأمام",
+    sendToBack: "إرسال إلى الخلف",
   },
   animations: {
     appear: "Aparecer",
@@ -543,6 +549,7 @@ const messages = {
     deckHasNoSlides: "El deck no tiene diapositivas.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",
+    dismissLayoutWarning: "تجاهل تحذير التخطيط",
     slidesAdded_zero: "{{count}} diapositivas añadidas",
     slidesAdded_one: "{{count}} diapositiva añadida",
     slidesAdded_two: "{{count}} diapositivas añadidas",
@@ -652,6 +659,7 @@ const messages = {
     clearWorkspaceDefault: "إزالة افتراضي مساحة العمل",
     workspaceDefaultSet: "تم التعيين كافتراضي لمساحة العمل",
     workspaceDefaultCleared: "تمت إزالة افتراضي مساحة العمل",
+    duplicateFailed: "تعذّر تكرار هذا العرض",
     workspaceDefaultFailed: "تعذّر تحديث افتراضي مساحة العمل",
     workspaceDefaultConfirmTitle: "التعيين كافتراضي لمساحة العمل؟",
     workspaceDefaultDeckShareBody:

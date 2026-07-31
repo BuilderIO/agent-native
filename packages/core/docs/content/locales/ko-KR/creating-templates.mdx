@@ -9,6 +9,14 @@ description: "자신만의 에이전트 기반 앱 템플릿을 만들고 게시
 
 `@agent-native/core`는 runtime contract에 사용하세요: actions, server plugins, database helpers, app state, routing helpers, agent chat입니다. `@agent-native/toolkit`은 shared primitives, toast/mobile hooks, date pickers, simple app shell slots 같은 reusable app-building UI와 helpers에 사용하세요. 제품 동작이나 visual identity를 담는 template-specific variants는 로컬에 유지하세요.
 
+기능의 위치를 정할 때 세 계층을 염두에 두세요.
+
+- **Core - 프레임워크:** 모든 앱이 사용할 수 있는 필수 런타임 및 데이터 계약입니다.
+- **Toolkit - 선택적 재사용 부품:** 앱이 채택, 조합 또는 포크할 수 있는 공유 UI와 제품 시스템입니다.
+- **Templates - 선택적 앱:** Core 위에 구축되고 흔히 Toolkit을 사용하는 완전한 도메인 제품이며 시작점으로 포크할 수 있습니다.
+
+Toolkit과 Templates는 선택 사항입니다. Template 자체가 프레임워크는 아니며 Toolkit이 Core를 대체하지 않습니다.
+
 좋은 템플릿:
 
 - 유용한 시드 데이터 또는 빈 상태 흐름을 사용하여 하나의 워크플로를 엔드 투 엔드로 해결합니다.

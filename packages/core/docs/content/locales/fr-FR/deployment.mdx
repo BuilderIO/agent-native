@@ -396,14 +396,16 @@ Les variables de connexion à la base de données (`DATABASE_URL`, `DATABASE_AUT
 
 Ceux-ci doivent être définis avant de promouvoir une application vers un véritable déploiement de production. Les valeurs manquantes sont soit fermées par échec (le framework refuse de démarrer/refuse de traiter les requêtes), soit reviennent à un comportement plus faible avec un avertissement fort.
 
-| Variable                 | Description                                                                                                                                                                                                                                                                                                          |
-| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BETTER_AUTH_SECRET`     | Chaîne aléatoire de plus de 32 caractères. Cookies de session de signalisation AND est la solution de secours HMAC pour `OAUTH_STATE_SECRET` et `SECRETS_ENCRYPTION_KEY`. Obligatoire : le framework se lance au démarrage s'il est manquant en production.                                                          |
-| `BETTER_AUTH_URL`        | Origine publique de cette application (par exemple `https://mail.example.com`). Utilisé pour le domaine de cookie et la construction de redirection OAuth.                                                                                                                                                           |
-| `ANTHROPIC_API_KEY`      | Clé API pour l'agent de production intégré. **Dans les déploiements multi-locataires**, le framework refuse de revenir à cela lorsque l'utilisateur ne dispose pas de clé par utilisateur : apporter votre propre clé est requis. Les installations auto-hébergées à locataire unique l'utilisent comme clé globale. |
-| `OAUTH_STATE_SECRET`     | Clé HMAC dédiée aux enveloppes d'état OAuth (Google, Atlassian, Zoom). Revient à `BETTER_AUTH_SECRET` lorsqu'il n'est pas défini, mais une valeur dédiée est recommandée afin que la rotation de l'une n'invalide pas l'autre. Générer via `openssl rand -hex 32`.                                                   |
-| `A2A_SECRET`             | HMAC partagé pour A2A JSON-RPC inter-applications. Sans cela, chaque point de terminaison A2A et le point de terminaison à déclenchement automatique `/_agent-native/integrations/process-task` renvoient 503 en production.                                                                                         |
-| `SECRETS_ENCRYPTION_KEY` | Clé AES-256-GCM pour le coffre-fort de secrets chiffrés au repos. Revient à `BETTER_AUTH_SECRET`. Échec brutal en production lorsque les deux ne sont pas définis.                                                                                                                                                   |
+| Variable                                    | Description                                                                                                                                                                                                                                                                                                          |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET`                        | Chaîne aléatoire de 32 caractères ou plus. Signe les cookies de session et sert de fallback à `OAUTH_STATE_SECRET` et aux valeurs chiffrées locales de l’app. C’est aussi un candidat de lecture historique pour le ciphertext du coffre partagé. Obligatoire en production.                                         |
+| `BETTER_AUTH_URL`                           | Origine publique de cette application (par exemple `https://mail.example.com`). Utilisé pour le domaine de cookie et la construction de redirection OAuth.                                                                                                                                                           |
+| `ANTHROPIC_API_KEY`                         | Clé API pour l'agent de production intégré. **Dans les déploiements multi-locataires**, le framework refuse de revenir à cela lorsque l'utilisateur ne dispose pas de clé par utilisateur : apporter votre propre clé est requis. Les installations auto-hébergées à locataire unique l'utilisent comme clé globale. |
+| `OAUTH_STATE_SECRET`                        | Clé HMAC dédiée aux enveloppes d'état OAuth (Google, Atlassian, Zoom). Revient à `BETTER_AUTH_SECRET` lorsqu'il n'est pas défini, mais une valeur dédiée est recommandée afin que la rotation de l'une n'invalide pas l'autre. Générer via `openssl rand -hex 32`.                                                   |
+| `A2A_SECRET`                                | HMAC partagé pour A2A JSON-RPC entre apps. Sans clé d’espace de travail dédiée, le coffre partagé utilise une clé dérivée de cette valeur pour cet usage ; sa rotation change donc aussi la clé du coffre.                                                                                                           |
+| `WORKSPACE_SECRETS_ENCRYPTION_KEY`          | Clé AES-256-GCM stable préférée du coffre partagé de l’espace de travail. Définissez la même valeur dans chaque app qui le lit ; elle est distincte du chiffrement OAuth local.                                                                                                                                      |
+| `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS` | Ancienne clé d’espace de travail facultative pendant une rotation. Déployez-la avec la nouvelle clé, laissez les lectures migrer les lignes, puis retirez-la.                                                                                                                                                        |
+| `SECRETS_ENCRYPTION_KEY`                    | Ancienne clé combinée pour le chiffrement local et le coffre. Elle reste prise en charge, mais les nouveaux déploiements multi-apps doivent utiliser la clé d’espace de travail dédiée.                                                                                                                              |
 
 ### Authentification et identité {#env-auth}
 
@@ -423,7 +425,7 @@ Dans un espace de travail, la racine `.env` est chargée automatiquement dans ch
 
 ### Générer des secrets puissants {#env-generate-secrets}
 
-Pour tout secret marqué « 32+ caractères aléatoires » (`BETTER_AUTH_SECRET`, `OAUTH_STATE_SECRET`, `A2A_SECRET`, `SECRETS_ENCRYPTION_KEY`, `AGENT_NATIVE_BUILDER_RELAY_SECRET`), générez de nouvelles valeurs avec :
+Pour tout secret marqué « 32+ caractères aléatoires » (`BETTER_AUTH_SECRET`, `OAUTH_STATE_SECRET`, `A2A_SECRET`, `WORKSPACE_SECRETS_ENCRYPTION_KEY`, `SECRETS_ENCRYPTION_KEY`, `AGENT_NATIVE_BUILDER_RELAY_SECRET`), générez de nouvelles valeurs avec :
 
 ```bash
 openssl rand -hex 32
@@ -491,13 +493,13 @@ Le bac à sable `run-code` est une isolation au niveau du processus, pas un cont
 
 ## Mise à jour de UI en production {#updating-ui-in-production}
 
-L'une des fonctionnalités principales de l'agent natif est que l'agent peut modifier le code source de votre application : composants, itinéraires, styles, actions. Pendant le développement local, cela fonctionne de manière transparente car l'agent dispose d'un accès complet au système de fichiers.
+L’agent ordinaire d’une app déployée travaille via les outils de l’app - actions, base de données, MCP et intégrations configurées - au lieu de recevoir un accès implicite au code source. Les changements de source relèvent du workflow de développement du dépôt. Un frame intégré, local ou Builder peut modifier le dépôt lorsqu’il reçoit intentionnellement les outils de workspace et d’écriture.
 
 Dans un déploiement de production standard sans [production code execution](#production-code-execution), l'agent a accès aux outils de l'application (actions, base de données, MCP) mais pas au système de fichiers. Cela signifie que l'agent peut lire et écrire des données, exécuter actions et interagir avec des services externes, mais il ne peut pas modifier vos composants React ni ajouter de nouvelles routes sur une instance déployée.
 
 ### Builder.io : Édition visuelle en production {#builderio}
 
-[Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) résout ce problème en fournissant un environnement cloud géré dans lequel l'agent conserve la possibilité de modifier le UI de votre application en production. Connectez votre dépôt à Builder.io et demandez directement les modifications de UI – aucun redéploiement n'est nécessaire.
+[Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) est un workflow géré et distinct, capable de modifier le code, où un agent peut changer l’UI de votre app en production. Connectez le dépôt et demandez directement les changements d’UI, sans redéploiement.
 
 **Comment ça marche :**
 

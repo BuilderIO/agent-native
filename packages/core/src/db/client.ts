@@ -652,6 +652,7 @@ function sqlAndArgs(sql: DbExecStatement): {
 }
 
 const POSTGRES_STATEMENT_TIMEOUT_HEADROOM_MS = 250;
+const POSTGRES_STATEMENT_TIMEOUT_RESET_MS = 5_000;
 const POSTGRES_MAX_INT = 2_147_483_647;
 
 function hasExplicitDbTimeout(statement: DbExecStatement): boolean {
@@ -1225,22 +1226,15 @@ async function createDbExecInternal(
     // with CONNECT_TIMEOUT. The serverless Pool handles wake-up transparently
     // and keeps the same `pg`-compatible query(...) interface we need here.
     if (isNeonUrl(url)) {
-      const { Pool, neonConfig } = await import("@neondatabase/serverless");
-      // In the durable background-function worker, route pool queries over Neon's
-      // stateless HTTP transport instead of a long-lived WebSocket. A frozen/thawed
-      // bg-fn instance can leave the pool's WebSocket connections half-dead, so
-      // queries after the first burst stall on connect()/query() — observed: the
-      // analytics worker stalls right after model resolution and never claims.
-      // HTTP-per-query (poolQueryViaFetch) has no persistent socket to die; the
-      // foreground keeps the WebSocket pool. See the bg-fn execute branch below.
+      const { Pool, neon } = await import("@neondatabase/serverless");
+      // A frozen/thawed background function can retain half-dead WebSocket
+      // connections, so its direct executions use stateless Neon HTTP instead.
+      // The foreground and transaction surface keep the WebSocket pool.
       const bgHttp = isBackgroundFunctionPoolContext();
-      if (bgHttp) {
-        (neonConfig as { poolQueryViaFetch?: boolean }).poolQueryViaFetch =
-          true;
-      }
       const pool = new Pool({ connectionString: url, max: neonPoolMax() });
       attachNeonPoolErrorLogger(pool);
       if (trackSingletonResources) _neonPool = pool;
+      const httpSql = bgHttp ? neon(url, { fullResults: true }) : null;
       async function queryNeonClient(
         client: any,
         sql: Parameters<DbExec["execute"]>[0],
@@ -1282,7 +1276,7 @@ async function createDbExecInternal(
             await queryNeonClient(
               client,
               "RESET statement_timeout",
-              remainingMs(),
+              Math.max(remainingMs(), POSTGRES_STATEMENT_TIMEOUT_RESET_MS),
             );
           } catch (err) {
             markClientForDiscard();
@@ -1293,17 +1287,63 @@ async function createDbExecInternal(
           }
         }
       }
+      async function queryNeonHttp(sql: Parameters<DbExec["execute"]>[0]) {
+        if (!httpSql) {
+          throw new Error("Neon HTTP query used outside a background function");
+        }
+        const { rawSql, args } = sqlAndArgs(sql);
+        const { timeoutMs } = dbExecQueryBudget(sql);
+        const pgSql = sqliteToPostgresParams(rawSql);
+        const controller = new AbortController();
+        const run = async () => {
+          if (!hasExplicitDbTimeout(sql)) {
+            return httpSql.query(pgSql, args as any[], {
+              fetchOptions: { signal: controller.signal },
+            });
+          }
+          const statementDeadlineMs =
+            Date.now() + postgresStatementTimeoutMs(timeoutMs);
+          const results = await httpSql.transaction(
+            [
+              httpSql.query(
+                `SELECT set_config(
+                  'statement_timeout',
+                  GREATEST(
+                    1,
+                    $1::bigint -
+                      FLOOR(EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::bigint
+                  )::text,
+                  true
+                )`,
+                [statementDeadlineMs],
+              ),
+              httpSql.query(pgSql, args as any[]),
+            ],
+            { fetchOptions: { signal: controller.signal } },
+          );
+          return results[1];
+        };
+        const result = await withDbTimeout("query", run, timeoutMs, () =>
+          controller.abort(),
+        );
+        return {
+          rows: result.rows,
+          rowsAffected: result.rowCount ?? 0,
+        };
+      }
       return {
         async execute(sql) {
           const { timeoutMs, maxAttempts } = dbExecQueryBudget(sql);
           if (bgHttp) {
-            // HTTP-per-query path (poolQueryViaFetch=true): no pool.connect(), no
-            // persistent socket to stall. queryNeonClient calls pool.query(),
-            // which the driver routes over HTTP when poolQueryViaFetch is set.
+            // HTTP-per-query path: no pool.connect() and no persistent socket
+            // to survive a background-function freeze. Explicitly budgeted
+            // statements run with SET LOCAL inside the same HTTP transaction,
+            // so the server cancels the SQL before the fetch deadline without
+            // leaking session state into Neon's pooled backends.
             return retryOnConnectionError<{
               rows: unknown[];
               rowsAffected: number;
-            }>(() => queryNeonClient(pool, sql), maxAttempts);
+            }>(() => queryNeonHttp(sql), maxAttempts);
           }
           const result = await retryOnConnectionError<{
             rows: unknown[];

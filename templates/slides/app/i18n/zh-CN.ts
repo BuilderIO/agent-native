@@ -350,6 +350,8 @@ const messages = {
   styleInspector: {
     title: "Style",
     close: "关闭样式检查器",
+    slideBackground: "幻灯片背景",
+    slide: "幻灯片",
     deckStyle: "演示样式",
     designSystemTweaks: "设计系统微调",
     closeTweaks: "关闭微调",
@@ -409,6 +411,10 @@ const messages = {
     emerald: "Emerald",
     amber: "Amber",
     rose: "Rose",
+    arrange: "排列",
+    order: "顺序",
+    bringToFront: "置于顶层",
+    sendToBack: "置于底层",
   },
   animations: {
     appear: "出现",
@@ -517,6 +523,7 @@ const messages = {
     deckHasNoSlides: "幻灯片没有页面。",
     pdfRenderFailed: "无法渲染 PDF。",
     buildingDeck: "正在构建幻灯片",
+    dismissLayoutWarning: "关闭布局警告",
     slidesAdded_one: "已添加 {{count}} 张幻灯片",
     slidesAdded_other: "已添加 {{count}} 张幻灯片",
   },
@@ -613,6 +620,7 @@ const messages = {
     clearWorkspaceDefault: "清除工作区默认",
     workspaceDefaultSet: "已设为工作区默认",
     workspaceDefaultCleared: "已清除工作区默认",
+    duplicateFailed: "无法复制该演示文稿",
     workspaceDefaultFailed: "无法更新工作区默认设置",
     workspaceDefaultConfirmTitle: "设为工作区默认？",
     workspaceDefaultDeckShareBody:

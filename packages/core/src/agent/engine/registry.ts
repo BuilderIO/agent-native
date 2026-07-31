@@ -600,12 +600,92 @@ async function resolveUsableProviderSecret(
   return authFailure ? null : value;
 }
 
+/**
+ * Return true only when the supplied key can be positively identified as a
+ * usable credential for a different registered provider.
+ *
+ * `ResolveEngineConfig.apiKey` is public and may be an opaque caller-provided
+ * key, so automatic selection must not silently replace it merely because a
+ * stored credential also exists. Delegated/internal callers, however,
+ * historically pass the current "active" provider key before the registry
+ * selects an app-default engine. Exact in-memory comparison lets us correct
+ * that proven mismatch without guessing from provider-specific key prefixes
+ * or exposing either value.
+ */
+async function apiKeyBelongsToDifferentProvider(
+  apiKey: string,
+  selectedEntry: AgentEngineEntry,
+): Promise<boolean> {
+  const selectedEnvVars = new Set(selectedEntry.requiredEnvVars);
+  const checkedEnvVars = new Set<string>();
+  for (const entry of _registry.values()) {
+    if (entry === selectedEntry || entry.name === "builder") continue;
+    for (const key of entry.requiredEnvVars) {
+      if (selectedEnvVars.has(key) || checkedEnvVars.has(key)) continue;
+      checkedEnvVars.add(key);
+      try {
+        if ((await resolveUsableProviderSecret(key)) === apiKey) return true;
+      } catch {
+        // An unrelated provider store failure is not proof that the explicit
+        // key belongs elsewhere. Preserve the caller's key and let the
+        // selected provider's own preflight report any relevant failure.
+      }
+    }
+  }
+  return false;
+}
+
 async function engineCreateConfigForEntry(
   entry: AgentEngineEntry,
   apiKey: string | undefined,
   extra?: Record<string, unknown>,
+  preferResolvedCredential = false,
 ): Promise<Record<string, unknown>> {
   const safeExtra = { ...(extra ?? {}) };
+  let matchingApiKey = apiKey;
+  // Automatic engine selection must also select that engine's credential.
+  // Callers historically passed one untagged "active" key before the registry
+  // chose an engine, which could hand an Anthropic key to an app-default
+  // OpenAI engine (or vice versa). Explicit engineOption branches retain their
+  // paired key. Automatic branches replace only a key proven to belong to a
+  // different configured provider; opaque caller-supplied keys keep the public
+  // `ResolveEngineConfig.apiKey` contract.
+  if (
+    preferResolvedCredential &&
+    entry.name !== "builder" &&
+    entry.requiredEnvVars.length > 0
+  ) {
+    let resolvedMatchingCredential: string | undefined;
+    let matchingCredentialUsesDeployFallback = false;
+    for (const key of entry.requiredEnvVars) {
+      const resolved = (await resolveUsableProviderSecret(key)) ?? undefined;
+      if (!resolved) continue;
+      resolvedMatchingCredential = resolved;
+      matchingCredentialUsesDeployFallback =
+        canUseDeployCredentialFallbackForRequest(key) &&
+        readDeployCredentialEnv(key) === resolved;
+      break;
+    }
+
+    const suppliedKeyMatchesSelected =
+      matchingApiKey !== undefined &&
+      matchingApiKey === resolvedMatchingCredential;
+    const suppliedKeyBelongsElsewhere =
+      matchingApiKey !== undefined &&
+      !suppliedKeyMatchesSelected &&
+      (await apiKeyBelongsToDifferentProvider(matchingApiKey, entry));
+
+    if (matchingApiKey === undefined || suppliedKeyBelongsElsewhere) {
+      // Keep deploy-only credentials implicit so provider SDKs retain their
+      // established env-fallback behavior. Scoped credentials must be passed
+      // explicitly. A proven different-provider key is replaced or cleared;
+      // an opaque caller-supplied key is preserved by the branch above.
+      matchingApiKey =
+        resolvedMatchingCredential && !matchingCredentialUsesDeployFallback
+          ? resolvedMatchingCredential
+          : undefined;
+    }
+  }
   if (entry.name === "ai-sdk:openai") {
     if (typeof safeExtra.baseURL === "string" && safeExtra.baseUrl == null) {
       safeExtra.baseUrl = normalizeOpenAiBaseUrl(safeExtra.baseURL);
@@ -615,7 +695,7 @@ async function engineCreateConfigForEntry(
       if (baseUrl) safeExtra.baseUrl = baseUrl;
     }
   }
-  return engineCreateConfig(entry, apiKey, safeExtra);
+  return engineCreateConfig(entry, matchingApiKey, safeExtra);
 }
 
 /**
@@ -816,7 +896,9 @@ export async function resolveEngine(
     const entry = _registry.get(envEngine);
     if (entry) {
       assertAgentEnginePackageInstalled(entry);
-      return entry.create(await engineCreateConfigForEntry(entry, apiKey));
+      return entry.create(
+        await engineCreateConfigForEntry(entry, apiKey, undefined, true),
+      );
     }
   }
 
@@ -824,7 +906,9 @@ export async function resolveEngine(
   if (appDefault?.engine) {
     const entry = _registry.get(appDefault.engine);
     if (entry && (await isStoredEngineUsableForRequest(appDefault, entry))) {
-      return entry.create(await engineCreateConfigForEntry(entry, apiKey));
+      return entry.create(
+        await engineCreateConfigForEntry(entry, apiKey, undefined, true),
+      );
     }
   }
 
@@ -857,6 +941,7 @@ export async function resolveEngine(
           stripInlineApiKeyConfig(
             storedConfig as Record<string, unknown> | undefined,
           ),
+          true,
         ),
       );
     }
@@ -864,7 +949,12 @@ export async function resolveEngine(
 
   if (detectedFromUser) {
     return detectedFromUser.create(
-      await engineCreateConfigForEntry(detectedFromUser, apiKey),
+      await engineCreateConfigForEntry(
+        detectedFromUser,
+        apiKey,
+        undefined,
+        true,
+      ),
     );
   }
 
@@ -873,7 +963,9 @@ export async function resolveEngine(
   // auth-failure markers so a rejected deploy key cannot permanently win.
   const detected = await detectEngineFromEnvForRequest();
   if (detected) {
-    return detected.create(await engineCreateConfigForEntry(detected, apiKey));
+    return detected.create(
+      await engineCreateConfigForEntry(detected, apiKey, undefined, true),
+    );
   }
 
   // 9. Default: anthropic
@@ -884,7 +976,7 @@ export async function resolveEngine(
     );
   }
   return anthropicEntry.create(
-    await engineCreateConfigForEntry(anthropicEntry, apiKey),
+    await engineCreateConfigForEntry(anthropicEntry, apiKey, undefined, true),
   );
 }
 

@@ -353,6 +353,8 @@ const messages = {
   styleInspector: {
     title: "Style",
     close: "स्टाइल इंस्पेक्टर बंद करें",
+    slideBackground: "स्लाइड पृष्ठभूमि",
+    slide: "स्लाइड",
     deckStyle: "डेक शैली",
     designSystemTweaks: "डिज़ाइन सिस्टम ट्वीक",
     closeTweaks: "ट्वीक बंद करें",
@@ -412,6 +414,10 @@ const messages = {
     emerald: "Emerald",
     amber: "Amber",
     rose: "Rose",
+    arrange: "व्यवस्थित करें",
+    order: "क्रम",
+    bringToFront: "सबसे आगे लाएं",
+    sendToBack: "सबसे पीछे भेजें",
   },
   animations: {
     appear: "दिखाएं",
@@ -525,6 +531,7 @@ const messages = {
     deckHasNoSlides: "डेक में कोई स्लाइड नहीं है।",
     pdfRenderFailed: "PDF रेंडर नहीं हो सका।",
     buildingDeck: "डेक बनाया जा रहा है",
+    dismissLayoutWarning: "लेआउट चेतावनी बंद करें",
     slidesAdded_one: "{{count}} स्लाइड जोड़ी गई",
     slidesAdded_other: "{{count}} स्लाइड जोड़ी गईं",
   },
@@ -625,6 +632,7 @@ const messages = {
     clearWorkspaceDefault: "कार्यस्थान डिफ़ॉल्ट हटाएँ",
     workspaceDefaultSet: "कार्यस्थान डिफ़ॉल्ट के रूप में सेट किया गया",
     workspaceDefaultCleared: "कार्यस्थान डिफ़ॉल्ट हटा दिया गया",
+    duplicateFailed: "उस डेक की प्रतिलिपि नहीं बनाई जा सकी",
     workspaceDefaultFailed: "कार्यस्थान डिफ़ॉल्ट अपडेट नहीं हो सका",
     workspaceDefaultConfirmTitle: "कार्यस्थान डिफ़ॉल्ट के रूप में सेट करें?",
     workspaceDefaultDeckShareBody:

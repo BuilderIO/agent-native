@@ -1,5 +1,18 @@
 # @agent-native/toolkit
 
+## 0.12.0
+
+### Minor Changes
+
+- c0e7d64: Add reusable canvas drawing, text annotation, and pinned agent-comment controls.
+- c0e7d64: Add a reusable canvas interaction controller for text activation, shortcuts, moving, resizing, duplication, and gesture lifecycle.
+
+## 0.11.2
+
+### Patch Changes
+
+- cc35067: Fix `VisualInspectorPanel` clipping its own scroll area instead of scrolling. The panel body was capped by a viewport-derived `max-height`, so when a host laid the panel out shorter than the viewport — for example a style dock sharing vertical space with an expanded notes panel — overflowing content was hidden by the panel's `overflow-hidden` with no way to reach it. The body now flexes within the panel's actual height and keeps the cap as an upper bound.
+
 ## 0.11.1
 
 ### Patch Changes

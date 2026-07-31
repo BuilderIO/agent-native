@@ -363,6 +363,8 @@ const messages = {
   styleInspector: {
     title: "Style",
     close: "Cerrar inspector de estilo",
+    slideBackground: "Fondo de la diapositiva",
+    slide: "Diapositiva",
     deckStyle: "Estilo de la presentación",
     designSystemTweaks: "Ajustes del sistema de diseño",
     closeTweaks: "Cerrar ajustes",
@@ -422,6 +424,10 @@ const messages = {
     emerald: "Emerald",
     amber: "Amber",
     rose: "Rose",
+    arrange: "Organizar",
+    order: "Orden",
+    bringToFront: "Traer al frente",
+    sendToBack: "Enviar al fondo",
   },
   animations: {
     appear: "Aparecer",
@@ -542,6 +548,7 @@ const messages = {
     deckHasNoSlides: "El deck no tiene diapositivas.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",
+    dismissLayoutWarning: "Descartar advertencia de diseño",
     slidesAdded_one: "{{count}} diapositiva añadida",
     slidesAdded_other: "{{count}} diapositivas añadidas",
     slidesAdded_many: "{{count}} diapositivas añadidas",
@@ -652,6 +659,7 @@ const messages = {
       "Establecido como predeterminado del espacio de trabajo",
     workspaceDefaultCleared:
       "Se quitó el predeterminado del espacio de trabajo",
+    duplicateFailed: "No se pudo duplicar esa presentación",
     workspaceDefaultFailed:
       "No se pudo actualizar el predeterminado del espacio de trabajo",
     workspaceDefaultConfirmTitle:
