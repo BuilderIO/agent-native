@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.132.1
+
+### Patch Changes
+
+- 548844d: Fix agent tool calls failing against discriminated-union action schemas. Gateway-supplied empty placeholders are now stripped from nested objects and union branches (not just top-level fields), `oneOf` validation errors report only the branch the discriminator selects, and the expected-signature hint expands array items and union branches so nested enums are spelled out.
+
 ## 0.132.0
 
 ### Minor Changes
