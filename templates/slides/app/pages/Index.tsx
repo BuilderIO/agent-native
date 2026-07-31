@@ -603,7 +603,7 @@ export default function Index() {
         deckId +
         ". Wait for each `add-slide` result before calling it again; do not batch or parallelize slide writes.",
       "If the user asked for a specific slide count, keep going sequentially until that count is reached unless a tool error blocks you.",
-      "Every slide is rendered into a fixed native canvas (default 16:9 is 960x540 CSS pixels). Keep each slide within the density limits in AGENTS.md; split dense source material across more slides instead of packing it tightly.",
+      "Every slide is rendered into a fixed native canvas (default 16:9 is 960x540 CSS pixels, with 740x380px available inside standard 80px 110px padding). Keep the main content within that fit budget; split dense source material across more slides instead of packing it tightly. Never use zoom, transform: scale(), clipping, or scroll overflow to hide content overflow, and keep body text at least 16px.",
       "Each slide's --content must be full HTML. Slide HTML templates are in your AGENTS.md.",
       "Do NOT use create-deck (the deck already exists). Do NOT call db-schema, the resources tool, or search-files.",
     ].join("\n");

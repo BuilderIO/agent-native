@@ -254,20 +254,31 @@ describe("applyOperation — patch-deck-fields", () => {
 });
 
 describe("patch-deck agent schema", () => {
-  it("advertises only the sparse title rename needed during generation", () => {
+  it("advertises only bounded deck and slide patch operations", () => {
     const parameters = patchDeckAction.tool.parameters as any;
-    const operation = parameters.properties.operations.items;
+    const operations = parameters.properties.operations.items.anyOf;
+    const deckFields = operations.find(
+      (operation: any) =>
+        operation.properties?.op?.const === "patch-deck-fields",
+    );
+    const slidePatch = operations.find(
+      (operation: any) => operation.properties?.op?.const === "patch-slide",
+    );
 
-    expect(operation.properties.op.const).toBe("patch-deck-fields");
-    expect(operation.properties.fields.properties.title).toMatchObject({
+    expect(operations).toHaveLength(2);
+    expect(deckFields.properties.fields.properties.title).toMatchObject({
       type: "string",
     });
-    expect(operation.properties.fields.properties).not.toHaveProperty(
+    expect(deckFields.properties.fields.properties).not.toHaveProperty(
       "aspectRatio",
     );
-    expect(operation.properties.fields.properties).not.toHaveProperty(
+    expect(deckFields.properties.fields.properties).not.toHaveProperty(
       "visibility",
     );
+    expect(slidePatch.properties.slideId).toMatchObject({ type: "string" });
+    expect(slidePatch.properties.fields.properties.content).toMatchObject({
+      type: "string",
+    });
   });
 });
 

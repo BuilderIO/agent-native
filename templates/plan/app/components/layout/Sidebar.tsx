@@ -606,30 +606,45 @@ export function Sidebar({
           collapsed ? "justify-center px-0" : "gap-2 px-3",
         )}
       >
-        <div
+        <button
+          type="button"
+          onClick={() => onCollapsedChange?.(!collapsed)}
           className={cn(
-            "flex min-w-0 items-center gap-2",
-            collapsed ? "justify-center" : "flex-1",
+            "flex min-w-0 items-center gap-2 rounded outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            collapsed ? "justify-center" : "flex-1 text-start",
           )}
+          aria-label={
+            collapsible
+              ? collapsed
+                ? t("sidebar.expandSidebar")
+                : t("sidebar.collapseSidebar")
+              : undefined
+          }
+          disabled={!collapsible || !onCollapsedChange}
+          data-sidebar-brand-toggle
         >
           <img
             src={appPath("/agent-native-icon-light.svg")}
             alt=""
             aria-hidden="true"
-            className="block h-4 w-auto max-w-7 shrink-0 dark:hidden"
+            width={28}
+            height={16}
+            className="block h-4 w-7 shrink-0 object-contain object-center dark:hidden"
           />
           <img
             src={appPath("/agent-native-icon-dark.svg")}
             alt=""
             aria-hidden="true"
-            className="hidden h-4 w-auto max-w-7 shrink-0 dark:block"
+            width={28}
+            height={16}
+            className="hidden h-4 w-7 shrink-0 object-contain object-center dark:block"
           />
           {!collapsed && (
             <span className="truncate text-sm font-semibold tracking-tight">
               {APP_TITLE}
             </span>
           )}
-        </div>
+        </button>
         {!collapsed && <BrandingCustomizePopover />}
       </div>
 

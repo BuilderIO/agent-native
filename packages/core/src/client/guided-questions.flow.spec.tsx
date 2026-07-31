@@ -253,6 +253,10 @@ describe("useGuidedQuestionFlow scoped reads", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
+    for (let i = 0; i < 20 && fetchMock.mock.calls.length < 2; i += 1) {
+      await flush();
+    }
+
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(result.current().questions).toEqual(payload.questions);
 

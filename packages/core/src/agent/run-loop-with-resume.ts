@@ -605,7 +605,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
       type: "error",
       error: RUN_BUDGET_EXHAUSTED_MESSAGE,
       errorCode: RUN_BUDGET_EXHAUSTED_ERROR_CODE,
-      recoverable: true,
+      recoverable: false,
     });
     reportFinalOutcome({
       state: "failed",

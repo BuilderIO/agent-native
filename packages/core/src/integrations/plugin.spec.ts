@@ -668,10 +668,11 @@ describe("integrations plugin routes", () => {
     );
 
     expect(result.status).toBe(200);
+    // Sweeps every dispatch mode: portable tasks are the ones most likely to
+    // be stranded, since their self-dispatch dies with the container.
     expect(retryStuckPendingTasksMock).toHaveBeenCalledWith({
       webhookBaseUrl: "https://app.test",
       limit: 20,
-      durableOnly: true,
     });
     expect(recoverDueIntegrationCampaignsMock).toHaveBeenCalledWith(
       expect.objectContaining({

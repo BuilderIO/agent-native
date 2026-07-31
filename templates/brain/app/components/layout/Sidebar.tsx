@@ -310,23 +310,50 @@ export function Sidebar({
       >
         <Link
           to="/"
+          onClick={(event) => {
+            if (
+              !collapsible ||
+              !onCollapsedChange ||
+              event.metaKey ||
+              event.ctrlKey ||
+              event.shiftKey ||
+              event.altKey ||
+              event.button !== 0
+            ) {
+              return;
+            }
+            event.preventDefault();
+            onCollapsedChange(!collapsed);
+          }}
           className={cn(
             "flex min-w-0 items-center rounded outline-none focus-visible:ring-2 focus-visible:ring-ring",
             collapsed ? "size-8 justify-center" : "flex-1 gap-3",
           )}
-          aria-label={collapsed ? t("navigation.brand") : undefined}
+          aria-label={
+            collapsible && onCollapsedChange
+              ? collapsed
+                ? t("navigation.expandSidebar")
+                : t("navigation.collapseSidebar")
+              : collapsed
+                ? t("navigation.brand")
+                : undefined
+          }
         >
           <img
             src={appPath("/agent-native-icon-light.svg")}
             alt=""
             aria-hidden="true"
-            className="block h-4 w-auto shrink-0 dark:hidden"
+            width={28}
+            height={16}
+            className="block h-4 w-7 shrink-0 object-contain object-center dark:hidden"
           />
           <img
             src={appPath("/agent-native-icon-dark.svg")}
             alt=""
             aria-hidden="true"
-            className="hidden h-4 w-auto shrink-0 dark:block"
+            width={28}
+            height={16}
+            className="hidden h-4 w-7 shrink-0 object-contain object-center dark:block"
           />
           <div className={cn("min-w-0", collapsed && "sr-only")}>
             <p className="truncate text-sm font-semibold text-sidebar-accent-foreground">

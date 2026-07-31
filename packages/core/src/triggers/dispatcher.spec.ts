@@ -131,8 +131,10 @@ describe("trigger dispatcher", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    // Default: user exists and (when checked) is an org member.
-    dbExecuteMock.mockResolvedValue({ rows: [{ "1": 1 }] });
+    // Default: user exists and (when checked) is an org member. rowsAffected: 1
+    // also lets the background run's self-claim CAS UPDATE (see
+    // background-automation-runner.ts) succeed by default.
+    dbExecuteMock.mockResolvedValue({ rows: [{ "1": 1 }], rowsAffected: 1 });
     getDbExecMock.mockReturnValue({ execute: dbExecuteMock });
     resourceListAllOwnersMock.mockResolvedValue([
       {
@@ -635,9 +637,10 @@ Read the calendar.`,
         ]),
       }),
     );
-    expect(startRunMock.mock.calls[0]?.[4]).toEqual(
-      expect.objectContaining({ dispatchMode: "background" }),
-    );
+    // dispatch_mode is now set via the runner's own pre-claim (insertRun +
+    // claimBackgroundRun) before startRun is even called, not through
+    // startRun's options — see background-automation-runner.spec.ts.
+    expect(startRunMock.mock.calls[0]?.[4]).not.toHaveProperty("dispatchMode");
   });
 
   it("fails loudly before execution when a requested event MCP tool is unavailable", async () => {

@@ -52,7 +52,7 @@ import {
   useSlideComments,
   type CommentThread,
 } from "@/hooks/use-slide-comments";
-import type { AspectRatio } from "@/lib/aspect-ratios";
+import { getAspectRatioDims, type AspectRatio } from "@/lib/aspect-ratios";
 import {
   deckAccessCheckKey,
   shouldShowDeckEditorSkeleton,
@@ -254,6 +254,7 @@ export default function DeckEditor() {
   }, []);
 
   const deck = getDeck(id || "");
+  const fitDims = getAspectRatioDims(deck?.aspectRatio);
   const currentDeckAccessKey = deckAccessCheckKey(id, org?.orgId);
   const hasTeamJoinOption =
     !org?.orgId &&
@@ -297,12 +298,12 @@ export default function DeckEditor() {
         "Answers:",
         formattedAnswers,
         "",
-        "Every slide is rendered into a fixed native canvas (default 16:9 is 960x540 CSS pixels). Keep each slide within the density limits in AGENTS.md; split dense source material across more slides instead of packing it tightly.",
+        `Every slide is rendered into a fixed native canvas (${fitDims.width}x${fitDims.height} CSS pixels; standard padding leaves ${Math.max(0, fitDims.width - 220)}x${Math.max(0, fitDims.height - 160)}px for main content). Keep the main content within that fit budget; split dense source material across more slides instead of packing it tightly. Never use zoom, transform: scale(), clipping, or scroll overflow to hide content overflow, and keep body text at least 16px.`,
         "",
         `Now generate the slides based on these preferences. Start a manage-progress run, add the first slide as soon as it is ready, then continue one slide at a time so the editor visibly fills in. Use add-slide with --deckId=${id} to add slides sequentially. Wait for each add-slide result before calling it again.`,
       ].join("\n"),
     buildSkipContext: () =>
-      `The user skipped the pre-generation questions for deck ${id}. Proceed with reasonable defaults. Every slide is rendered into a fixed native canvas (default 16:9 is 960x540 CSS pixels); keep each slide within the density limits in AGENTS.md and split dense source material across more slides instead of packing it tightly. Start a manage-progress run, add the first slide as soon as it is ready, then continue sequentially using add-slide with --deckId=${id}. Wait for each add-slide result before calling it again.`,
+      `The user skipped the pre-generation questions for deck ${id}. Proceed with reasonable defaults. Every slide is rendered into a fixed native canvas (${fitDims.width}x${fitDims.height} CSS pixels; standard padding leaves ${Math.max(0, fitDims.width - 220)}x${Math.max(0, fitDims.height - 160)}px for main content); keep each slide within that fit budget and split dense source material across more slides instead of packing it tightly. Never use zoom, transform: scale(), clipping, or scroll overflow to hide content overflow, and keep body text at least 16px. Start a manage-progress run, add the first slide as soon as it is ready, then continue sequentially using add-slide with --deckId=${id}. Wait for each add-slide result before calling it again.`,
   });
 
   const showQuestionFlow = Boolean(questionFlowQuestions?.length);

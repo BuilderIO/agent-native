@@ -526,6 +526,116 @@ describe("AgentEngine registry", () => {
     });
   });
 
+  describe("resolveDelegatedRunModel", () => {
+    const engine = {
+      name: "builder",
+      defaultModel: "claude-sonnet-5",
+      supportedModels: [
+        "auto",
+        "claude-opus-4-8",
+        "claude-sonnet-5",
+        "claude-haiku-4-5",
+        "gpt-5-5",
+      ],
+    } as any;
+
+    it("keeps the receiver's explicit configuration over a caller hint", async () => {
+      const { resolveDelegatedRunModel } = await import("./registry.js");
+
+      expect(
+        resolveDelegatedRunModel(engine, {
+          explicitModel: "claude-opus-4-8",
+          storedModel: "claude-haiku-4-5",
+          callerModelHint: "gpt-5-5",
+        }),
+      ).toBe("claude-opus-4-8");
+    });
+
+    it("keeps the receiver's stored setting over a caller hint", async () => {
+      const { resolveDelegatedRunModel } = await import("./registry.js");
+
+      expect(
+        resolveDelegatedRunModel(engine, {
+          storedModel: "claude-haiku-4-5",
+          callerModelHint: "claude-opus-4-8",
+        }),
+      ).toBe("claude-haiku-4-5");
+    });
+
+    it("uses the caller hint only when the receiver chose nothing", async () => {
+      const { resolveDelegatedRunModel } = await import("./registry.js");
+
+      expect(
+        resolveDelegatedRunModel(engine, {
+          callerModelHint: "claude-opus-4-8",
+        }),
+      ).toBe("claude-opus-4-8");
+      expect(resolveDelegatedRunModel(engine, {})).toBe("claude-sonnet-5");
+    });
+
+    it("falls back to the default for unknown or malformed hints", async () => {
+      const { resolveDelegatedRunModel } = await import("./registry.js");
+
+      for (const callerModelHint of [
+        "totally-removed-model",
+        "",
+        "   ",
+        "auto",
+        null,
+        undefined,
+        // Untrusted input shapes that must not throw or reach a provider.
+        "../../etc/passwd",
+        "a".repeat(500),
+      ]) {
+        expect(resolveDelegatedRunModel(engine, { callerModelHint })).toBe(
+          "claude-sonnet-5",
+        );
+      }
+    });
+
+    it("rejects a hint naming a model from a different engine", async () => {
+      const { resolveDelegatedRunModel } = await import("./registry.js");
+      const anthropic = {
+        name: "anthropic",
+        defaultModel: "claude-sonnet-5",
+        supportedModels: ["claude-sonnet-5", "claude-opus-4-8"],
+      } as any;
+
+      expect(
+        resolveDelegatedRunModel(anthropic, { callerModelHint: "gpt-5-5" }),
+      ).toBe("claude-sonnet-5");
+      expect(
+        resolveDelegatedRunModel(anthropic, {
+          callerModelHint: "gemini-3-1-pro",
+        }),
+      ).toBe("claude-sonnet-5");
+    });
+
+    it("ignores hints for engines that cannot prove catalog membership", async () => {
+      const { resolveDelegatedRunModel } = await import("./registry.js");
+      const gateway = {
+        name: "ai-sdk:openai",
+        defaultModel: "gpt-5.6-sol",
+        supportedModels: ["gpt-5.5", "gpt-5.6-sol"],
+        preserveCustomModels: true,
+      } as any;
+      const catalogless = {
+        name: "custom",
+        defaultModel: "default-model",
+        supportedModels: [],
+      } as any;
+
+      expect(
+        resolveDelegatedRunModel(gateway, { callerModelHint: "gpt-5.5" }),
+      ).toBe("gpt-5.6-sol");
+      expect(
+        resolveDelegatedRunModel(catalogless, {
+          callerModelHint: "anything-goes",
+        }),
+      ).toBe("default-model");
+    });
+  });
+
   it("resolveEngine uses env AGENT_ENGINE when set", async () => {
     const { registerAgentEngine, resolveEngine } =
       await import("./registry.js");

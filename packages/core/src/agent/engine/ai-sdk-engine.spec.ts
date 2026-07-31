@@ -343,6 +343,43 @@ describe("AISDKEngine error tagging", () => {
     expect(stopEvent?.providerRetryable).toBe(true);
   });
 
+  it("records streamed 401s before the success cleanup can clear them", async () => {
+    const recordProviderCredentialAuthFailure = vi.fn(async () => {});
+    const clearProviderCredentialAuthFailure = vi.fn(async () => {});
+    vi.doMock("../../server/credential-provider.js", () => ({
+      clearProviderCredentialAuthFailure,
+      readDeployCredentialEnv: vi.fn(),
+      recordProviderCredentialAuthFailure,
+    }));
+    class MockApiCallError extends Error {
+      statusCode = 401;
+      isRetryable = false;
+      constructor() {
+        super("Unauthorized");
+      }
+    }
+    const streamText = vi.fn().mockReturnValue({
+      fullStream: (async function* () {
+        yield { type: "error", error: new MockApiCallError() };
+      })(),
+    });
+    vi.doMock("ai", () => ({ streamText, jsonSchema: (s: unknown) => s }));
+    mockOpenAIProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("openai", { apiKey: "sk-test" });
+    await drain(engine.stream(BASE_STREAM_OPTIONS));
+
+    expect(recordProviderCredentialAuthFailure).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: "OPENAI_API_KEY",
+        status: 401,
+        code: "http_401",
+      }),
+    );
+    expect(clearProviderCredentialAuthFailure).not.toHaveBeenCalled();
+  });
+
   it("tags a retry-wrapped Cannot connect to API failure as a provider network error", async () => {
     const lastError = Object.assign(
       new Error(

@@ -336,32 +336,48 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
             showCollapsedSidebar ? "justify-center px-2" : "px-4",
           )}
         >
-          <div
+          <button
+            type="button"
+            onClick={() => {
+              if (!isMobile) setSidebarCollapsed((value) => !value);
+            }}
+            aria-label={
+              isMobile
+                ? t("navigation.brand")
+                : showCollapsedSidebar
+                  ? t("navigation.expandSidebar")
+                  : t("navigation.collapseSidebar")
+            }
             className={cn(
-              "flex min-w-0 items-center gap-2",
-              !showCollapsedSidebar && "flex-1",
+              "flex min-w-0 items-center gap-2 rounded outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              showCollapsedSidebar
+                ? "size-8 justify-center"
+                : "flex-1 text-start",
             )}
+            data-sidebar-brand-toggle
           >
+            <img
+              src={appPath("/agent-native-icon-light.svg")}
+              alt=""
+              aria-hidden="true"
+              width={28}
+              height={16}
+              className="block h-4 w-7 shrink-0 object-contain object-center dark:hidden"
+            />
+            <img
+              src={appPath("/agent-native-icon-dark.svg")}
+              alt=""
+              aria-hidden="true"
+              width={28}
+              height={16}
+              className="hidden h-4 w-7 shrink-0 object-contain object-center dark:block"
+            />
             {!showCollapsedSidebar && (
-              <>
-                <img
-                  src={appPath("/agent-native-icon-light.svg")}
-                  alt=""
-                  aria-hidden="true"
-                  className="block h-4 w-auto shrink-0 dark:hidden"
-                />
-                <img
-                  src={appPath("/agent-native-icon-dark.svg")}
-                  alt=""
-                  aria-hidden="true"
-                  className="hidden h-4 w-auto shrink-0 dark:block"
-                />
-                <span className="truncate text-sm font-semibold text-foreground">
-                  {t("navigation.brand")}
-                </span>
-              </>
+              <span className="truncate text-sm font-semibold text-foreground">
+                {t("navigation.brand")}
+              </span>
             )}
-          </div>
+          </button>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
           {showCollapsedSidebar ? (

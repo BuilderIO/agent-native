@@ -1,3 +1,4 @@
+import { isInBackgroundFunctionRuntime } from "../agent/durable-background.js";
 import { createAnthropicEngine } from "../agent/engine/index.js";
 import type { EngineMessage } from "../agent/engine/types.js";
 import {
@@ -518,7 +519,17 @@ async function processComment(
               signal,
             },
             undefined,
-            { useHostedDefault: true },
+            // Same omission the scheduled-job runner had: without this, a
+            // poller-driven reply inherits the interactive clamp (40s soft
+            // timeout, a no-progress backstop at 0.75x that, 6 continuations)
+            // even though no client is waiting on a response. Uses the runtime
+            // check rather than a hardcoded `true` — matching webhook-handler.ts
+            // in this same subsystem — because unlike the job runner there is no
+            // hard-abort cap here to bound a wider ceiling.
+            {
+              useHostedDefault: true,
+              backgroundFunction: isInBackgroundFunctionRuntime(),
+            },
           ),
       );
     },

@@ -280,8 +280,23 @@ interface BuilderResolvedCredentials {
   source: Exclude<BuilderCredentialSource, "env">;
 }
 
-function isCompleteBuilderConnection(creds: BuilderResolvedCredentials) {
-  return Boolean(creds.privateKey && creds.publicKey);
+/**
+ * A complete key pair is not necessarily a usable one: the gateway may have
+ * already rejected this exact private+public pair (see
+ * `recordBuilderCredentialAuthFailure`). Treating a marked-bad pair as
+ * "complete" is how a rejected credential got resent on every subsequent
+ * turn forever — this is the read side of that write, symmetric with
+ * `resolveUsableProviderSecret` for every non-Builder provider.
+ */
+async function isCompleteBuilderConnection(
+  creds: BuilderResolvedCredentials,
+): Promise<boolean> {
+  if (!creds.privateKey || !creds.publicKey) return false;
+  const failure = await getBuilderCredentialAuthFailure({
+    privateKey: creds.privateKey,
+    publicKey: creds.publicKey,
+  });
+  return !failure;
 }
 
 function readOptionalBuilderBoolean(
@@ -524,14 +539,14 @@ async function resolveScopedBuilderCredentials(): Promise<ScopedBuilderCredentia
   let orgLookupCause: unknown;
   try {
     const { readAppSecrets } = await import("../secrets/storage.js");
-    const traceScope = (
+    const traceScope = async (
       creds: BuilderResolvedCredentials,
       scopeId: string,
       extra = "",
     ) => {
       if (!traceLookup) return;
       console.log(
-        `[builder-credential] scope=${creds.source} scopeId=${scopeId} email=${email}${extra} complete=${isCompleteBuilderConnection(creds)} private=${Boolean(creds.privateKey)} public=${Boolean(creds.publicKey)}`,
+        `[builder-credential] scope=${creds.source} scopeId=${scopeId} email=${email}${extra} complete=${await isCompleteBuilderConnection(creds)} private=${Boolean(creds.privateKey)} public=${Boolean(creds.publicKey)}`,
       );
     };
 
@@ -540,8 +555,8 @@ async function resolveScopedBuilderCredentials(): Promise<ScopedBuilderCredentia
       "user",
       email,
     );
-    traceScope(userCreds, email);
-    if (isCompleteBuilderConnection(userCreds)) {
+    await traceScope(userCreds, email);
+    if (await isCompleteBuilderConnection(userCreds)) {
       return { creds: userCreds, lookupFailed: false };
     }
 
@@ -563,8 +578,8 @@ async function resolveScopedBuilderCredentials(): Promise<ScopedBuilderCredentia
         "org",
         orgId,
       );
-      traceScope(orgCreds, orgId, ` orgSource=${orgSource}`);
-      if (isCompleteBuilderConnection(orgCreds)) {
+      await traceScope(orgCreds, orgId, ` orgSource=${orgSource}`);
+      if (await isCompleteBuilderConnection(orgCreds)) {
         return { creds: orgCreds, lookupFailed: false };
       }
 
@@ -574,8 +589,8 @@ async function resolveScopedBuilderCredentials(): Promise<ScopedBuilderCredentia
         "workspace",
         orgId,
       );
-      traceScope(workspaceCreds, orgId, ` orgSource=${orgSource}`);
-      if (isCompleteBuilderConnection(workspaceCreds)) {
+      await traceScope(workspaceCreds, orgId, ` orgSource=${orgSource}`);
+      if (await isCompleteBuilderConnection(workspaceCreds)) {
         return { creds: workspaceCreds, lookupFailed: false };
       }
     }
@@ -594,12 +609,12 @@ async function resolveScopedBuilderCredentials(): Promise<ScopedBuilderCredentia
       "workspace",
       soloScopeId,
     );
-    traceScope(
+    await traceScope(
       soloCreds,
       soloScopeId,
       ` orgId=${orgId ?? "(none)"} orgSource=${orgSource}`,
     );
-    if (isCompleteBuilderConnection(soloCreds)) {
+    if (await isCompleteBuilderConnection(soloCreds)) {
       return { creds: soloCreds, lookupFailed: false };
     }
   } catch (err) {
@@ -791,6 +806,30 @@ export async function resolveBuilderCredentialsDetailed(): Promise<BuilderCreden
         readDeployCredentialEnv("BUILDER_IS_FREE_ACCOUNT"),
       )
     : null;
+  // The deploy-level fallback is a candidate scope like any other: a pair the
+  // gateway already rejected must not be handed back as the "configured"
+  // credential just because no per-user/org row exists to shadow it.
+  const envFailure =
+    privateKey && publicKey
+      ? await getBuilderCredentialAuthFailure({ privateKey, publicKey })
+      : null;
+  if (envFailure) {
+    return {
+      privateKey: null,
+      publicKey: null,
+      userId: null,
+      orgName: null,
+      orgKind: null,
+      subscription: null,
+      subscriptionLevel: null,
+      subscriptionName: null,
+      isEnterprise: null,
+      isFreeAccount: null,
+      source: null,
+      lookupFailed,
+      cause,
+    };
+  }
   return {
     privateKey,
     publicKey,

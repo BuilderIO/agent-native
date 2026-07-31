@@ -230,6 +230,7 @@ describe("import-file PDF source extraction", () => {
       ownerEmail: "owner@example.com",
       orgId: "org-1",
       projectName: "brand",
+      sourceKind: "figma",
     });
   });
 });

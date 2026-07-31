@@ -84,6 +84,7 @@ import {
   LLM_MISSING_CREDENTIALS_MESSAGE,
   userFacingLlmCredentialError,
 } from "./engine/credential-errors.js";
+import { isProviderConnectionErrorMessage } from "./engine/error-detail.js";
 import {
   resolveEngine,
   registerBuiltinEngines,
@@ -1312,23 +1313,12 @@ export function isRetryableError(err: unknown): boolean {
     msg.includes("gateway error") ||
     msg.includes("socket hang up") ||
     msg.includes("connection reset") ||
-    hasProviderConnectionErrorMessage(msg) ||
+    isProviderConnectionErrorMessage(msg) ||
     msg.includes("too many requests") ||
     msg.includes("timeout") ||
     msg.includes("gateway timeout") ||
     msg.includes("inactivity timeout") ||
     msg.includes("too much time has passed without sending any data")
-  );
-}
-
-function hasProviderConnectionErrorMessage(message: string): boolean {
-  const normalized = message.toLowerCase();
-  // Anthropic's APIConnectionError uses "Connection error."; AI SDK wraps
-  // OpenAI TLS failures as "Cannot connect to API". Both can cross a worker
-  // boundary without their structured EngineError metadata.
-  return (
-    normalized.includes("connection error") ||
-    normalized.includes("cannot connect to api")
   );
 }
 
@@ -2264,7 +2254,7 @@ export function isResumableEngineError(err: unknown): boolean {
     text.includes("econnaborted") ||
     text.includes("fetch failed") ||
     text.includes("network error") ||
-    hasProviderConnectionErrorMessage(text) ||
+    isProviderConnectionErrorMessage(text) ||
     text.includes("connection reset") ||
     text.includes("connection closed") ||
     text.includes("stream closed") ||
@@ -6104,7 +6094,7 @@ function isRecoverableContinuationError(event: {
     code === "http_529" ||
     code === "run_timeout" ||
     message.includes("timeout") ||
-    hasProviderConnectionErrorMessage(message) ||
+    isProviderConnectionErrorMessage(message) ||
     message.includes("temporarily unavailable")
   );
 }
@@ -6432,7 +6422,7 @@ export async function runAgentLoopWithMainChatInternalContinuations(
       type: "error",
       error: RUN_BUDGET_EXHAUSTED_MESSAGE,
       errorCode: RUN_BUDGET_EXHAUSTED_ERROR_CODE,
-      recoverable: true,
+      recoverable: false,
     });
   }
   return usage;
@@ -6661,9 +6651,9 @@ export async function claimBackgroundWorkerRunEarly(opts: {
       .join(" "),
   ).catch(() => {});
 
-  // A failed durable abort read is fail-closed: never let a worker execute
-  // after cancellation just because the database was temporarily unreadable.
-  if (await turnAborted(threadId, turnId).catch(() => true)) {
+  // A failed durable abort read must surface as infrastructure failure. It is
+  // not evidence that the user stopped the turn.
+  if (await turnAborted(threadId, turnId)) {
     await abortRun(opts.runId, "user").catch(() => {});
     return { claimed: false, skipped: "turn-aborted" };
   }
@@ -6674,7 +6664,7 @@ export async function claimBackgroundWorkerRunEarly(opts: {
     }).catch(() => {});
   }
 
-  if (await turnAborted(threadId, turnId).catch(() => true)) {
+  if (await turnAborted(threadId, turnId)) {
     await abortRun(opts.runId, "user").catch(() => {});
     return { claimed: false, skipped: "turn-aborted" };
   }
@@ -6687,7 +6677,7 @@ export async function claimBackgroundWorkerRunEarly(opts: {
 
   await record(opts.runId, RUN_DIAG_STAGE.workerClaimed).catch(() => {});
   await heartbeat(opts.runId).catch(() => {});
-  if (await turnAborted(threadId, turnId).catch(() => true)) {
+  if (await turnAborted(threadId, turnId)) {
     await abortRun(opts.runId, "user").catch(() => {});
     return { claimed: false, skipped: "turn-aborted" };
   }
@@ -7143,11 +7133,7 @@ export async function chainServerDrivenContinuation(opts: {
   };
   delete continuationBody[AGENT_CHAT_BACKGROUND_RUN_FIELD];
   try {
-    if (
-      await d
-        .isTurnAborted(effectiveThreadId, effectiveTurnId)
-        .catch(() => true)
-    ) {
+    if (await d.isTurnAborted(effectiveThreadId, effectiveTurnId)) {
       await d.markRunAborted(runId, "user").catch(() => {});
       return;
     }
@@ -7196,11 +7182,7 @@ export async function chainServerDrivenContinuation(opts: {
         insertErr instanceof Error ? insertErr.message : insertErr,
       );
     }
-    if (
-      await d
-        .isTurnAborted(effectiveThreadId, effectiveTurnId)
-        .catch(() => true)
-    ) {
+    if (await d.isTurnAborted(effectiveThreadId, effectiveTurnId)) {
       if (nextRowInserted)
         await d.markRunAborted(nextRunId, "user").catch(() => {});
       await d.markRunAborted(runId, "user").catch(() => {});
@@ -8376,9 +8358,7 @@ export function createProductionAgentHandler(
           : runId;
     if (
       isBackgroundWorker &&
-      (await isTurnAborted(effectiveThreadId, effectiveTurnId).catch(
-        () => true,
-      ))
+      (await isTurnAborted(effectiveThreadId, effectiveTurnId))
     ) {
       await markRunAborted(runId, "user").catch(() => {});
       return { ok: true, stopped: true };
