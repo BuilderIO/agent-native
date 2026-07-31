@@ -93,7 +93,8 @@ const SETTINGS_SECTION_SEARCH_META: Record<
 > = {
   account: {
     label: "Account",
-    keywords: "profile photo avatar identity signed in email name",
+    keywords:
+      "profile photo avatar identity signed in email name timezone time zone schedule scheduling clock",
   },
   llm: {
     label: "LLM",

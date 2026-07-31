@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from "../components/ui/dialog.js";
 import { useT } from "../i18n.js";
+import { TimezoneSelect, browserTimezone } from "./TimezoneSelect.js";
 
 const PRESETS: { label: string; cron: string }[] = [
   { label: "Every hour", cron: "0 * * * *" },
@@ -30,16 +31,18 @@ export interface AutomationScheduleDialogProps {
   open: boolean;
   name: string;
   schedule: string;
+  timezone: string | null;
   saving: boolean;
   error?: string | null;
   onCancel: () => void;
-  onSave: (schedule: string) => void;
+  onSave: (next: { schedule: string; timezone: string }) => void;
 }
 
 export function AutomationScheduleDialog({
   open,
   name,
   schedule,
+  timezone,
   saving,
   error,
   onCancel,
@@ -47,13 +50,17 @@ export function AutomationScheduleDialog({
 }: AutomationScheduleDialogProps) {
   const t = useT();
   const [value, setValue] = useState(schedule);
+  const [zone, setZone] = useState(timezone || browserTimezone());
 
   useEffect(() => {
-    if (open) setValue(schedule);
-  }, [open, schedule]);
+    if (!open) return;
+    setValue(schedule);
+    setZone(timezone || browserTimezone());
+  }, [open, schedule, timezone]);
 
   const trimmed = value.trim();
   const valid = looksLikeCron(trimmed);
+  const changed = trimmed !== schedule.trim() || zone !== (timezone || null);
 
   return (
     <Dialog
@@ -73,7 +80,7 @@ export function AutomationScheduleDialog({
           <DialogDescription>
             {t("jobs.editScheduleDescription", {
               defaultValue:
-                "Cron fields are evaluated in the server's timezone, so the next run below may land at a different local time.",
+                "The clock time below is read in the timezone you pick, so 8:00 means 8:00 there.",
             })}
           </DialogDescription>
         </DialogHeader>
@@ -118,6 +125,24 @@ export function AutomationScheduleDialog({
             ))}
           </div>
 
+          <div>
+            <label
+              className="text-xs font-medium text-foreground"
+              htmlFor="automation-timezone"
+            >
+              {t("jobs.timezone", { defaultValue: "Timezone" })}
+            </label>
+            <div className="mt-1">
+              <TimezoneSelect
+                id="automation-timezone"
+                value={zone}
+                disabled={saving}
+                onChange={setZone}
+                suggested={[browserTimezone()]}
+              />
+            </div>
+          </div>
+
           {trimmed && !valid ? (
             <p className="text-xs text-destructive">
               {t("jobs.cronFieldCount", {
@@ -141,8 +166,8 @@ export function AutomationScheduleDialog({
           <Button
             type="button"
             className="cursor-pointer"
-            disabled={saving || !valid || trimmed === schedule.trim()}
-            onClick={() => onSave(trimmed)}
+            disabled={saving || !valid || !changed}
+            onClick={() => onSave({ schedule: trimmed, timezone: zone })}
           >
             {saving ? <IconLoader2 className="size-4 animate-spin" /> : null}
             {t("jobs.saveSchedule", { defaultValue: "Save schedule" })}

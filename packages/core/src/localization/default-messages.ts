@@ -58,6 +58,14 @@ const messages = {
     profileSaveError: "Could not update profile",
     profileMenuItem: "Profile",
     manageAgentMenuItem: "Manage agent",
+    timezoneLabel: "Timezone",
+    timezoneDescription:
+      "Used when the agent schedules work for you, so a job set for 8:00 runs at 8:00 here.",
+    timezoneSaved: "Timezone saved",
+    timezoneFollowingBrowser:
+      "Following this browser ({{zone}}). Pick a zone to keep schedules fixed to it.",
+    timezoneSaving: "Saving…",
+    timezoneSave: "Save timezone",
   },
   secrets: {
     scopeLabel: "Scope",

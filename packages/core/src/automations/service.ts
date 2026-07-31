@@ -1,5 +1,10 @@
 import { getDbExec } from "../db/client.js";
-import { isValidCron, nextOccurrence } from "../jobs/cron.js";
+import {
+  isValidCron,
+  isValidTimezone,
+  nextOccurrence,
+} from "../jobs/cron.js";
+import { resolveUserSchedulingTimezone } from "../localization/user-timezone.js";
 import {
   buildJobResourceContent,
   normalizeJobMcpTools,
@@ -49,6 +54,7 @@ export interface DefineAutomationInput {
   triggerType: "schedule" | "event";
   body: string;
   schedule?: string;
+  timezone?: string;
   event?: string;
   condition?: string;
   domain?: string;
@@ -68,6 +74,7 @@ export interface UpdateAutomationInput {
   condition?: string | null;
   delegatedPolicyId?: string | null;
   schedule?: string;
+  timezone?: string;
   model?: string | null;
   mcpTools?: unknown;
 }
@@ -309,9 +316,20 @@ export async function defineAutomation(
     throw httpError("event is required for event-triggered automations.", 400);
   }
 
+  if (input.timezone && !isValidTimezone(input.timezone)) {
+    throw httpError(`Unknown timezone "${input.timezone}".`, 400);
+  }
+  // Resolve now and persist it: a schedule whose zone is implicit means
+  // something different the moment it is read on a differently-zoned host.
+  const timezone =
+    input.triggerType === "schedule"
+      ? input.timezone || (await resolveUserSchedulingTimezone(actor.userEmail))
+      : undefined;
+
   const mcpTools = normalizeJobMcpTools(input.mcpTools);
   const meta: JobFrontmatter = {
     schedule: input.triggerType === "schedule" ? schedule : "",
+    timezone,
     enabled: true,
     triggerType: input.triggerType,
     event: input.triggerType === "event" ? event : undefined,
@@ -324,7 +342,7 @@ export async function defineAutomation(
     runAs: "creator",
     nextRun:
       input.triggerType === "schedule"
-        ? nextOccurrence(schedule).toISOString()
+        ? nextOccurrence(schedule, undefined, timezone).toISOString()
         : undefined,
     model: input.model?.trim() || undefined,
     mcpTools: mcpTools?.length ? mcpTools : undefined,
@@ -365,7 +383,22 @@ export async function updateAutomation(
       throw httpError(`Invalid cron expression "${input.schedule}".`, 400);
     }
     meta.schedule = input.schedule;
-    meta.nextRun = nextOccurrence(input.schedule).toISOString();
+  }
+  if (input.timezone !== undefined) {
+    if (!isValidTimezone(input.timezone)) {
+      throw httpError(`Unknown timezone "${input.timezone}".`, 400);
+    }
+    if (meta.triggerType !== "schedule") {
+      throw httpError("Event automations do not have a timezone.", 400);
+    }
+    meta.timezone = input.timezone;
+  }
+  if (input.schedule !== undefined || input.timezone !== undefined) {
+    meta.nextRun = nextOccurrence(
+      meta.schedule,
+      undefined,
+      meta.timezone,
+    ).toISOString();
   }
   if (input.enabled !== undefined) {
     meta.enabled = input.enabled;
@@ -374,7 +407,11 @@ export async function updateAutomation(
       meta.triggerType === "schedule" &&
       isValidCron(meta.schedule)
     ) {
-      meta.nextRun = nextOccurrence(meta.schedule).toISOString();
+      meta.nextRun = nextOccurrence(
+        meta.schedule,
+        undefined,
+        meta.timezone,
+      ).toISOString();
     }
   }
   if (input.condition !== undefined) {

@@ -17,8 +17,12 @@ export default defineAction({
     scope: z.enum(["personal", "organization"]).default("personal"),
     enabled: z.boolean().optional(),
     schedule: z.string().min(1).optional(),
+    timezone: z.string().min(1).optional(),
   }),
-  run: async ({ operation, name, scope, enabled, schedule }, ctx) => {
+  run: async (
+    { operation, name, scope, enabled, schedule, timezone },
+    ctx,
+  ) => {
     const userEmail = ctx?.userEmail;
     if (!userEmail) throw new Error("Not authenticated.");
     const actor = { userEmail, orgId: ctx?.orgId };
@@ -28,9 +32,13 @@ export default defineAction({
       await refreshEventSubscriptions();
       return { deleted: true, name };
     }
-    if (enabled === undefined && schedule === undefined) {
+    if (
+      enabled === undefined &&
+      schedule === undefined &&
+      timezone === undefined
+    ) {
       throw Object.assign(
-        new Error("enabled or schedule is required for update."),
+        new Error("enabled, schedule, or timezone is required for update."),
         { statusCode: 400 },
       );
     }
@@ -39,12 +47,14 @@ export default defineAction({
       scope,
       ...(enabled === undefined ? {} : { enabled }),
       ...(schedule === undefined ? {} : { schedule }),
+      ...(timezone === undefined ? {} : { timezone }),
     });
     await refreshEventSubscriptions();
     return {
       name,
       enabled: definition.meta.enabled,
       schedule: definition.meta.schedule || null,
+      timezone: definition.meta.timezone ?? null,
       nextRun: definition.meta.nextRun ?? null,
     };
   },

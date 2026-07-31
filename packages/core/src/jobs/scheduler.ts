@@ -11,7 +11,12 @@ import {
   type BackgroundAutomationContext,
   type BackgroundAutomationDeps,
 } from "./background-automation-runner.js";
-import { nextOccurrence, isValidCron, describeCron } from "./cron.js";
+import {
+  nextOccurrence,
+  isValidCron,
+  describeCron,
+  effectiveTimezone,
+} from "./cron.js";
 import {
   buildJobResourceContent,
   parseJobResource,
@@ -138,7 +143,7 @@ export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
         // Stuck — reset so the next check can re-run it
         meta.lastStatus = "error";
         meta.lastError = "Job timed out or server crashed mid-run";
-        const next = nextOccurrence(meta.schedule, now);
+        const next = nextOccurrence(meta.schedule, now, meta.timezone);
         meta.nextRun = next.toISOString();
         await updateResource(resource, meta, body);
         continue;
@@ -153,7 +158,7 @@ export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
         // real next occurrence. Computing from new Date(0) (the epoch) always
         // returns a 1970 date, which is < now, so the job would fire
         // immediately on first sight regardless of its schedule.
-        const next = nextOccurrence(meta.schedule, now);
+        const next = nextOccurrence(meta.schedule, now, meta.timezone);
         meta.nextRun = next.toISOString();
         await updateResource(resource, meta, body);
         continue;
@@ -269,7 +274,7 @@ async function executeJob(
         automation: jobContext,
         ownerEmail: jobUserEmail,
         orgId: jobOrgId,
-        prompt: `[Recurring Job: ${jobName}]\nSchedule: ${describeCron(meta.schedule)}\n\nExecute the following job instructions:\n\n${body}`,
+        prompt: `[Recurring Job: ${jobName}]\nSchedule: ${describeCron(meta.schedule, effectiveTimezone(meta.timezone))}\n\nExecute the following job instructions:\n\n${body}`,
         threadTitle: `Job: ${jobName} — ${now.toLocaleDateString()}`,
         runIdPrefix: `job-${jobName}`,
         usageLabel: `recurring-job:${jobName}`,
@@ -280,7 +285,11 @@ async function executeJob(
 
     // Compute from completion time so long runs cannot immediately re-fire.
     meta.lastStatus = "success";
-    meta.nextRun = nextOccurrence(meta.schedule, new Date()).toISOString();
+    meta.nextRun = nextOccurrence(
+      meta.schedule,
+      new Date(),
+      meta.timezone,
+    ).toISOString();
     await updateResource(resource, meta, body);
     console.log(
       `[recurring-jobs] Job "${jobName}" completed. Next run: ${meta.nextRun}`,
@@ -289,7 +298,11 @@ async function executeJob(
     meta.lastStatus = "error";
     meta.lastError =
       err instanceof Error ? err.message.slice(0, 200) : "Unknown error";
-    meta.nextRun = nextOccurrence(meta.schedule, new Date()).toISOString();
+    meta.nextRun = nextOccurrence(
+      meta.schedule,
+      new Date(),
+      meta.timezone,
+    ).toISOString();
     await updateResource(resource, meta, body);
     console.error(`[recurring-jobs] Job "${jobName}" failed:`, meta.lastError);
   }

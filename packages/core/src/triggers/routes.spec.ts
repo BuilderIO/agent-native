@@ -120,7 +120,7 @@ Hidden legacy organization job.`,
       lastError: "Calendar token expired",
       lastRun: "2026-06-18T15:00:00.000Z",
       nextRun: "2026-06-19T16:00:00.000Z",
-      scheduleDescription: "Every weekday at 9 AM",
+      scheduleDescription: "Every weekday at 9 AM (UTC)",
       canUpdate: true,
     });
     expect(result[1]).toMatchObject({

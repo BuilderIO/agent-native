@@ -33,6 +33,7 @@ vi.mock("../server/request-context.js", () => ({
   getRequestUserEmail: getRequestUserEmailMock,
   getRequestOrgId: getRequestOrgIdMock,
   getIntegrationRequestContext: getIntegrationRequestContextMock,
+  getRequestTimezone: () => "UTC",
 }));
 
 // Partial-mock db/client so the org-admin lookup is stubbed while other

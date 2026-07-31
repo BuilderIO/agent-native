@@ -7,7 +7,11 @@ import {
   resourceGetByPath,
   resourcePut,
 } from "../../resources/store.js";
-import { isValidCron, nextOccurrence } from "../cron.js";
+import {
+  isValidCron,
+  isValidTimezone,
+  nextOccurrence,
+} from "../cron.js";
 import { classifyJobResource } from "../frontmatter.js";
 import { buildJobContent, parseJobFrontmatter } from "../scheduler.js";
 import { authorizeJobMutation } from "../tools.js";
@@ -24,8 +28,12 @@ export default defineAction({
     scope: scopeSchema.default("personal"),
     enabled: z.boolean().optional(),
     schedule: z.string().min(1).optional(),
+    timezone: z.string().min(1).optional(),
   }),
-  run: async ({ operation, name, scope, enabled, schedule }, ctx) => {
+  run: async (
+    { operation, name, scope, enabled, schedule, timezone },
+    ctx,
+  ) => {
     const userEmail = ctx?.userEmail;
     if (!userEmail) throw new Error("Not authenticated.");
     if (scope === "organization" && !ctx?.orgId) {
@@ -58,9 +66,21 @@ export default defineAction({
       return { deleted: true, name };
     }
 
-    if (enabled === undefined && schedule === undefined) {
+    if (timezone !== undefined) {
+      if (!isValidTimezone(timezone)) {
+        throw Object.assign(new Error(`Unknown timezone "${timezone}".`), {
+          statusCode: 400,
+        });
+      }
+      meta.timezone = timezone;
+    }
+    if (
+      enabled === undefined &&
+      schedule === undefined &&
+      timezone === undefined
+    ) {
       throw Object.assign(
-        new Error("enabled or schedule is required for update."),
+        new Error("enabled, schedule, or timezone is required for update."),
         { statusCode: 400 },
       );
     }
@@ -75,7 +95,11 @@ export default defineAction({
     }
     if (enabled !== undefined) meta.enabled = enabled;
     if (meta.enabled && meta.schedule && isValidCron(meta.schedule)) {
-      meta.nextRun = nextOccurrence(meta.schedule).toISOString();
+      meta.nextRun = nextOccurrence(
+        meta.schedule,
+        undefined,
+        meta.timezone,
+      ).toISOString();
     }
     await resourcePut(
       resource.owner,

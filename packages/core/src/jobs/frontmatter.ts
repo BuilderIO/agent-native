@@ -11,6 +11,11 @@ export type JobExecutionMode = "agentic" | "deterministic";
 export interface JobFrontmatter {
   schedule: string;
   enabled: boolean;
+  /**
+   * IANA zone the cron fields are read in. Absent means the schedule predates
+   * timezone support and keeps its original host-relative meaning.
+   */
+  timezone?: string;
   createdBy?: string;
   orgId?: string;
   runAs?: "creator" | "shared";
@@ -138,6 +143,9 @@ function parseKnownField(
       break;
     case "enabled":
       meta.enabled = value !== "false";
+      break;
+    case "timezone":
+      meta.timezone = value || undefined;
       break;
     case "createdBy":
       meta.createdBy = value;
@@ -300,6 +308,7 @@ export function buildJobResourceContent(
   pushString(lines, "createdBy", meta.createdBy, false);
   pushString(lines, "orgId", meta.orgId);
   if (meta.runAs) lines.push(`runAs: ${meta.runAs}`);
+  pushString(lines, "timezone", meta.timezone);
   pushString(lines, "lastRun", meta.lastRun);
   pushString(lines, "lastCheck", meta.lastCheck);
   if (meta.lastStatus) lines.push(`lastStatus: ${meta.lastStatus}`);

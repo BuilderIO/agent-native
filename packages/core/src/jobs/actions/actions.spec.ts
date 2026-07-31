@@ -88,7 +88,7 @@ describe("recurring jobs actions", () => {
     expect(jobs[0]).toMatchObject({
       id: "job-1",
       name: "daily",
-      scheduleDescription: "Every day at 9 AM",
+      scheduleDescription: "Every day at 9 AM (UTC)",
       instructions: "Summarize my inbox.",
       scope: "personal",
     });

@@ -10,6 +10,7 @@ export interface RecurringJob {
   path: string;
   scope: "personal" | "organization";
   schedule: string;
+  timezone: string;
   scheduleDescription: string;
   instructions: string;
   enabled: boolean;
@@ -31,6 +32,7 @@ export interface Automation {
   triggerType: "event" | "schedule";
   event: string | null;
   schedule: string | null;
+  timezone: string | null;
   scheduleDescription: string | null;
   condition: string | null;
   body: string;
@@ -57,6 +59,7 @@ export type ManageJobInput = {
   scope: "personal" | "organization";
   enabled?: boolean;
   schedule?: string;
+  timezone?: string;
 };
 
 export type ManageAutomationInput = ManageJobInput;
@@ -168,9 +171,14 @@ export function useManageAutomation(scope: JobsScope) {
 }
 
 function optimisticPatch(variables: ManageJobInput) {
-  const patch: { enabled?: boolean; schedule?: string } = {};
+  const patch: {
+    enabled?: boolean;
+    schedule?: string;
+    timezone?: string;
+  } = {};
   if (variables.enabled !== undefined) patch.enabled = variables.enabled;
   if (variables.schedule !== undefined) patch.schedule = variables.schedule;
+  if (variables.timezone !== undefined) patch.timezone = variables.timezone;
   return patch;
 }
 

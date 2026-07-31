@@ -109,11 +109,17 @@ function detailsFields(
   ];
 
   if (entry.triggerType === "schedule") {
-    fields.push({
-      label: t("jobs.cronExpression", { defaultValue: "Cron expression" }),
-      value: resource.schedule || unset,
-      mono: true,
-    });
+    fields.push(
+      {
+        label: t("jobs.cronExpression", { defaultValue: "Cron expression" }),
+        value: resource.schedule || unset,
+        mono: true,
+      },
+      {
+        label: t("jobs.timezone", { defaultValue: "Timezone" }),
+        value: resource.timezone || unset,
+      },
+    );
   }
 
   fields.push(
@@ -668,11 +674,12 @@ export function AgentJobsTab({ canManageOrg = false }: AgentPageTabProps) {
           open
           name={scheduleTarget.resource.name}
           schedule={scheduleTarget.resource.schedule ?? ""}
+          timezone={scheduleTarget.resource.timezone ?? null}
           saving={mutationPending}
           error={mutationError ? mutationError.message : null}
           onCancel={() => setScheduleTarget(null)}
-          onSave={(schedule) =>
-            mutateEntry(scheduleTarget, "update", { schedule }, () =>
+          onSave={(next) =>
+            mutateEntry(scheduleTarget, "update", next, () =>
               setScheduleTarget(null),
             )
           }

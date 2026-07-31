@@ -5,7 +5,12 @@ import {
   listAutomationDefinitions,
   type AutomationScope,
 } from "../../automations/service.js";
-import { describeCron, isValidCron, nextOccurrence } from "../../jobs/cron.js";
+import {
+  describeCron,
+  effectiveTimezone,
+  isValidCron,
+  nextOccurrence,
+} from "../../jobs/cron.js";
 
 const scopeSchema = z.enum(["personal", "organization"]);
 
@@ -27,7 +32,9 @@ function nextRun(
       return meta.nextRun;
     }
   }
-  return scheduled ? nextOccurrence(meta.schedule!).toISOString() : null;
+  return scheduled
+    ? nextOccurrence(meta.schedule!, undefined, meta.timezone).toISOString()
+    : null;
 }
 
 export interface AutomationActionItem {
@@ -38,6 +45,7 @@ export interface AutomationActionItem {
   triggerType: "event" | "schedule";
   event: string | null;
   schedule: string | null;
+  timezone: string | null;
   scheduleDescription: string | null;
   condition: string | null;
   body: string;
@@ -83,7 +91,10 @@ export default defineAction({
       triggerType: meta.triggerType,
       event: meta.event ?? null,
       schedule: meta.schedule || null,
-      scheduleDescription: meta.schedule ? describeCron(meta.schedule) : null,
+      timezone: meta.schedule ? effectiveTimezone(meta.timezone) : null,
+      scheduleDescription: meta.schedule
+        ? describeCron(meta.schedule, effectiveTimezone(meta.timezone))
+        : null,
       condition: meta.condition ?? null,
       body,
       enabled: meta.enabled,
