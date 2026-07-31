@@ -91,6 +91,25 @@ async function fetchThreadListPage(
   });
 }
 
+/**
+ * Look up one thread the list page did not carry. Distinguishes the three states
+ * the caller must not collapse: the thread (found), `null` (the server denies it
+ * exists), and `undefined` (unreachable — nothing was learned).
+ */
+async function fetchThreadById(
+  apiUrl: string,
+  id: string,
+): Promise<ChatThreadSummary | null | undefined> {
+  try {
+    const res = await fetch(`${apiUrl}/threads/${encodeURIComponent(id)}`);
+    if (res.status === 404) return null;
+    if (!res.ok) return undefined;
+    return (await res.json()) as ChatThreadSummary;
+  } catch {
+    return undefined;
+  }
+}
+
 function emitThreadsUpdated() {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent(THREADS_UPDATED_EVENT));
@@ -411,6 +430,17 @@ export function useChatThreads(
       } catch {
         nextActiveThreadId = null;
       }
+      // Only a known mismatch disqualifies the pointer — an unresolved scope
+      // must not be read as "belongs here".
+      if (nextActiveThreadId) {
+        const savedScope = readKnownThreadScope(nextActiveThreadId);
+        if (
+          savedScope !== undefined &&
+          !threadCanStayVisibleInScope(savedScope, scopeRef.current)
+        ) {
+          nextActiveThreadId = null;
+        }
+      }
       if (!nextActiveThreadId && autoCreate) {
         nextActiveThreadId = createLocalThreadId();
         newlyCreatedRef.current.add(nextActiveThreadId);
@@ -583,7 +613,7 @@ export function useChatThreads(
 
     (async () => {
       const loadedThreads = await fetchThreads();
-      const savedId = activeThreadIdRef.current;
+      const restoredId = activeThreadIdRef.current;
       if (loadedThreads === undefined) {
         // Thread-list fetch failed. Do not reclassify a saved id as a new
         // optimistic tab; AssistantChat should still get a chance to restore
@@ -591,8 +621,40 @@ export function useChatThreads(
         setIsLoading(false);
         return;
       }
+      // Exempts route-owned threads (the URL names what the user asked for) and
+      // ids this client generated, which have never reached the server.
+      const lookupRestored = Boolean(
+        restoredId &&
+        !routeControlsActiveThread &&
+        !newlyCreatedRef.current.has(restoredId),
+      );
+      const restoredOnPage = restoredId
+        ? loadedThreads.find((t) => t.id === restoredId)
+        : undefined;
+      // One page, so absence from it is not absence from the server — this is what
+      // separates an older real thread from the ghost tab reclassified below.
+      const restoredThread =
+        lookupRestored && !restoredOnPage
+          ? await fetchThreadById(apiUrl, restoredId!)
+          : restoredOnPage;
+      if (restoredThread === undefined && lookupRestored && !restoredOnPage) {
+        // Lookup unreachable. Reclassifying now would stamp this thread with the
+        // current scope on a guess; leave it untouched for the next mount.
+        setIsLoading(false);
+        return;
+      }
+      const restoredBelongsElsewhere = Boolean(
+        restoredThread &&
+        !threadCanStayVisibleInScope(
+          restoredThread.scope ?? null,
+          scopeRef.current,
+        ),
+      );
+      if (restoredBelongsElsewhere) setActiveThreadId(null);
+      const savedId = restoredBelongsElsewhere ? null : restoredId;
       const loadedHasSavedId = Boolean(
-        savedId && loadedThreads.some((t) => t.id === savedId),
+        savedId &&
+        (restoredThread || loadedThreads.some((t) => t.id === savedId)),
       );
       const savedIdCameFromRoute =
         Boolean(savedId) &&
@@ -646,6 +708,7 @@ export function useChatThreads(
       setIsLoading(false);
     })();
   }, [
+    apiUrl,
     fetchThreads,
     addOptimisticThread,
     autoCreate,
@@ -948,12 +1011,9 @@ export function useChatThreads(
     [apiUrl, clearUserRenamedThread, createThread],
   );
 
-  // Ref to look up the latest scope of a known thread inside
-  // saveThreadData without making the callback re-create on every
-  // setThreads. The thread's scope is owned by createThread /
-  // detachThread / fetchThreads — saveThreadData just mirrors it on
-  // every save so the server eventually catches up after
-  // persistSubmittedUserMessage creates the row sans scope.
+  // Reads scope through refs so this callback survives every setThreads. Scope
+  // rides only on creation: a periodic save must never move an existing thread
+  // between resources, however stale this client's guess is.
   const saveThreadData = useCallback(
     async (
       id: string,
@@ -968,7 +1028,7 @@ export function useChatThreads(
       try {
         const { titleSource, ...threadDataPayload } = data;
         const localThread = threadsRef.current.find((t) => t.id === id);
-        const localScope = localThread?.scope ?? null;
+        const knownScope = readKnownThreadScope(id) ?? null;
         const preserveUserTitle = userRenamedThreadIdsRef.current.has(id);
         const title = nextThreadTitle(
           localThread?.title,
@@ -977,11 +1037,7 @@ export function useChatThreads(
           titleSource,
           { preserveUserTitle },
         );
-        const payload = {
-          ...threadDataPayload,
-          title,
-          scope: localScope,
-        };
+        const payload = { ...threadDataPayload, title };
         let response = await fetch(
           `${apiUrl}/threads/${encodeURIComponent(id)}`,
           {
@@ -997,7 +1053,11 @@ export function useChatThreads(
           const created = await fetch(`${apiUrl}/threads`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ id, title, scope: localScope }),
+            body: JSON.stringify({
+              id,
+              title,
+              ...(knownScope ? { scope: knownScope } : {}),
+            }),
           });
           if (!created.ok) return;
           response = await fetch(
@@ -1059,7 +1119,7 @@ export function useChatThreads(
         });
       } catch {}
     },
-    [apiUrl],
+    [apiUrl, readKnownThreadScope],
   );
 
   const generateTitle = useCallback(
