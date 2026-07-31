@@ -4,6 +4,11 @@ import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "./engine/credential-errors.js";
+import {
+  classifyTerminalErrorCode,
+  describeErrorWithCauses,
+  isProviderConnectionError,
+} from "./engine/error-detail.js";
 import { EngineError } from "./engine/types.js";
 import {
   insertRun,
@@ -341,23 +346,16 @@ function getRunErrorMessage(err: unknown): string {
   return "Unknown error";
 }
 
-function isProviderConnectionErrorMessage(message: string): boolean {
-  const normalized = message.trim().toLowerCase();
-  return (
-    normalized === "connection error." ||
-    normalized.includes("cannot connect to api:")
-  );
-}
-
 function getRunErrorCode(err: unknown): string | undefined {
   if (err instanceof EngineError) {
     if (err.errorCode) return err.errorCode;
     if (err.statusCode === 429) return PROVIDER_RATE_LIMITED_ERROR_CODE;
   }
-  if (err instanceof Error && isProviderConnectionErrorMessage(err.message)) {
-    return PROVIDER_NETWORK_ERROR_CODE;
-  }
-  return undefined;
+  if (isProviderConnectionError(err)) return PROVIDER_NETWORK_ERROR_CODE;
+  // The code rides the error EVENT to the client, which decides recovery from
+  // it — so an uncoded transport failure has to be classified here too, not
+  // only when the run row is persisted.
+  return classifyTerminalErrorCode(describeErrorWithCauses(err));
 }
 
 function getEngineRunErrorDetails(err: EngineError): string | undefined {
@@ -376,7 +374,7 @@ function shouldCaptureRunError(err: unknown): boolean {
   }
   if (!(err instanceof Error)) return true;
   if (/^40[13] status code\b/i.test(err.message)) return false;
-  if (isProviderConnectionErrorMessage(err.message)) return false;
+  if (isProviderConnectionError(err)) return false;
   if (!errorCode) return true;
   const normalizedCode = errorCode.toLowerCase();
   return (
@@ -1456,6 +1454,11 @@ export function startRun(
               ? completionError.message
               : String(completionError));
         }
+        // An engine that emitted an error event without a code has NOT told us
+        // the failure is unclassifiable — it told us nothing. Recover the code
+        // from the message before falling back to "unknown", which the client
+        // reads as "do not attempt recovery".
+        errorCode ??= classifyTerminalErrorCode(errorDetail);
         runTerminalErrorCode = errorCode ?? "unknown";
         runTerminalErrorDetail = errorDetail;
         await setRunError(runId, errorCode ?? "unknown", errorDetail);

@@ -23,7 +23,10 @@ import {
   supportsClaudeAdaptiveThinking,
 } from "../../shared/reasoning-effort.js";
 import { AI_SDK_MODEL_CONFIG, type AISDKProvider } from "../model-config.js";
-import { describeErrorWithCauses } from "./error-detail.js";
+import {
+  describeErrorWithCauses,
+  isProviderConnectionErrorMessage,
+} from "./error-detail.js";
 import {
   createFirstEventAbortController,
   FIRST_STREAM_EVENT_TIMEOUT_MS,
@@ -510,17 +513,19 @@ class AISDKEngine implements AgentEngine {
         typeof providerError?.statusCode === "number"
           ? providerError.statusCode
           : undefined;
-      const rawMessage: string =
-        providerError?.message ?? String(providerError);
-      // Classify on the bare message — the recorded `errorMessage` carries the
-      // cause chain, which is where the real transport failure lives.
       const errorMessage = describeErrorWithCauses(err);
-      const normalizedRawMessage = rawMessage.trim().toLowerCase();
+      // Classify on the cause chain of the ORIGINAL error, not on the unwrapped
+      // `providerError`: when the AI SDK's RetryError does not expose
+      // `lastError` as an Error, the unwrap silently falls back to the wrapper,
+      // whose message ("Failed after 2 attempts. Last error: …") only *embeds*
+      // the transport failure. Matching the wrapper is the point.
       const isConnectionError =
         !timedOut &&
         statusCode === undefined &&
-        (normalizedRawMessage === "connection error." ||
-          normalizedRawMessage.startsWith("cannot connect to api:"));
+        (isProviderConnectionErrorMessage(errorMessage) ||
+          isProviderConnectionErrorMessage(
+            providerError?.message ?? String(providerError),
+          ));
       const providerRetryable: boolean | undefined =
         typeof providerError?.isRetryable === "boolean"
           ? providerError.isRetryable

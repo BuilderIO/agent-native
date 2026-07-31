@@ -84,6 +84,7 @@ import {
   LLM_MISSING_CREDENTIALS_MESSAGE,
   userFacingLlmCredentialError,
 } from "./engine/credential-errors.js";
+import { isProviderConnectionErrorMessage } from "./engine/error-detail.js";
 import {
   resolveEngine,
   registerBuiltinEngines,
@@ -1312,23 +1313,12 @@ export function isRetryableError(err: unknown): boolean {
     msg.includes("gateway error") ||
     msg.includes("socket hang up") ||
     msg.includes("connection reset") ||
-    hasProviderConnectionErrorMessage(msg) ||
+    isProviderConnectionErrorMessage(msg) ||
     msg.includes("too many requests") ||
     msg.includes("timeout") ||
     msg.includes("gateway timeout") ||
     msg.includes("inactivity timeout") ||
     msg.includes("too much time has passed without sending any data")
-  );
-}
-
-function hasProviderConnectionErrorMessage(message: string): boolean {
-  const normalized = message.toLowerCase();
-  // Anthropic's APIConnectionError uses "Connection error."; AI SDK wraps
-  // OpenAI TLS failures as "Cannot connect to API". Both can cross a worker
-  // boundary without their structured EngineError metadata.
-  return (
-    normalized.includes("connection error") ||
-    normalized.includes("cannot connect to api")
   );
 }
 
@@ -2264,7 +2254,7 @@ export function isResumableEngineError(err: unknown): boolean {
     text.includes("econnaborted") ||
     text.includes("fetch failed") ||
     text.includes("network error") ||
-    hasProviderConnectionErrorMessage(text) ||
+    isProviderConnectionErrorMessage(text) ||
     text.includes("connection reset") ||
     text.includes("connection closed") ||
     text.includes("stream closed") ||
@@ -5940,7 +5930,7 @@ function isRecoverableContinuationError(event: {
     code === "http_529" ||
     code === "run_timeout" ||
     message.includes("timeout") ||
-    hasProviderConnectionErrorMessage(message) ||
+    isProviderConnectionErrorMessage(message) ||
     message.includes("temporarily unavailable")
   );
 }
