@@ -87,8 +87,8 @@ describe("renderMarkdownToHtml", () => {
     const html = renderMarkdownToHtml(`\`\`\`text\n${code}\n\`\`\``);
 
     expect(html).toContain('data-collapsed="true"');
-    expect(html).toContain('data-code-max-lines="30"');
-    expect(html).toContain("Show 2 more lines");
+    expect(html).toContain('data-code-max-lines="17"');
+    expect(html).toContain("Show 15 more lines");
   });
 
   it("renders a filename label bar for fences with a filename attribute", () => {
