@@ -97,6 +97,20 @@ describe("awaitLayoutFitCheck", () => {
     expect(result.status).toBe("timeout");
   });
 
+  it("ignores non-finite measurements instead of treating them as fit results", async () => {
+    mockReadAppState.mockResolvedValue({
+      slideId: "slide-A",
+      verticalOverflow: Number.NaN,
+      contentHeight: 500,
+      viewportHeight: 380,
+      measuredAt: Number.NaN,
+    });
+
+    const result = await awaitLayoutFitCheck("slide-A", 1000, 500);
+
+    expect(result.status).toBe("timeout");
+  });
+
   it("ignores stale measurements (measuredAt < since) and times out cleanly", async () => {
     mockReadAppState.mockResolvedValue({
       slideId: "slide-A",

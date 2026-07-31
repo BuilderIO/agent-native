@@ -127,6 +127,18 @@ Every slide's `content` must use this exact outer div:
 </div>
 ```
 
+## Fit budget
+
+The canvas is fixed at its aspect-ratio dimensions. With the standard 16:9
+canvas (960x540) and `padding: 80px 110px`, the usable content area is only
+740x380px. Treat that as a hard budget for the main flow: use at most two title
+lines, three short bullets or cards, and two or three short items per column.
+Split dense source material across slides instead of shrinking it into a dense
+stack. Keep body text at or above 16px. Never hide overflow with zoom,
+`transform: scale()`, clipping, or scroll overflow. A later structural repair
+may reduce the slide's explicit padding, and that padding must remain intact
+when the saved HTML is rendered.
+
 Background is pure black (`bg-[#000000]`) — set by the renderer, not the slide HTML.
 
 ## Ready-to-Use Templates

@@ -35,6 +35,17 @@ describe("computeSlideFitTransform", () => {
     ).toEqual({ scale: 1, x: 0, y: 0, fitted: false, verticalOverflow: 0 });
   });
 
+  it("ignores a small layout-wrapper spill", () => {
+    expect(
+      computeSlideFitTransform({
+        contentWidth: 700,
+        contentHeight: 386,
+        viewportWidth: 740,
+        viewportHeight: 380,
+      }).verticalOverflow,
+    ).toBe(0);
+  });
+
   it("does not scale for vertical overflow but reports it for the LLM to fix", () => {
     expect(
       computeSlideFitTransform({
@@ -241,6 +252,25 @@ describe("SlideInner autofit", () => {
       );
       expect(fitRoot?.style.getPropertyValue("--fmd-fit-scale")).toBe("1");
       expect(fitRoot?.getAttribute("data-fmd-autofit-active")).toBeNull();
+      expect(onOverflowChange).toHaveBeenCalledWith(
+        expect.objectContaining({ verticalOverflow: 120 }),
+      );
+    });
+  });
+
+  it("reports overflow from both columns of a two-column slide", async () => {
+    const slide: Slide = {
+      id: "two-column",
+      layout: "two-column",
+      notes: "",
+      content: "Left column\n\n---\n\nRight column",
+    };
+
+    const onOverflowChange = vi.fn();
+    render(<SlideInner slide={slide} onOverflowChange={onOverflowChange} />);
+
+    await waitFor(() => {
+      expect(onOverflowChange.mock.calls.length).toBeGreaterThanOrEqual(2);
       expect(onOverflowChange).toHaveBeenCalledWith(
         expect.objectContaining({ verticalOverflow: 120 }),
       );

@@ -30,6 +30,14 @@ ladder.
 - Preserve freeform objects and their `data-slide-object-id` values. They are
   absolutely positioned `.fmd-slide` children; keep generated flex/grid in
   normal flow and mint ids only for duplicates. Use styled HTML, not inline SVG.
+- Fit the main content to the native content area, not merely to the outer
+  wrapper. For the default 16:9 canvas, the standard `80px 110px` padding
+  leaves 740x380px. Keep titles to two lines, content slides to three short
+  bullets or three compact cards, and two-column slides to two or three short
+  items per column. If the source is denser, split it across slides. Never use
+  zoom, `transform: scale()`, clipping, or scroll overflow to hide a fit issue;
+  body text must remain at least 16px. Explicitly reduced slide padding is
+  allowed when the content still needs the space.
 - Follow linked design-system tokens and custom instructions.
 - Build reusable design systems from Figma, code, GitHub, or `design.md` via
   Builder-backed DSI indexing, never a duplicate local copy. Read

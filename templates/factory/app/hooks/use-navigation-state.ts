@@ -7,18 +7,34 @@ export interface NavigationState {
   view: string;
   path?: string;
   threadId?: string;
+  factoryId?: string;
+  factoryTab?: string;
+  factoryNodeId?: string;
+  factoryEdgeId?: string;
 }
 
 export function useNavigationState() {
   useAgentRouteState<NavigationState>({
     browserTabId: TAB_ID,
     requestSource: TAB_ID,
-    getNavigationState: ({ pathname }) => {
+    getNavigationState: ({ pathname, searchParams }) => {
       const threadId = threadIdFromPath(pathname);
       return {
         view: viewForPath(pathname),
         path: appPath(pathname),
         ...(threadId ? { threadId } : {}),
+        ...(pathname.startsWith("/factory") && searchParams.get("factoryId")
+          ? { factoryId: searchParams.get("factoryId") ?? undefined }
+          : {}),
+        ...(pathname.startsWith("/factory") && searchParams.get("tab")
+          ? { factoryTab: searchParams.get("tab") ?? undefined }
+          : {}),
+        ...(pathname.startsWith("/factory") && searchParams.get("node")
+          ? { factoryNodeId: searchParams.get("node") ?? undefined }
+          : {}),
+        ...(pathname.startsWith("/factory") && searchParams.get("edge")
+          ? { factoryEdgeId: searchParams.get("edge") ?? undefined }
+          : {}),
       };
     },
     getCommandPath: (command) =>

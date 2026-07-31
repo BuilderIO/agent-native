@@ -63,9 +63,11 @@ export async function awaitLayoutFitCheck(
     if (
       m &&
       m.slideId === slideId &&
-      typeof m.measuredAt === "number" &&
+      Number.isFinite(m.measuredAt) &&
       m.measuredAt >= since &&
-      typeof m.verticalOverflow === "number"
+      Number.isFinite(m.verticalOverflow) &&
+      Number.isFinite(m.contentHeight) &&
+      Number.isFinite(m.viewportHeight)
     ) {
       return m.verticalOverflow > 0
         ? { status: "overflows", measurement: m }
@@ -78,8 +80,8 @@ export async function awaitLayoutFitCheck(
 
 /** Format an overflow result into a short tool-result block that the agent
  * will see and act on. Includes the slide id, the exact overflow, and a
- * prioritized fix list. The wording is deliberately direct so the agent
- * follows up with a surgical `update-slide` patch rather than a full regen. */
+ * prioritized fix list. The wording is deliberately bounded so the agent
+ * makes one structural repair and verifies it instead of looping. */
 export function formatOverflowForTool(
   deckId: string,
   m: SlideFitMeasurement,
@@ -88,12 +90,12 @@ export function formatOverflowForTool(
     ``,
     `⚠ Layout overflows the canvas vertically — this slide rendered ${m.contentHeight}px tall but the canvas content area is only ${m.viewportHeight}px (overflow: ${m.verticalOverflow}px).`,
     ``,
-    `**Auto-fix this now** with another \`update-slide --deckId ${deckId} --slideId ${m.slideId}\` call. Prefer small surgical patches (--find / --replace) over a full rewrite:`,
+    `Make one structural repair now with \`update-slide --deckId ${deckId} --slideId ${m.slideId}\`. Prefer small surgical patches (--find / --replace) over a full rewrite:`,
     `1. Tighten copy — shorter headings/bullets, drop low-value lines.`,
     `2. Reduce vertical density — fewer stacked cards, smaller gaps, body font no smaller than 16px.`,
     `3. Reduce slide padding (e.g. 40px top/bottom instead of 60-80px).`,
     `4. Split across two slides only if the content cannot be compressed.`,
     ``,
-    `Do **not** use \`transform: scale\`, \`overflow: scroll\`, or absolute positioning — the renderer no longer auto-shrinks, so only the HTML shape can fix it. After your patch the editor will re-measure; if the slide still overflows you'll see this message again and can iterate.`,
+    `Do **not** use zoom, \`transform: scale\`, clipping, \`overflow: scroll\`, or a smaller-than-16px body font. Preserve existing absolute text boxes and fix the normal-flow HTML. Verify the action result and then use \`view-screen\`; do not spin through another repair loop.`,
   ].join("\n");
 }

@@ -9,6 +9,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { readAppStateForCurrentTab } from "./_tab-state.js";
+import { hashSlideContent, type DeckFitState } from "../shared/slide-fit.js";
 
 export default defineAction({
   description:
@@ -196,13 +197,19 @@ export default defineAction({
       // and needs to be rewritten to fit the canvas.
       const overflow = (await readAppStateForCurrentTab("slide-fit-check")) as {
         slideId?: string;
+        contentHash?: string;
         verticalOverflow?: number;
         contentHeight?: number;
         viewportHeight?: number;
       } | null;
       if (
         overflow &&
-        typeof overflow.verticalOverflow === "number" &&
+        typeof overflow.contentHash === "string" &&
+        currentSlide?.content &&
+        overflow.contentHash === hashSlideContent(currentSlide.content) &&
+        Number.isFinite(overflow.verticalOverflow) &&
+        Number.isFinite(overflow.contentHeight) &&
+        Number.isFinite(overflow.viewportHeight) &&
         overflow.verticalOverflow > 0 &&
         overflow.slideId === currentSlide?.id
       ) {
@@ -222,6 +229,48 @@ export default defineAction({
             `Do not solve this with transform: scale, overflow: scroll, or ` +
             `absolute positioning — only the HTML shape can fix it now.`,
         );
+      }
+
+      const deckFit = (await readAppStateForCurrentTab(
+        "deck-fit-checks",
+      )) as DeckFitState | null;
+      if (deckFit?.deckId === rows[0].id && deckFit.slides) {
+        const measured = slides.flatMap((slide, index) => {
+          const measurement = deckFit.slides[slide.id];
+          if (
+            !measurement ||
+            measurement.contentHash !== hashSlideContent(slide.content ?? "") ||
+            !Number.isFinite(measurement.verticalOverflow) ||
+            !Number.isFinite(measurement.contentHeight) ||
+            !Number.isFinite(measurement.viewportHeight)
+          ) {
+            return [{ kind: "unknown" as const, index }];
+          }
+          return measurement.verticalOverflow > 0
+            ? [{ kind: "overflow" as const, index, measurement }]
+            : [];
+        });
+        const unknown = measured.filter((item) => item.kind === "unknown");
+        const overflows = measured.filter((item) => item.kind === "overflow");
+        lines.push(``);
+        lines.push(`### Deck-wide layout fit`);
+        if (unknown.length > 0) {
+          lines.push(
+            `Measured ${slides.length - unknown.length} of ${slides.length} slides; ` +
+              `the remaining slides need a fresh browser measurement before claiming the deck fits.`,
+          );
+        } else if (overflows.length > 0) {
+          lines.push(
+            `Overflow detected on ${overflows.length} slide(s): ${overflows
+              .map((item) => {
+                if (item.kind !== "overflow") return "";
+                return `slide ${item.index + 1} (${item.measurement.verticalOverflow}px)`;
+              })
+              .join(", ")}.`,
+          );
+        } else {
+          lines.push(`All ${slides.length} slides fit their measured content area.`);
+        }
       }
 
       return lines.join("\n");

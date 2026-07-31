@@ -50,6 +50,7 @@ export const factoryGraphSchema = z.object({
   version: z.number().int().positive(),
   name: z.string().trim().min(1).max(120),
   description: z.string().trim().max(500).default(""),
+  executionMode: z.literal("blueprint").default("blueprint"),
   nodes: z.array(factoryGraphNodeSchema).max(100),
   edges: z.array(factoryGraphEdgeSchema).max(200),
 });
@@ -94,6 +95,7 @@ export function defaultFactoryGraph(): FactoryGraph {
     name: "Product feedback to shipped change",
     description:
       "Observe product signals, classify them safely, and keep a human in the loop before work starts.",
+    executionMode: "blueprint",
     nodes: [
       {
         id: "slack-feedback",
@@ -124,8 +126,9 @@ export function defaultFactoryGraph(): FactoryGraph {
       },
       {
         id: "ai-triage",
-        label: "AI triage",
-        description: "Evaluate enabled prompts with structured guards.",
+        label: "Enabled rules (parallel)",
+        description:
+          "Evaluate each enabled rule against the same evidence with structured guards.",
         kind: "decision",
         provider: "factory",
         agent: "Factory agent",
@@ -134,7 +137,7 @@ export function defaultFactoryGraph(): FactoryGraph {
       },
       {
         id: "human-gate",
-        label: "Human gate",
+        label: "Human review",
         description: "Review shadow decisions and approve a bounded run.",
         kind: "gate",
         provider: "human",
@@ -143,7 +146,7 @@ export function defaultFactoryGraph(): FactoryGraph {
       },
       {
         id: "builder-agent",
-        label: "Coding agent",
+        label: "Approved coding run",
         description: "Start approved work through the configured executor.",
         kind: "agent",
         provider: "builder",
@@ -191,8 +194,8 @@ export function defaultFactoryGraph(): FactoryGraph {
         condition: "always review until a rule is explicitly promoted",
       },
       {
-        id: "triage-to-agent",
-        source: "ai-triage",
+        id: "human-to-agent",
+        source: "human-gate",
         target: "builder-agent",
         label: "approved proposal",
         condition: "guard checks pass and a person approves",

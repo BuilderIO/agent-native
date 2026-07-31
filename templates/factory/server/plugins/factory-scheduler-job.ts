@@ -85,16 +85,25 @@ async function ensureSchedulerJob() {
     );
   }
 
+  if (
+    !existing.content.startsWith("---\n") ||
+    !existing.content.includes("\n---", 4)
+  ) {
+    await resourcePut(
+      WORKSPACE_OWNER,
+      JOB_PATH,
+      jobContent(ownerEmail),
+      "text/markdown",
+    );
+    return;
+  }
+
   const migrated = setFrontmatterField(
     setFrontmatterField(existing.content, "createdBy", ownerEmail),
     "runAs",
     "creator",
   );
-  if (migrated === existing.content) {
-    throw new Error(
-      "Stored Factory scheduler has invalid frontmatter and could not be repaired",
-    );
-  }
+  if (migrated === existing.content) return;
   await resourcePut(WORKSPACE_OWNER, JOB_PATH, migrated, "text/markdown");
 }
 

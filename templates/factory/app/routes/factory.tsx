@@ -5,12 +5,26 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import {
   IconAlertCircle,
+  IconCheck,
   IconExternalLink,
+  IconGitPullRequest,
   IconLoader2,
+  IconPlayerPlay,
   IconPlus,
 } from "@tabler/icons-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router";
 
+import {
+  FactoryCanvas,
+  type FactoryCanvasEdge,
+  type FactoryCanvasGraph,
+  type FactoryCanvasNode,
+} from "@/components/factory/FactoryCanvas";
+import {
+  FactoryInspector,
+  type FactoryComment,
+} from "@/components/factory/FactoryInspector";
 import { TriageStatusPill } from "@/components/triage/triage-status-pill";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,17 +32,59 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 
+type FactoryGraphResponse = {
+  factory: {
+    id: string;
+    name: string;
+    description: string;
+    prompt: string;
+    graphVersion: number;
+    virtual: boolean;
+  };
+  graph: FactoryCanvasGraph;
+  metrics: {
+    totalItems: number;
+    slackItems: number;
+    githubItems: number;
+    decisions: number;
+    manualItems: number;
+    runs: number;
+    completedRuns: number;
+  };
+  nodeMetrics: Record<string, number>;
+};
+
+type FactorySummary = {
+  id: string;
+  name: string;
+  description: string;
+  graphVersion: number;
+  virtual?: boolean;
+};
+
 type TriageDecision = {
   decisionId: string;
   summary?: string | null;
   reason?: string | null;
-  verdict?: string | null;
+};
+
+type TriageItem = {
+  itemId?: string;
+  id?: string;
+  source?: string | null;
+  sourceName?: string | null;
+  sourceUrl?: string | null;
+  risk?: string | null;
+  status?: string | null;
+  coverage?: string | number | null;
+  reason?: string | null;
+  decisionSummary?: string | null;
+  decisions?: TriageDecision[] | null;
 };
 
 type TriageRule = {
   id: string;
   name: string;
-  description: string;
   promptText: string;
   mode: string;
   enabled: boolean;
@@ -43,557 +99,830 @@ type TriageConfig = {
   repository?: string | null;
 };
 
-type TriageItem = {
-  itemId?: string;
-  id?: string;
-  source?: string | null;
-  sourceName?: string | null;
-  sourceUrl?: string | null;
-  url?: string | null;
-  risk?: string | null;
-  status?: string | null;
-  coverage?: string | number | null;
-  reason?: string | null;
-  decisionSummary?: string | null;
-  decisions?: TriageDecision[] | null;
-};
-
-type TriageListResponse = TriageItem[] | { items?: TriageItem[] };
 type Verdict = "correct" | "incorrect" | "uncertain";
+type WorkspaceTab = "map" | "inbox" | "rules" | "settings";
 
-function listItems(data: TriageListResponse | undefined) {
-  return Array.isArray(data) ? data : (data?.items ?? []);
-}
-
-function itemId(item: TriageItem) {
-  return item.itemId ?? item.id ?? "";
-}
-
-function displayValue(value: string | number | null | undefined) {
-  return value === null || value === undefined || value === "" ? "-" : value;
-}
+const DEFAULT_FACTORY_ID = "product-feedback";
 
 export function meta() {
   return [{ title: "Factory" }];
 }
 
-export default function TriageRoute() {
+export default function FactoryRoute() {
   const t = useT();
-  const [status, setStatus] = useState("");
-  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
-  const [feedbackNote, setFeedbackNote] = useState("");
-  const [selectedVerdict, setSelectedVerdict] = useState<Verdict | null>(null);
-  const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
-  const [ruleName, setRuleName] = useState("");
-  const [rulePrompt, setRulePrompt] = useState("");
-  const [slackWorkspace, setSlackWorkspace] = useState<"primary" | "secondary">(
-    "primary",
-  );
-  const [slackChannelId, setSlackChannelId] = useState("");
-  const [slackChannelName, setSlackChannelName] = useState("");
-  const [pollingEnabled, setPollingEnabled] = useState(false);
-  const [repository, setRepository] = useState("");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = parseWorkspaceTab(searchParams.get("tab"));
+  const factoryId = searchParams.get("factoryId") || DEFAULT_FACTORY_ID;
+  const [creating, setCreating] = useState(false);
+  const [draftGraph, setDraftGraph] = useState<FactoryCanvasGraph | null>(null);
+  const [dirty, setDirty] = useState(false);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
 
-  const listQuery = useActionQuery<TriageListResponse>("list-triage-items", {
-    limit: 50,
-    ...(status.trim() ? { status: status.trim() } : {}),
-  });
-  const detailQuery = useActionQuery<TriageItem>(
-    "get-triage-item",
-    selectedItemId ? { itemId: selectedItemId } : undefined,
-    { enabled: Boolean(selectedItemId) },
+  function setActiveTab(tab: WorkspaceTab) {
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        if (tab === "map") next.delete("tab");
+        else next.set("tab", tab);
+        return next;
+      },
+      { replace: true },
+    );
+  }
+
+  function setFactoryId(nextFactoryId: string) {
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        if (nextFactoryId === DEFAULT_FACTORY_ID) next.delete("factoryId");
+        else next.set("factoryId", nextFactoryId);
+        return next;
+      },
+      { replace: true },
+    );
+  }
+
+  const factoryListQuery = useActionQuery("list-factories", {});
+  const graphQuery = useActionQuery("get-factory-graph", { factoryId });
+  const graphData = graphQuery.data as FactoryGraphResponse | undefined;
+  const graph = draftGraph ?? graphData?.graph ?? null;
+  const graphVersion = graphData?.factory.graphVersion ?? graph?.version ?? 1;
+  const commentsQuery = useActionQuery(
+    "list-factory-comments",
+    { factoryId, graphVersion },
+    { enabled: Boolean(graph) },
   );
-  const feedbackMutation = useActionMutation("record-triage-feedback");
-  const approveMutation = useActionMutation("approve-factory-item");
-  const rulesQuery = useActionQuery<TriageRule[]>("list-triage-rules", {});
-  const saveRuleMutation = useActionMutation("save-triage-rule");
-  const configQuery = useActionQuery<TriageConfig>("get-triage-config", {});
-  const saveConfigMutation = useActionMutation("save-triage-config");
-  const items = listItems(listQuery.data);
-  const selectedItem = detailQuery.data;
-  const rules = rulesQuery.data ?? [];
+  const saveGraphMutation = useActionMutation("save-factory-graph");
+  const addCommentMutation = useActionMutation("add-factory-comment");
+  const factoryList = (factoryListQuery.data ?? []) as FactorySummary[];
+  const comments = (commentsQuery.data ?? []) as FactoryComment[];
 
   useEffect(() => {
-    if (!configQuery.data) return;
-    setSlackWorkspace(configQuery.data.slackWorkspace ?? "primary");
-    setSlackChannelId(configQuery.data.slackChannelId ?? "");
-    setSlackChannelName(configQuery.data.slackChannelName ?? "");
-    setPollingEnabled(configQuery.data.pollingEnabled ?? false);
-    setRepository(configQuery.data.repository ?? "");
-  }, [configQuery.data]);
+    if (!graphData || creating) return;
+    setDraftGraph(graphData.graph);
+    setDirty(false);
+    setSelectedNodeId(null);
+    setSelectedEdgeId(null);
+  }, [creating, graphData]);
 
-  function recordFeedback(decisionId: string) {
-    if (!selectedVerdict) return;
-    feedbackMutation.mutate({
-      decisionId,
-      verdict: selectedVerdict,
-      ...(feedbackNote.trim() ? { note: feedbackNote.trim() } : {}),
+  useEffect(() => {
+    setSelectedNodeId(searchParams.get("node"));
+    setSelectedEdgeId(searchParams.get("edge"));
+  }, [searchParams]);
+
+  const selectedNode = graph?.nodes.find((node) => node.id === selectedNodeId);
+  const selectedEdge = graph?.edges.find((edge) => edge.id === selectedEdgeId);
+  const commentCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const comment of comments) {
+      if (comment.targetId)
+        counts[comment.targetId] = (counts[comment.targetId] ?? 0) + 1;
+    }
+    return counts;
+  }, [comments]);
+
+  function selectNode(nodeId: string) {
+    setSelectedNodeId(nodeId);
+    setSelectedEdgeId(null);
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        next.set("node", nodeId);
+        next.delete("edge");
+        return next;
+      },
+      { replace: true },
+    );
+  }
+
+  function selectEdge(edgeId: string) {
+    setSelectedEdgeId(edgeId);
+    setSelectedNodeId(null);
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        next.set("edge", edgeId);
+        next.delete("node");
+        return next;
+      },
+      { replace: true },
+    );
+  }
+
+  function updateGraph(next: FactoryCanvasGraph) {
+    setDraftGraph(next);
+    setDirty(true);
+  }
+
+  function addNode() {
+    if (!graph) return;
+    const id = `step-${Date.now().toString(36)}`;
+    const nextNode: FactoryCanvasNode = {
+      id,
+      label: t("factoryRoute.newStep"),
+      description: t("factoryRoute.newStepDescription"),
+      kind: "decision",
+      provider: "factory",
+      position: { x: 560, y: 520 },
+    };
+    updateGraph({ ...graph, nodes: [...graph.nodes, nextNode] });
+    selectNode(id);
+  }
+
+  function deleteNode(nodeId: string) {
+    if (!graph || graph.nodes.length <= 1) return;
+    updateGraph({
+      ...graph,
+      nodes: graph.nodes.filter((node) => node.id !== nodeId),
+      edges: graph.edges.filter(
+        (edge) => edge.source !== nodeId && edge.target !== nodeId,
+      ),
+    });
+    setSelectedNodeId(null);
+  }
+
+  function connectNodes(sourceId: string, targetId: string) {
+    if (!graph || sourceId === targetId) return;
+    const alreadyConnected = graph.edges.some(
+      (edge) => edge.source === sourceId && edge.target === targetId,
+    );
+    if (alreadyConnected) return;
+    updateGraph({
+      ...graph,
+      edges: [
+        ...graph.edges,
+        {
+          id: `route-${Date.now().toString(36)}`,
+          source: sourceId,
+          target: targetId,
+          label: t("factoryRoute.newRoute"),
+          condition: "",
+        },
+      ],
     });
   }
 
-  function editRule(rule: TriageRule) {
-    setEditingRuleId(rule.id);
-    setRuleName(rule.name);
-    setRulePrompt(rule.promptText);
-  }
-
-  function startNewRule() {
-    setEditingRuleId(null);
-    setRuleName("");
-    setRulePrompt("");
-  }
-
-  async function saveRule() {
-    const name = ruleName.trim();
-    const promptText = rulePrompt.trim();
-    if (!name || !promptText) return;
-    await saveRuleMutation.mutateAsync({
-      ...(editingRuleId ? { id: editingRuleId } : {}),
-      name,
-      description: "",
-      promptText,
-      mode: "shadow",
-      enabled: true,
+  function startNewFactory() {
+    const base = graph ?? graphData?.graph;
+    if (!base) return;
+    const id = `factory-${Date.now().toString(36)}`;
+    setFactoryId(id);
+    setCreating(true);
+    setDraftGraph({
+      ...structuredClone(base),
+      version: 1,
+      name: t("factoryRoute.newFactory"),
+      description: t("factoryRoute.newFactoryDescription"),
     });
-    await rulesQuery.refetch();
+    setDirty(true);
+    setSelectedNodeId(null);
+    setSelectedEdgeId(null);
+    setActiveTab("map");
   }
 
-  async function saveConfig() {
-    await saveConfigMutation.mutateAsync({
-      slackWorkspace,
-      ...(slackChannelId.trim()
-        ? { slackChannelId: slackChannelId.trim() }
-        : {}),
-      ...(slackChannelName.trim()
-        ? { slackChannelName: slackChannelName.trim() }
-        : {}),
-      pollingEnabled,
-      ...(repository.trim() ? { repository: repository.trim() } : {}),
+  async function saveGraph() {
+    if (!graph) return;
+    await saveGraphMutation.mutateAsync({
+      factoryId,
+      name: graph.name,
+      description: graph.description,
+      prompt: graphData?.factory.prompt ?? "",
+      source: "manual",
+      changeSummary: creating
+        ? "Created from the Factory visual editor."
+        : "Updated in the Factory visual editor.",
+      graph,
     });
-    await configQuery.refetch();
+    setCreating(false);
+    setDirty(false);
+    await Promise.all([graphQuery.refetch(), factoryListQuery.refetch()]);
   }
 
-  async function approveSelectedItem() {
-    if (!selectedItemId || !selectedItem?.decisions?.length) return;
-    await approveMutation.mutateAsync({
-      itemId: selectedItemId,
-      decisionId:
-        selectedItem.decisions[selectedItem.decisions.length - 1]?.decisionId,
-      confirm: true,
+  async function addComment(
+    targetType: "canvas" | "node" | "edge",
+    targetId?: string,
+    body?: string,
+  ) {
+    if (!body || !graph) return;
+    await addCommentMutation.mutateAsync({
+      factoryId,
+      graphVersion,
+      targetType,
+      ...(targetId ? { targetId } : {}),
+      body,
     });
-    await Promise.all([detailQuery.refetch(), listQuery.refetch()]);
+    await commentsQuery.refetch();
+  }
+
+  if (!graph) {
+    return (
+      <div className="flex h-full items-center justify-center p-8 text-sm text-muted-foreground">
+        {graphQuery.isError
+          ? "Could not load this Factory."
+          : "Loading Factory..."}
+      </div>
+    );
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto p-4 lg:p-6">
-      <div>
-        <h1 className="text-lg font-semibold tracking-tight">
-          {t("triage.title")}
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          {t("triage.description")}
-        </p>
-      </div>
-
-      <div className="grid min-h-0 gap-4 xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,1fr)]">
-        <Card className="min-w-0">
-          <CardHeader className="gap-3 border-b sm:flex-row sm:items-end sm:justify-between">
-            <CardTitle className="text-base">
-              {t("triage.queueTitle")}
-            </CardTitle>
-            <div className="flex items-end gap-2">
-              <div className="grid gap-1.5">
-                <Label htmlFor="triage-status">
-                  {t("triage.statusFilter")}
-                </Label>
-                <Input
-                  id="triage-status"
-                  value={status}
-                  onChange={(event) => setStatus(event.target.value)}
-                  placeholder={t("triage.statusPlaceholder")}
-                  className="h-8 w-36"
-                />
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => void listQuery.refetch()}
-                disabled={listQuery.isFetching}
-              >
-                {listQuery.isFetching && (
-                  <IconLoader2 className="animate-spin" />
-                )}
-                {t("triage.refresh")}
-              </Button>
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
+      <header className="shrink-0 border-b bg-background px-4 py-2.5 lg:px-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <h1 className="truncate text-base font-semibold">
+                {graph.name}
+              </h1>
+              <span className="shrink-0 text-xs text-muted-foreground">
+                v{graphVersion}
+              </span>
             </div>
-          </CardHeader>
-          <CardContent className="p-0">
-            {listQuery.isError ? (
-              <ErrorState
-                message={t("triage.queueError")}
-                retryLabel={t("triage.retry")}
-                onRetry={() => void listQuery.refetch()}
-              />
-            ) : listQuery.isLoading ? (
-              <p className="p-4 text-sm text-muted-foreground">
-                {t("triage.loading")}
-              </p>
-            ) : items.length === 0 ? (
-              <p className="p-4 text-sm text-muted-foreground">
-                {t("triage.empty")}
-              </p>
-            ) : (
-              <div className="divide-y">
-                {items.map((item) => {
-                  const id = itemId(item);
-                  const isSelected = id === selectedItemId;
-                  return (
-                    <div
-                      role="button"
-                      tabIndex={0}
-                      key={id}
-                      onClick={() => {
-                        setSelectedItemId(id);
-                        setSelectedVerdict(null);
-                        setFeedbackNote("");
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          setSelectedItemId(id);
-                          setSelectedVerdict(null);
-                          setFeedbackNote("");
-                        }
-                      }}
-                      className={`grid w-full gap-3 p-4 text-left transition-colors hover:bg-muted/50 sm:grid-cols-[1.2fr_.7fr_.8fr_.8fr_1.8fr] ${isSelected ? "bg-muted/60" : ""}`}
-                    >
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-medium">
-                          {displayValue(item.sourceName ?? item.source)}
-                        </div>
-                        {item.sourceUrl && (
-                          <a
-                            href={item.sourceUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            onClick={(event) => event.stopPropagation()}
-                            className="inline-flex max-w-full items-center gap-1 truncate text-xs text-primary hover:underline"
-                          >
-                            {item.sourceUrl}
-                            <IconExternalLink className="size-3 shrink-0" />
-                          </a>
-                        )}
-                      </div>
-                      <FieldValue
-                        label={t("triage.risk")}
-                        value={item.risk}
-                        pill
-                      />
-                      <FieldValue
-                        label={t("triage.status")}
-                        value={item.status}
-                        pill
-                      />
-                      <FieldValue
-                        label={t("triage.coverage")}
-                        value={item.coverage}
-                      />
-                      <FieldValue
-                        label={t("triage.reason")}
-                        value={item.reason ?? item.decisionSummary}
-                      />
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="min-w-0">
-          <CardHeader>
-            <CardTitle className="text-base">
-              {t("triage.detailTitle")}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {!selectedItemId ? (
-              <p className="text-sm text-muted-foreground">
-                {t("triage.selectItem")}
-              </p>
-            ) : detailQuery.isError ? (
-              <ErrorState
-                message={t("triage.detailError")}
-                retryLabel={t("triage.retry")}
-                onRetry={() => void detailQuery.refetch()}
-              />
-            ) : detailQuery.isLoading ? (
-              <p className="text-sm text-muted-foreground">
-                {t("triage.loading")}
-              </p>
-            ) : selectedItem ? (
-              <>
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium">
-                      {displayValue(
-                        selectedItem.sourceName ?? selectedItem.source,
-                      )}
-                    </p>
-                    {(selectedItem.sourceUrl ?? selectedItem.url) ? (
-                      <a
-                        href={
-                          selectedItem.sourceUrl ??
-                          selectedItem.url ??
-                          undefined
-                        }
-                        target="_blank"
-                        rel="noreferrer"
-                        className="mt-1 inline-flex items-center gap-1 text-xs text-primary hover:underline"
-                      >
-                        {t("triage.openSource")}
-                        <IconExternalLink className="size-3" />
-                      </a>
-                    ) : null}
-                  </div>
-                  <TriageStatusPill status={selectedItem.status} />
-                </div>
-                <Button
-                  size="sm"
-                  onClick={() => void approveSelectedItem()}
-                  disabled={
-                    !selectedItem.decisions?.length || approveMutation.isPending
-                  }
-                >
-                  {approveMutation.isPending && (
-                    <IconLoader2 className="animate-spin" />
-                  )}
-                  Approve and start
-                </Button>
-                {approveMutation.isError && (
-                  <p className="text-sm text-destructive">
-                    {approveMutation.error instanceof Error
-                      ? approveMutation.error.message
-                      : t("triage.approvalError")}
-                  </p>
-                )}
-                <div className="grid grid-cols-3 gap-2 text-sm">
-                  <FieldValue
-                    label={t("triage.risk")}
-                    value={selectedItem.risk}
-                    pill
-                  />
-                  <FieldValue
-                    label={t("triage.coverage")}
-                    value={selectedItem.coverage}
-                  />
-                  <FieldValue
-                    label={t("triage.reason")}
-                    value={selectedItem.reason}
-                  />
-                </div>
-                {selectedItem.decisionSummary && (
-                  <p className="rounded-md bg-muted px-3 py-2 text-sm">
-                    {selectedItem.decisionSummary}
-                  </p>
-                )}
-                <div className="space-y-2 border-t pt-4">
-                  <p className="text-sm font-medium">{t("triage.decisions")}</p>
-                  {selectedItem.decisions?.length ? (
-                    <div className="space-y-3">
-                      {selectedItem.decisions.map((decision) => (
-                        <div
-                          key={decision.decisionId}
-                          className="space-y-3 rounded-md border p-3"
-                        >
-                          <p className="text-sm">
-                            {displayValue(decision.summary ?? decision.reason)}
-                          </p>
-                          <div className="flex flex-wrap gap-2">
-                            {(
-                              ["correct", "incorrect", "uncertain"] as Verdict[]
-                            ).map((verdict) => (
-                              <Button
-                                key={verdict}
-                                size="sm"
-                                variant={
-                                  selectedVerdict === verdict
-                                    ? "default"
-                                    : "outline"
-                                }
-                                onClick={() => setSelectedVerdict(verdict)}
-                              >
-                                {t(`triage.verdict.${verdict}`)}
-                              </Button>
-                            ))}
-                          </div>
-                          <Input
-                            value={feedbackNote}
-                            onChange={(event) =>
-                              setFeedbackNote(event.target.value)
-                            }
-                            placeholder={t("triage.notePlaceholder")}
-                            aria-label={t("triage.noteLabel")}
-                          />
-                          <Button
-                            size="sm"
-                            onClick={() => recordFeedback(decision.decisionId)}
-                            disabled={
-                              !selectedVerdict || feedbackMutation.isPending
-                            }
-                          >
-                            {feedbackMutation.isPending && (
-                              <IconLoader2 className="animate-spin" />
-                            )}
-                            {t("triage.submitFeedback")}
-                          </Button>
-                          {feedbackMutation.isError && (
-                            <div className="flex items-center gap-2 text-sm text-destructive">
-                              <IconAlertCircle className="size-4" />
-                              <span>{t("triage.feedbackError")}</span>
-                              <Button
-                                variant="link"
-                                size="sm"
-                                className="h-auto p-0"
-                                onClick={() =>
-                                  recordFeedback(decision.decisionId)
-                                }
-                              >
-                                {t("triage.retry")}
-                              </Button>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">
-                      {t("triage.noDecisions")}
-                    </p>
-                  )}
-                </div>
-              </>
-            ) : null}
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card>
-        <CardHeader className="gap-3 border-b sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <CardTitle className="text-base">
-              {t("triage.rulesTitle")}
-            </CardTitle>
-            <p className="text-sm text-muted-foreground">
-              {t("triage.rulesDescription")}
+            <p className="hidden truncate text-xs text-muted-foreground md:block">
+              {graph.description}
             </p>
           </div>
-          <Button variant="outline" size="sm" onClick={startNewRule}>
-            <IconPlus />
-            {t("triage.newRule")}
-          </Button>
-        </CardHeader>
-        <CardContent className="grid gap-5 p-4 lg:grid-cols-[minmax(220px,.7fr)_minmax(0,1.3fr)] lg:p-6">
-          <div className="space-y-2">
-            {rulesQuery.isError ? (
-              <ErrorState
-                message={t("triage.ruleError")}
-                retryLabel={t("triage.retry")}
-                onRetry={() => void rulesQuery.refetch()}
-              />
-            ) : rules.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                {t("triage.noRules")}
-              </p>
-            ) : (
-              rules.map((rule) => (
-                <Button
-                  key={rule.id}
-                  variant={editingRuleId === rule.id ? "secondary" : "ghost"}
-                  className="h-auto w-full justify-between gap-3 px-3 py-2 text-left"
-                  onClick={() => editRule(rule)}
-                >
-                  <span className="min-w-0 truncate">{rule.name}</span>
-                  <span className="shrink-0 text-xs text-muted-foreground">
-                    {t("triage.shadowOnly")}
-                  </span>
-                </Button>
-              ))
-            )}
+          <div className="flex items-center gap-2">
+            <select
+              aria-label={t("factoryRoute.selectFactory")}
+              value={factoryId}
+              onChange={(event) => {
+                setFactoryId(event.target.value);
+                setCreating(false);
+                setDraftGraph(null);
+                setDirty(false);
+              }}
+              className="h-9 max-w-[220px] rounded-md border bg-background px-3 text-sm"
+            >
+              {factoryList.map((factory) => (
+                <option key={factory.id} value={factory.id}>
+                  {factory.name}
+                </option>
+              ))}
+            </select>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={startNewFactory}
+            >
+              <IconPlus className="size-4" />
+              New
+            </Button>
           </div>
+        </div>
+        <nav
+          className="mt-4 flex items-center gap-1 overflow-x-auto"
+          aria-label={t("factoryRoute.factoryViews")}
+        >
+          <TabButton
+            active={activeTab === "map"}
+            onClick={() => setActiveTab("map")}
+          >
+            Map
+          </TabButton>
+          <TabButton
+            active={activeTab === "inbox"}
+            onClick={() => setActiveTab("inbox")}
+          >
+            Inbox
+          </TabButton>
+          <TabButton
+            active={activeTab === "rules"}
+            onClick={() => setActiveTab("rules")}
+          >
+            Rules
+          </TabButton>
+          <TabButton
+            active={activeTab === "settings"}
+            onClick={() => setActiveTab("settings")}
+          >
+            Settings
+          </TabButton>
+        </nav>
+      </header>
 
-          <div className="space-y-4 rounded-md border p-4">
-            <div className="grid gap-1.5">
-              <Label htmlFor="triage-rule-name">{t("triage.ruleName")}</Label>
-              <Input
-                id="triage-rule-name"
-                value={ruleName}
-                onChange={(event) => setRuleName(event.target.value)}
-                placeholder={t("triage.ruleNamePlaceholder")}
+      <main className="min-h-0 flex-1 overflow-y-auto">
+        {activeTab === "map" ? (
+          <div className="grid min-h-full gap-0 xl:grid-cols-[minmax(0,1fr)_360px]">
+            <section className="min-w-0 p-4 lg:p-6">
+              <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+                <div>
+                  <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                    {t("factoryRoute.mapEyebrow")}
+                  </p>
+                  <h2 className="mt-1 text-xl font-semibold tracking-tight">
+                    {t("factoryRoute.mapTitle")}
+                  </h2>
+                </div>
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Metric
+                    label={t("factoryRoute.metricSignals")}
+                    value={graphData?.metrics.totalItems ?? 0}
+                  />
+                  <Metric
+                    label={t("factoryRoute.metricDecisions")}
+                    value={graphData?.metrics.decisions ?? 0}
+                  />
+                  <Metric
+                    label={t("factoryRoute.metricRuns")}
+                    value={graphData?.metrics.runs ?? 0}
+                  />
+                </div>
+              </div>
+              <FactoryCanvas
+                graph={graph}
+                nodeMetrics={graphData?.nodeMetrics}
+                commentCounts={commentCounts}
+                selectedNodeId={selectedNodeId}
+                selectedEdgeId={selectedEdgeId}
+                onSelectNode={selectNode}
+                onSelectEdge={selectEdge}
+                onMoveNode={(nodeId, position) => {
+                  updateGraph({
+                    ...graph,
+                    nodes: graph.nodes.map((node) =>
+                      node.id === nodeId ? { ...node, position } : node,
+                    ),
+                  });
+                }}
+                onComment={addComment}
               />
-            </div>
-            <div className="grid gap-1.5">
-              <Label htmlFor="triage-rule-prompt">
-                {t("triage.rulePrompt")}
-              </Label>
-              <Textarea
-                id="triage-rule-prompt"
-                value={rulePrompt}
-                onChange={(event) => setRulePrompt(event.target.value)}
-                placeholder={t("triage.rulePromptPlaceholder")}
-              />
-            </div>
-            <div className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
-              {t("triage.hardGuards")}
-            </div>
-            <div className="flex items-center gap-3">
-              <Button
-                onClick={() => void saveRule()}
-                disabled={
-                  !ruleName.trim() ||
-                  !rulePrompt.trim() ||
-                  saveRuleMutation.isPending
-                }
-              >
-                {saveRuleMutation.isPending && (
-                  <IconLoader2 className="animate-spin" />
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
+                <span>{t("factoryRoute.mapHint")}</span>
+                {dirty && (
+                  <span className="text-amber-700 dark:text-amber-300">
+                    {t("factoryRoute.unsavedChanges")}
+                  </span>
                 )}
-                {t("triage.saveRule")}
-              </Button>
-              {saveRuleMutation.isError && (
-                <span className="text-sm text-destructive">
-                  {t("triage.ruleError")}
-                </span>
-              )}
-              {!saveRuleMutation.isPending && saveRuleMutation.isSuccess && (
-                <span className="text-sm text-muted-foreground">
-                  {t("triage.ruleSaved")}
-                </span>
-              )}
-            </div>
+              </div>
+            </section>
+            <FactoryInspector
+              graph={graph}
+              selectedNode={selectedNode}
+              selectedEdge={selectedEdge}
+              comments={comments}
+              dirty={dirty}
+              saving={saveGraphMutation.isPending}
+              onGraphChange={updateGraph}
+              onSave={() => void saveGraph()}
+              onAddComment={addComment}
+              onAddNode={addNode}
+              onDeleteNode={deleteNode}
+              onConnect={connectNodes}
+            />
           </div>
+        ) : activeTab === "inbox" ? (
+          <InboxView t={t} />
+        ) : activeTab === "rules" ? (
+          <RulesView t={t} />
+        ) : (
+          <SettingsView t={t} />
+        )}
+      </main>
+    </div>
+  );
+}
+
+function TabButton({
+  active,
+  children,
+  onClick,
+}: {
+  active: boolean;
+  children: React.ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={`inline-flex h-8 items-center gap-2 rounded-md px-3 text-sm transition-colors ${active ? "bg-muted font-medium text-foreground" : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"}`}
+      aria-current={active ? "page" : undefined}
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  );
+}
+
+function parseWorkspaceTab(value: string | null): WorkspaceTab {
+  return value === "inbox" || value === "rules" || value === "settings"
+    ? value
+    : "map";
+}
+
+function Metric({ label, value }: { label: string; value: number }) {
+  return (
+    <span className="rounded-md border bg-card px-2.5 py-1.5">
+      <span className="font-medium text-foreground">
+        {value.toLocaleString()}
+      </span>{" "}
+      {label}
+    </span>
+  );
+}
+
+function InboxView({ t }: { t: ReturnType<typeof useT> }) {
+  const [status, setStatus] = useState("");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [feedbackNote, setFeedbackNote] = useState("");
+  const [verdict, setVerdict] = useState<Verdict | null>(null);
+  const listQuery = useActionQuery("list-triage-items", {
+    limit: 50,
+    ...(status.trim()
+      ? {
+          status: status.trim() as
+            | "received"
+            | "context_fetching"
+            | "evidence_ready"
+            | "classified"
+            | "shadow_decided"
+            | "needs_manual"
+            | "failed"
+            | "reconciliation_required",
+        }
+      : {}),
+  });
+  const detailQuery = useActionQuery(
+    "get-triage-item",
+    selectedId ? { itemId: selectedId } : undefined,
+    { enabled: Boolean(selectedId) },
+  );
+  const feedbackMutation = useActionMutation("record-triage-feedback");
+  const approveMutation = useActionMutation("approve-factory-item");
+  const items =
+    (listQuery.data as { items?: TriageItem[] } | TriageItem[] | undefined) ??
+    [];
+  const normalizedItems = Array.isArray(items) ? items : (items.items ?? []);
+  const selectedItem = detailQuery.data as TriageItem | undefined;
+
+  return (
+    <div className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1.3fr)_minmax(320px,.7fr)] lg:p-6">
+      <Card>
+        <CardHeader className="gap-3 border-b sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <CardTitle className="text-base">
+              {t("factoryRoute.inboxTitle")}
+            </CardTitle>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {t("factoryRoute.inboxDescription")}
+            </p>
+          </div>
+          <div className="flex items-end gap-2">
+            <div className="grid gap-1.5">
+              <Label htmlFor="factory-status-filter">Status</Label>
+              <Input
+                id="factory-status-filter"
+                className="h-8 w-36"
+                value={status}
+                onChange={(event) => setStatus(event.target.value)}
+                placeholder={t("triage.statusPlaceholder")}
+              />
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void listQuery.refetch()}
+              disabled={listQuery.isFetching}
+            >
+              {listQuery.isFetching && <IconLoader2 className="animate-spin" />}
+              Refresh
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          {listQuery.isError ? (
+            <ErrorState
+              message="Could not load observations."
+              onRetry={() => void listQuery.refetch()}
+            />
+          ) : listQuery.isLoading ? (
+            <p className="p-4 text-sm text-muted-foreground">
+              {t("triage.loading")}
+            </p>
+          ) : normalizedItems.length === 0 ? (
+            <p className="p-4 text-sm text-muted-foreground">
+              {t("triage.empty")}
+            </p>
+          ) : (
+            <div className="divide-y">
+              {normalizedItems.map((item) => {
+                const id = item.itemId ?? item.id ?? "";
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    className={`grid w-full gap-3 p-4 text-left transition-colors hover:bg-muted/50 sm:grid-cols-[1.1fr_.7fr_.9fr_1.6fr] ${selectedId === id ? "bg-muted/60" : ""}`}
+                    onClick={() => {
+                      setSelectedId(id);
+                      setVerdict(null);
+                      setFeedbackNote("");
+                    }}
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-medium">
+                        {item.sourceName ?? item.source ?? "Unknown source"}
+                      </span>
+                      {item.sourceUrl && (
+                        <span className="mt-1 flex max-w-full items-center gap-1 truncate text-xs text-primary">
+                          {item.sourceUrl}
+                          <IconExternalLink className="size-3 shrink-0" />
+                        </span>
+                      )}
+                    </span>
+                    <span>
+                      <span className="block text-[11px] uppercase tracking-wide text-muted-foreground">
+                        Risk
+                      </span>
+                      <TriageStatusPill status={item.risk} />
+                    </span>
+                    <span>
+                      <span className="block text-[11px] uppercase tracking-wide text-muted-foreground">
+                        Status
+                      </span>
+                      <TriageStatusPill status={item.status} />
+                    </span>
+                    <span className="truncate">
+                      <span className="block text-[11px] uppercase tracking-wide text-muted-foreground">
+                        Reason
+                      </span>
+                      <span className="text-sm">
+                        {item.reason ?? item.decisionSummary ?? "-"}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </CardContent>
       </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">{t("triage.detailTitle")}</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {!selectedItem ? (
+            <p className="text-sm text-muted-foreground">
+              {t("factoryRoute.selectObservation")}
+            </p>
+          ) : (
+            <>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium">
+                    {selectedItem.sourceName ?? selectedItem.source}
+                  </p>
+                  {selectedItem.sourceUrl && (
+                    <a
+                      href={selectedItem.sourceUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-1 inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                    >
+                      {t("triage.openSource")}
+                      <IconExternalLink className="size-3" />
+                    </a>
+                  )}
+                </div>
+                <TriageStatusPill status={selectedItem.status} />
+              </div>
+              <Button
+                size="sm"
+                onClick={() => {
+                  const decision =
+                    selectedItem.decisions?.[
+                      (selectedItem.decisions?.length ?? 1) - 1
+                    ];
+                  if (!decision) return;
+                  approveMutation.mutate({
+                    itemId: selectedItem.itemId ?? selectedItem.id ?? "",
+                    decisionId: decision.decisionId,
+                    confirm: true,
+                  });
+                }}
+                disabled={
+                  !selectedItem.decisions?.length || approveMutation.isPending
+                }
+              >
+                <IconPlayerPlay className="size-4" />
+                {t("factoryRoute.approveAndStart")}
+              </Button>
+              {selectedItem.decisionSummary && (
+                <p className="rounded-md bg-muted px-3 py-2 text-sm">
+                  {selectedItem.decisionSummary}
+                </p>
+              )}
+              <div className="border-t pt-4">
+                <p className="text-sm font-medium">{t("triage.decisions")}</p>
+                {selectedItem.decisions?.length ? (
+                  selectedItem.decisions.map((decision) => (
+                    <div
+                      key={decision.decisionId}
+                      className="mt-3 space-y-3 rounded-md border p-3"
+                    >
+                      <p className="text-sm">
+                        {decision.summary ?? decision.reason}
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {(
+                          ["correct", "incorrect", "uncertain"] as Verdict[]
+                        ).map((value) => (
+                          <Button
+                            key={value}
+                            size="sm"
+                            variant={verdict === value ? "default" : "outline"}
+                            onClick={() => setVerdict(value)}
+                          >
+                            {value}
+                          </Button>
+                        ))}
+                      </div>
+                      <Input
+                        value={feedbackNote}
+                        onChange={(event) =>
+                          setFeedbackNote(event.target.value)
+                        }
+                        placeholder={t("triage.notePlaceholder")}
+                      />
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          if (verdict)
+                            feedbackMutation.mutate({
+                              decisionId: decision.decisionId,
+                              verdict,
+                              ...(feedbackNote.trim()
+                                ? { note: feedbackNote.trim() }
+                                : {}),
+                            });
+                        }}
+                        disabled={!verdict || feedbackMutation.isPending}
+                      >
+                        Record feedback
+                      </Button>
+                    </div>
+                  ))
+                ) : (
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    {t("triage.noDecisions")}
+                  </p>
+                )}
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
 
+function RulesView({ t }: { t: ReturnType<typeof useT> }) {
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [name, setName] = useState("");
+  const [prompt, setPrompt] = useState("");
+  const rulesQuery = useActionQuery("list-triage-rules", {});
+  const saveMutation = useActionMutation("save-triage-rule");
+  const rules = (rulesQuery.data ?? []) as TriageRule[];
+  function selectRule(rule: TriageRule) {
+    setEditingId(rule.id);
+    setName(rule.name);
+    setPrompt(rule.promptText);
+  }
+  return (
+    <div className="grid gap-4 p-4 lg:grid-cols-[280px_minmax(0,1fr)] lg:p-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Rules</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            {t("factoryRoute.rulesDescription")}
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <Button
+            variant="outline"
+            className="w-full justify-start"
+            onClick={() => {
+              setEditingId(null);
+              setName("");
+              setPrompt("");
+            }}
+          >
+            <IconPlus className="size-4" />
+            {t("triage.newRule")}
+          </Button>
+          {rules.map((rule) => (
+            <Button
+              key={rule.id}
+              variant={editingId === rule.id ? "secondary" : "ghost"}
+              className="h-auto w-full justify-between gap-2 px-3 py-2 text-left"
+              onClick={() => selectRule(rule)}
+            >
+              <span className="min-w-0 truncate">{rule.name}</span>
+              <span className="text-xs text-muted-foreground">Shadow</span>
+            </Button>
+          ))}
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader className="flex-row items-start justify-between gap-3">
+          <div>
+            <CardTitle className="text-base">
+              {t("factoryRoute.editRule")}
+            </CardTitle>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Use prompts for classification; keep safety in structured guards.
+            </p>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-1.5">
+            <Label htmlFor="factory-rule-name">Name</Label>
+            <Input
+              id="factory-rule-name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder={t("triage.ruleNamePlaceholder")}
+            />
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="factory-rule-prompt">
+              {t("triage.rulePrompt")}
+            </Label>
+            <Textarea
+              id="factory-rule-prompt"
+              value={prompt}
+              onChange={(event) => setPrompt(event.target.value)}
+              rows={8}
+              placeholder={t("triage.rulePromptPlaceholder")}
+            />
+          </div>
+          <div className="rounded-lg bg-muted/60 px-3 py-2 text-xs leading-5 text-muted-foreground">
+            {t("triage.hardGuards")}
+          </div>
+          <Button
+            onClick={() => {
+              if (!name.trim() || !prompt.trim()) return;
+              saveMutation.mutate({
+                ...(editingId ? { id: editingId } : {}),
+                name,
+                description: "",
+                promptText: prompt,
+                mode: "shadow",
+                enabled: true,
+              });
+            }}
+            disabled={!name.trim() || !prompt.trim() || saveMutation.isPending}
+          >
+            {saveMutation.isPending && <IconLoader2 className="animate-spin" />}
+            Save rule
+          </Button>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function SettingsView({ t }: { t: ReturnType<typeof useT> }) {
+  const [workspace, setWorkspace] = useState<"primary" | "secondary">(
+    "primary",
+  );
+  const [channelId, setChannelId] = useState("");
+  const [channelName, setChannelName] = useState("");
+  const [repository, setRepository] = useState("");
+  const [polling, setPolling] = useState(false);
+  const query = useActionQuery("get-triage-config", {});
+  const mutation = useActionMutation("save-triage-config");
+  useEffect(() => {
+    const data = query.data as TriageConfig | undefined;
+    if (!data) return;
+    setWorkspace(data.slackWorkspace ?? "primary");
+    setChannelId(data.slackChannelId ?? "");
+    setChannelName(data.slackChannelName ?? "");
+    setRepository(data.repository ?? "");
+    setPolling(data.pollingEnabled ?? false);
+  }, [query.data]);
+  return (
+    <div className="max-w-4xl p-4 lg:p-6">
       <Card>
         <CardHeader>
           <CardTitle className="text-base">
             {t("triage.settingsTitle")}
           </CardTitle>
           <p className="text-sm text-muted-foreground">
-            {t("triage.settingsDescription")}
+            {t("factoryRoute.settingsDescription")}
           </p>
         </CardHeader>
-        <CardContent className="grid gap-4 p-4 sm:grid-cols-2 lg:grid-cols-4 lg:p-6">
+        <CardContent className="grid gap-4 sm:grid-cols-2">
           <div className="grid gap-1.5">
-            <Label htmlFor="triage-slack-workspace">
+            <Label htmlFor="factory-slack-workspace">
               {t("triage.slackWorkspace")}
             </Label>
             <select
-              id="triage-slack-workspace"
-              value={slackWorkspace}
+              id="factory-slack-workspace"
+              value={workspace}
               onChange={(event) =>
-                setSlackWorkspace(event.target.value as "primary" | "secondary")
+                setWorkspace(event.target.value as "primary" | "secondary")
               }
               className="h-9 rounded-md border bg-background px-3 text-sm"
             >
@@ -602,68 +931,61 @@ export default function TriageRoute() {
             </select>
           </div>
           <div className="grid gap-1.5">
-            <Label htmlFor="triage-slack-channel">
+            <Label htmlFor="factory-slack-channel-id">
               {t("triage.slackChannelId")}
             </Label>
             <Input
-              id="triage-slack-channel"
-              value={slackChannelId}
-              onChange={(event) => setSlackChannelId(event.target.value)}
-              placeholder={t("triage.slackChannelPlaceholder")}
+              id="factory-slack-channel-id"
+              value={channelId}
+              onChange={(event) => setChannelId(event.target.value)}
+              placeholder="C0123456789"
             />
           </div>
           <div className="grid gap-1.5">
-            <Label htmlFor="triage-slack-channel-name">
+            <Label htmlFor="factory-slack-channel-name">
               {t("triage.slackChannelName")}
             </Label>
             <Input
-              id="triage-slack-channel-name"
-              value={slackChannelName}
-              onChange={(event) => setSlackChannelName(event.target.value)}
-              placeholder={t("triage.slackChannelNamePlaceholder")}
+              id="factory-slack-channel-name"
+              value={channelName}
+              onChange={(event) => setChannelName(event.target.value)}
+              placeholder="product-agent-native-feedback"
             />
           </div>
           <div className="grid gap-1.5">
-            <Label htmlFor="triage-repository">{t("triage.repository")}</Label>
+            <Label htmlFor="factory-repository">Repository</Label>
             <Input
-              id="triage-repository"
+              id="factory-repository"
               value={repository}
               onChange={(event) => setRepository(event.target.value)}
               placeholder={t("triage.repositoryPlaceholder")}
             />
           </div>
-          <div className="flex items-center gap-2 sm:col-span-2">
+          <label className="flex items-center gap-2 text-sm sm:col-span-2">
             <input
-              id="triage-polling-enabled"
               type="checkbox"
-              checked={pollingEnabled}
-              onChange={(event) => setPollingEnabled(event.target.checked)}
+              checked={polling}
+              onChange={(event) => setPolling(event.target.checked)}
               className="size-4 rounded border"
             />
-            <Label htmlFor="triage-polling-enabled">
-              {t("triage.enablePolling")}
-            </Label>
-          </div>
-          <div className="flex items-center gap-3 sm:col-span-2 sm:justify-end">
+            {t("triage.enablePolling")}
+          </label>
+          <div className="sm:col-span-2">
             <Button
-              onClick={() => void saveConfig()}
-              disabled={saveConfigMutation.isPending || configQuery.isLoading}
+              onClick={() =>
+                mutation.mutate({
+                  slackWorkspace: workspace,
+                  slackChannelId: channelId,
+                  slackChannelName: channelName,
+                  repository,
+                  pollingEnabled: polling,
+                })
+              }
+              disabled={mutation.isPending}
             >
-              {saveConfigMutation.isPending && (
-                <IconLoader2 className="animate-spin" />
-              )}
-              {t("triage.saveSettings")}
+              {mutation.isPending && <IconLoader2 className="animate-spin" />}
+              Save settings
             </Button>
-            {saveConfigMutation.isError && (
-              <span className="text-sm text-destructive">
-                {t("triage.settingsError")}
-              </span>
-            )}
-            {!saveConfigMutation.isPending && saveConfigMutation.isSuccess && (
-              <span className="text-sm text-muted-foreground">
-                {t("triage.settingsSaved")}
-              </span>
-            )}
           </div>
         </CardContent>
       </Card>
@@ -671,36 +993,11 @@ export default function TriageRoute() {
   );
 }
 
-function FieldValue({
-  label,
-  value,
-  pill = false,
-}: {
-  label: string;
-  value: string | number | null | undefined;
-  pill?: boolean;
-}) {
-  return (
-    <div className="min-w-0 space-y-1">
-      <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
-        {label}
-      </div>
-      {pill ? (
-        <TriageStatusPill status={value?.toString()} />
-      ) : (
-        <div className="truncate text-sm">{displayValue(value)}</div>
-      )}
-    </div>
-  );
-}
-
 function ErrorState({
   message,
-  retryLabel,
   onRetry,
 }: {
   message: string;
-  retryLabel: string;
   onRetry: () => void;
 }) {
   return (
@@ -708,7 +1005,7 @@ function ErrorState({
       <IconAlertCircle className="size-4 shrink-0" />
       <span>{message}</span>
       <Button variant="link" size="sm" className="h-auto p-0" onClick={onRetry}>
-        {retryLabel}
+        Retry
       </Button>
     </div>
   );

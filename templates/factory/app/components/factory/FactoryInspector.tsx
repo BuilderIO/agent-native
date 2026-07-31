@@ -1,8 +1,8 @@
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconArrowRight,
   IconMessagePlus,
   IconPlus,
-  IconSparkles,
   IconTrash,
 } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
@@ -36,7 +36,6 @@ interface FactoryInspectorProps {
   saving: boolean;
   onGraphChange: (graph: FactoryCanvasGraph) => void;
   onSave: () => void;
-  onAskAgent: () => void;
   onAddComment: (
     targetType: "canvas" | "node" | "edge",
     targetId?: string,
@@ -56,12 +55,12 @@ export function FactoryInspector({
   saving,
   onGraphChange,
   onSave,
-  onAskAgent,
   onAddComment,
   onAddNode,
   onDeleteNode,
   onConnect,
 }: FactoryInspectorProps) {
+  const t = useT();
   const [commentDraft, setCommentDraft] = useState("");
   const [connectTarget, setConnectTarget] = useState("");
   const targetType = selectedNode ? "node" : selectedEdge ? "edge" : "canvas";
@@ -111,7 +110,7 @@ export function FactoryInspector({
       <div className="flex items-start justify-between gap-3 border-b px-4 py-4">
         <div className="min-w-0">
           <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-            Factory inspector
+            {t("factoryInspector.title")}
           </p>
           <h2 className="mt-1 truncate text-base font-semibold">
             {selectedNode?.label ?? selectedEdge?.label ?? graph.name}
@@ -122,16 +121,6 @@ export function FactoryInspector({
               graph.description}
           </p>
         </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="size-8 shrink-0"
-          aria-label="Ask the agent about this selection"
-          onClick={onAskAgent}
-        >
-          <IconSparkles className="size-4" />
-        </Button>
       </div>
 
       <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4">
@@ -140,12 +129,13 @@ export function FactoryInspector({
             graph={graph}
             onGraphChange={onGraphChange}
             onAddNode={onAddNode}
-            onAskAgent={onAskAgent}
           />
         ) : selectedNode ? (
           <>
             <div className="grid gap-1.5">
-              <Label htmlFor="factory-node-label">Step name</Label>
+              <Label htmlFor="factory-node-label">
+                {t("factoryInspector.stepName")}
+              </Label>
               <Input
                 id="factory-node-label"
                 value={selectedNode.label}
@@ -154,7 +144,7 @@ export function FactoryInspector({
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="factory-node-description">
-                What happens here
+                {t("factoryInspector.stepDescription")}
               </Label>
               <Textarea
                 id="factory-node-description"
@@ -188,28 +178,31 @@ export function FactoryInspector({
               </select>
             </div>
             <div className="grid gap-1.5">
-              <Label htmlFor="factory-node-agent">Agent or owner</Label>
+              <Label htmlFor="factory-node-agent">
+                {t("factoryInspector.agentOwner")}
+              </Label>
               <Input
                 id="factory-node-agent"
                 value={selectedNode.agent ?? ""}
                 onChange={(event) => updateNode({ agent: event.target.value })}
-                placeholder="Optional"
+                placeholder={t("factoryInspector.optional")}
               />
             </div>
             <div className="rounded-lg border bg-muted/25 p-3">
-              <p className="text-xs font-medium">Connect this step</p>
+              <p className="text-xs font-medium">
+                {t("factoryInspector.connectStep")}
+              </p>
               <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                Add a route from this step to another step. Conditions stay
-                visible on the edge so the graph remains explainable.
+                {t("factoryInspector.connectDescription")}
               </p>
               <div className="mt-3 flex gap-2">
                 <select
-                  aria-label="Target step"
+                  aria-label={t("factoryInspector.targetStep")}
                   value={connectTarget}
                   onChange={(event) => setConnectTarget(event.target.value)}
                   className="h-9 min-w-0 flex-1 rounded-md border bg-background px-3 text-sm"
                 >
-                  <option value="">Choose a target</option>
+                  <option value="">{t("factoryInspector.chooseTarget")}</option>
                   {outgoingTargets.map((node) => (
                     <option key={node.id} value={node.id}>
                       {node.label}
@@ -220,7 +213,7 @@ export function FactoryInspector({
                   type="button"
                   variant="outline"
                   size="icon"
-                  aria-label="Connect steps"
+                  aria-label={t("factoryInspector.connectSteps")}
                   disabled={!connectTarget}
                   onClick={() => {
                     onConnect(selectedNode.id, connectTarget);
@@ -238,13 +231,15 @@ export function FactoryInspector({
               onClick={() => onDeleteNode(selectedNode.id)}
             >
               <IconTrash className="size-4" />
-              Remove step
+              {t("factoryInspector.removeStep")}
             </Button>
           </>
         ) : (
           <>
             <div className="grid gap-1.5">
-              <Label htmlFor="factory-edge-label">Route label</Label>
+              <Label htmlFor="factory-edge-label">
+                {t("factoryInspector.routeLabel")}
+              </Label>
               <Input
                 id="factory-edge-label"
                 value={selectedEdge?.label ?? ""}
@@ -253,7 +248,7 @@ export function FactoryInspector({
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="factory-edge-condition">
-                When does this route run?
+                {t("factoryInspector.routeCondition")}
               </Label>
               <Textarea
                 id="factory-edge-condition"
@@ -262,7 +257,7 @@ export function FactoryInspector({
                   updateEdge({ condition: event.target.value })
                 }
                 rows={4}
-                placeholder="For example, when the decision is a low-risk docs fix"
+                placeholder={t("factoryInspector.routePlaceholder")}
               />
             </div>
           </>
@@ -272,8 +267,8 @@ export function FactoryInspector({
           <div className="flex items-center justify-between gap-3">
             <p className="text-xs font-medium">
               {targetType === "canvas"
-                ? "Factory comments"
-                : "Comments on this selection"}
+                ? t("factoryInspector.factoryComments")
+                : t("factoryInspector.selectionComments")}
             </p>
             <span className="text-xs text-muted-foreground">
               v{graph.version}
@@ -282,8 +277,7 @@ export function FactoryInspector({
           <div className="mt-3 space-y-3">
             {targetComments.length === 0 ? (
               <p className="text-xs leading-5 text-muted-foreground">
-                Add a note for a teammate or ask the agent to address this part
-                of the factory.
+                {t("factoryInspector.commentEmpty")}
               </p>
             ) : (
               targetComments.map((comment) => (
@@ -299,7 +293,7 @@ export function FactoryInspector({
             <Textarea
               value={commentDraft}
               onChange={(event) => setCommentDraft(event.target.value)}
-              placeholder="Leave a comment..."
+              placeholder={t("factoryInspector.leaveComment")}
               rows={3}
             />
             <Button
@@ -310,7 +304,7 @@ export function FactoryInspector({
               onClick={submitComment}
             >
               <IconMessagePlus className="size-4" />
-              Add comment
+              {t("factoryInspector.addComment")}
             </Button>
           </div>
         </div>
@@ -324,13 +318,13 @@ export function FactoryInspector({
           onClick={onSave}
         >
           {saving
-            ? "Saving graph..."
+            ? t("factoryInspector.savingGraph")
             : dirty
-              ? "Save factory changes"
-              : "Factory is saved"}
+              ? t("factoryInspector.saveGraph")
+              : t("factoryInspector.savedGraph")}
         </Button>
         <p className="mt-2 text-center text-[11px] text-muted-foreground">
-          Saves a new version. Existing runs keep their original context.
+          {t("factoryInspector.saveNote")}
         </p>
       </div>
     </aside>
@@ -341,17 +335,18 @@ function CanvasInspector({
   graph,
   onGraphChange,
   onAddNode,
-  onAskAgent,
 }: {
   graph: FactoryCanvasGraph;
   onGraphChange: (graph: FactoryCanvasGraph) => void;
   onAddNode: () => void;
-  onAskAgent: () => void;
 }) {
+  const t = useT();
   return (
     <>
       <div className="grid gap-1.5">
-        <Label htmlFor="factory-name">Factory name</Label>
+        <Label htmlFor="factory-name">
+          {t("factoryInspector.factoryName")}
+        </Label>
         <Input
           id="factory-name"
           value={graph.name}
@@ -361,7 +356,9 @@ function CanvasInspector({
         />
       </div>
       <div className="grid gap-1.5">
-        <Label htmlFor="factory-description">What this factory does</Label>
+        <Label htmlFor="factory-description">
+          {t("factoryInspector.factoryDescription")}
+        </Label>
         <Textarea
           id="factory-description"
           value={graph.description}
@@ -371,22 +368,6 @@ function CanvasInspector({
           rows={4}
         />
       </div>
-      <div className="rounded-lg border bg-muted/25 p-3">
-        <p className="text-xs font-medium">Design with the agent</p>
-        <p className="mt-1 text-xs leading-5 text-muted-foreground">
-          Describe a new factory, ask why an item took a route, or request a
-          change. The agent returns a versioned graph proposal you can inspect.
-        </p>
-        <Button
-          type="button"
-          variant="outline"
-          className="mt-3 w-full"
-          onClick={onAskAgent}
-        >
-          <IconSparkles className="size-4" />
-          Open Factory copilot
-        </Button>
-      </div>
       <Button
         type="button"
         variant="outline"
@@ -394,7 +375,7 @@ function CanvasInspector({
         onClick={onAddNode}
       >
         <IconPlus className="size-4" />
-        Add a step
+        {t("factoryInspector.addStep")}
       </Button>
     </>
   );

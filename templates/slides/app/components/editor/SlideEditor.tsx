@@ -1,5 +1,5 @@
 import { agentChat } from "@agent-native/core";
-import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { sendToAgentChatAndConfirm } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import {
   type AttributedRecentEdit,
@@ -16,6 +16,7 @@ import {
   RecentEditHighlights,
 } from "@agent-native/toolkit/collab-ui";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
+import { hashSlideContent } from "@shared/slide-fit";
 import { IconMaximize, IconZoomIn, IconZoomOut } from "@tabler/icons-react";
 import {
   useState,
@@ -983,6 +984,7 @@ function syncOverflowToAppState(
   payload: {
     slideId: string;
     deckId?: string;
+    contentHash: string;
     contentHeight: number;
     viewportHeight: number;
     verticalOverflow: number;
@@ -1318,6 +1320,7 @@ export default function SlideEditor({
       syncOverflowToAppState({
         slideId: slide.id,
         deckId,
+        contentHash: hashSlideContent(slide.content),
         contentHeight: info.contentHeight,
         viewportHeight: info.viewportHeight,
         verticalOverflow: info.verticalOverflow,
@@ -1337,27 +1340,34 @@ export default function SlideEditor({
     const dimsW = dims.width;
     const dimsH = dims.height;
     setIsAskingAgentToFix(true);
-    sendToAgentChat({
+    void sendToAgentChatAndConfirm({
       message: [
         `The current slide's content vertically overflows the canvas by ${overflowInfo.verticalOverflow}px and needs to be rewritten to fit.`,
         ``,
         `Slide id: \`${slide.id}\``,
         slideHeading ? `Slide heading: "${slideHeading}"` : null,
-        `Canvas size: ${dimsW}x${dimsH}px (16:9 native render).`,
+        `Canvas size: ${dimsW}x${dimsH}px (native render).`,
         `Available content area inside the slide's padding: ${overflowInfo.viewportHeight}px tall.`,
         `Natural rendered content height: ${overflowInfo.contentHeight}px → overflows by ${overflowInfo.verticalOverflow}px.`,
         ``,
-        `Please use \`view-screen\` to read the current slide HTML, then \`update-slide --fullContent\` to rewrite the slide so its rendered height is at most ${overflowInfo.viewportHeight}px. Options to shrink the layout, in order of preference:`,
+        `Please use \`view-screen\` to read the current slide HTML, then make one bounded \`update-slide --fullContent\` repair so its rendered height is at most ${overflowInfo.viewportHeight}px. Options to shrink the layout, in order of preference:`,
         `1. Tighten copy — shorten headings/body, drop low-value bullets, replace prose with terse phrases.`,
         `2. Reduce vertical density — fewer stacked cards, smaller gaps, smaller body font (don't go below 16px), shorter labels.`,
         `3. Reduce slide padding (e.g. 40px top/bottom instead of 60-80px) if the layout is genuinely tight.`,
         `4. If the content really can't be compressed without losing meaning, split it across two slides.`,
         ``,
-        `Do NOT solve this by adding \`transform: scale()\` or \`overflow: scroll\`. Preserve existing manually positioned absolute objects, including text boxes; rewrite only the overflowing flow layout so the HTML itself fits ${dimsW}x${dimsH}.`,
+        `Do NOT solve this by adding zoom, \`transform: scale()\`, clipping, or \`overflow: scroll\`. Preserve existing manually positioned absolute objects, including text boxes; rewrite only the overflowing flow layout so the HTML itself fits ${dimsW}x${dimsH}. After the write, verify the result with \`view-screen\`; do not repeat repairs in a loop.`,
       ]
         .filter(Boolean)
         .join("\n"),
       submit: true,
+      chatTarget: "local",
+    }).then((delivery) => {
+      if (!delivery.delivered) {
+        // A missing or delayed chat handoff must not leave the only repair
+        // control permanently disabled with no visible mutation to wait for.
+        setIsAskingAgentToFix(false);
+      }
     });
   }, [overflowInfo, slide.id, dims.width, dims.height]);
   /** Marquee origin (viewport coords). Set on pointerdown. */

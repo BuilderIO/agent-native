@@ -1,4 +1,6 @@
+import { useT } from "@agent-native/core/client/i18n";
 import {
+  IconAdjustmentsHorizontal,
   IconArrowsMaximize,
   IconBrandGithub,
   IconBrandSlack,
@@ -9,11 +11,10 @@ import {
   IconPlus,
   IconRobot,
   IconShieldCheck,
-  IconSparkles,
   IconTopologyStar3,
   IconUserCheck,
 } from "@tabler/icons-react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -26,8 +27,22 @@ export type FactoryCanvasNode = {
   id: string;
   label: string;
   description: string;
-  kind: string;
-  provider?: string;
+  kind:
+    | "source"
+    | "transform"
+    | "decision"
+    | "gate"
+    | "agent"
+    | "system"
+    | "terminal";
+  provider?:
+    | "slack"
+    | "github"
+    | "builder"
+    | "claude"
+    | "codex"
+    | "human"
+    | "factory";
   agent?: string;
   metricsKey?: string;
   position: { x: number; y: number };
@@ -45,6 +60,7 @@ export type FactoryCanvasGraph = {
   version: number;
   name: string;
   description: string;
+  executionMode?: "blueprint";
   nodes: FactoryCanvasNode[];
   edges: FactoryCanvasEdge[];
 };
@@ -86,13 +102,36 @@ export function FactoryCanvas({
   onMoveNode,
   onComment,
 }: FactoryCanvasProps) {
-  const [zoom, setZoom] = useState(0.86);
+  const t = useT();
+  const [zoom, setZoom] = useState(0.72);
+  const [fitZoom, setFitZoom] = useState(0.72);
   const [dragState, setDragState] = useState<DragState | null>(null);
   const dragMoved = useRef(false);
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const zoomWasAdjusted = useRef(false);
   const nodesById = useMemo(
     () => new Map(graph.nodes.map((node) => [node.id, node])),
     [graph.nodes],
   );
+
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+
+    const updateFitZoom = () => {
+      const next = Math.min(
+        0.9,
+        Math.max(0.55, (viewport.clientWidth - 32) / CANVAS_WIDTH),
+      );
+      setFitZoom(next);
+      if (!zoomWasAdjusted.current) setZoom(next);
+    };
+
+    updateFitZoom();
+    const observer = new ResizeObserver(updateFitZoom);
+    observer.observe(viewport);
+    return () => observer.disconnect();
+  }, []);
 
   function nodeIcon(node: FactoryCanvasNode) {
     if (node.provider === "slack") return <IconBrandSlack className="size-4" />;
@@ -106,7 +145,8 @@ export function FactoryCanvas({
     if (node.provider === "human") return <IconUserCheck className="size-4" />;
     if (node.kind === "agent") return <IconRobot className="size-4" />;
     if (node.kind === "gate") return <IconShieldCheck className="size-4" />;
-    if (node.kind === "decision") return <IconSparkles className="size-4" />;
+    if (node.kind === "decision")
+      return <IconAdjustmentsHorizontal className="size-4" />;
     if (node.kind === "transform")
       return <IconTopologyStar3 className="size-4" />;
     return <IconMessageCircle className="size-4" />;
@@ -157,6 +197,7 @@ export function FactoryCanvas({
     if (dragState) {
       try {
         event.currentTarget.releasePointerCapture(event.pointerId);
+      // coercion-ok: pointer capture is optional and drag state is cleared below.
       } catch {
         // Pointer capture may already have ended on touch browsers.
       }
@@ -171,7 +212,7 @@ export function FactoryCanvas({
           <span className="flex size-6 items-center justify-center rounded-md bg-primary/10 text-primary">
             <IconTopologyStar3 className="size-4" />
           </span>
-          <span className="truncate">Drag nodes to reshape the factory</span>
+          <span className="truncate">{t("factoryCanvas.dragHint")}</span>
         </div>
         <div className="flex items-center gap-1">
           <Tooltip>
@@ -181,13 +222,16 @@ export function FactoryCanvas({
                 variant="ghost"
                 size="icon"
                 className="size-8"
-                aria-label="Zoom out"
-                onClick={() => setZoom((value) => Math.max(0.55, value - 0.1))}
+                aria-label={t("factoryCanvas.zoomOut")}
+                onClick={() => {
+                  zoomWasAdjusted.current = true;
+                  setZoom((value) => Math.max(0.55, value - 0.1));
+                }}
               >
                 <IconMinus className="size-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Zoom out</TooltipContent>
+            <TooltipContent>{t("factoryCanvas.zoomOut")}</TooltipContent>
           </Tooltip>
           <span className="w-10 text-center text-xs tabular-nums text-muted-foreground">
             {Math.round(zoom * 100)}%
@@ -199,13 +243,16 @@ export function FactoryCanvas({
                 variant="ghost"
                 size="icon"
                 className="size-8"
-                aria-label="Zoom in"
-                onClick={() => setZoom((value) => Math.min(1.15, value + 0.1))}
+                aria-label={t("factoryCanvas.zoomIn")}
+                onClick={() => {
+                  zoomWasAdjusted.current = true;
+                  setZoom((value) => Math.min(1.15, value + 0.1));
+                }}
               >
                 <IconPlus className="size-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Zoom in</TooltipContent>
+            <TooltipContent>{t("factoryCanvas.zoomIn")}</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -214,18 +261,21 @@ export function FactoryCanvas({
                 variant="ghost"
                 size="icon"
                 className="size-8"
-                aria-label="Fit factory to view"
-                onClick={() => setZoom(0.86)}
+                aria-label={t("factoryCanvas.fitFactoryToView")}
+                onClick={() => {
+                  zoomWasAdjusted.current = false;
+                  setZoom(fitZoom);
+                }}
               >
                 <IconArrowsMaximize className="size-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Fit to view</TooltipContent>
+            <TooltipContent>{t("factoryCanvas.fitToView")}</TooltipContent>
           </Tooltip>
         </div>
       </div>
 
-      <div className="h-[560px] overflow-auto pt-12">
+      <div ref={viewportRef} className="h-[560px] overflow-auto pt-12">
         <div
           data-factory-canvas
           className="relative origin-top-left"
@@ -302,7 +352,9 @@ export function FactoryCanvas({
                 <button
                   key={`${edge.id}-hitbox`}
                   type="button"
-                  aria-label={`Select route ${edge.label || edge.id}`}
+                  aria-label={t("factoryCanvas.selectRoute", {
+                    route: edge.label || edge.id,
+                  })}
                   className="absolute inset-0 z-[1] block cursor-pointer bg-transparent text-left"
                   style={{
                     clipPath: "none",
@@ -355,16 +407,23 @@ export function FactoryCanvas({
                     <IconChevronDown className="size-4 shrink-0 rotate-[-90deg] text-muted-foreground" />
                   </span>
                   <span className="mt-2 line-clamp-2 text-xs leading-5 text-muted-foreground">
-                    {node.description || "Add context for this step."}
+                    {node.description || t("factoryCanvas.addContext")}
                   </span>
                   <span className="mt-auto flex items-center justify-between gap-2 pt-2 text-[11px] text-muted-foreground">
                     <span>
                       {metric.toLocaleString()}{" "}
-                      {node.metricsKey ? "signals" : "events"}
+                      {node.metricsKey
+                        ? t("factoryCanvas.signals")
+                        : t("factoryCanvas.events")}
                     </span>
                     {comments > 0 && (
                       <span>
-                        {comments} comment{comments === 1 ? "" : "s"}
+                        {comments}{" "}
+                        {t(
+                          comments === 1
+                            ? "factoryCanvas.commentOne"
+                            : "factoryCanvas.commentMany",
+                        )}
                       </span>
                     )}
                   </span>
@@ -379,7 +438,7 @@ export function FactoryCanvas({
         className="absolute bottom-3 left-3 rounded-md bg-background/90 px-2 py-1 text-xs text-muted-foreground shadow-sm ring-1 ring-border hover:text-foreground"
         onClick={() => onComment("canvas")}
       >
-        Comment on this factory
+        {t("factoryCanvas.commentFactory")}
       </button>
     </div>
   );

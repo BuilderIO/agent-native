@@ -1,0 +1,69 @@
+import { defineAction } from "@agent-native/core";
+import { resolveAccess } from "@agent-native/core/sharing";
+import { z } from "zod";
+
+import { hashSlideContent, type DeckFitState } from "../shared/slide-fit.js";
+import { readAppStateForCurrentTab } from "./_tab-state.js";
+
+export default defineAction({
+  description:
+    "Read the latest browser measurements for every slide in a deck. Returns status unknown until every slide has a finite measurement matching its current HTML, so never use a partial result to claim the deck fits.",
+  schema: z.object({
+    deckId: z.string().describe("Deck ID"),
+  }),
+  http: false,
+  run: async ({ deckId }) => {
+    const access = await resolveAccess("deck", deckId);
+    if (!access) throw Object.assign(new Error("Deck not found"), { statusCode: 404 });
+
+    const deck = JSON.parse(access.resource.data) as {
+      slides?: Array<{ id: string; content?: string }>;
+    };
+    const slides = Array.isArray(deck.slides) ? deck.slides : [];
+    const state = (await readAppStateForCurrentTab("deck-fit-checks", {
+      fallbackToGlobal: false,
+    })) as DeckFitState | null;
+
+    const unknownSlideIds: string[] = [];
+    const overflows: Array<{
+      slideId: string;
+      slideNumber: number;
+      verticalOverflow: number;
+      contentHeight: number;
+      viewportHeight: number;
+    }> = [];
+
+    slides.forEach((slide, index) => {
+      const measurement = state?.deckId === deckId ? state.slides?.[slide.id] : undefined;
+      if (
+        !measurement ||
+        measurement.contentHash !== hashSlideContent(slide.content ?? "") ||
+        !Number.isFinite(measurement.verticalOverflow) ||
+        !Number.isFinite(measurement.contentHeight) ||
+        !Number.isFinite(measurement.viewportHeight)
+      ) {
+        unknownSlideIds.push(slide.id);
+        return;
+      }
+      if (measurement.verticalOverflow > 0) {
+        overflows.push({
+          slideId: slide.id,
+          slideNumber: index + 1,
+          verticalOverflow: measurement.verticalOverflow,
+          contentHeight: measurement.contentHeight,
+          viewportHeight: measurement.viewportHeight,
+        });
+      }
+    });
+
+    return {
+      deckId,
+      status: unknownSlideIds.length > 0 ? "unknown" : "measured",
+      measuredSlideCount: slides.length - unknownSlideIds.length,
+      slideCount: slides.length,
+      unknownSlideIds,
+      overflows,
+      canClaimDeckFits: unknownSlideIds.length === 0 && overflows.length === 0,
+    };
+  },
+});

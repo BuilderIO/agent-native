@@ -129,6 +129,7 @@ const markdownComponents = {
 };
 
 const MIN_AUTOFIT_SCALE = 0.65;
+const VERTICAL_OVERFLOW_TOLERANCE_PX = 8;
 
 const useIsomorphicLayoutEffect =
   typeof window === "undefined" ? useEffect : useLayoutEffect;
@@ -170,10 +171,14 @@ export function computeSlideFitTransform({
   const rawScale = Math.min(1, Math.max(1, viewportWidth) / safeContentWidth);
   const scale = Math.max(minScale, rawScale);
 
-  const verticalOverflow = Math.max(
-    0,
-    Math.round(contentHeight - viewportHeight),
-  );
+  const rawVerticalOverflow = Math.max(0, contentHeight - viewportHeight);
+  // Small differences are commonly caused by line-box rounding and layout
+  // wrappers. Do not turn that harmless spill into an agent repair request;
+  // significant overflow is still reported at its measured size.
+  const verticalOverflow =
+    rawVerticalOverflow > VERTICAL_OVERFLOW_TOLERANCE_PX
+      ? Math.round(rawVerticalOverflow)
+      : 0;
 
   return {
     scale,
@@ -244,18 +249,14 @@ function measureContentBounds(target: HTMLElement): {
     }
     return false;
   };
-  const hasFreeformContent = descendants.some(isFreeformElement);
-
   const targetRect = target.getBoundingClientRect();
   // `scrollWidth` / `clientWidth` return CSS pixels; `getBoundingClientRect`
   // returns layout pixels after every ancestor transform. In presentation
   // mode the outer canvas is scaled UP (--slide-scale > 1, e.g. 1.74), so
-  // child rects come back inflated relative to scrollWidth. Without
-  // normalization, `Math.max(scrollWidth, maxX - minX)` reads the inflated
-  // value as content overflow, computeSlideFitTransform clamps to
-  // MIN_AUTOFIT_SCALE (0.65), and every slide visibly shrinks. The editor
-  // didn't hit this because thumbnail mode scales DOWN, so scrollWidth
-  // always wins. Normalize child rects back to CSS-px space.
+  // child rects come back inflated relative to their CSS dimensions. Without
+  // normalization, the bounds read as content overflow, so every slide can
+  // visibly shrink in presentation mode. Normalize child rects back to
+  // CSS-px space.
   const cssWidth = target.clientWidth || target.scrollWidth || 0;
   const cssHeight = target.clientHeight || target.scrollHeight || 0;
   const invScaleX =
@@ -266,15 +267,16 @@ function measureContentBounds(target: HTMLElement): {
   let minX = 0;
   let minY = 0;
   // Absolutely positioned objects intentionally move independently of the
-  // flow layout. They still expand scrollWidth/scrollHeight, but fitting the
-  // entire layer around them creates a feedback loop where dragging one object
-  // scales and shifts every sibling. When a layer contains freeform content,
-  // derive overflow from normal-flow element bounds instead.
-  let maxX = hasFreeformContent ? target.clientWidth : target.scrollWidth;
-  let maxY = hasFreeformContent ? target.clientHeight : target.scrollHeight;
+  // flow layout. Include them in vertical diagnostics so text boxes cannot
+  // silently run off the canvas, but keep them out of the horizontal fit
+  // transform. Using scrollHeight as the baseline makes full-size wrappers
+  // look like overflowing content even when their visible children fit.
+  let flowMaxX = target.clientWidth;
+  let flowMaxY = target.clientHeight;
+  let contentMaxY = target.clientHeight;
+  let hasFlowContent = false;
 
   for (const el of descendants) {
-    if (isFreeformElement(el)) continue;
     const rect = el.getBoundingClientRect();
     if (rect.width === 0 && rect.height === 0) continue;
 
@@ -283,15 +285,29 @@ function measureContentBounds(target: HTMLElement): {
     const right = (rect.right - targetRect.left) * invScaleX;
     const bottom = (rect.bottom - targetRect.top) * invScaleY;
 
+    if (isFreeformElement(el)) {
+      contentMaxY = Math.max(contentMaxY, bottom);
+      continue;
+    }
+
+    hasFlowContent = true;
     minX = Math.min(minX, left);
     minY = Math.min(minY, top);
-    maxX = Math.max(maxX, right);
-    maxY = Math.max(maxY, bottom);
+    flowMaxX = Math.max(flowMaxX, right);
+    flowMaxY = Math.max(flowMaxY, bottom);
+    contentMaxY = Math.max(contentMaxY, bottom);
+  }
+
+  // Raw text can be a direct child with no measurable element descendant.
+  // Only use scrollHeight in that case; using it alongside normal descendants
+  // would count full-size wrappers as content and recreate the false positive.
+  if (!hasFlowContent && descendants.length === 0) {
+    contentMaxY = Math.max(contentMaxY, target.scrollHeight);
   }
 
   return {
-    contentWidth: Math.max(target.clientWidth, maxX - minX),
-    contentHeight: Math.max(target.clientHeight, maxY - minY),
+    contentWidth: Math.max(target.clientWidth, flowMaxX - minX),
+    contentHeight: Math.max(target.clientHeight, flowMaxY - minY, contentMaxY),
     minX,
     minY,
   };
@@ -683,6 +699,7 @@ export function SlideInner({
           canvasHeight={dims.height}
           fitKey={right}
           className="slide-content text-white/90"
+          onOverflowChange={onOverflowChange}
           onAutofitSettled={onAutofitSettled}
         >
           <ReactMarkdown

@@ -137,8 +137,6 @@ export default defineAction({
     if (!find && !fullContent) {
       throw new Error("Either --find or --fullContent is required");
     }
-    const fitSince = Date.now();
-
     await assertAccess("deck", deckId, "editor");
 
     // ─── Read-modify-write under the shared per-deck lock ───────────────────
@@ -344,6 +342,9 @@ export default defineAction({
     }
 
     const { applied } = rmw;
+    // Start the freshness window after the SQL write and before notifying the
+    // editor. This keeps a fast render from being rejected as stale.
+    const fitSince = Date.now();
 
     // Best-effort presence: light the agent up on this slide in open editors
     // and drop a lingering "AI edited" highlight. Never blocks or fails the
