@@ -1370,6 +1370,7 @@ export default function RecordingPage() {
             <RecordingViewsBadge
               recordingId={recording.id}
               viewCount={playerDataQ.data?.viewCount ?? 0}
+              agentViewCount={playerDataQ.data?.agentViewCount ?? 0}
               canViewDetails={canEdit}
               onOpenInsights={openInsightsPanel}
               className="shrink-0"

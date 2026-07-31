@@ -835,6 +835,9 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     viewsCount_one: "{{count}} vue",
     viewsCount_many: "{{count}} vues",
     viewsCount_other: "{{count}} vues",
+    agentViewsCount_one: "{{count}} vue d’agent IA",
+    agentViewsCount_many: "{{count}} vues d’agents IA",
+    agentViewsCount_other: "{{count}} vues d’agents IA",
     totalViewsSummary:
       "{{total}} vues au total, {{unique}} spectateurs uniques",
     viewsTab: "Vues",

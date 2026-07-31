@@ -362,34 +362,48 @@ export default defineAction({
       }
     }
 
-    // Count views per recording — two set-wide grouped reads, never one per
+    // Count views per recording — set-wide grouped reads, never one per
     // recording.
     let viewsByRec: Record<string, number> = {};
+    let agentViewsByRec: Record<string, number> = {};
     if (ids.length) {
-      const [countedViewerRows, viewLogRows] = await Promise.all([
-        db
-          .select({
-            recordingId: schema.recordingViewers.recordingId,
-            count: sql<number>`COUNT(1)`,
-          })
-          .from(schema.recordingViewers)
-          .where(
-            and(
-              inArray(schema.recordingViewers.recordingId, ids),
-              countedViewCondition(),
-            ),
-          )
-          .groupBy(schema.recordingViewers.recordingId),
-        db
-          .select({
-            recordingId: schema.recordingViews.recordingId,
-            count: sql<number>`COUNT(1)`,
-          })
-          .from(schema.recordingViews)
-          .where(inArray(schema.recordingViews.recordingId, ids))
-          .groupBy(schema.recordingViews.recordingId),
-      ]);
+      const [countedViewerRows, viewLogRows, agentViewRows] = await Promise.all(
+        [
+          db
+            .select({
+              recordingId: schema.recordingViewers.recordingId,
+              count: sql<number>`COUNT(1)`,
+            })
+            .from(schema.recordingViewers)
+            .where(
+              and(
+                inArray(schema.recordingViewers.recordingId, ids),
+                countedViewCondition(),
+              ),
+            )
+            .groupBy(schema.recordingViewers.recordingId),
+          db
+            .select({
+              recordingId: schema.recordingViews.recordingId,
+              count: sql<number>`COUNT(1)`,
+            })
+            .from(schema.recordingViews)
+            .where(inArray(schema.recordingViews.recordingId, ids))
+            .groupBy(schema.recordingViews.recordingId),
+          db
+            .select({
+              recordingId: schema.recordingAgentViews.recordingId,
+              count: sql<number>`COUNT(1)`,
+            })
+            .from(schema.recordingAgentViews)
+            .where(inArray(schema.recordingAgentViews.recordingId, ids))
+            .groupBy(schema.recordingAgentViews.recordingId),
+        ],
+      );
       viewsByRec = mergeViewCounts(countedViewerRows, viewLogRows);
+      agentViewsByRec = Object.fromEntries(
+        agentViewRows.map((r) => [r.recordingId, Number(r.count ?? 0)]),
+      );
     }
 
     const recordings = rows.map((row) => {
@@ -413,6 +427,7 @@ export default defineAction({
         spaceIds: parseSpaceIds(r.spaceIds),
         tags: tagsByRec[r.id] ?? [],
         viewCount: viewsByRec[r.id] ?? 0,
+        agentViewCount: agentViewsByRec[r.id] ?? 0,
         createdAt: r.createdAt,
         updatedAt: r.updatedAt,
         archivedAt: r.archivedAt,

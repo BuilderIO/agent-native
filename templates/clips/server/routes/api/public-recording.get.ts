@@ -42,6 +42,7 @@ import {
 } from "../../../shared/transcript-segments.js";
 import { resolveTranscriptPresentation } from "../../../shared/transcript-status.js";
 import { getDb, schema } from "../../db/index.js";
+import { countRecordingAgentViews } from "../../lib/agent-views.js";
 import { isMediaVerificationPending } from "../../lib/media-verification-state.js";
 import { resolvePlayerThumbnailUrl } from "../../lib/player-thumbnail-url.js";
 import { resolvePlayerVideoUrl } from "../../lib/player-video-url.js";
@@ -411,7 +412,10 @@ export default defineEventHandler(async (event) => {
     recordingStatus: rec.status,
   });
 
-  const viewCount = await countRecordingViews(recordingId);
+  const [viewCount, agentViewCount] = await Promise.all([
+    countRecordingViews(recordingId),
+    countRecordingAgentViews(recordingId),
+  ]);
 
   const viewerRole =
     viewerAccess?.role ?? (viewerIsOrgMember ? "viewer" : null);
@@ -471,8 +475,9 @@ export default defineEventHandler(async (event) => {
       updatedAt: rec.updatedAt,
     },
     agentContextUrl,
-    // Aggregate count only — never viewer identities on this public payload.
+    // Aggregate counts only — never viewer identities on this public payload.
     viewCount,
+    agentViewCount,
     transcript: transcript
       ? {
           status: transcriptPresentation.status,

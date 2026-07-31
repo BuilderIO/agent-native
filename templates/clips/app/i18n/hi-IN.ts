@@ -805,6 +805,8 @@ Clips में उपयोगकर्ताओं को दिखने व�
     noViewsYet: "अभी तक कोई दृश्य नहीं।",
     viewsCount_one: "{{count}} व्यू",
     viewsCount_other: "{{count}} व्यू",
+    agentViewsCount_one: "{{count}} AI एजेंट व्यू",
+    agentViewsCount_other: "{{count}} AI एजेंट व्यू",
     totalViewsSummary: "कुल {{total}} व्यू, {{unique}} अद्वितीय दर्शक",
     viewsTab: "व्यू",
     insightsTab: "इनसाइट्स",

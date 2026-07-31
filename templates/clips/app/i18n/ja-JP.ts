@@ -823,6 +823,8 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     noViewsYet: "まだ再生されていません。",
     viewsCount_one: "{{count}} 回視聴",
     viewsCount_other: "{{count}} 回視聴",
+    agentViewsCount_one: "AI エージェント {{count}} 回視聴",
+    agentViewsCount_other: "AI エージェント {{count}} 回視聴",
     totalViewsSummary: "合計 {{total}} 回視聴、ユニーク視聴者 {{unique}} 人",
     viewsTab: "視聴",
     insightsTab: "インサイト",

@@ -831,6 +831,9 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     viewsCount_one: "{{count}} visualização",
     viewsCount_many: "{{count}} visualizações",
     viewsCount_other: "{{count}} visualizações",
+    agentViewsCount_one: "{{count}} visualização de agente de IA",
+    agentViewsCount_many: "{{count}} visualizações de agentes de IA",
+    agentViewsCount_other: "{{count}} visualizações de agentes de IA",
     totalViewsSummary:
       "{{total}} visualizações no total, {{unique}} visualizadores únicos",
     viewsTab: "Visualizações",

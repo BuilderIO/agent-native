@@ -813,6 +813,8 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     noViewsYet: "아직 조회 기록이 없습니다.",
     viewsCount_one: "조회수 {{count}}회",
     viewsCount_other: "조회수 {{count}}회",
+    agentViewsCount_one: "AI 에이전트 조회수 {{count}}회",
+    agentViewsCount_other: "AI 에이전트 조회수 {{count}}회",
     totalViewsSummary: "총 조회수 {{total}}회, 고유 시청자 {{unique}}명",
     viewsTab: "조회",
     insightsTab: "인사이트",

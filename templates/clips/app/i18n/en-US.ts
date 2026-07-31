@@ -811,6 +811,8 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     noViewsYet: "No views yet.",
     viewsCount_one: "{{count}} view",
     viewsCount_other: "{{count}} views",
+    agentViewsCount_one: "{{count}} agent view",
+    agentViewsCount_other: "{{count}} agent views",
     totalViewsSummary: "{{total}} total views, {{unique}} unique viewers",
     viewsTab: "Views",
     insightsTab: "Insights",

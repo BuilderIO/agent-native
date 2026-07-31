@@ -300,9 +300,12 @@ clip never hits them), so a request on one is the signal.
   into a single view via a 30-minute window (`AGENT_VIEW_SESSION_MS`), with
   `requestCount` recording how many polls that view covered.
 - **Reads:** `countRecordingAgentViews` and `listRecordingAgentViewers`. Surfaced
-  as `agentViews` / `agentViewers` on `get-recording-insights` and
-  `agentViewCount` on `get-recording-player-data`, and rendered in the views pill
-  popover (`RecordingViewsBadge`) next to human views.
+  as `agentViews` / `agentViewers` on `get-recording-insights`, `agentViewCount`
+  on `get-recording-player-data`, `list-recordings`, and the public
+  `/api/public-recording` payload. The count renders inline — on the views pill
+  itself (`RecordingViewsBadge`, watch and share headers) and on library cards —
+  so agent reads are visible without opening the popover. It is always a
+  separate icon-prefixed number, never summed into the human view total.
 
 Keeping this in its own table is deliberate: no human-view query can pick agents
 up by forgetting a filter. Do not add agent rows to `recording_viewers` or

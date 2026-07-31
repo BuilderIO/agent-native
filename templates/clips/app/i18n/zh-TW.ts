@@ -771,6 +771,8 @@ const messages = {
     noViewsYet: "尚無觀看紀錄。",
     viewsCount_one: "{{count}} 次觀看",
     viewsCount_other: "{{count}} 次觀看",
+    agentViewsCount_one: "AI 代理觀看 {{count}} 次",
+    agentViewsCount_other: "AI 代理觀看 {{count}} 次",
     totalViewsSummary: "共 {{total}} 次觀看，{{unique}} 位獨立觀看者",
     viewsTab: "觀看",
     insightsTab: "洞察",

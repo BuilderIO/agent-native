@@ -778,6 +778,8 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     noViewsYet: "暂无观看记录。",
     viewsCount_one: "{{count}} 次观看",
     viewsCount_other: "{{count}} 次观看",
+    agentViewsCount_one: "AI 智能体观看 {{count}} 次",
+    agentViewsCount_other: "AI 智能体观看 {{count}} 次",
     totalViewsSummary: "共 {{total}} 次观看，{{unique}} 位独立观看者",
     viewsTab: "观看",
     insightsTab: "洞察",

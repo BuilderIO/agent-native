@@ -840,6 +840,8 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     noViewsYet: "Noch keine Aufrufe.",
     viewsCount_one: "{{count}} Aufruf",
     viewsCount_other: "{{count}} Aufrufe",
+    agentViewsCount_one: "{{count}} KI-Agenten-Aufruf",
+    agentViewsCount_other: "{{count}} KI-Agenten-Aufrufe",
     totalViewsSummary:
       "{{total}} Aufrufe insgesamt, {{unique}} eindeutige Zuschauer",
     viewsTab: "Aufrufe",
