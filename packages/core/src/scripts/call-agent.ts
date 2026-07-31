@@ -30,6 +30,7 @@ import { findAgent, discoverAgents } from "../server/agent-discovery.js";
 import {
   getRequestUserEmail,
   getRequestOrgId,
+  getRequestRunContext,
   isIntegrationCallerRequest,
   getIntegrationRequestContext,
 } from "../server/request-context.js";
@@ -93,8 +94,13 @@ function buildDelegationCorrelation(
   const inheritedDepth = Number.isInteger(context?.delegationDepth)
     ? Math.max(0, Number(context?.delegationDepth))
     : 0;
+  // The model this turn is actually running on, so a receiver with no model of
+  // its own can match the user's selection instead of its own default. A
+  // preference only — the receiver bounds it to its own engine's catalog.
+  const callerModel = getRequestRunContext()?.model?.trim();
   return {
     ...(selfAppId?.trim() ? { callerApp: selfAppId.trim() } : {}),
+    ...(callerModel ? { callerModel } : {}),
     ...(context?.threadId ? { callerThreadId: context.threadId } : {}),
     ...(context?.runId ? { parentRunId: context.runId } : {}),
     ...(context?.turnId ? { parentTurnId: context.turnId } : {}),

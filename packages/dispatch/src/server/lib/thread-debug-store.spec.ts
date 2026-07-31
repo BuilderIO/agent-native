@@ -182,6 +182,66 @@ describe("thread-debug-store", () => {
     });
   });
 
+  it("separates interactive and scheduled populations and attaches the measured taxonomy", async () => {
+    mocks.currentExecute.mockImplementation(async ({ sql }) => {
+      if (!sql.includes("JOIN chat_threads")) return { rows: [] };
+      if (sql.includes("r.id NOT LIKE 'job-%'")) {
+        return {
+          rows: [
+            failureRow("run-interactive", Date.now(), {
+              error_code: null,
+              error_detail: "Missing Authentication header",
+              terminal_reason: null,
+            }),
+          ],
+        };
+      }
+      if (sql.includes("r.id LIKE 'job-%'")) {
+        return {
+          rows: [
+            failureRow("job-analytics-1", Date.now(), {
+              error_code: null,
+              error_detail:
+                '{"error":{"type":"overloaded_error","message":"Overloaded"}}',
+              terminal_reason: null,
+            }),
+          ],
+        };
+      }
+      return [];
+    });
+
+    const interactive = await listAgentRunFailures({
+      sourceId: "current",
+      regime: "interactive",
+    });
+    const scheduled = await listAgentRunFailures({
+      sourceId: "current",
+      regime: "scheduled",
+    });
+
+    expect(interactive).toMatchObject({
+      regime: "interactive",
+      failures: [
+        {
+          id: "run-interactive",
+          regime: "interactive",
+          failureTaxonomy: { code: "authentication_error" },
+        },
+      ],
+    });
+    expect(scheduled).toMatchObject({
+      regime: "scheduled",
+      failures: [
+        {
+          id: "job-analytics-1",
+          regime: "scheduled",
+          failureTaxonomy: { code: "overloaded_error" },
+        },
+      ],
+    });
+  });
+
   it("merges all admin-visible sources, sorts globally, limits, and preserves partial health", async () => {
     vi.stubEnv("DISPATCH_ADMIN_EMAILS", "owner@example.com");
     vi.stubEnv("REMOTE_A_DATABASE_URL", "libsql://remote-a");

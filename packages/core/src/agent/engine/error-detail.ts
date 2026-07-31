@@ -157,10 +157,13 @@ export function classifyProviderError(
  * blip ends the user's chat while the identical failure carrying its real code
  * resumes. Over four days that gap was 28% of ALL production chat turns.
  *
- * Only transport/capacity failures map here — the ones where a fresh attempt on
- * a new connection is genuinely likely to succeed. Anything deterministic (a
- * bad key, an unsupported model parameter, a malformed request) must stay
- * unmapped: promoting those to "recoverable" buys a retry spiral, not a fix.
+ * The invariant is NOT "only transport failures may be named". It is: a code
+ * returned here must be absent from the client's recoverable list unless a
+ * fresh attempt genuinely helps. Naming a deterministic failure is what stops
+ * it from reaching the user as raw provider text and hiding inside `unknown`;
+ * naming it *recoverable* is what buys a retry spiral. Those are different
+ * decisions, and `error-detail.spec.ts` asserts the deterministic codes below
+ * stay non-recoverable.
  */
 export function classifyTerminalErrorCode(
   message: string | undefined,
@@ -184,6 +187,34 @@ export function classifyTerminalErrorCode(
   }
   if (msg.includes("stream ended without a stop event")) {
     return "builder_gateway_network_error";
+  }
+  // Deterministic below this line — named so they stop landing in `unknown`,
+  // never retried. Both were measured against the 13 prod app DBs over
+  // 2026-07-24..31: 27 turns/week and 14 turns/week respectively, each with
+  // exactly 1.00 runs/turn, i.e. the chat died on the first attempt showing
+  // the raw provider sentence.
+  //
+  // The request side already avoids emitting reasoning_effort alongside tools
+  // (see ai-sdk-engine.ts). This classifies the failure for the paths that
+  // still reach the provider — another gateway, a stale deploy — so it reads
+  // as a configuration problem rather than a mystery.
+  if (
+    msg.includes("reasoning_effort are not supported") ||
+    msg.includes("reasoning_effort to 'none'") ||
+    (msg.includes("reasoning_effort") &&
+      (msg.includes("tools") || msg.includes("function")))
+  ) {
+    return "provider_config_error";
+  }
+  if (msg.includes("missing authentication header") || msg === "unauthorized") {
+    return "authentication_error";
+  }
+  if (
+    /(?:err_)?ssl|tlsv?\d|tls handshake|ssl routines|econnreset|econnrefused|und_err_socket|socket hang up/i.test(
+      message,
+    )
+  ) {
+    return "provider_network_error";
   }
   return undefined;
 }

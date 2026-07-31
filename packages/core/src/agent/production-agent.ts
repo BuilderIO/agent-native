@@ -6258,7 +6258,7 @@ export async function runAgentLoopWithMainChatInternalContinuations(
       type: "error",
       error: RUN_BUDGET_EXHAUSTED_MESSAGE,
       errorCode: RUN_BUDGET_EXHAUSTED_ERROR_CODE,
-      recoverable: true,
+      recoverable: false,
     });
   }
   return usage;
@@ -8162,7 +8162,7 @@ export function createProductionAgentHandler(
       if (
         typeof requestTurnId === "string" &&
         requestTurnId &&
-        (await isTurnAborted(threadId, requestTurnId))
+        (await isTurnAborted(threadId, requestTurnId).catch(() => true))
       ) {
         return { ok: true, stopped: true };
       }
@@ -8321,7 +8321,9 @@ export function createProductionAgentHandler(
       // inserted. Terminalize that row before it can be handed to a worker.
       if (
         backgroundRowInserted &&
-        (await isTurnAborted(effectiveThreadId, effectiveTurnId))
+        (await isTurnAborted(effectiveThreadId, effectiveTurnId).catch(
+          () => true,
+        ))
       ) {
         await markRunAborted(runId, "user");
         return { ok: true, stopped: true };

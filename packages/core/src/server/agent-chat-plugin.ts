@@ -58,6 +58,7 @@ import {
   createAnthropicEngine,
   getStoredModelForEngine,
   normalizeModelForEngine,
+  resolveDelegatedRunModel,
   getAgentEngineEntry,
   isAgentEnginePackageInstalled,
   isStoredEngineUsableForRequest,
@@ -1615,13 +1616,17 @@ export function createAgentChatPlugin(
             : await buildSchemaBlock(owner, databaseToolsMode);
           const extra = await resolveExtraContext(context.event, owner);
 
-          const a2aModelCandidate =
-            options?.model ??
-            (await getStoredModelForEngine(a2aEngine, {
+          const model = resolveDelegatedRunModel(a2aEngine, {
+            explicitModel: options?.model,
+            storedModel: await getStoredModelForEngine(a2aEngine, {
               appId: options?.appId,
-            })) ??
-            a2aEngine.defaultModel;
-          const model = normalizeModelForEngine(a2aEngine, a2aModelCandidate);
+            }),
+            // Preference only, and last before the default: an app that pinned
+            // a model keeps it. Read separately from the correlation sanitizer
+            // below so it stays out of every identity/access path.
+            callerModelHint: sanitizeA2ACorrelationMetadata(context.metadata)
+              .callerModel,
+          });
           if (a2aRunContext) {
             a2aRunContext.engine = a2aEngine;
             a2aRunContext.model = model;

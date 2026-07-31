@@ -416,13 +416,58 @@ describe("buildAssistantMessage", () => {
       suppressInternalContinuation: true,
     });
 
+    // Friendly copy, same as the live client (client/sse-event-processor.ts) —
+    // not the raw gateway dump this used to append verbatim.
     expect(message?.content).toEqual([
       {
         type: "text",
-        text: 'checking...\n\nError: Gateway error (no detail; raw event: {"type":"stop","reason":"error","requestId":"req_1"})',
+        text:
+          "checking...\n\nError: The model gateway returned no error details and the chat couldn't recover. " +
+          "Wait a moment and retry, or start a new chat if it keeps happening.\n\n" +
+          "[Start new chat](agent-native:new-chat)",
       },
     ]);
     expect(message?.status).toEqual({ type: "incomplete", reason: "error" });
+    expect(
+      (message?.metadata.custom as { runError?: { details?: string } })
+        ?.runError?.details,
+    ).toBe(
+      'Gateway error (no detail; raw event: {"type":"stop","reason":"error","requestId":"req_1"})',
+    );
+  });
+
+  it("never persists a raw provider connection dump as user-visible text", () => {
+    // Reproduces the Slack-reported repro: switching to a non-Anthropic model
+    // surfaces a raw SSL handshake failure. classifyProviderError tags this
+    // shape as errorCode "provider_network_error" upstream; the persisted
+    // text must go through the same friendly-copy layer as the live client
+    // instead of appending the raw diagnostic string.
+    const rawSslError =
+      "write EPROTO 140:error:1417C0C7:SSL routines:tls_process_client_certificate:" +
+      "sslv3 alert bad certificate:../ssl/record/rec_layer_s3.c:1584:SSL alert number 42";
+    const events: RunEvent[] = [
+      { seq: 0, event: { type: "text", text: "switching provider..." } },
+      {
+        seq: 1,
+        event: {
+          type: "error",
+          error: rawSslError,
+          errorCode: "provider_network_error",
+        },
+      },
+    ];
+
+    const message = buildAssistantMessage(events, "run-ssl-alert");
+
+    const textPart = message?.content.find((part) => part.type === "text");
+    expect(textPart?.text).toBe(
+      "switching provider...\n\nError: The model provider could not be reached. Check your connection and retry.",
+    );
+    expect(textPart?.text).not.toContain(rawSslError);
+    expect(
+      (message?.metadata.custom as { runError?: { details?: string } })
+        ?.runError?.details,
+    ).toBe(rawSslError);
   });
 
   it("persists recoverable errors by default for non-continuation server paths", () => {

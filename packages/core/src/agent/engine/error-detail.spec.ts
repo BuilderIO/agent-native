@@ -89,23 +89,32 @@ describe("isProviderConnectionErrorMessage", () => {
     ).toBe("http_429");
     expect(classifyTerminalErrorCode("Request timed out.")).toBe("timeout");
     expect(
+      classifyTerminalErrorCode("ERR_SSL_TLSV1_ALERT_INTERNAL_ERROR"),
+    ).toBe("provider_network_error");
+    expect(
       classifyTerminalErrorCode(
         "Builder gateway stream ended without a stop event",
       ),
     ).toBe("builder_gateway_network_error");
   });
 
-  // Promoting a deterministic failure to a recoverable code buys a retry
-  // spiral, not a fix — these must stay unclassified so the chat stops.
-  it("leaves deterministic failures unclassified", () => {
+  // These two were left unclassified so a deterministic failure could not be
+  // promoted to a recoverable code and spiral. But unclassified means
+  // `unknown`, which the client also never retries AND renders as raw provider
+  // text — 41 dead turns/week across the prod app DBs (2026-07-24..31), each at
+  // exactly 1.00 runs/turn. Naming a failure and marking it recoverable are
+  // separate decisions: these get names, and
+  // `sse-event-processor.spec.ts` ("names a deterministic failure without
+  // making it recoverable") holds the line that names alone never auto-continue.
+  it("names deterministic failures instead of leaving them unknown", () => {
     expect(classifyTerminalErrorCode("Missing Authentication header")).toBe(
-      undefined,
+      "authentication_error",
     );
     expect(
       classifyTerminalErrorCode(
         "Function tools with reasoning_effort are not supported for gpt-5.6-luna in /v1/chat/completions.",
       ),
-    ).toBe(undefined);
+    ).toBe("provider_config_error");
     expect(classifyTerminalErrorCode(undefined)).toBe(undefined);
     // A bare "429"/"529" inside a request id must not promote the failure.
     expect(

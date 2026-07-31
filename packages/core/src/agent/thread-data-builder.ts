@@ -1,5 +1,9 @@
 import type { ActionChatUIConfig } from "../action-ui.js";
 import {
+  formatChatErrorText,
+  normalizeChatError,
+} from "../client/error-format.js";
+import {
   isCredentialGapCodeAgentEvent,
   normalizeCodeAgentTranscript,
   type CodeAgentTranscriptEvent as CoreCodeAgentTranscriptEvent,
@@ -265,13 +269,24 @@ export function buildAssistantMessage(
       if (event.errorCode === "run_timeout" && event.recoverable) {
         continue;
       }
+      // Mirror the live client (client/sse-event-processor.ts): route the raw
+      // provider/engine string through the same friendly-copy layer before it
+      // ever becomes persisted chat text, and keep the raw text only in
+      // `details`. Without this, a rebuild (background run, reconnect, poller,
+      // webhook turn) dumps whatever the provider sent — a JSON error body, an
+      // SSL handshake failure — straight into the user-visible transcript.
+      const normalized = normalizeChatError(event.error, event.errorCode);
       runError = {
-        message: event.error,
+        message: normalized.message,
         ...(event.errorCode ? { errorCode: event.errorCode } : {}),
-        ...(event.details ? { details: event.details } : {}),
+        ...((event.details ?? normalized.details)
+          ? { details: event.details ?? normalized.details }
+          : {}),
         ...(event.recoverable ? { recoverable: event.recoverable } : {}),
       };
-      appendText(`${content.length > 0 ? "\n\n" : ""}Error: ${event.error}`);
+      appendText(
+        `${content.length > 0 ? "\n\n" : ""}${formatChatErrorText(event.error, event.upgradeUrl, event.errorCode)}`,
+      );
       continue;
     }
 

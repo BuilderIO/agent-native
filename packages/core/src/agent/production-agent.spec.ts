@@ -2175,6 +2175,7 @@ describe("runAgentLoop", () => {
       expect.objectContaining({
         type: "error",
         errorCode: "run_budget_exhausted",
+        recoverable: false,
       }),
     );
   });
@@ -9956,6 +9957,24 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
       shouldChainBackgroundContinuation({
         isBackgroundWorker: true,
         run: makeRun([{ type: "text", text: "all done" }, { type: "done" }]),
+        continuationCount: 0,
+      }),
+    ).toBe(false);
+  });
+
+  it("does NOT chain a run that exhausted its continuation budget", () => {
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run: makeRun([
+          {
+            type: "error",
+            error:
+              "I ran out of time before finishing this step. I stopped rather than keep retrying silently.",
+            errorCode: "run_budget_exhausted",
+            recoverable: false,
+          },
+        ]),
         continuationCount: 0,
       }),
     ).toBe(false);

@@ -5,7 +5,7 @@ import { listAgentRunFailures } from "../server/lib/thread-debug-store.js";
 
 export default defineAction({
   description:
-    "List recent failed, aborted, or truncated agent runs across the connected thread-debug sources the caller may inspect. Returns source health and run diagnostics; use get-agent-thread-debug with a returned source and run ID for the full transcript and event history.",
+    "List recent failed, aborted, or truncated agent runs across the connected thread-debug sources the caller may inspect. Filter interactive and scheduled job runs separately with regime, and use failureTaxonomy to cluster the measured transport, model-configuration, overload, and authentication causes. Use get-agent-thread-debug with a returned source and run ID for the full transcript and event history.",
   schema: z.object({
     sourceId: z
       .string()
@@ -23,6 +23,12 @@ export default defineAction({
       .enum(["all", "errored", "aborted", "truncated"])
       .default("all")
       .describe("Unsuccessful run status to include."),
+    regime: z
+      .enum(["all", "interactive", "scheduled"])
+      .default("all")
+      .describe(
+        "Run population to inspect. Use interactive for ids not starting with job-, scheduled for ids starting with job-, and call both when measuring reliability.",
+      ),
     lookbackHours: z.coerce
       .number()
       .int()

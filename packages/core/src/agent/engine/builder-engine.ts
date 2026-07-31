@@ -239,6 +239,8 @@ class BuilderEngine implements AgentEngine {
       }
     }
 
+    const gptToolsRequireExplicitNoReasoning =
+      cachedTools.length > 0 && isGPTReasoningModel(opts.model);
     const body: Record<string, unknown> = {
       model: opts.model,
       messages: cachedMessages,
@@ -260,10 +262,10 @@ class BuilderEngine implements AgentEngine {
       // field does NOT help — OpenAI then applies the model's own default
       // effort and rejects identically; only the explicit "none" clears it.
       // Same guard as the ai-sdk engine's forced-Chat-Completions path.
-      ...(reasoningEffort
+      ...(reasoningEffort || gptToolsRequireExplicitNoReasoning
         ? {
             reasoning_effort:
-              cachedTools.length > 0 && isGPTReasoningModel(opts.model)
+              gptToolsRequireExplicitNoReasoning
                 ? "none"
                 : reasoningEffort,
           }

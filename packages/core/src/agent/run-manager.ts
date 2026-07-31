@@ -982,6 +982,13 @@ export function startRun(
   // false-stale-reap zombie scenario where the reaper flipped the row while
   // this isolate was briefly unable to heartbeat (DB latency / GC pause).
   let lastAbortCheck = Date.now() - 3000;
+  // A read failure here used to be indistinguishable from "not aborted" —
+  // exactly the coerced-to-false pattern that lets a real Stop go unseen for
+  // the rest of the run. Count consecutive failures like the heartbeat-write
+  // handler above; past the same threshold, fail closed (self-abort with a
+  // reason outside TURN_ENDING_ABORT_REASONS/RECOVERABLE_ABORT_REASONS, so it
+  // surfaces as a typed error) instead of silently retrying forever.
+  let consecutiveAbortCheckFailures = 0;
   const checkSqlAbort = () => {
     const now = Date.now();
     if (now - lastAbortCheck < 3000) return;
@@ -1002,7 +1009,26 @@ export function startRun(
           }
         }
       })
-      .catch(() => {});
+      .then(() => {
+        consecutiveAbortCheckFailures = 0;
+      })
+      .catch((error) => {
+        consecutiveAbortCheckFailures += 1;
+        if (consecutiveAbortCheckFailures >= 3) {
+          captureError(error, {
+            route: "/_agent-native/agent-chat",
+            tags: {
+              source: "agent-run-manager",
+              phase: "abort-check",
+              consecutiveFailures: String(consecutiveAbortCheckFailures),
+            },
+            extra: { runId, threadId },
+          });
+          if (!abort.signal.aborted) {
+            abortInMemoryRun(run, "abort_check_unavailable");
+          }
+        }
+      });
   };
 
   // Heartbeat: bump heartbeat_at every 1.5s so watchers can detect a dead
