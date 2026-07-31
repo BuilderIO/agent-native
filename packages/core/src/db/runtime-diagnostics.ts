@@ -51,7 +51,7 @@ export interface DatabaseSchemaHealthResult {
   error?: string;
 }
 
-const DEFAULT_REQUIRED_SCHEMA: RequiredSchemaTable[] = [
+export const DEFAULT_REQUIRED_SCHEMA: RequiredSchemaTable[] = [
   {
     table: "agent_runs",
     columns: [

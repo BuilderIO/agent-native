@@ -51,7 +51,7 @@ vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ ...rawClient, atomicBatch }),
   getDialect: () => dbMockState.dialect,
   intType: () => "INTEGER",
-  isConnectionError: () => false,
+  isConnectionError: (error: { code?: string }) => error?.code === "ECONNRESET",
   isLocalDatabase: () => dbMockState.localDatabase,
   isPostgres: () => false,
 }));
@@ -178,6 +178,21 @@ describe("application-state store", () => {
       ]),
     );
     expect(entries).toHaveLength(2);
+  });
+
+  it("does not report connection failures as missing state", async () => {
+    const connectionError = () =>
+      Object.assign(new Error("connection reset"), { code: "ECONNRESET" });
+
+    rawClient.execute.mockRejectedValueOnce(connectionError());
+    await expect(appStateGet(SESSION, "apollo")).rejects.toThrow(
+      "connection reset",
+    );
+
+    rawClient.execute.mockRejectedValueOnce(connectionError());
+    await expect(appStateGetMany(SESSION, ["apollo", "gong"])).rejects.toThrow(
+      "connection reset",
+    );
   });
 
   it("deletes literal prefixes without treating LIKE metacharacters as wildcards", async () => {

@@ -2,7 +2,6 @@ import {
   getDbExec,
   getDialect,
   isLocalDatabase,
-  isConnectionError,
   isPostgres,
   intType,
   type DbExec,
@@ -102,21 +101,14 @@ export async function appStateGet(
   sessionId: string,
   key: string,
 ): Promise<Record<string, unknown> | null> {
-  try {
-    await ensureTable();
-    const client = getDbExec();
-    const { rows } = await client.execute({
-      sql: `SELECT value FROM application_state WHERE session_id = ? AND key = ?`,
-      args: [sessionId, key],
-    });
-    if (rows.length === 0) return null;
-    return JSON.parse(rows[0].value as string);
-  } catch (err) {
-    // Transient WS / connection drops (Neon serverless) — caller polls every
-    // 2s and will see the value on the next tick. Swallow rather than 500.
-    if (isConnectionError(err)) return null;
-    throw err;
-  }
+  await ensureTable();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT value FROM application_state WHERE session_id = ? AND key = ?`,
+    args: [sessionId, key],
+  });
+  if (rows.length === 0) return null;
+  return JSON.parse(rows[0].value as string);
 }
 
 /**
@@ -157,15 +149,10 @@ export async function appStateGetMany(
   const values: Record<string, Record<string, unknown> | null> = {};
   for (const key of new Set(keys)) values[key] = null;
 
-  try {
-    for (const entry of await appStateGetManyEntries(sessionId, keys)) {
-      values[entry.key] = entry.value;
-    }
-    return values;
-  } catch (err) {
-    if (isConnectionError(err)) return values;
-    throw err;
+  for (const entry of await appStateGetManyEntries(sessionId, keys)) {
+    values[entry.key] = entry.value;
   }
+  return values;
 }
 
 export async function appStatePut(
