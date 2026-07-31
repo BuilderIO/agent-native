@@ -4067,6 +4067,7 @@ export default function SlideEditor({
             designSystem={designSystem}
             onChange={applySelectedStylePatch}
             onBackgroundChange={applySlideBackground}
+            onArrange={handleArrangeSelected}
           />
         </div>
       )}

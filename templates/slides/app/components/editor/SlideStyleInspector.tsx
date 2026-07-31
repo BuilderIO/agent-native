@@ -255,8 +255,48 @@ export function formatValue(value: number) {
     : String(Number(value.toFixed(2)));
 }
 
-function rotationTransform(rotation: number) {
+export function rotationTransform(rotation: number) {
   return `rotate(${formatValue(rotation)}deg)`;
+}
+
+export function resolveHorizontalAlignment(snapshot: SlideStyleSnapshot) {
+  if (snapshot.x <= 0) return "left";
+  const centered = (snapshot.slideWidth - snapshot.width) / 2;
+  return Math.abs(snapshot.x - centered) < 1 ? "center" : "right";
+}
+
+export function resolveVerticalAlignment(snapshot: SlideStyleSnapshot) {
+  if (snapshot.y <= 0) return "top";
+  const centered = (snapshot.slideHeight - snapshot.height) / 2;
+  return Math.abs(snapshot.y - centered) < 1 ? "middle" : "bottom";
+}
+
+export function horizontalAlignPatch(
+  snapshot: SlideStyleSnapshot,
+  alignment: string,
+): SlideStylePatch {
+  const available = Math.max(0, snapshot.slideWidth - snapshot.width);
+  const x =
+    alignment === "left"
+      ? 0
+      : alignment === "center"
+        ? available / 2
+        : available;
+  return { left: `${formatValue(x)}px` };
+}
+
+export function verticalAlignPatch(
+  snapshot: SlideStyleSnapshot,
+  alignment: string,
+): SlideStylePatch {
+  const available = Math.max(0, snapshot.slideHeight - snapshot.height);
+  const y =
+    alignment === "top"
+      ? 0
+      : alignment === "middle"
+        ? available / 2
+        : available;
+  return { top: `${formatValue(y)}px` };
 }
 
 export function SlideStyleInspector({
@@ -339,39 +379,13 @@ export function SlideStyleInspector({
   const mixedTextStyles = snapshot.mixedTextStyles ?? [];
   const targetLabel =
     snapshot.textPreview || snapshot.label || snapshot.tagName.toUpperCase();
-  const horizontalAlignment =
-    snapshot.x <= 0
-      ? "left"
-      : Math.abs(snapshot.x - (snapshot.slideWidth - snapshot.width) / 2) < 1
-        ? "center"
-        : "right";
-  const verticalAlignment =
-    snapshot.y <= 0
-      ? "top"
-      : Math.abs(snapshot.y - (snapshot.slideHeight - snapshot.height) / 2) < 1
-        ? "middle"
-        : "bottom";
+  const horizontalAlignment = resolveHorizontalAlignment(snapshot);
+  const verticalAlignment = resolveVerticalAlignment(snapshot);
 
-  const alignHorizontal = (alignment: string) => {
-    const available = Math.max(0, snapshot.slideWidth - snapshot.width);
-    const x =
-      alignment === "left"
-        ? 0
-        : alignment === "center"
-          ? available / 2
-          : available;
-    onChange({ left: `${formatValue(x)}px` });
-  };
-  const alignVertical = (alignment: string) => {
-    const available = Math.max(0, snapshot.slideHeight - snapshot.height);
-    const y =
-      alignment === "top"
-        ? 0
-        : alignment === "middle"
-          ? available / 2
-          : available;
-    onChange({ top: `${formatValue(y)}px` });
-  };
+  const alignHorizontal = (alignment: string) =>
+    onChange(horizontalAlignPatch(snapshot, alignment));
+  const alignVertical = (alignment: string) =>
+    onChange(verticalAlignPatch(snapshot, alignment));
 
   return (
     <VisualInspectorPanel
