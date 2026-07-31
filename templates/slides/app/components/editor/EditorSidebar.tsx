@@ -612,7 +612,11 @@ export default function EditorSidebar({
           },
         ]),
     );
-    const payload: DeckFitState = { deckId, slides: measuredSlides };
+    const payload: DeckFitState = {
+      deckId,
+      aspectRatio: aspectRatio ?? "16:9",
+      slides: measuredSlides,
+    };
     const body = JSON.stringify(payload);
     for (const key of DECK_FIT_STATE_KEYS) {
       fetch(agentNativePath(`/_agent-native/application-state/${key}`), {
@@ -625,7 +629,7 @@ export default function EditorSidebar({
         body,
       }).catch(() => {});
     }
-  }, [deckId, slides]);
+  }, [aspectRatio, deckId, slides]);
 
   const handleSlideOverflowChange = useCallback(
     (slide: Slide, info: SlideOverflowInfo) => {
@@ -643,6 +647,10 @@ export default function EditorSidebar({
     },
     [writeDeckFitState],
   );
+
+  useEffect(() => {
+    measurementsRef.current.clear();
+  }, [deckId, aspectRatio]);
 
   useEffect(() => {
     return () => {

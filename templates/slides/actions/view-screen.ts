@@ -241,7 +241,11 @@ export default defineAction({
       const deckFit = (await readAppStateForCurrentTab(
         "deck-fit-checks",
       )) as DeckFitState | null;
-      if (deckFit?.deckId === rows[0].id && deckFit.slides) {
+      if (
+        deckFit?.deckId === rows[0].id &&
+        deckFit.aspectRatio === (deck.aspectRatio ?? "16:9") &&
+        deckFit.slides
+      ) {
         type DeckFitSummary =
           | { kind: "unknown"; index: number }
           | {
@@ -261,7 +265,8 @@ export default defineAction({
               !Number.isFinite(measurement.contentHeight) ||
               !Number.isFinite(measurement.contentWidth) ||
               !Number.isFinite(measurement.viewportHeight) ||
-              !Number.isFinite(measurement.viewportWidth)
+              !Number.isFinite(measurement.viewportWidth) ||
+              !Number.isFinite(measurement.measuredAt)
             ) {
               return [{ kind: "unknown" as const, index }];
             }

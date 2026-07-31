@@ -11,6 +11,7 @@ export interface SlideFitMeasurement {
 
 export interface DeckFitState {
   deckId: string;
+  aspectRatio?: string | null;
   slides: Record<string, SlideFitMeasurement>;
 }
 

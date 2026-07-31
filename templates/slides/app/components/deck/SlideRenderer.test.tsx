@@ -218,6 +218,9 @@ describe("SlideInner autofit", () => {
         ) {
           return rect(110, 80, 740, 380);
         }
+        if (this.textContent?.includes("Horizontally fitted")) {
+          return rect(110, 80, 1000, 500);
+        }
         if (this.classList.contains("fmd-freeform-object")) {
           return rect(156, 254, 740, 200);
         }

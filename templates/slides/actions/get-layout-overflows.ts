@@ -18,6 +18,7 @@ export default defineAction({
       throw Object.assign(new Error("Deck not found"), { statusCode: 404 });
 
     const deck = JSON.parse(access.resource.data) as {
+      aspectRatio?: string | null;
       slides?: Array<{ id: string; content?: string }>;
     };
     const slides = Array.isArray(deck.slides) ? deck.slides : [];
@@ -39,7 +40,10 @@ export default defineAction({
 
     slides.forEach((slide, index) => {
       const measurement =
-        state?.deckId === deckId ? state.slides?.[slide.id] : undefined;
+        state?.deckId === deckId &&
+        state.aspectRatio === (deck.aspectRatio ?? "16:9")
+          ? state.slides?.[slide.id]
+          : undefined;
       if (
         !measurement ||
         measurement.contentHash !== hashSlideContent(slide.content ?? "") ||
@@ -48,7 +52,8 @@ export default defineAction({
         !Number.isFinite(measurement.contentHeight) ||
         !Number.isFinite(measurement.contentWidth) ||
         !Number.isFinite(measurement.viewportHeight) ||
-        !Number.isFinite(measurement.viewportWidth)
+        !Number.isFinite(measurement.viewportWidth) ||
+        !Number.isFinite(measurement.measuredAt)
       ) {
         unknownSlideIds.push(slide.id);
         return;

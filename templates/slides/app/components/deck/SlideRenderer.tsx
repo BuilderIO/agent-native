@@ -272,7 +272,6 @@ function measureContentBounds(target: HTMLElement): {
     }
     return false;
   };
-  const hasFreeformContent = descendants.some(isFreeformElement);
   const targetRect = target.getBoundingClientRect();
   // `scrollWidth` / `clientWidth` return CSS pixels; `getBoundingClientRect`
   // returns layout pixels after every ancestor transform. In presentation
@@ -295,7 +294,7 @@ function measureContentBounds(target: HTMLElement): {
   // silently run off the canvas, but keep them out of the horizontal fit
   // transform. Using scrollHeight as the baseline makes full-size wrappers
   // look like overflowing content even when their visible children fit.
-  let flowMaxX = hasFreeformContent ? target.clientWidth : target.scrollWidth;
+  let flowMaxX = target.clientWidth;
   let flowMaxY = target.clientHeight;
   let contentMaxY = target.clientHeight;
   let contentMinX = 0;
@@ -328,10 +327,12 @@ function measureContentBounds(target: HTMLElement): {
   }
 
   // Raw text can be a direct child with no measurable element descendant.
-  // Only use scrollHeight in that case; using it alongside normal descendants
-  // would count full-size wrappers as content and recreate the false positive.
+  // Only use scroll dimensions in that case; using them alongside normal
+  // descendants would count full-size wrappers as content and recreate the
+  // false positive.
   if (!hasFlowContent && descendants.length === 0) {
     contentMaxY = Math.max(contentMaxY, target.scrollHeight);
+    contentMaxX = Math.max(contentMaxX, target.scrollWidth);
   }
 
   return {
