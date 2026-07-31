@@ -2634,9 +2634,15 @@ export function emitSingleTemplateNetlifyKeepWarmFunction(
   // dispatch (18.4s observed to reach the agent loop). A POST with no runId is
   // rejected by the `_process-run` route before any DB work, so this only keeps
   // the container alive.
-  const backgroundWarmPath = isDurableBackgroundEmitRequired()
-    ? JSON.stringify(AGENT_BACKGROUND_FUNCTION_URL_PATH)
-    : "null";
+  const backgroundEntryPath = path.join(
+    internalDir,
+    AGENT_BACKGROUND_FUNCTION_NAME,
+    `${AGENT_BACKGROUND_FUNCTION_NAME}.mjs`,
+  );
+  const backgroundWarmPath =
+    isDurableBackgroundEmitRequired() && fs.existsSync(backgroundEntryPath)
+      ? JSON.stringify(AGENT_BACKGROUND_FUNCTION_URL_PATH)
+      : "null";
   const entry = `const HEALTH_PATH = "/_agent-native/health";
 const BACKGROUND_WARM_PATH = ${backgroundWarmPath};
 const REQUEST_TIMEOUT_MS = 25_000;
@@ -4133,20 +4139,22 @@ export default bundle;
   }
 
   if (preset === "netlify") {
-    emitSingleTemplateNetlifyKeepWarmFunction(cwd);
-
-    // Durable background agent runs (default-OFF / opt-in; enable with a truthy
-    // AGENT_CHAT_DURABLE_BACKGROUND). Additive ONLY: emits a SECOND Netlify
-    // function whose name ends in `-background` re-exporting the same handler
-    // bundle, so the chat `_process-run` POST lands on Netlify's async (15-min)
-    // function. When not opted in this is a no-op and the single-function
-    // deploy is byte-for-byte unchanged.
+    // Durable background agent runs are default-on for Netlify; a falsy
+    // AGENT_CHAT_DURABLE_BACKGROUND value opts out. Additive ONLY: emits a
+    // SECOND Netlify function whose name ends in `-background` re-exporting the
+    // same handler bundle, so the chat `_process-run` POST lands on Netlify's
+    // async (15-min) function. When opted out this is a no-op and the
+    // single-function deploy is byte-for-byte unchanged.
     // NOT wrapped in try/catch: this block only runs when the runtime depends
     // on the function, and a swallowed failure ships an app that loses the
     // background budget for the life of the deploy with nothing in the log.
     if (isDurableBackgroundEmitRequired()) {
       emitSingleTemplateNetlifyBackgroundFunction(cwd);
     }
+
+    // Emit keep-warm after the background artifact so it only pings a function
+    // that this build actually produced.
+    emitSingleTemplateNetlifyKeepWarmFunction(cwd);
 
     if (isIntegrationDurableDispatchDeployEnabled()) {
       try {

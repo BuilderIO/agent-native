@@ -244,7 +244,7 @@ export function isNetlifyHostedRuntimeForDurableBackground(): boolean {
   if (process.env.NETLIFY === "false") return false;
   return Boolean(
     (process.env.NETLIFY && process.env.NETLIFY !== "false") ||
-      process.env.SITE_ID,
+    process.env.SITE_ID,
   );
 }
 
@@ -368,16 +368,10 @@ export function isDurableBackgroundFlagEnabled(): boolean {
   // can statically verify it against the allowlisted `AGENT_*` prefix. Keep this
   // in sync with AGENT_CHAT_DURABLE_BACKGROUND_ENV.
   //
-  // DEFAULT-OFF (opt-in): durable background runs are still being hardened. A
-  // premature fleet-wide default-on caused real-user incidents (Assets/Analytics
-  // hit "Failed to dispatch" + stalls, 2026-06-24) because the async background
-  // worker path is not yet proven end-to-end and the deploy-time env opt-out is
-  // not reliably baked into a given deploy. So an unset/empty/unknown flag means
-  // OFF; an app opts IN only with an explicit truthy value
-  // (AGENT_CHAT_DURABLE_BACKGROUND=true). This still composes with the hosted +
-  // A2A_SECRET gates below. Flip back to default-on only after the 15-min
-  // background-function worker is verified live in production (see the
-  // project_durable_bg_prod_verified memory).
+  // This parses only the explicit opt-in signal. Netlify's default-on behavior
+  // is composed separately in isAgentChatDurableBackgroundEnabled, while other
+  // hosted runtimes still require this truthy value. Empty and unknown values
+  // remain false so an explicit host opt-in cannot be inferred accidentally.
   const raw = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
   if (raw == null) return false;
   const normalized = raw.trim().toLowerCase();
