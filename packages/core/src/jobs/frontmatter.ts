@@ -14,7 +14,14 @@ export interface JobFrontmatter {
   createdBy?: string;
   orgId?: string;
   runAs?: "creator" | "shared";
+  /** Last time the automation actually started executing. */
   lastRun?: string;
+  /**
+   * Last time a tick evaluated this automation and declined to run it. Kept
+   * distinct from `lastRun` so a blocked automation cannot report a run it
+   * never performed.
+   */
+  lastCheck?: string;
   lastStatus?: JobLastStatus;
   lastError?: string;
   nextRun?: string;
@@ -144,6 +151,9 @@ function parseKnownField(
       break;
     case "lastRun":
       meta.lastRun = value;
+      break;
+    case "lastCheck":
+      meta.lastCheck = value;
       break;
     case "lastStatus":
       meta.lastStatus = value as JobLastStatus;
@@ -291,6 +301,7 @@ export function buildJobResourceContent(
   pushString(lines, "orgId", meta.orgId);
   if (meta.runAs) lines.push(`runAs: ${meta.runAs}`);
   pushString(lines, "lastRun", meta.lastRun);
+  pushString(lines, "lastCheck", meta.lastCheck);
   if (meta.lastStatus) lines.push(`lastStatus: ${meta.lastStatus}`);
   pushString(lines, "lastError", meta.lastError);
   pushString(lines, "nextRun", meta.nextRun);

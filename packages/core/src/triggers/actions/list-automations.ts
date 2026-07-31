@@ -13,15 +13,21 @@ function nextRun(
   meta: Awaited<ReturnType<typeof listAutomationDefinitions>>[number]["meta"],
 ): string | null {
   if (!meta.enabled) return null;
-  if (meta.nextRun) return meta.nextRun;
-  if (
+  const scheduled = Boolean(
     meta.triggerType === "schedule" &&
-    meta.schedule &&
-    isValidCron(meta.schedule)
-  ) {
-    return nextOccurrence(meta.schedule).toISOString();
+      meta.schedule &&
+      isValidCron(meta.schedule),
+  );
+  // A stored `nextRun` in the past means the dispatcher kept declining to run
+  // this automation, not that it is overdue. Report the real next occurrence
+  // and let `lastError` carry the reason it keeps being passed over.
+  if (meta.nextRun) {
+    const stored = new Date(meta.nextRun).getTime();
+    if (!Number.isFinite(stored) || stored > Date.now() || !scheduled) {
+      return meta.nextRun;
+    }
   }
-  return null;
+  return scheduled ? nextOccurrence(meta.schedule!).toISOString() : null;
 }
 
 export interface AutomationActionItem {
@@ -37,6 +43,7 @@ export interface AutomationActionItem {
   body: string;
   enabled: boolean;
   lastRun: string | null;
+  lastCheck: string | null;
   lastStatus: string | null;
   lastError: string | null;
   nextRun: string | null;
@@ -81,6 +88,7 @@ export default defineAction({
       body,
       enabled: meta.enabled,
       lastRun: meta.lastRun ?? null,
+      lastCheck: meta.lastCheck ?? null,
       lastStatus: meta.lastStatus ?? null,
       lastError: meta.lastError ?? null,
       nextRun: nextRun(meta),

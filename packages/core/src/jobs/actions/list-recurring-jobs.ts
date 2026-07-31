@@ -17,15 +17,23 @@ function jobName(path: string): string {
   return path.replace(/^jobs\//, "").replace(/\.md$/, "");
 }
 
+/**
+ * A stored `nextRun` in the past means the scheduler kept declining to run the
+ * job, not that it is due two days ago. Report the real next occurrence and
+ * let `lastError` carry the reason it keeps being passed over.
+ */
 function nextRun(
   meta: ReturnType<typeof parseJobFrontmatter>["meta"],
 ): string | null {
   if (!meta.enabled) return null;
-  if (meta.nextRun) return meta.nextRun;
-  if (meta.schedule && isValidCron(meta.schedule)) {
-    return nextOccurrence(meta.schedule).toISOString();
+  const scheduled = Boolean(meta.schedule && isValidCron(meta.schedule));
+  if (meta.nextRun) {
+    const stored = new Date(meta.nextRun).getTime();
+    if (!Number.isFinite(stored) || stored > Date.now() || !scheduled) {
+      return meta.nextRun;
+    }
   }
-  return null;
+  return scheduled ? nextOccurrence(meta.schedule).toISOString() : null;
 }
 
 export interface RecurringJobActionItem {
@@ -38,6 +46,7 @@ export interface RecurringJobActionItem {
   instructions: string;
   enabled: boolean;
   lastRun: string | null;
+  lastCheck: string | null;
   lastStatus: string | null;
   lastError: string | null;
   nextRun: string | null;
@@ -91,6 +100,7 @@ export default defineAction({
         instructions: body,
         enabled: meta.enabled,
         lastRun: meta.lastRun ?? null,
+        lastCheck: meta.lastCheck ?? null,
         lastStatus: meta.lastStatus ?? null,
         lastError: meta.lastError ?? null,
         nextRun: nextRun(meta),

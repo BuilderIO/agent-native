@@ -23,8 +23,9 @@ export default defineAction({
     name: z.string().min(1),
     scope: scopeSchema.default("personal"),
     enabled: z.boolean().optional(),
+    schedule: z.string().min(1).optional(),
   }),
-  run: async ({ operation, name, scope, enabled }, ctx) => {
+  run: async ({ operation, name, scope, enabled, schedule }, ctx) => {
     const userEmail = ctx?.userEmail;
     if (!userEmail) throw new Error("Not authenticated.");
     if (scope === "organization" && !ctx?.orgId) {
@@ -57,13 +58,23 @@ export default defineAction({
       return { deleted: true, name };
     }
 
-    if (enabled === undefined) {
-      throw Object.assign(new Error("enabled is required for update."), {
-        statusCode: 400,
-      });
+    if (enabled === undefined && schedule === undefined) {
+      throw Object.assign(
+        new Error("enabled or schedule is required for update."),
+        { statusCode: 400 },
+      );
     }
-    meta.enabled = enabled;
-    if (enabled && meta.schedule && isValidCron(meta.schedule)) {
+    if (schedule !== undefined) {
+      if (!isValidCron(schedule)) {
+        throw Object.assign(
+          new Error(`Invalid cron expression "${schedule}".`),
+          { statusCode: 400 },
+        );
+      }
+      meta.schedule = schedule;
+    }
+    if (enabled !== undefined) meta.enabled = enabled;
+    if (meta.enabled && meta.schedule && isValidCron(meta.schedule)) {
       meta.nextRun = nextOccurrence(meta.schedule).toISOString();
     }
     await resourcePut(

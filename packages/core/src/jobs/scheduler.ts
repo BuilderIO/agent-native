@@ -216,10 +216,16 @@ async function executeJob(
         `User/membership no longer valid — leaving cron entry for admin review.`,
     );
     // Mark as skipped without resetting nextRun so an admin can find it.
-    meta.lastRun = now.toISOString();
+    // `lastRun` is deliberately untouched: the job did not run, and stamping
+    // it here made a permanently blocked job look like it ran every minute.
+    // Re-writing an unchanged resource on every tick also churns the poll
+    // stream, so only persist when the failure state actually changed.
+    const alreadyRecorded =
+      meta.lastStatus === "skipped" && meta.lastError === identity.reason;
+    meta.lastCheck = now.toISOString();
     meta.lastStatus = "skipped";
     meta.lastError = identity.reason;
-    await updateResource(resource, meta, body);
+    if (!alreadyRecorded) await updateResource(resource, meta, body);
     return;
   }
   const jobUserEmail = identity.identity.userEmail;

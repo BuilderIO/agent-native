@@ -83,6 +83,31 @@ const _dispatchingTriggers = new Set<string>();
 let _deps: TriggerDispatcherDeps | null = null;
 
 /**
+ * Record that a tick evaluated this trigger and declined to dispatch it.
+ * `lastRun` stays untouched — nothing ran — and an unchanged outcome is not
+ * re-persisted, so a permanently blocked trigger neither reports phantom runs
+ * nor rewrites its resource on every matching event.
+ */
+async function recordTriggerSkip(
+  resource: Resource,
+  meta: TriggerFrontmatter,
+  body: string,
+  status: "skipped" | "error",
+  reason: string | undefined,
+): Promise<void> {
+  const unchanged = meta.lastStatus === status && meta.lastError === reason;
+  meta.lastCheck = new Date().toISOString();
+  meta.lastStatus = status;
+  meta.lastError = reason;
+  if (unchanged) return;
+  await resourcePut(
+    resource.owner,
+    resource.path,
+    buildTriggerContent(meta, body),
+  );
+}
+
+/**
  * Initialize the trigger dispatcher. Call once at server startup.
  * Loads all event-triggered jobs and subscribes to their events.
  */
@@ -173,25 +198,22 @@ async function handleEvent(
             meta,
           );
         } catch {
-          meta.lastRun = new Date().toISOString();
-          meta.lastStatus = "skipped";
-          meta.lastError =
-            "Could not verify the automation execution identity.";
-          await resourcePut(
-            resource.owner,
-            resource.path,
-            buildTriggerContent(meta, body),
+          await recordTriggerSkip(
+            resource,
+            meta,
+            body,
+            "skipped",
+            "Could not verify the automation execution identity.",
           );
           continue;
         }
         if (!resolved.ok) {
-          meta.lastRun = new Date().toISOString();
-          meta.lastStatus = "skipped";
-          meta.lastError = resolved.reason;
-          await resourcePut(
-            resource.owner,
-            resource.path,
-            buildTriggerContent(meta, body),
+          await recordTriggerSkip(
+            resource,
+            meta,
+            body,
+            "skipped",
+            resolved.reason,
           );
           continue;
         }
@@ -206,13 +228,12 @@ async function handleEvent(
       const userApiKey = await getOwnerActiveApiKey(owner);
       const apiKey = userApiKey || _deps.apiKey;
       if (!apiKey) {
-        meta.lastRun = new Date().toISOString();
-        meta.lastStatus = "error";
-        meta.lastError = "No API key is available for this automation";
-        await resourcePut(
-          resource.owner,
-          resource.path,
-          buildTriggerContent(meta, body),
+        await recordTriggerSkip(
+          resource,
+          meta,
+          body,
+          "error",
+          "No API key is available for this automation",
         );
         console.warn(`[triggers] ${meta.lastError}: "${resource.path}"`);
         continue;
@@ -221,14 +242,7 @@ async function handleEvent(
       // Evaluate condition
       const matches = await evaluateCondition(meta.condition, payload, apiKey);
       if (!matches) {
-        meta.lastRun = new Date().toISOString();
-        meta.lastStatus = "skipped";
-        meta.lastError = undefined;
-        await resourcePut(
-          resource.owner,
-          resource.path,
-          buildTriggerContent(meta, body),
-        );
+        await recordTriggerSkip(resource, meta, body, "skipped", undefined);
         continue;
       }
 

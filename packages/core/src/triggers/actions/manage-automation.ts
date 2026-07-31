@@ -16,8 +16,9 @@ export default defineAction({
     name: z.string().min(1),
     scope: z.enum(["personal", "organization"]).default("personal"),
     enabled: z.boolean().optional(),
+    schedule: z.string().min(1).optional(),
   }),
-  run: async ({ operation, name, scope, enabled }, ctx) => {
+  run: async ({ operation, name, scope, enabled, schedule }, ctx) => {
     const userEmail = ctx?.userEmail;
     if (!userEmail) throw new Error("Not authenticated.");
     const actor = { userEmail, orgId: ctx?.orgId };
@@ -27,20 +28,23 @@ export default defineAction({
       await refreshEventSubscriptions();
       return { deleted: true, name };
     }
-    if (enabled === undefined) {
-      throw Object.assign(new Error("enabled is required for update."), {
-        statusCode: 400,
-      });
+    if (enabled === undefined && schedule === undefined) {
+      throw Object.assign(
+        new Error("enabled or schedule is required for update."),
+        { statusCode: 400 },
+      );
     }
     const definition = await updateAutomation(actor, {
       name,
       scope,
-      enabled,
+      ...(enabled === undefined ? {} : { enabled }),
+      ...(schedule === undefined ? {} : { schedule }),
     });
     await refreshEventSubscriptions();
     return {
       name,
       enabled: definition.meta.enabled,
+      schedule: definition.meta.schedule || null,
       nextRun: definition.meta.nextRun ?? null,
     };
   },

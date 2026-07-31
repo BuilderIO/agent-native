@@ -31,6 +31,11 @@ import {
   type RequestContext,
 } from "../server/request-context.js";
 import type { JobFrontmatter } from "./frontmatter.js";
+import {
+  attachAutomationRunThread,
+  finishAutomationRun,
+  startAutomationRun,
+} from "./run-history.js";
 
 const BACKGROUND_RUN_STUCK_MS = 10 * 60_000;
 const BACKGROUND_RUN_HARD_TIMEOUT_MS = 5 * 60_000;
@@ -248,6 +253,36 @@ export async function runBackgroundAutomation(
   options: BackgroundAutomationRunOptions,
   deps: BackgroundAutomationDeps,
 ): Promise<BackgroundAutomationRunResult> {
+  const { automation } = options;
+  const historyId = await startAutomationRun({
+    owner: automation.resource.owner,
+    automation: automation.name,
+    path: automation.resource.path,
+    scope: organizationIdFromResourceOwner(automation.resource.owner)
+      ? "organization"
+      : "personal",
+    orgId: options.orgId ?? null,
+  });
+
+  try {
+    const result = await executeBackgroundAutomation(options, deps, historyId);
+    await finishAutomationRun(historyId, "success");
+    return result;
+  } catch (err) {
+    await finishAutomationRun(
+      historyId,
+      "error",
+      err instanceof Error ? err.message : String(err),
+    );
+    throw err;
+  }
+}
+
+async function executeBackgroundAutomation(
+  options: BackgroundAutomationRunOptions,
+  deps: BackgroundAutomationDeps,
+  historyId: string,
+): Promise<BackgroundAutomationRunResult> {
   const { automation, ownerEmail, orgId, prompt, threadTitle, usageLabel } =
     options;
 
@@ -290,6 +325,7 @@ export async function runBackgroundAutomation(
       const systemPrompt = await deps.getSystemPrompt(ownerEmail);
       const thread = await createThread(ownerEmail, { title: threadTitle });
       const runId = createRunId(options.runIdPrefix);
+      await attachAutomationRunThread(historyId, thread.id, runId);
       const softTimeoutMs = resolveRunSoftTimeoutMs(undefined, {
         useHostedDefault: true,
       });

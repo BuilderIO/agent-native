@@ -14,6 +14,7 @@ export interface RecurringJob {
   instructions: string;
   enabled: boolean;
   lastRun: string | null;
+  lastCheck: string | null;
   lastStatus: string | null;
   lastError: string | null;
   nextRun: string | null;
@@ -35,6 +36,7 @@ export interface Automation {
   body: string;
   enabled: boolean;
   lastRun: string | null;
+  lastCheck: string | null;
   lastStatus: string | null;
   lastError: string | null;
   nextRun: string | null;
@@ -54,14 +56,22 @@ export type ManageJobInput = {
   name: string;
   scope: "personal" | "organization";
   enabled?: boolean;
+  schedule?: string;
 };
 
-export type ManageAutomationInput = {
-  operation: "update" | "delete";
-  name: string;
-  scope: "personal" | "organization";
-  enabled?: boolean;
-};
+export type ManageAutomationInput = ManageJobInput;
+
+export interface AutomationRun {
+  id: string;
+  automation: string;
+  scope: string | null;
+  runId: string | null;
+  threadId: string | null;
+  status: "running" | "success" | "error";
+  startedAt: number;
+  finishedAt: number | null;
+  error: string | null;
+}
 
 function recurringParams(scope: JobsScope) {
   return { scope: scope === "org" ? "organization" : "personal" } as const;
@@ -105,8 +115,8 @@ export function useManageRecurringJob(scope: JobsScope) {
           return current.filter((job) => job.name !== variables.name);
         }
         return current.map((job) =>
-          job.name === variables.name && variables.enabled !== undefined
-            ? { ...job, enabled: variables.enabled }
+          job.name === variables.name
+            ? { ...job, ...optimisticPatch(variables) }
             : job,
         );
       });
@@ -141,8 +151,8 @@ export function useManageAutomation(scope: JobsScope) {
           );
         }
         return current.map((automation) =>
-          automation.name === variables.name && variables.enabled !== undefined
-            ? { ...automation, enabled: variables.enabled }
+          automation.name === variables.name
+            ? { ...automation, ...optimisticPatch(variables) }
             : automation,
         );
       });
@@ -155,4 +165,11 @@ export function useManageAutomation(scope: JobsScope) {
       }
     },
   });
+}
+
+function optimisticPatch(variables: ManageJobInput) {
+  const patch: { enabled?: boolean; schedule?: string } = {};
+  if (variables.enabled !== undefined) patch.enabled = variables.enabled;
+  if (variables.schedule !== undefined) patch.schedule = variables.schedule;
+  return patch;
 }
