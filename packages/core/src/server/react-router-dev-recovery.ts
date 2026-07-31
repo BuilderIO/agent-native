@@ -417,7 +417,7 @@ export function extractViteLoadUrlPath(error: unknown): string | undefined {
     if (cleaned) return cleaned;
   }
   const message = typeof record.message === "string" ? record.message : "";
-  const resolved = message.match(/\(resolved id:\s*([^\)]+)\)/)?.[1];
+  const resolved = message.match(/\(resolved id:\s*([^)]+)\)/)?.[1];
   if (resolved) {
     const cleaned = cleanReferencedPath(resolved);
     if (cleaned) return cleaned;
