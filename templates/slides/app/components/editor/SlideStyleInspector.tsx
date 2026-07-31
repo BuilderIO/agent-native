@@ -106,7 +106,7 @@ export type SlideBackgroundStylePatch = Required<
   Pick<SlideStylePatch, "backgroundColor">
 >;
 
-function tokenPalette(
+export function tokenPalette(
   designSystem: DesignSystemData | undefined,
   t: (key: string) => string,
 ) {
@@ -247,7 +247,7 @@ export function SlideBackgroundInspector({
   );
 }
 
-function formatValue(value: number) {
+export function formatValue(value: number) {
   return Number.isInteger(value)
     ? String(value)
     : String(Number(value.toFixed(2)));

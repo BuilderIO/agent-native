@@ -119,6 +119,7 @@ import {
   type SlidesSelectionTool,
 } from "./slide-object-interactions";
 import { getPassiveSlidePresenceUsers } from "./slide-presence";
+import { SlideContextToolbar } from "./SlideContextToolbar";
 import { SlideOverflowWarning } from "./SlideOverflowWarning";
 import {
   SlideBackgroundInspector,
@@ -4055,6 +4056,19 @@ export default function SlideEditor({
       className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden"
       data-slide-element-selected={slideElementSelected ? "true" : undefined}
     >
+      {!readOnly && !slide.excalidrawData && (
+        <div
+          className="hidden shrink-0 lg:block"
+          onPointerDownCapture={preserveRichTextSelection}
+        >
+          <SlideContextToolbar
+            snapshot={selectedStyleSnapshot}
+            designSystem={designSystem}
+            onChange={applySelectedStylePatch}
+          />
+        </div>
+      )}
+
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <div className="min-w-0 flex-1 overflow-hidden">
           {slide.excalidrawData ? (

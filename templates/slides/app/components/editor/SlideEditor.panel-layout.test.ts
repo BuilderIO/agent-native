@@ -33,3 +33,25 @@ describe("editor side panels", () => {
     expect(pageSource).toContain("stylePanelOpen={styleOpen}");
   });
 });
+
+describe("slide context toolbar", () => {
+  const mountIndex = editorSource.indexOf("<SlideContextToolbar");
+
+  it("mounts above the canvas for editable, non-Excalidraw slides", () => {
+    expect(mountIndex).toBeGreaterThan(-1);
+    expect(editorSource).toContain("!readOnly && !slide.excalidrawData");
+  });
+
+  it("keeps the rich text selection alive while the toolbar is pressed", () => {
+    // Without this guard on the wrapper, applying a style to a partial text
+    // selection silently no-ops: focus leaves the contentEditable before the
+    // patch resolves the range.
+    const wrapper = editorSource.slice(
+      Math.max(0, mountIndex - 300),
+      mountIndex,
+    );
+    expect(wrapper).toContain(
+      "onPointerDownCapture={preserveRichTextSelection}",
+    );
+  });
+});
