@@ -120,7 +120,7 @@ function isNetlifyHostedRuntimeForDispatch(): boolean {
   // exposes AWS runtime variables, so keep the function-name fallback for older
   // deploys. Without either check a modern Netlify Function silently selects the
   // portable framework route even though the emitted background function exists.
-  if (process.env.SITE_ID) return true; // guard:allow-env-credential -- Netlify's read-only public site identifier is a runtime host marker, not a user credential.
+  if (process.env.SITE_ID) return true; // guard:allow-env-credential - Netlify's read-only public site identifier is a runtime host marker, not a user credential.
   // Non-Netlify AWS falls back inline if the /.netlify/functions dispatch
   // fast-fails.
   return Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME);
@@ -244,7 +244,7 @@ export function isNetlifyHostedRuntimeForDurableBackground(): boolean {
   if (process.env.NETLIFY === "false") return false;
   return Boolean(
     (process.env.NETLIFY && process.env.NETLIFY !== "false") ||
-    process.env.SITE_ID,
+    process.env.SITE_ID, // guard:allow-env-credential - Netlify's read-only public site identifier is a runtime host marker, not a user credential.
   );
 }
 
