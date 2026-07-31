@@ -27,8 +27,23 @@ jobs:
           neon_auth="Authorization: Bearer $NEON_API_KEY"
           project_name='agent-native-crew'
 
+          organizations_response=$(curl -sS -w $'\n%{http_code}' \
+            -H "$neon_auth" "$neon_api/users/me/organizations")
+          organizations_status=$(tail -n1 <<<"$organizations_response")
+          organizations_body=$(sed '$d' <<<"$organizations_response")
+          if [[ ! "$organizations_status" =~ ^2[0-9][0-9]$ ]]; then
+            message=$(jq -r '.message // .error // .code // "unknown Neon API error"' <<<"$organizations_body")
+            echo "::error::Neon organization lookup failed (HTTP $organizations_status): $message"
+            exit 1
+          fi
+          org_id=$(jq -r 'first(.organizations[]?.id) // empty' <<<"$organizations_body")
+          if [[ -z "$org_id" ]]; then
+            echo '::error::The Neon API key has no organization available for Crew.'
+            exit 1
+          fi
+
           projects_response_with_status=$(curl -sS -w $'\n%{http_code}' \
-            -H "$neon_auth" "$neon_api/projects?limit=100")
+            -H "$neon_auth" "$neon_api/projects?limit=100&org_id=$org_id")
           projects_status=$(tail -n1 <<<"$projects_response_with_status")
           projects_response=$(sed '$d' <<<"$projects_response_with_status")
           if [[ ! "$projects_status" =~ ^2[0-9][0-9]$ ]]; then
@@ -44,7 +59,7 @@ jobs:
             create_response_with_status=$(curl -sS -w $'\n%{http_code}' -X POST \
               -H "$neon_auth" \
               -H 'Content-Type: application/json' \
-              "$neon_api/projects" \
+              "$neon_api/projects?org_id=$org_id" \
               -d "$(jq -n --arg name "$project_name" \
                 '{project:{name:$name,region_id:"aws-us-east-1",pg_version:17}}')")
             create_status=$(tail -n1 <<<"$create_response_with_status")
