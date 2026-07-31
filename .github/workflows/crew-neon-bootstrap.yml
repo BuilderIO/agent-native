@@ -61,7 +61,8 @@ jobs:
               -H 'Content-Type: application/json' \
               "$neon_api/projects?org_id=$org_id" \
               -d "$(jq -n --arg name "$project_name" \
-                '{project:{name:$name,region_id:"aws-us-east-1",pg_version:17}}')")
+                --arg org_id "$org_id" \
+                '{project:{name:$name,org_id:$org_id,region_id:"aws-us-east-1",pg_version:17}}')")
             create_status=$(tail -n1 <<<"$create_response_with_status")
             create_response=$(sed '$d' <<<"$create_response_with_status")
             if [[ ! "$create_status" =~ ^2[0-9][0-9]$ ]]; then
