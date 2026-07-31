@@ -384,14 +384,6 @@ CREATE INDEX IF NOT EXISTS design_templates_owner_org_updated_idx ON design_temp
 CREATE INDEX IF NOT EXISTS design_template_shares_resource_principal_idx ON design_template_shares (resource_id, principal_type, principal_id);
 CREATE INDEX IF NOT EXISTS design_template_files_template_idx ON design_template_files (template_id, updated_at)`,
     },
-    {
-      version: 24,
-      name: "design-file-render-verification",
-      sql: `ALTER TABLE design_files ADD COLUMN IF NOT EXISTS verified_render_hash TEXT;
-ALTER TABLE design_files ADD COLUMN IF NOT EXISTS verified_render_status TEXT;
-ALTER TABLE design_files ADD COLUMN IF NOT EXISTS verified_render_at TEXT;
-ALTER TABLE design_files ADD COLUMN IF NOT EXISTS verified_render_findings TEXT`,
-    },
   ],
   { table: "design_migrations" },
 );

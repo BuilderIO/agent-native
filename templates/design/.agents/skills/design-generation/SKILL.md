@@ -352,26 +352,6 @@ structural issues, token drift), fix them directly with `edit-design`. **A
 design with audit errors is not ready** — don't report a design as done while
 `run-design-audit` still returns unresolved errors.
 
-Then call `verify-design-render` on every screen you changed. It renders the
-screen in a real browser and stamps the verdict onto the file, keyed to the
-exact content rendered — so the stamp goes stale by itself on your next edit,
-and re-running after an edit is mandatory rather than optional. Read `state`:
-
-- `verified` — a browser confirmed this exact content. Only this permits
-  "ready".
-- `failed` — read `findings` and fix them. Alpine expression failures name the
-  expression and element; `runtime-inert` means the screen uses Tailwind
-  utilities but received no compiled utility CSS, so it renders unstyled.
-- `unavailable` — no browser could run here. **This is not a pass.** Say the
-  screen is unverified in your reply; do not describe it as ready, working, or
-  checked. A careful read of the HTML is not a substitute and must not be
-  reported as one.
-- `stale` / `never` — not verified yet; run it (or re-run it) before reporting.
-
-This is the only check that catches a defect the static passes cannot see by
-construction: `x-show="opne"` and `:class="itm.color === 'x' ? …"` are valid
-JavaScript, so `html-integrity` accepts them, and they fail only at runtime.
-
 After the audit is clean, call `take-design-screenshot` on each changed screen
 (default: 1280px desktop + 375px mobile). Fix everything its `diagnostics`
 report flags — real computed contrast ratios, horizontal/container overflow,

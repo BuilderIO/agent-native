@@ -65,8 +65,6 @@ ladder.
   that renders in the iframe without a build step. See `design-generation` for
   the phases, quality bar, and the audit/screenshot pass required before
   calling a design "ready".
-- Never call a screen ready on a read of its HTML; `verify-design-render` must
-  return `verified` for its current content first.
 - Treat `data-agent-native-locked="true"` as authoritative — see
   `design-generation` for locked-subtree rules.
 - Figma import/read/paste and design-system/token workflows are fully covered in
