@@ -12,6 +12,7 @@ import {
   IconArrowAutofitWidth,
   IconBorderRadius,
   IconBorderStyle,
+  IconBoxPadding,
   IconDots,
   IconGridDots,
   IconLayoutAlignLeft,
@@ -158,32 +159,6 @@ export function SlideContextToolbar({
                 contentProps={inlineEditSurfaceProps}
                 onChange={(value) => onChange({ color: value })}
               />
-
-              <div className={TOOLBAR_DIVIDER} />
-              <VisualSegmentedControl
-                value={snapshot.textAlign}
-                onChange={(textAlign) => onChange({ textAlign })}
-                className="slides-inspector-segment shrink-0"
-                options={[
-                  { label: t("styleInspector.left"), value: "left" },
-                  { label: t("styleInspector.center"), value: "center" },
-                  { label: t("styleInspector.right"), value: "right" },
-                  { label: t("styleInspector.justify"), value: "justify" },
-                ]}
-              />
-              <VisualScrubInput
-                label={t("styleInspector.line")}
-                icon={IconArrowAutofitHeight}
-                prefix="icon"
-                value={snapshot.lineHeight}
-                min={0.8}
-                max={3}
-                step={0.05}
-                className={SCRUB_CLASS}
-                onChange={(lineHeight) =>
-                  onChange({ lineHeight: formatValue(lineHeight) })
-                }
-              />
             </>
           ) : (
             <>
@@ -257,7 +232,7 @@ export function SlideContextToolbar({
 
           <div className={TOOLBAR_DIVIDER} />
 
-          {snapshot.isAbsolute && (
+          {(snapshot.isAbsolute || snapshot.isText) && (
             <Popover>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -280,34 +255,65 @@ export function SlideContextToolbar({
                 className="w-60 space-y-2 p-2"
                 {...inlineEditSurfaceProps}
               >
-                <VisualControlRow label={t("styleInspector.horizontal")}>
-                  <VisualSegmentedControl
-                    value={resolveHorizontalAlignment(snapshot)}
-                    onChange={(alignment) =>
-                      onChange(horizontalAlignPatch(snapshot, alignment))
-                    }
-                    className="slides-inspector-segment"
-                    options={[
-                      { label: t("styleInspector.left"), value: "left" },
-                      { label: t("styleInspector.center"), value: "center" },
-                      { label: t("styleInspector.right"), value: "right" },
-                    ]}
-                  />
-                </VisualControlRow>
-                <VisualControlRow label={t("styleInspector.vertical")}>
-                  <VisualSegmentedControl
-                    value={resolveVerticalAlignment(snapshot)}
-                    onChange={(alignment) =>
-                      onChange(verticalAlignPatch(snapshot, alignment))
-                    }
-                    className="slides-inspector-segment"
-                    options={[
-                      { label: t("styleInspector.top"), value: "top" },
-                      { label: t("styleInspector.middle"), value: "middle" },
-                      { label: t("styleInspector.bottom"), value: "bottom" },
-                    ]}
-                  />
-                </VisualControlRow>
+                {snapshot.isText && (
+                  <VisualControlRow label={t("styleInspector.text")}>
+                    <VisualSegmentedControl
+                      value={snapshot.textAlign}
+                      onChange={(textAlign) => onChange({ textAlign })}
+                      className="slides-inspector-segment"
+                      options={[
+                        { label: t("styleInspector.left"), value: "left" },
+                        { label: t("styleInspector.center"), value: "center" },
+                        { label: t("styleInspector.right"), value: "right" },
+                        {
+                          label: t("styleInspector.justify"),
+                          value: "justify",
+                        },
+                      ]}
+                    />
+                  </VisualControlRow>
+                )}
+                {snapshot.isAbsolute && (
+                  <>
+                    <VisualControlRow label={t("styleInspector.horizontal")}>
+                      <VisualSegmentedControl
+                        value={resolveHorizontalAlignment(snapshot)}
+                        onChange={(alignment) =>
+                          onChange(horizontalAlignPatch(snapshot, alignment))
+                        }
+                        className="slides-inspector-segment"
+                        options={[
+                          { label: t("styleInspector.left"), value: "left" },
+                          {
+                            label: t("styleInspector.center"),
+                            value: "center",
+                          },
+                          { label: t("styleInspector.right"), value: "right" },
+                        ]}
+                      />
+                    </VisualControlRow>
+                    <VisualControlRow label={t("styleInspector.vertical")}>
+                      <VisualSegmentedControl
+                        value={resolveVerticalAlignment(snapshot)}
+                        onChange={(alignment) =>
+                          onChange(verticalAlignPatch(snapshot, alignment))
+                        }
+                        className="slides-inspector-segment"
+                        options={[
+                          { label: t("styleInspector.top"), value: "top" },
+                          {
+                            label: t("styleInspector.middle"),
+                            value: "middle",
+                          },
+                          {
+                            label: t("styleInspector.bottom"),
+                            value: "bottom",
+                          },
+                        ]}
+                      />
+                    </VisualControlRow>
+                  </>
+                )}
               </PopoverContent>
             </Popover>
           )}
@@ -487,6 +493,18 @@ export function SlideContextToolbar({
                       onChange={(value) => onChange({ borderColor: value })}
                     />
                   </VisualControlRow>
+                  <VisualScrubInput
+                    label={t("styleInspector.line")}
+                    icon={IconArrowAutofitHeight}
+                    prefix="icon"
+                    value={snapshot.lineHeight}
+                    min={0.8}
+                    max={3}
+                    step={0.05}
+                    onChange={(lineHeight) =>
+                      onChange({ lineHeight: formatValue(lineHeight) })
+                    }
+                  />
                   <VisualControlRow label={t("styleInspector.fill")}>
                     <VisualColorPicker
                       label={t("styleInspector.fill")}
