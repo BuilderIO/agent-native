@@ -303,17 +303,109 @@ re-mounted behind a flag — the decision is cheap to reverse.
 
 ---
 
-## 9. Suggested build order (once agreed)
+## 9. MVP plan
 
-1. `SlideContextToolbar.tsx` — presentational, driven by
-   `SlideStyleInspectorSnapshot`, reusing the existing `onChange` /
-   `onArrange` callbacks so no editing logic is rewritten.
-2. Mount it as row 2 in `DeckEditor.tsx`; remove the `w-[17rem]` dock and the
-   `🎨` toggle from row 1.
-3. Grouped menus (align, arrange, overflow) on shadcn primitives.
-4. Slide context state (§4a) + warning chip.
-5. Responsive collapse.
-6. Update `.agents/skills/slide-editing` so the agent describes the new surface
-   correctly, and add a changelog entry.
-   </content>
-   </invoke>
+### 9.0 Decisions (agreed)
+
+| Decision            | Choice                                                                                                                        |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Control set         | **Strict move only.** Relocate exactly today's controls. No font family, italic/underline, or lists in v1.                    |
+| Old right dock      | **Kept behind the existing paint toggle.** Top bar is the default; the dock stays reachable as a fallback and A/B comparison. |
+| Narrow screens      | **Hidden below `lg`**, matching the dock's current `hidden lg:block`. Zero regression, zero extra work.                       |
+| AI input in toolbar | **No** (Steve). Chat stays in the sidebar.                                                                                    |
+| Zoom                | **Leave the existing floating cluster alone** in v1.                                                                          |
+
+The MVP goal is to prove **one thing**: that contextual top controls beat a
+right dock for this app. Everything that does not serve that test is deferred.
+
+### 9.1 The key architectural finding
+
+The first draft of this doc assumed the bar mounts in `DeckEditor.tsx` beside
+`EditorToolbar`. That would require hoisting selection state out of
+`SlideEditor.tsx` — a 4,200-line file — which is most of the risk in this
+project.
+
+It is unnecessary. `SlideEditor`'s root is already a flex **column**
+(`SlideEditor.tsx:4055`) whose first child is the canvas row (`:4058`).
+Inserting the bar as a new first child renders it directly beneath row 1
+visually, while staying inside the component that already owns everything it
+needs:
+
+| Needed                      | Already exists at                     |
+| --------------------------- | ------------------------------------- |
+| `selectedStyleSnapshot`     | `SlideEditor.tsx:1117-1136`           |
+| `applySelectedStylePatch`   | `SlideEditor.tsx:3855`                |
+| `handleArrangeSelected`     | passed to the dock, `:4213`           |
+| `preserveRichTextSelection` | `SlideEditor.tsx:3839`                |
+| `applySlideBackground`      | passed to the dock, `:4225`           |
+| Localized labels            | existing `styleInspector.*` i18n keys |
+
+**No state lifting, no new actions, no new i18n keys, no schema change.** The
+MVP is a presentational component plus a mount.
+
+### 9.2 Scope
+
+**In:**
+
+1. `app/components/editor/SlideContextToolbar.tsx` — presentational, driven by
+   `SlideStyleInspectorSnapshot`, calling the existing `onChange` / `onArrange`
+   callbacks.
+2. Contextual states from §4: text, image, shape/object, multi-select, and
+   no-selection (slide background).
+3. Grouped menus for align and arrange, plus a `⋯` overflow holding the
+   numeric controls, on shadcn `Popover` / `DropdownMenu`.
+4. Mount at `SlideEditor.tsx:4058`, gated on `!readOnly` and `lg`.
+5. Mutual exclusion with the dock: opening the dock via the paint toggle hides
+   the bar, so exactly one styling surface is visible. This gives Steve's "two
+   modes" idea for free, without a new mode concept.
+
+**Out (deferred, tracked in §8):** font family, italic/underline/lists/indent,
+moving insert tools into a stable left segment, absorbing the row-1 cog,
+narrow-screen support, moving zoom into the bar, the collapse chevron, and the
+`⚠ Fix with AI` chip (needs the overflow detection to exist first).
+
+### 9.3 Milestones
+
+| #   | Milestone                                                               | Proves                                |
+| --- | ----------------------------------------------------------------------- | ------------------------------------- |
+| M1  | Component skeleton + mount + **text** state wired to real callbacks     | The mount point works and edits apply |
+| M2  | Image, shape, multi-select, and no-selection states                     | Contextual swapping is correct        |
+| M3  | Grouped align/arrange menus + `⋯` overflow                              | Sajal's "organize the tools" note     |
+| M4  | Dock mutual exclusion + read-only + a11y labels/tooltips                | No regressions                        |
+| M5  | Verification pass (§9.5), changelog entry, `slide-editing` skill update | Ship-ready                            |
+
+### 9.4 Known traps
+
+1. **Rich-text selection loss.** The bar must carry
+   `onPointerDownCapture={preserveRichTextSelection}`, exactly as the dock does
+   at `:4205`. Without it, bolding a partial text selection silently no-ops —
+   it will look like the feature works until someone selects three words.
+2. **Popover focus stealing.** Colour pickers in the dock pass
+   `data-slide-inline-edit-surface="true"` via `contentProps`. Any popover in
+   the bar needs the same marker or it will blur the editable element.
+3. **Mixed values.** `mixedTextStyles` must still render a "Mixed" state; a bar
+   is more likely than a panel to imply a single concrete value.
+4. **Horizontal overflow.** Row 2 must not push row 1's layout or introduce a
+   scrollbar at common widths — budget the visible control count against the
+   narrowest supported `lg` width with the agent sidebar open.
+5. **Agent parity.** Selection still syncs to `slides-selection` app state via
+   `syncSelectionToAppState`. Do not bypass it — `view-screen` depends on it.
+
+### 9.5 How we verify
+
+Per `verifying-changes`, on the running slides dev server with a real deck:
+
+- Select a text box, a heading, an image, a shape, and a multi-selection; confirm
+  the bar swaps and every relocated control still applies to the slide.
+- Select **part** of a text run and apply weight/colour — guards trap 1.
+- Confirm mixed values render as Mixed across a multi-selection.
+- Deselect; confirm slide background editing is still reachable.
+- Open a read-only/shared deck; confirm no editable controls.
+- Toggle the paint icon; confirm dock and bar are mutually exclusive.
+- Ask the agent "what is selected?" and confirm it still answers correctly.
+
+### 9.6 Open questions this MVP intentionally does not answer
+
+§8 items 1–3 (new controls, zoom placement, insert-tool segment) stay open on
+purpose. They are additive and easier to judge once the team has used the bar
+on a real deck.
