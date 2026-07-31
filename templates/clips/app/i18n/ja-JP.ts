@@ -628,6 +628,7 @@ const messages = {
     title: "設定",
     pageTitle: "設定 · Clips",
     intro: "この Clips ワークスペースの設定と接続済みサービスです。",
+    preferencesTitle: "環境設定",
     languageTitle: "言語",
     languageDescription:
       "このアカウントのインターフェイス言語を選択します。Clips はデバイス間で設定を記憶します。",

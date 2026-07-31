@@ -614,6 +614,7 @@ const messages = {
     title: "सेटिंग्स",
     pageTitle: "सेटिंग्स · Clips",
     intro: "इस Clips वर्कस्पेस के लिए प्राथमिकताएँ और कनेक्टेड सेवाएँ।",
+    preferencesTitle: "प्राथमिकताएँ",
     languageTitle: "भाषा",
     languageDescription:
       "इस खाते के लिए इंटरफ़ेस भाषा चुनें। Clips इसे आपके डिवाइसों पर याद रखेगा।",

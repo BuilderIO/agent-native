@@ -3,6 +3,8 @@ import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
 import { TeamPage } from "@agent-native/core/client/org";
 import {
   AccountSettingsCard,
+  SettingsGroup,
+  SettingsRow,
   SettingsTabsPage,
   useAgentSettingsTabs,
   type SettingsSearchEntry,
@@ -11,7 +13,6 @@ import { CreativeContextSettingsLink } from "@agent-native/creative-context/clie
 import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
 import { useMemo } from "react";
 
-import { Label } from "@/components/ui/label";
 import { messagesByLocale } from "@/i18n-data";
 
 import changelog from "../../CHANGELOG.md?raw";
@@ -52,23 +53,18 @@ export default function SettingsRoute() {
 
             <CreativeContextSettingsLink />
 
-            <section
-              id="language"
-              className="scroll-mt-16 rounded-lg border border-border bg-card p-5"
-            >
-              <div className="space-y-1">
-                <h2 className="text-base font-semibold">
-                  {t("settings.languageTitle")}
-                </h2>
-                <p className="text-sm leading-6 text-muted-foreground">
-                  {t("settings.languageDescription")}
-                </p>
-              </div>
-              <div className="mt-4 max-w-xs space-y-1.5">
-                <Label>{t("settings.languageLabel")}</Label>
-                <LanguagePicker label={t("settings.languageLabel")} />
-              </div>
-            </section>
+            <SettingsGroup>
+              <SettingsRow
+                id="language"
+                label={t("settings.languageTitle")}
+                description={t("settings.languageDescription")}
+                control={
+                  <div className="w-56">
+                    <LanguagePicker label={t("settings.languageLabel")} />
+                  </div>
+                }
+              />
+            </SettingsGroup>
           </main>
         }
         team={

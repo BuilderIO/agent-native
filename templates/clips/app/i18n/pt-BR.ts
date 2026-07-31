@@ -632,6 +632,7 @@ const messages = {
     title: "Configurações",
     pageTitle: "Configurações · Clips",
     intro: "Preferências e serviços conectados para este espaço do Clips.",
+    preferencesTitle: "Preferências",
     languageTitle: "Idioma",
     languageDescription:
       "Escolha o idioma da interface para esta conta. O Clips lembrará em todos os seus dispositivos.",

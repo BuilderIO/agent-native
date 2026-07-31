@@ -621,6 +621,7 @@ const messages = {
     title: "설정",
     pageTitle: "설정 · Clips",
     intro: "이 Clips 워크스페이스의 환경설정과 연결된 서비스입니다.",
+    preferencesTitle: "환경설정",
     languageTitle: "언어",
     languageDescription:
       "이 계정의 인터페이스 언어를 선택하세요. Clips가 여러 기기에서 기억합니다.",

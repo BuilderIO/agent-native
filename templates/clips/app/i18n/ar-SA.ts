@@ -621,6 +621,7 @@ const messages = {
     title: "الإعدادات",
     pageTitle: "الإعدادات · Clips",
     intro: "التفضيلات والخدمات المتصلة لمساحة Clips هذه.",
+    preferencesTitle: "التفضيلات",
     languageTitle: "اللغة",
     languageDescription:
       "اختر لغة الواجهة لهذا الحساب. سيتذكرها Clips عبر أجهزتك.",

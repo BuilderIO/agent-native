@@ -595,6 +595,7 @@ const messages = {
     title: "设置",
     pageTitle: "设置 · Clips",
     intro: "此 Clips 工作区的偏好设置和已连接服务。",
+    preferencesTitle: "偏好设置",
     languageTitle: "语言",
     languageDescription:
       "选择此账号的界面语言。Clips 会在不同设备上记住你的选择。",

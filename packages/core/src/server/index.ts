@@ -548,6 +548,15 @@ export {
   type SendEmailArgs,
 } from "./email.js";
 export {
+  notifyActivity,
+  resolveActivityRecipients,
+  type ActivityDeliveryFailure,
+  type ActivityNotificationResult,
+  type ActivityNotificationStatus,
+  type NotifyActivityInput,
+  type ResolveActivityRecipientsInput,
+} from "./activity-notifications.js";
+export {
   renderEmail,
   emailStrong,
   emailLink,

@@ -1,59 +1,39 @@
 /**
  * Email notifications for Activity events (comments, replies, reactions).
  *
- * Recipients are resolved from the recording owner plus the other humans in a
- * comment thread, then filtered by each recipient's `emailNotifications`
- * preference. Share invites are deliberately NOT routed through this
- * preference — they have their own delivery path.
+ * Recipient resolution and delivery reporting live in
+ * `@agent-native/core/server`; this module only knows which Clips rows are
+ * involved and which template to render. Share invites are deliberately NOT
+ * routed through the `emailNotifications` preference — they have their own
+ * delivery path.
  */
 
-import { isEmailConfigured } from "@agent-native/core/server";
-import { getUserSetting } from "@agent-native/core/settings";
+import {
+  notifyActivity,
+  type ActivityNotificationResult,
+} from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
 
-import {
-  CLIPS_USER_PREFS_KEY,
-  type ClipsUserPrefs,
-} from "../../shared/clips-ai-prefs.js";
+import { CLIPS_USER_PREFS_KEY } from "../../shared/clips-ai-prefs.js";
 import { getDb, schema } from "../db/index.js";
 import { sendClipsTransactionalEmail } from "./transactional-email-templates.js";
 
-export type ActivityNotificationResult = {
-  sent: string[];
-  failed: { email: string; error: string }[];
+/**
+ * `recording-missing` is kept distinct from `no-recipients`: one means the row
+ * we were asked to notify about could not be read, the other means nobody
+ * wanted the email.
+ */
+export type ClipsActivityNotificationResult =
+  | ActivityNotificationResult
+  | { status: "recording-missing"; sent: []; failed: [] };
+
+const RECORDING_MISSING: ClipsActivityNotificationResult = {
+  status: "recording-missing",
+  sent: [],
+  failed: [],
 };
 
-const EMPTY_RESULT: ActivityNotificationResult = { sent: [], failed: [] };
-
-function normalizeEmail(value: string | null | undefined): string {
-  return (value ?? "").trim().toLowerCase();
-}
-
-async function wantsEmailNotifications(email: string): Promise<boolean> {
-  const prefs = ((await getUserSetting(email, CLIPS_USER_PREFS_KEY)) ??
-    {}) as ClipsUserPrefs;
-  return prefs.emailNotifications !== false;
-}
-
-async function recipientsFor(
-  candidates: (string | null | undefined)[],
-  actorEmail: string | null | undefined,
-): Promise<string[]> {
-  const actor = normalizeEmail(actorEmail);
-  const unique = new Set<string>();
-  for (const candidate of candidates) {
-    const email = normalizeEmail(candidate);
-    if (!email || email === actor || !email.includes("@")) continue;
-    unique.add(email);
-  }
-
-  const allowed = await Promise.all(
-    [...unique].map(async (email) =>
-      (await wantsEmailNotifications(email)) ? email : null,
-    ),
-  );
-  return allowed.filter((email): email is string => email !== null);
-}
+const LOG_LABEL = "[clips] activity notification";
 
 async function getRecording(recordingId: string) {
   const [row] = await getDb()
@@ -84,32 +64,6 @@ async function threadParticipants(
   return rows.map((row) => row.authorEmail);
 }
 
-async function deliver(
-  recipients: string[],
-  build: (to: string) => Parameters<typeof sendClipsTransactionalEmail>[0],
-): Promise<ActivityNotificationResult> {
-  const result: ActivityNotificationResult = { sent: [], failed: [] };
-  for (const to of recipients) {
-    try {
-      await sendClipsTransactionalEmail(build(to));
-      result.sent.push(to);
-    } catch (error) {
-      result.failed.push({
-        email: to,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-  if (result.failed.length > 0) {
-    console.error(
-      `[clips] activity notification delivery failed for ${result.failed
-        .map((f) => `${f.email} (${f.error})`)
-        .join(", ")}`,
-    );
-  }
-  return result;
-}
-
 export async function notifyRecordingComment(input: {
   recordingId: string;
   threadId: string;
@@ -118,11 +72,12 @@ export async function notifyRecordingComment(input: {
   content: string;
   videoTimestampMs?: number | null;
   isReply?: boolean;
-}): Promise<ActivityNotificationResult> {
-  if (!isEmailConfigured()) return EMPTY_RESULT;
-
+}): Promise<ClipsActivityNotificationResult> {
   const recording = await getRecording(input.recordingId);
-  if (!recording) return EMPTY_RESULT;
+  if (!recording) {
+    console.error(`${LOG_LABEL}: recording ${input.recordingId} not found`);
+    return RECORDING_MISSING;
+  }
 
   const candidates = [recording.ownerEmail];
   if (input.isReply) {
@@ -131,18 +86,24 @@ export async function notifyRecordingComment(input: {
     );
   }
 
-  const recipients = await recipientsFor(candidates, input.authorEmail);
-  return deliver(recipients, (to) => ({
-    kind: "activity-comment",
-    to,
-    recordingId: recording.id,
-    title: recording.title,
-    authorEmail: input.authorEmail,
-    authorName: input.authorName ?? null,
-    content: input.content,
-    videoTimestampMs: input.videoTimestampMs ?? null,
-    isReply: input.isReply ?? false,
-  }));
+  return notifyActivity({
+    candidates,
+    actorEmail: input.authorEmail,
+    preferenceKey: CLIPS_USER_PREFS_KEY,
+    logLabel: LOG_LABEL,
+    send: (to) =>
+      sendClipsTransactionalEmail({
+        kind: "activity-comment",
+        to,
+        recordingId: recording.id,
+        title: recording.title,
+        authorEmail: input.authorEmail,
+        authorName: input.authorName ?? null,
+        content: input.content,
+        videoTimestampMs: input.videoTimestampMs ?? null,
+        isReply: input.isReply ?? false,
+      }),
+  });
 }
 
 export async function notifyRecordingReaction(input: {
@@ -152,24 +113,28 @@ export async function notifyRecordingReaction(input: {
   viewerName?: string | null;
   videoTimestampMs?: number | null;
   extraRecipients?: (string | null | undefined)[];
-}): Promise<ActivityNotificationResult> {
-  if (!isEmailConfigured()) return EMPTY_RESULT;
-
+}): Promise<ClipsActivityNotificationResult> {
   const recording = await getRecording(input.recordingId);
-  if (!recording) return EMPTY_RESULT;
+  if (!recording) {
+    console.error(`${LOG_LABEL}: recording ${input.recordingId} not found`);
+    return RECORDING_MISSING;
+  }
 
-  const recipients = await recipientsFor(
-    [recording.ownerEmail, ...(input.extraRecipients ?? [])],
-    input.viewerEmail,
-  );
-  return deliver(recipients, (to) => ({
-    kind: "activity-reaction",
-    to,
-    recordingId: recording.id,
-    title: recording.title,
-    emoji: input.emoji,
-    authorEmail: input.viewerEmail,
-    authorName: input.viewerName ?? null,
-    videoTimestampMs: input.videoTimestampMs ?? null,
-  }));
+  return notifyActivity({
+    candidates: [recording.ownerEmail, ...(input.extraRecipients ?? [])],
+    actorEmail: input.viewerEmail,
+    preferenceKey: CLIPS_USER_PREFS_KEY,
+    logLabel: LOG_LABEL,
+    send: (to) =>
+      sendClipsTransactionalEmail({
+        kind: "activity-reaction",
+        to,
+        recordingId: recording.id,
+        title: recording.title,
+        emoji: input.emoji,
+        authorEmail: input.viewerEmail,
+        authorName: input.viewerName ?? null,
+        videoTimestampMs: input.videoTimestampMs ?? null,
+      }),
+  });
 }

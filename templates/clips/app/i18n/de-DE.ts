@@ -640,6 +640,7 @@ const messages = {
     pageTitle: "Einstellungen · Clips",
     intro:
       "Einstellungen und verbundene Dienste für diesen Clips-Arbeitsbereich.",
+    preferencesTitle: "Voreinstellungen",
     languageTitle: "Sprache",
     languageDescription:
       "Wähle die Oberflächensprache für dieses Konto. Clips merkt sie sich geräteübergreifend.",
