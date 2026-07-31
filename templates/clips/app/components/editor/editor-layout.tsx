@@ -252,8 +252,8 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
   const baseTrackWidth = useMemo(() => {
     if (durationMs <= 0 || viewportWidth <= 0) return viewportWidth;
     const durationSec = durationMs / 1000;
-    // Scale timeline track width proportionally with duration so long videos scale & scroll
-    const durationScaledPx = Math.round(durationSec * 14);
+    // Scale timeline track width proportionally with duration so long videos scale & scroll (bounded to safe max allocation)
+    const durationScaledPx = Math.min(8192, Math.round(durationSec * 14));
     return Math.max(viewportWidth, durationScaledPx);
   }, [durationMs, viewportWidth]);
 

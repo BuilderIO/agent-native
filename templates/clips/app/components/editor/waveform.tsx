@@ -64,6 +64,9 @@ const VISUAL_MAX_GAIN = 24;
 const VISUAL_GAIN_PERCENTILE = 0.95;
 const VISUAL_SILENCE_FLOOR = 0.001;
 
+const MAX_BASE_TRACK_WIDTH = 8192;
+const MAX_CANVAS_PIXELS_WIDTH = 4096;
+
 function clampSample(value: number): number {
   return Math.max(-1, Math.min(1, value));
 }
@@ -128,8 +131,11 @@ export function Waveform({
   const baseTrackWidth = useMemo(() => {
     if (durationMs <= 0 || width <= 0) return width;
     const durationSec = durationMs / 1000;
-    // Scale timeline track width proportionally with duration so long videos don't squish
-    const durationScaledPx = Math.round(durationSec * 14);
+    // Scale timeline track width proportionally with duration so long videos don't squish (bounded to safe max allocation)
+    const durationScaledPx = Math.min(
+      MAX_BASE_TRACK_WIDTH,
+      Math.round(durationSec * 14),
+    );
     return Math.max(width, durationScaledPx);
   }, [durationMs, width]);
 
@@ -182,7 +188,10 @@ export function Waveform({
     const canvas = canvasRef.current;
     if (!canvas) return;
     const dpr = window.devicePixelRatio || 1;
-    canvas.width = Math.floor(totalWidth * dpr);
+    canvas.width = Math.min(
+      MAX_CANVAS_PIXELS_WIDTH,
+      Math.floor(totalWidth * dpr),
+    );
     canvas.height = Math.floor(height * dpr);
     canvas.style.width = `${totalWidth}px`;
     canvas.style.height = `${height}px`;
@@ -223,7 +232,11 @@ export function Waveform({
           );
 
           let maxAmp = 0;
-          for (let b = startBucket; b < endBucket && b < peaks.bucketCount; b++) {
+          for (
+            let b = startBucket;
+            b < endBucket && b < peaks.bucketCount;
+            b++
+          ) {
             const lo = Math.abs(peaks.peaks[b * 2] ?? 0);
             const hi = Math.abs(peaks.peaks[b * 2 + 1] ?? 0);
             if (lo > maxAmp) maxAmp = lo;
@@ -253,9 +266,7 @@ export function Waveform({
           const barHeight = inActivity ? 12 : minBarHeight;
           const topY = midY - barHeight / 2;
 
-          ctx.fillStyle = inActivity
-            ? getWaveColor()
-            : getBrandColorAlpha(0.2);
+          ctx.fillStyle = inActivity ? getWaveColor() : getBrandColorAlpha(0.2);
 
           drawPillBar(ctx, x, topY, barWidth, barHeight);
         }
@@ -325,7 +336,7 @@ export function Waveform({
   const scrubRef = useRef<{ pointerId: number; startX: number } | null>(null);
 
   const seekToEvent = (
-    e: React.PointerEvent<HTMLDivElement> | React.MouseEvent<HTMLDivElement>,
+    e: React.PointerEvent<HTMLDivElement> | React.MouseEvent<HTMLDivElement>, // i18n-ignore
   ) => {
     if (!onSeek) return;
     const el = scrollRef.current;

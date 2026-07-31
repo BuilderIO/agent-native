@@ -17,7 +17,7 @@ import {
   writeAppState,
 } from "@agent-native/core/application-state";
 import { uploadFile } from "@agent-native/core/file-upload";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 
 import { getDb, schema } from "../../server/db/index.js";
 import { deleteRecordingMediaObjects } from "../../server/lib/recording-media-cleanup.js";
@@ -209,6 +209,10 @@ export async function ensureRecordingFilmstrip(params: {
         ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
         // Don't attach a sprite generated from media the row no longer points at.
         eq(schema.recordings.videoUrl, rec.videoUrl),
+        // Ensure no concurrent job modified filmstripUrl in the interim.
+        rec.filmstripUrl
+          ? eq(schema.recordings.filmstripUrl, rec.filmstripUrl)
+          : isNull(schema.recordings.filmstripUrl),
       ),
     )
     .returning({
@@ -217,6 +221,10 @@ export async function ensureRecordingFilmstrip(params: {
     });
 
   if (updated.length !== 1 || updated[0]?.filmstripUrl !== upload.url) {
+    await deleteRecordingMediaObjects({
+      id: recordingId,
+      filmstripUrl: upload.url,
+    }).catch(() => {});
     return {
       recordingId,
       status: "skipped-upload-failed",
