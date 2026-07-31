@@ -5,10 +5,13 @@ import {
   buildMergedConfig,
   formatMcpConnectError,
   mountMcpServersRoutes,
+  startMcpConfigRefresh,
 } from "./routes.js";
 
 const mockedSettings = vi.hoisted(() => ({
   all: {} as Record<string, Record<string, unknown>>,
+  reads: 0,
+  emitter: null as null | import("node:events").EventEmitter,
 }));
 const getSessionMock = vi.hoisted(() => vi.fn());
 const getOrgContextMock = vi.hoisted(() => vi.fn());
@@ -25,9 +28,17 @@ vi.mock("../server/framework-request-handler.js", () => ({
   getH3App: (app: any) => app.h3,
 }));
 
-vi.mock("../settings/store.js", () => ({
-  getAllSettings: async () => mockedSettings.all,
-}));
+vi.mock("../settings/store.js", async () => {
+  const { EventEmitter } = await import("node:events");
+  mockedSettings.emitter = new EventEmitter();
+  return {
+    getAllSettings: async () => {
+      mockedSettings.reads += 1;
+      return mockedSettings.all;
+    },
+    getSettingsEmitter: () => mockedSettings.emitter,
+  };
+});
 
 vi.mock("./config.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./config.js")>();
@@ -48,6 +59,7 @@ vi.mock("./workspace-servers.js", () => ({
 
 beforeEach(() => {
   mockedSettings.all = {};
+  mockedSettings.reads = 0;
   getSessionMock.mockReset();
   getOrgContextMock.mockReset();
 });

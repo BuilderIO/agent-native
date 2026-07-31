@@ -106,8 +106,11 @@ describe("db/client dialect detection", () => {
       await import("./client.js");
 
     expect(isBackgroundFunctionPoolContext()).toBe(false);
-    expect(neonPoolMax()).toBe(1);
-    expect(pgPoolOptions("postgres://example.test/db").max).toBe(1);
+    // Small enough that many warm instances stay under the provider's cap, but
+    // above 1 so a request's concurrent reads don't serialize behind one slot.
+    expect(neonPoolMax()).toBe(4);
+    expect(neonPoolMax()).toBeLessThan(8);
+    expect(pgPoolOptions("postgres://example.test/db").max).toBe(4);
   });
 
   it("keeps the foreground pool when only the dispatch marker (expected, not landed) is set", async () => {
@@ -125,7 +128,7 @@ describe("db/client dialect detection", () => {
       await import("./client.js");
 
     expect(isBackgroundFunctionPoolContext()).toBe(false);
-    expect(neonPoolMax()).toBe(1);
+    expect(neonPoolMax()).toBe(4);
   });
 
   it("uses the background Neon pool when the -background function marked the runtime at cold start", async () => {
@@ -1302,3 +1305,77 @@ describe("annotateMissingTable", () => {
 
 // Tests for `widenIntColumnsToBigInt` live in `./widen-columns.spec.ts`
 // (the helper moved to `./widen-columns.js`).
+
+describe("db/client shared connection pools", () => {
+  afterEach(() => {
+    vi.resetModules();
+  });
+
+  it("hands every consumer of one URL the same pool, and keeps distinct URLs apart", async () => {
+    const { sharedDbPool } = await import("./client.js");
+    const make = () => ({ id: Symbol(), end: async () => {} });
+
+    const first = sharedDbPool("neon", "postgres://a.test/db", make);
+    const second = sharedDbPool("neon", "postgres://a.test/db", make);
+    const other = sharedDbPool("neon", "postgres://b.test/db", make);
+    const otherDriver = sharedDbPool(
+      "postgres-js",
+      "postgres://a.test/db",
+      make,
+    );
+
+    expect(second).toBe(first);
+    expect(other).not.toBe(first);
+    expect(otherDriver).not.toBe(first);
+  });
+
+  it("ends every shared pool on close and tells consumers to drop their handles", async () => {
+    const { sharedDbPool, onSharedDbPoolsClosed, closeSharedDbPools } =
+      await import("./client.js");
+    const ended: string[] = [];
+    let notified = 0;
+
+    sharedDbPool("neon", "postgres://close.test/db", () => ({
+      end: async () => {
+        ended.push("neon");
+      },
+    }));
+    sharedDbPool("postgres-js", "postgres://close.test/db", () => ({
+      end: async () => {
+        ended.push("postgres-js");
+      },
+    }));
+    onSharedDbPoolsClosed(() => {
+      notified += 1;
+    });
+
+    await closeSharedDbPools();
+
+    expect(ended.sort()).toEqual(["neon", "postgres-js"]);
+    expect(notified).toBe(1);
+
+    // A pool created after the close is a genuinely new one.
+    const rebuilt = sharedDbPool("neon", "postgres://close.test/db", () => ({
+      end: async () => {},
+    }));
+    expect(rebuilt).toBeTruthy();
+  });
+
+  it("swaps in the replacement pool when a timed-out pool is recycled", async () => {
+    const { sharedDbPool, replaceSharedDbPool } = await import("./client.js");
+    const original = { name: "original", end: async () => {} };
+    const replacement = { name: "replacement", end: async () => {} };
+    const url = "postgres://recycle.test/db";
+
+    sharedDbPool("postgres-js", url, () => original);
+    replaceSharedDbPool("postgres-js", url, original, replacement);
+    expect(sharedDbPool("postgres-js", url, () => original)).toBe(replacement);
+
+    // A stale caller holding the already-replaced pool must not clobber it.
+    replaceSharedDbPool("postgres-js", url, original, {
+      name: "stale",
+      end: async () => {},
+    });
+    expect(sharedDbPool("postgres-js", url, () => original)).toBe(replacement);
+  });
+});

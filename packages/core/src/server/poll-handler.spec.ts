@@ -1186,6 +1186,77 @@ describe("poll handler", () => {
     const syncQuery = syncCall?.[0] as { sql: string; args?: unknown[] };
     expect(syncQuery.args).toEqual([1_000, "test@example.com", "org-1", 1_001]);
   });
+
+  // ─── Idle cost ────────────────────────────────────────────────────────────
+  // The legacy watermark scan used to read `application_state` four separate
+  // times per check whether or not anything had changed, and that cost repeats
+  // per app per connected client. These two tests pin the marker gate: one
+  // round trip when nothing moved, the full read the moment it does.
+
+  /** Serves the legacy watermark scan with a settable application_state max. */
+  function mockLegacyScan(appStateMax: () => number): void {
+    mockExecute.mockImplementation(async (query: any) => {
+      const sql: string = typeof query === "string" ? query : query.sql;
+      if (
+        sql.includes("MAX(updated_at)") &&
+        sql.includes("application_state")
+      ) {
+        // Marker reads (`WHERE key = ?`) share the table's max here; the gate
+        // must not depend on them being lower.
+        return { rows: [{ max_ts: appStateMax() }] };
+      }
+      if (sql.includes("MAX(updated_at)")) return { rows: [{ max_ts: 0 }] };
+      if (sql.includes("FROM application_state")) return { rows: [] };
+      return { rows: [] };
+    });
+  }
+
+  function applicationStateReads(): string[] {
+    return mockExecute.mock.calls
+      .map(([query]) =>
+        typeof query === "string" ? query : (query?.sql ?? ""),
+      )
+      .filter((sql: string) => sql.includes("application_state"));
+  }
+
+  it("costs one application_state read per check when nothing changed", async () => {
+    mockLegacyScan(() => 5_000);
+    const { createPollHandler } = await import("./poll.js");
+    const handler = createPollHandler() as any;
+
+    // First poll seeds the watermarks; the throttle defers the scan itself.
+    await handler({ query: { since: "0" } });
+    vi.setSystemTime(102_000);
+    mockExecute.mockClear();
+
+    await handler({ query: { since: "1" } });
+
+    const reads = applicationStateReads();
+    expect(reads).toHaveLength(1);
+    expect(reads[0]).toContain("MAX(updated_at)");
+    expect(executedSql()).not.toContain(
+      "SELECT session_id, key, updated_at FROM application_state WHERE updated_at > ?",
+    );
+  });
+
+  it("still reads the changed rows once the application_state max advances", async () => {
+    let max = 5_000;
+    mockLegacyScan(() => max);
+    const { createPollHandler } = await import("./poll.js");
+    const handler = createPollHandler() as any;
+
+    await handler({ query: { since: "0" } });
+    max = 6_000;
+    vi.setSystemTime(102_000);
+    mockExecute.mockClear();
+
+    await handler({ query: { since: "1" } });
+
+    expect(executedSql()).toContain(
+      "SELECT session_id, key, updated_at FROM application_state WHERE updated_at > ?",
+    );
+    expect(applicationStateReads().length).toBeGreaterThan(1);
+  });
 });
 
 /**

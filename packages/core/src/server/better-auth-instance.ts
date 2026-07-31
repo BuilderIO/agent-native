@@ -38,6 +38,8 @@ import {
   pgPoolOptions,
   neonPoolMax,
   attachNeonPoolErrorLogger,
+  sharedDbPool,
+  onSharedDbPoolsClosed,
 } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
 import { saveOAuthTokens } from "../oauth-tokens/store.js";
@@ -808,15 +810,27 @@ export async function getBetterAuthInternalAdapter(
 export async function resetBetterAuth(): Promise<void> {
   _auth = undefined;
   _initPromise = undefined;
-  if (_neonAuthPool) {
-    try {
-      await _neonAuthPool.end();
-    } catch {
-      // Pool may have already closed (process exiting, etc.) — don't block reset.
-    }
-    _neonAuthPool = undefined;
-  }
+  // The Postgres pool belongs to the process (see `sharedDbPool`), not to Better
+  // Auth — ending it here would take the framework's and every store's database
+  // access down with it. `closeDbExec()` owns that.
+  _neonAuthPool = undefined;
   await closePgliteClients();
+}
+
+// A `closeDbExec()` releases the pool this instance's adapter is bound to, so
+// the next `getAuth()` must build a fresh one. Registered from the pooled
+// branches rather than at module load: core's specs widely mock
+// `db/client.js`, and an import-time call into the mock breaks every one of
+// them that doesn't stub this export.
+let _poolCloseHookRegistered = false;
+function resetAuthOnPoolClose(): void {
+  if (_poolCloseHookRegistered) return;
+  _poolCloseHookRegistered = true;
+  onSharedDbPoolsClosed(() => {
+    _auth = undefined;
+    _initPromise = undefined;
+    _neonAuthPool = undefined;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1160,10 +1174,12 @@ async function buildDatabaseConfig(
       // session lookup on essentially every authenticated request, so an
       // un-capped pool here is a primary contributor to "Max client
       // connections reached" across concurrent serverless instances.
-      _neonAuthPool = new Pool({
-        connectionString: url,
-        max: neonPoolMax(),
-      });
+      resetAuthOnPoolClose();
+      _neonAuthPool = sharedDbPool(
+        "neon",
+        url,
+        () => new Pool({ connectionString: url, max: neonPoolMax() }),
+      );
       attachNeonPoolErrorLogger(_neonAuthPool, "db/neon-auth");
       const { drizzle } = await import("drizzle-orm/neon-serverless");
       const db = drizzle(buildResilientNeonPool(_neonAuthPool), {
@@ -1182,7 +1198,10 @@ async function buildDatabaseConfig(
     // un-capped pool here is a primary contributor to "Max client connections
     // reached" across concurrent serverless instances.
     const { default: postgres } = await import("postgres");
-    const sql = postgres(url, pgPoolOptions(url));
+    resetAuthOnPoolClose();
+    const sql = sharedDbPool("postgres-js", url, () =>
+      postgres(url, pgPoolOptions(url)),
+    );
     const { drizzle } = await import("drizzle-orm/postgres-js");
     const db = drizzle(buildResilientPostgresJsClient(sql), {
       schema: pgAuthSchema,

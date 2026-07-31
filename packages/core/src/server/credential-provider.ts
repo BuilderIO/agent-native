@@ -1307,6 +1307,7 @@ export async function resolveSecretDetailed(
   if (email) {
     try {
       const { readAppSecret } = await import("../secrets/storage.js");
+
       // Per-user override first.
       const userSecret = await readAppSecret({
         key,
@@ -1333,14 +1334,25 @@ export async function resolveSecretDetailed(
         orgId = resolved.orgId;
       }
 
+      if (lookupFailed) {
+        return { value: null, lookupFailed: true, cause };
+      }
+
       if (orgId) {
+        // These rows are independent once the org is known, so read them in
+        // parallel while still applying precedence below in the same order.
+        const [orgRead, workspaceRead] = await Promise.allSettled([
+          readAppSecret({ key, scope: "org", scopeId: orgId }),
+          readAppSecret({ key, scope: "workspace", scopeId: orgId }),
+        ]);
+        const unwrap = <T>(settled: PromiseSettledResult<T>): T => {
+          if (settled.status === "rejected") throw settled.reason;
+          return settled.value;
+        };
+
         // Fall back to the active org's shared row, when present. Builder
         // Connect uses this first-class org scope.
-        const orgSecret = await readAppSecret({
-          key,
-          scope: "org",
-          scopeId: orgId,
-        });
+        const orgSecret = unwrap(orgRead);
         if (orgSecret?.value) {
           if (traceLookup) {
             console.log(
@@ -1353,11 +1365,7 @@ export async function resolveSecretDetailed(
         // Registered secrets historically used "workspace" scope for
         // org-shared configuration. Keep reading it so Settings status and
         // runtime resolution agree.
-        const workspaceSecret = await readAppSecret({
-          key,
-          scope: "workspace",
-          scopeId: orgId,
-        });
+        const workspaceSecret = unwrap(workspaceRead);
         if (workspaceSecret?.value) {
           if (traceLookup) {
             console.log(
@@ -1366,10 +1374,6 @@ export async function resolveSecretDetailed(
           }
           return { value: workspaceSecret.value, lookupFailed: false };
         }
-      }
-
-      if (lookupFailed) {
-        return { value: null, lookupFailed: true, cause };
       }
 
       // Solo-workspace fallback: always checked, even when an org id was found
