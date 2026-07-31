@@ -2,7 +2,6 @@ import {
   getDbExec,
   getDialect,
   isLocalDatabase,
-  isConnectionError,
   isPostgres,
   intType,
   type DbExec,
@@ -102,21 +101,14 @@ export async function appStateGet(
   sessionId: string,
   key: string,
 ): Promise<Record<string, unknown> | null> {
-  try {
-    await ensureTable();
-    const client = getDbExec();
-    const { rows } = await client.execute({
-      sql: `SELECT value FROM application_state WHERE session_id = ? AND key = ?`,
-      args: [sessionId, key],
-    });
-    if (rows.length === 0) return null;
-    return JSON.parse(rows[0].value as string);
-  } catch (err) {
-    // Transient WS / connection drops (Neon serverless) — caller polls every
-    // 2s and will see the value on the next tick. Swallow rather than 500.
-    if (isConnectionError(err)) return null;
-    throw err;
-  }
+  await ensureTable();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT value FROM application_state WHERE session_id = ? AND key = ?`,
+    args: [sessionId, key],
+  });
+  if (rows.length === 0) return null;
+  return JSON.parse(rows[0].value as string);
 }
 
 /**
@@ -133,22 +125,17 @@ export async function appStateGetMany(
   for (const key of uniqueKeys) values[key] = null;
   if (uniqueKeys.length === 0) return values;
 
-  try {
-    await ensureTable();
-    const client = getDbExec();
-    const placeholders = uniqueKeys.map(() => "?").join(", ");
-    const { rows } = await client.execute({
-      sql: `SELECT key, value FROM application_state WHERE session_id = ? AND key IN (${placeholders})`,
-      args: [sessionId, ...uniqueKeys],
-    });
-    for (const row of rows) {
-      values[row.key as string] = JSON.parse(row.value as string);
-    }
-    return values;
-  } catch (err) {
-    if (isConnectionError(err)) return values;
-    throw err;
+  await ensureTable();
+  const client = getDbExec();
+  const placeholders = uniqueKeys.map(() => "?").join(", ");
+  const { rows } = await client.execute({
+    sql: `SELECT key, value FROM application_state WHERE session_id = ? AND key IN (${placeholders})`,
+    args: [sessionId, ...uniqueKeys],
+  });
+  for (const row of rows) {
+    values[row.key as string] = JSON.parse(row.value as string);
   }
+  return values;
 }
 
 export async function appStatePut(
