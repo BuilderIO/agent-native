@@ -17,15 +17,33 @@ If you only remember one thing from this page: most AI apps stop one step short 
 
 ## What it looks like as a user {#what-it-looks-like}
 
-Picture a mail client, analytics dashboard, or project tracker. The first screen might be chat: you describe what you want, the agent does it, and the UI updates in real time. Or chat is docked on the side of a full application. Either way, you can:
+Picture a mail client, analytics dashboard, or project tracker. Chat might be the first screen — or docked on the side of a full app. Either way:
 
-- **Just ask.** Type "reply to the email from Sara saying I'll be there by 3." The agent opens the thread, drafts the reply, and shows it to you for approval.
-- **Or click.** All the buttons, lists, forms, and keyboard shortcuts still work — and they call the same operations the agent calls.
-- **See what it sees.** Open an email, and the agent knows which one. Select a chart, and the agent knows which chart. Highlight a paragraph and press `Cmd+I`, and the agent acts on just that paragraph.
-- **Watch it work.** As the agent opens views, edits drafts, and runs reports, the UI updates in real time. You can interrupt, redirect, or take over with the mouse at any moment.
-- **Steer it like a teammate.** Give feedback, queue another task, edit its instructions, audit what it did. It remembers, and it improves over time.
+<Cards>
 
-That's the experience agent-native is designed for. Here's why most products don't get there.
+### Just ask
+
+Type "reply to the email from Sara saying I'll be there by 3." The agent opens the thread, drafts the reply, and shows it to you for approval.
+
+### Or click
+
+Every button, list, form, and keyboard shortcut still works — and calls the same operation the agent uses.
+
+### See what it sees
+
+Open an email and the agent knows which one. Highlight a paragraph and press `Cmd+I` — the agent acts on exactly that.
+
+### Watch it work
+
+The UI updates in real time as the agent opens views, edits drafts, and runs reports. Interrupt, redirect, or take over with the mouse at any moment.
+
+### Steer it like a teammate
+
+Give feedback, queue tasks, audit what it did, edit its instructions. It remembers, and it improves.
+
+</Cards>
+
+Here's why most products don't get there.
 
 ## Why most "AI apps" fall short {#the-ladder}
 
@@ -35,21 +53,15 @@ There's a progression most teams climb, and most stop one rung too early.
 
 ### Rung 1 — A single LLM call
 
-A text box sends a prompt, the AI returns a string, you display it. There's no way to course-correct, no way for the AI to take action, no persistence, no audit trail.
-
-You see this everywhere: "AI features" that are a Summarize button bolted onto a SaaS product. Impressive in demos, breaks the moment reality gets messy.
+A text box sends a prompt, the AI returns a string, you display it. Impressive in demos; breaks the moment reality gets messy.
 
 ### Rung 2 — A chat with tools
 
-The AI can _do_ things. It has tools — "draft email," "search contacts," "run query" — and a chat interface where it works in front of you. This is what most AI assistants look like under the hood.
-
-Real step up, but still a chat window. No dashboards, no forms, no keyboard shortcuts, no collaboration. Non-developers struggle to get real work done here.
+The AI has tools and a chat interface where it works in front of you. Real step up — but still just a chat window with no dashboards, forms, or shortcuts.
 
 ### Rung 3 — Agent + UI as equal partners
 
-This is agent-native. A real, full-featured app where every agent action is also a button, and every button runs the same logic the agent uses. One implementation, two ways in.
-
-The agent has real context — it sees what you're looking at, writes to the same database the UI reads from, and its work shows up immediately. Other agents can call it too, over A2A and MCP.
+Every agent action is also a button; every button runs the same logic the agent uses. The agent sees what you're looking at, writes to the same database, and its work shows up in the UI immediately.
 
 </Comparison>
 
