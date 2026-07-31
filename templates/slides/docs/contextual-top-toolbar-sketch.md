@@ -63,15 +63,15 @@ chat and not assume AI does a good job one-off."
 
 ## 2. Where this lives today
 
-| Thing | File | Notes |
-| --- | --- | --- |
-| Deck editor page | `app/pages/DeckEditor.tsx` | owns panel open/close state |
-| Existing top bar | `app/components/editor/EditorToolbar.tsx:413` | `h-11` single row: back, title, counter, slide-settings cog, tools, save/presence, style toggle, comments, export/share, Present, overflow |
-| Style panel (to be moved) | `app/components/editor/SlideStyleInspector.tsx:260` | `SlideStyleInspector` + `SlideBackgroundInspector` |
-| Style dock mount | `app/components/editor/SlideEditor.tsx:4201` | `w-[17rem]` right dock, `hidden lg:block` |
-| Selection state | `app/components/editor/SlideEditor.tsx:1117-1136` | `selectedObjectId`, `selectedStyleSnapshot`, etc. |
-| Selection modes | `app/components/editor/slide-object-interactions.ts:58-143` | `single`, `multi`, `image`, `editing`, `box-selected`, `resizing`, `canvas` |
-| Agent chat | `app/components/layout/Layout.tsx:104` | `AgentSidebar position="right"` — **unchanged** |
+| Thing                     | File                                                        | Notes                                                                                                                                      |
+| ------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Deck editor page          | `app/pages/DeckEditor.tsx`                                  | owns panel open/close state                                                                                                                |
+| Existing top bar          | `app/components/editor/EditorToolbar.tsx:413`               | `h-11` single row: back, title, counter, slide-settings cog, tools, save/presence, style toggle, comments, export/share, Present, overflow |
+| Style panel (to be moved) | `app/components/editor/SlideStyleInspector.tsx:260`         | `SlideStyleInspector` + `SlideBackgroundInspector`                                                                                         |
+| Style dock mount          | `app/components/editor/SlideEditor.tsx:4201`                | `w-[17rem]` right dock, `hidden lg:block`                                                                                                  |
+| Selection state           | `app/components/editor/SlideEditor.tsx:1117-1136`           | `selectedObjectId`, `selectedStyleSnapshot`, etc.                                                                                          |
+| Selection modes           | `app/components/editor/slide-object-interactions.ts:58-143` | `single`, `multi`, `image`, `editing`, `box-selected`, `resizing`, `canvas`                                                                |
+| Agent chat                | `app/components/layout/Layout.tsx:104`                      | `AgentSidebar position="right"` — **unchanged**                                                                                            |
 
 The snapshot the panel already receives (`SlideStyleInspectorSnapshot`) carries
 everything a top bar needs: `isText`, `isImage`, `isAbsolute`, geometry, colors,
@@ -122,7 +122,7 @@ The Google Slides screenshot settles a structural question the first draft of
 this doc got wrong. Its toolbar is **not** wholly contextual — it is split:
 
 - **Stable segment (left):** zoom/`Fit`, select cursor, text box, shape, line,
-  image, comment. These are *insert & canvas tools*. They never change, so
+  image, comment. These are _insert & canvas tools_. They never change, so
   muscle memory holds and the row never feels like it is jumping around.
 - **Contextual segment (right of the divider):** in the screenshot nothing is
   selected, so it shows **Background · Layout · Theme · Transition** — i.e.
@@ -209,20 +209,20 @@ already supports this via `mixedTextStyles`).
 Every control in `SlideStyleInspector.tsx` has a destination. `●` = visible in
 the bar, `▾` = inside a grouped menu, `⋯` = overflow popover.
 
-| Today's section | Control | Text | Image | Shape |
-| --- | --- | --- | --- | --- |
-| Position | H align / V align | ≡▾ | ≡▾ | ≡▾ |
-| Position | X, Y, Rotation | ⋯ | ⋯ | ⋯ |
-| Arrange | Front / Back | ⧉▾ | ⧉▾ | ⧉▾ |
-| Layout | Width, Height | ⋯ | ⋯ | ⋯ |
-| Appearance | Opacity | ⋯ | ● | ● |
-| Appearance | Corner radius | ⋯ | ● | ● |
-| Fill / Tint | Color | ● | ● (tint) | ● |
-| Stroke | Weight, Color | ⋯ | ⋯ | ● |
-| Typography | Color, Size, Weight, Align | ● | — | — |
-| Typography | Line height | ● | — | — |
-| Spacing | Padding X / Y | ⋯ | — | ⋯ |
-| Background (no selection) | Slide fill | slide context bar | | |
+| Today's section           | Control                    | Text              | Image    | Shape |
+| ------------------------- | -------------------------- | ----------------- | -------- | ----- |
+| Position                  | H align / V align          | ≡▾                | ≡▾       | ≡▾    |
+| Position                  | X, Y, Rotation             | ⋯                 | ⋯        | ⋯     |
+| Arrange                   | Front / Back               | ⧉▾                | ⧉▾       | ⧉▾    |
+| Layout                    | Width, Height              | ⋯                 | ⋯        | ⋯     |
+| Appearance                | Opacity                    | ⋯                 | ●        | ●     |
+| Appearance                | Corner radius              | ⋯                 | ●        | ●     |
+| Fill / Tint               | Color                      | ●                 | ● (tint) | ●     |
+| Stroke                    | Weight, Color              | ⋯                 | ⋯        | ●     |
+| Typography                | Color, Size, Weight, Align | ●                 | —        | —     |
+| Typography                | Line height                | ●                 | —        | —     |
+| Spacing                   | Padding X / Y              | ⋯                 | —        | ⋯     |
+| Background (no selection) | Slide fill                 | slide context bar |          |       |
 
 Gap vs. Google Slides worth deciding on (see §8): font family, italic/underline/
 strikethrough, bullet & numbered lists, indent, text case, link, and
@@ -245,7 +245,7 @@ copy/paste-format.
 4. **Overflow is responsive.** Below `lg`, the row collapses progressively into
    `⋯`; the identity chip (`[T Text]`) and the most-used 3 controls stay.
 5. **Keep the inline warning chip.** The right-aligned `⚠ Layout overflows by
-   28px — Fix with AI` from the mock stays in row 2. It is contextual and
+28px — Fix with AI` from the mock stays in row 2. It is contextual and
    dismissible; it is not a prompt box.
 6. **Rich-text selection must survive.** Clicking the toolbar cannot blur the
    editable text. The dock already handles this via
@@ -315,5 +315,5 @@ re-mounted behind a flag — the decision is cheap to reverse.
 5. Responsive collapse.
 6. Update `.agents/skills/slide-editing` so the agent describes the new surface
    correctly, and add a changelog entry.
-</content>
-</invoke>
+   </content>
+   </invoke>
