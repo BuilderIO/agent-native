@@ -119,7 +119,7 @@ describe("ai-services Git read client", () => {
       }),
     );
 
-    const comments = await createAiServicesGitReadClient({
+    const { comments, truncated } = await createAiServicesGitReadClient({
       baseUrl: "https://ai-services.example.test",
       authorization: "Bearer test-token",
       fetchImpl,
@@ -129,6 +129,7 @@ describe("ai-services Git read client", () => {
       pullRequestNumber: 1,
     });
 
+    expect(truncated).toBe(false);
     expect(comments).toEqual([
       {
         id: "111",

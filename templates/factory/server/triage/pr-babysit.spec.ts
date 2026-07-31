@@ -160,4 +160,28 @@ describe("reconcileBabysitState", () => {
       comment({ id: "c2", author: "human" }),
     ]);
   });
+
+  it("is never clean when the comment page was truncated", () => {
+    const result = reconcileBabysitState({
+      ...baseInput,
+      comments: [],
+      checks: [],
+      commentsTruncated: true,
+    });
+
+    expect(result.unansweredComments).toEqual([]);
+    expect(result.commentsTruncated).toBe(true);
+    expect(result.isClean).toBe(false);
+  });
+
+  it("is clean when nothing is outstanding and nothing was truncated", () => {
+    const result = reconcileBabysitState({
+      ...baseInput,
+      comments: [],
+      checks: [],
+    });
+
+    expect(result.commentsTruncated).toBe(false);
+    expect(result.isClean).toBe(true);
+  });
 });

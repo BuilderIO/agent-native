@@ -27,9 +27,10 @@ export interface FetchReviewCommentsInput {
   orgId: string;
 }
 
-export type FetchReviewComments = (
-  input: FetchReviewCommentsInput,
-) => Promise<readonly ReviewCommentObservation[]>;
+export type FetchReviewComments = (input: FetchReviewCommentsInput) => Promise<{
+  comments: readonly ReviewCommentObservation[];
+  truncated: boolean;
+}>;
 
 // Same non-secret deployment endpoint/project id the Builder executor reads
 // (server/triage/builder-executor.ts); that resolver is private to this file
@@ -99,7 +100,7 @@ export function createBabysitPullRequestAction(
       const { userEmail, orgId } = await requireWorkspaceMember(
         workspaceMemberIdentityFromContext(context),
       );
-      const comments = await fetchComments({
+      const { comments, truncated } = await fetchComments({
         repo: input.repo,
         pullRequestNumber: input.pullRequestNumber,
         ownerEmail: userEmail,
@@ -110,6 +111,7 @@ export function createBabysitPullRequestAction(
         checks: input.checks,
         failingJobLog: input.failingJobLog,
         botAuthors: input.botAuthors,
+        commentsTruncated: truncated,
       });
     },
   });

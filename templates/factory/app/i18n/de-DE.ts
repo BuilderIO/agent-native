@@ -113,21 +113,6 @@ const messages = {
       "Geschützte Kategorien bleiben immer blockiert: Identität, Zugangsdaten, Migrationen, Zahlungen, Sicherheit und veröffentlichbare Pakete.",
     saveRule: "Regel speichern",
     ruleSaved: "Regel gespeichert.",
-    settingsTitle: "Beobachtungseinstellungen",
-    settingsDescription:
-      "Den schreibgeschützten Slack-Poller und den Repository-Kontext konfigurieren.",
-    slackWorkspace: "Slack-Arbeitsbereich",
-    slackChannelId: "Slack-Kanal-ID",
-    slackChannelPlaceholder: "Zum Beispiel C0123456789",
-    slackChannelName: "Kanalname",
-    slackChannelNamePlaceholder: "Zum Beispiel product-agent-native-feedback",
-    repository: "Repository",
-    repositoryPlaceholder: "Zum Beispiel BuilderIO/agent-native",
-    enablePolling: "Beobachtungen im Minutentakt aktivieren",
-    saveSettings: "Einstellungen speichern",
-    settingsError:
-      "Beobachtungseinstellungen konnten nicht gespeichert werden.",
-    settingsSaved: "Beobachtungseinstellungen gespeichert.",
     approvalError: "Die Genehmigung konnte nicht gestartet werden.",
   },
   pages: {
