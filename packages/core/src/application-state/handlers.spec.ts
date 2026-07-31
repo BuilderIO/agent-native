@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // --- Mock dependencies ---
 
 const mockAppStateGet = vi.fn();
+const mockAppStateGetManyEntries = vi.fn();
 const mockAppStatePut = vi.fn();
 const mockAppStateDelete = vi.fn();
 const mockAppStateList = vi.fn();
@@ -10,6 +11,8 @@ const mockAppStateDeleteByPrefix = vi.fn();
 
 vi.mock("./store.js", () => ({
   appStateGet: (...args: any[]) => mockAppStateGet(...args),
+  appStateGetManyEntries: (...args: any[]) =>
+    mockAppStateGetManyEntries(...args),
   appStatePut: (...args: any[]) => mockAppStatePut(...args),
   appStateDelete: (...args: any[]) => mockAppStateDelete(...args),
   appStateList: (...args: any[]) => mockAppStateList(...args),
@@ -29,6 +32,7 @@ vi.mock("h3", () => ({
     Object.assign(new Error(opts.statusMessage), opts),
   readBody: (event: any) => Promise.resolve(event._body),
   getRouterParam: (event: any, key: string) => event._params?.[key],
+  getQuery: (event: any) => event._query ?? {},
   getHeader: (event: any, name: string) => event._headers?.[name.toLowerCase()],
   setResponseStatus: (_event: any, code: number) => {
     lastStatus = code;
@@ -38,6 +42,8 @@ vi.mock("h3", () => ({
 import { getSession } from "../server/auth.js";
 import {
   getState,
+  getStateMany,
+  MAX_APP_STATE_BATCH_KEYS,
   putState,
   deleteState,
   listComposeDrafts,
@@ -109,6 +115,111 @@ describe("application-state handlers", () => {
       });
 
       expect(mockAppStateGet).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("getStateMany", () => {
+    it("returns every requested key in a single store read", async () => {
+      mockAppStateGetManyEntries.mockResolvedValue([
+        { key: "navigation", value: { view: "detail" } },
+        { key: "selection:tab-1", value: { ids: ["a"] } },
+      ]);
+
+      const event = { _query: { keys: "navigation,selection:tab-1" } };
+      const result = await getStateMany(event);
+
+      expect(mockAppStateGetManyEntries).toHaveBeenCalledTimes(1);
+      expect(mockAppStateGetManyEntries).toHaveBeenCalledWith(
+        "user@example.com",
+        ["navigation", "selection:tab-1"],
+      );
+      expect(result).toEqual({
+        values: {
+          navigation: { view: "detail" },
+          "selection:tab-1": { ids: ["a"] },
+        },
+        missing: [],
+      });
+    });
+
+    it("reports absent keys as missing, not as empty values", async () => {
+      mockAppStateGetManyEntries.mockResolvedValue([
+        { key: "stored-null", value: null },
+        { key: "stored-empty", value: {} },
+      ]);
+
+      const event = {
+        _query: { keys: "stored-null,stored-empty,never-written" },
+      };
+      const result = await getStateMany(event);
+
+      expect(result).toEqual({
+        values: { "stored-null": null, "stored-empty": {} },
+        missing: ["never-written"],
+      });
+      // An absent key is absent from `values` entirely — a caller can tell it
+      // apart from a key whose stored value happens to be null or empty.
+      expect("never-written" in (result as any).values).toBe(false);
+      expect((result as any).values["stored-null"]).toBeNull();
+      expect((result as any).missing).not.toContain("stored-null");
+    });
+
+    it("scopes the read to the caller and rejects unauthenticated requests", async () => {
+      vi.mocked(getSession).mockResolvedValue({
+        email: "other@example.com",
+      } as any);
+      mockAppStateGetManyEntries.mockResolvedValue([]);
+      await getStateMany({ _query: { keys: "navigation" } });
+      expect(mockAppStateGetManyEntries).toHaveBeenCalledWith(
+        "other@example.com",
+        ["navigation"],
+      );
+
+      vi.mocked(getSession).mockResolvedValue(null as any);
+      mockAppStateGetManyEntries.mockClear();
+      await expect(
+        getStateMany({ _query: { keys: "navigation" } }),
+      ).rejects.toMatchObject({ statusCode: 401 });
+      expect(mockAppStateGetManyEntries).not.toHaveBeenCalled();
+    });
+
+    it("sanitizes and de-duplicates keys the same way the single-key route does", async () => {
+      mockAppStateGetManyEntries.mockResolvedValue([]);
+
+      await getStateMany({
+        _query: { keys: "test!@#$,navigation,navigation" },
+      });
+
+      expect(mockAppStateGetManyEntries).toHaveBeenCalledWith(
+        "user@example.com",
+        ["test", "navigation"],
+      );
+    });
+
+    it("rejects an empty or oversized key list", async () => {
+      await expect(getStateMany({ _query: {} })).rejects.toMatchObject({
+        statusCode: 400,
+      });
+      const tooMany = Array.from(
+        { length: MAX_APP_STATE_BATCH_KEYS + 1 },
+        (_, i) => `k${i}`,
+      ).join(",");
+      await expect(
+        getStateMany({ _query: { keys: tooMany } }),
+      ).rejects.toMatchObject({ statusCode: 400 });
+      expect(mockAppStateGetManyEntries).not.toHaveBeenCalled();
+    });
+
+    it("leaves the single-key route untouched", async () => {
+      mockAppStateGet.mockResolvedValue({ view: "detail" });
+
+      const result = await getState({
+        _params: { key: "navigation" },
+        _headers: {},
+      });
+
+      expect(result).toEqual({ view: "detail" });
+      expect(mockAppStateGetManyEntries).not.toHaveBeenCalled();
     });
   });
 

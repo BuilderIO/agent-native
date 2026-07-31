@@ -6,6 +6,7 @@ import {
   useRef,
   useLayoutEffect,
   useCallback,
+  useId,
   type ReactNode,
 } from "react";
 import ReactMarkdown from "react-markdown";
@@ -477,6 +478,8 @@ function AutoFitContent({
 
 /** Renders blank slide HTML content and applies white filter to logo images */
 function BlankSlideContent({ content }: { content: string }) {
+  const scopeId = `slide-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
+  const scopeSelector = `[data-slide-content-scope="${scopeId}"]`;
   // Memoize derived strings + the dangerouslySetInnerHTML object on `content` so
   // the prop value has a stable reference across re-renders. React 19 only checks
   // reference equality on `dangerouslySetInnerHTML` and unconditionally re-assigns
@@ -505,6 +508,7 @@ function BlankSlideContent({ content }: { content: string }) {
           return before + ' style="filter:brightness(0) invert(1);"' + close;
         },
       ),
+      { scopeSelector },
     );
 
     return {
@@ -516,7 +520,10 @@ function BlankSlideContent({ content }: { content: string }) {
 
   if (mermaidBlocks.length > 0) {
     return (
-      <div className="slide-content text-white/90 w-full block h-full">
+      <div
+        className="slide-content text-white/90 w-full block h-full"
+        data-slide-content-scope={scopeId}
+      >
         <MermaidHtmlContent
           html={htmlWithPlaceholders}
           mermaidBlocks={mermaidBlocks}
@@ -528,6 +535,7 @@ function BlankSlideContent({ content }: { content: string }) {
   return (
     <div
       className="slide-content text-white/90 w-full block h-full"
+      data-slide-content-scope={scopeId}
       dangerouslySetInnerHTML={dangerousHtml}
     />
   );

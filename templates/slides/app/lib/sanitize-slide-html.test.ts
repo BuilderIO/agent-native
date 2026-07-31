@@ -43,6 +43,19 @@ describe("sanitizeSlideHtml", () => {
     expect(html).toContain("opacity: 0");
     expect(html).not.toContain("url(");
   });
+
+  it("scopes rendered style blocks to the slide root", () => {
+    const html = sanitizeSlideHtml(
+      '<style>body { margin: 0; } .title, [data-pstep="0"] { opacity: 0; }</style><div class="title">ok</div>',
+      { scopeSelector: '[data-slide-content-scope="test"]' },
+    );
+
+    expect(html).toContain('[data-slide-content-scope="test"] { margin: 0; }');
+    expect(html).toContain(
+      '[data-slide-content-scope="test"] .title, [data-slide-content-scope="test"] [data-pstep="0"]',
+    );
+    expect(html).not.toContain("body {");
+  });
 });
 
 describe("sanitizeSlideUrl", () => {
