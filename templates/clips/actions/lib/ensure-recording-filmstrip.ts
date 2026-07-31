@@ -20,6 +20,7 @@ import { uploadFile } from "@agent-native/core/file-upload";
 import { and, eq } from "drizzle-orm";
 
 import { getDb, schema } from "../../server/db/index.js";
+import { deleteRecordingMediaObjects } from "../../server/lib/recording-media-cleanup.js";
 import { ownerEmailMatches } from "../../server/lib/recordings.js";
 import {
   DEFAULT_FILMSTRIP_FRAME_COUNT,
@@ -223,6 +224,13 @@ export async function ensureRecordingFilmstrip(params: {
       filmstripUrl: rec.filmstripUrl,
       detail: "Recording changed while the filmstrip sprite was uploading.",
     };
+  }
+
+  if (rec.filmstripUrl && rec.filmstripUrl !== upload.url) {
+    await deleteRecordingMediaObjects({
+      id: recordingId,
+      filmstripUrl: rec.filmstripUrl,
+    }).catch(() => {});
   }
 
   await writeAppState(filmstripMarkerKey(recordingId), {

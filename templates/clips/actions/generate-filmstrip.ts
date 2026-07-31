@@ -90,18 +90,18 @@ export default defineAction({
     if (args.ids?.length) targetIds.push(...args.ids.filter(Boolean));
 
     if (args.all) {
+      const conditions = [
+        ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+        eq(schema.recordings.status, "ready"),
+        isNotNull(schema.recordings.videoUrl),
+      ];
+      if (!args.force) {
+        conditions.push(isNull(schema.recordings.filmstripUrl));
+      }
       const rows = await db
         .select({ id: schema.recordings.id })
         .from(schema.recordings)
-        .where(
-          and(
-            ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
-            eq(schema.recordings.status, "ready"),
-            isNotNull(schema.recordings.videoUrl),
-            // Backfill means "has none yet"; use `force` to redo existing ones.
-            isNull(schema.recordings.filmstripUrl),
-          ),
-        )
+        .where(and(...conditions))
         .orderBy(desc(schema.recordings.createdAt))
         .limit(args.limit ?? DEFAULT_ALL_LIMIT);
       targetIds.push(...rows.map((r) => r.id));

@@ -7,6 +7,7 @@ interface RecordingMediaUrls {
   videoUrl?: string | null;
   thumbnailUrl?: string | null;
   animatedThumbnailUrl?: string | null;
+  filmstripUrl?: string | null;
 }
 
 export interface RecordingMediaCleanupResult {
@@ -25,6 +26,7 @@ export function recordingMediaUrls(recording: RecordingMediaUrls): string[] {
     recording.videoUrl,
     recording.thumbnailUrl,
     recording.animatedThumbnailUrl,
+    recording.filmstripUrl,
   ];
   return [...new Set(urls.filter((url): url is string => Boolean(url)))];
 }

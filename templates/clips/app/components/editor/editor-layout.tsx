@@ -540,6 +540,10 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
 
   const [filmstripFrames, setFilmstripFrames] = useState<FilmstripFrame[]>([]);
 
+  useEffect(() => {
+    setFilmstripFrames([]);
+  }, [recordingId]);
+
   // Cells should read as video frames, so aim for one per `height * aspect` of
   // track. Bucketed so ordinary window resizing does not re-extract, and based
   // on the unzoomed width — a zoomed fallback strip stretches, which is one of
@@ -552,8 +556,15 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
 
   useEffect(() => {
     // A sprite already covers the whole clip — don't decode the video again.
-    if (filmstripSprite) return;
-    if (!waveformMediaUrl || durationMs <= 0) return;
+    if (filmstripSprite) {
+      setFilmstripFrames([]);
+      return;
+    }
+    if (!waveformMediaUrl || durationMs <= 0) {
+      setFilmstripFrames([]);
+      return;
+    }
+    setFilmstripFrames([]);
     let cancelled = false;
     // `waveformMediaUrl`, not `videoUrl`: reading frames back out of a
     // cross-origin video taints the canvas, so provider media must come
@@ -833,7 +844,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
                     transform: `translateX(${-scrollLeft}px)`,
                   }}
                 >
-                  {(selectionRange || !playing) && (
+                  {durationMs > 0 && (
                     <TrimHandles
                       width={totalWidth}
                       height={WAVEFORM_HEIGHT}
