@@ -30,7 +30,7 @@ import {
   AGENT_BACKGROUND_PROCESSOR_ROUTE,
   AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
-  isDurableBackgroundFlagEnabled,
+  isDurableBackgroundFlagExplicitlyDisabled,
 } from "../agent/durable-background.js";
 import {
   INTEGRATION_RECOVERY_RUNTIME_MARKER,
@@ -2576,29 +2576,14 @@ export function findInstalledResvgPackages(
 
 /**
  * Deploy-time gate for emitting the second `-background` Netlify function.
- * Reads the same env flag the runtime gate uses
- * (`AGENT_CHAT_DURABLE_BACKGROUND`).
- *
- * DEFAULT-OFF (opt-in). It IS the runtime gate's flag parse
- * (`isDurableBackgroundFlagEnabled`), so the two can no longer drift:
- * unset/empty/unknown means DISABLED; an app opts IN
- * only with an explicit truthy value (`true`/`1`/`yes`/`on`). A premature
- * fleet-wide default-on caused real-user incidents (2026-06-24) before the
- * async worker path was proven, so durable is opt-in until verified live. This
- * gate is what emits the 15-min `-background` function so the `_process-run`
- * dispatch lands on it (async 202 → the worker runs with the real 15-min budget
- * → its ~13-min soft-timeout fits). The deploy gate and runtime gate MUST agree:
- * if the deploy emitted no `-background` function but the runtime still routed
- * the worker into the ~13-min timeout regime, the worker would overshoot the
- * ~60s synchronous wall and re-dispatch in a loop. (The runtime now also guards
- * the ~13-min budget on the real function name via `isInBackgroundFunctionRuntime`,
- * so a missing emit does not loop.) A missing emit is NOT benign, though: the
- * app then runs every turn on the ~60s synchronous wall for the life of the
- * deploy, so an opted-in build that cannot emit the function FAILS rather than
- * warning.
+ * Netlify deploys are default-on; an explicit falsy
+ * `AGENT_CHAT_DURABLE_BACKGROUND` value opts out. This is called only from the
+ * Netlify preset, so non-Netlify builds remain unaffected. The gate and runtime
+ * default must agree: otherwise the runtime could target a worker that the
+ * deploy did not emit.
  */
 export function isDurableBackgroundDeployEnabled(): boolean {
-  return isDurableBackgroundFlagEnabled();
+  return !isDurableBackgroundFlagExplicitlyDisabled();
 }
 
 /**
