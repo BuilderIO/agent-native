@@ -839,4 +839,73 @@ Do some work.`,
     expect(createThreadMock).not.toHaveBeenCalled();
     expect(resourcePutMock).not.toHaveBeenCalled();
   });
+
+  it("does not record a lastRun for a tick that never ran the job", async () => {
+    // A job whose run-as user no longer exists is skipped on every tick. It
+    // must not report a run it never performed — the reason goes in lastError
+    // and the evaluation time in lastCheck.
+    dbExecuteMock.mockResolvedValue({ rows: [] });
+    resourceListAllOwnersMock.mockResolvedValueOnce([
+      {
+        id: "resource-blocked",
+        owner: "ghost@agent-native.test",
+        path: "jobs/blocked-job.md",
+        content: `---
+schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+createdBy: ghost@agent-native.test
+---
+
+Do some work.`,
+      },
+    ]);
+
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+    });
+
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+    expect(resourcePutMock).toHaveBeenCalledOnce();
+    const content: string = resourcePutMock.mock.calls[0][2];
+    expect(content).toContain("lastStatus: skipped");
+    expect(content).toContain("no longer exists");
+    expect(content).toContain("lastCheck:");
+    expect(content).not.toContain("lastRun:");
+  });
+
+  it("stops rewriting a blocked job once its failure state is recorded", async () => {
+    // The skip path used to persist the resource on every 60s tick, churning
+    // the poll stream and moving the displayed timestamp forever.
+    dbExecuteMock.mockResolvedValue({ rows: [] });
+    const blocked = {
+      id: "resource-blocked",
+      owner: "ghost@agent-native.test",
+      path: "jobs/blocked-job.md",
+      content: `---
+schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+createdBy: ghost@agent-native.test
+lastStatus: skipped
+lastError: "user \\"ghost@agent-native.test\\" no longer exists"
+---
+
+Do some work.`,
+    };
+    resourceListAllOwnersMock.mockResolvedValueOnce([blocked]);
+
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+    });
+
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+    expect(resourcePutMock).not.toHaveBeenCalled();
+  });
 });
