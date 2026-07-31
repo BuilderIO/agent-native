@@ -76,6 +76,52 @@ describe("buildAssistantMessage", () => {
     ]);
   });
 
+  // Each failed engine attempt emits its own `clear`, so three failures in a
+  // row is the ordinary shape. Skipping only the last one still applied the
+  // other two and destroyed the answer the user had already been shown.
+  it("ignores a whole trailing run of clears, not just the last one", () => {
+    const events: RunEvent[] = [
+      { seq: 0, event: { type: "text", text: "Here is the answer" } },
+      { seq: 1, event: { type: "clear" } },
+      { seq: 2, event: { type: "clear" } },
+      { seq: 3, event: { type: "clear" } },
+    ];
+
+    const message = buildAssistantMessage(events, "run-trailing-clear-streak");
+
+    expect(message?.content).toEqual([
+      { type: "text", text: "Here is the answer" },
+    ]);
+  });
+
+  // The second-order effect: with the text spliced out and no tool call to keep
+  // `content` non-empty, the builder returned null and the user's message was
+  // persisted with no assistant reply at all.
+  it("still persists an assistant message after a trailing clear streak", () => {
+    const events: RunEvent[] = [
+      { seq: 0, event: { type: "text", text: "Partial answer" } },
+      { seq: 1, event: { type: "clear" } },
+      { seq: 2, event: { type: "clear" } },
+    ];
+
+    expect(buildAssistantMessage(events, "run-no-reply")).not.toBeNull();
+  });
+
+  // A clear with real events after it still applies — the successor chunk
+  // re-emits what it wiped, which is the whole point of the event.
+  it("applies a clear that is followed by more content", () => {
+    const events: RunEvent[] = [
+      { seq: 0, event: { type: "text", text: "Discarded draft" } },
+      { seq: 1, event: { type: "clear" } },
+      { seq: 2, event: { type: "clear" } },
+      { seq: 3, event: { type: "text", text: "Real answer" } },
+    ];
+
+    const message = buildAssistantMessage(events, "run-mid-clear");
+
+    expect(message?.content).toEqual([{ type: "text", text: "Real answer" }]);
+  });
+
   it("rebuilds streamed thinking as persisted reasoning parts", () => {
     const events: RunEvent[] = [
       { seq: 0, event: { type: "thinking", text: "First, " } },

@@ -1566,7 +1566,27 @@ describe("terminal status is `completed` iff the terminal reason is `done`", () 
       const update = execCalls.find((call) =>
         /UPDATE agent_runs/i.test(call.sql),
       );
-      expect(update?.sql).not.toContain("status");
+      // The SET clause is what must leave status alone — the WHERE clause reads
+      // it deliberately, to keep the write once-only (see the guard below).
+      const setClause = update?.sql.split(/\bWHERE\b/i)[0] ?? "";
+      expect(setClause).not.toContain("status");
+    }
+  });
+
+  // Three writers in three isolates race on terminal_reason with no ordering.
+  // Last-writer-wins let a late mid-run checkpoint relabel a row another
+  // isolate had already finalized, producing rows whose reason names a failure
+  // the run never hit.
+  it("setRunTerminalReason will not relabel a row that already recorded one", async () => {
+    for (const reason of ["done", "no_progress", "dispatch_payload_missing"]) {
+      execCalls.length = 0;
+      await setRunTerminalReason("run-final", reason);
+      const update = execCalls.find((call) =>
+        /UPDATE agent_runs/i.test(call.sql),
+      );
+      expect(update?.sql).toContain(
+        "(status = 'running' OR terminal_reason IS NULL OR terminal_reason = '')",
+      );
     }
   });
 });

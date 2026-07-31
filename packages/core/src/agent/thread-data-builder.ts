@@ -140,12 +140,29 @@ export function buildAssistantMessage(
     }
   };
 
+  // Index of the last event that is not a `clear`. Everything after it is a
+  // trailing run of clears with no successor chunk to re-emit what they wipe.
+  let lastNonClearIndex = events.length - 1;
+  while (
+    lastNonClearIndex >= 0 &&
+    events[lastNonClearIndex]?.event.type === "clear"
+  ) {
+    lastNonClearIndex -= 1;
+  }
+
   for (const [index, { event }] of events.entries()) {
     if (event.type === "clear") {
       // A live stream always follows `clear` with the chunk that re-emits the
       // wiped content. A rebuild has no successor, so applying a TRAILING
       // clear can only destroy the transcript permanently.
-      if (index === events.length - 1) continue;
+      //
+      // The whole trailing RUN has to be skipped, not just the final element:
+      // each failed engine attempt emits one `clear`, so three failed attempts
+      // in a row is the common shape, and skipping only the last still applied
+      // the other two. When the run made no tool calls that emptied `content`
+      // entirely and this builder returned null — the user's message was left
+      // with no assistant reply at all.
+      if (index > lastNonClearIndex) continue;
       clearAssistantDraftContent(content);
       continue;
     }
