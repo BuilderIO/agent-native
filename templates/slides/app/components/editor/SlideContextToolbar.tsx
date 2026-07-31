@@ -50,7 +50,9 @@ import {
 } from "./SlideStyleInspector";
 
 const TOOLBAR_DIVIDER = "mx-1 h-4 w-px shrink-0 bg-border";
-const SWATCH_CLASS = "shrink-0 rounded-sm";
+// The toolkit trigger is w-full for the vertical dock; in a flex row that
+// swallows the remaining width and pushes later controls out of view.
+const SWATCH_CLASS = "w-28 shrink-0 rounded-sm";
 const SCRUB_CLASS = "w-24 shrink-0";
 const MENU_BUTTON_CLASS =
   "size-7 shrink-0 cursor-pointer text-muted-foreground hover:text-foreground";
@@ -159,6 +161,19 @@ export function SlideContextToolbar({
                 contentProps={inlineEditSurfaceProps}
                 onChange={(value) => onChange({ color: value })}
               />
+
+              <div className={TOOLBAR_DIVIDER} />
+              <VisualSegmentedControl
+                value={snapshot.textAlign}
+                onChange={(textAlign) => onChange({ textAlign })}
+                className="slides-inspector-segment shrink-0"
+                options={[
+                  { label: t("styleInspector.left"), value: "left" },
+                  { label: t("styleInspector.center"), value: "center" },
+                  { label: t("styleInspector.right"), value: "right" },
+                  { label: t("styleInspector.justify"), value: "justify" },
+                ]}
+              />
             </>
           ) : (
             <>
@@ -232,7 +247,7 @@ export function SlideContextToolbar({
 
           <div className={TOOLBAR_DIVIDER} />
 
-          {(snapshot.isAbsolute || snapshot.isText) && (
+          {snapshot.isAbsolute && (
             <Popover>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -255,24 +270,6 @@ export function SlideContextToolbar({
                 className="w-60 space-y-2 p-2"
                 {...inlineEditSurfaceProps}
               >
-                {snapshot.isText && (
-                  <VisualControlRow label={t("styleInspector.text")}>
-                    <VisualSegmentedControl
-                      value={snapshot.textAlign}
-                      onChange={(textAlign) => onChange({ textAlign })}
-                      className="slides-inspector-segment"
-                      options={[
-                        { label: t("styleInspector.left"), value: "left" },
-                        { label: t("styleInspector.center"), value: "center" },
-                        { label: t("styleInspector.right"), value: "right" },
-                        {
-                          label: t("styleInspector.justify"),
-                          value: "justify",
-                        },
-                      ]}
-                    />
-                  </VisualControlRow>
-                )}
                 {snapshot.isAbsolute && (
                   <>
                     <VisualControlRow label={t("styleInspector.horizontal")}>
