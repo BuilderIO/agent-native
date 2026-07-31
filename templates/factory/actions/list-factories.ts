@@ -2,13 +2,13 @@ import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 import {
-  requireWorkspaceMember,
-  workspaceMemberIdentityFromContext,
-} from "../server/lib/require-workspace-member.js";
-import {
   defaultFactoryDefinition,
   listFactoryDefinitions,
 } from "../server/factory-graph/store.js";
+import {
+  requireWorkspaceMember,
+  workspaceMemberIdentityFromContext,
+} from "../server/lib/require-workspace-member.js";
 
 export default defineAction({
   description:

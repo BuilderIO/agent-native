@@ -2,16 +2,16 @@ import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 import {
-  requireWorkspaceMember,
-  workspaceMemberIdentityFromContext,
-} from "../server/lib/require-workspace-member.js";
-import {
   defaultFactoryDefinition,
   DEFAULT_FACTORY_ID,
   parseFactoryGraph,
   readFactoryDefinition,
   readFactoryMetrics,
 } from "../server/factory-graph/store.js";
+import {
+  requireWorkspaceMember,
+  workspaceMemberIdentityFromContext,
+} from "../server/lib/require-workspace-member.js";
 
 export default defineAction({
   description:
@@ -52,7 +52,10 @@ export default defineAction({
       graph,
       metrics,
       nodeMetrics: Object.fromEntries(
-        graph.nodes.map((node) => [node.id, metricValues[node.metricsKey ?? ""] ?? 0]),
+        graph.nodes.map((node) => [
+          node.id,
+          metricValues[node.metricsKey ?? ""] ?? 0,
+        ]),
       ),
     };
   },

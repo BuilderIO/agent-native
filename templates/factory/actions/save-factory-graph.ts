@@ -1,5 +1,5 @@
-import { buildDeepLink } from "@agent-native/core/server";
 import { defineAction } from "@agent-native/core/action";
+import { buildDeepLink } from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -9,14 +9,17 @@ import {
   factoryGraphVersions,
 } from "../server/db/schema.js";
 import {
-  requireWorkspaceMember,
-  workspaceMemberIdentityFromContext,
-} from "../server/lib/require-workspace-member.js";
-import {
   factoryGraphSchema,
   normalizeFactoryGraph,
 } from "../server/factory-graph/contracts.js";
-import { DEFAULT_FACTORY_ID, readFactoryDefinition } from "../server/factory-graph/store.js";
+import {
+  DEFAULT_FACTORY_ID,
+  readFactoryDefinition,
+} from "../server/factory-graph/store.js";
+import {
+  requireWorkspaceMember,
+  workspaceMemberIdentityFromContext,
+} from "../server/lib/require-workspace-member.js";
 import { stableId } from "../server/triage/ids.js";
 
 export default defineAction({
@@ -62,7 +65,12 @@ export default defineAction({
       description,
     });
     const now = new Date().toISOString();
-    const versionId = stableId("factory-graph", orgId, factoryId, String(nextVersion));
+    const versionId = stableId(
+      "factory-graph",
+      orgId,
+      factoryId,
+      String(nextVersion),
+    );
 
     await db.insert(factoryGraphVersions).values({
       id: versionId,
