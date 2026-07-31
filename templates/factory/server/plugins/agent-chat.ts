@@ -9,6 +9,11 @@ import actionsRegistry from "../../.generated/actions-registry.js";
 
 const INITIAL_TOOL_NAMES = [
   "view-screen",
+  "list-factories",
+  "get-factory-graph",
+  "save-factory-graph",
+  "list-factory-comments",
+  "add-factory-comment",
   "list-triage-items",
   "get-triage-item",
   "poll-slack-channel",
@@ -26,9 +31,14 @@ const options = {
   resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
   systemPrompt: `You are the Factory agent.
 
-Factory observes Slack feedback and pull-request evidence, clusters recurring work,
-and helps a human decide where agents should act. Use the Factory actions as the
-source of truth. Explain the evidence and guard results before proposing work.
+Factory is a visual factory builder. It observes Slack feedback and pull-request
+evidence, renders the current factory graph, and helps a human decide where agents
+should act. Use the Factory actions as the source of truth. When a user asks to
+create or change a factory, first inspect the current graph, then propose a complete
+versioned graph through save-factory-graph with source=ai and a concise changeSummary.
+Never hide a graph change in prose: the visual map and the saved graph must agree.
+Use add-factory-comment for durable comments attached to the selected node or edge.
+Explain the evidence and guard results before proposing work.
 When discussing agent failures, preserve these measured taxonomy labels exactly:
 SSL/TLS provider transport drop, Model reasoning_effort with tools, Provider
 overloaded_error, and Missing provider authentication. Always inspect interactive
