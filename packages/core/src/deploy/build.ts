@@ -32,6 +32,7 @@ import {
   AGENT_CHAT_PROCESS_RUN_PATH,
   isDurableBackgroundFlagExplicitlyDisabled,
 } from "../agent/durable-background.js";
+import { CLOUDFLARE_R2_BINDING_NAME } from "../file-upload/cloudflare-r2.js";
 import {
   INTEGRATION_RECOVERY_RUNTIME_MARKER,
   INTEGRATION_RETRY_SWEEP_PATH,
@@ -247,6 +248,30 @@ export function resolveCloudflareD1Binding(
   };
 }
 
+export interface CloudflareR2BindingConfig {
+  binding: string;
+  bucket_name: string;
+}
+
+/**
+ * Resolve the Worker's R2 binding from the build environment.
+ *
+ * Absent means "this Worker has no object storage". That is a real
+ * configuration, not a defect, so it emits no binding — but it is also not a
+ * working upload path, and the provider refuses the upload at runtime rather
+ * than letting the payload reach SQL.
+ */
+export function resolveCloudflareR2Binding(
+  env: NodeJS.ProcessEnv = process.env,
+): CloudflareR2BindingConfig | null {
+  const bucketName = env.CLOUDFLARE_R2_BUCKET_NAME?.trim();
+  if (!bucketName) return null;
+  return {
+    binding: CLOUDFLARE_R2_BINDING_NAME,
+    bucket_name: bucketName,
+  };
+}
+
 export function configureCloudflareModuleWorkerOutput(
   serverDir: string,
   env: NodeJS.ProcessEnv = process.env,
@@ -286,6 +311,16 @@ export function configureCloudflareModuleWorkerOutput(
     config.d1_databases = [
       ...existing.filter((entry) => entry?.binding !== d1Binding.binding),
       d1Binding,
+    ];
+  }
+  const r2Binding = resolveCloudflareR2Binding(env);
+  if (r2Binding) {
+    const existing = Array.isArray(config.r2_buckets)
+      ? (config.r2_buckets as CloudflareR2BindingConfig[])
+      : [];
+    config.r2_buckets = [
+      ...existing.filter((entry) => entry?.binding !== r2Binding.binding),
+      r2Binding,
     ];
   }
   fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);

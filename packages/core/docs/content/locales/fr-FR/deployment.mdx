@@ -333,6 +333,17 @@ l'environnement de build pour que celui-ci écrive le binding `DB` dans le
 binding silencieusement omis. La séquence complète de démarrage local figure
 dans le guide de déploiement en anglais.
 
+### Cloudflare R2 {#cloudflare-r2}
+
+Un Worker n'a pas de système de fichiers et le contenu des fichiers n'a pas sa
+place en SQL : les téléversements vont donc dans R2. Définissez
+`CLOUDFLARE_R2_BUCKET_NAME` dans l'environnement de build pour que la liaison
+`UPLOADS` soit écrite dans le `wrangler.json` généré, et
+`CLOUDFLARE_R2_PUBLIC_BASE_URL` sur l'URL publique du bucket. Le fournisseur
+est déjà enregistré dans le registre de téléversement. Une liaison absente ou
+inutilisable échoue avec les instructions de configuration au lieu d'écrire la
+charge utile en SQL. Détails dans le guide de déploiement anglais.
+
 ## AWS Lambda {#aws-lambda}
 
 ```ts

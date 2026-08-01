@@ -7658,6 +7658,21 @@ export function createProductionAgentHandler(
             : preUpload.injectedText;
         }
       } catch (err) {
+        // The user message is persisted after this block, so a swallowed
+        // failure here would put the raw base64 into the thread row and report
+        // a normal turn. Fail the turn instead wherever object storage is the
+        // only place a payload may go — an attachment nobody can store is not
+        // an attachment that quietly went to SQL.
+        const { isFileUploadStorageNotConfiguredError } =
+          await import("../file-upload/errors.js");
+        const { isObjectStorageRequired } =
+          await import("../file-upload/registry.js");
+        if (
+          isObjectStorageRequired() ||
+          isFileUploadStorageNotConfiguredError(err)
+        ) {
+          throw err;
+        }
         console.warn(
           "[agent-native] preUploadAttachments failed:",
           err instanceof Error ? err.message : String(err),

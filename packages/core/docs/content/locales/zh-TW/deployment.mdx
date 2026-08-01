@@ -331,6 +331,14 @@ Cloudflare D1。在建置環境中同時設定 `CLOUDFLARE_D1_DATABASE_NAME` 與
 `wrangler.json`；只設定其中一個會報錯，而不是靜默略過綁定。完整的本機啟動
 步驟請見英文部署指南。
 
+### Cloudflare R2 {#cloudflare-r2}
+
+Worker 沒有檔案系統，檔案內容也不能存進 SQL，因此上傳的檔案會寫入 R2。在建置
+環境中設定 `CLOUDFLARE_R2_BUCKET_NAME`，建置就會把 `UPLOADS` 綁定寫入產生的
+`wrangler.json`；再把 `CLOUDFLARE_R2_PUBLIC_BASE_URL` 設為儲存桶的公開網址。
+該提供者已註冊到上傳註冊表中。綁定缺少或無法使用時會帶著設定說明直接失敗，而
+不是把負載寫進 SQL。詳情見英文部署指南。
+
 ## AWS 拉姆達 {#aws-lambda}
 
 ```ts

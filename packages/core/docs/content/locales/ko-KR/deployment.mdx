@@ -332,6 +332,15 @@ Cloudflare D1입니다. 빌드 환경에서 `CLOUDFLARE_D1_DATABASE_NAME`과
 바인딩을 조용히 생략하는 대신 오류로 처리됩니다. 전체 로컬 기동 순서는 영어
 배포 가이드를 참고하세요.
 
+### Cloudflare R2 {#cloudflare-r2}
+
+Worker에는 파일 시스템이 없고 파일 내용은 SQL에 둘 수 없으므로 업로드는 R2에
+저장됩니다. 빌드 환경에 `CLOUDFLARE_R2_BUCKET_NAME`을 설정하면 생성된
+`wrangler.json`에 `UPLOADS` 바인딩이 기록되며, `CLOUDFLARE_R2_PUBLIC_BASE_URL`
+에는 버킷의 공개 URL을 설정합니다. 프로바이더는 업로드 레지스트리에 이미
+등록되어 있습니다. 바인딩이 없거나 사용할 수 없으면 페이로드를 SQL에 저장하는
+대신 설정 안내와 함께 실패합니다. 자세한 내용은 영문 배포 가이드를 참고하세요.
+
 ## AWS 람다 {#aws-lambda}
 
 ```ts

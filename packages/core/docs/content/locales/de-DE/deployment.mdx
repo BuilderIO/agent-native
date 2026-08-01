@@ -334,6 +334,17 @@ der beiden zu setzen ist ein Fehler und keine stillschweigend weggelassene
 Bindung. Die vollständige lokale Startsequenz steht im englischen
 Deployment-Leitfaden.
 
+### Cloudflare R2 {#cloudflare-r2}
+
+Ein Worker hat kein Dateisystem, und Dateiinhalte gehören nicht in SQL —
+hochgeladene Dateien landen daher in R2. Setzen Sie `CLOUDFLARE_R2_BUCKET_NAME`
+in der Build-Umgebung, damit der Build die `UPLOADS`-Bindung in die generierte
+`wrangler.json` schreibt, und `CLOUDFLARE_R2_PUBLIC_BASE_URL` auf die
+öffentliche Basis-URL des Buckets. Der Provider ist in der Upload-Registry
+bereits registriert. Eine fehlende oder unbrauchbare Bindung schlägt mit einer
+Einrichtungsanleitung fehl, statt die Nutzdaten in SQL abzulegen. Details im
+englischen Deployment-Leitfaden.
+
 ## AWS Lambda {#aws-lambda}
 
 ```ts

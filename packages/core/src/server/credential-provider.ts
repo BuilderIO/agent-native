@@ -107,6 +107,11 @@ export function readDeployCredentialEnv(key: string): string | undefined {
 }
 
 const APP_PROVIDED_DEPLOY_CREDENTIAL_KEYS = new Set([
+  // Not a secret at all: the public base URL of the deployment's own object
+  // storage bucket. It configures the app, never a user, and without the
+  // deploy fallback a hosted Worker cannot form an upload URL from the same
+  // wrangler var that binds the bucket.
+  "CLOUDFLARE_R2_PUBLIC_BASE_URL",
   "ANTHROPIC_API_KEY",
   "ANTHROPIC_BASE_URL",
   "EMAIL_FROM",

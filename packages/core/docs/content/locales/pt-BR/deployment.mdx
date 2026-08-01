@@ -333,6 +333,16 @@ ambiente de build para que o build escreva o binding `DB` no
 omitido em silêncio. A sequência completa de inicialização local está no guia
 de deploy em inglês.
 
+### Cloudflare R2 {#cloudflare-r2}
+
+Um Worker não tem sistema de arquivos e o conteúdo dos arquivos não pode ficar
+em SQL, então os uploads vão para o R2. Defina `CLOUDFLARE_R2_BUCKET_NAME` no
+ambiente de build para que o vínculo `UPLOADS` seja escrito no `wrangler.json`
+gerado, e `CLOUDFLARE_R2_PUBLIC_BASE_URL` com a URL pública do bucket. O
+provedor já vem registrado no registro de uploads. Um vínculo ausente ou
+inutilizável falha com orientação de configuração em vez de gravar o payload em
+SQL. Detalhes no guia de deploy em inglês.
+
 ## Lambda AWS {#aws-lambda}
 
 ```ts

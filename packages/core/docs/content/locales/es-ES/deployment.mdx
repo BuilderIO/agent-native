@@ -333,6 +333,16 @@ entorno de compilación para que la compilación escriba el binding `DB` en el
 binding omitido en silencio. La secuencia completa de arranque local está en la
 guía de despliegue en inglés.
 
+### Cloudflare R2 {#cloudflare-r2}
+
+Un Worker no tiene sistema de archivos y el contenido de los archivos no puede
+vivir en SQL, así que las subidas van a R2. Defina `CLOUDFLARE_R2_BUCKET_NAME`
+en el entorno de compilación para que el build escriba el enlace `UPLOADS` en
+el `wrangler.json` generado, y `CLOUDFLARE_R2_PUBLIC_BASE_URL` con la URL
+pública del bucket. El proveedor ya está registrado en el registro de subidas.
+Un enlace ausente o inservible falla con instrucciones de configuración en
+lugar de guardar la carga en SQL. Detalles en la guía de despliegue en inglés.
+
 ## AWS Lambda {#aws-lambda}
 
 ```ts
