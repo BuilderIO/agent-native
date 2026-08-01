@@ -9,12 +9,17 @@
 
 import {
   notifyActivity,
+  runActivityNotification,
   type ActivityNotificationResult,
 } from "../server/activity-notifications.js";
 import { getAppProductionUrl } from "../server/app-url.js";
 import { emailStrong, renderEmail } from "../server/email-template.js";
 import { sendEmail } from "../server/email.js";
-import { getReviewableResource } from "./registry.js";
+import { filterRecipientsByResourceAccess } from "../sharing/recipients.js";
+import {
+  getReviewableResource,
+  resolveReviewableResourceAccess,
+} from "./registry.js";
 import { queryReviewComments } from "./store.js";
 import type { ReviewComment } from "./types.js";
 
@@ -65,35 +70,19 @@ async function threadParticipants(comment: ReviewComment): Promise<string[]> {
     .filter((email): email is string => Boolean(email));
 }
 
-/**
- * `notification-error` keeps a broken notification distinguishable from a
- * delivered one, without failing the write that produced the comment: the
- * comment really was saved, and the caller can see that only the email leg
- * failed.
- */
-export type ReviewNotificationResult =
-  | ActivityNotificationResult
-  | { status: "notification-error"; error: string; sent: []; failed: [] };
+export type ReviewNotificationResult = ActivityNotificationResult;
 
 /**
  * Email the resource owner, mentioned people, and — on a reply — everyone else
- * already in the thread. Never throws: the comment is already persisted.
+ * already in the thread. Never throws: the comment is already persisted, and a
+ * rejection here would make the client retry and duplicate it.
  */
 export async function notifyReviewComment(
   comment: ReviewComment,
 ): Promise<ReviewNotificationResult> {
-  try {
-    return await deliverReviewCommentEmails(comment);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`${LOG_LABEL} could not be resolved: ${message}`);
-    return {
-      status: "notification-error",
-      error: message,
-      sent: [],
-      failed: [],
-    };
-  }
+  return runActivityNotification(LOG_LABEL, () =>
+    deliverReviewCommentEmails(comment),
+  );
 }
 
 async function deliverReviewCommentEmails(
@@ -111,12 +100,30 @@ async function deliverReviewCommentEmails(
     candidates.push(...(await threadParticipants(comment)));
   }
 
+  // Mentions are caller-supplied and thread rows are historical; neither is an
+  // access grant. Re-check every address against the resource's current ACL
+  // before it can receive the comment body.
+  const allowed = await filterRecipientsByResourceAccess({
+    resourceType: comment.resourceType,
+    resourceId: comment.resourceId,
+    emails: candidates.filter((email): email is string => Boolean(email)),
+    orgId: comment.orgId,
+    // The review registry owns access for its types; unregistered ones resolve
+    // to null there, so nobody is notified rather than everybody.
+    resolveRole: (ctx) =>
+      resolveReviewableResourceAccess(
+        comment.resourceType,
+        comment.resourceId,
+        ctx,
+      ),
+  });
+
   const actor = comment.authorName?.trim() || comment.authorEmail || "Someone";
   const label = resourceLabel(comment);
   const url = await resourceUrl(comment);
 
   return notifyActivity({
-    candidates,
+    candidates: allowed,
     actorEmail: comment.authorEmail,
     preferenceKey: REVIEW_NOTIFICATION_PREFS_KEY,
     logLabel: LOG_LABEL,

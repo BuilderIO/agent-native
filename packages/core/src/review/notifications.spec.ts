@@ -5,10 +5,23 @@ const mocks = vi.hoisted(() => ({
   sendEmail: vi.fn(),
   queryReviewComments: vi.fn(),
   getReviewableResource: vi.fn(),
+  resolveReviewableResourceAccess: vi.fn(),
+  filterRecipientsByResourceAccess: vi.fn(),
 }));
 
-vi.mock("../server/activity-notifications.js", () => ({
-  notifyActivity: (...args: unknown[]) => mocks.notifyActivity(...args),
+vi.mock("../server/activity-notifications.js", async () => {
+  const actual = await vi.importActual<
+    typeof import("../server/activity-notifications.js")
+  >("../server/activity-notifications.js");
+  return {
+    runActivityNotification: actual.runActivityNotification,
+    notifyActivity: (...args: unknown[]) => mocks.notifyActivity(...args),
+  };
+});
+
+vi.mock("../sharing/recipients.js", () => ({
+  filterRecipientsByResourceAccess: (...args: unknown[]) =>
+    mocks.filterRecipientsByResourceAccess(...args),
 }));
 
 vi.mock("../server/app-url.js", () => ({
@@ -30,6 +43,8 @@ vi.mock("../server/email.js", () => ({
 vi.mock("./registry.js", () => ({
   getReviewableResource: (...args: unknown[]) =>
     mocks.getReviewableResource(...args),
+  resolveReviewableResourceAccess: (...args: unknown[]) =>
+    mocks.resolveReviewableResourceAccess(...args),
 }));
 
 vi.mock("./store.js", () => ({
@@ -85,6 +100,12 @@ beforeEach(() => {
   });
   mocks.queryReviewComments.mockResolvedValue([]);
   mocks.getReviewableResource.mockReturnValue(undefined);
+  // Default: everyone offered still has access. Access filtering has its own
+  // tests; these assert who is *offered*.
+  mocks.filterRecipientsByResourceAccess.mockImplementation(
+    async ({ emails }: { emails: string[] }) =>
+      [...emails].map((email) => email.trim().toLowerCase()),
+  );
 });
 
 describe("notifyReviewComment", () => {
@@ -129,6 +150,24 @@ describe("notifyReviewComment", () => {
     const email = mocks.sendEmail.mock.calls[0][0] as { text: string };
     expect(email.text).toContain("The spacing here is off");
     expect(mocks.getReviewableResource).toHaveBeenCalledWith("design");
+  });
+
+  it("drops recipients who can no longer open the resource", async () => {
+    mocks.filterRecipientsByResourceAccess.mockResolvedValue([
+      "owner@example.com",
+    ]);
+
+    await notifyReviewComment(
+      comment({
+        mentions: [{ label: "Outsider", email: "outsider@evil.test" }],
+      }),
+    );
+
+    expect(notifyArgs().candidates).toEqual(["owner@example.com"]);
+    const filterArgs = mocks.filterRecipientsByResourceAccess.mock
+      .calls[0][0] as { emails: string[]; resourceId: string };
+    expect(filterArgs.emails).toContain("outsider@evil.test");
+    expect(filterArgs.resourceId).toBe("design_1");
   });
 
   it("reports a resolution failure instead of failing the comment write", async () => {

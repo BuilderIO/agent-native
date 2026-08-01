@@ -15,6 +15,7 @@ vi.mock("./email.js", () => ({
 
 import {
   notifyActivity,
+  runActivityNotification,
   resolveActivityRecipients,
 } from "./activity-notifications.js";
 
@@ -141,5 +142,46 @@ describe("notifyActivity", () => {
     expect(result.failed).toEqual([
       { email: "broken@example.com", error: "SMTP 550" },
     ]);
+  });
+
+  it("reports a batch where every send failed as undelivered", async () => {
+    const send = vi.fn(async () => {
+      throw new Error("SMTP 550");
+    });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const result = await notifyActivity({
+      candidates: ["a@example.com", "b@example.com"],
+      preferenceKey: PREFERENCE_KEY,
+      send,
+    });
+
+    expect(result.status).toBe("delivery-failed");
+    expect(result.sent).toEqual([]);
+    expect(result.failed).toHaveLength(2);
+  });
+});
+
+describe("runActivityNotification", () => {
+  it("passes a resolved result straight through", async () => {
+    const result = await runActivityNotification("[test]", async () => ({
+      status: "delivered" as const,
+      sent: ["a@example.com"],
+      failed: [],
+    }));
+
+    expect(result.status).toBe("delivered");
+  });
+
+  it("turns a thrown resolution into a distinct notification-error", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const result = await runActivityNotification("[test]", async () => {
+      throw new Error("participants query failed");
+    });
+
+    expect(result.status).toBe("notification-error");
+    expect(result).toMatchObject({ error: "participants query failed" });
+    expect(result.sent).toEqual([]);
   });
 });

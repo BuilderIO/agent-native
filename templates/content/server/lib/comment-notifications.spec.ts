@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   notifyActivity: vi.fn(),
   sendEmail: vi.fn(),
   select: vi.fn(),
+  filterRecipients: vi.fn(),
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -20,6 +21,26 @@ vi.mock("@agent-native/core/server", () => ({
     text: [args.heading, ...args.paragraphs].join("\n"),
   }),
   sendEmail: (...args: unknown[]) => mocks.sendEmail(...args),
+  runActivityNotification: async (
+    _logLabel: string,
+    resolve: () => Promise<unknown>,
+  ) => {
+    try {
+      return await resolve();
+    } catch (error) {
+      return {
+        status: "notification-error",
+        error: error instanceof Error ? error.message : String(error),
+        sent: [],
+        failed: [],
+      };
+    }
+  },
+}));
+
+vi.mock("@agent-native/core/sharing", () => ({
+  filterRecipientsByResourceAccess: (...args: unknown[]) =>
+    mocks.filterRecipients(...args),
 }));
 
 vi.mock("../db/index.js", () => ({
@@ -75,6 +96,10 @@ describe("content comment notifications", () => {
       failed: [],
     });
     stubDb();
+    // Access filtering has its own tests; these assert who is offered.
+    mocks.filterRecipients.mockImplementation(
+      async ({ emails }: { emails: string[] }) => [...emails],
+    );
   });
 
   it("notifies the owner and mentioned people against the Documents key", async () => {
@@ -120,5 +145,28 @@ describe("content comment notifications", () => {
     expect(mention.subject).toBe('Writer mentioned you on "Launch plan"');
     expect(mention.text).toContain("You were mentioned");
     expect(owner.subject).toBe('Writer commented on "Launch plan"');
+  });
+
+  it("drops a mentioned address with no access to the document", async () => {
+    mocks.filterRecipients.mockResolvedValue(["owner@example.com"]);
+
+    await notifyDocumentComment({
+      ...BASE,
+      mentions: [{ email: "outsider@evil.test", name: "Outsider" }],
+    });
+
+    expect(notifyArgs().candidates).toEqual(["owner@example.com"]);
+    expect(
+      (mocks.filterRecipients.mock.calls[0][0] as { emails: string[] }).emails,
+    ).toContain("outsider@evil.test");
+  });
+
+  it("returns notification-error instead of throwing when a lookup fails", async () => {
+    mocks.filterRecipients.mockRejectedValue(new Error("acl store down"));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const result = await notifyDocumentComment({ ...BASE, isReply: true });
+
+    expect(result.status).toBe("notification-error");
   });
 });

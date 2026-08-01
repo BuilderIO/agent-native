@@ -119,6 +119,7 @@ export default defineAction({
     const notified = await notifyDocumentComment({
       documentId,
       documentTitle: (access.resource.title as string | null) ?? "",
+      orgId: (access.resource.orgId as string | null) ?? null,
       threadId,
       ownerEmail,
       authorEmail: email,

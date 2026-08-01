@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   notifyActivity: vi.fn(),
   select: vi.fn(),
   sendClipsTransactionalEmail: vi.fn(),
+  filterRecipients: vi.fn(),
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -13,12 +14,37 @@ vi.mock("drizzle-orm", () => ({
 
 vi.mock("@agent-native/core/server", () => ({
   notifyActivity: (...args: unknown[]) => mocks.notifyActivity(...args),
+  runActivityNotification: async (
+    _logLabel: string,
+    resolve: () => Promise<unknown>,
+  ) => {
+    try {
+      return await resolve();
+    } catch (error) {
+      return {
+        status: "notification-error",
+        error: error instanceof Error ? error.message : String(error),
+        sent: [],
+        failed: [],
+      };
+    }
+  },
+}));
+
+vi.mock("@agent-native/core/sharing", () => ({
+  filterRecipientsByResourceAccess: (...args: unknown[]) =>
+    mocks.filterRecipients(...args),
 }));
 
 vi.mock("../db/index.js", () => ({
   getDb: () => ({ select: (...args: unknown[]) => mocks.select(...args) }),
   schema: {
-    recordings: { id: "id", title: "title", ownerEmail: "owner_email" },
+    recordings: {
+      id: "id",
+      title: "title",
+      ownerEmail: "owner_email",
+      orgId: "org_id",
+    },
     recordingComments: {
       recordingId: "recording_id",
       threadId: "thread_id",
@@ -42,6 +68,7 @@ const RECORDING = {
   id: "rec_1",
   title: "Sprint demo",
   ownerEmail: "owner@example.com",
+  orgId: null,
 };
 
 /**
@@ -85,6 +112,10 @@ describe("clips activity notifications", () => {
       failed: [],
     });
     stubDb({ recording: RECORDING });
+    // Access filtering has its own tests; these assert who is offered.
+    mocks.filterRecipients.mockImplementation(
+      async ({ emails }: { emails: string[] }) => [...emails],
+    );
   });
 
   it("notifies the recording owner against the Clips preference key", async () => {
@@ -174,5 +205,45 @@ describe("clips activity notifications", () => {
 
     expect(mocks.notifyActivity).not.toHaveBeenCalled();
     expect(result.status).toBe("recording-missing");
+  });
+
+  it("drops a participant who can no longer open the recording", async () => {
+    stubDb({
+      recording: RECORDING,
+      participants: ["revoked@example.com", "still@example.com"],
+    });
+    mocks.filterRecipients.mockResolvedValue([
+      "owner@example.com",
+      "still@example.com",
+    ]);
+
+    await notifyRecordingComment({
+      recordingId: "rec_1",
+      threadId: "thread_1",
+      authorEmail: "viewer@example.com",
+      content: "Agreed",
+      isReply: true,
+    });
+
+    const args = mocks.notifyActivity.mock.calls[0][0] as {
+      candidates: string[];
+    };
+    expect(args.candidates).toEqual(["owner@example.com", "still@example.com"]);
+  });
+
+  it("returns notification-error instead of throwing when the recording read fails", async () => {
+    mocks.select.mockImplementation(() => {
+      throw new Error("db down");
+    });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const result = await notifyRecordingComment({
+      recordingId: "rec_1",
+      threadId: "thread_1",
+      authorEmail: "viewer@example.com",
+      content: "Hello",
+    });
+
+    expect(result.status).toBe("notification-error");
   });
 });

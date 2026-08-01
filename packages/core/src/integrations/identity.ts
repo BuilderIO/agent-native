@@ -1,4 +1,4 @@
-import { getDbExec } from "../db/client.js";
+import { isOrgMember as isMemberOfOrg } from "../org/membership.js";
 import { upsertVerifiedIntegrationIdentity } from "./identity-links-store.js";
 import {
   getActiveIntegrationInstallationByKey,
@@ -74,16 +74,6 @@ async function resolveSlackInstallation(incoming: IncomingMessage) {
     : null;
 }
 
-async function isMemberOfOrg(email: string, orgId: string): Promise<boolean> {
-  const { rows } = await getDbExec().execute({
-    sql: `SELECT 1 FROM org_members
-        WHERE org_id = ? AND LOWER(email) = ?
-        LIMIT 1`,
-    args: [orgId, email],
-  });
-  return rows.length > 0;
-}
-
 /**
  * Resolve the default integration principal.
  *
@@ -150,7 +140,7 @@ export async function resolveDefaultIntegrationExecutionContext(
     incoming.tenantId
   ) {
     try {
-      isOrgMember = await isMemberOfOrg(email, installation.orgId);
+      isOrgMember = await isMemberOfOrg(installation.orgId, email);
     } catch {
       // A membership-store outage is not evidence that the sender is merely
       // unlinked. Fail closed instead of widening them to org-wide access.

@@ -549,6 +549,7 @@ export {
 } from "./email.js";
 export {
   notifyActivity,
+  runActivityNotification,
   resolveActivityRecipients,
   type ActivityDeliveryFailure,
   type ActivityNotificationResult,

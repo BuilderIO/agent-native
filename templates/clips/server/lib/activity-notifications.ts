@@ -10,8 +10,10 @@
 
 import {
   notifyActivity,
+  runActivityNotification,
   type ActivityNotificationResult,
 } from "@agent-native/core/server";
+import { filterRecipientsByResourceAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 
 import { CLIPS_USER_PREFS_KEY } from "../../shared/clips-ai-prefs.js";
@@ -41,6 +43,7 @@ async function getRecording(recordingId: string) {
       id: schema.recordings.id,
       title: schema.recordings.title,
       ownerEmail: schema.recordings.ownerEmail,
+      orgId: schema.recordings.orgId,
     })
     .from(schema.recordings)
     .where(eq(schema.recordings.id, recordingId))
@@ -64,7 +67,7 @@ async function threadParticipants(
   return rows.map((row) => row.authorEmail);
 }
 
-export async function notifyRecordingComment(input: {
+export interface RecordingCommentNotificationInput {
   recordingId: string;
   threadId: string;
   authorEmail: string;
@@ -72,7 +75,19 @@ export async function notifyRecordingComment(input: {
   content: string;
   videoTimestampMs?: number | null;
   isReply?: boolean;
-}): Promise<ClipsActivityNotificationResult> {
+}
+
+export async function notifyRecordingComment(
+  input: RecordingCommentNotificationInput,
+): Promise<ClipsActivityNotificationResult> {
+  return runActivityNotification(LOG_LABEL, () =>
+    deliverRecordingCommentEmails(input),
+  );
+}
+
+async function deliverRecordingCommentEmails(
+  input: RecordingCommentNotificationInput,
+): Promise<ClipsActivityNotificationResult> {
   const recording = await getRecording(input.recordingId);
   if (!recording) {
     console.error(`${LOG_LABEL}: recording ${input.recordingId} not found`);
@@ -86,8 +101,17 @@ export async function notifyRecordingComment(input: {
     );
   }
 
+  // Thread rows are history, not an access grant: a viewer whose share was
+  // revoked must stop receiving the recording's comment bodies.
+  const allowed = await filterRecipientsByResourceAccess({
+    resourceType: "recording",
+    resourceId: recording.id,
+    emails: candidates,
+    orgId: recording.orgId,
+  });
+
   return notifyActivity({
-    candidates,
+    candidates: allowed,
     actorEmail: input.authorEmail,
     preferenceKey: CLIPS_USER_PREFS_KEY,
     logLabel: LOG_LABEL,
@@ -106,22 +130,43 @@ export async function notifyRecordingComment(input: {
   });
 }
 
-export async function notifyRecordingReaction(input: {
+export interface RecordingReactionNotificationInput {
   recordingId: string;
   emoji: string;
   viewerEmail: string;
   viewerName?: string | null;
   videoTimestampMs?: number | null;
   extraRecipients?: (string | null | undefined)[];
-}): Promise<ClipsActivityNotificationResult> {
+}
+
+export async function notifyRecordingReaction(
+  input: RecordingReactionNotificationInput,
+): Promise<ClipsActivityNotificationResult> {
+  return runActivityNotification(LOG_LABEL, () =>
+    deliverRecordingReactionEmails(input),
+  );
+}
+
+async function deliverRecordingReactionEmails(
+  input: RecordingReactionNotificationInput,
+): Promise<ClipsActivityNotificationResult> {
   const recording = await getRecording(input.recordingId);
   if (!recording) {
     console.error(`${LOG_LABEL}: recording ${input.recordingId} not found`);
     return RECORDING_MISSING;
   }
 
+  const allowed = await filterRecipientsByResourceAccess({
+    resourceType: "recording",
+    resourceId: recording.id,
+    emails: [recording.ownerEmail, ...(input.extraRecipients ?? [])].filter(
+      (email): email is string => Boolean(email),
+    ),
+    orgId: recording.orgId,
+  });
+
   return notifyActivity({
-    candidates: [recording.ownerEmail, ...(input.extraRecipients ?? [])],
+    candidates: allowed,
     actorEmail: input.viewerEmail,
     preferenceKey: CLIPS_USER_PREFS_KEY,
     logLabel: LOG_LABEL,

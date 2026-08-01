@@ -12,9 +12,11 @@ import {
   getAppProductionUrl,
   notifyActivity,
   renderEmail,
+  runActivityNotification,
   sendEmail,
   type ActivityNotificationResult,
 } from "@agent-native/core/server";
+import { filterRecipientsByResourceAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 
 import { CONTENT_USER_PREFS_KEY } from "../../shared/content-user-prefs.js";
@@ -53,10 +55,12 @@ async function threadParticipants(
   return rows.map((row) => row.authorEmail);
 }
 
-export async function notifyDocumentComment(input: {
+export interface DocumentCommentNotificationInput {
   documentId: string;
   /** Read from the access-checked resource by the caller, never re-queried. */
   documentTitle: string;
+  /** The document's org, so `org` visibility resolves for its members. */
+  orgId?: string | null;
   threadId: string;
   ownerEmail: string;
   authorEmail: string;
@@ -64,7 +68,19 @@ export async function notifyDocumentComment(input: {
   content: string;
   mentions: { email: string; name: string }[];
   isReply: boolean;
-}): Promise<DocumentCommentNotificationResult> {
+}
+
+export async function notifyDocumentComment(
+  input: DocumentCommentNotificationInput,
+): Promise<DocumentCommentNotificationResult> {
+  return runActivityNotification(LOG_LABEL, () =>
+    deliverDocumentCommentEmails(input),
+  );
+}
+
+async function deliverDocumentCommentEmails(
+  input: DocumentCommentNotificationInput,
+): Promise<DocumentCommentNotificationResult> {
   const title = input.documentTitle.trim() || "Untitled";
   const mentioned = new Set(
     input.mentions.map((mention) => mention.email.trim().toLowerCase()),
@@ -77,11 +93,20 @@ export async function notifyDocumentComment(input: {
     );
   }
 
+  // Mentions are caller-supplied and thread rows are historical; re-check both
+  // against the document's live ACL before mailing anyone its contents.
+  const allowed = await filterRecipientsByResourceAccess({
+    resourceType: "document",
+    resourceId: input.documentId,
+    emails: candidates,
+    orgId: input.orgId,
+  });
+
   const actor = input.authorName?.trim() || input.authorEmail;
   const url = documentUrl(input.documentId);
 
   return notifyActivity({
-    candidates,
+    candidates: allowed,
     actorEmail: input.authorEmail,
     preferenceKey: CONTENT_USER_PREFS_KEY,
     logLabel: LOG_LABEL,

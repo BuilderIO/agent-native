@@ -34,3 +34,8 @@ export {
   type AccessContext,
   type ResolvedAccess,
 } from "./access.js";
+
+export {
+  filterRecipientsByResourceAccess,
+  type FilterRecipientsInput,
+} from "./recipients.js";

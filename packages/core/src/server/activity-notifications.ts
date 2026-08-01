@@ -16,13 +16,17 @@ export type ActivityDeliveryFailure = { email: string; error: string };
 
 export type ActivityNotificationStatus =
   | "delivered"
+  | "delivery-failed"
   | "email-not-configured"
-  | "no-recipients";
+  | "no-recipients"
+  | "notification-error";
 
 export type ActivityNotificationResult = {
   status: ActivityNotificationStatus;
   sent: string[];
   failed: ActivityDeliveryFailure[];
+  /** Set only on `notification-error`: why recipients could not be resolved. */
+  error?: string;
 };
 
 /** Default field read from an app's per-user preference blob. */
@@ -129,5 +133,42 @@ export async function notifyActivity({
     );
   }
 
-  return { status: "delivered", sent, failed };
+  // Every recipient failing is an outage, not a delivery. Callers that log or
+  // surface this must not see it as the same outcome as a successful send.
+  return {
+    status: sent.length === 0 ? "delivery-failed" : "delivered",
+    sent,
+    failed,
+  };
+}
+
+/**
+ * Run an activity notification without letting it fail the write that caused
+ * it. The comment/reaction is already persisted by the time notification runs;
+ * rejecting here makes the client roll back and retry, which duplicates the
+ * row. The error still surfaces — as a distinct `notification-error` status,
+ * never as a silent success.
+ */
+export async function runActivityNotification<
+  T extends {
+    status: string;
+    sent: string[];
+    failed: ActivityDeliveryFailure[];
+  },
+>(
+  logLabel: string,
+  resolve: () => Promise<T>,
+): Promise<T | ActivityNotificationResult> {
+  try {
+    return await resolve();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`${logLabel} could not be resolved: ${message}`);
+    return {
+      status: "notification-error",
+      error: message,
+      sent: [],
+      failed: [],
+    };
+  }
 }

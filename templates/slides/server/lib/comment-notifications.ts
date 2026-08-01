@@ -11,9 +11,11 @@ import {
   emailStrong,
   notifyActivity,
   renderEmail,
+  runActivityNotification,
   sendEmail,
   type ActivityNotificationResult,
 } from "@agent-native/core/server";
+import { filterRecipientsByResourceAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 
 import { getDeckUrl } from "../../actions/_app-url.js";
@@ -38,8 +40,32 @@ function excerpt(content: string): string {
     : collapsed;
 }
 
-function deckUrl(deckId: string, slideId: string): string {
-  return `${getDeckUrl(deckId)}?slide=${encodeURIComponent(slideId)}`;
+/**
+ * The editor reads `?slide=` as a one-based ordinal, not a slide id — passing
+ * `slide_2` parses to NaN and silently lands on slide 1.
+ */
+function deckUrl(deckId: string, slideNumber: number | null): string {
+  const base = getDeckUrl(deckId);
+  return slideNumber ? `${base}?slide=${slideNumber}` : base;
+}
+
+function slideNumberIn(deckData: string, slideId: string): number | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(deckData);
+  } catch (error) {
+    // Unparsable deck JSON is a real anomaly, so say so — but the comment email
+    // still goes out with a deck-level link rather than being dropped.
+    console.error(
+      `${LOG_LABEL}: deck data could not be parsed for a slide link:`,
+      error instanceof Error ? error.message : String(error),
+    );
+    return null;
+  }
+  const slides = (parsed as { slides?: { id?: string }[] } | null)?.slides;
+  if (!Array.isArray(slides)) return null;
+  const index = slides.findIndex((slide) => slide?.id === slideId);
+  return index >= 0 ? index + 1 : null;
 }
 
 async function getDeck(deckId: string) {
@@ -48,6 +74,8 @@ async function getDeck(deckId: string) {
       id: schema.decks.id,
       title: schema.decks.title,
       ownerEmail: schema.decks.ownerEmail,
+      orgId: schema.decks.orgId,
+      data: schema.decks.data,
     })
     .from(schema.decks)
     .where(eq(schema.decks.id, deckId))
@@ -80,6 +108,20 @@ export async function notifyDeckComment(input: {
   content: string;
   isReply: boolean;
 }): Promise<SlidesCommentNotificationResult> {
+  return runActivityNotification(LOG_LABEL, () =>
+    deliverDeckCommentEmails(input),
+  );
+}
+
+async function deliverDeckCommentEmails(input: {
+  deckId: string;
+  slideId: string;
+  threadId: string;
+  authorEmail: string;
+  authorName?: string | null;
+  content: string;
+  isReply: boolean;
+}): Promise<SlidesCommentNotificationResult> {
   const deck = await getDeck(input.deckId);
   if (!deck) {
     console.error(`${LOG_LABEL}: deck ${input.deckId} not found`);
@@ -93,11 +135,20 @@ export async function notifyDeckComment(input: {
     );
   }
 
+  // Thread rows are history, not an access grant: someone removed from the
+  // deck must stop receiving its comment bodies.
+  const allowed = await filterRecipientsByResourceAccess({
+    resourceType: "deck",
+    resourceId: deck.id,
+    emails: candidates,
+    orgId: deck.orgId,
+  });
+
   const actor = input.authorName?.trim() || input.authorEmail;
-  const url = deckUrl(deck.id, input.slideId);
+  const url = deckUrl(deck.id, slideNumberIn(deck.data, input.slideId));
 
   return notifyActivity({
-    candidates,
+    candidates: allowed,
     actorEmail: input.authorEmail,
     preferenceKey: SLIDES_USER_PREFS_KEY,
     logLabel: LOG_LABEL,
