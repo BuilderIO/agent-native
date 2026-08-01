@@ -16,3 +16,21 @@ export function databaseItemIsSourceBacked(
     )
   );
 }
+
+export function databaseItemHasViewerAccess(item: ContentDatabaseItem) {
+  return item.document.canView === true;
+}
+
+export function databaseItemCanRemoveFromDatabase(args: {
+  item: ContentDatabaseItem;
+  databaseCanManage: boolean;
+  isWorkspaceCatalog: boolean;
+  sources: ContentDatabaseSource[];
+}) {
+  return (
+    args.databaseCanManage &&
+    databaseItemHasViewerAccess(args.item) &&
+    !args.isWorkspaceCatalog &&
+    !databaseItemIsSourceBacked(args.item, args.sources)
+  );
+}

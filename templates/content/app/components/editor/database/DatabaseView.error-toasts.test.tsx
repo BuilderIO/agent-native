@@ -1,5 +1,6 @@
 import type {
   BuilderCmsModelSummary,
+  ContentDatabaseItem,
   ContentDatabaseResponse,
 } from "@shared/api";
 // @vitest-environment happy-dom
@@ -139,6 +140,7 @@ vi.mock("@/hooks/use-content-database", () => ({
   useUpdateContentDatabasePersonalView: () => benignMutation,
   useUpdateContentDatabaseView: () => benignMutation,
   useRemoveDatabaseItems: () => benignMutation,
+  useDuplicateDatabaseItem: () => benignMutation,
   useDuplicateDatabaseItems: () => benignMutation,
   useMoveDatabaseItem: () => benignMutation,
   useBuilderCmsModels: () => builderCmsModelsQuery,
@@ -147,6 +149,14 @@ vi.mock("@/hooks/use-content-database", () => ({
 vi.mock("@/hooks/use-document-properties", () => ({
   useSetDocumentProperty: () => benignMutation,
   useConfigureDocumentProperty: () => benignMutation,
+}));
+
+vi.mock("@/hooks/use-content-spaces", () => ({
+  useContentSpaces: () => ({
+    data: { spaces: [] },
+    isLoading: false,
+  }),
+  useDeleteContentSpace: () => benignMutation,
 }));
 
 vi.mock("@/hooks/use-documents", () => ({
@@ -233,6 +243,8 @@ describe("DatabaseView UI regressions", () => {
     contentDatabaseQueryMock.mockReset();
     addItemMutation.mutateAsync.mockReset();
     attachSourceMutation.mutateAsync.mockReset();
+    benignMutation.mutateAsync.mockReset().mockResolvedValue(undefined);
+    databaseResponse.items = [];
     databasePagination.totalItems = 0;
     databasePagination.hasMore = false;
 
@@ -450,5 +462,77 @@ describe("DatabaseView UI regressions", () => {
     // root.
     expect(findButtonByText(container, "Attach")).toBeTruthy();
     expect(container.textContent).toContain("Article");
+  });
+
+  it("removes the confirmed selection snapshot without clearing newer selections", async () => {
+    const row = (id: string, title: string): ContentDatabaseItem => ({
+      id: `item-${id}`,
+      databaseId: "database-1",
+      document: {
+        id: `document-${id}`,
+        parentId: "document-1",
+        title,
+        content: "",
+        icon: null,
+        position: 0,
+        isFavorite: false,
+        hideFromSearch: false,
+        accessRole: "viewer",
+        canView: true,
+        canEdit: false,
+        canManage: false,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+      position: 0,
+      properties: [],
+      bodyHydration: {
+        status: "hydrated",
+        attemptedAt: null,
+        error: null,
+        version: null,
+      },
+    });
+    databaseResponse.items = [row("a", "Alpha"), row("b", "Beta")];
+    await renderDatabaseView();
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Select Alpha"]')
+        ?.click();
+    });
+    await act(async () => {
+      findButtonByText(container, "Remove")?.click();
+    });
+    expect(document.querySelector('[role="alertdialog"]')).toBeTruthy();
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Select Beta"]')
+        ?.click();
+    });
+    const confirmRemove = [
+      ...document.querySelectorAll<HTMLButtonElement>(
+        '[role="alertdialog"] button',
+      ),
+    ].find((button) => button.textContent?.trim() === "Remove");
+    expect(confirmRemove).toBeTruthy();
+
+    await act(async () => {
+      confirmRemove?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(benignMutation.mutateAsync).toHaveBeenCalledWith({
+      documentId: "document-1",
+      itemIds: ["item-a"],
+    });
+    expect(container.textContent).toContain("1 selected");
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        '[aria-label="Deselect Beta"]',
+      ),
+    ).toBeTruthy();
   });
 });

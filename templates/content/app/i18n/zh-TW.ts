@@ -731,6 +731,17 @@ const messages = {
     failedToDeleteRow: "刪除行失敗",
     failedToDeleteSelectedRows: "刪除所選行失敗",
     failedToDuplicateEverySelectedRow: "未能複製所有選取行",
+    failedToRemoveEverySelectedRowFromDatabase: "無法從資料庫中移除所有選取行",
+    failedToRemoveRowFromDatabase: "無法從資料庫中移除該行",
+    removeSelectedRowsFromDatabaseQuestion: "從資料庫中移除選取行？",
+    removeSelectedRowsFromDatabaseDescription:
+      "所選頁面仍可在「檔案」和其他資料庫中使用。僅屬於此資料庫的值將被移除。",
+    removeFromDatabase: "從資料庫中移除",
+    removeFromDatabaseQuestion: "從資料庫中移除？",
+    removeFromDatabaseDescription:
+      "「{{title}}」仍可在「檔案」和其他資料庫中使用。僅屬於此資料庫的值將被移除。",
+    remove: "移除",
+    removing: "正在移除...",
     failedToDuplicateRow: "複製行失敗",
     failedToMoveCard: "行動卡片失敗",
     failedToMoveRow: "行動行失敗",

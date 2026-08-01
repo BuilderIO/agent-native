@@ -4886,7 +4886,27 @@ export async function seedMockSourceRows(args: {
 }) {
   if (args.items.length === 0) return;
   const db = getDb();
-  const rows = args.items.map((item, index) => {
+  const rows = mockSourceRowsForSeed(args);
+  await db.transaction(async (tx) => {
+    await lockDatabaseMemberships(
+      tx,
+      rows.map((row) => row.databaseItemId),
+    );
+    await insertMockSourceRows(tx, rows, args.now);
+  });
+}
+
+function mockSourceRowsForSeed(args: {
+  sourceId: string;
+  ownerEmail: string;
+  sourceType: ContentDatabaseSourceType;
+  sourceTable: string;
+  items: ContentDatabaseItem[];
+  now: string;
+  existingBuilderRows?: Map<string, ExistingBuilderSourceRowIdentity>;
+  builderEntriesByDocumentId?: Map<string, BuilderCmsSourceEntry>;
+}) {
+  return args.items.map((item, index) => {
     const builderEntry = args.builderEntriesByDocumentId?.get(item.document.id);
     const existingBuilderRow = args.existingBuilderRows?.get(item.document.id);
     const builderIdentity =
@@ -4948,31 +4968,71 @@ export async function seedMockSourceRows(args: {
       updatedAt: args.now,
     };
   });
-  await db.transaction(async (tx) => {
-    await lockDatabaseMemberships(
-      tx,
-      rows.map((row) => row.databaseItemId),
-    );
-    await tx
-      .insert(schema.contentDatabaseSourceRows)
-      .values(rows)
-      .onConflictDoNothing();
+}
 
-    const fixtureItemIds = rows
-      .filter((row) => row.provenance === BUILDER_CMS_FIXTURE_ROW_PROVENANCE)
-      .map((row) => row.databaseItemId);
-    for (const idChunk of chunks(fixtureItemIds, idChunkSize())) {
-      await tx
-        .update(schema.contentDatabaseItems)
-        .set({
-          bodyHydrationStatus: "unavailable",
-          bodyHydrationAttemptedAt: args.now,
-          bodyHydrationError: null,
-          bodyHydrationVersion: null,
-          updatedAt: args.now,
-        })
-        .where(inArray(schema.contentDatabaseItems.id, idChunk));
-    }
+async function insertMockSourceRows(
+  db: any,
+  rows: ReturnType<typeof mockSourceRowsForSeed>,
+  now: string,
+) {
+  if (rows.length === 0) return;
+  await db
+    .insert(schema.contentDatabaseSourceRows)
+    .values(rows)
+    .onConflictDoNothing();
+
+  const fixtureItemIds = rows
+    .filter((row) => row.provenance === BUILDER_CMS_FIXTURE_ROW_PROVENANCE)
+    .map((row) => row.databaseItemId);
+  for (const idChunk of chunks(fixtureItemIds, idChunkSize())) {
+    await db
+      .update(schema.contentDatabaseItems)
+      .set({
+        bodyHydrationStatus: "unavailable",
+        bodyHydrationAttemptedAt: now,
+        bodyHydrationError: null,
+        bodyHydrationVersion: null,
+        updatedAt: now,
+      })
+      .where(inArray(schema.contentDatabaseItems.id, idChunk));
+  }
+}
+
+export async function replaceMockSourceRows(args: {
+  sourceId: string;
+  ownerEmail: string;
+  sourceType: ContentDatabaseSourceType;
+  sourceTable: string;
+  items: ContentDatabaseItem[];
+  now: string;
+  existingBuilderRows?: Map<string, ExistingBuilderSourceRowIdentity>;
+  builderEntriesByDocumentId?: Map<string, BuilderCmsSourceEntry>;
+  documentIds?: string[];
+}) {
+  const db = getDb();
+  const rows = mockSourceRowsForSeed(args);
+  await db.transaction(async (tx) => {
+    const scope = args.documentIds?.length
+      ? and(
+          eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId),
+          inArray(
+            schema.contentDatabaseSourceRows.documentId,
+            args.documentIds,
+          ),
+        )
+      : eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId);
+    const oldRows = await tx
+      .select({
+        databaseItemId: schema.contentDatabaseSourceRows.databaseItemId,
+      })
+      .from(schema.contentDatabaseSourceRows)
+      .where(scope);
+    await lockDatabaseMemberships(tx, [
+      ...oldRows.map((row) => row.databaseItemId).filter(Boolean),
+      ...rows.map((row) => row.databaseItemId),
+    ]);
+    await tx.delete(schema.contentDatabaseSourceRows).where(scope);
+    await insertMockSourceRows(tx, rows, args.now);
   });
 }
 
@@ -5446,10 +5506,6 @@ export async function resyncMockSourceSnapshot(args: {
     .where(
       eq(schema.contentDatabaseBodyHydrationQueue.sourceId, args.source.id),
     );
-  await db
-    .delete(schema.contentDatabaseSourceRows)
-    .where(eq(schema.contentDatabaseSourceRows.sourceId, args.source.id));
-
   await seedMockSourceFields({
     sourceId: args.source.id,
     ownerEmail: args.database.ownerEmail,
@@ -5457,7 +5513,7 @@ export async function resyncMockSourceSnapshot(args: {
     properties,
     now: args.now,
   });
-  await seedMockSourceRows({
+  await replaceMockSourceRows({
     sourceId: args.source.id,
     ownerEmail: args.database.ownerEmail,
     sourceType: normalizeSourceType(args.source.sourceType),
@@ -6074,17 +6130,7 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
     );
     const fetchedDocumentIds = itemsToLink.map((item) => item.document.id);
     if (fetchedDocumentIds.length > 0) {
-      for (const idChunk of chunks(fetchedDocumentIds, idChunkSize())) {
-        await db
-          .delete(schema.contentDatabaseSourceRows)
-          .where(
-            and(
-              eq(schema.contentDatabaseSourceRows.sourceId, args.source.id),
-              inArray(schema.contentDatabaseSourceRows.documentId, idChunk),
-            ),
-          );
-      }
-      await seedMockSourceRows({
+      await replaceMockSourceRows({
         sourceId: args.source.id,
         ownerEmail: args.database.ownerEmail,
         sourceType: "builder-cms",
@@ -6093,6 +6139,7 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
         now: args.now,
         existingBuilderRows,
         builderEntriesByDocumentId,
+        documentIds: fetchedDocumentIds,
       });
       const refreshedFields = await db
         .select()
@@ -6122,18 +6169,25 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
           .select({
             id: schema.contentDatabaseSourceRows.id,
             sourceRowId: schema.contentDatabaseSourceRows.sourceRowId,
+            databaseItemId: schema.contentDatabaseSourceRows.databaseItemId,
           })
           .from(schema.contentDatabaseSourceRows)
           .where(eq(schema.contentDatabaseSourceRows.sourceId, args.source.id))
       ).filter((row) => !activeSourceRowIds.has(row.sourceRowId));
-      for (const idChunk of chunks(
-        staleRows.map((row) => row.id),
-        idChunkSize(),
-      )) {
-        await db
-          .delete(schema.contentDatabaseSourceRows)
-          .where(inArray(schema.contentDatabaseSourceRows.id, idChunk));
-      }
+      await db.transaction(async (tx) => {
+        await lockDatabaseMemberships(
+          tx,
+          staleRows.map((row) => row.databaseItemId).filter(Boolean),
+        );
+        for (const idChunk of chunks(
+          staleRows.map((row) => row.id),
+          idChunkSize(),
+        )) {
+          await tx
+            .delete(schema.contentDatabaseSourceRows)
+            .where(inArray(schema.contentDatabaseSourceRows.id, idChunk));
+        }
+      });
     }
 
     await updateBuilderCmsSourceReadMetadata({
@@ -6165,10 +6219,6 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
       .delete(schema.contentDatabaseSourceFields)
       .where(eq(schema.contentDatabaseSourceFields.sourceId, args.source.id));
   }
-  await db
-    .delete(schema.contentDatabaseSourceRows)
-    .where(eq(schema.contentDatabaseSourceRows.sourceId, args.source.id));
-
   if (shouldReseedSourceFields) {
     await seedMockSourceFields({
       sourceId: args.source.id,
@@ -6203,7 +6253,7 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
             : existingBuilderRows.has(item.document.id),
         )
       : response.items;
-  await seedMockSourceRows({
+  await replaceMockSourceRows({
     sourceId: args.source.id,
     ownerEmail: args.database.ownerEmail,
     sourceType: "builder-cms",
@@ -6348,9 +6398,6 @@ export async function replaceSourceMetadata(args: {
     await db
       .delete(schema.contentDatabaseSourceFields)
       .where(eq(schema.contentDatabaseSourceFields.sourceId, args.source.id));
-    await db
-      .delete(schema.contentDatabaseSourceRows)
-      .where(eq(schema.contentDatabaseSourceRows.sourceId, args.source.id));
   }
 
   if (args.source) {

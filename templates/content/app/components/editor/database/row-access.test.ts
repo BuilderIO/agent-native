@@ -1,7 +1,11 @@
 import type { ContentDatabaseItem, ContentDatabaseSource } from "@shared/api";
 import { describe, expect, it } from "vitest";
 
-import { databaseItemIsSourceBacked } from "./row-access";
+import {
+  databaseItemCanRemoveFromDatabase,
+  databaseItemHasViewerAccess,
+  databaseItemIsSourceBacked,
+} from "./row-access";
 
 describe("database row access", () => {
   function item(
@@ -64,5 +68,52 @@ describe("database row access", () => {
         [],
       ),
     ).toBe(true);
+  });
+
+  it("uses explicit page-view capability and fails closed when it is absent", () => {
+    expect(
+      databaseItemHasViewerAccess(
+        item({
+          document: {
+            id: "document-1",
+            canView: true,
+          } as ContentDatabaseItem["document"],
+        }),
+      ),
+    ).toBe(true);
+    expect(databaseItemHasViewerAccess(item())).toBe(false);
+  });
+
+  it("shares one fail-closed removal decision across database row views", () => {
+    const visibleItem = item({
+      document: {
+        id: "document-1",
+        canView: true,
+      } as ContentDatabaseItem["document"],
+    });
+    expect(
+      databaseItemCanRemoveFromDatabase({
+        item: visibleItem,
+        databaseCanManage: true,
+        isWorkspaceCatalog: false,
+        sources: [],
+      }),
+    ).toBe(true);
+    expect(
+      databaseItemCanRemoveFromDatabase({
+        item: item(),
+        databaseCanManage: true,
+        isWorkspaceCatalog: false,
+        sources: [],
+      }),
+    ).toBe(false);
+    expect(
+      databaseItemCanRemoveFromDatabase({
+        item: visibleItem,
+        databaseCanManage: false,
+        isWorkspaceCatalog: false,
+        sources: [],
+      }),
+    ).toBe(false);
   });
 });

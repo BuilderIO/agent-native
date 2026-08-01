@@ -23,9 +23,9 @@ import {
   importBuilderCmsEntriesAsDatabaseItems,
   mapBuilderCmsEntriesToLocalItems,
   mutateContentDatabaseSourceMetadata,
+  replaceMockSourceRows,
   resolveDatabaseForSourceMutation,
   seedMockSourceFields,
-  seedMockSourceRows,
   seedSecondarySourceFields,
   sourceSetupPayload,
   storeSecondarySourceRows,
@@ -400,9 +400,6 @@ export default defineAction({
       await db
         .delete(schema.contentDatabaseSourceFields)
         .where(eq(schema.contentDatabaseSourceFields.sourceId, source.id));
-      await db
-        .delete(schema.contentDatabaseSourceRows)
-        .where(eq(schema.contentDatabaseSourceRows.sourceId, source.id));
       await clearSourceFederation(source.id, now);
 
       let importedEntriesByDocumentId = new Map<
@@ -443,7 +440,7 @@ export default defineAction({
         builderSampleEntries: entries,
         now,
       });
-      await seedMockSourceRows({
+      await replaceMockSourceRows({
         sourceId: source.id,
         ownerEmail: database.ownerEmail,
         sourceType: "builder-cms",

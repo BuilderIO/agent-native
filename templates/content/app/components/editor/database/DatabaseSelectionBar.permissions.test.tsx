@@ -11,7 +11,11 @@ function item(overrides: Partial<ContentDatabaseItem> = {}) {
   return {
     id: "item-1",
     databaseId: "database-1",
-    document: { id: "document-1" } as ContentDatabaseItem["document"],
+    document: {
+      id: "document-1",
+      accessRole: "viewer",
+      canView: true,
+    } as ContentDatabaseItem["document"],
     position: 0,
     properties: [],
     bodyHydration: {
@@ -112,6 +116,26 @@ describe("database selection permissions", () => {
             },
           }),
         ],
+        sources: [],
+        removesFavoriteMembership: false,
+        isWorkspaceCatalog: false,
+      }).canRemoveSelected,
+    ).toBe(false);
+  });
+
+  it("fails closed when any selected page lacks viewer access", () => {
+    const inaccessibleItem = item({
+      document: {
+        id: "document-1",
+      } as ContentDatabaseItem["document"],
+    });
+
+    expect(
+      databaseSelectionCapabilities({
+        canEdit: true,
+        canManageDatabase: true,
+        selectedItemIds: [inaccessibleItem.id],
+        selectedItems: [inaccessibleItem],
         sources: [],
         removesFavoriteMembership: false,
         isWorkspaceCatalog: false,

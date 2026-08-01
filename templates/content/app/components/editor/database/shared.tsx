@@ -69,7 +69,8 @@ import { cn } from "@/lib/utils";
 
 import { OPTION_COLOR_CLASSES, TYPE_ICONS } from "../DocumentProperties";
 import { databaseDuplicatedItemFromResponse } from "./navigation-state";
-import { databaseItemIsSourceBacked } from "./row-access";
+import { databaseItemCanRemoveFromDatabase } from "./row-access";
+import { dbText } from "./text";
 import type { DatabaseBoardGroup, DatabaseDropSide } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -556,9 +557,12 @@ export function RowActionsCell({
   const canRemoveFromDatabase = removesFavoriteMembership
     ? databaseDocument?.canEdit === true
     : databaseData !== undefined &&
-      databaseDocument?.canManage === true &&
-      !isWorkspaceCatalog &&
-      !databaseItemIsSourceBacked(item, databaseSources);
+      databaseItemCanRemoveFromDatabase({
+        item,
+        databaseCanManage: databaseDocument?.canManage === true,
+        isWorkspaceCatalog,
+        sources: databaseSources,
+      });
 
   async function duplicateRow() {
     setMenuOpen(false);
@@ -575,6 +579,10 @@ export function RowActionsCell({
   }
 
   async function removeRowOrDeleteWorkspace() {
+    if (!canRemoveFromDatabase && !canDeleteWorkspace) {
+      setConfirmDeleteOpen(false);
+      return;
+    }
     const previewMoved = onDeletedPreviewItem?.(item) ?? false;
     try {
       if (canDeleteWorkspace && workspaceSpace) {
@@ -600,7 +608,7 @@ export function RowActionsCell({
       toast.error(
         canDeleteWorkspace
           ? "Failed to delete workspace"
-          : "Failed to remove row from database",
+          : dbText("failedToRemoveRowFromDatabase"),
         {
           description:
             err instanceof Error ? err.message : "Something went wrong",
@@ -669,14 +677,18 @@ export function RowActionsCell({
                 ? "Remove from favorites"
                 : canDeleteWorkspace
                   ? "Delete workspace"
-                  : "Remove from database"}
+                  : dbText("removeFromDatabase")}
             </DropdownMenuItem>
           ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
 
       <AlertDialog
-        open={!removesFavoriteMembership && confirmDeleteOpen}
+        open={
+          !removesFavoriteMembership &&
+          (canRemoveFromDatabase || canDeleteWorkspace) &&
+          confirmDeleteOpen
+        }
         onOpenChange={setConfirmDeleteOpen}
       >
         <AlertDialogContent>
@@ -684,7 +696,7 @@ export function RowActionsCell({
             <AlertDialogTitle>
               {canDeleteWorkspace
                 ? "Delete workspace?"
-                : "Remove from database?"}
+                : dbText("removeFromDatabaseQuestion")}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {canDeleteWorkspace ? (
@@ -693,11 +705,7 @@ export function RowActionsCell({
                   will be permanently deleted. This cannot be undone.
                 </>
               ) : (
-                <>
-                  &ldquo;{title}&rdquo; will remain available in Files and any
-                  other databases. Values belonging only to this database will
-                  be removed.
-                </>
+                dbText("removeFromDatabaseDescription", { title })
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -711,10 +719,10 @@ export function RowActionsCell({
               {removeItems.isPending || deleteContentSpace.isPending
                 ? canDeleteWorkspace
                   ? "Deleting..."
-                  : "Removing..."
+                  : dbText("removing")
                 : canDeleteWorkspace
                   ? "Delete"
-                  : "Remove"}
+                  : dbText("remove")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

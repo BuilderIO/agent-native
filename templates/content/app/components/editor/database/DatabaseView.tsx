@@ -271,7 +271,11 @@ import { VisualEditor } from "../VisualEditor";
 import { DatabaseFormView } from "./FormView";
 import { DatabaseGalleryView } from "./GalleryView";
 import { DatabaseListView } from "./ListView";
-import { databaseItemIsSourceBacked } from "./row-access";
+import {
+  databaseItemCanRemoveFromDatabase,
+  databaseItemHasViewerAccess,
+  databaseItemIsSourceBacked,
+} from "./row-access";
 import { DatabaseTimelineView } from "./TimelineView";
 
 export interface DatabaseViewProps {
@@ -2814,6 +2818,12 @@ function DatabaseTable({
             )
           }
           onClearSelection={() => setSelectedItemIds([])}
+          onRemoveSelection={(itemIds) =>
+            setSelectedItemIds((current) => {
+              const removedIds = new Set(itemIds);
+              return current.filter((itemId) => !removedIds.has(itemId));
+            })
+          }
           onCreateRow={createInlineRow}
           onCreateGroupedRow={createInlineGroupedRow}
           onTitleFocusHandled={() => setInlineTitleFocusDocumentId(null)}
@@ -3359,7 +3369,9 @@ export function databaseSelectionCapabilities(args: {
         args.canManageDatabase &&
         !args.isWorkspaceCatalog &&
         args.selectedItems.every(
-          (item) => !databaseItemIsSourceBacked(item, args.sources),
+          (item) =>
+            databaseItemHasViewerAccess(item) &&
+            !databaseItemIsSourceBacked(item, args.sources),
         ),
   };
 }
@@ -5185,6 +5197,7 @@ function DatabaseTableView({
   onToggleRowSelection,
   onToggleAllRowsSelection,
   onClearSelection,
+  onRemoveSelection,
   onClearResultConstraints,
   onCreateRow,
   onCreateGroupedRow,
@@ -5244,6 +5257,7 @@ function DatabaseTableView({
   onToggleRowSelection: (itemId: string) => void;
   onToggleAllRowsSelection: () => void;
   onClearSelection: () => void;
+  onRemoveSelection: (itemIds: string[]) => void;
   onClearResultConstraints: () => void;
   onCreateRow: CreateDatabaseRowHandler;
   onCreateGroupedRow: (
@@ -5278,11 +5292,18 @@ function DatabaseTableView({
     useState<DatabaseDragPreviewState | null>(null);
   const [confirmRemoveSelectedOpen, setConfirmRemoveSelectedOpen] =
     useState(false);
+  const [removeSelectedSnapshotIds, setRemoveSelectedSnapshotIds] = useState<
+    string[]
+  >([]);
   const [isDuplicatingSelected, setIsDuplicatingSelected] = useState(false);
   const selectedCount = selectedItemIds.length;
   const selectableCount = items.length;
   const selectedIdSet = new Set(selectedItemIds);
   const selectedItems = databaseSelectedItems(items, selectedItemIds);
+  const removeSelectedSnapshot = databaseSelectedItems(
+    items,
+    removeSelectedSnapshotIds,
+  );
   const removesFavoriteMembership =
     contentSpaces.data?.favoritesDocumentId === databaseDocumentId;
   const isWorkspaceCatalog =
@@ -5297,6 +5318,15 @@ function DatabaseTableView({
       removesFavoriteMembership,
       isWorkspaceCatalog,
     });
+  const canConfirmRemoveSelected = databaseSelectionCapabilities({
+    canEdit,
+    canManageDatabase,
+    selectedItemIds: removeSelectedSnapshotIds,
+    selectedItems: removeSelectedSnapshot,
+    sources,
+    removesFavoriteMembership,
+    isWorkspaceCatalog,
+  }).canRemoveSelected;
   const bulkEditableProperties = databaseBulkEditableProperties(properties);
   const groups = databaseVisibleGroups(
     databaseViewItemGroups(items, groupableProperties, groupByPropertyId),
@@ -5521,17 +5551,17 @@ function DatabaseTableView({
     }
   }
 
-  async function removeSelectedRows() {
-    if (!canRemoveSelected || selectedItems.length === 0) return;
-    const selectedSnapshot = selectedItems;
+  async function removeSelectedRows(selectedSnapshot: ContentDatabaseItem[]) {
+    if (selectedSnapshot.length === 0) return;
     setConfirmRemoveSelectedOpen(false);
+    setRemoveSelectedSnapshotIds([]);
 
     try {
       await removeItems.mutateAsync({
         documentId: databaseDocumentId,
-        itemIds: selectedItemIds,
+        itemIds: selectedSnapshot.map((item) => item.id),
       });
-      onClearSelection();
+      onRemoveSelection(selectedSnapshot.map((item) => item.id));
       onDeletedPreviewItems(selectedSnapshot);
       await queryClient.invalidateQueries({
         queryKey: [
@@ -5544,7 +5574,7 @@ function DatabaseTableView({
         queryKey: ["action", "list-documents"],
       });
     } catch (err) {
-      toast.error("Failed to remove every selected row from the database", {
+      toast.error(dbText("failedToRemoveEverySelectedRowFromDatabase"), {
         description:
           err instanceof Error ? err.message : dbText("somethingWentWrong"),
       });
@@ -5656,9 +5686,10 @@ function DatabaseTableView({
           onDuplicateSelected={() => void duplicateSelectedRows()}
           onRemoveSelected={() => {
             if (removesFavoriteMembership) {
-              void removeSelectedRows();
+              void removeSelectedRows(selectedItems);
               return;
             }
+            setRemoveSelectedSnapshotIds(selectedItems.map((item) => item.id));
             setConfirmRemoveSelectedOpen(true);
           }}
         />
@@ -5887,27 +5918,33 @@ function DatabaseTableView({
         </div>
       </div>
       <AlertDialog
-        open={!removesFavoriteMembership && confirmRemoveSelectedOpen}
-        onOpenChange={setConfirmRemoveSelectedOpen}
+        open={
+          !removesFavoriteMembership &&
+          canConfirmRemoveSelected &&
+          confirmRemoveSelectedOpen
+        }
+        onOpenChange={(open) => {
+          setConfirmRemoveSelectedOpen(open);
+          if (!open) setRemoveSelectedSnapshotIds([]);
+        }}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              Remove selected rows from database?
+              {dbText("removeSelectedRowsFromDatabaseQuestion")}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              The selected pages will remain available in Files and any other
-              databases. Values belonging only to this database will be removed.
+              {dbText("removeSelectedRowsFromDatabaseDescription")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{dbText("cancel")}</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={removeItems.isPending}
-              onClick={() => void removeSelectedRows()}
+              disabled={removeItems.isPending || !canConfirmRemoveSelected}
+              onClick={() => void removeSelectedRows(removeSelectedSnapshot)}
             >
-              {removeItems.isPending ? "Removing..." : "Remove"}
+              {removeItems.isPending ? dbText("removing") : dbText("remove")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -18460,9 +18497,12 @@ export function RowActionsCell({
   const canRemoveFromDatabase = removesFavoriteMembership
     ? databaseDocument?.canEdit === true
     : databaseData !== undefined &&
-      databaseDocument?.canManage === true &&
-      !isWorkspaceCatalog &&
-      !databaseItemIsSourceBacked(item, databaseSources);
+      databaseItemCanRemoveFromDatabase({
+        item,
+        databaseCanManage: databaseDocument?.canManage === true,
+        isWorkspaceCatalog,
+        sources: databaseSources,
+      });
 
   async function duplicateRow() {
     setMenuOpen(false);
@@ -18479,6 +18519,10 @@ export function RowActionsCell({
   }
 
   async function removeRowOrDeleteWorkspace() {
+    if (!canRemoveFromDatabase && !canDeleteWorkspace) {
+      setConfirmDeleteOpen(false);
+      return;
+    }
     const previewMoved = onDeletedPreviewItem?.(item) ?? false;
     try {
       if (canDeleteWorkspace && workspaceSpace) {
@@ -18504,7 +18548,7 @@ export function RowActionsCell({
       toast.error(
         canDeleteWorkspace
           ? dbText("failedToDeleteRow")
-          : "Failed to remove row from database",
+          : dbText("failedToRemoveRowFromDatabase"),
         {
           description:
             err instanceof Error ? err.message : dbText("somethingWentWrong"),
@@ -18572,7 +18616,9 @@ export function RowActionsCell({
               }}
             >
               <IconTrash className="mr-2 size-4" />
-              {canDeleteWorkspace ? "Delete workspace" : "Remove from database"}
+              {canDeleteWorkspace
+                ? "Delete workspace"
+                : dbText("removeFromDatabase")}
             </DropdownMenuItem>
           ) : null}
         </DropdownMenuContent>
@@ -18591,7 +18637,7 @@ export function RowActionsCell({
             <AlertDialogTitle>
               {canDeleteWorkspace
                 ? "Delete workspace?"
-                : "Remove from database?"}
+                : dbText("removeFromDatabaseQuestion")}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {canDeleteWorkspace ? (
@@ -18600,11 +18646,7 @@ export function RowActionsCell({
                   will be permanently deleted. This cannot be undone.
                 </>
               ) : (
-                <>
-                  &ldquo;{title}&rdquo; will remain available in Files and any
-                  other databases. Values belonging only to this database will
-                  be removed.
-                </>
+                dbText("removeFromDatabaseDescription", { title })
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -18618,10 +18660,10 @@ export function RowActionsCell({
               {removeItems.isPending || deleteContentSpace.isPending
                 ? canDeleteWorkspace
                   ? "Deleting..."
-                  : "Removing..."
+                  : dbText("removing")
                 : canDeleteWorkspace
                   ? "Delete"
-                  : "Remove"}
+                  : dbText("remove")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

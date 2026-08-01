@@ -6,6 +6,8 @@ import { runWithRequestContext } from "@agent-native/core/server";
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import type { ContentDatabaseItem } from "../shared/api.js";
+
 const TEST_DB_PATH = join(
   tmpdir(),
   `database-row-batch-actions-${process.pid}-${Date.now()}.sqlite`,
@@ -19,6 +21,9 @@ let duplicateDatabaseItemAction: typeof import("./duplicate-database-item.js").d
 let removeDatabaseItemsAction: typeof import("./remove-database-items.js").default;
 let addDatabaseItemAction: typeof import("./add-database-item.js").default;
 let lockDatabaseMemberships: typeof import("./_database-membership-lock.js").lockDatabaseMemberships;
+let replaceMockSourceRows: typeof import("./_database-source-utils.js").replaceMockSourceRows;
+let setDocumentPropertyAction: typeof import("./set-document-property.js").default;
+let getContentDatabaseAction: typeof import("./get-content-database.js").default;
 let spaceId: string;
 
 const OWNER = "owner@example.com";
@@ -38,6 +43,11 @@ beforeAll(async () => {
   addDatabaseItemAction = (await import("./add-database-item.js")).default;
   ({ lockDatabaseMemberships } =
     await import("./_database-membership-lock.js"));
+  ({ replaceMockSourceRows } = await import("./_database-source-utils.js"));
+  setDocumentPropertyAction = (await import("./set-document-property.js"))
+    .default;
+  getContentDatabaseAction = (await import("./get-content-database.js"))
+    .default;
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
   const { systemIdsForContentSpace } = await import("./_content-spaces.js");
@@ -173,6 +183,76 @@ async function orderedRows(databaseId: string) {
 }
 
 describe("database row batch actions", () => {
+  it("reports truthful page-view capability for database rows", async () => {
+    const { databaseId, databaseDocumentId, rows } =
+      await createDatabaseWithRows(6);
+    const now = new Date().toISOString();
+    await getDb()
+      .insert(schema.documentShares)
+      .values([
+        {
+          id: nextId("share"),
+          resourceId: databaseDocumentId,
+          principalType: "user",
+          principalId: COLLABORATOR,
+          role: "admin",
+          createdBy: OWNER,
+          createdAt: now,
+        },
+        ...(["viewer", "editor", "admin"] as const).map((role, index) => ({
+          id: nextId("share"),
+          resourceId: rows[index + 1].documentId,
+          principalType: "user" as const,
+          principalId: COLLABORATOR,
+          role,
+          createdBy: OWNER,
+          createdAt: now,
+        })),
+      ]);
+    await getDb()
+      .update(schema.documents)
+      .set({ visibility: "public" })
+      .where(eq(schema.documents.id, rows[4].documentId));
+    await getDb()
+      .update(schema.documents)
+      .set({ visibility: "org", orgId: "org-1" })
+      .where(eq(schema.documents.id, rows[5].documentId));
+
+    const collaboratorResult = await runWithRequestContext(
+      { userEmail: COLLABORATOR, orgId: "org-1" },
+      () => getContentDatabaseAction.run({ databaseId }),
+    );
+    if (!("items" in collaboratorResult)) {
+      throw new Error("Expected a database response");
+    }
+    expect(
+      collaboratorResult.items.map((item) => ({
+        id: item.document.id,
+        role: item.document.accessRole,
+        canView: item.document.canView,
+      })),
+    ).toEqual([
+      { id: rows[0].documentId, role: undefined, canView: false },
+      { id: rows[1].documentId, role: "viewer", canView: true },
+      { id: rows[2].documentId, role: "editor", canView: true },
+      { id: rows[3].documentId, role: "admin", canView: true },
+      { id: rows[4].documentId, role: "viewer", canView: true },
+      { id: rows[5].documentId, role: "viewer", canView: true },
+    ]);
+
+    const ownerResult = await runWithRequestContext({ userEmail: OWNER }, () =>
+      getContentDatabaseAction.run({ databaseId }),
+    );
+    if (!("items" in ownerResult)) throw new Error("Expected owner rows");
+    expect(
+      ownerResult.items.every(
+        (item) =>
+          item.document.accessRole === "owner" &&
+          item.document.canView === true,
+      ),
+    ).toBe(true);
+  });
+
   it("duplicates selected rows as one ordered block with copied values and inherited shares", async () => {
     const db = getDb();
     const { databaseId, databaseDocumentId, rows } =
@@ -722,6 +802,124 @@ describe("database row batch actions", () => {
       "Source-backed rows cannot be removed",
     );
     expect(await orderedRows(databaseId)).toHaveLength(1);
+  });
+
+  it("rolls back a source-row replacement when any target membership is stale", async () => {
+    const { databaseId, rows } = await createDatabaseWithRows(1);
+    const now = new Date().toISOString();
+    const sourceId = nextId("source");
+    const oldSourceRowId = nextId("source_row");
+    await getDb().insert(schema.contentDatabaseSources).values({
+      id: sourceId,
+      ownerEmail: OWNER,
+      databaseId,
+      sourceType: "mock-local",
+      sourceName: "Atomic source",
+      sourceTable: "rows",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await getDb().insert(schema.contentDatabaseSourceRows).values({
+      id: oldSourceRowId,
+      ownerEmail: OWNER,
+      sourceId,
+      databaseItemId: rows[0].itemId,
+      documentId: rows[0].documentId,
+      sourceRowId: "old-row",
+      sourceQualifiedId: "mock-local://rows/old-row",
+      sourceDisplayKey: "Old row",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const replacementItems = [
+      {
+        id: rows[0].itemId,
+        databaseId,
+        document: { id: rows[0].documentId, title: "Existing" },
+        position: 0,
+        properties: [],
+      },
+      {
+        id: nextId("missing_item"),
+        databaseId,
+        document: { id: nextId("missing_document"), title: "Missing" },
+        position: 1,
+        properties: [],
+      },
+    ] as ContentDatabaseItem[];
+
+    await expect(
+      replaceMockSourceRows({
+        sourceId,
+        ownerEmail: OWNER,
+        sourceType: "mock-local",
+        sourceTable: "rows",
+        items: replacementItems,
+        now,
+      }),
+    ).rejects.toThrow("Database memberships changed");
+
+    const sourceRows = await getDb()
+      .select({ id: schema.contentDatabaseSourceRows.id })
+      .from(schema.contentDatabaseSourceRows)
+      .where(eq(schema.contentDatabaseSourceRows.sourceId, sourceId));
+    expect(sourceRows).toEqual([{ id: oldSourceRowId }]);
+  });
+
+  it("leaves no database-local value after property set races membership removal", async () => {
+    const { databaseId, rows } = await createDatabaseWithRows(1);
+    const now = new Date().toISOString();
+    const propertyId = nextId("property");
+    await getDb().insert(schema.documentPropertyDefinitions).values({
+      id: propertyId,
+      ownerEmail: OWNER,
+      databaseId,
+      name: "Status",
+      type: "text",
+      visibility: "always_show",
+      optionsJson: "{}",
+      position: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const [propertyResult, removalResult] = await Promise.allSettled([
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        setDocumentPropertyAction.run({
+          documentId: rows[0].documentId,
+          databaseId,
+          propertyId,
+          value: "Ready",
+        }),
+      ),
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        removeDatabaseItemsAction.run({
+          databaseId,
+          itemIds: [rows[0].itemId],
+        }),
+      ),
+    ]);
+
+    expect(removalResult.status).toBe("fulfilled");
+    expect(["fulfilled", "rejected"]).toContain(propertyResult.status);
+    expect(
+      await getDb()
+        .select({ id: schema.contentDatabaseItems.id })
+        .from(schema.contentDatabaseItems)
+        .where(eq(schema.contentDatabaseItems.id, rows[0].itemId)),
+    ).toEqual([]);
+    expect(
+      await getDb()
+        .select({ id: schema.documentPropertyValues.id })
+        .from(schema.documentPropertyValues)
+        .where(
+          and(
+            eq(schema.documentPropertyValues.documentId, rows[0].documentId),
+            eq(schema.documentPropertyValues.propertyId, propertyId),
+          ),
+        ),
+    ).toEqual([]);
   });
 
   it("rejects oversized batches before mutation", async () => {

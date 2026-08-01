@@ -25,6 +25,7 @@ import {
   importBuilderCmsEntriesAsDatabaseItems,
   insertSecondarySource,
   mapBuilderCmsEntriesToLocalItems,
+  replaceMockSourceRows,
   replaceSourceMetadata,
   resolveDatabaseForSourceMutation,
   seedMockSourceFields,
@@ -600,7 +601,7 @@ export default defineAction({
       builderSampleEntries: builderEntries,
       now,
     });
-    await seedMockSourceRows({
+    await replaceMockSourceRows({
       sourceId,
       ownerEmail: database.ownerEmail,
       sourceType,
