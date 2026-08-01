@@ -409,6 +409,7 @@ export default defineAction({
       if (read.state === "live") {
         const importResult = await importBuilderCmsEntriesAsDatabaseItems({
           database,
+          sourceId: source.id,
           entries,
           now,
           sourceTable: source.sourceTable,

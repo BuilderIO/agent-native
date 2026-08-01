@@ -459,6 +459,7 @@ export default defineAction({
       if (additionalRead.state === "live") {
         const importResult = await importBuilderCmsEntriesAsDatabaseItems({
           database,
+          sourceId: additionalSourceId,
           entries: additionalEntries,
           now,
           sourceTable,
@@ -569,6 +570,7 @@ export default defineAction({
     if (builderRead?.state === "live") {
       const importResult = await importBuilderCmsEntriesAsDatabaseItems({
         database,
+        sourceId,
         entries: builderEntries,
         now,
         sourceTable,

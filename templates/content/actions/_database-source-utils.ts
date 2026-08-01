@@ -5694,6 +5694,7 @@ export function builderCmsEntryAlreadyRepresented(args: {
 
 export async function importBuilderCmsEntriesAsDatabaseItems(args: {
   database: ContentDatabaseRow;
+  sourceId: string;
   entries: BuilderCmsSourceEntry[];
   now: string;
   sourceTable: string;
@@ -5831,6 +5832,7 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
           const documentRows: (typeof schema.documents.$inferInsert)[] = [];
           const itemRows: (typeof schema.contentDatabaseItems.$inferInsert)[] =
             [];
+          const importedItems: ContentDatabaseItem[] = [];
 
           for (const entry of args.entries) {
             if (
@@ -5863,7 +5865,8 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
               "builder-item",
               importIdentity,
             );
-            documentRows.push({
+            const documentPosition = nextDocPosition++;
+            const documentRow = {
               id: documentId,
               spaceId: databaseSpaceId,
               ownerEmail: args.database.ownerEmail,
@@ -5872,27 +5875,57 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
               title,
               content: "",
               icon: null,
-              position: nextDocPosition++,
+              position: documentPosition,
               isFavorite: 0,
               hideFromSearch: databaseDocument?.hideFromSearch ?? 0,
               visibility: databaseDocument?.visibility ?? "private",
               createdAt: args.now,
               updatedAt: args.now,
-            });
+            };
+            const itemPosition = nextItemPosition++;
+            documentRows.push(documentRow);
             itemRows.push({
               id: itemId,
               ownerEmail: args.database.ownerEmail,
               orgId: args.database.orgId,
               databaseId: args.database.id,
               documentId,
-              position: nextItemPosition++,
+              position: itemPosition,
               bodyHydrationStatus: "pending",
               bodyHydrationError: null,
               createdAt: args.now,
               updatedAt: args.now,
             });
+            importedItems.push({
+              id: itemId,
+              databaseId: args.database.id,
+              document: {
+                id: documentId,
+                parentId: args.database.documentId,
+                title,
+                content: "",
+                icon: null,
+                position: documentPosition,
+                isFavorite: false,
+                hideFromSearch: Boolean(databaseDocument?.hideFromSearch),
+                visibility: databaseDocument?.visibility ?? "private",
+                createdAt: args.now,
+                updatedAt: args.now,
+              },
+              position: itemPosition,
+              properties: [],
+            });
             importedEntriesByDocumentId.set(documentId, entry);
           }
+          const importedSourceRows = mockSourceRowsForSeed({
+            sourceId: args.sourceId,
+            ownerEmail: args.database.ownerEmail,
+            sourceType: "builder-cms",
+            sourceTable: args.sourceTable,
+            items: importedItems,
+            now: args.now,
+            builderEntriesByDocumentId: importedEntriesByDocumentId,
+          });
           await db.transaction(async (tx) => {
             for (const chunk of chunks(
               documentRows,
@@ -5912,6 +5945,11 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
                 .values(chunk)
                 .onConflictDoNothing();
             }
+            await lockDatabaseMemberships(
+              tx,
+              importedSourceRows.map((row) => row.databaseItemId),
+            );
+            await insertMockSourceRows(tx, importedSourceRows, args.now);
             await ensureDocumentsFilesMembership(
               tx,
               documentRows.map((row) => row.id),
@@ -6054,6 +6092,7 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
   if (builderRead.state === "live") {
     const importResult = await importBuilderCmsEntriesAsDatabaseItems({
       database: args.database,
+      sourceId: args.source.id,
       entries: builderEntries,
       now: args.now,
       sourceTable: args.source.sourceTable,
