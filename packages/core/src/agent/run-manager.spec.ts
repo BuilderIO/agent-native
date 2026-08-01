@@ -321,6 +321,77 @@ describe("run manager soft timeout", () => {
     expect(waitUntil).toHaveBeenCalledWith(expect.any(Promise));
   });
 
+  it("survives a queued turn whose predecessor's AbortController belongs to another request", async () => {
+    // workerd scopes I/O objects to the request that made them, and this
+    // registry is module scope: the queue consumer reaches the entry the
+    // foreground POST left for the same thread and signalling it throws,
+    // killing the invocation before the agent emits anything. Only reproduces
+    // when both land in the same isolate, so it reads as an intermittent
+    // background_worker_failed rather than a deterministic break.
+    const first = startRun(
+      "run-cross-request-first",
+      "thread-cross-request",
+      async () => {},
+    );
+    first.abort = {
+      abort: () => {
+        throw new Error(
+          "Cannot perform I/O on behalf of a different request. I/O objects " +
+            "(such as streams, request/response bodies, and others) created in " +
+            "the context of one request handler cannot be accessed from a " +
+            "different request's handler. (I/O type: RefcountedCanceler)",
+        );
+      },
+      signal: first.abort.signal,
+    } as unknown as AbortController;
+
+    const second = startRun(
+      "run-cross-request-second",
+      "thread-cross-request",
+      async () => {},
+    );
+
+    expect(second.runId).toBe("run-cross-request-second");
+    expect(second.status).toBe("running");
+    // The predecessor is still fully retired — an undeliverable signal must not
+    // leave a run parked as running in the registry.
+    expect(first.status).toBe("aborted");
+    expect(first.subscribers.size).toBe(0);
+    // ...and the miss stays visible rather than reading as a delivered abort.
+    expect(first.abortSignalUndeliverable).toContain("run-cross-request-first");
+  });
+
+  it("propagates an abort failure that is not the cross-request I/O error", () => {
+    const run = startRun(
+      "run-abort-other-failure",
+      "thread-abort-other-failure",
+      async () => {},
+    );
+    run.abort = {
+      abort: () => {
+        throw new Error("controller exploded");
+      },
+      signal: run.abort.signal,
+    } as unknown as AbortController;
+
+    expect(() => abortRun("run-abort-other-failure")).toThrow(
+      "controller exploded",
+    );
+  });
+
+  it("records nothing when the abort signal is delivered normally", () => {
+    const run = startRun(
+      "run-abort-delivered",
+      "thread-abort-delivered",
+      async () => {},
+    );
+
+    abortRun("run-abort-delivered");
+
+    expect(run.abort.signal.aborted).toBe(true);
+    expect(run.abortSignalUndeliverable).toBeUndefined();
+  });
+
   it("emits an internal continuation signal and aborts the run chunk", async () => {
     const events: AgentChatEvent[] = [];
     let aborted = false;

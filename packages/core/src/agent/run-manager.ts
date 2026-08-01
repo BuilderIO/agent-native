@@ -1,5 +1,9 @@
 import { captureError } from "../server/capture-error.js";
 import {
+  isCrossRequestIoError,
+  reportUndeliverableCrossRequestAbortOnce,
+} from "./durable-background.js";
+import {
   isLlmCredentialError,
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
@@ -51,6 +55,12 @@ export interface ActiveRun {
   subscribers: Set<(event: RunEvent) => void>;
   abort: AbortController;
   abortReason?: string;
+  /**
+   * Set when the abort signal could not be delivered to `abort` because the
+   * controller belongs to another request context. Absent means the signal
+   * reached the run loop; these are not the same outcome.
+   */
+  abortSignalUndeliverable?: string;
   /**
    * Terminal event to emit when a server-driven continuation has been handed
    * off successfully. The continuation runs outside this process, so the
@@ -666,7 +676,19 @@ function abortInMemoryRun(run: ActiveRun, reason: string = "user") {
   if (threadToRun.get(run.threadId) === run.runId) {
     threadToRun.delete(run.threadId);
   }
-  run.abort.abort(reason);
+  // The controller is an I/O object owned by the request that created this
+  // run. This registry is module scope, so on Workers the queue consumer
+  // reaches entries the foreground POST made and signalling them throws — the
+  // bookkeeping above and below is still correct for both contexts, and SQL
+  // `markRunAborted` is what actually crosses the isolate. Record the miss
+  // rather than letting a signal we did not deliver read as one we did.
+  try {
+    run.abort.abort(reason);
+  } catch (error) {
+    if (!isCrossRequestIoError(error)) throw error;
+    run.abortSignalUndeliverable = `run=${run.runId} thread=${run.threadId} reason=${reason}`;
+    reportUndeliverableCrossRequestAbortOnce(run.abortSignalUndeliverable);
+  }
   const terminalEvent = terminalEventForAbortReason(reason);
   for (const subscriber of run.subscribers) {
     try {

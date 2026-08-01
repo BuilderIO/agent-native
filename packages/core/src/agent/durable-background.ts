@@ -246,6 +246,53 @@ function reportMissingWorkersQueueTransportOnce(): void {
   );
 }
 
+/**
+ * workerd refuses to let one request handler touch an I/O object created by
+ * another — AbortControllers, streams, request/response bodies. Any state this
+ * process keeps at module scope outlives a single request, so a registry that
+ * hands a stored I/O object to a later invocation trips this rather than doing
+ * nothing. `db/client.ts` already works around the same constraint for
+ * connections.
+ *
+ * The runtime surfaces it only as a message: there is no error code or class to
+ * match on. Keep the marker narrow so an unrelated failure is never read as
+ * this one and quietly tolerated.
+ */
+const CROSS_REQUEST_IO_MARKER =
+  "Cannot perform I/O on behalf of a different request";
+
+export function isCrossRequestIoError(error: unknown): boolean {
+  return (
+    error instanceof Error && error.message.includes(CROSS_REQUEST_IO_MARKER)
+  );
+}
+
+export const CROSS_REQUEST_ABORT_NOTICE_KEY =
+  "__AGENT_NATIVE_CROSS_REQUEST_ABORT_NOTICE__";
+
+/**
+ * An abort signal that could not be delivered because the controller belongs to
+ * another request context.
+ *
+ * The run is still marked aborted and SQL `markRunAborted` still reaches the
+ * other isolate, so the turn survives — but the in-process signal genuinely did
+ * not arrive, and a run whose `runFn` never observed its own abort can keep
+ * burning its budget until the SQL status is next read. That is a real degraded
+ * mode, not a no-op, so it must not pass unannounced. Once per isolate.
+ */
+export function reportUndeliverableCrossRequestAbortOnce(detail: string): void {
+  const scope = globalThis as Record<string, unknown>;
+  if (scope[CROSS_REQUEST_ABORT_NOTICE_KEY] === true) return;
+  scope[CROSS_REQUEST_ABORT_NOTICE_KEY] = true;
+  console.error(
+    "[agent-chat] an abort signal could not be delivered because the run's AbortController " +
+      "was created in a different request context — the module-scope run registry is shared " +
+      "across invocations on this runtime but its I/O objects are not. The run is marked " +
+      "aborted and SQL carries the abort across isolates, so the turn is not lost, but the " +
+      `in-process signal did not reach the run loop. ${detail}`,
+  );
+}
+
 export const WORKERS_QUEUE_UNCLAIMED_NOTICE_KEY =
   "__AGENT_NATIVE_WORKERS_QUEUE_UNCLAIMED_NOTICE__";
 
