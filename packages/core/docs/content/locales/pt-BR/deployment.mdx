@@ -323,6 +323,16 @@ export default defineConfig({
 });
 ```
 
+### Cloudflare D1 {#cloudflare-d1}
+
+Um Worker não tem sistema de arquivos, então o banco de dados é uma
+`DATABASE_URL` externa ou o Cloudflare D1. Defina
+`CLOUDFLARE_D1_DATABASE_NAME` e `CLOUDFLARE_D1_DATABASE_ID` juntas no
+ambiente de build para que o build escreva o binding `DB` no
+`wrangler.json` gerado; definir apenas uma delas é um erro, e não um binding
+omitido em silêncio. A sequência completa de inicialização local está no guia
+de deploy em inglês.
+
 ## Lambda AWS {#aws-lambda}
 
 ```ts

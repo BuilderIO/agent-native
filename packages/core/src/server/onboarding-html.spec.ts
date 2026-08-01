@@ -6,7 +6,36 @@ import {
   AGENT_NATIVE_SOCIAL_IMAGE_PATH,
 } from "../shared/social-meta.js";
 import { BUILT_IN_AUTH_MARKETING } from "./auth-marketing.js";
-import { getOnboardingHtml } from "./onboarding-html.js";
+import { getConnectionLabel, getOnboardingHtml } from "./onboarding-html.js";
+
+// `getDialect()` memoizes its answer for the process, so the dialect is stubbed
+// rather than driven through a real binding — otherwise the first D1 case here
+// would pin every later assertion in this file to it.
+const dbClientStub = vi.hoisted(() => ({ dialect: "sqlite" as string }));
+vi.mock("../db/client.js", async (importOriginal) => ({
+  ...((await importOriginal()) as object),
+  getDialect: () => dbClientStub.dialect,
+}));
+
+describe("getConnectionLabel", () => {
+  afterEach(() => {
+    dbClientStub.dialect = "sqlite";
+    vi.unstubAllEnvs();
+  });
+
+  it("names D1 rather than the local file it cannot be on a Worker", () => {
+    vi.stubEnv("DATABASE_URL", "");
+    dbClientStub.dialect = "d1";
+
+    expect(getConnectionLabel()).toBe("Cloudflare D1");
+  });
+
+  it("still reads an unset url on any other dialect as the local SQLite file", () => {
+    vi.stubEnv("DATABASE_URL", "");
+
+    expect(getConnectionLabel()).toBe("SQLite (local file)");
+  });
+});
 
 describe("getOnboardingHtml", () => {
   afterEach(() => {

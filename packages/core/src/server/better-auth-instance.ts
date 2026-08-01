@@ -28,6 +28,7 @@ import {
 import { TEMPLATES } from "../cli/templates-meta.js";
 import { getDbExec, isPostgres } from "../db/client.js";
 import {
+  getCloudflareD1Binding,
   getDialect,
   getDatabaseUrl,
   getDatabaseAuthToken,
@@ -1151,6 +1152,43 @@ export function configureLocalSqlite(sqlite: {
   sqlite.pragma("journal_mode = WAL");
 }
 
+/**
+ * The D1 binding Better Auth should talk to, resolved per call.
+ *
+ * The binding arrives on `globalThis.__cf_env` once per Worker invocation,
+ * while the Better Auth instance is built once and cached for the isolate's
+ * lifetime. Capturing the binding at build time would pin every later request
+ * to the first invocation's I/O context; the returned proxy defers the lookup
+ * to the call, so each request uses its own.
+ *
+ * Throws when nothing is bound rather than falling through to the local-SQLite
+ * branch below: on a Worker that branch reaches the fail-closed
+ * `better-sqlite3` stub and reports "is not a constructor", which names neither
+ * the missing binding nor the dialect that asked for it.
+ */
+export function currentD1AuthBinding(): object {
+  const resolve = (): Record<string | symbol, unknown> => {
+    const binding = getCloudflareD1Binding();
+    if (!binding) {
+      throw new Error(
+        "[agent-native] Database dialect resolved to Cloudflare D1 but no D1 database is bound to `env.DB`. " +
+          'Add a `d1_databases` entry with binding "DB" to the Worker\'s Wrangler config, or set DATABASE_URL to use an external database.',
+      );
+    }
+    return binding as Record<string | symbol, unknown>;
+  };
+  return new Proxy(
+    {},
+    {
+      get(_target, property) {
+        const binding = resolve();
+        const value = binding[property];
+        return typeof value === "function" ? value.bind(binding) : value;
+      },
+    },
+  );
+}
+
 async function buildDatabaseConfig(
   dialect: string,
 ): Promise<BetterAuthOptions["database"]> {
@@ -1218,6 +1256,18 @@ async function buildDatabaseConfig(
     return drizzleAdapter(db, {
       provider: "pg",
       schema: pgAuthSchema,
+    });
+  }
+
+  if (dialect === "d1") {
+    const { drizzle } = await import("drizzle-orm/d1");
+    const db = drizzle(currentD1AuthBinding() as never, {
+      schema: sqliteAuthSchema,
+    });
+    const { drizzleAdapter } = await import("better-auth/adapters/drizzle");
+    return drizzleAdapter(db, {
+      provider: "sqlite",
+      schema: sqliteAuthSchema,
     });
   }
 

@@ -464,6 +464,87 @@ You can also select the preset explicitly with
 `NITRO_PRESET=cloudflare_module`. Configure a durable external SQL database
 before deploying; a Worker filesystem is not a persistent application store.
 
+### Cloudflare D1 {#cloudflare-d1}
+
+A Worker has no local filesystem, and the SQLite drivers the local development
+fallback uses are native modules that the Worker build replaces with
+fail-closed stubs. On this platform the database is either an external
+`DATABASE_URL` or Cloudflare D1.
+
+Set both D1 variables in the **build** environment and the Worker's generated
+`wrangler.json` gains the `DB` binding the database layer reads:
+
+```bash
+CLOUDFLARE_D1_DATABASE_NAME=my-app-db \
+CLOUDFLARE_D1_DATABASE_ID=<id from `wrangler d1 create`> \
+NITRO_PRESET=cloudflare_module npx @agent-native/core@latest build
+```
+
+Setting only one of the two is an error rather than a quietly omitted binding —
+without the binding the Worker resolves the SQLite dialect and fails inside the
+`better-sqlite3` stub, which names neither the dialect nor the missing config.
+Leave both unset for a Worker that uses `DATABASE_URL`.
+
+`DATABASE_URL` takes priority over the binding when both are present. D1 is a
+shared database, so the local single-user mode stays off and accounts, sessions,
+application state, and app data all live in D1 together.
+
+### Local Worker bring-up {#cloudflare-local-worker}
+
+The local Workers runtime is the real Worker runtime, so this is the way to
+reproduce hosted behaviour before deploying.
+
+1. **Build with the binding.** Use the build command above. For a purely local
+   session any well-formed id works — Wrangler keys a local database off it and
+   never contacts Cloudflare.
+
+2. **Put the Worker's secrets in `.dev.vars`.** Wrangler reads it from the
+   config's own directory, so it goes next to the generated config and must be
+   rewritten after each build, which replaces that directory:
+
+   ```bash
+   cat > .output/server/.dev.vars <<EOF
+   BETTER_AUTH_SECRET=$(openssl rand -base64 32)
+   AUTH_SKIP_EMAIL_VERIFICATION=1
+   APP_URL=http://localhost:8788
+   BETTER_AUTH_URL=http://localhost:8788
+   AGENT_NATIVE_ROUTE_READY_TIMEOUT_MS=300000
+   EOF
+   ```
+
+   `BETTER_AUTH_SECRET` must be set explicitly: without it the Worker derives an
+   ephemeral one per isolate and every session is invalidated by the next cold
+   start, which reads as "login does not stick" rather than as missing config.
+   The raised `AGENT_NATIVE_ROUTE_READY_TIMEOUT_MS` covers the first boot only —
+   migrating an empty D1 runs the whole migration list one statement batch at a
+   time, and the default 25s gate releases the request that is driving it.
+
+3. **Start the Worker.**
+
+   ```bash
+   npx wrangler dev --config .output/server/wrangler.json --port 8788
+   ```
+
+   Nitro stamps `compatibility_date` with the build date. If your Wrangler's
+   bundled runtime is older, it refuses to start and names the newest date it
+   supports; pass that date with `--compatibility-date`. It must be `2025-09-01`
+   or later — the Worker build relies on `node:fs`, which earlier dates do not
+   enable.
+
+4. **Warm it once.** The first request triggers module init, which runs
+   migrations; it is slow and answers `503` with `retry-after` until they
+   finish. Watch for `[db] Applied migration …` lines, then:
+
+   ```bash
+   curl -i http://127.0.0.1:8788/_agent-native/ping
+   ```
+
+   A `401` means the routes are mounted and auth is doing its job. A `503`
+   means boot is still running.
+
+Local D1 state lives under `.output/server/.wrangler/state/v3/d1/`. Delete that
+directory to re-run migrations from an empty database.
+
 ## AWS Lambda {#aws-lambda}
 
 ```ts filename="vite.config.ts"

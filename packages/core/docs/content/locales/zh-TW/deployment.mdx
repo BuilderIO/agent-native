@@ -323,6 +323,14 @@ export default defineConfig({
 });
 ```
 
+### Cloudflare D1 {#cloudflare-d1}
+
+Worker 沒有檔案系統，因此資料庫不是外部的 `DATABASE_URL`，就是
+Cloudflare D1。在建置環境中同時設定 `CLOUDFLARE_D1_DATABASE_NAME` 與
+`CLOUDFLARE_D1_DATABASE_ID`，建置就會把 `DB` 綁定寫入產生的
+`wrangler.json`；只設定其中一個會報錯，而不是靜默略過綁定。完整的本機啟動
+步驟請見英文部署指南。
+
 ## AWS 拉姆達 {#aws-lambda}
 
 ```ts
