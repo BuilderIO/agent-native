@@ -222,6 +222,18 @@ const SIDEBAR_SECTION_COLLAPSE_STORAGE_KEY =
 const TRASH_COLLAPSED_DEFAULT_MIGRATION_KEY =
   "content-sidebar-trash-collapsed-default-v2";
 const CONTENT_SIDEBAR_STATE_VERSION = 1 as const;
+
+function afterBodyPointerUnlock(callback: () => void) {
+  const run = () => {
+    if (document.body.style.pointerEvents === "none") {
+      window.requestAnimationFrame(run);
+      return;
+    }
+    callback();
+  };
+  window.requestAnimationFrame(run);
+}
+
 interface ContentSidebarStateSnapshot {
   version: typeof CONTENT_SIDEBAR_STATE_VERSION;
   expandedWorkspaceIds: string[];
@@ -906,6 +918,11 @@ export function DocumentSidebar({
   }, [setStoredCollapsedSections]);
   const [removeLocalFilesDialogOpen, setRemoveLocalFilesDialogOpen] =
     useState(false);
+  const [pendingDelete, setPendingDelete] = useState<{
+    id: string;
+    title: string;
+  } | null>(null);
+  const confirmedDeleteIdRef = useRef<string | null>(null);
   const settingsActive = location.pathname.startsWith("/settings");
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -1258,6 +1275,12 @@ export function DocumentSidebar({
     ],
   );
 
+  const requestDelete = useCallback((id: string, title: string) => {
+    afterBodyPointerUnlock(() => {
+      setPendingDelete({ id, title });
+    });
+  }, []);
+
   const handleReorderPage = useCallback(
     async (id: string, overId: string) => {
       if (id === overId) return;
@@ -1520,7 +1543,7 @@ export function DocumentSidebar({
           }}
           onCreateChildPage={(parentId) => handleCreatePage(parentId)}
           onCreateChildDatabase={(parentId) => handleCreateDatabase(parentId)}
-          onDelete={handleDelete}
+          onDelete={requestDelete}
           onToggleFavorite={handleToggleFavorite}
         />
       ))}
@@ -1832,7 +1855,12 @@ export function DocumentSidebar({
       onCreateChildDatabase={(nextSpace, item) =>
         void handleCreateDatabase(item.document.id, nextSpace.id)
       }
-      onDeleteItem={(item) => void handleDelete(item.document.id)}
+      onDeleteItem={(item) =>
+        requestDelete(
+          item.document.id,
+          item.document.title || t("sidebar.untitled"),
+        )
+      }
       onToggleFavorite={(item) =>
         handleToggleFavorite(item.document.id, !item.document.isFavorite)
       }
@@ -2348,7 +2376,10 @@ export function DocumentSidebar({
                           void handleCreateDatabase(item.document.id)
                         }
                         onDeleteItem={(item) =>
-                          void handleDelete(item.document.id)
+                          requestDelete(
+                            item.document.id,
+                            item.document.title || t("sidebar.untitled"),
+                          )
                         }
                         onToggleFavorite={(item) =>
                           handleToggleFavorite(item.document.id, false)
@@ -2416,6 +2447,49 @@ export function DocumentSidebar({
           onMouseDown={handleMouseDown}
         />
       )}
+      <AlertDialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => {
+          if (open) return;
+          setPendingDelete(null);
+          const confirmedDeleteId = confirmedDeleteIdRef.current;
+          confirmedDeleteIdRef.current = null;
+          if (confirmedDeleteId) {
+            afterBodyPointerUnlock(() => {
+              void handleDelete(confirmedDeleteId);
+            });
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("sidebar.deletePageQuestion")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingDelete
+                ? t("sidebar.deletePageDescription", {
+                    title: pendingDelete.title,
+                  })
+                : null}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("comments.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={
+                deleteDocument.isPending || deleteContentDatabase.isPending
+              }
+              onClick={() => {
+                confirmedDeleteIdRef.current = pendingDelete?.id ?? null;
+              }}
+            >
+              {t("database.delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <AlertDialog
         open={removeLocalFilesDialogOpen}
         onOpenChange={setRemoveLocalFilesDialogOpen}
