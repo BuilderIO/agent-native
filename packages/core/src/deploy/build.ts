@@ -378,6 +378,56 @@ export const CLOUDFLARE_WORKER_STUB_SUBPATH_MODULES: Record<string, string> = {
   ].join("\n"),
 };
 
+/** Stub source for a package the Worker module preset must not link. */
+export function cloudflareModuleStubSource(packageName: string): string {
+  const source =
+    CLOUDFLARE_MODULE_ONLY_STUB_MODULES[packageName] ??
+    CLOUDFLARE_WORKER_STUB_MODULES[packageName];
+  if (!source) {
+    throw new Error(
+      `[deploy] No Cloudflare Worker stub source for "${packageName}". Add one to CLOUDFLARE_MODULE_ONLY_STUB_MODULES or CLOUDFLARE_WORKER_STUB_MODULES.`,
+    );
+  }
+  return source;
+}
+
+/**
+ * Write the module preset's fail-closed stubs to disk and return them as a
+ * Nitro `alias` map.
+ *
+ * A Rolldown `resolveId` plugin is not enough on its own: Nitro's own
+ * resolver runs ahead of `rollupConfig.plugins`, so any stub target that is
+ * actually installed (`@playwright/test` is a template devDependency) gets
+ * resolved to the real package and linked whole before the plugin is asked.
+ * Nitro applies `alias` before that resolution, so this is the layer that
+ * decides. The plugin stays as the fallback for names Nitro cannot resolve
+ * at all.
+ */
+export function writeCloudflareModuleStubAliases(
+  stubRoot: string,
+): Record<string, string> {
+  const aliases: Record<string, string> = {};
+  for (const packageName of CLOUDFLARE_MODULE_STUB_MODULES) {
+    const modDir = path.join(stubRoot, ...packageName.split("/"));
+    fs.mkdirSync(modDir, { recursive: true });
+    const stubFile = path.join(modDir, "index.mjs");
+    fs.writeFileSync(stubFile, cloudflareModuleStubSource(packageName));
+    aliases[packageName] = stubFile;
+  }
+  for (const [subpath, packageName] of Object.entries(
+    CLOUDFLARE_MODULE_STUB_SUBPATHS,
+  )) {
+    const stubFile = aliases[packageName];
+    if (!stubFile) {
+      throw new Error(
+        `[deploy] Cloudflare Worker stub subpath "${subpath}" names package "${packageName}", which is not in CLOUDFLARE_MODULE_STUB_MODULES.`,
+      );
+    }
+    aliases[subpath] = stubFile;
+  }
+  return aliases;
+}
+
 export function cloudflareWorkerStubAliasArgs(stubDir: string): string[] {
   const subpathAliases = Object.keys(CLOUDFLARE_WORKER_STUB_SUBPATH_MODULES)
     .sort((a, b) => b.length - a.length)
@@ -3846,6 +3896,7 @@ const BROWSER_ONLY_SERVER_LIBS = [
  */
 export const CLOUDFLARE_MODULE_STUB_MODULES = [
   "@napi-rs/canvas",
+  "@playwright/test",
   "@resvg/resvg-js",
   "@sentry/node",
   "@sparticuz/chromium-min",
@@ -3854,9 +3905,62 @@ export const CLOUDFLARE_MODULE_STUB_MODULES = [
   "chokidar",
   "fsevents",
   "node-pty",
+  "pdf-parse",
+  "pdfjs-dist",
   "playwright",
   "playwright-core",
+  "puppeteer",
+  "puppeteer-core",
 ] as const;
+
+/**
+ * Package subpaths that must be stubbed alongside their package root.
+ *
+ * A package-root alias does not cover them: `officeparser` reaches PDF text
+ * through `pdfjs-dist/legacy/build/pdf.mjs`, so stubbing only `pdfjs-dist`
+ * leaves 1.6 MiB of a runtime-incompatible reader linked and reachable while
+ * the package name reads as stubbed.
+ */
+export const CLOUDFLARE_MODULE_STUB_SUBPATHS: Record<string, string> = {
+  "pdfjs-dist/legacy/build/pdf.mjs": "pdfjs-dist",
+  "pdfjs-dist/legacy/build/pdf.worker.mjs": "pdfjs-dist",
+};
+
+/**
+ * Stub sources that exist for the Worker module preset only. The Pages
+ * bundler aliases directly off `CLOUDFLARE_WORKER_STUB_MODULES`, so an entry
+ * added there would change a preset this build path does not own.
+ */
+export const CLOUDFLARE_MODULE_ONLY_STUB_MODULES: Record<string, string> = {
+  // Reached only through the second arm of a template's browser-runtime
+  // fallback chain (`import("playwright")` fails, `@playwright/test` is
+  // retried). Left unstubbed it links a 4 MiB test runner into the Worker
+  // and returns a module whose `chromium.launch()` looks callable.
+  "@playwright/test": [
+    "const unavailable = async () => { throw new Error('@playwright/test unavailable in Cloudflare Workers'); };",
+    "export const chromium = { launch: unavailable, connect: unavailable, connectOverCDP: unavailable };",
+    "export const firefox = { launch: unavailable, connect: unavailable };",
+    "export const webkit = { launch: unavailable, connect: unavailable };",
+    "export const test = () => { throw new Error('@playwright/test unavailable in Cloudflare Workers'); };",
+    "export const expect = () => { throw new Error('@playwright/test unavailable in Cloudflare Workers'); };",
+    "export default { chromium, firefox, webkit, test, expect };",
+    "",
+  ].join("\n"),
+  puppeteer: [
+    "const unavailable = async () => { throw new Error('puppeteer unavailable in Cloudflare Workers'); };",
+    "export const launch = unavailable;",
+    "export const connect = unavailable;",
+    "export default { launch, connect };",
+    "",
+  ].join("\n"),
+  "puppeteer-core": [
+    "const unavailable = async () => { throw new Error('puppeteer-core unavailable in Cloudflare Workers'); };",
+    "export const launch = unavailable;",
+    "export const connect = unavailable;",
+    "export default { launch, connect };",
+    "",
+  ].join("\n"),
+};
 
 /**
  * Mirror the fail-closed package stubs used by the Pages bundler in Nitro's
@@ -3880,9 +3984,65 @@ export function createCloudflareModuleStubPlugin() {
     load(id: string) {
       if (!id.startsWith(stubIdPrefix)) return null;
       const packageName = id.slice(stubIdPrefix.length);
-      return CLOUDFLARE_WORKER_STUB_MODULES[packageName] ?? null;
+      const source =
+        CLOUDFLARE_MODULE_ONLY_STUB_MODULES[packageName] ??
+        CLOUDFLARE_WORKER_STUB_MODULES[packageName];
+      if (!source) {
+        // resolveId already claimed this specifier, so returning null here
+        // hands Rolldown an id with no source and it reports a missing file
+        // instead of the real cause: a name listed for stubbing with no stub.
+        throw new Error(
+          `[deploy] No Cloudflare Worker stub source for "${packageName}". Add one to CLOUDFLARE_MODULE_ONLY_STUB_MODULES or CLOUDFLARE_WORKER_STUB_MODULES.`,
+        );
+      }
+      return source;
     },
   };
+}
+
+/**
+ * Native packages that survive as bare specifiers inside already-emitted
+ * `_libs/` bundles, past the point where a Rolldown plugin can intercept
+ * them. They are rewritten to a generated sibling stub instead.
+ */
+export const CLOUDFLARE_UNRESOLVED_NATIVE_STUBS = [
+  "better-sqlite3",
+  "node-pty",
+  "cron-parser",
+] as const;
+
+/**
+ * Source for those generated sibling stubs.
+ *
+ * These are reached at runtime, not only during linking: a Worker that got
+ * here has a caller holding a live reference. An empty object plus a no-op
+ * `watch()` would let that caller read "no rows", "no terminal", "no next
+ * run" and carry on, which is indistinguishable from the capability working
+ * and finding nothing.
+ */
+export function cloudflareUnresolvedNativeStubSource(
+  moduleName: string,
+): string {
+  return [
+    // A function declaration, not an arrow: a caller reaching this through
+    // `new mod.Database()` must land in the body and see the real reason,
+    // not a bare "is not a constructor" from the engine.
+    `function unavailable() { throw new Error(${JSON.stringify(
+      `${moduleName} is unavailable in Cloudflare Workers`,
+    )}); }`,
+    "export const watch = unavailable;",
+    "export const parseExpression = unavailable;",
+    "export default new Proxy(function () { unavailable(); }, {",
+    "  get(_target, property) {",
+    "    if (property === Symbol.toPrimitive) return unavailable;",
+    "    if (property === 'then') return undefined;",
+    "    return unavailable;",
+    "  },",
+    "  apply: unavailable,",
+    "  construct: unavailable,",
+    "});",
+    "",
+  ].join("\n");
 }
 
 /**
@@ -4044,6 +4204,12 @@ export default bundle;
 
   const providedPluginsNitroPlugin = await writeProvidedPluginsNitroPlugin();
 
+  const cloudflareStubAliases = preset.startsWith("cloudflare")
+    ? writeCloudflareModuleStubAliases(
+        path.join(cwd, ".agent-native", "cloudflare-worker-stubs"),
+      )
+    : {};
+
   const nitro = await createNitro({
     rootDir: cwd,
     dev: false,
@@ -4054,6 +4220,7 @@ export default bundle;
     ignore: NITRO_RUNTIME_IGNORE_PATTERNS,
     alias: {
       ...pathAliases,
+      ...cloudflareStubAliases,
       ...(fs.existsSync(rrServerBuild)
         ? { "virtual:react-router/server-build": rrServerBuild }
         : {}),
@@ -4496,8 +4663,7 @@ export default bundle;
       "_libs",
     );
     if (fs.existsSync(libsDir2)) {
-      const NATIVE_STUBS = ["better-sqlite3", "node-pty", "cron-parser"];
-      for (const mod of NATIVE_STUBS) {
+      for (const mod of CLOUDFLARE_UNRESOLVED_NATIVE_STUBS) {
         const libFiles = fs
           .readdirSync(libsDir2)
           .filter((f) => f.endsWith(".mjs"));
@@ -4515,10 +4681,7 @@ export default bundle;
         const stubName = mod.replace(/[/@]/g, "__") + ".mjs";
         const stubPath = path.join(libsDir2, stubName);
         if (!fs.existsSync(stubPath)) {
-          fs.writeFileSync(
-            stubPath,
-            `export default {}; export const watch = () => ({ close() {} });\n`,
-          );
+          fs.writeFileSync(stubPath, cloudflareUnresolvedNativeStubSource(mod));
           console.log(`[deploy] Created stub for _libs/${stubName}`);
         }
 

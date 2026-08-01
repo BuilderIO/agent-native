@@ -117,10 +117,15 @@ function hasExpectedSignature(ext: string, data: Uint8Array): boolean {
   return !data.subarray(0, 4096).includes(0);
 }
 
-function truncateExtractedText(text: string): {
+type ExtractedUploadText = {
   textContent?: string;
   textTruncated?: boolean;
-} {
+  /** Set when extraction was attempted and failed. Distinct from a file that
+   *  simply carries no text, which leaves every field unset. */
+  textExtractionError?: string;
+};
+
+function truncateExtractedText(text: string): ExtractedUploadText {
   const normalized = text.replace(/\0/g, "").trim();
   if (!normalized) return {};
   if (normalized.length <= MAX_EXTRACTED_TEXT_CHARS) {
@@ -135,7 +140,7 @@ function truncateExtractedText(text: string): {
 async function extractUploadText(
   ext: string,
   data: Uint8Array,
-): Promise<{ textContent?: string; textTruncated?: boolean }> {
+): Promise<ExtractedUploadText> {
   if (TEXT_EXTENSIONS.has(ext)) {
     return truncateExtractedText(Buffer.from(data).toString("utf8"));
   }
@@ -146,8 +151,15 @@ async function extractUploadText(
       const pdf = new PDFParse({ data: new Uint8Array(data) });
       const result = await pdf.getText();
       return truncateExtractedText(result.text ?? "");
-    } catch {
-      return {};
+    } catch (err) {
+      // `pdf-parse` needs a Node worker thread, so the Cloudflare Worker
+      // build replaces it with a stub that throws. Reporting that as `{}`
+      // would be indistinguishable from a PDF that genuinely holds no text,
+      // and the prompt would then be built from a document nobody read.
+      return {
+        textExtractionError:
+          err instanceof Error ? err.message : "PDF text extraction failed",
+      };
     }
   }
 
@@ -160,9 +172,7 @@ type UploadedFileResult = {
   filename: string;
   type: string;
   size: number;
-  textContent?: string;
-  textTruncated?: boolean;
-};
+} & ExtractedUploadText;
 
 type InternalUploadedFileResult = UploadedFileResult & {
   _destPath: string;

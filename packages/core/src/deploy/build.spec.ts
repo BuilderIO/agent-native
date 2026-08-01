@@ -20,9 +20,13 @@ import {
   bundleYjsRuntimeForServerlessOutput,
   CLOUDFLARE_WORKER_ESBUILD_EXTERNALS,
   CLOUDFLARE_MODULE_STUB_MODULES,
+  CLOUDFLARE_MODULE_STUB_SUBPATHS,
   CLOUDFLARE_WORKER_NODE_BUILTIN_STUB_MODULES,
   CLOUDFLARE_WORKER_STUB_MODULES,
   CLOUDFLARE_WORKER_STUB_SUBPATH_MODULES,
+  CLOUDFLARE_UNRESOLVED_NATIVE_STUBS,
+  cloudflareModuleStubSource,
+  cloudflareUnresolvedNativeStubSource,
   cloudflareWorkerStubAliasArgs,
   configureCloudflareModuleWorkerOutput,
   copyDir,
@@ -48,6 +52,7 @@ import {
   runNitroBuildPipeline,
   sanitizeServerlessFunctionPackageManifest,
   shouldBundleFfmpegStaticForServerless,
+  writeCloudflareModuleStubAliases,
   writeSingleTemplateNetlifyRedirects,
 } from "./build.js";
 import { IMMUTABLE_ASSET_CACHE_CONTROL } from "./immutable-assets.js";
@@ -156,6 +161,135 @@ describe("Cloudflare module preset stubs", () => {
     expect(plugin.load(sentryStub as string)).toContain("captureException");
     expect(plugin.resolveId("@sentry/node/internals")).toBeNull();
     expect(plugin.resolveId("@anthropic-ai/sdk")).toBeNull();
+  });
+
+  it("stubs every browser-driver package a fallback chain can reach", () => {
+    // The Design template resolves its headless browser through
+    // `importPlaywright()`, which catches a failing `playwright` import and
+    // retries `@playwright/test`. Stubbing only the first specifier bundles
+    // the second one whole (4 MiB) and hands the caller a real module that
+    // cannot launch a browser here.
+    for (const packageName of [
+      "@playwright/test",
+      "playwright",
+      "playwright-core",
+      "puppeteer",
+      "puppeteer-core",
+    ]) {
+      expect(CLOUDFLARE_MODULE_STUB_MODULES).toContain(packageName);
+    }
+  });
+
+  it("stubs the PDF readers, which need a Node worker thread", () => {
+    expect(CLOUDFLARE_MODULE_STUB_MODULES).toContain("pdf-parse");
+    expect(CLOUDFLARE_MODULE_STUB_MODULES).toContain("pdfjs-dist");
+  });
+
+  it("gives every stubbed package a source that throws when used", () => {
+    const plugin = createCloudflareModuleStubPlugin();
+
+    for (const packageName of CLOUDFLARE_MODULE_STUB_MODULES) {
+      const stubId = plugin.resolveId(packageName);
+      expect(stubId, `${packageName} must resolve to a stub`).toMatch(
+        /^\0agent-native-cloudflare-module-stub:/,
+      );
+      expect(
+        plugin.load(stubId as string),
+        `${packageName} must have stub source`,
+      ).toBeTruthy();
+    }
+  });
+
+  it("fails closed for the capability packages rather than resolving empty", () => {
+    const plugin = createCloudflareModuleStubPlugin();
+
+    for (const packageName of [
+      "@playwright/test",
+      "puppeteer",
+      "puppeteer-core",
+    ]) {
+      const source = plugin.load(plugin.resolveId(packageName) as string);
+      expect(source, `${packageName} stub must throw`).toContain(
+        "throw new Error(",
+      );
+      expect(source).toContain(packageName);
+    }
+  });
+
+  it("throws rather than resolving a listed package with no stub source", () => {
+    const plugin = createCloudflareModuleStubPlugin();
+
+    expect(() =>
+      plugin.load("\0agent-native-cloudflare-module-stub:not-a-stubbed-pkg"),
+    ).toThrow(/No Cloudflare Worker stub source/);
+  });
+
+  it("writes an alias for every stubbed package so Nitro resolves it first", () => {
+    const stubRoot = path.join(makeTempDir(), "cloudflare-worker-stubs");
+    const aliases = writeCloudflareModuleStubAliases(stubRoot);
+
+    expect(Object.keys(aliases).sort()).toEqual(
+      [
+        ...CLOUDFLARE_MODULE_STUB_MODULES,
+        ...Object.keys(CLOUDFLARE_MODULE_STUB_SUBPATHS),
+      ].sort(),
+    );
+    // A package-root alias does not cover a deep specifier, and the deep one
+    // is how `officeparser` actually reaches the PDF reader.
+    expect(aliases["pdfjs-dist/legacy/build/pdf.mjs"]).toBe(
+      aliases["pdfjs-dist"],
+    );
+    for (const [specifier, stubFile] of Object.entries(aliases)) {
+      const packageName =
+        CLOUDFLARE_MODULE_STUB_SUBPATHS[specifier] ?? specifier;
+      expect(fs.existsSync(stubFile), `${specifier} stub on disk`).toBe(true);
+      expect(fs.readFileSync(stubFile, "utf8")).toBe(
+        cloudflareModuleStubSource(packageName),
+      );
+    }
+    // Scoped names must nest, not collapse into one flat filename.
+    expect(aliases["@playwright/test"]).toContain(
+      path.join("@playwright", "test"),
+    );
+  });
+
+  it("keeps the Cloudflare Pages stub set unchanged by module-only stubs", () => {
+    // The Pages bundler aliases straight off CLOUDFLARE_WORKER_STUB_MODULES,
+    // so an entry added there changes a preset this work does not target.
+    expect(CLOUDFLARE_WORKER_STUB_MODULES).not.toHaveProperty(
+      "@playwright/test",
+    );
+    expect(CLOUDFLARE_WORKER_STUB_MODULES).not.toHaveProperty("puppeteer");
+  });
+});
+
+describe("cloudflareUnresolvedNativeStubSource", () => {
+  it("throws on every access instead of answering as an idle capability", async () => {
+    const source = cloudflareUnresolvedNativeStubSource("better-sqlite3");
+    const module = await import(
+      `data:text/javascript,${encodeURIComponent(source)}`
+    );
+
+    expect(() => module.watch()).toThrow(
+      /better-sqlite3 is unavailable in Cloudflare Workers/,
+    );
+    expect(() => new module.default.Database()).toThrow(
+      /better-sqlite3 is unavailable in Cloudflare Workers/,
+    );
+    expect(() => module.default()).toThrow(
+      /better-sqlite3 is unavailable in Cloudflare Workers/,
+    );
+    expect(() => new module.default()).toThrow(
+      /better-sqlite3 is unavailable in Cloudflare Workers/,
+    );
+  });
+
+  it("covers every package the post-build rewrite can generate", () => {
+    for (const mod of CLOUDFLARE_UNRESOLVED_NATIVE_STUBS) {
+      expect(cloudflareUnresolvedNativeStubSource(mod)).toContain(
+        `${mod} is unavailable in Cloudflare Workers`,
+      );
+    }
   });
 });
 

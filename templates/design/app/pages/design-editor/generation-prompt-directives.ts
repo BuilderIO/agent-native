@@ -20,6 +20,13 @@ export function formatUploadedFileContext(files: UploadedFile[]): string {
       lines.push(
         `Extracted text${file.textTruncated ? " (truncated)" : ""}:\n${text}`,
       );
+    } else if (file.textExtractionError) {
+      // Without this line a file whose text could not be read looks exactly
+      // like a file with no text, and the agent designs from a document it
+      // never saw while believing it had the whole upload.
+      lines.push(
+        `Text could not be extracted from this file: ${file.textExtractionError}`,
+      );
     }
   });
 
