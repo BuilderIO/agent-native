@@ -1,7 +1,15 @@
 # Slides — Contextual Top Toolbar (design sketch)
 
-Status: **sketch only, no code**. Purpose is to lock down what the ask actually
-is before anyone builds it.
+Status: **M1–M5 shipped** as `app/components/editor/SlideContextToolbar.tsx`,
+mounted from `SlideEditor.tsx`. The style dock is still reachable behind the
+row-1 paint toggle and is mutually exclusive with the toolbar. Sections 1–8
+record the original ask and design reasoning; §9 records the plan and what
+actually landed.
+
+Still open, by decision rather than oversight: multi-select styling and
+distribute (both new capability, not relocation), absorbing the row-1 cog's
+slide properties, the stable insert segment, narrow-screen support, and
+retiring the dock.
 
 ---
 
@@ -409,3 +417,48 @@ Per `verifying-changes`, on the running slides dev server with a real deck:
 §8 items 1–3 (new controls, zoom placement, insert-tool segment) stay open on
 purpose. They are additive and easier to judge once the team has used the bar
 on a real deck.
+
+### 9.7 What actually landed, and where it deviated
+
+Shipped in `SlideContextToolbar.tsx`, mounted at `SlideEditor.tsx:4059`:
+
+- **No selection** — slide background picker.
+- **Text** — size, weight, colour, alignment, then align/arrange/overflow.
+- **Image / shape** — fill or tint, opacity, corner radius, stroke weight and
+  colour, then align/arrange/overflow.
+- **Grouped** — `≡` object alignment popover, arrange buttons, `⋯` overflow
+  holding width/height, X/Y/rotation, padding, and the text-only appearance
+  controls.
+
+Deviations from the plan, each deliberate:
+
+1. **No identity chip.** The first build showed the selected element's text
+   preview. It leaked slide content into the chrome and neither Google Slides
+   nor Sajal's mock has one. Removed.
+2. **Multi-select dropped from M2.** `multiSelection` (`SlideEditor.tsx:1105`)
+   never feeds `selectedStyleSnapshot`, so no multi-select styling exists in
+   the app at all. Building it is new capability, which the "strict move"
+   decision excluded.
+3. **Alignment math is now shared.** `resolveHorizontalAlignment`,
+   `horizontalAlignPatch`, and their vertical twins are exported from
+   `SlideStyleInspector.tsx`; both the dock and the toolbar call them. Two
+   independent implementations of "where is centre" would have drifted and put
+   the same object in two different places depending on which surface you used.
+4. **Unreadable backgrounds no longer claim to be black.** The dock passes
+   `#000000` when `backgroundCssValue` returns null — but null means
+   _unparseable_ (gradient, named utility), not black. The toolbar passes an
+   empty value alongside `mixed`. The dock still has the original behaviour and
+   is worth fixing separately.
+
+**The trap worth remembering:** `VisualColorPicker`'s trigger is `w-full`
+(`packages/toolkit/src/design-tweaks/visual-style-controls.tsx:481`). That is
+correct for the vertical dock it was written for, and actively destructive in a
+flex row — it expanded to 1095px of a 1119px toolbar and pushed every later
+control out of view, which read as "the toolbar is empty after the swatch."
+Any horizontal reuse of these toolkit controls must pin a width. This is the
+sibling-instance risk in `fix-at-the-boundary`: the same assumption will bite
+the next row-shaped surface.
+
+`.agents/skills/` needed no update — no skill describes the styling UI, and
+selection still syncs through `syncSelectionToAppState`, so `view-screen` and
+`slides-selection` behave exactly as before.
