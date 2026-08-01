@@ -1745,17 +1745,14 @@ function attemptStaleRunRecoveryDispatch(successorRunId: string): void {
   void (async () => {
     try {
       const [
-        {
-          AGENT_CHAT_BACKGROUND_RUN_FIELD,
-          resolveAgentChatProcessRunDispatchPath,
-        },
-        { fireInternalDispatch },
+        { AGENT_CHAT_BACKGROUND_RUN_FIELD, resolveBackgroundDispatchTarget },
+        { fireBackgroundDispatch },
       ] = await Promise.all([
         import("./durable-background.js"),
         import("../server/self-dispatch.js"),
       ]);
-      await fireInternalDispatch({
-        path: resolveAgentChatProcessRunDispatchPath(),
+      await fireBackgroundDispatch({
+        target: resolveBackgroundDispatchTarget(),
         taskId: successorRunId,
         body: {
           internalContinuation: true,

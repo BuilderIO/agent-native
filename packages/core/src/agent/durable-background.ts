@@ -47,6 +47,7 @@ import {
   verifyInternalToken,
 } from "../integrations/internal-token.js";
 import { isCloudflareRuntime } from "../shared/runtime.js";
+import { hasBoundBackgroundQueue } from "./background-queue.js";
 
 /**
  * Framework route the background function actually runs — sibling to
@@ -138,7 +139,8 @@ function isNetlifyHostedRuntimeForDispatch(): boolean {
  * - `http` — POST to a host function url that carries its own long budget
  *   (today: the emitted Netlify background function).
  * - `queue` — hand the run to a host queue; the consumer carries the budget, so
- *   there is no path to POST to. Nothing resolves here yet.
+ *   there is no path to POST to (today: a Cloudflare Worker with the emitted
+ *   background queue bound).
  * - `inline-route` — the portable in-process framework route. Same isolate,
  *   same clamp: no long budget is implied.
  */
@@ -203,6 +205,13 @@ export function resolveBackgroundDispatchTarget(options?: {
       expectsBackgroundRuntime: true,
     };
   }
+  // Cloudflare's equivalent of the Netlify function url. A consumer invocation
+  // carries a documented 15-minute wall budget; the binding's presence is the
+  // proof that a consumer exists to claim the message, exactly as the emitted
+  // function's default url is on Netlify.
+  if (hasBoundBackgroundQueue()) {
+    return { kind: "queue", expectsBackgroundRuntime: true };
+  }
   reportMissingWorkersQueueTransportOnce();
   return {
     kind: "inline-route",
@@ -236,6 +245,52 @@ function reportMissingWorkersQueueTransportOnce(): void {
       "for the inline streaming loop deliberately.",
   );
 }
+
+export const WORKERS_QUEUE_UNCLAIMED_NOTICE_KEY =
+  "__AGENT_NATIVE_WORKERS_QUEUE_UNCLAIMED_NOTICE__";
+
+/**
+ * The queue accepted the message and no consumer ever claimed the run.
+ *
+ * This is NOT the same condition as a failed send, and must never be collapsed
+ * into it: a send that fails is a known state with a working fallback, while a
+ * send that succeeds into a void is an undiagnosable deploy defect — the
+ * consumer registration missing from the deployed Worker, or a consumer wired
+ * to a different queue than the producer. The circuit breaker still recovers
+ * the run inline (so the user gets a working turn), which is exactly why
+ * nothing else would ever surface this. Announce it once per isolate.
+ */
+export function reportUnclaimedQueueBackgroundRunOnce(detail: string): void {
+  const scope = globalThis as Record<string, unknown>;
+  if (scope[WORKERS_QUEUE_UNCLAIMED_NOTICE_KEY] === true) return;
+  scope[WORKERS_QUEUE_UNCLAIMED_NOTICE_KEY] = true;
+  console.error(
+    "[agent-chat] the durable background run was accepted by the Cloudflare queue but NO " +
+      "consumer claimed it within grace, so it was recovered inline under the foreground " +
+      "clamp — the long budget was lost. The producer binding works, so this is a consumer " +
+      "problem: check that the deployed Worker declares the queue consumer registration " +
+      `emitted by the build and that it names the same queue as the producer. ${detail}`,
+  );
+}
+
+/**
+ * Entry point the generated Cloudflare Worker consumer uses to enter the
+ * per-invocation background scope.
+ *
+ * The consumer is emitted next to Nitro's bundle by `deploy/build.ts` and is
+ * therefore OUTSIDE this module graph, yet it must enter the very same
+ * AsyncLocalStorage instance this module reads — a second instance would leave
+ * `isInBackgroundFunctionRuntime()` false inside the consumer, and the run
+ * would quietly take the foreground clamp it was handed to the queue to
+ * escape. Publishing the function on `globalThis` is what bridges the two
+ * graphs; the consumer refuses to run the message if it is missing.
+ */
+export const BACKGROUND_INVOCATION_SCOPE_BRIDGE_KEY =
+  "__AGENT_NATIVE_ENTER_BACKGROUND_INVOCATION_SCOPE__";
+
+(globalThis as Record<string, unknown>)[
+  BACKGROUND_INVOCATION_SCOPE_BRIDGE_KEY
+] = runInBackgroundInvocationScope;
 
 /**
  * Path of a target for the callers still typed on a plain string. A `queue`

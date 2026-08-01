@@ -90,7 +90,7 @@ interface Harness {
       ChainServerDrivenContinuationDeps,
       | "countRunsForTurn"
       | "insertRun"
-      | "fireInternalDispatch"
+      | "fireBackgroundDispatch"
       | "readBackgroundRunClaim"
       | "updateRunHeartbeat"
       | "updateRunStatusIfRunning"
@@ -110,7 +110,7 @@ interface Harness {
 }
 
 function makeHarness(overrides?: {
-  fireInternalDispatch?: ChainServerDrivenContinuationDeps["fireInternalDispatch"];
+  fireBackgroundDispatch?: ChainServerDrivenContinuationDeps["fireBackgroundDispatch"];
   readBackgroundRunClaim?: ChainServerDrivenContinuationDeps["readBackgroundRunClaim"];
   countRunsForTurn?: ChainServerDrivenContinuationDeps["countRunsForTurn"];
   readTurnStartedAt?: ChainServerDrivenContinuationDeps["readTurnStartedAt"];
@@ -125,8 +125,8 @@ function makeHarness(overrides?: {
     insertRun: vi.fn(async () => {
       callOrder.push("insertRun");
     }),
-    fireInternalDispatch:
-      overrides?.fireInternalDispatch ?? (vi.fn(async () => {}) as any),
+    fireBackgroundDispatch:
+      overrides?.fireBackgroundDispatch ?? (vi.fn(async () => {}) as any),
     readBackgroundRunClaim:
       overrides?.readBackgroundRunClaim ??
       vi.fn(async () => ({
@@ -149,8 +149,8 @@ function makeHarness(overrides?: {
     sleep: vi.fn(async () => {}),
   };
   // Wrap dispatch so ordering is recorded even for injected overrides.
-  const rawDispatch = deps.fireInternalDispatch;
-  deps.fireInternalDispatch = vi.fn(async (opts: any) => {
+  const rawDispatch = deps.fireBackgroundDispatch;
+  deps.fireBackgroundDispatch = vi.fn(async (opts: any) => {
     callOrder.push("dispatch");
     return (rawDispatch as any)(opts);
   }) as any;
@@ -255,11 +255,15 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
     const h = makeHarness();
     await runChain(h);
 
-    const dispatch = (h.deps.fireInternalDispatch as any).mock.calls[0][0];
+    const dispatch = (h.deps.fireBackgroundDispatch as any).mock.calls[0][0];
     // Foreground self-chain targets the framework route on the REGULAR
     // function: with AGENT_CHAT_DURABLE_BACKGROUND off the `-background`
     // function is never emitted, so this is the only guaranteed target.
-    expect(dispatch.path).toBe(AGENT_CHAT_PROCESS_RUN_PATH);
+    expect(dispatch.target).toEqual({
+      kind: "inline-route",
+      path: AGENT_CHAT_PROCESS_RUN_PATH,
+      expectsBackgroundRuntime: false,
+    });
     expect(dispatch.taskId).toBe("run-next");
     expect(dispatch.awaitResponse).toBe(true);
     expect(dispatch.responseTimeoutMs).toBe(10_000);
@@ -287,7 +291,7 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
       .fn()
       .mockRejectedValueOnce(new Error("ECONNRESET"))
       .mockResolvedValueOnce(undefined);
-    const h = makeHarness({ fireInternalDispatch: dispatchMock as any });
+    const h = makeHarness({ fireBackgroundDispatch: dispatchMock as any });
     await runChain(h);
 
     expect(dispatchMock).toHaveBeenCalledTimes(2);
@@ -303,7 +307,7 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
       .fn()
       .mockRejectedValue(new Error("The operation was aborted due to timeout"));
     const h = makeHarness({
-      fireInternalDispatch: dispatchMock as any,
+      fireBackgroundDispatch: dispatchMock as any,
       readBackgroundRunClaim: vi.fn(async () => ({
         // The successor re-entered and claimed the run while the awaited
         // response was still streaming its ~40s chunk.
@@ -326,7 +330,7 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
 
   it("DEFERS (never errors) the pre-inserted successor when every attempt dies — the unclaimed-run sweep gets a chance to recover it", async () => {
     const dispatchMock = vi.fn().mockRejectedValue(new Error("dispatch down"));
-    const h = makeHarness({ fireInternalDispatch: dispatchMock as any });
+    const h = makeHarness({ fireBackgroundDispatch: dispatchMock as any });
     await runChain(h);
 
     // Foreground path: 2 attempts (initial + one retry).
@@ -378,7 +382,7 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
 
   it("still fails LOUD immediately when the pre-insert itself failed — nothing exists for a sweep to recover", async () => {
     const dispatchMock = vi.fn().mockRejectedValue(new Error("dispatch down"));
-    const h = makeHarness({ fireInternalDispatch: dispatchMock as any });
+    const h = makeHarness({ fireBackgroundDispatch: dispatchMock as any });
     (h.deps.insertRun as any).mockRejectedValueOnce(new Error("insert failed"));
     await runChain(h);
 
@@ -410,7 +414,7 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
     await runChain(h);
 
     expect(h.deps.insertRun).not.toHaveBeenCalled();
-    expect(h.deps.fireInternalDispatch).not.toHaveBeenCalled();
+    expect(h.deps.fireBackgroundDispatch).not.toHaveBeenCalled();
     expect(h.deps.updateRunStatusIfRunning).toHaveBeenCalledWith(
       "run-chunk0",
       "errored",
@@ -549,7 +553,7 @@ describe("resolveSelfChainContinuationBudget — synchronous self-chain time bud
 describe("chainServerDrivenContinuation — worker proven in background function gets the widened budget", () => {
   it("retries up to 5 times at a 15s response timeout, using the capped backoff schedule, before deferring to the sweep", async () => {
     const dispatchMock = vi.fn().mockRejectedValue(new Error("fetch failed"));
-    const h = makeHarness({ fireInternalDispatch: dispatchMock as any });
+    const h = makeHarness({ fireBackgroundDispatch: dispatchMock as any });
     await runChain(h, {
       chainViaDurableBackground: false,
       workerProvenInBackgroundFunction: true,
@@ -570,7 +574,11 @@ describe("chainServerDrivenContinuation — worker proven in background function
     // recovery was built for: a background-function worker with NO
     // connected-client fallback — the pre-inserted successor is left for the
     // sweep instead of being errored immediately.
-    expect(dispatch.path).toBe(AGENT_CHAT_PROCESS_RUN_PATH);
+    expect(dispatch.target).toEqual({
+      kind: "inline-route",
+      path: AGENT_CHAT_PROCESS_RUN_PATH,
+      expectsBackgroundRuntime: false,
+    });
     expect(h.deps.updateRunStatusIfRunning).not.toHaveBeenCalledWith(
       "run-next",
       "errored",
@@ -592,7 +600,7 @@ describe("chainServerDrivenContinuation — durable-background path unchanged", 
     const dispatchMock = vi.fn().mockRejectedValue(new Error("dead handoff"));
     const readClaim = vi.fn().mockResolvedValue(null);
     const h = makeHarness({
-      fireInternalDispatch: dispatchMock as any,
+      fireBackgroundDispatch: dispatchMock as any,
       readBackgroundRunClaim: readClaim as any,
     });
     await runChain(h, { chainViaDurableBackground: true });
@@ -601,7 +609,11 @@ describe("chainServerDrivenContinuation — durable-background path unchanged", 
     // pre-existing 3-attempt / 15s-await discipline.
     expect(dispatchMock).toHaveBeenCalledTimes(3);
     const dispatch = dispatchMock.mock.calls[0][0];
-    expect(dispatch.path).toBe("/.netlify/functions/server-agent-background");
+    expect(dispatch.target).toEqual({
+      kind: "http",
+      path: "/.netlify/functions/server-agent-background",
+      expectsBackgroundRuntime: true,
+    });
     expect(dispatch.responseTimeoutMs).toBe(15_000);
     expect(dispatch.body[AGENT_CHAT_BACKGROUND_RUN_FIELD]).toMatchObject({
       backgroundFunctionRuntimeExpected: true,
@@ -640,7 +652,7 @@ describe("chainServerDrivenContinuation — durable-background path unchanged", 
       .fn()
       .mockResolvedValue({ dispatchMode: "foreground", status: "running" });
     const h = makeHarness({
-      fireInternalDispatch: dispatchMock as any,
+      fireBackgroundDispatch: dispatchMock as any,
       readBackgroundRunClaim: readClaim as any,
     });
     await runChain(h, { chainViaDurableBackground: true });
@@ -692,7 +704,7 @@ describe("chainServerDrivenContinuation — Netlify loop-protection 508 is class
           "Self-dispatch to /_agent-native/agent-chat/_process-run returned HTTP 508 Loop Detected",
         ),
       );
-    const h = makeHarness({ fireInternalDispatch: dispatchMock as any });
+    const h = makeHarness({ fireBackgroundDispatch: dispatchMock as any });
     await runChain(h);
 
     // The foreground budget allows 2 attempts, but a 508 is a property of
@@ -731,7 +743,7 @@ describe("chainServerDrivenContinuation — Netlify loop-protection 508 is class
 
   it("still burns the full retry budget for a generic transient error (unchanged behavior)", async () => {
     const dispatchMock = vi.fn().mockRejectedValue(new Error("fetch failed"));
-    const h = makeHarness({ fireInternalDispatch: dispatchMock as any });
+    const h = makeHarness({ fireBackgroundDispatch: dispatchMock as any });
     await runChain(h);
 
     expect(dispatchMock).toHaveBeenCalledTimes(2);
@@ -748,7 +760,7 @@ describe("chainServerDrivenContinuation — Netlify loop-protection 508 is class
 describe("chainServerDrivenContinuation — proactive nested-dispatch depth cap", () => {
   it("defers WITHOUT ever attempting a dispatch once backgroundContinuationCount reaches MAX_NESTED_SELF_DISPATCH_DEPTH", async () => {
     const dispatchMock = vi.fn().mockResolvedValue(undefined);
-    const h = makeHarness({ fireInternalDispatch: dispatchMock as any });
+    const h = makeHarness({ fireBackgroundDispatch: dispatchMock as any });
     await runChain(h, {
       backgroundContinuationCount: MAX_NESTED_SELF_DISPATCH_DEPTH,
     });
@@ -776,7 +788,7 @@ describe("chainServerDrivenContinuation — proactive nested-dispatch depth cap"
 
   it("dispatches normally below the depth cap", async () => {
     const dispatchMock = vi.fn().mockResolvedValue(undefined);
-    const h = makeHarness({ fireInternalDispatch: dispatchMock as any });
+    const h = makeHarness({ fireBackgroundDispatch: dispatchMock as any });
     await runChain(h, {
       backgroundContinuationCount: MAX_NESTED_SELF_DISPATCH_DEPTH - 1,
     });
@@ -789,7 +801,7 @@ describe("chainServerDrivenContinuation — proactive nested-dispatch depth cap"
   it("applies the SAME depth cap regardless of continuation reason (run_timeout, loop_limit alike) — the cap is about nested self-dispatch mechanics, not turn behavior", async () => {
     const loopLimitRun = makeRun([{ type: "loop_limit" }]);
     const dispatchMock = vi.fn().mockResolvedValue(undefined);
-    const h = makeHarness({ fireInternalDispatch: dispatchMock as any });
+    const h = makeHarness({ fireBackgroundDispatch: dispatchMock as any });
     await runChain(h, {
       backgroundContinuationCount: MAX_NESTED_SELF_DISPATCH_DEPTH,
       run: loopLimitRun,
@@ -805,7 +817,7 @@ describe("chainServerDrivenContinuation — proactive nested-dispatch depth cap"
   it("applies uniformly on the durable-background dispatch target too (Background Functions do not escape Netlify's loop protection)", async () => {
     process.env.NETLIFY = "true";
     const dispatchMock = vi.fn().mockResolvedValue(undefined);
-    const h = makeHarness({ fireInternalDispatch: dispatchMock as any });
+    const h = makeHarness({ fireBackgroundDispatch: dispatchMock as any });
     await runChain(h, {
       chainViaDurableBackground: true,
       backgroundContinuationCount: MAX_NESTED_SELF_DISPATCH_DEPTH,
@@ -832,7 +844,7 @@ describe("chainServerDrivenContinuation — the intentional per-turn budget stil
         async () => MAX_BACKGROUND_RUN_CONTINUATIONS + 6,
       ) as any,
     });
-    const dispatchMock = h.deps.fireInternalDispatch as any;
+    const dispatchMock = h.deps.fireBackgroundDispatch as any;
     await runChain(h, { backgroundContinuationCount: 0 });
 
     expect(h.deps.insertRun).not.toHaveBeenCalled();
@@ -865,7 +877,7 @@ describe("chainServerDrivenContinuation — the intentional per-turn budget stil
     await runChain(h);
 
     expect(h.deps.insertRun).not.toHaveBeenCalled();
-    expect(h.deps.fireInternalDispatch).not.toHaveBeenCalled();
+    expect(h.deps.fireBackgroundDispatch).not.toHaveBeenCalled();
     expect(h.deps.setRunTerminalReason).toHaveBeenCalledWith(
       "run-chunk0",
       "turn_wall_clock_budget_exhausted",
@@ -883,13 +895,13 @@ describe("chainServerDrivenContinuation — the intentional per-turn budget stil
       ) as any,
     });
     await runChain(live);
-    expect(live.deps.fireInternalDispatch).toHaveBeenCalled();
+    expect(live.deps.fireBackgroundDispatch).toHaveBeenCalled();
 
     const unknownStart = makeHarness({
       readTurnStartedAt: vi.fn(async () => null) as any,
     });
     await runChain(unknownStart);
-    expect(unknownStart.deps.fireInternalDispatch).toHaveBeenCalled();
+    expect(unknownStart.deps.fireBackgroundDispatch).toHaveBeenCalled();
   });
 });
 

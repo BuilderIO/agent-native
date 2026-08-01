@@ -22,6 +22,11 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 import {
+  AGENT_BACKGROUND_QUEUE_BINDING,
+  agentBackgroundQueueName,
+  BACKGROUND_QUEUE_MESSAGE_KIND,
+} from "../agent/background-queue.js";
+import {
   AGENT_BACKGROUND_FUNCTION_NAME,
   AGENT_BACKGROUND_FUNCTION_URL_PATH,
   AGENT_BACKGROUND_PROCESSOR_A2A,
@@ -30,6 +35,7 @@ import {
   AGENT_BACKGROUND_PROCESSOR_ROUTE,
   AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
+  BACKGROUND_INVOCATION_SCOPE_BRIDGE_KEY,
   isDurableBackgroundFlagExplicitlyDisabled,
 } from "../agent/durable-background.js";
 import {
@@ -88,6 +94,62 @@ export function isCloudflareModulePreset(targetPreset: string): boolean {
 
 export const CLOUDFLARE_MODULE_WORKER_ENTRY = "worker.mjs";
 
+/**
+ * Source for the queue consumer's processor-selection routing.
+ *
+ * The Netlify background function makes the same decision from the same body
+ * field and deliberately keeps its own inlined copy (see
+ * `emitSingleTemplateNetlifyBackgroundFunction`): that host's emitted bytes are
+ * a regression surface this work must not touch. The two therefore CAN drift on
+ * the allow-list — if you change one, change the other, and prefer collapsing
+ * them into this generator the next time the Netlify emit is in scope.
+ */
+function backgroundProcessorRoutingSource(): string {
+  return `// The framework route the router dispatches to (the _process-run plugin).
+const PROCESS_RUN_PATH = ${JSON.stringify(AGENT_CHAT_PROCESS_RUN_PATH)};
+const A2A_PROCESS_TASK_PATH = ${JSON.stringify("/_agent-native/a2a/_process-task")};
+const INTEGRATION_PROCESS_TASK_PATH = ${JSON.stringify("/_agent-native/integrations/process-task")};
+const BACKGROUND_PROCESSOR_FIELD = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_FIELD)};
+const BACKGROUND_PROCESSOR_A2A = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_A2A)};
+const BACKGROUND_PROCESSOR_INTEGRATION = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_INTEGRATION)};
+const BACKGROUND_PROCESSOR_ROUTE = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_ROUTE)};
+const BACKGROUND_PROCESSOR_ROUTE_FIELD = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD)};
+
+function processorPathFromParsedBody(parsed) {
+  if (!parsed) return null;
+  if (parsed[BACKGROUND_PROCESSOR_FIELD] === BACKGROUND_PROCESSOR_A2A) {
+    return A2A_PROCESS_TASK_PATH;
+  }
+  if (parsed[BACKGROUND_PROCESSOR_FIELD] === BACKGROUND_PROCESSOR_INTEGRATION) {
+    return INTEGRATION_PROCESS_TASK_PATH;
+  }
+  const route = parsed[BACKGROUND_PROCESSOR_ROUTE_FIELD];
+  if (
+    parsed[BACKGROUND_PROCESSOR_FIELD] === BACKGROUND_PROCESSOR_ROUTE &&
+    typeof route === "string" &&
+    route.startsWith("/") &&
+    route.includes("/api/_agent-native-background/") &&
+    !route.includes("?") &&
+    !route.includes("#")
+  ) {
+    return route;
+  }
+  return null;
+}`;
+}
+
+/**
+ * The generated Worker entry: Nitro's request handler plus the durable
+ * background queue consumer.
+ *
+ * The consumer is the Cloudflare half of the durable background path. Per
+ * message it enters the per-invocation background scope, synthesises a POST to
+ * the processor route the message selects — carrying the signed internal token
+ * the producer minted — and delegates to the SAME handler that serves fetch.
+ * Structurally the move the Netlify wrapper makes when it rewrites an incoming
+ * pathname; the difference is only that there is no inbound request to rewrite,
+ * so the envelope carries the origin.
+ */
 export function generateCloudflareModuleWorkerEntry(): string {
   return `let handler;
 
@@ -109,6 +171,66 @@ function initializeBindings(env) {
   }
 }
 
+${backgroundProcessorRoutingSource()}
+
+const BACKGROUND_QUEUE_MESSAGE_KIND = ${JSON.stringify(BACKGROUND_QUEUE_MESSAGE_KIND)};
+const ENTER_BACKGROUND_SCOPE_KEY = ${JSON.stringify(BACKGROUND_INVOCATION_SCOPE_BRIDGE_KEY)};
+
+function isBackgroundRunMessage(body) {
+  return Boolean(body) && body.kind === BACKGROUND_QUEUE_MESSAGE_KIND;
+}
+
+// A body carrying NO processor field is an agent-chat turn — that is the
+// documented default. A body that DECLARES a processor this entry cannot route
+// is a different fact entirely, and running it as an agent-chat turn would
+// execute the wrong processor and report success. Refuse it.
+function processorPathForEnvelope(body) {
+  const routed = processorPathFromParsedBody(body);
+  if (routed) return routed;
+  const declared = body && body[BACKGROUND_PROCESSOR_FIELD];
+  if (declared != null) {
+    throw new Error(
+      "[agent-background] queued message declares processor " +
+        JSON.stringify(declared) +
+        " which does not resolve to a processor route — refusing to run it as an agent-chat turn.",
+    );
+  }
+  return PROCESS_RUN_PATH;
+}
+
+// One durable background run, on this consumer invocation's 15-minute budget.
+// The scope entered here is what proves to the framework that THIS invocation
+// may take the long budget — an isolate-wide marker cannot, because one isolate
+// serves concurrent fetch and queue invocations. A missing bridge means the run
+// would silently take the foreground clamp instead, so refuse the message.
+async function runBackgroundQueueMessage(message, env, ctx) {
+  const envelope = message.body;
+  const enterBackgroundScope = globalThis[ENTER_BACKGROUND_SCOPE_KEY];
+  if (typeof enterBackgroundScope !== "function") {
+    throw new Error(
+      "[agent-background] the framework bundle did not publish " +
+        ENTER_BACKGROUND_SCOPE_KEY +
+        " — refusing to run this message under the foreground clamp it was queued to escape.",
+    );
+  }
+  const url = new URL(processorPathForEnvelope(envelope.body), envelope.origin);
+  const headers = { "Content-Type": "application/json" };
+  // The signed internal token the producer minted, carried verbatim: the queue
+  // handoff authenticates exactly like the HTTP handoff the processor routes
+  // already verify.
+  if (envelope.authorization) headers["Authorization"] = envelope.authorization;
+  const request = new Request(url.toString(), {
+    method: "POST",
+    headers,
+    body: JSON.stringify(envelope.body ?? {}),
+  });
+  if (typeof ctx?.waitUntil === "function") {
+    request.waitUntil = ctx.waitUntil.bind(ctx);
+  }
+  const loaded = await loadHandler();
+  return await enterBackgroundScope(() => loaded.fetch(request, env, ctx));
+}
+
 export default {
   async fetch(request, env, ctx) {
     if (typeof ctx?.waitUntil === "function") {
@@ -127,7 +249,79 @@ export default {
   },
   async queue(batch, env, ctx) {
     initializeBindings(env);
-    return (await loadHandler()).queue?.(batch, env, ctx);
+    const ours = [];
+    const foreign = [];
+    for (const message of batch.messages) {
+      (isBackgroundRunMessage(message.body) ? ours : foreign).push(message);
+    }
+    for (const message of ours) {
+      try {
+        const response = await runBackgroundQueueMessage(message, env, ctx);
+        // A 5xx is the processor failing, not the message being bad: retry it
+        // and let the queue's own retry/dead-letter policy bound that. Any
+        // other status means the route made a decision (ran it, or refused the
+        // token) and redelivering would only repeat it. NO response at all is
+        // neither — it means the handler did not answer, and acknowledging that
+        // would drop the run while reporting it delivered.
+        if (!response || typeof response.status !== "number") {
+          console.error(
+            "[agent-background] the request handler returned no response for queued run " +
+              message.body.taskId +
+              " — retrying the message rather than acknowledging an unrun turn.",
+          );
+          message.retry();
+        } else if (response.status >= 500) {
+          console.error(
+            "[agent-background] processor returned HTTP " +
+              response.status +
+              " for queued run " +
+              message.body.taskId +
+              " — retrying the message.",
+          );
+          message.retry();
+        } else {
+          message.ack();
+        }
+      } catch (err) {
+        console.error(
+          "[agent-background] queue consumer failed before the processor answered for run " +
+            (message.body && message.body.taskId) + ":",
+          (err && err.stack) || err,
+        );
+        message.retry();
+      }
+    }
+    if (foreign.length === 0) return;
+    // Another consumer's queue shares this Worker's single queue handler. Hand
+    // those messages to Nitro's own handler if it has one; never ack a message
+    // this entry did not understand.
+    const nitroQueue = (await loadHandler()).queue;
+    if (typeof nitroQueue !== "function") {
+      console.error(
+        "[agent-background] " +
+          foreign.length +
+          " message(s) on queue " +
+          batch.queue +
+          " are not durable background runs and no application queue handler is registered — " +
+          "retrying them rather than acknowledging work nothing consumed.",
+      );
+      for (const message of foreign) message.retry();
+      return;
+    }
+    return nitroQueue(
+      {
+        queue: batch.queue,
+        messages: foreign,
+        ackAll: () => {
+          for (const message of foreign) message.ack();
+        },
+        retryAll: (options) => {
+          for (const message of foreign) message.retry(options);
+        },
+      },
+      env,
+      ctx,
+    );
   },
   async tail(traces, env, ctx) {
     initializeBindings(env);
@@ -247,6 +441,103 @@ export function resolveCloudflareD1Binding(
   };
 }
 
+/**
+ * Raised CPU ceiling for the generated Worker: 300,000 ms (5 minutes) is the
+ * documented maximum on Workers Paid, against a 30,000 ms default. A long agent
+ * turn spends most of its wall clock waiting on model I/O, which does not count
+ * as CPU time — but the turn's own work (tool dispatch, SQL, serialisation)
+ * accumulates across a 15-minute consumer invocation and overruns the default.
+ */
+export const CLOUDFLARE_MODULE_WORKER_CPU_MS = 300_000;
+
+/** One message per invocation: a run owns its consumer invocation's budget. */
+export const CLOUDFLARE_BACKGROUND_QUEUE_MAX_BATCH_SIZE = 1;
+
+/**
+ * Write the durable background queue into the generated Worker configuration:
+ * the producer binding the framework resolves, the consumer registration that
+ * makes this same Worker claim those messages, and the raised CPU ceiling.
+ *
+ * Emitted rather than hand-authored because the binding name and the queue name
+ * are framework internals — a hand-maintained copy drifting from them is a
+ * producer that sends into a queue no consumer reads, which is the silent
+ * lost-budget failure this whole path exists to make impossible.
+ */
+export function configureCloudflareModuleBackgroundQueue(config: {
+  name?: unknown;
+  queues?: unknown;
+  limits?: unknown;
+  [key: string]: unknown;
+}): void {
+  const workerName = typeof config.name === "string" ? config.name.trim() : "";
+  if (!workerName) {
+    throw new Error(
+      "[deploy] The generated Worker configuration has no `name`, so the durable " +
+        "background queue cannot be named. Set a name for this Worker — emitting a " +
+        "shared or guessed queue name would let one app's consumer claim another's run.",
+    );
+  }
+  const queueName = agentBackgroundQueueName(workerName);
+  const existing = (
+    typeof config.queues === "object" && config.queues !== null
+      ? config.queues
+      : {}
+  ) as { producers?: unknown; consumers?: unknown; [key: string]: unknown };
+  const producers = Array.isArray(existing.producers)
+    ? existing.producers.filter(
+        (entry) =>
+          !(
+            typeof entry === "object" &&
+            entry !== null &&
+            (entry as { binding?: unknown }).binding ===
+              AGENT_BACKGROUND_QUEUE_BINDING
+          ),
+      )
+    : [];
+  const consumers = Array.isArray(existing.consumers)
+    ? existing.consumers.filter(
+        (entry) =>
+          !(
+            typeof entry === "object" &&
+            entry !== null &&
+            (entry as { queue?: unknown }).queue === queueName
+          ),
+      )
+    : [];
+  config.queues = {
+    ...existing,
+    producers: [
+      ...producers,
+      { binding: AGENT_BACKGROUND_QUEUE_BINDING, queue: queueName },
+    ],
+    consumers: [
+      ...consumers,
+      {
+        queue: queueName,
+        // One run per invocation, delivered without waiting to fill a batch:
+        // the foreground has already returned and the user is watching the
+        // stream, so batching would only add latency to the turn.
+        max_batch_size: CLOUDFLARE_BACKGROUND_QUEUE_MAX_BATCH_SIZE,
+        max_batch_timeout: 0,
+        max_retries: 3,
+        dead_letter_queue: `${queueName}-dlq`,
+      },
+    ],
+  };
+  const limits = (
+    typeof config.limits === "object" && config.limits !== null
+      ? config.limits
+      : {}
+  ) as { cpu_ms?: unknown; [key: string]: unknown };
+  // Never lower a ceiling an app deliberately raised further.
+  const configuredCpuMs =
+    typeof limits.cpu_ms === "number" ? limits.cpu_ms : null;
+  config.limits = {
+    ...limits,
+    cpu_ms: Math.max(configuredCpuMs ?? 0, CLOUDFLARE_MODULE_WORKER_CPU_MS),
+  };
+}
+
 export function configureCloudflareModuleWorkerOutput(
   serverDir: string,
   env: NodeJS.ProcessEnv = process.env,
@@ -288,6 +579,7 @@ export function configureCloudflareModuleWorkerOutput(
       d1Binding,
     ];
   }
+  configureCloudflareModuleBackgroundQueue(config);
   fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
   fs.writeFileSync(
     nitroEntryPath,

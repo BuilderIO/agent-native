@@ -3,17 +3,27 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mockSignScopedAgentAccessToken = vi.hoisted(() =>
   vi.fn(() => "signed-job-token"),
 );
+const mockSendBackgroundQueueMessage = vi.hoisted(() => vi.fn(async () => {}));
 
 vi.mock("@agent-native/core/server", () => ({
   AGENT_BACKGROUND_PROCESSOR_FIELD: "__agentNativeProcessor",
   AGENT_BACKGROUND_PROCESSOR_ROUTE: "route",
   AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD: "__agentNativeProcessorRoute",
-  dispatchPathTargetsNetlifyBackgroundFunction: (path: string) =>
-    path.startsWith("/.netlify/functions/"),
-  resolveDurableBackgroundDispatchPath: (fallbackPath: string) =>
+  resolveBackgroundDispatchTarget: (options?: { fallbackPath?: string }) =>
     process.env.NETLIFY === "true"
-      ? "/.netlify/functions/server-agent-background"
-      : fallbackPath,
+      ? {
+          kind: "http",
+          path: "/.netlify/functions/server-agent-background",
+          expectsBackgroundRuntime: true,
+        }
+      : process.env.AGENT_NATIVE_TEST_QUEUE_TRANSPORT === "true"
+        ? { kind: "queue", expectsBackgroundRuntime: true }
+        : {
+            kind: "inline-route",
+            path: options?.fallbackPath,
+            expectsBackgroundRuntime: false,
+          },
+  sendBackgroundQueueMessage: mockSendBackgroundQueueMessage,
   signScopedAgentAccessToken: mockSignScopedAgentAccessToken,
 }));
 
@@ -164,5 +174,52 @@ describe("post-finalize dispatch", () => {
       "https://clips.example/api/_agent-native-background/post-finalize-worker",
       expect.any(Object),
     );
+  });
+
+  it("hands the job to the queue transport, route processor and all", async () => {
+    vi.stubEnv("AGENT_NATIVE_TEST_QUEUE_TRANSPORT", "true");
+
+    await dispatchPostFinalizeJob({
+      recordingId: "rec-6",
+      kind: "transcript",
+    });
+
+    expect(mockSendBackgroundQueueMessage).toHaveBeenCalledWith({
+      taskId: postFinalizeJobResourceId("rec-6", "transcript"),
+      origin: "https://clips.example",
+      body: {
+        recordingId: "rec-6",
+        kind: "transcript",
+        token: "signed-job-token",
+        __agentNativeProcessor: "route",
+        __agentNativeProcessorRoute:
+          "/api/_agent-native-background/post-finalize-worker",
+      },
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the portable route when the queue refuses the send", async () => {
+    vi.stubEnv("AGENT_NATIVE_TEST_QUEUE_TRANSPORT", "true");
+    mockSendBackgroundQueueMessage.mockRejectedValueOnce(
+      new Error("queue over quota"),
+    );
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      await dispatchPostFinalizeJob({
+        recordingId: "rec-7",
+        kind: "transcript",
+        requireAccepted: true,
+      });
+
+      expect(fetch).toHaveBeenCalledWith(
+        "https://clips.example/api/_agent-native-background/post-finalize-worker",
+        expect.any(Object),
+      );
+      expect(errors).toHaveBeenCalled();
+    } finally {
+      errors.mockRestore();
+    }
   });
 });

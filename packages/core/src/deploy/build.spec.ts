@@ -30,6 +30,7 @@ import {
   cloudflareModuleStubSource,
   cloudflareUnresolvedNativeStubSource,
   cloudflareWorkerStubAliasArgs,
+  configureCloudflareModuleBackgroundQueue,
   configureCloudflareModuleWorkerOutput,
   copyDir,
   createCloudflareModuleStubPlugin,
@@ -127,11 +128,71 @@ describe("Cloudflare module Worker entry", () => {
     expect(entry).toContain("async trace(traces, env, ctx)");
   });
 
+  it("exports a durable background queue consumer alongside the request handler", () => {
+    const entry = generateCloudflareModuleWorkerEntry();
+
+    // The consumer synthesises a request to the processor route the message
+    // selects and delegates to the SAME handler that serves fetch.
+    expect(entry).toContain(
+      'const PROCESS_RUN_PATH = "/_agent-native/agent-chat/_process-run";',
+    );
+    expect(entry).toContain(
+      "function runBackgroundQueueMessage(message, env, ctx)",
+    );
+    expect(entry).toContain(
+      "new URL(processorPathForEnvelope(envelope.body), envelope.origin)",
+    );
+    expect(entry).toContain("loaded.fetch(request, env, ctx)");
+    // The signed internal token travels with the message, unchanged.
+    expect(entry).toContain(
+      'headers["Authorization"] = envelope.authorization;',
+    );
+    // Every processor the Netlify wrapper reaches is reachable here too.
+    expect(entry).toContain(
+      'const A2A_PROCESS_TASK_PATH = "/_agent-native/a2a/_process-task";',
+    );
+    expect(entry).toContain(
+      'const INTEGRATION_PROCESS_TASK_PATH = "/_agent-native/integrations/process-task";',
+    );
+    expect(entry).toContain('"/api/_agent-native-background/"');
+    // The long budget is proven per invocation, never isolate-wide.
+    expect(entry).toContain(
+      'const ENTER_BACKGROUND_SCOPE_KEY = "__AGENT_NATIVE_ENTER_BACKGROUND_INVOCATION_SCOPE__";',
+    );
+    expect(entry).toContain("enterBackgroundScope(() =>");
+    expect(entry).toContain('typeof enterBackgroundScope !== "function"');
+  });
+
+  it("never acknowledges a queue message it did not run", () => {
+    const entry = generateCloudflareModuleWorkerEntry();
+
+    expect(entry).toContain("message.retry();");
+    expect(entry).toContain("response.status >= 500");
+    expect(entry).toContain("for (const message of foreign) message.retry();");
+    // A handler that answers with nothing is neither a 5xx nor a decision;
+    // acking it would drop the run while reporting it delivered.
+    expect(entry).toContain('!response || typeof response.status !== "number"');
+  });
+
+  it("refuses a message that declares a processor it cannot route", () => {
+    const entry = generateCloudflareModuleWorkerEntry();
+
+    // Absent processor field → agent chat, the documented default. Declared but
+    // unroutable → a loud refusal, not a turn run against the wrong processor.
+    expect(entry).toContain("function processorPathForEnvelope(body)");
+    expect(entry).toContain("refusing to run it as an agent-chat turn");
+    expect(entry).toContain("return PROCESS_RUN_PATH;");
+  });
+
   it("points Wrangler at the lazy entry while retaining the Nitro server", () => {
     const serverDir = makeTempDir();
     fs.writeFileSync(
       path.join(serverDir, "wrangler.json"),
-      JSON.stringify({ main: "index.mjs", assets: { binding: "ASSETS" } }),
+      JSON.stringify({
+        name: "design",
+        main: "index.mjs",
+        assets: { binding: "ASSETS" },
+      }),
     );
     fs.writeFileSync(
       path.join(serverDir, "index.mjs"),
@@ -147,6 +208,15 @@ describe("Cloudflare module Worker entry", () => {
     ).toMatchObject({
       main: "worker.mjs",
       assets: { binding: "ASSETS" },
+      queues: {
+        producers: [
+          {
+            binding: "AGENT_NATIVE_BACKGROUND_QUEUE",
+            queue: "design-agent-background",
+          },
+        ],
+      },
+      limits: { cpu_ms: 300_000 },
     });
     expect(
       fs.readFileSync(path.join(serverDir, "worker.mjs"), "utf8"),
@@ -154,6 +224,91 @@ describe("Cloudflare module Worker entry", () => {
     expect(
       fs.readFileSync(path.join(serverDir, "index.mjs"), "utf8"),
     ).toContain("t??=Ei();");
+  });
+
+  it("emits the producer binding, the consumer registration, and a raised CPU limit", () => {
+    const config: Record<string, unknown> = { name: "design" };
+
+    configureCloudflareModuleBackgroundQueue(config);
+
+    expect(config.queues).toEqual({
+      producers: [
+        {
+          binding: "AGENT_NATIVE_BACKGROUND_QUEUE",
+          queue: "design-agent-background",
+        },
+      ],
+      consumers: [
+        {
+          queue: "design-agent-background",
+          max_batch_size: 1,
+          max_batch_timeout: 0,
+          max_retries: 3,
+          dead_letter_queue: "design-agent-background-dlq",
+        },
+      ],
+    });
+    // 300,000 ms is the documented Workers Paid maximum; the 30,000 ms default
+    // kills a long turn on CPU time alone.
+    expect(config.limits).toEqual({ cpu_ms: 300_000 });
+  });
+
+  it("keeps an app's own queues and never lowers a CPU limit it raised further", () => {
+    const config: Record<string, unknown> = {
+      name: "design",
+      queues: {
+        producers: [{ binding: "APP_QUEUE", queue: "app-jobs" }],
+        consumers: [{ queue: "app-jobs" }],
+      },
+      limits: { cpu_ms: 300_000, other: true },
+    };
+
+    configureCloudflareModuleBackgroundQueue(config);
+
+    const queues = config.queues as {
+      producers: unknown[];
+      consumers: unknown[];
+    };
+    expect(queues.producers).toHaveLength(2);
+    expect(queues.producers[0]).toEqual({
+      binding: "APP_QUEUE",
+      queue: "app-jobs",
+    });
+    expect(queues.consumers).toHaveLength(2);
+    expect(config.limits).toMatchObject({ cpu_ms: 300_000, other: true });
+  });
+
+  it("replaces a stale framework binding rather than emitting it twice", () => {
+    const config: Record<string, unknown> = {
+      name: "design",
+      queues: {
+        producers: [
+          { binding: "AGENT_NATIVE_BACKGROUND_QUEUE", queue: "old-queue-name" },
+        ],
+        consumers: [{ queue: "design-agent-background", max_batch_size: 10 }],
+      },
+    };
+
+    configureCloudflareModuleBackgroundQueue(config);
+
+    const queues = config.queues as {
+      producers: { queue: string }[];
+      consumers: { max_batch_size?: number }[];
+    };
+    expect(queues.producers).toEqual([
+      {
+        binding: "AGENT_NATIVE_BACKGROUND_QUEUE",
+        queue: "design-agent-background",
+      },
+    ]);
+    expect(queues.consumers).toHaveLength(1);
+    expect(queues.consumers[0].max_batch_size).toBe(1);
+  });
+
+  it("refuses to name a background queue for an unnamed Worker", () => {
+    expect(() => configureCloudflareModuleBackgroundQueue({})).toThrow(
+      /has no `name`/,
+    );
   });
 });
 
@@ -190,7 +345,11 @@ describe("Cloudflare module Worker D1 binding", () => {
     const serverDir = makeTempDir();
     fs.writeFileSync(
       path.join(serverDir, "wrangler.json"),
-      JSON.stringify({ main: "index.mjs", assets: { binding: "ASSETS" } }),
+      JSON.stringify({
+        name: "design",
+        main: "index.mjs",
+        assets: { binding: "ASSETS" },
+      }),
     );
     fs.writeFileSync(
       path.join(serverDir, "index.mjs"),
@@ -223,6 +382,7 @@ describe("Cloudflare module Worker D1 binding", () => {
     fs.writeFileSync(
       path.join(serverDir, "wrangler.json"),
       JSON.stringify({
+        name: "design",
         main: "index.mjs",
         d1_databases: [
           { binding: "DB", database_name: "stale", database_id: "stale-id" },
@@ -257,7 +417,7 @@ describe("Cloudflare module Worker D1 binding", () => {
     const serverDir = makeTempDir();
     fs.writeFileSync(
       path.join(serverDir, "wrangler.json"),
-      JSON.stringify({ main: "index.mjs" }),
+      JSON.stringify({ name: "design", main: "index.mjs" }),
     );
     fs.writeFileSync(
       path.join(serverDir, "index.mjs"),

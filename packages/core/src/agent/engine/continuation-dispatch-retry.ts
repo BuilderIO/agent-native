@@ -1,3 +1,4 @@
+import type { BackgroundDispatchTarget } from "../durable-background.js";
 import type {
   ChainServerDrivenContinuationDeps,
   ContinuationDispatchBudget,
@@ -13,7 +14,7 @@ export type ContinuationDispatchRetryDeps = Required<
     ChainServerDrivenContinuationDeps,
     | "sleep"
     | "updateRunHeartbeat"
-    | "fireInternalDispatch"
+    | "fireBackgroundDispatch"
     | "readBackgroundRunClaim"
   >
 >;
@@ -39,7 +40,7 @@ export async function attemptContinuationDispatch(params: {
   backgroundContinuationCount: number;
   nextRunId: string;
   nextRowInserted: boolean;
-  continuationDispatchPath: string;
+  continuationTarget: BackgroundDispatchTarget;
   dispatchBody: Record<string, unknown>;
   dispatchBudget: ContinuationDispatchBudget;
   isLoopProtectionDispatchError: (err: unknown) => boolean;
@@ -55,7 +56,7 @@ export async function attemptContinuationDispatch(params: {
     backgroundContinuationCount,
     nextRunId,
     nextRowInserted,
-    continuationDispatchPath,
+    continuationTarget,
     dispatchBody,
     dispatchBudget,
     isLoopProtectionDispatchError,
@@ -108,7 +109,7 @@ export async function attemptContinuationDispatch(params: {
           await d.updateRunHeartbeat(nextRunId).catch(() => {});
         }
       }
-      await d.fireInternalDispatch({
+      await d.fireBackgroundDispatch({
         event,
         // Durable chain: same path resolution as the initial dispatch —
         // on hosted Netlify the background function's DEFAULT url (no
@@ -116,8 +117,9 @@ export async function attemptContinuationDispatch(params: {
         // because /.netlify/* is excluded from the /* catch-all) so each
         // chunk keeps the 15-min budget; off-Netlify the in-process
         // framework route. Foreground self-chain: always the framework
-        // `_process-run` route on the regular function (see the fn doc).
-        path: continuationDispatchPath,
+        // `_process-run` route on the regular function (see the fn doc). On
+        // Workers the durable chain is a queue send, which the target carries.
+        target: continuationTarget,
         taskId: nextRunId,
         body: dispatchBody,
         awaitResponse: true,

@@ -1,3 +1,5 @@
+import { sendBackgroundQueueMessage } from "../agent/background-queue.js";
+import type { BackgroundDispatchTarget } from "../agent/durable-background.js";
 import { isLocalDatabase } from "../db/client.js";
 import { signInternalToken } from "../integrations/internal-token.js";
 /**
@@ -221,4 +223,53 @@ export async function fireInternalDispatch(
     dispatchPromise,
     new Promise<void>((resolve) => setTimeout(resolve, settleMs)),
   ]);
+}
+
+/**
+ * Fire one durable-background handoff at a resolved transport.
+ *
+ * The single place the `queue` arm of `BackgroundDispatchTarget` is turned into
+ * an actual send, so no call site has to know that a Cloudflare handoff is not
+ * an HTTP POST. `http` and `inline-route` targets keep `fireInternalDispatch`
+ * byte-for-byte, including the settle race and the awaited-response option.
+ *
+ * Throws on a failed handoff on every transport — the callers already catch
+ * that and degrade to an inline run.
+ */
+export async function fireBackgroundDispatch(
+  options: Omit<FireInternalDispatchOptions, "path"> & {
+    target: BackgroundDispatchTarget;
+  },
+): Promise<void> {
+  const { target, ...rest } = options;
+  if (target.kind === "queue") {
+    // A queue send resolves only once Cloudflare confirms the message is
+    // written to disk, which is this transport's equivalent of the awaited 202
+    // the Netlify handoff waits for — so `awaitResponse` needs no analogue and
+    // the settle race would be actively wrong here.
+    //
+    // The consumer has no inbound request to take an origin from, so it is
+    // resolved HERE through the same resolver the HTTP transport uses: one
+    // answer to "which URL is this deployment", not two.
+    const baseUrl =
+      options.baseUrl ?? resolveSelfDispatchBaseUrl(options.event);
+    await sendBackgroundQueueMessage({
+      taskId: options.taskId,
+      origin: new URL(baseUrl).origin,
+      body: options.body,
+    });
+    return;
+  }
+  await fireInternalDispatch({ ...rest, path: target.path });
+}
+
+/**
+ * How to describe a dispatch target in a diagnostic. A `queue` target has no
+ * path, and printing an empty string or the framework route in its place is
+ * precisely the confusion these diagnostics exist to prevent.
+ */
+export function describeBackgroundDispatchTarget(
+  target: BackgroundDispatchTarget,
+): string {
+  return target.kind === "queue" ? "queue" : target.path;
 }

@@ -1,12 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { signInternalToken } from "../integrations/internal-token.js";
+import { AGENT_BACKGROUND_QUEUE_BINDING } from "./background-queue.js";
 import {
   AGENT_BACKGROUND_FUNCTION_NAME,
   AGENT_BACKGROUND_FUNCTION_URL_PATH,
   AGENT_CHAT_PROCESS_RUN_PATH,
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
   BACKGROUND_FUNCTION_UNREACHABLE_NOTICE_KEY,
+  BACKGROUND_INVOCATION_SCOPE_BRIDGE_KEY,
   backgroundRuntimeDiagnosticDetail,
   backgroundRunMarkerExpectsBackgroundRuntime,
   dispatchPathTargetsNetlifyBackgroundFunction,
@@ -19,11 +21,13 @@ import {
   isInBackgroundFunctionRuntime,
   prepareProcessRunRequest,
   resolveAgentChatProcessRunDispatchPath,
+  reportUnclaimedQueueBackgroundRunOnce,
   resolveBackgroundDispatchTarget,
   resolveDurableBackgroundDispatchPath,
   runInBackgroundInvocationScope,
   shouldUseBackgroundFunctionTimeoutForWorker,
   WORKERS_QUEUE_TRANSPORT_MISSING_NOTICE_KEY,
+  WORKERS_QUEUE_UNCLAIMED_NOTICE_KEY,
 } from "./durable-background.js";
 
 /**
@@ -76,6 +80,10 @@ afterEach(() => {
     globalThis as Record<string, unknown>,
     WORKERS_QUEUE_TRANSPORT_MISSING_NOTICE_KEY,
   );
+  Reflect.deleteProperty(
+    globalThis as Record<string, unknown>,
+    WORKERS_QUEUE_UNCLAIMED_NOTICE_KEY,
+  );
   Reflect.deleteProperty(globalThis as Record<string, unknown>, "__cf_env");
 });
 
@@ -90,8 +98,10 @@ function makeHosted() {
  * the signal `isCloudflareRuntime()` (shared/runtime.ts) reads. Nothing here
  * distinguishes `wrangler dev` from a deployed Worker — that is the point.
  */
-function makeCloudflareWorkersRuntime() {
-  (globalThis as Record<string, unknown>).__cf_env = {};
+function makeCloudflareWorkersRuntime(options?: { withQueue?: boolean }) {
+  (globalThis as Record<string, unknown>).__cf_env = options?.withQueue
+    ? { [AGENT_BACKGROUND_QUEUE_BINDING]: { send: async () => {} } }
+    : {};
 }
 
 describe("durable-background constants", () => {
@@ -308,6 +318,74 @@ describe("Cloudflare Workers counts as a hosted runtime", () => {
     } finally {
       errors.mockRestore();
     }
+  });
+
+  it("resolves the queue transport once the producer binding is bound", () => {
+    makeCloudflareWorkersRuntime({ withQueue: true });
+    process.env.A2A_SECRET = "shhh";
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(resolveBackgroundDispatchTarget()).toEqual({
+        kind: "queue",
+        expectsBackgroundRuntime: true,
+      });
+      // Nothing to report: the transport this notice exists for now exists.
+      expect(errors).not.toHaveBeenCalled();
+    } finally {
+      errors.mockRestore();
+    }
+  });
+
+  it("keeps the in-process route when the caller opted out, binding or not", () => {
+    makeCloudflareWorkersRuntime({ withQueue: true });
+    process.env.A2A_SECRET = "shhh";
+    expect(
+      resolveBackgroundDispatchTarget({ durableBackground: false }),
+    ).toEqual({
+      kind: "inline-route",
+      path: AGENT_CHAT_PROCESS_RUN_PATH,
+      expectsBackgroundRuntime: false,
+    });
+  });
+
+  it("leaves hosted Netlify on its http transport even with a queue bound", () => {
+    // Criterion: the Netlify path does not change when Cloudflare gains one.
+    makeHosted();
+    makeCloudflareWorkersRuntime({ withQueue: true });
+    process.env.A2A_SECRET = "shhh";
+    expect(resolveBackgroundDispatchTarget()).toEqual({
+      kind: "http",
+      path: AGENT_BACKGROUND_FUNCTION_URL_PATH,
+      expectsBackgroundRuntime: true,
+    });
+  });
+
+  it("reports a queue run no consumer claimed ONCE per isolate", () => {
+    // NOT the same condition as a failed send: this one succeeded into a void,
+    // which nothing else would ever surface because the circuit breaker
+    // recovers the run inline and the user sees a working turn.
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      reportUnclaimedQueueBackgroundRunOnce("runId=run_1");
+      reportUnclaimedQueueBackgroundRunOnce("runId=run_2");
+
+      expect(errors).toHaveBeenCalledTimes(1);
+      expect(String(errors.mock.calls[0]?.[0])).toContain("consumer");
+      expect(String(errors.mock.calls[0]?.[0])).toContain("run_1");
+    } finally {
+      errors.mockRestore();
+    }
+  });
+
+  it("publishes the invocation-scope entry point the generated consumer needs", async () => {
+    // The emitted Worker entry lives outside this module graph and must enter
+    // THIS AsyncLocalStorage instance, or the run silently takes the clamp it
+    // was queued to escape.
+    const enter = (globalThis as Record<string, unknown>)[
+      BACKGROUND_INVOCATION_SCOPE_BRIDGE_KEY
+    ] as (callback: () => Promise<boolean>) => Promise<boolean>;
+    expect(typeof enter).toBe("function");
+    expect(await enter(async () => isInBackgroundInvocationScope())).toBe(true);
   });
 
   it("stays quiet off the Workers runtime", () => {
