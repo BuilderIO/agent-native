@@ -27,7 +27,7 @@ write-targets:
     - plans/desktop-sso-intent/work-ledger.md
 governing-artifact:
   path: plans/desktop-sso-intent/work-ledger.md
-  revision: desktop-sso-work-r18
+  revision: desktop-sso-work-r19
 architecture-fingerprint:
   outcome: one Agent Native workspace sign-in begun from the ordinary front door of any canonical first-party app, followed by silent app-local federation
   shipping-surfaces:
@@ -98,7 +98,7 @@ architecture-grounding:
     - workspace sign-in means Agent Native identity federation, not provider connection sharing
     - app front door means the app's ordinary sign-in entry, not a hidden Dispatch account page
     - Settings account card is a secondary status, sign-out, and recovery surface
-  smallest-compatible-delta: route the Settings signed-out action through an eligible initiating app's existing ensureAppSession ceremony, preflight and reflect an already-valid authority session before opening any window, and retain Dispatch's generic sign-in only as the identity-provider step inside that app-led ceremony
+  smallest-compatible-delta: remove the Settings-only authority sign-in command, make an eligible canonical app's ordinary sign-in entry the sole workspace front door, reflect authority status and workspace sign-out in Settings, and retain Dispatch's generic sign-in only as the identity-provider step inside the app-led ceremony
   deferred-capabilities:
     - custom and third-party app federation
     - shared provider OAuth grants or automatic provider-scope expansion
@@ -117,7 +117,7 @@ product-boundary-gates:
   agent-native-public-constituency: source-blind developers packaging Desktop with standard Core and Dispatch apps receive the reusable identity boundary without Alice-specific infrastructure
 acceptance-state:
   status: pending
-  summary: Alice approved the app-front-door replacement story; implementation and exact-head acceptance are active while production remains on normal unlocked main deployments
+  summary: Alice approved the app-front-door replacement story; current main is integrated and exact-head CI, signed-canary, and native acceptance must be regenerated while production remains on normal unlocked main deployments
   verified:
     - Core identity protocol suite: 210 tests passed
     - Desktop main, renderer, shared, broker, and preload suites: 202 tests passed
@@ -166,6 +166,10 @@ acceptance-state:
     - Dispatch as the initiating app now accepts only its exact same-origin nonce-bound desktop completion when Core detects the existing authority session, copies only the allowlisted Dispatch app session, retains the dedicated authority cookie, and never opens Dispatch home
     - replacement front-door Desktop verification: all 231 tests across 24 files passed; Desktop TypeScript, production build, formatting, and git diff checks passed
     - final independent read-only review found no remaining source-level defect or requested coverage gap in the status concurrency, direct-completion, cancellation, or cookie-isolation paths
+    - current origin/main 3e89c5e5aea6752beea0849fbd62c5a1d58b986d was integrated without textual conflicts in merge commit 6e202d737ad3f84ba3801a38b596b118d1fa69a2; all four acceptance-relevant overlaps retain both the SSO behavior and current-main additions
+    - post-integration focused verification on 6e202d737: Desktop identity and updater 24 tests passed; Core identity 27; Dispatch primary auth 1; Dispatch template identity 24
+    - post-integration full relevant verification on 6e202d737: Desktop 231 tests, Dispatch package 336, Dispatch template 41, Desktop/Core/Dispatch/Dispatch-template typechecks, Core and Dispatch builds, Desktop production compile, formatting hygiene, and git diff checks passed
+    - the broader Core package sweep passed 10080 tests and failed 228 tests because Node 24 exposed no browser localStorage in the Mac test runtime; every failing test source is unchanged from current main, so this is recorded as baseline harness evidence rather than SSO acceptance
   implementation:
     - authenticated nonce-only app-local completion route in Core
     - dedicated persistent Dispatch identity partition in packaged Desktop
@@ -179,7 +183,8 @@ acceptance-state:
     - Dispatch primary-auth public-route configuration eliminating concurrent auth-initializer pre-emption
     - the ordinary sign-in entry in a canonical first-party app starts the app-targeted workspace ceremony; Settings exposes status and workspace sign-out but no separate authority sign-in command
   blockers:
-    - after renewed Work authority, a new exact-head signed canary must pass native Google sign-in from an ordinary app front door before the short Mail and Dispatch candidate publication window can complete same-account continuity, restart, sign-out, account-switch, isolation, and hostile-flow acceptance
+    - the integrated branch must be pushed and pass exact-head CI plus a new signed canary before native Google sign-in from an ordinary app front door can begin
+    - the short Mail and Dispatch candidate publication window must then complete same-account continuity, restart, sign-out, account-switch, isolation, provider-separation, and hostile-flow acceptance before Work can be complete
   last-land-packet: https://github.com/BuilderIO/agent-native/pull/2290#issuecomment-5062742844
 deployment-boundary:
   allowed:
@@ -207,11 +212,11 @@ return-to-shape:
     risk-strategy: unchanged system-ready, production validation before merge
   replacement-acceptance-story: desktop-first-party-sso-front-door-v2 approved
 production-safety-preflight:
-  verified-at: 2026-07-30T15:18:53-04:00
-  mail: normal main deploy 0f02c200b8a98914b0b5c3971b662eb7ebd8e5fa, unlocked, auto-publishing on, identity route baseline 401, root normal 302
-  dispatch: newer legitimate normal main production deploy 6a6ba1de6ddf791274a85daa, unlocked, auto-publishing on, identity authorize baseline 401
-  local: exact SSO Canary process was terminated after normal quit stalled; no Canary, ShipIt, or Squirrel process remains; stable Desktop untouched
-ledger-revision: desktop-sso-work-r18
+  verified-at: 2026-08-01T09:05:00-04:00
+  mail: normal unlocked auto-publishing main deploy 6a6ddd1e966031000859bd7e at 3e89c5e5aea6752beea0849fbd62c5a1d58b986d, identity route baseline 401, root normal 302
+  dispatch: normal unlocked auto-publishing main deploy 6a6ddd1e8eef7d00084f719e at 3e89c5e5aea6752beea0849fbd62c5a1d58b986d, identity authorize baseline 401
+  local: no SSO Canary, ShipIt, or Squirrel process remains; stable Desktop untouched
+ledger-revision: desktop-sso-work-r19
 status: active
 ```
 
