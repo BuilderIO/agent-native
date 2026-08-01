@@ -1,6 +1,8 @@
 import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
 import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
 import {
+  SettingsGroup,
+  SettingsRow,
   SettingsTabsPage,
   useAgentSettingsTabs,
   type SettingsTabItem,

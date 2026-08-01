@@ -10,6 +10,8 @@ import {
 import { TeamPage } from "@agent-native/core/client/org";
 import {
   AccountSettingsCard,
+  SettingsGroup,
+  SettingsRow,
   SettingsTabsPage,
   useAgentSettingsTabs,
   useBuilderConnectFlow,
@@ -125,20 +127,18 @@ export default function SettingsPage() {
               </p>
             </div>
 
-            <Card id="language" className="scroll-mt-4">
-              <CardHeader>
-                <CardTitle className="text-base">
-                  {t("settings.languageTitle")}
-                </CardTitle>
-                <CardDescription>
-                  {t("settings.languageDescription")}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="max-w-xs space-y-1.5">
-                <Label>{t("settings.languageLabel")}</Label>
-                <LanguagePicker label={t("settings.languageLabel")} />
-              </CardContent>
-            </Card>
+            <SettingsGroup className="scroll-mt-4">
+              <SettingsRow
+                id="language"
+                label={t("settings.languageTitle")}
+                description={t("settings.languageDescription")}
+                control={
+                  <div className="w-56">
+                    <LanguagePicker label={t("settings.languageLabel")} />
+                  </div>
+                }
+              />
+            </SettingsGroup>
 
             <section id="asset-generation-setup" className="scroll-mt-4">
               <AssetsSetupCard libraryCount={data?.count ?? 0} />
@@ -243,8 +243,9 @@ function AssetsSetupCard({ libraryCount }: { libraryCount: number }) {
 
       <CardContent className="p-0">
         <SettingsRow
+          className="border-b border-border/70 last:border-b-0"
           icon={<IconKey className="size-4" />}
-          title="Builder"
+          label="Builder"
           description={
             builderConnected
               ? orgName
@@ -261,7 +262,7 @@ function AssetsSetupCard({ libraryCount }: { libraryCount: number }) {
                 : t("settings.optional")}
             </StatusPill>
           }
-          action={
+          control={
             builderEnabled ? (
               <Button
                 type="button"
@@ -295,8 +296,9 @@ function AssetsSetupCard({ libraryCount }: { libraryCount: number }) {
         {setupIssue ? <SetupIssueCallout message={setupIssue} /> : null}
 
         <SettingsRow
+          className="border-b border-border/70 last:border-b-0"
           icon={<IconPhoto className="size-4" />}
-          title={t("settings.generation")}
+          label={t("settings.generation")}
           description={generationSummary(configData, builderConnected, t)}
           status={
             <StatusPill tone={generationReady ? "ready" : "attention"}>
@@ -305,7 +307,7 @@ function AssetsSetupCard({ libraryCount }: { libraryCount: number }) {
                 : t("settings.generationNeedsSetup")}
             </StatusPill>
           }
-          action={
+          control={
             generationStep ? (
               <DisclosureButton
                 open={manualGenerationOpen}
@@ -326,8 +328,9 @@ function AssetsSetupCard({ libraryCount }: { libraryCount: number }) {
         ) : null}
 
         <SettingsRow
+          className="border-b border-border/70 last:border-b-0"
           icon={<IconCloudUpload className="size-4" />}
-          title={t("settings.storage")}
+          label={t("settings.storage")}
           description={
             storageReady
               ? t("settings.storageReady")
@@ -340,7 +343,7 @@ function AssetsSetupCard({ libraryCount }: { libraryCount: number }) {
                 : t("settings.generationNeedsSetup")}
             </StatusPill>
           }
-          action={
+          control={
             storageStep ? (
               <DisclosureButton
                 open={manualStorageOpen}
@@ -361,8 +364,9 @@ function AssetsSetupCard({ libraryCount }: { libraryCount: number }) {
         ) : null}
 
         <SettingsRow
+          className="border-b border-border/70 last:border-b-0"
           icon={<IconLibraryPhoto className="size-4" />}
-          title={t("settings.brandKits")}
+          label={t("settings.brandKits")}
           description={`${libraryCount} accessible ${
             libraryCount === 1 ? "brand kit" : "brand kits"
           }.`}
@@ -372,40 +376,6 @@ function AssetsSetupCard({ libraryCount }: { libraryCount: number }) {
         />
       </CardContent>
     </Card>
-  );
-}
-
-function SettingsRow({
-  icon,
-  title,
-  description,
-  status,
-  action,
-}: {
-  icon: ReactNode;
-  title: string;
-  description: string;
-  status: ReactNode;
-  action?: ReactNode;
-}) {
-  return (
-    <div className="flex flex-col gap-3 border-b border-border/70 px-5 py-4 last:border-b-0 sm:flex-row sm:items-center sm:justify-between">
-      <div className="flex min-w-0 gap-3">
-        <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-background text-muted-foreground">
-          {icon}
-        </div>
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <h3 className="text-sm font-medium">{title}</h3>
-            {status}
-          </div>
-          <p className="mt-1 max-w-xl text-sm leading-6 text-muted-foreground">
-            {description}
-          </p>
-        </div>
-      </div>
-      {action ? <div className="shrink-0 sm:ms-4">{action}</div> : null}
-    </div>
   );
 }
 

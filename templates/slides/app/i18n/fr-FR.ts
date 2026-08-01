@@ -28,6 +28,10 @@ const messages = {
   settings: {
     title: "Paramètres",
     description: "Préférences de langue et d’espace de travail pour cette app.",
+    emailNotifications: "Notifications par e-mail",
+    emailNotificationsDescription:
+      "Recevez un e-mail lorsqu’une personne commente votre deck ou répond dans un fil.",
+    saveFailed: "Échec de l’enregistrement",
     languageTitle: "Langue",
     languageDescription:
       "Choisissez la langue de l’interface. Cette préférence est enregistrée dans votre compte.",

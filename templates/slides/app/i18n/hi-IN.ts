@@ -28,6 +28,10 @@ const messages = {
   settings: {
     title: "सेटिंग्स",
     description: "इस ऐप के लिए भाषा और कार्यस्थान प्राथमिकताएं।",
+    emailNotifications: "ईमेल सूचनाएँ",
+    emailNotificationsDescription:
+      "जब कोई आपके डेक पर टिप्पणी करे या किसी थ्रेड में जवाब दे तो ईमेल पाएँ।",
+    saveFailed: "सहेजने में विफल",
     languageTitle: "भाषा",
     languageDescription: "इंटरफ़ेस भाषा चुनें। यह पसंद आपके खाते में सहेजी जाती है।",
     languageLabel: "इंटरफ़ेस भाषा",

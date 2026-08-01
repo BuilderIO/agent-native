@@ -28,6 +28,10 @@ const messages = {
   settings: {
     title: "设置",
     description: "此应用的语言和工作区偏好设置。",
+    emailNotifications: "邮件通知",
+    emailNotificationsDescription:
+      "当有人评论你的演示文稿或在讨论串中回复时，收到邮件通知。",
+    saveFailed: "保存失败",
     languageTitle: "语言",
     languageDescription: "选择界面语言。此偏好会保存到你的账户。",
     languageLabel: "界面语言",

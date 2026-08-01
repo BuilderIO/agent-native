@@ -1,5 +1,7 @@
 import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
 import {
+  SettingsGroup,
+  SettingsRow,
   SettingsTabsPage,
   useAgentSettingsTabs,
 } from "@agent-native/core/client/settings";

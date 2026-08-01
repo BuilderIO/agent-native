@@ -28,6 +28,10 @@ const messages = {
   settings: {
     title: "Ajustes",
     description: "Preferencias de idioma y espacio de trabajo para esta app.",
+    emailNotifications: "Notificaciones por correo",
+    emailNotificationsDescription:
+      "Recibe un correo cuando alguien comente o responda en tu presentación.",
+    saveFailed: "No se pudo guardar",
     languageTitle: "Idioma",
     languageDescription:
       "Elige el idioma de la interfaz. Esta preferencia se guarda en tu cuenta.",
