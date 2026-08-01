@@ -38,6 +38,7 @@ import { track } from "../tracking/registry.js";
 
 const DEFAULT_SERVERLESS_INTEGRATION_A2A_TIMEOUT_MS = 18_000;
 const NETLIFY_INTEGRATION_A2A_TIMEOUT_MS = 2_000;
+const NETLIFY_INTEGRATION_A2A_SUBMISSION_TIMEOUT_MS = 15_000;
 const INTEGRATION_A2A_TOKEN_TTL = "30m";
 const A2A_INVOCATION_EVENT = "$a2a_invocation";
 
@@ -167,13 +168,32 @@ function parseTimeoutMs(value: string | undefined): number | undefined {
   return Math.floor(parsed);
 }
 
+function hasExplicitNonHostedNetlifyOverride(): boolean {
+  return (
+    process.env.NETLIFY_LOCAL === "true" || process.env.NETLIFY === "false"
+  );
+}
+
+function isNetlifyHostedRuntimeForIntegrationCall(): boolean {
+  if (hasExplicitNonHostedNetlifyOverride()) return false;
+  if (process.env.NETLIFY && process.env.NETLIFY !== "false") return true;
+
+  // NETLIFY is a build-time marker, while deployed Netlify Functions expose
+  // SITE_ID at runtime. Recognize the same runtime-only marker used by the
+  // durable background and run-manager gates so the integration caller hands
+  // slow A2A work to durable delivery before its foreground budget expires.
+  return Boolean(process.env.SITE_ID); // guard:allow-env-credential -- Netlify's read-only public site identifier is a runtime host marker, not a user credential.
+}
+
 function isServerlessHost(): boolean {
+  if (hasExplicitNonHostedNetlifyOverride()) return false;
+
   // Detection mirrors db/migrations.ts:297-301. On Cloudflare Workers/Pages,
   // `process.env` is shimmed and CF_PAGES isn't reliably populated at runtime —
   // the canonical signal is the `__cf_env`/`__env__` global injected by the
   // Cloudflare runtime adapter.
   return (
-    !!process.env.NETLIFY ||
+    isNetlifyHostedRuntimeForIntegrationCall() ||
     !!process.env.AWS_LAMBDA_FUNCTION_NAME ||
     !!process.env.VERCEL ||
     "__cf_env" in globalThis ||
@@ -193,7 +213,9 @@ function getIntegrationCallTimeoutMs(): number | undefined {
   // calls very short so multi-agent integration requests queue downstream
   // continuations quickly instead of spending the parent Slack/email processor
   // budget waiting on separately deployed apps one-by-one.
-  if (process.env.NETLIFY) return NETLIFY_INTEGRATION_A2A_TIMEOUT_MS;
+  if (isNetlifyHostedRuntimeForIntegrationCall()) {
+    return NETLIFY_INTEGRATION_A2A_TIMEOUT_MS;
+  }
 
   return DEFAULT_SERVERLESS_INTEGRATION_A2A_TIMEOUT_MS;
 }
@@ -676,6 +698,10 @@ export async function run(
         // Docker can wait for slow-but-valid answers; integration processors
         // still need to finish before their current function execution dies.
         const callTimeoutMs = getIntegrationCallTimeoutMs();
+        const submissionTimeoutMs =
+          callTimeoutMs && isNetlifyHostedRuntimeForIntegrationCall()
+            ? NETLIFY_INTEGRATION_A2A_SUBMISSION_TIMEOUT_MS
+            : undefined;
         responseText = await callAgent(agent.url, messageWithHint, {
           apiKey,
           userEmail: callerEmail,
@@ -692,6 +718,7 @@ export async function run(
           ...(callTimeoutMs
             ? {
                 timeoutMs: callTimeoutMs,
+                ...(submissionTimeoutMs ? { submissionTimeoutMs } : {}),
               }
             : {}),
         });

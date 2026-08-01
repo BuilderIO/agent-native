@@ -2532,6 +2532,7 @@ describe("integration webhook handler engine resolution", () => {
       "I will relay from the Analytics agent when the result is ready.",
       "The Slides agent is working on your *Launch Readiness Snapshot* deck (title, risks, next steps). The result will be posted here in this thread as soon as it's ready - hang tight!",
       "The Design agent is working on your *Launch Readiness Status Card* - it'll post the artifact URL directly here in this thread as soon as it's ready. Hang tight! :art:",
+      "The Design Ask request has been sent to Content, which will create the record and post the verified link + Content ID directly to this thread. No further action needed from me here.",
     ];
 
     for (const [index, text] of deferrals.entries()) {
