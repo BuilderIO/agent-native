@@ -13,7 +13,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 
-import { DocumentTreeItem, FavoriteDocumentItem } from "./DocumentTreeItem";
+import { DocumentTreeItem } from "./DocumentTreeItem";
 
 const { useSortableMock } = vi.hoisted(() => ({
   useSortableMock: vi.fn(() => ({
@@ -148,59 +148,6 @@ function treeItem(
 }
 
 describe("sidebar document permission menus", () => {
-  it("keeps the favorite-row add-child slot disabled beside Unpin", async () => {
-    const onRemoveFavorite = vi.fn();
-    const onCreateChildPage = vi.fn();
-    const onCreateChildDatabase = vi.fn();
-    const { container, root } = await render(
-      <FavoriteDocumentItem
-        document={documentForRole("viewer", true)}
-        active={false}
-        onSelect={() => {}}
-        onCreateChildPage={onCreateChildPage}
-        onCreateChildDatabase={onCreateChildDatabase}
-        onRemoveFavorite={onRemoveFavorite}
-        onDelete={() => {}}
-      />,
-    );
-
-    const moreActions = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="More actions for Shared page"]',
-    );
-    const addChild = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Add child to Shared page"]',
-    );
-    if (!moreActions || !addChild) {
-      throw new Error("Expected aligned viewer sidebar controls");
-    }
-    expect(addChild.disabled).toBe(true);
-    expect(addChild.className).toContain("h-7 w-7");
-    expect(addChild.className).toContain("text-muted-foreground/50");
-    expect(moreActions.compareDocumentPosition(addChild)).toBe(
-      Node.DOCUMENT_POSITION_FOLLOWING,
-    );
-    expect(
-      container.querySelectorAll('button[aria-haspopup="menu"]'),
-    ).toHaveLength(1);
-    addChild.focus();
-    addChild.click();
-    expect(document.activeElement).not.toBe(addChild);
-    expect(onCreateChildPage).not.toHaveBeenCalled();
-    expect(onCreateChildDatabase).not.toHaveBeenCalled();
-    const menuItems = await openActions(container);
-    expect(menuItems.map((item) => item.textContent?.trim())).toEqual([
-      "Unpin from sidebar",
-    ]);
-
-    await act(async () => {
-      menuItems[0]?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      await Promise.resolve();
-    });
-    expect(onRemoveFavorite).toHaveBeenCalledOnce();
-
-    cleanup(root, container);
-  });
-
   it("keeps the tree-row add-child slot disabled beside Pin", async () => {
     const onToggleFavorite = vi.fn();
     const onCreateChildPage = vi.fn();

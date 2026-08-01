@@ -4,6 +4,15 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const orgQueryState = vi.hoisted(() => ({
+  data: undefined as unknown,
+  isLoading: false,
+}));
+
+vi.mock("@agent-native/core/client/org", () => ({
+  useOrg: () => orgQueryState,
+}));
+
 import {
   DeckProvider,
   hasUncommittedDeckChanges,
@@ -191,6 +200,8 @@ function deletedDeck(
 
 describe("DeckContext deck creation persistence", () => {
   beforeEach(() => {
+    orgQueryState.data = undefined;
+    orgQueryState.isLoading = false;
     vi.stubGlobal("EventSource", MockEventSource);
     vi.spyOn(console, "error").mockImplementation(() => {});
   });
@@ -212,6 +223,38 @@ describe("DeckContext deck creation persistence", () => {
 
     expect(result.current.decks).toEqual([]);
     expect(result.current.loadError).toBe(true);
+  });
+
+  it("waits for the active organization before loading the deck list", async () => {
+    orgQueryState.isLoading = true;
+    const accessible = {
+      id: "scoped-deck",
+      title: "Scoped Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [],
+    } satisfies Deck;
+    const { fetchMock, setAccessibleDeck } = setupFetch();
+    setAccessibleDeck(accessible);
+
+    const { result, rerender } = renderHook(() => useDecks(), { wrapper });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current.loading).toBe(true);
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        String(url).includes("/_agent-native/actions/list-decks"),
+      ),
+    ).toBe(false);
+
+    orgQueryState.data = { orgId: "org-1" };
+    orgQueryState.isLoading = false;
+    rerender();
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.decks).toEqual([accessible]);
   });
 
   it("awaits the in-flight create request instead of polling for the new deck", async () => {

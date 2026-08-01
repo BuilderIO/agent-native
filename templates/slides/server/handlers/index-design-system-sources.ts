@@ -52,6 +52,7 @@ export const indexDesignSystemSources = defineEventHandler(async (event) => {
         ownerEmail: email ?? session.email,
         orgId: orgId ?? null,
         projectName,
+        sourceKind: "figma",
       });
       return {
         ...result,

@@ -49,6 +49,9 @@ export const DESIGN_SHORTCUTS: readonly DesignShortcutDefinition[] = [
   shortcut({
     id: "show-shortcuts",
     category: "essential",
+    // Literal ctrl, not $mod: on macOS ⌘⇧? is the system Help-menu shortcut and
+    // the browser consumes it before the page sees it, so ⌃⇧? is the only
+    // pressable binding there. Do not "fix" this to $mod.
     bindings: ["ctrl+shift+?"],
     labelKey: "designEditor.keyboardShortcuts.commands.showShortcuts",
     handler: "onShowKeyboardShortcuts",

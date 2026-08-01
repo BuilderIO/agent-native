@@ -1261,6 +1261,9 @@ const messages = {
     figmaCreateSuccess: "由Figma建立的設計系統",
     figmaCreateError: "無法建立設計系統",
     backToDesignSystems: "返回設計系統",
+    otherSources: "其他",
+    otherSourcesDescription: "從網站、程式碼、檔案或現有設計系統連接。",
+    chooseSourcePrompt: "選擇一個來源進行設定",
     continue: "繼續生成",
     title: "設定您的設計系統",
     description:

@@ -2,10 +2,12 @@
  * Storage layer for the framework secrets registry.
  *
  * Values are encrypted at rest with AES-256-GCM. The workspace-shared
- * encryption key is derived from `SECRETS_ENCRYPTION_KEY` (preferred) or the
- * workspace-wide `A2A_SECRET`. `BETTER_AUTH_SECRET` and app-scoped keys remain
- * read fallbacks for rows written before sibling apps converged on the shared
- * key. Successful fallback reads race-safely refresh the shared ciphertext.
+ * encryption key prefers `WORKSPACE_SECRETS_ENCRYPTION_KEY`, then the legacy
+ * combined `SECRETS_ENCRYPTION_KEY`, then the workspace-wide `A2A_SECRET`.
+ * A configured previous workspace key, `BETTER_AUTH_SECRET`, and app-scoped
+ * keys remain read fallbacks for rows written before sibling apps converged on
+ * the shared key. Successful fallback reads race-safely refresh the shared
+ * ciphertext.
  *
  * Secret values are NEVER logged and NEVER returned from any route handler.
  */
@@ -14,6 +16,7 @@ import { randomUUID } from "node:crypto";
 
 import { getDbExec, isPostgres } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
+import { getRequestContext } from "../server/request-context.js";
 import {
   encryptSecretValue as encryptLegacyValue,
   encryptSharedSecretValue as encryptValue,
@@ -215,6 +218,8 @@ export async function writeAppSecret(args: WriteSecretArgs): Promise<string> {
     now,
   ];
 
+  invalidateRequestSecret(args);
+
   if (isPostgres()) {
     const { rows } = await client.execute({
       sql: `${upsertSql} RETURNING id`,
@@ -337,6 +342,52 @@ async function populateSharedAppSecret(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Per-request read memo
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-request memo of secret reads, keyed on the active AsyncLocalStorage
+ * RequestContext (WeakMap → freed with the request). Mirrors the settings
+ * store's cache, including its staleness rule: a write in THIS request is
+ * written through, while other in-flight requests keep their snapshot for
+ * their own (short) lifetime.
+ *
+ * The map key is `scope|scopeId|key`, which is the secret's full identity —
+ * `user:<email>`, `org:<id>`, `solo:<email>`, `workspace` — so a hit can never
+ * answer one caller with another caller's secret. Do NOT reduce the key to
+ * just `key`.
+ *
+ * This exists because one credential resolution is a WATERFALL: user scope,
+ * then org, then workspace, then solo. Callers re-resolve the same credential
+ * several times per request (engine detection, config resolution, usability
+ * checks), and against a remote database each probe is a network round trip.
+ */
+const _requestSecretsCache = new WeakMap<
+  object,
+  Map<string, ReadSecretResult | null>
+>();
+
+function requestSecretsCache(): Map<string, ReadSecretResult | null> | null {
+  const ctx = getRequestContext();
+  if (!ctx || typeof ctx !== "object") return null;
+  let cache = _requestSecretsCache.get(ctx);
+  if (!cache) {
+    cache = new Map();
+    _requestSecretsCache.set(ctx, cache);
+  }
+  return cache;
+}
+
+function secretCacheKey(ref: SecretRef): string {
+  return `${ref.scope}|${ref.scopeId}|${ref.key}`;
+}
+
+/** Drop this request's memo for a secret whose stored value just changed. */
+function invalidateRequestSecret(ref: SecretRef): void {
+  requestSecretsCache()?.delete(secretCacheKey(ref));
+}
+
 type AppSecretsReadQuery = { sql: string; args: unknown[] };
 
 /**
@@ -378,6 +429,17 @@ async function executeAppSecretsRead(query: AppSecretsReadQuery) {
 export async function readAppSecret(
   ref: SecretRef,
 ): Promise<ReadSecretResult | null> {
+  const cache = requestSecretsCache();
+  const cacheKey = secretCacheKey(ref);
+  if (cache?.has(cacheKey)) return cache.get(cacheKey) ?? null;
+  const result = await readAppSecretUncached(ref);
+  cache?.set(cacheKey, result);
+  return result;
+}
+
+async function readAppSecretUncached(
+  ref: SecretRef,
+): Promise<ReadSecretResult | null> {
   const { key, scope, scopeId } = ref;
   const { rows } = await executeAppSecretsRead({
     sql: `SELECT encrypted_value, shared_encrypted_value, updated_at, id FROM app_secrets WHERE scope = ? AND scope_id = ? AND key = ? LIMIT 1`,
@@ -415,15 +477,41 @@ export async function readAppSecrets(args: {
   scope: SecretScope;
   scopeId: string;
 }): Promise<Map<string, ReadSecretResult>> {
-  const keys = [...new Set(args.keys.filter(Boolean))];
-  if (keys.length === 0) return new Map();
+  const requested = [...new Set(args.keys.filter(Boolean))];
+  if (requested.length === 0) return new Map();
+
+  const cache = requestSecretsCache();
+  const results = new Map<string, ReadSecretResult>();
+  const keys: string[] = [];
+  for (const key of requested) {
+    const cacheKey = secretCacheKey({
+      key,
+      scope: args.scope,
+      scopeId: args.scopeId,
+    });
+    if (cache?.has(cacheKey)) {
+      const cached = cache.get(cacheKey);
+      if (cached) results.set(key, cached);
+      continue;
+    }
+    keys.push(key);
+  }
+  if (keys.length === 0) return results;
 
   const placeholders = keys.map(() => "?").join(", ");
   const { rows } = await executeAppSecretsRead({
     sql: `SELECT key, encrypted_value, shared_encrypted_value, updated_at, id FROM app_secrets WHERE scope = ? AND scope_id = ? AND key IN (${placeholders})`,
     args: [args.scope, args.scopeId, ...keys],
   });
-  const results = new Map<string, ReadSecretResult>();
+  // The statement covered every uncached key in this scope, so a key missing
+  // from `rows` is genuinely absent — memo it as such rather than leaving a
+  // single-key read to go ask again.
+  for (const key of keys) {
+    cache?.set(
+      secretCacheKey({ key, scope: args.scope, scopeId: args.scopeId }),
+      null,
+    );
+  }
   for (const row of rows) {
     const key = String(row.key ?? "");
     if (!key) continue;
@@ -440,11 +528,16 @@ export async function readAppSecrets(args: {
           decrypted.sharedCiphertextToReplace ?? null,
         );
       }
-      results.set(key, {
+      const result = {
         value: decrypted.value,
         last4: last4(decrypted.value),
         updatedAt: Number(row.updated_at ?? 0),
-      });
+      };
+      results.set(key, result);
+      cache?.set(
+        secretCacheKey({ key, scope: args.scope, scopeId: args.scopeId }),
+        result,
+      );
     } catch {
       // Match readAppSecret: corrupted or stale ciphertext behaves as missing.
     }
@@ -587,6 +680,7 @@ function parseAllowlist(raw: string | null): string[] | null {
 
 export async function deleteAppSecret(ref: SecretRef): Promise<boolean> {
   await ensureTable();
+  invalidateRequestSecret(ref);
   const { key, scope, scopeId } = ref;
   const client = getDbExec();
   const { rowsAffected } = await client.execute({

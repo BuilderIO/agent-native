@@ -4,6 +4,11 @@ import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "./engine/credential-errors.js";
+import {
+  classifyTerminalErrorCode,
+  describeErrorWithCauses,
+  isProviderConnectionError,
+} from "./engine/error-detail.js";
 import { EngineError } from "./engine/types.js";
 import {
   insertRun,
@@ -341,23 +346,16 @@ function getRunErrorMessage(err: unknown): string {
   return "Unknown error";
 }
 
-function isProviderConnectionErrorMessage(message: string): boolean {
-  const normalized = message.trim().toLowerCase();
-  return (
-    normalized === "connection error." ||
-    normalized.includes("cannot connect to api:")
-  );
-}
-
 function getRunErrorCode(err: unknown): string | undefined {
   if (err instanceof EngineError) {
     if (err.errorCode) return err.errorCode;
     if (err.statusCode === 429) return PROVIDER_RATE_LIMITED_ERROR_CODE;
   }
-  if (err instanceof Error && isProviderConnectionErrorMessage(err.message)) {
-    return PROVIDER_NETWORK_ERROR_CODE;
-  }
-  return undefined;
+  if (isProviderConnectionError(err)) return PROVIDER_NETWORK_ERROR_CODE;
+  // The code rides the error EVENT to the client, which decides recovery from
+  // it — so an uncoded transport failure has to be classified here too, not
+  // only when the run row is persisted.
+  return classifyTerminalErrorCode(describeErrorWithCauses(err));
 }
 
 function getEngineRunErrorDetails(err: EngineError): string | undefined {
@@ -376,7 +374,7 @@ function shouldCaptureRunError(err: unknown): boolean {
   }
   if (!(err instanceof Error)) return true;
   if (/^40[13] status code\b/i.test(err.message)) return false;
-  if (isProviderConnectionErrorMessage(err.message)) return false;
+  if (isProviderConnectionError(err)) return false;
   if (!errorCode) return true;
   const normalizedCode = errorCode.toLowerCase();
   return (
@@ -984,6 +982,13 @@ export function startRun(
   // false-stale-reap zombie scenario where the reaper flipped the row while
   // this isolate was briefly unable to heartbeat (DB latency / GC pause).
   let lastAbortCheck = Date.now() - 3000;
+  // A read failure here used to be indistinguishable from "not aborted" —
+  // exactly the coerced-to-false pattern that lets a real Stop go unseen for
+  // the rest of the run. Count consecutive failures like the heartbeat-write
+  // handler above; past the same threshold, fail closed (self-abort with a
+  // reason outside TURN_ENDING_ABORT_REASONS/RECOVERABLE_ABORT_REASONS, so it
+  // surfaces as a typed error) instead of silently retrying forever.
+  let consecutiveAbortCheckFailures = 0;
   const checkSqlAbort = () => {
     const now = Date.now();
     if (now - lastAbortCheck < 3000) return;
@@ -1004,7 +1009,26 @@ export function startRun(
           }
         }
       })
-      .catch(() => {});
+      .then(() => {
+        consecutiveAbortCheckFailures = 0;
+      })
+      .catch((error) => {
+        consecutiveAbortCheckFailures += 1;
+        if (consecutiveAbortCheckFailures >= 3) {
+          captureError(error, {
+            route: "/_agent-native/agent-chat",
+            tags: {
+              source: "agent-run-manager",
+              phase: "abort-check",
+              consecutiveFailures: String(consecutiveAbortCheckFailures),
+            },
+            extra: { runId, threadId },
+          });
+          if (!abort.signal.aborted) {
+            abortInMemoryRun(run, "abort_check_unavailable");
+          }
+        }
+      });
   };
 
   // Heartbeat: bump heartbeat_at every 1.5s so watchers can detect a dead
@@ -1456,6 +1480,11 @@ export function startRun(
               ? completionError.message
               : String(completionError));
         }
+        // An engine that emitted an error event without a code has NOT told us
+        // the failure is unclassifiable — it told us nothing. Recover the code
+        // from the message before falling back to "unknown", which the client
+        // reads as "do not attempt recovery".
+        errorCode ??= classifyTerminalErrorCode(errorDetail);
         runTerminalErrorCode = errorCode ?? "unknown";
         runTerminalErrorDetail = errorDetail;
         await setRunError(runId, errorCode ?? "unknown", errorDetail);

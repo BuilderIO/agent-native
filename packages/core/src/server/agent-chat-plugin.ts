@@ -58,6 +58,7 @@ import {
   createAnthropicEngine,
   getStoredModelForEngine,
   normalizeModelForEngine,
+  resolveDelegatedRunModel,
   getAgentEngineEntry,
   isAgentEnginePackageInstalled,
   isStoredEngineUsableForRequest,
@@ -83,6 +84,7 @@ import {
   callerHasThreadAccess,
 } from "../agent/run-ownership.js";
 import { markTurnAborted, readBackgroundRunClaim } from "../agent/run-store.js";
+import type { UnclaimedBackgroundRunRow } from "../agent/run-store.js";
 import {
   buildCurrentTimeUserContext,
   buildRuntimeContextPrompt,
@@ -107,10 +109,12 @@ import type {
 import { readAppStateForCurrentTab } from "../application-state/script-helpers.js";
 import { runChatThreadDataMigrations } from "../chat-threads/migrations.js";
 import {
+  adoptThreadScopeIfUnscoped,
   createThread,
   forkThread,
   getThread,
   registerChatThreadsShareable,
+  resolveRunThreadScope,
   resolveThreadAccess,
   listThreads,
   searchThreads,
@@ -1614,13 +1618,17 @@ export function createAgentChatPlugin(
             : await buildSchemaBlock(owner, databaseToolsMode);
           const extra = await resolveExtraContext(context.event, owner);
 
-          const a2aModelCandidate =
-            options?.model ??
-            (await getStoredModelForEngine(a2aEngine, {
+          const model = resolveDelegatedRunModel(a2aEngine, {
+            explicitModel: options?.model,
+            storedModel: await getStoredModelForEngine(a2aEngine, {
               appId: options?.appId,
-            })) ??
-            a2aEngine.defaultModel;
-          const model = normalizeModelForEngine(a2aEngine, a2aModelCandidate);
+            }),
+            // Preference only, and last before the default: an app that pinned
+            // a model keeps it. Read separately from the correlation sanitizer
+            // below so it stays out of every identity/access path.
+            callerModelHint: sanitizeA2ACorrelationMetadata(context.metadata)
+              .callerModel,
+          });
           if (a2aRunContext) {
             a2aRunContext.engine = a2aEngine;
             a2aRunContext.model = model;
@@ -2538,11 +2546,16 @@ export function createAgentChatPlugin(
           getRequestRunContext()?.owner ?? getRequestUserEmail();
         if (!ownerEmail) return;
 
+        const runScope = getRequestRunContext()?.chatScope ?? null;
+
         await withThreadDataLock(threadId, async () => {
           let thread = await getThread(threadId);
           if (!thread) {
             try {
-              thread = await createThread(ownerEmail, { id: threadId });
+              thread = await createThread(ownerEmail, {
+                id: threadId,
+                scope: runScope,
+              });
             } catch {
               thread = await getThread(threadId);
             }
@@ -2564,6 +2577,14 @@ export function createAgentChatPlugin(
               statusCode: 404,
               statusMessage: "Thread not found",
             });
+          }
+
+          const nextScope = resolveRunThreadScope(thread.scope, runScope);
+          if (nextScope && nextScope !== thread.scope) {
+            thread = {
+              ...thread,
+              scope: await adoptThreadScopeIfUnscoped(threadId, nextScope),
+            };
           }
 
           let repo: any;
@@ -5878,7 +5899,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       const attemptUnclaimedBackgroundRunRedispatch = async (row: {
         id: string;
         startedAt: number;
+        hasDispatchPayload: boolean;
       }): Promise<void> => {
+        // Eligibility for this sweep does not mean the row is redispatchable.
+        // The marker below asserts `payloadRef: true`, and a worker that then
+        // finds no payload fails the run as `dispatch_payload_missing` — so
+        // redispatching a payload-less row does not recover it, it destroys it.
+        // Leave it for the slow sweep's reap, which reports the true cause
+        // (`background_worker_never_started`) and is client-recoverable.
+        if (!row.hasDispatchPayload) return;
         const { updateRunHeartbeat } = await import("../agent/run-store.js");
         const { resolveAgentChatProcessRunDispatchPath } =
           await import("../agent/durable-background.js");
@@ -5959,7 +5988,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 // idempotent, re-checks staleness at UPDATE time and honours
                 // the in-flight grace, so it is safe on this cadence.
                 await reapAllStaleRuns().catch(() => {});
-                let rows: { id: string; startedAt: number }[];
+                let rows: UnclaimedBackgroundRunRow[];
                 try {
                   rows = await listUnclaimedBackgroundRunRows();
                 } catch {
@@ -6004,7 +6033,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 reapUnclaimedBackgroundRun,
                 shouldRedispatchUnclaimedBackgroundRun,
               } = await import("../agent/run-store.js");
-              let rows: { id: string; startedAt: number }[];
+              let rows: UnclaimedBackgroundRunRow[];
               try {
                 rows = await listUnclaimedBackgroundRunRows();
               } catch {
@@ -6012,7 +6041,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               }
               for (const row of rows) {
                 try {
-                  if (shouldRedispatchUnclaimedBackgroundRun(row)) {
+                  // A row with no `dispatch_payload` can never be rehydrated by
+                  // a redispatched worker, so waiting out the redispatch bound
+                  // buys nothing — fall straight through to the reap below and
+                  // fail it loudly with its real cause.
+                  if (
+                    row.hasDispatchPayload &&
+                    shouldRedispatchUnclaimedBackgroundRun(row)
+                  ) {
                     await attemptUnclaimedBackgroundRunRedispatch(row);
                     continue;
                   }

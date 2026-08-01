@@ -1,5 +1,359 @@
 # @agent-native/core
 
+## 0.133.1
+
+### Patch Changes
+
+- 1c08605: Fail closed when an `ai-sdk:*` engine has no provider key, instead of sending an
+  unauthenticated request. The provider factory was previously built with no
+  `apiKey`, so the SDK omitted the Authorization header and the gateway's 401 came
+  back as `http_401` "Missing Authentication header" — a transport error naming the
+  wrong cause, which a scheduled job then retried on every tick forever. It now
+  reports `missing_credentials` and names the env var it wants, matching what
+  `builder-engine` and `anthropic-engine` already did.
+
+  Also stop reaping in-process background automations (scheduler and trigger runs)
+  at the tight 45s post-claim stale window. That window exists to reach a durable
+  successor sooner, but these runs carry no `dispatch_payload` and have no
+  successor to reach, so an early reap killed still-working jobs that nothing could
+  recover. They now get the 90s background window, and the recovery path reports
+  `not_redispatchable` rather than `payload_missing`, which read as data loss for
+  the one case where nothing was ever lost.
+
+## 0.133.0
+
+### Minor Changes
+
+- eecd3ad: Expose the measured agent failure taxonomy and let thread diagnostics separate interactive runs from scheduled `job-` runs.
+
+### Patch Changes
+
+- eecd3ad: Let a delegated A2A run inherit the caller's model when the receiving app never
+  picked one. A cross-app turn resolved its model entirely on the receiving side,
+  and the stored lookup is scoped to the receiver's own app id — so selecting
+  Sonnet in Slides still ran any question Slides delegated to Analytics on
+  Analytics' default. Nothing in the request carried the caller's choice.
+
+  `call-agent` now sends the model it is running on as `callerModel` in the
+  existing A2A correlation metadata, and the receiver applies it strictly last
+  before its default: explicit config, then its own stored setting, then the
+  hint. An app that deliberately pins a model keeps it; the hint only fills the
+  gap where the receiver would otherwise take a default it never chose.
+
+  The hint is a preference, never an authorization. It is bounded to the
+  receiver's already-resolved engine catalog by `resolveDelegatedRunModel`, so a
+  peer cannot move the run to another provider, an unknown id, or a capability
+  tier the engine does not offer; engines that cannot prove membership (empty
+  catalog, OpenAI-compatible gateway) take no hint at all. A rejected hint is
+  logged and dropped rather than failing the delegated run, and it stays out of
+  every identity, org, access, and approval path.
+
+- eecd3ad: Classify AI SDK provider failures that arrive as a stream part, not a throw.
+  `streamText` does not throw for a failed provider request — it emits an `error`
+  part on `fullStream` — so provider HTTP failures had two arrival paths and only
+  the thrown one was classified. The stream-part path built a bare stop event from
+  the message alone, discarding the `APICallError`'s `statusCode` and
+  `isRetryable`. Everything downstream then had nothing structured to read: a 429
+  or 503 was retried only if its prose happened to contain "rate_limit" or
+  "overloaded", and the run persisted `error_code = 'unknown'`.
+
+  That is also why a 100%-reproducible config 400 could run for three days across
+  five apps without anyone noticing: it was indistinguishable in the outcome
+  tables from every other unclassified failure, so it had no signature to alert
+  on.
+
+  Both paths now share one `classifyProviderError` helper — status code →
+  `http_<status>`, transport failure → `provider_network_error`, `isRetryable`
+  passed through, and a message-based fallback when the provider sent nothing
+  structured. Every ai-sdk provider (openai, anthropic, google, openrouter, groq,
+  mistral, cohere, ollama) gets correct classification at once.
+
+- eecd3ad: Recover chats from transient provider failures instead of ending them. A
+  provider transport blip reached persistence with no structured error code and
+  was stored as `unknown`, which the client does not list as auto-recoverable —
+  so the turn died where the identical failure carrying its real code resumes. In
+  production this was measurable: `unknown` runs averaged exactly 1.00 runs per
+  turn (no recovery was ever attempted), against 2.0 for `provider_network_error`
+  and 1.5 for `http_429` on the same underlying errors.
+
+  Four divergent copies of the connection-error predicate had drifted apart, and
+  they disagreed on the exact string the AI SDK actually throws — `RetryError`
+  reports `"Failed after 2 attempts. Last error: Cannot connect to API: …"`, which
+  a copy anchored with `startsWith` scored as unclassified while a copy using
+  `includes` scored as retryable. They are now one exported classifier in
+  `engine/error-detail.ts`, matched against the error's full cause chain, and
+  applied both where the error event is built (the code the client reads) and
+  where the run's terminal code is persisted. Transport and capacity failures map
+  to their real codes; deterministic failures stay unmapped so a broken request
+  still stops the chat instead of spiralling.
+
+  Also stop sending `reasoning_effort` alongside function tools for GPT models on
+  the Builder gateway. The gateway routes them to Chat Completions, which rejects
+  that combination outright, so every agent turn on a `gpt-5.x` model failed
+  deterministically. Omitting the field does not help — only the explicit `"none"`
+  clears it, matching the guard the AI SDK engine already had.
+
+- eecd3ad: Fail closed instead of silently ignoring a broken cross-isolate Stop check: a rejected abort-state read in the agent run manager no longer gets coerced into "not aborted" forever — sustained read failures now self-abort the run with a distinct, typed error. Also add the same fail-closed handling to two `isTurnAborted` call sites in the background-dispatch path that were missing it, matching the existing sibling call sites.
+- eecd3ad: Stop raw provider error text (a JSON error body, an SSL handshake failure) from
+  being persisted as the visible assistant reply. The server-side rebuild of an
+  assistant message (`buildAssistantMessage`, used by every background/durable
+  run, reconnect-after-disconnect, poller-triggered turn, and webhook-triggered
+  turn) appended `event.error` verbatim, unlike the live client which already
+  routes it through `normalizeChatError`/`formatChatErrorText` for friendly copy.
+  The rebuild now uses that same layer, so persisted text always matches what a
+  live client would have shown, and the raw diagnostic is kept only in
+  `runError.details`.
+- eecd3ad: Name the two deterministic provider failures that were ending chats as `unknown`: a model rejecting tools alongside `reasoning_effort`, and a missing authentication header. Both now carry a real error code and user-facing copy that says what to change, and both stay non-recoverable so nothing retries a failure a retry cannot fix.
+- eecd3ad: Preserve Builder design-system source provenance on local proxy references.
+- eecd3ad: Keep the signup email visible when an email-verification link opens a new tab, so the follow-up sign-in targets the verified account instead of a browser-autofilled address.
+- eecd3ad: Fix a split-brain in credential resolution: `resolveCredential` (and its diagnostic sibling `describeCredentialScopeGap`) only ever searched the single org on `ctx.orgId`. Interactive requests always populate it, but CLI runs, cron/recurring jobs, and any other caller built from `getCredentialContext()` outside a request event do not — so an org-scoped key that shows "Ready" in Settings silently missed at runtime for those callers. Both functions now fall back to resolving the caller's org from their email when `ctx.orgId` is unset, and a membership lookup that fails to read now throws a retryable error instead of being reported as "not configured". `resolveRequiredCredential` in the provider-api layer now also appends the scope-gap diagnostic to its error, matching `resolveAnyCredential`.
+- eecd3ad: Mark exhausted in-process agent-loop budgets as non-recoverable so the client does not restart the same exhausted run.
+- eecd3ad: Run scheduled jobs, automations, and Google Docs comment replies under the background timeout regime instead of the interactive one. They were inheriting the 40s soft timeout, a 30s no-progress backstop, and 6 continuations meant for a synchronous request, so work that legitimately spends minutes across many tool calls died in the first gap longer than 30s and was recorded as `no_progress`.
+- eecd3ad: Stop scheduled jobs and event automations from being killed mid-run as
+  "background_worker_never_started". `runBackgroundAutomation` (shared by
+  `jobs/scheduler.ts` and `triggers/dispatcher.ts`) executes entirely
+  in-process — there is no HTTP self-dispatch — but still marked its run row
+  `dispatch_mode = 'background'` for the wider stale window, without ever
+  calling `claimBackgroundRun` the way a genuine HTTP background worker does.
+  That left the row parked at the transient `'background'` state for the run's
+  entire life, indistinguishable from a lost HTTP handoff: the unclaimed-
+  background-run sweep reaps any such row past its 25s grace window, so a
+  single tool call running past 25s (routine for a report or analytics job)
+  got the still-executing run errored out from under it, discarding whatever
+  it later completed with.
+
+  The runner now self-claims its row into `'background-processing'`
+  immediately after inserting it — the same claimed state a real HTTP worker
+  reaches — which removes it from the unclaimed-sweep's eligibility (it filters
+  on `dispatch_mode = 'background'` exactly) and puts it under the wider,
+  heartbeat-driven stale window instead, with the correct `stale_run` code if
+  it ever genuinely dies.
+
+- eecd3ad: Stop resending a Builder credential the gateway already rejected. Every non-Builder provider already skipped a key marked bad by an auth failure; Builder credential selection (`resolveScopedBuilderCredentials`/`resolveBuilderCredentialsDetailed` in user/org/workspace/solo scope and the deploy-env fallback, plus `hasUsableBuilderConnection` and the env-detection path in the engine registry) now consults that same marker and falls through to the next scope instead of resending the identical known-bad key on every live and scheduled turn.
+- eecd3ad: Fix the Slack bot answering as the wrong app and silently dropping mentions
+
+  Outbound Slack delivery never passed an app id, so token resolution fell back
+  to a team-only lookup that took whichever installation was updated most
+  recently. A workspace with two connected Slack apps posted as whichever one
+  reconnected last. Outbound targets can now name an installation, and an
+  ambiguous tenant is reported instead of resolved to an arbitrary app.
+
+  Webhook dispatch also discarded a definitive `failed` outcome and answered the
+  platform 200 regardless, leaving a queued task nobody was running behind an
+  in-progress indicator that never resolved. That failure is now surfaced to the
+  user, and stuck-task recovery sweeps every dispatch mode rather than only
+  durable scopes — portable dispatch is the mode most likely to strand a task,
+  since its self-dispatch dies with the container.
+
+- eecd3ad: Stop a retry storm from deleting the answer the user already read. A rebuild
+  correctly refuses to apply a _trailing_ `clear` — there is no successor chunk to
+  re-emit what it wipes — but it only skipped the clear at the very last index.
+  Each failed engine attempt emits its own `clear`, so three failures in a row is
+  the ordinary shape, and the rebuild still applied the first two, splicing every
+  text and reasoning part out of the run. When the run had made no tool calls this
+  emptied the content entirely and the builder returned null, so the user's
+  message was persisted with no assistant reply at all. The whole trailing run of
+  clears is now skipped; a `clear` with real events after it still applies.
+
+  Also make `terminal_reason` write-once on an already-terminal row. Three writers
+  in three isolates race on that column — the mid-run checkpoint, the run-manager's
+  finalization, and the background worker's failure path — with no ordering
+  between them, and last-writer-wins let a late checkpoint relabel a run another
+  isolate had already finalized. That produced impossible rows (`status='errored'`
+  carrying a continuation reason, no `error_code`, no terminal event) and
+  misattributed 130 production runs to a failure mode they never hit. A row that
+  is still `running` has no honest reason yet and stays writable.
+
+- eecd3ad: Stop the unclaimed-background-run sweep from destroying the runs it exists to
+  recover. Its redispatch asserted `payloadRef: true` without checking the row
+  still carried a `dispatch_payload`, but sweep eligibility never implied one —
+  a background row can reach the grace window having never had a payload at all.
+  The redispatched worker then could not rehydrate a request body and failed the
+  run as `dispatch_payload_missing`, a reason that reads like data loss for what
+  is really an un-redispatchable handoff. That path accounted for 98 failed
+  production runs, every one of them a scheduled job.
+
+  `listUnclaimedBackgroundRunRows` now reports payload presence per row (it
+  reports rather than filters, so a payload-less row stays visible to the slow
+  sweep and cannot be stranded in `running` forever). The fast sweep skips those
+  rows, and the slow sweep sends them straight to its existing loud reap instead
+  of waiting out the redispatch bound first — the run still fails, because
+  nothing can rehydrate it, but with its true cause
+  (`background_worker_never_started`, which the client treats as recoverable).
+
+## 0.132.2
+
+### Patch Changes
+
+- 3aa3c49: Keep each resource's agent chat to itself instead of showing one chat everywhere.
+
+  A chat thread's `scope` carried two meanings at once: "general chat, visible in
+  every resource" and "nobody has told the server this thread's scope yet". Because
+  those were indistinguishable, a thread that lost its scope silently became a
+  permanent global chat — it followed the user into every design/deck/form, and
+  because an unscoped chat is allowed to stay visible, no per-resource chat was ever
+  started.
+
+  Two paths dropped the scope. The server created the row on the first message
+  without one (`persistSubmittedUserMessage`), even though the client already sends
+  it and `production-agent` had already normalized it onto
+  `RequestRunContext.chatScope` — nothing read that field. The client then asserted
+  `scope: null` on every save for any thread missing from its local list, which the
+  `PUT` applies unconditionally, cementing the null.
+
+  Now the run's scope is used when the row is created, a thread with no scope adopts
+  the scope of the resource it is used in (`resolveRunThreadScope`, which never
+  retags or clears an already-scoped thread), and the client only mirrors a scope it
+  actually knows. Adoption also heals threads already stored with `scope: null`, and
+  claims the row with a compare-and-set on the unscoped state so two workers racing
+  to adopt the same legacy thread cannot retag it to the wrong resource.
+
+  Scope now rides only on thread creation: a periodic save no longer sends it, so a
+  stale client guess cannot move an existing thread between resources, and
+  `detachThread` is the only client path that clears one. A restored active-chat
+  pointer is checked against the thread's real scope on a direct mount as well as
+  when moving between resources — and because the thread list is one page, a pointer
+  naming a thread the page did not reach is resolved by id rather than assumed to be
+  a never-messaged local tab.
+
+  Genuinely general chats are unaffected until they are used inside a resource.
+
+## 0.132.1
+
+### Patch Changes
+
+- 548844d: Fix agent tool calls failing against discriminated-union action schemas. Gateway-supplied empty placeholders are now stripped from nested objects and union branches (not just top-level fields), `oneOf` validation errors report only the branch the discriminator selects, and the expected-signature hint expands array items and union branches so nested enums are spelled out.
+
+## 0.132.0
+
+### Minor Changes
+
+- 89e5910: Enable durable agent-chat background runs by default for deployed Netlify apps, with an explicit opt-out.
+
+### Patch Changes
+
+- 89e5910: Batch application-state reads. `GET /_agent-native/application-state?keys=a,b,c`
+  returns many keys in one request, and `readClientAppState` coalesces reads
+  issued in the same tick into that single call, so a page load no longer pays one
+  HTTP round trip and one full identity resolution per key. The response reports
+  absent keys in `missing` rather than as `null` values, keeping "never written"
+  distinguishable from "written as null or empty"; the single-key routes are
+  unchanged.
+- 89e5910: Cut database round trips on the status endpoints a page load hits repeatedly.
+  - Added `prefetchSecrets(keys)`, which warms the per-request secret memo with
+    one batched read per scope instead of one read per key per scope, and used it
+    in `/_agent-native/env-status` (48 single-key `app_secrets` selects per request
+    → 4 batched) and `/_agent-native/voice-providers/status` (19 → 4).
+  - The change marker after an action now honours a per-call Plan-mode `effect`
+    before the action-level `readOnly` flag. A status poll shaped as a mutating
+    action — `manage-agent-engine` with `action: "list"`, polled every few seconds
+    — no longer bumps the `"action"` change version, so queries keyed on it stop
+    refetching on an idle page.
+  - The default database schema health probe runs its table checks in parallel and
+    memoizes a clean result for a few seconds. A probe reporting a missing table or
+    an unreadable database is never memoized.
+
+- 89e5910: Record tool arguments and result summaries in delegated-run traces. The A2A
+  agent-activity snapshot and the agent-team / harness background transcripts now
+  carry each tool call's arguments and a result preview in redacted, size-capped
+  form, so a delegated run that loops on the same tool is diagnosable from what
+  was recorded instead of needing a fresh repro. Captures reuse the audit
+  redaction helper (credential-looking keys and values become `[redacted]`),
+  oversized values keep an explicit `…(N more chars)` / `_auditTruncated` marker,
+  and a shared per-snapshot payload budget keeps the activity part inside its
+  wire limit.
+- 89e5910: Share one Postgres connection pool per URL across the whole process instead of
+  building a separate one for the `getDbExec` singleton, Better Auth, and every
+  `createGetDb` store. Against a remote database that removed five redundant
+  first-connect round trips per process, and it let the pool cap rise so a
+  request's concurrent reads no longer serialize behind a single connection.
+  Secret reads are now memoized per request, keyed on scope and scope id, so the
+  user/org/workspace credential waterfall is not re-walked on every lookup.
+  Onboarding step status, resource inheritance layers, and feature-flag rules now
+  resolve their independent reads concurrently.
+- 89e5910: Give delegated agent turns their app's actions as native tools in dev, so asking
+  a sibling app a question actually returns an answer.
+
+  In dev the interactive surface deliberately omits template actions from the tool
+  registry and lets the agent reach them through `bash`, which sidesteps the
+  degenerate empty-object tool call some models emit for complex schemas. That is
+  a reasonable trade for a person, who sees the bad call and rephrases. It is the
+  wrong trade for a delegated turn. An A2A caller, or an external host calling
+  `ask_app` over MCP, has nobody to intervene: with no native action the receiving
+  agent shells out, the call runs long, and the caller records "Interrupted before
+  this tool returned a result" — after which callers commonly fall back to
+  composing their own queries against a schema they do not own.
+
+  Both delegated surfaces now keep template actions native even in dev. A rejected
+  `{}` call returns a schema error the model can correct on its next step, which
+  is strictly better than a shell loop no caller can see or recover from.
+
+- 89e5910: Stop paying for background sweeps and no-change polls that find nothing.
+
+  A workspace runs one server per app, so every recurring sweep multiplies by app
+  count. Several of them queried unconditionally: the 20-second unclaimed-run
+  sweep issued two `agent_runs` scans back to back, the A2A continuation retry ran
+  two blind `UPDATE`s before ever checking whether anything was due, the MCP config
+  refresh scanned the whole settings table every minute to diff a signature that
+  had not moved since boot, and the Google Docs poller re-read its config every 30
+  seconds even on deployments where the integration was never enabled. On local
+  SQLite that was free; on a remote or metered database each one is a network round
+  trip, forever, per app.
+
+  Each of those now leads with a cheap existence probe or an in-process change
+  signal, so the idle case costs one round trip instead of several and the work
+  still runs the moment there is any. The poll route gets the same treatment: its
+  legacy watermark scan read `application_state` four separate times per check,
+  and now reads `MAX(updated_at)` once and only fans out when that advances — a
+  cost that repeated per app per connected client.
+
+  Detection latency is unchanged: every probe is a strict superset of the predicate
+  it guards, and the negative caches are all narrower than the staleness window
+  they sit in front of.
+
+- 89e5910: Cut one database round trip from every authenticated request. The membership
+  and `active-org-id` reads behind org resolution now overlap instead of queueing,
+  and `resolveOrgIdForEmail` memoizes its `org_members` read per request (keyed on
+  the AsyncLocalStorage request context and the email) so credential lookups,
+  agent runs, A2A, MCP, and adapter-authenticated action calls — none of which
+  carry an h3 event — stop each paying their own lookup.
+- 89e5910: Refresh derived database consumers after pool recycling, redact embedded
+  credentials from captured tool results, preserve multiline A2A previews, and
+  retry MCP configuration refreshes after transient failures.
+- Updated dependencies [89e5910]
+  - @agent-native/toolkit@0.12.1
+
+## 0.131.9
+
+### Patch Changes
+
+- d80a9c9: Report workspace files as truncated only when more content exists beyond the requested read page, and normalize paging arguments to integer boundaries.
+- 3c538e4: Preserve application-state database read failures and distinguish explicit stops or exhausted reconnect failures from recoverable chat handoffs.
+
+## 0.131.8
+
+### Patch Changes
+
+- c7ec59d: `create .` now scaffolds into the current directory and takes the project name
+  from the folder's basename, matching `create-react-app` / `npm init`. Previously
+  `.` was rejected as an invalid name. The current directory must be empty apart
+  from benign VCS/editor files (`.git`, `.gitignore`, `LICENSE`, `README.md`, …)
+  so an existing project is never merged over.
+
+  The scaffold is built in a private staging directory and only the files that
+  don't already exist are copied in, so a mid-scaffold failure can never delete
+  the current directory (including `.git`) and pre-existing files like
+  `README.md` and `.gitignore` are preserved. When the current directory is
+  already a git repo, `create .` skips `git init`/commit so it never writes an
+  unexpected commit into the user's history.
+
+## 0.131.7
+
+### Patch Changes
+
+- 4f3a651: Harden delegated agent transport and provider selection, and support stable workspace-vault key rotation without changing app-local OAuth encryption.
+- 4f3a651: Keep interrupted Plan edits on small targeted writes instead of retrying oversized full-plan payloads.
+
 ## 0.131.6
 
 ### Patch Changes

@@ -1,8 +1,20 @@
 import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  callAction: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/client/hooks", () => ({
+  callAction: (...args: unknown[]) => mocks.callAction(...args),
+  useChangeVersions: vi.fn(() => "0"),
+}));
 
 import {
   buildAiRequestChatOptions,
   nextAutoTitleFallbackDelay,
+  retryWorkflowAction,
+  WORKFLOW_ACTION_MAX_ATTEMPTS,
 } from "./use-auto-title";
 
 const recording = {
@@ -52,6 +64,61 @@ describe("buildAiRequestChatOptions", () => {
       transcript: "The clip explains activity grouping by project.",
       includeSummary: true,
     });
+  });
+});
+
+describe("retryWorkflowAction", () => {
+  const request = {
+    operation: "stop",
+    recordingId: "rec_123",
+    requestedAt: "2026-07-11T12:00:00.000Z",
+    tabId: "clips-workflow:rec_123:test",
+  };
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    mocks.callAction.mockReset();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("retries transient failures and returns success", async () => {
+    mocks.callAction
+      .mockRejectedValueOnce(new Error("Network unavailable"))
+      .mockRejectedValueOnce(new Error("Network unavailable"))
+      .mockResolvedValue({ reconciled: true });
+
+    const result = retryWorkflowAction(request, "reconciled");
+    await vi.runAllTimersAsync();
+
+    await expect(result).resolves.toBe(true);
+    expect(mocks.callAction).toHaveBeenCalledTimes(3);
+  });
+
+  it("stops after the maximum number of failed attempts", async () => {
+    mocks.callAction.mockRejectedValue(new Error("Network unavailable"));
+
+    const result = retryWorkflowAction(request, "reconciled");
+    await vi.runAllTimersAsync();
+
+    await expect(result).resolves.toBe(false);
+    expect(mocks.callAction).toHaveBeenCalledTimes(
+      WORKFLOW_ACTION_MAX_ATTEMPTS,
+    );
+  });
+
+  it("does not retry permanent action results", async () => {
+    mocks.callAction.mockResolvedValue({
+      reconciled: false,
+      reason: "missing",
+    });
+
+    await expect(retryWorkflowAction(request, "reconciled")).resolves.toBe(
+      false,
+    );
+    expect(mocks.callAction).toHaveBeenCalledOnce();
   });
 });
 

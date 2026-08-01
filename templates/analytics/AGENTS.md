@@ -48,6 +48,7 @@ change the numbers.
   sibling-invocable. Prefer natural-language delegation so this app retains its
   instructions, source selection, and tools. Shaped reads are stable contracts,
   not workarounds for delegation; this app still owns the query.
+- For open-ended delegated requests, choose a safe default and label partial.
 - Data integrity first. Never invent numbers, dimensions, filters, or source
   semantics; only present values you actually retrieved, and state uncertainty.
 - Every analytical answer carries audit context: source(s), time window,

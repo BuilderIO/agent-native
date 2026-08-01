@@ -1029,7 +1029,7 @@ export const defaultSlideContent: Record<SlideLayout, string> = {
 };
 
 export function DeckProvider({ children }: { children: ReactNode }) {
-  const { data: org } = useOrg();
+  const { data: org, isLoading: orgLoading } = useOrg();
   const [decks, setDecks] = useState<Deck[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
@@ -1362,6 +1362,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       const requestId = ++deckBaselineRequestIdRef.current;
       const createSeqAtRequest = localCreateSeqRef.current;
       const requestedOpenDeckId = currentOpenDeckIdFromWindow();
+      setLoading(true);
       const loaded = await fetchDecksForCurrentRoute();
       if (
         requestId !== deckBaselineRequestIdRef.current ||
@@ -1371,11 +1372,13 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       }
       if (loaded === null) {
         setLoadError(true);
+        setLoading(false);
         return "failed";
       }
       lastExternalUpdateRef.current = Date.now();
       resetDeckBaseline(loaded, createSeqAtRequest);
       setLoadError(false);
+      setLoading(false);
       return "loaded";
     }, [resetDeckBaseline]);
 
@@ -1385,6 +1388,10 @@ export function DeckProvider({ children }: { children: ReactNode }) {
 
   // Load decks from API on mount
   useEffect(() => {
+    // The deck query is scoped by the active organization on the server. Do
+    // not turn the pre-scope empty response into the app's authoritative empty
+    // state while the org query is still hydrating.
+    if (orgLoading) return;
     const requestId = ++deckBaselineRequestIdRef.current;
     const createSeqAtRequest = localCreateSeqRef.current;
     const requestedOpenDeckId = currentOpenDeckIdFromWindow();
@@ -1405,7 +1412,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       setLoadError(loaded === null);
       setLoading(false);
     });
-  }, [resetDeckBaseline]);
+  }, [orgLoading, resetDeckBaseline]);
 
   // Switching orgs re-scopes list-decks server-side but leaves this context's
   // in-memory list untouched, so the previous org's decks linger. Reload when
@@ -1413,6 +1420,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   // up on the mount fetch above.
   const lastOrgIdRef = useRef<string | null | undefined>(undefined);
   useEffect(() => {
+    if (orgLoading) return;
     const orgId = org?.orgId ?? null;
     if (lastOrgIdRef.current === undefined) {
       lastOrgIdRef.current = orgId;
@@ -1421,7 +1429,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     if (lastOrgIdRef.current === orgId) return;
     lastOrgIdRef.current = orgId;
     void reloadDecks();
-  }, [org?.orgId, reloadDecks]);
+  }, [org?.orgId, orgLoading, reloadDecks]);
 
   // Fallback polling for deck list + open-deck changes. SSE is the primary
   // path; this catches agent/db writes that bypass it without hammering idle

@@ -28,6 +28,73 @@ import {
 } from "../server/plans.js";
 import type { PlanContent } from "../shared/plan-content.js";
 
+const agentPlanMdxSourcePatchesSchema = z
+  .array(
+    z.discriminatedUnion("op", [
+      z.object({
+        op: z.literal("replace-markdown-block"),
+        blockId: z.string().min(1),
+        markdown: z.string().max(16_000),
+        title: z.string().optional(),
+      }),
+      z.object({
+        op: z.literal("update-component-prop"),
+        file: z.enum(["plan.mdx", "canvas.mdx", "prototype.mdx"]),
+        componentId: z.string().min(1),
+        prop: z.string().min(1),
+        value: z.unknown(),
+      }),
+      z.object({
+        op: z.literal("update-wireframe-node"),
+        nodeId: z.string().min(1),
+        patch: z.record(z.string(), z.unknown()),
+      }),
+      z.object({
+        op: z.literal("update-annotation"),
+        annotationId: z.string().min(1),
+        patch: z.object({
+          type: z.enum(["note", "text", "callout", "arrow"]).optional(),
+          title: z.string().optional(),
+          text: z.string().max(2_000).optional(),
+          points: z
+            .array(z.object({ x: z.number(), y: z.number() }))
+            .min(1)
+            .max(12)
+            .optional(),
+          style: z
+            .object({
+              tone: z
+                .enum(["default", "accent", "warn", "ok", "muted"])
+                .optional(),
+              stroke: z.enum(["solid", "dashed"]).optional(),
+              width: z.number().min(1).max(12).optional(),
+            })
+            .optional(),
+          targetId: z.string().optional(),
+          placement: z
+            .enum([
+              "top",
+              "right",
+              "bottom",
+              "left",
+              "top-left",
+              "top-right",
+              "bottom-left",
+              "bottom-right",
+            ])
+            .optional(),
+          x: z.number().optional(),
+          y: z.number().optional(),
+        }),
+      }),
+    ]),
+  )
+  .max(80)
+  .describe(
+    "Small exported-MDX patches only. Never send replace-file or replace-artboard " +
+      "from an agent; for a live plan use update-visual-plan contentPatches instead.",
+  );
+
 type PlanSurfaceCounts = {
   blocks: number;
   canvasFrames: number;
@@ -40,6 +107,28 @@ function planSurfaceCounts(content: PlanContent | null | undefined) {
     canvasFrames: content?.canvas?.frames.length ?? 0,
     prototypeScreens: content?.prototype?.screens.length ?? 0,
   } satisfies PlanSurfaceCounts;
+}
+
+function compactAgentWriteResult(
+  bundle: Awaited<ReturnType<typeof loadPlanBundle>>,
+  changed: Record<string, unknown>,
+) {
+  return {
+    planId: bundle.plan.id,
+    plan: {
+      id: bundle.plan.id,
+      title: bundle.plan.title,
+      brief: bundle.plan.brief,
+      kind: bundle.plan.kind,
+      status: bundle.plan.status,
+      currentFocus: bundle.plan.currentFocus,
+      updatedAt: bundle.plan.updatedAt,
+      surfaces: planSurfaceCounts(bundle.plan.content),
+    },
+    changed,
+    path: planPath(bundle.plan.id, bundle.plan.kind),
+    url: planPath(bundle.plan.id, bundle.plan.kind),
+  };
 }
 
 function stableJson(value: unknown): string {
@@ -140,7 +229,7 @@ function assertNoUnexpectedSurfaceCollapse(
 
 export default defineAction({
   description:
-    "Patch the MDX source for an Agent-Native Plan by stable semantic IDs, then normalize it back into runtime JSON. Use ONLY when working with exported MDX source files (repo check-in workflows); for live plans prefer update-visual-plan with contentPatches. Suitable for tiny source-control friendly diffs: one markdown block, one artboard, one annotation, or one wireframe node.",
+    "Patch the MDX source for an Agent-Native Plan by stable semantic IDs, then normalize it back into runtime JSON. Use ONLY when working with exported MDX source files (repo check-in workflows); for live plans prefer update-visual-plan with contentPatches. For agent calls, use only small semantic patches and never resend replace-file or replace-artboard payloads.",
   schema: z.object({
     planId: z.string().describe("Plan ID"),
     expectedUpdatedAt: z
@@ -160,6 +249,21 @@ export default defineAction({
     patches: planMdxSourcePatchesSchema.describe(
       "AST-backed MDX source patches. Prefer targeted ops over replace-file whenever possible so diffs stay small.",
     ),
+    note: z.string().optional().describe("Short audit note for plan history."),
+  }),
+  agentInputSchema: z.object({
+    planId: z.string().describe("Plan ID"),
+    expectedUpdatedAt: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("Revision from the latest plan read when required."),
+    allowDestructive: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe("Allow an intentional nonempty-to-empty collapse."),
+    patches: agentPlanMdxSourcePatchesSchema,
     note: z.string().optional().describe("Short audit note for plan history."),
   }),
   publicAgent: {
@@ -321,6 +425,18 @@ export default defineAction({
           ),
         })
       : null;
+    if (isAgentCaller) {
+      return {
+        ...compactAgentWriteResult(updated, {
+          patchOps: args.patches.map((patch) => patch.op),
+          counts: {
+            before: beforeCounts,
+            after: afterCounts,
+          },
+        }),
+        ...(local?.written ? { localFiles: local } : {}),
+      };
+    }
     return {
       ...updated,
       planId: updated.plan.id,

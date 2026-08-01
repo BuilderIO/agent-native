@@ -433,6 +433,8 @@ describe("secrets storage CRUD (real sqlite)", () => {
     const originalAppName = process.env.APP_NAME; // guard:allow-env-credential — test configures deploy-level app scope.
     const originalAppKey = process.env.ANALYTICS_SECRETS_ENCRYPTION_KEY; // guard:allow-env-credential — test configures deploy-level app encryption material.
     const originalSharedKey = process.env.SECRETS_ENCRYPTION_KEY;
+    const originalWorkspaceSharedKey =
+      process.env.WORKSPACE_SECRETS_ENCRYPTION_KEY;
     const originalAuthSecret = process.env.BETTER_AUTH_SECRET;
     const originalNodeEnv = process.env.NODE_ENV;
 
@@ -441,6 +443,7 @@ describe("secrets storage CRUD (real sqlite)", () => {
       process.env.APP_NAME = "analytics"; // guard:allow-env-credential — test configures deploy-level app scope.
       process.env.ANALYTICS_SECRETS_ENCRYPTION_KEY = "analytics-only-material"; // guard:allow-env-credential — test configures deploy-level app encryption material.
       delete process.env.SECRETS_ENCRYPTION_KEY;
+      delete process.env.WORKSPACE_SECRETS_ENCRYPTION_KEY;
       delete process.env.BETTER_AUTH_SECRET;
 
       await mod.writeAppSecret({
@@ -462,7 +465,8 @@ describe("secrets storage CRUD (real sqlite)", () => {
         shared_encrypted_value: string | null;
         updated_at: number;
       };
-      process.env.SECRETS_ENCRYPTION_KEY = "new-workspace-shared-material";
+      process.env.WORKSPACE_SECRETS_ENCRYPTION_KEY =
+        "new-workspace-shared-material";
       await expect(mod.readAppSecret(userRef)).resolves.toMatchObject({
         value: "legacy-deployment-secret",
       });
@@ -490,7 +494,7 @@ describe("secrets storage CRUD (real sqlite)", () => {
       // preserved shared ciphertext would let sibling apps silently decrypt
       // the old value. Siblings get an honest cache miss until the owning
       // app's next read repopulates shared_encrypted_value.
-      delete process.env.SECRETS_ENCRYPTION_KEY;
+      delete process.env.WORKSPACE_SECRETS_ENCRYPTION_KEY;
       await mod.writeAppSecret({
         ...userRef,
         value: "updated-by-legacy-app",
@@ -509,6 +513,12 @@ describe("secrets storage CRUD (real sqlite)", () => {
       if (originalSharedKey === undefined)
         delete process.env.SECRETS_ENCRYPTION_KEY;
       else process.env.SECRETS_ENCRYPTION_KEY = originalSharedKey;
+      if (originalWorkspaceSharedKey === undefined) {
+        delete process.env.WORKSPACE_SECRETS_ENCRYPTION_KEY;
+      } else {
+        process.env.WORKSPACE_SECRETS_ENCRYPTION_KEY =
+          originalWorkspaceSharedKey;
+      }
       if (originalAuthSecret === undefined)
         delete process.env.BETTER_AUTH_SECRET;
       else process.env.BETTER_AUTH_SECRET = originalAuthSecret;
@@ -851,5 +861,150 @@ describe("last4 preview", () => {
     expect(mod.last4("abcd")).toBe("••••");
     expect(mod.last4("abcde")).toBe("••••bcde");
     expect(mod.last4("sk-live-1234567890")).toBe("••••7890");
+  });
+});
+
+describe("per-request read memo", () => {
+  let mod: typeof import("./storage.js");
+  let selects: string[];
+  let runWithRequestContext: typeof import("../server/request-context.js").runWithRequestContext;
+
+  beforeEach(async () => {
+    const { sqlite } = createSqliteExec();
+    selects = [];
+    vi.doMock("../db/client.js", () => ({
+      getDialect: () => "sqlite",
+      isPostgres: () => false,
+      getDbExec: () => ({
+        async execute(input: string | { sql: string; args?: any[] }) {
+          const sql = typeof input === "string" ? input : input.sql;
+          const args = typeof input === "string" ? [] : (input.args ?? []);
+          if (sql.trim().toUpperCase().startsWith("SELECT")) {
+            selects.push(sql);
+            return { rows: sqlite.prepare(sql).all(...args), rowsAffected: 0 };
+          }
+          const info = sqlite.prepare(sql).run(...args);
+          return { rows: [], rowsAffected: info.changes };
+        },
+      }),
+    }));
+    mod = await import("./storage.js");
+    ({ runWithRequestContext } = await import("../server/request-context.js"));
+  });
+
+  afterEach(() => {
+    vi.resetModules();
+    vi.doUnmock("../db/client.js");
+  });
+
+  it("reads a secret once per request and re-reads in the next request", async () => {
+    await runWithRequestContext({ userEmail: "alice@example.test" }, () =>
+      mod.writeAppSecret({ ...userRef, key: "API_KEY", value: "sk-live-1111" }),
+    );
+
+    const first = await runWithRequestContext(
+      { userEmail: "alice@example.test" },
+      async () => {
+        selects.length = 0;
+        const a = await mod.readAppSecret({ ...userRef, key: "API_KEY" });
+        const b = await mod.readAppSecret({ ...userRef, key: "API_KEY" });
+        return { a, b, reads: selects.length };
+      },
+    );
+    expect(first.a?.value).toBe("sk-live-1111");
+    expect(first.b?.value).toBe("sk-live-1111");
+    expect(first.reads).toBe(1);
+
+    // A different request gets its own snapshot — the memo must not outlive it.
+    const second = await runWithRequestContext(
+      { userEmail: "alice@example.test" },
+      async () => {
+        selects.length = 0;
+        await mod.readAppSecret({ ...userRef, key: "API_KEY" });
+        return selects.length;
+      },
+    );
+    expect(second).toBe(1);
+  });
+
+  it("keys the memo on scope and scopeId so one caller never answers for another", async () => {
+    await mod.writeAppSecret({
+      scope: "user",
+      scopeId: "alice@example.test",
+      key: "API_KEY",
+      value: "alice-secret",
+    });
+    await mod.writeAppSecret({
+      scope: "user",
+      scopeId: "bob@example.test",
+      key: "API_KEY",
+      value: "bob-secret",
+    });
+
+    await runWithRequestContext({}, async () => {
+      const alice = await mod.readAppSecret({
+        scope: "user",
+        scopeId: "alice@example.test",
+        key: "API_KEY",
+      });
+      const bob = await mod.readAppSecret({
+        scope: "user",
+        scopeId: "bob@example.test",
+        key: "API_KEY",
+      });
+      expect(alice?.value).toBe("alice-secret");
+      expect(bob?.value).toBe("bob-secret");
+    });
+  });
+
+  it("writes and deletes in the same request are visible to later reads", async () => {
+    await runWithRequestContext({}, async () => {
+      expect(
+        await mod.readAppSecret({ ...userRef, key: "ROTATED" }),
+      ).toBeNull();
+      await mod.writeAppSecret({
+        ...userRef,
+        key: "ROTATED",
+        value: "v1-abcd",
+      });
+      expect(
+        (await mod.readAppSecret({ ...userRef, key: "ROTATED" }))?.value,
+      ).toBe("v1-abcd");
+      await mod.writeAppSecret({
+        ...userRef,
+        key: "ROTATED",
+        value: "v2-wxyz",
+      });
+      expect(
+        (await mod.readAppSecret({ ...userRef, key: "ROTATED" }))?.value,
+      ).toBe("v2-wxyz");
+      await mod.deleteAppSecret({ ...userRef, key: "ROTATED" });
+      expect(
+        await mod.readAppSecret({ ...userRef, key: "ROTATED" }),
+      ).toBeNull();
+    });
+  });
+
+  it("lets a batch read prime single-key reads, including known-absent keys", async () => {
+    await mod.writeAppSecret({
+      ...userRef,
+      key: "PRESENT",
+      value: "here-1234",
+    });
+
+    const reads = await runWithRequestContext({}, async () => {
+      await mod.readAppSecrets({
+        keys: ["PRESENT", "ABSENT"],
+        scope: userRef.scope,
+        scopeId: userRef.scopeId,
+      });
+      selects.length = 0;
+      const present = await mod.readAppSecret({ ...userRef, key: "PRESENT" });
+      const absent = await mod.readAppSecret({ ...userRef, key: "ABSENT" });
+      expect(present?.value).toBe("here-1234");
+      expect(absent).toBeNull();
+      return selects.length;
+    });
+    expect(reads).toBe(0);
   });
 });

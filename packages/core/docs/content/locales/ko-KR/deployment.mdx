@@ -396,14 +396,16 @@ cache-control: public, max-age=600, stale-while-revalidate=604800, stale-if-erro
 
 앱을 실제 프로덕션 배포로 승격하기 전에 설정해야 합니다. 누락된 값은 실패 시 닫히거나(프레임워크 시작 거부/요청 처리 거부) 큰 경고와 함께 더 약한 동작으로 돌아갑니다.
 
-| 변수                     | 설명                                                                                                                                                                                                                                                               |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `BETTER_AUTH_SECRET`     | 32자 이상의 임의 문자열. 세션 쿠키에 서명하고 `OAUTH_STATE_SECRET` 및 앱 로컬 암호화 값의 fallback입니다. 기존 공유 vault ciphertext의 legacy 읽기 후보이기도 합니다. 프로덕션에서 필수입니다.                                                                     |
-| `BETTER_AUTH_URL`        | 이 앱의 공개 출처(예: `https://mail.example.com`). 쿠키 도메인 및 OAuth 리디렉션 구성에 사용됩니다.                                                                                                                                                                |
-| `ANTHROPIC_API_KEY`      | 임베디드 프로덕션 에이전트용 API 키입니다. **다중 테넌트 배포**에서 프레임워크는 사용자에게 사용자별 키가 없으면 이 방식으로 대체하는 것을 거부합니다. 즉, 자체 키 가져오기가 필요합니다. 단일 테넌트 자체 호스팅 설치에서는 이를 전역 키로 사용합니다.            |
-| `OAUTH_STATE_SECRET`     | OAuth 상태 봉투(Google, Atlassian, Zoom)용 전용 HMAC 키입니다. 설정되지 않은 경우 `BETTER_AUTH_SECRET`로 대체되지만 하나를 회전해도 다른 값이 무효화되지 않도록 전용 값을 사용하는 것이 좋습니다. `openssl rand -hex 32`를 통해 생성합니다.                        |
-| `A2A_SECRET`             | 앱 간 A2A JSON-RPC의 공유 HMAC. `SECRETS_ENCRYPTION_KEY`가 없으면 공유 vault가 이 값에서 용도별로 파생한 키를 사용하므로 이 값의 회전은 vault 키도 회전시킵니다.                                                                                                   |
-| `SECRETS_ENCRYPTION_KEY` | 공유 vault에 권장되는 안정적인 AES-256-GCM 키. 읽는 모든 앱에 같은 값을 설정하세요. 읽기는 파생된 `A2A_SECRET`, 이후 legacy Better Auth 및 앱별 키로 fallback합니다. A2A 회전 전에 모든 곳에 추가하고 이전 A2A 자료가 있는 동안 모든 행을 읽고 마이그레이션하세요. |
+| 변수                                        | 설명                                                                                                                                                                                                                                                    |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET`                        | 32자 이상의 임의 문자열. 세션 쿠키에 서명하고 `OAUTH_STATE_SECRET` 및 앱 로컬 암호화 값의 fallback입니다. 기존 공유 vault ciphertext의 legacy 읽기 후보이기도 합니다. 프로덕션에서 필수입니다.                                                          |
+| `BETTER_AUTH_URL`                           | 이 앱의 공개 출처(예: `https://mail.example.com`). 쿠키 도메인 및 OAuth 리디렉션 구성에 사용됩니다.                                                                                                                                                     |
+| `ANTHROPIC_API_KEY`                         | 임베디드 프로덕션 에이전트용 API 키입니다. **다중 테넌트 배포**에서 프레임워크는 사용자에게 사용자별 키가 없으면 이 방식으로 대체하는 것을 거부합니다. 즉, 자체 키 가져오기가 필요합니다. 단일 테넌트 자체 호스팅 설치에서는 이를 전역 키로 사용합니다. |
+| `OAUTH_STATE_SECRET`                        | OAuth 상태 봉투(Google, Atlassian, Zoom)용 전용 HMAC 키입니다. 설정되지 않은 경우 `BETTER_AUTH_SECRET`로 대체되지만 하나를 회전해도 다른 값이 무효화되지 않도록 전용 값을 사용하는 것이 좋습니다. `openssl rand -hex 32`를 통해 생성합니다.             |
+| `A2A_SECRET`                                | 앱 간 A2A JSON-RPC의 공유 HMAC. 전용 워크스페이스 키가 없으면 공유 vault가 이 값에서 용도별로 파생한 키를 사용하므로 이 값의 회전은 vault 키도 회전시킵니다.                                                                                            |
+| `WORKSPACE_SECRETS_ENCRYPTION_KEY`          | 공유 워크스페이스 vault에 권장되는 안정적인 AES-256-GCM 키. 읽는 모든 앱에 같은 값을 설정하고 앱별 OAuth 암호화와 분리하세요.                                                                                                                           |
+| `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS` | 회전 기간에 사용하는 선택적 이전 워크스페이스 키. 새 키와 함께 배포하고 읽기 마이그레이션 후 제거하세요.                                                                                                                                                |
+| `SECRETS_ENCRYPTION_KEY`                    | 앱별 암호화와 vault를 위한 기존 결합 키. 계속 지원되지만 새 멀티앱 배포에서는 전용 워크스페이스 키를 사용하세요.                                                                                                                                        |
 
 ### 인증 및 신원 {#env-auth}
 
@@ -423,7 +425,7 @@ OAuth 공급자 자격 증명(Google, GitHub), 정적 MCP 전달자 대체(`ACCE
 
 ### 강력한 비밀 생성 {#env-generate-secrets}
 
-"32자 이상의 무작위"로 표시된 비밀(`BETTER_AUTH_SECRET`, `OAUTH_STATE_SECRET`, `A2A_SECRET`, `SECRETS_ENCRYPTION_KEY`, `AGENT_NATIVE_BUILDER_RELAY_SECRET`)의 경우 다음을 사용하여 새로운 값을 생성하세요.
+"32자 이상의 무작위"로 표시된 비밀(`BETTER_AUTH_SECRET`, `OAUTH_STATE_SECRET`, `A2A_SECRET`, `WORKSPACE_SECRETS_ENCRYPTION_KEY`, `SECRETS_ENCRYPTION_KEY`, `AGENT_NATIVE_BUILDER_RELAY_SECRET`)의 경우 다음을 사용하여 새로운 값을 생성하세요.
 
 ```bash
 openssl rand -hex 32

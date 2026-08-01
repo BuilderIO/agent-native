@@ -61,6 +61,7 @@ vi.mock("../org/context.js", () => ({
 vi.mock("../server/request-context.js", () => ({
   getRequestUserEmail: () => "alice+qa@agent-native.test",
   getRequestOrgId: () => "org-qa",
+  getRequestRunContext: () => ({ model: "claude-opus-4-8" }),
   isIntegrationCallerRequest: () => true,
   getIntegrationRequestContext: integrationRequestContextMock,
 }));
@@ -172,6 +173,8 @@ describe("call-agent action", () => {
     expect(callAgentMock.mock.calls[0]?.[1]).toContain(
       "Return a concise caller-ready synthesis rather than raw tool output or full transcripts",
     );
+    expect(callAgentMock.mock.calls[0]?.[1]).toContain("<a2a-caller-hint>");
+    expect(callAgentMock.mock.calls[0]?.[1]).toContain("</a2a-caller-hint>");
   });
 
   it("forwards Slack source context as structured A2A data", async () => {
@@ -279,6 +282,8 @@ describe("call-agent action", () => {
         parentTurnId: "turn-qa",
         delegationDepth: 1,
         visitedApps: ["mail"],
+        // Preference hint: the receiver only uses it when it has no model.
+        callerModel: "claude-opus-4-8",
       },
       idempotencyKey: expect.stringMatching(/^v1:[a-f0-9]{64}$/),
     });
@@ -391,6 +396,7 @@ describe("call-agent action", () => {
           invocationId: expect.any(String),
           delegationDepth: 1,
           visitedApps: ["mail"],
+          callerModel: "claude-opus-4-8",
         },
       }),
     );

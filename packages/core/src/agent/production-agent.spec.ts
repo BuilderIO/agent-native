@@ -2175,6 +2175,7 @@ describe("runAgentLoop", () => {
       expect.objectContaining({
         type: "error",
         errorCode: "run_budget_exhausted",
+        recoverable: false,
       }),
     );
   });
@@ -9961,6 +9962,24 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
     ).toBe(false);
   });
 
+  it("does NOT chain a run that exhausted its continuation budget", () => {
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run: makeRun([
+          {
+            type: "error",
+            error:
+              "I ran out of time before finishing this step. I stopped rather than keep retrying silently.",
+            errorCode: "run_budget_exhausted",
+            recoverable: false,
+          },
+        ]),
+        continuationCount: 0,
+      }),
+    ).toBe(false);
+  });
+
   it("CHAINS a background run that completed tools but stopped before final text", () => {
     const run = makeRun([
       { type: "text", text: "I will update it now." },
@@ -10540,7 +10559,7 @@ describe("claimBackgroundWorkerRunEarly", () => {
     expect(d.markRunAborted).toHaveBeenCalledWith("run-stopped", "user");
   });
 
-  it("fails closed when the durable abort marker cannot be read", async () => {
+  it("surfaces a durable abort-marker read failure", async () => {
     const d = deps();
     d.isTurnAborted.mockRejectedValue(new Error("database unavailable"));
 
@@ -10553,13 +10572,10 @@ describe("claimBackgroundWorkerRunEarly", () => {
         runsInBackgroundFunction: true,
         deps: d,
       }),
-    ).resolves.toEqual({ claimed: false, skipped: "turn-aborted" });
+    ).rejects.toThrow("database unavailable");
 
     expect(d.claimBackgroundRun).not.toHaveBeenCalled();
-    expect(d.markRunAborted).toHaveBeenCalledWith(
-      "run-unreadable-abort",
-      "user",
-    );
+    expect(d.markRunAborted).not.toHaveBeenCalled();
   });
 });
 

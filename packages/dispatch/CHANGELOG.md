@@ -1,5 +1,25 @@
 # @agent-native/dispatch
 
+## 0.16.6
+
+### Patch Changes
+
+- eecd3ad: Expose the measured agent failure taxonomy and let thread diagnostics separate interactive runs from scheduled `job-` runs.
+- eecd3ad: Add a read-only `read-slack-thread-context` action for Slack-linked issue triage. It resolves child permalinks to their parent thread, returns message attachments and related links, and reports incomplete pagination instead of silently treating a partial thread as complete.
+
+## 0.16.5
+
+### Patch Changes
+
+- Updated dependencies [89e5910]
+  - @agent-native/toolkit@0.12.1
+
+## 0.16.4
+
+### Patch Changes
+
+- 4f3a651: Harden delegated agent transport and provider selection, and support stable workspace-vault key rotation without changing app-local OAuth encryption.
+
 ## 0.16.3
 
 ### Patch Changes

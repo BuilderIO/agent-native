@@ -712,6 +712,7 @@ export async function runWorkspaceDev(
         name: workspaceApp.name,
         description: workspaceApp.description,
         path: `/${workspaceApp.id}`,
+        port: workspaceApp.port,
         audience: workspaceApp.audience,
         publicPaths: workspaceApp.publicPaths,
         protectedPaths: workspaceApp.protectedPaths,

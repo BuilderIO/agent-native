@@ -11,11 +11,16 @@ import { getDb, schema } from "../server/db/index.js";
 
 export default defineAction({
   description:
-    "Set a design system as the default. Unsets any previously-default design system for this user.",
+    "Set or unset a design system as the default for the current user and organization.",
   schema: z.object({
     id: z.string().describe("Design system ID to set as default"),
+    isDefault: z
+      .boolean()
+      .optional()
+      .default(true)
+      .describe("Whether this design system should be the default"),
   }),
-  run: async ({ id }) => {
+  run: async ({ id, isDefault = true }) => {
     await assertAccess("design-system", id, "editor");
 
     const db = getDb();
@@ -26,42 +31,45 @@ export default defineAction({
     const orgId = getRequestOrgId();
 
     const [target] = await db
-      .select({ ownerEmail: schema.designSystems.ownerEmail })
+      .select({
+        ownerEmail: schema.designSystems.ownerEmail,
+        orgId: schema.designSystems.orgId,
+      })
       .from(schema.designSystems)
       .where(eq(schema.designSystems.id, id))
       .limit(1);
 
-    if (target?.ownerEmail !== userEmail) {
+    if (
+      target?.ownerEmail !== userEmail ||
+      (target.orgId ?? null) !== (orgId ?? null)
+    ) {
       throw new Error("Only the owner can set a design system as default");
     }
 
     await db.transaction(async (tx) => {
-      await tx
-        .update(schema.designSystems)
-        .set({ isDefault: false, updatedAt: now })
-        .where(
-          orgId
-            ? and(
-                eq(schema.designSystems.ownerEmail, userEmail),
-                eq(schema.designSystems.orgId, orgId),
-              )
-            : and(
-                eq(schema.designSystems.ownerEmail, userEmail),
-                isNull(schema.designSystems.orgId),
-              ),
-        );
+      const targetScope = orgId
+        ? and(
+            eq(schema.designSystems.ownerEmail, userEmail),
+            eq(schema.designSystems.orgId, orgId),
+          )
+        : and(
+            eq(schema.designSystems.ownerEmail, userEmail),
+            isNull(schema.designSystems.orgId),
+          );
+
+      if (isDefault) {
+        await tx
+          .update(schema.designSystems)
+          .set({ isDefault: false, updatedAt: now })
+          .where(targetScope);
+      }
 
       await tx
         .update(schema.designSystems)
-        .set({ isDefault: true, updatedAt: now })
-        .where(
-          and(
-            eq(schema.designSystems.id, id),
-            eq(schema.designSystems.ownerEmail, userEmail),
-          ),
-        );
+        .set({ isDefault, updatedAt: now })
+        .where(and(eq(schema.designSystems.id, id), targetScope));
     });
 
-    return { id, isDefault: true };
+    return { id, isDefault };
   },
 });
