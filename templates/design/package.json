@@ -106,5 +106,8 @@
     "vaul": "^1.1.2",
     "vite": "catalog:",
     "vitest": "catalog:"
+  },
+  "optionalDependencies": {
+    "@cloudflare/playwright": "^1.3.3"
   }
 }

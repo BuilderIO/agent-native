@@ -334,6 +334,16 @@ der beiden zu setzen ist ein Fehler und keine stillschweigend weggelassene
 Bindung. Die vollständige lokale Startsequenz steht im englischen
 Deployment-Leitfaden.
 
+
+### Browser Rendering {#cloudflare-browser-rendering}
+
+Ein Worker kann keinen Chromium-Prozess starten; der Browser ist stattdessen
+eine Bindung, und die generierte `wrangler.json` deklariert
+`{ "browser": { "binding": "BROWSER" } }`. Browserabhängige Aktionen lösen
+diese Bindung über `@cloudflare/playwright` auf. Fehlt die Bindung, wird sie
+namentlich gemeldet, statt eine fehlende Chromium-Binärdatei zu behaupten.
+Lokal funktioniert das in `wrangler dev` mit einer Einschränkung: Die lokale
+Laufzeit lehnt Anfragen über 1 MB ab.
 ## AWS Lambda {#aws-lambda}
 
 ```ts

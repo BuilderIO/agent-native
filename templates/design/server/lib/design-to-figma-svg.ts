@@ -1585,6 +1585,12 @@ export async function renderDesignToFigmaSvg(
     });
     const page = await context.newPage();
     try {
+      // On Cloudflare the HTML crosses the Browser Rendering binding as a
+      // request, and the LOCAL Workers runtime rejects a request larger than
+      // 1 MB (a limitation of local dev only — deployed Browser Rendering has
+      // no such cap). A design screen big enough to trip it fails here, in
+      // `wrangler dev`, with a request-size error and not on the deploy it was
+      // tested for.
       await page.setContent(options.html, { waitUntil: "networkidle" });
       await page.waitForTimeout(300); // let Alpine.js / CDN Tailwind JIT settle.
 

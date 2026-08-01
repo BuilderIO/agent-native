@@ -538,6 +538,36 @@ export function configureCloudflareModuleBackgroundQueue(config: {
   };
 }
 
+/**
+ * Binding name for Cloudflare Browser Rendering. A template's browser-runtime
+ * indirection resolves exactly this name (see the Design template's
+ * `server/lib/playwright-runtime.ts`), so the two must not drift.
+ */
+export const CLOUDFLARE_BROWSER_BINDING_NAME = "BROWSER";
+
+/**
+ * Declare Browser Rendering on the generated Worker.
+ *
+ * Emitted rather than hand-authored for the same reason the queue is: the
+ * binding name is a framework internal, and a hand-maintained copy that drifts
+ * from it is an unbound binding — a browser-dependent action that fails on a
+ * deploy whose configuration reads as complete. An app that already bound the
+ * name keeps its own value.
+ */
+export function configureCloudflareModuleBrowser(config: {
+  browser?: unknown;
+  [key: string]: unknown;
+}): void {
+  if (
+    typeof config.browser === "object" &&
+    config.browser !== null &&
+    typeof (config.browser as { binding?: unknown }).binding === "string"
+  ) {
+    return;
+  }
+  config.browser = { binding: CLOUDFLARE_BROWSER_BINDING_NAME };
+}
+
 export function configureCloudflareModuleWorkerOutput(
   serverDir: string,
   env: NodeJS.ProcessEnv = process.env,
@@ -580,6 +610,7 @@ export function configureCloudflareModuleWorkerOutput(
     ];
   }
   configureCloudflareModuleBackgroundQueue(config);
+  configureCloudflareModuleBrowser(config);
   fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
   fs.writeFileSync(
     nitroEntryPath,

@@ -26,11 +26,13 @@ import {
   CLOUDFLARE_WORKER_STUB_SUBPATH_MODULES,
   CLOUDFLARE_UNRESOLVED_NATIVE_STUBS,
   CLOUDFLARE_D1_BINDING_NAME,
+  CLOUDFLARE_BROWSER_BINDING_NAME,
   resolveCloudflareD1Binding,
   cloudflareModuleStubSource,
   cloudflareUnresolvedNativeStubSource,
   cloudflareWorkerStubAliasArgs,
   configureCloudflareModuleBackgroundQueue,
+  configureCloudflareModuleBrowser,
   configureCloudflareModuleWorkerOutput,
   copyDir,
   createCloudflareModuleStubPlugin,
@@ -309,6 +311,49 @@ describe("Cloudflare module Worker entry", () => {
     expect(() => configureCloudflareModuleBackgroundQueue({})).toThrow(
       /has no `name`/,
     );
+  });
+});
+
+describe("Cloudflare module Worker browser binding", () => {
+  it("declares the binding the template's browser runtime resolves", () => {
+    const config: Record<string, unknown> = { name: "design" };
+
+    configureCloudflareModuleBrowser(config);
+
+    expect(config.browser).toEqual({
+      binding: CLOUDFLARE_BROWSER_BINDING_NAME,
+    });
+  });
+
+  it("keeps a binding name the app chose for itself", () => {
+    const config: Record<string, unknown> = {
+      name: "design",
+      browser: { binding: "MYBROWSER" },
+    };
+
+    configureCloudflareModuleBrowser(config);
+
+    expect(config.browser).toEqual({ binding: "MYBROWSER" });
+  });
+
+  it("writes the binding into the generated Wrangler config", () => {
+    const serverDir = makeTempDir();
+    fs.writeFileSync(
+      path.join(serverDir, "wrangler.json"),
+      JSON.stringify({ name: "design", main: "index.mjs" }),
+    );
+    fs.writeFileSync(
+      path.join(serverDir, "index.mjs"),
+      NITRO_MODULE_ENTRY_SOURCE,
+    );
+
+    configureCloudflareModuleWorkerOutput(serverDir, {});
+
+    expect(
+      JSON.parse(
+        fs.readFileSync(path.join(serverDir, "wrangler.json"), "utf8"),
+      ),
+    ).toMatchObject({ browser: { binding: "BROWSER" } });
   });
 });
 

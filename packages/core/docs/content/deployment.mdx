@@ -489,6 +489,29 @@ Leave both unset for a Worker that uses `DATABASE_URL`.
 shared database, so the local single-user mode stays off and accounts, sessions,
 application state, and app data all live in D1 together.
 
+### Browser Rendering {#cloudflare-browser-rendering}
+
+A Worker cannot spawn a Chromium process, so the browser packages a template
+would use locally are replaced with fail-closed stubs in the Worker build. On
+this platform the browser is a binding instead, and the generated
+`wrangler.json` declares it:
+
+```json
+{ "browser": { "binding": "BROWSER" } }
+```
+
+A template's browser-dependent actions resolve that binding and drive it
+through [`@cloudflare/playwright`](https://www.npmjs.com/package/@cloudflare/playwright),
+Cloudflare's Playwright-compatible fork, which the app installs as an optional
+dependency. With the binding absent — or bound to something that is not a
+Browser Rendering binding — those actions say so and name the binding, rather
+than reporting a missing Chromium binary that a Worker never had.
+
+Browser Rendering works in `wrangler dev` with one limitation: the local
+runtime rejects a request larger than 1 MB. Rendering happens over the binding,
+so a page whose HTML exceeds that fails locally while the same page renders on
+a deploy.
+
 ### Local Worker bring-up {#cloudflare-local-worker}
 
 The local Workers runtime is the real Worker runtime, so this is the way to

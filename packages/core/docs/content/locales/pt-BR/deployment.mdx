@@ -333,6 +333,16 @@ ambiente de build para que o build escreva o binding `DB` no
 omitido em silêncio. A sequência completa de inicialização local está no guia
 de deploy em inglês.
 
+
+### Browser Rendering {#cloudflare-browser-rendering}
+
+Um Worker não consegue iniciar um processo do Chromium: o navegador é um
+binding, e o `wrangler.json` gerado declara
+`{ "browser": { "binding": "BROWSER" } }`. As ações que dependem do navegador
+resolvem esse binding através do `@cloudflare/playwright`. Se o binding estiver
+ausente, ele é nomeado no erro em vez de se culpar um binário do Chromium
+inexistente. Localmente funciona com `wrangler dev`, com uma limitação: o
+runtime local rejeita requisições maiores que 1 MB.
 ## Lambda AWS {#aws-lambda}
 
 ```ts

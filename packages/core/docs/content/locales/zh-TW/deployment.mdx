@@ -331,6 +331,14 @@ Cloudflare D1。在建置環境中同時設定 `CLOUDFLARE_D1_DATABASE_NAME` 與
 `wrangler.json`；只設定其中一個會報錯，而不是靜默略過綁定。完整的本機啟動
 步驟請見英文部署指南。
 
+
+### Browser Rendering {#cloudflare-browser-rendering}
+
+Worker 無法啟動 Chromium 程序，因此瀏覽器以綁定形式提供，產生的
+`wrangler.json` 會宣告 `{ "browser": { "binding": "BROWSER" } }`。依賴瀏覽器
+的 action 會透過 `@cloudflare/playwright` 解析該綁定。綁定缺少時會指名該綁定，
+而不是宣稱缺少 Chromium 執行檔。本機使用 `wrangler dev` 同樣可用，但有一個
+限制：本機執行環境會拒絕大於 1 MB 的請求。
 ## AWS 拉姆達 {#aws-lambda}
 
 ```ts

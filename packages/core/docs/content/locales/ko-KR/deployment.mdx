@@ -332,6 +332,16 @@ Cloudflare D1입니다. 빌드 환경에서 `CLOUDFLARE_D1_DATABASE_NAME`과
 바인딩을 조용히 생략하는 대신 오류로 처리됩니다. 전체 로컬 기동 순서는 영어
 배포 가이드를 참고하세요.
 
+
+### Browser Rendering {#cloudflare-browser-rendering}
+
+Worker는 Chromium 프로세스를 실행할 수 없으므로 브라우저는 바인딩으로
+제공되며, 생성된 `wrangler.json`에
+`{ "browser": { "binding": "BROWSER" } }`가 선언됩니다. 브라우저에 의존하는
+액션은 `@cloudflare/playwright`를 통해 이 바인딩을 해석합니다. 바인딩이 없으면
+없는 Chromium 바이너리를 탓하는 대신 그 바인딩 이름을 밝혀 보고합니다. 로컬
+에서도 `wrangler dev`로 동작하지만, 로컬 런타임은 1 MB보다 큰 요청을
+거부합니다.
 ## AWS 람다 {#aws-lambda}
 
 ```ts
