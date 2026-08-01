@@ -19,10 +19,7 @@ export default defineAction({
     schedule: z.string().min(1).optional(),
     timezone: z.string().min(1).optional(),
   }),
-  run: async (
-    { operation, name, scope, enabled, schedule, timezone },
-    ctx,
-  ) => {
+  run: async ({ operation, name, scope, enabled, schedule, timezone }, ctx) => {
     const userEmail = ctx?.userEmail;
     if (!userEmail) throw new Error("Not authenticated.");
     const actor = { userEmail, orgId: ctx?.orgId };

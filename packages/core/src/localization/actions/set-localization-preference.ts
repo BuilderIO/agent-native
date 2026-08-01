@@ -11,7 +11,7 @@ import {
   normalizeLocalePreference,
   normalizeLocalizationPreference,
   normalizeTimezonePreference,
-  type LocalizationPreference,
+  type ResolvedLocalizationPreference,
 } from "../shared.js";
 
 export default defineAction({
@@ -27,7 +27,7 @@ export default defineAction({
       .describe("Scheduling timezone: 'system' or an IANA zone name.")
       .optional(),
   }),
-  run: async (args, ctx): Promise<LocalizationPreference> => {
+  run: async (args, ctx): Promise<ResolvedLocalizationPreference> => {
     if (!ctx?.userEmail) throw new Error("Not authenticated.");
 
     // Each field is optional, so merge onto what is stored instead of
@@ -60,7 +60,7 @@ export default defineAction({
       timezone = parsed;
     }
 
-    const value: LocalizationPreference & Record<string, unknown> = {
+    const value: ResolvedLocalizationPreference & Record<string, unknown> = {
       locale,
       timezone,
     };

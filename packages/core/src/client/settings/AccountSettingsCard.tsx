@@ -9,11 +9,11 @@ import { useEffect, useRef, useState, type ChangeEvent } from "react";
 
 import type { UserProfile } from "../../user-profile/shared.js";
 import { useT } from "../i18n.js";
-import { SchedulingTimezoneField } from "./SchedulingTimezoneField.js";
 import { useActionMutation, useActionQuery } from "../use-action.js";
 import { uploadAvatar, useAvatarUrl } from "../use-avatar.js";
 import { useSession } from "../use-session.js";
 import { cn } from "../utils.js";
+import { SchedulingTimezoneField } from "./SchedulingTimezoneField.js";
 
 function profileInitials(name: string): string {
   return (

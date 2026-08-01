@@ -7,11 +7,7 @@ import {
   resourceGetByPath,
   resourcePut,
 } from "../../resources/store.js";
-import {
-  isValidCron,
-  isValidTimezone,
-  nextOccurrence,
-} from "../cron.js";
+import { isValidCron, isValidTimezone, nextOccurrence } from "../cron.js";
 import { classifyJobResource } from "../frontmatter.js";
 import { buildJobContent, parseJobFrontmatter } from "../scheduler.js";
 import { authorizeJobMutation } from "../tools.js";
@@ -30,10 +26,7 @@ export default defineAction({
     schedule: z.string().min(1).optional(),
     timezone: z.string().min(1).optional(),
   }),
-  run: async (
-    { operation, name, scope, enabled, schedule, timezone },
-    ctx,
-  ) => {
+  run: async ({ operation, name, scope, enabled, schedule, timezone }, ctx) => {
     const userEmail = ctx?.userEmail;
     if (!userEmail) throw new Error("Not authenticated.");
     if (scope === "organization" && !ctx?.orgId) {

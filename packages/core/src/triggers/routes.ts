@@ -111,7 +111,11 @@ function nextRunForMeta(meta: TriggerFrontmatter): string | undefined {
     isValidCron(meta.schedule)
   ) {
     try {
-      return nextOccurrence(meta.schedule, undefined, meta.timezone).toISOString();
+      return nextOccurrence(
+        meta.schedule,
+        undefined,
+        meta.timezone,
+      ).toISOString();
     } catch {
       return undefined;
     }

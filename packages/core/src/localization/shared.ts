@@ -29,9 +29,16 @@ export interface LocalizationPreference {
    * requesting browser, which is unavailable to headless callers (cron,
    * chat integrations), so pinning a zone here is what makes a schedule
    * mean the same thing no matter what created it.
+   *
+   * Optional because a record written before this field existed, or by a
+   * caller that only cares about language, is still a valid preference.
+   * Read it through normalizeLocalizationPreference to get a concrete value.
    */
-  timezone: TimezonePreference;
+  timezone?: TimezonePreference;
 }
+
+/** A preference that has been through normalization: both fields resolved. */
+export type ResolvedLocalizationPreference = Required<LocalizationPreference>;
 
 export type TimezonePreference = "system" | (string & {});
 
@@ -193,7 +200,7 @@ export function normalizeTimezonePreference(
 
 export function normalizeLocalizationPreference(
   value: unknown,
-): LocalizationPreference {
+): ResolvedLocalizationPreference {
   if (value && typeof value === "object" && !Array.isArray(value)) {
     const record = value as { locale?: unknown; timezone?: unknown };
     // The two fields are independent: setting a timezone must not require

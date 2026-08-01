@@ -1,5 +1,6 @@
 import type { ActionEntry } from "../agent/production-agent.js";
 import { getDbExec } from "../db/client.js";
+import { resolveUserSchedulingTimezone } from "../localization/user-timezone.js";
 import {
   resourcePut,
   resourceGetByPath,
@@ -21,7 +22,6 @@ import {
   effectiveTimezone,
   isValidTimezone,
 } from "./cron.js";
-import { resolveUserSchedulingTimezone } from "../localization/user-timezone.js";
 import { classifyJobResource } from "./frontmatter.js";
 import {
   parseJobFrontmatter,
@@ -130,8 +130,7 @@ async function runCreate(args: Record<string, any>): Promise<string> {
   // "8am" job ends up firing at 4am for the person who asked for it.
   if (requestedTimezone && !isValidTimezone(requestedTimezone)) {
     return JSON.stringify({
-      error:
-        `Unknown timezone: "${requestedTimezone}". Use an IANA zone such as America/New_York.`,
+      error: `Unknown timezone: "${requestedTimezone}". Use an IANA zone such as America/New_York.`,
     });
   }
   const timezone =
