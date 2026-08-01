@@ -18,6 +18,7 @@ import {
   isInBackgroundFunctionRuntime,
   prepareProcessRunRequest,
   resolveAgentChatProcessRunDispatchPath,
+  resolveBackgroundDispatchTarget,
   resolveDurableBackgroundDispatchPath,
   shouldUseBackgroundFunctionTimeoutForWorker,
 } from "./durable-background.js";
@@ -515,6 +516,103 @@ describe("resolveAgentChatProcessRunDispatchPath (default function url on hosted
     expect(resolveAgentChatProcessRunDispatchPath()).toBe(
       AGENT_CHAT_PROCESS_RUN_PATH,
     );
+  });
+});
+
+describe("resolveBackgroundDispatchTarget (typed transport decision)", () => {
+  it("resolves hosted Netlify to the http transport at the function's default url", () => {
+    process.env.NETLIFY = "true";
+    expect(resolveBackgroundDispatchTarget()).toEqual({
+      kind: "http",
+      path: AGENT_BACKGROUND_FUNCTION_URL_PATH,
+      expectsBackgroundRuntime: true,
+    });
+  });
+
+  it("resolves the workspace per-app function url on the http transport", () => {
+    process.env.NETLIFY = "true";
+    process.env.AGENT_NATIVE_WORKSPACE_APP_ID = "plan";
+    expect(resolveBackgroundDispatchTarget()).toEqual({
+      kind: "http",
+      path: "/.netlify/functions/plan-agent-background",
+      expectsBackgroundRuntime: true,
+    });
+  });
+
+  it("resolves every other host to the portable in-process route", () => {
+    expect(resolveBackgroundDispatchTarget()).toEqual({
+      kind: "inline-route",
+      path: AGENT_CHAT_PROCESS_RUN_PATH,
+      expectsBackgroundRuntime: false,
+    });
+  });
+
+  it("carries a caller-supplied fallback route onto the inline-route arm", () => {
+    expect(
+      resolveBackgroundDispatchTarget({
+        fallbackPath: "/api/_agent-native-background/example",
+      }),
+    ).toEqual({
+      kind: "inline-route",
+      path: "/api/_agent-native-background/example",
+      expectsBackgroundRuntime: false,
+    });
+  });
+
+  it("ignores the caller fallback once a host transport is available", () => {
+    process.env.NETLIFY = "true";
+    expect(
+      resolveBackgroundDispatchTarget({
+        fallbackPath: "/api/_agent-native-background/example",
+      }),
+    ).toEqual({
+      kind: "http",
+      path: AGENT_BACKGROUND_FUNCTION_URL_PATH,
+      expectsBackgroundRuntime: true,
+    });
+  });
+
+  it("keeps the in-process route when the caller opts out of the durable transport", () => {
+    // The continuation self-chain runs on the regular function unless the run
+    // was already handed to the durable worker; opting out must not consult the
+    // host at all.
+    process.env.NETLIFY = "true";
+    expect(
+      resolveBackgroundDispatchTarget({ durableBackground: false }),
+    ).toEqual({
+      kind: "inline-route",
+      path: AGENT_CHAT_PROCESS_RUN_PATH,
+      expectsBackgroundRuntime: false,
+    });
+  });
+
+  it("agrees with the path helpers it now backs", () => {
+    for (const setup of [
+      () => {},
+      () => {
+        process.env.NETLIFY = "true";
+      },
+      () => {
+        process.env.SITE_ID = "00000000-0000-0000-0000-000000000000"; // guard:allow-env-credential -- fake value exercises Netlify's public runtime host marker.
+      },
+      () => {
+        process.env.NETLIFY = "true";
+        process.env.NETLIFY_LOCAL = "true";
+      },
+    ]) {
+      for (const k of ENV_KEYS) Reflect.deleteProperty(process.env, k);
+      setup();
+      const target = resolveBackgroundDispatchTarget();
+      expect(target.kind).not.toBe("queue");
+      const path = (target as { path: string }).path;
+      expect(resolveAgentChatProcessRunDispatchPath()).toBe(path);
+      expect(
+        resolveDurableBackgroundDispatchPath(AGENT_CHAT_PROCESS_RUN_PATH),
+      ).toBe(path);
+      expect(target.expectsBackgroundRuntime).toBe(
+        dispatchPathTargetsNetlifyBackgroundFunction(path),
+      );
+    }
   });
 });
 

@@ -68,13 +68,12 @@ import {
 } from "./context-xray/manifest.js";
 import {
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
-  AGENT_CHAT_PROCESS_RUN_PATH,
+  backgroundDispatchPathOrThrow,
   backgroundRuntimeDiagnosticDetail,
-  dispatchPathTargetsNetlifyBackgroundFunction,
   isAgentChatDurableBackgroundEnabled,
   isAgentChatForegroundSelfChainEnabled,
   isInBackgroundFunctionRuntime,
-  resolveAgentChatProcessRunDispatchPath,
+  resolveBackgroundDispatchTarget,
   shouldUseBackgroundFunctionTimeoutForWorker,
 } from "./durable-background.js";
 import { applyContextXrayTransformForIteration } from "./engine/context-directives-transform.js";
@@ -7102,11 +7101,13 @@ export async function chainServerDrivenContinuation(opts: {
   const nextRunId = d.generateRunId();
   const actionPreparationTool = lastUnfinishedPreparingActionTool(run);
   const continuationReason = backgroundContinuationReasonForRun(run);
-  const continuationDispatchPath = opts.chainViaDurableBackground
-    ? resolveAgentChatProcessRunDispatchPath()
-    : AGENT_CHAT_PROCESS_RUN_PATH;
+  const continuationTarget = resolveBackgroundDispatchTarget({
+    durableBackground: opts.chainViaDurableBackground,
+  });
+  const continuationDispatchPath =
+    backgroundDispatchPathOrThrow(continuationTarget);
   const continuationExpectsNetlifyBackgroundFunction =
-    dispatchPathTargetsNetlifyBackgroundFunction(continuationDispatchPath);
+    continuationTarget.expectsBackgroundRuntime;
   const dispatchBudget = resolveContinuationDispatchBudget({
     chainViaDurableBackground: opts.chainViaDurableBackground,
     workerProvenInBackgroundFunction:
@@ -8482,9 +8483,11 @@ export function createProductionAgentHandler(
       }
 
       let dispatched = false;
-      const backgroundDispatchPath = resolveAgentChatProcessRunDispatchPath();
+      const backgroundTarget = resolveBackgroundDispatchTarget();
+      const backgroundDispatchPath =
+        backgroundDispatchPathOrThrow(backgroundTarget);
       const expectsNetlifyBackgroundFunction =
-        dispatchPathTargetsNetlifyBackgroundFunction(backgroundDispatchPath);
+        backgroundTarget.expectsBackgroundRuntime;
       try {
         await fireInternalDispatch({
           event,
