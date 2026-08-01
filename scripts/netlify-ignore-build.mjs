@@ -67,7 +67,7 @@ function main() {
   if (commitExists(commitRef) && isVersionPackagesRelease(commitRef)) {
     const cachedRef = process.env.CACHED_COMMIT_REF;
 
-    if (!commitExists(cachedRef) || !isAncestor(cachedRef, commitRef)) {
+    if (!isTrustworthyCachedAncestor(cachedRef, commitRef)) {
       console.log(
         `[netlify-ignore] Build required for ${target.pkg.name}: version-packages release ${commitRef.slice(
           0,
@@ -280,6 +280,17 @@ function isAncestor(ancestorRef, descendantRef) {
   } catch {
     return false;
   }
+}
+
+export function isTrustworthyCachedAncestor(cachedRef, commitRef, opts = {}) {
+  const { commitExistsFn = commitExists, isAncestorFn = isAncestor } = opts;
+
+  return (
+    Boolean(cachedRef) &&
+    cachedRef !== commitRef &&
+    commitExistsFn(cachedRef) &&
+    isAncestorFn(cachedRef, commitRef)
+  );
 }
 
 function firstParent(ref) {

@@ -4,11 +4,32 @@ import { describe, it } from "node:test";
 import {
   findSupersedingTouch,
   isVersionPackagesSubject,
+  isTrustworthyCachedAncestor,
   pathMatches,
   VERSION_PACKAGES_SUBJECT_RE,
 } from "./netlify-ignore-build.mjs";
 
 describe("netlify-ignore supersede logic", () => {
+  it("fails open when Netlify reports the release tip as its own cache ref", () => {
+    const commitExistsFn = () => true;
+    const isAncestorFn = () => true;
+
+    assert.equal(
+      isTrustworthyCachedAncestor("release-tip", "release-tip", {
+        commitExistsFn,
+        isAncestorFn,
+      }),
+      false,
+    );
+    assert.equal(
+      isTrustworthyCachedAncestor("published-parent", "release-tip", {
+        commitExistsFn,
+        isAncestorFn,
+      }),
+      true,
+    );
+  });
+
   it("matches version-packages subjects including [skip netlify]", () => {
     assert.equal(
       isVersionPackagesSubject(
