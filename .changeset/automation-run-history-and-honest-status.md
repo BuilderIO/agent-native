@@ -30,3 +30,10 @@ Also adds:
 - An Edit affordance for changing a scheduled automation's cron expression and
   timezone.
 - A "Manage agent" entry in the sidebar organization switcher.
+
+Run history is bounded and honest about interrupted runs: a row left `running`
+past the point a run could still be alive is reported as `interrupted` rather
+than shown as permanently in-flight, and rows are pruned per automation so a
+frequent schedule cannot grow the table without limit. Recording a run's
+outcome also re-reads the automation first, so a schedule edited while it was
+running is no longer reverted by the completion write.

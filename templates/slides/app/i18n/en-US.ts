@@ -548,6 +548,10 @@ const messages = {
     figFileTooLarge: "File too large (max {{maxSize}}).",
     figParseFailed: "Could not start Builder indexing for that Figma file.",
     updated: "Design system updated",
+    otherSources: "Other",
+    otherSourcesDescription:
+      "Connect from a website, code, files, or an existing design system.",
+    chooseSourcePrompt: "Choose one source to configure",
     updateFailed: "Failed to update",
     generationStarted: "Design system generation started",
     generationStartedDescription:
@@ -589,6 +593,25 @@ const messages = {
       "e.g. Always open with a single-stat title slide. Never use bullet lists longer than 3 items. Keep slide titles under 6 words...",
     customInstructionsDescription:
       "Saved with the design system. Re-applied every time the agent uses it to generate slides.",
+    sourceLabel: "Source",
+    sourceFigma: "Figma file",
+    sourceCode: "Code files",
+    sourceGitHub: "GitHub repository",
+    sourceMixed: "Multiple sources",
+    sourceBuilder: "Builder Design System Intelligence",
+    sourceIndexing: "Indexing in progress",
+    sourceIndexed: "Indexed",
+    sourceUnavailable: "Results unavailable",
+    sourceIndexingDescription:
+      "Builder is still processing this source. Results will appear here as they are ready.",
+    sourceIndexedDescription: "{{docs}} docs · {{tokens}} tokens indexed",
+    sourceIndexedDocsOnly: "{{docs}} docs indexed",
+    sourceIndexedTokensOnly: "{{tokens}} tokens indexed",
+    sourceUnavailableDescription:
+      "Builder could not load the latest source results.",
+    sourceOpenInBuilder: "Open in Builder",
+    loading: "Loading design system",
+    loadFailed: "We couldn't load this design system. Close and try again.",
     cancel: "Cancel",
     saving: "Saving...",
     saveChanges: "Save Changes",

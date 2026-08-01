@@ -3184,6 +3184,40 @@ describe("run manager soft timeout", () => {
     );
   });
 
+  // checkSqlAbort must fail closed: a rejected getRunAbortState read used to
+  // be swallowed as "not aborted", so a real cross-isolate Stop could go
+  // unseen for the rest of the run. Sustained read failures must self-abort
+  // instead of retrying silently forever.
+  it("fails closed and self-aborts after sustained getRunAbortState read failures", async () => {
+    vi.mocked(getRunAbortState).mockRejectedValue(new Error("read timeout"));
+
+    let abortFired = false;
+    const run = startRun(
+      "run-abort-check-unreadable",
+      "thread-abort-check-unreadable",
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => {
+            abortFired = true;
+            resolve();
+          });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    // First two failed checks (at the 3s poll interval) stay below the
+    // heartbeat handler's own escalation threshold — no self-abort yet.
+    await vi.advanceTimersByTimeAsync(4500);
+    expect(abortFired).toBe(false);
+
+    // Third consecutive failure crosses the threshold: fail closed.
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(abortFired).toBe(true);
+    expect(run.abortReason).toBe("abort_check_unavailable");
+  });
+
   // Fix 3: ordered event persistence
   it("chains event persistence so inserts commit in seq order", async () => {
     const persistOrder: number[] = [];

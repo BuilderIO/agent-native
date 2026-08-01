@@ -1,5 +1,28 @@
 # @agent-native/skills
 
+## 0.2.454
+
+### Patch Changes
+
+- Updated dependencies [eecd3ad]
+- Updated dependencies [eecd3ad]
+- Updated dependencies [eecd3ad]
+- Updated dependencies [eecd3ad]
+- Updated dependencies [eecd3ad]
+- Updated dependencies [eecd3ad]
+- Updated dependencies [eecd3ad]
+- Updated dependencies [eecd3ad]
+- Updated dependencies [eecd3ad]
+- Updated dependencies [eecd3ad]
+- Updated dependencies [eecd3ad]
+- Updated dependencies [eecd3ad]
+- Updated dependencies [eecd3ad]
+- Updated dependencies [eecd3ad]
+- Updated dependencies [eecd3ad]
+- Updated dependencies [eecd3ad]
+- Updated dependencies [eecd3ad]
+  - @agent-native/core@0.133.0
+
 ## 0.2.453
 
 ### Patch Changes

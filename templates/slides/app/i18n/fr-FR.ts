@@ -565,6 +565,30 @@ const messages = {
     figParseFailed:
       "Impossible de lancer l’indexation Builder pour ce fichier Figma.",
     updated: "Système de design mis à jour",
+    sourceLabel: "Source",
+    sourceFigma: "Fichier Figma",
+    sourceCode: "Fichiers de code",
+    sourceGitHub: "Dépôt GitHub",
+    sourceMixed: "Sources multiples",
+    sourceBuilder: "Intelligence des systèmes de design Builder",
+    sourceIndexing: "Indexation en cours",
+    sourceIndexed: "Indexé",
+    sourceUnavailable: "Résultats indisponibles",
+    sourceIndexingDescription:
+      "Builder traite encore cette source. Les résultats apparaîtront ici dès qu'ils seront prêts.",
+    sourceIndexedDescription: "{{docs}} documents · {{tokens}} jetons indexés",
+    sourceIndexedDocsOnly: "{{docs}} documents indexés",
+    sourceIndexedTokensOnly: "{{tokens}} jetons indexés",
+    sourceUnavailableDescription:
+      "Builder n'a pas pu charger les derniers résultats de la source.",
+    sourceOpenInBuilder: "Ouvrir dans Builder",
+    loadFailed:
+      "Impossible de charger ce système de design. Fermez-le et réessayez.",
+    otherSources: "Autre",
+    otherSourcesDescription:
+      "Connectez-vous depuis un site web, du code, des fichiers ou un système de conception existant.",
+    chooseSourcePrompt: "Choisissez une source à configurer",
+    loading: "Chargement du système de design",
     updateFailed: "Échec de la mise à jour",
     generationStarted: "Génération du système de design lancée",
     generationStartedDescription:

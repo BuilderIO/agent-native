@@ -254,6 +254,19 @@ export const TEMPLATES: TemplateMeta[] = [
     hidden: true,
     defaultMode: "dev",
   },
+  {
+    name: "factory",
+    label: "Factory",
+    hint: "Build agent factories with gates you control",
+    icon: "Users",
+    color: "#7C3AED",
+    colorRgb: "124 58 237",
+    devPort: 8108,
+    prodUrl: "https://agent-native-factory.netlify.app",
+    hidden: true,
+    defaultMode: "dev",
+    core: false,
+  },
 ];
 
 /** Return templates visible in user-facing pickers (excludes hidden). */

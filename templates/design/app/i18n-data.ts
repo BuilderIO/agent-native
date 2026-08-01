@@ -1452,6 +1452,10 @@ const enUS = {
     figmaCreateSuccess: "Design system created from Figma",
     figmaCreateError: "Could not create the design system",
     backToDesignSystems: "Back to design systems",
+    otherSources: "Other",
+    otherSourcesDescription:
+      "Connect from a website, code, files, or an existing design system.",
+    chooseSourcePrompt: "Choose one source to configure",
     continue: "Continue to generation",
     title: "Set up your design system",
     description:
@@ -1924,6 +1928,9 @@ const designLocaleOverrides = {
       figmaCreateSuccess: "由Figma创建的设计系统",
       figmaCreateError: "无法创建设计系统",
       backToDesignSystems: "返回设计系统",
+      otherSources: "其他",
+      otherSourcesDescription: "从网站、代码、文件或现有设计系统连接。",
+      chooseSourcePrompt: "选择一个来源进行配置",
       continue: "继续生成",
       title: "设置您的设计系统",
       description:
@@ -2329,6 +2336,10 @@ const designLocaleOverrides = {
       figmaCreateSuccess: "Sistema de diseño creado a partir de Figma.",
       figmaCreateError: "No se pudo crear el sistema de diseño.",
       backToDesignSystems: "Volver a sistemas de diseño",
+      otherSources: "Otros",
+      otherSourcesDescription:
+        "Conecta desde un sitio web, código, archivos o un sistema de diseño existente.",
+      chooseSourcePrompt: "Elige una fuente para configurar",
       continue: "continuar con la generación",
       title: "Configure su sistema de diseño",
       description:
@@ -2756,6 +2767,10 @@ const designLocaleOverrides = {
       figmaCreateSuccess: "Système de conception créé à partir de Figma",
       figmaCreateError: "Impossible de créer le système de conception",
       backToDesignSystems: "Retour aux systèmes de conception",
+      otherSources: "Autre",
+      otherSourcesDescription:
+        "Connectez-vous depuis un site web, du code, des fichiers ou un système de conception existant.",
+      chooseSourcePrompt: "Choisissez une source à configurer",
       continue: "Continuer jusqu'à la génération",
       title: "Configurez votre système de conception",
       description:
@@ -3183,6 +3198,10 @@ const designLocaleOverrides = {
       figmaCreateSuccess: "Designsystem erstellt aus Figma",
       figmaCreateError: "Das Designsystem konnte nicht erstellt werden",
       backToDesignSystems: "Zurück zu Designsystemen",
+      otherSources: "Andere",
+      otherSourcesDescription:
+        "Von einer Website, Code, Dateien oder einem vorhandenen Designsystem verbinden.",
+      chooseSourcePrompt: "Quelle zum Konfigurieren auswählen",
       continue: "Weiter zur Generation",
       title: "Richten Sie Ihr Designsystem ein",
       description:
@@ -3610,6 +3629,10 @@ const designLocaleOverrides = {
       figmaCreateSuccess: "Figma から作成されたデザインシステム",
       figmaCreateError: "デザインシステムを作成できませんでした",
       backToDesignSystems: "設計システムに戻る",
+      otherSources: "その他",
+      otherSourcesDescription:
+        "Webサイト、コード、ファイル、または既存のデザインシステムから接続します。",
+      chooseSourcePrompt: "設定するソースを選択",
       continue: "世代を継続する",
       title: "デザインシステムをセットアップする",
       description:
@@ -4032,6 +4055,10 @@ const designLocaleOverrides = {
       figmaCreateSuccess: "Figma에서 생성된 디자인 시스템",
       figmaCreateError: "디자인 시스템을 만들 수 없습니다",
       backToDesignSystems: "디자인 시스템으로 돌아가기",
+      otherSources: "기타",
+      otherSourcesDescription:
+        "웹사이트, 코드, 파일 또는 기존 디자인 시스템에서 연결합니다.",
+      chooseSourcePrompt: "구성할 소스 선택",
       continue: "세대를 이어가다",
       title: "디자인 시스템 설정",
       description:
@@ -4448,6 +4475,10 @@ const designLocaleOverrides = {
       figmaCreateSuccess: "Sistema de design criado a partir de Figma",
       figmaCreateError: "Não foi possível criar o sistema de design",
       backToDesignSystems: "Voltar para sistemas de design",
+      otherSources: "Outro",
+      otherSourcesDescription:
+        "Conecte-se de um site, código, arquivos ou um sistema de design existente.",
+      chooseSourcePrompt: "Escolha uma fonte para configurar",
       continue: "Continuar para a geração",
       title: "Configure seu sistema de design",
       description:
@@ -4870,6 +4901,10 @@ const designLocaleOverrides = {
       figmaCreateSuccess: "Figma से डिज़ाइन सिस्टम बनाया गया",
       figmaCreateError: "डिज़ाइन सिस्टम नहीं बनाया जा सका",
       backToDesignSystems: "डिज़ाइन सिस्टम पर वापस जाएँ",
+      otherSources: "अन्य",
+      otherSourcesDescription:
+        "वेबसाइट, कोड, फ़ाइलों या मौजूदा डिज़ाइन सिस्टम से कनेक्ट करें।",
+      chooseSourcePrompt: "कॉन्फ़िगर करने के लिए एक स्रोत चुनें",
       continue: "पीढ़ी तक जारी रखें",
       title: "अपना डिज़ाइन सिस्टम सेट करें",
       description:
@@ -5282,6 +5317,10 @@ const designLocaleOverrides = {
       figmaCreateSuccess: "تم إنشاء نظام التصميم من Figma",
       figmaCreateError: "لا يمكن إنشاء نظام التصميم",
       backToDesignSystems: "العودة إلى أنظمة التصميم",
+      otherSources: "أخرى",
+      otherSourcesDescription:
+        "الاتصال من موقع ويب أو رمز أو ملفات أو نظام تصميم موجود.",
+      chooseSourcePrompt: "اختر مصدرًا لتهيئته",
       continue: "الاستمرار في الجيل",
       title: "قم بإعداد نظام التصميم الخاص بك",
       description:

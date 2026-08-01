@@ -59,6 +59,10 @@ ladder.
   infer run failure from thread text search. Cross-app results may be partial;
   preserve the returned per-source health instead of treating an unavailable
   source as zero failures.
+- For a Slack-linked issue, call `read-slack-thread-context` with the exact
+  permalink before diagnosing it. It resolves child links to the parent thread,
+  preserves attachments and related URLs, and reports whether pagination is
+  complete. Never treat an unreadable Slack thread as an empty one.
 
 ## Application State
 

@@ -64,6 +64,7 @@ describe("create-design-system production templates", () => {
       title: "Carbon Design System",
       ownerEmail: "designer@example.com",
       orgId: "org_example",
+      visibility: "org",
       isDefault: true,
     });
 

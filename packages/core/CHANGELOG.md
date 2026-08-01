@@ -1,5 +1,166 @@
 # @agent-native/core
 
+## 0.133.0
+
+### Minor Changes
+
+- eecd3ad: Expose the measured agent failure taxonomy and let thread diagnostics separate interactive runs from scheduled `job-` runs.
+
+### Patch Changes
+
+- eecd3ad: Let a delegated A2A run inherit the caller's model when the receiving app never
+  picked one. A cross-app turn resolved its model entirely on the receiving side,
+  and the stored lookup is scoped to the receiver's own app id — so selecting
+  Sonnet in Slides still ran any question Slides delegated to Analytics on
+  Analytics' default. Nothing in the request carried the caller's choice.
+
+  `call-agent` now sends the model it is running on as `callerModel` in the
+  existing A2A correlation metadata, and the receiver applies it strictly last
+  before its default: explicit config, then its own stored setting, then the
+  hint. An app that deliberately pins a model keeps it; the hint only fills the
+  gap where the receiver would otherwise take a default it never chose.
+
+  The hint is a preference, never an authorization. It is bounded to the
+  receiver's already-resolved engine catalog by `resolveDelegatedRunModel`, so a
+  peer cannot move the run to another provider, an unknown id, or a capability
+  tier the engine does not offer; engines that cannot prove membership (empty
+  catalog, OpenAI-compatible gateway) take no hint at all. A rejected hint is
+  logged and dropped rather than failing the delegated run, and it stays out of
+  every identity, org, access, and approval path.
+
+- eecd3ad: Classify AI SDK provider failures that arrive as a stream part, not a throw.
+  `streamText` does not throw for a failed provider request — it emits an `error`
+  part on `fullStream` — so provider HTTP failures had two arrival paths and only
+  the thrown one was classified. The stream-part path built a bare stop event from
+  the message alone, discarding the `APICallError`'s `statusCode` and
+  `isRetryable`. Everything downstream then had nothing structured to read: a 429
+  or 503 was retried only if its prose happened to contain "rate_limit" or
+  "overloaded", and the run persisted `error_code = 'unknown'`.
+
+  That is also why a 100%-reproducible config 400 could run for three days across
+  five apps without anyone noticing: it was indistinguishable in the outcome
+  tables from every other unclassified failure, so it had no signature to alert
+  on.
+
+  Both paths now share one `classifyProviderError` helper — status code →
+  `http_<status>`, transport failure → `provider_network_error`, `isRetryable`
+  passed through, and a message-based fallback when the provider sent nothing
+  structured. Every ai-sdk provider (openai, anthropic, google, openrouter, groq,
+  mistral, cohere, ollama) gets correct classification at once.
+
+- eecd3ad: Recover chats from transient provider failures instead of ending them. A
+  provider transport blip reached persistence with no structured error code and
+  was stored as `unknown`, which the client does not list as auto-recoverable —
+  so the turn died where the identical failure carrying its real code resumes. In
+  production this was measurable: `unknown` runs averaged exactly 1.00 runs per
+  turn (no recovery was ever attempted), against 2.0 for `provider_network_error`
+  and 1.5 for `http_429` on the same underlying errors.
+
+  Four divergent copies of the connection-error predicate had drifted apart, and
+  they disagreed on the exact string the AI SDK actually throws — `RetryError`
+  reports `"Failed after 2 attempts. Last error: Cannot connect to API: …"`, which
+  a copy anchored with `startsWith` scored as unclassified while a copy using
+  `includes` scored as retryable. They are now one exported classifier in
+  `engine/error-detail.ts`, matched against the error's full cause chain, and
+  applied both where the error event is built (the code the client reads) and
+  where the run's terminal code is persisted. Transport and capacity failures map
+  to their real codes; deterministic failures stay unmapped so a broken request
+  still stops the chat instead of spiralling.
+
+  Also stop sending `reasoning_effort` alongside function tools for GPT models on
+  the Builder gateway. The gateway routes them to Chat Completions, which rejects
+  that combination outright, so every agent turn on a `gpt-5.x` model failed
+  deterministically. Omitting the field does not help — only the explicit `"none"`
+  clears it, matching the guard the AI SDK engine already had.
+
+- eecd3ad: Fail closed instead of silently ignoring a broken cross-isolate Stop check: a rejected abort-state read in the agent run manager no longer gets coerced into "not aborted" forever — sustained read failures now self-abort the run with a distinct, typed error. Also add the same fail-closed handling to two `isTurnAborted` call sites in the background-dispatch path that were missing it, matching the existing sibling call sites.
+- eecd3ad: Stop raw provider error text (a JSON error body, an SSL handshake failure) from
+  being persisted as the visible assistant reply. The server-side rebuild of an
+  assistant message (`buildAssistantMessage`, used by every background/durable
+  run, reconnect-after-disconnect, poller-triggered turn, and webhook-triggered
+  turn) appended `event.error` verbatim, unlike the live client which already
+  routes it through `normalizeChatError`/`formatChatErrorText` for friendly copy.
+  The rebuild now uses that same layer, so persisted text always matches what a
+  live client would have shown, and the raw diagnostic is kept only in
+  `runError.details`.
+- eecd3ad: Name the two deterministic provider failures that were ending chats as `unknown`: a model rejecting tools alongside `reasoning_effort`, and a missing authentication header. Both now carry a real error code and user-facing copy that says what to change, and both stay non-recoverable so nothing retries a failure a retry cannot fix.
+- eecd3ad: Preserve Builder design-system source provenance on local proxy references.
+- eecd3ad: Keep the signup email visible when an email-verification link opens a new tab, so the follow-up sign-in targets the verified account instead of a browser-autofilled address.
+- eecd3ad: Fix a split-brain in credential resolution: `resolveCredential` (and its diagnostic sibling `describeCredentialScopeGap`) only ever searched the single org on `ctx.orgId`. Interactive requests always populate it, but CLI runs, cron/recurring jobs, and any other caller built from `getCredentialContext()` outside a request event do not — so an org-scoped key that shows "Ready" in Settings silently missed at runtime for those callers. Both functions now fall back to resolving the caller's org from their email when `ctx.orgId` is unset, and a membership lookup that fails to read now throws a retryable error instead of being reported as "not configured". `resolveRequiredCredential` in the provider-api layer now also appends the scope-gap diagnostic to its error, matching `resolveAnyCredential`.
+- eecd3ad: Mark exhausted in-process agent-loop budgets as non-recoverable so the client does not restart the same exhausted run.
+- eecd3ad: Run scheduled jobs, automations, and Google Docs comment replies under the background timeout regime instead of the interactive one. They were inheriting the 40s soft timeout, a 30s no-progress backstop, and 6 continuations meant for a synchronous request, so work that legitimately spends minutes across many tool calls died in the first gap longer than 30s and was recorded as `no_progress`.
+- eecd3ad: Stop scheduled jobs and event automations from being killed mid-run as
+  "background_worker_never_started". `runBackgroundAutomation` (shared by
+  `jobs/scheduler.ts` and `triggers/dispatcher.ts`) executes entirely
+  in-process — there is no HTTP self-dispatch — but still marked its run row
+  `dispatch_mode = 'background'` for the wider stale window, without ever
+  calling `claimBackgroundRun` the way a genuine HTTP background worker does.
+  That left the row parked at the transient `'background'` state for the run's
+  entire life, indistinguishable from a lost HTTP handoff: the unclaimed-
+  background-run sweep reaps any such row past its 25s grace window, so a
+  single tool call running past 25s (routine for a report or analytics job)
+  got the still-executing run errored out from under it, discarding whatever
+  it later completed with.
+
+  The runner now self-claims its row into `'background-processing'`
+  immediately after inserting it — the same claimed state a real HTTP worker
+  reaches — which removes it from the unclaimed-sweep's eligibility (it filters
+  on `dispatch_mode = 'background'` exactly) and puts it under the wider,
+  heartbeat-driven stale window instead, with the correct `stale_run` code if
+  it ever genuinely dies.
+
+- eecd3ad: Stop resending a Builder credential the gateway already rejected. Every non-Builder provider already skipped a key marked bad by an auth failure; Builder credential selection (`resolveScopedBuilderCredentials`/`resolveBuilderCredentialsDetailed` in user/org/workspace/solo scope and the deploy-env fallback, plus `hasUsableBuilderConnection` and the env-detection path in the engine registry) now consults that same marker and falls through to the next scope instead of resending the identical known-bad key on every live and scheduled turn.
+- eecd3ad: Fix the Slack bot answering as the wrong app and silently dropping mentions
+
+  Outbound Slack delivery never passed an app id, so token resolution fell back
+  to a team-only lookup that took whichever installation was updated most
+  recently. A workspace with two connected Slack apps posted as whichever one
+  reconnected last. Outbound targets can now name an installation, and an
+  ambiguous tenant is reported instead of resolved to an arbitrary app.
+
+  Webhook dispatch also discarded a definitive `failed` outcome and answered the
+  platform 200 regardless, leaving a queued task nobody was running behind an
+  in-progress indicator that never resolved. That failure is now surfaced to the
+  user, and stuck-task recovery sweeps every dispatch mode rather than only
+  durable scopes — portable dispatch is the mode most likely to strand a task,
+  since its self-dispatch dies with the container.
+
+- eecd3ad: Stop a retry storm from deleting the answer the user already read. A rebuild
+  correctly refuses to apply a _trailing_ `clear` — there is no successor chunk to
+  re-emit what it wipes — but it only skipped the clear at the very last index.
+  Each failed engine attempt emits its own `clear`, so three failures in a row is
+  the ordinary shape, and the rebuild still applied the first two, splicing every
+  text and reasoning part out of the run. When the run had made no tool calls this
+  emptied the content entirely and the builder returned null, so the user's
+  message was persisted with no assistant reply at all. The whole trailing run of
+  clears is now skipped; a `clear` with real events after it still applies.
+
+  Also make `terminal_reason` write-once on an already-terminal row. Three writers
+  in three isolates race on that column — the mid-run checkpoint, the run-manager's
+  finalization, and the background worker's failure path — with no ordering
+  between them, and last-writer-wins let a late checkpoint relabel a run another
+  isolate had already finalized. That produced impossible rows (`status='errored'`
+  carrying a continuation reason, no `error_code`, no terminal event) and
+  misattributed 130 production runs to a failure mode they never hit. A row that
+  is still `running` has no honest reason yet and stays writable.
+
+- eecd3ad: Stop the unclaimed-background-run sweep from destroying the runs it exists to
+  recover. Its redispatch asserted `payloadRef: true` without checking the row
+  still carried a `dispatch_payload`, but sweep eligibility never implied one —
+  a background row can reach the grace window having never had a payload at all.
+  The redispatched worker then could not rehydrate a request body and failed the
+  run as `dispatch_payload_missing`, a reason that reads like data loss for what
+  is really an un-redispatchable handoff. That path accounted for 98 failed
+  production runs, every one of them a scheduled job.
+
+  `listUnclaimedBackgroundRunRows` now reports payload presence per row (it
+  reports rather than filters, so a payload-less row stays visible to the slow
+  sweep and cannot be stranded in `running` forever). The fast sweep skips those
+  rows, and the slow sweep sends them straight to its existing loud reap instead
+  of waiting out the redispatch bound first — the run still fails, because
+  nothing can rehydrate it, but with its true cause
+  (`background_worker_never_started`, which the client treats as recoverable).
+
 ## 0.132.2
 
 ### Patch Changes

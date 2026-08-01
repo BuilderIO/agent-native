@@ -1,5 +1,5 @@
 import { agentChat } from "@agent-native/core";
-import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { sendToAgentChatAndConfirm } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import {
   type AttributedRecentEdit,
@@ -16,6 +16,7 @@ import {
   RecentEditHighlights,
 } from "@agent-native/toolkit/collab-ui";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
+import { hashSlideContent } from "@shared/slide-fit";
 import { IconMaximize, IconZoomIn, IconZoomOut } from "@tabler/icons-react";
 import {
   useState,
@@ -983,9 +984,13 @@ function syncOverflowToAppState(
   payload: {
     slideId: string;
     deckId?: string;
+    contentHash: string;
     contentHeight: number;
+    contentWidth: number;
     viewportHeight: number;
+    viewportWidth: number;
     verticalOverflow: number;
+    horizontalOverflow: number;
   } | null,
 ) {
   const keys = Array.from(
@@ -1159,7 +1164,7 @@ export default function SlideEditor({
     w: number;
     h: number;
   } | null>(null);
-  /** Vertical overflow for the current slide (0 = fits). Reported by the
+  /** Content overflow for the current slide (both axes 0 = fits). Reported by the
    *  renderer so we can prompt the agent to rewrite the slide HTML instead of
    *  silently scaling it down (which created unbalanced right/bottom margins
    *  on slides whose content was too tall for the canvas). */
@@ -1167,6 +1172,9 @@ export default function SlideEditor({
     null,
   );
   const [isAskingAgentToFix, setIsAskingAgentToFix] = useState(false);
+  const repairRequestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const [isOverflowWarningDismissed, setIsOverflowWarningDismissed] =
     useState(false);
   const dims = getAspectRatioDims(aspectRatio);
@@ -1285,6 +1293,10 @@ export default function SlideEditor({
   // Reset overflow state whenever the slide changes — the renderer will
   // report the next measurement (or stay null if the new slide fits).
   useEffect(() => {
+    if (repairRequestTimerRef.current) {
+      clearTimeout(repairRequestTimerRef.current);
+      repairRequestTimerRef.current = null;
+    }
     setOverflowInfo(null);
     setIsAskingAgentToFix(false);
     setIsOverflowWarningDismissed(false);
@@ -1295,19 +1307,27 @@ export default function SlideEditor({
   // measurement never leaks into a different deck/slide context.
   useEffect(() => {
     return () => {
+      if (repairRequestTimerRef.current) {
+        clearTimeout(repairRequestTimerRef.current);
+        repairRequestTimerRef.current = null;
+      }
       syncOverflowToAppState(null);
     };
   }, []);
 
   const handleOverflowChange = useCallback(
     (info: SlideOverflowInfo) => {
-      const overflowing = info.verticalOverflow > 0 ? info : null;
+      const overflowing =
+        info.verticalOverflow > 0 || info.horizontalOverflow > 0 ? info : null;
       // Dedup the React state update — the renderer fires on every
       // measurement (so the action can confirm freshness via the app-state
       // `measuredAt` timestamp), but most measurements report the same
       // value and shouldn't churn the badge UI.
       setOverflowInfo((prev) => {
-        if (prev?.verticalOverflow === overflowing?.verticalOverflow) {
+        if (
+          prev?.verticalOverflow === overflowing?.verticalOverflow &&
+          prev?.horizontalOverflow === overflowing?.horizontalOverflow
+        ) {
           return prev;
         }
         return overflowing;
@@ -1318,16 +1338,26 @@ export default function SlideEditor({
       syncOverflowToAppState({
         slideId: slide.id,
         deckId,
+        contentHash: hashSlideContent(slide.content),
         contentHeight: info.contentHeight,
+        contentWidth: info.contentWidth,
         viewportHeight: info.viewportHeight,
+        viewportWidth: info.viewportWidth,
         verticalOverflow: info.verticalOverflow,
+        horizontalOverflow: info.horizontalOverflow,
       });
     },
     [slide.id, deckId],
   );
 
   const handleAskAgentToFixLayout = useCallback(() => {
-    if (!overflowInfo || overflowInfo.verticalOverflow <= 0) return;
+    if (
+      !overflowInfo ||
+      (overflowInfo.verticalOverflow <= 0 &&
+        overflowInfo.horizontalOverflow <= 0)
+    ) {
+      return;
+    }
     const slideHeading = (() => {
       if (typeof document === "undefined") return null;
       const main = document.querySelector("[data-main-slide-canvas]");
@@ -1337,27 +1367,44 @@ export default function SlideEditor({
     const dimsW = dims.width;
     const dimsH = dims.height;
     setIsAskingAgentToFix(true);
-    sendToAgentChat({
+    if (repairRequestTimerRef.current) {
+      clearTimeout(repairRequestTimerRef.current);
+    }
+    // Delivery only proves that the prompt reached chat, not that an action
+    // changed this slide. Release the control after one bounded repair window
+    // so a stalled or no-op agent run cannot strand the warning UI.
+    repairRequestTimerRef.current = setTimeout(() => {
+      repairRequestTimerRef.current = null;
+      setIsAskingAgentToFix(false);
+    }, 30_000);
+    void sendToAgentChatAndConfirm({
       message: [
-        `The current slide's content vertically overflows the canvas by ${overflowInfo.verticalOverflow}px and needs to be rewritten to fit.`,
+        `The current slide's content overflows the canvas${overflowInfo.verticalOverflow > 0 ? ` vertically by ${overflowInfo.verticalOverflow}px` : ""}${overflowInfo.horizontalOverflow > 0 ? ` horizontally by ${overflowInfo.horizontalOverflow}px` : ""} and needs to be rewritten to fit.`,
         ``,
         `Slide id: \`${slide.id}\``,
         slideHeading ? `Slide heading: "${slideHeading}"` : null,
-        `Canvas size: ${dimsW}x${dimsH}px (16:9 native render).`,
-        `Available content area inside the slide's padding: ${overflowInfo.viewportHeight}px tall.`,
-        `Natural rendered content height: ${overflowInfo.contentHeight}px → overflows by ${overflowInfo.verticalOverflow}px.`,
+        `Canvas size: ${dimsW}x${dimsH}px (native render).`,
+        `Available content area inside the slide's padding: ${overflowInfo.viewportWidth}x${overflowInfo.viewportHeight}px.`,
+        `Natural rendered content: ${overflowInfo.contentWidth}x${overflowInfo.contentHeight}px inside a ${overflowInfo.viewportWidth}x${overflowInfo.viewportHeight}px content area.`,
         ``,
-        `Please use \`view-screen\` to read the current slide HTML, then \`update-slide --fullContent\` to rewrite the slide so its rendered height is at most ${overflowInfo.viewportHeight}px. Options to shrink the layout, in order of preference:`,
+        `Please use \`view-screen\` to read the current slide HTML, then make one bounded \`update-slide --fullContent\` repair so its rendered content fits within ${overflowInfo.viewportWidth}x${overflowInfo.viewportHeight}px. Options to shrink the layout, in order of preference:`,
         `1. Tighten copy — shorten headings/body, drop low-value bullets, replace prose with terse phrases.`,
         `2. Reduce vertical density — fewer stacked cards, smaller gaps, smaller body font (don't go below 16px), shorter labels.`,
         `3. Reduce slide padding (e.g. 40px top/bottom instead of 60-80px) if the layout is genuinely tight.`,
         `4. If the content really can't be compressed without losing meaning, split it across two slides.`,
         ``,
-        `Do NOT solve this by adding \`transform: scale()\` or \`overflow: scroll\`. Preserve existing manually positioned absolute objects, including text boxes; rewrite only the overflowing flow layout so the HTML itself fits ${dimsW}x${dimsH}.`,
+        `Do NOT solve this by adding zoom, \`transform: scale()\`, clipping, or \`overflow: scroll\`. Preserve existing manually positioned absolute objects, including text boxes; rewrite only the overflowing flow layout so the HTML itself fits ${dimsW}x${dimsH}. After the write, verify the result with \`view-screen\`; do not repeat repairs in a loop.`,
       ]
         .filter(Boolean)
         .join("\n"),
       submit: true,
+      chatTarget: "local",
+    }).then((delivery) => {
+      if (!delivery.delivered) {
+        // A missing or delayed chat handoff must not leave the only repair
+        // control permanently disabled with no visible mutation to wait for.
+        setIsAskingAgentToFix(false);
+      }
     });
   }, [overflowInfo, slide.id, dims.width, dims.height]);
   /** Marquee origin (viewport coords). Set on pointerdown. */
@@ -4134,6 +4181,7 @@ export default function SlideEditor({
                         !isOverflowWarningDismissed && (
                           <SlideOverflowWarning
                             verticalOverflow={overflowInfo.verticalOverflow}
+                            horizontalOverflow={overflowInfo.horizontalOverflow}
                             isAskingAgentToFix={isAskingAgentToFix}
                             dismissLabel={t("deckEditor.dismissLayoutWarning")}
                             onFix={handleAskAgentToFixLayout}

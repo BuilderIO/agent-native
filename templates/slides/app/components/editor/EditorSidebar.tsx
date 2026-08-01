@@ -1,4 +1,7 @@
-import { appBasePath } from "@agent-native/core/client/api-path";
+import {
+  agentNativePath,
+  appBasePath,
+} from "@agent-native/core/client/api-path";
 import {
   type AttributedRecentEdit,
   type CollabUser,
@@ -13,6 +16,8 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
+import { hashSlideContent, type DeckFitState } from "@shared/slide-fit";
 import {
   IconPlus,
   IconGripVertical,
@@ -27,6 +32,7 @@ import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
 import SlideRenderer from "@/components/deck/SlideRenderer";
+import type { SlideOverflowInfo } from "@/components/deck/SlideRenderer";
 import { GoogleDocImportHint } from "@/components/editor/GoogleDocImportHint";
 import {
   isInsidePortaledLayer,
@@ -41,6 +47,7 @@ import type { Slide } from "@/context/DeckContext";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { addSlideAgentMessage } from "@/lib/agent-visible-message";
 import type { AspectRatio } from "@/lib/aspect-ratios";
+import { TAB_ID } from "@/lib/tab-id";
 
 interface EditorSidebarProps {
   slides: Slide[];
@@ -60,6 +67,11 @@ interface EditorSidebarProps {
   /** Deck aspect ratio (defaults to 16:9 when omitted) */
   aspectRatio?: AspectRatio;
 }
+
+const DECK_FIT_STATE_KEYS = [
+  appStateKeyForBrowserTab("deck-fit-checks", TAB_ID),
+  "deck-fit-checks",
+];
 
 /** Extract the slide id from a `{kind:"paths",paths:["slides.<id>"]}` edit. */
 function slideIdFromEdit(edit: AttributedRecentEdit): string | null {
@@ -183,6 +195,7 @@ function SortableSlideThumb({
   registerButtonRef,
   presenceUsers = [],
   aspectRatio,
+  onOverflowChange,
   readOnly = false,
 }: {
   slide: Slide;
@@ -195,6 +208,7 @@ function SortableSlideThumb({
   registerButtonRef: (slideId: string, node: HTMLButtonElement | null) => void;
   presenceUsers?: CollabUser[];
   aspectRatio?: AspectRatio;
+  onOverflowChange: (info: SlideOverflowInfo) => void;
 }) {
   const t = useT();
   const {
@@ -267,7 +281,11 @@ function SortableSlideThumb({
                   : "rgba(255,255,255,0.06)",
             }}
           >
-            <SlideRenderer slide={slide} aspectRatio={aspectRatio} />
+            <SlideRenderer
+              slide={slide}
+              aspectRatio={aspectRatio}
+              onOverflowChange={onOverflowChange}
+            />
           </div>
         </div>
       </button>
@@ -567,6 +585,85 @@ export default function EditorSidebar({
   const headerAddRef = useRef<HTMLButtonElement>(null);
   const slideButtonRefs = useRef(new Map<string, HTMLButtonElement>());
   const thumbScrollRef = useRef<HTMLDivElement>(null);
+  const measurementsRef = useRef(
+    new Map<
+      string,
+      { contentHash: string; info: SlideOverflowInfo; measuredAt: number }
+    >(),
+  );
+  const writeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const writeDeckFitState = useCallback(() => {
+    const currentSlideIds = new Set(slides.map((slide) => slide.id));
+    const measuredSlides = Object.fromEntries(
+      Array.from(measurementsRef.current.entries())
+        .filter(([slideId]) => currentSlideIds.has(slideId))
+        .map(([slideId, measurement]) => [
+          slideId,
+          {
+            contentHash: measurement.contentHash,
+            contentHeight: measurement.info.contentHeight,
+            contentWidth: measurement.info.contentWidth,
+            viewportHeight: measurement.info.viewportHeight,
+            viewportWidth: measurement.info.viewportWidth,
+            verticalOverflow: measurement.info.verticalOverflow,
+            horizontalOverflow: measurement.info.horizontalOverflow,
+            measuredAt: measurement.measuredAt,
+          },
+        ]),
+    );
+    const payload: DeckFitState = {
+      deckId,
+      aspectRatio: aspectRatio ?? "16:9",
+      slides: measuredSlides,
+    };
+    const body = JSON.stringify(payload);
+    for (const key of DECK_FIT_STATE_KEYS) {
+      fetch(agentNativePath(`/_agent-native/application-state/${key}`), {
+        method: "PUT",
+        keepalive: true,
+        headers: {
+          "Content-Type": "application/json",
+          "X-Request-Source": TAB_ID,
+        },
+        body,
+      }).catch(() => {});
+    }
+  }, [aspectRatio, deckId, slides]);
+
+  const handleSlideOverflowChange = useCallback(
+    (slide: Slide, info: SlideOverflowInfo) => {
+      const contentHash = hashSlideContent(slide.content);
+      measurementsRef.current.set(slide.id, {
+        contentHash,
+        info,
+        measuredAt: Date.now(),
+      });
+      if (writeTimerRef.current) clearTimeout(writeTimerRef.current);
+      writeTimerRef.current = setTimeout(() => {
+        writeTimerRef.current = null;
+        writeDeckFitState();
+      }, 0);
+    },
+    [writeDeckFitState],
+  );
+
+  useEffect(() => {
+    measurementsRef.current.clear();
+  }, [deckId, aspectRatio]);
+
+  useEffect(() => {
+    return () => {
+      if (writeTimerRef.current) clearTimeout(writeTimerRef.current);
+      for (const key of DECK_FIT_STATE_KEYS) {
+        fetch(agentNativePath(`/_agent-native/application-state/${key}`), {
+          method: "DELETE",
+          keepalive: true,
+          headers: { "X-Request-Source": TAB_ID },
+        }).catch(() => {});
+      }
+    };
+  }, []);
 
   // Resolve a recent-edit descriptor (`slides.<id>`) to the on-screen rect of
   // that slide's thumbnail button, relative to the scroll container, so the
@@ -682,6 +779,9 @@ export default function EditorSidebar({
               registerButtonRef={registerSlideButton}
               presenceUsers={slidePresence?.get(slide.id) ?? []}
               aspectRatio={aspectRatio}
+              onOverflowChange={(info) =>
+                handleSlideOverflowChange(slide, info)
+              }
             />
           ))}
         </SortableContext>

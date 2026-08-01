@@ -3,7 +3,17 @@ import { randomUUID } from "node:crypto";
 import { getDbExec, intType, isPostgres } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 
-export type AutomationRunStatus = "running" | "success" | "error";
+/**
+ * "interrupted" is derived at read time, never stored: a process killed
+ * mid-run cannot write its own outcome, so a row left running long past the
+ * point a run could still be alive is reported as interrupted rather than
+ * shown as permanently in-flight.
+ */
+export type AutomationRunStatus =
+  | "running"
+  | "success"
+  | "error"
+  | "interrupted";
 
 export interface AutomationRun {
   id: string;
@@ -32,6 +42,15 @@ export interface StartAutomationRunInput {
 
 const TABLE = "automation_runs";
 const MAX_ERROR_LENGTH = 500;
+
+/**
+ * Generous multiple of the runner's own 5 minute hard abort
+ * (BACKGROUND_RUN_HARD_TIMEOUT_MS). Past this, no run is still alive.
+ */
+const RUN_LIVENESS_CEILING_MS = 15 * 60_000;
+
+/** Rows kept per automation, so a per-minute schedule cannot grow forever. */
+const RUNS_RETAINED_PER_AUTOMATION = 50;
 
 let _initPromise: Promise<void> | undefined;
 
@@ -73,7 +92,13 @@ async function ensureTable(): Promise<void> {
   return _initPromise;
 }
 
-function toRun(row: Record<string, unknown>): AutomationRun {
+function toRun(row: Record<string, unknown>, now: number): AutomationRun {
+  const stored = String(row.status) as AutomationRunStatus;
+  const startedAt = Number(row.started_at);
+  const status: AutomationRunStatus =
+    stored === "running" && now - startedAt > RUN_LIVENESS_CEILING_MS
+      ? "interrupted"
+      : stored;
   return {
     id: String(row.id),
     owner: String(row.owner),
@@ -83,8 +108,8 @@ function toRun(row: Record<string, unknown>): AutomationRun {
     orgId: row.org_id == null ? null : String(row.org_id),
     runId: row.run_id == null ? null : String(row.run_id),
     threadId: row.thread_id == null ? null : String(row.thread_id),
-    status: String(row.status) as AutomationRunStatus,
-    startedAt: Number(row.started_at),
+    status,
+    startedAt,
     finishedAt: row.finished_at == null ? null : Number(row.finished_at),
     error: row.error == null ? null : String(row.error),
   };
@@ -115,7 +140,33 @@ export async function startAutomationRun(
       Date.now(),
     ],
   });
+  await pruneAutomationRuns(input.owner, input.automation);
   return id;
+}
+
+/**
+ * Drop the oldest rows for one automation once it exceeds the retention cap.
+ *
+ * Pruning on insert keeps the table bounded by the number of automations
+ * rather than by how often they run, and avoids a separate sweeper. The
+ * derived table is aliased because Postgres requires it.
+ */
+async function pruneAutomationRuns(
+  owner: string,
+  automation: string,
+): Promise<void> {
+  await getDbExec().execute({
+    sql: `DELETE FROM ${TABLE}
+          WHERE owner = ? AND automation = ? AND started_at < (
+            SELECT MIN(started_at) FROM (
+              SELECT started_at FROM ${TABLE}
+              WHERE owner = ? AND automation = ?
+              ORDER BY started_at DESC
+              LIMIT ${RUNS_RETAINED_PER_AUTOMATION}
+            ) recent
+          )`,
+    args: [owner, automation, owner, automation],
+  });
 }
 
 export async function finishAutomationRun(
@@ -161,7 +212,8 @@ export async function listAutomationRuns(options: {
           ORDER BY started_at DESC LIMIT ${limit}`,
     args: [...owners, options.automation],
   });
+  const now = Date.now();
   return (result.rows ?? []).map((row) =>
-    toRun(row as Record<string, unknown>),
+    toRun(row as Record<string, unknown>, now),
   );
 }

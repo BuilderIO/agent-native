@@ -538,6 +538,30 @@ const messages = {
     figFileTooLarge: "파일이 너무 큽니다(최대 {{maxSize}}).",
     figParseFailed: "해당 Figma 파일의 Builder 색인 생성을 시작할 수 없습니다.",
     updated: "디자인 시스템이 업데이트되었습니다",
+    sourceLabel: "소스",
+    sourceFigma: "Figma 파일",
+    sourceCode: "코드 파일",
+    sourceGitHub: "GitHub 저장소",
+    sourceMixed: "여러 소스",
+    sourceBuilder: "Builder 디자인 시스템 인텔리전스",
+    sourceIndexing: "색인 생성 중",
+    sourceIndexed: "색인 생성됨",
+    sourceUnavailable: "결과를 사용할 수 없음",
+    sourceIndexingDescription:
+      "Builder가 이 소스를 처리하고 있습니다. 준비된 결과가 여기에 표시됩니다.",
+    sourceIndexedDescription: "문서 {{docs}}개 · 토큰 {{tokens}}개 색인 생성됨",
+    sourceIndexedDocsOnly: "문서 {{docs}}개 색인 생성됨",
+    sourceIndexedTokensOnly: "토큰 {{tokens}}개 색인 생성됨",
+    sourceUnavailableDescription:
+      "Builder에서 최신 소스 결과를 불러오지 못했습니다.",
+    sourceOpenInBuilder: "Builder에서 열기",
+    loadFailed:
+      "이 디자인 시스템을 불러올 수 없습니다. 닫은 후 다시 시도하세요.",
+    otherSources: "기타",
+    otherSourcesDescription:
+      "웹사이트, 코드, 파일 또는 기존 디자인 시스템에서 연결합니다.",
+    chooseSourcePrompt: "구성할 소스 선택",
+    loading: "디자인 시스템 로드 중",
     updateFailed: "업데이트 실패",
     generationStarted: "디자인 시스템 생성 시작됨",
     generationStartedDescription:

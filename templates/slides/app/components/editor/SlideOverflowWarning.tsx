@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 
 interface SlideOverflowWarningProps {
   verticalOverflow: number;
+  horizontalOverflow?: number;
   isAskingAgentToFix: boolean;
   dismissLabel: string;
   onFix: () => void;
@@ -12,11 +13,20 @@ interface SlideOverflowWarningProps {
 
 export function SlideOverflowWarning({
   verticalOverflow,
+  horizontalOverflow = 0,
   isAskingAgentToFix,
   dismissLabel,
   onFix,
   onDismiss,
 }: SlideOverflowWarningProps) {
+  const overflowLabel = [
+    verticalOverflow > 0 ? `vertical ${verticalOverflow}px` : "",
+    horizontalOverflow > 0 ? `horizontal ${horizontalOverflow}px` : "",
+  ]
+    .filter(Boolean)
+    .join(", ");
+  const visibleOverflowLabel =
+    horizontalOverflow > 0 ? overflowLabel : `${verticalOverflow}px`;
   return (
     <div
       role="status"
@@ -27,7 +37,7 @@ export function SlideOverflowWarning({
     >
       <IconAlertTriangle className="h-3.5 w-3.5 flex-shrink-0" stroke={2} />
       <span className="leading-tight">
-        Layout overflows by {verticalOverflow}px
+        Layout overflows by {visibleOverflowLabel}
       </span>
       <Button
         size="sm"

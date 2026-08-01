@@ -15,6 +15,7 @@ import {
 } from "../agent/production-agent.js";
 import { runAgentLoopDirectWithSoftTimeout } from "../agent/run-loop-with-resume.js";
 import { resolveRunSoftTimeoutMs, startRun } from "../agent/run-manager.js";
+import { claimBackgroundRun, insertRun } from "../agent/run-store.js";
 import { attachToolSearch } from "../agent/tool-search.js";
 import {
   resolveAutomationExecutionIdentity,
@@ -326,8 +327,24 @@ async function executeBackgroundAutomation(
       const thread = await createThread(ownerEmail, { title: threadTitle });
       const runId = createRunId(options.runIdPrefix);
       await attachAutomationRunThread(historyId, thread.id, runId);
+
+      // Scheduled work is background work: it has no synchronous serverless
+      // caller waiting on it, so it must not inherit the interactive clamp
+      // (40s soft timeout, a 30s no-progress backstop at 0.75x that, and 6
+      // continuations). A dashboard render or digest legitimately spends
+      // minutes across many tool calls, and dies the first time any gap
+      // between two of them exceeds 30s — recorded as `no_progress` after
+      // several minutes of real work, because the backstop is suspended
+      // while a tool is in flight but not between tools.
+      //
+      // Hardcoded rather than `isInBackgroundFunctionRuntime()` (what
+      // webhook-handler.ts uses): a webhook can arrive on either runtime, but
+      // a scheduler tick never serves a synchronous request, so the
+      // interactive clamp never applies to it. The wider soft ceiling stays
+      // bounded by this runner's own BACKGROUND_RUN_HARD_TIMEOUT_MS abort.
       const softTimeoutMs = resolveRunSoftTimeoutMs(undefined, {
         useHostedDefault: true,
+        backgroundFunction: true,
       });
 
       const usageRef: {
@@ -335,6 +352,26 @@ async function executeBackgroundAutomation(
       } = { current: null };
       let responseText = "";
       let hardAbortTimer: ReturnType<typeof setTimeout> | null = null;
+
+      // This runner executes in-process, synchronously — there is no HTTP
+      // self-dispatch to a separate worker. Self-claim the row into
+      // 'background-processing' right away, exactly like a genuine HTTP
+      // background worker does immediately after its own insert (see
+      // production-agent.ts's `claimBackgroundWorkerRunEarly`). Without this,
+      // the row sits at dispatch_mode='background' for its whole life with no
+      // worker ever claiming it, which is indistinguishable from a lost HTTP
+      // handoff to the unclaimed-background-run sweep — it gets reaped as
+      // "background_worker_never_started" out from under a still-executing
+      // job the moment any single tool call runs past the 25s grace window.
+      await insertRun(runId, thread.id, undefined, {
+        dispatchMode: "background",
+      });
+      const claimedOwnRun = await claimBackgroundRun(runId);
+      if (!claimedOwnRun) {
+        throw new Error(
+          `Background automation "${automation.name}" (run "${runId}") could not claim its own freshly-inserted run row`,
+        );
+      }
 
       await new Promise<void>((resolve, reject) => {
         const activeRun = startRun(
@@ -365,6 +402,7 @@ async function executeBackgroundAutomation(
                 runId,
               },
               softTimeoutMs,
+              { backgroundFunction: true },
             );
           },
           async (run) => {
@@ -396,7 +434,7 @@ async function executeBackgroundAutomation(
           },
           {
             softTimeoutMs,
-            dispatchMode: "background",
+            backgroundFunction: true,
             model,
             engineName: engine.name,
           },

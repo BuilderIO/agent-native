@@ -13,6 +13,7 @@ import { createRequire } from "node:module";
 import {
   assertCredentialStoreReadable,
   canUseDeployCredentialFallbackForRequest,
+  getBuilderCredentialAuthFailure,
   getProviderCredentialAuthFailure,
   readDeployCredentialEnv,
   resolveBuilderCredentialsDetailed,
@@ -272,6 +273,70 @@ export function normalizeModelForEngine(
   );
 }
 
+type ModelResolvableEngine = Pick<
+  AgentEngine,
+  "name" | "defaultModel" | "supportedModels" | "preserveCustomModels"
+>;
+
+/**
+ * Bound an untrusted, caller-supplied model preference to this engine's own
+ * catalog. Returns `undefined` — never a substitute — when the hint names
+ * anything the engine does not already offer, so a peer can never move the run
+ * to a different provider, an unknown id, or a capability tier this engine was
+ * not going to serve on its own.
+ */
+function resolveModelHintForEngine(
+  engine: ModelResolvableEngine,
+  hint: string | null | undefined,
+): string | undefined {
+  const candidate = typeof hint === "string" ? hint.trim() : "";
+  if (!candidate || candidate === "auto") return undefined;
+  // An engine with no catalog, or one that passes custom ids through verbatim
+  // (an OpenAI-compatible gateway), cannot prove membership — so it takes no
+  // hint at all rather than forwarding an unverifiable id to a provider.
+  if (engine.preserveCustomModels || engine.supportedModels.length === 0) {
+    return undefined;
+  }
+  const normalized = normalizeModelForEngine(engine, candidate);
+  // `normalizeModelForEngine` answers `defaultModel` both for "this IS the
+  // default" and for "no idea what this is", so an unmatched hint is only
+  // distinguishable by re-checking the raw candidate. Anything else it returns
+  // is a real catalog hit.
+  const matched =
+    normalized === engine.defaultModel
+      ? engine.supportedModels.includes(candidate)
+      : engine.supportedModels.includes(normalized);
+  return matched ? normalized : undefined;
+}
+
+/**
+ * Model for a delegated (A2A) run, in strict precedence: the receiving app's
+ * explicit configuration, then its own stored setting, then the caller's hint,
+ * then the engine default. An app that pins a model keeps it; a hint only fills
+ * the gap where the receiver would otherwise take a default it never chose.
+ *
+ * A rejected hint is logged and dropped — a delegated run must never fail over
+ * a preference.
+ */
+export function resolveDelegatedRunModel(
+  engine: ModelResolvableEngine,
+  options: {
+    explicitModel?: string | null;
+    storedModel?: string | null;
+    callerModelHint?: string | null;
+  },
+): string {
+  const own = options.explicitModel ?? options.storedModel;
+  if (own) return normalizeModelForEngine(engine, own);
+  const hinted = resolveModelHintForEngine(engine, options.callerModelHint);
+  if (!hinted && options.callerModelHint) {
+    console.log(
+      `[a2a] Ignoring caller model hint "${options.callerModelHint}" — not offered by engine ${engine.name}`,
+    );
+  }
+  return normalizeModelForEngine(engine, hinted ?? engine.defaultModel);
+}
+
 /**
  * Whether models saved or read for this engine ENTRY should be preserved
  * verbatim instead of normalized against the built-in catalog.
@@ -360,10 +425,7 @@ export function detectEngineFromEnv(): AgentEngineEntry | null {
   return null;
 }
 
-async function envKeyUsableForEntry(
-  entry: AgentEngineEntry,
-  key: string,
-): Promise<boolean> {
+async function envKeyUsableForEntry(key: string): Promise<boolean> {
   if (
     !(
       canUseDeployCredentialFallbackForRequest(key) &&
@@ -372,19 +434,41 @@ async function envKeyUsableForEntry(
   ) {
     return false;
   }
-  if (entry.name === "builder") {
-    return true;
-  }
   const value = readDeployCredentialEnv(key);
   if (!value) return false;
   return !(await getProviderCredentialAuthFailure({ key, value }));
 }
 
+/**
+ * Builder's deploy-env fallback is checked as a pair, not per-key: the
+ * auth-failure marker is fingerprinted from privateKey+publicKey together
+ * (see `builderCredentialFingerprint`), so a single-key lookup can never
+ * match it. Without this, a rejected deploy-level Builder key would keep
+ * reporting "usable" through this env-only path forever — the same class of
+ * bug as the per-scope check in `credential-provider.ts`'s
+ * `isCompleteBuilderConnection`.
+ */
+async function hasUsableBuilderEnvKeys(): Promise<boolean> {
+  const privateKey = canUseDeployCredentialFallbackForRequest(
+    "BUILDER_PRIVATE_KEY",
+  )
+    ? readDeployCredentialEnv("BUILDER_PRIVATE_KEY")
+    : null;
+  const publicKey = canUseDeployCredentialFallbackForRequest(
+    "BUILDER_PUBLIC_KEY",
+  )
+    ? readDeployCredentialEnv("BUILDER_PUBLIC_KEY")
+    : null;
+  if (!privateKey || !publicKey) return false;
+  return !(await getBuilderCredentialAuthFailure({ privateKey, publicKey }));
+}
+
 async function hasUsableEnvKeys(entry: AgentEngineEntry): Promise<boolean> {
   if (!isAgentEnginePackageInstalled(entry)) return false;
   if (entry.requiredEnvVars.length === 0) return false;
+  if (entry.name === "builder") return hasUsableBuilderEnvKeys();
   for (const key of entry.requiredEnvVars) {
-    if (!(await envKeyUsableForEntry(entry, key))) return false;
+    if (!(await envKeyUsableForEntry(key))) return false;
   }
   return true;
 }

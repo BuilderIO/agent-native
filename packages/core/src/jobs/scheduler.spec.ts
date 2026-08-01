@@ -8,6 +8,7 @@ import { classifyJobResource, processRecurringJobs } from "./scheduler.js";
 
 const resourceListAllOwnersMock = vi.hoisted(() => vi.fn());
 const resourcePutMock = vi.hoisted(() => vi.fn());
+const resourceGetByPathMock = vi.hoisted(() => vi.fn());
 const createThreadMock = vi.hoisted(() => vi.fn());
 const runAgentLoopMock = vi.hoisted(() => vi.fn());
 const recordUsageMock = vi.hoisted(() => vi.fn());
@@ -28,6 +29,7 @@ vi.mock("../resources/store.js", () => ({
       : null,
   resourceListAllOwners: resourceListAllOwnersMock,
   resourcePut: resourcePutMock,
+  resourceGetByPath: resourceGetByPathMock,
   resourceGet: vi.fn(),
 }));
 
@@ -113,8 +115,10 @@ describe("processRecurringJobs", () => {
   beforeEach(() => {
     process.env = { ...originalEnv };
     vi.clearAllMocks();
-    // Default: user exists and (when checked) is an org member.
-    dbExecuteMock.mockResolvedValue({ rows: [{ "1": 1 }] });
+    // Default: user exists and (when checked) is an org member. rowsAffected: 1
+    // also lets the background run's self-claim CAS UPDATE (see
+    // background-automation-runner.ts) succeed by default.
+    dbExecuteMock.mockResolvedValue({ rows: [{ "1": 1 }], rowsAffected: 1 });
     getDbExecMock.mockReturnValue({ execute: dbExecuteMock });
     resourceListAllOwnersMock.mockResolvedValue([
       {
@@ -597,6 +601,9 @@ Post the digest.`,
     // dispatch_mode NULL falls through to RUN_STALE_MS (15s) in
     // backgroundAwareStaleCutoffSql — a window sized for a foreground run a
     // browser is streaming. Nothing streams a job, so it gets reaped mid-run.
+    // dispatch_mode now gets there via the runner's own pre-claim, not via
+    // startRun's options — see background-automation-runner.spec.ts for the
+    // dedicated self-claim regression test.
     await processRecurringJobs({
       getActions: () => ({}),
       getSystemPrompt: async () => "system",
@@ -605,9 +612,7 @@ Post the digest.`,
     });
 
     expect(startRunMock).toHaveBeenCalledOnce();
-    expect(startRunMock.mock.calls[0][4]).toEqual(
-      expect.objectContaining({ dispatchMode: "background" }),
-    );
+    expect(startRunMock.mock.calls[0][4]).not.toHaveProperty("dispatchMode");
   });
 
   it("runs the job through the resume wrapper instead of calling runAgentLoop raw", async () => {
@@ -759,6 +764,57 @@ Post the digest.`,
     expect(sendMessageToTargetMock).toHaveBeenCalledOnce();
     const putContent: string = resourcePutMock.mock.calls.at(-1)![2];
     expect(putContent).toContain("lastStatus: success");
+  });
+
+  it("keeps a schedule edited mid-run instead of restoring the pre-run copy", async () => {
+    // The run holds the frontmatter it started with. Writing that snapshot
+    // back on completion would silently undo the user's edit.
+    resourceListAllOwnersMock.mockResolvedValueOnce([
+      {
+        id: "resource-edited",
+        owner: "alice+jobs@agent-native.test",
+        path: "jobs/channel-digest.md",
+        content: `---
+schedule: "0 8 * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+createdBy: alice+jobs@agent-native.test
+---
+
+Post the digest.`,
+      },
+    ]);
+    // While the job runs, the user moves it to 9pm Tokyo and edits the body.
+    resourceGetByPathMock.mockResolvedValue({
+      id: "resource-edited",
+      owner: "alice+jobs@agent-native.test",
+      path: "jobs/channel-digest.md",
+      content: `---
+schedule: "0 21 * * *"
+timezone: Asia/Tokyo
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+createdBy: alice+jobs@agent-native.test
+---
+
+Post the revised digest.`,
+    });
+
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+    });
+
+    const putContent: string = resourcePutMock.mock.calls.at(-1)![2];
+    expect(putContent).toContain('schedule: "0 21 * * *"');
+    expect(putContent).toContain('timezone: "Asia/Tokyo"');
+    expect(putContent).toContain("Post the revised digest.");
+    expect(putContent).toContain("lastStatus: success");
+    // nextRun follows the edited schedule: 21:00 Tokyo is 12:00 UTC.
+    expect(putContent).toContain('nextRun: "');
+    expect(putContent).toMatch(/nextRun: "[\d-]+T12:00:00\.000Z"/);
   });
 
   it("resets a job stuck in lastStatus:running after 10+ minutes without executing it", async () => {

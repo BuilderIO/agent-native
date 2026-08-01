@@ -1,4 +1,5 @@
 import {
+  resourceGetByPath,
   resourceListAllOwners,
   resourcePut,
   type Resource,
@@ -283,28 +284,21 @@ async function executeJob(
       deps,
     );
 
-    // Compute from completion time so long runs cannot immediately re-fire.
-    meta.lastStatus = "success";
-    meta.nextRun = nextOccurrence(
-      meta.schedule,
-      new Date(),
-      meta.timezone,
-    ).toISOString();
-    await updateResource(resource, meta, body);
-    console.log(
-      `[recurring-jobs] Job "${jobName}" completed. Next run: ${meta.nextRun}`,
+    await recordExecutionOutcome(
+      resource,
+      { meta, body },
+      { lastRun: meta.lastRun, lastStatus: "success", lastError: undefined },
     );
+    console.log(`[recurring-jobs] Job "${jobName}" completed.`);
   } catch (err) {
-    meta.lastStatus = "error";
-    meta.lastError =
+    const lastError =
       err instanceof Error ? err.message.slice(0, 200) : "Unknown error";
-    meta.nextRun = nextOccurrence(
-      meta.schedule,
-      new Date(),
-      meta.timezone,
-    ).toISOString();
-    await updateResource(resource, meta, body);
-    console.error(`[recurring-jobs] Job "${jobName}" failed:`, meta.lastError);
+    await recordExecutionOutcome(
+      resource,
+      { meta, body },
+      { lastRun: meta.lastRun, lastStatus: "error", lastError },
+    );
+    console.error(`[recurring-jobs] Job "${jobName}" failed:`, lastError);
   }
 }
 
@@ -315,4 +309,39 @@ async function updateResource(
 ): Promise<void> {
   const content = buildJobContent(meta, body);
   await resourcePut(resource.owner, resource.path, content);
+}
+
+/** Execution bookkeeping the scheduler owns; the rest belongs to the editor. */
+type ExecutionOutcome = Pick<
+  JobFrontmatter,
+  "lastRun" | "lastCheck" | "lastStatus" | "lastError"
+>;
+
+/**
+ * Persist the result of a run without clobbering a concurrent edit.
+ *
+ * A run holds its `meta` for as long as the job takes, so writing that whole
+ * snapshot back on completion would silently revert a schedule, timezone or
+ * instruction change made while it was running. Only the execution fields are
+ * ours to write, and `nextRun` is recomputed from whatever schedule is stored
+ * now, so an edit mid-run takes effect on the next tick.
+ */
+async function recordExecutionOutcome(
+  resource: Resource,
+  fallback: { meta: JobFrontmatter; body: string },
+  outcome: ExecutionOutcome,
+): Promise<void> {
+  const latest = await resourceGetByPath(resource.owner, resource.path);
+  const current = latest ? parseJobResource(latest.content) : fallback;
+
+  const meta: JobFrontmatter = { ...current.meta, ...outcome };
+  if (meta.schedule && isValidCron(meta.schedule)) {
+    // Measured from completion so a long run cannot immediately re-fire.
+    meta.nextRun = nextOccurrence(
+      meta.schedule,
+      new Date(),
+      meta.timezone,
+    ).toISOString();
+  }
+  await updateResource(resource, meta, current.body);
 }
