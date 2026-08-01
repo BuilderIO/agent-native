@@ -202,7 +202,55 @@ export function patchCloudflareModuleNitroEntry(code: string): string {
   return patched;
 }
 
-export function configureCloudflareModuleWorkerOutput(serverDir: string): void {
+/**
+ * The D1 binding name the database layer reads. `getCloudflareD1Binding()`
+ * looks at `env.DB` and nothing else, so this is fixed rather than
+ * configurable — a renameable binding would be configuration no reader honours.
+ */
+export const CLOUDFLARE_D1_BINDING_NAME = "DB";
+
+export interface CloudflareD1BindingConfig {
+  binding: string;
+  database_name: string;
+  database_id: string;
+}
+
+/**
+ * Resolve the Worker's D1 binding from the build environment.
+ *
+ * Absent means "this Worker uses an external DATABASE_URL" — emitting a
+ * binding with a placeholder id would break its deploy. Half-configured
+ * throws: a dropped binding leaves the Worker resolving the SQLite dialect and
+ * hitting the fail-closed `better-sqlite3` stub at the first query, which reads
+ * as a missing native module rather than as missing configuration.
+ */
+export function resolveCloudflareD1Binding(
+  env: NodeJS.ProcessEnv = process.env,
+): CloudflareD1BindingConfig | null {
+  const databaseName = env.CLOUDFLARE_D1_DATABASE_NAME?.trim();
+  const databaseId = env.CLOUDFLARE_D1_DATABASE_ID?.trim();
+  if (!databaseName && !databaseId) return null;
+  if (!databaseName) {
+    throw new Error(
+      "[deploy] CLOUDFLARE_D1_DATABASE_ID is set without CLOUDFLARE_D1_DATABASE_NAME — set both to bind D1, or neither to use DATABASE_URL",
+    );
+  }
+  if (!databaseId) {
+    throw new Error(
+      "[deploy] CLOUDFLARE_D1_DATABASE_NAME is set without CLOUDFLARE_D1_DATABASE_ID — set both to bind D1, or neither to use DATABASE_URL",
+    );
+  }
+  return {
+    binding: CLOUDFLARE_D1_BINDING_NAME,
+    database_name: databaseName,
+    database_id: databaseId,
+  };
+}
+
+export function configureCloudflareModuleWorkerOutput(
+  serverDir: string,
+  env: NodeJS.ProcessEnv = process.env,
+): void {
   const configPath = path.join(serverDir, "wrangler.json");
   if (!fs.existsSync(configPath)) {
     throw new Error(
@@ -230,6 +278,16 @@ export function configureCloudflareModuleWorkerOutput(serverDir: string): void {
   config.compatibility_flags = [
     ...new Set([...compatibilityFlags, "nodejs_compat"]),
   ];
+  const d1Binding = resolveCloudflareD1Binding(env);
+  if (d1Binding) {
+    const existing = Array.isArray(config.d1_databases)
+      ? (config.d1_databases as CloudflareD1BindingConfig[])
+      : [];
+    config.d1_databases = [
+      ...existing.filter((entry) => entry?.binding !== d1Binding.binding),
+      d1Binding,
+    ];
+  }
   fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
   fs.writeFileSync(
     nitroEntryPath,

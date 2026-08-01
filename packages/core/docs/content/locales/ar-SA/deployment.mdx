@@ -323,6 +323,14 @@ export default defineConfig({
 });
 ```
 
+### Cloudflare D1 {#cloudflare-d1}
+
+لا يملك الـ Worker نظام ملفات، لذلك تكون قاعدة البيانات إما `DATABASE_URL`
+خارجيًا أو Cloudflare D1. اضبط `CLOUDFLARE_D1_DATABASE_NAME` و
+`CLOUDFLARE_D1_DATABASE_ID` معًا في بيئة البناء ليكتب البناء ربط `DB` في
+`wrangler.json` المُولَّد؛ ضبط أحدهما فقط يُعدّ خطأً بدلًا من إسقاط الربط
+بصمت. راجع دليل النشر بالإنجليزية للحصول على تسلسل التشغيل المحلي كاملًا.
+
 ## AWS لامدا {#aws-lambda}
 
 ```ts

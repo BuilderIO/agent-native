@@ -1,7 +1,42 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
-import { configureLocalSqlite, getAuthSecret } from "./better-auth-instance.js";
+import {
+  configureLocalSqlite,
+  currentD1AuthBinding,
+  getAuthSecret,
+} from "./better-auth-instance.js";
 import { deriveServerSecret } from "./derived-secret.js";
+
+describe("currentD1AuthBinding", () => {
+  const runtime = globalThis as Record<string, any>;
+
+  afterEach(() => {
+    delete runtime.__cf_env;
+  });
+
+  it("names the missing binding instead of failing inside a native stub", () => {
+    delete runtime.__cf_env;
+    const binding = currentD1AuthBinding() as { prepare?: unknown };
+
+    expect(() => binding.prepare).toThrow(
+      /no D1 database is bound to `env.DB`/,
+    );
+  });
+
+  it("follows the binding of the invocation making the call", () => {
+    const first = { prepare: vi.fn(() => "first") };
+    const second = { prepare: vi.fn(() => "second") };
+    runtime.__cf_env = { DB: first };
+
+    // Resolved once, as Better Auth does when it builds its cached instance.
+    const binding = currentD1AuthBinding() as { prepare: () => string };
+    expect(binding.prepare()).toBe("first");
+
+    runtime.__cf_env = { DB: second };
+    expect(binding.prepare()).toBe("second");
+    expect(first.prepare).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe("configureLocalSqlite", () => {
   it("waits for competing app writes before giving up", () => {

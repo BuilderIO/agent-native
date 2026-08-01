@@ -323,6 +323,15 @@ export default defineConfig({
 });
 ```
 
+### Cloudflare D1 {#cloudflare-d1}
+
+Worker에는 파일 시스템이 없으므로 데이터베이스는 외부 `DATABASE_URL`이거나
+Cloudflare D1입니다. 빌드 환경에서 `CLOUDFLARE_D1_DATABASE_NAME`과
+`CLOUDFLARE_D1_DATABASE_ID`를 함께 설정하면 빌드가 생성된
+`wrangler.json`에 `DB` 바인딩을 기록합니다. 둘 중 하나만 설정하는 것은
+바인딩을 조용히 생략하는 대신 오류로 처리됩니다. 전체 로컬 기동 순서는 영어
+배포 가이드를 참고하세요.
+
 ## AWS 람다 {#aws-lambda}
 
 ```ts

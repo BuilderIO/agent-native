@@ -323,6 +323,15 @@ export default defineConfig({
 });
 ```
 
+### Cloudflare D1 {#cloudflare-d1}
+
+Worker के पास फ़ाइल सिस्टम नहीं होता, इसलिए डेटाबेस या तो बाहरी
+`DATABASE_URL` होता है या Cloudflare D1। बिल्ड परिवेश में
+`CLOUDFLARE_D1_DATABASE_NAME` और `CLOUDFLARE_D1_DATABASE_ID` दोनों सेट करें
+ताकि बिल्ड जनरेट की गई `wrangler.json` में `DB` बाइंडिंग लिखे; इनमें से
+केवल एक सेट करना त्रुटि है, चुपचाप छोड़ी गई बाइंडिंग नहीं। पूरा लोकल ब्रिंग-अप
+क्रम अंग्रेज़ी डिप्लॉयमेंट गाइड में है।
+
 ## AWS लैम्ब्डा {#aws-lambda}
 
 ```ts

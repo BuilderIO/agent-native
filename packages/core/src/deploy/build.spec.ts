@@ -25,6 +25,8 @@ import {
   CLOUDFLARE_WORKER_STUB_MODULES,
   CLOUDFLARE_WORKER_STUB_SUBPATH_MODULES,
   CLOUDFLARE_UNRESOLVED_NATIVE_STUBS,
+  CLOUDFLARE_D1_BINDING_NAME,
+  resolveCloudflareD1Binding,
   cloudflareModuleStubSource,
   cloudflareUnresolvedNativeStubSource,
   cloudflareWorkerStubAliasArgs,
@@ -62,6 +64,10 @@ const DEFAULT_SSR_CACHE_CONTROL =
 const DEFAULT_SSR_CDN_CACHE_CONTROL = DEFAULT_SSR_CACHE_CONTROL;
 const DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL = DEFAULT_SSR_CACHE_CONTROL;
 const tempDirs: string[] = [];
+
+/** Minified shape of Nitro's Cloudflare module handler factory. */
+const NITRO_MODULE_ENTRY_SOURCE =
+  'function ki(e){let t=Ei(),n=Di();return{async fetch(n,r,i){globalThis.__env__=r,g(n,{env:r,context:i});return await t.fetch(n)},scheduled(e,t,r){r.waitUntil(n.callHook("scheduled",e))}}';
 
 describe("nitroNoExternalsForPreset", () => {
   it("leaves Yjs external for the controlled serverless bundling pass", () => {
@@ -148,6 +154,123 @@ describe("Cloudflare module Worker entry", () => {
     expect(
       fs.readFileSync(path.join(serverDir, "index.mjs"), "utf8"),
     ).toContain("t??=Ei();");
+  });
+});
+
+describe("Cloudflare module Worker D1 binding", () => {
+  it("emits no binding when the build environment names no database", () => {
+    expect(resolveCloudflareD1Binding({})).toBeNull();
+  });
+
+  it("binds the database core actually reads", () => {
+    expect(
+      resolveCloudflareD1Binding({
+        CLOUDFLARE_D1_DATABASE_NAME: "design-local",
+        CLOUDFLARE_D1_DATABASE_ID: "00000000-0000-0000-0000-000000000000",
+      }),
+    ).toEqual({
+      binding: CLOUDFLARE_D1_BINDING_NAME,
+      database_name: "design-local",
+      database_id: "00000000-0000-0000-0000-000000000000",
+    });
+  });
+
+  it("refuses a half-configured database instead of dropping the binding", () => {
+    expect(() =>
+      resolveCloudflareD1Binding({
+        CLOUDFLARE_D1_DATABASE_NAME: "design-local",
+      }),
+    ).toThrow(/CLOUDFLARE_D1_DATABASE_ID/);
+    expect(() =>
+      resolveCloudflareD1Binding({ CLOUDFLARE_D1_DATABASE_ID: "abc" }),
+    ).toThrow(/CLOUDFLARE_D1_DATABASE_NAME/);
+  });
+
+  it("writes the binding into the generated Wrangler config", () => {
+    const serverDir = makeTempDir();
+    fs.writeFileSync(
+      path.join(serverDir, "wrangler.json"),
+      JSON.stringify({ main: "index.mjs", assets: { binding: "ASSETS" } }),
+    );
+    fs.writeFileSync(
+      path.join(serverDir, "index.mjs"),
+      NITRO_MODULE_ENTRY_SOURCE,
+    );
+
+    configureCloudflareModuleWorkerOutput(serverDir, {
+      CLOUDFLARE_D1_DATABASE_NAME: "design-local",
+      CLOUDFLARE_D1_DATABASE_ID: "00000000-0000-0000-0000-000000000000",
+    });
+
+    expect(
+      JSON.parse(
+        fs.readFileSync(path.join(serverDir, "wrangler.json"), "utf8"),
+      ),
+    ).toMatchObject({
+      main: "worker.mjs",
+      d1_databases: [
+        {
+          binding: "DB",
+          database_name: "design-local",
+          database_id: "00000000-0000-0000-0000-000000000000",
+        },
+      ],
+    });
+  });
+
+  it("replaces only its own binding and keeps hand-added ones", () => {
+    const serverDir = makeTempDir();
+    fs.writeFileSync(
+      path.join(serverDir, "wrangler.json"),
+      JSON.stringify({
+        main: "index.mjs",
+        d1_databases: [
+          { binding: "DB", database_name: "stale", database_id: "stale-id" },
+          { binding: "ANALYTICS", database_name: "a", database_id: "a-id" },
+        ],
+      }),
+    );
+    fs.writeFileSync(
+      path.join(serverDir, "index.mjs"),
+      NITRO_MODULE_ENTRY_SOURCE,
+    );
+
+    configureCloudflareModuleWorkerOutput(serverDir, {
+      CLOUDFLARE_D1_DATABASE_NAME: "design-local",
+      CLOUDFLARE_D1_DATABASE_ID: "fresh-id",
+    });
+
+    expect(
+      JSON.parse(fs.readFileSync(path.join(serverDir, "wrangler.json"), "utf8"))
+        .d1_databases,
+    ).toEqual([
+      { binding: "ANALYTICS", database_name: "a", database_id: "a-id" },
+      {
+        binding: "DB",
+        database_name: "design-local",
+        database_id: "fresh-id",
+      },
+    ]);
+  });
+
+  it("leaves a config with no configured database untouched", () => {
+    const serverDir = makeTempDir();
+    fs.writeFileSync(
+      path.join(serverDir, "wrangler.json"),
+      JSON.stringify({ main: "index.mjs" }),
+    );
+    fs.writeFileSync(
+      path.join(serverDir, "index.mjs"),
+      NITRO_MODULE_ENTRY_SOURCE,
+    );
+
+    configureCloudflareModuleWorkerOutput(serverDir, {});
+
+    expect(
+      JSON.parse(
+        fs.readFileSync(path.join(serverDir, "wrangler.json"), "utf8"),
+      ),
+    ).not.toHaveProperty("d1_databases");
   });
 });
 

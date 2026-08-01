@@ -7,6 +7,7 @@
  * After first account exists, this page acts as a normal login page.
  */
 
+import { getDialect } from "../db/client.js";
 import { getLocaleInitScript } from "../localization/server.js";
 import {
   DEFAULT_LOCALE,
@@ -43,8 +44,11 @@ function hasGoogleOAuth(): boolean {
   return hasGoogleSignInCredentials();
 }
 
-function getConnectionLabel(): string {
+export function getConnectionLabel(): string {
   const url = process.env.DATABASE_URL || "";
+  // D1 is configured by a binding, not a url, so an unset url alone does not
+  // mean the local SQLite file — on a Worker there is no such file to mean.
+  if (!url && getDialect() === "d1") return "Cloudflare D1";
   if (!url) return "SQLite (local file)";
   if (url.startsWith("pglite:")) return "PGlite (local Postgres)";
   if (url.startsWith("postgres://") || url.startsWith("postgresql://")) {
