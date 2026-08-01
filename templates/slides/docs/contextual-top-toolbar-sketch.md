@@ -462,3 +462,135 @@ the next row-shaped surface.
 `.agents/skills/` needed no update — no skill describes the styling UI, and
 selection still syncs through `syncSelectionToAppState`, so `view-screen` and
 `slides-selection` behave exactly as before.
+
+---
+
+## 10. Google Slides pass #2 — insert, add-slide, and File
+
+Second reference screenshot (Google Slides with a deck open). This section is
+about the **stable left segment** that §3a identified but §9.2 deferred, plus
+the slide rail. Plan only — nothing here is built yet.
+
+### 10.1 What Google puts where, vs. where we put it
+
+| Google Slides                                                 | Our equivalent today                                                                                                                                                             |
+| ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `+ ▾` new slide, first item in the toolbar                    | `+` in the **slide rail header** (`EditorSidebar.tsx:747`) → `AddSlidePopover`                                                                                                   |
+| Undo / redo / print / paint-format / zoom `Fit`               | none in row 1 (history only via `⋯ → Saved versions`)                                                                                                                            |
+| Insert cluster: cursor, text box, shape, line, image, comment | scattered: `T` text box (`EditorToolbar.tsx:748`), tools popover → draw / pin (`:788`), **cog popover** → media, generate image, asset library, mermaid, Excalidraw (`:560-668`) |
+| `File` menu: import, download, version history, rename        | scattered: `⋯ → Import file` (`:990`), `⋯ → Saved versions` (`:997`), `ExportMenu` (`:902`), inline title field                                                                  |
+| Background · Layout · Theme · Transition (no-selection state) | cog popover: layout, background, transition, aspect ratio (`:494-728`)                                                                                                           |
+
+The thing worth borrowing is not the menu bar — §3a already rejected that. It
+is that **every insert lives in one predictable place**. Today, inserting an
+image or an Excalidraw canvas means opening a settings gear, which nobody would
+guess.
+
+### 10.2 Cross-check against what was already confirmed
+
+Nothing below contradicts §1's agreed scope, and two items are already-open
+questions rather than new ideas:
+
+- **Sajal:** contextual controls on top, grouped when numerous, app styling and
+  icons, no AI input box. ✔ unaffected — the insert segment is _stable_, not
+  contextual, so it does not touch the contextual half of the row.
+- **Steve:** move the right dock to a top bar, reference Google only for
+  coverage. ✔ shipped in M1–M5; the dock is retired.
+- **§3a** already concluded "keep a fixed tools segment on the left rather than
+  making the entire row contextual." This section schedules that conclusion.
+- **§8 Q3** ("which insert tools belong in the stable left segment?") and
+  **§8 Q4** ("does the row-1 cog get absorbed?") are answered here.
+- **§9.0's "strict move only"** still holds: everything below is _relocation_ of
+  existing affordances. No new capability, no new action, no schema change.
+
+### 10.3 The small first step (what was asked for)
+
+> "start small. Maybe we can get rid of this part then make the slide
+> containers on the sider objects smaller"
+
+Read as: the slide rail is doing two jobs it should not. Two independently
+shippable slices:
+
+**S1 — retire the rail header.** `EditorSidebar.tsx:738-759` is a `SLIDES`
+caption plus the `+` add button. Google has neither; a column of numbered
+thumbnails is self-evidently the slide list. Move `AddSlidePopover` to a `+ ▾`
+button at the head of the toolbar's stable segment, delete the header row. The
+rail gains ~44px of vertical space and loses one piece of chrome.
+
+**S2 — shrink the thumbnail rows.** Each row is `p-2` around three columns — a
+grip, a 20px index/presence rail, and the thumbnail (`EditorSidebar.tsx:241-289`)
+— inside a `w-56 sm:w-64` rail.
+
+```
+ before                                after
+┌────────────────────────────┐        ┌──────────────────────┐
+│ ⠿   1   ┌───────────────┐  │        │ 1 ┌────────────────┐ │
+│         │   thumbnail   │  │        │   │   thumbnail    │ │
+│         └───────────────┘  │        │   └────────────────┘ │
+└────────────────────────────┘        └──────────────────────┘
+  grip col + index col + p-2            index gutter only;
+                                        grip overlaid on hover
+```
+
+- Drop the dedicated grip column — make the row itself draggable, or overlay
+  the grip on hover instead of reserving width for it.
+- Index moves to a narrow left gutter; presence avatars overlay the thumbnail
+  corner instead of owning a column.
+- `p-2` → `p-1.5`; `space-y-1` unchanged.
+- Rail `w-56 sm:w-64` → `w-48 sm:w-52`. That width is the actual "smaller
+  containers" win — the canvas gets the difference.
+
+**Watch for:** the rail's `SlideRenderer` feeds `deck-fit-checks` app state via
+`onOverflowChange` (`EditorSidebar.tsx:634`). Thumbnails are CSS-scaled rather
+than re-rendered at a new size, so measurements should stay valid — but verify
+it, because a wrong `viewportWidth` there makes the agent's overflow checks lie.
+`resolveThumbRect` (`:671`) reads the button rect, so the recent-edit highlight
+follows automatically.
+
+### 10.4 Then: the stable insert segment
+
+`SlideContextToolbar` already owns the row, so this is a new leading cluster,
+not a new surface:
+
+```
+│ + ▾ │ ⌖ T ▭ ╱ 🖼 ✎ 💬 │ ⌇ │ …contextual (unchanged)… │
+  add   insert cluster
+```
+
+- `+ ▾` — add slide: empty, duplicate, or AI (today's `AddSlidePopover`).
+- Insert — text box (from `EditorToolbar.tsx:748`), image / generate image /
+  asset library (from the cog), shape, line, Excalidraw + mermaid (from the
+  cog), pin comment (from the tools popover).
+- The cog then keeps only true slide properties — layout, background,
+  transition, aspect ratio — or those fold into the no-selection contextual
+  state per §4a and the cog disappears entirely. Prefer the latter; that is the
+  answer to §8 Q4.
+
+### 10.5 And: a File group
+
+Google's `File` menu maps almost 1:1 onto affordances we already ship but have
+scattered. Grouping them behind one labelled entry (our styling, a `Popover`,
+not a menu bar):
+
+- Import file → `⋯ → Import file` (`EditorToolbar.tsx:990`)
+- Download / export → `ExportMenu` (`:902`)
+- Version history → `⋯ → Saved versions` (`:997`)
+- Rename → stays inline in the title field; listed here for discoverability
+
+Pure regrouping. `Present` and `Share` stay standalone — they are the two most
+clicked actions and burying them would be a regression.
+
+### 10.6 Order, and what is still undecided
+
+Ship order: **S1 → S2 → §10.4 → §10.5**. S1 and S2 are small, visible, and
+reversible, and they make the case for §10.4 — once `+` is in the toolbar, the
+insert cluster wants to sit next to it.
+
+Open:
+
+1. Does toolbar `+ ▾` fully replace rail-header add, or does the rail keep an
+   "insert slide here" affordance between thumbnails on hover?
+2. Should rail width be a user preference (draggable / collapsible) rather than
+   a constant? `EditorToolbar.tsx:430` already has a rail show/hide toggle.
+3. Undo / redo — Google has them in the toolbar; we have them nowhere. Net-new,
+   out of scope here, but this section makes their absence more visible.
