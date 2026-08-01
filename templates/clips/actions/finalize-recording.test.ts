@@ -19,6 +19,7 @@ const mockState = vi.hoisted(() => ({
 }));
 
 const mockUploadFile = vi.hoisted(() => vi.fn());
+const mockFetchS3ObjectByUrl = vi.hoisted(() => vi.fn());
 const mockDispatchPostFinalizeJob = vi.hoisted(() =>
   vi.fn(async () => undefined),
 );
@@ -158,6 +159,10 @@ vi.mock("../server/lib/streaming-upload-mode.js", () => ({
   isStreamingUploadDisabled: vi.fn(() => false),
 }));
 
+vi.mock("../server/lib/s3-upload-provider.js", () => ({
+  fetchS3ObjectByUrl: (...args: unknown[]) => mockFetchS3ObjectByUrl(...args),
+}));
+
 vi.mock("../server/lib/video-remux.js", () => ({
   probeHasAudioStream: vi.fn(async () => null),
   remuxWebmToSeekable: vi.fn(async (bytes: Uint8Array) => ({
@@ -294,7 +299,41 @@ describe("finalize-recording media serve verification", () => {
     mockUploadFile.mockResolvedValue({
       url: "https://cdn.builder.io/api/v1/file/assets%2Forg%2Frec_1",
     });
+    mockFetchS3ObjectByUrl.mockResolvedValue(null);
     vi.stubGlobal("fetch", vi.fn());
+  });
+
+  it("verifies private S3 uploads with scoped credentials instead of the public URL", async () => {
+    seedBufferedRecording();
+    const videoUrl =
+      "https://clips.example.com/api/storage/clips/recording.webm";
+    mockUploadFile.mockResolvedValue({ url: videoUrl, provider: "s3" });
+    mockFetchS3ObjectByUrl.mockResolvedValue(
+      new Response("ok", {
+        status: 206,
+        headers: { "content-range": "bytes 0-1/11" },
+      }),
+    );
+    vi.mocked(fetch).mockRejectedValue(new TypeError("public read blocked"));
+
+    const result = await finalizeRecording.run({
+      id: "rec_1",
+      mimeType: "video/webm",
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        id: "rec_1",
+        status: "ready",
+        videoUrl,
+        videoSizeBytes: 11,
+      }),
+    );
+    expect(mockFetchS3ObjectByUrl).toHaveBeenCalledWith(videoUrl, {
+      range: "bytes=0-1023",
+      timeoutMs: 8_000,
+    });
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("keeps the recording processing and schedules durable verification when uploaded media stays unservable", async () => {

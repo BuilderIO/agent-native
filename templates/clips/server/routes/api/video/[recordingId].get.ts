@@ -65,6 +65,7 @@ import {
 } from "../../../../shared/loom.js";
 import { getDb, schema } from "../../../db/index.js";
 import { getOrganizationRoleForEmail } from "../../../lib/recordings.js";
+import { fetchS3ObjectByUrl } from "../../../lib/s3-upload-provider.js";
 import { verifySharePassword } from "../../../lib/share-password.js";
 
 interface RecordingRow {
@@ -453,7 +454,13 @@ export default defineEventHandler(async (event: H3Event) => {
 
         let upstream: Response | { error: string; status: number };
         try {
-          upstream = await fetchProviderMedia(sourceUrl, rangeHeader);
+          upstream =
+            (await fetchS3ObjectByUrl(sourceUrl, {
+              range: rangeHeader?.startsWith("bytes=")
+                ? rangeHeader
+                : undefined,
+              timeoutMs: PROVIDER_MEDIA_FETCH_TIMEOUT_MS,
+            })) ?? (await fetchProviderMedia(sourceUrl, rangeHeader));
         } catch (err) {
           setResponseStatus(event, statusCodeForProviderFetchError(err));
           return { error: messageForProviderFetchError(err) };

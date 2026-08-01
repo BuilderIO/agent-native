@@ -199,6 +199,7 @@ async function signedS3Request(
     query?: Record<string, string>;
     body?: Uint8Array;
     contentType?: string;
+    range?: string;
     timeoutMs: number;
   },
 ): Promise<Response> {
@@ -264,6 +265,9 @@ async function signedS3Request(
         Authorization: authorization,
         ...(options.body
           ? { "Content-Length": String(options.body.byteLength) }
+          : {}),
+        ...(options.range?.startsWith("bytes=")
+          ? { Range: options.range }
           : {}),
       },
       ...(options.body
@@ -348,6 +352,18 @@ function objectKeyFromUrl(cfg: S3Config, rawUrl: string): string | null {
   const encodedKey = url.pathname.slice(bucketPath.length);
   if (!encodedKey) return null;
   return decodeUrlPathSegment(encodedKey);
+}
+
+function isCompletedClipObjectKey(key: string): boolean {
+  if (!key.startsWith("clips/") || key.length > 1024) return false;
+  if (key.includes("\\") || key.includes("\0")) return false;
+  const segments = key.split("/");
+  if (
+    segments.some((segment) => !segment || segment === "." || segment === "..")
+  ) {
+    return false;
+  }
+  return !key.startsWith("clips/.multipart/") && !key.endsWith(".pending");
 }
 
 async function deleteObject(cfg: S3Config, key: string): Promise<void> {
@@ -559,6 +575,21 @@ export async function deleteS3ObjectByUrl(url: string): Promise<boolean> {
   if (!key) return false;
   await deleteObject(cfg, key);
   return true;
+}
+
+export async function fetchS3ObjectByUrl(
+  url: string,
+  options?: { range?: string; timeoutMs?: number },
+): Promise<Response | null> {
+  const cfg = await readS3Config();
+  if (!cfg) return null;
+  const key = objectKeyFromUrl(cfg, url);
+  if (!key || !isCompletedClipObjectKey(key)) return null;
+  return signedS3Request(cfg, key, {
+    method: "GET",
+    range: options?.range,
+    timeoutMs: options?.timeoutMs ?? S3_PUT_TIMEOUT_MS,
+  });
 }
 
 // ── Provider ──────────────────────────────────────────────────────────

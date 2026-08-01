@@ -17,6 +17,7 @@ const mockRunWithRequestContext = vi.hoisted(() => vi.fn());
 const mockSignShortLivedToken = vi.hoisted(() => vi.fn());
 const mockVerifyShortLivedToken = vi.hoisted(() => vi.fn());
 const mockGetDb = vi.hoisted(() => vi.fn());
+const mockFetchS3ObjectByUrl = vi.hoisted(() => vi.fn());
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
@@ -83,6 +84,10 @@ vi.mock("../../../db/index.js", () => ({
   },
 }));
 
+vi.mock("../../../lib/s3-upload-provider.js", () => ({
+  fetchS3ObjectByUrl: (...args: unknown[]) => mockFetchS3ObjectByUrl(...args),
+}));
+
 import {
   isLoomEmbedBackedRecording,
   loomEmbedUrlForRecording,
@@ -147,6 +152,7 @@ describe("/api/video/:recordingId route", () => {
     );
     mockSignShortLivedToken.mockReturnValue("renewed-token");
     mockVerifyShortLivedToken.mockReturnValue({ ok: false, reason: "expired" });
+    mockFetchS3ObjectByUrl.mockResolvedValue(null);
     mockResolveAccess.mockResolvedValue({
       role: "viewer",
       resource: {
@@ -184,6 +190,49 @@ describe("/api/video/:recordingId route", () => {
 
     expect(event.status).toBe(504);
     expect(result).toEqual({ error: "Recording media fetch timed out." });
+  });
+
+  it("reads configured S3 media directly instead of rejecting its public URL as SSRF", async () => {
+    const sourceUrl =
+      "https://clips.example.com/api/storage/clips/recording.webm";
+    mockResolveAccess.mockResolvedValue({
+      role: "owner",
+      resource: {
+        visibility: "public",
+        password: null,
+        expiresAt: null,
+        videoUrl: sourceUrl,
+      },
+    });
+    mockGetRequestHeader.mockImplementation((event, name) => {
+      if (String(name).toLowerCase() === "range") return "bytes=0-31";
+      return event.headers.get(String(name).toLowerCase()) ?? undefined;
+    });
+    mockIsBlockedExtensionUrlWithDns.mockResolvedValue(true);
+    mockFetchS3ObjectByUrl.mockResolvedValue(
+      new Response("s3 media", {
+        status: 206,
+        headers: {
+          "accept-ranges": "bytes",
+          "content-range": "bytes 0-31/100",
+          "content-type": "video/webm",
+        },
+      }),
+    );
+
+    const result = await handler(makeEvent() as any);
+
+    expect(result).toBeInstanceOf(Response);
+    expect((result as Response).status).toBe(206);
+    expect((result as Response).headers.get("content-range")).toBe(
+      "bytes 0-31/100",
+    );
+    expect(mockFetchS3ObjectByUrl).toHaveBeenCalledWith(sourceUrl, {
+      range: "bytes=0-31",
+      timeoutMs: 30_000,
+    });
+    expect(mockIsBlockedExtensionUrlWithDns).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("serves only the persisted media URL until compression is published", async () => {

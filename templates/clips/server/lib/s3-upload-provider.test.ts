@@ -8,6 +8,7 @@ vi.mock("@agent-native/core/server", () => ({
 
 import {
   deleteS3ObjectByUrl,
+  fetchS3ObjectByUrl,
   s3FileUploadProvider,
 } from "./s3-upload-provider.js";
 
@@ -110,6 +111,69 @@ describe("s3FileUploadProvider", () => {
     await expect(
       deleteS3ObjectByUrl("https://loom.com/share/not-owned"),
     ).resolves.toBe(false);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("reads configured public URLs with scoped credentials and forwards byte ranges", async () => {
+    const values: Record<string, string> = {
+      S3_BUCKET: "clips-bucket",
+      S3_ACCESS_KEY_ID: "access",
+      S3_SECRET_ACCESS_KEY: "secret",
+      S3_ENDPOINT: "https://s3.example.com",
+      S3_REGION: "us-east-1",
+      S3_PUBLIC_BASE_URL: "https://clips.example.com/api/storage",
+    };
+    mockResolveSecret.mockImplementation(async (key: string) => {
+      return values[key] ?? null;
+    });
+    const fetchMock = vi.fn(
+      async () =>
+        new Response("media", {
+          status: 206,
+          headers: { "content-range": "bytes 0-31/100" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      fetchS3ObjectByUrl(
+        "https://clips.example.com/api/storage/clips/recording.webm",
+        { range: "bytes=0-31" },
+      ),
+    ).resolves.toEqual(expect.objectContaining({ status: 206 }));
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://s3.example.com/clips-bucket/clips/recording.webm",
+      expect.objectContaining({
+        method: "GET",
+        headers: expect.objectContaining({
+          Authorization: expect.stringContaining("AWS4-HMAC-SHA256"),
+          Range: "bytes=0-31",
+        }),
+      }),
+    );
+  });
+
+  it("does not expose multipart staging objects through signed reads", async () => {
+    const values: Record<string, string> = {
+      S3_BUCKET: "clips-bucket",
+      S3_ACCESS_KEY_ID: "access",
+      S3_SECRET_ACCESS_KEY: "secret",
+      S3_ENDPOINT: "https://s3.example.com",
+      S3_PUBLIC_BASE_URL: "https://clips.example.com/api/storage",
+    };
+    mockResolveSecret.mockImplementation(async (key: string) => {
+      return values[key] ?? null;
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      fetchS3ObjectByUrl(
+        "https://clips.example.com/api/storage/clips/.multipart/recording.webm.pending",
+      ),
+    ).resolves.toBeNull();
 
     expect(fetchMock).not.toHaveBeenCalled();
   });

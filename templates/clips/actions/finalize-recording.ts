@@ -48,6 +48,7 @@ import {
   getResumableSession,
 } from "../server/lib/resumable-session.js";
 import { resolveResumableUploadProvider } from "../server/lib/resumable-upload-provider.js";
+import { fetchS3ObjectByUrl } from "../server/lib/s3-upload-provider.js";
 import { isStreamingUploadDisabled } from "../server/lib/streaming-upload-mode.js";
 import {
   probeHasAudioStream,
@@ -196,11 +197,16 @@ async function verifyServedMediaUrl(videoUrl: string): Promise<number | null> {
       MEDIA_SERVE_VERIFICATION_TIMEOUT_MS,
     );
     try {
-      const response = await fetch(videoUrl, {
-        method: "GET",
-        headers: { Range: "bytes=0-1023" },
-        signal: controller.signal,
-      });
+      const response =
+        (await fetchS3ObjectByUrl(videoUrl, {
+          range: "bytes=0-1023",
+          timeoutMs: MEDIA_SERVE_VERIFICATION_TIMEOUT_MS,
+        })) ??
+        (await fetch(videoUrl, {
+          method: "GET",
+          headers: { Range: "bytes=0-1023" },
+          signal: controller.signal,
+        }));
       const statusOk = response.status === 200 || response.status === 206;
       if (statusOk) {
         const servedBytes = servedMediaSizeBytes(response);
