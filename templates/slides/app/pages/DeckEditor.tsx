@@ -180,6 +180,7 @@ export default function DeckEditor() {
   const [sidebarOpen, setSidebarOpen] = useState(
     () => typeof window !== "undefined" && window.innerWidth >= 768,
   );
+  const [addSlideGenerating, setAddSlideGenerating] = useState(false);
   const [retryingMissingDeck, setRetryingMissingDeck] = useState(false);
   const [checkedDeckAccessKey, setCheckedDeckAccessKey] = useState<
     string | null
@@ -1018,6 +1019,23 @@ export default function DeckEditor() {
             updateDeck(id, { aspectRatio: previous });
           });
         }}
+        currentSlideId={currentSlide?.id}
+        addSlideGenerating={addSlideGenerating}
+        onAddSlideGeneratingChange={setAddSlideGenerating}
+        onAddEmptySlide={() => {
+          const activeIdx = deck.slides.findIndex(
+            (s) => s.id === activeSlideId,
+          );
+          const newId = addSlide(
+            id,
+            "blank",
+            activeIdx >= 0 ? activeIdx : undefined,
+          );
+          setActiveSlideId(newId);
+        }}
+        onDuplicateCurrentSlide={
+          currentSlide ? () => duplicateSlide(id, currentSlide.id) : undefined
+        }
       />
 
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
@@ -1037,23 +1055,11 @@ export default function DeckEditor() {
                   slides={deck.slides}
                   activeSlideId={currentSlide?.id || ""}
                   deckId={id}
-                  deckTitle={deck.title}
                   onSelectSlide={(slideId) => {
                     setActiveSlideId(slideId);
                     if (window.innerWidth < 768) setSidebarOpen(false);
                   }}
                   onDuplicateSlide={(slideId) => duplicateSlide(id, slideId)}
-                  onAddEmptySlide={() => {
-                    const activeIdx = deck.slides.findIndex(
-                      (s) => s.id === activeSlideId,
-                    );
-                    const newId = addSlide(
-                      id,
-                      "blank",
-                      activeIdx >= 0 ? activeIdx : undefined,
-                    );
-                    setActiveSlideId(newId);
-                  }}
                   onDeleteSlide={(slideId) => {
                     const idx = deck.slides.findIndex((s) => s.id === slideId);
                     const nextSlide =
@@ -1061,6 +1067,7 @@ export default function DeckEditor() {
                     deleteSlideWithUndo(id, slideId);
                     if (nextSlide) setActiveSlideId(nextSlide.id);
                   }}
+                  addSlideGenerating={addSlideGenerating}
                   readOnly={!canEdit}
                   slidePresence={slidePresence}
                   recentEdits={deckRecentEdits}

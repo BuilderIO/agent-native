@@ -34,6 +34,7 @@ import {
   IconMoon,
   IconDotsVertical,
   IconLoader2,
+  IconPlus,
 } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
 import { useState, useRef, useEffect } from "react";
@@ -57,6 +58,7 @@ import {
 import { SaveStatusIndicator } from "@/components/visual-editor";
 import type { Deck, Slide, SlideLayout } from "@/context/DeckContext";
 import { defaultSlideContent, useSaveState } from "@/context/DeckContext";
+import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import {
   ASPECT_RATIO_VALUES,
   type AspectRatio,
@@ -65,6 +67,7 @@ import {
 import type { GoogleSlidesExportResult } from "@/lib/export-google-slides-client";
 import { parseUploadResponse } from "@/lib/upload-response";
 
+import { AddSlidePopover } from "./AddSlidePopover";
 import { ExportMenu } from "./ExportMenu";
 interface EditorToolbarProps {
   deck: Deck;
@@ -134,6 +137,16 @@ interface EditorToolbarProps {
   aspectRatio?: AspectRatio;
   /** Change the deck's aspect ratio */
   onSetAspectRatio?: (ratio: AspectRatio) => void;
+  /** Insert a blank slide after the current one */
+  onAddEmptySlide?: () => void;
+  /** Duplicate the current slide */
+  onDuplicateCurrentSlide?: () => void;
+  /** Id of the current slide, so an agent add-slide lands in the right place */
+  currentSlideId?: string;
+  /** True while an agent add-slide request is in flight */
+  addSlideGenerating?: boolean;
+  /** Called when an agent add-slide request is submitted */
+  onAddSlideGeneratingChange?: (generating: boolean) => void;
 }
 
 const slideLayoutOptions: { value: SlideLayout; labelKey: string }[] = [
@@ -262,6 +275,11 @@ export default function EditorToolbar({
   onExportGoogleSlides,
   aspectRatio,
   onSetAspectRatio,
+  onAddEmptySlide,
+  onDuplicateCurrentSlide,
+  currentSlideId,
+  addSlideGenerating = false,
+  onAddSlideGeneratingChange,
   canEdit = true,
 }: EditorToolbarProps) {
   const t = useT();
@@ -310,6 +328,12 @@ export default function EditorToolbar({
     setLayoutOpen(false);
   };
   const [toolsOpen, setToolsOpen] = useState(false);
+  const [addSlideOpen, setAddSlideOpen] = useState(false);
+  const addSlideRef = useRef<HTMLButtonElement>(null);
+  const { generating, submit: agentSubmit } = useAgentGenerating();
+  useEffect(() => {
+    if (!generating) onAddSlideGeneratingChange?.(false);
+  }, [generating, onAddSlideGeneratingChange]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const { setTheme, resolvedTheme } = useTheme();
@@ -434,6 +458,52 @@ export default function EditorToolbar({
         </TooltipTrigger>
         <TooltipContent>{t("editorToolbar.toggleSlideList")}</TooltipContent>
       </Tooltip>
+
+      {/* Add slide — leads the toolbar, as in Google Slides, so inserting a
+       * slide is a deck-level action rather than slide-rail chrome. */}
+      {canEdit && (
+        <>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                ref={addSlideRef}
+                type="button"
+                onClick={() => setAddSlideOpen((open) => !open)}
+                disabled={addSlideGenerating}
+                className={`${TOOLBAR_ICON_BUTTON_CLASS} ${
+                  addSlideOpen
+                    ? "bg-accent text-foreground"
+                    : "text-muted-foreground hover:bg-accent hover:text-foreground/70"
+                }`}
+                aria-label={t("editorSidebar.addSlides")}
+              >
+                {addSlideGenerating ? (
+                  <IconLoader2 className="size-4 animate-spin" />
+                ) : (
+                  <IconPlus className="size-4" />
+                )}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{t("editorSidebar.addSlides")}</TooltipContent>
+          </Tooltip>
+          <AddSlidePopover
+            open={addSlideOpen}
+            onOpenChange={setAddSlideOpen}
+            anchorRef={addSlideRef}
+            deckId={deckId}
+            deckTitle={deckTitle}
+            activeSlideId={currentSlideId ?? ""}
+            slideCount={slideCount}
+            activeSlideIndex={currentSlideIndex}
+            agentSubmit={(message, context) => {
+              onAddSlideGeneratingChange?.(true);
+              agentSubmit(message, context);
+            }}
+            onDuplicateCurrent={onDuplicateCurrentSlide}
+            onAddEmpty={onAddEmptySlide}
+          />
+        </>
+      )}
 
       {/* Deck title */}
       <input

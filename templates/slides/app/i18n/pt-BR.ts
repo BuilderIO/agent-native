@@ -503,7 +503,6 @@ const messages = {
     noAi: "sin AI",
     duplicateCurrentSlide: "Duplicar diapositiva actual",
     promptPlaceholder: "Describe las diapositivas que quieres...",
-    slides: "Diapositivas",
   },
   presentation: {
     presenterView: "Modo apresentador",

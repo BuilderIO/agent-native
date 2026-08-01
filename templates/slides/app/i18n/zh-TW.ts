@@ -480,7 +480,6 @@ const messages = {
     noAi: "無 AI",
     duplicateCurrentSlide: "複製目前幻燈片",
     promptPlaceholder: "描述你想要的幻燈片...",
-    slides: "幻燈片",
   },
   presentation: {
     presenterView: "簡報者檢視",

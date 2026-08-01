@@ -485,7 +485,6 @@ const messages = {
     noAi: "无 AI",
     duplicateCurrentSlide: "复制当前幻灯片",
     promptPlaceholder: "描述你想要的幻灯片...",
-    slides: "幻灯片",
   },
   presentation: {
     presenterView: "演讲者视图",

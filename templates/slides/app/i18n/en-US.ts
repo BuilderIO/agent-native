@@ -497,7 +497,6 @@ const messages = {
     noAi: "no AI",
     duplicateCurrentSlide: "Duplicate current slide",
     promptPlaceholder: "Describe the slides you want...",
-    slides: "Slides",
   },
   presentation: {
     presenterView: "Presenter view",

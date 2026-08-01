@@ -503,7 +503,14 @@ questions rather than new ideas:
 - **§9.0's "strict move only"** still holds: everything below is _relocation_ of
   existing affordances. No new capability, no new action, no schema change.
 
-### 10.3 The small first step (what was asked for)
+### 10.3 The small first step (what was asked for) — **shipped**
+
+S1 and S2 below both landed. `AddSlidePopover` moved out of `EditorSidebar.tsx`
+into its own `AddSlidePopover.tsx` and is now triggered by a `+` at the head of
+the toolbar; `addSlideGenerating` lifted to `DeckEditor.tsx` so the toolbar owns
+the trigger while the rail still shows the generating placeholder. The rail
+header is gone, the drag handle is a hover overlay instead of a reserved column,
+and the rail is `w-48 sm:w-52`.
 
 > "start small. Maybe we can get rid of this part then make the slide
 > containers on the sider objects smaller"
