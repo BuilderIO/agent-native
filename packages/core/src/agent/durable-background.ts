@@ -127,8 +127,31 @@ function isNetlifyHostedRuntimeForDispatch(): boolean {
 }
 
 /**
- * Resolve the path the foreground POST should self-dispatch the chat background
- * worker to.
+ * Where a durable background run is handed off, as ONE typed value.
+ *
+ * The transport and the runtime expectation travel together because they are
+ * one decision: a caller that knows the transport must not have to re-derive
+ * from the path string whether the receiving worker gets the long budget.
+ *
+ * - `http` — POST to a host function url that carries its own long budget
+ *   (today: the emitted Netlify background function).
+ * - `queue` — hand the run to a host queue; the consumer carries the budget, so
+ *   there is no path to POST to. Nothing resolves here yet.
+ * - `inline-route` — the portable in-process framework route. Same isolate,
+ *   same clamp: no long budget is implied.
+ */
+export type BackgroundDispatchTarget =
+  | { kind: "http"; path: string; expectsBackgroundRuntime: boolean }
+  | { kind: "queue"; expectsBackgroundRuntime: true }
+  | { kind: "inline-route"; path: string; expectsBackgroundRuntime: false };
+
+/**
+ * Resolve where the foreground POST should self-dispatch the chat background
+ * worker — the single resolver for that decision.
+ *
+ * `durableBackground: false` is a caller opt-out, not a host fact: the
+ * continuation self-chain runs on the regular function unless the run was
+ * already handed to the durable worker, so it must not consult the host.
  *
  * GROUNDED IN THE REAL NETLIFY BUILD OUTPUT + THE NETLIFY DOCS DEFAULT-URL RULE:
  * the background function is emitted INTO the scanned dir
@@ -157,26 +180,63 @@ function isNetlifyHostedRuntimeForDispatch(): boolean {
  * (no custom path) is what Netlify documents and is simpler — there is nothing
  * to shadow because `/.netlify/*` is already excluded from the `server` catch-all.
  */
-export function resolveAgentChatProcessRunDispatchPath(): string {
+export function resolveBackgroundDispatchTarget(options?: {
+  fallbackPath?: string;
+  durableBackground?: boolean;
+}): BackgroundDispatchTarget {
+  const fallbackPath = options?.fallbackPath ?? AGENT_CHAT_PROCESS_RUN_PATH;
+  if (options?.durableBackground === false) {
+    return {
+      kind: "inline-route",
+      path: fallbackPath,
+      expectsBackgroundRuntime: false,
+    };
+  }
   if (isNetlifyHostedRuntimeForDispatch()) {
-    return (
-      resolveWorkspaceBackgroundFunctionUrlPath() ??
-      AGENT_BACKGROUND_FUNCTION_URL_PATH
+    return {
+      kind: "http",
+      path:
+        resolveWorkspaceBackgroundFunctionUrlPath() ??
+        AGENT_BACKGROUND_FUNCTION_URL_PATH,
+      expectsBackgroundRuntime: true,
+    };
+  }
+  return {
+    kind: "inline-route",
+    path: fallbackPath,
+    expectsBackgroundRuntime: false,
+  };
+}
+
+/**
+ * Path of a target for the callers still typed on a plain string. A `queue`
+ * target has no path by construction, so throw rather than substitute one: a
+ * caller handed the framework route here would run the turn inline while
+ * reporting a durable handoff — the exact silent degrade this union exists to
+ * make impossible. Unreachable today; nothing resolves to `queue`.
+ */
+export function backgroundDispatchPathOrThrow(
+  target: BackgroundDispatchTarget,
+): string {
+  if (target.kind === "queue") {
+    throw new Error(
+      "[agent-chat] durable background resolved to the queue transport, which has no dispatch path — " +
+        "this caller must consume BackgroundDispatchTarget instead of a path string.",
     );
   }
-  return AGENT_CHAT_PROCESS_RUN_PATH;
+  return target.path;
+}
+
+export function resolveAgentChatProcessRunDispatchPath(): string {
+  return backgroundDispatchPathOrThrow(resolveBackgroundDispatchTarget());
 }
 
 export function resolveDurableBackgroundDispatchPath(
   fallbackPath: string,
 ): string {
-  if (isNetlifyHostedRuntimeForDispatch()) {
-    return (
-      resolveWorkspaceBackgroundFunctionUrlPath() ??
-      AGENT_BACKGROUND_FUNCTION_URL_PATH
-    );
-  }
-  return fallbackPath;
+  return backgroundDispatchPathOrThrow(
+    resolveBackgroundDispatchTarget({ fallbackPath }),
+  );
 }
 
 export function dispatchPathTargetsNetlifyBackgroundFunction(

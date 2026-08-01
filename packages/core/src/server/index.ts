@@ -7,7 +7,10 @@ export {
   AGENT_BACKGROUND_PROCESSOR_FIELD,
   AGENT_BACKGROUND_PROCESSOR_ROUTE,
   AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD,
+  type BackgroundDispatchTarget,
+  backgroundDispatchPathOrThrow,
   dispatchPathTargetsNetlifyBackgroundFunction,
+  resolveBackgroundDispatchTarget,
   resolveDurableBackgroundDispatchPath,
 } from "../agent/durable-background.js";
 
