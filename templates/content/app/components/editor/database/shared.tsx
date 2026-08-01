@@ -560,6 +560,7 @@ export function RowActionsCell({
       databaseItemCanRemoveFromDatabase({
         item,
         databaseCanManage: databaseDocument?.canManage === true,
+        databaseSystemRole: databaseData.database.systemRole,
         isWorkspaceCatalog,
         sources: databaseSources,
       });

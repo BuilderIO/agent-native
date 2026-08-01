@@ -88,6 +88,7 @@ describe("database selection permissions", () => {
       databaseSelectionCapabilities({
         canEdit: true,
         canManageDatabase: true,
+        databaseSystemRole: null,
         selectedItemIds: [localItem.id, "stale-item"],
         selectedItems: [localItem],
         sources: [],
@@ -105,6 +106,7 @@ describe("database selection permissions", () => {
       databaseSelectionCapabilities({
         canEdit: true,
         canManageDatabase: true,
+        databaseSystemRole: null,
         selectedItemIds: [localItem.id],
         selectedItems: [
           item({
@@ -134,6 +136,7 @@ describe("database selection permissions", () => {
       databaseSelectionCapabilities({
         canEdit: true,
         canManageDatabase: true,
+        databaseSystemRole: null,
         selectedItemIds: [inaccessibleItem.id],
         selectedItems: [inaccessibleItem],
         sources: [],
@@ -141,5 +144,45 @@ describe("database selection permissions", () => {
         isWorkspaceCatalog: false,
       }).canRemoveSelected,
     ).toBe(false);
+  });
+
+  it("does not offer membership removal for system databases", () => {
+    const localItem = item();
+    expect(
+      databaseSelectionCapabilities({
+        canEdit: true,
+        canManageDatabase: true,
+        databaseSystemRole: "files",
+        selectedItemIds: [localItem.id],
+        selectedItems: [localItem],
+        sources: [],
+        removesFavoriteMembership: false,
+        isWorkspaceCatalog: false,
+      }).canRemoveSelected,
+    ).toBe(false);
+    expect(
+      databaseSelectionCapabilities({
+        canEdit: true,
+        canManageDatabase: true,
+        databaseSystemRole: undefined,
+        selectedItemIds: [localItem.id],
+        selectedItems: [localItem],
+        sources: [],
+        removesFavoriteMembership: false,
+        isWorkspaceCatalog: false,
+      }).canRemoveSelected,
+    ).toBe(false);
+    expect(
+      databaseSelectionCapabilities({
+        canEdit: true,
+        canManageDatabase: false,
+        databaseSystemRole: "favorites",
+        selectedItemIds: [localItem.id],
+        selectedItems: [localItem],
+        sources: [],
+        removesFavoriteMembership: true,
+        isWorkspaceCatalog: false,
+      }).canRemoveSelected,
+    ).toBe(true);
   });
 });

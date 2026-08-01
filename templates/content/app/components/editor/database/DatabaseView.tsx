@@ -2772,6 +2772,7 @@ function DatabaseTable({
       ) : (
         <DatabaseTableView
           databaseId={databaseId}
+          databaseSystemRole={data?.database.systemRole}
           newRowLabel={newDatabaseRowLabel}
           properties={tableProperties}
           groupableProperties={orderedProperties}
@@ -3350,6 +3351,7 @@ export function databaseSelectedItems(
 export function databaseSelectionCapabilities(args: {
   canEdit: boolean;
   canManageDatabase: boolean;
+  databaseSystemRole: string | null | undefined;
   selectedItemIds: string[];
   selectedItems: ContentDatabaseItem[];
   sources: ContentDatabaseSource[];
@@ -3367,6 +3369,7 @@ export function databaseSelectionCapabilities(args: {
       ? canEditSelected
       : selectionComplete &&
         args.canManageDatabase &&
+        args.databaseSystemRole === null &&
         !args.isWorkspaceCatalog &&
         args.selectedItems.every(
           (item) =>
@@ -5160,6 +5163,7 @@ function DatabaseItemPreview({
 
 function DatabaseTableView({
   databaseId,
+  databaseSystemRole,
   newRowLabel,
   properties,
   groupableProperties,
@@ -5209,6 +5213,7 @@ function DatabaseTableView({
   onOpenPage,
 }: {
   databaseId: string;
+  databaseSystemRole: string | null | undefined;
   newRowLabel: string;
   properties: DocumentProperty[];
   groupableProperties: DocumentProperty[];
@@ -5312,6 +5317,7 @@ function DatabaseTableView({
     databaseSelectionCapabilities({
       canEdit,
       canManageDatabase,
+      databaseSystemRole,
       selectedItemIds,
       selectedItems,
       sources,
@@ -5321,6 +5327,7 @@ function DatabaseTableView({
   const canConfirmRemoveSelected = databaseSelectionCapabilities({
     canEdit,
     canManageDatabase,
+    databaseSystemRole,
     selectedItemIds: removeSelectedSnapshotIds,
     selectedItems: removeSelectedSnapshot,
     sources,
@@ -18500,6 +18507,7 @@ export function RowActionsCell({
       databaseItemCanRemoveFromDatabase({
         item,
         databaseCanManage: databaseDocument?.canManage === true,
+        databaseSystemRole: databaseData.database.systemRole,
         isWorkspaceCatalog,
         sources: databaseSources,
       });

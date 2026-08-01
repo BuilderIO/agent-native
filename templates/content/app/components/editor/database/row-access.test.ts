@@ -95,6 +95,7 @@ describe("database row access", () => {
       databaseItemCanRemoveFromDatabase({
         item: visibleItem,
         databaseCanManage: true,
+        databaseSystemRole: null,
         isWorkspaceCatalog: false,
         sources: [],
       }),
@@ -103,6 +104,7 @@ describe("database row access", () => {
       databaseItemCanRemoveFromDatabase({
         item: item(),
         databaseCanManage: true,
+        databaseSystemRole: null,
         isWorkspaceCatalog: false,
         sources: [],
       }),
@@ -111,6 +113,25 @@ describe("database row access", () => {
       databaseItemCanRemoveFromDatabase({
         item: visibleItem,
         databaseCanManage: false,
+        databaseSystemRole: null,
+        isWorkspaceCatalog: false,
+        sources: [],
+      }),
+    ).toBe(false);
+    expect(
+      databaseItemCanRemoveFromDatabase({
+        item: visibleItem,
+        databaseCanManage: true,
+        databaseSystemRole: "files",
+        isWorkspaceCatalog: false,
+        sources: [],
+      }),
+    ).toBe(false);
+    expect(
+      databaseItemCanRemoveFromDatabase({
+        item: visibleItem,
+        databaseCanManage: true,
+        databaseSystemRole: undefined,
         isWorkspaceCatalog: false,
         sources: [],
       }),

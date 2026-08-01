@@ -67,6 +67,11 @@ export default defineAction({
       removedDocumentIds,
       "removed from a database",
     );
+    if (database.systemRole) {
+      throw new Error(
+        "System database memberships cannot be removed from this surface.",
+      );
+    }
 
     const propertyIds = (
       await db

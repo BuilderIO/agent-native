@@ -559,6 +559,110 @@ describe("database row batch actions", () => {
     expect(await orderedRows(databaseId)).toHaveLength(2);
   });
 
+  it("rejects removal from system databases whose memberships are canonical", async () => {
+    const [filesDatabase] = await getDb()
+      .select({ id: schema.contentDatabases.id })
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.systemRole, "files"));
+    const created = await runWithRequestContext({ userEmail: OWNER }, () =>
+      addDatabaseItemAction.run({
+        databaseId: filesDatabase.id,
+        title: "Canonical file",
+      }),
+    );
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        removeDatabaseItemsAction.run({
+          databaseId: filesDatabase.id,
+          itemIds: [created.createdItemId],
+        }),
+      ),
+    ).rejects.toThrow(
+      "System database memberships cannot be removed from this surface.",
+    );
+    expect(await orderedRows(filesDatabase.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ itemId: created.createdItemId }),
+      ]),
+    );
+  });
+
+  it("keeps Favorites membership removal while preserving the Page and Files membership", async () => {
+    const db = getDb();
+    const now = new Date().toISOString();
+    const [filesDatabase] = await db
+      .select({
+        id: schema.contentDatabases.id,
+        documentId: schema.contentDatabases.documentId,
+      })
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.systemRole, "files"));
+    const favoritesDocumentId = await createDocument({
+      title: "Favorites",
+    });
+    const favoritesDatabaseId = nextId("favorites_db");
+    await db.insert(schema.contentDatabases).values({
+      id: favoritesDatabaseId,
+      spaceId,
+      systemRole: "favorites",
+      ownerEmail: OWNER,
+      documentId: favoritesDocumentId,
+      title: "Favorites",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const pageId = await createDocument({
+      parentId: filesDatabase.documentId,
+      title: "Pinned page",
+    });
+    const filesItemId = nextId("files_item");
+    const favoriteItemId = nextId("favorite_item");
+    await db.insert(schema.contentDatabaseItems).values([
+      {
+        id: filesItemId,
+        ownerEmail: OWNER,
+        databaseId: filesDatabase.id,
+        documentId: pageId,
+        position: 0,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: favoriteItemId,
+        ownerEmail: OWNER,
+        databaseId: favoritesDatabaseId,
+        documentId: pageId,
+        position: 0,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      removeDatabaseItemsAction.run({
+        databaseId: favoritesDatabaseId,
+        itemIds: [favoriteItemId],
+      }),
+    );
+
+    expect(await orderedRows(favoritesDatabaseId)).toEqual([]);
+    expect(await orderedRows(filesDatabase.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ itemId: filesItemId, documentId: pageId }),
+      ]),
+    );
+    expect(
+      await db
+        .select({
+          id: schema.documents.id,
+          trashedAt: schema.documents.trashedAt,
+        })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, pageId)),
+    ).toEqual([{ id: pageId, trashedAt: null }]);
+  });
+
   it("keeps removed pages out of duplicate actions", async () => {
     const { databaseId, rows } = await createDatabaseWithRows(2);
     await runWithRequestContext({ userEmail: OWNER }, () =>

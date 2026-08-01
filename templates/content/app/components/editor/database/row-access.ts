@@ -24,11 +24,13 @@ export function databaseItemHasViewerAccess(item: ContentDatabaseItem) {
 export function databaseItemCanRemoveFromDatabase(args: {
   item: ContentDatabaseItem;
   databaseCanManage: boolean;
+  databaseSystemRole: string | null | undefined;
   isWorkspaceCatalog: boolean;
   sources: ContentDatabaseSource[];
 }) {
   return (
     args.databaseCanManage &&
+    args.databaseSystemRole === null &&
     databaseItemHasViewerAccess(args.item) &&
     !args.isWorkspaceCatalog &&
     !databaseItemIsSourceBacked(args.item, args.sources)
