@@ -1,3 +1,4 @@
+import { runCompareAndSwap } from "@agent-native/core/db";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 
@@ -124,18 +125,23 @@ interface MutateDesignDataOptions {
  *
  * The conditional UPDATE is portable Drizzle query-builder SQL (no RETURNING,
  * dialect-specific JSON operator, or driver result-shape assumption). The
- * read, compare-and-swap, and confirmation read live in one transaction. A
- * post-commit read then proves the requested intent survived before success is
- * reported. Explicit property deletion performed by `mutate` is preserved
- * because the complete transformed object is the CAS candidate.
+ * read, compare-and-swap, and confirmation read go through `runCompareAndSwap`,
+ * which keeps at least the CAS and its confirmation read in one atomic unit on
+ * every dialect. A post-commit read then proves the requested intent survived
+ * before success is reported. Explicit property deletion performed by `mutate`
+ * is preserved because the complete transformed object is the CAS candidate.
  *
  * Isolation assumptions: local better-sqlite3 transactions use the framework's
  * BEGIN IMMEDIATE + top-level queue, so no sibling writer can enter between
  * the read and CAS. Postgres may let a sibling commit after the read, but its
  * conditional UPDATE is re-evaluated after the row-lock wait; the confirmation
- * read detects a lost CAS and triggers a retry. Other supported drivers get the
- * same guarded predicate plus confirmation/post-commit verification rather
- * than relying on a driver-specific affected-row result.
+ * read detects a lost CAS and triggers a retry. D1 has no interactive
+ * transaction, so its read is outside the atomic unit and a sibling writer may
+ * commit before the CAS — which is exactly the case the guarded predicate and
+ * the confirmation read exist to detect, and it retries like any other lost
+ * CAS. Other supported drivers get the same guarded predicate plus
+ * confirmation/post-commit verification rather than relying on a
+ * driver-specific affected-row result.
  */
 async function mutateDesignDataUnlocked({
   designId,
@@ -157,57 +163,73 @@ async function mutateDesignDataUnlocked({
     let committed: { data: DesignDataRecord; updatedAt: string } | undefined;
 
     try {
-      committed = await db.transaction(async (tx) => {
-        const [currentRow] = await tx
-          .select({
-            data: schema.designs.data,
-            updatedAt: schema.designs.updatedAt,
-          })
-          .from(schema.designs)
-          .where(eq(schema.designs.id, designId));
+      // `runCompareAndSwap` owns the atomicity: one interactive transaction
+      // where the dialect has them, D1's implicit-transaction batch where it
+      // does not. The write and the confirmation read are always in the same
+      // atomic unit, which is what makes the equality check below conclusive.
+      let plannedData: DesignDataRecord | undefined;
+      let plannedUpdatedAt: string | undefined;
+      let plannedSerialized: string | undefined;
 
-        if (!currentRow) {
-          throw new Error(`Design "${designId}" not found.`);
-        }
+      const { confirmed } = await runCompareAndSwap(db, {
+        read: async (exec) => {
+          const [currentRow] = await (exec as typeof db)
+            .select({
+              data: schema.designs.data,
+              updatedAt: schema.designs.updatedAt,
+            })
+            .from(schema.designs)
+            .where(eq(schema.designs.id, designId));
+          if (!currentRow) {
+            throw new Error(`Design "${designId}" not found.`);
+          }
+          return currentRow;
+        },
+        plan: (exec, currentRow) => {
+          const updatedAt = nextUpdatedAt(currentRow.updatedAt, now());
+          const currentData = parseDesignData(designId, currentRow.data);
+          const nextData = mutate(currentData, { updatedAt });
+          const nextSerialized = serializeDesignData(designId, nextData);
+          plannedData = nextData;
+          plannedUpdatedAt = updatedAt;
+          plannedSerialized = nextSerialized;
 
-        const updatedAt = nextUpdatedAt(currentRow.updatedAt, now());
-        const currentData = parseDesignData(designId, currentRow.data);
-        const nextData = mutate(currentData, { updatedAt });
-        const nextSerialized = serializeDesignData(designId, nextData);
-        const revisionConditions = [
-          eq(schema.designs.id, designId),
-          currentRow.data === null
-            ? isNull(schema.designs.data)
-            : eq(schema.designs.data, currentRow.data),
-        ];
-        revisionConditions.push(
-          currentRow.updatedAt === null
-            ? isNull(schema.designs.updatedAt)
-            : eq(schema.designs.updatedAt, currentRow.updatedAt),
-        );
+          const revisionConditions = [
+            eq(schema.designs.id, designId),
+            currentRow.data === null
+              ? isNull(schema.designs.data)
+              : eq(schema.designs.data, currentRow.data),
+          ];
+          revisionConditions.push(
+            currentRow.updatedAt === null
+              ? isNull(schema.designs.updatedAt)
+              : eq(schema.designs.updatedAt, currentRow.updatedAt),
+          );
 
-        await tx
-          .update(schema.designs)
-          .set({ data: nextSerialized, updatedAt })
-          .where(and(...revisionConditions));
-
-        // Avoid driver-specific rowsAffected/rowCount/RETURNING contracts.
-        // Inside the same transaction the row remains locked after a winning
-        // UPDATE, so exact equality proves this CAS attempt wrote its candidate.
-        const [confirmed] = await tx
-          .select({ data: schema.designs.data })
-          .from(schema.designs)
-          .where(eq(schema.designs.id, designId));
-
-        if (!confirmed) {
-          throw new Error(`Design "${designId}" not found after update.`);
-        }
-        if (confirmed.data !== nextSerialized) {
-          throw new DesignDataMutationConflictError(designId, attempt + 1);
-        }
-
-        return { data: nextData, updatedAt };
+          return {
+            write: (exec as typeof db)
+              .update(schema.designs)
+              .set({ data: nextSerialized, updatedAt })
+              .where(and(...revisionConditions)),
+            // Avoid driver-specific rowsAffected/rowCount/RETURNING contracts.
+            // Atomic with the UPDATE, so exact equality proves this CAS attempt
+            // wrote its own candidate rather than reading a sibling's.
+            confirm: (exec as typeof db)
+              .select({ data: schema.designs.data })
+              .from(schema.designs)
+              .where(eq(schema.designs.id, designId)),
+          };
+        },
       });
+
+      const [confirmedRow] = confirmed;
+      if (!confirmedRow) {
+        throw new Error(`Design "${designId}" not found after update.`);
+      }
+      if (confirmedRow.data !== plannedSerialized) {
+        throw new DesignDataMutationConflictError(designId, attempt + 1);
+      }
+      committed = { data: plannedData!, updatedAt: plannedUpdatedAt! };
     } catch (error) {
       if (
         !(error instanceof DesignDataMutationConflictError) &&

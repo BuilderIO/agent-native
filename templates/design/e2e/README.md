@@ -31,6 +31,37 @@ auth bypass**), saves the signed session to `e2e/.auth/state.json`, and seeds
 one design with a known fixture (`e2e/.auth/seed.json`) via the authenticated
 action endpoints. Both `.auth/` files are gitignored.
 
+## Against a Cloudflare Worker (`cloudflare-background-generation.spec.ts`)
+
+`E2E_BASE_URL` already makes Playwright leave server management alone, so the
+suite points at a `wrangler dev` session with no config change. Bring the Worker
+up first — `Local Worker bring-up` in the framework deployment docs — with an
+Anthropic-compatible endpoint the Worker can reach (`ANTHROPIC_BASE_URL` +
+`ANTHROPIC_API_KEY` in `.output/server/.dev.vars`), then:
+
+```bash
+E2E_CLOUDFLARE_WORKER=1 \
+E2E_BASE_URL=http://127.0.0.1:8788 \
+E2E_NO_DIRECT_DB=1 \
+  pnpm e2e cloudflare-background-generation
+```
+
+- `E2E_CLOUDFLARE_WORKER=1` opts the spec in; without it the spec skips, and
+  with it but no `E2E_BASE_URL` it throws rather than quietly asserting the
+  background path against a Node host that has none.
+- `E2E_NO_DIRECT_DB=1` tells global setup that the target's database is not
+  reachable from this process (a Worker keeps it in D1), so it skips the one
+  fixture step that uses a direct SQL client instead of failing on the
+  connection. It is skipped loudly: specs that need the `E2EButton` variant
+  fixture will fail against that target.
+
+The spec drives one real generation from the agent composer and asserts three
+things **together** — the run reached the `background-processing` dispatch mode,
+the turn outlived the foreground soft-timeout clamp, and the design rendered on
+the canvas. Read the header comment before touching any of them: the canvas
+assertion alone passes on the circuit breaker's inline fallback, so splitting
+them up turns the test into a measurement of nothing.
+
 ## Why the editor needs special handling (the hard-won bits)
 
 The design renders inside a sandboxed iframe, and a pointer-capturing shield

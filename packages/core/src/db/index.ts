@@ -52,6 +52,12 @@ export {
 } from "./client.js";
 export { table, text, integer, now } from "./schema.js";
 export {
+  runCompareAndSwap,
+  type CompareAndSwapOptions,
+  type CompareAndSwapPlan,
+  type CompareAndSwapResult,
+} from "./atomic-compare-and-swap.js";
+export {
   ensureAdditiveColumns,
   type EnsureAdditiveColumnsOptions,
   type EnsureAdditiveColumnsResult,

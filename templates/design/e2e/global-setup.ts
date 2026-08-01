@@ -238,7 +238,21 @@ export default async function globalSetup(config: FullConfig) {
     await postAction(context.request, baseURL, "index-components", {
       designId,
     });
-    await seedComponentVariantMetadata(designId);
+    // The component-variant fixture is written with a direct SQL client, which
+    // needs the target's database to be reachable from this process. A Worker
+    // target keeps it inside the runtime (D1), so the step is skipped by
+    // explicit opt-in rather than by swallowing the connection error — specs
+    // that need the fixture then fail on the missing variants, which is the
+    // honest outcome.
+    if (process.env.E2E_NO_DIRECT_DB === "1") {
+      // eslint-disable-next-line no-console
+      console.log(
+        "[e2e] E2E_NO_DIRECT_DB=1 — skipped seedComponentVariantMetadata; " +
+          "specs asserting E2EButton variants will fail against this target",
+      );
+    } else {
+      await seedComponentVariantMetadata(designId);
+    }
 
     await writeFile(SEED_PATH, JSON.stringify({ designId }, null, 2));
     // eslint-disable-next-line no-console

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import Ajv, { type ErrorObject, type ValidateFunction } from "ajv";
+import Ajv, { type ErrorObject } from "ajv";
 import {
   defineEventHandler,
   getHeader,
@@ -116,6 +116,10 @@ import type {
   EngineToolResultPart,
 } from "./engine/types.js";
 import { EngineError } from "./engine/types.js";
+import {
+  compileSchemaValidator,
+  type CompiledSchemaValidator,
+} from "./json-schema-validator.js";
 import {
   type AgentLoopSettings,
   getDefaultMaxIterations,
@@ -3594,7 +3598,10 @@ const rawToolInputAjv = new Ajv({
   verbose: true,
 });
 
-const rawToolInputValidatorCache = new WeakMap<object, ValidateFunction>();
+const rawToolInputValidatorCache = new WeakMap<
+  object,
+  CompiledSchemaValidator
+>();
 
 const optionalPlaceholderAjv = new Ajv({
   strict: false,
@@ -3606,7 +3613,7 @@ const optionalPlaceholderAjv = new Ajv({
 
 const optionalPlaceholderValidatorCache = new WeakMap<
   object,
-  ValidateFunction
+  CompiledSchemaValidator
 >();
 
 function isStructurallyEmptyToolValue(value: unknown): boolean {
@@ -3632,11 +3639,15 @@ function isStructurallyEmptyToolValue(value: unknown): boolean {
   );
 }
 
-function compileToolValueValidator(schema: object): ValidateFunction | null {
+function compileToolValueValidator(
+  schema: object,
+): CompiledSchemaValidator | null {
   const cached = optionalPlaceholderValidatorCache.get(schema);
   if (cached) return cached;
   try {
-    const validator = optionalPlaceholderAjv.compile(schema);
+    const validator = compileSchemaValidator(optionalPlaceholderAjv, schema, {
+      coerceTypes: false,
+    });
     optionalPlaceholderValidatorCache.set(schema, validator);
     return validator;
   } catch {
@@ -3847,10 +3858,14 @@ function coerceStringifiedJsonToolValues(
     : { input, changed: false };
 }
 
-function getRawToolInputValidator(schema: RawJsonSchema): ValidateFunction {
+function getRawToolInputValidator(
+  schema: RawJsonSchema,
+): CompiledSchemaValidator {
   const cached = rawToolInputValidatorCache.get(schema);
   if (cached) return cached;
-  const validator = rawToolInputAjv.compile(schema);
+  const validator = compileSchemaValidator(rawToolInputAjv, schema, {
+    coerceTypes: true,
+  });
   rawToolInputValidatorCache.set(schema, validator);
   return validator;
 }
@@ -3918,13 +3933,19 @@ function validateRawToolInput(
   if (!shouldValidateRawToolParameters(entry)) return null;
   const parameters = entry.tool.parameters;
   if (!parameters) return null;
-  let validator: ValidateFunction;
+  let validator: CompiledSchemaValidator;
   try {
     validator = getRawToolInputValidator(parameters);
   } catch (err) {
     return `tool schema is invalid: ${sanitizeToolErrorValue(err)}`;
   }
   if (validator(input === undefined ? {} : input)) return null;
+  // The interpreted path (runtimes that forbid `new Function`) carries its own
+  // text: it produces no Ajv `ErrorObject`s, so there are no union branches to
+  // narrow. The decision is the same; only the wording differs.
+  if (validator.interpretedErrorText !== undefined) {
+    return validator.interpretedErrorText;
+  }
   return rawToolInputAjv.errorsText(narrowUnionBranchErrors(validator.errors), {
     separator: "; ",
     dataVar: "input",
