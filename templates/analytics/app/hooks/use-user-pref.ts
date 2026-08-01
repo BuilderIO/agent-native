@@ -32,12 +32,12 @@ export function useUserPref<T extends Record<string, unknown>>(key: string) {
       queryClient.setQueryData(queryKey, value);
       return { previousValue };
     },
+    // No invalidate on success: the optimistic value above is exactly what the
+    // server stored, so refetching it only buys a round-trip. `onError` is the
+    // path that restores truth.
     onError: (_err, _value, context) => {
       queryClient.setQueryData(queryKey, context?.previousValue);
       toast.error("Failed to save preference");
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey });
     },
   });
 

@@ -22,6 +22,7 @@ import {
 } from "../../server/credential-provider.js";
 import { applyBuilderUtmTrackingParams } from "../../shared/builder-link-tracking.js";
 import {
+  isGPTReasoningModel,
   normalizeReasoningEffortForModel,
   type ReasoningEffort,
 } from "../../shared/reasoning-effort.js";
@@ -32,7 +33,10 @@ import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "./credential-errors.js";
-import { describeErrorWithCauses } from "./error-detail.js";
+import {
+  describeErrorWithCauses,
+  isProviderConnectionErrorMessage,
+} from "./error-detail.js";
 import { FIRST_STREAM_EVENT_TIMEOUT_MS } from "./first-event-timeout.js";
 import { resolveMaxOutputTokensForEngine } from "./output-tokens.js";
 import {
@@ -235,6 +239,8 @@ class BuilderEngine implements AgentEngine {
       }
     }
 
+    const gptToolsRequireExplicitNoReasoning =
+      cachedTools.length > 0 && isGPTReasoningModel(opts.model);
     const body: Record<string, unknown> = {
       model: opts.model,
       messages: cachedMessages,
@@ -248,7 +254,21 @@ class BuilderEngine implements AgentEngine {
       ...(typeof opts.temperature === "number"
         ? { temperature: opts.temperature }
         : {}),
-      ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
+      // OpenAI rejects `reasoning_effort` alongside function tools on Chat
+      // Completions ("Function tools with reasoning_effort are not supported
+      // for <model> in /v1/chat/completions … or set reasoning_effort to
+      // 'none'"), and the gateway routes GPT models there. Every chat on a
+      // gpt-5.x model failed deterministically because of this. Omitting the
+      // field does NOT help — OpenAI then applies the model's own default
+      // effort and rejects identically; only the explicit "none" clears it.
+      // Same guard as the ai-sdk engine's forced-Chat-Completions path.
+      ...(reasoningEffort || gptToolsRequireExplicitNoReasoning
+        ? {
+            reasoning_effort: gptToolsRequireExplicitNoReasoning
+              ? "none"
+              : reasoningEffort,
+          }
+        : {}),
     };
 
     const gatewayBaseUrl = getBuilderGatewayBaseUrl();
@@ -720,9 +740,9 @@ async function* parseJsonlStream(
               Boolean(explicitErrMsg) &&
               !isCredentialAuthError &&
               isBuilderCredentialAuthError(String(errMsg));
-            // Anthropic's bare "Connection error." often arrives here with no
-            // gateway code. Tag it as a network error so in-run retries and
-            // run-level resume treat it as transient instead of terminal.
+            // Providers can report a bare "Connection error." or AI SDK's
+            // retry-wrapped "Cannot connect to API" without a gateway code.
+            // Tag both as network errors so retries can recover the turn.
             const isProviderConnectionError =
               typeof explicitErrMsg === "string" &&
               isProviderConnectionErrorMessage(String(explicitErrMsg));
@@ -1135,10 +1155,6 @@ function isBuilderGatewayNetworkError(err: unknown): boolean {
     text.includes("stream closed") ||
     text.includes("terminated")
   );
-}
-
-function isProviderConnectionErrorMessage(message: string): boolean {
-  return message.trim().toLowerCase() === "connection error.";
 }
 
 function captureBuilderGatewayTransportError(

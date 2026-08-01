@@ -18,7 +18,7 @@ import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-c
  */
 
 interface FrameworkDebugProvenance {
-  framework?: "react" | "vue" | "svelte";
+  framework?: "html" | "react" | "vue" | "svelte" | "angular" | "lwc";
   sourceFile?: string;
   line?: number;
   column?: number;
@@ -28,17 +28,23 @@ interface FrameworkDebugProvenance {
   ownerColumn?: number;
   ownerComponentName?: string;
   ownerKey?: string;
-  method?: "debug-source" | "debug-stack" | "vue-inspector" | "svelte-meta";
+  method?:
+    | "data-attribute"
+    | "debug-source"
+    | "debug-stack"
+    | "vue-inspector"
+    | "svelte-meta";
   ownerMethod?: "debug-source" | "debug-stack";
   unavailableReason?: "not-framework" | "no-debug-info";
 }
 
-function loadFrameworkDebugProvenance(): (
-  el: object,
-) => FrameworkDebugProvenance {
+function loadProvenanceFunctions(): {
+  frameworkDebugProvenance: (el: object) => FrameworkDebugProvenance;
+  elementDebugProvenance: (el: object) => FrameworkDebugProvenance;
+} {
   const source = editorChromeBridgeScript;
   const start = source.indexOf("var PROVENANCE_NOISE_SEGMENTS");
-  const fnStart = source.indexOf("function frameworkDebugProvenance(", start);
+  const fnStart = source.indexOf("function elementDebugProvenance(", start);
   if (start === -1 || fnStart === -1) {
     throw new Error(
       "provenance block not found in compiled editor-chrome bridge",
@@ -62,11 +68,15 @@ function loadFrameworkDebugProvenance(): (
   }
   if (end === -1) throw new Error("unbalanced frameworkDebugProvenance body");
   return new Function(
-    `${source.slice(start, end)}; return frameworkDebugProvenance;`,
-  )() as (el: object) => FrameworkDebugProvenance;
+    `${source.slice(start, end)}; return { frameworkDebugProvenance, elementDebugProvenance };`,
+  )() as {
+    frameworkDebugProvenance: (el: object) => FrameworkDebugProvenance;
+    elementDebugProvenance: (el: object) => FrameworkDebugProvenance;
+  };
 }
 
-const frameworkDebugProvenance = loadFrameworkDebugProvenance();
+const { frameworkDebugProvenance, elementDebugProvenance } =
+  loadProvenanceFunctions();
 
 function Card() {}
 
@@ -315,6 +325,29 @@ describe("editor-chrome bridge — frameworkDebugProvenance", () => {
     });
   });
 
+  it("walks from a Vue shadow child through ShadowRoot.host", () => {
+    const host = {
+      __vnode: {
+        type: { __name: "SettingsCard" },
+        props: { __v_inspector: "src/components/SettingsCard.vue:18:4" },
+      },
+      parentElement: null,
+    };
+    const provenance = frameworkDebugProvenance({
+      parentElement: null,
+      getRootNode: () => ({ host, mode: "open" }),
+    });
+
+    expect(provenance).toEqual({
+      framework: "vue",
+      sourceFile: "src/components/SettingsCard.vue",
+      line: 18,
+      column: 4,
+      component: "SettingsCard",
+      method: "vue-inspector",
+    });
+  });
+
   it("reads Svelte compiler metadata and keeps it authored", () => {
     const provenance = frameworkDebugProvenance({
       __svelte_meta: {
@@ -332,5 +365,89 @@ describe("editor-chrome bridge — frameworkDebugProvenance", () => {
       component: "Page",
       method: "svelte-meta",
     });
+  });
+
+  it("walks from a Svelte shadow child through ShadowRoot.host", () => {
+    const host = {
+      __svelte_meta: {
+        loc: { filename: "src/lib/Toolbar.svelte", line: 14, column: 8 },
+        name: "Toolbar",
+      },
+      parentElement: null,
+    };
+    const provenance = frameworkDebugProvenance({
+      parentElement: null,
+      getRootNode: () => ({ host, mode: "closed" }),
+    });
+
+    expect(provenance).toEqual({
+      framework: "svelte",
+      sourceFile: "src/lib/Toolbar.svelte",
+      line: 14,
+      column: 8,
+      component: "Toolbar",
+      method: "svelte-meta",
+    });
+  });
+
+  it("walks through ShadowRoot.host for explicit data-source provenance", () => {
+    const attrs = new Map([
+      ["data-source-file", "src/components/checkout-button.ts"],
+      ["data-source-line", "22"],
+      ["data-source-column", "6"],
+      ["data-component-name", "CheckoutButton"],
+      ["data-source-framework", "html"],
+    ]);
+    const host = {
+      parentElement: null,
+      getAttribute: (name: string) => attrs.get(name) ?? null,
+    };
+    const provenance = elementDebugProvenance({
+      parentElement: null,
+      getRootNode: () => ({ host, mode: "open" }),
+    });
+
+    expect(provenance).toEqual({
+      framework: "html",
+      sourceFile: "src/components/checkout-button.ts",
+      line: 22,
+      column: 6,
+      component: "CheckoutButton",
+      method: "data-attribute",
+    });
+  });
+
+  it("identifies Angular and LWC runtime markers without fabricating source coordinates", () => {
+    const angular = frameworkDebugProvenance({
+      parentElement: null,
+      tagName: "APP-ROOT",
+      attributes: [{ name: "_nghost-ng-c120" }],
+      hasAttribute: (name: string) => name === "ng-version",
+      getAttribute: () => null,
+    });
+    expect(angular).toEqual({
+      framework: "angular",
+      unavailableReason: "no-debug-info",
+    });
+    expect(angular.sourceFile).toBeUndefined();
+    expect(angular.line).toBeUndefined();
+
+    const lwcHost = {
+      parentElement: null,
+      tagName: "LIGHTNING-BUTTON",
+      attributes: [{ name: "lwc-66unc5l95ad-host" }],
+      hasAttribute: () => false,
+      getAttribute: () => null,
+    };
+    const lwc = frameworkDebugProvenance({
+      parentElement: null,
+      getRootNode: () => ({ host: lwcHost, mode: "open" }),
+    });
+    expect(lwc).toEqual({
+      framework: "lwc",
+      unavailableReason: "no-debug-info",
+    });
+    expect(lwc.sourceFile).toBeUndefined();
+    expect(lwc.line).toBeUndefined();
   });
 });

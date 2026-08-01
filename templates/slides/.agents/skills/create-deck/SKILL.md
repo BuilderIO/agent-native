@@ -11,10 +11,20 @@ description: How to create a new deck with slides from scratch. Read this before
 
 1. Read the `creative-context` skill and retrieve factual evidence separately
    from presentation structure. Respect `contextMode: "off"`.
-2. Plan the slides (title, section dividers, content slides).
-3. Call `create-deck --title "..." --slides '[]'` to create an empty deck.
-4. Navigate to the new deck.
-5. Call `add-slide` once per slide in slide order, waiting for each result.
+2. Unless the user named a reference deck or design system, call
+   `get-workspace-defaults` and use what it returns. See "Workspace Defaults".
+3. Plan the slides (deck title, title slide, section dividers, content slides).
+4. Call `create-deck --title "..." --slides '[]'` with a concise, specific
+   title derived from the user's request and source material. Never use
+   `Untitled Deck` or another placeholder title for a generated deck.
+5. Navigate to the new deck.
+6. Call `add-slide` once per slide in slide order, waiting for each result.
+
+When the UI has already created the empty deck, keep its id and rename it before
+adding the first slide. Call `patch-deck` with a `patch-deck-fields` operation
+whose `fields.title` is the generated title. Do not leave the pre-created deck's
+placeholder title in place. Include only `title` in that operation's `fields`;
+omit all other optional fields.
 
 Follow the creative-context reuse ladder before inventing a slide language:
 reuse an approved native template unchanged, compose approved pieces, lightly
@@ -36,6 +46,53 @@ Do not create multiple slides in parallel for the same deck. Do not spawn
 sub-agents to write into the same deck at the same time. Sub-agents may research
 or draft slide copy, but one writer should call `add-slide` sequentially so the
 editor stays stable and the user can watch progress.
+
+## Reference Decks
+
+The user can pick an existing deck as a style reference when starting a new one.
+When they do, a `## Reference Deck` block is already in your context holding one
+worked HTML example per layout.
+
+Treat it as a pattern library, not an outline. The most common failure here is
+walking the reference deck slide by slide and swapping in new copy, which
+produces a deck with the wrong shape for its own content. Instead:
+
+1. Plan the new deck from the user's request alone — story, slide count, order.
+2. For each slide you decided to write, pick the pattern that fits that content.
+3. Reuse a pattern as often as the content warrants, or never.
+4. When nothing fits, compose a new slide from the same type scale, spacing,
+   color, and markup conventions rather than bending content to a near-miss.
+
+The block deliberately omits the reference deck's slide sequence. Call
+`get-deck --id <reference deck id>` if you need to see how that deck handled a
+case the patterns do not cover.
+
+A reference deck and a design system are independent: the design system wins on
+tokens (color, type, spacing), the reference deck wins on slide-level
+composition and markup idiom. Apply both when both are present.
+
+Decks the user has starred are their intended reference decks. `list-decks`
+reports `starred` so you can offer them when the user asks for something "like
+our usual deck".
+
+## Workspace Defaults
+
+A workspace admin can flag one deck and one design system as the workspace
+default, so a bare "make a deck about X" still comes out on brand. When the user
+did not name a reference deck or design system, call `get-workspace-defaults`
+before planning slides.
+
+- `referenceDeck` — call `get-deck-reference-context --id <id>` and treat the
+  result exactly like a user-picked reference deck.
+- `designSystem` — pass its id as `designSystemId` to `create-deck`, unless the
+  caller already has a personal default, which `create-deck` applies on its own.
+- Either field can come back `{ unavailable: true }`. That means the default
+  exists but this user cannot open it, which is a misconfiguration, not an
+  absent default. Generate without it and tell the user their workspace default
+  is not shared with them, rather than silently producing an off-brand deck.
+
+An explicit request always wins over the workspace default. Do not re-apply a
+workspace default to an existing deck the user is editing.
 
 If the user provides a Google Docs URL as source material, call
 `import-google-doc --url <url>` first and build from the returned text. If the
@@ -69,6 +126,18 @@ Every slide's `content` must use this exact outer div:
   <!-- slide content here -->
 </div>
 ```
+
+## Fit budget
+
+The canvas is fixed at its aspect-ratio dimensions. With the standard 16:9
+canvas (960x540) and `padding: 80px 110px`, the usable content area is only
+740x380px. Treat that as a hard budget for the main flow: use at most two title
+lines, three short bullets or cards, and two or three short items per column.
+Split dense source material across slides instead of shrinking it into a dense
+stack. Keep body text at or above 16px. Never hide overflow with zoom,
+`transform: scale()`, clipping, or scroll overflow. A later structural repair
+may reduce the slide's explicit padding, and that padding must remain intact
+when the saved HTML is rendered.
 
 Background is pure black (`bg-[#000000]`) — set by the renderer, not the slide HTML.
 

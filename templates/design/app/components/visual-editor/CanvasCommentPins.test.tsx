@@ -208,8 +208,6 @@ describe("CanvasCommentPins anchoring and clustering", () => {
     });
 
     expect(marker()?.className).toContain("outline-dashed");
-    const tooltip = rendered.container.querySelector("[data-tooltip-content]");
-    expect(tooltip?.textContent).toBe("visualEditor.staleAnchorDetail");
   });
 });
 

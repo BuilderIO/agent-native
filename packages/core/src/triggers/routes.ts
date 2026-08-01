@@ -5,10 +5,18 @@ import {
   type H3Event,
 } from "h3";
 
+import { canUpdateAutomationResource } from "../automations/service.js";
 import { getDbExec } from "../db/client.js";
 import { nextOccurrence, describeCron, isValidCron } from "../jobs/cron.js";
+import {
+  buildJobResourceContent,
+  parseJobResource,
+  type JobFrontmatter,
+} from "../jobs/frontmatter.js";
 import { getOrgContext } from "../org/context.js";
 import {
+  organizationIdFromResourceOwner,
+  organizationResourceOwner,
   resourceGetByPath,
   resourceListAllOwners,
   resourcePut,
@@ -17,11 +25,7 @@ import {
 } from "../resources/store.js";
 import { getSession } from "../server/auth.js";
 import { readBody } from "../server/h3-helpers.js";
-import {
-  buildTriggerContent,
-  parseTriggerFrontmatter,
-  refreshEventSubscriptions,
-} from "./dispatcher.js";
+import { refreshEventSubscriptions } from "./dispatcher.js";
 import type { TriggerFrontmatter } from "./types.js";
 
 export interface AutomationRouteItem {
@@ -55,6 +59,14 @@ interface SetAutomationEnabledInput {
 
 function automationName(path: string): string {
   return path.replace(/^jobs\//, "").replace(/\.md$/, "");
+}
+
+function asTriggerFrontmatter(meta: JobFrontmatter): TriggerFrontmatter {
+  return {
+    ...meta,
+    triggerType: meta.triggerType ?? "schedule",
+    mode: meta.mode ?? "agentic",
+  };
 }
 
 function normalizeAutomationPath(input: SetAutomationEnabledInput): string {
@@ -105,11 +117,32 @@ function nextRunForMeta(meta: TriggerFrontmatter): string | undefined {
 async function currentUserCanUpdateAutomation(
   event: H3Event,
   userEmail: string,
-  resourceOwner: string,
+  resource: Resource,
   meta: TriggerFrontmatter,
 ): Promise<boolean> {
+  const resourceOwner = resource.owner;
   if (resourceOwner === userEmail) return true;
+  const resourceOrgId = organizationIdFromResourceOwner(resourceOwner);
+  if (resourceOrgId) {
+    try {
+      const org = await getOrgContext(event);
+      if (org.orgId !== resourceOrgId) return false;
+      return await canUpdateAutomationResource(
+        { userEmail, orgId: resourceOrgId },
+        resource,
+      );
+    } catch {
+      return false;
+    }
+  }
   if (resourceOwner !== SHARED_OWNER) return false;
+
+  if (meta.orgId) {
+    const activeOrgId = await getOrgContext(event)
+      .then((context) => context.orgId)
+      .catch(() => null);
+    if (activeOrgId !== meta.orgId) return false;
+  }
 
   if (
     meta.createdBy &&
@@ -145,7 +178,8 @@ async function resourceToAutomationItem(
   userEmail: string,
   resource: Resource,
 ): Promise<AutomationRouteItem> {
-  const { meta, body } = parseTriggerFrontmatter(resource.content);
+  const parsed = parseJobResource(resource.content);
+  const meta = asTriggerFrontmatter(parsed.meta);
   return {
     id: resource.id,
     name: automationName(resource.path),
@@ -154,7 +188,7 @@ async function resourceToAutomationItem(
     canUpdate: await currentUserCanUpdateAutomation(
       event,
       userEmail,
-      resource.owner,
+      resource,
       meta,
     ),
     triggerType: meta.triggerType,
@@ -170,7 +204,7 @@ async function resourceToAutomationItem(
     lastError: meta.lastError,
     nextRun: nextRunForMeta(meta),
     createdBy: meta.createdBy,
-    body,
+    body: parsed.body,
   };
 }
 
@@ -179,12 +213,27 @@ export async function listAutomationsForOwner(
   userEmail: string,
 ): Promise<AutomationRouteItem[]> {
   const allResources = await resourceListAllOwners("jobs/");
-  const resources = allResources.filter(
-    (resource) =>
-      (resource.owner === userEmail || resource.owner === SHARED_OWNER) &&
-      resource.path.endsWith(".md") &&
-      !resource.path.endsWith(".keep"),
-  );
+  const activeOrgId = await getOrgContext(event)
+    .then((context) => context.orgId)
+    .catch(() => null);
+  const activeOrgOwner = activeOrgId
+    ? organizationResourceOwner(activeOrgId)
+    : null;
+  const resources = allResources.filter((resource) => {
+    if (!resource.path.endsWith(".md") || resource.path.endsWith(".keep")) {
+      return false;
+    }
+    if (
+      resource.owner !== userEmail &&
+      resource.owner !== SHARED_OWNER &&
+      resource.owner !== activeOrgOwner
+    ) {
+      return false;
+    }
+    if (resource.owner !== SHARED_OWNER) return true;
+    const { meta } = parseJobResource(resource.content);
+    return !meta.orgId || meta.orgId === activeOrgId;
+  });
   return Promise.all(
     resources.map((resource) =>
       resourceToAutomationItem(event, userEmail, resource),
@@ -204,18 +253,29 @@ export async function setAutomationEnabledForOwner(
   }
 
   const path = normalizeAutomationPath(input);
+  const activeOrgId = await getOrgContext(event)
+    .then((context) => context.orgId)
+    .catch(() => null);
+  const activeOrgOwner = activeOrgId
+    ? organizationResourceOwner(activeOrgId)
+    : null;
   const requestedOwner =
-    input.owner === SHARED_OWNER ? SHARED_OWNER : userEmail;
+    input.owner === SHARED_OWNER
+      ? SHARED_OWNER
+      : input.owner === activeOrgOwner
+        ? activeOrgOwner
+        : userEmail;
   const resource = await resourceGetByPath(requestedOwner, path);
   if (!resource) {
     throw Object.assign(new Error("Automation not found"), { statusCode: 404 });
   }
 
-  const { meta, body } = parseTriggerFrontmatter(resource.content);
+  const parsed = parseJobResource(resource.content);
+  const meta = asTriggerFrontmatter(parsed.meta);
   const allowed = await currentUserCanUpdateAutomation(
     event,
     userEmail,
-    resource.owner,
+    resource,
     meta,
   );
   if (!allowed) {
@@ -225,26 +285,23 @@ export async function setAutomationEnabledForOwner(
     );
   }
 
-  meta.enabled = input.enabled;
+  parsed.meta.enabled = input.enabled;
   if (
-    meta.enabled &&
+    parsed.meta.enabled &&
     meta.triggerType !== "event" &&
     meta.schedule &&
     isValidCron(meta.schedule)
   ) {
-    meta.nextRun = nextOccurrence(meta.schedule).toISOString();
+    parsed.meta.nextRun = nextOccurrence(meta.schedule).toISOString();
   }
 
-  await resourcePut(
-    resource.owner,
-    resource.path,
-    buildTriggerContent(meta, body),
-  );
+  const updatedContent = buildJobResourceContent(parsed.meta, parsed.body);
+  await resourcePut(resource.owner, resource.path, updatedContent);
   await refreshEventSubscriptions();
 
   return resourceToAutomationItem(event, userEmail, {
     ...resource,
-    content: buildTriggerContent(meta, body),
+    content: updatedContent,
   });
 }
 

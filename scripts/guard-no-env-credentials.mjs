@@ -111,6 +111,11 @@ const ALLOWLIST_EXACT = new Set([
   // encrypt user secrets at rest. Rotating it invalidates the entire
   // vault, so it lives at deployment scope.
   "SECRETS_ENCRYPTION_KEY",
+  // Dedicated workspace-vault key and its rotation overlap key. These are
+  // deploy-level encryption material, separate from user credentials and
+  // app-local OAuth ciphertext.
+  "WORKSPACE_SECRETS_ENCRYPTION_KEY",
+  "WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS",
 ]);
 
 const ALLOWLIST_PREFIX = [

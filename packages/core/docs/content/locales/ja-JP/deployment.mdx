@@ -396,14 +396,16 @@ cache-control: public, max-age=600, stale-while-revalidate=604800, stale-if-erro
 
 これらは、アプリを実際の本番環境にプロモートする前に設定する必要があります。欠損値がある場合は、フェールクローズされる (フレームワークが開始を拒否する/リクエストの処理を拒否する) か、大音量の警告とともに弱い動作に戻ります。
 
-| 変数                     | 説明                                                                                                                                                                                                                                                                                                        |
-| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BETTER_AUTH_SECRET`     | 32 文字以上のランダムな文字列。署名セッション Cookie AND は、`OAUTH_STATE_SECRET` および `SECRETS_ENCRYPTION_KEY` のフォールバック HMAC です。必須: 運用環境に存在しない場合、フレームワークは起動時にスローされます。                                                                                      |
-| `BETTER_AUTH_URL`        | このアプリの公開元 (例: `https://mail.example.com`)。 Cookie ドメインと OAuth リダイレクト構築に使用されます。                                                                                                                                                                                              |
-| `ANTHROPIC_API_KEY`      | 組み込み実稼働エージェントの API キー。 **マルチテナント展開**では、ユーザーがユーザーごとのキーを持っていない場合、フレームワークはこれへのフォールバックを拒否します。つまり、自分のキーを持参する必要があります。シングルテナントの自己ホスト型インストールでは、これをグローバル キーとして使用します。 |
-| `OAUTH_STATE_SECRET`     | OAuth 状態エンベロープ用の専用 HMAC キー (Google、Atlassian、Zoom)。設定を解除すると `BETTER_AUTH_SECRET` に戻りますが、一方を回転させてももう一方が無効にならないように、専用の値を使用することをお勧めします。 `openssl rand -hex 32` 経由で生成します。                                                  |
-| `A2A_SECRET`             | アプリ間 A2A JSON ～ RPC の共有 HMAC。これがないと、本番環境ではすべての A2A エンドポイントと `/_agent-native/integrations/process-task` 自己起動エンドポイントは 503 を返します。                                                                                                                          |
-| `SECRETS_ENCRYPTION_KEY` | 暗号化された保存シークレット ボールトの AES-256-GCM キー。 `BETTER_AUTH_SECRET` にフォールバックします。両方が設定されていない場合、本番環境でハード障害が発生します。                                                                                                                                      |
+| 変数                                        | 説明                                                                                                                                                                                                                                                                                                        |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET`                        | 32 文字以上のランダム文字列。セッション Cookie を署名し、`OAUTH_STATE_SECRET` とアプリローカルの暗号化値のフォールバックになります。既存の共有 Vault ciphertext を読むためのレガシー候補でもあります。本番環境では必須です。                                                                                |
+| `BETTER_AUTH_URL`                           | このアプリの公開元 (例: `https://mail.example.com`)。 Cookie ドメインと OAuth リダイレクト構築に使用されます。                                                                                                                                                                                              |
+| `ANTHROPIC_API_KEY`                         | 組み込み実稼働エージェントの API キー。 **マルチテナント展開**では、ユーザーがユーザーごとのキーを持っていない場合、フレームワークはこれへのフォールバックを拒否します。つまり、自分のキーを持参する必要があります。シングルテナントの自己ホスト型インストールでは、これをグローバル キーとして使用します。 |
+| `OAUTH_STATE_SECRET`                        | OAuth 状態エンベロープ用の専用 HMAC キー (Google、Atlassian、Zoom)。設定を解除すると `BETTER_AUTH_SECRET` に戻りますが、一方を回転させてももう一方が無効にならないように、専用の値を使用することをお勧めします。 `openssl rand -hex 32` 経由で生成します。                                                  |
+| `A2A_SECRET`                                | アプリ間 A2A JSON-RPC の共有 HMAC。専用のワークスペースキーが未設定なら、共有 Vault はこの値から用途別に導出したキーを使うため、この値のローテーションは Vault キーも変更します。                                                                                                                           |
+| `WORKSPACE_SECRETS_ENCRYPTION_KEY`          | 共有ワークスペース Vault に推奨される安定した AES-256-GCM キー。読むすべてのアプリに同じ値を設定し、アプリ固有の OAuth 暗号化とは分離します。                                                                                                                                                               |
+| `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS` | ローテーション中に使う任意の前のワークスペースキー。新しいキーと同時に設定し、読み取りによる移行後に削除します。                                                                                                                                                                                            |
+| `SECRETS_ENCRYPTION_KEY`                    | アプリ固有の暗号化と Vault 用の従来の統合キー。引き続きサポートされますが、新しいマルチアプリ環境では専用キーを使用してください。                                                                                                                                                                           |
 
 ### 認証とアイデンティティ {#env-auth}
 
@@ -423,7 +425,7 @@ OAuth プロバイダー資格情報 (Google、GitHub)、静的 MCP ベアラー
 
 ### 強力な秘密の生成 {#env-generate-secrets}
 
-「32 文字以上のランダム」とマークされたシークレット (`BETTER_AUTH_SECRET`、`OAUTH_STATE_SECRET`、`A2A_SECRET`、`SECRETS_ENCRYPTION_KEY`、`AGENT_NATIVE_BUILDER_RELAY_SECRET`) については、次のコマンドを使用して新しい値を生成します。
+「32 文字以上のランダム」とマークされたシークレット (`BETTER_AUTH_SECRET`、`OAUTH_STATE_SECRET`、`A2A_SECRET`、`WORKSPACE_SECRETS_ENCRYPTION_KEY`、`SECRETS_ENCRYPTION_KEY`、`AGENT_NATIVE_BUILDER_RELAY_SECRET`) については、次のコマンドを使用して新しい値を生成します。
 
 ```bash
 openssl rand -hex 32
@@ -442,7 +444,14 @@ openssl rand -hex 32
 export default createAgentChatPlugin({
   // Default: "read"
   databaseTools: "read", // "write" | "read" | "off"
-  extensionTools: false,
+  extensionTools: true,
+});
+```
+
+```ts
+// server/plugins/core-routes.ts
+export default createCoreRoutesPlugin({
+  extensionTools: true,
 });
 ```
 
@@ -453,9 +462,10 @@ export default createAgentChatPlugin({
   スコープされ、スキーマ変更はブロックされます。
 - `databaseTools: "off"` または `false` — 生のデータベース ツールを
   エージェント サーフェスのため、アプリの actions が唯一のデータ アクセス パスになります。
-- `extensionTools: false` — フレームワーク拡張管理 actions を削除し、
-  次のようなアプリに対するプロンプト ガイダンス (`create-extension`、`update-extension` など)
-  エージェントがサンドボックス化されたミニアプリを作成することを望まない。
+- `extensionTools: true` — フレームワークの拡張管理 actions と
+  ガイダンス（`create-extension`、`update-extension` など）をアプリで
+  有効にします。認証済み REST 作成も許可するには、両方の plugins に
+  設定します。拡張機能は既定で無効です。
 
 ## 本番コードの実行 {#production-code-execution}
 
@@ -482,13 +492,13 @@ export default createAgentChatPlugin({
 
 ## 本番環境での UI の更新 {#updating-ui-in-production}
 
-エージェント ネイティブの中核機能の 1 つは、エージェントがアプリのソース コード (コンポーネント、ルート、スタイル、actions) を変更できることです。ローカル開発中は、エージェントがファイルシステムに完全にアクセスできるため、これはシームレスに機能します。
+通常のデプロイ済みアプリのエージェントは、ソースへの暗黙のアクセスを受けず、actions、データベース、MCP、設定済み統合などのアプリツールを通じて動作します。ソース変更はリポジトリの開発ワークフローで行います。埋め込み、ローカル、Builder の frame は、workspace と書き込みツールが意図的に与えられた場合にリポジトリを編集できます。
 
 [production code execution](#production-code-execution) をオフにした標準的な運用環境では、エージェントはアプリ ツール (actions、データベース、MCP) にはアクセスできますが、ファイル システムにはアクセスできません。つまり、エージェントはデータの読み取りと書き込み、actions の実行、および外部サービスとの対話が可能ですが、React コンポーネントを編集したり、デプロイされたインスタンスに新しいルートを追加したりすることはできません。
 
 ### Builder.io: 本番環境でのビジュアル編集 {#builderio}
 
-[Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) は、エージェントが運用環境でアプリの UI を変更できる機能を保持するマネージド クラウド環境を提供することで、この問題を解決します。リポジトリを Builder.io に接続し、UI の変更を直接要求します。再デプロイは必要ありません。
+[Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) は独立したマネージドなコード対応ワークフローで、エージェントが本番環境のアプリ UI を変更できます。リポジトリを接続して UI の変更を直接依頼でき、再デプロイは不要です。
 
 **仕組み:**
 

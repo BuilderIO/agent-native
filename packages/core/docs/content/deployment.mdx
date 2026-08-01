@@ -536,14 +536,16 @@ Database connection variables (`DATABASE_URL`, `DATABASE_AUTH_TOKEN`, per-app `<
 
 These must be set before promoting an app to a real prod deploy. Missing values either fail-closed (the framework refuses to start / refuses to handle requests) or fall back to weaker behavior with a loud warning.
 
-| Variable                 | Description                                                                                                                                                                                                                                       |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BETTER_AUTH_SECRET`     | 32+ char random string. Signs session cookies AND is the fallback HMAC for `OAUTH_STATE_SECRET` and `SECRETS_ENCRYPTION_KEY`. Hard-required: the framework throws on startup if missing in production.                                            |
-| `BETTER_AUTH_URL`        | Public origin of this app (e.g. `https://mail.example.com`). Used for cookie domain and OAuth redirect construction.                                                                                                                              |
-| `ANTHROPIC_API_KEY`      | API key for the embedded production agent. **In multi-tenant deploys**, the framework refuses to fall back to this when the user has no per-user key — bring-your-own-key is required. Single-tenant self-hosted installs use it as a global key. |
-| `OAUTH_STATE_SECRET`     | Dedicated HMAC key for OAuth state envelopes (Google, Atlassian, Zoom). Falls back to `BETTER_AUTH_SECRET` when unset, but a dedicated value is recommended so rotating one doesn't invalidate the other. Generate via `openssl rand -hex 32`.    |
-| `A2A_SECRET`             | Shared HMAC for inter-app A2A JSON-RPC. Without it, every A2A endpoint and the `/_agent-native/integrations/process-task` self-fire endpoint return 503 in production.                                                                            |
-| `SECRETS_ENCRYPTION_KEY` | AES-256-GCM key for the encrypted-at-rest secrets vault. Falls back to `BETTER_AUTH_SECRET`. Hard-fails in production when both are unset.                                                                                                        |
+| Variable                                    | Description                                                                                                                                                                                                                                                                                                                                  |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET`                        | 32+ char random string. Signs session cookies and is the fallback for `OAUTH_STATE_SECRET` and app-local encrypted values. It is also a legacy read candidate for existing shared vault ciphertext. Hard-required: the framework throws on startup if missing in production.                                                                 |
+| `BETTER_AUTH_URL`                           | Public origin of this app (e.g. `https://mail.example.com`). Used for cookie domain and OAuth redirect construction.                                                                                                                                                                                                                         |
+| `ANTHROPIC_API_KEY`                         | API key for the embedded production agent. **In multi-tenant deploys**, the framework refuses to fall back to this when the user has no per-user key — bring-your-own-key is required. Single-tenant self-hosted installs use it as a global key.                                                                                            |
+| `OAUTH_STATE_SECRET`                        | Dedicated HMAC key for OAuth state envelopes (Google, Atlassian, Zoom). Falls back to `BETTER_AUTH_SECRET` when unset, but a dedicated value is recommended so rotating one doesn't invalidate the other. Generate via `openssl rand -hex 32`.                                                                                               |
+| `A2A_SECRET`                                | Shared HMAC for inter-app A2A JSON-RPC. Without it, every A2A endpoint and the `/_agent-native/integrations/process-task` self-fire endpoint return 503 in production. When no dedicated workspace vault key is set, shared vault ciphertext uses a purpose-derived key from this value, so rotating it also rotates the vault key.          |
+| `WORKSPACE_SECRETS_ENCRYPTION_KEY`          | Preferred stable AES-256-GCM key for the shared encrypted-at-rest secrets vault. Set the same value in every app that reads the vault. It is separate from app-local OAuth/credential encryption, so A2A trust can rotate without stranding vault rows. Existing A2A-, Better Auth-, and app-key ciphertext is migrated on successful reads. |
+| `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS` | Optional previous workspace vault key used only during a rotation window. Deploy it alongside the new `WORKSPACE_SECRETS_ENCRYPTION_KEY`, let successful reads re-encrypt rows, then remove it after migration.                                                                                                                              |
+| `SECRETS_ENCRYPTION_KEY`                    | Legacy combined key for app-local encryption and the shared vault. It remains supported, but new multi-app deployments should use `WORKSPACE_SECRETS_ENCRYPTION_KEY` for the shared vault so changing workspace encryption does not change app-local OAuth ciphertext.                                                                       |
 
 ### Auth & Identity {#env-auth}
 
@@ -563,13 +565,13 @@ Inside a workspace, the root `.env` is loaded into every app automatically, so s
 
 ### Generating Strong Secrets {#env-generate-secrets}
 
-For any secret marked "32+ char random" (`BETTER_AUTH_SECRET`, `OAUTH_STATE_SECRET`, `A2A_SECRET`, `SECRETS_ENCRYPTION_KEY`, `AGENT_NATIVE_BUILDER_RELAY_SECRET`), generate fresh values with:
+For any secret marked "32+ char random" (`BETTER_AUTH_SECRET`, `OAUTH_STATE_SECRET`, `A2A_SECRET`, `WORKSPACE_SECRETS_ENCRYPTION_KEY`, `SECRETS_ENCRYPTION_KEY`, `AGENT_NATIVE_BUILDER_RELAY_SECRET`), generate fresh values with:
 
 ```bash
 openssl rand -hex 32
 ```
 
-Rotate them by replacing the env var on every instance and redeploying — sessions / OAuth state envelopes signed under the old key become invalid, so users may need to sign in again.
+Rotate signing/session keys by replacing the env var on every instance and redeploying — sessions / OAuth state envelopes signed under the old key become invalid, so users may need to sign in again. Rotate `WORKSPACE_SECRETS_ENCRYPTION_KEY` with the `..._PREVIOUS` window described above so encrypted vault rows remain readable while they migrate.
 
 ## Production Agent Tools {#production-agent-tools}
 
@@ -582,7 +584,13 @@ write tools:
 export default createAgentChatPlugin({
   // Default: "read"
   databaseTools: "read", // "write" | "read" | "off"
-  extensionTools: false,
+  extensionTools: true,
+});
+```
+
+```ts filename="server/plugins/core-routes.ts"
+export default createCoreRoutesPlugin({
+  extensionTools: true,
 });
 ```
 
@@ -593,9 +601,10 @@ export default createAgentChatPlugin({
   current user/org and schema changes are blocked.
 - `databaseTools: "off"` or `false` — removes raw database tools from the
   agent surface so the app's actions are the only data access path.
-- `extensionTools: false` — removes framework extension-management actions and
-  prompt guidance (`create-extension`, `update-extension`, etc.) for apps that
-  do not want the agent creating sandboxed mini-apps.
+- `extensionTools: true` — opts the app into framework extension-management
+  actions and prompt guidance (`create-extension`, `update-extension`, etc.).
+  Set it on both plugins to also allow authenticated REST creation. Extensions
+  are disabled by default.
 
 ## Production Code Execution {#production-code-execution}
 
@@ -621,13 +630,17 @@ The `run-code` sandbox is process-level isolation, not an OS container. It strip
 
 ## Updating UI in Production {#updating-ui-in-production}
 
-One of agent-native's core features is that the agent can modify your app's source code — components, routes, styles, actions. During local development this works seamlessly because the agent has full filesystem access.
+The ordinary deployed app agent works through app tools — actions, database,
+MCP, and configured integrations — rather than receiving ambient access to the
+app's source code. Source changes belong in the repository's development
+workflow. An embedded, local, or Builder frame can edit the repository when
+that frame is intentionally granted workspace and write tooling.
 
 In a standard production deployment with [production code execution](#production-code-execution) left off, the agent has access to app tools (actions, database, MCP) but not the filesystem. This means the agent can read and write data, run actions, and interact with external services — but it can't edit your React components or add new routes on a deployed instance.
 
 ### Builder.io: Visual Editing in Production {#builderio}
 
-[Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) solves this by providing a managed cloud environment where the agent retains the ability to modify your app's UI in production. Connect your repo to Builder.io and prompt for UI changes directly — no redeploy needed.
+[Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) is a separate managed code-capable workflow where an agent can modify your app's UI in production. Connect your repo to Builder.io and prompt for UI changes directly — no redeploy needed.
 
 **How it works:**
 

@@ -1648,6 +1648,7 @@ const arSA = {
     formsOverview: "نظرة عامة",
     formsBuildingPublishing: "الإنشاء والنشر",
     formsResponses: "الردود والرؤى",
+    docsComponents: "Docs Components",
     formsDevelopers: "دليل المطور",
   },
 } satisfies typeof enUS;

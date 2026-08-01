@@ -16,6 +16,7 @@ const messages = {
     navInbox: "수신함",
     navTasks: "할 일",
     navFields: "필드",
+    search: "검색",
     collapseSidebar: "사이드바 접기",
     expandSidebar: "사이드바 펼치기",
     navigationTitle: "탐색",
@@ -28,6 +29,12 @@ const messages = {
     pageTeam: "팀",
     pageExtension: "확장 프로그램",
     pageExtensions: "확장 프로그램",
+  },
+  settings: {
+    languageTitle: "언어",
+    languageDescription:
+      "인터페이스 언어를 선택하세요. 이 기본 설정은 계정에 저장됩니다.",
+    languageLabel: "인터페이스 언어",
   },
   agent: {
     emptyState: "에이전트에게 이 앱을 확인하거나 변경하도록 요청하세요.",

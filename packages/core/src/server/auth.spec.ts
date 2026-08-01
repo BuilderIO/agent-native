@@ -440,7 +440,7 @@ describe("server/auth", () => {
             host: "agent-workspace.builder.io",
             "x-forwarded-proto": "https",
             referer: `${previewOrigin}/?builder.preview=interact`,
-            cookie: `an_ft=${firstTouch}`,
+            cookie: `an_ft=${firstTouch}; an_aid=anon_preview_1`,
           },
         }),
       );
@@ -460,6 +460,7 @@ describe("server/auth", () => {
         first_touch_path: "/docs/actions",
         landing_referrer: "https://example.com/post",
       });
+      expect(state.signupAnonymousId).toBe("anon_preview_1");
 
       const rejected = await authUrlHandler(
         createMockEvent({
@@ -3956,7 +3957,7 @@ describe("server/auth", () => {
       const event = createMockEvent({
         headers: {
           "x-forwarded-proto": "https",
-          cookie: `an_ft=${firstTouch}`,
+          cookie: `an_ft=${firstTouch}; an_aid=anon_google_1`,
         },
       });
 
@@ -3982,6 +3983,7 @@ describe("server/auth", () => {
           first_touch_path: "/p/example",
           landing_referrer: "t.co",
         },
+        anonymousId: "anon_google_1",
       });
     });
 
@@ -4031,6 +4033,7 @@ describe("server/auth", () => {
             utm_source: "newsletter",
             first_touch_path: "/docs/actions",
           },
+          signupAnonymousId: "anon_state_1",
         },
       });
 
@@ -4045,6 +4048,7 @@ describe("server/auth", () => {
           utm_source: "newsletter",
           first_touch_path: "/docs/actions",
         },
+        anonymousId: "anon_state_1",
       });
     });
 

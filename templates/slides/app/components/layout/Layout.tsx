@@ -14,10 +14,20 @@ import { cn } from "@/lib/utils";
 
 import { AgentWorkIndicator } from "./AgentWorkIndicator";
 import { Header } from "./Header";
+import {
+  getDeckChatScopeLabel,
+  getEffectiveSlidesSidebarCollapsed,
+  isSlidesEditorRoute,
+} from "./layout-route-policy";
 import { Sidebar } from "./Sidebar";
 
 interface LayoutProps {
   children: React.ReactNode;
+}
+
+interface EditorSidebarOverride {
+  locationKey: string;
+  collapsed: boolean;
 }
 
 /** Routes whose pages render their own toolbar — Layout still renders chrome
@@ -35,6 +45,8 @@ export function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const t = useT();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [editorSidebarOverride, setEditorSidebarOverride] =
+    useState<EditorSidebarOverride | null>(null);
   const { collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed } =
     useSidebarCollapsed();
   const { getDeck } = useDecks();
@@ -49,8 +61,12 @@ export function Layout({ children }: LayoutProps) {
     const deckId = match?.[1];
     if (!deckId) return null;
     const deck = getDeck(deckId);
-    return { type: "deck" as const, id: deckId, label: deck?.title || "" };
-  }, [location.pathname, getDeck]);
+    return {
+      type: "deck" as const,
+      id: deckId,
+      label: getDeckChatScopeLabel(deck?.title, t("agent.thisDeck")),
+    };
+  }, [location.pathname, getDeck, t]);
 
   useEffect(() => {
     setSidebarOpen(false);
@@ -65,6 +81,25 @@ export function Layout({ children }: LayoutProps) {
   }, []);
 
   const ownToolbar = pageHasOwnToolbar(location.pathname);
+  const editorSidebarOverrideForLocation =
+    editorSidebarOverride?.locationKey === location.key
+      ? editorSidebarOverride.collapsed
+      : undefined;
+  const effectiveSidebarCollapsed = getEffectiveSlidesSidebarCollapsed({
+    pathname: location.pathname,
+    persistedCollapsed: sidebarCollapsed,
+    editorOverride: editorSidebarOverrideForLocation,
+  });
+  const toggleSidebarCollapsed = () => {
+    if (isSlidesEditorRoute(location.pathname)) {
+      setEditorSidebarOverride({
+        locationKey: location.key,
+        collapsed: !effectiveSidebarCollapsed,
+      });
+      return;
+    }
+    void setSidebarCollapsed((prev) => !prev);
+  };
 
   return (
     <HeaderActionsProvider>
@@ -98,19 +133,17 @@ export function Layout({ children }: LayoutProps) {
             )}
           >
             <Sidebar
-              collapsed={sidebarCollapsed && !sidebarOpen}
+              collapsed={effectiveSidebarCollapsed && !sidebarOpen}
               // In the mobile drawer the sidebar is forced expanded, so the
               // desktop collapse toggle would be a silent no-op (worse: it'd
               // mutate the desktop preference). Hide it while the drawer is
               // open.
               onToggleCollapsed={
-                sidebarOpen
-                  ? undefined
-                  : () => setSidebarCollapsed((prev) => !prev)
+                sidebarOpen ? undefined : toggleSidebarCollapsed
               }
             />
           </div>
-          <div className="agent-layout-main-surface flex h-full flex-1 flex-col overflow-hidden">
+          <div className="agent-layout-main-surface flex h-full min-w-0 flex-1 flex-col overflow-hidden">
             {/* Mobile-only nav strip with hamburger — only when there's no page toolbar */}
             {!ownToolbar && (
               <div className="flex h-12 items-center border-b border-border px-4 md:hidden shrink-0">

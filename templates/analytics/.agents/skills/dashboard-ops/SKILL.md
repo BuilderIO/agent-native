@@ -49,10 +49,11 @@ action names and the user-facing constraints already in `AGENTS.md`.
   `server/jobs/dashboard-report.ts`) reserves 220 seconds of the
   `dashboard-report-sweep-background` function's 300-second `netlify.toml`
   timeout for rendering and delivery, leaving the remainder for cleanup.
-- Netlify sweeps process up to 5 subscriptions per tick
-  (`SERVERLESS_MAX_REPORTS_PER_SWEEP`) — no longer forced to 1, since capture
-  no longer drives a per-subscription browser. Long-lived (non-Netlify)
-  runtimes default to the same limit of 5, overridable with
+- Netlify processes one subscription per background invocation so every report
+  gets a fresh delivery deadline and first-party queries cannot contend with
+  another report. When due work remains, the worker queues another background
+  invocation immediately and drains the batch sequentially. Long-lived
+  (non-Netlify) runtimes default to a limit of 5, overridable with
   `DASHBOARD_REPORT_SWEEP_LIMIT`.
 
 ### Env Vars

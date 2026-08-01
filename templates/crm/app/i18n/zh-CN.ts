@@ -61,6 +61,9 @@ const messages = {
     title: "CRM 设置",
     description:
       "原生 SQL 让 CRM 自有的记录保持在本地且可迁移。HubSpot 和 Salesforce 使用工作区连接，其镜像只保存白名单字段、受限元数据和有界的证据引用。",
+    languageTitle: "语言",
+    languageDescription: "选择界面语言。此偏好会保存到你的账户。",
+    languageLabel: "界面语言",
   },
   connection: {
     tab: "连接",

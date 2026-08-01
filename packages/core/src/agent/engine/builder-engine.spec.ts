@@ -897,6 +897,35 @@ describe("createBuilderEngine", () => {
     expect(stop?.errorCode).toBe("builder_gateway_network_error");
   });
 
+  it("tags retry-wrapped OpenAI TLS connection failures as gateway network errors", async () => {
+    const error =
+      "Failed after 2 attempts. Last error: Cannot connect to API: " +
+      "0029217D3D7F0000:error:0A000438:SSL routines:ssl3_read_bytes:" +
+      "tlsv1 alert internal error";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "error",
+            error,
+          },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(
+      engine.stream({ ...BASE_OPTS, model: "gpt-5-6-terra" }),
+    );
+
+    const stop = events.find((event) => event.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.error).toBe(error);
+    expect(stop?.errorCode).toBe("builder_gateway_network_error");
+  });
+
   it("keeps the hard timeout active while reading the gateway stream", async () => {
     vi.stubEnv("AGENT_NATIVE_BUILDER_GATEWAY_TIMEOUT_MS", "1");
     const fetchSpy = vi.fn((_url: string, init?: RequestInit) => {
@@ -1486,6 +1515,97 @@ describe("createBuilderEngine", () => {
 
     const engine = createBuilderEngine();
     await collectEvents(engine.stream({ ...BASE_OPTS, model: "gpt-5-6-luna" }));
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.reasoning_effort).toBe("medium");
+  });
+
+  // OpenAI rejects reasoning_effort + function tools on Chat Completions,
+  // where the gateway routes GPT models — every gpt-5.x chat WITH TOOLS (i.e.
+  // every real agent turn) failed deterministically until this sent "none".
+  it("sends reasoning_effort none for a GPT model when tools are present", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(
+        jsonlResponse([
+          { type: "stop", reason: "end_turn", requestId: "req_1" },
+        ]),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    await collectEvents(
+      engine.stream({
+        ...BASE_OPTS,
+        model: "gpt-5-6-luna",
+        tools: [
+          {
+            name: "list_items",
+            description: "List items",
+            inputSchema: { type: "object", properties: {} },
+          },
+        ],
+      }),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.reasoning_effort).toBe("none");
+    expect(body.tools).toHaveLength(1);
+  });
+
+  it("preserves explicit none for a GPT model when tools are present", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(
+        jsonlResponse([
+          { type: "stop", reason: "end_turn", requestId: "req_1" },
+        ]),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    await collectEvents(
+      engine.stream({
+        ...BASE_OPTS,
+        model: "gpt-5-6-luna",
+        reasoningEffort: "none",
+        tools: [
+          {
+            name: "list_items",
+            description: "List items",
+            inputSchema: { type: "object", properties: {} },
+          },
+        ],
+      }),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.reasoning_effort).toBe("none");
+  });
+
+  it("keeps full reasoning_effort for a Claude model when tools are present", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(
+        jsonlResponse([
+          { type: "stop", reason: "end_turn", requestId: "req_1" },
+        ]),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    await collectEvents(
+      engine.stream({
+        ...BASE_OPTS,
+        tools: [
+          {
+            name: "list_items",
+            description: "List items",
+            inputSchema: { type: "object", properties: {} },
+          },
+        ],
+      }),
+    );
 
     const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
     expect(body.reasoning_effort).toBe("medium");

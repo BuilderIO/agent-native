@@ -8,24 +8,13 @@
  * the actions/UI have their schema even when in-process sweeps are disabled.
  */
 import { runDueMonitorsOnce } from "../jobs/uptime-monitors";
+import { isProductionServerlessRuntime } from "../lib/production-serverless-runtime";
 
 const DEFAULT_INTERVAL_MS = 30_000;
 let skippingLogged = false;
 
 declare global {
   var __AGENT_NATIVE_UPTIME_MONITOR_SCHEDULED_RUNTIME__: boolean | undefined;
-}
-
-function isProductionServerlessRuntime(): boolean {
-  if (process.env.NODE_ENV !== "production") return false;
-  return (
-    process.env.NETLIFY === "true" ||
-    Boolean(process.env.NETLIFY_FUNCTION_NAME) ||
-    Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME) ||
-    Boolean(process.env.LAMBDA_TASK_ROOT) ||
-    process.env.AWS_EXECUTION_ENV?.startsWith("AWS_Lambda") === true ||
-    process.env.VERCEL === "1"
-  );
 }
 
 function platformSchedulerOwnsMonitors(): boolean {

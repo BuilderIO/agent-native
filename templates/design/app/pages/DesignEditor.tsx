@@ -296,6 +296,7 @@ import { validateCrossScreenSourceHtmlSnapshot } from "@/components/design/multi
 import {
   getCanonicalScreenStack,
   getInitialFrameGeometry,
+  getResponsiveScreenCullGeometry,
   getScreenPreviewViewport,
   reorderCanonicalScreenStack,
 } from "@/components/design/multi-screen/frame-geometry";
@@ -417,6 +418,7 @@ import {
 import { useQuestionFlow } from "@/hooks/use-question-flow";
 import {
   isDesignHotkeyEditableTarget,
+  isShowKeyboardShortcutsHotkey,
   useDesignHotkeys,
   type DesignHotkeyAlignEdge,
   type DesignHotkeyDistributeAxis,
@@ -514,12 +516,15 @@ import {
   defaultCanvasTextColor,
   parsePenPathFromSerializedD,
 } from "./design-editor/canvas-primitives";
+import { resolveClipboardLayerSourceHtml } from "./design-editor/clipboard-layer-source";
 import {
   cloneHtmlLayerAtPosition,
   extractLayerPosition,
   getElementOuterHtml,
   insertClonedHtmlLayer,
   insertClonedHtmlLayers,
+  prepareClonedHtmlLayersForLiveInsert,
+  preserveClipboardLayerName,
   setPenNodesAttributeOnElement,
   writeBackVectorEditedPenPath,
 } from "./design-editor/clone-and-pen-edit";
@@ -575,6 +580,9 @@ import {
   buildFrameGeometryDataOperations,
   clearAcknowledgedDesignDataOperationsThroughRevision,
   compactDesignDataOperations,
+  getDesignBreakpointWidths,
+  getDesignCanvasBackground,
+  sanitizeCanvasBackground,
   pendingDesignDataOperations,
   stagePendingDesignDataOperations,
   type DesignDataOperation,
@@ -706,9 +714,11 @@ import {
   type AlignableRect,
   computeAlignedPositions,
   computeDistributedPositions,
+  computeOverlapReflowGeometry,
   computeTidyPositions,
   inferAutoLayoutFromChildren,
   mergeAuthoredAndLiveRect,
+  type ReflowCandidate,
 } from "./design-editor/layout-operations";
 import { prepareLiveScreenLayerDrop } from "./design-editor/live-screen-layer-drop";
 import {
@@ -856,6 +866,7 @@ import {
   shouldUseOverviewRuntimeReplacement,
 } from "./design-editor/selection-state";
 import {
+  isTextEditSessionOutcome,
   postShaderFillPreviewClearToPreviewIframes,
   removeElementFromHtml,
   sanitizeEditableInnerHtml,
@@ -914,6 +925,12 @@ const MOTION_DOCK_EXIT_SETTLE_MS = 80;
 const MOTION_DOCK_EXIT_FALLBACK_MS = MOTION_DOCK_TRANSITION_MS * 2 + 600;
 const MOTION_AUTOSAVE_DELAY_MS = 500;
 const DESIGN_SELECTION_ZOOM_SAVE_DELAY_MS = 150;
+/** Retry window for dropping an untouched text node whose screen content has
+ *  not caught up with the insert yet — see removeEmptyTextNodeWithRetry. */
+const EMPTY_TEXT_CLEANUP_RETRY_MS = 400;
+/** Floor for an inspector-typed frame size, matching the frame tool's own
+ *  drawing minimum (see getDraftGeometryForTool). */
+const MIN_FRAME_SIZE_PX = 24;
 const BOARD_SURFACE_SIZE = 131_072;
 /** Gates non-essential diagnostic console.warn calls (e.g. the cross-screen
  * anchor-stamp fallback warning) so production consoles stay quiet while
@@ -6710,10 +6727,11 @@ function DesignEditor() {
     ],
   );
 
-  // Agent→editor commands follow edit access, not ambient session state: the
-  // visual-edit handoff can authorize a local editor without a normal sign-in.
+  // Direct links are read-only navigation too: viewers must be able to restore
+  // the requested screen, view, and zoom even though tool activation remains
+  // guarded inside applyDesignEditorCommand.
   useEffect(() => {
-    if (!id || !canEditDesign) return;
+    if (!id) return;
     if (initialSearchCommandAppliedForIdRef.current === id) return;
     const command = designEditorCommandFromSearchParams(
       id,
@@ -6727,7 +6745,7 @@ function DesignEditor() {
     if (applied) {
       initialSearchCommandAppliedForIdRef.current = id;
     }
-  }, [applyDesignEditorCommand, canEditDesign, id, initialSearchParams]);
+  }, [applyDesignEditorCommand, id, initialSearchParams]);
 
   useEffect(() => {
     if (!id || !canEditDesign) return;
@@ -6863,10 +6881,14 @@ function DesignEditor() {
         {
           onSuccess: (result: any) => {
             const nextId = typeof result?.id === "string" ? result.id : null;
-            queryClient.invalidateQueries({
-              queryKey: ["action", "get-design"],
-            });
-            if (nextId) {
+            // Refetch only when there is no created id to insert optimistically:
+            // a whole-design refetch re-downloads every screen's HTML, which is
+            // what made adding a frame feel slow.
+            if (!nextId) {
+              queryClient.invalidateQueries({
+                queryKey: ["action", "get-design"],
+              });
+            } else {
               optimisticallyInsertCreatedFile({
                 fileId: nextId,
                 filename,
@@ -7015,9 +7037,14 @@ function DesignEditor() {
               geometry: nextGeometry,
             });
           }
-          queryClient.invalidateQueries({
-            queryKey: ["action", "get-design"],
-          });
+          // Refetch only when there is no created id to insert optimistically:
+          // a whole-design refetch re-downloads every screen's HTML, which is
+          // what made adding a frame feel slow.
+          if (!nextId) {
+            queryClient.invalidateQueries({
+              queryKey: ["action", "get-design"],
+            });
+          }
         },
         onError: (error) => {
           toast.error(
@@ -7084,9 +7111,14 @@ function DesignEditor() {
                 geometry: nextGeometry,
               });
             }
-            queryClient.invalidateQueries({
-              queryKey: ["action", "get-design"],
-            });
+            // Refetch only when there is no created id to insert optimistically:
+            // a whole-design refetch re-downloads every screen's HTML, which is
+            // what made adding a frame feel slow.
+            if (!nextId) {
+              queryClient.invalidateQueries({
+                queryKey: ["action", "get-design"],
+              });
+            }
           },
           onError: (error) => {
             toast.error(
@@ -9122,6 +9154,10 @@ function DesignEditor() {
         /** Markup this change introduced; the subject does not exist in the
          * screen's source yet, so it must be added rather than relocated. */
         insertedHtml?: string;
+        /** The inserted markup replaced this subject as one live gesture. */
+        replaced?: true;
+        replacementSelector?: string;
+        replacementSourceId?: string;
         /** This change DELETED the subject; it has no anchor. */
         removed?: true;
       },
@@ -9190,6 +9226,13 @@ function DesignEditor() {
         sourceRect: details?.sourceRect,
         anchorRect: details?.anchorRect,
         insertedHtml: details?.insertedHtml,
+        ...(details?.replaced
+          ? {
+              replaced: true as const,
+              replacementSelector: details.replacementSelector,
+              replacementSourceId: details.replacementSourceId,
+            }
+          : {}),
         ...(details?.removed ? { removed: true as const } : {}),
         requestId: details?.requestId,
         updatedAt: Date.now(),
@@ -11345,22 +11388,41 @@ function DesignEditor() {
   // content actually CHANGES, so a node the user never typed into (or
   // Escaped out of immediately) would otherwise persist forever as an
   // invisible empty layer with nothing to select or clean it up.
+  /**
+   * Drops a text node the user never typed into. Returns why it did or did not
+   * act: "node-absent" and "content-unavailable" are races worth one retry
+   * (the insert may not have reached `getScreenContent` yet), while
+   * "kept-has-content" and "removed" are settled answers. Reporting these
+   * separately is the point — every one of them used to be a bare `return`,
+   * so an empty text box that survived because its screen content had not
+   * propagated was indistinguishable from one deliberately kept, and the box
+   * stayed on the canvas invisibly forever.
+   */
   const removeEmptyTextNodeIfUntouched = useCallback(
-    (screenId: string | null, nodeId: string) => {
-      if (!screenId) return;
+    (
+      screenId: string | null,
+      nodeId: string,
+    ):
+      | "removed"
+      | "kept-has-content"
+      | "node-absent"
+      | "content-unavailable"
+      | "no-screen"
+      | "remove-failed" => {
+      if (!screenId) return "no-screen";
       const content = getScreenContent(screenId);
-      if (!content) return;
+      if (!content) return "content-unavailable";
       const projection = buildCodeLayerProjection(content);
       const node = projection.nodes.find(
         (n) =>
           n.dataAttributes["data-agent-native-node-id"] === nodeId ||
           n.id === nodeId,
       );
-      if (!node) return;
+      if (!node) return "node-absent";
       const hasContent = (node.textSnippet ?? "").trim().length > 0;
-      if (hasContent) return;
+      if (hasContent) return "kept-has-content";
       const nextContent = removeCodeLayerNodeFromHtml(content, node);
-      if (!nextContent || nextContent === content) return;
+      if (!nextContent || nextContent === content) return "remove-failed";
       const finalizedCreation = finalizePendingTextCreation(
         screenId,
         [nodeId, node.id, node.dataAttributes["data-agent-native-node-id"]],
@@ -11376,8 +11438,30 @@ function DesignEditor() {
       setSelectedElement((current) =>
         current?.sourceId === nodeId || current?.id === nodeId ? null : current,
       );
+      return "removed";
     },
     [applyFileContentUpdate, finalizePendingTextCreation, getScreenContent],
+  );
+
+  /** Cleanup for an untouched text node, retried once past the insert→content
+   *  propagation gap. Without the retry an empty box created while its screen
+   *  content was still settling stayed on the canvas as an invisible node. */
+  const removeEmptyTextNodeWithRetry = useCallback(
+    (screenId: string | null, nodeId: string) => {
+      const outcome = removeEmptyTextNodeIfUntouched(screenId, nodeId);
+      if (outcome !== "node-absent" && outcome !== "content-unavailable") {
+        return;
+      }
+      window.setTimeout(() => {
+        const retried = removeEmptyTextNodeIfUntouched(screenId, nodeId);
+        if (retried === "node-absent" || retried === "content-unavailable") {
+          console.warn(
+            `[design] could not resolve empty text node ${screenId}/${nodeId} to clean up (${retried})`,
+          );
+        }
+      }, EMPTY_TEXT_CLEANUP_RETRY_MS);
+    },
+    [removeEmptyTextNodeIfUntouched],
   );
 
   const handlePrimitiveCreated = useCallback(
@@ -11459,28 +11543,35 @@ function DesignEditor() {
         // different surface, its iframe no-ops on the unknown nodeId while
         // the buffer still swallows destructive shortcuts, and the
         // screen-id-scoped scheduleBeginTextEditForScreen loop below remains
-        // the authoritative per-iframe (data-screen-iframe-id targeted)
-        // fallback.
+        // the authoritative per-iframe fallback (resolved through
+        // findCanvasIframeForScreen, so board-space text works too).
         if (typeof window !== "undefined") {
           const beginTextEditNow = (window as any).__designCanvasBeginTextEdit;
           if (typeof beginTextEditNow === "function") {
             beginTextEditNow(textNodeId, { afterPointerGesture: true });
           }
         }
-        const cancel = scheduleBeginTextEditForScreen(
-          screenId,
-          textNodeId,
-          (finalStatus) => {
+        const cancel = scheduleBeginTextEditForScreen(screenId, textNodeId, {
+          boardFileId,
+          onExhausted: (finalStatus) => {
             const pending = pendingEmptyTextEditRef.current;
             if (!pending || pending.nodeId !== textNodeId || pending.settled) {
               return;
             }
             pending.settled = true;
-            if (finalStatus !== "active" && finalStatus !== "done") {
-              removeEmptyTextNodeIfUntouched(screenId, textNodeId);
+            if (isTextEditSessionOutcome(finalStatus)) return;
+            if (finalStatus === "no-iframe" || finalStatus === "no-reply") {
+              // Never reached an editing surface at all. That is a targeting
+              // defect, not the user declining to type, so make it audible —
+              // but the persisted document, not this outcome, still decides
+              // whether the node is empty and should go.
+              console.warn(
+                `[design] text edit never reached a surface for ${screenId}/${textNodeId} (${finalStatus})`,
+              );
             }
+            removeEmptyTextNodeWithRetry(screenId, textNodeId);
           },
-        );
+        });
         pendingEmptyTextEditRef.current = {
           screenId,
           nodeId: textNodeId,
@@ -11492,7 +11583,7 @@ function DesignEditor() {
     [
       boardFileId,
       clearPendingOverviewLayerSelectionTimer,
-      removeEmptyTextNodeIfUntouched,
+      removeEmptyTextNodeWithRetry,
     ],
   );
 
@@ -14699,6 +14790,9 @@ function DesignEditor() {
         /** Markup this change introduced; the subject does not exist in the
          * screen's source yet, so it must be added rather than relocated. */
         insertedHtml?: string;
+        replaced?: true;
+        replacementSelector?: string;
+        replacementSourceId?: string;
       },
     ) => {
       dndHostLog("persist:begin", {
@@ -15204,6 +15298,9 @@ function DesignEditor() {
         /** Markup this change introduced; the subject does not exist in the
          * screen's source yet, so it must be added rather than relocated. */
         insertedHtml?: string;
+        replaced?: true;
+        replacementSelector?: string;
+        replacementSourceId?: string;
       },
     ) => {
       if (screenId === activeFile?.id) {
@@ -15611,15 +15708,25 @@ function DesignEditor() {
 
     const snapshots: SelectedCanvasLayerSnapshot[] = [];
     for (const file of files) {
-      // BUG-DELETE-LIVE-SNAPSHOT: getScreenContent returns DesignFile.content,
-      // which for a localhost/live-snapshot screen is just the bridged route
-      // URL, not HTML — so a node lookup against it always came up empty and
-      // this screen's selection silently produced no snapshot. Prefer the
-      // live snapshot HTML (same source commitVisualStyles already reads for
-      // this exact reason) and fall back to the file content for inline/board
-      // screens that don't have one.
-      const content =
-        liveScreenSnapshotsById[file.id]?.html ?? getScreenContent(file.id);
+      // A hydrated localhost app has two snapshots: `/snapshot` is the source
+      // or SSR shell, while the runtime layer snapshot is the DOM the user can
+      // actually see and select. Layers already prefers that rendered tree, so
+      // Copy must resolve against the same id namespace or client-rendered
+      // React/Vue/Svelte nodes silently produce an empty clipboard.
+      const runtimeProjectionEligible = shouldUseRuntimeLayerProjection({
+        screen: overviewScreens.find((screen) => screen.id === file.id),
+        fallbackSourceType: designSourceType,
+        content: file.content ?? "",
+      });
+      const runtimeSnapshot = runtimeProjectionEligible
+        ? runtimeLayerSnapshotsById[file.id]
+        : undefined;
+      const content = resolveClipboardLayerSourceHtml({
+        runtimeProjectionEligible,
+        runtimeSnapshot,
+        liveSnapshotHtml: liveScreenSnapshotsById[file.id]?.html,
+        storedContent: getScreenContent(file.id),
+      });
       if (!content) continue;
       const projection = buildCodeLayerProjection(content);
       const tree = buildCodeLayerTree(projection);
@@ -15655,8 +15762,20 @@ function DesignEditor() {
     }
 
     if (snapshots.length === 0 && activeFile && selectedElement?.selector) {
-      const content =
-        liveScreenSnapshotsById[activeFile.id]?.html ?? getFreshActiveContent();
+      const runtimeProjectionEligible = shouldUseRuntimeLayerProjection({
+        screen: overviewScreens.find((screen) => screen.id === activeFile.id),
+        fallbackSourceType: designSourceType,
+        content: activeFile.content ?? "",
+      });
+      const runtimeSnapshot = runtimeProjectionEligible
+        ? runtimeLayerSnapshotsById[activeFile.id]
+        : undefined;
+      const content = resolveClipboardLayerSourceHtml({
+        runtimeProjectionEligible,
+        runtimeSnapshot,
+        liveSnapshotHtml: liveScreenSnapshotsById[activeFile.id]?.html,
+        storedContent: getFreshActiveContent(),
+      });
       const projection = buildCodeLayerProjection(content);
       const tree = buildCodeLayerTree(projection);
       const node = resolveCodeLayerNodeFromElementInfo(
@@ -15708,10 +15827,13 @@ function DesignEditor() {
     });
   }, [
     activeFile,
+    designSourceType,
     files,
     getFreshActiveContent,
     getScreenContent,
     liveScreenSnapshotsById,
+    overviewScreens,
+    runtimeLayerSnapshotsById,
     selectedElement,
     selectedElementLayerId,
     selectedLayerIdsState,
@@ -15844,7 +15966,7 @@ function DesignEditor() {
 
   const handleCopySelection = useCallback(async () => {
     const entries = getSelectedLayerSnapshots().map((snapshot) => ({
-      html: snapshot.html,
+      html: preserveClipboardLayerName(snapshot.html, snapshot.node.layerName),
       rootNodeId: snapshot.rootNodeId,
       sourceFileId: snapshot.sourceFileId,
       portableStyleSnapshot: snapshot.portableStyleSnapshot,
@@ -15861,7 +15983,24 @@ function DesignEditor() {
         ? overviewSelectedScreenIds
             .map((screenId): DesignClipboardScreenEntry | null => {
               const file = files.find((candidate) => candidate.id === screenId);
-              const content = getScreenContent(screenId) ?? file?.content;
+              const runtimeProjectionEligible =
+                file &&
+                shouldUseRuntimeLayerProjection({
+                  screen: overviewScreens.find(
+                    (screen) => screen.id === screenId,
+                  ),
+                  fallbackSourceType: designSourceType,
+                  content: file.content ?? "",
+                });
+              const runtimeSnapshot = runtimeProjectionEligible
+                ? runtimeLayerSnapshotsById[screenId]
+                : undefined;
+              const content = resolveClipboardLayerSourceHtml({
+                runtimeProjectionEligible: Boolean(runtimeProjectionEligible),
+                runtimeSnapshot,
+                liveSnapshotHtml: liveScreenSnapshotsById[screenId]?.html,
+                storedContent: getScreenContent(screenId) ?? file?.content,
+              });
               if (!file || typeof content !== "string") return null;
               return {
                 filename: file.filename,
@@ -15916,10 +16055,14 @@ function DesignEditor() {
     return true;
   }, [
     canvasFrameGeometryById,
+    designSourceType,
     files,
     getScreenContent,
     getSelectedLayerSnapshots,
+    liveScreenSnapshotsById,
     overviewSelectedScreenIds,
+    overviewScreens,
+    runtimeLayerSnapshotsById,
     t,
   ]);
 
@@ -16045,6 +16188,108 @@ function DesignEditor() {
       const managedStyleSnapshots = entries.map(
         (entry) => entry.managedStyleSnapshot,
       );
+      const targetFile = files.find((file) => file.id === targetFileId);
+      const targetStoredContent = targetFile?.content ?? baseContent;
+      if (isStandaloneHttpUrl(targetStoredContent)) {
+        const selectedAnchor =
+          !position &&
+          targetFileId === activeFile?.id &&
+          selectedElement?.selector &&
+          !["body", "html"].includes(
+            selectedElement.tagName?.toLowerCase() ?? "",
+          )
+            ? {
+                selector:
+                  selectedElement.runtimeSelector ??
+                  selectedCanvasSelector ??
+                  selectedElement.selector,
+                sourceId:
+                  selectedElement.runtimeSourceId ??
+                  selectedElement.sourceId ??
+                  undefined,
+              }
+            : null;
+        const sourcePositions = entries.map((entry) =>
+          extractLayerPosition(entry.html),
+        );
+        const positionedSources = sourcePositions.filter(
+          (source): source is { x: number; y: number } => Boolean(source),
+        );
+        const minSourceX = positionedSources.length
+          ? Math.min(...positionedSources.map((source) => source.x))
+          : 0;
+        const minSourceY = positionedSources.length
+          ? Math.min(...positionedSources.map((source) => source.y))
+          : 0;
+        const iframe =
+          canvasContainerRef.current?.querySelector<HTMLElement>(
+            "[data-design-preview-iframe]",
+          ) ?? null;
+        const iframeRect = iframe?.getBoundingClientRect();
+        const factor = zoom / 100;
+        const viewportCenter = iframeRect
+          ? {
+              x: Math.max(0, iframeRect.width / 2 / factor),
+              y: Math.max(0, iframeRect.height / 2 / factor),
+            }
+          : { x: 120, y: 120 };
+        const cascadeOffset = pasteCascadeRef.current * 16;
+        const pastingIntoSourceScreen = entries.every(
+          (entry) => entry.sourceFileId === targetFileId,
+        );
+        const positions = selectedAnchor
+          ? undefined
+          : entries.map((_, index) => {
+              const source = sourcePositions[index];
+              if (position) {
+                return source && positionedSources.length
+                  ? {
+                      x: position.x + source.x - minSourceX,
+                      y: position.y + source.y - minSourceY,
+                    }
+                  : {
+                      x: position.x + index * 16,
+                      y: position.y + index * 16,
+                    };
+              }
+              return source && pastingIntoSourceScreen
+                ? {
+                    x: source.x + 10 + cascadeOffset,
+                    y: source.y + 10 + cascadeOffset,
+                  }
+                : {
+                    x: viewportCenter.x + cascadeOffset + index * 16,
+                    y: viewportCenter.y + cascadeOffset + index * 16,
+                  };
+            });
+        const prepared = prepareClonedHtmlLayersForLiveInsert(
+          targetStoredContent,
+          layerHtmls,
+          {
+            stripRootPosition: Boolean(selectedAnchor),
+            positions,
+            styleSnapshots,
+          },
+        );
+        const firstHtml = prepared?.htmlFragments[0];
+        if (!prepared || !firstHtml) {
+          toast.error(t("designEditor.toasts.layerMoveFailed"), {
+            duration: 4000,
+          });
+          return;
+        }
+        pasteCascadeRef.current += 1;
+        runtimeStructureInsertRevisionRef.current += 1;
+        setRuntimeStructureInsertRequest({
+          requestId: runtimeStructureInsertRevisionRef.current,
+          screenId: targetFileId,
+          html: firstHtml,
+          additionalHtml: prepared.htmlFragments.slice(1),
+          anchor: selectedAnchor ?? { selector: "body" },
+          placement: selectedAnchor ? "after" : "inside",
+        });
+        return;
+      }
       const applyPasteContentUpdate = (nextContent: string) => {
         const clipboardMutation = publishAuthoritativeClipboardMutation({
           fileId: targetFileId,
@@ -16210,6 +16455,7 @@ function DesignEditor() {
       getCanvasScreenClipboardEntries,
       getFreshActiveContent,
       getScreenContent,
+      files,
       pasteCopiedScreens,
       publishAuthoritativeClipboardMutation,
       refreshClipboardFromSystemClipboard,
@@ -16217,6 +16463,7 @@ function DesignEditor() {
       selectInsertedLayers,
       selectedCanvasSelector,
       selectedElement,
+      t,
       clearRedoStacks,
       syncUndoRedoState,
       zoom,
@@ -16778,6 +17025,43 @@ function DesignEditor() {
     const targetPosition = selectedElement?.boundingRect;
     if (!targetSelector || !targetPosition) return;
     const baseContent = getFreshActiveContent();
+    const targetStoredContent = activeFile.content ?? baseContent;
+    if (isStandaloneHttpUrl(targetStoredContent)) {
+      const prepared = prepareClonedHtmlLayersForLiveInsert(
+        targetStoredContent,
+        [entries[0]!.html],
+        {
+          positions: [{ x: targetPosition.x, y: targetPosition.y }],
+          styleSnapshots: [entries[0]!.portableStyleSnapshot],
+        },
+      );
+      const html = prepared?.htmlFragments[0];
+      if (!prepared || !html) {
+        toast.error(t("designEditor.toasts.layerMoveFailed"), {
+          duration: 4000,
+        });
+        return;
+      }
+      runtimeStructureInsertRevisionRef.current += 1;
+      setRuntimeStructureInsertRequest({
+        requestId: runtimeStructureInsertRevisionRef.current,
+        screenId: activeFile.id,
+        html,
+        replaceAnchor: true,
+        anchor: {
+          selector:
+            selectedElement.runtimeSelector ??
+            selectedCanvasSelector ??
+            targetSelector,
+          sourceId:
+            selectedElement.runtimeSourceId ??
+            selectedElement.sourceId ??
+            undefined,
+        },
+        placement: "before",
+      });
+      return;
+    }
     const projection = buildCodeLayerProjection(baseContent);
     const targetNode = projection.nodes.find((node) =>
       node.selectors.includes(targetSelector),
@@ -16806,9 +17090,14 @@ function DesignEditor() {
     canEditDesign,
     getCanvasClipboardEntries,
     getFreshActiveContent,
+    selectedCanvasSelector,
     selectInsertedLayers,
     selectedElement?.boundingRect,
+    selectedElement?.runtimeSelector,
+    selectedElement?.runtimeSourceId,
     selectedElement?.selector,
+    selectedElement?.sourceId,
+    t,
   ]);
 
   const handleDuplicateSelection = useCallback(() => {
@@ -18179,6 +18468,102 @@ function DesignEditor() {
     ],
   );
 
+  /**
+   * On-canvas footprint of a screen including the breakpoint frames drawn to
+   * its right, so packing/tidy reserves the space they actually occupy.
+   * Breakpoint frames render inside the screen's own container and never appear
+   * in `canvasFrames`, so packing against the base geometry alone dropped every
+   * new breakpoint on top of the next screen.
+   *
+   * Widths are exact (`widthPx * primaryScale`); the height falls back to the
+   * renderer's own pre-measurement aspect projection, since measured breakpoint
+   * iframe heights live inside MultiScreenCanvas.
+   */
+  const getScreenGroupFootprint = useCallback(
+    (
+      screenId: string,
+      geometry: CanvasFrameGeometry,
+      /** Widths to assume instead of the screen's current ones — used right
+       *  after an add-breakpoint mutation, before the query round-trips. */
+      breakpointWidthsOverride?: readonly number[],
+    ): { x: number; y: number; width: number; height: number } => {
+      const x = geometry.x ?? 0;
+      const y = geometry.y ?? 0;
+      const width = geometry.width ?? 0;
+      const height = geometry.height ?? 0;
+      const screen = overviewScreens.find((item) => item.id === screenId);
+      if (!screen) return { x, y, width, height };
+      // Culling's own geometry, so packing cannot disagree with it. The AABB
+      // matters: a rotated group reaches past its unrotated box, and the
+      // collision test below is axis-aligned.
+      return getResponsiveScreenCullGeometry(
+        {
+          id: screenId,
+          metadata: {
+            width: screen.width ?? width,
+            height: screen.height ?? height,
+          },
+          breakpointWidths: breakpointWidthsOverride ?? screen.breakpointWidths,
+        },
+        { x, y, width, height, rotation: geometry.rotation },
+      );
+    },
+    [overviewScreens],
+  );
+
+  /**
+   * Re-packs the whole board when breakpoint frames have grown a screen's
+   * footprint into its neighbour. Adding a breakpoint widens every screen at
+   * once, and nothing previously moved, so the new frames rendered straight over
+   * the next screen. Runs only on an actual collision (so a deliberately
+   * arranged, non-overlapping board is left alone), and commits through
+   * handleGeometryCommit, which makes it one undo step.
+   */
+  const reflowOverviewScreensForBreakpoints = useCallback(
+    (breakpointWidths: readonly number[]) => {
+      if (!canEditDesignRef.current) return;
+      const before = getCanvasFrameGeometry(designDataJsonRef.current);
+      const candidates: ReflowCandidate[] = overviewScreens.map(
+        (screen, index) => {
+          // Screens laid out by getInitialFrameGeometry have no canvasFrames
+          // entry yet; carry the resolved geometry so the write-back below can
+          // create one instead of dropping their computed move.
+          const geometry = {
+            ...getInitialFrameGeometry(index, {
+              width: screen.width ?? 1280,
+              height: screen.height ?? 2560,
+            }),
+            ...before[screen.id],
+          };
+          const footprint = getScreenGroupFootprint(
+            screen.id,
+            geometry,
+            breakpointWidths,
+          );
+          return {
+            id: screen.id,
+            geometry,
+            footprint: {
+              id: screen.id,
+              x: footprint.x,
+              y: footprint.y,
+              width: footprint.width,
+              height: footprint.height,
+            },
+          };
+        },
+      );
+      const reflowed = computeOverlapReflowGeometry(candidates);
+      if (reflowed.size === 0) return;
+      const after = cloneCanvasFrameGeometry(before);
+      reflowed.forEach((geometry, screenId) => {
+        after[screenId] = { ...after[screenId], ...geometry };
+      });
+      handleGeometryCommit(before, after);
+    },
+    [getScreenGroupFootprint, handleGeometryCommit, overviewScreens],
+  );
+
   // Item 4: Figma's Ctrl+Alt+T — Tidy up: arrange the selection into a
   // compact grid with uniform gaps (see computeTidyPositions' doc comment for
   // the exact packing heuristic chosen).
@@ -18206,12 +18591,16 @@ function DesignEditor() {
               : undefined;
         if (!fallbackGeometry) return;
         const geometry = { ...fallbackGeometry, ...before[screenId] };
+        // Pack against the breakpoint group's footprint, not just the base
+        // frame — otherwise tidy leaves every breakpoint row overlapping the
+        // neighbouring screen.
+        const footprint = getScreenGroupFootprint(screenId, geometry);
         screenRects.push({
           id: screenId,
-          x: geometry.x,
-          y: geometry.y,
-          width: geometry.width,
-          height: geometry.height,
+          x: footprint.x,
+          y: footprint.y,
+          width: footprint.width,
+          height: footprint.height,
         });
       });
       if (screenRects.length === 0) return;
@@ -18246,6 +18635,7 @@ function DesignEditor() {
     commitNodePositions,
     getActiveFileSelectedNodeIds,
     getFreshActiveContent,
+    getScreenGroupFootprint,
     handleGeometryCommit,
     overviewScreens,
     overviewSelectedScreenIds,
@@ -19628,7 +20018,6 @@ function DesignEditor() {
   );
 
   const handleCutSelection = useCallback(async () => {
-    if (!selectedElement?.selector) return;
     // Copy first (populates the internal clipboard ref even if the async
     // navigator.clipboard write is blocked — handleCopySelection swallows that
     // error and still returns true) then remove the element so a subsequent
@@ -19638,7 +20027,7 @@ function DesignEditor() {
     const copied = await handleCopySelection();
     if (!copied) return;
     handleDeleteSelection();
-  }, [handleCopySelection, handleDeleteSelection, selectedElement]);
+  }, [handleCopySelection, handleDeleteSelection]);
 
   const [pendingScreenDeletion, setPendingScreenDeletion] = useState<{
     files: DesignFile[];
@@ -21173,6 +21562,7 @@ function DesignEditor() {
           requestId: runtimeStructureInsertRevisionRef.current,
           screenId: pendingNonStyleRedo.edit.screenId,
           html: redoCommand.html,
+          replaceAnchor: redoCommand.replaceAnchor,
           anchor: {
             selector: pendingNonStyleRedo.edit.anchorSelector,
             sourceId: pendingNonStyleRedo.edit.anchorSourceId ?? undefined,
@@ -22522,16 +22912,6 @@ function DesignEditor() {
     viewMode,
   ]);
 
-  const handleShowKeyboardShortcuts = useCallback(() => {
-    if (!keyboardShortcutsOpen) {
-      const activeElement = document.activeElement;
-      keyboardShortcutsReturnFocusRef.current =
-        activeElement instanceof HTMLElement ? activeElement : null;
-    }
-    setUiHidden(false);
-    setKeyboardShortcutsOpen(true);
-  }, [keyboardShortcutsOpen]);
-
   const handleShowKeyboardShortcutsFromMenu = useCallback(() => {
     keyboardShortcutsReturnFocusRef.current = projectMenuTriggerRef.current;
     suppressProjectMenuReturnFocusRef.current = true;
@@ -22549,6 +22929,46 @@ function DesignEditor() {
       }
     });
   }, []);
+
+  const handleToggleKeyboardShortcuts = useCallback(() => {
+    if (keyboardShortcutsOpen) {
+      handleCloseKeyboardShortcuts();
+      return;
+    }
+    const activeElement = document.activeElement;
+    keyboardShortcutsReturnFocusRef.current =
+      activeElement instanceof HTMLElement ? activeElement : null;
+    setUiHidden(false);
+    setKeyboardShortcutsOpen(true);
+  }, [handleCloseKeyboardShortcuts, keyboardShortcutsOpen]);
+
+  // Capture phase, and deliberately outside the useDesignHotkeys gate below.
+  // Two reasons, each of which broke this chord on its own: a bubble-phase
+  // listener runs after the agent composer has already inserted "/" and opened
+  // its slash menu, and that gate switches off during responsive-interact and
+  // agent question flows — it disables editing shortcuts, and shortcut help
+  // is not an editing shortcut.
+  useEffect(() => {
+    if (embedded) return;
+    const handleHelpHotkey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing) return;
+      if (!isShowKeyboardShortcutsHotkey(event)) return;
+      // preventDefault also keeps the bubble-phase useDesignHotkeys listener
+      // from toggling a second time on the same keystroke.
+      event.preventDefault();
+      event.stopPropagation();
+      // Swallowed above but not acted on: holding the chord auto-repeats
+      // keydown, and toggling per repeat would flap the panel open/closed.
+      // One physical press is one toggle.
+      if (event.repeat) return;
+      handleToggleKeyboardShortcuts();
+    };
+    window.addEventListener("keydown", handleHelpHotkey, { capture: true });
+    return () =>
+      window.removeEventListener("keydown", handleHelpHotkey, {
+        capture: true,
+      });
+  }, [embedded, handleToggleKeyboardShortcuts]);
 
   const handleEscapeHotkey = useCallback(() => {
     if (keyboardShortcutsOpen) {
@@ -22696,7 +23116,7 @@ function DesignEditor() {
   // T22: Enter with a selected TEXT layer in single mode begins inline
   // editing on it (Figma: Enter drills into the selected layer), reusing the
   // same begin-text-edit machinery a newly-created text primitive uses
-  // (postBeginTextEditToPreviewIframes/scheduleBeginTextEditForScreen).
+  // (scheduleBeginTextEditForScreen).
   // Text-tag elements (TEXT_LAYER_TAGS in shared/code-layer.ts) and T-tool
   // primitive text (a plain div marked data-an-primitive="text") both
   // qualify — replicated here as a small inline check since those
@@ -22788,7 +23208,9 @@ function DesignEditor() {
             const nodeAttrId =
               owner.node.dataAttributes["data-agent-native-node-id"] ??
               owner.node.id;
-            scheduleBeginTextEditForScreen(owner.fileId, nodeAttrId);
+            scheduleBeginTextEditForScreen(owner.fileId, nodeAttrId, {
+              boardFileId,
+            });
             return;
           }
           const childNodes = owner.node.children
@@ -22834,7 +23256,9 @@ function DesignEditor() {
           const nodeAttrId =
             owner.node.dataAttributes["data-agent-native-node-id"] ??
             owner.node.id;
-          scheduleBeginTextEditForScreen(owner.fileId, nodeAttrId);
+          scheduleBeginTextEditForScreen(owner.fileId, nodeAttrId, {
+            boardFileId,
+          });
           return;
         }
         const childNodes = owner.node.children
@@ -22878,6 +23302,7 @@ function DesignEditor() {
     SINGLE_MODE_TEXT_TAGS,
     activeFile?.id,
     activeFileId,
+    boardFileId,
     enterVectorEditForSelection,
     getProjectionContentForScreen,
     overviewSelectedScreenIds,
@@ -23283,7 +23708,7 @@ function DesignEditor() {
     // editing actions, so they work regardless of canEditDesign.
     onToggleUi: handleToggleUi,
     onToggleComments: handleToggleComments,
-    onShowKeyboardShortcuts: handleShowKeyboardShortcuts,
+    onShowKeyboardShortcuts: handleToggleKeyboardShortcuts,
   });
 
   const startRetryGeneration = useCallback(
@@ -24792,6 +25217,14 @@ function DesignEditor() {
     ],
   );
 
+  /** Thumbnail for the inspector's export preview. Deliberately the same
+   *  renderer the export itself uses, at scale 1 since it paints into a ~7rem
+   *  box. Rejections propagate so the preview can show a failure. */
+  const handleRenderExportPreview = useCallback(
+    () => renderPngBlob({ selectionOnly: true, settings: { scale: 1 } }),
+    [renderPngBlob],
+  );
+
   const handleInspectorExport = useCallback(
     async (settingsList: ExportSettingsValue[]) => {
       for (const settings of settingsList) {
@@ -25890,6 +26323,90 @@ function DesignEditor() {
     selectedInspectorElements.length,
     viewMode,
   ]);
+
+  /** Applies a typed or preset frame size/position from the inspector. Routed
+   *  through handleGeometryCommit so it lands in the same undo entry, viewport
+   *  metadata sync, and persist guard that a pointer resize uses. */
+  /** Design-level canvas background (the surround, not a screen's body). */
+  const persistedCanvasBackground = useMemo(
+    () => getDesignCanvasBackground(designDataJson),
+    [designDataJson],
+  );
+  /** Live value while the colour picker is being dragged. Persisting every
+   *  preview tick round-trips through the query cache and back into the
+   *  controlled picker, which makes its handle jump mid-drag. */
+  const [canvasBackgroundDraft, setCanvasBackgroundDraft] = useState<
+    string | null
+  >(null);
+  const canvasBackground = canvasBackgroundDraft ?? persistedCanvasBackground;
+  const handleCanvasBackgroundChange = useCallback(
+    (value: string, meta?: { phase?: "preview" | "commit" }) => {
+      if (!id || !canEditDesignRef.current) return;
+      if (meta?.phase === "preview") {
+        // Paint the canvas live, but do not touch persisted state yet.
+        setCanvasBackgroundDraft(sanitizeCanvasBackground(value));
+        return;
+      }
+      setCanvasBackgroundDraft(null);
+      const trimmed = value.trim();
+      const operations: DesignDataOperation[] = [
+        trimmed
+          ? { op: "set", path: ["canvasBackground"], value: trimmed }
+          : { op: "delete", path: ["canvasBackground"] },
+      ];
+      const nextData = applyDesignDataOperations(
+        designDataJsonRef.current,
+        operations,
+      );
+      designDataJsonRef.current = nextData;
+      queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
+        if (!old || typeof old !== "object") return old;
+        return { ...old, data: JSON.stringify(nextData) };
+      });
+      enqueueFrameGeometryDataSave(operations);
+    },
+    [enqueueFrameGeometryDataSave, id, queryClient],
+  );
+
+  const handleScreenGeometryChange = useCallback(
+    (
+      screenId: string,
+      next: Partial<{ x: number; y: number; width: number; height: number }>,
+    ) => {
+      const before = getCanvasFrameGeometry(designDataJsonRef.current);
+      // Same fallback getSelectedScreenGeometryForInspector displays, or a
+      // screen with no canvasFrames entry gets fields whose edits do nothing.
+      const screenIndex = overviewScreens.findIndex(
+        (screen) => screen.id === screenId,
+      );
+      const screen =
+        screenIndex >= 0 ? overviewScreens[screenIndex] : undefined;
+      if (!screen) return;
+      const current = {
+        ...getInitialFrameGeometry(screenIndex, {
+          width: screen.width ?? 1280,
+          height: screen.height ?? 2560,
+        }),
+        ...(before[screenId] ?? canvasFrameGeometryById[screenId] ?? {}),
+      };
+      const after = {
+        ...before,
+        [screenId]: {
+          ...current,
+          ...(next.x !== undefined ? { x: next.x } : {}),
+          ...(next.y !== undefined ? { y: next.y } : {}),
+          ...(next.width !== undefined
+            ? { width: Math.max(MIN_FRAME_SIZE_PX, next.width) }
+            : {}),
+          ...(next.height !== undefined
+            ? { height: Math.max(MIN_FRAME_SIZE_PX, next.height) }
+            : {}),
+        },
+      };
+      handleGeometryCommit(before, after);
+    },
+    [canvasFrameGeometryById, handleGeometryCommit, overviewScreens],
+  );
 
   const layerPanelSelectedIds = useMemo(
     () =>
@@ -29189,12 +29706,30 @@ function DesignEditor() {
     },
     [clearPendingOverviewLayerSelectionTimer, handleBreakpointBarSelect],
   );
-  const handleBreakpointBarAdd = useCallback(
-    (widthPx: number, label: string) => {
+  /** The one add-breakpoint path; every entry point must route through it,
+   *  since the mutation is design-wide and widens every screen's row. Widths are
+   *  derived on resolve and unioned with what is persisted — capturing them at
+   *  call time makes concurrent adds under-measure the group. */
+  const addDesignBreakpoint = useCallback(
+    (widthPx: number, label?: string) => {
       if (!id) return;
-      void addBreakpointMutation.mutateAsync({ designId: id, label, widthPx });
+      const resolvedLabel = label ?? breakpointLabelForWidth(widthPx);
+      void addBreakpointMutation
+        .mutateAsync({ designId: id, label: resolvedLabel, widthPx })
+        .then(() => {
+          const persisted = getDesignBreakpointWidths(
+            designDataJsonRef.current,
+          );
+          reflowOverviewScreensForBreakpoints([
+            ...new Set([...persisted, widthPx]),
+          ]);
+        });
     },
-    [id, addBreakpointMutation],
+    [addBreakpointMutation, id, reflowOverviewScreensForBreakpoints],
+  );
+  const handleBreakpointBarAdd = useCallback(
+    (widthPx: number, label: string) => addDesignBreakpoint(widthPx, label),
+    [addDesignBreakpoint],
   );
   const handleBreakpointBarRemove = useCallback(
     (breakpointId: string) => {
@@ -29289,18 +29824,17 @@ function DesignEditor() {
     ],
   );
 
+  /**
+   * Adds a breakpoint to the DESIGN, not to one screen. A design has a single
+   * active breakpoint set in v1, so every screen renders the same widths — the
+   * old `(screenId, widthPx)` signature accepted a screen id it then ignored,
+   * which is why adding a breakpoint "to a frame" silently applied it to all of
+   * them. The parameter is gone so the call sites cannot imply scoping the
+   * action does not have.
+   */
   const handleOverviewAddBreakpoint = useCallback(
-    (screenId: string, widthPx: number) => {
-      if (!id) return;
-      const breakpointLabel =
-        widthPx <= 480 ? "Mobile" : widthPx <= 1024 ? "Tablet" : "Desktop";
-      void addBreakpointMutation.mutateAsync({
-        designId: id,
-        label: breakpointLabel,
-        widthPx,
-      });
-    },
-    [id, addBreakpointMutation],
+    (widthPx: number) => addDesignBreakpoint(widthPx),
+    [addDesignBreakpoint],
   );
   const handleOverviewActiveBreakpointChange = useCallback(
     (_screenId: string, widthPx: number | undefined) => {
@@ -29672,6 +30206,8 @@ function DesignEditor() {
           <IconKeyboard className="mr-2 h-4 w-4" />
           {t("designEditor.keyboardShortcuts.title")}
           <DropdownMenuShortcut>
+            {/* Control, not Command: ⌘⇧? is the macOS Help-menu shortcut and
+                the browser consumes it before the page ever sees it. */}
             {"⌃⇧?" /* i18n-ignore keyboard shortcut */}
           </DropdownMenuShortcut>
         </DropdownMenuItem>
@@ -30477,7 +31013,7 @@ function DesignEditor() {
                   <ReadOnlyEditorPanel
                     title={"Tools require editor access" /* i18n-ignore */}
                     description={
-                      "Ask an owner for edit access before running tools or creating extensions for this design." /* i18n-ignore */
+                      "Ask an owner for edit access before running tools for this design." /* i18n-ignore */
                     }
                   />
                 )}
@@ -30510,7 +31046,7 @@ function DesignEditor() {
                   activeLeftPanel === "code" ? "flex" : "hidden",
                 )}
               >
-                {id && (activeLeftPanel === "code" || activeCodeFile) ? (
+                {id ? (
                   <CodeWorkbenchLoader
                     designId={id}
                     activeFileId={routeCodeFileId}
@@ -30568,7 +31104,7 @@ function DesignEditor() {
             />
           )}
 
-        {!embedded && keyboardShortcutsOpen && !questionFlowActive ? (
+        {!embedded && keyboardShortcutsOpen ? (
           <KeyboardShortcutsPanel onClose={handleCloseKeyboardShortcuts} />
         ) : null}
 
@@ -30854,6 +31390,15 @@ function DesignEditor() {
                 <div
                   ref={canvasContainerRef}
                   className="relative min-w-0 flex-1 overflow-hidden bg-[var(--design-editor-canvas-bg)]"
+                  // Overrides the themed canvas colour rather than a background
+                  // shorthand, so every descendant reading the var follows.
+                  style={
+                    canvasBackground
+                      ? ({
+                          "--design-editor-canvas-bg": canvasBackground,
+                        } as React.CSSProperties)
+                      : undefined
+                  }
                   onPointerMove={handleCanvasPointerMove}
                   onClick={handleCanvasBackgroundClick}
                 >
@@ -30909,7 +31454,7 @@ function DesignEditor() {
                     >
                       <div className="pointer-events-auto flex w-fit max-w-full items-center overflow-x-auto">
                         <Button
-                          className="h-11 min-w-0 shrink-0 cursor-pointer rounded-r-none bg-blue-500 px-4 text-sm font-semibold text-white hover:bg-blue-400 focus-visible:ring-blue-400"
+                          className="h-9 min-w-0 shrink-0 cursor-pointer rounded-r-none bg-blue-500 px-3.5 text-sm font-semibold text-white hover:bg-blue-400 focus-visible:ring-blue-400"
                           aria-label={t(
                             "designEditor.pendingVisualStyles.applyAria",
                           )}
@@ -30933,7 +31478,7 @@ function DesignEditor() {
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button
-                              className="h-11 w-8 shrink-0 cursor-pointer rounded-l-none border-l border-white/20 bg-blue-500 px-0 text-white hover:bg-blue-400 focus-visible:ring-blue-400"
+                              className="h-9 w-8 shrink-0 cursor-pointer rounded-l-none border-l border-white/20 bg-blue-500 px-0 text-white hover:bg-blue-400 focus-visible:ring-blue-400"
                               aria-label={t(
                                 "designEditor.pendingVisualStyles.previewLabel",
                               )}
@@ -31556,6 +32101,13 @@ function DesignEditor() {
                   readOnly={!canEditDesign}
                   selectedElements={selectedInspectorElements}
                   selectedScreenGeometry={selectedScreenGeometry}
+                  canvasBackground={canvasBackground}
+                  onCanvasBackgroundChange={
+                    canEditDesign ? handleCanvasBackgroundChange : undefined
+                  }
+                  onScreenGeometryChange={
+                    canEditDesign ? handleScreenGeometryChange : undefined
+                  }
                   pageStyles={pageStyles}
                   files={documentColorFiles}
                   activeTool={activeTool}
@@ -31585,6 +32137,7 @@ function DesignEditor() {
                   }
                   breakpointContext={breakpointContext}
                   onExport={handleInspectorExport}
+                  onRenderExportPreview={handleRenderExportPreview}
                   exporting={pngExporting || svgExporting}
                   designId={id}
                   fileId={activeFile?.id}
@@ -31647,6 +32200,13 @@ function DesignEditor() {
                 readOnly={!canEditDesign}
                 selectedElements={selectedInspectorElements}
                 selectedScreenGeometry={selectedScreenGeometry}
+                canvasBackground={canvasBackground}
+                onCanvasBackgroundChange={
+                  canEditDesign ? handleCanvasBackgroundChange : undefined
+                }
+                onScreenGeometryChange={
+                  canEditDesign ? handleScreenGeometryChange : undefined
+                }
                 pageStyles={pageStyles}
                 files={documentColorFiles}
                 activeTool={activeTool}
@@ -31676,6 +32236,7 @@ function DesignEditor() {
                 }
                 breakpointContext={breakpointContext}
                 onExport={handleInspectorExport}
+                onRenderExportPreview={handleRenderExportPreview}
                 exporting={pngExporting || svgExporting}
                 designId={id}
                 fileId={activeFile?.id}

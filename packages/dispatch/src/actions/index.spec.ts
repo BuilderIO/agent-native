@@ -12,6 +12,7 @@ describe("dispatch action registry", () => {
     expect(dispatchActions).toHaveProperty("ask_app_status");
     expect(dispatchActions).toHaveProperty("open_app");
     expect(dispatchActions).toHaveProperty("create_embed_session");
+    expect(dispatchActions).toHaveProperty("read-slack-thread-context");
     expect(dispatchActions).toHaveProperty(
       "get-workspace-resource-effective-context",
     );

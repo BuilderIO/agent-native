@@ -200,10 +200,22 @@ export default function PromptPopover({
         className="fixed z-[200] w-[min(420px,calc(100vw-24px))] rounded-xl border border-border bg-popover shadow-2xl shadow-black/60"
         style={{ top: 0, left: 0, visibility: "visible" }}
       >
-        <div className="px-3.5 pt-3 pb-2">
+        <div className="flex items-center justify-between gap-3 px-3.5 pt-3 pb-2">
           <span className="text-sm font-medium text-foreground/90">
             {title}
           </span>
+          {onSkip && (
+            <button
+              type="button"
+              onClick={() => {
+                onSkip();
+                onOpenChange(false);
+              }}
+              className="shrink-0 cursor-pointer text-xs text-primary hover:text-primary/80"
+            >
+              {skipLabel}
+            </button>
+          )}
         </div>
 
         <div className="px-2 pb-2">
@@ -226,21 +238,6 @@ export default function PromptPopover({
           promptText={promptText}
           onSourceContextChange={setGoogleDocContext}
         />
-
-        {onSkip && (
-          <div className="flex justify-end border-t border-border px-3.5 py-2">
-            <button
-              type="button"
-              onClick={() => {
-                onSkip();
-                onOpenChange(false);
-              }}
-              className="cursor-pointer text-xs text-[#609FF8] hover:text-[#7AB2FA]"
-            >
-              {skipLabel}
-            </button>
-          </div>
-        )}
       </div>
     </>
   );

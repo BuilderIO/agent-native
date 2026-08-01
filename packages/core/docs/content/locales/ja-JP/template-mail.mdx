@@ -363,7 +363,7 @@ UI のルート:
 
 **キーボード ショートカットの変更。** キーバインド ハンドラーは `templates/mail/app/components/email/` にあります — `useHotkeys` または `addEventListener("keydown"` を検索して、各キーが接続されている場所を見つけます。
 
-これらの変更をエージェントに依頼してください。エージェントは独自のソースを編集できます。[Self-Modifying Code](/docs/key-concepts#agent-modifies-code) を参照してください。
+これらの変更は、独自のリポジトリと開発ワークフローで行います。埋め込みエージェントがソース編集を支援できるのは、ホストが repository/workspace の書き込みツールを意図的に付与した場合だけです。それ以外では actions とデータを通じて動作します。[Key Concepts](/docs/key-concepts#agent-modifies-code) を参照してください。
 
 ## 次のステップ
 

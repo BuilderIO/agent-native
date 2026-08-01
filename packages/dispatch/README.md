@@ -16,8 +16,8 @@ Powers the `dispatch` template. Provides:
   integrations, agent chat, DB, and core routes
 - **Actions** — ~90 `defineAction` modules (vault grants/requests, workspace
   resource grants, destinations, dream jobs, provider-api catalog/docs/
-  request, connected-agent discovery, audit/approvals, platform messaging,
-  and more) consumed as agent tools + HTTP endpoints
+  request, Slack thread context, connected-agent discovery, audit/approvals,
+  platform messaging, and more) consumed as agent tools + HTTP endpoints
 - **Routes** — a full React Router 7 `RouteConfig[]` (chat, overview, apps,
   vault, integrations, agents, workspace, messaging, destinations,
   identities, approvals, automations, audit, settings, dreams, extensions,

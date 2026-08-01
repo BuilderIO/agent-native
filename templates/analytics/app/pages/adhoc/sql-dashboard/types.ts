@@ -15,6 +15,7 @@ export type ChartType =
   | "table"
   | "pie"
   | "section"
+  | "funnel"
   | "heatmap"
   | "callout"
   | "extension";
@@ -116,6 +117,21 @@ export interface SqlPanelConfig {
    * personal installs render in the box and receive dashboard context.
    */
   extensionSlotId?: string;
+  /**
+   * Provenance for a deliberately one-off Custom Block. New agent-authored
+   * blocks set this so the UI and telemetry can distinguish a runtime patch
+   * from legacy extension-backed panels without exposing prompt text.
+   */
+  customBlock?: {
+    authoredBy: "agent" | "user";
+    intent: "one-off";
+    scope: "dashboard";
+    nativeGapReason:
+      | "custom-visualization"
+      | "custom-interaction"
+      | "custom-layout"
+      | "other";
+  };
 }
 
 export interface SqlPanel {

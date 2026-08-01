@@ -2,10 +2,9 @@
 name: extension-points
 description: >-
   How extensions render as widgets inside other apps via named UI slots — the
-  framework's VS-Code-style extension system. Use when a user asks to add a
-  custom widget to an app surface (e.g. "add a sticky-note widget to my mail
-  contact sidebar"), when wiring an ExtensionSlot in a template, or when
-  marking an extension as installable into a slot.
+  framework's optional extension system. Use when an extension-enabled app
+  needs to wire an ExtensionSlot or make an existing one-off custom block
+  installable into a slot.
 metadata:
   internal: true
 ---
@@ -33,6 +32,12 @@ Three primitives:
 | **Slot target**      | A row saying "extension X can render in slot Y" — `tool_slots` table (Drizzle: `extensionSlots`) |
 | **Slot install**     | A row saying "user U wants extension X in slot Y" — `tool_slot_installs` (Drizzle: `extensionSlotInstalls`) |
 
+Slots do not make extensions a default product surface. Most apps keep
+extension creation and discovery disabled while preserving installed blocks and
+old deep links for compatibility. Add a slot only when the app deliberately
+supports this customization seam; otherwise implement the requested behavior in
+native app code.
+
 When `<ExtensionSlot>` renders, it queries the user's installs and mounts
 one `<EmbeddedTool>` (a small auto-sized iframe) per install, pushing the
 slot's context into each via postMessage. (The component is still exported
@@ -51,6 +56,10 @@ Stable strings. Renaming a slot is a data migration — same as renaming a
 route.
 
 ## How to author an extension that fills a slot
+
+Only follow this flow when the host app explicitly enables extensions and the
+user has asked for a one-off custom block. Reusable behavior belongs in app
+code.
 
 1. **Create the extension** with `create-extension`. The HTML can read
    `window.slotContext` to get the host's context (the contact email,

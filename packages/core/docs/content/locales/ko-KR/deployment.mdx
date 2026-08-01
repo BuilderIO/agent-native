@@ -396,14 +396,16 @@ cache-control: public, max-age=600, stale-while-revalidate=604800, stale-if-erro
 
 앱을 실제 프로덕션 배포로 승격하기 전에 설정해야 합니다. 누락된 값은 실패 시 닫히거나(프레임워크 시작 거부/요청 처리 거부) 큰 경고와 함께 더 약한 동작으로 돌아갑니다.
 
-| 변수                     | 설명                                                                                                                                                                                                                                                    |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BETTER_AUTH_SECRET`     | 32자 이상의 임의 문자열. 서명 세션 쿠키 AND는 `OAUTH_STATE_SECRET` 및 `SECRETS_ENCRYPTION_KEY`에 대한 대체 HMAC입니다. 필수: 프로덕션에서 누락된 경우 프레임워크가 시작 시 오류를 발생시킵니다.                                                         |
-| `BETTER_AUTH_URL`        | 이 앱의 공개 출처(예: `https://mail.example.com`). 쿠키 도메인 및 OAuth 리디렉션 구성에 사용됩니다.                                                                                                                                                     |
-| `ANTHROPIC_API_KEY`      | 임베디드 프로덕션 에이전트용 API 키입니다. **다중 테넌트 배포**에서 프레임워크는 사용자에게 사용자별 키가 없으면 이 방식으로 대체하는 것을 거부합니다. 즉, 자체 키 가져오기가 필요합니다. 단일 테넌트 자체 호스팅 설치에서는 이를 전역 키로 사용합니다. |
-| `OAUTH_STATE_SECRET`     | OAuth 상태 봉투(Google, Atlassian, Zoom)용 전용 HMAC 키입니다. 설정되지 않은 경우 `BETTER_AUTH_SECRET`로 대체되지만 하나를 회전해도 다른 값이 무효화되지 않도록 전용 값을 사용하는 것이 좋습니다. `openssl rand -hex 32`를 통해 생성합니다.             |
-| `A2A_SECRET`             | 앱 간 A2A JSON-RPC에 대해 HMAC를 공유했습니다. 이것이 없으면 모든 A2A 엔드포인트와 `/_agent-native/integrations/process-task` 자체 실행 엔드포인트는 프로덕션에서 503을 반환합니다.                                                                     |
-| `SECRETS_ENCRYPTION_KEY` | 미사용 암호화 비밀 저장소에 대한 AES-256-GCM 키입니다. `BETTER_AUTH_SECRET`로 돌아갑니다. 둘 다 설정되지 않은 경우 프로덕션이 실패합니다.                                                                                                               |
+| 변수                                        | 설명                                                                                                                                                                                                                                                    |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET`                        | 32자 이상의 임의 문자열. 세션 쿠키에 서명하고 `OAUTH_STATE_SECRET` 및 앱 로컬 암호화 값의 fallback입니다. 기존 공유 vault ciphertext의 legacy 읽기 후보이기도 합니다. 프로덕션에서 필수입니다.                                                          |
+| `BETTER_AUTH_URL`                           | 이 앱의 공개 출처(예: `https://mail.example.com`). 쿠키 도메인 및 OAuth 리디렉션 구성에 사용됩니다.                                                                                                                                                     |
+| `ANTHROPIC_API_KEY`                         | 임베디드 프로덕션 에이전트용 API 키입니다. **다중 테넌트 배포**에서 프레임워크는 사용자에게 사용자별 키가 없으면 이 방식으로 대체하는 것을 거부합니다. 즉, 자체 키 가져오기가 필요합니다. 단일 테넌트 자체 호스팅 설치에서는 이를 전역 키로 사용합니다. |
+| `OAUTH_STATE_SECRET`                        | OAuth 상태 봉투(Google, Atlassian, Zoom)용 전용 HMAC 키입니다. 설정되지 않은 경우 `BETTER_AUTH_SECRET`로 대체되지만 하나를 회전해도 다른 값이 무효화되지 않도록 전용 값을 사용하는 것이 좋습니다. `openssl rand -hex 32`를 통해 생성합니다.             |
+| `A2A_SECRET`                                | 앱 간 A2A JSON-RPC의 공유 HMAC. 전용 워크스페이스 키가 없으면 공유 vault가 이 값에서 용도별로 파생한 키를 사용하므로 이 값의 회전은 vault 키도 회전시킵니다.                                                                                            |
+| `WORKSPACE_SECRETS_ENCRYPTION_KEY`          | 공유 워크스페이스 vault에 권장되는 안정적인 AES-256-GCM 키. 읽는 모든 앱에 같은 값을 설정하고 앱별 OAuth 암호화와 분리하세요.                                                                                                                           |
+| `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS` | 회전 기간에 사용하는 선택적 이전 워크스페이스 키. 새 키와 함께 배포하고 읽기 마이그레이션 후 제거하세요.                                                                                                                                                |
+| `SECRETS_ENCRYPTION_KEY`                    | 앱별 암호화와 vault를 위한 기존 결합 키. 계속 지원되지만 새 멀티앱 배포에서는 전용 워크스페이스 키를 사용하세요.                                                                                                                                        |
 
 ### 인증 및 신원 {#env-auth}
 
@@ -423,7 +425,7 @@ OAuth 공급자 자격 증명(Google, GitHub), 정적 MCP 전달자 대체(`ACCE
 
 ### 강력한 비밀 생성 {#env-generate-secrets}
 
-"32자 이상의 무작위"로 표시된 비밀(`BETTER_AUTH_SECRET`, `OAUTH_STATE_SECRET`, `A2A_SECRET`, `SECRETS_ENCRYPTION_KEY`, `AGENT_NATIVE_BUILDER_RELAY_SECRET`)의 경우 다음을 사용하여 새로운 값을 생성하세요.
+"32자 이상의 무작위"로 표시된 비밀(`BETTER_AUTH_SECRET`, `OAUTH_STATE_SECRET`, `A2A_SECRET`, `WORKSPACE_SECRETS_ENCRYPTION_KEY`, `SECRETS_ENCRYPTION_KEY`, `AGENT_NATIVE_BUILDER_RELAY_SECRET`)의 경우 다음을 사용하여 새로운 값을 생성하세요.
 
 ```bash
 openssl rand -hex 32
@@ -442,7 +444,14 @@ openssl rand -hex 32
 export default createAgentChatPlugin({
   // Default: "read"
   databaseTools: "read", // "write" | "read" | "off"
-  extensionTools: false,
+  extensionTools: true,
+});
+```
+
+```ts
+// server/plugins/core-routes.ts
+export default createCoreRoutesPlugin({
+  extensionTools: true,
 });
 ```
 
@@ -453,9 +462,10 @@ export default createAgentChatPlugin({
   스키마 변경은 차단됩니다.
 - `databaseTools: "off"` 또는 `false` — 원시 데이터베이스 도구를 제거합니다.
   에이전트 표면이므로 앱의 actions가 유일한 데이터 액세스 경로입니다.
-- `extensionTools: false` — 프레임워크 확장 관리 actions를 제거하고
-  다음과 같은 앱에 대한 신속한 안내(`create-extension`, `update-extension` 등)
-  에이전트가 샌드박스 미니 앱을 생성하는 것을 원하지 않습니다.
+- `extensionTools: true` — 앱에서 프레임워크 확장 관리 actions와 안내
+  (`create-extension`, `update-extension` 등)를 활성화합니다. 인증된
+  REST 생성도 허용하려면 두 plugins 모두에 설정하세요. 확장 프로그램은
+  기본적으로 비활성화됩니다.
 
 ## 생산 코드 실행 {#production-code-execution}
 
@@ -482,13 +492,13 @@ export default createAgentChatPlugin({
 
 ## 프로덕션에서 UI 업데이트 {#updating-ui-in-production}
 
-에이전트 네이티브의 핵심 기능 중 하나는 에이전트가 앱의 소스 코드(구성 요소, 경로, 스타일, actions)를 수정할 수 있다는 것입니다. 로컬 개발 중에는 에이전트가 전체 파일 시스템에 액세스할 수 있으므로 원활하게 작동합니다.
+일반적인 배포 앱 에이전트는 소스에 자동으로 접근하지 않고 actions, 데이터베이스, MCP, 구성된 통합 같은 앱 도구로 작업합니다. 소스 변경은 저장소 개발 워크플로에 속합니다. 임베디드, 로컬 또는 Builder frame은 workspace 및 쓰기 도구를 의도적으로 부여받았을 때 저장소를 편집할 수 있습니다.
 
 [production code execution](#production-code-execution)가 중단된 표준 프로덕션 배포에서 에이전트는 앱 도구(actions, 데이터베이스, MCP)에 액세스할 수 있지만 파일 시스템에는 액세스할 수 없습니다. 즉, 에이전트는 데이터를 읽고 쓰고, actions를 실행하고, 외부 서비스와 상호 작용할 수 있지만 React 구성 요소를 편집하거나 배포된 인스턴스에 새 경로를 추가할 수는 없습니다.
 
 ### Builder.io: 프로덕션에서의 시각적 편집 {#builderio}
 
-[Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment)는 에이전트가 프로덕션에서 앱의 UI를 수정할 수 있는 기능을 유지하는 관리형 클라우드 환경을 제공하여 이 문제를 해결합니다. 저장소를 Builder.io에 연결하고 UI 변경 사항을 직접 묻는 메시지를 표시하세요. 재배포가 필요하지 않습니다.
+[Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment)는 별도의 관리형 코드 지원 워크플로이며 에이전트가 프로덕션 앱 UI를 변경할 수 있습니다. 저장소를 연결하고 UI 변경을 직접 요청할 수 있으며 재배포가 필요하지 않습니다.
 
 **작동 방식:**
 

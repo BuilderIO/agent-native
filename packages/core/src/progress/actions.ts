@@ -96,6 +96,11 @@ Actions:
           required: ["action"],
         },
       },
+      planMode: {
+        effect: (args) => (args.action === "list" ? "read" : "write"),
+        allowedValues: { action: ["list"] },
+        description: "Plan mode allows listing recent progress runs.",
+      },
       run: async (args: Record<string, unknown>) => {
         const owner = getCurrentUser();
         const action = String(args.action ?? "");

@@ -396,14 +396,16 @@ cache-control: public, max-age=600, stale-while-revalidate=604800, stale-if-erro
 
 किसी ऐप को वास्तविक उत्पाद परिनियोजन के लिए प्रचारित करने से पहले इन्हें सेट किया जाना चाहिए। गुम मान या तो विफल-बंद हो जाते हैं (फ़्रेमवर्क प्रारंभ करने से इंकार कर देता है/अनुरोधों को संभालने से इंकार कर देता है) या ज़ोर से चेतावनी के साथ कमजोर व्यवहार पर वापस आ जाता है।
 
-| वेरिएबल                  | विवरण                                                                                                                                                                                                                                                                                                             |
-| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BETTER_AUTH_SECRET`     | 32+ चार यादृच्छिक स्ट्रिंग। साइन्स सत्र कुकीज़ AND, `OAUTH_STATE_SECRET` और `SECRETS_ENCRYPTION_KEY` के लिए फ़ॉलबैक HMAC है। हार्ड-आवश्यक: उत्पादन में कमी होने पर फ्रेमवर्क स्टार्टअप पर फेंकता है।                                                                                                              |
-| `BETTER_AUTH_URL`        | इस ऐप का सार्वजनिक मूल (उदा. `https://mail.example.com`)। कुकी डोमेन और OAuth रीडायरेक्ट निर्माण के लिए उपयोग किया जाता है।                                                                                                                                                                                       |
-| `ANTHROPIC_API_KEY`      | एम्बेडेड उत्पादन एजेंट के लिए API कुंजी। **बहु-किरायेदार तैनाती में**, जब उपयोगकर्ता के पास प्रति-उपयोगकर्ता कुंजी नहीं होती है तो फ्रेमवर्क इस पर वापस आने से इंकार कर देता है - अपनी खुद की कुंजी लाने की आवश्यकता होती है। एकल-किरायेदार स्व-होस्ट किए गए इंस्टॉल इसे वैश्विक कुंजी के रूप में उपयोग करते हैं। |
-| `OAUTH_STATE_SECRET`     | OAuth राज्य लिफाफे के लिए समर्पित HMAC कुंजी (Google, एटलसियन, ज़ूम)। अनसेट होने पर वापस `BETTER_AUTH_SECRET` पर आ जाता है, लेकिन एक समर्पित मान की अनुशंसा की जाती है ताकि एक को घुमाने से दूसरा अमान्य न हो। `openssl rand -hex 32` के माध्यम से उत्पन्न करें।                                                  |
-| `A2A_SECRET`             | इंटर-ऐप A2A JSON-RPC के लिए साझा HMAC। इसके बिना, प्रत्येक A2A एंडपॉइंट और `/_agent-native/integrations/process-task` सेल्फ-फायर एंडपॉइंट उत्पादन में 503 लौटाता है।                                                                                                                                              |
-| `SECRETS_ENCRYPTION_KEY` | एन्क्रिप्टेड-एट-रेस्ट सीक्रेट्स वॉल्ट के लिए AES-256-GCM कुंजी। `BETTER_AUTH_SECRET` पर वापस आ जाता है। दोनों के असंतुलित होने पर उत्पादन में कठिनाई होती है।                                                                                                                                                     |
+| वेरिएबल                                     | विवरण                                                                                                                                                                                                                                                                                                             |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET`                        | 32+ वर्ण की random string। Session cookies sign करती है और `OAUTH_STATE_SECRET` तथा app-local encrypted values की fallback है। Existing shared-vault ciphertext के लिए legacy read candidate भी है। Production में अनिवार्य है।                                                                                   |
+| `BETTER_AUTH_URL`                           | इस ऐप का सार्वजनिक मूल (उदा. `https://mail.example.com`)। कुकी डोमेन और OAuth रीडायरेक्ट निर्माण के लिए उपयोग किया जाता है।                                                                                                                                                                                       |
+| `ANTHROPIC_API_KEY`                         | एम्बेडेड उत्पादन एजेंट के लिए API कुंजी। **बहु-किरायेदार तैनाती में**, जब उपयोगकर्ता के पास प्रति-उपयोगकर्ता कुंजी नहीं होती है तो फ्रेमवर्क इस पर वापस आने से इंकार कर देता है - अपनी खुद की कुंजी लाने की आवश्यकता होती है। एकल-किरायेदार स्व-होस्ट किए गए इंस्टॉल इसे वैश्विक कुंजी के रूप में उपयोग करते हैं। |
+| `OAUTH_STATE_SECRET`                        | OAuth राज्य लिफाफे के लिए समर्पित HMAC कुंजी (Google, एटलसियन, ज़ूम)। अनसेट होने पर वापस `BETTER_AUTH_SECRET` पर आ जाता है, लेकिन एक समर्पित मान की अनुशंसा की जाती है ताकि एक को घुमाने से दूसरा अमान्य न हो। `openssl rand -hex 32` के माध्यम से उत्पन्न करें।                                                  |
+| `A2A_SECRET`                                | Inter-app A2A JSON-RPC के लिए shared HMAC। Dedicated workspace key न होने पर shared vault इस value से purpose-derived key उपयोग करता है, इसलिए इसे rotate करने से vault key भी rotate होती है।                                                                                                                    |
+| `WORKSPACE_SECRETS_ENCRYPTION_KEY`          | Shared workspace vault के लिए preferred stable AES-256-GCM key। इसे पढ़ने वाले हर app में समान value रखें; यह app-local OAuth encryption से अलग है।                                                                                                                                                               |
+| `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS` | Rotation window में optional previous workspace key। इसे नई key के साथ deploy करें, reads से rows migrate होने दें, फिर हटाएँ।                                                                                                                                                                                    |
+| `SECRETS_ENCRYPTION_KEY`                    | App-local encryption और vault के लिए legacy combined key। यह समर्थित है, लेकिन नए multi-app deploys में dedicated workspace key उपयोग करें।                                                                                                                                                                       |
 
 ### प्रामाणिक एवं पहचान {#env-auth}
 
@@ -423,7 +425,7 @@ OAuth प्रदाता क्रेडेंशियल (Google, GitHub), 
 
 ### मजबूत रहस्य उत्पन्न करना {#env-generate-secrets}
 
-"32+ चार यादृच्छिक" (`BETTER_AUTH_SECRET`, `OAUTH_STATE_SECRET`, `A2A_SECRET`, `SECRETS_ENCRYPTION_KEY`, `AGENT_NATIVE_BUILDER_RELAY_SECRET`) चिह्नित किसी भी रहस्य के लिए, इसके साथ नए मान उत्पन्न करें:
+"32+ चार यादृच्छिक" (`BETTER_AUTH_SECRET`, `OAUTH_STATE_SECRET`, `A2A_SECRET`, `WORKSPACE_SECRETS_ENCRYPTION_KEY`, `SECRETS_ENCRYPTION_KEY`, `AGENT_NATIVE_BUILDER_RELAY_SECRET`) चिह्नित किसी भी रहस्य के लिए, इसके साथ नए मान उत्पन्न करें:
 
 ```bash
 openssl rand -hex 32
@@ -442,7 +444,14 @@ typed app actions से गुजरते हैं, जब तक ऐप स�
 export default createAgentChatPlugin({
   // Default: "read"
   databaseTools: "read", // "write" | "read" | "off"
-  extensionTools: false,
+  extensionTools: true,
+});
+```
+
+```ts
+// server/plugins/core-routes.ts
+export default createCoreRoutesPlugin({
+  extensionTools: true,
 });
 ```
 
@@ -453,9 +462,10 @@ export default createAgentChatPlugin({
   तक scoped रहते हैं और schema changes blocked रहते हैं।
 - `databaseTools: "off"` या `false` - कच्चे डेटाबेस टूल को हटा देता है
   एजेंट सतह इसलिए ऐप का actions ही एकमात्र डेटा एक्सेस पथ है।
-- `extensionTools: false` - फ्रेमवर्क एक्सटेंशन-प्रबंधन actions को हटा देता है और
-  ऐप्स के लिए त्वरित मार्गदर्शन (`create-extension`, `update-extension`, आदि)
-  नहीं चाहते कि एजेंट सैंडबॉक्स वाले मिनी-ऐप बनाएं।
+- `extensionTools: true` - ऐप के लिए फ्रेमवर्क एक्सटेंशन-प्रबंधन actions और
+  मार्गदर्शन (`create-extension`, `update-extension`, आदि) चालू करता है।
+  प्रमाणित REST निर्माण की अनुमति देने के लिए इसे दोनों plugins पर सेट करें।
+  एक्सटेंशन डिफ़ॉल्ट रूप से बंद रहते हैं।
 
 ## उत्पादन कोड निष्पादन {#production-code-execution}
 
@@ -482,13 +492,13 @@ export default createAgentChatPlugin({
 
 ## उत्पादन में UI को अद्यतन करना {#updating-ui-in-production}
 
-एजेंट-नेटिव की मुख्य विशेषताओं में से एक यह है कि एजेंट आपके ऐप के स्रोत कोड - घटकों, मार्गों, शैलियों, actions को संशोधित कर सकता है। स्थानीय विकास के दौरान यह निर्बाध रूप से काम करता है क्योंकि एजेंट के पास पूर्ण फ़ाइल सिस्टम पहुंच होती है।
+सामान्य deployed app agent app tools - actions, database, MCP और configured integrations - के माध्यम से काम करता है; उसे app source का ambient access नहीं मिलता। Source changes repository development workflow में होते हैं। Embedded, local या Builder frame repository edit कर सकता है जब उसे जानबूझकर workspace और write tooling दी गई हो।
 
 [production code execution](#production-code-execution) को छोड़कर एक मानक उत्पादन परिनियोजन में, एजेंट के पास ऐप टूल्स (actions, डेटाबेस, MCP) तक पहुंच होती है, लेकिन फ़ाइल सिस्टम तक नहीं। इसका मतलब है कि एजेंट डेटा पढ़ और लिख सकता है, actions चला सकता है, और बाहरी सेवाओं के साथ बातचीत कर सकता है - लेकिन यह आपके React घटकों को संपादित नहीं कर सकता है या तैनात उदाहरण पर नए मार्ग नहीं जोड़ सकता है।
 
 ### Builder.io: प्रोडक्शन में विजुअल एडिटिंग {#builderio}
 
-[Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) एक प्रबंधित क्लाउड वातावरण प्रदान करके इसे हल करता है जहां एजेंट उत्पादन में आपके ऐप के UI को संशोधित करने की क्षमता रखता है। अपने रेपो को Builder.io से कनेक्ट करें और सीधे UI परिवर्तनों के लिए संकेत दें - किसी पुनः तैनाती की आवश्यकता नहीं है।
+[Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) एक अलग managed code-capable workflow है जहाँ agent production में app UI बदल सकता है। Repository को Builder.io से जोड़ें और UI changes सीधे माँगें - redeploy की जरूरत नहीं।
 
 **यह कैसे काम करता है:**
 

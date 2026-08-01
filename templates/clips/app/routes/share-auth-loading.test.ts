@@ -39,7 +39,8 @@ describe("authenticated recording route loading", () => {
     const route = readRoute("share.meeting.$meetingId.tsx");
     expect(route).toContain("{transcript && (");
     expect(route).toContain("<TranscriptBubbles");
-    expect(route).toContain("recordingId={null}");
+    expect(route).not.toContain("recordingId=");
+    expect(route).not.toContain("onSeek=");
     expect(route).toContain('t("shareMeeting.copyTranscript")');
   });
 

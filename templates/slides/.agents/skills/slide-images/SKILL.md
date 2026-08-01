@@ -22,7 +22,9 @@ The standard workflow for generating slide images:
 
 1. User clicks "Image" in the editor or asks the agent
 2. Agent runs `pnpm action generate-image --prompt "..." --count 3`
-3. Agent shows variations to the user in chat
+3. Agent shows each variation as an inline rendered preview using markdown
+   image syntax (`![Variation 1](url)`), not a plain link (`[Variation 1](url)`)
+   — the chat renders `![]()` as an actual image but `[]()` as a bare link
 4. User picks a favorite
 5. Agent writes the chosen image into the slide content
 6. User can follow up: "make it darker", "try a different angle"

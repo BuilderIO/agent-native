@@ -528,6 +528,8 @@ const messages = {
     useColor: "使用 {{color}}",
     logo: "标识",
     logoPreview: "标志预览",
+    logoUsage: "在分享邮件和公开的剪辑页面中向收件人显示。",
+    emailHeaderPreview: "分享邮件页眉",
     dropReplace: "删除一个新图像来替换",
     dropHere: "在此处放置 PNG / JPG / SVG",
     uploading: "正在上传...",
@@ -620,10 +622,6 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
 ### 新增
 
 - 现在可以直接在 Clips 中查看最新变化。更新日志已加入命令菜单（Cmd+K）和设置。`,
-    profile: "个人资料",
-    email: "邮箱",
-    displayName: "显示名称",
-    displayNamePlaceholder: "你的姓名",
     playback: "播放",
     defaultPlaybackSpeed: "默认播放速度",
     playbackDescription: "打开录制时会自动应用。",
@@ -753,6 +751,7 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     noOrganization: "还没有组织。请从组织切换器创建一个以开始使用。",
     description: "组织管理：品牌、成员、邀请。",
     adminsOnlyBranding: "只有管理员可以编辑品牌。",
+    brandingLoadFailed: "无法加载组织品牌信息。",
     members: "成员",
     pendingInvites: "待处理邀请",
     noPendingInvites: "没有待处理邀请。",
@@ -1461,6 +1460,10 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (已本地化)",
     connectGoogleCalendar: "Connect Google Calendar (已本地化)",
+    googleMayShowWarning: "检查 Google 访问权限",
+    googleNotVerifiedTitle: "连接前请验证应用",
+    googleWarningBeforeAdvanced:
+      "请确认应用名称和请求的 Calendar 访问权限与你信任的 Clips 部署相符。如果 Google 显示未验证应用警告，或应用身份看起来陌生，请停止操作并联系工作区管理员。",
     desktopReminder:
       "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins. (已本地化)",
     getDesktopApp: "Get desktop app (已本地化)",

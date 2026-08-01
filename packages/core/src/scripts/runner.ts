@@ -17,7 +17,10 @@ import { pathToFileURL } from "url";
 
 import type { ActionEntry } from "../agent/production-agent.js";
 import { closeDbExec } from "../db/client.js";
-import { notifyActionChange } from "../server/action-change.js";
+import {
+  actionCallIsReadOnly,
+  notifyActionChange,
+} from "../server/action-change.js";
 import {
   runWithRequestContext,
   getRequestOrgId,
@@ -442,7 +445,7 @@ async function dispatchAction(
       ) {
         const parsed = parseActionArgs(args, { coerceBooleans: true });
         const result = await handler.run(parsed, cliActionCtx(actionName));
-        if (handler.readOnly !== true) {
+        if (!actionCallIsReadOnly(handler, parsed, false)) {
           await notifyActionChange({ actionName }).catch(() => {});
         }
         if (result) assertCliHandoffLaunched(printActionResult(result));
@@ -476,7 +479,7 @@ async function dispatchAction(
         parsed as Record<string, string>,
         cliActionCtx(actionName),
       );
-      if (packageAction.readOnly !== true) {
+      if (!actionCallIsReadOnly(packageAction, parsed, false)) {
         await notifyActionChange({ actionName }).catch(() => {});
       }
       if (result) assertCliHandoffLaunched(printActionResult(result));

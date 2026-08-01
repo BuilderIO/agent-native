@@ -14,6 +14,7 @@ Design systems are stored in the `design_systems` SQL table. Each has a `data` c
 - `logos`: array of { url, name, variant }
 - `imageStyle`: referenceUrls, styleDescription
 - `customCSS`: optional custom CSS
+- `visibility`: organization-scoped systems default to `org`; local systems default to `private`
 
 ## Creating a Design System
 
@@ -21,6 +22,10 @@ Design systems are stored in the `design_systems` SQL table. Each has a `data` c
 2. `analyze-brand-assets` gathers raw data (extracts CSS, fonts, colors from website)
 3. Agent analyzes the data and calls `create-design-system` with extracted tokens
 4. The design system is published and becomes available for deck creation
+
+When an organization is active, newly created systems are shared with that
+organization by default. Builder-indexed local proxy systems follow the same
+visibility rule.
 
 ### Source: Figma `.fig` file
 
@@ -39,6 +44,30 @@ the indexed brand kit, generated docs, and usage guidance.
 Do not call `create-design-system` locally from `.fig` uploads. Do not call
 `import-document` for `.fig` files; it only handles metadata and will miss the
 Builder indexing flow.
+
+### Source: connected code, GitHub, or `design.md`
+
+For any other reusable source — connected code, a GitHub repo, local
+code/design files, or an optional `design.md` — use Builder-backed DSI
+indexing through `index-design-system-with-builder`. Pass readable `design.md`
+content as `designMd`, and use the returned local design system id in the rest
+of the Slides flow. Call `get-design-system` before generation so Builder docs
+and tokens are hydrated when available.
+
+Never create a duplicate local design system from raw Figma or code sources.
+Builder owns the indexed brand kit; a second local copy drifts from it and
+nothing records which one a deck was actually built from.
+
+### Source: workspace default
+
+A workspace admin can flag one design system as the workspace default, used by
+members who have not set their own. `create-deck` resolves it server-side, so
+call `get-workspace-defaults` only to name it or answer what the default is.
+See the `create-deck` skill.
+
+The personal default is separate from the workspace default. Use
+`set-default-design-system` with `isDefault: false` to clear a personal star;
+setting another system clears the previous star in the same organization.
 
 ## Deleting a Design System
 

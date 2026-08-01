@@ -1,0 +1,64 @@
+# Factory
+
+Factory is the inspectable foundation for building agent factories: work goes
+in one end, governed agent work and shipped changes come out the other, with
+human intervention points you control. It can start with Slack feedback and
+pull-request evidence, then grow to orchestrate product workflows such as
+PRD -> design -> engineering -> release.
+
+## What it does
+
+- Polls a configured Slack channel and records new messages with thread and
+  coverage metadata.
+- Ingests read-only pull-request evidence from the existing ai-services read
+  boundary.
+- Evaluates editable prompt rules with hard structured guards and stores every
+  decision append-only.
+- Lets a human correct a decision, tune a rule, or explicitly approve bounded
+  work from the Factory UI or the generic Agent-Native Slack bot.
+- Starts configured Builder or harness work only through an approval action,
+  deduped by Factory item, and reconciles signed callbacks and provider state.
+- Surfaces missed callbacks, incomplete evidence, and timeouts as explicit
+  states rather than plausible success.
+
+The current implementation is deliberately observe-first and shadow-only.
+Sensitive work remains human-gated: auth/session/identity, credentials/vault,
+migrations, payments, security, and publishable `packages/*` changes. Factory
+does not silently auto-merge, assign, or claim a provider action succeeded
+without a terminal record.
+
+## Configure Slack
+
+Set `WORKSPACE_OWNER_EMAIL` to an existing workspace member for the deployment-
+owned scheduler job. Connect Slack in Settings -> Messaging; Factory resolves
+the workspace credential through the vault resolver and only uses
+`SLACK_BOT_TOKEN` as the resolver's deployment fallback. Do not add a second
+env-only read.
+
+In Factory, set the Slack workspace, channel ID, channel name, repository, and
+polling switch. The default scheduler polls once per minute, evaluates a
+bounded page, and preserves errors for reconciliation.
+
+The generic Slack bot is wired to Factory. Mention `@agent-native` in a feedback
+thread to inspect the linked item, explain its decision, tune a rule, or say
+"do it now" to create an approval-gated run. The bot replies with an
+inspectable Factory link when a human decision is required.
+
+## Hosting
+
+Production expects a direct PostgreSQL `DATABASE_URL`,
+`WORKSPACE_OWNER_EMAIL`, and `FACTORY_PUBLIC_URL`. The Builder executor also
+needs `BUILDER_AI_SERVICES_URL` and `BUILDER_PROJECT_ID`; its private key and
+signed callback secret belong in workspace credentials and are resolved at
+runtime. The app remains observe-only until a human explicitly approves a
+Factory item.
+
+## Development
+
+```bash
+pnpm install
+pnpm --filter factory dev
+pnpm --filter factory typecheck
+pnpm --filter factory test
+pnpm --filter factory build
+```

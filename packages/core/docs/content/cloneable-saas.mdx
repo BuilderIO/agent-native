@@ -216,28 +216,28 @@ The path from "I want my own SaaS" to "I have my own SaaS" is short:
 
 1. **Pick an example app.** Use the CLI picker, or browse the docs and pick one to start from.
 2. **Brand it.** Change the name, colors, logo, and copy. Most example apps expose this in a single config file.
-3. **Customize it.** Ask the agent to add the column you need, change how the inbox groups, connect to your internal API, add a new view. The agent edits the code; you review the diff.
+3. **Customize it.** Make source changes in your own repository and development workflow. An agent can help when its frame is intentionally granted workspace and write tooling; otherwise the embedded agent operates the resulting app through its actions, data, and configured integrations.
 4. **Ship it.** Run the deploy command. You now have your own production SaaS at your own domain.
 
-Steps 2–4 typically take days, not months. Step 3 is open-ended — your customized SaaS evolves over time, in plain English, by talking to the agent.
+Steps 2–4 typically take days, not months. Step 3 is open-ended because the app is yours to evolve, while the embedded agent remains available to operate the deployed product and can assist with source changes when code access is explicitly enabled.
 
 ## Why this is practical {#why}
 
 A separate-codebase-per-user model breaks down at scale: every user maintaining their own inbox sounds like a maintenance nightmare. Two framework decisions make it work:
 
-1. **The agent does the maintenance.** You don't write code to add a column or wire a new integration — you ask the agent. So "your own customized inbox" is a feature, not a burden.
+1. **The app keeps the framework contract.** Your source owns the domain behavior, while Core keeps actions, SQL, state, and sync consistent as the app evolves.
 2. **Per-user customization without per-user code.** Skills, memory, instructions, connected MCP servers, and sub-agents all live in SQL. Every user gets their own customization layer; the shared codebase hosts all of them at once.
 
 The result: Claude-Code-level flexibility for each user, with normal SaaS deployment economics.
 
-<Diagram id="doc-block-bhg7mw" title="Why per-user customization scales" summary={"Two ideas keep the start-from-a-working-app model practical: the agent does the maintenance, and per-user customization lives in SQL — not in per-user code."}>
+<Diagram id="doc-block-bhg7mw" title="Why per-user customization scales" summary={"Two ideas keep the start-from-a-working-app model practical: the app keeps the framework contract, and per-user customization lives in SQL — not in per-user code."}>
 
 ```html
 <div class="diagram-why">
   <div class="diagram-panel" data-rough>
     <strong>Shared codebase</strong
     ><small class="diagram-muted">one app, deployed once</small>
-    <div class="diagram-pill accent">agent does the maintenance</div>
+    <div class="diagram-pill accent">app keeps the framework contract</div>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
   <div class="diagram-panel" data-rough>

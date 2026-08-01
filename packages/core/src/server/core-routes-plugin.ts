@@ -46,6 +46,7 @@ import {
   putComposeDraft,
   deleteComposeDraft,
   deleteAllComposeDrafts,
+  getStateMany,
 } from "../application-state/handlers.js";
 import { mountBrowserSessionRoutes } from "../browser-sessions/routes.js";
 import { mountDbAdminRoutes } from "../db-admin/routes.js";
@@ -152,6 +153,7 @@ import {
 import type { EnvKeyConfig } from "./create-server.js";
 import {
   canUseDeployCredentialFallbackForRequest,
+  prefetchSecrets,
   readDeployCredentialEnv,
   resolveSecret,
 } from "./credential-provider.js";
@@ -1191,6 +1193,13 @@ function redactValues(text: string, values: Array<string | null | undefined>) {
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
 export interface CoreRoutesPluginOptions {
+  /**
+   * Allow authenticated extension creation through
+   * POST /_agent-native/extensions (and the legacy /tools alias).
+   * Existing extension runtime, read, edit, and deep-link routes stay mounted
+   * when this is false. Default: false.
+   */
+  extensionTools?: boolean;
   /** Route path for the SSE endpoint. Default: "/_agent-native/events" */
   sseRoute?: string;
   /** Disable the SSE endpoint entirely. */
@@ -1279,6 +1288,7 @@ export async function readLegacyCoreRouteInitSettings(
  *   GET    /_agent-native/health                        — DB liveness probe + scale-to-zero warmup
  *   GET    /_agent-native/env-status                    — env key configuration status (when envKeys provided)
  *   POST   /_agent-native/env-vars                      — compatibility route that saves keys to scoped DB secrets
+ *   GET    /_agent-native/application-state?keys=a,b,c  — batched read of many keys
  *   GET    /_agent-native/application-state/:key        — read application state
  *   PUT    /_agent-native/application-state/:key        — write application state
  *   DELETE /_agent-native/application-state/:key        — delete application state
@@ -3315,10 +3325,17 @@ export function createCoreRoutesPlugin(
                 /* org module not present in this template */
               }
             }
+            // One context for the whole sweep so the per-request secret memo is
+            // shared, and one batched read per scope to fill it. Without this
+            // every key pays its own four-scope waterfall.
+            const requestContext = { userEmail, orgId };
+            await runWithRequestContext(requestContext, () =>
+              prefetchSecrets(allowedEnvKeyNames),
+            );
             return Promise.all(
               envKeys.map(async (cfg) => {
                 const configured = await runWithRequestContext(
-                  { userEmail, orgId },
+                  requestContext,
                   () => resolveSecret(cfg.key).then(Boolean),
                 );
                 return {
@@ -3841,7 +3858,9 @@ export function createCoreRoutesPlugin(
           await import("../extensions/routes.js");
         ensureExtensionsTables().catch(() => {});
         registerExtensionsShareable();
-        const extensionsHandler = createExtensionsHandler();
+        const extensionsHandler = createExtensionsHandler({
+          extensionTools: options.extensionTools,
+        });
         getH3App(nitroApp).use(`${P}/extensions`, extensionsHandler);
         // Legacy alias — the previous public API was /_agent-native/tools/*.
         // Mounted in addition to /extensions/* so any deployed iframes mid-flight
@@ -4238,7 +4257,14 @@ export function createCoreRoutesPlugin(
               (event.url?.pathname || "").replace(/^\/+/, "").split("/")[0] ||
               "";
             // Skip — compose handler above already handled it
-            if (key === "compose" || key === "") return;
+            if (key === "compose") return;
+            // Collection root: `GET ?keys=a,b,c` batches many single-key reads
+            // into one request (and one identity resolution) — the chat rail
+            // alone reads ~6 keys on every mount.
+            if (key === "") {
+              if (getMethod(event) === "GET") return getStateMany(event);
+              return;
+            }
             if (event.context) {
               event.context.params = { ...event.context.params, key };
             }

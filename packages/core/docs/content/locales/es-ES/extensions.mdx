@@ -1,11 +1,11 @@
 ---
 title: "Extensiones"
-description: "Miniaplicaciones que sus usuarios crean dentro de su plantilla: un mosaico KPI personalizado en Analytics, una lista de verificación de preparación de reuniones en Calendario, un widget de contacto CRM en Mail. Sin implementaciones, sin ediciones de código, sin cambios de esquema."
+description: "Una capacidad opcional del toolkit para bloques personalizados puntuales y aislados. El código de la aplicación sigue siendo la opción predeterminada para el comportamiento duradero."
 ---
 
 # Extensiones
 
-Las extensiones son **miniaplicaciones que tus usuarios crean dentro de tu plantilla**.
+Las extensiones son una **capacidad opcional del toolkit para bloques personalizados aislados**. Están desactivadas de forma predeterminada; una plantilla debe habilitarlas explícitamente. Analytics las utiliza para visualizaciones personalizadas puntuales solicitadas expresamente. Para un comportamiento duradero, edita el código de la aplicación.
 
 Si ha utilizado QuickBooks Online, habrá visto el modelo: QBO incluye un producto de contabilidad central y los usuarios utilizan pequeños widgets personalizados (un informe personalizado, una calculadora de nómina, un verificador de reglas impositivas) que se encuentran dentro de la misma aplicación y usan los mismos datos. Las extensiones son la versión nativa del agente de esa idea, excepto que sus usuarios no escriben ningún código. Describen lo que quieren y el agente lo construye.
 
@@ -16,10 +16,10 @@ El marco importa: una extensión no es un entorno limitado genérico de "haz lo 
 > [ranura](#slots) con nombre que expone la plantilla. No puede insertar
 > elementos en componentes nativos arbitrarios —por ejemplo, junto a cada
 > asistente en Calendario— a menos que la plantilla exponga una ranura allí.
-> Para una personalización más profunda, pide al agente que edite el código
-> fuente de la plantilla. La personalización completa del código es una
-> capacidad central de Agent Native; las extensiones son la capa rápida y sin
-> despliegues.
+> Para una personalización más profunda, cambia la plantilla en tu repositorio
+> y flujo de desarrollo. El agente integrado solo puede ayudar si el host
+> concede intencionalmente herramientas de escritura de repository/workspace;
+> las extensiones siguen siendo la capa rápida y sin despliegues.
 
 Tres cosas hacen que las extensiones funcionen:
 
@@ -27,10 +27,12 @@ Tres cosas hacen que las extensiones funcionen:
 - **Acceso completo a los datos de la plantilla.** Las extensiones pueden llamar al mismo actions al que llama el agente (`list-emails` en Mail, `list-decks` en Presentaciones, `list-recordings` en Clips) para tener todo lo que tiene la aplicación host.
 - **Almacenamiento integrado.** Cada extensión tiene su propio almacén de clave-valor por usuario/por organización, por lo que puede guardar el estado sin que usted agregue una nueva tabla SQL.
 
-Si una plantilla no debe exponer extensiones creadas por el usuario, configúrela
-`extensionTools: false` en `createAgentChatPlugin()`. Eso elimina el
-Extensión orientada al agente actions y orientación rápida mientras se deja el resto del
-agente de aplicación intacto.
+Las extensiones están desactivadas de forma predeterminada. Para habilitarlas,
+establece `extensionTools: true` tanto en `createAgentChatPlugin()` como en
+`createCoreRoutesPlugin()`. El primero añade las actions y la guía para el
+agente; el segundo permite la creación autenticada mediante
+`POST /_agent-native/extensions`. El runtime aislado y las rutas existentes de
+lectura, edición y enlaces profundos se conservan por compatibilidad.
 
 <Diagram id="doc-block-916xvd" title="El puente de la caja de arena" summary={"La extensión HTML se ejecuta en un iframe aislado y llega al host solo a través de un conjunto fijo de ayudas de puente: cada llamada tiene un alcance y un acceso verificado."}>
 
@@ -425,24 +427,24 @@ Las extensiones son privadas para el usuario que las creó de forma predetermina
 
 Las extensiones compartidas tienen sus propios URL y se conectan al mismo cuadro de diálogo para compartir que documentos, presentaciones y paneles. Las instalaciones de tragamonedas son siempre personales: compartir una extensión significa que otros _pueden_ instalarla; no lo fija automáticamente a su UI.
 
-## ¿Debo usar una extensión o editar el código de la aplicación? {#vs-app-code}
+## ¿Debo usar una extensión o el flujo de código fuente? {#vs-app-code}
 
-El marco permite al agente editar directamente el código fuente de la aplicación —componentes, rutas, estilos y lógica de negocio—. Usa esta pregunta cuando cualquiera de las dos opciones podría resolver la solicitud:
+El agente integrado no edita el código fuente de forma predeterminada; solo puede hacerlo si el host concede intencionalmente herramientas de escritura de repository/workspace. Usa el flujo de código fuente para el comportamiento duradero y las extensiones para personalización rápida en runtime.
 
-- **Empieza con una extensión** para un widget autónomo y relativamente puntual: una visualización o interacción personalizada, un bloque de dashboard, una utilidad independiente o un complemento en un slot existente. Es rápida, no requiere cambios en el código fuente, compilación ni despliegue, y puede ser privada o compartida.
-- **Usa el código de la aplicación** para una función principal de la plantilla, cambios en la UI nativa, el layout, las rutas o la lógica de negocio, o cualquier cosa que deba reutilizarse ampliamente en dashboards o usuarios. Si el host no tiene un slot adecuado o la solicitud necesita uno nuevo, usa código.
-- **Promueve las extensiones repetidas.** Si se vuelve a crear la misma extensión una y otra vez, o mantener muchas copias sería peor que una implementación compartida, pásala al código de la aplicación como una función nativa reutilizable.
+- **Empieza con el código de la aplicación** para el comportamiento del producto, la UI nativa, el layout, las rutas, la lógica de negocio o cualquier cosa que deba reutilizarse.
+- **Usa un bloque personalizado solo si la aplicación lo habilita** y el usuario pide explícitamente una visualización o interacción puntual en una superficie existente. Es rápido y no requiere despliegue, pero sigue siendo un parche aislado creado por el agente.
+- **Promueve los bloques duraderos.** Si un bloque resulta útil más allá de su contexto original, usa **Promover a código de aplicación** y mantenlo activo hasta que el cambio de código se revise y despliegue.
 
-|                                 | Extensión                                                     | Edición del código de la aplicación                       |
-| ------------------------------- | ------------------------------------------------------------- | --------------------------------------------------------- |
-| **Creado por**                  | Agente (o usuario) en tiempo de ejecución                     | Agente editando archivos fuente                           |
-| **Almacenado en**               | La base de datos                                              | El repositorio de git                                     |
-| **Requiere una compilación**    | No                                                            | Sí                                                        |
-| **Requiere una implementación** | No                                                            | Sí                                                        |
-| **Alcance**                     | Un usuario (o compartido con la organización)                 | El producto completo, cada usuario                        |
-| **Mejor para**                  | Widgets personales, KPI personalizados, utilidades por equipo | Funciones principales disponibles para todos los usuarios |
+|                                 | Extensión                                     | Edición del código de la aplicación     |
+| ------------------------------- | --------------------------------------------- | --------------------------------------- |
+| **Creado por**                  | Agente (o usuario) en tiempo de ejecución     | Usuario o flujo con capacidad de código |
+| **Almacenado en**               | La base de datos                              | El repositorio de git                   |
+| **Requiere una compilación**    | No                                            | Sí                                      |
+| **Requiere una implementación** | No                                            | Sí                                      |
+| **Alcance**                     | Un usuario (o compartido con la organización) | El producto completo, cada usuario      |
+| **Mejor para**                  | Bloques personalizados puntuales              | Comportamiento duradero del producto    |
 
-Regla general: **si una extensión puede resolver el problema, normalmente empieza por ahí.** Usa código cuando el límite de las extensiones no encaje o cuando la reutilización amplia y la disponibilidad para todo el producto justifiquen una implementación nativa. Por ejemplo, una visualización personalizada puntual en un dashboard es una buena extensión; un nuevo tipo de gráfico circular, de barras múltiples o de líneas que deba estar disponible en todos los dashboards pertenece al código de la plantilla.
+Regla general: **usa el código de la aplicación de forma predeterminada.** En una aplicación que habilita extensiones, una visualización puntual puede ser un bloque personalizado; un nuevo tipo de gráfico que deba estar disponible en todos los dashboards pertenece al código de la plantilla.
 
 Para la obtención de datos personalizada que deba alimentar gráficos y tablas nativos en lugar de una UI de widget a medida, vea [Programas de datos](/docs/data-programs) — un script `run-code` almacenado y actualizable al que los paneles de dashboard se vinculan directamente, sin ningún iframe de extensión de por medio.
 

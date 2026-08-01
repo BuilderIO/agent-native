@@ -396,14 +396,16 @@ cache-control: public, max-age=600, stale-while-revalidate=604800, stale-if-erro
 
 这些必须在将应用程序升级到真正的产品部署之前设置。缺失值要么失败关闭（框架拒绝启动/拒绝处理请求），要么回退到较弱的行为并发出响亮的警告。
 
-| 变量                     | 描述                                                                                                                                                                                      |
-| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BETTER_AUTH_SECRET`     | 32+ 字符随机字符串。签署会话 cookies AND 是 `OAUTH_STATE_SECRET` 和 `SECRETS_ENCRYPTION_KEY` 的后备 HMAC。硬性要求：如果在生产中缺失，框架将在启动时抛出异常。                            |
-| `BETTER_AUTH_URL`        | 此应用程序的公共来源（例如 `https://mail.example.com`）。用于cookie域和OAuth重定向构造。                                                                                                  |
-| `ANTHROPIC_API_KEY`      | API 嵌入式生产代理密钥。 **在多租户部署中**，当用户没有每用户密钥时，框架拒绝回退到此 - 需要自带密钥。单租户自托管安装将其用作全局密钥。                                                  |
-| `OAUTH_STATE_SECRET`     | 用于 OAuth 状态信封（Google、Atlassian、Zoom）的专用 HMAC 密钥。未设置时回落到 `BETTER_AUTH_SECRET`，但建议使用专用值，以便旋转一个值不会使另一个值无效。通过`openssl rand -hex 32`生成。 |
-| `A2A_SECRET`             | 为应用程序间 A2A JSON-RPC 共享 HMAC。如果没有它，每个 A2A 端点和 `/_agent-native/integrations/process-task` 自发射端点在生产中都会返回 503。                                              |
-| `SECRETS_ENCRYPTION_KEY` | AES-256-GCM 静态加密机密保管库的密钥。回落至 `BETTER_AUTH_SECRET`。当两者都未设置时，生产中会发生硬故障。                                                                                 |
+| 变量                                        | 描述                                                                                                                                                                                      |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET`                        | 32+ 字符的随机字符串。签署会话 cookie，并作为 `OAUTH_STATE_SECRET` 和应用本地加密值的后备。它也是读取现有共享保管库密文的旧版候选项。生产环境中必需。                                     |
+| `BETTER_AUTH_URL`                           | 此应用程序的公共来源（例如 `https://mail.example.com`）。用于cookie域和OAuth重定向构造。                                                                                                  |
+| `ANTHROPIC_API_KEY`                         | API 嵌入式生产代理密钥。 **在多租户部署中**，当用户没有每用户密钥时，框架拒绝回退到此 - 需要自带密钥。单租户自托管安装将其用作全局密钥。                                                  |
+| `OAUTH_STATE_SECRET`                        | 用于 OAuth 状态信封（Google、Atlassian、Zoom）的专用 HMAC 密钥。未设置时回落到 `BETTER_AUTH_SECRET`，但建议使用专用值，以便旋转一个值不会使另一个值无效。通过`openssl rand -hex 32`生成。 |
+| `A2A_SECRET`                                | 应用间 A2A JSON-RPC 的共享 HMAC。未设置专用工作区密钥时，共享保管库使用由此值按用途派生的密钥，因此轮换它也会轮换保管库密钥。                                                             |
+| `WORKSPACE_SECRETS_ENCRYPTION_KEY`          | 共享工作区保管库首选的稳定 AES-256-GCM 密钥。每个读取保管库的应用都应设置相同值；它与应用本地 OAuth 加密分开。                                                                            |
+| `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS` | 轮换期间可选的旧工作区密钥。与新密钥一起部署，等待读取迁移数据行，然后删除旧密钥。                                                                                                        |
+| `SECRETS_ENCRYPTION_KEY`                    | 用于应用本地加密和保管库的旧版组合密钥。仍受支持，但新的多应用部署应使用专用工作区密钥。                                                                                                  |
 
 ### 身份验证和身份 {#env-auth}
 
@@ -442,7 +444,14 @@ openssl rand -hex 32
 export default createAgentChatPlugin({
   // Default: "read"
   databaseTools: "read", // "write" | "read" | "off"
-  extensionTools: false,
+  extensionTools: true,
+});
+```
+
+```ts
+// server/plugins/core-routes.ts
+export default createCoreRoutesPlugin({
+  extensionTools: true,
 });
 ```
 
@@ -452,9 +461,9 @@ export default createAgentChatPlugin({
   用于有意的原始 SQL 维护。写入范围限定为当前用户/组织，并阻止架构更改。
 - `databaseTools: "off"` 或 `false` — 从
   代理表面，因此应用程序的 actions 是唯一的数据访问路径。
-- `extensionTools: false` — 删除框架扩展管理 actions 和
-  针对以下应用的提示指导（`create-extension`、`update-extension` 等）
-  不希望代理创建沙盒迷你应用程序。
+- `extensionTools: true` — 为应用启用框架扩展管理 actions 和提示指导
+  （`create-extension`、`update-extension` 等）。在两个 plugins 上都设置
+  此选项，也可允许经过身份验证的 REST 创建。扩展默认关闭。
 
 ## 生产代码执行 {#production-code-execution}
 
@@ -481,13 +490,13 @@ export default createAgentChatPlugin({
 
 ## 在生产中更新 UI {#updating-ui-in-production}
 
-agent-native 的核心功能之一是代理可以修改应用程序的源代码 - 组件、路由、样式、actions。在本地开发期间，这可以无缝工作，因为代理具有完整的文件系统访问权限。
+普通的已部署应用代理通过应用工具 - actions、数据库、MCP 和已配置的集成 - 工作，而不会自动获得源代码访问权限。源代码更改属于仓库开发工作流。嵌入式、本地或 Builder frame 只有在被有意授予工作区和写入工具时才能编辑仓库。
 
 在 [production code execution](#production-code-execution) 关闭的标准生产部署中，代理可以访问应用程序工具（actions、数据库、MCP），但不能访问文件系统。这意味着代理可以读取和写入数据、运行 actions 以及与外部服务交互 - 但它无法编辑 React 组件或在已部署的实例上添加新路由。
 
 ### Builder.io：制作中的可视化编辑 {#builderio}
 
-[Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) 通过提供托管云环境来解决此问题，在该环境中，代理保留在生产中修改应用程序的 UI 的能力。将您的存储库连接到 Builder.io 并直接提示 UI 更改 - 无需重新部署。
+[Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) 是一个独立的托管代码工作流，代理可在其中修改生产应用的 UI。连接仓库后即可直接请求 UI 更改，无需重新部署。
 
 **工作原理：**
 

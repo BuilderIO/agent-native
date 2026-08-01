@@ -134,6 +134,19 @@ export interface PlatformDeliveryReceipt {
   messageRefs?: string[];
 }
 
+export interface PlatformDeliveryOptions {
+  /** Provider-owned message reference that should be updated in place. */
+  placeholderRef?: string;
+  /** Stable logical delivery key for provider-side retry reconciliation. */
+  idempotencyKey?: string;
+  /** Earliest provider timestamp (epoch ms) that can contain this delivery. */
+  reconcileAfter?: number;
+  /** Abort provider I/O before the caller releases its durable delivery claim. */
+  signal?: AbortSignal;
+  /** Do not fall back to a fresh post if the stable target cannot be updated. */
+  strictTargetRef?: boolean;
+}
+
 /**
  * Proactive outbound message target for a platform.
  * Used when the agent needs to send to a saved destination instead of replying
@@ -150,6 +163,13 @@ export interface OutboundTarget {
   tenantId?: string;
   /** Managed installation id when the caller already resolved it. */
   installationId?: string;
+  /**
+   * Provider installation key identifying which connected app to send as.
+   * Required when a tenant has more than one app of the same platform
+   * connected — without it the adapter cannot tell them apart and refuses to
+   * guess rather than posting under the wrong bot identity.
+   */
+  installationKey?: string;
 }
 
 /**
@@ -201,12 +221,20 @@ export interface PlatformRunProgress {
    * credentials, or provider payload.
    */
   ref?: PlatformRunProgressRef;
+  /** Stable provider message target that can receive the terminal answer. */
+  responseTargetRef?: string;
   /** Receive normalized agent events. Implementations should throttle writes. */
-  onEvent(event: AgentChatEvent): Promise<void> | void;
+  onEvent(
+    event: AgentChatEvent,
+    opts?: { signal?: AbortSignal },
+  ): Promise<void> | void;
   /** Finalize the provider-native progress surface with the answer. */
-  complete(message: OutgoingMessage): Promise<void | PlatformDeliveryReceipt>;
+  complete(
+    message: OutgoingMessage,
+    opts?: { signal?: AbortSignal },
+  ): Promise<void | PlatformDeliveryReceipt>;
   /** Mark the provider-native surface failed and leave a retryable explanation. */
-  fail?(message: string): Promise<void>;
+  fail?(message: string, opts?: { signal?: AbortSignal }): Promise<void>;
 }
 
 /**
@@ -322,7 +350,7 @@ export interface PlatformAdapter {
   sendResponse(
     message: OutgoingMessage,
     context: IncomingMessage,
-    opts?: { placeholderRef?: string },
+    opts?: PlatformDeliveryOptions,
   ): Promise<void | PlatformDeliveryReceipt>;
 
   /**
