@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveDesktopUpdateSupport } from "./update-policy.js";
+import {
+  resolveDesktopUpdateSupport,
+  resolveDesktopUserDataDirectoryName,
+} from "./update-policy.js";
 
 describe("resolveDesktopUpdateSupport", () => {
   it("disables updates in development", () => {
@@ -32,5 +35,24 @@ describe("resolveDesktopUpdateSupport", () => {
     expect(resolveDesktopUpdateSupport(true, version)).toEqual({
       supported: true,
     });
+  });
+
+  it("isolates development and Desktop SSO canary profiles from stable Desktop", () => {
+    expect(resolveDesktopUserDataDirectoryName(false, "0.1.150")).toBe(
+      "Agent Native Dev",
+    );
+    expect(
+      resolveDesktopUserDataDirectoryName(
+        true,
+        "0.1.150-desktop-sso-canary.19",
+      ),
+    ).toBe("Agent Native SSO Canary");
+    expect(resolveDesktopUserDataDirectoryName(true, "0.1.150")).toBeNull();
+    expect(
+      resolveDesktopUserDataDirectoryName(
+        true,
+        "0.1.150-desktop-sso-canary.not-a-run",
+      ),
+    ).toBeNull();
   });
 });

@@ -27,7 +27,7 @@ write-targets:
     - plans/desktop-sso-intent/work-ledger.md
 governing-artifact:
   path: plans/desktop-sso-intent/work-ledger.md
-  revision: desktop-sso-work-r19
+  revision: desktop-sso-work-r20
 architecture-fingerprint:
   outcome: one Agent Native workspace sign-in begun from the ordinary front door of any canonical first-party app, followed by silent app-local federation
   shipping-surfaces:
@@ -117,7 +117,7 @@ product-boundary-gates:
   agent-native-public-constituency: source-blind developers packaging Desktop with standard Core and Dispatch apps receive the reusable identity boundary without Alice-specific infrastructure
 acceptance-state:
   status: pending
-  summary: Alice approved the app-front-door replacement story; current main is integrated and exact-head CI, signed-canary, and native acceptance must be regenerated while production remains on normal unlocked main deployments
+  summary: Alice approved the app-front-door replacement story; current main is integrated, the branch canary now has a fail-closed profile distinct from stable Desktop, and exact-head CI, signed-canary, and native acceptance must be regenerated while production remains on normal unlocked main deployments
   verified:
     - Core identity protocol suite: 210 tests passed
     - Desktop main, renderer, shared, broker, and preload suites: 202 tests passed
@@ -170,6 +170,10 @@ acceptance-state:
     - post-integration focused verification on 6e202d737: Desktop identity and updater 24 tests passed; Core identity 27; Dispatch primary auth 1; Dispatch template identity 24
     - post-integration full relevant verification on 6e202d737: Desktop 231 tests, Dispatch package 336, Dispatch template 41, Desktop/Core/Dispatch/Dispatch-template typechecks, Core and Dispatch builds, Desktop production compile, formatting hygiene, and git diff checks passed
     - the broader Core package sweep passed 10080 tests and failed 228 tests because Node 24 exposed no browser localStorage in the Mac test runtime; every failing test source is unchanged from current main, so this is recorded as baseline harness evidence rather than SSO acceptance
+    - local artifact inspection found that packaged Desktop SSO canaries still inherited stable Desktop's Electron userData path even though development was isolated; canary .19 was therefore not installed
+    - the packaged canary version family now selects Agent Native SSO Canary as its userData directory before Sentry or logger initialization and aborts launch if that isolated profile cannot be established, while stable Desktop retains its existing profile
+    - canary-profile fix verification: all 236 Desktop tests passed; Desktop TypeScript, production build, formatting, and git diff checks passed
+    - the startup regression suite proves profile creation and selection precede Sentry and logger initialization, packaged isolation failure aborts before either consumer starts, stable Desktop leaves its profile unchanged, and development retains its recoverable fallback
   implementation:
     - authenticated nonce-only app-local completion route in Core
     - dedicated persistent Dispatch identity partition in packaged Desktop
@@ -183,7 +187,7 @@ acceptance-state:
     - Dispatch primary-auth public-route configuration eliminating concurrent auth-initializer pre-emption
     - the ordinary sign-in entry in a canonical first-party app starts the app-targeted workspace ceremony; Settings exposes status and workspace sign-out but no separate authority sign-in command
   blockers:
-    - the integrated branch must be pushed and pass exact-head CI plus a new signed canary before native Google sign-in from an ordinary app front door can begin
+    - the canary-profile fix must be independently reviewed, pushed, and pass exact-head CI plus a newly signed canary before native Google sign-in from an ordinary app front door can begin
     - the short Mail and Dispatch candidate publication window must then complete same-account continuity, restart, sign-out, account-switch, isolation, provider-separation, and hostile-flow acceptance before Work can be complete
   last-land-packet: https://github.com/BuilderIO/agent-native/pull/2290#issuecomment-5062742844
 deployment-boundary:
@@ -216,7 +220,7 @@ production-safety-preflight:
   mail: normal unlocked auto-publishing main deploy 6a6ddd1e966031000859bd7e at 3e89c5e5aea6752beea0849fbd62c5a1d58b986d, identity route baseline 401, root normal 302
   dispatch: normal unlocked auto-publishing main deploy 6a6ddd1e8eef7d00084f719e at 3e89c5e5aea6752beea0849fbd62c5a1d58b986d, identity authorize baseline 401
   local: no SSO Canary, ShipIt, or Squirrel process remains; stable Desktop untouched
-ledger-revision: desktop-sso-work-r19
+ledger-revision: desktop-sso-work-r20
 status: active
 ```
 
