@@ -9,6 +9,11 @@ const mocks = vi.hoisted(() => ({
   recordDashboardReportCaptureOutcome: vi.fn(),
   runWithRequestContext: vi.fn(),
   sendDashboardReportSubscription: vi.fn(),
+  notifyWithDelivery: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/notifications", () => ({
+  notifyWithDelivery: mocks.notifyWithDelivery,
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
@@ -82,6 +87,7 @@ describe("dashboard report sweep", () => {
     mocks.dashboardReportRetryAt.mockReturnValue(null);
     mocks.markDashboardReportResult.mockReset();
     mocks.recordDashboardReportCaptureOutcome.mockReset();
+    mocks.notifyWithDelivery.mockReset();
     mocks.recordDashboardReportCaptureOutcome.mockResolvedValue(true);
     mocks.runWithRequestContext.mockImplementation(
       async (_ctx, run: () => Promise<unknown>) => run(),
@@ -195,6 +201,32 @@ describe("dashboard report sweep", () => {
       "error",
       "panels unavailable: panel_revenue",
     );
+    expect(mocks.notifyWithDelivery).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channels: ["inbox", "email"],
+        metadata: expect.objectContaining({
+          emailRecipients: [sub.ownerEmail],
+        }),
+      }),
+      { owner: sub.ownerEmail },
+    );
+  });
+
+  it("stays quiet while a retry is still scheduled", async () => {
+    const sub = subscription();
+    mocks.claimDueDashboardReportSubscriptions.mockResolvedValue([sub]);
+    mocks.dashboardReportRetryAt.mockReturnValue("2026-07-13T11:16:00.000Z");
+    mocks.sendDashboardReportSubscription.mockResolvedValue(
+      completeResult({
+        reportMode: "degraded",
+        degradedPanelIds: ["panel_revenue"],
+        emailsSent: false,
+      }),
+    );
+
+    await runDashboardReportsOnce();
+
+    expect(mocks.notifyWithDelivery).not.toHaveBeenCalled();
   });
 
   it("marks the subscription failed when send throws and persists the thrown message", async () => {

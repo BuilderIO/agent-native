@@ -36,6 +36,13 @@ export interface ReviewResourceContext {
 export interface ReviewableResourceRegistration {
   type: string;
   displayName?: string;
+  /**
+   * Deep link to the resource, used by review notification emails. Without it
+   * an email can only link to the app root.
+   */
+  resolveUrl?: (
+    resourceId: string,
+  ) => Promise<string | null | undefined> | string | null | undefined;
   resolveAccess?: (
     resourceId: string,
     ctx?: ReviewResourceContext,

@@ -64,7 +64,12 @@ async function persistDashboardReportCaptureOutcome(
  * never arrive, and a log line alone leaves them waiting on nothing.
  */
 async function notifyDashboardReportGaveUp(
-  sub: { id: string; ownerEmail: string; orgId?: string | null; dashboardId?: string },
+  sub: {
+    id: string;
+    ownerEmail: string;
+    orgId?: string | null;
+    dashboardId?: string;
+  },
   reason: string,
 ): Promise<void> {
   try {

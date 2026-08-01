@@ -46,6 +46,10 @@ const messages = {
     metaTitle: "設定 - Content",
     title: "設定",
     description: "Content 的語言和工作區偏好設定。",
+    emailNotifications: "郵件通知",
+    emailNotificationsDescription:
+      "當有人評論你的文件、在討論串中回覆或提到你時，收到郵件通知。",
+    saveFailed: "儲存失敗",
     languageTitle: "語言",
     languageDescription: "選取介面語言。此偏好會儲存到你的帳戶。",
     languageLabel: "介面語言",

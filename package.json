@@ -95,6 +95,7 @@
     "guard:additive-migrations": "node scripts/guard-additive-migrations.mjs",
     "guard:no-silent-coercion": "node scripts/guard-no-silent-coercion.mjs",
     "guard:no-raw-colors": "node scripts/guard-no-raw-colors.mjs",
+    "guard:dead-settings-keys": "node scripts/guard-dead-settings-keys.mjs",
     "guards": "tsx scripts/run-guards.ts",
     "contribute:template": "tsx scripts/contribute-template-changes.ts",
     "sync:netlify-env": "tsx scripts/sync-template-netlify-env.ts",

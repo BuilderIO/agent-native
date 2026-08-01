@@ -11,10 +11,10 @@ import {
 } from "@agent-native/core/client/settings";
 import { CreativeContextSettingsLink } from "@agent-native/creative-context/client";
 import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
-import { Switch } from "@agent-native/toolkit/ui/switch";
 import { useMemo } from "react";
 import { toast } from "sonner";
 
+import { Switch } from "@/components/ui/switch";
 import { useSlidesPrefs } from "@/hooks/use-slides-prefs";
 import messages from "@/i18n/en-US";
 
