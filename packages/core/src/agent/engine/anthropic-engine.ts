@@ -73,9 +73,11 @@ class AnthropicEngine implements AgentEngine {
   readonly capabilities = ANTHROPIC_CAPABILITIES;
 
   private readonly apiKey: string;
+  private readonly baseUrl?: string;
 
-  constructor(apiKey: string) {
+  constructor(apiKey: string, baseUrl?: string) {
     this.apiKey = apiKey;
+    this.baseUrl = baseUrl;
   }
 
   async *stream(opts: EngineStreamOptions): AsyncIterable<EngineEvent> {
@@ -83,7 +85,19 @@ class AnthropicEngine implements AgentEngine {
     // Explicit: the agent loop already retries a failed model call up to
     // MAX_RETRIES times with backoff. Leaving the SDK on its default (2)
     // multiplies the two layers into ~12 HTTP requests per failed run.
-    const client = new Anthropic({ apiKey: this.apiKey, maxRetries: 1 });
+    //
+    // A resolved base URL is passed explicitly so a scoped `app_secrets` row
+    // beats the SDK's own read of ANTHROPIC_BASE_URL. Left off when nothing
+    // resolved, because callers that construct this engine directly (agent
+    // teams, the Docs poller) never go through the registry, and the SDK's env
+    // read is the same variable the registry's own deploy fallback would have
+    // returned — pinning a default here would strand exactly those callers on
+    // the public API.
+    const client = new Anthropic({
+      apiKey: this.apiKey || null,
+      ...(this.baseUrl ? { baseURL: this.baseUrl } : {}),
+      maxRetries: 1,
+    });
 
     const tools = engineToolsToAnthropic(opts.tools);
     const messages = engineMessagesToAnthropic(opts.messages);
@@ -358,7 +372,16 @@ export function createAnthropicEngine(
     (config.apiKey as string | undefined) ??
     (allowEnvFallback ? readDeployCredentialEnv("ANTHROPIC_API_KEY") : "") ??
     "";
-  if (!apiKey) {
+  const baseUrl =
+    typeof config.baseUrl === "string" && config.baseUrl
+      ? config.baseUrl
+      : undefined;
+  // A configured base URL is the only thing that makes a keyless engine a
+  // deliberate choice: a self-hosted or local Anthropic-compatible gateway may
+  // legitimately accept unauthenticated requests. Without one, an absent key
+  // is still an absent key and must not become an unauthenticated request to
+  // api.anthropic.com whose 401 names the wrong cause.
+  if (!apiKey && !baseUrl) {
     // Return a "missing key" engine that immediately errors
     return {
       name: "anthropic",
@@ -376,5 +399,5 @@ export function createAnthropicEngine(
       },
     };
   }
-  return new AnthropicEngine(apiKey);
+  return new AnthropicEngine(apiKey, baseUrl);
 }

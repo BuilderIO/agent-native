@@ -5,6 +5,10 @@ import {
   ANTHROPIC_CAPABILITIES,
   ANTHROPIC_DEFAULT_MODEL,
 } from "./anthropic-engine.js";
+import {
+  LLM_MISSING_CREDENTIALS_ERROR_CODE,
+  LLM_MISSING_CREDENTIALS_MESSAGE,
+} from "./credential-errors.js";
 import { SYSTEM_PROMPT_CACHE_SPLIT } from "./prompt-cache.js";
 import type { EngineStreamOptions } from "./types.js";
 
@@ -884,6 +888,122 @@ describe("createAnthropicEngine streamed tool-input reconciliation", () => {
         id: "toolu_01",
         name: "create_document",
         input: { title: "Q3 plan" },
+      },
+    ]);
+  });
+});
+
+describe("createAnthropicEngine base URL", () => {
+  beforeEach(() => {
+    vi.unstubAllEnvs();
+    vi.doUnmock("@anthropic-ai/sdk");
+  });
+
+  afterEach(() => {
+    vi.doUnmock("@anthropic-ai/sdk");
+  });
+
+  // Run one turn against a mocked SDK and report the options the engine handed
+  // to the Anthropic client constructor.
+  async function captureClientOptions(
+    config: Record<string, unknown>,
+  ): Promise<{ options: any; events: any[] }> {
+    const finalMsg = {
+      content: [{ type: "text", text: "ok" }],
+      stop_reason: "end_turn",
+      usage: { input_tokens: 1, output_tokens: 1 },
+    };
+    const mockStream = {
+      [Symbol.asyncIterator]: async function* () {},
+      finalMessage: vi.fn().mockResolvedValue(finalMsg),
+    };
+    let captured: any;
+    vi.doMock("@anthropic-ai/sdk", () => ({
+      default: class MockAnthropic {
+        messages = { stream: vi.fn().mockReturnValue(mockStream) };
+        constructor(options: any) {
+          captured = options;
+        }
+      },
+    }));
+    vi.resetModules();
+    const { createAnthropicEngine: freshCreate } =
+      await import("./anthropic-engine.js");
+    const engine = freshCreate(config);
+    const events = await collectEvents(
+      engine.stream({
+        model: ANTHROPIC_DEFAULT_MODEL,
+        systemPrompt: "You are helpful.",
+        messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+        tools: [],
+        abortSignal: new AbortController().signal,
+      } as EngineStreamOptions),
+    );
+    return { options: captured, events };
+  }
+
+  it("points the client at a configured gateway", async () => {
+    const { options } = await captureClientOptions({
+      apiKey: "test-key",
+      allowEnvFallback: false,
+      baseUrl: "http://localhost:4000",
+    });
+
+    expect(options).toMatchObject({
+      apiKey: "test-key",
+      baseURL: "http://localhost:4000",
+    });
+  });
+
+  // Callers that build this engine directly (agent teams, the Docs poller)
+  // never reach the registry's resolver, so overriding here would strand them
+  // on the public API even with a gateway configured.
+  it("leaves the SDK's own endpoint default alone when nothing resolved", async () => {
+    const { options } = await captureClientOptions({
+      apiKey: "test-key",
+      allowEnvFallback: false,
+    });
+
+    expect(options).not.toHaveProperty("baseURL");
+  });
+
+  it("prefers a resolved endpoint over the SDK's env var read", async () => {
+    vi.stubEnv("ANTHROPIC_BASE_URL", "http://env-only.invalid");
+
+    const { options } = await captureClientOptions({
+      apiKey: "test-key",
+      allowEnvFallback: false,
+      baseUrl: "http://scoped.invalid",
+    });
+
+    expect(options.baseURL).toBe("http://scoped.invalid");
+  });
+
+  it("runs keyless against a gateway that needs no key", async () => {
+    const { options, events } = await captureClientOptions({
+      allowEnvFallback: false,
+      baseUrl: "http://localhost:4000",
+    });
+
+    expect(options).toMatchObject({
+      apiKey: null,
+      baseURL: "http://localhost:4000",
+    });
+    expect(events.find((e) => e.type === "stop")?.errorCode).toBeUndefined();
+  });
+
+  it("still fails closed with neither a base URL nor a key", async () => {
+    const engine = createAnthropicEngine({ allowEnvFallback: false });
+    const events = await collectEvents(
+      engine.stream({} as EngineStreamOptions),
+    );
+
+    expect(events).toEqual([
+      {
+        type: "stop",
+        reason: "error",
+        error: LLM_MISSING_CREDENTIALS_MESSAGE,
+        errorCode: LLM_MISSING_CREDENTIALS_ERROR_CODE,
       },
     ]);
   });

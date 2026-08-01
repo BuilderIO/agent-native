@@ -42,6 +42,7 @@ describe("AgentEngine registry", () => {
     delete process.env.ANTHROPIC_API_KEY; // guard:allow-env-credential — test setup clears env to assert credential precedence
     delete process.env.OPENAI_API_KEY; // guard:allow-env-credential — test setup clears env to assert credential precedence
     delete process.env.OPENAI_BASE_URL; // guard:allow-env-credential — test setup clears env to assert endpoint precedence
+    delete process.env.ANTHROPIC_BASE_URL; // guard:allow-env-credential — test setup clears env to assert endpoint precedence
     delete process.env.GOOGLE_GENERATIVE_AI_API_KEY; // guard:allow-env-credential — test setup clears env to assert credential precedence
     delete process.env.BUILDER_PRIVATE_KEY; // guard:allow-env-credential — test setup clears env to assert credential precedence
     delete process.env.BUILDER_PUBLIC_KEY; // guard:allow-env-credential — test setup clears env to assert credential precedence
@@ -1895,6 +1896,187 @@ describe("AgentEngine registry", () => {
         allowEnvFallback: true,
       });
       expect(resolved).toBe(googleEngine);
+    });
+
+    // ── Anthropic endpoint resolution ────────────────────────────────────────
+    // Same precedence the OpenAI-compatible endpoint has always had: an
+    // explicitly passed endpoint beats the scoped secret, which beats the
+    // deployment env var.
+    function registerAnthropicEngines(
+      registerAgentEngine: (entry: any) => void,
+    ) {
+      const nativeEngine = { name: "anthropic", stream: vi.fn() } as any;
+      const nativeCreate = vi.fn().mockReturnValue(nativeEngine);
+      const aiSdkEngine = { name: "ai-sdk:anthropic", stream: vi.fn() } as any;
+      const aiSdkCreate = vi.fn().mockReturnValue(aiSdkEngine);
+      registerAgentEngine({
+        name: "anthropic",
+        label: "Claude",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "claude-opus-5",
+        supportedModels: [],
+        requiredEnvVars: ["ANTHROPIC_API_KEY"],
+        create: nativeCreate,
+      });
+      registerAgentEngine({
+        name: "ai-sdk:anthropic",
+        label: "Claude",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "claude-opus-5",
+        supportedModels: [],
+        requiredEnvVars: ["ANTHROPIC_API_KEY"],
+        create: aiSdkCreate,
+      });
+      return { nativeCreate, nativeEngine, aiSdkCreate, aiSdkEngine };
+    }
+
+    function mockAnthropicBaseUrlSecret(value: string | null) {
+      vi.doMock("../../server/request-context.js", () => ({
+        getRequestUserEmail: () => "steve@example.com",
+        getRequestOrgId: () => undefined,
+      }));
+      vi.doMock("../../secrets/storage.js", () => {
+        const readAppSecret = vi.fn(async ({ key }: { key: string }) =>
+          key === "ANTHROPIC_BASE_URL" && value ? { key, value } : null,
+        );
+        return {
+          readAppSecret,
+          readAppSecrets: readAppSecretsFromSingles(readAppSecret),
+        };
+      });
+    }
+
+    it("passes a scoped Anthropic endpoint into the native Anthropic engine", async () => {
+      mockAnthropicBaseUrlSecret("http://localhost:4000/v1///");
+
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+      const { nativeCreate, nativeEngine } =
+        registerAnthropicEngines(registerAgentEngine);
+
+      const resolved = await resolveEngine({ engineOption: "anthropic" });
+
+      expect(nativeCreate).toHaveBeenCalledWith({
+        apiKey: undefined,
+        allowEnvFallback: true,
+        baseUrl: "http://localhost:4000",
+      });
+      expect(resolved).toBe(nativeEngine);
+    });
+
+    it("gives the AI SDK Anthropic engine the version segment the same value omits", async () => {
+      mockAnthropicBaseUrlSecret("http://localhost:4000");
+
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+      const { aiSdkCreate } = registerAnthropicEngines(registerAgentEngine);
+
+      await resolveEngine({ engineOption: "ai-sdk:anthropic" });
+
+      expect(aiSdkCreate).toHaveBeenCalledWith({
+        apiKey: undefined,
+        allowEnvFallback: true,
+        baseUrl: "http://localhost:4000/v1",
+      });
+    });
+
+    it("prefers an explicitly passed endpoint over the scoped secret", async () => {
+      mockAnthropicBaseUrlSecret("http://scoped.invalid");
+
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+      const { nativeCreate } = registerAnthropicEngines(registerAgentEngine);
+
+      await resolveEngine({
+        engineOption: {
+          name: "anthropic",
+          config: { baseUrl: "http://explicit.invalid/v1" },
+        },
+      });
+
+      expect(nativeCreate).toHaveBeenCalledWith({
+        apiKey: undefined,
+        allowEnvFallback: true,
+        baseUrl: "http://explicit.invalid",
+      });
+    });
+
+    it("prefers the scoped secret over the deployment env var", async () => {
+      vi.stubEnv("ANTHROPIC_BASE_URL", "http://deploy.invalid");
+      mockAnthropicBaseUrlSecret("http://scoped.invalid");
+
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+      const { nativeCreate } = registerAnthropicEngines(registerAgentEngine);
+
+      await resolveEngine({ engineOption: "anthropic" });
+
+      expect(nativeCreate).toHaveBeenCalledWith({
+        apiKey: undefined,
+        allowEnvFallback: true,
+        baseUrl: "http://scoped.invalid",
+      });
+    });
+
+    it("falls back to the deployment env var when no secret is stored", async () => {
+      vi.stubEnv("ANTHROPIC_BASE_URL", "http://deploy.invalid/");
+      mockAnthropicBaseUrlSecret(null);
+
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+      const { nativeCreate } = registerAnthropicEngines(registerAgentEngine);
+
+      await resolveEngine({ engineOption: "anthropic" });
+
+      expect(nativeCreate).toHaveBeenCalledWith({
+        apiKey: undefined,
+        allowEnvFallback: true,
+        baseUrl: "http://deploy.invalid",
+      });
+    });
+
+    it("does not pass the Anthropic endpoint into unrelated engines", async () => {
+      mockAnthropicBaseUrlSecret("http://localhost:4000");
+
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+      const googleCreate = vi
+        .fn()
+        .mockReturnValue({ name: "ai-sdk:google", stream: vi.fn() });
+      registerAgentEngine({
+        name: "ai-sdk:google",
+        label: "Gemini",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "gemini-3.1-pro-preview",
+        supportedModels: [],
+        requiredEnvVars: ["GOOGLE_GENERATIVE_AI_API_KEY"],
+        create: googleCreate,
+      });
+
+      await resolveEngine({ engineOption: "ai-sdk:google" });
+
+      expect(googleCreate).toHaveBeenCalledWith({
+        apiKey: undefined,
+        allowEnvFallback: true,
+      });
+    });
+
+    it("passes no endpoint when none is configured, so a keyless engine still fails closed", async () => {
+      mockAnthropicBaseUrlSecret(null);
+
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+      const { nativeCreate } = registerAnthropicEngines(registerAgentEngine);
+
+      await resolveEngine({ engineOption: "anthropic" });
+
+      expect(nativeCreate).toHaveBeenCalledWith({
+        apiKey: undefined,
+        allowEnvFallback: true,
+      });
     });
 
     it("auto-detects app-provided deploy-level provider env keys for signed-in production shared-database users", async () => {

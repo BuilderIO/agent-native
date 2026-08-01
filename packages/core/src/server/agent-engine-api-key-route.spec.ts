@@ -48,25 +48,42 @@ describe("agent engine api-key route helpers", () => {
       ok: true,
       key: "OPENAI_API_KEY",
       baseUrl: "https://gateway.example/v1",
+      baseUrlKey: "OPENAI_BASE_URL",
       clearBaseUrl: false,
       scope: "user",
     });
   });
 
-  it("rejects endpoint URLs for non-OpenAI providers", () => {
+  it("routes an Anthropic endpoint to its own key rather than OpenAI's", () => {
     expect(
       normalizeAgentEngineApiKeyPayload({
         provider: "anthropic",
+        baseUrl: "http://localhost:4000/",
+      }),
+    ).toEqual({
+      ok: true,
+      key: "ANTHROPIC_API_KEY",
+      baseUrl: "http://localhost:4000",
+      baseUrlKey: "ANTHROPIC_BASE_URL",
+      clearBaseUrl: false,
+      scope: "user",
+    });
+  });
+
+  it("rejects endpoint URLs for providers that have no configurable endpoint", () => {
+    expect(
+      normalizeAgentEngineApiKeyPayload({
+        provider: "google",
         baseUrl: "https://gateway.example/v1",
       }),
     ).toEqual({
       ok: false,
       statusCode: 400,
-      error: "Endpoint URL is only supported for OpenAI.",
+      error: "Endpoint URL is not supported for this provider.",
     });
   });
 
-  it("accepts clearing the saved OpenAI endpoint", () => {
+  it("accepts clearing a saved endpoint", () => {
     expect(
       normalizeAgentEngineApiKeyPayload({
         provider: "openai",
@@ -75,6 +92,7 @@ describe("agent engine api-key route helpers", () => {
     ).toEqual({
       ok: true,
       key: "OPENAI_API_KEY",
+      baseUrlKey: "OPENAI_BASE_URL",
       clearBaseUrl: true,
       scope: "user",
     });

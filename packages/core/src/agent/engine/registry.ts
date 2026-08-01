@@ -25,6 +25,10 @@ import {
   normalizeOpenAiBaseUrl,
   OPENAI_BASE_URL_ENV_VAR,
 } from "./openai-compatible-endpoint.js";
+import {
+  baseUrlEnvVarForEngine,
+  baseUrlForEngine,
+} from "./provider-base-url.js";
 import type { AgentEngine, EngineCapabilities } from "./types.js";
 
 const require = createRequire(import.meta.url);
@@ -356,7 +360,7 @@ export async function resolveEnginePreservesCustomModels(
 ): Promise<boolean> {
   if (entry.name !== "ai-sdk:openai") return false;
   try {
-    return Boolean(await resolveOpenAiBaseUrl());
+    return Boolean(await resolveConfiguredBaseUrl(OPENAI_BASE_URL_ENV_VAR));
   } catch {
     return false;
   }
@@ -646,19 +650,22 @@ function engineCreateConfig(
   };
 }
 
-async function resolveOpenAiBaseUrl(): Promise<string | undefined> {
+/**
+ * The configured base URL for one provider key: the scoped secret wins over
+ * the deployment env var, exactly as provider API keys resolve.
+ */
+async function resolveConfiguredBaseUrl(
+  envVar: string,
+): Promise<string | undefined> {
   let raw: string | null | undefined = null;
   try {
-    raw = await resolveSecret(OPENAI_BASE_URL_ENV_VAR);
+    raw = await resolveSecret(envVar);
   } catch {
     raw = null;
   }
 
-  if (
-    !raw &&
-    canUseDeployCredentialFallbackForRequest(OPENAI_BASE_URL_ENV_VAR)
-  ) {
-    raw = readDeployCredentialEnv(OPENAI_BASE_URL_ENV_VAR);
+  if (!raw && canUseDeployCredentialFallbackForRequest(envVar)) {
+    raw = readDeployCredentialEnv(envVar);
   }
 
   return raw ? normalizeOpenAiBaseUrl(raw) : undefined;
@@ -770,13 +777,17 @@ async function engineCreateConfigForEntry(
           : undefined;
     }
   }
-  if (entry.name === "ai-sdk:openai") {
+  const baseUrlEnvVar = baseUrlEnvVarForEngine(entry.name);
+  if (baseUrlEnvVar) {
     if (typeof safeExtra.baseURL === "string" && safeExtra.baseUrl == null) {
       safeExtra.baseUrl = normalizeOpenAiBaseUrl(safeExtra.baseURL);
     }
     if (safeExtra.baseUrl == null) {
-      const baseUrl = await resolveOpenAiBaseUrl();
+      const baseUrl = await resolveConfiguredBaseUrl(baseUrlEnvVar);
       if (baseUrl) safeExtra.baseUrl = baseUrl;
+    }
+    if (typeof safeExtra.baseUrl === "string") {
+      safeExtra.baseUrl = baseUrlForEngine(entry.name, safeExtra.baseUrl);
     }
   }
   return engineCreateConfig(entry, matchingApiKey, safeExtra);
