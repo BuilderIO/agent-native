@@ -61,6 +61,96 @@ function fetchWithTimeout(
   );
 }
 
+/**
+ * PUT a large body over node:https instead of fetch.
+ *
+ * Node's fetch (undici) enforces a ~300s headers timeout by default, and for
+ * a signed-URL PUT the response headers only arrive after the entire body has
+ * been uploaded — so any upload slower than ~5 minutes dies with a bare
+ * "fetch failed" (observed: a 165MB recording on a ~2 Mbit/s uplink failing
+ * at 5.5 minutes despite the scaled abort budget below allowing 30). The raw
+ * node:https request has no per-phase deadline; the scaled timeout here is
+ * the only guard. Falls back to fetch on runtimes without node:https.
+ */
+async function putLargeBody(
+  uploadUrl: string,
+  headers: Record<string, string>,
+  bytes: Uint8Array,
+  mimeType: string,
+  timeoutMs: number,
+): Promise<Response> {
+  let nodeHttp: typeof import("node:http") | null = null;
+  let nodeHttps: typeof import("node:https") | null = null;
+  try {
+    nodeHttp = await import("node:http");
+    nodeHttps = await import("node:https");
+  } catch {
+    nodeHttp = null;
+    nodeHttps = null;
+  }
+  if (!nodeHttp || !nodeHttps) {
+    return fetchWithTimeout(
+      uploadUrl,
+      { method: "PUT", headers, body: makeBody(bytes, mimeType) },
+      timeoutMs,
+    );
+  }
+  const target = new URL(uploadUrl);
+  const lib = target.protocol === "http:" ? nodeHttp : nodeHttps;
+  const headerEntries = Object.entries(headers).filter(
+    ([key]) => key.toLowerCase() !== "content-length",
+  );
+  if (!headerEntries.some(([key]) => key.toLowerCase() === "content-type")) {
+    headerEntries.push(["Content-Type", mimeType]);
+  }
+  headerEntries.push(["Content-Length", String(bytes.byteLength)]);
+  return new Promise<Response>((resolve, reject) => {
+    const req = lib.request(
+      target,
+      { method: "PUT", headers: Object.fromEntries(headerEntries) },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk: Buffer) => chunks.push(chunk));
+        res.on("end", () => {
+          const status = res.statusCode ?? 500;
+          const nullBody = status === 204 || status === 205 || status === 304;
+          resolve(
+            new Response(nullBody ? null : Buffer.concat(chunks), {
+              status,
+              headers: Object.fromEntries(
+                Object.entries(res.headers).filter(
+                  (entry): entry is [string, string] =>
+                    typeof entry[1] === "string",
+                ),
+              ),
+            }),
+          );
+        });
+        res.on("error", reject);
+      },
+    );
+    const timer = setTimeout(() => {
+      req.destroy(
+        new Error(
+          `GCS upload timed out after ${Math.round(timeoutMs / 1000)}s`,
+        ),
+      );
+    }, timeoutMs);
+    req.on("response", () => clearTimeout(timer));
+    req.on("error", (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+    req.end(
+      Buffer.from(
+        bytes.buffer as ArrayBuffer,
+        bytes.byteOffset,
+        bytes.byteLength,
+      ),
+    );
+  });
+}
+
 function setStableUrlQueryParam(url: URL): void {
   // Stable URLs let Builder compress asynchronously without changing the media URL.
   url.searchParams.set("stableUrl", "true");
@@ -82,6 +172,106 @@ async function assertOk(res: Response, label: string): Promise<void> {
   }
 }
 
+// GCS requires non-final resumable chunks to be multiples of 256 KiB.
+const RESUMABLE_FINALIZE_CHUNK_BYTES = 8 * 1024 * 1024;
+
+/** Open a GCS resumable session for a Builder signed upload. */
+async function startResumableGcsSession(
+  privateKey: string,
+  filename: string,
+  mimeType: string,
+  maxBytes: number,
+): Promise<{ sessionUri: string; assetId: string }> {
+  const { uploadUrl, assetId, requiredHeaders } = await requestBuilderSignedUrl(
+    privateKey,
+    filename,
+    mimeType,
+    maxBytes,
+    true,
+  );
+  const initHeaders: Record<string, string> = {
+    "Content-Type": mimeType,
+    "x-goog-resumable": "start",
+  };
+  const contentLengthRange = requiredHeaders?.["x-goog-content-length-range"];
+  if (contentLengthRange)
+    initHeaders["x-goog-content-length-range"] = contentLengthRange;
+
+  const initRes = await fetchWithTimeout(uploadUrl, {
+    method: "POST",
+    headers: initHeaders,
+    body: new Uint8Array(0),
+  });
+  if (!initRes.ok) {
+    const body = await initRes.text().catch(() => "");
+    throw new Error(
+      `GCS resumable session initiation failed (${initRes.status}): ${body}`,
+    );
+  }
+  const sessionUri = initRes.headers.get("location");
+  if (!sessionUri)
+    throw new Error(
+      "GCS did not return a Location header for the resumable session",
+    );
+  return { sessionUri, assetId };
+}
+
+/**
+ * PUT one resumable chunk with bounded time and transient-error retries.
+ * 308 means "chunk accepted, more expected"; 2xx closes the object.
+ */
+async function relayResumableChunk(
+  sessionUri: string,
+  contentRange: string,
+  bytes: Uint8Array,
+  options?: { mimeType?: string },
+): Promise<ResumableChunkResult> {
+  const MAX_ATTEMPTS = 4;
+  const RETRYABLE = new Set([408, 429, 500, 502, 503, 504]);
+  const delayMs = (attempt: number) => Math.min(2000, 300 * 2 ** (attempt - 1));
+
+  let lastError: unknown = null;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const headers: Record<string, string> = {
+        "Content-Range": contentRange,
+      };
+      if (options?.mimeType) headers["Content-Type"] = options.mimeType;
+      const res = await fetchWithTimeout(
+        sessionUri,
+        {
+          method: "PUT",
+          headers,
+          body: bytes as unknown as BodyInit,
+        },
+        uploadTimeoutForBytes(bytes.byteLength),
+      );
+      if (res.status === 308 || res.ok)
+        return { ok: true, status: res.status } satisfies ResumableChunkResult;
+      if (RETRYABLE.has(res.status) && attempt < MAX_ATTEMPTS) {
+        await res.text().catch(() => "");
+        console.warn(
+          `[builder-resumable] transient ${res.status} on attempt ${attempt}, retrying`,
+        );
+        await new Promise((r) => setTimeout(r, delayMs(attempt)));
+        continue;
+      }
+      return { ok: false, status: res.status } satisfies ResumableChunkResult;
+    } catch (err) {
+      lastError = err;
+      if (attempt >= MAX_ATTEMPTS) break;
+      console.warn(
+        `[builder-resumable] network error on attempt ${attempt}:`,
+        err instanceof Error ? err.message : String(err),
+      );
+      await new Promise((r) => setTimeout(r, delayMs(attempt)));
+    }
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("GCS PUT failed after retries");
+}
+
 async function uploadLargeFileViaSignedUrl(
   input: FileUploadInput,
   privateKey: string,
@@ -95,7 +285,75 @@ async function uploadLargeFileViaSignedUrl(
     `[builder-upload] large-file path: ${name} ${mb}MB ${bareMimeType}`,
   );
 
-  // Step 1 — request a signed URL.
+  // Chunked resumable upload instead of one monolithic PUT. A single PUT of a
+  // multi-hundred-MB recording is all-or-nothing: on a slow or flaky uplink
+  // one stall anywhere in a 10-30 minute transfer kills the whole finalize
+  // (observed: a 73MB upload dying at its 849s budget on a ~0.7 Mbit/s day).
+  // Resumable chunks bound each request to ~8MB with per-chunk retries, so a
+  // transient stall costs one chunk, not the transfer.
+  const total = bytes.byteLength;
+  let session: { sessionUri: string; assetId: string } | null = null;
+  try {
+    session = await startResumableGcsSession(
+      privateKey,
+      name,
+      bareMimeType,
+      total,
+    );
+  } catch (err) {
+    console.warn(
+      `[builder-upload] resumable session unavailable, falling back to single PUT:`,
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+
+  if (session) {
+    const { sessionUri, assetId } = session;
+    const chunkCount = Math.ceil(total / RESUMABLE_FINALIZE_CHUNK_BYTES);
+    console.log(
+      `[builder-upload] step 2 [${assetId}]: resumable PUT ${mb}MB in ${chunkCount} chunks`,
+    );
+    for (
+      let offset = 0;
+      offset < total;
+      offset += RESUMABLE_FINALIZE_CHUNK_BYTES
+    ) {
+      const end = Math.min(offset + RESUMABLE_FINALIZE_CHUNK_BYTES, total);
+      const result = await relayResumableChunk(
+        sessionUri,
+        `bytes ${offset}-${end - 1}/${total}`,
+        bytes.subarray(offset, end),
+        { mimeType: bareMimeType },
+      );
+      if (!result.ok) {
+        throw new Error(
+          `GCS upload failed (${result.status}) at bytes ${offset}-${end - 1}/${total}`,
+        );
+      }
+      const chunkIndex =
+        Math.floor(offset / RESUMABLE_FINALIZE_CHUNK_BYTES) + 1;
+      if (chunkIndex % 5 === 0 || end === total) {
+        console.log(
+          `[builder-upload] step 2 [${assetId}]: ${chunkIndex}/${chunkCount} chunks (${((end / total) * 100).toFixed(0)}%)`,
+        );
+      }
+    }
+    console.log(`[builder-upload] step 2 ok [${assetId}]: resumable complete`);
+    console.log(
+      `[builder-upload] step 3: registering asset - ${assetId}, ${input.filename}`,
+    );
+    const { url, id } = await completeBuilderUpload(
+      privateKey,
+      assetId,
+      input.filename,
+      { stableUrl: input.stableUrl, recordAsset: input.recordAsset },
+    );
+    console.log(`[builder-upload] done [${assetId}]: ${url}`);
+    return { url, id, provider: "builder" };
+  }
+
+  // Fallback — single signed-URL PUT (kept for providers/responses without
+  // resumable support).
   console.log(`[builder-upload] step 1: requesting signed URL`);
   const { uploadUrl, assetId, requiredHeaders } = await requestBuilderSignedUrl(
     privateKey,
@@ -108,13 +366,11 @@ async function uploadLargeFileViaSignedUrl(
   // Step 2 — PUT bytes directly to GCS. Only requiredHeaders; no Authorization
   // (signed URL carries its own auth — extra signed headers break the signature).
   console.log(`[builder-upload] step 2 [${assetId}]: PUT ${mb}MB to GCS`);
-  const step2Res = await fetchWithTimeout(
+  const step2Res = await putLargeBody(
     uploadUrl,
-    {
-      method: "PUT",
-      headers: requiredHeaders,
-      body: makeBody(bytes, bareMimeType),
-    },
+    requiredHeaders,
+    bytes,
+    bareMimeType,
     uploadTimeoutForBytes(bytes.byteLength),
   );
   await assertOk(step2Res, "GCS upload failed");
@@ -343,43 +599,12 @@ export const builderFileUploadProvider: FileUploadProvider = {
       console.log(
         `[builder-resumable] starting session: ${filename} ${mimeType} ${maxBytes} bytes`,
       );
-      const { uploadUrl, assetId, requiredHeaders } =
-        await requestBuilderSignedUrl(
-          privateKey,
-          filename,
-          mimeType,
-          maxBytes,
-          true,
-        );
-      console.log(`[builder-resumable] session step 1 ok: assetId=${assetId}`);
-
-      const initHeaders: Record<string, string> = {
-        "Content-Type": mimeType,
-        "x-goog-resumable": "start",
-      };
-      const contentLengthRange =
-        requiredHeaders?.["x-goog-content-length-range"];
-      if (contentLengthRange)
-        initHeaders["x-goog-content-length-range"] = contentLengthRange;
-
-      console.log(`[builder-resumable] session step 2: initiating GCS session`);
-      const initRes = await fetchWithTimeout(uploadUrl, {
-        method: "POST",
-        headers: initHeaders,
-        body: new Uint8Array(0),
-      });
-      if (!initRes.ok) {
-        const body = await initRes.text().catch(() => "");
-        throw new Error(
-          `GCS resumable session initiation failed (${initRes.status}): ${body}`,
-        );
-      }
-      const sessionUri = initRes.headers.get("location");
-      if (!sessionUri)
-        throw new Error(
-          "GCS did not return a Location header for the resumable session",
-        );
-
+      const { sessionUri, assetId } = await startResumableGcsSession(
+        privateKey,
+        filename,
+        mimeType,
+        maxBytes,
+      );
       console.log(`[builder-resumable] session ready: assetId=${assetId}`);
       return {
         sessionId: sessionUri,
@@ -388,54 +613,12 @@ export const builderFileUploadProvider: FileUploadProvider = {
     },
 
     async relayChunk(session, contentRange, bytes, options) {
-      const sessionUri = session.sessionId;
-      const MAX_ATTEMPTS = 4;
-      const RETRYABLE = new Set([408, 429, 500, 502, 503, 504]);
-      const delayMs = (attempt: number) =>
-        Math.min(2000, 300 * 2 ** (attempt - 1));
-
-      let lastError: unknown = null;
-      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-        try {
-          const headers: Record<string, string> = {
-            "Content-Range": contentRange,
-          };
-          if (options?.mimeType) headers["Content-Type"] = options.mimeType;
-          const res = await fetch(sessionUri, {
-            method: "PUT",
-            headers,
-            body: bytes as unknown as BodyInit,
-          });
-          if (res.status === 308 || res.ok)
-            return {
-              ok: true,
-              status: res.status,
-            } satisfies ResumableChunkResult;
-          if (RETRYABLE.has(res.status) && attempt < MAX_ATTEMPTS) {
-            await res.text().catch(() => "");
-            console.warn(
-              `[builder-resumable] transient ${res.status} on attempt ${attempt}, retrying`,
-            );
-            await new Promise((r) => setTimeout(r, delayMs(attempt)));
-            continue;
-          }
-          return {
-            ok: false,
-            status: res.status,
-          } satisfies ResumableChunkResult;
-        } catch (err) {
-          lastError = err;
-          if (attempt >= MAX_ATTEMPTS) break;
-          console.warn(
-            `[builder-resumable] network error on attempt ${attempt}:`,
-            err instanceof Error ? err.message : String(err),
-          );
-          await new Promise((r) => setTimeout(r, delayMs(attempt)));
-        }
-      }
-      throw lastError instanceof Error
-        ? lastError
-        : new Error("GCS PUT failed after retries");
+      return relayResumableChunk(
+        session.sessionId,
+        contentRange,
+        bytes,
+        options,
+      );
     },
 
     async completeSession(session, filename, options) {
