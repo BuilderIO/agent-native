@@ -10,8 +10,10 @@ export {
   type BackgroundDispatchTarget,
   backgroundDispatchPathOrThrow,
   dispatchPathTargetsNetlifyBackgroundFunction,
+  isInBackgroundInvocationScope,
   resolveBackgroundDispatchTarget,
   resolveDurableBackgroundDispatchPath,
+  runInBackgroundInvocationScope,
 } from "../agent/durable-background.js";
 
 export {
