@@ -820,6 +820,42 @@ describe("document editor layout", () => {
     ]);
   });
 
+  it("keeps local-file folders as breadcrumb anchors but not peer destinations", () => {
+    const items = documentEditorBreadcrumbNavigationItems(
+      [{ id: "guides-folder", title: "Guides" }],
+      [
+        {
+          id: "guides-folder",
+          parentId: "docs-folder",
+          title: "Guides",
+          icon: null,
+          position: 0,
+          source: { mode: "local-files", kind: "folder", path: "docs/guides" },
+        },
+        {
+          id: "setup-page",
+          parentId: "docs-folder",
+          title: "Setup",
+          icon: null,
+          position: 1,
+        },
+        {
+          id: "reference-page",
+          parentId: "docs-folder",
+          title: "Reference",
+          icon: null,
+          position: 2,
+        },
+      ],
+      [],
+    );
+
+    expect(items[0].menuItems?.map((item) => item.title)).toEqual([
+      "Setup",
+      "Reference",
+    ]);
+  });
+
   it("links a top-level Files database back to Workspaces", () => {
     const items = documentEditorBreadcrumbNavigationItems(
       [{ id: "personal-files", title: "Personal" }],
