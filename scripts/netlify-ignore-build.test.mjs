@@ -53,6 +53,40 @@ describe("netlify-ignore supersede logic", () => {
     assert.equal(result, false);
   });
 
+  it("finds a deployable site change queued beneath a version-packages tip", () => {
+    const watchedPaths = ["packages/core", "templates/dispatch"];
+    const filesByCommit = {
+      feature: ["packages/core/src/scripts/call-agent.ts"],
+      release: ["packages/core/CHANGELOG.md", "packages/core/package.json"],
+    };
+
+    const result = findSupersedingTouch({
+      commits: ["feature", "release"],
+      isVersionPackages: (sha) => sha === "release",
+      filesForCommit: (sha) => filesByCommit[sha],
+      watchedPaths,
+    });
+
+    assert.deepEqual(result, {
+      commit: "feature",
+      file: "packages/core/src/scripts/call-agent.ts",
+    });
+  });
+
+  it("keeps a release-only range skippable for an unrelated site", () => {
+    const result = findSupersedingTouch({
+      commits: ["unrelated", "release"],
+      isVersionPackages: (sha) => sha === "release",
+      filesForCommit: (sha) =>
+        sha === "release"
+          ? ["packages/core/CHANGELOG.md", "packages/core/package.json"]
+          : ["templates/calendar/app/routes/_index.tsx"],
+      watchedPaths: ["packages/core", "templates/dispatch"],
+    });
+
+    assert.equal(result, false);
+  });
+
   it("still supersedes when a later non-version-packages commit touches the site", () => {
     const watchedPaths = ["packages/core", "templates/clips"];
     const filesByCommit = {
