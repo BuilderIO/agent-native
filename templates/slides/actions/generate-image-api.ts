@@ -62,7 +62,9 @@ export default defineAction({
     });
 
     if (delegation.status === "delegated") {
-      const url = extractAssetUrl(delegation.reply);
+      const url = extractAssetUrl(delegation.reply, {
+        baseUrl: delegation.target,
+      });
       return {
         source: "assets-a2a" as const,
         prompt,

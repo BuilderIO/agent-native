@@ -51,15 +51,17 @@ import { DEFAULT_STYLE_REFERENCE_URLS } from "../shared/api.js";
 async function saveDelegatedImages(
   reply: string,
   outputPrefix: string,
+  baseUrl: string,
 ): Promise<void> {
-  const urls = extractAssetUrls(reply, "download");
+  const urls = extractAssetUrls(reply, { prefer: "download", baseUrl });
   if (urls.length === 0) {
-    console.warn(
+    console.error(
       `Assets returned no parseable image URL, so nothing was written to ${outputPrefix}.`,
     );
-    return;
+    throw new Error("Script failed");
   }
   mkdirSync(dirname(outputPrefix), { recursive: true });
+  let failures = 0;
   for (const [i, url] of urls.entries()) {
     // ssrfSafeFetch validates at connect time and on every redirect hop, so a
     // DNS rebind between check and connect cannot reach an internal address.
@@ -68,19 +70,27 @@ async function saveDelegatedImages(
       { signal: AbortSignal.timeout(30_000) },
       { httpsOnly: true, maxRedirects: 2 },
     ).catch((err: unknown) => {
-      console.warn(
+      console.error(
         `Could not download ${url}: ${err instanceof Error ? err.message : err}`,
       );
       return null;
     });
-    if (!res) continue;
-    if (!res.ok) {
-      console.warn(`Could not download ${url} (${res.status}).`);
+    if (!res || !res.ok) {
+      if (res) console.error(`Could not download ${url} (${res.status}).`);
+      failures++;
       continue;
     }
     const filePath = `${outputPrefix}-v${i + 1}.png`;
     writeFileSync(filePath, Buffer.from(await res.arrayBuffer()));
     console.log(`Saved: ${filePath}`);
+  }
+  // `--output` is a promise of files on disk, so exiting 0 with some of them
+  // missing sends the caller on to paths that do not exist.
+  if (failures > 0) {
+    console.error(
+      `${failures} of ${urls.length} generated image(s) could not be saved to ${outputPrefix}.`,
+    );
+    throw new Error("Script failed");
   }
 }
 
@@ -194,12 +204,17 @@ Options:
     deckId: opts["deck-id"],
     slideId: opts["slide-id"],
     slideContent,
+    ...(extraReferenceUrls.length
+      ? { referenceImageUrls: extraReferenceUrls }
+      : {}),
   });
   if (delegation.status === "delegated") {
     // Print the reply verbatim so the calling agent parses URLs the Assets
     // agent actually returned.
     console.log(delegation.reply);
-    const previewUrl = extractAssetUrl(delegation.reply);
+    const previewUrl = extractAssetUrl(delegation.reply, {
+      baseUrl: delegation.target,
+    });
     if (previewUrl) {
       // Hand back finished markdown: a bare link renders as text in chat, so
       // the user would see no image at all.
@@ -209,7 +224,11 @@ Options:
       );
     }
     if (outputPrefix) {
-      await saveDelegatedImages(delegation.reply, outputPrefix);
+      await saveDelegatedImages(
+        delegation.reply,
+        outputPrefix,
+        delegation.target,
+      );
     }
     return;
   }

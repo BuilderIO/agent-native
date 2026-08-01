@@ -93,6 +93,18 @@ describe("delegateImageGenerationToAssets", () => {
     expect(result.status).toBe("unavailable");
   });
 
+  // Style references used to reach only the local fallback, so a delegated
+  // run silently ignored them.
+  it("passes requested style references to assets", async () => {
+    sendAndWaitMock.mockResolvedValue(task("completed", "done"));
+    await delegateImageGenerationToAssets({
+      prompt: "a hero",
+      referenceImageUrls: ["https://cdn.example.com/ref-1.png"],
+    });
+    const sentText = sendAndWaitMock.mock.calls[0][0].parts[0].text;
+    expect(sentText).toContain("https://cdn.example.com/ref-1.png");
+  });
+
   // Falling back locally on an auth/permission refusal would bypass the Assets
   // access checks and hand back an off-brand image instead of the real reason.
   it.each([
@@ -209,7 +221,7 @@ describe("extractAssetUrl", () => {
       "https://cdn.example.com/a-preview.png",
       "https://cdn.example.com/b-preview.png",
     ]);
-    expect(extractAssetUrls(reply, "download")).toEqual([
+    expect(extractAssetUrls(reply, { prefer: "download" })).toEqual([
       "https://cdn.example.com/a-full.png",
       "https://cdn.example.com/b-full.png",
     ]);
@@ -220,9 +232,47 @@ describe("extractAssetUrl", () => {
       "previewUrl: https://cdn.example.com/a-preview.png",
       "previewUrl: https://cdn.example.com/b-preview.png",
     ].join("\n");
-    expect(extractAssetUrls(reply, "download")).toEqual([
+    expect(extractAssetUrls(reply, { prefer: "download" })).toEqual([
       "https://cdn.example.com/a-preview.png",
       "https://cdn.example.com/b-preview.png",
+    ]);
+  });
+
+  // Assets emits origin-relative paths when the deployment has no public app
+  // URL configured; dropping them loses a completed generation entirely.
+  it("resolves an origin-relative asset path against the assets origin", () => {
+    expect(
+      extractAssetUrl("previewUrl: /api/assets/abc123/content", {
+        baseUrl: "https://assets.example.com/a2a",
+      }),
+    ).toBe("https://assets.example.com/api/assets/abc123/content");
+  });
+
+  it("ignores a relative path when no assets origin is known", () => {
+    expect(
+      extractAssetUrl("previewUrl: /api/assets/abc123/content"),
+    ).toBeNull();
+  });
+
+  // A long prose gap between the key and its URL used to drop the endpoint and
+  // shift every later pairing by one.
+  it("reads a url far away from its key", () => {
+    const reply =
+      "The previewUrl, which you can hand straight to the deck editor, is " +
+      "https://cdn.example.com/a.png";
+    expect(extractAssetUrl(reply)).toBe("https://cdn.example.com/a.png");
+  });
+
+  it("keeps pairing correct when a key is separated by digits", () => {
+    const reply = [
+      "Variation 1 previewUrl: https://cdn.example.com/a-preview.png",
+      "Variation 1 downloadUrl: https://cdn.example.com/a-full.png",
+      "Variation 2 previewUrl: https://cdn.example.com/b-preview.png",
+      "Variation 2 downloadUrl: https://cdn.example.com/b-full.png",
+    ].join("\n");
+    expect(extractAssetUrls(reply, { prefer: "download" })).toEqual([
+      "https://cdn.example.com/a-full.png",
+      "https://cdn.example.com/b-full.png",
     ]);
   });
 });

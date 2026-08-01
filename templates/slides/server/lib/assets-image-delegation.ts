@@ -28,6 +28,8 @@ export interface AssetsImageRequest {
   deckId?: string;
   slideId?: string;
   slideContent?: string;
+  /** Style references the caller explicitly asked to condition on. */
+  referenceImageUrls?: string[];
   /**
    * Identifies one logical submission. Only set it when re-sending the same
    * submission after a lost response; asking for several variations of one
@@ -90,12 +92,18 @@ function buildDelegationMessage(request: AssetsImageRequest): string {
     );
   }
 
+  const references = request.referenceImageUrls?.filter(Boolean) ?? [];
+
   return (
     `Generate ${request.count ?? 1} brand-consistent image candidate(s) ` +
     `for an agent-native slides deck.\n\n` +
     `Prompt: ${request.prompt}\n` +
     `Aspect ratio: ${request.aspectRatio ?? "16:9"}\n` +
     (hints.length ? `Slide context: ${hints.join(", ")}\n` : "") +
+    (references.length
+      ? `Condition the generation on these style reference images: ` +
+        `${references.join(", ")}\n`
+      : "") +
     `\nPick the best matching library via match-library if no libraryId is ` +
     `obvious, then generate with generate-image-batch. Return assetId, runId, ` +
     `previewUrl, and downloadUrl verbatim so the slides agent can drop them ` +
@@ -298,25 +306,49 @@ export interface AssetReplyImage {
   downloadUrl?: string;
 }
 
+export interface AssetUrlOptions {
+  /** Saving to disk wants full resolution; rendering in chat wants preview. */
+  prefer?: "preview" | "download";
+  /**
+   * Assets origin, used to resolve the origin-relative paths it emits when the
+   * deployment has no public app URL configured. Pass `delegation.target`.
+   */
+  baseUrl?: string;
+}
+
+/**
+ * Assets writes these as JSON, `key: value`, or prose, and emits either an
+ * absolute URL or an origin-relative asset path. Scanning keys and URLs as one
+ * token stream avoids guessing at the delimiter or capping the gap between
+ * them, either of which drops an endpoint and shifts the pairing below.
+ */
+const ASSET_TOKEN_RE =
+  /(previewUrl|downloadUrl)|(https:\/\/[^\s"'<>)\]]+|\/api\/assets\/[^\s"'<>)\]]+)/gi;
+
 /**
  * Group an Assets reply into one entry per generated image, in reply order.
  * `previewUrl` and `downloadUrl` address the same asset and usually differ, so
  * they have to be paired rather than counted as two candidates; a new entry
  * starts whenever a key repeats.
  */
-export function extractAssetImages(reply: string): AssetReplyImage[] {
+export function extractAssetImages(
+  reply: string,
+  baseUrl?: string,
+): AssetReplyImage[] {
   const images: AssetReplyImage[] = [];
   let current: AssetReplyImage | undefined;
+  let pendingKey: keyof AssetReplyImage | undefined;
 
-  // Assets phrases these keys as JSON, `key: value`, or prose, so take the
-  // first URL that follows each key rather than requiring one delimiter.
-  const keyed = reply.matchAll(
-    /(previewUrl|downloadUrl)\D{0,40}?(https:\/\/[^\s"'<>)\]]+)/gi,
-  );
-  for (const match of keyed) {
-    const key =
-      match[1].toLowerCase() === "previewurl" ? "previewUrl" : "downloadUrl";
-    const url = normalizeUrl(match[2]);
+  for (const match of reply.matchAll(ASSET_TOKEN_RE)) {
+    if (match[1]) {
+      pendingKey =
+        match[1].toLowerCase() === "previewurl" ? "previewUrl" : "downloadUrl";
+      continue;
+    }
+    const url = normalizeUrl(match[2], baseUrl);
+    // An unlabelled URL is a markdown preview or a plain link to the asset.
+    const key = pendingKey ?? "previewUrl";
+    pendingKey = undefined;
     if (!url) continue;
     if (!current || current[key]) {
       current = {};
@@ -324,30 +356,22 @@ export function extractAssetImages(reply: string): AssetReplyImage[] {
     }
     current[key] = url;
   }
-
-  if (images.length === 0) {
-    for (const match of reply.matchAll(/!\[[^\]]*\]\((https:\/\/[^\s)]+)\)/g)) {
-      const url = normalizeUrl(match[1]);
-      if (url) images.push({ previewUrl: url });
-    }
-  }
   return images;
 }
 
 /**
  * One URL per generated image, in reply order. A batch of candidates returns
  * one per slot, so callers that asked for several must not silently keep only
- * the first. Saving to disk wants the full-resolution endpoint; rendering in
- * chat wants the preview.
+ * the first.
  */
 export function extractAssetUrls(
   reply: string,
-  prefer: "preview" | "download" = "preview",
+  options: AssetUrlOptions = {},
 ): string[] {
   const urls: string[] = [];
-  for (const image of extractAssetImages(reply)) {
+  for (const image of extractAssetImages(reply, options.baseUrl)) {
     const url =
-      prefer === "download"
+      options.prefer === "download"
         ? (image.downloadUrl ?? image.previewUrl)
         : (image.previewUrl ?? image.downloadUrl);
     if (url && !urls.includes(url)) urls.push(url);
@@ -360,8 +384,11 @@ export function extractAssetUrls(
  * to return `previewUrl`/`downloadUrl` verbatim; when neither is present the
  * caller must surface the raw reply rather than guess at a URL.
  */
-export function extractAssetUrl(reply: string): string | null {
-  return extractAssetUrls(reply)[0] ?? null;
+export function extractAssetUrl(
+  reply: string,
+  options: AssetUrlOptions = {},
+): string | null {
+  return extractAssetUrls(reply, options)[0] ?? null;
 }
 
 /**
@@ -377,13 +404,17 @@ export function imagePreviewMarkdown(prompt: string, url: string): string {
 
 /**
  * Replies are agent prose, so a URL often ends a sentence: keep the trailing
- * punctuation out of the `<img src>`.
+ * punctuation out of the `<img src>`. Relative paths only resolve when the
+ * caller supplied the Assets origin; without one they are unusable.
  */
-function normalizeUrl(candidate: string | undefined): string | null {
+function normalizeUrl(
+  candidate: string | undefined,
+  baseUrl?: string,
+): string | null {
   if (!candidate) return null;
   const trimmed = candidate.replace(/[.,;:!?]+$/, "");
   try {
-    return new URL(trimmed).toString();
+    return new URL(trimmed, baseUrl || undefined).toString();
   } catch {
     return null;
   }
