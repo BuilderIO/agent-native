@@ -9,6 +9,11 @@ import {
   isBuilderCreditsExhaustedMessage,
 } from "@shared/builder-credits";
 import {
+  groupWordSegments,
+  isWordLevelSegments,
+  type TranscriptDisplayBlock,
+} from "@shared/transcript-segments";
+import {
   IconSearch,
   IconCopy,
   IconDownload,
@@ -21,7 +26,14 @@ import {
   IconChevronUp,
   IconRefresh,
 } from "@tabler/icons-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -81,8 +93,15 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
   const [query, setQuery] = useState("");
   const [copied, setCopied] = useState(false);
 
-  const displaySegments = useMemo<TranscriptSegment[]>(() => {
-    if (segments.length > 0) return segments;
+  const displaySegments = useMemo<TranscriptDisplayBlock[]>(() => {
+    if (segments.length > 0) {
+      // Word-level segments (desktop Whisper) read as one timestamp per word;
+      // group them into sentence blocks and keep the word timings for
+      // per-word highlighting and seeking.
+      return isWordLevelSegments(segments)
+        ? groupWordSegments(segments)
+        : segments;
+    }
     const text = fullText?.trim();
     if (!text) return [];
     return [
@@ -116,7 +135,15 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
   }
 
   function downloadSrt() {
-    const srt = toSrt(displaySegments);
+    // Caption-sized cues: re-group word-level segments into short chunks
+    // with real word timings instead of one cue per word or per sentence.
+    const srtSegments = isWordLevelSegments(segments)
+      ? groupWordSegments(segments, {
+          maxWords: 7,
+          breakOnSoftPunctuation: true,
+        })
+      : displaySegments;
+    const srt = toSrt(srtSegments);
     const blob = new Blob([srt], { type: "text/srt;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -325,15 +352,60 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
                     <span className="shrink-0 pt-0.5 font-mono text-[11px] tabular-nums text-muted-foreground">
                       {msToClock(seg.startMs)}
                     </span>
-                    <span
-                      className={cn(
-                        "text-sm leading-relaxed",
-                        isActive ? "text-foreground" : "text-foreground/80",
-                      )}
-                      dangerouslySetInnerHTML={{
-                        __html: highlight(seg.text, query),
-                      }}
-                    />
+                    {seg.words && seg.words.length > 0 ? (
+                      <span
+                        className={cn(
+                          "text-sm leading-relaxed",
+                          isActive ? "text-foreground" : "text-foreground/80",
+                        )}
+                      >
+                        {seg.words.map((word, wordIndex) => {
+                          const nextWord = seg.words![wordIndex + 1];
+                          const isActiveWord =
+                            isActive &&
+                            currentMs >= word.startMs &&
+                            (nextWord
+                              ? currentMs < nextWord.startMs
+                              : currentMs <= seg.endMs);
+                          return (
+                            <span key={`${word.startMs}-${wordIndex}`}>
+                              {wordIndex > 0 ? " " : ""}
+                              <span
+                                onClick={(event) => {
+                                  const selection = window.getSelection();
+                                  if (
+                                    selection &&
+                                    !selection.isCollapsed &&
+                                    selection.toString().trim()
+                                  ) {
+                                    return;
+                                  }
+                                  event.stopPropagation();
+                                  onSeek(word.startMs);
+                                }}
+                                className={cn(
+                                  "-mx-px rounded-[3px] px-px transition-colors hover:bg-primary/15",
+                                  isActiveWord &&
+                                    "bg-primary/20 text-foreground",
+                                )}
+                              >
+                                {highlightWord(word.text, query)}
+                              </span>
+                            </span>
+                          );
+                        })}
+                      </span>
+                    ) : (
+                      <span
+                        className={cn(
+                          "text-sm leading-relaxed",
+                          isActive ? "text-foreground" : "text-foreground/80",
+                        )}
+                        dangerouslySetInnerHTML={{
+                          __html: highlight(seg.text, query),
+                        }}
+                      />
+                    )}
                   </div>
                 </li>
               );
@@ -355,6 +427,30 @@ function hasSelectionWithin(element: HTMLElement): boolean {
     (anchorNode && element.contains(anchorNode)) ||
     (focusNode && element.contains(focusNode)),
   );
+}
+
+/** React-node version of highlight() for word spans (no innerHTML). */
+function highlightWord(text: string, q: string): ReactNode {
+  const query = q.trim();
+  if (!query) return text;
+  const lower = text.toLowerCase();
+  const needle = query.toLowerCase();
+  const parts: ReactNode[] = [];
+  let from = 0;
+  let idx = lower.indexOf(needle, from);
+  while (idx !== -1) {
+    if (idx > from) parts.push(text.slice(from, idx));
+    parts.push(
+      <mark key={`${idx}`} className="bg-yellow-200 text-black rounded px-0.5">
+        {text.slice(idx, idx + needle.length)}
+      </mark>,
+    );
+    from = idx + needle.length;
+    idx = lower.indexOf(needle, from);
+  }
+  if (parts.length === 0) return text;
+  if (from < text.length) parts.push(text.slice(from));
+  return parts;
 }
 
 function highlight(text: string, q: string): string {

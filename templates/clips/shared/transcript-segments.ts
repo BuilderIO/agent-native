@@ -79,6 +79,76 @@ export function buildCaptionSegmentsFromText(
   });
 }
 
+export interface TranscriptDisplayBlock extends TranscriptSegment {
+  /** Present when the block was assembled from word-level segments. */
+  words?: TranscriptSegment[];
+}
+
+const WORD_BLOCK_MAX_WORDS = 48;
+const WORD_BLOCK_GAP_MS = 1500;
+
+/**
+ * Whether the stored segments are word-level (one word per segment), as the
+ * desktop Whisper engine emits for recordings since word-precision editing.
+ * Sentence-level transcripts (meetings, web-speech, cloud) return false.
+ */
+export function isWordLevelSegments(segments: TranscriptSegment[]): boolean {
+  if (segments.length < 8) return false;
+  const singleWord = segments.filter(
+    (segment) => countWords(segment.text) <= 1,
+  ).length;
+  return singleWord / segments.length >= 0.9;
+}
+
+/**
+ * Group word-level segments into readable blocks that keep the per-word
+ * timings. Blocks break on sentence-ending punctuation, on silence gaps,
+ * and at a max word count so a run-on take still wraps.
+ */
+export function groupWordSegments(
+  segments: TranscriptSegment[],
+  options?: {
+    maxWords?: number;
+    gapMs?: number;
+    breakOnSoftPunctuation?: boolean;
+  },
+): TranscriptDisplayBlock[] {
+  const maxWords = options?.maxWords ?? WORD_BLOCK_MAX_WORDS;
+  const gapMs = options?.gapMs ?? WORD_BLOCK_GAP_MS;
+  const breakOnSoftPunctuation = options?.breakOnSoftPunctuation ?? false;
+
+  const blocks: TranscriptDisplayBlock[] = [];
+  let current: TranscriptSegment[] = [];
+
+  const flush = () => {
+    if (current.length === 0) return;
+    blocks.push({
+      startMs: current[0].startMs,
+      endMs: current[current.length - 1].endMs,
+      text: current.map((word) => word.text.trim()).join(" "),
+      words: current,
+    });
+    current = [];
+  };
+
+  for (const segment of segments) {
+    const previous = current[current.length - 1];
+    if (previous && segment.startMs - previous.endMs > gapMs) flush();
+    current.push(segment);
+
+    const cleanWord = segment.text.trim().replace(/["')\]}]+$/g, "");
+    const strongBreak = /[.!?]$/.test(cleanWord);
+    const softBreak = breakOnSoftPunctuation && /[,;:]$/.test(cleanWord);
+    const canBreakOnPunctuation =
+      current.length >= MIN_WORDS_BEFORE_PUNCTUATION_BREAK &&
+      (strongBreak || softBreak);
+    if (current.length >= maxWords || canBreakOnPunctuation) flush();
+  }
+
+  flush();
+  return blocks;
+}
+
 export function normalizeTranscriptSegments({
   segments,
   fullText,
