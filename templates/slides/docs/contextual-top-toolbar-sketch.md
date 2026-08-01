@@ -695,10 +695,23 @@ toolbar; insert items live in both `Insert` and the toolbar.
 | #   | Milestone                                                                  | Proves                                      |
 | --- | -------------------------------------------------------------------------- | ------------------------------------------- |
 | N1  | Split `EditorToolbar` into a thin title row + an actions row; no new items | The split holds without regressions         |
-| N2  | `+`, undo, redo, and `Tt` move into row 3's stable left segment            | The requested left cluster, and undo has UI |
+| N2  | **Shipped.** `+`, undo, redo, and `Tt` in row 3's stable left segment      | The requested left cluster, and undo has UI |
 | N3  | `File` and `Edit` menus, sourced from existing handlers                    | Relocation loses nothing                    |
 | N4  | `Insert`, `Slide`, `View`; delete the cog and tools popovers               | The undiscoverable-insert problem is fixed  |
 | N5  | Row 3 collapse chevron + narrow-screen behavior; changelog                 | The vertical-space cost is paid back        |
+
+**N2 as built** — `EditorActionCluster.tsx` holds `+`, undo, redo, and `Tt`.
+`DeckEditor` passes it into `SlideContextToolbar`'s new `leading` slot via
+`SlideEditor`, and `EditorToolbar` renders a second instance marked `lg:hidden`
+(or always visible on Excalidraw slides, where row 3 does not render) so trap 4
+below never bites. Trap 3 is resolved the way §11.5 recommends: `commitThenRun`
+blurs an active editable before calling `undo`, so the click commits the typing
+and then undoes it, rather than undoing the previous deck op behind it.
+
+Two surprises worth recording. `editorToolbar.undo` / `undoWithShortcut` already
+existed in all 11 catalogs with no code referencing them — a previous undo UI
+left its strings behind, so N2 needed **zero** new i18n keys. And the T shortcut
+and `data-toolbar-textbox-button` hook moved with the button unchanged.
 
 ### 11.5 Known traps
 

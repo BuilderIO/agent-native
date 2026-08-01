@@ -565,6 +565,8 @@ interface SlideEditorProps {
    *  shell above the slide rail. Selection state lives here, so the toolbar is
    *  portaled out rather than lifted. Falls back to rendering in place. */
   contextToolbarSlot?: HTMLElement | null;
+  /** Selection-independent actions for the head of the contextual toolbar. */
+  contextToolbarLeading?: ReactNode;
   onGenerateImage: () => void;
   onOpenAssetLibrary: (replaceSrc: string) => void;
   onUploadImage: (replaceSrc: string) => void;
@@ -1024,6 +1026,7 @@ export default function SlideEditor({
   onUpdateSlide,
   readOnly = false,
   contextToolbarSlot,
+  contextToolbarLeading,
   onGenerateImage,
   onOpenAssetLibrary,
   onUploadImage,
@@ -4054,6 +4057,7 @@ export default function SlideEditor({
           snapshot={selectedStyleSnapshot}
           background={slide.background}
           designSystem={designSystem}
+          leading={contextToolbarLeading}
           onChange={applySelectedStylePatch}
           onBackgroundChange={applySlideBackground}
           onArrange={handleArrangeSelected}

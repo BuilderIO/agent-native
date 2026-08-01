@@ -27,14 +27,12 @@ import {
   IconAdjustments,
   IconPencilPlus,
   IconPin,
-  IconLetterT,
   IconTool,
   IconDownload,
   IconSun,
   IconMoon,
   IconDotsVertical,
   IconLoader2,
-  IconPlus,
 } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
 import { useState, useRef, useEffect } from "react";
@@ -58,7 +56,6 @@ import {
 import { SaveStatusIndicator } from "@/components/visual-editor";
 import type { Deck, Slide, SlideLayout } from "@/context/DeckContext";
 import { defaultSlideContent, useSaveState } from "@/context/DeckContext";
-import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import {
   ASPECT_RATIO_VALUES,
   type AspectRatio,
@@ -67,7 +64,7 @@ import {
 import type { GoogleSlidesExportResult } from "@/lib/export-google-slides-client";
 import { parseUploadResponse } from "@/lib/upload-response";
 
-import { AddSlidePopover } from "./AddSlidePopover";
+import { EditorActionCluster } from "./EditorActionCluster";
 import { ExportMenu } from "./ExportMenu";
 interface EditorToolbarProps {
   deck: Deck;
@@ -328,12 +325,8 @@ export default function EditorToolbar({
     setLayoutOpen(false);
   };
   const [toolsOpen, setToolsOpen] = useState(false);
-  const [addSlideOpen, setAddSlideOpen] = useState(false);
-  const addSlideRef = useRef<HTMLButtonElement>(null);
-  const { generating, submit: agentSubmit } = useAgentGenerating();
-  useEffect(() => {
-    if (!generating) onAddSlideGeneratingChange?.(false);
-  }, [generating, onAddSlideGeneratingChange]);
+  // The contextual toolbar hosts the action cluster whenever it is on screen.
+  const contextToolbarVisible = canEdit && !currentSlide?.excalidrawData;
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const { setTheme, resolvedTheme } = useTheme();
@@ -459,50 +452,24 @@ export default function EditorToolbar({
         <TooltipContent>{t("editorToolbar.toggleSlideList")}</TooltipContent>
       </Tooltip>
 
-      {/* Add slide — leads the toolbar, as in Google Slides, so inserting a
-       * slide is a deck-level action rather than slide-rail chrome. */}
+      {/* Add slide, undo/redo and the text-box tool live at the head of the
+       * contextual toolbar below. That row is desktop-only and hidden on
+       * Excalidraw slides, so keep a fallback here for those cases. */}
       {canEdit && (
-        <>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                ref={addSlideRef}
-                type="button"
-                onClick={() => setAddSlideOpen((open) => !open)}
-                disabled={addSlideGenerating}
-                className={`${TOOLBAR_ICON_BUTTON_CLASS} ${
-                  addSlideOpen
-                    ? "bg-accent text-foreground"
-                    : "text-muted-foreground hover:bg-accent hover:text-foreground/70"
-                }`}
-                aria-label={t("editorSidebar.addSlides")}
-              >
-                {addSlideGenerating ? (
-                  <IconLoader2 className="size-4 animate-spin" />
-                ) : (
-                  <IconPlus className="size-4" />
-                )}
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>{t("editorSidebar.addSlides")}</TooltipContent>
-          </Tooltip>
-          <AddSlidePopover
-            open={addSlideOpen}
-            onOpenChange={setAddSlideOpen}
-            anchorRef={addSlideRef}
-            deckId={deckId}
-            deckTitle={deckTitle}
-            activeSlideId={currentSlideId ?? ""}
-            slideCount={slideCount}
-            activeSlideIndex={currentSlideIndex}
-            agentSubmit={(message, context) => {
-              onAddSlideGeneratingChange?.(true);
-              agentSubmit(message, context);
-            }}
-            onDuplicateCurrent={onDuplicateCurrentSlide}
-            onAddEmpty={onAddEmptySlide}
-          />
-        </>
+        <EditorActionCluster
+          className={contextToolbarVisible ? "lg:hidden" : undefined}
+          deckId={deckId}
+          deckTitle={deckTitle}
+          currentSlideId={currentSlideId}
+          slideCount={slideCount}
+          currentSlideIndex={currentSlideIndex}
+          addSlideGenerating={addSlideGenerating}
+          onAddSlideGeneratingChange={onAddSlideGeneratingChange}
+          onAddEmptySlide={onAddEmptySlide}
+          onDuplicateCurrentSlide={onDuplicateCurrentSlide}
+          textBoxMode={textBoxMode}
+          onToggleTextBoxMode={onToggleTextBoxMode}
+        />
       )}
 
       {/* Deck title */}
@@ -806,29 +773,6 @@ graph TD
             </div>
           </ToolbarPopover>
         </>
-      )}
-
-      {canEdit && onToggleTextBoxMode && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={onToggleTextBoxMode}
-              data-toolbar-textbox-button
-              aria-label={t("editorToolbar.addTextBox")}
-              aria-pressed={textBoxMode}
-              aria-keyshortcuts="T"
-              className={`${TOOLBAR_ICON_BUTTON_CLASS} ${
-                textBoxMode
-                  ? "bg-accent text-foreground"
-                  : "text-muted-foreground hover:bg-accent hover:text-foreground/70"
-              }`}
-            >
-              <IconLetterT className="size-4" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{t("editorToolbar.addTextBox")} (T)</TooltipContent>
-        </Tooltip>
       )}
 
       {/* Slide tools palette — animations, tweaks, draw, comment-pin all live

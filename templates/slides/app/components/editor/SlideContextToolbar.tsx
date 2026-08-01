@@ -22,6 +22,7 @@ import {
   IconStackBack,
   IconStackFront,
 } from "@tabler/icons-react";
+import type { ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -68,6 +69,7 @@ export function SlideContextToolbar({
   background,
   designSystem,
   className,
+  leading,
   onChange,
   onBackgroundChange,
   onArrange,
@@ -76,6 +78,8 @@ export function SlideContextToolbar({
   background: string | undefined;
   designSystem?: DesignSystemData;
   className?: string;
+  /** Selection-independent actions pinned to the head of the row. */
+  leading?: ReactNode;
   onChange: (patch: SlideStylePatch) => void;
   onBackgroundChange: (background: string) => void;
   onArrange?: (target: "front" | "back") => void;
@@ -102,6 +106,12 @@ export function SlideContextToolbar({
       role="toolbar"
       aria-label={t("styleInspector.title")}
     >
+      {leading && (
+        <>
+          {leading}
+          <div className={TOOLBAR_DIVIDER} />
+        </>
+      )}
       {!snapshot ? (
         <VisualColorPicker
           label={t("styleInspector.slideBackground")}

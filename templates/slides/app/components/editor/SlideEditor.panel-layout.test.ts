@@ -47,6 +47,11 @@ describe("slide context toolbar", () => {
     expect(pageSource).toContain("contextToolbarSlot={contextToolbarSlot}");
   });
 
+  it("leads with the selection-independent action cluster", () => {
+    expect(pageSource).toContain("contextToolbarLeading={");
+    expect(pageSource).toContain("<EditorActionCluster");
+  });
+
   it("keeps the rich text selection alive while the toolbar is pressed", () => {
     // Without this guard on the wrapper, applying a style to a partial text
     // selection silently no-ops: focus leaves the contentEditable before the

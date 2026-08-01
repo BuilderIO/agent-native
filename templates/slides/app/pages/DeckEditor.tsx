@@ -31,6 +31,7 @@ import { SlideCommentsPanel } from "@/components/comments/SlideCommentsPanel";
 import { AnimationsPanel } from "@/components/editor/AnimationsPanel";
 import AssetLibraryPanel from "@/components/editor/AssetLibraryPanel";
 import { DeckEditorSkeleton } from "@/components/editor/DeckEditorSkeleton";
+import { EditorActionCluster } from "@/components/editor/EditorActionCluster";
 import EditorSidebar from "@/components/editor/EditorSidebar";
 import EditorToolbar from "@/components/editor/EditorToolbar";
 import GeneratingOverlay from "@/components/editor/GeneratingOverlay";
@@ -914,6 +915,13 @@ export default function DeckEditor() {
     ? `Current slide: ${currentSlide.id} (index ${currentIndex >= 0 ? currentIndex : 0}). Deck: ${id}.`
     : `Deck: ${id}.`;
 
+  const handleAddEmptySlide = () => {
+    const activeIdx = deck.slides.findIndex((s) => s.id === activeSlideId);
+    setActiveSlideId(
+      addSlide(id, "blank", activeIdx >= 0 ? activeIdx : undefined),
+    );
+  };
+
   return (
     <div
       className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background"
@@ -1024,17 +1032,7 @@ export default function DeckEditor() {
         currentSlideId={currentSlide?.id}
         addSlideGenerating={addSlideGenerating}
         onAddSlideGeneratingChange={setAddSlideGenerating}
-        onAddEmptySlide={() => {
-          const activeIdx = deck.slides.findIndex(
-            (s) => s.id === activeSlideId,
-          );
-          const newId = addSlide(
-            id,
-            "blank",
-            activeIdx >= 0 ? activeIdx : undefined,
-          );
-          setActiveSlideId(newId);
-        }}
+        onAddEmptySlide={handleAddEmptySlide}
         onDuplicateCurrentSlide={
           currentSlide ? () => duplicateSlide(id, currentSlide.id) : undefined
         }
@@ -1116,6 +1114,25 @@ export default function DeckEditor() {
             deckId={id}
             readOnly={!canEdit}
             contextToolbarSlot={contextToolbarSlot}
+            contextToolbarLeading={
+              canEdit ? (
+                <EditorActionCluster
+                  deckId={id}
+                  deckTitle={deck.title}
+                  currentSlideId={currentSlide.id}
+                  slideCount={deck.slides.length}
+                  currentSlideIndex={currentIndex >= 0 ? currentIndex : 0}
+                  addSlideGenerating={addSlideGenerating}
+                  onAddSlideGeneratingChange={setAddSlideGenerating}
+                  onAddEmptySlide={handleAddEmptySlide}
+                  onDuplicateCurrentSlide={() =>
+                    duplicateSlide(id, currentSlide.id)
+                  }
+                  textBoxMode={textBoxMode}
+                  onToggleTextBoxMode={toggleTextBoxMode}
+                />
+              ) : undefined
+            }
             onUpdateSlide={(updates, slideIdOverride, options) =>
               updateSlide(
                 id,
