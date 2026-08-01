@@ -15,6 +15,7 @@
 
 import { describe, expect, it } from "vitest";
 
+import { CloudflareBrowserBindingError } from "../server/lib/playwright-runtime.js";
 import {
   chromiumUnavailableReason,
   contrastRatio,
@@ -116,6 +117,16 @@ describe("chromiumUnavailableReason", () => {
     expect(reason).toContain("run-design-audit");
     expect(reason).toContain("Executable doesn't exist");
     expect(reason.toLowerCase()).not.toContain("stack trace");
+  });
+
+  it("names an unbound Cloudflare browser binding as the cause, not a missing binary", () => {
+    const reason = chromiumUnavailableReason(
+      new CloudflareBrowserBindingError("unbound"),
+    );
+    expect(reason).toContain("BROWSER");
+    expect(reason).toContain("wrangler");
+    expect(reason).not.toContain("do not bundle a Chromium binary");
+    expect(reason).toContain("run-design-audit");
   });
 });
 

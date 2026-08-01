@@ -333,6 +333,16 @@ Worker にはファイルシステムがないため、データベースは外�
 ことはありません。ローカル起動の完全な手順は英語版のデプロイガイドを参照して
 ください。
 
+
+### Browser Rendering {#cloudflare-browser-rendering}
+
+Worker は Chromium プロセスを起動できないため、ブラウザーはバインディングと
+して提供され、生成される `wrangler.json` に
+`{ "browser": { "binding": "BROWSER" } }` が宣言されます。ブラウザーに依存
+するアクションは `@cloudflare/playwright` を通じてこのバインディングを解決
+します。バインディングが無い場合は、存在しない Chromium バイナリのせいに
+せず、そのバインディング名を挙げて報告します。ローカルでも `wrangler dev`
+で動作しますが、ローカルランタイムは 1 MB を超えるリクエストを拒否します。
 ## AWS ラムダ {#aws-lambda}
 
 ```ts

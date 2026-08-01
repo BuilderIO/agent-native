@@ -95,8 +95,14 @@ vi.mock("../server/lib/design-to-figma-svg.js", () => ({
 }));
 
 vi.mock("../server/lib/playwright-runtime.js", () => ({
-  isMissingBrowserError: (err: unknown) =>
-    /no chromium/i.test(err instanceof Error ? err.message : String(err)),
+  isBrowserUnavailableError: (err: unknown) =>
+    /no chromium|BROWSER binding/i.test(
+      err instanceof Error ? err.message : String(err),
+    ),
+  cloudflareBrowserCauseMessage: (err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err);
+    return /BROWSER binding/.test(message) ? message : null;
+  },
 }));
 
 import action, {
@@ -118,6 +124,15 @@ describe("chromiumUnavailableReason", () => {
     expect(reason).toContain("export-svg");
     expect(reason).toContain("export-html");
     expect(reason).toContain("no chromium binary");
+  });
+
+  it("names an unbound Cloudflare binding as the cause instead of a missing binary", () => {
+    const reason = chromiumUnavailableReason(
+      new Error("The Cloudflare Worker has no BROWSER binding"),
+    );
+    expect(reason).toContain("BROWSER binding");
+    expect(reason).not.toContain("do not bundle a Chromium binary");
+    expect(reason).toContain("export-svg");
   });
 });
 

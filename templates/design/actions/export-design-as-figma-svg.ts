@@ -29,7 +29,10 @@ import {
   renderDesignToFigmaSvg,
   safeFigmaSvgFilename,
 } from "../server/lib/design-to-figma-svg.js";
-import { isMissingBrowserError } from "../server/lib/playwright-runtime.js";
+import {
+  cloudflareBrowserCauseMessage,
+  isBrowserUnavailableError,
+} from "../server/lib/playwright-runtime.js";
 import { parseCanvasFrameGeometryById } from "../shared/canvas-frames.js";
 import { buildCodeLayerProjection } from "../shared/code-layer.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
@@ -52,6 +55,16 @@ async function liveContent(
 /** Model-actionable message when no headless Chromium binary is available. */
 export function chromiumUnavailableReason(err: unknown): string {
   const detail = err instanceof Error ? err.message : String(err);
+  // On a Worker the browser is a binding, not a bundled binary, so the generic
+  // message below would name a cause that cannot be true there.
+  const cloudflareCause = cloudflareBrowserCauseMessage(err);
+  if (cloudflareCause) {
+    return (
+      `${cloudflareCause} Until it is fixed, fall back to \`export-svg\` (a ` +
+      "foreignObject-wrapped HTML snapshot — not Figma-importable as vectors, " +
+      "but still a usable static preview) or `export-html`."
+    );
+  }
   return (
     "A headless Chromium browser is not available in this environment, so the " +
     "vector SVG export cannot run here (this is expected in hosted/serverless " +
@@ -307,7 +320,7 @@ export default defineAction({
         embedImages: embedImages ?? true,
       });
     } catch (err) {
-      if (isMissingBrowserError(err)) {
+      if (isBrowserUnavailableError(err)) {
         return { ok: false, reason: chromiumUnavailableReason(err) };
       }
       // Defense in depth: even a selector resolved above can still miss the

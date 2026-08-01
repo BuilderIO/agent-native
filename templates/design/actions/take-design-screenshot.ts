@@ -165,6 +165,7 @@ export {
   launchChromium,
 } from "../server/lib/playwright-runtime.js";
 import {
+  cloudflareBrowserCauseMessage,
   importPlaywright,
   launchChromium,
   type PlaywrightModule,
@@ -173,6 +174,15 @@ import {
 /** Human-readable, model-actionable message for the "no Chromium available" case. */
 export function chromiumUnavailableReason(err: unknown): string {
   const detail = err instanceof Error ? err.message : String(err);
+  // On a Worker the browser is a binding, not a bundled binary, so the generic
+  // message below would name a cause that cannot be true there.
+  const cloudflareCause = cloudflareBrowserCauseMessage(err);
+  if (cloudflareCause) {
+    return (
+      `${cloudflareCause} Until it is fixed, fall back to run-design-audit for ` +
+      "a static a11y/contrast-hint check."
+    );
+  }
   return (
     "A headless Chromium browser is not available in this environment, so the " +
     "visual screenshot pass cannot run here (this is expected in hosted/" +
@@ -603,6 +613,12 @@ export default defineAction({
         });
 
         try {
+          // On Cloudflare the stored HTML crosses the Browser Rendering
+          // binding as a request, and the LOCAL Workers runtime rejects a
+          // request larger than 1 MB (a limitation of local dev only —
+          // deployed Browser Rendering has no such cap). A design screen big
+          // enough to trip it fails here, in `wrangler dev`, with a
+          // request-size error and not on the deploy it was tested for.
           await page.setContent(html, { waitUntil: "networkidle" });
           // Bounded wait for webfonts to finish loading. `networkidle` alone
           // is not enough: a screenshot taken while a custom Google Font is
