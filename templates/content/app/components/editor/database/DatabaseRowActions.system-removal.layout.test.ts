@@ -23,4 +23,11 @@ describe("database row action system-removal wiring", () => {
       expect(source).toContain("<IconStarOff");
     });
   }
+
+  it("keeps the table scroll surface keyboard reachable", () => {
+    const source = readFileSync(rowActionSources[0], "utf8");
+
+    expect(source).toContain('data-database-scroll-surface="table"');
+    expect(source).toContain("tabIndex={0}");
+  });
 });
