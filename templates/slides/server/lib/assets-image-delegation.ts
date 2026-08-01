@@ -292,27 +292,65 @@ function isAuthRejection(message: string): boolean {
   );
 }
 
+/** One generated asset. Assets reports two endpoints for the same image. */
+export interface AssetReplyImage {
+  previewUrl?: string;
+  downloadUrl?: string;
+}
+
 /**
- * Pull every hosted image URL out of an Assets reply, in reply order. A batch
- * of candidates returns one per slot, so callers that asked for several must
- * not silently keep only the first.
+ * Group an Assets reply into one entry per generated image, in reply order.
+ * `previewUrl` and `downloadUrl` address the same asset and usually differ, so
+ * they have to be paired rather than counted as two candidates; a new entry
+ * starts whenever a key repeats.
  */
-export function extractAssetUrls(reply: string): string[] {
-  const urls: string[] = [];
-  const add = (candidate: string | undefined) => {
-    const url = normalizeUrl(candidate);
-    if (url && !urls.includes(url)) urls.push(url);
-  };
+export function extractAssetImages(reply: string): AssetReplyImage[] {
+  const images: AssetReplyImage[] = [];
+  let current: AssetReplyImage | undefined;
 
   // Assets phrases these keys as JSON, `key: value`, or prose, so take the
   // first URL that follows each key rather than requiring one delimiter.
   const keyed = reply.matchAll(
-    /(?:previewUrl|downloadUrl)\D{0,40}?(https:\/\/[^\s"'<>)\]]+)/gi,
+    /(previewUrl|downloadUrl)\D{0,40}?(https:\/\/[^\s"'<>)\]]+)/gi,
   );
-  for (const match of keyed) add(match[1]);
+  for (const match of keyed) {
+    const key =
+      match[1].toLowerCase() === "previewurl" ? "previewUrl" : "downloadUrl";
+    const url = normalizeUrl(match[2]);
+    if (!url) continue;
+    if (!current || current[key]) {
+      current = {};
+      images.push(current);
+    }
+    current[key] = url;
+  }
 
-  for (const match of reply.matchAll(/!\[[^\]]*\]\((https:\/\/[^\s)]+)\)/g)) {
-    add(match[1]);
+  if (images.length === 0) {
+    for (const match of reply.matchAll(/!\[[^\]]*\]\((https:\/\/[^\s)]+)\)/g)) {
+      const url = normalizeUrl(match[1]);
+      if (url) images.push({ previewUrl: url });
+    }
+  }
+  return images;
+}
+
+/**
+ * One URL per generated image, in reply order. A batch of candidates returns
+ * one per slot, so callers that asked for several must not silently keep only
+ * the first. Saving to disk wants the full-resolution endpoint; rendering in
+ * chat wants the preview.
+ */
+export function extractAssetUrls(
+  reply: string,
+  prefer: "preview" | "download" = "preview",
+): string[] {
+  const urls: string[] = [];
+  for (const image of extractAssetImages(reply)) {
+    const url =
+      prefer === "download"
+        ? (image.downloadUrl ?? image.previewUrl)
+        : (image.previewUrl ?? image.downloadUrl);
+    if (url && !urls.includes(url)) urls.push(url);
   }
   return urls;
 }

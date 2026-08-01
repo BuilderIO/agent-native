@@ -52,7 +52,7 @@ async function saveDelegatedImages(
   reply: string,
   outputPrefix: string,
 ): Promise<void> {
-  const urls = extractAssetUrls(reply);
+  const urls = extractAssetUrls(reply, "download");
   if (urls.length === 0) {
     console.warn(
       `Assets returned no parseable image URL, so nothing was written to ${outputPrefix}.`,

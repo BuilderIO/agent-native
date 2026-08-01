@@ -195,6 +195,36 @@ describe("extractAssetUrl", () => {
       ),
     ).toEqual(["https://cdn.example.com/a.png"]);
   });
+
+  // Both endpoints address one asset, so counting them separately would turn a
+  // two-image batch into four `-vN.png` files.
+  it("pairs the preview and download endpoints of one asset", () => {
+    const reply = [
+      "previewUrl: https://cdn.example.com/a-preview.png",
+      "downloadUrl: https://cdn.example.com/a-full.png",
+      "previewUrl: https://cdn.example.com/b-preview.png",
+      "downloadUrl: https://cdn.example.com/b-full.png",
+    ].join("\n");
+    expect(extractAssetUrls(reply)).toEqual([
+      "https://cdn.example.com/a-preview.png",
+      "https://cdn.example.com/b-preview.png",
+    ]);
+    expect(extractAssetUrls(reply, "download")).toEqual([
+      "https://cdn.example.com/a-full.png",
+      "https://cdn.example.com/b-full.png",
+    ]);
+  });
+
+  it("uses whichever endpoint an asset reports", () => {
+    const reply = [
+      "previewUrl: https://cdn.example.com/a-preview.png",
+      "previewUrl: https://cdn.example.com/b-preview.png",
+    ].join("\n");
+    expect(extractAssetUrls(reply, "download")).toEqual([
+      "https://cdn.example.com/a-preview.png",
+      "https://cdn.example.com/b-preview.png",
+    ]);
+  });
 });
 
 describe("imagePreviewMarkdown", () => {
