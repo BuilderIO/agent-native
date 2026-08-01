@@ -801,6 +801,8 @@ export interface ContentDatabaseResponse {
   attachPreview?: {
     sourceTable: string;
     fetchedAt: string;
+    importedItemCount?: number;
+    complete?: boolean;
   };
 }
 
@@ -940,6 +942,7 @@ export interface ContentDatabaseSourceAttachmentAck {
   sourceType: ContentDatabaseSourceType;
   sourceTable: string;
   importedItemCount: number;
+  fetchedAt: string;
 }
 
 export type ContentDatabaseSourceAttachmentResult =

@@ -12,6 +12,7 @@ import type {
   CancelPreparedBuilderSourceUpdateResponse,
   ChangeContentDatabaseSourceRoleRequest,
   ContentDatabaseResponse,
+  ContentDatabaseSourceAttachmentAck,
   ContentDatabaseSourceAttachmentResult,
   ContentDatabaseItemsPageResponse,
   ContentDatabaseTableQuery,
@@ -1160,6 +1161,11 @@ export function useAttachContentDatabaseSource(
     onSuccess: (data) => {
       if (!("responseProjection" in data)) {
         writeContentDatabaseResponseToCache(queryClient, documentId, data);
+      } else {
+        queryClient.setQueriesData<ContentDatabaseResponse>(
+          contentDatabaseQueryFilter(documentId),
+          (current) => applyBuilderAttachCompletion(current, data),
+        );
       }
       queryClient.invalidateQueries({
         queryKey: contentDatabaseQueryKey(documentId),
@@ -1172,6 +1178,30 @@ export function useAttachContentDatabaseSource(
       });
     },
   });
+}
+
+export function applyBuilderAttachCompletion(
+  current: ContentDatabaseResponse | undefined,
+  completion: ContentDatabaseSourceAttachmentAck,
+) {
+  if (!current) return current;
+  return {
+    ...current,
+    pagination: current.pagination
+      ? {
+          ...current.pagination,
+          totalItems: completion.importedItemCount,
+          hasMore:
+            current.pagination.returnedItems < completion.importedItemCount,
+        }
+      : current.pagination,
+    attachPreview: {
+      sourceTable: completion.sourceTable,
+      fetchedAt: completion.fetchedAt,
+      importedItemCount: completion.importedItemCount,
+      complete: true,
+    },
+  };
 }
 
 export function useBuilderCmsAttachPreview(args: {

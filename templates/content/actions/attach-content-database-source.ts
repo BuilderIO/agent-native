@@ -719,6 +719,7 @@ export default defineAction({
         sourceType,
         sourceTable,
         importedItemCount: importedEntriesByDocumentId.size,
+        fetchedAt: builderRead?.fetchedAt ?? now,
       };
     }
 

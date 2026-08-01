@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyDocumentPropertiesToDatabaseResponse,
   applyDocumentPropertyValueToDatabaseResponse,
+  applyBuilderAttachCompletion,
   applyOptimisticItemToContentDatabase,
   applyOptimisticBuilderWriteMode,
   applyOptimisticSourceFieldPropertyToDatabaseResponse,
@@ -66,6 +67,42 @@ describe("preserveScopedDatabasePlaceholder", () => {
 });
 
 describe("optimistic Content database items", () => {
+  it("shows the durable Builder row count before the authoritative readback", () => {
+    const completed = applyBuilderAttachCompletion(
+      {
+        ...databaseResponse(),
+        pagination: {
+          offset: 0,
+          limit: 100,
+          totalItems: 100,
+          returnedItems: 100,
+          hasMore: false,
+        },
+      },
+      {
+        responseProjection: "ack",
+        databaseId: "database",
+        documentId: "database-page",
+        sourceId: "builder-source",
+        sourceType: "builder-cms",
+        sourceTable: "agent-native-blog-article-test",
+        importedItemCount: 584,
+        fetchedAt: createdAt,
+      },
+    );
+
+    expect(completed?.pagination).toMatchObject({
+      totalItems: 584,
+      hasMore: true,
+    });
+    expect(completed?.attachPreview).toEqual({
+      sourceTable: "agent-native-blog-article-test",
+      fetchedAt: createdAt,
+      importedItemCount: 584,
+      complete: true,
+    });
+  });
+
   it("shows stable read-only Builder rows while attachment is pending", () => {
     const queryClient = new QueryClient();
     const queryKey = [
