@@ -19,3 +19,7 @@ public/mediapipe/wasm/
 # redistributable — must never be committed while this repo is public).
 # See docs/full-editor-integration-plan.md and the video-projects skill.
 app/video-editor/
+
+# Local dev server console mirrors — rolling scratch logs, never committed.
+data/server.log
+data/dev-server.log
