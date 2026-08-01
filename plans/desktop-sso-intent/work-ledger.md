@@ -174,6 +174,13 @@ acceptance-state:
     - the packaged canary version family now selects Agent Native SSO Canary as its userData directory before Sentry or logger initialization and aborts launch if that isolated profile cannot be established, while stable Desktop retains its existing profile
     - canary-profile fix verification: all 236 Desktop tests passed; Desktop TypeScript, production build, formatting, and git diff checks passed
     - the startup regression suite proves profile creation and selection precede Sentry and logger initialization, packaged isolation failure aborts before either consumer starts, stable Desktop leaves its profile unchanged, and development retains its recoverable fallback
+    - exact-head required CI run 30702326735 and signed canary run 30702325684 passed on 7535935d40475d57d715f323129a577d9b301838; canary .20 matched its manifest and passed strict codesign, stapler, Gatekeeper, bundle identity, version, signer, and arm64 checks
+    - independent native preflight on canary .20 proved its isolated userData profile, unchanged stable profile, disabled updater, and real quit/relaunch behavior; H1 passed the signed-out Settings/status boundary and H2 passed ordinary Mail front-door routing into Dispatch with app=mail
+    - after Alice completed the private Google step, the ceremony returned to canonical Mail but the underlying app remained on its pre-auth loading fallback; no post-completion Mail reload appeared in the redacted Desktop log, so H4 failed and H5-H10 were not started
+    - the failed production window was rolled back Mail first and Dispatch second to known-good main deploys 6a6ddd1e966031000859bd7e and 6a6ddd1e8eef7d00084f719e; both identity routes returned baseline 401, both sites were unlocked, all Canary/updater processes were stopped, and the stable profile mtime remained unchanged
+    - the completion handler can observe Mail's redirect before Chromium commits its Set-Cookie result; the broker now waits up to two seconds for only the exact allowlisted target cookie, preserves cancellation fencing, and reloads to a recoverable app state with a value-free diagnostic if transfer still fails
+    - cookie-commit repair verification: all 240 Desktop tests passed; Desktop TypeScript, production build, formatting, and git diff checks passed
+    - final independent read-only re-review confirmed the prior cancellation and hung-cookie-read findings are resolved, the new close/timeout/read-stall coverage is sufficient, and no remaining source-level correctness or credential-handling defect was found
   implementation:
     - authenticated nonce-only app-local completion route in Core
     - dedicated persistent Dispatch identity partition in packaged Desktop
@@ -186,9 +193,10 @@ acceptance-state:
     - branch-scoped signed macOS canary workflow with no publishing, tags, releases, or updater feed
     - Dispatch primary-auth public-route configuration eliminating concurrent auth-initializer pre-emption
     - the ordinary sign-in entry in a canonical first-party app starts the app-targeted workspace ceremony; Settings exposes status and workspace sign-out but no separate authority sign-in command
+    - bounded target-cookie commit synchronization before isolated app-session transfer, with value-free diagnostics and recoverable reload on failure
   blockers:
-    - the canary-profile fix must be independently reviewed, pushed, and pass exact-head CI plus a newly signed canary before native Google sign-in from an ordinary app front door can begin
-    - the short Mail and Dispatch candidate publication window must then complete same-account continuity, restart, sign-out, account-switch, isolation, provider-separation, and hostile-flow acceptance before Work can be complete
+    - the cookie-commit repair must pass exact-head CI and a newly signed isolated canary before another production window
+    - a renewed short Mail and Dispatch window must prove H1-H10, including same-account continuity, restart, provider separation, workspace sign-out, and safe cancellation/concurrency; the prior H1-H2 evidence is informative but cannot complete acceptance for the repaired artifact
   last-land-packet: https://github.com/BuilderIO/agent-native/pull/2290#issuecomment-5062742844
 deployment-boundary:
   allowed:
@@ -216,11 +224,11 @@ return-to-shape:
     risk-strategy: unchanged system-ready, production validation before merge
   replacement-acceptance-story: desktop-first-party-sso-front-door-v2 approved
 production-safety-preflight:
-  verified-at: 2026-08-01T09:05:00-04:00
+  verified-at: 2026-08-01T11:24:00-04:00
   mail: normal unlocked auto-publishing main deploy 6a6ddd1e966031000859bd7e at 3e89c5e5aea6752beea0849fbd62c5a1d58b986d, identity route baseline 401, root normal 302
   dispatch: normal unlocked auto-publishing main deploy 6a6ddd1e8eef7d00084f719e at 3e89c5e5aea6752beea0849fbd62c5a1d58b986d, identity authorize baseline 401
   local: no SSO Canary, ShipIt, or Squirrel process remains; stable Desktop untouched
-ledger-revision: desktop-sso-work-r20
+ledger-revision: desktop-sso-work-r21
 status: active
 ```
 

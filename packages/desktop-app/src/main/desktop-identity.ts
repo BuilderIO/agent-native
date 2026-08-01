@@ -19,6 +19,8 @@ const DESKTOP_IDENTITY_CALLBACK_PATH = "/_agent-native/identity/callback";
 const DESKTOP_LOGOUT_PATH = "/_agent-native/auth/logout";
 const DESKTOP_LOGOUT_ALL_PATH = "/_agent-native/auth/logout-all";
 const DEFAULT_CEREMONY_TIMEOUT_MS = 5 * 60 * 1000;
+const DEFAULT_SESSION_COOKIE_WAIT_MS = 2_000;
+const SESSION_COOKIE_POLL_INTERVAL_MS = 25;
 
 export type DesktopWorkspaceLogoutPath =
   | typeof DESKTOP_LOGOUT_PATH
@@ -107,6 +109,7 @@ export interface DesktopIdentityBrokerOptions {
   clearLocalBroker: () => Promise<void> | void;
   onStatus?: (status: DesktopIdentityStatus) => void;
   timeoutMs?: number;
+  sessionCookieWaitMs?: number;
 }
 
 interface DesktopSignOutIntent {
@@ -597,6 +600,7 @@ export class DesktopIdentityBroker {
           this.setStatus("signed-in");
           return true;
         } catch {
+          this.recoverFromSessionCopyFailure(app, generation);
           if (this.isCeremonyCurrent(generation)) this.setStatus("failed");
           return false;
         }
@@ -631,11 +635,13 @@ export class DesktopIdentityBroker {
     this.activeWindow = identityWindow;
 
     return new Promise<boolean>((resolve) => {
+      const ceremonyAbort = new AbortController();
       let settled = false;
       let timer: ReturnType<typeof setTimeout> | undefined;
       const finish = (ok: boolean, status: DesktopIdentityStatus) => {
         if (settled) return;
         settled = true;
+        if (!ok) ceremonyAbort.abort();
         if (timer) clearTimeout(timer);
         if (this.activeWindow === identityWindow) this.activeWindow = null;
         if (this.isCeremonyCurrent(generation)) this.setStatus(status);
@@ -651,7 +657,7 @@ export class DesktopIdentityBroker {
             return;
           }
           void this.trackSessionCopy(
-            this.copyTargetSession(app, generation),
+            this.copyTargetSession(app, generation, ceremonyAbort.signal),
           ).then(
             () => {
               if (!this.isCeremonyCurrent(generation)) {
@@ -661,7 +667,11 @@ export class DesktopIdentityBroker {
               this.options.reloadApp(app);
               finish(true, "signed-in");
             },
-            () => finish(false, "failed"),
+            () => {
+              if (ceremonyAbort.signal.aborted) return;
+              this.recoverFromSessionCopyFailure(app, generation);
+              finish(false, "failed");
+            },
           );
           return;
         }
@@ -700,50 +710,152 @@ export class DesktopIdentityBroker {
   private async copyTargetSession(
     app: DesktopIdentityApp,
     generation: number,
+    signal?: AbortSignal,
   ): Promise<void> {
-    this.assertCeremonyCurrent(generation);
-    const sourceCookies = await this.options.identitySession.cookies.get({
-      url: app.origin,
-    });
-    this.assertCeremonyCurrent(generation);
+    this.assertCeremonyActive(generation, signal);
     const allowed = new Set(app.cookieNames);
-    const cookies = sourceCookies.filter((cookie) => allowed.has(cookie.name));
+    const deadline =
+      Date.now() +
+      (this.options.sessionCookieWaitMs ?? DEFAULT_SESSION_COOKIE_WAIT_MS);
+    let cookies: Electron.Cookie[] = [];
+    do {
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) break;
+      const sourceCookies = await this.readIdentityCookies(
+        app.origin,
+        remainingMs,
+        signal,
+      );
+      this.assertCeremonyActive(generation, signal);
+      cookies = sourceCookies.filter((cookie) => allowed.has(cookie.name));
+      if (cookies.length > 0 || Date.now() >= deadline) break;
+      await this.waitForCookiePoll(
+        Math.min(SESSION_COOKIE_POLL_INTERVAL_MS, deadline - Date.now()),
+        signal,
+      );
+      this.assertCeremonyActive(generation, signal);
+    } while (true);
     if (cookies.length === 0) throw new Error("Missing app session cookie");
 
-    for (const cookieName of app.cookieNames) {
-      this.assertCeremonyCurrent(generation);
-      await app.session.cookies.remove(app.origin, cookieName).catch(() => {});
-    }
-    for (const cookie of cookies) {
-      this.assertCeremonyCurrent(generation);
-      await app.session.cookies.set({
-        url: app.origin,
-        name: cookie.name,
-        value: cookie.value,
-        path: cookie.path || "/",
-        httpOnly: cookie.httpOnly,
-        secure: cookie.secure,
-        sameSite: cookie.sameSite,
-        ...(cookie.expirationDate
-          ? { expirationDate: cookie.expirationDate }
-          : {}),
-      });
-      if (!this.isCeremonyCurrent(generation)) {
+    const writtenCookieNames: string[] = [];
+    try {
+      for (const cookieName of app.cookieNames) {
+        this.assertCeremonyActive(generation, signal);
         await app.session.cookies
-          .remove(app.origin, cookie.name)
+          .remove(app.origin, cookieName)
           .catch(() => {});
-        this.assertCeremonyCurrent(generation);
       }
-    }
-
-    if (!app.identityAuthority) {
       for (const cookie of cookies) {
-        this.assertCeremonyCurrent(generation);
-        await this.options.identitySession.cookies
-          .remove(app.origin, cookie.name)
-          .catch(() => {});
+        this.assertCeremonyActive(generation, signal);
+        await app.session.cookies.set({
+          url: app.origin,
+          name: cookie.name,
+          value: cookie.value,
+          path: cookie.path || "/",
+          httpOnly: cookie.httpOnly,
+          secure: cookie.secure,
+          sameSite: cookie.sameSite,
+          ...(cookie.expirationDate
+            ? { expirationDate: cookie.expirationDate }
+            : {}),
+        });
+        writtenCookieNames.push(cookie.name);
+        this.assertCeremonyActive(generation, signal);
       }
+
+      if (!app.identityAuthority) {
+        for (const cookie of cookies) {
+          this.assertCeremonyActive(generation, signal);
+          await this.options.identitySession.cookies
+            .remove(app.origin, cookie.name)
+            .catch(() => {});
+          this.assertCeremonyActive(generation, signal);
+        }
+      }
+      this.assertCeremonyActive(generation, signal);
+    } catch (error) {
+      if (!this.isCeremonyCurrent(generation) || signal?.aborted) {
+        await Promise.all(
+          writtenCookieNames.map((cookieName) =>
+            app.session.cookies.remove(app.origin, cookieName).catch(() => {}),
+          ),
+        );
+      }
+      throw error;
     }
+  }
+
+  private async readIdentityCookies(
+    origin: string,
+    timeoutMs: number,
+    signal?: AbortSignal,
+  ): Promise<Electron.Cookie[]> {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    let onAbort: (() => void) | undefined;
+    const stopped = new Promise<never>((_resolve, reject) => {
+      timeout = setTimeout(
+        () => reject(new Error("Identity cookie read timed out")),
+        timeoutMs,
+      );
+      if (signal) {
+        onAbort = () =>
+          reject(new Error("Desktop identity ceremony was cancelled"));
+        signal.addEventListener("abort", onAbort, { once: true });
+      }
+    });
+    try {
+      return await Promise.race([
+        this.options.identitySession.cookies.get({ url: origin }),
+        stopped,
+      ]);
+    } finally {
+      if (timeout) clearTimeout(timeout);
+      if (signal && onAbort) signal.removeEventListener("abort", onAbort);
+    }
+  }
+
+  private async waitForCookiePoll(
+    delayMs: number,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    if (delayMs <= 0) return;
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      const cleanup = () => {
+        if (timeout) clearTimeout(timeout);
+        signal?.removeEventListener("abort", onAbort);
+      };
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve();
+      };
+      const onAbort = () => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(new Error("Desktop identity ceremony was cancelled"));
+      };
+      timeout = setTimeout(finish, delayMs);
+      if (signal?.aborted) {
+        onAbort();
+        return;
+      }
+      signal?.addEventListener("abort", onAbort, { once: true });
+    });
+  }
+
+  private recoverFromSessionCopyFailure(
+    app: DesktopIdentityApp,
+    generation: number,
+  ): void {
+    if (!this.isCeremonyCurrent(generation)) return;
+    console.warn("[desktop-identity] target session transfer failed", {
+      appId: app.id,
+    });
+    this.options.reloadApp(app);
   }
 
   private closeActiveWindow(): void {
@@ -773,6 +885,13 @@ export class DesktopIdentityBroker {
 
   private assertCeremonyCurrent(generation: number): void {
     if (!this.isCeremonyCurrent(generation)) {
+      throw new Error("Desktop identity ceremony was cancelled");
+    }
+  }
+
+  private assertCeremonyActive(generation: number, signal?: AbortSignal): void {
+    this.assertCeremonyCurrent(generation);
+    if (signal?.aborted) {
       throw new Error("Desktop identity ceremony was cancelled");
     }
   }
