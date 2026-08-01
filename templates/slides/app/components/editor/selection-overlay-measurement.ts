@@ -10,7 +10,6 @@ export interface SelectionOverlayMeasurementIdentity {
   selector: string | null;
   path: number[] | null;
   canvasZoom: number;
-  stylePanelOpen: boolean;
   revision: number;
 }
 
@@ -25,7 +24,6 @@ export function createSelectionOverlayMeasurementKey({
   selector,
   path,
   canvasZoom,
-  stylePanelOpen,
   revision,
 }: SelectionOverlayMeasurementIdentity): string {
   return JSON.stringify([
@@ -35,7 +33,6 @@ export function createSelectionOverlayMeasurementKey({
     selector,
     path,
     canvasZoom,
-    stylePanelOpen,
     revision,
   ]);
 }

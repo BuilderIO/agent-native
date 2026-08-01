@@ -17,36 +17,26 @@ const pageSource = readFileSync(
 );
 
 describe("editor side panels", () => {
-  it("keeps the style panel closed unless explicitly opened", () => {
-    expect(editorSource).toContain("stylePanelOpen = false");
-    expect(editorSource).toContain("!readOnly && stylePanelOpen");
-  });
-
-  it("uses one mutually exclusive parent state for Style and Comments", () => {
-    expect(pageSource).toContain(
-      'type EditorSidePanel = "style" | "comments" | null',
-    );
+  it("keeps comments as the only parent-owned side panel", () => {
+    expect(pageSource).toContain('type EditorSidePanel = "comments" | null');
     expect(pageSource).toContain(
       'const commentsOpen = sidePanel === "comments"',
     );
-    expect(pageSource).toContain('const styleOpen = sidePanel === "style"');
-    expect(pageSource).toContain("stylePanelOpen={styleOpen}");
+  });
+
+  it("has no style dock left to open", () => {
+    expect(editorSource).not.toContain("stylePanelOpen");
+    expect(editorSource).not.toContain("SlideStyleInspector");
+    expect(editorSource).not.toContain('data-slide-style-dock="true"');
   });
 });
 
 describe("slide context toolbar", () => {
   const mountIndex = editorSource.indexOf("<SlideContextToolbar");
 
-  it("mounts above the canvas for editable, non-Excalidraw slides", () => {
+  it("is the only styling surface, for editable non-Excalidraw slides", () => {
     expect(mountIndex).toBeGreaterThan(-1);
-    expect(editorSource).toContain(
-      "!readOnly && !stylePanelOpen && !slide.excalidrawData",
-    );
-  });
-
-  it("never shows the toolbar and the style dock at the same time", () => {
-    expect(editorSource).toContain("!readOnly && !stylePanelOpen &&");
-    expect(editorSource).toContain("!readOnly && stylePanelOpen");
+    expect(editorSource).toContain("!readOnly && !slide.excalidrawData");
   });
 
   it("keeps the rich text selection alive while the toolbar is pressed", () => {

@@ -47,7 +47,7 @@ import {
   verticalAlignPatch,
   type SlideStylePatch,
   type SlideStyleSnapshot,
-} from "./SlideStyleInspector";
+} from "./slide-style";
 
 const TOOLBAR_DIVIDER = "mx-1 h-4 w-px shrink-0 bg-border";
 // The toolkit trigger is w-full for the vertical dock; in a flex row that

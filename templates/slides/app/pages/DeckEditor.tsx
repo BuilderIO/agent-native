@@ -76,7 +76,7 @@ import { TAB_ID } from "@/lib/tab-id";
 import { shouldActivateTextTool } from "@/lib/text-tool-shortcut";
 import { shortcutLabel } from "@/lib/utils";
 
-type EditorSidePanel = "style" | "comments" | null;
+type EditorSidePanel = "comments" | null;
 
 function MissingDeckAccessPane({
   hasTeamJoinOption,
@@ -276,7 +276,6 @@ export default function DeckEditor() {
   });
   const { designSystem } = useDeckDesignSystem(deck?.designSystemId);
   const commentsOpen = sidePanel === "comments";
-  const styleOpen = sidePanel === "style";
 
   const {
     questions: questionFlowQuestions,
@@ -949,10 +948,6 @@ export default function DeckEditor() {
         onToggleComments={() =>
           setSidePanel((panel) => (panel === "comments" ? null : "comments"))
         }
-        styleOpen={styleOpen}
-        onToggleStyle={() =>
-          setSidePanel((panel) => (panel === "style" ? null : "style"))
-        }
         unresolvedCommentCount={unresolvedCommentCount}
         currentUserEmail={session?.email}
         animationsOpen={animationsOpen}
@@ -1139,8 +1134,6 @@ export default function DeckEditor() {
             slideIndex={currentIndex >= 0 ? currentIndex : 0}
             slideCount={deck.slides.length}
             designSystem={designSystem}
-            stylePanelOpen={styleOpen}
-            onCloseStylePanel={() => setSidePanel(null)}
             aspectRatio={deck.aspectRatio}
             collabUser={
               currentUser

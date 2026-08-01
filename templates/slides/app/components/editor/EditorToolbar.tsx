@@ -33,7 +33,6 @@ import {
   IconSun,
   IconMoon,
   IconDotsVertical,
-  IconPalette,
   IconLoader2,
 } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
@@ -99,10 +98,6 @@ interface EditorToolbarProps {
   commentsOpen?: boolean;
   /** Toggle the comments panel */
   onToggleComments?: () => void;
-  /** Whether the style panel is open */
-  styleOpen?: boolean;
-  /** Toggle the style panel */
-  onToggleStyle?: () => void;
   /** Number of unresolved comments on the current slide */
   unresolvedCommentCount?: number;
   /** Current user email for avatar display */
@@ -249,8 +244,6 @@ export default function EditorToolbar({
   agentActive,
   commentsOpen,
   onToggleComments,
-  styleOpen,
-  onToggleStyle,
   unresolvedCommentCount = 0,
   currentUserEmail,
   animationsOpen,
@@ -878,27 +871,6 @@ graph TD
         currentUserEmail={currentUserEmail}
         className="flex-shrink-0 mr-0.5"
       />
-
-      {/* Style toggle */}
-      {canEdit && currentSlide && onToggleStyle && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              onClick={onToggleStyle}
-              data-slide-style-trigger="true"
-              className={`${TOOLBAR_ICON_BUTTON_CLASS} relative ${
-                styleOpen
-                  ? "bg-accent text-foreground"
-                  : "text-muted-foreground hover:bg-accent hover:text-foreground/70"
-              }`}
-              aria-label={t("styleInspector.title")}
-            >
-              <IconPalette className="size-4" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{t("styleInspector.title")}</TooltipContent>
-        </Tooltip>
-      )}
 
       {/* Comments toggle */}
       {onToggleComments && (

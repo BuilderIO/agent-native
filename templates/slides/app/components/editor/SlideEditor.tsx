@@ -119,14 +119,9 @@ import {
   type SlidesSelectionTool,
 } from "./slide-object-interactions";
 import { getPassiveSlidePresenceUsers } from "./slide-presence";
+import { type SlideStylePatch, type SlideStyleSnapshot } from "./slide-style";
 import { SlideContextToolbar } from "./SlideContextToolbar";
 import { SlideOverflowWarning } from "./SlideOverflowWarning";
-import {
-  SlideBackgroundInspector,
-  SlideStyleInspector,
-  type SlideStylePatch,
-  type SlideStyleSnapshot,
-} from "./SlideStyleInspector";
 import { SpeakerNotesPanel } from "./SpeakerNotesPanel";
 
 let builderIdCounter = 0;
@@ -602,10 +597,6 @@ interface SlideEditorProps {
   designSystem?: DesignSystemData;
   /** Deck aspect ratio (defaults to 16:9 when omitted) */
   aspectRatio?: AspectRatio;
-  /** Whether the right-side style inspector is visible */
-  stylePanelOpen?: boolean;
-  /** Close the right-side style inspector */
-  onCloseStylePanel?: () => void;
   /** Whether the draw-to-prompt overlay is visible */
   drawMode?: boolean;
   /** Called when the draw overlay should exit (Esc, Send, close button) */
@@ -1041,8 +1032,6 @@ export default function SlideEditor({
   slideCount = 1,
   designSystem,
   aspectRatio,
-  stylePanelOpen = false,
-  onCloseStylePanel,
   drawMode,
   onExitDrawMode,
   pinMode,
@@ -1142,7 +1131,6 @@ export default function SlideEditor({
     selector: selectedElementSelector,
     path: selectedElementPath,
     canvasZoom,
-    stylePanelOpen,
     revision: selectionMeasurementRevision,
   });
   const selectedElementRect = currentSelectionOverlayRect(
@@ -4056,7 +4044,7 @@ export default function SlideEditor({
       className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden"
       data-slide-element-selected={slideElementSelected ? "true" : undefined}
     >
-      {!readOnly && !stylePanelOpen && !slide.excalidrawData && (
+      {!readOnly && !slide.excalidrawData && (
         <div
           className="hidden shrink-0 lg:block"
           onPointerDownCapture={preserveRichTextSelection}
@@ -4214,37 +4202,6 @@ export default function SlideEditor({
             </div>
           )}
         </div>
-
-        {!readOnly && stylePanelOpen && (
-          <div
-            className="relative z-[70] hidden h-full w-[17rem] shrink-0 border-l border-border/70 bg-background/95 lg:block"
-            data-slide-style-dock="true"
-            onPointerDownCapture={preserveRichTextSelection}
-          >
-            {selectedStyleSnapshot ? (
-              <SlideStyleInspector
-                snapshot={selectedStyleSnapshot}
-                designSystem={designSystem}
-                className="h-full w-full rounded-none border-0 bg-transparent shadow-none"
-                onChange={applySelectedStylePatch}
-                onArrange={handleArrangeSelected}
-                onClose={() => {
-                  clearSelectedElement();
-                  syncSelectionToAppState(null);
-                  onCloseStylePanel?.();
-                }}
-              />
-            ) : (
-              <SlideBackgroundInspector
-                background={slide.background}
-                designSystem={designSystem}
-                className="h-full w-full rounded-none border-0 bg-transparent shadow-none"
-                onChange={applySlideBackground}
-                onClose={onCloseStylePanel}
-              />
-            )}
-          </div>
-        )}
       </div>
 
       <SpeakerNotesPanel
