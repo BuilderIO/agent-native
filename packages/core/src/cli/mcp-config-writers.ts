@@ -260,6 +260,24 @@ export function configPathFor(
 // ---------------------------------------------------------------------------
 
 /**
+ * Read an existing MCP config without conflating missing and unreadable files.
+ * Only ENOENT means the config is absent; any other read failure must abort
+ * before a caller can overwrite existing user configuration.
+ */
+function readExistingConfigFile(file: string): string | undefined {
+  try {
+    return fs.readFileSync(file, "utf-8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    const detail = error instanceof Error ? ` (${error.message})` : "";
+    throw new Error(
+      `Cannot read MCP config file: ${file}\n` +
+        `Check that the file is readable and re-run. The file has not been modified.${detail}`,
+    );
+  }
+}
+
+/**
  * Read and parse a JSON config file.
  *
  * - Missing file → returns `{}` (fresh config).
@@ -269,13 +287,8 @@ export function configPathFor(
  *   file with only the new MCP entry (data-loss hazard).
  */
 function readJsonFile(file: string): Record<string, any> {
-  let raw: string;
-  try {
-    raw = fs.readFileSync(file, "utf-8");
-  } catch {
-    // Missing (ENOENT) or unreadable file — treat as empty.
-    return {};
-  }
+  const raw = readExistingConfigFile(file);
+  if (raw === undefined) return {};
   if (!raw.trim()) return {};
   try {
     const parsed = JSON.parse(raw);
@@ -576,12 +589,7 @@ export function writeCodexBlock(
   name: string,
   block: string | null,
 ): void {
-  let content = "";
-  try {
-    content = fs.readFileSync(file, "utf-8");
-  } catch {
-    content = "";
-  }
+  const content = readExistingConfigFile(file) ?? "";
 
   const lines = content.split(/\r?\n/);
   const out: string[] = [];
@@ -616,14 +624,12 @@ export function writeCodexBlock(
 }
 
 export function codexHasBlock(file: string, name: string): boolean {
-  try {
-    const content = fs.readFileSync(file, "utf-8");
-    return content
-      .split(/\r?\n/)
-      .some((line) => codexServerNameOfHeader(line) === name);
-  } catch {
-    return false;
-  }
+  const content = readExistingConfigFile(file);
+  return (
+    content
+      ?.split(/\r?\n/)
+      .some((line) => codexServerNameOfHeader(line) === name) ?? false
+  );
 }
 
 // ---------------------------------------------------------------------------
