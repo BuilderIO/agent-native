@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.133.2
+
+### Patch Changes
+
+- 3fac05d: Ensure Netlify-hosted integration calls hand off slow cross-app work to durable delivery when only runtime markers are available.
+
 ## 0.133.1
 
 ### Patch Changes
