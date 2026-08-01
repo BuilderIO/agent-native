@@ -174,7 +174,7 @@ const messages = {
       "Der Desktop-Recorder hat den Vorgang abgeschlossen und eine lokale Kopie gespeichert, aber Clips konnte sie nicht hochladen. Sie können es über das Clips-Menü erneut versuchen, ohne erneut aufzunehmen.",
     retryLibrary: "Sie können es in der Bibliothek erneut versuchen.",
     processingStuck:
-      "Die Verarbeitung ist nach 30 Sekunden noch nicht abgeschlossen (Status={{status}}). Der Clip wurde möglicherweise noch nicht vollständig hochgeladen. Überprüfen Sie die Serverprotokolle auf Chunk-/Finalisierungsmeldungen.",
+      "Es dauert noch an — dieser Clip ist seit einiger Zeit im Status „{{status}}“. Lange Aufnahmen brauchen mehrere Minuten zum Komprimieren und Hochladen; diese Seite aktualisiert sich automatisch. Wenn sich sehr lange nichts ändert, überprüfen Sie die Serverprotokolle auf Chunk-/Finalisierungsmeldungen.",
     uploadingAssembling:
       "Das Hochladen und Zusammenstellen Ihres Videos dauert normalerweise nur wenige Sekunden.",
     connectStorageImportLoom:
@@ -285,9 +285,9 @@ const messages = {
     signInStorage:
       "Wenn dies Ihr Clip ist, melden Sie sich hier an, um den Builder.io- oder S3-Speicher zu verbinden und den Upload abzuschließen.",
     uploadNotCompleteSession:
-      "Der Upload ist noch nicht abgeschlossen. Öffnen Sie das Dashboard für diesen Clip oder bitten Sie den Ersteller, den Speicher zu überprüfen.",
+      "Der Upload dauert länger als üblich. Lange Aufnahmen können mehrere Minuten brauchen — diese Seite aktualisiert sich automatisch. Sie können auch das Dashboard für diesen Clip öffnen oder den Ersteller bitten, den Speicher zu überprüfen.",
     uploadNotCompleteSignIn:
-      "Der Upload ist noch nicht abgeschlossen. Wenn dies Ihr Clip ist, melden Sie sich an, um die Eigentümersteuerung zu öffnen und den Speicher zu überprüfen.",
+      "Der Upload dauert länger als üblich. Lange Aufnahmen können mehrere Minuten brauchen — diese Seite aktualisiert sich automatisch. Wenn dies Ihr Clip ist, melden Sie sich an, um die Eigentümersteuerung zu öffnen und den Speicher zu überprüfen.",
     creatorMayRetry:
       "Der Ersteller muss es möglicherweise noch einmal versuchen.",
     uploadingAssembling:

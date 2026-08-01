@@ -166,7 +166,7 @@ const messages = {
       "桌面录音机完成并保存了本地副本，但Clips无法上传。您可以从 Clips 菜单重试，而无需再次录制。",
     retryLibrary: "您可以从库中重试。",
     processingStuck:
-      "30 秒后处理尚未完成（状态={{status}}）。剪辑可能尚未完成上传 - 检查服务器日志中的块/最终消息。",
+      "仍在处理中——此剪辑已处于 {{status}} 状态一段时间。较长的录制可能需要几分钟来压缩和上传，此页面会自动更新。如果很长时间都没有变化，请检查服务器日志中的块/最终处理消息。",
     uploadingAssembling: "上传和组合视频——通常只需要几秒钟。",
     connectStorageImportLoom: "连接存储导入这个Loom。",
     connectStorageFinishClip: "连接存储以完成此剪辑的保存。",
@@ -266,9 +266,9 @@ const messages = {
     signInStorage:
       "如果这是您的剪辑，请在此处登录以连接存储：Builder.io（免费套餐存储 + AI）或 S3 兼容存储，并完成上传。",
     uploadNotCompleteSession:
-      "上传尚未完成。打开此剪辑的仪表板或要求创建者检查存储空间。",
+      "上传所需时间比平时长。较长的录制可能需要几分钟——此页面会自动更新。您也可以打开此剪辑的仪表板，或要求创建者检查存储空间。",
     uploadNotCompleteSignIn:
-      "上传尚未完成。如果这是您的剪辑，请登录以打开所有者控件并检查存储空间。",
+      "上传所需时间比平时长。较长的录制可能需要几分钟——此页面会自动更新。如果这是您的剪辑，请登录以打开所有者控件并检查存储空间。",
     creatorMayRetry: "创建者可能需要重试。",
     uploadingAssembling: "上传并组装视频。该页面将自动更新。",
     details: "细节",

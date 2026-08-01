@@ -171,7 +171,7 @@ const messages = {
       "The desktop recorder finished and saved a local copy, but Clips could not upload it. You can retry from the Clips menu without recording again.",
     retryLibrary: "You can retry from the library.",
     processingStuck:
-      "Processing has not completed after 30 seconds (status={{status}}). The clip may not have finished uploading — check the server logs for chunk/finalize messages.",
+      "Still working — this clip has been in the {{status}} state for a while. Long recordings can take several minutes to compress and upload, and this page updates automatically. If nothing changes for a very long time, check the server logs for chunk/finalize messages.",
     uploadingAssembling:
       "Uploading and assembling your video — this usually takes just a few seconds.",
     connectStorageImportLoom: "Connect storage to import this Loom.",
@@ -274,9 +274,9 @@ const messages = {
     signInStorage:
       "If this is your clip, sign in here to connect storage with Builder.io (free tier storage + AI) or S3-compatible storage and finish the upload.",
     uploadNotCompleteSession:
-      "The upload has not completed yet. Open the dashboard for this clip or ask the creator to check storage.",
+      "The upload is taking longer than usual. Long recordings can need several minutes — this page updates automatically. You can also open the dashboard for this clip or ask the creator to check storage.",
     uploadNotCompleteSignIn:
-      "The upload has not completed yet. If this is your clip, sign in to open the owner controls and check storage.",
+      "The upload is taking longer than usual. Long recordings can need several minutes — this page updates automatically. If this is your clip, sign in to open the owner controls and check storage.",
     creatorMayRetry: "The creator may need to retry.",
     uploadingAssembling:
       "Uploading and assembling the video. This page will update automatically.",

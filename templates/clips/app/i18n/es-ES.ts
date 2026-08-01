@@ -173,7 +173,7 @@ const messages = {
       "La grabadora de escritorio terminó y guardó una copia local, pero Clips no pudo cargarla. Puedes volver a intentarlo desde el menú Clips sin volver a grabar.",
     retryLibrary: "Puedes volver a intentarlo desde la biblioteca.",
     processingStuck:
-      "El procesamiento no se ha completado después de 30 segundos (estado={{status}}). Es posible que el clip no haya terminado de cargarse; verifique los registros del servidor para ver si hay mensajes fragmentados/finalizados.",
+      "Seguimos trabajando — este clip lleva un tiempo en el estado {{status}}. Las grabaciones largas pueden tardar varios minutos en comprimirse y subirse, y esta página se actualiza automáticamente. Si nada cambia durante mucho tiempo, verifique los registros del servidor para ver si hay mensajes de fragmentos/finalización.",
     uploadingAssembling:
       "Cargar y ensamblar su video; esto generalmente toma solo unos segundos.",
     connectStorageImportLoom:
@@ -283,9 +283,9 @@ const messages = {
     signInStorage:
       "Si este es su clip, inicie sesión aquí para conectar el almacenamiento Builder.io o S3 y finalizar la carga.",
     uploadNotCompleteSession:
-      "La carga aún no se ha completado. Abra el panel de este clip o pídale al creador que verifique el almacenamiento.",
+      "La carga está tardando más de lo habitual. Las grabaciones largas pueden necesitar varios minutos — esta página se actualiza automáticamente. También puede abrir el panel de este clip o pedirle al creador que verifique el almacenamiento.",
     uploadNotCompleteSignIn:
-      "La carga aún no se ha completado. Si este es tu clip, inicia sesión para abrir los controles del propietario y verificar el almacenamiento.",
+      "La carga está tardando más de lo habitual. Las grabaciones largas pueden necesitar varios minutos — esta página se actualiza automáticamente. Si este es tu clip, inicia sesión para abrir los controles del propietario y verificar el almacenamiento.",
     creatorMayRetry: "Es posible que el creador deba volver a intentarlo.",
     uploadingAssembling:
       "Subiendo y montando el vídeo. Esta página se actualizará automáticamente.",

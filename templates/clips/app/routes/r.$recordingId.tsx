@@ -788,21 +788,25 @@ export default function RecordingPage() {
     const nativeSaveFailed =
       searchParams.get("saveFailed") === "1" ||
       isNativeSaveFailureReason(rawFailureReason);
-    // Treat "stuck on processing/uploading past the 30s mark" as a failure
-    // too — otherwise the user stares at a spinner forever when finalize
-    // silently dies (e.g. chunk route 401s, storage provider throws).
-    const stuckFailure = !explicitFailure && processingTimeout;
-    const isFailure =
-      explicitFailure || stuckFailure || waitingForStorage || nativeSaveFailed;
+    // Past the patience timer with no explicit failure, stay on the friendly
+    // "finishing" page and add an informational notice instead of flipping to
+    // the red failure screen: long recordings legitimately spend many minutes
+    // compressing and uploading (a ~1h clip needs ~25 min on a slow uplink),
+    // and a false "error" reads as data loss. The notice keeps the silent-
+    // death case discoverable without calling a working pipeline broken.
+    const stuckNotice =
+      !explicitFailure &&
+      processingTimeout &&
+      !waitingForStorage &&
+      !nativeSaveFailed;
+    const isFailure = explicitFailure || waitingForStorage || nativeSaveFailed;
     const displayReason = explicitFailure
       ? storedButUnservableFailure
         ? t("recordingPage.clipDataPreserved")
         : (rawFailureReason ?? t("recordingPage.retryLibrary"))
       : nativeSaveFailed
         ? nativeSaveFailureMessage(rawFailureReason)
-        : stuckFailure
-          ? t("recordingPage.processingStuck", { status: recording.status })
-          : t("recordingPage.uploadingAssembling");
+        : t("recordingPage.uploadingAssembling");
     const storageSetupFailure = waitingForStorage;
     const canRetryFinalize = storageSetupFailure || storedButUnservableFailure;
     const label = storageSetupFailure
@@ -870,6 +874,16 @@ export default function RecordingPage() {
               <p className="text-center text-sm text-muted-foreground">
                 {t("recordingPage.uploadingAssembling")}
               </p>
+              {stuckNotice ? (
+                <div className="flex items-start gap-2 rounded-md border border-amber-300/70 bg-amber-50/80 px-3 py-2 text-xs leading-relaxed text-amber-950 dark:border-amber-400/30 dark:bg-amber-950/25 dark:text-amber-100">
+                  <IconAlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <span>
+                    {t("recordingPage.processingStuck", {
+                      status: recording.status,
+                    })}
+                  </span>
+                </div>
+              ) : null}
               {progress > 0 ? (
                 <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
                   <div

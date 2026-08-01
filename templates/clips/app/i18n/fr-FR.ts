@@ -172,7 +172,7 @@ const messages = {
       "L'enregistreur de bureau a terminé et a enregistré une copie locale, mais Clips n'a pas pu la télécharger. Vous pouvez réessayer à partir du menu Clips sans réenregistrer.",
     retryLibrary: "Vous pouvez réessayer depuis la bibliothèque.",
     processingStuck:
-      "Le traitement n'est pas terminé après 30 secondes (status={{status}}). Le téléchargement du clip n'est peut-être pas terminé – vérifiez les journaux du serveur pour les messages de fragmentation/finalisation.",
+      "Traitement toujours en cours — ce clip est dans l'état {{status}} depuis un moment. Les enregistrements longs peuvent prendre plusieurs minutes à compresser et à télécharger, et cette page se met à jour automatiquement. Si rien ne change pendant très longtemps, vérifiez les journaux du serveur pour les messages de fragmentation/finalisation.",
     uploadingAssembling:
       "Télécharger et assembler votre vidéo : cela ne prend généralement que quelques secondes.",
     connectStorageImportLoom: "Connectez le stockage pour importer ce Loom.",
@@ -284,9 +284,9 @@ const messages = {
     signInStorage:
       "S'il s'agit de votre clip, connectez-vous ici pour connecter le stockage Builder.io ou S3 et terminer le téléchargement.",
     uploadNotCompleteSession:
-      "Le téléchargement n'est pas encore terminé. Ouvrez le tableau de bord de ce clip ou demandez au créateur de vérifier le stockage.",
+      "Le téléchargement prend plus de temps que d'habitude. Les enregistrements longs peuvent nécessiter plusieurs minutes — cette page se met à jour automatiquement. Vous pouvez aussi ouvrir le tableau de bord de ce clip ou demander au créateur de vérifier le stockage.",
     uploadNotCompleteSignIn:
-      "Le téléchargement n'est pas encore terminé. S'il s'agit de votre clip, connectez-vous pour ouvrir les commandes du propriétaire et vérifier le stockage.",
+      "Le téléchargement prend plus de temps que d'habitude. Les enregistrements longs peuvent nécessiter plusieurs minutes — cette page se met à jour automatiquement. S'il s'agit de votre clip, connectez-vous pour ouvrir les commandes du propriétaire et vérifier le stockage.",
     creatorMayRetry: "Le créateur devra peut-être réessayer.",
     uploadingAssembling:
       "Téléchargement et assemblage de la vidéo. Cette page sera mise à jour automatiquement.",

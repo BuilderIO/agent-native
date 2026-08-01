@@ -166,7 +166,7 @@ const messages = {
       "桌面錄影程式已完成並儲存本機副本，但 Clips 無法上傳。您可以從 Clips 選單重試，不需要重新錄製。",
     retryLibrary: "您可以從媒體庫重試。",
     processingStuck:
-      "處理 30 秒後仍未完成（狀態={{status}}）。剪輯可能尚未完成上傳，請查看伺服器記錄中的區塊/完成訊息。",
+      "仍在處理中——此剪輯已處於 {{status}} 狀態一段時間。較長的錄製可能需要幾分鐘來壓縮和上傳，此頁面會自動更新。如果很長時間都沒有變化，請查看伺服器記錄中的區塊/完成訊息。",
     uploadingAssembling: "正在上傳並組裝影片，通常只需要幾秒鐘。",
     connectStorageImportLoom: "連線儲存以匯入這個 Loom。",
     connectStorageFinishClip: "連線儲存以完成此剪輯的儲存。",
@@ -266,9 +266,9 @@ const messages = {
     signInStorage:
       "如果這是您的剪輯，請在此處登入以連線儲存：Builder.io（免費方案儲存 + AI）或 S3 相容儲存，並完成上傳。",
     uploadNotCompleteSession:
-      "上傳尚未完成。開啟此剪輯的儀表板或要求建立者檢查儲存空間。",
+      "上傳所需時間比平時長。較長的錄製可能需要幾分鐘——此頁面會自動更新。您也可以開啟此剪輯的儀表板，或要求建立者檢查儲存空間。",
     uploadNotCompleteSignIn:
-      "上傳尚未完成。如果這是您的剪輯，請登入以開啟擁有者控制項並檢查儲存空間。",
+      "上傳所需時間比平時長。較長的錄製可能需要幾分鐘——此頁面會自動更新。如果這是您的剪輯，請登入以開啟擁有者控制項並檢查儲存空間。",
     creatorMayRetry: "建立者可能需要重試。",
     uploadingAssembling: "正在上傳並組裝影片。此頁面會自動更新。",
     details: "詳細資料",

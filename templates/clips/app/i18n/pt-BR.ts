@@ -172,7 +172,7 @@ const messages = {
       "O gravador de desktop terminou e salvou uma cópia local, mas Clips não conseguiu carregá-la. Você pode tentar novamente no menu Clips sem gravar novamente.",
     retryLibrary: "Você pode tentar novamente na biblioteca.",
     processingStuck:
-      "O processamento não foi concluído após 30 segundos (status={{status}}). O upload do clipe pode não ter terminado — verifique os logs do servidor para mensagens de fragmentação/finalização.",
+      "Ainda estamos trabalhando — este clipe está no estado {{status}} há algum tempo. Gravações longas podem levar vários minutos para compactar e enviar, e esta página é atualizada automaticamente. Se nada mudar por muito tempo, verifique os logs do servidor para mensagens de fragmentação/finalização.",
     uploadingAssembling:
       "Carregar e montar seu vídeo – isso geralmente leva apenas alguns segundos.",
     connectStorageImportLoom:
@@ -280,9 +280,9 @@ const messages = {
     signInStorage:
       "Se este for o seu clipe, faça login aqui para conectar o armazenamento Builder.io ou S3 e finalizar o upload.",
     uploadNotCompleteSession:
-      "O upload ainda não foi concluído. Abra o painel deste clipe ou peça ao criador para verificar o armazenamento.",
+      "O upload está demorando mais do que o normal. Gravações longas podem precisar de vários minutos — esta página é atualizada automaticamente. Você também pode abrir o painel deste clipe ou pedir ao criador para verificar o armazenamento.",
     uploadNotCompleteSignIn:
-      "O upload ainda não foi concluído. Se este for o seu clipe, faça login para abrir os controles do proprietário e verificar o armazenamento.",
+      "O upload está demorando mais do que o normal. Gravações longas podem precisar de vários minutos — esta página é atualizada automaticamente. Se este for o seu clipe, faça login para abrir os controles do proprietário e verificar o armazenamento.",
     creatorMayRetry: "O criador pode precisar tentar novamente.",
     uploadingAssembling:
       "Carregando e montando o vídeo. Esta página será atualizada automaticamente.",

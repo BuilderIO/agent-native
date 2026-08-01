@@ -694,18 +694,21 @@ export default function ShareRoute() {
     const storageSetupFailure = isStorageSetupFailureReason(rawFailureReason);
     const loomStorageSetupFailure =
       storageSetupFailure && isLoomRecordingSource(recording);
-    const stuckFailure = !explicitFailure && processingTimeout;
-    const isFailure = explicitFailure || storageSetupFailure || stuckFailure;
+    // Past the patience timer with no explicit failure, keep the friendly
+    // "finishing" state and add an informational notice instead of a red
+    // error: long recordings legitimately spend many minutes compressing and
+    // uploading, and a false "error" reads as data loss to share viewers.
+    const stuckNotice =
+      !explicitFailure && !storageSetupFailure && processingTimeout;
+    const isFailure = explicitFailure || storageSetupFailure;
     const canManageStorage = viewerCanEdit;
     const signInHref = buildSignInHref(`/r/${recording.id}`);
     const detail = failureDetail(rawFailureReason);
     const label = storageSetupFailure
       ? t("sharePage.connectStorageFinish")
-      : stuckFailure
-        ? t("sharePage.needsAttention")
-        : explicitFailure
-          ? t("sharePage.savingWentWrong")
-          : t("sharePage.finishingClip");
+      : explicitFailure
+        ? t("sharePage.savingWentWrong")
+        : t("sharePage.finishingClip");
     const message = storageSetupFailure
       ? canManageStorage
         ? loomStorageSetupFailure
@@ -714,13 +717,9 @@ export default function ShareRoute() {
         : session
           ? t("sharePage.creatorNeedsStorage")
           : t("sharePage.signInStorage")
-      : stuckFailure
-        ? session
-          ? t("sharePage.uploadNotCompleteSession")
-          : t("sharePage.uploadNotCompleteSignIn")
-        : explicitFailure
-          ? (rawFailureReason ?? t("sharePage.creatorMayRetry"))
-          : t("sharePage.uploadingAssembling");
+      : explicitFailure
+        ? (rawFailureReason ?? t("sharePage.creatorMayRetry"))
+        : t("sharePage.uploadingAssembling");
 
     return (
       <>
@@ -737,6 +736,16 @@ export default function ShareRoute() {
           <p className="mb-4 max-w-md text-center text-sm text-muted-foreground">
             {message}
           </p>
+          {stuckNotice ? (
+            <div className="mb-4 flex max-w-md items-start gap-2 rounded-md border border-amber-300/70 bg-amber-50/80 px-3 py-2 text-xs leading-relaxed text-amber-950 dark:border-amber-400/30 dark:bg-amber-950/25 dark:text-amber-100">
+              <IconAlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>
+                {session
+                  ? t("sharePage.uploadNotCompleteSession")
+                  : t("sharePage.uploadNotCompleteSignIn")}
+              </span>
+            </div>
+          ) : null}
           {isFailure && detail && canManageStorage ? (
             <div className="mb-4 w-full max-w-xl rounded-md border border-border bg-card p-4 text-start shadow-sm">
               <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
