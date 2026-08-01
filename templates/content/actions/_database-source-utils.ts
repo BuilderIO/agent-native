@@ -986,7 +986,6 @@ const BUILDER_BODY_HYDRATION_PROCESS_CONCURRENCY = 72;
 const BUILDER_BODY_HYDRATION_BULK_PRELOAD_MIN_JOBS = 20;
 const BUILDER_BODY_HYDRATION_MAX_ATTEMPTS = 5;
 const BUILDER_BODY_HYDRATION_CLAIM_LEASE_MS = 2 * 60 * 1000;
-const BUILDER_BODY_HYDRATION_BULK_LIMIT = 100;
 const BUILDER_BODY_HYDRATION_CODEC_VERSION =
   "readable-native-images-authoritative-raw-baseline-v9";
 const BUILDER_CMS_REFRESH_INITIAL_PAGES = 1;
@@ -2324,26 +2323,13 @@ async function persistPristineBuilderBodyHydrationsInBulk(
 ) {
   const db = getDb();
   const persistedJobIds = new Set<string>();
-  const chunkLimit = Math.min(
-    BUILDER_BODY_HYDRATION_BULK_LIMIT,
-    bulkChunkSizeForColumnCount(5),
-  );
+  const chunkLimit = bulkChunkSizeForColumnCount(5);
   for (const batch of chunks(prepared, chunkLimit)) {
     try {
       await db.transaction(async (tx) => {
         const queueOwnership = batch.map(({ job }) =>
           builderBodyHydrationQueueOwnershipFilter(job),
         );
-        const owned = await tx
-          .update(schema.contentDatabaseBodyHydrationQueue)
-          .set({ updatedAt: now })
-          .where(or(...queueOwnership))
-          .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
-        if (owned.length !== batch.length) {
-          throw new PristineBuilderBodyHydrationCasMiss(
-            "Builder body hydration queue ownership changed.",
-          );
-        }
 
         const updatedDocuments = await tx
           .update(schema.documents)
@@ -2432,6 +2418,8 @@ async function persistPristineBuilderBodyHydrationsInBulk(
             id: schema.contentDatabaseBodyHydrationQueue.id,
           });
         if (deletedQueueRows.length !== batch.length) {
+          // This guarded delete is the queue-ownership CAS for the whole
+          // transaction; a miss rolls back the preceding document/source writes.
           throw new PristineBuilderBodyHydrationCasMiss(
             "Builder body hydration queue changed.",
           );
