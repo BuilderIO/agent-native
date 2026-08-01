@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 import { createAssetFromBuffer } from "./assets.js";
+import { notifyGenerationRunFinished } from "./generation-run-notifications.js";
 import { nowIso, parseJson, stringifyJson } from "./json.js";
 import { pollGeminiVideoGeneration } from "./video-generation.js";
 
@@ -59,6 +60,7 @@ async function markRunCompletedWithAsset(
       metadata: nextRun.metadata,
     })
     .where(eq(schema.assetGenerationRuns.id, run.id));
+  await notifyGenerationRunFinished(nextRun, "completed");
   return nextRun;
 }
 
@@ -217,14 +219,19 @@ export async function completeVideoGenerationRun(
   } catch (err) {
     const message =
       err instanceof Error ? err.message : "Video generation failed.";
+    const completedAt = nowIso();
     await getDb()
       .update(schema.assetGenerationRuns)
       .set({
         status: "failed",
         error: message,
-        completedAt: nowIso(),
+        completedAt,
       })
       .where(eq(schema.assetGenerationRuns.id, run.id));
+    await notifyGenerationRunFinished(
+      { ...run, status: "failed", error: message, completedAt },
+      "failed",
+    );
     throw err;
   }
 }

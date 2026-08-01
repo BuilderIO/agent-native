@@ -628,6 +628,9 @@ const enUS = {
     languageDescription:
       "Choose the interface language for this Assets workspace.",
     languageLabel: "Interface language",
+    emailNotifications: "Email notifications",
+    emailNotificationsDescription:
+      "Get an email when a generation you started finishes or fails.",
     setupTitle: "Assets setup",
     setupDescription: "Two essentials: generation and durable storage.",
     setupReady: "ready",
@@ -3926,6 +3929,9 @@ export const messagesByLocale = {
       languageTitle: "语言",
       languageDescription: "选择此 Assets 工作区的界面语言。",
       languageLabel: "界面语言",
+      emailNotifications: "邮件通知",
+      emailNotificationsDescription:
+        "当你发起的生成完成或失败时，收到邮件通知。",
 
       addBuilderGeminiOrOpenAI:
         "在生成新资产之前添加 Builder、Gemini 或 OpenAI。",
@@ -4727,6 +4733,9 @@ export const messagesByLocale = {
       languageDescription:
         "Elige el idioma de la interfaz para este workspace.",
       languageLabel: "Idioma de la interfaz",
+      emailNotifications: "Notificaciones por correo",
+      emailNotificationsDescription:
+        "Recibe un correo cuando una generación que iniciaste termine o falle.",
 
       addBuilderGeminiOrOpenAI:
         "Agregue Builder, Gemini o OpenAI antes de generar nuevos activos.",
@@ -5191,6 +5200,9 @@ export const messagesByLocale = {
       languageDescription:
         "Choisissez la langue de l'interface pour cet espace Assets.",
       languageLabel: "Langue de l'interface",
+      emailNotifications: "Notifications par e-mail",
+      emailNotificationsDescription:
+        "Recevez un e-mail lorsqu’une génération que vous avez lancée se termine ou échoue.",
 
       addBuilderGeminiOrOpenAI:
         "Ajoutez Builder, Gemini ou OpenAI avant de générer de nouveaux actifs.",
@@ -5644,6 +5656,9 @@ export const messagesByLocale = {
       languageDescription:
         "Wähle die Oberflächensprache für diesen Assets-Workspace.",
       languageLabel: "Oberflächensprache",
+      emailNotifications: "E-Mail-Benachrichtigungen",
+      emailNotificationsDescription:
+        "Erhalte eine E-Mail, wenn eine von dir gestartete Generierung fertig ist oder fehlschlägt.",
       setupTitle: "Assets-Einrichtung",
       setupDescription:
         "Zwei Grundlagen: Generierung und dauerhafter Speicher.",
@@ -5993,6 +6008,9 @@ export const messagesByLocale = {
       languageDescription:
         "この Assets ワークスペースのインターフェース言語を選択します。",
       languageLabel: "インターフェース言語",
+      emailNotifications: "メール通知",
+      emailNotificationsDescription:
+        "開始した生成が完了または失敗したときにメールを受け取ります。",
       setupTitle: "Assets の設定",
       setupDescription: "必要なものは生成と永続ストレージの 2 つです。",
       setupReady: "準備完了",
@@ -6338,6 +6356,9 @@ export const messagesByLocale = {
       languageDescription:
         "이 Assets 워크스페이스의 인터페이스 언어를 선택하세요.",
       languageLabel: "인터페이스 언어",
+      emailNotifications: "이메일 알림",
+      emailNotificationsDescription:
+        "내가 시작한 생성이 완료되거나 실패하면 이메일을 받습니다.",
       setupTitle: "Assets 설정",
       setupDescription: "필수 항목 두 가지: 생성과 영구 저장소.",
       setupReady: "준비됨",
@@ -6685,6 +6706,9 @@ export const messagesByLocale = {
       languageDescription:
         "Escolha o idioma da interface deste workspace de Assets.",
       languageLabel: "Idioma da interface",
+      emailNotifications: "Notificações por e-mail",
+      emailNotificationsDescription:
+        "Receba um e-mail quando uma geração que você iniciou terminar ou falhar.",
 
       addBuilderGeminiOrOpenAI:
         "Adicione Builder, Gemini ou OpenAI antes de gerar novos ativos.",
@@ -7130,6 +7154,9 @@ export const messagesByLocale = {
       languageTitle: "भाषा",
       languageDescription: "इस Assets workspace की इंटरफ़ेस भाषा चुनें।",
       languageLabel: "इंटरफ़ेस भाषा",
+      emailNotifications: "ईमेल सूचनाएँ",
+      emailNotificationsDescription:
+        "आपके द्वारा शुरू किया गया जनरेशन पूरा या विफल होने पर ईमेल पाएँ।",
       setupTitle: "Assets सेटअप",
       setupDescription: "दो जरूरी चीजें: generation और durable storage.",
       setupReady: "तैयार",
@@ -7475,6 +7502,9 @@ export const messagesByLocale = {
       languageTitle: "اللغة",
       languageDescription: "اختر لغة الواجهة لمساحة عمل Assets هذه.",
       languageLabel: "لغة الواجهة",
+      emailNotifications: "إشعارات البريد الإلكتروني",
+      emailNotificationsDescription:
+        "احصل على بريد إلكتروني عند اكتمال عملية إنشاء بدأتها أو فشلها.",
 
       addBuilderGeminiOrOpenAI:
         "قم بإضافة Builder، أو Gemini، أو OpenAI قبل إنشاء أصول جديدة.",

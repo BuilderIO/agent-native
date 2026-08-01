@@ -38,6 +38,7 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
+import { toast } from "sonner";
 
 import { PageShell } from "@/components/layout/PageShell";
 import { Button } from "@/components/ui/button";
@@ -58,6 +59,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { useAssetsPrefs } from "@/hooks/use-assets-prefs";
 import { cn } from "@/lib/utils";
 
 import changelog from "../../CHANGELOG.md?raw";
@@ -83,6 +86,7 @@ export default function SettingsPage() {
   const { data } = useActionQuery("list-libraries", { compact: true }) as {
     data?: { count?: number };
   };
+  const { prefs, loading: prefsLoading, save: savePrefs } = useAssetsPrefs();
 
   const generalSearchEntries = useMemo<SettingsSearchEntry[]>(
     () => [
@@ -91,6 +95,12 @@ export default function SettingsPage() {
         label: t("settings.languageTitle"),
         keywords: "language locale translation i18n",
         hash: "language",
+      },
+      {
+        id: "assets-notifications",
+        label: t("settings.emailNotifications"),
+        keywords: "email notification generation finished failed alert",
+        hash: "notifications",
       },
       {
         id: "assets-generation-setup",
@@ -136,6 +146,29 @@ export default function SettingsPage() {
                   <div className="w-56">
                     <LanguagePicker label={t("settings.languageLabel")} />
                   </div>
+                }
+              />
+              <SettingsRow
+                id="notifications"
+                label={t("settings.emailNotifications")}
+                description={t("settings.emailNotificationsDescription")}
+                control={
+                  <Switch
+                    aria-label={t("settings.emailNotifications")}
+                    checked={prefs.emailNotifications !== false}
+                    disabled={prefsLoading}
+                    onCheckedChange={(checked) => {
+                      savePrefs({ emailNotifications: checked }).catch(
+                        (err) => {
+                          toast.error(
+                            err instanceof Error
+                              ? err.message
+                              : t("settings.saveFailed"),
+                          );
+                        },
+                      );
+                    }}
+                  />
                 }
               />
             </SettingsGroup>

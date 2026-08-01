@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { notifyGenerationRunFinished } from "../server/lib/generation-run-notifications.js";
 import { nowIso, parseJson } from "../server/lib/json.js";
 import { completeVideoGenerationRun } from "../server/lib/video-runs.js";
 import { serializeAsset, serializeGenerationRun } from "./_helpers.js";
@@ -88,6 +89,7 @@ async function refreshImageRun(
         .set({ status: "completed", completedAt })
         .where(eq(schema.assetGenerationRuns.id, run.id));
       nextRun = { ...run, status: "completed", completedAt };
+      await notifyGenerationRunFinished(nextRun, "completed");
     }
     await syncImageVariantSlot(nextRun, "ready", { asset: outputAsset });
     return { run: nextRun, assets };
@@ -119,6 +121,7 @@ async function refreshImageRun(
     await syncImageVariantSlot(failedRun, "failed", {
       error: INTERRUPTED_IMAGE_RUN_ERROR,
     });
+    await notifyGenerationRunFinished(failedRun, "failed");
     return { run: failedRun, assets: [] };
   }
 
