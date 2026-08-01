@@ -33,6 +33,7 @@ import {
   builderBodyHydrationCanAdoptSameVersionVariant,
   builderBodyBaselineHasSameVersionConflict,
   builderAuthoritativeRawBodyHash,
+  builderBodyHydrationBulkChunkLimit,
   bulkChunkSizeForColumnCount,
   builderCmsEntryAlreadyRepresented,
   builderCmsSourceContinuationIsCurrent,
@@ -291,6 +292,12 @@ describe("database source helpers", () => {
     expect(bulkChunkSizeForColumnCount(2, "d1")).toBe(45);
     expect(bulkChunkSizeForColumnCount(1, "d1")).toBe(90);
     expect(bulkChunkSizeForColumnCount(15, "postgres")).toBe(60);
+  });
+
+  it("uses one fewer transaction for the 584-row Postgres hydration case", () => {
+    expect(builderBodyHydrationBulkChunkLimit("postgres")).toBe(200);
+    expect(builderBodyHydrationBulkChunkLimit("sqlite")).toBe(180);
+    expect(builderBodyHydrationBulkChunkLimit("d1")).toBe(18);
   });
 
   it("serializes queued Builder body hydration with an unset item status as pending", () => {
