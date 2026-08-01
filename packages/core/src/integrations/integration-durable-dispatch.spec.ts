@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const fireInternalDispatchMock = vi.hoisted(() => vi.fn());
+const fireBackgroundDispatchMock = vi.hoisted(() => vi.fn());
 const recordDispatchAttemptMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../server/self-dispatch.js", () => ({
   fireInternalDispatch: fireInternalDispatchMock,
+  fireBackgroundDispatch: fireBackgroundDispatchMock,
 }));
 
 vi.mock("./pending-tasks-store.js", () => ({
@@ -16,6 +18,7 @@ describe("durable integration dispatch", () => {
     vi.clearAllMocks();
     vi.unstubAllEnvs();
     fireInternalDispatchMock.mockResolvedValue(undefined);
+    fireBackgroundDispatchMock.mockResolvedValue(undefined);
     recordDispatchAttemptMock.mockResolvedValue(undefined);
     vi.stubEnv("NETLIFY", "true");
     vi.stubEnv("A2A_SECRET", "test-secret");
@@ -54,9 +57,13 @@ describe("durable integration dispatch", () => {
       }),
     ).resolves.toBe("background-acknowledged");
 
-    expect(fireInternalDispatchMock).toHaveBeenCalledWith(
+    expect(fireBackgroundDispatchMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        path: "/.netlify/functions/server-agent-background",
+        target: {
+          kind: "http",
+          path: "/.netlify/functions/server-agent-background",
+          expectsBackgroundRuntime: true,
+        },
         awaitResponse: true,
         body: { __agentNativeProcessor: "integration" },
       }),
@@ -82,7 +89,7 @@ describe("durable integration dispatch", () => {
       campaignContinuation: true,
     });
 
-    expect(fireInternalDispatchMock).toHaveBeenCalledWith(
+    expect(fireBackgroundDispatchMock).toHaveBeenCalledWith(
       expect.objectContaining({
         body: expect.objectContaining({
           [INTEGRATION_CAMPAIGN_PROCESSOR_FIELD]: true,
@@ -153,9 +160,13 @@ describe("durable integration dispatch", () => {
       }),
     ).resolves.toBe("background-acknowledged");
 
-    expect(fireInternalDispatchMock).toHaveBeenCalledWith(
+    expect(fireBackgroundDispatchMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        path: "/.netlify/functions/server-agent-background",
+        target: {
+          kind: "http",
+          path: "/.netlify/functions/server-agent-background",
+          expectsBackgroundRuntime: true,
+        },
         awaitResponse: true,
       }),
     );
@@ -183,9 +194,9 @@ describe("durable integration dispatch", () => {
 
   it("falls back to the portable processor when the background handoff fails", async () => {
     vi.stubEnv("AGENT_INTEGRATION_DURABLE_DISPATCH", "true");
-    fireInternalDispatchMock
-      .mockRejectedValueOnce(new Error("background unavailable"))
-      .mockResolvedValueOnce(undefined);
+    fireBackgroundDispatchMock.mockRejectedValueOnce(
+      new Error("background unavailable"),
+    );
     const { dispatchPendingIntegrationTask } =
       await import("./integration-durable-dispatch.js");
 
@@ -197,8 +208,9 @@ describe("durable integration dispatch", () => {
       }),
     ).resolves.toBe("portable-unconfirmed");
 
-    expect(fireInternalDispatchMock).toHaveBeenCalledTimes(2);
-    expect(fireInternalDispatchMock.mock.calls[1]?.[0]).toEqual(
+    expect(fireBackgroundDispatchMock).toHaveBeenCalledTimes(1);
+    expect(fireInternalDispatchMock).toHaveBeenCalledTimes(1);
+    expect(fireInternalDispatchMock.mock.calls[0]?.[0]).toEqual(
       expect.objectContaining({
         path: "/_agent-native/integrations/process-task",
       }),

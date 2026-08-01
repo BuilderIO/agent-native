@@ -5909,9 +5909,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         // (`background_worker_never_started`) and is client-recoverable.
         if (!row.hasDispatchPayload) return;
         const { updateRunHeartbeat } = await import("../agent/run-store.js");
-        const { resolveAgentChatProcessRunDispatchPath } =
+        const { resolveBackgroundDispatchTarget } =
           await import("../agent/durable-background.js");
-        const { fireInternalDispatch } = await import("./self-dispatch.js");
+        const { fireBackgroundDispatch } = await import("./self-dispatch.js");
         // Bump liveness BEFORE attempting the redispatch so the row doesn't
         // look freshly-stale again the instant this tick returns —
         // best-effort, the CAS is what actually matters for correctness, not
@@ -5935,8 +5935,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           // loop-protection limit instead of dying at it. Do not "fix" this
           // by adding `continuationCount` back without re-reading that
           // constant's doc comment.
-          await fireInternalDispatch({
-            path: resolveAgentChatProcessRunDispatchPath(),
+          await fireBackgroundDispatch({
+            target: resolveBackgroundDispatchTarget(),
             taskId: row.id,
             body: {
               internalContinuation: true,

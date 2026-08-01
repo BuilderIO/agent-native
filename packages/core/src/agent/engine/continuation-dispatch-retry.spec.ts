@@ -6,7 +6,7 @@ function makeParams(overrides: Record<string, unknown> = {}) {
   const deps = {
     sleep: vi.fn(async () => {}),
     updateRunHeartbeat: vi.fn(async () => {}),
-    fireInternalDispatch: vi.fn(async () => {
+    fireBackgroundDispatch: vi.fn(async () => {
       throw new Error("fetch failed");
     }),
     readBackgroundRunClaim: vi.fn(async () => null as any),
@@ -18,7 +18,11 @@ function makeParams(overrides: Record<string, unknown> = {}) {
       backgroundContinuationCount: 0,
       nextRunId: "run-next",
       nextRowInserted: true,
-      continuationDispatchPath: "/.netlify/functions/agent-chat-background",
+      continuationTarget: {
+        kind: "http",
+        path: "/.netlify/functions/agent-chat-background",
+        expectsBackgroundRuntime: true,
+      },
       dispatchBody: {},
       dispatchBudget: {
         maxDispatchAttempts: 3,
@@ -50,7 +54,7 @@ describe("attemptContinuationDispatch", () => {
 
     expect(result.dispatched).toBe(true);
     expect(deps.readBackgroundRunClaim).toHaveBeenCalledWith("run-next");
-    expect(deps.fireInternalDispatch).toHaveBeenCalledTimes(1);
+    expect(deps.fireBackgroundDispatch).toHaveBeenCalledTimes(1);
   });
 
   it("keeps retrying a durable-background dispatch when the successor never claimed", async () => {
@@ -59,7 +63,7 @@ describe("attemptContinuationDispatch", () => {
     const result = await attemptContinuationDispatch(params as any);
 
     expect(result.dispatched).toBe(false);
-    expect(deps.fireInternalDispatch).toHaveBeenCalledTimes(3);
+    expect(deps.fireBackgroundDispatch).toHaveBeenCalledTimes(3);
   });
 
   it("does not consult the claim when no successor row was inserted", async () => {
