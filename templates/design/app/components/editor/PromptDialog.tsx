@@ -62,6 +62,7 @@ export interface UploadedFile {
   size: number;
   textContent?: string;
   textTruncated?: boolean;
+  textExtractionError?: string;
   dataUrl?: string;
 }
 
