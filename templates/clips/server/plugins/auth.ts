@@ -44,6 +44,13 @@ export default createAuthPlugin({
     // upload POSTs stay behind auth under /api/uploads/*.
     "/api/video",
     "/api/auth/google-calendar",
+    // Server→server dispatch for durable post-finalize jobs (transcript
+    // fallback, seekable remux). The fetch carries no session cookie, so the
+    // auth gate must let it through; the route rejects anything without a
+    // valid scoped `clips-post-finalize-job` token, so it stays
+    // self-authorizing. Without this entry every dispatch 401s and failed
+    // native transcripts never fall back to cloud transcription.
+    "/api/_agent-native-background",
     "/_agent-native/google/auth-url",
     "/_agent-native/google/callback",
   ],

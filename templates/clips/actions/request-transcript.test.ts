@@ -67,10 +67,18 @@ vi.mock("@agent-native/core/secrets", () => ({
   readAppSecret: vi.fn(async () => null),
 }));
 
-vi.mock("@agent-native/core/server/request-context", () => ({
-  getRequestUserEmail: vi.fn(() => "owner@example.com"),
-  getCredentialContext: vi.fn(() => null),
-}));
+vi.mock(
+  import("@agent-native/core/server/request-context"),
+  async (importOriginal) => {
+    const actual = await importOriginal();
+    return {
+      ...actual,
+      getRequestUserEmail: vi.fn(() => "owner@example.com"),
+      getRequestOrgId: vi.fn(() => null),
+      getCredentialContext: vi.fn(() => null),
+    };
+  },
+);
 
 vi.mock("@agent-native/core/server", () => ({
   resolveHasBuilderPrivateKey: (...args: unknown[]) =>
@@ -191,13 +199,23 @@ describe("builderTranscriptionTimeoutMs", () => {
     expect(builderTranscriptionTimeoutMs(30_000)).toBe(45_000);
   });
 
-  it("scales longer recordings without exceeding the Netlify function budget", () => {
+  it("scales longer recordings up to the self-hosted ceiling", () => {
+    expect(builderTranscriptionTimeoutMs(6 * 60_000)).toBe(78_000);
+    expect(builderTranscriptionTimeoutMs(60 * 60_000)).toBe(180_000);
+  });
+
+  it("keeps the historical cap under the Netlify function budget", () => {
+    vi.stubEnv("NETLIFY", "true");
     expect(builderTranscriptionTimeoutMs(15 * 60_000)).toBe(65_000);
   });
 
   it("allows an operator override while preserving safety bounds", () => {
     vi.stubEnv("CLIPS_BUILDER_TRANSCRIPTION_TIMEOUT_MS", "120000");
+    expect(builderTranscriptionTimeoutMs(60_000)).toBe(120_000);
+
+    vi.stubEnv("NETLIFY", "true");
     expect(builderTranscriptionTimeoutMs(60_000)).toBe(65_000);
+    vi.stubEnv("NETLIFY", "");
 
     vi.stubEnv("CLIPS_BUILDER_TRANSCRIPTION_TIMEOUT_MS", "50000");
     expect(builderTranscriptionTimeoutMs(60_000)).toBe(50_000);
@@ -271,6 +289,7 @@ describe("requestTranscript regeneration", () => {
     mockSelectRows.queue = [];
     mockResolveHasBuilderPrivateKey.mockResolvedValue(true);
     mockAssertAccess.mockResolvedValue({ role: "editor" });
+    mockGetSetting.mockResolvedValue({});
     mockSsrfSafeFetch.mockResolvedValue(
       new Response(new Blob(["recording"], { type: "video/webm" })),
     );
@@ -355,6 +374,7 @@ describe("requestTranscript regeneration", () => {
           retryCount: 0,
         },
       ],
+      [{ ownerEmail: "owner@example.com", orgId: null }],
       [
         {
           videoUrl: "https://cdn.example.com/recording.webm",
@@ -416,6 +436,7 @@ describe("requestTranscript regeneration", () => {
           retryCount: 0,
         },
       ],
+      [{ ownerEmail: "owner@example.com", orgId: null }],
       [
         {
           videoUrl: "https://cdn.example.com/recording.webm",

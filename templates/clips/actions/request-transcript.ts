@@ -131,9 +131,14 @@ const SPEECH_ONLY_TRANSCRIPTION_INSTRUCTIONS =
 const CLIPS_USER_PREFS_KEY = "clips-user-prefs";
 const RECENT_PENDING_TRANSCRIPT_MS = 2 * 60 * 1000;
 const BUILDER_TRANSCRIPTION_MIN_TIMEOUT_MS = 45_000;
-const BUILDER_TRANSCRIPTION_MAX_TIMEOUT_MS = 65_000;
+// On Netlify the synchronous function budget caps how long a transcription
+// request may run; self-hosted/local Node servers have no such budget, and
+// 65s is not enough for gateway upload + Gemini inference on multi-minute
+// recordings over slow uplinks (observed: a 6-minute clip timing out at 65s).
+const BUILDER_TRANSCRIPTION_MAX_TIMEOUT_NETLIFY_MS = 65_000;
+const BUILDER_TRANSCRIPTION_MAX_TIMEOUT_MS = 180_000;
 const BUILDER_TRANSCRIPTION_BASE_TIMEOUT_MS = 30_000;
-const BUILDER_TRANSCRIPTION_PER_MINUTE_MS = 3_000;
+const BUILDER_TRANSCRIPTION_PER_MINUTE_MS = 8_000;
 const MEDIA_FETCH_MIN_TIMEOUT_MS = 45_000;
 const MEDIA_FETCH_MAX_TIMEOUT_MS = 120_000;
 const MEDIA_FETCH_BASE_TIMEOUT_MS = 30_000;
@@ -183,10 +188,16 @@ export async function transcribeWithBuilderModelFallback(
   }
 }
 
+function builderTranscriptionMaxTimeoutMs(): number {
+  return process.env.NETLIFY
+    ? BUILDER_TRANSCRIPTION_MAX_TIMEOUT_NETLIFY_MS
+    : BUILDER_TRANSCRIPTION_MAX_TIMEOUT_MS;
+}
+
 function clampTimeoutMs(value: number): number {
   return Math.max(
     BUILDER_TRANSCRIPTION_MIN_TIMEOUT_MS,
-    Math.min(BUILDER_TRANSCRIPTION_MAX_TIMEOUT_MS, Math.floor(value)),
+    Math.min(builderTranscriptionMaxTimeoutMs(), Math.floor(value)),
   );
 }
 
