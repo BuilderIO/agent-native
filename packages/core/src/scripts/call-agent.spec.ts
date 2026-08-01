@@ -689,7 +689,10 @@ describe("call-agent action", () => {
     expect(callAgentMock).toHaveBeenCalledWith(
       "https://slides.agent-native.test",
       expect.any(String),
-      expect.objectContaining({ timeoutMs: 2_000 }),
+      expect.objectContaining({
+        timeoutMs: 2_000,
+        submissionTimeoutMs: 15_000,
+      }),
     );
     expect(insertA2AContinuationMock).toHaveBeenCalledTimes(1);
     expect(insertA2AContinuationMock).toHaveBeenCalledWith(
@@ -760,7 +763,10 @@ describe("call-agent action", () => {
       expect(callAgentMock).toHaveBeenCalledWith(
         "https://slides.agent-native.test",
         expect.any(String),
-        expect.not.objectContaining({ timeoutMs: expect.any(Number) }),
+        expect.not.objectContaining({
+          timeoutMs: expect.any(Number),
+          submissionTimeoutMs: expect.any(Number),
+        }),
       );
     },
   );
@@ -783,6 +789,9 @@ describe("call-agent action", () => {
         "https://slides.agent-native.test",
         expect.any(String),
         expect.objectContaining({ timeoutMs: 18_000 }),
+      );
+      expect(callAgentMock.mock.calls[0]?.[2]).not.toHaveProperty(
+        "submissionTimeoutMs",
       );
     },
   );

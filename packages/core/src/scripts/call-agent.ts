@@ -38,6 +38,7 @@ import { track } from "../tracking/registry.js";
 
 const DEFAULT_SERVERLESS_INTEGRATION_A2A_TIMEOUT_MS = 18_000;
 const NETLIFY_INTEGRATION_A2A_TIMEOUT_MS = 2_000;
+const NETLIFY_INTEGRATION_A2A_SUBMISSION_TIMEOUT_MS = 15_000;
 const INTEGRATION_A2A_TOKEN_TTL = "30m";
 const A2A_INVOCATION_EVENT = "$a2a_invocation";
 
@@ -697,6 +698,10 @@ export async function run(
         // Docker can wait for slow-but-valid answers; integration processors
         // still need to finish before their current function execution dies.
         const callTimeoutMs = getIntegrationCallTimeoutMs();
+        const submissionTimeoutMs =
+          callTimeoutMs && isNetlifyHostedRuntimeForIntegrationCall()
+            ? NETLIFY_INTEGRATION_A2A_SUBMISSION_TIMEOUT_MS
+            : undefined;
         responseText = await callAgent(agent.url, messageWithHint, {
           apiKey,
           userEmail: callerEmail,
@@ -713,6 +718,7 @@ export async function run(
           ...(callTimeoutMs
             ? {
                 timeoutMs: callTimeoutMs,
+                ...(submissionTimeoutMs ? { submissionTimeoutMs } : {}),
               }
             : {}),
         });
