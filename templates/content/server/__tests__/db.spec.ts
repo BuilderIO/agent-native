@@ -108,6 +108,21 @@ describe("content database migrations", () => {
     );
   });
 
+  it("creates bounded database migration receipts additively", () => {
+    const source = readFileSync(
+      join(__dirname, "..", "plugins", "db.ts"),
+      "utf8",
+    );
+
+    expect(source).toContain(
+      "CREATE TABLE IF NOT EXISTS content_database_migration_receipts",
+    );
+    expect(source).toContain(
+      "content_database_migration_receipts_database_key_unique",
+    );
+    expect(source).toContain('name: "content-database-migration-receipts"');
+  });
+
   it("creates Builder MDX sidecar cache table additively", () => {
     const source = readFileSync(
       join(__dirname, "..", "plugins", "db.ts"),
@@ -166,5 +181,6 @@ describe("content database migrations", () => {
     expect(changeSetDelete).toBeGreaterThan(-1);
     expect(executionDelete).toBeLessThan(changeSetDelete);
     expect(reviewDelete).toBeLessThan(changeSetDelete);
+    expect(source).toContain("delete(schema.contentDatabaseMigrationReceipts)");
   });
 });

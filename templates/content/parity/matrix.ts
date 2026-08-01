@@ -293,9 +293,9 @@ export const parityMatrix: ParityRow[] = [
       "app/components/editor/database/DatabaseView.tsx",
     ],
     durableEffect:
-      "Database row backing documents and row ordering are created, duplicated, moved, edited, and deleted.",
+      "Database row backing documents and row ordering are created, duplicated, moved, edited, deleted, and migrated through one canonical data model.",
     uiImplementation:
-      "Row controls call row actions; selected-row duplicate/delete call bounded batch actions, while bulk property edits remain a later reliability slice.",
+      "Row controls call row actions; selected-row duplicate/delete call bounded batch actions, while bounded whole-database schema-and-body migrations use one validated, receipt-backed action instead of many partial writes.",
     status: "action-backed",
     actions: [
       "add-database-item",
@@ -303,6 +303,7 @@ export const parityMatrix: ParityRow[] = [
       "delete-document",
       "duplicate-database-items",
       "duplicate-database-item",
+      "migrate-content-database-rows",
       "move-database-item",
       "set-document-property",
     ],
@@ -313,6 +314,7 @@ export const parityMatrix: ParityRow[] = [
     followUpPR: null,
     coverageRefs: [
       "actions/database-row-batch-actions.db.test.ts",
+      "actions/migrate-content-database-rows.db.test.ts",
       "parity/__tests__/database-row-batch-reliability.test.ts",
     ],
     evalScenarioIds: ["database-bulk-row-reliability"],

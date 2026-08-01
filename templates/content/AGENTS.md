@@ -85,11 +85,21 @@ ladder.
 | `edit-document` | Find/replace edit — preferred for small changes |
 | `update-document` | Full rewrite of title, content, or description |
 | `delete-document` | Move a page and its children to Trash |
+| `migrate-content-database-rows` | Validate, atomically apply, verify, roll back, or finalize one bounded whole-database row migration |
 
 Every action carries its own schema, and the rest of the app-specific surface
 (comments, sharing, databases, Notion, local file sources such as
 `remove-local-file-source`) is registered too — use `tool-search` instead of
 scanning a table here.
+
+Use `migrate-content-database-rows` only when one bounded schema-and-content
+change must cover every existing row without partial writes. Run `validate`
+first, preserve its plan hash and digest, call `apply` once with an idempotency
+key, and independently read back the database and every row. Then call the
+separate `verify` phase with the post-apply digest; only its durable verified
+receipt can be `finalize`d. Finalize removes only the legacy property IDs
+recorded in the receipt; ordinary single-row edits still use `edit-document`,
+`update-document`, and `set-document-property`.
 
 Sidebar ordering has two deliberately different meanings. Reordering Pinned or
 workspace roots moves the exact database membership identified by both
