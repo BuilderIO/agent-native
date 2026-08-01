@@ -73,12 +73,6 @@ export default defineAction({
       );
     }
 
-    const propertyIds = (
-      await db
-        .select({ id: schema.documentPropertyDefinitions.id })
-        .from(schema.documentPropertyDefinitions)
-        .where(eq(schema.documentPropertyDefinitions.databaseId, database.id))
-    ).map((property) => property.id);
     const now = new Date().toISOString();
 
     await withPositionLock(databaseItemsPositionScope(database.id), () =>
@@ -113,6 +107,14 @@ export default defineAction({
             );
           }
         }
+        const propertyIds = (
+          await tx
+            .select({ id: schema.documentPropertyDefinitions.id })
+            .from(schema.documentPropertyDefinitions)
+            .where(
+              eq(schema.documentPropertyDefinitions.databaseId, database.id),
+            )
+        ).map((property) => property.id);
         if (removedDocumentIds.length > 0 && propertyIds.length > 0) {
           await tx
             .delete(schema.documentPropertyValues)

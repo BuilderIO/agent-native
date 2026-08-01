@@ -27,6 +27,7 @@ import {
   builderCmsQualifiedId,
   type BuilderCmsSourceEntry,
 } from "./_builder-cms-source-adapter.js";
+import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import {
   resolveDatabaseForSourceMutation,
   serializeSourceField,
@@ -520,6 +521,11 @@ export default defineAction({
           "The Builder source changed while adding this property. No property was created; try again.",
         );
       }
+
+      await lockDatabaseMemberships(
+        tx,
+        sourceRows.map((row) => row.databaseItemId),
+      );
 
       const builderMetadata = builderMetadataForSourceField({
         sourceFieldKey: currentField.sourceFieldKey,

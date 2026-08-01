@@ -10,6 +10,7 @@ import {
   serializePropertyOptions,
   type DocumentPropertyType,
 } from "../shared/properties.js";
+import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import {
   propertyDefinitionsPositionScope,
   withPositionLock,
@@ -76,57 +77,69 @@ export default defineAction({
     await withPositionLock(
       propertyDefinitionsPositionScope(database.id),
       async () => {
-        const [maxPos] = await db
-          .select({
-            max: sql<number>`COALESCE(MAX(position), -1)`,
-          })
-          .from(schema.documentPropertyDefinitions)
-          .where(
-            and(
-              eq(
-                schema.documentPropertyDefinitions.ownerEmail,
-                document.ownerEmail,
-              ),
-              eq(schema.documentPropertyDefinitions.databaseId, database.id),
-            ),
+        await db.transaction(async (tx) => {
+          const memberships = await tx
+            .select({ id: schema.contentDatabaseItems.id })
+            .from(schema.contentDatabaseItems)
+            .where(eq(schema.contentDatabaseItems.databaseId, database.id));
+          await lockDatabaseMemberships(
+            tx,
+            memberships.map((membership) => membership.id),
           );
 
-        await db.insert(schema.documentPropertyDefinitions).values({
-          id: newPropertyId,
-          ownerEmail: definition.ownerEmail,
-          orgId: definition.orgId,
-          databaseId: database.id,
-          name: `${definition.name} copy`,
-          type: definition.type,
-          visibility: definition.visibility,
-          optionsJson,
-          position: (maxPos?.max ?? -1) + 1,
-          createdAt: now,
-          updatedAt: now,
+          const [maxPos] = await tx
+            .select({
+              max: sql<number>`COALESCE(MAX(position), -1)`,
+            })
+            .from(schema.documentPropertyDefinitions)
+            .where(
+              and(
+                eq(
+                  schema.documentPropertyDefinitions.ownerEmail,
+                  document.ownerEmail,
+                ),
+                eq(schema.documentPropertyDefinitions.databaseId, database.id),
+              ),
+            );
+
+          await tx.insert(schema.documentPropertyDefinitions).values({
+            id: newPropertyId,
+            ownerEmail: definition.ownerEmail,
+            orgId: definition.orgId,
+            databaseId: database.id,
+            name: `${definition.name} copy`,
+            type: definition.type,
+            visibility: definition.visibility,
+            optionsJson,
+            position: (maxPos?.max ?? -1) + 1,
+            createdAt: now,
+            updatedAt: now,
+          });
+
+          // Blocks fields don't use document_property_values; a duplicate
+          // starts empty.
+          if (!isBlocks) {
+            const values = await tx
+              .select()
+              .from(schema.documentPropertyValues)
+              .where(eq(schema.documentPropertyValues.propertyId, propertyId));
+            if (values.length > 0) {
+              await tx.insert(schema.documentPropertyValues).values(
+                values.map((value) => ({
+                  id: nanoid(),
+                  ownerEmail: value.ownerEmail,
+                  documentId: value.documentId,
+                  propertyId: newPropertyId,
+                  valueJson: value.valueJson,
+                  createdAt: now,
+                  updatedAt: now,
+                })),
+              );
+            }
+          }
         });
       },
     );
-
-    // Blocks fields don't use document_property_values; a duplicate starts empty.
-    if (!isBlocks) {
-      const values = await db
-        .select()
-        .from(schema.documentPropertyValues)
-        .where(eq(schema.documentPropertyValues.propertyId, propertyId));
-      if (values.length > 0) {
-        await db.insert(schema.documentPropertyValues).values(
-          values.map((value) => ({
-            id: nanoid(),
-            ownerEmail: value.ownerEmail,
-            documentId: value.documentId,
-            propertyId: newPropertyId,
-            valueJson: value.valueJson,
-            createdAt: now,
-            updatedAt: now,
-          })),
-        );
-      }
-    }
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 

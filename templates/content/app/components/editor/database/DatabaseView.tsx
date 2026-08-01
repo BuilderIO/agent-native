@@ -272,6 +272,7 @@ import { DatabaseFormView } from "./FormView";
 import { DatabaseGalleryView } from "./GalleryView";
 import { DatabaseListView } from "./ListView";
 import {
+  databaseItemCanDuplicate,
   databaseItemCanRemoveFromDatabase,
   databaseItemHasViewerAccess,
   databaseItemIsSourceBacked,
@@ -3364,7 +3365,11 @@ export function databaseSelectionCapabilities(args: {
   return {
     selectionComplete,
     canEditSelected,
-    canDuplicateSelected: canEditSelected && !args.isWorkspaceCatalog,
+    canDuplicateSelected:
+      canEditSelected &&
+      args.selectedItems.every((item) =>
+        databaseItemCanDuplicate(item, args.isWorkspaceCatalog),
+      ),
     canRemoveSelected: args.removesFavoriteMembership
       ? canEditSelected
       : selectionComplete &&
@@ -18512,8 +18517,10 @@ export function RowActionsCell({
         isWorkspaceCatalog,
         sources: databaseSources,
       });
+  const canDuplicateRow = databaseItemCanDuplicate(item, isWorkspaceCatalog);
 
   async function duplicateRow() {
+    if (!canDuplicateRow) return;
     setMenuOpen(false);
     try {
       const response = await duplicateItem.mutateAsync({ itemId: item.id });
@@ -18589,7 +18596,7 @@ export function RowActionsCell({
             <IconExternalLink className="mr-2 size-4 text-muted-foreground" />
             {dbText("openPage")}
           </DropdownMenuItem>
-          {!isWorkspaceCatalog ? (
+          {canDuplicateRow ? (
             <DropdownMenuItem
               disabled={duplicateItem.isPending}
               onSelect={(event) => {

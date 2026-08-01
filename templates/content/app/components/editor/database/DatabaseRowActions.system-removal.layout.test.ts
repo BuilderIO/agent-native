@@ -20,6 +20,10 @@ describe("database row action system-removal wiring", () => {
       );
       expect(source).toContain('dbText("removeFromDatabase")');
       expect(source).toContain("removesFavoriteMembership");
+      expect(source).toContain(
+        "databaseItemCanDuplicate(item, isWorkspaceCatalog)",
+      );
+      expect(source).toContain("{canDuplicateRow ? (");
       expect(source).toContain("<IconStarOff");
     });
   }

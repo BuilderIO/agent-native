@@ -21,6 +21,13 @@ export function databaseItemHasViewerAccess(item: ContentDatabaseItem) {
   return item.document.canView === true;
 }
 
+export function databaseItemCanDuplicate(
+  item: ContentDatabaseItem,
+  isWorkspaceCatalog: boolean,
+) {
+  return !isWorkspaceCatalog && databaseItemHasViewerAccess(item);
+}
+
 export function databaseItemCanRemoveFromDatabase(args: {
   item: ContentDatabaseItem;
   databaseCanManage: boolean;

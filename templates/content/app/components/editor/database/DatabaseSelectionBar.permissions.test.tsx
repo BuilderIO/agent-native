@@ -142,8 +142,11 @@ describe("database selection permissions", () => {
         sources: [],
         removesFavoriteMembership: false,
         isWorkspaceCatalog: false,
-      }).canRemoveSelected,
-    ).toBe(false);
+      }),
+    ).toMatchObject({
+      canDuplicateSelected: false,
+      canRemoveSelected: false,
+    });
   });
 
   it("does not offer membership removal for system databases", () => {

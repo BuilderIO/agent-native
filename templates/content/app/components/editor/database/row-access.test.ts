@@ -2,6 +2,7 @@ import type { ContentDatabaseItem, ContentDatabaseSource } from "@shared/api";
 import { describe, expect, it } from "vitest";
 
 import {
+  databaseItemCanDuplicate,
   databaseItemCanRemoveFromDatabase,
   databaseItemHasViewerAccess,
   databaseItemIsSourceBacked,
@@ -82,6 +83,19 @@ describe("database row access", () => {
       ),
     ).toBe(true);
     expect(databaseItemHasViewerAccess(item())).toBe(false);
+  });
+
+  it("offers duplication only for visible non-workspace pages", () => {
+    const visibleItem = item({
+      document: {
+        id: "document-1",
+        canView: true,
+      } as ContentDatabaseItem["document"],
+    });
+
+    expect(databaseItemCanDuplicate(visibleItem, false)).toBe(true);
+    expect(databaseItemCanDuplicate(item(), false)).toBe(false);
+    expect(databaseItemCanDuplicate(visibleItem, true)).toBe(false);
   });
 
   it("shares one fail-closed removal decision across database row views", () => {

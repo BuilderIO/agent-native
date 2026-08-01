@@ -69,7 +69,10 @@ import { cn } from "@/lib/utils";
 
 import { OPTION_COLOR_CLASSES, TYPE_ICONS } from "../DocumentProperties";
 import { databaseDuplicatedItemFromResponse } from "./navigation-state";
-import { databaseItemCanRemoveFromDatabase } from "./row-access";
+import {
+  databaseItemCanDuplicate,
+  databaseItemCanRemoveFromDatabase,
+} from "./row-access";
 import { dbText } from "./text";
 import type { DatabaseBoardGroup, DatabaseDropSide } from "./types";
 
@@ -564,8 +567,10 @@ export function RowActionsCell({
         isWorkspaceCatalog,
         sources: databaseSources,
       });
+  const canDuplicateRow = databaseItemCanDuplicate(item, isWorkspaceCatalog);
 
   async function duplicateRow() {
+    if (!canDuplicateRow) return;
     setMenuOpen(false);
     try {
       const response = await duplicateItem.mutateAsync({ itemId: item.id });
@@ -641,7 +646,7 @@ export function RowActionsCell({
             <IconExternalLink className="mr-2 size-4 text-muted-foreground" />
             Open page
           </DropdownMenuItem>
-          {!isWorkspaceCatalog ? (
+          {canDuplicateRow ? (
             <DropdownMenuItem
               disabled={duplicateItem.isPending}
               onSelect={(event) => {

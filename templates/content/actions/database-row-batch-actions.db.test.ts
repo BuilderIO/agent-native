@@ -1,4 +1,4 @@
-import { rmSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -18,6 +18,7 @@ let getDb: () => any;
 let schema: Schema;
 let duplicateDatabaseItemsAction: typeof import("./duplicate-database-items.js").default;
 let duplicateDatabaseItemAction: typeof import("./duplicate-database-item.js").default;
+let duplicateDocumentPropertyAction: typeof import("./duplicate-document-property.js").default;
 let removeDatabaseItemsAction: typeof import("./remove-database-items.js").default;
 let addDatabaseItemAction: typeof import("./add-database-item.js").default;
 let lockDatabaseMemberships: typeof import("./_database-membership-lock.js").lockDatabaseMemberships;
@@ -38,6 +39,9 @@ beforeAll(async () => {
     .default;
   duplicateDatabaseItemAction = (await import("./duplicate-database-item.js"))
     .default;
+  duplicateDocumentPropertyAction = (
+    await import("./duplicate-document-property.js")
+  ).default;
   removeDatabaseItemsAction = (await import("./remove-database-items.js"))
     .default;
   addDatabaseItemAction = (await import("./add-database-item.js")).default;
@@ -1024,6 +1028,108 @@ describe("database row batch actions", () => {
           ),
         ),
     ).toEqual([]);
+  });
+
+  it("leaves no copied value when property duplication races membership removal", async () => {
+    const { databaseId, rows } = await createDatabaseWithRows(1);
+    const now = new Date().toISOString();
+    const propertyId = nextId("property");
+    await getDb().insert(schema.documentPropertyDefinitions).values({
+      id: propertyId,
+      ownerEmail: OWNER,
+      databaseId,
+      name: "Status",
+      type: "text",
+      visibility: "always_show",
+      optionsJson: "{}",
+      position: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await getDb()
+      .insert(schema.documentPropertyValues)
+      .values({
+        id: nextId("value"),
+        ownerEmail: OWNER,
+        documentId: rows[0].documentId,
+        propertyId,
+        valueJson: JSON.stringify("Ready"),
+        createdAt: now,
+        updatedAt: now,
+      });
+
+    const [duplicateResult, removalResult] = await Promise.allSettled([
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        duplicateDocumentPropertyAction.run({
+          documentId: rows[0].documentId,
+          databaseId,
+          propertyId,
+        }),
+      ),
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        removeDatabaseItemsAction.run({
+          databaseId,
+          itemIds: [rows[0].itemId],
+        }),
+      ),
+    ]);
+
+    expect(removalResult.status).toBe("fulfilled");
+    expect(["fulfilled", "rejected"]).toContain(duplicateResult.status);
+
+    expect(
+      await getDb()
+        .select({ id: schema.documentPropertyValues.id })
+        .from(schema.documentPropertyValues)
+        .innerJoin(
+          schema.documentPropertyDefinitions,
+          eq(
+            schema.documentPropertyDefinitions.id,
+            schema.documentPropertyValues.propertyId,
+          ),
+        )
+        .where(
+          and(
+            eq(schema.documentPropertyValues.documentId, rows[0].documentId),
+            eq(schema.documentPropertyDefinitions.databaseId, databaseId),
+          ),
+        ),
+    ).toEqual([]);
+  });
+
+  it("keeps copied property values inside the membership-locked transaction", () => {
+    const source = readFileSync(
+      new URL("./duplicate-document-property.ts", import.meta.url),
+      "utf8",
+    );
+    const transactionStart = source.indexOf(
+      "await db.transaction(async (tx) => {",
+    );
+    const transactionEnd = source.indexOf(
+      "\n        });\n      },\n    );",
+      transactionStart,
+    );
+    expect(transactionStart).toBeGreaterThan(-1);
+    expect(transactionEnd).toBeGreaterThan(transactionStart);
+
+    const transactionBody = source.slice(transactionStart, transactionEnd);
+    const membershipLock = transactionBody.indexOf(
+      "await lockDatabaseMemberships(",
+    );
+    const definitionInsert = transactionBody.indexOf(
+      "await tx.insert(schema.documentPropertyDefinitions)",
+    );
+    const valueRead = transactionBody.indexOf(
+      ".from(schema.documentPropertyValues)",
+    );
+    const valueInsert = transactionBody.indexOf(
+      "await tx.insert(schema.documentPropertyValues)",
+    );
+
+    expect(membershipLock).toBeGreaterThan(-1);
+    expect(definitionInsert).toBeGreaterThan(membershipLock);
+    expect(valueRead).toBeGreaterThan(definitionInsert);
+    expect(valueInsert).toBeGreaterThan(valueRead);
   });
 
   it("rejects oversized batches before mutation", async () => {
