@@ -606,5 +606,117 @@ Open:
    "insert slide here" affordance between thumbnails on hover?
 2. Should rail width be a user preference (draggable / collapsible) rather than
    a constant? `EditorToolbar.tsx:430` already has a rail show/hide toggle.
-3. Undo / redo — Google has them in the toolbar; we have them nowhere. Net-new,
-   out of scope here, but this section makes their absence more visible.
+3. ~~Undo / redo — Google has them in the toolbar; we have them nowhere.~~
+   **Wrong.** `DeckContext` already ships per-user inverse-op undo:
+   `undo`/`redo`/`canUndo`/`canRedo` (`DeckContext.tsx:195-199`) bound to
+   Cmd/Ctrl+Z and Cmd/Ctrl+Y (`:1730-1743`). There is no UI for it. See §11.
+
+---
+
+## 11. Three-row header (planned)
+
+Requested after §10 shipped: a `+`, undo, and redo at the far left of the
+toolbar row; `Tt` (add text box) moved down out of the deck row; and the header
+split into a title row and a `File · Edit …` row with Share/Present at its right.
+
+**Row structure — confirmed choice: three rows, Google-style.**
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│ ← Untitled Deck                                    3/10  💾 👤    │ row 1  title
+├──────────────────────────────────────────────────────────────────┤
+│ File  Edit  Insert  Slide  View            ⬆ Export  Share  ▶    │ row 2  menus + actions
+├──────────────────────────────────────────────────────────────────┤
+│ + ↶ ↷ │ Tt ▭ 🖼 ✎ 💬 │ 19px  B  ⬤  ≡▾  ⧉▾  ⋯ │        ⌃         │ row 3  contextual
+├────────┬─────────────────────────────────────────────────────────┤
+│ ▤ 1    │                                                         │
+│ ▤ 2    │                    slide canvas                         │
+└────────┴─────────────────────────────────────────────────────────┘
+```
+
+Row 3 already exists and already spans full width (§10.3). Rows 1 and 2 are a
+split of today's single `EditorToolbar.tsx:431` row.
+
+### 11.1 This reverses an earlier decision — deliberately
+
+§3a said: "What we should **not** copy: the menu bar (File/Edit/View/Insert/…).
+Our equivalents already live in the row-1 overflow and the agent, and a menu bar
+would fight the app's styling."
+
+That is now overruled by an explicit product call. The reasoning that makes it
+defensible: §10.1 showed our inserts are genuinely undiscoverable — an image and
+an Excalidraw canvas are both reached through a **settings cog**. A named menu
+is a worse fit for the app's visual language but a much better fit for
+findability, and findability is the actual complaint. Nothing in Sajal's or
+Steve's confirmed scope (§1) forbids it; §3a was our own inference, not theirs.
+
+**The cost is real and must be paid down.** Sajal's core complaint was canvas
+real estate, and this adds a third row (~44px). Two mitigations, both already
+designed in this doc:
+
+- **§6.8's collapse chevron** stops being optional. Row 3 gets a `⌃` that hides
+  it, persisted per user.
+- Row 1 is thin (title + save/presence only), so it can shrink to `h-9`.
+
+### 11.2 Menu contents — all relocation, one new UI
+
+Everything here already exists somewhere. The only net-new UI is undo/redo
+buttons, and even those wrap an existing API.
+
+| Menu       | Items                                                                                           | Where they live today                                                                                            |
+| ---------- | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| **File**   | Import file, Export (PDF / PPTX / Google Slides), Version history, Duplicate deck, Rename       | `⋯ → Import file` (`EditorToolbar.tsx:1064`), `ExportMenu` (`:972`), `⋯ → Saved versions` (`:1068`), title input |
+| **Edit**   | Undo, Redo, Duplicate slide, Delete slide                                                       | `DeckContext.undo/redo` (`:195-199`, no UI), rail row hover actions                                              |
+| **Insert** | Text box, Image, Generate image, Asset library, Mermaid diagram, Excalidraw canvas, Comment pin | `T` (`:818`), cog popover (`:548`), tools popover (`:858`)                                                       |
+| **Slide**  | Layout, Background, Transition, Aspect ratio, New slide, Speaker notes                          | cog popover (`:548`)                                                                                             |
+| **View**   | Show/hide slide rail, Theme, Present                                                            | rail toggle (`:430`), `⋯ → theme` (`:1073`), Present (`:1024`)                                                   |
+
+After this, **the cog and the tools popover are both empty and get deleted** —
+that is §8 Q4 answered by attrition rather than by argument.
+
+### 11.3 Row 3's stable left segment
+
+```
+│ + ↶ ↷ │ Tt ▭ ╱ 🖼 ✎ │ …contextual… │
+  add/history  insert
+```
+
+- `+` — already built (§10.3); it moves from row 1 down to row 3.
+- `↶ ↷` — new buttons, `disabled={!canUndo}` / `!canRedo`, calling the existing
+  context methods. Tooltips must show the existing shortcuts.
+- `Tt` — moves out of row 1 (`:818`); the `T` keyboard shortcut is unchanged.
+- The rest of the insert cluster is §10.4, unchanged.
+
+Duplication is intentional and matches Google: undo lives in both `Edit` and the
+toolbar; insert items live in both `Insert` and the toolbar.
+
+### 11.4 Milestones
+
+| #   | Milestone                                                                  | Proves                                      |
+| --- | -------------------------------------------------------------------------- | ------------------------------------------- |
+| N1  | Split `EditorToolbar` into a thin title row + an actions row; no new items | The split holds without regressions         |
+| N2  | `+`, undo, redo, and `Tt` move into row 3's stable left segment            | The requested left cluster, and undo has UI |
+| N3  | `File` and `Edit` menus, sourced from existing handlers                    | Relocation loses nothing                    |
+| N4  | `Insert`, `Slide`, `View`; delete the cog and tools popovers               | The undiscoverable-insert problem is fixed  |
+| N5  | Row 3 collapse chevron + narrow-screen behavior; changelog                 | The vertical-space cost is paid back        |
+
+### 11.5 Known traps
+
+1. **`EditorToolbar.tsx` is 1,000+ lines already.** Splitting into two rows
+   inside one component will make it worse. N1 should extract `DeckTitleRow` and
+   `DeckMenuRow` as siblings rather than nesting another div.
+2. **Menu keyboard behavior.** A real menu bar needs arrow-key traversal between
+   menus, not five independent `DropdownMenu`s. shadcn ships `Menubar` — use it
+   rather than hand-rolling, or accept that it is just five dropdowns and do not
+   call it a menu bar in the a11y tree.
+3. **Undo's `isTyping` guard.** `DeckContext.tsx:1727` deliberately lets
+   contenteditable and inputs handle their own undo. A toolbar button has no
+   such guard, so clicking undo mid-text-edit will undo the _deck op_, not the
+   typing. Decide this explicitly before N2 ships.
+4. **Narrow screens.** Row 3 is `hidden lg:block`. If `+`, undo, and `Tt` move
+   there, they vanish below `lg` — where they are reachable today. Either keep a
+   minimal row-2 fallback or make row 3 responsive first.
+5. **i18n.** Every menu label is a new key across 11 catalogs
+   (`guard:i18n-catalogs` enforces parity).
+6. **Three rows on short laptops.** At 800px tall, 44+44+40+rail leaves little
+   canvas. N5 is not optional polish.
