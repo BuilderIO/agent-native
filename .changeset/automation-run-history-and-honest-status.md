@@ -37,3 +37,10 @@ than shown as permanently in-flight, and rows are pruned per automation so a
 frequent schedule cannot grow the table without limit. Recording a run's
 outcome also re-reads the automation first, so a schedule edited while it was
 running is no longer reverted by the completion write.
+
+Also from review: a completion write no longer recreates an automation deleted
+mid-run, a run-history write failure can no longer reclassify a completed
+automation as failed, deleting an automation forgets its run history so a new
+one reusing the name does not inherit it, an unusable `X-User-Timezone` header
+is rejected rather than persisted, and a settings read failure surfaces instead
+of silently pinning a schedule to the host zone.

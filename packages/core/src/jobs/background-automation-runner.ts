@@ -265,17 +265,35 @@ export async function runBackgroundAutomation(
     orgId: options.orgId ?? null,
   });
 
+  let result: BackgroundAutomationRunResult;
   try {
-    const result = await executeBackgroundAutomation(options, deps, historyId);
-    await finishAutomationRun(historyId, "success");
-    return result;
+    result = await executeBackgroundAutomation(options, deps, historyId);
   } catch (err) {
-    await finishAutomationRun(
+    await recordRunOutcome(
       historyId,
       "error",
       err instanceof Error ? err.message : String(err),
     );
     throw err;
+  }
+  // Outside the try: history is bookkeeping about the run, so a failure to
+  // write it must not turn a completed automation into a reported failure.
+  await recordRunOutcome(historyId, "success");
+  return result;
+}
+
+async function recordRunOutcome(
+  historyId: string,
+  status: "success" | "error",
+  error?: string,
+): Promise<void> {
+  try {
+    await finishAutomationRun(historyId, status, error);
+  } catch (err) {
+    console.error(
+      `[automations] Could not record run ${historyId} as ${status}:`,
+      err,
+    );
   }
 }
 

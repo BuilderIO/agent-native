@@ -9,6 +9,13 @@ const getUserSettingMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: executeMock }),
+  intType: () => "INTEGER",
+  isPostgres: () => false,
+}));
+
+vi.mock("../db/ddl-guard.js", () => ({
+  ensureTableExists: vi.fn(),
+  ensureIndexExists: vi.fn(),
 }));
 
 vi.mock("../settings/user-settings.js", () => ({

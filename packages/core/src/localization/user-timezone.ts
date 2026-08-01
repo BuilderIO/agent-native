@@ -1,4 +1,4 @@
-import { serverTimezone } from "../jobs/cron.js";
+import { isValidTimezone, serverTimezone } from "../jobs/cron.js";
 import { getRequestTimezone } from "../server/request-context.js";
 import { getUserSetting } from "../settings/user-settings.js";
 import {
@@ -19,16 +19,18 @@ export async function resolveUserSchedulingTimezone(
   userEmail?: string | null,
 ): Promise<string> {
   if (userEmail) {
-    try {
-      const preference = normalizeLocalizationPreference(
-        await getUserSetting(userEmail, LOCALIZATION_SETTING_KEY),
-      );
-      if (preference.timezone !== "system") return preference.timezone;
-    } catch {
-      // A settings read failure must not block creating a schedule; fall
-      // through to the request/host zone, which the caller then persists
-      // explicitly so the resulting schedule is still unambiguous.
-    }
+    // Deliberately unguarded. The resolved zone is persisted into the
+    // schedule, so swallowing a read failure here would silently pin the job
+    // to the host zone and fire it at the wrong wall-clock time for its whole
+    // life. Failing the write is recoverable; a silently wrong schedule is not.
+    const preference = normalizeLocalizationPreference(
+      await getUserSetting(userEmail, LOCALIZATION_SETTING_KEY),
+    );
+    if (preference.timezone !== "system") return preference.timezone;
   }
-  return getRequestTimezone() || serverTimezone();
+  // Headers come from the client, so an unusable value must not reach
+  // frontmatter, where cron evaluation would quietly swap in the host zone.
+  const requested = getRequestTimezone();
+  if (requested && isValidTimezone(requested)) return requested;
+  return serverTimezone();
 }

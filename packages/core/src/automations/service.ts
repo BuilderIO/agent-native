@@ -6,6 +6,7 @@ import {
   parseJobResource,
   type JobFrontmatter,
 } from "../jobs/frontmatter.js";
+import { deleteAutomationRuns } from "../jobs/run-history.js";
 import { resolveUserSchedulingTimezone } from "../localization/user-timezone.js";
 import {
   organizationIdFromResourceOwner,
@@ -450,6 +451,9 @@ export async function deleteAutomation(
     );
   }
   await resourceDelete(definition.resource.id);
+  // Names are reusable, so leaving history behind would attach these runs to
+  // whatever automation is created under the same name next.
+  await deleteAutomationRuns(definition.resource.owner, name);
 }
 
 export interface AutomationExecutionIdentity {

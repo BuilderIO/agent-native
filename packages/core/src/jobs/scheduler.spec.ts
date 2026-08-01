@@ -136,6 +136,19 @@ Summarize the inbox.`,
       },
     ]);
     resourcePutMock.mockResolvedValue(undefined);
+    // Model a real store: a re-read returns whatever was last written. The
+    // scheduler re-reads before recording an outcome, and treats a missing
+    // resource as deleted mid-run.
+    resourceGetByPathMock.mockImplementation(
+      async (owner: string, path: string) => {
+        const written = resourcePutMock.mock.calls
+          .filter((call) => call[0] === owner && call[1] === path)
+          .at(-1);
+        return written
+          ? { id: "resource-1", owner, path, content: written[2] }
+          : null;
+      },
+    );
     createThreadMock.mockResolvedValue({ id: "thread-1" });
     runAgentLoopMock.mockResolvedValue({
       inputTokens: 100,
@@ -764,6 +777,40 @@ Post the digest.`,
     expect(sendMessageToTargetMock).toHaveBeenCalledOnce();
     const putContent: string = resourcePutMock.mock.calls.at(-1)![2];
     expect(putContent).toContain("lastStatus: success");
+  });
+
+  it("does not recreate a job deleted while it was running", async () => {
+    resourceListAllOwnersMock.mockResolvedValueOnce([
+      {
+        id: "resource-doomed",
+        owner: "alice+jobs@agent-native.test",
+        path: "jobs/channel-digest.md",
+        content: `---
+schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+createdBy: alice+jobs@agent-native.test
+---
+
+Post the digest.`,
+      },
+    ]);
+    // Deleted mid-run: the re-read finds nothing.
+    resourceGetByPathMock.mockResolvedValue(null);
+
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+    });
+
+    // The "mark as running" write happened before the delete; the completion
+    // write must not follow it and resurrect the job.
+    const writesAfterStart = resourcePutMock.mock.calls.filter((call) =>
+      String(call[2]).includes("lastStatus: success"),
+    );
+    expect(writesAfterStart).toHaveLength(0);
   });
 
   it("keeps a schedule edited mid-run instead of restoring the pre-run copy", async () => {

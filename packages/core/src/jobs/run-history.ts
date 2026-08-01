@@ -197,6 +197,24 @@ export async function attachAutomationRunThread(
   });
 }
 
+/**
+ * Forget an automation's executions.
+ *
+ * History is keyed by the automation's name, which is reusable: deleting
+ * "digest" and creating a new "digest" would otherwise show the old
+ * definition's runs as the new one's history.
+ */
+export async function deleteAutomationRuns(
+  owner: string,
+  automation: string,
+): Promise<void> {
+  await ensureTable();
+  await getDbExec().execute({
+    sql: `DELETE FROM ${TABLE} WHERE owner = ? AND automation = ?`,
+    args: [owner, automation],
+  });
+}
+
 export async function listAutomationRuns(options: {
   owners: string[];
   automation: string;

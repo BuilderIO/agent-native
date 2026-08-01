@@ -9,6 +9,7 @@ import {
 } from "../../resources/store.js";
 import { isValidCron, isValidTimezone, nextOccurrence } from "../cron.js";
 import { classifyJobResource } from "../frontmatter.js";
+import { deleteAutomationRuns } from "../run-history.js";
 import { buildJobContent, parseJobFrontmatter } from "../scheduler.js";
 import { authorizeJobMutation } from "../tools.js";
 
@@ -56,6 +57,9 @@ export default defineAction({
 
     if (operation === "delete") {
       await resourceDelete(resource.id);
+      // Names are reusable; history left behind would surface as the run
+      // history of whatever job is next created under this name.
+      await deleteAutomationRuns(resource.owner, name);
       return { deleted: true, name };
     }
 

@@ -284,20 +284,20 @@ async function executeJob(
       deps,
     );
 
-    await recordExecutionOutcome(
-      resource,
-      { meta, body },
-      { lastRun: meta.lastRun, lastStatus: "success", lastError: undefined },
-    );
+    await recordExecutionOutcome(resource, {
+      lastRun: meta.lastRun,
+      lastStatus: "success",
+      lastError: undefined,
+    });
     console.log(`[recurring-jobs] Job "${jobName}" completed.`);
   } catch (err) {
     const lastError =
       err instanceof Error ? err.message.slice(0, 200) : "Unknown error";
-    await recordExecutionOutcome(
-      resource,
-      { meta, body },
-      { lastRun: meta.lastRun, lastStatus: "error", lastError },
-    );
+    await recordExecutionOutcome(resource, {
+      lastRun: meta.lastRun,
+      lastStatus: "error",
+      lastError,
+    });
     console.error(`[recurring-jobs] Job "${jobName}" failed:`, lastError);
   }
 }
@@ -328,11 +328,18 @@ type ExecutionOutcome = Pick<
  */
 async function recordExecutionOutcome(
   resource: Resource,
-  fallback: { meta: JobFrontmatter; body: string },
   outcome: ExecutionOutcome,
 ): Promise<void> {
   const latest = await resourceGetByPath(resource.owner, resource.path);
-  const current = latest ? parseJobResource(latest.content) : fallback;
+  if (!latest) {
+    // Deleted while it was running. Writing the pre-run snapshot back would
+    // resurrect the automation and schedule it again.
+    console.log(
+      `[recurring-jobs] "${resource.path}" was deleted mid-run; dropping its outcome.`,
+    );
+    return;
+  }
+  const current = parseJobResource(latest.content);
 
   const meta: JobFrontmatter = { ...current.meta, ...outcome };
   if (meta.schedule && isValidCron(meta.schedule)) {

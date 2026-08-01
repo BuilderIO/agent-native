@@ -29,6 +29,12 @@ vi.mock("../resources/store.js", () => ({
   SHARED_OWNER: "__shared__",
 }));
 
+// The timezone resolver reads the user's saved preference; unset here so the
+// tests exercise the request-header fallback.
+vi.mock("../settings/user-settings.js", () => ({
+  getUserSetting: async () => null,
+}));
+
 vi.mock("../server/request-context.js", () => ({
   getRequestUserEmail: getRequestUserEmailMock,
   getRequestOrgId: getRequestOrgIdMock,

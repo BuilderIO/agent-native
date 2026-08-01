@@ -604,7 +604,7 @@ const messages = {
     edit: "Edit",
     editScheduleTitle: "Edit schedule — {{name}}",
     editScheduleDescription:
-      "Cron fields are evaluated in the server's timezone, so the next run below may land at a different local time.",
+      "The clock time below is read in the timezone you pick, so 8:00 means 8:00 there.",
     cronExpression: "Cron expression",
     cronFormatHint: "minute hour day-of-month month day-of-week",
     cronFieldCount: "A cron expression needs exactly 5 fields.",
