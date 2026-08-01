@@ -983,6 +983,7 @@ const BUILDER_BODY_HYDRATION_BACKGROUND_PRIORITY = 10;
 const BUILDER_BODY_HYDRATION_OPEN_PRIORITY = 0;
 const BUILDER_BODY_HYDRATION_BATCH_LIMIT = 600;
 const BUILDER_BODY_HYDRATION_PROCESS_CONCURRENCY = 72;
+const BUILDER_BODY_HYDRATION_BULK_PRELOAD_MIN_JOBS = 20;
 const BUILDER_BODY_HYDRATION_MAX_ATTEMPTS = 5;
 const BUILDER_BODY_HYDRATION_CLAIM_LEASE_MS = 2 * 60 * 1000;
 const BUILDER_BODY_HYDRATION_BULK_LIMIT = 100;
@@ -1539,6 +1540,7 @@ export async function enqueueBuilderBodyHydrationForItems(args: {
   items: ContentDatabaseItem[];
   builderEntriesByDocumentId: Map<string, BuilderCmsSourceEntry> | undefined;
   now: string;
+  processInBackground?: boolean;
 }) {
   if (!args.builderEntriesByDocumentId?.size) return;
   const persistedStateByDocumentId = new Map<
@@ -1634,10 +1636,12 @@ export async function enqueueBuilderBodyHydrationForItems(args: {
     });
   }
   const queuedJobs = await enqueueBuilderBodyHydrations(requests);
+  if (args.processInBackground === false) return;
   void processBuilderBodyHydrationQueue({
     sourceId: args.sourceId,
     limit: BUILDER_BODY_HYDRATION_BATCH_LIMIT,
     preloadedJobs: queuedJobs,
+    preloadBodies: true,
   }).catch((error) => {
     console.error("Builder body hydration background kick failed", error);
   });
@@ -1998,6 +2002,7 @@ async function processBuilderBodyHydrationJob(
         const [stillOwnsQueueRow] = await tx
           .update(schema.contentDatabaseBodyHydrationQueue)
           .set({
+            lastAttemptedAt: null,
             lastError: BUILDER_BODY_NOT_AVAILABLE_ERROR,
             updatedAt: now,
           })
@@ -2555,7 +2560,6 @@ export async function processBuilderBodyHydrationQueue(args: {
   preloadedJobs?: ContentDatabaseBodyHydrationQueueRowDb[];
   preloadBodies?: boolean;
 }) {
-  const diagnosticsStartedAt = Date.now();
   const db = getDb();
   const limit = normalizeHydrationLimit(args.limit);
   const now = new Date().toISOString();
@@ -2621,7 +2625,6 @@ export async function processBuilderBodyHydrationQueue(args: {
         });
       })()
     : persistedJobs(limit));
-  const jobsLoadedAt = Date.now();
   const claimLeaseCutoff = new Date(
     Date.now() - BUILDER_BODY_HYDRATION_CLAIM_LEASE_MS,
   ).toISOString();
@@ -2771,12 +2774,10 @@ export async function processBuilderBodyHydrationQueue(args: {
     claimedJobs.map((job) => job.sourceRowId),
   );
   const bodyEntryById = new Map<string, BuilderCmsSourceEntry>();
-  const providerReadStartedAt = Date.now();
-  if (
-    !args.documentId &&
+  const bulkPreloadBodies =
     args.preloadBodies === true &&
-    claimedJobs.length > 0
-  ) {
+    claimedJobs.length >= BUILDER_BODY_HYDRATION_BULK_PRELOAD_MIN_JOBS;
+  if (!args.documentId && bulkPreloadBodies && claimedJobs.length > 0) {
     const sourceTables = Array.from(
       new Set(claimedJobs.map((job) => job.sourceTable)),
     );
@@ -2798,9 +2799,8 @@ export async function processBuilderBodyHydrationQueue(args: {
       }
     }
   }
-  const providerReadCompletedAt = Date.now();
   const preparedPristineHydrations: PreparedPristineBuilderBodyHydration[] = [];
-  if (!args.documentId && args.preloadBodies === true) {
+  if (!args.documentId && bulkPreloadBodies) {
     await processWithConcurrency(
       claimedJobs,
       BUILDER_BODY_HYDRATION_PROCESS_CONCURRENCY,
@@ -2826,12 +2826,10 @@ export async function processBuilderBodyHydrationQueue(args: {
     now,
   );
   succeeded += bulkPersistedJobIds.size;
-  const bodyJobDurations: number[] = [];
   await processWithConcurrency(
     claimedJobs.filter((job) => !bulkPersistedJobIds.has(job.id)),
     BUILDER_BODY_HYDRATION_PROCESS_CONCURRENCY,
     async (job) => {
-      const jobStartedAt = Date.now();
       const attemptNow = new Date().toISOString();
       try {
         const delayMs = builderBodyHydrationDelayMs();
@@ -2891,7 +2889,7 @@ export async function processBuilderBodyHydrationQueue(args: {
           .update(schema.contentDatabaseBodyHydrationQueue)
           .set({
             attempts,
-            lastAttemptedAt: attemptNow,
+            lastAttemptedAt: null,
             lastError: message,
             priority: job.priority + 10,
             updatedAt: attemptNow,
@@ -2911,12 +2909,9 @@ export async function processBuilderBodyHydrationQueue(args: {
             updatedAt: attemptNow,
           })
           .where(eq(schema.contentDatabaseItems.id, job.databaseItemId));
-      } finally {
-        bodyJobDurations.push(Date.now() - jobStartedAt);
       }
     },
   );
-  const persistenceCompletedAt = Date.now();
   const [remaining] = await db
     .select({ count: sql<number>`COUNT(*)` })
     .from(schema.contentDatabaseBodyHydrationQueue)
@@ -2929,16 +2924,6 @@ export async function processBuilderBodyHydrationQueue(args: {
     succeeded,
     failed,
     remaining: Number(remaining?.count ?? 0),
-    diagnosticTimings: {
-      totalMs: Date.now() - diagnosticsStartedAt,
-      loadAndClaimMs: providerReadStartedAt - diagnosticsStartedAt,
-      jobsLoadMs: jobsLoadedAt - diagnosticsStartedAt,
-      providerReadMs: providerReadCompletedAt - providerReadStartedAt,
-      persistenceMs: persistenceCompletedAt - providerReadCompletedAt,
-      jobMinMs: bodyJobDurations.length > 0 ? Math.min(...bodyJobDurations) : 0,
-      jobMaxMs: bodyJobDurations.length > 0 ? Math.max(...bodyJobDurations) : 0,
-      bodyEntriesPreloaded: bodyEntryById.size,
-    },
   };
 }
 

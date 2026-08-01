@@ -932,10 +932,25 @@ export interface AttachContentDatabaseSourceRequest {
   offset?: number;
 }
 
+export interface ContentDatabaseSourceAttachmentAck {
+  responseProjection: "ack";
+  databaseId: string;
+  documentId: string;
+  sourceId: string;
+  sourceType: ContentDatabaseSourceType;
+  sourceTable: string;
+  importedItemCount: number;
+}
+
+export type ContentDatabaseSourceAttachmentResult =
+  | ContentDatabaseResponse
+  | ContentDatabaseSourceAttachmentAck;
+
 export interface BuilderCmsAttachPreviewResponse {
   databaseId: string;
   documentId: string;
   sourceTable: string;
+  base: ContentDatabaseResponse;
   items: ContentDatabaseItem[];
   fetchedAt: string;
   hasMore: boolean;

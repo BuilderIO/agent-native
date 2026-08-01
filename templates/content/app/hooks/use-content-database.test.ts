@@ -91,6 +91,7 @@ describe("optimistic Content database items", () => {
       databaseId: "database",
       documentId: "database-page",
       sourceTable: "agent-native-blog-article-test",
+      base: databaseResponse(),
       items: [previewItem],
       fetchedAt: createdAt,
       hasMore: true,
@@ -107,6 +108,42 @@ describe("optimistic Content database items", () => {
       returnedItems: 1,
       hasMore: true,
     });
+  });
+
+  it("seeds the optimistic Builder preview while the database query has no data", () => {
+    const queryClient = new QueryClient();
+    const queryKey = [
+      "action",
+      "get-content-database",
+      { documentId: "database-page", limit: 100 },
+    ] as const;
+    queryClient.getQueryCache().build(queryClient, {
+      queryKey,
+      queryFn: async () => databaseResponse(),
+    });
+    const previewItem = {
+      ...databaseResponse().items[0]!,
+      id: "builder-item_fresh",
+      document: {
+        ...databaseResponse().items[0]!.document,
+        id: "builder-doc_fresh",
+        title: "Fresh Builder row",
+      },
+    };
+
+    writeBuilderAttachPreviewToCache(queryClient, "database-page", {
+      databaseId: "database",
+      documentId: "database-page",
+      sourceTable: "agent-native-blog-article-test",
+      base: databaseResponse(),
+      items: [previewItem],
+      fetchedAt: createdAt,
+      hasMore: true,
+    });
+
+    expect(
+      queryClient.getQueryData<ContentDatabaseResponse>(queryKey)?.items,
+    ).toEqual([previewItem]);
   });
 
   it("adds a new page immediately and rolls it back by document id", () => {

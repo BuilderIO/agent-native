@@ -12,6 +12,7 @@ import type {
   CancelPreparedBuilderSourceUpdateResponse,
   ChangeContentDatabaseSourceRoleRequest,
   ContentDatabaseResponse,
+  ContentDatabaseSourceAttachmentResult,
   ContentDatabaseItemsPageResponse,
   ContentDatabaseTableQuery,
   ContentDatabaseItem,
@@ -1101,17 +1102,23 @@ export function useUpdateContentDatabasePersonalView(
   });
 }
 
-export function useAttachContentDatabaseSource(documentId: string) {
+export function useAttachContentDatabaseSource(
+  documentId: string,
+  fallbackData?: ContentDatabaseResponse,
+) {
   const queryClient = useQueryClient();
   return useActionMutation<
-    ContentDatabaseResponse,
+    ContentDatabaseSourceAttachmentResult,
     AttachContentDatabaseSourceRequest
   >("attach-content-database-source", {
     skipActionQueryInvalidation: true,
     onMutate: async (variables) => {
-      await queryClient.cancelQueries(contentDatabaseQueryFilter(documentId));
       const previous = queryClient.getQueriesData<ContentDatabaseResponse>(
         contentDatabaseQueryFilter(documentId),
+      );
+      const cancelPending = queryClient.cancelQueries(
+        contentDatabaseQueryFilter(documentId),
+        { revert: false },
       );
       if (variables.sourceType === "builder-cms" && variables.sourceTable) {
         const preview =
@@ -1125,9 +1132,15 @@ export function useAttachContentDatabaseSource(documentId: string) {
             },
           ]);
         if (preview) {
-          writeBuilderAttachPreviewToCache(queryClient, documentId, preview);
+          writeBuilderAttachPreviewToCache(
+            queryClient,
+            documentId,
+            preview,
+            fallbackData,
+          );
         }
       }
+      await cancelPending;
       return { previous };
     },
     onError: (_error, _variables, context) => {
@@ -1145,7 +1158,9 @@ export function useAttachContentDatabaseSource(documentId: string) {
       }
     },
     onSuccess: (data) => {
-      writeContentDatabaseResponseToCache(queryClient, documentId, data);
+      if (!("responseProjection" in data)) {
+        writeContentDatabaseResponseToCache(queryClient, documentId, data);
+      }
       queryClient.invalidateQueries({
         queryKey: contentDatabaseQueryKey(documentId),
       });
@@ -1186,13 +1201,15 @@ export function writeBuilderAttachPreviewToCache(
   queryClient: Pick<QueryClient, "setQueriesData">,
   documentId: string,
   preview: BuilderCmsAttachPreviewResponse,
+  fallbackData?: ContentDatabaseResponse,
 ) {
   queryClient.setQueriesData<ContentDatabaseResponse>(
     contentDatabaseQueryFilter(documentId),
-    (current) =>
-      current
+    (current) => {
+      const base = current ?? fallbackData ?? preview.base;
+      return base
         ? {
-            ...current,
+            ...base,
             items: preview.items,
             pagination: {
               offset: 0,
@@ -1206,7 +1223,8 @@ export function writeBuilderAttachPreviewToCache(
               fetchedAt: preview.fetchedAt,
             },
           }
-        : current,
+        : current;
+    },
   );
 }
 

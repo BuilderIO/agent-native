@@ -1180,3 +1180,21 @@ available for the four-failure Work loop.
 
 Next: deploy the exact Work artifact to PR #2522, run correlated exact-provider
 acceptance, remove temporary probes, and replay the clean artifact before Land.
+
+## Work result — 2026-08-01
+
+The credentialed local replay now satisfies all four frozen performance budgets
+against the read-only `Agent Native Blog Article Test` Builder collection:
+
+- first useful rows after Attach: **88 ms** (target ≤2 s)
+- complete 584-row metadata acknowledgment: **8.66 s** (target ≤10 s)
+- terminal body synchronization: **30.20 s** (target ≤60 s; 582 hydrated,
+  two genuinely bodyless rows resolved as unavailable, no leased repair jobs)
+- cold Date sort acknowledgment: **434 ms** (target ≤1 s; 100 of 584 rows
+  retained and sorted result painted)
+
+The final clean artifact contains no temporary timing probes. Content typecheck,
+102 focused database/cache tests, the full 2,003-test suite (including three
+expected failures and five skips), and the production build pass locally. Exact
+PR-preview deployment and independent hosted H1-H5 acceptance remain the next
+Land gates; these local results do not substitute for them.

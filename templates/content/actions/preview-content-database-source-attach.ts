@@ -11,6 +11,7 @@ import {
   builderCmsImportIds,
   resolveDatabaseForSourceMutation,
 } from "./_database-source-utils.js";
+import { getContentDatabaseResponse } from "./_database-utils.js";
 
 export default defineAction({
   description:
@@ -28,12 +29,15 @@ export default defineAction({
     if (!database) throw new Error("Database not found.");
     await assertAccess("document", database.documentId, "editor");
 
-    const read = await readBuilderCmsContentEntries({
-      model: args.sourceTable,
-      fieldPaths: args.fieldPaths,
-      allowCached: true,
-      maxPages: 1,
-    });
+    const [read, base] = await Promise.all([
+      readBuilderCmsContentEntries({
+        model: args.sourceTable,
+        fieldPaths: args.fieldPaths,
+        allowCached: true,
+        maxPages: 1,
+      }),
+      getContentDatabaseResponse(database.id, { limit: 100, offset: 0 }),
+    ]);
     if (read.state !== "live") {
       throw new Error(
         read.message ?? "Builder rows are not available for preview.",
@@ -79,6 +83,7 @@ export default defineAction({
       databaseId: database.id,
       documentId: database.documentId,
       sourceTable: args.sourceTable,
+      base,
       items,
       fetchedAt: read.fetchedAt,
       hasMore: read.progress.hasMore,

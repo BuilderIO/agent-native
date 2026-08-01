@@ -15,6 +15,7 @@ import {
   type BuilderCmsModelSummary,
   type ContentDatabaseItem,
   type ContentDatabaseResponse,
+  type ContentDatabaseSourceAttachmentResult,
   type ContentDatabaseSource,
   type ContentDatabaseSourceChangeSet,
   type ContentDatabaseSourceJoinRequest,
@@ -811,8 +812,14 @@ function DatabaseTable({
     databaseRequestItemLimit,
     tableQuery,
   );
+  // A deleted/missing database resolves to the unavailable union (no
+  // `database` field) — treat it as no data; the inline-block wrapper owns
+  // the user-facing "Database unavailable" state.
+  const data = isContentDatabaseUnavailable(database.data)
+    ? undefined
+    : database.data;
   const addItem = useAddDatabaseItem(document.id);
-  const attachSource = useAttachContentDatabaseSource(document.id);
+  const attachSource = useAttachContentDatabaseSource(document.id, data);
   const changeSourceRole = useChangeContentDatabaseSourceRole(document.id);
   const refreshSource = useRefreshContentDatabaseSource(document.id);
   const disconnectSource = useDisconnectContentDatabaseSource(document.id);
@@ -829,12 +836,6 @@ function DatabaseTable({
     document.id,
   );
   const updateView = useUpdateContentDatabaseView(document.id);
-  // A deleted/missing database resolves to the unavailable union (no
-  // `database` field) — treat it as no data; the inline-block wrapper owns
-  // the user-facing "Database unavailable" state.
-  const data = isContentDatabaseUnavailable(database.data)
-    ? undefined
-    : database.data;
   const attachPreviewActive = Boolean(data?.attachPreview);
   const effectiveCanEdit = canEdit && !attachPreviewActive;
   const isWorkspaceCatalog = data?.database.systemRole === "workspaces";
@@ -7415,11 +7416,11 @@ function DatabaseSettingsPanelSheet({
   onAttachBuilderSource: (
     model: BuilderCmsModelSummary,
     relationshipMode?: "items" | "details",
-  ) => Promise<ContentDatabaseResponse>;
+  ) => Promise<ContentDatabaseSourceAttachmentResult>;
   onFederateSource: (
     candidate: PendingSourceCandidate,
     join: ContentDatabaseSourceJoinRequest,
-  ) => Promise<ContentDatabaseResponse>;
+  ) => Promise<ContentDatabaseSourceAttachmentResult>;
   onChangeSourceRole: (
     sourceId: string,
     relationshipMode: "items" | "details",
@@ -7988,11 +7989,11 @@ function DatabaseSettingsSourcePanel({
   onAttachBuilderSource: (
     model: BuilderCmsModelSummary,
     relationshipMode?: "items" | "details",
-  ) => Promise<ContentDatabaseResponse>;
+  ) => Promise<ContentDatabaseSourceAttachmentResult>;
   onFederateSource: (
     candidate: PendingSourceCandidate,
     join: ContentDatabaseSourceJoinRequest,
-  ) => Promise<ContentDatabaseResponse>;
+  ) => Promise<ContentDatabaseSourceAttachmentResult>;
   onChangeSourceRole: (
     sourceId: string,
     relationshipMode: "items" | "details",
@@ -8176,6 +8177,11 @@ function DatabaseSettingsSourcePanel({
                 join,
               )
             : await onFederateSource(top.candidate, join);
+          if ("responseProjection" in result) {
+            throw new Error(
+              "Detail-source attachment returned an item-source acknowledgement.",
+            );
+          }
           const detailsSource = findDetailsSource(result, top.candidate);
           onNavReplace(
             detailsSource

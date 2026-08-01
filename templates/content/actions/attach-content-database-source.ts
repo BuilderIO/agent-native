@@ -6,7 +6,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import type {
   BuilderCmsModelFieldSummary,
-  ContentDatabaseResponse,
+  ContentDatabaseSourceAttachmentResult,
   ContentDatabaseSourceFederation,
   ContentDatabaseSourceType,
 } from "../shared/api.js";
@@ -43,6 +43,7 @@ import {
   readLocalTableEntries,
   resolveReadableLocalTableSource,
 } from "./_local-table-source.js";
+import { listPropertiesForDatabase } from "./_property-utils.js";
 
 const sourceTypeSchema = z
   .enum(["mock-local", "builder-cms", "local-table", "notion-database"])
@@ -100,6 +101,7 @@ export async function readCompleteBuilderCmsAttachSource(
     readEntries({
       model: sourceTable,
       fieldPaths: dependencies.fieldPaths,
+      allowCached: true,
       limit: BUILDER_CMS_ATTACH_METADATA_LIMIT,
     }),
   ]);
@@ -271,7 +273,7 @@ export default defineAction({
     limit: z.coerce.number().int().min(1).max(500).default(100),
     offset: z.coerce.number().int().min(0).default(0),
   }),
-  run: async (args): Promise<ContentDatabaseResponse> => {
+  run: async (args): Promise<ContentDatabaseSourceAttachmentResult> => {
     const database = await resolveDatabaseForSourceMutation(args);
     if (!database) throw new Error("Database not found.");
     await assertAccess("document", database.documentId, "editor");
@@ -596,14 +598,12 @@ export default defineAction({
     const existingSourceRows = existingSource
       ? await getSourceRows(existingSource.id)
       : [];
-    const diagnosticsStartedAt = Date.now();
     const builderInitial =
       sourceType === "builder-cms"
         ? await readCompleteBuilderCmsAttachSource(sourceTable, {
             fieldPaths: args.builderFieldPaths,
           })
         : null;
-    const builderReadCompletedAt = Date.now();
     const sourceId = await replaceSourceMetadata({
       database,
       source: existingSource,
@@ -614,9 +614,15 @@ export default defineAction({
     });
     const builderModelFields = builderInitial?.modelFields ?? [];
     const builderRead = builderInitial?.read ?? null;
+    const builderPropertiesPromise = builderRead
+      ? listPropertiesForDatabase(database.id)
+      : null;
     const builderEntries =
       builderRead?.state === "live" ? builderRead.entries : [];
     let importedEntriesByDocumentId = new Map<string, BuilderCmsSourceEntry>();
+    let importedItems: Awaited<
+      ReturnType<typeof importBuilderCmsEntriesAsDatabaseItems>
+    >["importedItems"] = [];
     if (builderRead?.state === "live") {
       const importResult = await importBuilderCmsEntriesAsDatabaseItems({
         database,
@@ -626,22 +632,29 @@ export default defineAction({
         existingSourceRows,
       });
       importedEntriesByDocumentId = importResult.importedEntriesByDocumentId;
+      importedItems = importResult.importedItems;
     }
-    const importCompletedAt = Date.now();
-
-    const refreshedSetup = await sourceSetupPayload(
-      database.id,
-      initialBuilderAttachmentSetupOptions({
-        builderRead,
-        importedEntriesByDocumentId,
-      }),
-    );
-    const setupCompletedAt = Date.now();
+    const canUseImportedBuilderItems =
+      builderRead?.state === "live" &&
+      importedItems.length === builderRead.entries.length &&
+      importedItems.length === importedEntriesByDocumentId.size;
+    const refreshedSetup = canUseImportedBuilderItems
+      ? null
+      : await sourceSetupPayload(
+          database.id,
+          initialBuilderAttachmentSetupOptions({
+            builderRead,
+            importedEntriesByDocumentId,
+          }),
+        );
+    const refreshedProperties =
+      refreshedSetup?.properties ?? (await builderPropertiesPromise) ?? [];
+    const refreshedItems = refreshedSetup?.response.items ?? importedItems;
     const builderEntriesByDocumentId =
       builderRead?.state === "live"
         ? mapBuilderCmsEntriesToLocalItems({
             entries: builderEntries,
-            items: refreshedSetup.response.items,
+            items: refreshedItems,
             sourceTable,
             now,
             existingRows: existingSourceRows,
@@ -656,7 +669,7 @@ export default defineAction({
         sourceId,
         ownerEmail: database.ownerEmail,
         sourceType,
-        properties: refreshedSetup.properties,
+        properties: refreshedProperties,
         builderModelFields,
         builderSampleEntries: builderEntries,
         now,
@@ -666,7 +679,7 @@ export default defineAction({
         ownerEmail: database.ownerEmail,
         sourceType,
         sourceTable,
-        items: refreshedSetup.response.items,
+        items: refreshedItems,
         now,
         builderEntriesByDocumentId,
       });
@@ -676,9 +689,10 @@ export default defineAction({
           ownerEmail: database.ownerEmail,
           orgId: database.orgId,
           sourceTable,
-          items: refreshedSetup.response.items,
+          items: refreshedItems,
           builderEntriesByDocumentId,
           now,
+          processInBackground: false,
         });
       }
       if (sourceType === "builder-cms" && builderRead) {
@@ -696,20 +710,21 @@ export default defineAction({
         });
       }
     })();
-    const seedCompletedAt = Date.now();
-    const response = await getContentDatabaseResponse(database.id, {
+    if (sourceType === "builder-cms") {
+      return {
+        responseProjection: "ack",
+        databaseId: database.id,
+        documentId: database.documentId,
+        sourceId,
+        sourceType,
+        sourceTable,
+        importedItemCount: importedEntriesByDocumentId.size,
+      };
+    }
+
+    return getContentDatabaseResponse(database.id, {
       limit: args.limit,
       offset: args.offset,
-    });
-    return Object.assign(response, {
-      diagnosticTimings: {
-        totalMs: Date.now() - diagnosticsStartedAt,
-        builderReadMs: builderReadCompletedAt - diagnosticsStartedAt,
-        importMs: importCompletedAt - builderReadCompletedAt,
-        setupMs: setupCompletedAt - importCompletedAt,
-        seedMs: seedCompletedAt - setupCompletedAt,
-        responseMs: Date.now() - seedCompletedAt,
-      },
     });
   },
 });
