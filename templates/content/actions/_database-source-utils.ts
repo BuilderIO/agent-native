@@ -987,6 +987,7 @@ const BUILDER_BODY_HYDRATION_BULK_PRELOAD_MIN_JOBS = 20;
 const BUILDER_BODY_HYDRATION_MAX_ATTEMPTS = 5;
 const BUILDER_BODY_HYDRATION_CLAIM_LEASE_MS = 2 * 60 * 1000;
 const BUILDER_BODY_HYDRATION_POSTGRES_BULK_LIMIT = 200;
+const BUILDER_BODY_HYDRATION_MAX_BOUND_PARAMS_PER_ROW = 8;
 const BUILDER_BODY_HYDRATION_CODEC_VERSION =
   "readable-native-images-authoritative-raw-baseline-v9";
 const BUILDER_CMS_REFRESH_INITIAL_PAGES = 1;
@@ -2472,7 +2473,10 @@ async function persistPristineBuilderBodyHydrationsInBulk(
 export function builderBodyHydrationBulkChunkLimit(
   dialect: Dialect = getDialect(),
 ) {
-  const portableLimit = bulkChunkSizeForColumnCount(5, dialect);
+  const portableLimit = bulkChunkSizeForColumnCount(
+    BUILDER_BODY_HYDRATION_MAX_BOUND_PARAMS_PER_ROW,
+    dialect,
+  );
   return dialect === "postgres"
     ? Math.max(portableLimit, BUILDER_BODY_HYDRATION_POSTGRES_BULK_LIMIT)
     : portableLimit;

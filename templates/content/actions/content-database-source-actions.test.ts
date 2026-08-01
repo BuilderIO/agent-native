@@ -9,6 +9,7 @@ import addSourceFieldProperty, {
   sourceFieldPropertyValuesFromRows,
 } from "./add-content-database-source-field-property";
 import attachSource, {
+  builderAttachDurableItemCount,
   builderCmsAttachReadMetadata,
   initialBuilderAttachmentSetupOptions,
   readCompleteBuilderCmsAttachSource,
@@ -519,6 +520,17 @@ describe("content database source actions", () => {
         ]),
       }),
     ).toBeUndefined();
+  });
+
+  it("reports all durably matched Builder rows when reattachment imports none", () => {
+    expect(
+      builderAttachDurableItemCount(
+        new Map([
+          ["document-1", { id: "entry-1" }],
+          ["document-2", { id: "entry-2" }],
+        ]),
+      ),
+    ).toBe(2);
   });
 
   it("rejects unsafe source federation normalization formulas", () => {

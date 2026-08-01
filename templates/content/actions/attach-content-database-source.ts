@@ -163,6 +163,14 @@ export function initialBuilderAttachmentSetupOptions(args: {
   };
 }
 
+export function builderAttachDurableItemCount(
+  builderEntriesByDocumentId:
+    | ReadonlyMap<string, BuilderCmsSourceEntry>
+    | undefined,
+) {
+  return builderEntriesByDocumentId?.size ?? 0;
+}
+
 // Per-source key mapping the UI commits after the canonical-key confirm step.
 const normalizationFormulaSchema = z
   .string()
@@ -718,7 +726,9 @@ export default defineAction({
         sourceId,
         sourceType,
         sourceTable,
-        importedItemCount: importedEntriesByDocumentId.size,
+        importedItemCount: builderAttachDurableItemCount(
+          builderEntriesByDocumentId,
+        ),
         fetchedAt: builderRead?.fetchedAt ?? now,
       };
     }

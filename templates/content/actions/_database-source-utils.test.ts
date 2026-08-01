@@ -296,8 +296,8 @@ describe("database source helpers", () => {
 
   it("uses one fewer transaction for the 584-row Postgres hydration case", () => {
     expect(builderBodyHydrationBulkChunkLimit("postgres")).toBe(200);
-    expect(builderBodyHydrationBulkChunkLimit("sqlite")).toBe(180);
-    expect(builderBodyHydrationBulkChunkLimit("d1")).toBe(18);
+    expect(builderBodyHydrationBulkChunkLimit("sqlite")).toBe(112);
+    expect(builderBodyHydrationBulkChunkLimit("d1")).toBe(11);
   });
 
   it("serializes queued Builder body hydration with an unset item status as pending", () => {
