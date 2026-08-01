@@ -561,6 +561,10 @@ interface SlideEditorProps {
    *  navigable but contentEditable / image overlays don't activate.
    *  Mirrors Google Slides' viewer experience. */
   readOnly?: boolean;
+  /** Full-width host for the contextual style toolbar, rendered by the editor
+   *  shell above the slide rail. Selection state lives here, so the toolbar is
+   *  portaled out rather than lifted. Falls back to rendering in place. */
+  contextToolbarSlot?: HTMLElement | null;
   onGenerateImage: () => void;
   onOpenAssetLibrary: (replaceSrc: string) => void;
   onUploadImage: (replaceSrc: string) => void;
@@ -1019,6 +1023,7 @@ export default function SlideEditor({
   slide,
   onUpdateSlide,
   readOnly = false,
+  contextToolbarSlot,
   onGenerateImage,
   onOpenAssetLibrary,
   onUploadImage,
@@ -4039,26 +4044,31 @@ export default function SlideEditor({
   const isSelectedElementDraggable = selectedForDrag
     ? getComputedStyle(selectedForDrag).position === "absolute"
     : false;
+  const contextToolbar =
+    !readOnly && !slide.excalidrawData ? (
+      <div
+        className="hidden shrink-0 lg:block"
+        onPointerDownCapture={preserveRichTextSelection}
+      >
+        <SlideContextToolbar
+          snapshot={selectedStyleSnapshot}
+          background={slide.background}
+          designSystem={designSystem}
+          onChange={applySelectedStylePatch}
+          onBackgroundChange={applySlideBackground}
+          onArrange={handleArrangeSelected}
+        />
+      </div>
+    ) : null;
+
   return (
     <div
       className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden"
       data-slide-element-selected={slideElementSelected ? "true" : undefined}
     >
-      {!readOnly && !slide.excalidrawData && (
-        <div
-          className="hidden shrink-0 lg:block"
-          onPointerDownCapture={preserveRichTextSelection}
-        >
-          <SlideContextToolbar
-            snapshot={selectedStyleSnapshot}
-            background={slide.background}
-            designSystem={designSystem}
-            onChange={applySelectedStylePatch}
-            onBackgroundChange={applySlideBackground}
-            onArrange={handleArrangeSelected}
-          />
-        </div>
-      )}
+      {contextToolbarSlot
+        ? createPortal(contextToolbar, contextToolbarSlot)
+        : contextToolbar}
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <div className="min-w-0 flex-1 overflow-hidden">

@@ -181,6 +181,8 @@ export default function DeckEditor() {
     () => typeof window !== "undefined" && window.innerWidth >= 768,
   );
   const [addSlideGenerating, setAddSlideGenerating] = useState(false);
+  const [contextToolbarSlot, setContextToolbarSlot] =
+    useState<HTMLDivElement | null>(null);
   const [retryingMissingDeck, setRetryingMissingDeck] = useState(false);
   const [checkedDeckAccessKey, setCheckedDeckAccessKey] = useState<
     string | null
@@ -1038,6 +1040,10 @@ export default function DeckEditor() {
         }
       />
 
+      {/* Full-width host for the slide's contextual style toolbar: it spans the
+       * slide rail as well as the canvas, matching the deck toolbar above it. */}
+      <div ref={setContextToolbarSlot} className="shrink-0" />
+
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
         {sidebarOpen && (
           <>
@@ -1109,6 +1115,7 @@ export default function DeckEditor() {
             slide={currentSlide}
             deckId={id}
             readOnly={!canEdit}
+            contextToolbarSlot={contextToolbarSlot}
             onUpdateSlide={(updates, slideIdOverride, options) =>
               updateSlide(
                 id,

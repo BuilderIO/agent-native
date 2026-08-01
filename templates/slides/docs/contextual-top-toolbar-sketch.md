@@ -512,6 +512,13 @@ the trigger while the rail still shows the generating placeholder. The rail
 header is gone, the drag handle is a hover overlay instead of a reserved column,
 and the rail is `w-48 sm:w-52`.
 
+The contextual toolbar also moved to full width. It used to start where the
+canvas started, leaving the slide rail sitting beside it; it now renders into a
+slot in `DeckEditor.tsx` directly under the deck toolbar and spans the whole
+window, as in Google Slides. Selection state was **not** lifted out of
+`SlideEditor.tsx` — the toolbar is `createPortal`ed into that slot, which avoids
+exactly the 4,200-line refactor §9.1 warned about.
+
 > "start small. Maybe we can get rid of this part then make the slide
 > containers on the sider objects smaller"
 

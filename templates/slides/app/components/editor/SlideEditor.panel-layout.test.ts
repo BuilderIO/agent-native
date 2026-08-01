@@ -39,6 +39,14 @@ describe("slide context toolbar", () => {
     expect(editorSource).toContain("!readOnly && !slide.excalidrawData");
   });
 
+  it("renders into the shell's full-width slot so it spans the slide rail", () => {
+    expect(editorSource).toContain(
+      "createPortal(contextToolbar, contextToolbarSlot)",
+    );
+    expect(pageSource).toContain("ref={setContextToolbarSlot}");
+    expect(pageSource).toContain("contextToolbarSlot={contextToolbarSlot}");
+  });
+
   it("keeps the rich text selection alive while the toolbar is pressed", () => {
     // Without this guard on the wrapper, applying a style to a partial text
     // selection silently no-ops: focus leaves the contentEditable before the
