@@ -40,7 +40,12 @@ const TARGET_UPLOAD_BYTES: u64 = 18 * 1024 * 1024;
 // `templates/clips/shared/upload-limits.ts`). Same default (2 GB) and same
 // env var (CLIPS_MAX_UPLOAD_BYTES) so desktop and web stay in lockstep.
 const DEFAULT_MAX_UPLOAD_BYTES: u64 = 2 * 1024 * 1024 * 1024;
-const MIN_TRANSCODE_VIDEO_RATE_KBPS: u32 = 350;
+// Floor for the duration-derived video bitrate. 350 kbps made hour-long
+// recordings hit the 18MiB size target's math and upload as unreadable mush
+// (observed: a 57-minute clip at ~386 kbps total where screen text was
+// illegible). 1200 kbps keeps 720p-1080p screen content readable; long
+// recordings simply upload bigger, which the chunked resumable path absorbs.
+const MIN_TRANSCODE_VIDEO_RATE_KBPS: u32 = 1_200;
 const TRANSCODE_RATE_LIMIT_OVERHEAD_KBPS: f64 = 64.0;
 const TRANSCODE_FRAME_RATE_LIMIT: u32 = 30;
 const NORMALIZED_AUDIO_BITRATE_KBPS: u32 = 160;
@@ -98,7 +103,13 @@ fn audio_filter_chain(downmix: bool, denoise: bool, mic_pregain: bool) -> String
     filters.push(AUDIO_LOUDNESS_FILTER);
     filters.join(",")
 }
-const NATIVE_CAPTURE_MAX_LONG_EDGE: u32 = 1280;
+// Capture up to 2560px on the long edge (Retina 2x of a 1280-point display).
+// The previous 1280 cap recorded modern displays at 720p-class resolution, so
+// screen text was soft at the source before any transcode touched it — no
+// bitrate can bring back detail the capture never had. The pre-upload
+// transcode still downscales to <=1080p for upload size; the extra capture
+// pixels are what make that 1080p actually sharp.
+const NATIVE_CAPTURE_MAX_LONG_EDGE: u32 = 2560;
 const NATIVE_CAPTURE_FPS: u32 = 24;
 const AVCONVERT_PATH: &str = "/usr/bin/avconvert";
 const AVCONVERT_TIMEOUT: Duration = Duration::from_secs(5 * 60);
@@ -3990,6 +4001,16 @@ async fn send_upload_post(
         .header("Content-Type", mime_type)
         .header("X-Request-Source", "clips-desktop")
         .body(body);
+    // The final POST triggers the server's synchronous finalize — assembling
+    // the clip and pushing it to the storage provider, which legitimately runs
+    // for many minutes on large recordings over slow uplinks (server budget is
+    // up to 30 minutes). With the client's default 180s timeout the tray
+    // aborts a request the server goes on to complete, records a false failed
+    // attempt, and leaves a stale pending-upload entry behind. Give the final
+    // request the same order of patience as the server's own budget.
+    if is_final {
+        request = request.timeout(Duration::from_secs(35 * 60));
+    }
     let trimmed_token = auth_token.trim();
     if !trimmed_token.is_empty() {
         request = request.bearer_auth(trimmed_token);
@@ -4536,6 +4557,20 @@ fn prepare_recording_file(
 
     if let Some(ffmpeg_path) = ffmpeg_path.as_deref() {
         let presets = ffmpeg_transcode_presets(width, height, source_bytes, duration_ms);
+        // For long recordings the duration-based video bitrate is already
+        // clamped to the floor, so every preset produces nearly the same
+        // (over-target) size — retrying smaller presets just re-encodes the
+        // whole video for minutes with no meaningful size win. Observed: a
+        // 55-minute clip ground through multiple full ~15-minute encodes
+        // before accepting an output every preset was going to exceed anyway.
+        // When the floor is reached, accept the first healthy result.
+        let rate_floor_reached = presets
+            .first()
+            .and_then(|preset| {
+                duration_video_rate_limit_kbps(duration_ms, preset.audio_bitrate_kbps)
+            })
+            .map(|kbps| kbps <= MIN_TRANSCODE_VIDEO_RATE_KBPS as f64)
+            .unwrap_or(false);
         for (index, preset) in presets.iter().enumerate() {
             emit_native_upload_progress(
                 app,
@@ -4629,13 +4664,22 @@ fn prepare_recording_file(
                         );
                         continue;
                     }
-                    if compressed_bytes > TARGET_UPLOAD_BYTES && index + 1 < presets.len() {
+                    if compressed_bytes > TARGET_UPLOAD_BYTES
+                        && index + 1 < presets.len()
+                        && !rate_floor_reached
+                    {
                         let _ = std::fs::remove_file(&compressed_path);
                         eprintln!(
                             "[clips-tray] ffmpeg {} still above target ({} bytes); trying smaller preset",
                             preset.label, compressed_bytes
                         );
                         continue;
+                    }
+                    if compressed_bytes > TARGET_UPLOAD_BYTES && rate_floor_reached {
+                        eprintln!(
+                            "[clips-tray] ffmpeg {} above target ({} bytes) but the video bitrate is already at the floor for this duration; accepting instead of re-encoding with smaller presets",
+                            preset.label, compressed_bytes
+                        );
                     }
                     emit_native_upload_progress(
                         app,
@@ -4828,6 +4872,13 @@ struct FfmpegTranscodePreset {
     encoder_preset: &'static str,
     audio_bitrate_kbps: u32,
     max_video_rate_kbps: u32,
+    // Use the Apple VideoToolbox hardware encoder instead of libx264. The
+    // transcode runs serially between "stop" and the first uploaded byte, so
+    // encoder speed directly delays every recording becoming shareable;
+    // hardware encoding is ~5-10× faster than libx264 on Apple Silicon. When
+    // the resolved ffmpeg lacks h264_videotoolbox (or the encode fails), the
+    // preset loop falls through to the software presets below.
+    hardware: bool,
 }
 
 /// Maximum total bytes a recording upload may be. Overridable per-deployment
@@ -4888,6 +4939,17 @@ fn ffmpeg_transcode_presets(
 ) -> Vec<FfmpegTranscodePreset> {
     vec![
         FfmpegTranscodePreset {
+            label: "VideoToolbox 1080p30",
+            max_long_edge: 1920,
+            max_short_edge: 1080,
+            // crf/encoder_preset are libx264 knobs; unused by the hardware path.
+            crf: 22,
+            encoder_preset: "fast",
+            audio_bitrate_kbps: 160,
+            max_video_rate_kbps: 6_000,
+            hardware: true,
+        },
+        FfmpegTranscodePreset {
             label: "HandBrake Fast 1080p30",
             max_long_edge: 1920,
             max_short_edge: 1080,
@@ -4895,6 +4957,7 @@ fn ffmpeg_transcode_presets(
             encoder_preset: "fast",
             audio_bitrate_kbps: 160,
             max_video_rate_kbps: 6_000,
+            hardware: false,
         },
         FfmpegTranscodePreset {
             label: "1080p compact",
@@ -4904,6 +4967,7 @@ fn ffmpeg_transcode_presets(
             encoder_preset: "fast",
             audio_bitrate_kbps: 128,
             max_video_rate_kbps: 4_000,
+            hardware: false,
         },
         FfmpegTranscodePreset {
             label: "720p compact",
@@ -4913,6 +4977,7 @@ fn ffmpeg_transcode_presets(
             encoder_preset: "fast",
             audio_bitrate_kbps: 96,
             max_video_rate_kbps: 2_200,
+            hardware: false,
         },
         FfmpegTranscodePreset {
             label: "540p small",
@@ -4922,6 +4987,7 @@ fn ffmpeg_transcode_presets(
             encoder_preset: "fast",
             audio_bitrate_kbps: 80,
             max_video_rate_kbps: 1_200,
+            hardware: false,
         },
     ]
 }
@@ -5048,7 +5114,14 @@ fn transcode_with_ffmpeg(
     denoise_audio: bool,
     mic_pregain: bool,
 ) -> Result<(), String> {
-    let mut command = Command::new(ffmpeg_path);
+    // Run the encode at reduced CPU priority. libx264 saturates every core,
+    // and the transcode overlaps live UI (countdown overlays, the recording
+    // toolbar, a possibly already-running next recording) — observed as the
+    // countdown appearing seconds late while a previous clip was still
+    // compressing. The encode only delays one upload; the UI must stay
+    // responsive.
+    let mut command = Command::new("/usr/bin/nice");
+    command.arg("-n").arg("10").arg(ffmpeg_path);
     command
         .arg("-y")
         .arg("-hide_banner")
@@ -5090,23 +5163,46 @@ fn transcode_with_ffmpeg(
 
     command
         .arg("-fpsmax")
-        .arg(TRANSCODE_FRAME_RATE_LIMIT.to_string())
-        .arg("-c:v")
-        .arg("libx264")
-        .arg("-preset")
-        .arg(preset.encoder_preset)
-        .arg("-profile:v")
-        .arg("main")
-        .arg("-level:v")
-        .arg("4.0")
-        .arg("-pix_fmt")
-        .arg("yuv420p")
-        .arg("-crf")
-        .arg(preset.crf.to_string())
-        .arg("-maxrate")
-        .arg(maxrate)
-        .arg("-bufsize")
-        .arg(bufsize)
+        .arg(TRANSCODE_FRAME_RATE_LIMIT.to_string());
+
+    if preset.hardware {
+        // VideoToolbox has no CRF mode; drive it with the same duration-based
+        // bitrate budget the software path applies as its ceiling, so hardware
+        // outputs land at roughly the same upload size as libx264 ones.
+        command
+            .arg("-c:v")
+            .arg("h264_videotoolbox")
+            .arg("-b:v")
+            .arg(&maxrate)
+            .arg("-maxrate")
+            .arg(&maxrate)
+            .arg("-bufsize")
+            .arg(&bufsize)
+            .arg("-profile:v")
+            .arg("main")
+            .arg("-pix_fmt")
+            .arg("yuv420p");
+    } else {
+        command
+            .arg("-c:v")
+            .arg("libx264")
+            .arg("-preset")
+            .arg(preset.encoder_preset)
+            .arg("-profile:v")
+            .arg("main")
+            .arg("-level:v")
+            .arg("4.0")
+            .arg("-pix_fmt")
+            .arg("yuv420p")
+            .arg("-crf")
+            .arg(preset.crf.to_string())
+            .arg("-maxrate")
+            .arg(&maxrate)
+            .arg("-bufsize")
+            .arg(&bufsize);
+    }
+
+    command
         .arg("-c:a")
         .arg("aac")
         .arg("-b:a")
