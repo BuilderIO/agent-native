@@ -9,6 +9,7 @@
 
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import { agentNativePath } from "./api-path.js";
+import { readClientAppState } from "./application-state.js";
 import {
   isInBuilderFrame,
   isTrustedBuilderMessage,
@@ -598,15 +599,9 @@ export async function refreshAgentChatContext(): Promise<AgentChatContextState> 
     return agentChatContextState;
   }
   try {
-    const res = await fetch(
-      agentNativePath(
-        `/_agent-native/application-state/${AGENT_CHAT_CONTEXT_STATE_KEY}`,
-      ),
-    );
-    if (!res.ok || res.status === 204) return agentChatContextState;
-    const text = await res.text();
-    if (!text) return agentChatContextState;
-    const state = normalizeAgentChatContextState(JSON.parse(text));
+    const raw = await readClientAppState(AGENT_CHAT_CONTEXT_STATE_KEY);
+    if (raw === null) return agentChatContextState;
+    const state = normalizeAgentChatContextState(raw);
     if (!state) return agentChatContextState;
     return publishAgentChatContextItems(state.items, {
       persist: false,

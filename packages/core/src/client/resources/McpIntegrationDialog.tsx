@@ -762,14 +762,16 @@ export function McpIntegrationDialog({
               </div>
             </div>
             <div className="flex shrink-0 items-center justify-between gap-2 border-t border-border px-7 py-4">
-              <button
-                type="button"
-                onClick={runTest}
-                disabled={!url.trim() || busy}
-                className="rounded-md border border-border bg-background px-3 py-1.5 text-[12px] font-medium text-foreground hover:bg-accent disabled:pointer-events-none disabled:opacity-40"
-              >
-                {t("mcpIntegrations.test")}
-              </button>
+              {!selectedRequiresSetup && (
+                <button
+                  type="button"
+                  onClick={runTest}
+                  disabled={!url.trim() || busy}
+                  className="rounded-md border border-border bg-background px-3 py-1.5 text-[12px] font-medium text-foreground hover:bg-accent disabled:pointer-events-none disabled:opacity-40"
+                >
+                  {t("mcpIntegrations.test")}
+                </button>
+              )}
               {!selected ? (
                 <button
                   type="button"
@@ -790,7 +792,7 @@ export function McpIntegrationDialog({
                     href={selected.docsUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex min-w-[92px] items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[12px] font-medium text-primary-foreground hover:bg-primary/90"
+                    className="ms-auto inline-flex min-w-[92px] items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[12px] font-medium text-primary-foreground hover:bg-primary/90"
                   >
                     {t("mcpIntegrations.viewSetup")}
                     <IconExternalLink className="h-3 w-3" />

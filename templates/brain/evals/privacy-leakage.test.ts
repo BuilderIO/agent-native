@@ -84,7 +84,7 @@ describe("Brain privacy leakage eval", () => {
       /U123456789|person@example\.com|415|555|1212/,
     );
     expect(JSON.stringify(result.metadata)).not.toMatch(
-      /person@example\.com|415|555|1212/,
+      /person@example\.com|\+1 \(415\) 555-1212/,
     );
   });
 

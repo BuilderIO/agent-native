@@ -8,17 +8,15 @@ deploys, we use Neon's copy-on-write branching via GitHub Actions.
 
 1. **PR opened/updated** — `.github/workflows/neon-preview-branches.yml`
    creates a Neon branch (`preview/pr-<number>`) for each hosted template's
-   Neon project, then sets `NETLIFY_DATABASE_URL` on the corresponding
+   Neon project, then sets `DATABASE_URL` on the corresponding
    Netlify site's deploy-preview context.
 
-2. **Netlify auto-deploys** — each template's `netlify.toml` build command
-   starts with `export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL}`.
-   When `NETLIFY_DATABASE_URL` is set (preview), the build and runtime use
-   the branch DB. When unset (prod), they fall through to the real
-   `DATABASE_URL`.
+2. **Netlify auto-deploys** — the preview branch override is written directly
+   to `DATABASE_URL`, so the build and runtime use the branch DB without a
+   Netlify-managed database variable.
 
 3. **PR closed** — the workflow deletes the Neon branches and removes the
-   `NETLIFY_DATABASE_URL` env overrides.
+   branch-scoped `DATABASE_URL` env overrides.
 
 `@agent-native/core` stays provider-agnostic — it only reads `DATABASE_URL`.
 The Neon/Netlify specifics live in the workflow and each template's
@@ -65,6 +63,7 @@ Defined in the workflow's matrix. Update it when adding a new hosted template.
 | mail      | patient-cake-44789837   | dee98bb0-6143-4205-8c04-afe7bf83d5b5 |
 | plan      | late-pine-39936033      | 9d0d7a73-385d-4da1-ba10-1581ffc4d413 |
 | slides    | hidden-thunder-16834477 | fd5deb5b-5539-47e1-830c-e5fb5e105efd |
+| factory   | flat-mountain-45852069  | 6bffaa23-ad14-480c-8954-99f53ecabf05 |
 | videos    | soft-pine-75308618      | 3f0c2cd2-06cd-4ab8-bfb4-c199430d1dac |
 
 ## Schema changes

@@ -322,7 +322,7 @@ pnpm action db-check-scoping --require-org  # También requiere org_id
 | Tokens OAuth (Google, GitHub)                          | Tienda `oauth_tokens` a través de `saveOAuthTokens()`      |
 | Fichas de sesión                                       | Automático (Better Auth se encarga de esto)                |
 
-Las credenciales por usuario/por organización y la bóveda están cifradas en reposo con AES-256-GCM, codificadas por `SECRETS_ENCRYPTION_KEY` (recurriendo a `BETTER_AUTH_SECRET`); la producción se niega a comenzar sin uno. Para cifrar cualquier fila de credenciales de texto sin formato preexistente, ejecute `pnpm action db-migrate-encrypt-credentials` (idempotente, no destructivo).
+Las credenciales por usuario/organización y la bóveda se cifran en reposo con AES-256-GCM. La bóveda compartida del espacio de trabajo prefiere `WORKSPACE_SECRETS_ENCRYPTION_KEY`, seguida de candidatos heredados derivados de `SECRETS_ENCRYPTION_KEY`, `A2A_SECRET` y `BETTER_AUTH_SECRET`; durante una rotación, `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS` mantiene legibles las filas antiguas hasta migrarlas. Para cifrar filas de credenciales de texto plano existentes, ejecute `pnpm action db-migrate-encrypt-credentials` (idempotente, no destructivo).
 
 Nunca almacene secretos en `settings`, `application_state`, código fuente o respuestas de acción. Utilice las credenciales/bóveda API anteriores: manejan tanto el cifrado como el alcance por usuario.
 
@@ -365,7 +365,7 @@ Esta era anteriormente una postura de "advertir y aceptar": establezca el secret
 - [ ] `BETTER_AUTH_SECRET` configurado en una cadena aleatoria de más de 32 caracteres (`openssl rand -hex 32`), a menos que se trate de una implementación de espacio de trabajo alojado que se derive de `A2A_SECRET`
 - [ ] `OAUTH_STATE_SECRET` configurado en una cadena aleatoria separada de más de 32 caracteres (no reutilice `BETTER_AUTH_SECRET`); consulte [OAuth State Signing](#oauth-state)
 - [ ] `A2A_SECRET` configurado en cada aplicación que llama o recibe tráfico A2A; consulte [A2A Identity Verification](#a2a-identity)
-- [ ] Conjunto `SECRETS_ENCRYPTION_KEY` (o confíe en el respaldo `BETTER_AUTH_SECRET`): consulte [Secrets Management](#secrets)
+- [ ] `WORKSPACE_SECRETS_ENCRYPTION_KEY` establecido de forma consistente para bóvedas compartidas multiapp; el cifrado local conserva los respaldos `SECRETS_ENCRYPTION_KEY`/`BETTER_AUTH_SECRET`: consulte [Secrets Management](#secrets)
 - [ ] `AUTH_SKIP_EMAIL_VERIFICATION` **no** está configurado en producción (o está configurado solo en implementaciones de vista previa de control de calidad)
 
 ### Secretos de webhook (establece los que utilices para las integraciones que utilices)

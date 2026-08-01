@@ -540,8 +540,10 @@ Brain은 에이전트 기본 4개 영역 계약을 따릅니다. 편집을 통�
   경로, 필터 및 선택된 ID는 에이전트의 `application_state`에 미러링됩니다.
   컨텍스트.
 
-에이전트에게 변경을 요청하세요. 에이전트는 자체 소스를 편집할 수 있습니다. 참조
-[Self-Modifying Code](/docs/key-concepts#agent-modifies-code).
+이러한 변경은 저장소 개발 워크플로에서 수행하세요. 임베디드 에이전트는
+호스트가 repository/workspace 쓰기 도구를 의도적으로 부여한 경우에만 소스
+편집을 도울 수 있습니다. 그 외에는 actions와 데이터를 통해 작업합니다.
+[Key Concepts](/docs/key-concepts#agent-modifies-code)를 참조하세요.
 
 ## 다음 단계
 

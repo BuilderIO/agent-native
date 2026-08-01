@@ -301,7 +301,7 @@ describe("secrets storage CRUD (real sqlite)", () => {
       // ever available via A2A_SECRET derivation.
       delete process.env.SECRETS_ENCRYPTION_KEY;
       delete process.env.BETTER_AUTH_SECRET;
-      process.env.AGENT_NATIVE_WORKSPACE = "1";
+      delete process.env.AGENT_NATIVE_WORKSPACE;
       process.env.A2A_SECRET = "workspace-root";
       process.env.DISPATCH_SECRETS_ENCRYPTION_KEY = "dispatch-only-material"; // guard:allow-env-credential — test configures deploy-level app encryption material.
       process.env.COACH_SECRETS_ENCRYPTION_KEY = "coach-only-material"; // guard:allow-env-credential — test configures deploy-level app encryption material.
@@ -348,10 +348,93 @@ describe("secrets storage CRUD (real sqlite)", () => {
     }
   });
 
+  it("migrates legacy auth-secret shared ciphertext to the A2A-derived workspace key", async () => {
+    const originalAppName = process.env.APP_NAME; // guard:allow-env-credential — test configures deploy-level app scope.
+    const originalSharedKey = process.env.SECRETS_ENCRYPTION_KEY;
+    const originalAuthSecret = process.env.BETTER_AUTH_SECRET;
+    const originalWorkspace = process.env.AGENT_NATIVE_WORKSPACE;
+    const originalA2ASecret = process.env.A2A_SECRET;
+
+    try {
+      delete process.env.SECRETS_ENCRYPTION_KEY;
+      delete process.env.AGENT_NATIVE_WORKSPACE;
+      delete process.env.A2A_SECRET;
+      delete process.env.APP_NAME; // guard:allow-env-credential — test isolates deploy-level app scope.
+      process.env.BETTER_AUTH_SECRET = "dispatch-auth-secret";
+
+      await mod.writeAppSecret({
+        scope: "org",
+        scopeId: "org_builder",
+        key: "BUILDER_PRIVATE_KEY",
+        value: "builder-private-example",
+      });
+      const before = sqlite
+        .prepare(
+          `SELECT shared_encrypted_value, updated_at FROM app_secrets LIMIT 1`,
+        )
+        .get() as {
+        shared_encrypted_value: string;
+        updated_at: number;
+      };
+
+      process.env.AGENT_NATIVE_WORKSPACE = "1";
+      process.env.A2A_SECRET = "workspace-root-secret";
+      await expect(
+        mod.readAppSecret({
+          scope: "org",
+          scopeId: "org_builder",
+          key: "BUILDER_PRIVATE_KEY",
+        }),
+      ).resolves.toMatchObject({ value: "builder-private-example" });
+
+      const after = sqlite
+        .prepare(
+          `SELECT shared_encrypted_value, updated_at FROM app_secrets LIMIT 1`,
+        )
+        .get() as {
+        shared_encrypted_value: string;
+        updated_at: number;
+      };
+      expect(after.shared_encrypted_value).not.toBe(
+        before.shared_encrypted_value,
+      );
+      expect(after.updated_at).toBe(before.updated_at);
+
+      // A sibling with a different auth secret can now decrypt the migrated
+      // shared column because the workspace A2A-derived key owns it.
+      process.env.APP_NAME = "slides"; // guard:allow-env-credential — test switches deploy-level app scope.
+      process.env.BETTER_AUTH_SECRET = "slides-auth-secret";
+      await expect(
+        mod.readAppSecret({
+          scope: "org",
+          scopeId: "org_builder",
+          key: "BUILDER_PRIVATE_KEY",
+        }),
+      ).resolves.toMatchObject({ value: "builder-private-example" });
+    } finally {
+      if (originalAppName === undefined)
+        delete process.env.APP_NAME; // guard:allow-env-credential — test restores deploy-level app scope.
+      else process.env.APP_NAME = originalAppName; // guard:allow-env-credential — test restores deploy-level app scope.
+      if (originalSharedKey === undefined)
+        delete process.env.SECRETS_ENCRYPTION_KEY;
+      else process.env.SECRETS_ENCRYPTION_KEY = originalSharedKey;
+      if (originalAuthSecret === undefined)
+        delete process.env.BETTER_AUTH_SECRET;
+      else process.env.BETTER_AUTH_SECRET = originalAuthSecret;
+      if (originalWorkspace === undefined)
+        delete process.env.AGENT_NATIVE_WORKSPACE;
+      else process.env.AGENT_NATIVE_WORKSPACE = originalWorkspace;
+      if (originalA2ASecret === undefined) delete process.env.A2A_SECRET;
+      else process.env.A2A_SECRET = originalA2ASecret;
+    }
+  });
+
   it("keeps app-scoped-only production deployments writable", async () => {
     const originalAppName = process.env.APP_NAME; // guard:allow-env-credential — test configures deploy-level app scope.
     const originalAppKey = process.env.ANALYTICS_SECRETS_ENCRYPTION_KEY; // guard:allow-env-credential — test configures deploy-level app encryption material.
     const originalSharedKey = process.env.SECRETS_ENCRYPTION_KEY;
+    const originalWorkspaceSharedKey =
+      process.env.WORKSPACE_SECRETS_ENCRYPTION_KEY;
     const originalAuthSecret = process.env.BETTER_AUTH_SECRET;
     const originalNodeEnv = process.env.NODE_ENV;
 
@@ -360,6 +443,7 @@ describe("secrets storage CRUD (real sqlite)", () => {
       process.env.APP_NAME = "analytics"; // guard:allow-env-credential — test configures deploy-level app scope.
       process.env.ANALYTICS_SECRETS_ENCRYPTION_KEY = "analytics-only-material"; // guard:allow-env-credential — test configures deploy-level app encryption material.
       delete process.env.SECRETS_ENCRYPTION_KEY;
+      delete process.env.WORKSPACE_SECRETS_ENCRYPTION_KEY;
       delete process.env.BETTER_AUTH_SECRET;
 
       await mod.writeAppSecret({
@@ -381,7 +465,8 @@ describe("secrets storage CRUD (real sqlite)", () => {
         shared_encrypted_value: string | null;
         updated_at: number;
       };
-      process.env.SECRETS_ENCRYPTION_KEY = "new-workspace-shared-material";
+      process.env.WORKSPACE_SECRETS_ENCRYPTION_KEY =
+        "new-workspace-shared-material";
       await expect(mod.readAppSecret(userRef)).resolves.toMatchObject({
         value: "legacy-deployment-secret",
       });
@@ -409,7 +494,7 @@ describe("secrets storage CRUD (real sqlite)", () => {
       // preserved shared ciphertext would let sibling apps silently decrypt
       // the old value. Siblings get an honest cache miss until the owning
       // app's next read repopulates shared_encrypted_value.
-      delete process.env.SECRETS_ENCRYPTION_KEY;
+      delete process.env.WORKSPACE_SECRETS_ENCRYPTION_KEY;
       await mod.writeAppSecret({
         ...userRef,
         value: "updated-by-legacy-app",
@@ -428,6 +513,12 @@ describe("secrets storage CRUD (real sqlite)", () => {
       if (originalSharedKey === undefined)
         delete process.env.SECRETS_ENCRYPTION_KEY;
       else process.env.SECRETS_ENCRYPTION_KEY = originalSharedKey;
+      if (originalWorkspaceSharedKey === undefined) {
+        delete process.env.WORKSPACE_SECRETS_ENCRYPTION_KEY;
+      } else {
+        process.env.WORKSPACE_SECRETS_ENCRYPTION_KEY =
+          originalWorkspaceSharedKey;
+      }
       if (originalAuthSecret === undefined)
         delete process.env.BETTER_AUTH_SECRET;
       else process.env.BETTER_AUTH_SECRET = originalAuthSecret;
@@ -770,5 +861,150 @@ describe("last4 preview", () => {
     expect(mod.last4("abcd")).toBe("••••");
     expect(mod.last4("abcde")).toBe("••••bcde");
     expect(mod.last4("sk-live-1234567890")).toBe("••••7890");
+  });
+});
+
+describe("per-request read memo", () => {
+  let mod: typeof import("./storage.js");
+  let selects: string[];
+  let runWithRequestContext: typeof import("../server/request-context.js").runWithRequestContext;
+
+  beforeEach(async () => {
+    const { sqlite } = createSqliteExec();
+    selects = [];
+    vi.doMock("../db/client.js", () => ({
+      getDialect: () => "sqlite",
+      isPostgres: () => false,
+      getDbExec: () => ({
+        async execute(input: string | { sql: string; args?: any[] }) {
+          const sql = typeof input === "string" ? input : input.sql;
+          const args = typeof input === "string" ? [] : (input.args ?? []);
+          if (sql.trim().toUpperCase().startsWith("SELECT")) {
+            selects.push(sql);
+            return { rows: sqlite.prepare(sql).all(...args), rowsAffected: 0 };
+          }
+          const info = sqlite.prepare(sql).run(...args);
+          return { rows: [], rowsAffected: info.changes };
+        },
+      }),
+    }));
+    mod = await import("./storage.js");
+    ({ runWithRequestContext } = await import("../server/request-context.js"));
+  });
+
+  afterEach(() => {
+    vi.resetModules();
+    vi.doUnmock("../db/client.js");
+  });
+
+  it("reads a secret once per request and re-reads in the next request", async () => {
+    await runWithRequestContext({ userEmail: "alice@example.test" }, () =>
+      mod.writeAppSecret({ ...userRef, key: "API_KEY", value: "sk-live-1111" }),
+    );
+
+    const first = await runWithRequestContext(
+      { userEmail: "alice@example.test" },
+      async () => {
+        selects.length = 0;
+        const a = await mod.readAppSecret({ ...userRef, key: "API_KEY" });
+        const b = await mod.readAppSecret({ ...userRef, key: "API_KEY" });
+        return { a, b, reads: selects.length };
+      },
+    );
+    expect(first.a?.value).toBe("sk-live-1111");
+    expect(first.b?.value).toBe("sk-live-1111");
+    expect(first.reads).toBe(1);
+
+    // A different request gets its own snapshot — the memo must not outlive it.
+    const second = await runWithRequestContext(
+      { userEmail: "alice@example.test" },
+      async () => {
+        selects.length = 0;
+        await mod.readAppSecret({ ...userRef, key: "API_KEY" });
+        return selects.length;
+      },
+    );
+    expect(second).toBe(1);
+  });
+
+  it("keys the memo on scope and scopeId so one caller never answers for another", async () => {
+    await mod.writeAppSecret({
+      scope: "user",
+      scopeId: "alice@example.test",
+      key: "API_KEY",
+      value: "alice-secret",
+    });
+    await mod.writeAppSecret({
+      scope: "user",
+      scopeId: "bob@example.test",
+      key: "API_KEY",
+      value: "bob-secret",
+    });
+
+    await runWithRequestContext({}, async () => {
+      const alice = await mod.readAppSecret({
+        scope: "user",
+        scopeId: "alice@example.test",
+        key: "API_KEY",
+      });
+      const bob = await mod.readAppSecret({
+        scope: "user",
+        scopeId: "bob@example.test",
+        key: "API_KEY",
+      });
+      expect(alice?.value).toBe("alice-secret");
+      expect(bob?.value).toBe("bob-secret");
+    });
+  });
+
+  it("writes and deletes in the same request are visible to later reads", async () => {
+    await runWithRequestContext({}, async () => {
+      expect(
+        await mod.readAppSecret({ ...userRef, key: "ROTATED" }),
+      ).toBeNull();
+      await mod.writeAppSecret({
+        ...userRef,
+        key: "ROTATED",
+        value: "v1-abcd",
+      });
+      expect(
+        (await mod.readAppSecret({ ...userRef, key: "ROTATED" }))?.value,
+      ).toBe("v1-abcd");
+      await mod.writeAppSecret({
+        ...userRef,
+        key: "ROTATED",
+        value: "v2-wxyz",
+      });
+      expect(
+        (await mod.readAppSecret({ ...userRef, key: "ROTATED" }))?.value,
+      ).toBe("v2-wxyz");
+      await mod.deleteAppSecret({ ...userRef, key: "ROTATED" });
+      expect(
+        await mod.readAppSecret({ ...userRef, key: "ROTATED" }),
+      ).toBeNull();
+    });
+  });
+
+  it("lets a batch read prime single-key reads, including known-absent keys", async () => {
+    await mod.writeAppSecret({
+      ...userRef,
+      key: "PRESENT",
+      value: "here-1234",
+    });
+
+    const reads = await runWithRequestContext({}, async () => {
+      await mod.readAppSecrets({
+        keys: ["PRESENT", "ABSENT"],
+        scope: userRef.scope,
+        scopeId: userRef.scopeId,
+      });
+      selects.length = 0;
+      const present = await mod.readAppSecret({ ...userRef, key: "PRESENT" });
+      const absent = await mod.readAppSecret({ ...userRef, key: "ABSENT" });
+      expect(present?.value).toBe("here-1234");
+      expect(absent).toBeNull();
+      return selects.length;
+    });
+    expect(reads).toBe(0);
   });
 });

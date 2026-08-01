@@ -51,7 +51,7 @@ export interface DatabaseSchemaHealthResult {
   error?: string;
 }
 
-const DEFAULT_REQUIRED_SCHEMA: RequiredSchemaTable[] = [
+export const DEFAULT_REQUIRED_SCHEMA: RequiredSchemaTable[] = [
   {
     table: "agent_runs",
     columns: [
@@ -253,6 +253,24 @@ async function tableColumns(
     : sqliteTableColumns(exec, table);
 }
 
+/**
+ * Memo for the default probe, which several client surfaces re-run on every
+ * page load at one `information_schema` round trip per required table.
+ *
+ * Only a clean, completed result is memoized: a probe reporting a missing table
+ * or an unreadable database must never be served from cache, or the repair that
+ * follows stays invisible for the whole window. Schema changes are additive and
+ * applied by migrations, so a clean answer cannot silently go bad — but the
+ * window is still kept to seconds, short enough that anything a deploy changes
+ * shows up on the next page load rather than being pinned. Callers that
+ * override `exec`, `dialect`, or `required` bypass it entirely.
+ */
+const SCHEMA_HEALTH_MEMO_MS = 5_000;
+let schemaHealthMemo: {
+  at: number;
+  result: DatabaseSchemaHealthResult;
+} | null = null;
+
 export async function runDatabaseSchemaHealthCheck(
   options: {
     exec?: DbExec;
@@ -260,6 +278,15 @@ export async function runDatabaseSchemaHealthCheck(
     required?: RequiredSchemaTable[];
   } = {},
 ): Promise<DatabaseSchemaHealthResult> {
+  const memoizable = !options.exec && !options.dialect && !options.required;
+  if (
+    memoizable &&
+    schemaHealthMemo &&
+    Date.now() - schemaHealthMemo.at < SCHEMA_HEALTH_MEMO_MS
+  ) {
+    return schemaHealthMemo.result;
+  }
+
   const dialect = options.dialect ?? getDialect();
   const exec = options.exec ?? getDbExec();
   const required = options.required ?? DEFAULT_REQUIRED_SCHEMA;
@@ -267,18 +294,24 @@ export async function runDatabaseSchemaHealthCheck(
   const missingColumns: Array<{ table: string; column: string }> = [];
 
   try {
-    for (const requirement of required) {
-      const columns = await tableColumns(exec, dialect, requirement.table);
+    // Independent probes: serially they cost one network round trip each.
+    const found = await Promise.all(
+      required.map((requirement) =>
+        tableColumns(exec, dialect, requirement.table),
+      ),
+    );
+    required.forEach((requirement, index) => {
+      const columns = found[index];
       if (!columns) {
         missingTables.push(requirement.table);
-        continue;
+        return;
       }
       for (const column of requirement.columns) {
         if (!columns.has(column)) {
           missingColumns.push({ table: requirement.table, column });
         }
       }
-    }
+    });
   } catch (err) {
     return {
       ok: false,
@@ -290,13 +323,15 @@ export async function runDatabaseSchemaHealthCheck(
     };
   }
 
-  return {
+  const result: DatabaseSchemaHealthResult = {
     ok: missingTables.length === 0 && missingColumns.length === 0,
     checked: true,
     dialect,
     missingTables,
     missingColumns,
   };
+  if (memoizable && result.ok) schemaHealthMemo = { at: Date.now(), result };
+  return result;
 }
 
 export function formatRuntimeDebugFingerprint(

@@ -22,13 +22,13 @@ const CONNECTOR_READ_ACTIONS = {
   "list-session-recordings": listSessionRecordings,
   "get-session-replay-summary": getSessionReplaySummary,
   "get-session-replay-timeline": getSessionReplayTimeline,
-  "query-agent-native-analytics": queryAgentNativeAnalytics,
   "list-error-issues": listErrorIssues,
   "get-error-issue": getErrorIssue,
 } as const;
 
 type ActionDefinition =
-  (typeof CONNECTOR_READ_ACTIONS)[keyof typeof CONNECTOR_READ_ACTIONS];
+  | (typeof CONNECTOR_READ_ACTIONS)[keyof typeof CONNECTOR_READ_ACTIONS]
+  | typeof queryAgentNativeAnalytics;
 
 function parameterNames(action: ActionDefinition): string[] {
   const properties = action.tool.parameters?.properties;
@@ -48,7 +48,6 @@ describe("Analytics MCP connector catalog", () => {
       "list-session-recordings",
       "get-session-replay-summary",
       "get-session-replay-timeline",
-      "query-agent-native-analytics",
       "list-error-issues",
       "get-error-issue",
     ]);
@@ -60,6 +59,9 @@ describe("Analytics MCP connector catalog", () => {
     );
     expect(ANALYTICS_CONNECTOR_CATALOG).not.toContain("update-dashboard");
     expect(ANALYTICS_CONNECTOR_CATALOG).not.toContain("save-analysis");
+    expect(ANALYTICS_CONNECTOR_CATALOG).not.toContain(
+      "query-agent-native-analytics",
+    );
   });
 
   it("maps one-to-one to authenticated read-only action definitions", () => {
@@ -68,12 +70,7 @@ describe("Analytics MCP connector catalog", () => {
     ]);
 
     for (const [name, action] of Object.entries(CONNECTOR_READ_ACTIONS)) {
-      if (name === "query-agent-native-analytics") {
-        // Raw-SQL action: no HTTP route (SQL must not land in GET query
-        // strings/access logs). It is MCP-callable only through this
-        // explicit catalog, not the auto-derived authenticated-read policy.
-        expect(action.http).toBe(false);
-      } else if (name !== "gong-calls" && name !== "gong-native-insights") {
+      if (name !== "gong-calls" && name !== "gong-native-insights") {
         expect(action.http).toEqual({ method: "GET" });
       }
       expect(action.readOnly).toBe(true);
@@ -117,6 +114,14 @@ describe("Analytics MCP connector catalog", () => {
     );
     expect(parameterNames(getErrorIssue)).toEqual(
       expect.arrayContaining(["id", "eventsLimit"]),
+    );
+  });
+
+  it("keeps raw SQL available only to Analytics' own agent", () => {
+    expect(queryAgentNativeAnalytics.http).toBe(false);
+    expect(parameterNames(queryAgentNativeAnalytics)).toEqual(["sql"]);
+    expect(ANALYTICS_CONNECTOR_CATALOG).not.toContain(
+      "query-agent-native-analytics",
     );
   });
 

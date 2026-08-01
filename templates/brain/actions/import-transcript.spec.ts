@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   createCapture: vi.fn(),
+  enqueueCaptureDistillation: vi.fn(),
   getRequestUserEmail: vi.fn(),
 }));
 
@@ -21,6 +22,10 @@ vi.mock("../server/lib/brain.js", () => ({
   serializeSource: (source: unknown) => source,
 }));
 
+vi.mock("../server/lib/distillation-queue.js", () => ({
+  enqueueCaptureDistillation: mocks.enqueueCaptureDistillation,
+}));
+
 import action from "./import-transcript.js";
 
 const baseArgs = {
@@ -35,7 +40,20 @@ const baseArgs = {
 describe("import-transcript", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.createCapture.mockResolvedValue({ id: "capture-1" });
+    mocks.createCapture.mockResolvedValue({
+      id: "capture-1",
+      sourceId: "source-1",
+      status: "queued",
+      updatedAt: "2026-07-30T10:00:00.000Z",
+    });
+    mocks.enqueueCaptureDistillation.mockResolvedValue({
+      queueItem: {
+        id: "queue-1",
+        updatedAt: "2026-07-30T10:01:00.000Z",
+      },
+      existing: false,
+      guidance: {},
+    });
   });
 
   it("makes the authenticated importer the meeting audience when participants are omitted", async () => {
@@ -77,5 +95,32 @@ describe("import-transcript", () => {
       "requires an authenticated importer",
     );
     expect(mocks.createCapture).not.toHaveBeenCalled();
+  });
+
+  it("queues distillation immediately when requested", async () => {
+    mocks.getRequestUserEmail.mockReturnValue("importer@example.test");
+
+    const result = await action.run({
+      ...baseArgs,
+      enqueueDistillation: true,
+    });
+
+    expect(mocks.enqueueCaptureDistillation).toHaveBeenCalledWith({
+      capture: expect.objectContaining({ id: "capture-1" }),
+    });
+    expect(result).toEqual(
+      expect.objectContaining({
+        capture: expect.objectContaining({
+          id: "capture-1",
+          status: "distilling",
+          updatedAt: "2026-07-30T10:01:00.000Z",
+        }),
+        distillation: expect.objectContaining({
+          existing: false,
+          queueItem: expect.objectContaining({ id: "queue-1" }),
+        }),
+      }),
+    );
+    expect(result).not.toHaveProperty("nextAction");
   });
 });

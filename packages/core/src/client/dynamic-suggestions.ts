@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { agentNativePath } from "./api-path.js";
+import { readClientAppState } from "./application-state.js";
 import { useChangeVersions } from "./use-change-version.js";
 import type { ChatThreadScope } from "./use-chat-threads.js";
 
@@ -89,17 +89,9 @@ function appStateKeyForBrowserTab(key: string, browserTabId?: string): string {
 }
 
 async function readAppState(key: string): Promise<unknown> {
-  const res = await fetch(
-    agentNativePath(`/_agent-native/application-state/${key}`),
-  );
-  if (!res.ok || res.status === 204) return null;
-  const text = await res.text();
-  if (!text) return null;
-  try {
-    return JSON.parse(text);
-  } catch {
-    return null;
-  }
+  // Reads issued in the same tick coalesce into one batched request, so the
+  // four keys below cost one round trip rather than four.
+  return readClientAppState(key).catch(() => null);
 }
 
 async function readScopedAppState(

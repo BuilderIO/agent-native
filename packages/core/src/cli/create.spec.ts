@@ -276,6 +276,41 @@ describe("createApp", { timeout: 30000 }, () => {
     process.exit = origExit;
     expect(exited).toBe(true);
   });
+
+  it("scaffolds into the current directory for `create .`", async () => {
+    const dir = path.join(tmpDir, "my-inplace-app");
+    fs.mkdirSync(dir);
+    process.chdir(dir);
+    await createApp(".", { template: "blank" });
+    // No subfolder — files land directly in the current directory.
+    expect(fs.existsSync(path.join(dir, "my-inplace-app"))).toBe(false);
+    const pkg = JSON.parse(
+      fs.readFileSync(path.join(dir, "package.json"), "utf-8"),
+    );
+    expect(pkg.name).toBe("my-inplace-app");
+  });
+
+  it("refuses `create .` when the current directory is not empty", async () => {
+    const dir = path.join(tmpDir, "occupied-app");
+    fs.mkdirSync(dir);
+    fs.writeFileSync(path.join(dir, "existing.txt"), "keep me");
+    process.chdir(dir);
+    let exited = false;
+    const origExit = process.exit.bind(process);
+    // @ts-ignore
+    process.exit = () => {
+      exited = true;
+      throw new Error("process.exit called");
+    };
+    try {
+      await createApp(".", { template: "blank" });
+    } catch {
+      // expected
+    }
+    process.exit = origExit;
+    expect(exited).toBe(true);
+    expect(fs.existsSync(path.join(dir, "package.json"))).toBe(false);
+  });
 });
 
 describe("community template selections", () => {

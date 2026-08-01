@@ -37,6 +37,17 @@ All generated slides follow these conventions:
 | Bold terms | `<strong style="font-weight: 800; color: #fff;">Term</strong>` + description in rgba(255,255,255,0.55) |
 | Accent color | `#00E5FF` (cyan) for section labels, emphasis, highlights |
 
+## Fit and Density
+
+Fit the main content to the native content area, not merely to the outer
+wrapper. For the default 16:9 canvas, the standard `80px 110px` padding leaves
+740x380px. Keep titles to two lines, content slides to three short bullets or
+three compact cards, and two-column slides to two or three short items per
+column. If the source is denser, split it across slides. Never use zoom,
+`transform: scale()`, clipping, or scroll overflow to hide a fit issue; body
+text must remain at least 16px. Explicitly reduced slide padding is allowed when
+the content still needs the space.
+
 ## Updating a Slide
 
 To edit a slide's content:

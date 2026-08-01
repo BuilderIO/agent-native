@@ -51,7 +51,7 @@ vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ ...rawClient, atomicBatch }),
   getDialect: () => dbMockState.dialect,
   intType: () => "INTEGER",
-  isConnectionError: () => false,
+  isConnectionError: (error: { code?: string }) => error?.code === "ECONNRESET",
   isLocalDatabase: () => dbMockState.localDatabase,
   isPostgres: () => false,
 }));
@@ -65,6 +65,7 @@ const {
   appStatePut,
   appStateGet,
   appStateGetMany,
+  appStateGetManyEntries,
   appStateCompareAndSet,
   appStateCompareAndSetMany,
   appStateList,
@@ -155,6 +156,42 @@ describe("application-state store", () => {
         sql: expect.stringContaining("key IN (?, ?, ?)"),
         args: [SESSION, "apollo", "gong", "pylon"],
       }),
+    );
+  });
+
+  it("returns only stored rows so absence stays distinct from a null value", async () => {
+    await appStatePut(SESSION, "stored-null", null as never);
+    await appStatePut(SESSION, "stored-empty", {});
+    await appStatePut("other@example.com", "other-session", { v: 1 });
+
+    const entries = await appStateGetManyEntries(SESSION, [
+      "stored-null",
+      "stored-empty",
+      "never-written",
+      "other-session",
+    ]);
+
+    expect(entries).toEqual(
+      expect.arrayContaining([
+        { key: "stored-null", value: null },
+        { key: "stored-empty", value: {} },
+      ]),
+    );
+    expect(entries).toHaveLength(2);
+  });
+
+  it("does not report connection failures as missing state", async () => {
+    const connectionError = () =>
+      Object.assign(new Error("connection reset"), { code: "ECONNRESET" });
+
+    rawClient.execute.mockRejectedValueOnce(connectionError());
+    await expect(appStateGet(SESSION, "apollo")).rejects.toThrow(
+      "connection reset",
+    );
+
+    rawClient.execute.mockRejectedValueOnce(connectionError());
+    await expect(appStateGetMany(SESSION, ["apollo", "gong"])).rejects.toThrow(
+      "connection reset",
     );
   });
 

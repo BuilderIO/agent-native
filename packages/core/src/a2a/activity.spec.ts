@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  MAX_A2A_ACTIVITY_TOOL_INPUT_CHARS,
+  MAX_A2A_ACTIVITY_TOOL_RESULT_CHARS,
   applyA2AAgentActivityEvent,
   buildA2AAgentActivityPart,
   buildA2AAgentActivitySnapshot,
@@ -8,8 +10,23 @@ import {
   parseA2AAgentActivityPart,
 } from "./activity.js";
 
+function toolCallAfter(input: Record<string, unknown>, result = "ok") {
+  let state = createA2AAgentActivityState(1_000);
+  state = applyA2AAgentActivityEvent(
+    state,
+    { type: "tool_start", tool: "bash", id: "call-1", input },
+    1_100,
+  );
+  state = applyA2AAgentActivityEvent(
+    state,
+    { type: "tool_done", tool: "bash", id: "call-1", result },
+    1_200,
+  );
+  return buildA2AAgentActivitySnapshot(state).toolCalls[0];
+}
+
 describe("Agent Native A2A activity", () => {
-  it("keeps tool input and tool results off the A2A payload", () => {
+  it("records redacted tool input and a bounded result summary", () => {
     let state = createA2AAgentActivityState(1_000);
     state = applyA2AAgentActivityEvent(
       state,
@@ -30,26 +47,112 @@ describe("Agent Native A2A activity", () => {
         type: "tool_start",
         tool: "send-email",
         id: "call-1",
-        input: { to: "alice@example.test", secret: "abc123" },
+        input: { to: "alice@example.test", subject: "Weekly digest" },
       },
       1_200,
     );
+
+    // A still-running call already carries its arguments — the point of the
+    // capture is diagnosing a call that never completes.
+    const running = buildA2AAgentActivitySnapshot(state).toolCalls[0];
+    expect(running.status).toBe("running");
+    expect(JSON.parse(running.input!)).toEqual({
+      to: "alice@example.test",
+      subject: "Weekly digest",
+    });
+
     state = applyA2AAgentActivityEvent(
       state,
       {
         type: "tool_done",
         tool: "send-email",
         id: "call-1",
-        result: "sent to alice@example.test with secret abc123",
+        result: "queued message 42",
       },
       1_300,
     );
 
-    const serialized = JSON.stringify(buildA2AAgentActivitySnapshot(state));
-    expect(serialized).toContain("send-email");
-    expect(serialized).toContain("completed");
-    expect(serialized).not.toContain("alice@example.test");
-    expect(serialized).not.toContain("abc123");
+    const settled = buildA2AAgentActivitySnapshot(state).toolCalls[0];
+    expect(settled).toMatchObject({
+      name: "send-email",
+      status: "completed",
+      result: "queued message 42",
+    });
+    expect(JSON.parse(settled.input!).subject).toBe("Weekly digest");
+    expect(
+      parseA2AAgentActivityPart(buildA2AAgentActivityPart(state)),
+    ).not.toBeNull();
+  });
+
+  it("truncates an oversized tool input with an explicit marker", () => {
+    const oneBigArg = toolCallAfter({ command: "echo hi; ".repeat(4_000) });
+    expect(oneBigArg.input!.length).toBeLessThanOrEqual(
+      MAX_A2A_ACTIVITY_TOOL_INPUT_CHARS,
+    );
+    // Still parseable, and the clipped value says so rather than looking short.
+    expect(JSON.parse(oneBigArg.input!).command).toContain("more chars");
+
+    const manyArgs = toolCallAfter(
+      Object.fromEntries(
+        Array.from({ length: 40 }, (_, i) => [`arg${i}`, "value ".repeat(20)]),
+      ),
+    );
+    expect(manyArgs.input!.length).toBeLessThanOrEqual(
+      MAX_A2A_ACTIVITY_TOOL_INPUT_CHARS,
+    );
+    expect(JSON.parse(manyArgs.input!)._auditTruncated).toBe(true);
+  });
+
+  it("bounds an oversized tool result with an explicit marker", () => {
+    const call = toolCallAfter(
+      { command: "ls" },
+      "line of output\n".repeat(500),
+    );
+    expect(call.result!.length).toBeLessThanOrEqual(
+      MAX_A2A_ACTIVITY_TOOL_RESULT_CHARS,
+    );
+    expect(call.result).toContain("more chars");
+  });
+
+  it("round-trips normalized newlines in captured tool results", () => {
+    let state = createA2AAgentActivityState(1_000);
+    state = applyA2AAgentActivityEvent(
+      state,
+      { type: "tool_start", tool: "bash", id: "call-1", input: {} },
+      1_100,
+    );
+    state = applyA2AAgentActivityEvent(
+      state,
+      {
+        type: "tool_done",
+        tool: "bash",
+        id: "call-1",
+        result: "first line\nsecond line",
+      },
+      1_200,
+    );
+    const snapshot = buildA2AAgentActivitySnapshot(state);
+
+    expect(snapshot.toolCalls[0].result).toBe("first line\nsecond line");
+    expect(parseA2AAgentActivityPart(buildA2AAgentActivityPart(state))).toEqual(
+      snapshot,
+    );
+  });
+
+  it("redacts credential-looking tool arguments", () => {
+    const call = toolCallAfter({
+      url: "https://api.example.test/v1/send",
+      apiKey: "sk-live-000000000000000000000000",
+      headers: { authorization: "Bearer not-a-real-token-value" },
+      note: "https://hooks.slack.com/services/T000/B000/XXXXXXXXXXXXXXXX",
+    });
+    const input = JSON.parse(call.input!);
+    expect(input.url).toBe("https://api.example.test/v1/send");
+    expect(input.apiKey).toBe("[redacted]");
+    expect(input.headers.authorization).toBe("[redacted]");
+    expect(input.note).toBe("[redacted]");
+    expect(call.input).not.toContain("sk-live-");
+    expect(call.input).not.toContain("hooks.slack.com");
   });
 
   it("bounds progressive response text while preserving markdown formatting", () => {

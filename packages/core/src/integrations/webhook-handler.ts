@@ -606,7 +606,7 @@ async function enqueueAndDispatch(
         ),
       )
     : PROCESSOR_DISPATCH_SETTLE_WAIT_MS;
-  await dispatchPendingIntegrationTask({
+  const outcome = await dispatchPendingIntegrationTask({
     taskId,
     task: {
       platform: incoming.platform,
@@ -617,6 +617,29 @@ async function enqueueAndDispatch(
     baseUrl,
     portableSettleMs: settleWaitMs,
   });
+
+  // A definitive dispatch failure leaves a queued task nobody is running while
+  // the placeholder above already told the user work had started. Say so
+  // instead of leaving that indicator spinning until the sweep — if it runs.
+  if (outcome === "failed") {
+    console.error(
+      `[integrations] dispatch failed for task ${taskId} (${incoming.platform}/${incoming.externalThreadId})`,
+    );
+    try {
+      await options.adapter.sendResponse(
+        {
+          text: "I couldn't start working on that — the request was accepted but never handed off. Please try again.",
+          platformContext: incoming.platformContext,
+        },
+        incoming,
+      );
+    } catch (err) {
+      console.error(
+        "[integrations] failed to report dispatch failure to user:",
+        err,
+      );
+    }
+  }
 }
 
 /**

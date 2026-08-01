@@ -26,7 +26,7 @@ Agente nativo é para pessoas que desejam que um aplicativo real e um agente de 
 
 ### Qual a diferença entre isso e adicionar IA a um aplicativo existente? {#how-is-this-different}
 
-A maioria dos aplicativos utiliza a IA como uma reflexão tardia que não pode realmente _fazer_ coisas no aplicativo. Em um aplicativo nativo do agente, o agente é um cidadão de primeira classe que compartilha o mesmo actions, banco de dados e estado que o UI, portanto, pode fazer qualquer coisa que os botões puderem — e modificar o próprio código do aplicativo. Consulte [What Is Agent-Native?](/docs/what-is-agent-native#the-ladder).
+A maioria dos aplicativos utiliza a IA como uma reflexão tardia que não pode realmente _fazer_ coisas no aplicativo. Em um aplicativo nativo do agente, o agente é um cidadão de primeira classe que compartilha o mesmo actions, banco de dados e estado que o UI, portanto, pode fazer qualquer coisa que os botões puderem. Consulte [What Is Agent-Native?](/docs/what-is-agent-native#the-ladder).
 
 <Diagram id="doc-block-gefzrm" title="IA aparafusada vs. agent-native" summary={"Uma barra lateral de bate-papo integrada vive em seu próprio mundo. Um agente agent-native compartilha as mesmas ações, banco de dados e estado que a UI."}>
 
@@ -126,7 +126,7 @@ A estrutura vem com modelos prontos para produção, incluindo [Chat](/docs/temp
 
 ### Posso personalizar modelos? {#can-i-customize-templates}
 
-Esse é o ponto principal. Bifurque um modelo e personalize-o perguntando ao agente. "Adicione um campo prioritário aos formulários." "Conecte-se à nossa instância do Salesforce." "Mude o esquema de cores para combinar com a nossa marca." O agente modifica o código e seu aplicativo evolui com o tempo.
+Esse é o ponto principal. Comece com um template e personalize-o no seu próprio repositório e fluxo de desenvolvimento. O agente incorporado então opera o aplicativo resultante por meio de suas actions e dados.
 
 ### Posso criar algo que os modelos não cobrem? {#build-from-scratch}
 
@@ -138,9 +138,9 @@ Sim — instale uma habilidade em um agente de codificação que você já usa c
 
 ## Recursos do agente {#agent-capabilities}
 
-### O agente pode realmente modificar o código do próprio aplicativo? {#can-the-agent-modify-code}
+### O agente incorporado edita o código-fonte do aplicativo? {#can-the-agent-modify-code}
 
-Sim, e é um recurso. O agente pode editar com segurança componentes, rotas, estilos e actions. Você pergunta “adicionar um gráfico de análise de coorte” e o agente o constrói. Você pergunta “conectar-se à nossa conta Stripe” e o agente escreve a integração. Tudo é código normal rastreado pelo Git, portanto, alterações incorretas são fáceis de reverter.
+Não por padrão. Ele só pode editar o código-fonte quando o host concede intencionalmente ferramentas de escrita de repository/workspace. Caso contrário, trabalha por meio de actions, estado respaldado por SQL e integrações configuradas. Para alterar componentes, rotas, estilos ou actions, use o fluxo normal do seu repositório ou um frame de desenvolvimento/Builder separado com capacidade de código.
 
 ### Os usuários podem falar com o agente de fora do aplicativo? {#external-channels}
 

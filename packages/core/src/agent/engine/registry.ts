@@ -13,6 +13,7 @@ import { createRequire } from "node:module";
 import {
   assertCredentialStoreReadable,
   canUseDeployCredentialFallbackForRequest,
+  getBuilderCredentialAuthFailure,
   getProviderCredentialAuthFailure,
   readDeployCredentialEnv,
   resolveBuilderCredentialsDetailed,
@@ -272,6 +273,70 @@ export function normalizeModelForEngine(
   );
 }
 
+type ModelResolvableEngine = Pick<
+  AgentEngine,
+  "name" | "defaultModel" | "supportedModels" | "preserveCustomModels"
+>;
+
+/**
+ * Bound an untrusted, caller-supplied model preference to this engine's own
+ * catalog. Returns `undefined` — never a substitute — when the hint names
+ * anything the engine does not already offer, so a peer can never move the run
+ * to a different provider, an unknown id, or a capability tier this engine was
+ * not going to serve on its own.
+ */
+function resolveModelHintForEngine(
+  engine: ModelResolvableEngine,
+  hint: string | null | undefined,
+): string | undefined {
+  const candidate = typeof hint === "string" ? hint.trim() : "";
+  if (!candidate || candidate === "auto") return undefined;
+  // An engine with no catalog, or one that passes custom ids through verbatim
+  // (an OpenAI-compatible gateway), cannot prove membership — so it takes no
+  // hint at all rather than forwarding an unverifiable id to a provider.
+  if (engine.preserveCustomModels || engine.supportedModels.length === 0) {
+    return undefined;
+  }
+  const normalized = normalizeModelForEngine(engine, candidate);
+  // `normalizeModelForEngine` answers `defaultModel` both for "this IS the
+  // default" and for "no idea what this is", so an unmatched hint is only
+  // distinguishable by re-checking the raw candidate. Anything else it returns
+  // is a real catalog hit.
+  const matched =
+    normalized === engine.defaultModel
+      ? engine.supportedModels.includes(candidate)
+      : engine.supportedModels.includes(normalized);
+  return matched ? normalized : undefined;
+}
+
+/**
+ * Model for a delegated (A2A) run, in strict precedence: the receiving app's
+ * explicit configuration, then its own stored setting, then the caller's hint,
+ * then the engine default. An app that pins a model keeps it; a hint only fills
+ * the gap where the receiver would otherwise take a default it never chose.
+ *
+ * A rejected hint is logged and dropped — a delegated run must never fail over
+ * a preference.
+ */
+export function resolveDelegatedRunModel(
+  engine: ModelResolvableEngine,
+  options: {
+    explicitModel?: string | null;
+    storedModel?: string | null;
+    callerModelHint?: string | null;
+  },
+): string {
+  const own = options.explicitModel ?? options.storedModel;
+  if (own) return normalizeModelForEngine(engine, own);
+  const hinted = resolveModelHintForEngine(engine, options.callerModelHint);
+  if (!hinted && options.callerModelHint) {
+    console.log(
+      `[a2a] Ignoring caller model hint "${options.callerModelHint}" — not offered by engine ${engine.name}`,
+    );
+  }
+  return normalizeModelForEngine(engine, hinted ?? engine.defaultModel);
+}
+
 /**
  * Whether models saved or read for this engine ENTRY should be preserved
  * verbatim instead of normalized against the built-in catalog.
@@ -360,10 +425,7 @@ export function detectEngineFromEnv(): AgentEngineEntry | null {
   return null;
 }
 
-async function envKeyUsableForEntry(
-  entry: AgentEngineEntry,
-  key: string,
-): Promise<boolean> {
+async function envKeyUsableForEntry(key: string): Promise<boolean> {
   if (
     !(
       canUseDeployCredentialFallbackForRequest(key) &&
@@ -372,19 +434,41 @@ async function envKeyUsableForEntry(
   ) {
     return false;
   }
-  if (entry.name === "builder") {
-    return true;
-  }
   const value = readDeployCredentialEnv(key);
   if (!value) return false;
   return !(await getProviderCredentialAuthFailure({ key, value }));
 }
 
+/**
+ * Builder's deploy-env fallback is checked as a pair, not per-key: the
+ * auth-failure marker is fingerprinted from privateKey+publicKey together
+ * (see `builderCredentialFingerprint`), so a single-key lookup can never
+ * match it. Without this, a rejected deploy-level Builder key would keep
+ * reporting "usable" through this env-only path forever — the same class of
+ * bug as the per-scope check in `credential-provider.ts`'s
+ * `isCompleteBuilderConnection`.
+ */
+async function hasUsableBuilderEnvKeys(): Promise<boolean> {
+  const privateKey = canUseDeployCredentialFallbackForRequest(
+    "BUILDER_PRIVATE_KEY",
+  )
+    ? readDeployCredentialEnv("BUILDER_PRIVATE_KEY")
+    : null;
+  const publicKey = canUseDeployCredentialFallbackForRequest(
+    "BUILDER_PUBLIC_KEY",
+  )
+    ? readDeployCredentialEnv("BUILDER_PUBLIC_KEY")
+    : null;
+  if (!privateKey || !publicKey) return false;
+  return !(await getBuilderCredentialAuthFailure({ privateKey, publicKey }));
+}
+
 async function hasUsableEnvKeys(entry: AgentEngineEntry): Promise<boolean> {
   if (!isAgentEnginePackageInstalled(entry)) return false;
   if (entry.requiredEnvVars.length === 0) return false;
+  if (entry.name === "builder") return hasUsableBuilderEnvKeys();
   for (const key of entry.requiredEnvVars) {
-    if (!(await envKeyUsableForEntry(entry, key))) return false;
+    if (!(await envKeyUsableForEntry(key))) return false;
   }
   return true;
 }
@@ -600,12 +684,92 @@ async function resolveUsableProviderSecret(
   return authFailure ? null : value;
 }
 
+/**
+ * Return true only when the supplied key can be positively identified as a
+ * usable credential for a different registered provider.
+ *
+ * `ResolveEngineConfig.apiKey` is public and may be an opaque caller-provided
+ * key, so automatic selection must not silently replace it merely because a
+ * stored credential also exists. Delegated/internal callers, however,
+ * historically pass the current "active" provider key before the registry
+ * selects an app-default engine. Exact in-memory comparison lets us correct
+ * that proven mismatch without guessing from provider-specific key prefixes
+ * or exposing either value.
+ */
+async function apiKeyBelongsToDifferentProvider(
+  apiKey: string,
+  selectedEntry: AgentEngineEntry,
+): Promise<boolean> {
+  const selectedEnvVars = new Set(selectedEntry.requiredEnvVars);
+  const checkedEnvVars = new Set<string>();
+  for (const entry of _registry.values()) {
+    if (entry === selectedEntry || entry.name === "builder") continue;
+    for (const key of entry.requiredEnvVars) {
+      if (selectedEnvVars.has(key) || checkedEnvVars.has(key)) continue;
+      checkedEnvVars.add(key);
+      try {
+        if ((await resolveUsableProviderSecret(key)) === apiKey) return true;
+      } catch {
+        // An unrelated provider store failure is not proof that the explicit
+        // key belongs elsewhere. Preserve the caller's key and let the
+        // selected provider's own preflight report any relevant failure.
+      }
+    }
+  }
+  return false;
+}
+
 async function engineCreateConfigForEntry(
   entry: AgentEngineEntry,
   apiKey: string | undefined,
   extra?: Record<string, unknown>,
+  preferResolvedCredential = false,
 ): Promise<Record<string, unknown>> {
   const safeExtra = { ...(extra ?? {}) };
+  let matchingApiKey = apiKey;
+  // Automatic engine selection must also select that engine's credential.
+  // Callers historically passed one untagged "active" key before the registry
+  // chose an engine, which could hand an Anthropic key to an app-default
+  // OpenAI engine (or vice versa). Explicit engineOption branches retain their
+  // paired key. Automatic branches replace only a key proven to belong to a
+  // different configured provider; opaque caller-supplied keys keep the public
+  // `ResolveEngineConfig.apiKey` contract.
+  if (
+    preferResolvedCredential &&
+    entry.name !== "builder" &&
+    entry.requiredEnvVars.length > 0
+  ) {
+    let resolvedMatchingCredential: string | undefined;
+    let matchingCredentialUsesDeployFallback = false;
+    for (const key of entry.requiredEnvVars) {
+      const resolved = (await resolveUsableProviderSecret(key)) ?? undefined;
+      if (!resolved) continue;
+      resolvedMatchingCredential = resolved;
+      matchingCredentialUsesDeployFallback =
+        canUseDeployCredentialFallbackForRequest(key) &&
+        readDeployCredentialEnv(key) === resolved;
+      break;
+    }
+
+    const suppliedKeyMatchesSelected =
+      matchingApiKey !== undefined &&
+      matchingApiKey === resolvedMatchingCredential;
+    const suppliedKeyBelongsElsewhere =
+      matchingApiKey !== undefined &&
+      !suppliedKeyMatchesSelected &&
+      (await apiKeyBelongsToDifferentProvider(matchingApiKey, entry));
+
+    if (matchingApiKey === undefined || suppliedKeyBelongsElsewhere) {
+      // Keep deploy-only credentials implicit so provider SDKs retain their
+      // established env-fallback behavior. Scoped credentials must be passed
+      // explicitly. A proven different-provider key is replaced or cleared;
+      // an opaque caller-supplied key is preserved by the branch above.
+      matchingApiKey =
+        resolvedMatchingCredential && !matchingCredentialUsesDeployFallback
+          ? resolvedMatchingCredential
+          : undefined;
+    }
+  }
   if (entry.name === "ai-sdk:openai") {
     if (typeof safeExtra.baseURL === "string" && safeExtra.baseUrl == null) {
       safeExtra.baseUrl = normalizeOpenAiBaseUrl(safeExtra.baseURL);
@@ -615,7 +779,7 @@ async function engineCreateConfigForEntry(
       if (baseUrl) safeExtra.baseUrl = baseUrl;
     }
   }
-  return engineCreateConfig(entry, apiKey, safeExtra);
+  return engineCreateConfig(entry, matchingApiKey, safeExtra);
 }
 
 /**
@@ -816,7 +980,9 @@ export async function resolveEngine(
     const entry = _registry.get(envEngine);
     if (entry) {
       assertAgentEnginePackageInstalled(entry);
-      return entry.create(await engineCreateConfigForEntry(entry, apiKey));
+      return entry.create(
+        await engineCreateConfigForEntry(entry, apiKey, undefined, true),
+      );
     }
   }
 
@@ -824,7 +990,9 @@ export async function resolveEngine(
   if (appDefault?.engine) {
     const entry = _registry.get(appDefault.engine);
     if (entry && (await isStoredEngineUsableForRequest(appDefault, entry))) {
-      return entry.create(await engineCreateConfigForEntry(entry, apiKey));
+      return entry.create(
+        await engineCreateConfigForEntry(entry, apiKey, undefined, true),
+      );
     }
   }
 
@@ -857,6 +1025,7 @@ export async function resolveEngine(
           stripInlineApiKeyConfig(
             storedConfig as Record<string, unknown> | undefined,
           ),
+          true,
         ),
       );
     }
@@ -864,7 +1033,12 @@ export async function resolveEngine(
 
   if (detectedFromUser) {
     return detectedFromUser.create(
-      await engineCreateConfigForEntry(detectedFromUser, apiKey),
+      await engineCreateConfigForEntry(
+        detectedFromUser,
+        apiKey,
+        undefined,
+        true,
+      ),
     );
   }
 
@@ -873,7 +1047,9 @@ export async function resolveEngine(
   // auth-failure markers so a rejected deploy key cannot permanently win.
   const detected = await detectEngineFromEnvForRequest();
   if (detected) {
-    return detected.create(await engineCreateConfigForEntry(detected, apiKey));
+    return detected.create(
+      await engineCreateConfigForEntry(detected, apiKey, undefined, true),
+    );
   }
 
   // 9. Default: anthropic
@@ -884,7 +1060,7 @@ export async function resolveEngine(
     );
   }
   return anthropicEntry.create(
-    await engineCreateConfigForEntry(anthropicEntry, apiKey),
+    await engineCreateConfigForEntry(anthropicEntry, apiKey, undefined, true),
   );
 }
 

@@ -18,10 +18,13 @@ import {
   parseRegistryBlockData,
 } from "@shared/nfm-registry";
 import { IconMusic, IconPhoto, IconVideo } from "@tabler/icons-react";
-import type { Editor as CoreEditor, Extensions } from "@tiptap/core";
+import {
+  isNodeEmpty,
+  type Editor as CoreEditor,
+  type Extensions,
+} from "@tiptap/core";
 import Blockquote from "@tiptap/extension-blockquote";
 import Link from "@tiptap/extension-link";
-import Placeholder from "@tiptap/extension-placeholder";
 import { Table as BaseTable } from "@tiptap/extension-table";
 import { TableCell } from "@tiptap/extension-table-cell";
 import { TableHeader } from "@tiptap/extension-table-header";
@@ -1269,6 +1272,71 @@ function getVisualEditorPlaceholder({
   return hasAnchor && editor.isFocused ? emptyBlockPlaceholder : "";
 }
 
+// Tiptap's nested-placeholder cache can retain decorations when focus changes
+// or the selection crosses top-level block boundaries. Resolve only the current
+// deepest text block so old command hints cannot accumulate.
+const VisualEditorPlaceholder = Extension.create<{
+  emptyBlockPlaceholder: string;
+}>({
+  name: "visualEditorPlaceholder",
+
+  addOptions() {
+    return {
+      emptyBlockPlaceholder: DEFAULT_EMPTY_BLOCK_PLACEHOLDER,
+    };
+  },
+
+  addProseMirrorPlugins() {
+    const editor = this.editor;
+    const { emptyBlockPlaceholder } = this.options;
+
+    return [
+      new Plugin({
+        key: new PluginKey("visualEditorPlaceholder"),
+        props: {
+          decorations: ({ doc, selection }) => {
+            if (!editor.isEditable) return DecorationSet.empty;
+
+            const { $anchor } = selection;
+            let node = $anchor.parent;
+            let pos: number;
+
+            if (node.type.isTextblock && $anchor.depth > 0) {
+              pos = $anchor.before($anchor.depth);
+            } else {
+              const adjacentNode = $anchor.nodeAfter ?? $anchor.nodeBefore;
+              if (!adjacentNode?.type.isTextblock) return DecorationSet.empty;
+              node = adjacentNode;
+              pos = $anchor.nodeAfter
+                ? $anchor.pos
+                : $anchor.pos - node.nodeSize;
+            }
+
+            if (!isNodeEmpty(node)) return DecorationSet.empty;
+
+            const placeholder = getVisualEditorPlaceholder({
+              editor,
+              node,
+              pos,
+              hasAnchor: true,
+              emptyBlockPlaceholder,
+            });
+            const classes = ["is-empty"];
+            if (editor.isEmpty) classes.push("is-editor-empty");
+
+            return DecorationSet.create(doc, [
+              Decoration.node(pos, pos + node.nodeSize, {
+                class: classes.join(" "),
+                "data-placeholder": placeholder,
+              }),
+            ]);
+          },
+        },
+      }),
+    ];
+  },
+});
+
 export async function uploadAndInsertImageFiles(
   view: EditorView,
   files: File[],
@@ -1472,12 +1540,8 @@ export function createVisualEditorExtensions({
       EmptyLineParagraph,
       NotionBlockquote,
       CodeBlock,
-      Placeholder.configure({
-        placeholder: (options) =>
-          getVisualEditorPlaceholder({ ...options, emptyBlockPlaceholder }),
-        showOnlyWhenEditable: true,
-        showOnlyCurrent: true,
-        includeChildren: true,
+      VisualEditorPlaceholder.configure({
+        emptyBlockPlaceholder,
       }),
       NotionToggleBodyPlaceholder,
       Link.configure({

@@ -1661,6 +1661,7 @@ const frFR = {
     formsOverview: "Vue d'ensemble",
     formsBuildingPublishing: "Création et publication",
     formsResponses: "Réponses et aperçus",
+    docsComponents: "Docs Components",
     formsDevelopers: "Guide développeur",
   },
 } satisfies typeof enUS;

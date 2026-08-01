@@ -9,6 +9,14 @@ description: "独自のエージェント ネイティブ アプリ テンプレ
 
 `@agent-native/core` は runtime contract に使用します: actions、server plugins、database helpers、app state、routing helpers、agent chat です。`@agent-native/toolkit` は shared primitives、toast/mobile hooks、date pickers、simple app shell slots などの再利用可能な app-building UI と helpers に使用します。製品動作や visual identity を表す template-specific variants はローカルに保持してください。
 
+機能の置き場所を決めるときは、3 つのレイヤーを意識してください。
+
+- **Core - フレームワーク:** すべてのアプリが利用できる必須のランタイムとデータ契約。
+- **Toolkit - オプションの再利用可能な部品:** アプリが採用、構成、フォークできる共通 UI とプロダクトシステム。
+- **Templates - オプションのアプリ:** Core 上に構築され、Toolkit をよく利用する完全なドメイン製品。出発点としてフォークできます。
+
+Toolkit と Templates はオプションです。Template 自体がフレームワークなのではなく、Toolkit が Core を置き換えるわけでもありません。
+
 良いテンプレート:
 
 - 有用なシード データまたは空の状態のフローを使用して、1 つのワークフローをエンドツーエンドで解決します。
