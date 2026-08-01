@@ -343,6 +343,18 @@ navigateur résolvent ce binding via `@cloudflare/playwright`. Si le binding est
 absent, il est nommé dans le message d'erreur plutôt que d'invoquer un binaire
 Chromium manquant. En local, cela fonctionne avec `wrangler dev` à une
 limitation près : le runtime local refuse les requêtes de plus de 1 Mo.
+
+### Cloudflare R2 {#cloudflare-r2}
+
+Un Worker n'a pas de système de fichiers et le contenu des fichiers n'a pas sa
+place en SQL : les téléversements vont donc dans R2. Définissez
+`CLOUDFLARE_R2_BUCKET_NAME` dans l'environnement de build pour que la liaison
+`UPLOADS` soit écrite dans le `wrangler.json` généré, et
+`CLOUDFLARE_R2_PUBLIC_BASE_URL` sur l'URL publique du bucket. Le fournisseur
+est déjà enregistré dans le registre de téléversement. Une liaison absente ou
+inutilisable échoue avec les instructions de configuration au lieu d'écrire la
+charge utile en SQL. Détails dans le guide de déploiement anglais.
+
 ## AWS Lambda {#aws-lambda}
 
 ```ts

@@ -2,6 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { builderFileUploadProvider } from "./builder.js";
 import {
+  cloudflareR2FileUploadProvider,
+  CLOUDFLARE_R2_BINDING_NAME,
+} from "./cloudflare-r2.js";
+import { isFileUploadStorageNotConfiguredError } from "./errors.js";
+import {
   getActiveFileUploadProvider,
   getActiveFileUploadProviderForRequest,
   listFileUploadProviders,
@@ -13,10 +18,12 @@ import type { FileUploadProvider } from "./types.js";
 
 const resolveBuilderPrivateKeyMock = vi.hoisted(() => vi.fn());
 const resolveHasBuilderPrivateKeyMock = vi.hoisted(() => vi.fn());
+const resolveSecretMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../server/credential-provider.js", () => ({
   resolveBuilderPrivateKey: resolveBuilderPrivateKeyMock,
   resolveHasBuilderPrivateKey: resolveHasBuilderPrivateKeyMock,
+  resolveSecret: resolveSecretMock,
 }));
 
 function makeProvider(
@@ -205,6 +212,59 @@ describe("file-upload registry", () => {
         expect.stringContaining("db down"),
       );
       warn.mockRestore();
+    });
+
+    it("fails closed instead of signalling the SQL fallback on Cloudflare", async () => {
+      // The Worker has no filesystem, so a null here would send the payload
+      // into SQL — the degrade the storage contract exists to prevent.
+      resolveBuilderPrivateKeyMock.mockResolvedValue(null);
+      (globalThis as { __cf_env?: Record<string, unknown> }).__cf_env = {};
+
+      const err = await uploadFile({ data: new Uint8Array([1]) }).catch(
+        (e) => e,
+      );
+
+      expect(isFileUploadStorageNotConfiguredError(err)).toBe(true);
+      expect(err.message).toMatch(/CLOUDFLARE_R2_BUCKET_NAME/);
+      delete (globalThis as { __cf_env?: Record<string, unknown> }).__cf_env;
+    });
+
+    it("lets an app-registered provider outrank the platform built-in", async () => {
+      // R2 registers at module load, so it sits first in insertion order. An
+      // app that registered S3 on a Worker asked for S3.
+      (globalThis as { __cf_env?: Record<string, unknown> }).__cf_env = {
+        [CLOUDFLARE_R2_BINDING_NAME]: { put: vi.fn() },
+      };
+      registerFileUploadProvider(cloudflareR2FileUploadProvider);
+      const upload = vi.fn(async () => ({
+        url: "https://cdn/s3",
+        provider: "s3",
+      }));
+      registerFileUploadProvider(makeProvider("s3", true, upload));
+
+      const result = await uploadFile({ data: new Uint8Array([1]) });
+
+      expect(result?.provider).toBe("s3");
+      delete (globalThis as { __cf_env?: Record<string, unknown> }).__cf_env;
+    });
+
+    it("uses the built-in Cloudflare provider when a bucket is bound", async () => {
+      const put = vi.fn(async () => ({}));
+      (globalThis as { __cf_env?: Record<string, unknown> }).__cf_env = {
+        [CLOUDFLARE_R2_BINDING_NAME]: { put },
+      };
+      registerFileUploadProvider(cloudflareR2FileUploadProvider);
+      resolveSecretMock.mockResolvedValue("https://files.example.com");
+
+      const result = await uploadFile({
+        data: new Uint8Array([1]),
+        filename: "a.png",
+      });
+
+      expect(result?.provider).toBe("cloudflare-r2");
+      expect(put).toHaveBeenCalled();
+      expect(resolveBuilderPrivateKeyMock).not.toHaveBeenCalled();
+      delete (globalThis as { __cf_env?: Record<string, unknown> }).__cf_env;
     });
 
     it("does NOT swallow a real upload failure as a fallback", async () => {

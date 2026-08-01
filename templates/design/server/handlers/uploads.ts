@@ -3,7 +3,12 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 
-import { getSession } from "@agent-native/core/server";
+import {
+  isFileUploadStorageNotConfiguredError,
+  isObjectStorageRequired,
+  uploadFile,
+} from "@agent-native/core/file-upload";
+import { getSession, runWithRequestContext } from "@agent-native/core/server";
 import {
   defineEventHandler,
   getRequestHeader,
@@ -175,7 +180,8 @@ type UploadedFileResult = {
 } & ExtractedUploadText;
 
 type InternalUploadedFileResult = UploadedFileResult & {
-  _destPath: string;
+  /** Only set for the local-disk path, which is the one with cleanup to do. */
+  _destPath?: string;
 };
 
 export const uploadFiles = defineEventHandler(async (event) => {
@@ -232,22 +238,54 @@ export const uploadFiles = defineEventHandler(async (event) => {
       if (!hasExpectedSignature(ext, part.data)) {
         throw new Error(`File contents do not match ${ext} upload type`);
       }
+      const extracted = await extractUploadText(ext, part.data);
+      const common = {
+        originalName,
+        filename,
+        type: part.type || "application/octet-stream",
+        size: part.data.length,
+        ...extracted,
+      };
+
+      // Object storage only where the tenant directory below cannot exist —
+      // a Worker has no filesystem. Elsewhere the directory is a real, and
+      // session-scoped, place for a prompt-context file, so routing every host
+      // through a public bucket URL would be a privacy change nobody asked
+      // for. `uploadFile` throws with setup guidance where storage is required
+      // and unconfigured, which is the whole point of asking it.
+      if (isObjectStorageRequired()) {
+        const stored = await runWithRequestContext(
+          { userEmail: session.email, orgId: session.orgId },
+          () =>
+            uploadFile({
+              data: part.data,
+              filename,
+              mimeType: common.type,
+              ownerEmail: session.email,
+            }),
+        );
+        if (!stored) {
+          // uploadFile fails closed on these hosts, so a null is a contract
+          // break rather than "no provider" — never a reason to try the
+          // filesystem that is not there.
+          throw new Error(
+            "File upload returned no result on a host that requires object storage",
+          );
+        }
+        return { ...common, path: stored.url };
+      }
+
       const uploadDir = tenantUploadDir(session.email);
       await fs.promises.mkdir(uploadDir, { recursive: true });
       const destPath = path.join(uploadDir, filename);
       await fs.promises.writeFile(destPath, part.data);
-      const extracted = await extractUploadText(ext, part.data);
 
       return {
         // Return the filename (nanoid + ext) as the opaque path token rather
         // than the internal filesystem path so we don't expose the server
         // directory layout or per-tenant hash to the client.
         path: filename,
-        originalName,
-        filename,
-        type: part.type || "application/octet-stream",
-        size: part.data.length,
-        ...extracted,
+        ...common,
         _destPath: destPath,
       };
     }),
@@ -262,10 +300,17 @@ export const uploadFiles = defineEventHandler(async (event) => {
         (r) =>
           (r as PromiseFulfilledResult<InternalUploadedFileResult>).value
             ._destPath,
-      );
+      )
+      .filter((p): p is string => typeof p === "string");
     await Promise.allSettled(writtenPaths.map((p) => fs.promises.unlink(p)));
 
     const firstError = (failures[0] as PromiseRejectedResult).reason;
+    // Storage that this host requires but does not have is a setup problem,
+    // not a bad file. A 400 would tell the user to pick a different upload.
+    if (isFileUploadStorageNotConfiguredError(firstError)) {
+      setResponseStatus(event, 503);
+      return { error: firstError.message, storageSetupRequired: true };
+    }
     setResponseStatus(event, 400);
     return {
       error:

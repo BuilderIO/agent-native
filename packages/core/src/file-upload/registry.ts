@@ -1,4 +1,10 @@
+import { isCloudflareRuntime } from "../shared/runtime.js";
 import { builderFileUploadProvider } from "./builder.js";
+import {
+  CLOUDFLARE_R2_SETUP_GUIDANCE,
+  cloudflareR2FileUploadProvider,
+} from "./cloudflare-r2.js";
+import { FileUploadStorageNotConfiguredError } from "./errors.js";
 import type {
   FileUploadInput,
   FileUploadProvider,
@@ -30,6 +36,13 @@ export function registerFileUploadProvider(provider: FileUploadProvider): void {
   providers.set(provider.id, provider);
 }
 
+// Cloudflare object storage is a property of the host, not of the app: on a
+// Worker the bound bucket is the only writable blob store there is. Registering
+// it here rather than from a plugin means a generated app gets it without
+// having to know the platform it was deployed onto. It reports itself
+// unconfigured everywhere else, so no other host's provider order changes.
+registerFileUploadProvider(cloudflareR2FileUploadProvider);
+
 export function unregisterFileUploadProvider(id: string): void {
   providers.delete(id);
 }
@@ -39,13 +52,38 @@ export function listFileUploadProviders(): FileUploadProvider[] {
 }
 
 /**
+ * Whether this host still has somewhere other than SQL to put a payload the
+ * providers could not take. On Cloudflare it does not — no filesystem, and the
+ * architecture contract rules out SQL — so every "no provider" answer there is
+ * a failure rather than a fallback. One predicate rather than a host test at
+ * each decision, so the two cannot drift apart.
+ */
+export function isObjectStorageRequired(): boolean {
+  return isCloudflareRuntime();
+}
+
+/**
+ * App-registered providers before the platform built-in. An app that went to
+ * the trouble of registering S3 on a Worker asked for S3; registering R2 at
+ * module load puts it first in insertion order, which would otherwise silently
+ * overrule that.
+ */
+function providersByPreference(): FileUploadProvider[] {
+  const registered = [...providers.values()];
+  return [
+    ...registered.filter((p) => p !== cloudflareR2FileUploadProvider),
+    ...registered.filter((p) => p === cloudflareR2FileUploadProvider),
+  ];
+}
+
+/**
  * Returns the first configured provider, checking user-registered ones first
  * and falling back to the built-in Builder.io provider when its env is set.
  * Returns `null` when nothing is configured — callers should then use the
  * SQL fallback.
  */
 export function getActiveFileUploadProvider(): FileUploadProvider | null {
-  for (const provider of providers.values()) {
+  for (const provider of providersByPreference()) {
     if (provider.isConfigured()) return provider;
   }
   if (builderFileUploadProvider.isConfigured()) {
@@ -55,7 +93,7 @@ export function getActiveFileUploadProvider(): FileUploadProvider | null {
 }
 
 export async function getActiveFileUploadProviderForRequest(): Promise<FileUploadProvider | null> {
-  for (const provider of providers.values()) {
+  for (const provider of providersByPreference()) {
     if (provider.isConfigured()) return provider;
     if (provider.isConfiguredForRequest) {
       try {
@@ -120,6 +158,14 @@ export async function uploadFile(
     // Credentials confirmed — attempt the upload. Real errors (network,
     // API, rate-limit) propagate to the caller; do NOT catch them here.
     return await builderFileUploadProvider.upload(input);
+  }
+
+  // No provider answered. Where object storage is required that cannot be
+  // reported as "use your SQL fallback": SQL is where the raw payload would
+  // land, and the caller would report a stored file while the architecture
+  // contract was being broken underneath it.
+  if (isObjectStorageRequired()) {
+    throw new FileUploadStorageNotConfiguredError(CLOUDFLARE_R2_SETUP_GUIDANCE);
   }
 
   if (!warnedFallbackRef.value) {

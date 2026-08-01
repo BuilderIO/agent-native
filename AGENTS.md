@@ -281,3 +281,23 @@ Two are entry points rather than area guides:
 - `adding-a-feature` — the four-area checklist every feature must satisfy.
 - `writing-agent-instructions` — read before editing any `AGENTS.md`,
   `SKILL.md`, or tool/action description, including this file.
+
+## Agent skills
+
+Configuration the installed engineering skills read. These describe where work
+is tracked, not how to write code — the rules above still govern that.
+
+### Issue tracker
+
+Issues live in GitHub Issues on `BuilderIO/agent-native`, via the `gh` CLI.
+See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five canonical roles, each label string equal to its name.
+See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` and `docs/adr/` at the repo root, both created
+lazily. See `docs/agents/domain.md`.

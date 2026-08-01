@@ -1,5 +1,10 @@
 import type { AgentChatAttachment } from "../agent/types.js";
-import { getActiveFileUploadProvider, uploadFile } from "./registry.js";
+import { isFileUploadStorageNotConfiguredError } from "./errors.js";
+import {
+  getActiveFileUploadProvider,
+  isObjectStorageRequired,
+  uploadFile,
+} from "./registry.js";
 
 export interface PreUploadedImageAttachment {
   name?: string;
@@ -241,8 +246,21 @@ export async function preUploadAttachments(opts: {
         uploadedFiles.push(entry);
       }
     } catch (err) {
-      // Real upload failure (network, API). Keep the base64 so the model
-      // can still see the image/file, but don't crash the turn.
+      // Keeping the base64 IS the SQL fallback: the caller persists this
+      // attachment into the thread row. Where object storage is required
+      // there is nowhere else for it to go, so no failure may be absorbed —
+      // not a missing binding, not an unreadable credential store, not a
+      // network blip. Each one would otherwise end as a payload in SQL under
+      // a turn that looked normal.
+      if (
+        isObjectStorageRequired() ||
+        isFileUploadStorageNotConfiguredError(err)
+      ) {
+        throw err;
+      }
+      // Real upload failure (network, API) on a host that still has a
+      // fallback. Keep the base64 so the model can still see the image/file,
+      // but don't crash the turn.
       console.warn(
         "[agent-native] pre-upload of chat attachment failed:",
         err instanceof Error ? err.message : String(err),

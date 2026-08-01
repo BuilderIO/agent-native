@@ -27,6 +27,7 @@ import {
   CLOUDFLARE_UNRESOLVED_NATIVE_STUBS,
   CLOUDFLARE_D1_BINDING_NAME,
   CLOUDFLARE_BROWSER_BINDING_NAME,
+  resolveCloudflareR2Binding,
   resolveCloudflareD1Binding,
   cloudflareModuleStubSource,
   cloudflareUnresolvedNativeStubSource,
@@ -357,6 +358,78 @@ describe("Cloudflare module Worker browser binding", () => {
   });
 });
 
+describe("Cloudflare module Worker R2 binding", () => {
+  it("emits no binding when the build environment names no bucket", () => {
+    expect(resolveCloudflareR2Binding({})).toBeNull();
+  });
+
+  it("binds the bucket name the upload provider reads", () => {
+    expect(
+      resolveCloudflareR2Binding({
+        CLOUDFLARE_R2_BUCKET_NAME: "design-uploads",
+      }),
+    ).toEqual({
+      binding: "UPLOADS",
+      bucket_name: "design-uploads",
+    });
+  });
+
+  it("writes the bucket binding into the generated Wrangler config", () => {
+    const serverDir = makeTempDir();
+    fs.writeFileSync(
+      path.join(serverDir, "wrangler.json"),
+      JSON.stringify({ name: "design", main: "index.mjs" }),
+    );
+    fs.writeFileSync(
+      path.join(serverDir, "index.mjs"),
+      NITRO_MODULE_ENTRY_SOURCE,
+    );
+
+    configureCloudflareModuleWorkerOutput(serverDir, {
+      CLOUDFLARE_R2_BUCKET_NAME: "design-uploads",
+    });
+
+    expect(
+      JSON.parse(
+        fs.readFileSync(path.join(serverDir, "wrangler.json"), "utf8"),
+      ),
+    ).toMatchObject({
+      r2_buckets: [{ binding: "UPLOADS", bucket_name: "design-uploads" }],
+    });
+  });
+
+  it("replaces only its own bucket binding and keeps hand-added ones", () => {
+    const serverDir = makeTempDir();
+    fs.writeFileSync(
+      path.join(serverDir, "wrangler.json"),
+      JSON.stringify({
+        name: "design",
+        main: "index.mjs",
+        r2_buckets: [
+          { binding: "UPLOADS", bucket_name: "stale" },
+          { binding: "ARCHIVE", bucket_name: "archive" },
+        ],
+      }),
+    );
+    fs.writeFileSync(
+      path.join(serverDir, "index.mjs"),
+      NITRO_MODULE_ENTRY_SOURCE,
+    );
+
+    configureCloudflareModuleWorkerOutput(serverDir, {
+      CLOUDFLARE_R2_BUCKET_NAME: "fresh",
+    });
+
+    expect(
+      JSON.parse(fs.readFileSync(path.join(serverDir, "wrangler.json"), "utf8"))
+        .r2_buckets,
+    ).toEqual([
+      { binding: "ARCHIVE", bucket_name: "archive" },
+      { binding: "UPLOADS", bucket_name: "fresh" },
+    ]);
+  });
+});
+
 describe("Cloudflare module Worker D1 binding", () => {
   it("emits no binding when the build environment names no database", () => {
     expect(resolveCloudflareD1Binding({})).toBeNull();
@@ -456,6 +529,26 @@ describe("Cloudflare module Worker D1 binding", () => {
         database_id: "fresh-id",
       },
     ]);
+  });
+
+  it("leaves a config with no configured bucket untouched", () => {
+    const serverDir = makeTempDir();
+    fs.writeFileSync(
+      path.join(serverDir, "wrangler.json"),
+      JSON.stringify({ name: "design", main: "index.mjs" }),
+    );
+    fs.writeFileSync(
+      path.join(serverDir, "index.mjs"),
+      NITRO_MODULE_ENTRY_SOURCE,
+    );
+
+    configureCloudflareModuleWorkerOutput(serverDir, {});
+
+    expect(
+      JSON.parse(
+        fs.readFileSync(path.join(serverDir, "wrangler.json"), "utf8"),
+      ),
+    ).not.toHaveProperty("r2_buckets");
   });
 
   it("leaves a config with no configured database untouched", () => {

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 import type { AgentChatAttachment } from "../agent/types.js";
+import { FileUploadStorageNotConfiguredError } from "./errors.js";
 import {
   preUploadAttachments,
   preUploadImageAttachments,
@@ -9,10 +10,12 @@ import {
 
 const uploadFileMock = vi.hoisted(() => vi.fn());
 const getActiveProviderMock = vi.hoisted(() => vi.fn());
+const objectStorageRequiredMock = vi.hoisted(() => vi.fn(() => false));
 
 vi.mock("./registry.js", () => ({
   uploadFile: uploadFileMock,
   getActiveFileUploadProvider: getActiveProviderMock,
+  isObjectStorageRequired: objectStorageRequiredMock,
 }));
 
 function makeImageAtt(
@@ -55,6 +58,7 @@ describe("preUploadAttachments", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getActiveProviderMock.mockReturnValue({ id: "builder" });
+    objectStorageRequiredMock.mockReturnValue(false);
   });
 
   afterEach(() => {
@@ -280,6 +284,44 @@ describe("preUploadAttachments", () => {
     warn.mockRestore();
   });
 
+  it("propagates a storage-not-configured failure instead of keeping base64", async () => {
+    // Keeping the base64 here is what puts the payload in the SQL thread row,
+    // so this failure must not be absorbed the way a network blip is.
+    uploadFileMock.mockRejectedValue(
+      new FileUploadStorageNotConfiguredError("bind a bucket"),
+    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await expect(
+      preUploadAttachments({
+        attachments: [makeImageAtt()],
+        ownerEmail: "user@example.com",
+      }),
+    ).rejects.toThrow(/bind a bucket/);
+
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("propagates ANY upload failure where object storage is required", async () => {
+    // An unreadable credential store or a network blip is not a
+    // storage-not-configured error, but keeping the base64 puts it in SQL just
+    // the same on a host with no other fallback.
+    objectStorageRequiredMock.mockReturnValue(true);
+    uploadFileMock.mockRejectedValue(new Error("db down"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await expect(
+      preUploadAttachments({
+        attachments: [makeImageAtt()],
+        ownerEmail: "user@example.com",
+      }),
+    ).rejects.toThrow(/db down/);
+
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
   it("handles an empty attachment list gracefully", async () => {
     const result = await preUploadAttachments({
       attachments: [],
@@ -298,6 +340,7 @@ describe("preUploadImageAttachments (legacy shim)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getActiveProviderMock.mockReturnValue({ id: "builder" });
+    objectStorageRequiredMock.mockReturnValue(false);
   });
 
   it("only uploads images, not files (includeFiles=false legacy behaviour)", async () => {

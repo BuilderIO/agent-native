@@ -568,6 +568,51 @@ reproduce hosted behaviour before deploying.
 Local D1 state lives under `.output/server/.wrangler/state/v3/d1/`. Delete that
 directory to re-run migrations from an empty database.
 
+### Cloudflare R2 for uploads {#cloudflare-r2}
+
+A Worker has no filesystem, and the storage contract keeps file payloads out of
+SQL, so on this platform uploaded files go to R2. Name the bucket at build time
+and the generated `wrangler.json` gains the `UPLOADS` binding the built-in
+Cloudflare provider reads:
+
+```bash
+CLOUDFLARE_R2_BUCKET_NAME=my-app-uploads \
+NITRO_PRESET=cloudflare_module npx @agent-native/core@latest build
+```
+
+The provider is registered with the file-upload registry for you — it reports
+itself unconfigured on every other host, so nothing else changes. Uploads
+resolve to it ahead of Builder.io whenever the bucket is bound.
+
+Set `CLOUDFLARE_R2_PUBLIC_BASE_URL` to the bucket's public base URL (a custom
+domain, or its `r2.dev` address once public access is enabled). It is what turns
+a stored object into the URL that gets persisted; SQL holds that URL and the
+object key, never the bytes.
+
+An upload with no usable bucket **fails** rather than falling back:
+
+- No `UPLOADS` binding, or a binding declared as a plain `var` instead of under
+  `r2_buckets`, or a bound bucket with no public base URL — each is refused with
+  the setup step it needs.
+- The two are reported differently on purpose. "Storage was never configured"
+  and "storage is configured and broken" send an operator to opposite places.
+- The alternative is a silent one: the raw payload would land in the SQL thread
+  row and the turn would look normal. A chat turn carrying an attachment fails
+  loudly instead.
+
+For a local session Wrangler simulates the bucket and never contacts
+Cloudflare, so the bucket need not exist. Add a base URL to `.dev.vars`
+alongside the values above and rebuild:
+
+```bash
+CLOUDFLARE_R2_PUBLIC_BASE_URL=https://uploads.example.com
+```
+
+Any well-formed base URL works locally — nothing in the app fetches it back,
+it is only recorded — but a deploy needs the real one, because that URL is what
+a browser and the agent will follow. Local bucket state lives under
+`.output/server/.wrangler/state/v3/r2/`.
+
 ## AWS Lambda {#aws-lambda}
 
 ```ts filename="vite.config.ts"

@@ -339,6 +339,15 @@ Worker 無法啟動 Chromium 程序，因此瀏覽器以綁定形式提供，產
 的 action 會透過 `@cloudflare/playwright` 解析該綁定。綁定缺少時會指名該綁定，
 而不是宣稱缺少 Chromium 執行檔。本機使用 `wrangler dev` 同樣可用，但有一個
 限制：本機執行環境會拒絕大於 1 MB 的請求。
+
+### Cloudflare R2 {#cloudflare-r2}
+
+Worker 沒有檔案系統，檔案內容也不能存進 SQL，因此上傳的檔案會寫入 R2。在建置
+環境中設定 `CLOUDFLARE_R2_BUCKET_NAME`，建置就會把 `UPLOADS` 綁定寫入產生的
+`wrangler.json`；再把 `CLOUDFLARE_R2_PUBLIC_BASE_URL` 設為儲存桶的公開網址。
+該提供者已註冊到上傳註冊表中。綁定缺少或無法使用時會帶著設定說明直接失敗，而
+不是把負載寫進 SQL。詳情見英文部署指南。
+
 ## AWS 拉姆達 {#aws-lambda}
 
 ```ts
