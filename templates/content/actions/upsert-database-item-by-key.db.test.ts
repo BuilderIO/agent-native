@@ -321,6 +321,47 @@ describe("upsert-database-item-by-key", () => {
     expect(lateDocument?.trashRootId).toBe(database.documentId);
   });
 
+  it("fails closed when a key definition is deleted at the database-lock boundary", async () => {
+    const { databaseId, propertyId } = await fixture();
+    const suffix = databaseId.replace(/[^a-zA-Z0-9_]/g, "_");
+    const triggerName = `delete_key_definition_${suffix}`;
+    await getDbExec().execute(
+      `CREATE TRIGGER ${triggerName}
+       BEFORE UPDATE ON content_databases
+       WHEN NEW.id = '${databaseId}'
+         AND EXISTS (
+           SELECT 1 FROM document_property_definitions WHERE id = '${propertyId}'
+         )
+       BEGIN
+         DELETE FROM document_property_definitions WHERE id = '${propertyId}';
+       END`,
+    );
+    try {
+      await expect(
+        asOwner(() =>
+          upsert.run({
+            databaseId,
+            keyPropertyId: propertyId,
+            keyValue: "deleted-during-upsert",
+          }),
+        ),
+      ).rejects.toThrow("changed or was deleted");
+    } finally {
+      await getDbExec().execute(`DROP TRIGGER IF EXISTS ${triggerName}`);
+    }
+
+    const claims = await getDb()
+      .select()
+      .from(schema.contentDatabaseItemKeyClaims)
+      .where(eq(schema.contentDatabaseItemKeyClaims.databaseId, databaseId));
+    const items = await getDb()
+      .select()
+      .from(schema.contentDatabaseItems)
+      .where(eq(schema.contentDatabaseItems.databaseId, databaseId));
+    expect(claims).toHaveLength(0);
+    expect(items).toHaveLength(0);
+  });
+
   it("verifies every requested property by canonical serialized readback, including arrays and objects", async () => {
     const { databaseId, propertyId } = await fixture();
     const [database] = await getDb()
@@ -587,6 +628,51 @@ describe("upsert-database-item-by-key", () => {
       upsert.run({ databaseId, keyPropertyId: propertyId, keyValue: "B" }),
     );
     expect(b.documentId).toBe(created.documentId);
+  });
+
+  it("serializes a real concurrent type change and retires old-type claims", async () => {
+    const { databaseId, propertyId } = await fixture();
+    const [database] = await getDb()
+      .select()
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, databaseId));
+
+    const [upsertResult, configureResult] = await Promise.allSettled([
+      asOwner(() =>
+        upsert.run({
+          databaseId,
+          keyPropertyId: propertyId,
+          keyValue: "not-a-number",
+        }),
+      ),
+      asOwner(() =>
+        configureProperty.run({
+          id: propertyId,
+          documentId: database.documentId,
+          databaseId,
+          name: "External key",
+          type: "number",
+        }),
+      ),
+    ]);
+    expect(configureResult.status).toBe("fulfilled");
+    expect(["fulfilled", "rejected"]).toContain(upsertResult.status);
+
+    const [definition] = await getDb()
+      .select({ type: schema.documentPropertyDefinitions.type })
+      .from(schema.documentPropertyDefinitions)
+      .where(eq(schema.documentPropertyDefinitions.id, propertyId));
+    const claims = await getDb()
+      .select()
+      .from(schema.contentDatabaseItemKeyClaims)
+      .where(eq(schema.contentDatabaseItemKeyClaims.propertyId, propertyId));
+    const values = await getDb()
+      .select()
+      .from(schema.documentPropertyValues)
+      .where(eq(schema.documentPropertyValues.propertyId, propertyId));
+    expect(definition?.type).toBe("number");
+    expect(claims).toHaveLength(0);
+    expect(values).toHaveLength(0);
   });
 
   it("removes stable-key claims in the same property-definition deletion", async () => {

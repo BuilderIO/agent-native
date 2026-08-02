@@ -211,6 +211,65 @@ export default defineAction({
               );
             }
 
+            // Lock and revalidate every requested definition after the database
+            // lock. Property deletion/configuration touches these same rows, so
+            // either it commits first and this fails closed, or it waits until
+            // the upsert has committed a self-consistent claim/value set.
+            const requestedPropertyIds = [...values.keys()];
+            const lockedDefinitions = await tx
+              .update(schema.documentPropertyDefinitions)
+              .set({
+                updatedAt: sql`${schema.documentPropertyDefinitions.updatedAt}`,
+              })
+              .where(
+                and(
+                  eq(schema.documentPropertyDefinitions.databaseId, databaseId),
+                  eq(
+                    schema.documentPropertyDefinitions.ownerEmail,
+                    database.ownerEmail,
+                  ),
+                  inArray(
+                    schema.documentPropertyDefinitions.id,
+                    requestedPropertyIds,
+                  ),
+                ),
+              )
+              .returning({
+                id: schema.documentPropertyDefinitions.id,
+                type: schema.documentPropertyDefinitions.type,
+                systemRole: schema.documentPropertyDefinitions.systemRole,
+              });
+            const lockedDefinitionsById = new Map(
+              lockedDefinitions.map((definition) => [
+                definition.id,
+                definition,
+              ]),
+            );
+            for (const propertyId of requestedPropertyIds) {
+              const initialDefinition = definitionsById.get(propertyId);
+              const lockedDefinition = lockedDefinitionsById.get(propertyId);
+              if (
+                !initialDefinition ||
+                !lockedDefinition ||
+                lockedDefinition.type !== initialDefinition.type ||
+                lockedDefinition.systemRole !== initialDefinition.systemRole
+              ) {
+                throw new Error(
+                  `Property "${propertyId}" changed or was deleted before the stable-key upsert could write.`,
+                );
+              }
+              const lockedType = lockedDefinition.type as DocumentPropertyType;
+              if (
+                lockedDefinition.systemRole ||
+                isComputedPropertyType(lockedType) ||
+                isBlocksPropertyType(lockedType)
+              ) {
+                throw new Error(
+                  `Property "${propertyId}" cannot be written by this action.`,
+                );
+              }
+            }
+
             const [transactionSourceManagedKey] = await tx
               .select({ id: schema.contentDatabaseSourceFields.id })
               .from(schema.contentDatabaseSourceFields)

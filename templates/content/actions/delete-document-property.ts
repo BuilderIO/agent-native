@@ -1,7 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -66,6 +66,43 @@ export default defineAction({
       isPrimaryBlocksField(parsePropertyOptions(definition.optionsJson));
 
     await db.transaction(async (tx) => {
+      const [lockedDatabase] = await tx
+        .update(schema.contentDatabases)
+        .set({ updatedAt: sql`${schema.contentDatabases.updatedAt}` })
+        .where(
+          and(
+            eq(schema.contentDatabases.id, database.id),
+            eq(schema.contentDatabases.documentId, database.documentId),
+            eq(schema.contentDatabases.ownerEmail, document.ownerEmail),
+            isNull(schema.contentDatabases.deletedAt),
+          ),
+        )
+        .returning({ id: schema.contentDatabases.id });
+      if (!lockedDatabase) throw new Error("Database is no longer active.");
+      const [lockedDefinition] = await tx
+        .update(schema.documentPropertyDefinitions)
+        .set({
+          updatedAt: sql`${schema.documentPropertyDefinitions.updatedAt}`,
+        })
+        .where(
+          and(
+            eq(schema.documentPropertyDefinitions.id, propertyId),
+            eq(
+              schema.documentPropertyDefinitions.ownerEmail,
+              document.ownerEmail,
+            ),
+            eq(schema.documentPropertyDefinitions.databaseId, database.id),
+          ),
+        )
+        .returning({
+          id: schema.documentPropertyDefinitions.id,
+          systemRole: schema.documentPropertyDefinitions.systemRole,
+        });
+      if (!lockedDefinition)
+        throw new Error(`Property "${propertyId}" not found`);
+      if (lockedDefinition.systemRole)
+        throw new Error("System properties cannot be deleted.");
+
       await tx
         .delete(schema.documentPropertyValues)
         .where(eq(schema.documentPropertyValues.propertyId, propertyId));
