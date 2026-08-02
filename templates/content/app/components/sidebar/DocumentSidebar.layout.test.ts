@@ -224,9 +224,9 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain("<WorkspaceSidebarItem");
     expect(sidebar).toContain("<IconArrowsSort size={14} />");
     expect(sidebar).toContain("<DropdownMenuRadioGroup");
-    expect(sidebar).toContain(
-      "const activeFilesDatabaseId = expanded ? space.filesDatabaseId : null",
-    );
+    expect(sidebar).toContain("useDeferredFilesDatabaseId(");
+    expect(sidebar).toContain("INITIAL_EXPANDED_WORKSPACE_READ_DELAY_MS");
+    expect(sidebar).toContain("if (!wasExpanded)");
     expect(sidebar).not.toContain("<SidebarDragHandle");
     expect(sidebar).not.toContain("<SidebarReorderMenuItems");
     expect(sidebar).toContain(
@@ -436,6 +436,23 @@ describe("document sidebar layout", () => {
     );
     expect(sidebar).not.toContain("<FavoriteDocumentItem");
     expect(sidebar).not.toContain("!localFileMode && favorites.length > 0");
+  });
+
+  it("keeps delete confirmation owned by the stable sidebar", () => {
+    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
+    const treeItem = readSidebarSource("./DocumentTreeItem.tsx");
+    const databaseSidebar = readSidebarSource("../editor/database/sidebar.tsx");
+
+    expect(sidebar).toContain("const [pendingDelete, setPendingDelete]");
+    expect(sidebar).toContain("open={pendingDelete !== null}");
+    expect(sidebar).toContain("confirmedDeleteIdRef");
+    expect(sidebar).toContain("window.requestAnimationFrame");
+    expect(sidebar).toContain('document.body.style.pointerEvents === "none"');
+    expect(sidebar).toContain("void handleDelete(confirmedDeleteId)");
+    expect(treeItem).not.toContain("deleteDialogOpen");
+    expect(treeItem).not.toContain("<AlertDialog");
+    expect(databaseSidebar).not.toContain("deleteDialogOpen");
+    expect(databaseSidebar).not.toContain("<AlertDialog");
   });
 
   it("keeps the Content sidebar quiet while lists load", () => {

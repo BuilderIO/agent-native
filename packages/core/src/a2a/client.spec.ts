@@ -1134,6 +1134,46 @@ describe("A2AClient", () => {
     });
   });
 
+  it("reserves a separate submission budget before the bounded poll handoff", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method !== "POST") {
+          return new Response("not found", { status: 404 });
+        }
+        const body = JSON.parse(String(init.body));
+        if (body.method === "message/send") {
+          await new Promise<void>((resolve, reject) => {
+            const timer = setTimeout(resolve, 20);
+            init.signal?.addEventListener(
+              "abort",
+              () => {
+                clearTimeout(timer);
+                reject(new DOMException("aborted", "AbortError"));
+              },
+              { once: true },
+            );
+          });
+          return workingResponse(body, "task-slow-submission");
+        }
+        return workingResponse(body, "task-slow-submission");
+      }),
+    );
+
+    await expect(
+      callAgent("https://slides.agent.test", "make a deck", {
+        timeoutMs: 5,
+        submissionTimeoutMs: 50,
+        pollIntervalMs: 1,
+        returnRecoverableArtifactsOnTimeout: false,
+      }),
+    ).rejects.toMatchObject({
+      name: "A2ATaskTimeoutError",
+      taskId: "task-slow-submission",
+      timeoutMs: 5,
+    });
+  });
+
   it("does not treat unmarked timeout text as a recoverable artifact", async () => {
     vi.stubGlobal(
       "fetch",

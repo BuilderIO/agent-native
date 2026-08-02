@@ -536,8 +536,14 @@ export class A2AClient {
       metadata?: Record<string, unknown>;
       idempotencyKey?: string;
       approvedActions?: A2AApprovedAction[];
-      /** Total time to wait for completion. Default 5 min. */
+      /** Time to wait after submission for completion. Default 5 min. */
       timeoutMs?: number;
+      /**
+       * Optional separate budget for agent-card discovery and the initial
+       * async message submission. When omitted, timeoutMs remains the shared
+       * end-to-end deadline for backwards compatibility.
+       */
+      submissionTimeoutMs?: number;
       /** Poll interval. Default 2s. */
       pollIntervalMs?: number;
       /** Called with each polled task — useful for surfacing progress. */
@@ -545,7 +551,8 @@ export class A2AClient {
     },
   ): Promise<Task> {
     const timeoutMs = opts?.timeoutMs ?? 5 * 60_000;
-    const deadlineMs = Date.now() + timeoutMs;
+    const submissionDeadlineMs =
+      Date.now() + (opts?.submissionTimeoutMs ?? timeoutMs);
     const submitted = await this.send(message, {
       contextId: opts?.contextId,
       metadata: opts?.metadata,
@@ -556,12 +563,19 @@ export class A2AClient {
       async: true,
       requestTimeoutMs: Math.min(
         this.requestTimeoutMs ?? DEFAULT_A2A_POLL_REQUEST_TIMEOUT_MS,
-        Math.max(1, deadlineMs - Date.now()),
+        Math.max(1, submissionDeadlineMs - Date.now()),
       ),
-      deadlineMs,
+      deadlineMs: submissionDeadlineMs,
     });
 
-    return this.pollTask(submitted, { ...opts, timeoutMs, deadlineMs });
+    const pollingDeadlineMs = opts?.submissionTimeoutMs
+      ? Date.now() + timeoutMs
+      : submissionDeadlineMs;
+    return this.pollTask(submitted, {
+      ...opts,
+      timeoutMs,
+      deadlineMs: pollingDeadlineMs,
+    });
   }
 
   /**
@@ -1017,6 +1031,8 @@ export async function callAgent(
     async?: boolean;
     /** Total time to wait for the polled task (default 5 min). */
     timeoutMs?: number;
+    /** Separate budget for discovery and initial async submission. */
+    submissionTimeoutMs?: number;
     /**
      * Existing async task to keep polling. When set, no new message is sent.
      * This prevents a caller-side timeout from duplicating downstream work.
@@ -1092,6 +1108,7 @@ export async function callAgent(
                 ? { approvedActions: opts.approvedActions }
                 : {}),
               timeoutMs: opts?.timeoutMs,
+              submissionTimeoutMs: opts?.submissionTimeoutMs,
               pollIntervalMs: opts?.pollIntervalMs,
               onUpdate: opts?.onUpdate,
             });
