@@ -65,7 +65,11 @@ export function safeTags(
 ): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(tags ?? {})) {
-    if (Object.keys(out).length >= MAX_TAGS || value == null) break;
+    if (Object.keys(out).length >= MAX_TAGS) break;
+    // Skip, don't stop: callers build tag objects with optional entries
+    // (`{ ...tags, route, method, userAgent }`), so breaking on the first
+    // undefined dropped every tag after it depending on key order.
+    if (value == null) continue;
     const safeKey = boundedText(key, 100);
     out[safeKey] = SECRET_KEY_RE.test(safeKey)
       ? "<redacted>"

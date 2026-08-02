@@ -23,10 +23,35 @@ function captureEvents(): TrackingEvent[] {
   return events;
 }
 
+/**
+ * Load the tracking + emission modules fresh, mirroring production startup:
+ * the built-in PostHog provider is registered whenever `POSTHOG_API_KEY` is
+ * set, and its `flush()` is what drains the shared send queue.
+ */
+async function freshModules() {
+  vi.resetModules();
+  const registry = await import("../tracking/registry.js");
+  for (const name of ["posthog", "mixpanel", "amplitude", "webhook"]) {
+    registry.unregisterTrackingProvider(name);
+  }
+  const providers = await import("../tracking/providers.js");
+  const posthogAi = await import("./posthog-ai.js");
+  const events: TrackingEvent[] = [];
+  registry.registerTrackingProvider({
+    name: "qa-posthog-ai",
+    track(event) {
+      events.push(event);
+    },
+  });
+  providers.registerBuiltinProviders();
+  return { ...registry, ...providers, ...posthogAi, events };
+}
+
 describe("emitAiFeedbackSurveyEvent", () => {
   afterEach(() => {
     unregisterTrackingProvider("qa-posthog-ai");
     vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
   });
 
   const base = {
@@ -49,38 +74,74 @@ describe("emitAiFeedbackSurveyEvent", () => {
     expect(events).toHaveLength(0);
   });
 
-  it("emits PostHog's `survey sent` linked to the AI trace", async () => {
+  it("emits nothing when PostHog itself is not configured", async () => {
     vi.stubEnv("POSTHOG_AI_FEEDBACK_SURVEY_ID", "survey-abc");
-    const events = captureEvents();
+    vi.stubEnv("POSTHOG_API_KEY", "");
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetchMock);
 
-    expect(emitAiFeedbackSurveyEvent(base)).toBe(true);
+    expect(emitAiFeedbackSurveyEvent(base)).toBe(false);
     await new Promise((r) => setTimeout(r, 0));
 
-    expect(events).toHaveLength(1);
-    expect(events[0].name).toBe("survey sent");
-    expect(events[0].userId).toBe("alice@example.test");
-    expect(events[0].properties).toMatchObject({
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("sends `survey sent` to PostHog only, never through the provider fan-out", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("POSTHOG_AI_FEEDBACK_SURVEY_ID", "survey-abc");
+    vi.stubEnv("POSTHOG_API_KEY", "phc_test");
+    vi.stubEnv("POSTHOG_HOST", "https://us.i.posthog.com");
+    const mod = await freshModules();
+
+    expect(
+      mod.emitAiFeedbackSurveyEvent({
+        ...base,
+        feedbackType: "text",
+        value: "the answer cited the wrong doc",
+      }),
+    ).toBe(true);
+    await mod.flushTracking();
+
+    // The generic registry saw nothing — free-text feedback stays with PostHog
+    // instead of fanning out to Mixpanel/Amplitude/webhooks.
+    expect(mod.events).toHaveLength(0);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("https://us.i.posthog.com/capture/");
+    const body = JSON.parse(init.body);
+    expect(body.event).toBe("survey sent");
+    expect(body.distinct_id).toBe("alice@example.test");
+    expect(body.properties).toMatchObject({
       $survey_id: "survey-abc",
-      $survey_response: "thumbs_down",
+      $survey_response: "the answer cited the wrong doc",
       $survey_submission_id: "sub-1",
       $survey_completed: true,
       $ai_trace_id: "run-1",
       $ai_session_id: "thread-1",
-      $ai_model: "claude-test",
-      feedback_type: "thumbs_down",
+      feedback_type: "text",
     });
   });
 
   it("uses the per-question response key when a question id is configured", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetchMock);
     vi.stubEnv("POSTHOG_AI_FEEDBACK_SURVEY_ID", "survey-abc");
     vi.stubEnv("POSTHOG_AI_FEEDBACK_SURVEY_QUESTION_ID", "q1");
-    const events = captureEvents();
+    vi.stubEnv("POSTHOG_API_KEY", "phc_test");
+    const mod = await freshModules();
 
-    emitAiFeedbackSurveyEvent({ ...base, feedbackType: "text", value: "slow" });
-    await new Promise((r) => setTimeout(r, 0));
+    mod.emitAiFeedbackSurveyEvent({
+      ...base,
+      feedbackType: "text",
+      value: "slow",
+    });
+    await mod.flushTracking();
 
-    expect(events[0].properties?.["$survey_response_q1"]).toBe("slow");
-    expect(events[0].properties).not.toHaveProperty("$survey_response");
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.properties["$survey_response_q1"]).toBe("slow");
+    expect(body.properties).not.toHaveProperty("$survey_response");
   });
 });
 

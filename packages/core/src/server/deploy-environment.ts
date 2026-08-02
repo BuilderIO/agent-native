@@ -49,6 +49,7 @@ export function resolveServerRelease(): string {
       version?: string;
     };
     if (pkg?.version) return `agent-native-server@${pkg.version}`;
+    // coercion-ok: falls through to the distinct "unknown" release marker
   } catch {
     // ignore — fall through to "unknown"
   }

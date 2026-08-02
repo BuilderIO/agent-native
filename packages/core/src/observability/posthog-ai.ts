@@ -21,6 +21,7 @@
  * @see https://posthog.com/docs/ai-observability/spans
  */
 
+import { sendPostHogEvent } from "../tracking/providers.js";
 import { boundedText } from "../tracking/redaction.js";
 
 /** Hard ceiling on serialized content per `$ai_*` field. */
@@ -49,6 +50,7 @@ function trackAiEvent(
         track(name, properties, { userId: userId ?? undefined });
       })
       .catch(() => {});
+    // coercion-ok: a throw here would break the run it is observing
   } catch {
     // Tracking must never affect the agent run or trace persistence.
   }
@@ -217,6 +219,12 @@ export interface AiFeedbackSurveyInput {
  * nowhere. Returns `false` and emits nothing when no survey id is configured:
  * inventing one would produce events attached to a survey that does not exist.
  *
+ * Sent to PostHog ONLY, not through `track()`. The survey response carries the
+ * user's free-text feedback verbatim, and configuring a PostHog survey id must
+ * not silently start shipping that text to Mixpanel, Amplitude, webhooks, or
+ * Agent Native Analytics. Those backends get the content-free `$ai_feedback`
+ * event instead.
+ *
  * @see https://posthog.com/docs/ai-observability/user-feedback/manual-event-capture
  */
 export function emitAiFeedbackSurveyEvent(
@@ -232,23 +240,27 @@ export function emitAiFeedbackSurveyEvent(
     ? `$survey_response_${questionId}`
     : "$survey_response";
 
-  trackAiEvent(
+  const properties: Record<string, unknown> = {
+    $survey_id: surveyId,
+    [responseKey]: input.value,
+    $survey_submission_id: input.submissionId,
+    $survey_completed: true,
+    $ai_trace_id: input.runId ?? undefined,
+    $ai_session_id: input.threadId ?? undefined,
+    $ai_model: input.model,
+    $session_id: input.browserSessionId,
+    feedback_type: input.feedbackType,
+    source: "agent_observability",
+  };
+  for (const key of Object.keys(properties)) {
+    if (properties[key] === undefined) delete properties[key];
+  }
+
+  return sendPostHogEvent(
     "survey sent",
-    {
-      $survey_id: surveyId,
-      [responseKey]: input.value,
-      $survey_submission_id: input.submissionId,
-      $survey_completed: true,
-      $ai_trace_id: input.runId ?? undefined,
-      $ai_session_id: input.threadId ?? undefined,
-      $ai_model: input.model,
-      $session_id: input.browserSessionId,
-      feedback_type: input.feedbackType,
-      source: "agent_observability",
-    },
-    input.userId,
+    properties,
+    input.userId ?? "anonymous",
   );
-  return true;
 }
 
 /**

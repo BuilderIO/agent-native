@@ -1052,6 +1052,22 @@ export async function instrumentAgentLoop(opts: {
       });
 
       for (const span of emittedToolSpans) {
+        // `span.errorMessage` is the raw tool result. It routinely contains
+        // upstream response bodies with Authorization headers and standalone
+        // API keys, so it gets the same redaction + bounding the generation
+        // event's `tools[].error_message` already applies, and the same
+        // `captureToolResults` gate — exporting it here otherwise reintroduced
+        // the leak that gate exists to prevent. `$ai_is_error` still marks the
+        // failure when the content is withheld.
+        const toolErrorMessage =
+          span.status === "error" &&
+          span.errorMessage &&
+          config.captureToolResults
+            ? truncateToolErrorMessage(
+                redactToolErrorMessage(span.errorMessage),
+              )
+            : undefined;
+
         emitAiSpanEvent({
           runId,
           threadId,
@@ -1060,19 +1076,15 @@ export async function instrumentAgentLoop(opts: {
           spanName: span.name,
           latencySeconds: Math.round(span.durationMs) / 1000,
           isError: span.status === "error",
-          error:
-            span.status === "error"
-              ? toAiErrorDetail(span.errorMessage)
-              : undefined,
+          error: toolErrorMessage
+            ? toAiErrorDetail(toolErrorMessage)
+            : undefined,
           createdAt: span.createdAt,
           browserSessionId,
           // `metadata.input` is already redacted and only present when
           // `captureToolArgs` is on; absent stays absent.
           inputState: (span.metadata as { input?: unknown } | null)?.input,
-          outputState:
-            config.captureToolResults && span.errorMessage
-              ? span.errorMessage
-              : undefined,
+          outputState: toolErrorMessage,
           extraProperties: {
             ...trackingIdentityProperties(),
             source: "agent_observability",

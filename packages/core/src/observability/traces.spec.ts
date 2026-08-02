@@ -456,9 +456,9 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     ]);
     const failed = spans.find((s) => s.properties?.["$ai_is_error"] === true);
     expect(failed?.properties?.["$ai_span_name"]).toBe("write");
-    expect(failed?.properties?.["$ai_error"]).toMatchObject({
-      message: expect.stringContaining("disk full"),
-    });
+    // The failure is visible, but the tool's result text is withheld: this run
+    // has the default `captureToolResults: false`.
+    expect(failed?.properties).not.toHaveProperty("$ai_error");
   });
 
   it("omits tool span content unless capture is enabled", async () => {
@@ -511,6 +511,78 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     // Absent, not empty — an empty object would read as "the tool took no args".
     expect(events[0]?.properties).not.toHaveProperty("$ai_input_state");
     expect(JSON.stringify(events[0])).not.toContain("must-not-be-tracked");
+  });
+
+  it("redacts and gates tool failure detail on tool spans", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (event.name === "$ai_span") events.push(event);
+      },
+    });
+
+    const loopOpts: any = {
+      engine: { name: "anthropic" },
+      model: "claude-test",
+      systemPrompt: "",
+      tools: [],
+      messages: [],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+    // A tool result echoing an upstream response with credentials in it.
+    const leakyResult =
+      "Error: upstream rejected: authorization: Bearer abcdef123456 key=sk-not-a-real-key-000000000";
+
+    const run = (captureToolResults: boolean) =>
+      instrumentAgentLoop({
+        runAgentLoop: async ({ send }: any) => {
+          send({ type: "tool_start", id: "a", tool: "fetch", input: {} });
+          send({
+            type: "tool_done",
+            id: "a",
+            tool: "fetch",
+            result: leakyResult,
+            isError: true,
+          });
+          return {
+            inputTokens: 1,
+            outputTokens: 1,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            model: "claude-test",
+          };
+        },
+        loopOpts,
+        runId: `run-leak-${captureToolResults}`,
+        threadId: null,
+        userId: null,
+        config: {
+          ...DEFAULT_OBSERVABILITY_CONFIG,
+          enabled: true,
+          captureToolResults,
+        },
+      });
+
+    await run(false);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    // Withheld entirely, but the failure is still visible.
+    expect(events).toHaveLength(1);
+    expect(events[0]?.properties?.["$ai_is_error"]).toBe(true);
+    expect(events[0]?.properties).not.toHaveProperty("$ai_error");
+    expect(events[0]?.properties).not.toHaveProperty("$ai_output_state");
+
+    events.length = 0;
+    await run(true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(events).toHaveLength(1);
+    const serialized = JSON.stringify(events[0]);
+    expect(serialized).toContain("REDACTED");
+    expect(serialized).not.toContain("abcdef123456");
+    expect(serialized).not.toContain("sk-not-a-real-key-000000000");
   });
 
   it("does not emit tool spans when captureLlmSpans is off", async () => {

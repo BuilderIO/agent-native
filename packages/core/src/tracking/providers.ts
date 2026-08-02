@@ -248,6 +248,42 @@ function createPostHogProvider(
   };
 }
 
+/**
+ * Send one event to PostHog only, bypassing the provider fan-out.
+ *
+ * For payloads whose *shape* is PostHog-specific and whose *content* other
+ * backends must not receive. `track()` broadcasts to every configured provider,
+ * so a PostHog-only integration (e.g. enabling a survey id) would otherwise
+ * start exporting that integration's content — including user-authored text —
+ * to Mixpanel, Amplitude, webhooks, and Agent Native Analytics as a side
+ * effect nobody opted into.
+ *
+ * Returns `false` when PostHog is not configured, so callers can tell "not
+ * sent" from "sent".
+ */
+export function sendPostHogEvent(
+  name: string,
+  properties: Record<string, unknown>,
+  distinctId: string,
+): boolean {
+  const apiKey = process.env.POSTHOG_API_KEY;
+  if (!apiKey) return false;
+  const host = (process.env.POSTHOG_HOST || POSTHOG_DEFAULT_HOST).replace(
+    /\/+$/,
+    "",
+  );
+  enqueue(
+    `${host}/capture/`,
+    JSON.stringify({
+      api_key: apiKey,
+      event: name,
+      distinct_id: distinctId,
+      properties: { ...properties, timestamp: new Date().toISOString() },
+    }),
+  );
+  return true;
+}
+
 // ─── Mixpanel ──────────────────────────────────────────────────────────────
 
 function createMixpanelProvider(token: string): TrackingProvider {

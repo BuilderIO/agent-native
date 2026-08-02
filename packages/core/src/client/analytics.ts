@@ -1340,6 +1340,13 @@ function posthogErrorConfig(): { key: string; host: string } | undefined {
   const shell = window.__AGENT_NATIVE_CONFIG__;
   if (shell?.posthogErrorTracking === false) return undefined;
   const env = import.meta.env as Record<string, string | undefined>;
+  // Static/SPA builds never render through the SSR handler, so they never see
+  // the shell config that carries the server-side opt-out. Without this a
+  // Vite-only deployment could not honour `POSTHOG_ERROR_TRACKING=false`
+  // short of deleting the public key.
+  if (env?.VITE_POSTHOG_ERROR_TRACKING?.trim().toLowerCase() === "false") {
+    return undefined;
+  }
   const key = shell?.posthogKey || env?.VITE_POSTHOG_KEY;
   if (!key) return undefined;
   const host = (
