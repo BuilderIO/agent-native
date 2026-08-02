@@ -21,7 +21,9 @@ let createDatabase: typeof import("./create-content-database.js").default;
 let configureProperty: typeof import("./configure-document-property.js").default;
 let upsert: typeof import("./upsert-database-item-by-key.js").default;
 let setProperty: typeof import("./set-document-property.js").default;
-let deleteDatabaseDataForDocument: typeof import("./_database-utils.js").deleteDatabaseDataForDocument;
+let deleteProperty: typeof import("./delete-document-property.js").default;
+let deleteDocument: typeof import("./delete-document.js").default;
+let permanentlyDeleteDocument: typeof import("./permanently-delete-document.js").default;
 
 const asOwner = <T>(fn: () => Promise<T>) =>
   runWithRequestContext({ userEmail: OWNER }, fn);
@@ -36,7 +38,10 @@ beforeAll(async () => {
     .default;
   upsert = (await import("./upsert-database-item-by-key.js")).default;
   setProperty = (await import("./set-document-property.js")).default;
-  ({ deleteDatabaseDataForDocument } = await import("./_database-utils.js"));
+  deleteProperty = (await import("./delete-document-property.js")).default;
+  deleteDocument = (await import("./delete-document.js")).default;
+  permanentlyDeleteDocument = (await import("./permanently-delete-document.js"))
+    .default;
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
 }, 60_000);
@@ -163,6 +168,75 @@ describe("upsert-database-item-by-key", () => {
         updatedAt: new Date().toISOString(),
       }),
     ).rejects.toThrow();
+  });
+
+  it("verifies every requested property by canonical serialized readback, including arrays and objects", async () => {
+    const { databaseId, propertyId } = await fixture();
+    const [database] = await getDb()
+      .select()
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, databaseId));
+    const multi = await asOwner(() =>
+      configureProperty.run({
+        documentId: database.documentId,
+        databaseId,
+        name: "Labels",
+        type: "multi_select",
+        options: {
+          options: [
+            { id: "alpha", name: "Alpha", color: "blue" },
+            { id: "beta", name: "Beta", color: "green" },
+          ],
+        },
+      }),
+    );
+    const date = await asOwner(() =>
+      configureProperty.run({
+        documentId: database.documentId,
+        databaseId,
+        name: "Window",
+        type: "date",
+      }),
+    );
+    const multiProperty = multi.properties.find(
+      (property) => property.definition.name === "Labels",
+    );
+    const dateProperty = date.properties.find(
+      (property) => property.definition.name === "Window",
+    );
+    if (!multiProperty || !dateProperty)
+      throw new Error("Fixture properties were not created.");
+
+    const result = await asOwner(() =>
+      upsert.run({
+        databaseId,
+        keyPropertyId: propertyId,
+        keyValue: "rich-readback",
+        title: "Typed values",
+        body: "verified body",
+        propertyValues: {
+          [multiProperty.definition.id]: ["alpha", "beta"],
+          [dateProperty.definition.id]: {
+            start: "2026-08-02",
+            end: "2026-08-03",
+            includeTime: false,
+          },
+        },
+      }),
+    );
+    const values = new Map(
+      result.readback.items[0]?.properties.map((property) => [
+        property.definition.id,
+        property.value,
+      ]),
+    );
+    expect(values.get(propertyId)).toBe("rich-readback");
+    expect(values.get(multiProperty.definition.id)).toEqual(["alpha", "beta"]);
+    expect(values.get(dateProperty.definition.id)).toEqual({
+      start: "2026-08-02",
+      end: "2026-08-03",
+      includeTime: false,
+    });
   });
 
   it("denies access and fails closed for wrong-database or computed key properties", async () => {
@@ -305,12 +379,43 @@ describe("upsert-database-item-by-key", () => {
     expect(b.documentId).toBe(created.documentId);
   });
 
+  it("removes stable-key claims in the same property-definition deletion", async () => {
+    const { databaseId, propertyId } = await fixture();
+    const created = await asOwner(() =>
+      upsert.run({ databaseId, keyPropertyId: propertyId, keyValue: "gone" }),
+    );
+    await asOwner(() =>
+      deleteProperty.run({
+        documentId: created.documentId,
+        databaseId,
+        propertyId,
+      }),
+    );
+    const claims = await getDb()
+      .select()
+      .from(schema.contentDatabaseItemKeyClaims)
+      .where(eq(schema.contentDatabaseItemKeyClaims.propertyId, propertyId));
+    expect(claims).toHaveLength(0);
+  });
+
   it("releases claims during permanent database-row cleanup so the key can be reused", async () => {
     const { databaseId, propertyId } = await fixture();
     const created = await asOwner(() =>
       upsert.run({ databaseId, keyPropertyId: propertyId, keyValue: "reuse" }),
     );
-    await deleteDatabaseDataForDocument(created.documentId, OWNER);
+    await asOwner(() => deleteDocument.run({ id: created.documentId }));
+    await expect(
+      asOwner(() =>
+        upsert.run({
+          databaseId,
+          keyPropertyId: propertyId,
+          keyValue: "reuse",
+        }),
+      ),
+    ).rejects.toThrow("trashed database row");
+    await asOwner(() =>
+      permanentlyDeleteDocument.run({ id: created.documentId }),
+    );
     const reused = await asOwner(() =>
       upsert.run({ databaseId, keyPropertyId: propertyId, keyValue: "reuse" }),
     );

@@ -113,42 +113,44 @@ export default defineAction({
     }
 
     const valueJson = normalizedValueJson(type, value);
-    const [existing] = await db
-      .select({ id: schema.documentPropertyValues.id })
-      .from(schema.documentPropertyValues)
-      .where(
-        and(
-          eq(schema.documentPropertyValues.documentId, documentId),
-          eq(schema.documentPropertyValues.propertyId, propertyId),
-        ),
-      );
+    await db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select({ id: schema.documentPropertyValues.id })
+        .from(schema.documentPropertyValues)
+        .where(
+          and(
+            eq(schema.documentPropertyValues.documentId, documentId),
+            eq(schema.documentPropertyValues.propertyId, propertyId),
+          ),
+        );
 
-    if (existing) {
-      await db
-        .update(schema.documentPropertyValues)
-        .set({ valueJson, updatedAt: now })
-        .where(eq(schema.documentPropertyValues.id, existing.id));
-    } else {
-      await db.insert(schema.documentPropertyValues).values({
-        id: nanoid(),
-        ownerEmail: database.ownerEmail,
-        documentId,
-        propertyId,
-        valueJson,
-        createdAt: now,
-        updatedAt: now,
-      });
-    }
-    await db
-      .delete(schema.contentDatabaseItemKeyClaims)
-      .where(
-        and(
-          eq(schema.contentDatabaseItemKeyClaims.databaseId, database.id),
-          eq(schema.contentDatabaseItemKeyClaims.propertyId, propertyId),
-          eq(schema.contentDatabaseItemKeyClaims.documentId, documentId),
-          ne(schema.contentDatabaseItemKeyClaims.keyValueJson, valueJson),
-        ),
-      );
+      if (existing) {
+        await tx
+          .update(schema.documentPropertyValues)
+          .set({ valueJson, updatedAt: now })
+          .where(eq(schema.documentPropertyValues.id, existing.id));
+      } else {
+        await tx.insert(schema.documentPropertyValues).values({
+          id: nanoid(),
+          ownerEmail: database.ownerEmail,
+          documentId,
+          propertyId,
+          valueJson,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+      await tx
+        .delete(schema.contentDatabaseItemKeyClaims)
+        .where(
+          and(
+            eq(schema.contentDatabaseItemKeyClaims.databaseId, database.id),
+            eq(schema.contentDatabaseItemKeyClaims.propertyId, propertyId),
+            eq(schema.contentDatabaseItemKeyClaims.documentId, documentId),
+            ne(schema.contentDatabaseItemKeyClaims.keyValueJson, valueJson),
+          ),
+        );
+    });
 
     return {
       documentId,

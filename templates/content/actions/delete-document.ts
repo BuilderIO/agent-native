@@ -416,6 +416,27 @@ async function deleteCollectedDocuments(
       );
   });
 
+  await deleteWhereIn(ownedDatabaseIds, async (databaseIdBatch) => {
+    await db
+      .delete(schema.contentDatabaseItemKeyClaims)
+      .where(
+        inArray(
+          schema.contentDatabaseItemKeyClaims.databaseId,
+          databaseIdBatch,
+        ),
+      );
+  });
+  await deleteWhereIn(documentIds, async (documentIdBatch) => {
+    await db
+      .delete(schema.contentDatabaseItemKeyClaims)
+      .where(
+        inArray(
+          schema.contentDatabaseItemKeyClaims.documentId,
+          documentIdBatch,
+        ),
+      );
+  });
+
   await deleteWhereIn(documentIds, async (documentIdBatch) => {
     await db
       .delete(schema.contentDatabaseBodyHydrationQueue)

@@ -532,8 +532,25 @@ export default defineAction({
       documentIds: [result.documentId],
     });
     const readbackItem = readback.items[0];
-    const readbackKey = readbackItem?.properties.find(
-      (property) => property.definition.id === keyPropertyId,
+    const readbackPropertiesById = new Map(
+      readbackItem?.properties.map((property) => [
+        property.definition.id,
+        property,
+      ]) ?? [],
+    );
+    const readbackValuesMatch = [...values.entries()].every(
+      ([propertyId, expectedValueJson]) => {
+        const definition = definitionsById.get(propertyId);
+        const property = readbackPropertiesById.get(propertyId);
+        return (
+          definition !== undefined &&
+          property !== undefined &&
+          normalizedValueJson(
+            definition.type as DocumentPropertyType,
+            property.value,
+          ) === expectedValueJson
+        );
+      },
     );
     const [verifiedDocument] = await db
       .select({
@@ -547,7 +564,8 @@ export default defineAction({
       readback.items.length !== 1 ||
       readbackItem?.id !== result.itemId ||
       verifiedDocument?.id !== result.documentId ||
-      readbackKey?.value !== JSON.parse(keyValueJson) ||
+      !readbackValuesMatch ||
+      (title !== undefined && readbackItem?.document.title !== title.trim()) ||
       (title !== undefined && verifiedDocument.title !== title.trim()) ||
       (body !== undefined && verifiedDocument.content !== body)
     )
