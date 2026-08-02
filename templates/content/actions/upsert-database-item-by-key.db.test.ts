@@ -170,6 +170,72 @@ describe("upsert-database-item-by-key", () => {
     ).rejects.toThrow();
   });
 
+  it("serializes concurrent writes when an existing row is missing a requested property", async () => {
+    const { databaseId, propertyId } = await fixture();
+    const created = await asOwner(() =>
+      upsert.run({
+        databaseId,
+        keyPropertyId: propertyId,
+        keyValue: "concurrent-update",
+      }),
+    );
+    const [database] = await getDb()
+      .select()
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, databaseId));
+    const configured = await asOwner(() =>
+      configureProperty.run({
+        documentId: database.documentId,
+        databaseId,
+        name: "Concurrent value",
+        type: "text",
+      }),
+    );
+    const requestedProperty = configured.properties.find(
+      (property) => property.definition.name === "Concurrent value",
+    );
+    if (!requestedProperty)
+      throw new Error("Concurrent fixture property was not created.");
+
+    await Promise.all([
+      asOwner(() =>
+        upsert.run({
+          databaseId,
+          keyPropertyId: propertyId,
+          keyValue: "concurrent-update",
+          propertyValues: {
+            [requestedProperty.definition.id]: "same-value",
+          },
+        }),
+      ),
+      asOwner(() =>
+        upsert.run({
+          databaseId,
+          keyPropertyId: propertyId,
+          keyValue: "concurrent-update",
+          propertyValues: {
+            [requestedProperty.definition.id]: "same-value",
+          },
+        }),
+      ),
+    ]);
+
+    const stored = await getDb()
+      .select()
+      .from(schema.documentPropertyValues)
+      .where(
+        and(
+          eq(schema.documentPropertyValues.documentId, created.documentId),
+          eq(
+            schema.documentPropertyValues.propertyId,
+            requestedProperty.definition.id,
+          ),
+        ),
+      );
+    expect(stored).toHaveLength(1);
+    expect(stored[0]?.valueJson).toBe('"same-value"');
+  });
+
   it("verifies every requested property by canonical serialized readback, including arrays and objects", async () => {
     const { databaseId, propertyId } = await fixture();
     const [database] = await getDb()
@@ -269,6 +335,23 @@ describe("upsert-database-item-by-key", () => {
         upsert.run({ databaseId, keyPropertyId: propertyId, keyValue: "nope" }),
       ),
     ).rejects.toThrow("cannot be used");
+  });
+
+  it("rejects system database memberships", async () => {
+    const { databaseId, propertyId } = await fixture();
+    await getDb()
+      .update(schema.contentDatabases)
+      .set({ systemRole: "test-system-database" })
+      .where(eq(schema.contentDatabases.id, databaseId));
+    await expect(
+      asOwner(() =>
+        upsert.run({
+          databaseId,
+          keyPropertyId: propertyId,
+          keyValue: "not-a-system-membership",
+        }),
+      ),
+    ).rejects.toThrow("ordinary Content databases");
   });
 
   it("does not mutate an existing row when the caller can edit only the database page", async () => {

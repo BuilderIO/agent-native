@@ -64,8 +64,11 @@ export default defineAction({
         ),
       );
     if (!database) throw new Error(`Database "${databaseId}" not found.`);
-    if (database.systemRole === "workspaces")
-      throw new Error("Use create-content-space to add a workspace.");
+    if (database.systemRole) {
+      throw new Error(
+        "Stable-key upserts are supported only for ordinary Content databases, not system databases.",
+      );
+    }
 
     const access = await assertAccess(
       "document",
@@ -411,6 +414,27 @@ export default defineAction({
               }
             }
 
+            // Serialize every stable-key update for this canonical row at the
+            // database layer. The in-process position lock cannot protect two
+            // serverless/PostgreSQL workers, while this no-op UPDATE takes the
+            // membership row lock until the surrounding transaction commits.
+            // Re-read property values only after acquiring it so two workers
+            // cannot both observe a missing value and insert duplicates.
+            await tx
+              .update(schema.contentDatabaseItems)
+              .set({
+                updatedAt: sql`${schema.contentDatabaseItems.updatedAt}`,
+              })
+              .where(
+                and(
+                  eq(schema.contentDatabaseItems.id, identity.itemId),
+                  eq(schema.contentDatabaseItems.databaseId, databaseId),
+                  eq(
+                    schema.contentDatabaseItems.documentId,
+                    identity.documentId,
+                  ),
+                ),
+              );
             const [claimedMembership] = await tx
               .select({
                 itemId: schema.contentDatabaseItems.id,
