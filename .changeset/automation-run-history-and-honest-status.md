@@ -44,3 +44,7 @@ automation as failed, deleting an automation forgets its run history so a new
 one reusing the name does not inherit it, an unusable `X-User-Timezone` header
 is rejected rather than persisted, and a settings read failure surfaces instead
 of silently pinning a schedule to the host zone.
+
+Run history never blocks the automation it describes: opening the record,
+attaching its thread and closing it out are all non-fatal, so an unwritable
+history table costs the record rather than the run.

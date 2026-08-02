@@ -255,15 +255,26 @@ export async function runBackgroundAutomation(
   deps: BackgroundAutomationDeps,
 ): Promise<BackgroundAutomationRunResult> {
   const { automation } = options;
-  const historyId = await startAutomationRun({
-    owner: automation.resource.owner,
-    automation: automation.name,
-    path: automation.resource.path,
-    scope: organizationIdFromResourceOwner(automation.resource.owner)
-      ? "organization"
-      : "personal",
-    orgId: options.orgId ?? null,
-  });
+  // Bookkeeping, so it must not gate the work it describes: a history table
+  // that cannot be written should cost us the record, not the automation.
+  // Everything downstream tolerates a null id by skipping its own write.
+  let historyId: string | null = null;
+  try {
+    historyId = await startAutomationRun({
+      owner: automation.resource.owner,
+      automation: automation.name,
+      path: automation.resource.path,
+      scope: organizationIdFromResourceOwner(automation.resource.owner)
+        ? "organization"
+        : "personal",
+      orgId: options.orgId ?? null,
+    });
+  } catch (err) {
+    console.error(
+      `[automations] Could not open a history record for "${automation.name}"; running anyway:`,
+      err,
+    );
+  }
 
   let result: BackgroundAutomationRunResult;
   try {
@@ -282,11 +293,33 @@ export async function runBackgroundAutomation(
   return result;
 }
 
+/**
+ * Link the run to its agent thread. Bookkeeping again: the automation is
+ * already executing by this point, so a failed write costs the cross-reference
+ * in the history view, not the run.
+ */
+async function recordRunThread(
+  historyId: string | null,
+  threadId: string,
+  runId: string,
+): Promise<void> {
+  if (!historyId) return;
+  try {
+    await attachAutomationRunThread(historyId, threadId, runId);
+  } catch (err) {
+    console.error(
+      `[automations] Could not attach thread ${threadId} to run ${historyId}:`,
+      err,
+    );
+  }
+}
+
 async function recordRunOutcome(
-  historyId: string,
+  historyId: string | null,
   status: "success" | "error",
   error?: string,
 ): Promise<void> {
+  if (!historyId) return;
   try {
     await finishAutomationRun(historyId, status, error);
   } catch (err) {
@@ -300,7 +333,7 @@ async function recordRunOutcome(
 async function executeBackgroundAutomation(
   options: BackgroundAutomationRunOptions,
   deps: BackgroundAutomationDeps,
-  historyId: string,
+  historyId: string | null,
 ): Promise<BackgroundAutomationRunResult> {
   const { automation, ownerEmail, orgId, prompt, threadTitle, usageLabel } =
     options;
@@ -344,7 +377,7 @@ async function executeBackgroundAutomation(
       const systemPrompt = await deps.getSystemPrompt(ownerEmail);
       const thread = await createThread(ownerEmail, { title: threadTitle });
       const runId = createRunId(options.runIdPrefix);
-      await attachAutomationRunThread(historyId, thread.id, runId);
+      await recordRunThread(historyId, thread.id, runId);
 
       // Scheduled work is background work: it has no synchronous serverless
       // caller waiting on it, so it must not inherit the interactive clamp

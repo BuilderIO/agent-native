@@ -158,4 +158,55 @@ describe("runBackgroundAutomation — background-run self-claim", () => {
     const call = vi.mocked(runAgentLoopDirectWithSoftTimeout).mock.calls.at(-1);
     expect(call?.[2]).toMatchObject({ backgroundFunction: true });
   });
+  // History is a record ABOUT the run. If the history table is unwritable the
+  // correct outcome is a missing record, not a scheduled automation that never
+  // executed and gets reported as a failure.
+  it("still runs the automation when the run-history write fails", async () => {
+    const runHistory = await import("./run-history.js");
+    const startSpy = vi
+      .spyOn(runHistory, "startAutomationRun")
+      .mockRejectedValue(new Error("history table unavailable"));
+    const attachSpy = vi
+      .spyOn(runHistory, "attachAutomationRunThread")
+      .mockRejectedValue(new Error("history table unavailable"));
+    const finishSpy = vi
+      .spyOn(runHistory, "finishAutomationRun")
+      .mockRejectedValue(new Error("history table unavailable"));
+
+    try {
+      const { runId } = await runBackgroundAutomation(
+        {
+          automation: {
+            name: "resilient-digest",
+            meta: { schedule: "* * * * *", enabled: true, model: "test-model" },
+            body: "Summarize the inbox.",
+            resource: {
+              owner: "alice@agent-native.test",
+              path: "jobs/resilient-digest.md",
+            } as any,
+          },
+          ownerEmail: "alice@agent-native.test",
+          prompt: "Summarize the inbox.",
+          threadTitle: "Job: resilient-digest",
+          runIdPrefix: "job-resilient-digest",
+          usageLabel: "recurring-job:resilient-digest",
+        },
+        {
+          getActions: () => ({}),
+          getSystemPrompt: async () => "system",
+          engine: testEngine,
+        },
+      );
+
+      expect(runId).toBeTruthy();
+      expect(startSpy).toHaveBeenCalled();
+      // Nothing to attach or finish once the record could not be opened.
+      expect(attachSpy).not.toHaveBeenCalled();
+      expect(finishSpy).not.toHaveBeenCalled();
+    } finally {
+      startSpy.mockRestore();
+      attachSpy.mockRestore();
+      finishSpy.mockRestore();
+    }
+  });
 });

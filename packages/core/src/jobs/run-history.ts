@@ -209,9 +209,14 @@ export async function deleteAutomationRuns(
   automation: string,
 ): Promise<void> {
   await ensureTable();
+  // Bounded to runs that had already started. Names are reusable, so if a new
+  // automation takes this name and starts running before the cleanup lands,
+  // the cutoff keeps that run's history from being swept up with the old
+  // definition's.
+  const cutoff = Date.now();
   await getDbExec().execute({
-    sql: `DELETE FROM ${TABLE} WHERE owner = ? AND automation = ?`,
-    args: [owner, automation],
+    sql: `DELETE FROM ${TABLE} WHERE owner = ? AND automation = ? AND started_at <= ?`,
+    args: [owner, automation, cutoff],
   });
 }
 
