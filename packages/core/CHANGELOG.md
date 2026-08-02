@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.133.3
+
+### Patch Changes
+
+- 9258da4: Preserve nested object parameters when browser clients call GET actions.
+
 ## 0.133.2
 
 ### Patch Changes
