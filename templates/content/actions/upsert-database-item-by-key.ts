@@ -2,7 +2,7 @@ import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -45,7 +45,6 @@ export default defineAction({
   description:
     "Atomically create or update one Content database row by a database-scoped stable property key. Returns a created, updated, or unchanged receipt with stable item and document IDs.",
   schema: upsertSchema,
-  parallelSafe: true,
   run: async ({
     databaseId,
     keyPropertyId,
@@ -239,6 +238,11 @@ export default defineAction({
                 "Stable key claim conflicts with the stored property value; reconcile before upserting.",
               );
             }
+            if (claim && !matched) {
+              throw new Error(
+                "Stable key claim no longer matches the stored key property; reconcile before upserting.",
+              );
+            }
 
             if (!identity && matched) {
               const candidate = {
@@ -428,6 +432,7 @@ export default defineAction({
                 "Stable key claim does not resolve to a row in this database.",
               );
             }
+            await assertAccess("document", identity.documentId, "editor");
             const [document] = await tx
               .select()
               .from(schema.documents)
@@ -493,6 +498,28 @@ export default defineAction({
                   updatedAt: now,
                 });
             }
+            await tx
+              .delete(schema.contentDatabaseItemKeyClaims)
+              .where(
+                and(
+                  eq(
+                    schema.contentDatabaseItemKeyClaims.databaseId,
+                    databaseId,
+                  ),
+                  eq(
+                    schema.contentDatabaseItemKeyClaims.propertyId,
+                    keyPropertyId,
+                  ),
+                  eq(
+                    schema.contentDatabaseItemKeyClaims.documentId,
+                    identity.documentId,
+                  ),
+                  ne(
+                    schema.contentDatabaseItemKeyClaims.keyValueJson,
+                    keyValueJson,
+                  ),
+                ),
+              );
             return { status: "updated" as const, ...identity };
           }),
         ),
@@ -504,9 +531,28 @@ export default defineAction({
       offset: 0,
       documentIds: [result.documentId],
     });
-    if (readback.items.length !== 1 || readback.items[0]?.id !== result.itemId)
+    const readbackItem = readback.items[0];
+    const readbackKey = readbackItem?.properties.find(
+      (property) => property.definition.id === keyPropertyId,
+    );
+    const [verifiedDocument] = await db
+      .select({
+        id: schema.documents.id,
+        title: schema.documents.title,
+        content: schema.documents.content,
+      })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, result.documentId));
+    if (
+      readback.items.length !== 1 ||
+      readbackItem?.id !== result.itemId ||
+      verifiedDocument?.id !== result.documentId ||
+      readbackKey?.value !== JSON.parse(keyValueJson) ||
+      (title !== undefined && verifiedDocument.title !== title.trim()) ||
+      (body !== undefined && verifiedDocument.content !== body)
+    )
       throw new Error(
-        "Stable key upsert could not verify its exact database row readback.",
+        "Stable key upsert could not verify its exact requested row readback.",
       );
     return {
       ...result,

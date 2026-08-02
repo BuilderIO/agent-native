@@ -12,6 +12,7 @@ const TEST_DB_PATH = join(
 );
 const OWNER = "owner@example.com";
 const OUTSIDER = "outsider@example.com";
+const DATABASE_ONLY_EDITOR = "database-only@example.com";
 
 type Schema = typeof import("../server/db/schema.js");
 let getDb: () => any;
@@ -19,6 +20,8 @@ let schema: Schema;
 let createDatabase: typeof import("./create-content-database.js").default;
 let configureProperty: typeof import("./configure-document-property.js").default;
 let upsert: typeof import("./upsert-database-item-by-key.js").default;
+let setProperty: typeof import("./set-document-property.js").default;
+let deleteDatabaseDataForDocument: typeof import("./_database-utils.js").deleteDatabaseDataForDocument;
 
 const asOwner = <T>(fn: () => Promise<T>) =>
   runWithRequestContext({ userEmail: OWNER }, fn);
@@ -32,6 +35,8 @@ beforeAll(async () => {
   configureProperty = (await import("./configure-document-property.js"))
     .default;
   upsert = (await import("./upsert-database-item-by-key.js")).default;
+  setProperty = (await import("./set-document-property.js")).default;
+  ({ deleteDatabaseDataForDocument } = await import("./_database-utils.js"));
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
 }, 60_000);
@@ -106,6 +111,11 @@ describe("upsert-database-item-by-key", () => {
     });
     expect(unchanged.readback.items).toHaveLength(1);
     expect(unchanged.readback.items[0]?.id).toBe(created.itemId);
+    expect(unchanged.readback.items[0]?.document).toMatchObject({
+      id: created.documentId,
+      title: "Second",
+      content: "",
+    });
   });
 
   it("uses the unique claim for concurrent first writes and preserves inherited privacy", async () => {
@@ -139,6 +149,20 @@ describe("upsert-database-item-by-key", () => {
       .from(schema.documents)
       .where(eq(schema.documents.id, first.documentId));
     expect(document?.visibility).toBe("private");
+    await expect(
+      getDb().insert(schema.contentDatabaseItemKeyClaims).values({
+        id: "conflicting-active-claim",
+        ownerEmail: OWNER,
+        orgId: null,
+        databaseId,
+        propertyId,
+        keyValueJson: '"another-key"',
+        itemId: first.itemId,
+        documentId: first.documentId,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }),
+    ).rejects.toThrow();
   });
 
   it("denies access and fails closed for wrong-database or computed key properties", async () => {
@@ -171,6 +195,46 @@ describe("upsert-database-item-by-key", () => {
         upsert.run({ databaseId, keyPropertyId: propertyId, keyValue: "nope" }),
       ),
     ).rejects.toThrow("cannot be used");
+  });
+
+  it("does not mutate an existing row when the caller can edit only the database page", async () => {
+    const { databaseId, propertyId } = await fixture();
+    const created = await asOwner(() =>
+      upsert.run({
+        databaseId,
+        keyPropertyId: propertyId,
+        keyValue: "private-row",
+        title: "Original",
+      }),
+    );
+    const [database] = await getDb()
+      .select()
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, databaseId));
+    await getDb().insert(schema.documentShares).values({
+      id: "database-only-editor-share",
+      resourceId: database.documentId,
+      principalType: "user",
+      principalId: DATABASE_ONLY_EDITOR,
+      role: "editor",
+      createdBy: OWNER,
+      createdAt: new Date().toISOString(),
+    });
+    await expect(
+      runWithRequestContext({ userEmail: DATABASE_ONLY_EDITOR }, () =>
+        upsert.run({
+          databaseId,
+          keyPropertyId: propertyId,
+          keyValue: "private-row",
+          title: "Mutated",
+        }),
+      ),
+    ).rejects.toThrow();
+    const [document] = await getDb()
+      .select({ title: schema.documents.title })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, created.documentId));
+    expect(document?.title).toBe("Original");
   });
 
   it("fails closed when a stable-key claim no longer names its exact database membership", async () => {
@@ -209,11 +273,48 @@ describe("upsert-database-item-by-key", () => {
           title: "Would mutate if claim were trusted",
         }),
       ),
-    ).rejects.toThrow("does not resolve to a row in this database");
+    ).rejects.toThrow("no longer matches the stored key property");
     const [document] = await getDb()
       .select({ title: schema.documents.title })
       .from(schema.documents)
       .where(eq(schema.documents.id, created.documentId));
     expect(document?.title).toBe("Original");
+  });
+
+  it("atomically retires A when an ordinary property edit changes it to B", async () => {
+    const { databaseId, propertyId } = await fixture();
+    const created = await asOwner(() =>
+      upsert.run({ databaseId, keyPropertyId: propertyId, keyValue: "A" }),
+    );
+    await asOwner(() =>
+      setProperty.run({
+        documentId: created.documentId,
+        databaseId,
+        propertyId,
+        value: "B",
+      }),
+    );
+    const replacement = await asOwner(() =>
+      upsert.run({ databaseId, keyPropertyId: propertyId, keyValue: "A" }),
+    );
+    expect(replacement.status).toBe("created");
+    expect(replacement.documentId).not.toBe(created.documentId);
+    const b = await asOwner(() =>
+      upsert.run({ databaseId, keyPropertyId: propertyId, keyValue: "B" }),
+    );
+    expect(b.documentId).toBe(created.documentId);
+  });
+
+  it("releases claims during permanent database-row cleanup so the key can be reused", async () => {
+    const { databaseId, propertyId } = await fixture();
+    const created = await asOwner(() =>
+      upsert.run({ databaseId, keyPropertyId: propertyId, keyValue: "reuse" }),
+    );
+    await deleteDatabaseDataForDocument(created.documentId, OWNER);
+    const reused = await asOwner(() =>
+      upsert.run({ databaseId, keyPropertyId: propertyId, keyValue: "reuse" }),
+    );
+    expect(reused.status).toBe("created");
+    expect(reused.documentId).not.toBe(created.documentId);
   });
 });

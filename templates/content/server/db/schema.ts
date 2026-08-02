@@ -308,6 +308,9 @@ export const contentDatabaseItemKeyClaims = table(
     uniqueIndex(
       "content_database_item_key_claims_database_property_value_unique",
     ).on(claim.databaseId, claim.propertyId, claim.keyValueJson),
+    uniqueIndex(
+      "content_database_item_key_claims_database_property_document_unique",
+    ).on(claim.databaseId, claim.propertyId, claim.documentId),
   ],
 );
 

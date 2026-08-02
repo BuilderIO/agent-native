@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -139,6 +139,16 @@ export default defineAction({
         updatedAt: now,
       });
     }
+    await db
+      .delete(schema.contentDatabaseItemKeyClaims)
+      .where(
+        and(
+          eq(schema.contentDatabaseItemKeyClaims.databaseId, database.id),
+          eq(schema.contentDatabaseItemKeyClaims.propertyId, propertyId),
+          eq(schema.contentDatabaseItemKeyClaims.documentId, documentId),
+          ne(schema.contentDatabaseItemKeyClaims.keyValueJson, valueJson),
+        ),
+      );
 
     return {
       documentId,

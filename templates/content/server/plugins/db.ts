@@ -927,6 +927,11 @@ const runContentMigrations = runMigrations(
       CREATE INDEX IF NOT EXISTS content_database_item_key_claims_item_idx ON content_database_item_key_claims (item_id);
       CREATE INDEX IF NOT EXISTS content_database_item_key_claims_document_idx ON content_database_item_key_claims (document_id)`,
     },
+    {
+      version: 79,
+      name: "content-database-item-stable-key-single-active-claim",
+      sql: `CREATE UNIQUE INDEX IF NOT EXISTS content_database_item_key_claims_database_property_document_unique ON content_database_item_key_claims (database_id, property_id, document_id)`,
+    },
   ],
   { table: "content_migrations" },
 );
