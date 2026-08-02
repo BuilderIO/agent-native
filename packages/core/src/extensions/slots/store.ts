@@ -4,6 +4,7 @@ import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import { getDbExec, isPostgres } from "../../db/client.js";
 import { createGetDb } from "../../db/create-get-db.js";
+import { createInitMemo, type InitMemo } from "../../db/init-memo.js";
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -32,34 +33,28 @@ const getDb = createGetDb({
   extensionSlotInstalls,
 });
 
-let _initPromise: Promise<void> | undefined;
-
-export async function ensureSlotTables(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const client = getDbExec();
-      const pg = isPostgres();
-      await client.execute(
-        pg ? EXTENSION_SLOTS_CREATE_SQL_PG : EXTENSION_SLOTS_CREATE_SQL,
-      );
-      await client.execute(EXTENSION_SLOTS_BY_SLOT_INDEX_SQL);
-      await client.execute(EXTENSION_SLOTS_BY_EXTENSION_INDEX_SQL);
-      await client.execute(EXTENSION_SLOTS_UNIQUE_INDEX_SQL);
-      await client.execute(
-        pg
-          ? EXTENSION_SLOT_INSTALLS_CREATE_SQL_PG
-          : EXTENSION_SLOT_INSTALLS_CREATE_SQL,
-      );
-      await client.execute(EXTENSION_SLOT_INSTALLS_BY_USER_SLOT_INDEX_SQL);
-      await client.execute(EXTENSION_SLOT_INSTALLS_UNIQUE_INDEX_SQL);
-    })().catch((err) => {
-      // Retry init on the next call after a failed startup.
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
-}
+// `core-routes-plugin` fires this at plugin-init time, outside any request.
+// On Workers that init can never settle, so the memo must not let a later
+// request inherit it — see `createInitMemo`.
+export const ensureSlotTables: InitMemo = createInitMemo(
+  async (): Promise<void> => {
+    const client = getDbExec();
+    const pg = isPostgres();
+    await client.execute(
+      pg ? EXTENSION_SLOTS_CREATE_SQL_PG : EXTENSION_SLOTS_CREATE_SQL,
+    );
+    await client.execute(EXTENSION_SLOTS_BY_SLOT_INDEX_SQL);
+    await client.execute(EXTENSION_SLOTS_BY_EXTENSION_INDEX_SQL);
+    await client.execute(EXTENSION_SLOTS_UNIQUE_INDEX_SQL);
+    await client.execute(
+      pg
+        ? EXTENSION_SLOT_INSTALLS_CREATE_SQL_PG
+        : EXTENSION_SLOT_INSTALLS_CREATE_SQL,
+    );
+    await client.execute(EXTENSION_SLOT_INSTALLS_BY_USER_SLOT_INDEX_SQL);
+    await client.execute(EXTENSION_SLOT_INSTALLS_UNIQUE_INDEX_SQL);
+  },
+);
 
 export interface ExtensionSlotRow {
   id: string;

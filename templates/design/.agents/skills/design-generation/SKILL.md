@@ -340,6 +340,8 @@ size. Avoid dense multi-line copy at these sizes regardless.
 
 `generate-design` accepts a `--tweaks` array — pass 3-6 of the most impactful knobs bound to CSS custom properties the design's `:root` block actually defines. Surface controls users will actually want to adjust (accent color, density, radius, dark-mode toggle, font choice). Don't ship a generic preset; let the design's structure pick the knobs. When a user asks to add a tweak control to an existing design, preserve the existing useful tweaks and add/update only the requested definitions — read the current file with `get-design-snapshot` first if source edits are needed, and persist the complete updated tweak list through `generate-design`.
 
+`type` must be one of `color-swatch`, `color-swatches`, `segment`, `slider`, `toggle` — CSS-ish names like `color` or `range` are rejected. The current value goes in `defaultValue`, never `value`. `slider` takes `min`/`max`/`step` as JSON numbers, not quoted strings. `color-swatches` and `segment` take `options: [{label, value, color?}]`.
+
 ### Phase 5 — Audit, screenshot, fix, and eyeball before calling it ready
 
 Run `run-design-audit` against each screen (`designId` + `fileId`/`filename`).

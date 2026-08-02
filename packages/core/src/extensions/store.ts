@@ -10,6 +10,7 @@ import {
   ensureColumnExists,
   ensureIndexExists,
 } from "../db/ddl-guard.js";
+import { createInitMemo, type InitMemo } from "../db/init-memo.js";
 import { recordChange } from "../server/poll.js";
 import {
   getRequestUserEmail,
@@ -78,167 +79,152 @@ const getDb = createGetDb({
   extensionHistory,
 });
 
-let _initPromise: Promise<void> | undefined;
-
-export async function ensureExtensionsTables(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const client = getDbExec();
-      const pg = isPostgres();
-      if (pg) {
-        // PG guard: probe via information_schema, only issue DDL if missing, bounded lock_timeout
-        await ensureTableExists("tools", EXTENSIONS_CREATE_SQL_PG);
-        await migrateMisnamedExtensionsTable(client, pg); // data migration, not DDL — unchanged
-        await ensureTableExists("tool_shares", EXTENSION_SHARES_CREATE_SQL_PG);
-        await ensureTableExists("tool_data", EXTENSION_DATA_CREATE_SQL_PG);
-        await ensureExtensionDataItemId(client, pg); // ADD COLUMN — guarded inside
-        await ensureExtensionDataScope(client, pg); // ADD COLUMN — guarded inside
-        // DROP INDEX (for old index) — safe DDL, runs via client.execute; keep on both paths
-        await client.execute(EXTENSION_DATA_DROP_OLD_INDEX_SQL_PG);
-        await ensureIndexExists(
-          "tool_data_scoped_item_idx",
-          EXTENSION_DATA_ITEM_INDEX_SQL_PG,
-        );
-        await ensureIndexExists("tools_owner_idx", EXTENSIONS_OWNER_INDEX_SQL);
-        await ensureIndexExists("tools_org_idx", EXTENSIONS_ORG_INDEX_SQL);
-        await ensureIndexExists(
-          "tools_updated_at_idx",
-          EXTENSIONS_UPDATED_INDEX_SQL,
-        );
-        await ensureExtensionsArchivedColumn(client, pg);
-        await ensureIndexExists(
-          "tools_archived_at_idx",
-          EXTENSIONS_ARCHIVED_AT_INDEX_SQL,
-        );
-        await ensureExtensionsGlobalHideColumns(client, pg); // ADD COLUMN — guarded inside
-        await ensureIndexExists(
-          "tools_hidden_at_idx",
-          EXTENSIONS_HIDDEN_AT_INDEX_SQL,
-        );
-        await ensureIndexExists(
-          "tool_shares_resource_idx",
-          EXTENSION_SHARES_RESOURCE_INDEX_SQL,
-        );
-        await ensureTableExists(
-          "tool_hidden_extensions",
-          EXTENSION_HIDES_CREATE_SQL_PG,
-        );
-        await ensureIndexExists(
-          "tool_hidden_extensions_user_tool_idx",
-          EXTENSION_HIDES_UNIQUE_INDEX_SQL,
-        );
-        await ensureIndexExists(
-          "tool_hidden_extensions_owner_idx",
-          EXTENSION_HIDES_OWNER_INDEX_SQL,
-        );
-        await ensureTableExists(
-          "tool_history",
-          EXTENSION_HISTORY_CREATE_SQL_PG,
-        );
-        await ensureIndexExists(
-          "tool_history_tool_version_idx",
-          EXTENSION_HISTORY_VERSION_INDEX_SQL,
-        );
-        await ensureIndexExists(
-          "tool_history_tool_created_idx",
-          EXTENSION_HISTORY_CREATED_INDEX_SQL,
-        );
-        await ensureTableExists(
-          "tool_consents",
-          EXTENSION_CONSENTS_CREATE_SQL_PG,
-        );
-        await ensureIndexExists(
-          "tool_consents_viewer_idx",
-          EXTENSION_CONSENTS_VIEWER_INDEX_SQL,
-        );
-        return;
-      }
-      // SQLite (local dev): keep existing behavior
-      await retryOnDdlRace(() =>
-        client.execute(pg ? EXTENSIONS_CREATE_SQL_PG : EXTENSIONS_CREATE_SQL),
+// `core-routes-plugin` fires this at plugin-init time, outside any request.
+// On Workers that init can never settle, so the memo must not let a later
+// request inherit it — see `createInitMemo`.
+export const ensureExtensionsTables: InitMemo = createInitMemo(
+  async (): Promise<void> => {
+    const client = getDbExec();
+    const pg = isPostgres();
+    if (pg) {
+      // PG guard: probe via information_schema, only issue DDL if missing, bounded lock_timeout
+      await ensureTableExists("tools", EXTENSIONS_CREATE_SQL_PG);
+      await migrateMisnamedExtensionsTable(client, pg); // data migration, not DDL — unchanged
+      await ensureTableExists("tool_shares", EXTENSION_SHARES_CREATE_SQL_PG);
+      await ensureTableExists("tool_data", EXTENSION_DATA_CREATE_SQL_PG);
+      await ensureExtensionDataItemId(client, pg); // ADD COLUMN — guarded inside
+      await ensureExtensionDataScope(client, pg); // ADD COLUMN — guarded inside
+      // DROP INDEX (for old index) — safe DDL, runs via client.execute; keep on both paths
+      await client.execute(EXTENSION_DATA_DROP_OLD_INDEX_SQL_PG);
+      await ensureIndexExists(
+        "tool_data_scoped_item_idx",
+        EXTENSION_DATA_ITEM_INDEX_SQL_PG,
       );
-      await migrateMisnamedExtensionsTable(client, pg);
-      await retryOnDdlRace(() =>
-        client.execute(
-          pg ? EXTENSION_SHARES_CREATE_SQL_PG : EXTENSION_SHARES_CREATE_SQL,
-        ),
+      await ensureIndexExists("tools_owner_idx", EXTENSIONS_OWNER_INDEX_SQL);
+      await ensureIndexExists("tools_org_idx", EXTENSIONS_ORG_INDEX_SQL);
+      await ensureIndexExists(
+        "tools_updated_at_idx",
+        EXTENSIONS_UPDATED_INDEX_SQL,
       );
-      await retryOnDdlRace(() =>
-        client.execute(
-          pg ? EXTENSION_DATA_CREATE_SQL_PG : EXTENSION_DATA_CREATE_SQL,
-        ),
-      );
-      await ensureExtensionDataItemId(client, pg);
-      await ensureExtensionDataScope(client, pg);
-      await client.execute(
-        pg
-          ? EXTENSION_DATA_DROP_OLD_INDEX_SQL_PG
-          : EXTENSION_DATA_DROP_OLD_INDEX_SQL,
-      );
-      await retryOnDdlRace(() =>
-        client.execute(
-          pg ? EXTENSION_DATA_ITEM_INDEX_SQL_PG : EXTENSION_DATA_ITEM_INDEX_SQL,
-        ),
-      );
-      await retryOnDdlRace(() => client.execute(EXTENSIONS_OWNER_INDEX_SQL));
-      await retryOnDdlRace(() => client.execute(EXTENSIONS_ORG_INDEX_SQL));
-      await retryOnDdlRace(() => client.execute(EXTENSIONS_UPDATED_INDEX_SQL));
       await ensureExtensionsArchivedColumn(client, pg);
-      await retryOnDdlRace(() =>
-        client.execute(EXTENSIONS_ARCHIVED_AT_INDEX_SQL),
+      await ensureIndexExists(
+        "tools_archived_at_idx",
+        EXTENSIONS_ARCHIVED_AT_INDEX_SQL,
       );
-      await ensureExtensionsGlobalHideColumns(client, pg);
-      await retryOnDdlRace(() =>
-        client.execute(EXTENSIONS_HIDDEN_AT_INDEX_SQL),
+      await ensureExtensionsGlobalHideColumns(client, pg); // ADD COLUMN — guarded inside
+      await ensureIndexExists(
+        "tools_hidden_at_idx",
+        EXTENSIONS_HIDDEN_AT_INDEX_SQL,
       );
-      await retryOnDdlRace(() =>
-        client.execute(EXTENSION_SHARES_RESOURCE_INDEX_SQL),
+      await ensureIndexExists(
+        "tool_shares_resource_idx",
+        EXTENSION_SHARES_RESOURCE_INDEX_SQL,
       );
-      await retryOnDdlRace(() =>
-        client.execute(
-          pg ? EXTENSION_HIDES_CREATE_SQL_PG : EXTENSION_HIDES_CREATE_SQL,
-        ),
+      await ensureTableExists(
+        "tool_hidden_extensions",
+        EXTENSION_HIDES_CREATE_SQL_PG,
       );
-      await retryOnDdlRace(() =>
-        client.execute(EXTENSION_HIDES_UNIQUE_INDEX_SQL),
+      await ensureIndexExists(
+        "tool_hidden_extensions_user_tool_idx",
+        EXTENSION_HIDES_UNIQUE_INDEX_SQL,
       );
-      await retryOnDdlRace(() =>
-        client.execute(EXTENSION_HIDES_OWNER_INDEX_SQL),
+      await ensureIndexExists(
+        "tool_hidden_extensions_owner_idx",
+        EXTENSION_HIDES_OWNER_INDEX_SQL,
       );
-      await retryOnDdlRace(() =>
-        client.execute(
-          pg ? EXTENSION_HISTORY_CREATE_SQL_PG : EXTENSION_HISTORY_CREATE_SQL,
-        ),
+      await ensureTableExists("tool_history", EXTENSION_HISTORY_CREATE_SQL_PG);
+      await ensureIndexExists(
+        "tool_history_tool_version_idx",
+        EXTENSION_HISTORY_VERSION_INDEX_SQL,
       );
-      await retryOnDdlRace(() =>
-        client.execute(EXTENSION_HISTORY_VERSION_INDEX_SQL),
+      await ensureIndexExists(
+        "tool_history_tool_created_idx",
+        EXTENSION_HISTORY_CREATED_INDEX_SQL,
       );
-      await retryOnDdlRace(() =>
-        client.execute(EXTENSION_HISTORY_CREATED_INDEX_SQL),
+      await ensureTableExists(
+        "tool_consents",
+        EXTENSION_CONSENTS_CREATE_SQL_PG,
       );
-      // tool_consents was introduced for an audit-C1 per-viewer consent
-      // gate that we removed once we settled on intra-org trust as the
-      // baseline. The table is kept (additive — never drop) so deploys
-      // that already created it stay healthy; the runtime consent code
-      // is gone. Idempotent CREATE IF NOT EXISTS for fresh schemas.
-      await retryOnDdlRace(() =>
-        client.execute(
-          pg ? EXTENSION_CONSENTS_CREATE_SQL_PG : EXTENSION_CONSENTS_CREATE_SQL,
-        ),
+      await ensureIndexExists(
+        "tool_consents_viewer_idx",
+        EXTENSION_CONSENTS_VIEWER_INDEX_SQL,
       );
-      await retryOnDdlRace(() =>
-        client.execute(EXTENSION_CONSENTS_VIEWER_INDEX_SQL),
-      );
-    })();
-  }
-
-  try {
-    await _initPromise;
-  } catch (err) {
-    _initPromise = undefined;
-    throw err;
-  }
-}
+      return;
+    }
+    // SQLite (local dev): keep existing behavior
+    await retryOnDdlRace(() =>
+      client.execute(pg ? EXTENSIONS_CREATE_SQL_PG : EXTENSIONS_CREATE_SQL),
+    );
+    await migrateMisnamedExtensionsTable(client, pg);
+    await retryOnDdlRace(() =>
+      client.execute(
+        pg ? EXTENSION_SHARES_CREATE_SQL_PG : EXTENSION_SHARES_CREATE_SQL,
+      ),
+    );
+    await retryOnDdlRace(() =>
+      client.execute(
+        pg ? EXTENSION_DATA_CREATE_SQL_PG : EXTENSION_DATA_CREATE_SQL,
+      ),
+    );
+    await ensureExtensionDataItemId(client, pg);
+    await ensureExtensionDataScope(client, pg);
+    await client.execute(
+      pg
+        ? EXTENSION_DATA_DROP_OLD_INDEX_SQL_PG
+        : EXTENSION_DATA_DROP_OLD_INDEX_SQL,
+    );
+    await retryOnDdlRace(() =>
+      client.execute(
+        pg ? EXTENSION_DATA_ITEM_INDEX_SQL_PG : EXTENSION_DATA_ITEM_INDEX_SQL,
+      ),
+    );
+    await retryOnDdlRace(() => client.execute(EXTENSIONS_OWNER_INDEX_SQL));
+    await retryOnDdlRace(() => client.execute(EXTENSIONS_ORG_INDEX_SQL));
+    await retryOnDdlRace(() => client.execute(EXTENSIONS_UPDATED_INDEX_SQL));
+    await ensureExtensionsArchivedColumn(client, pg);
+    await retryOnDdlRace(() =>
+      client.execute(EXTENSIONS_ARCHIVED_AT_INDEX_SQL),
+    );
+    await ensureExtensionsGlobalHideColumns(client, pg);
+    await retryOnDdlRace(() => client.execute(EXTENSIONS_HIDDEN_AT_INDEX_SQL));
+    await retryOnDdlRace(() =>
+      client.execute(EXTENSION_SHARES_RESOURCE_INDEX_SQL),
+    );
+    await retryOnDdlRace(() =>
+      client.execute(
+        pg ? EXTENSION_HIDES_CREATE_SQL_PG : EXTENSION_HIDES_CREATE_SQL,
+      ),
+    );
+    await retryOnDdlRace(() =>
+      client.execute(EXTENSION_HIDES_UNIQUE_INDEX_SQL),
+    );
+    await retryOnDdlRace(() => client.execute(EXTENSION_HIDES_OWNER_INDEX_SQL));
+    await retryOnDdlRace(() =>
+      client.execute(
+        pg ? EXTENSION_HISTORY_CREATE_SQL_PG : EXTENSION_HISTORY_CREATE_SQL,
+      ),
+    );
+    await retryOnDdlRace(() =>
+      client.execute(EXTENSION_HISTORY_VERSION_INDEX_SQL),
+    );
+    await retryOnDdlRace(() =>
+      client.execute(EXTENSION_HISTORY_CREATED_INDEX_SQL),
+    );
+    // tool_consents was introduced for an audit-C1 per-viewer consent
+    // gate that we removed once we settled on intra-org trust as the
+    // baseline. The table is kept (additive — never drop) so deploys
+    // that already created it stay healthy; the runtime consent code
+    // is gone. Idempotent CREATE IF NOT EXISTS for fresh schemas.
+    await retryOnDdlRace(() =>
+      client.execute(
+        pg ? EXTENSION_CONSENTS_CREATE_SQL_PG : EXTENSION_CONSENTS_CREATE_SQL,
+      ),
+    );
+    await retryOnDdlRace(() =>
+      client.execute(EXTENSION_CONSENTS_VIEWER_INDEX_SQL),
+    );
+  },
+);
 
 async function migrateMisnamedExtensionsTable(
   client: ReturnType<typeof getDbExec>,

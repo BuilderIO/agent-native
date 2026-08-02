@@ -57,6 +57,7 @@ export {
   type CompareAndSwapPlan,
   type CompareAndSwapResult,
 } from "./atomic-compare-and-swap.js";
+export { runAtomicWrites } from "./atomic-writes.js";
 export {
   ensureAdditiveColumns,
   type EnsureAdditiveColumnsOptions,

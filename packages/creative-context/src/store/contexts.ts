@@ -1,3 +1,4 @@
+import { runAtomicWrites } from "@agent-native/core/db";
 import {
   assertCurrentRequestUserIsOrgAdmin,
   currentRequestUserIsOrgAdmin,
@@ -119,9 +120,22 @@ async function appendAudit(
   operation: string,
   details: Record<string, unknown>,
 ) {
+  await buildAuditInsert(tx, contextId, operation, details);
+}
+
+/**
+ * The audit insert as an unawaited query, so `runAtomicWrites` can hand it to
+ * D1's `batch()` alongside the writes it audits.
+ */
+function buildAuditInsert(
+  tx: any,
+  contextId: string,
+  operation: string,
+  details: Record<string, unknown>,
+) {
   const { schema } = getCreativeContext();
   const actor = requireActor();
-  await tx.insert(schema.creativeContextAudit).values({
+  return tx.insert(schema.creativeContextAudit).values({
     id: newId("cca"),
     contextId,
     operation,
@@ -494,12 +508,14 @@ export async function createCreativeContext(input: {
     stagingSourceId = newId("ccs"),
     publishedSourceId = newId("ccs");
   try {
-    await getDb().transaction(async (tx: any) => {
-      for (const [sourceId, name, purpose] of [
-        [stagingSourceId, `${input.name} staging`, "staging"],
-        [publishedSourceId, `${input.name} published`, "published"],
-      ] as const)
-        await tx.insert(schema.contextSources).values({
+    await runAtomicWrites(getDb(), (tx: any) => [
+      ...(
+        [
+          [stagingSourceId, `${input.name} staging`, "staging"],
+          [publishedSourceId, `${input.name} published`, "published"],
+        ] as const
+      ).map(([sourceId, name, purpose]) =>
+        tx.insert(schema.contextSources).values({
           id: sourceId,
           name,
           kind: "native-app",
@@ -514,8 +530,9 @@ export async function createCreativeContext(input: {
           ownerEmail: actor.ownerEmail,
           orgId: actor.orgId,
           visibility: "private",
-        });
-      await tx.insert(schema.creativeContexts).values({
+        }),
+      ),
+      tx.insert(schema.creativeContexts).values({
         id,
         name: input.name,
         description: input.description ?? null,
@@ -531,12 +548,12 @@ export async function createCreativeContext(input: {
         ownerEmail: actor.ownerEmail,
         orgId: actor.orgId,
         visibility: actor.orgId ? "org" : "private",
-      });
-      await appendAudit(tx, id, "create", {
+      }),
+      buildAuditInsert(tx, id, "create", {
         kind: input.kind,
         approvalPolicy: input.approvalPolicy ?? "open",
-      });
-    });
+      }),
+    ]);
   } catch (error) {
     if (input.kind === "default") {
       const existing = await getDb()

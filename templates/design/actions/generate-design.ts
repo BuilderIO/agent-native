@@ -433,7 +433,14 @@ const generateDesignAgentParameters = {
     tweaks: {
       type: "string",
       description:
-        "Optional JSON array of tweak definitions. Omit unless the HTML uses matching CSS variables.",
+        "Optional JSON array of tweak definitions. Omit unless the HTML uses matching CSS variables. " +
+        'Each entry is {"id","label","type","defaultValue","cssVar"}. `type` is one of ' +
+        '"color-swatch", "color-swatches", "segment", "slider", "toggle" — no other value is accepted. ' +
+        'The current value goes in "defaultValue"; there is no "value" key. ' +
+        '"slider" adds numeric "min"/"max"/"step" (JSON numbers, not strings); ' +
+        '"color-swatches" and "segment" add "options": [{"label","value","color"?}]. ' +
+        "Surface 3-6 of the most impactful knobs (accent color, density, radius, dark mode, font), " +
+        "each bound to a CSS var the design's `:root` block actually declares.",
     },
     canvasFrames: {
       type: "string",
