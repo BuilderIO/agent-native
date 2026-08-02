@@ -170,7 +170,9 @@ export default defineAction({
         ? {
             hydration: serializeDatabaseMembership(bodyHydrationMembership)
               .bodyHydration,
-            ...(bodyHydrationAccess && bodyHydrationTarget?.hydrationSourceId
+            ...(bodyHydrationAccess &&
+            canEditRole(bodyHydrationAccess.role) &&
+            bodyHydrationTarget?.hydrationSourceId
               ? {
                   provider: "builder" as const,
                   sourceId: bodyHydrationTarget.hydrationSourceId,

@@ -553,7 +553,7 @@ describe("database-scoped document properties", () => {
     expect(result.bodyHydration).toBeUndefined();
   });
 
-  it("gates hidden source hydration without leaking its provenance", async () => {
+  it("gates hidden or viewer-only source hydration without leaking a pump target", async () => {
     const db = getDb();
     const now = new Date().toISOString();
     const rowDocumentId = await createDocument({ title: "Shared row" });
@@ -627,6 +627,27 @@ describe("database-scoped document properties", () => {
         }),
       ),
     ).rejects.toThrow();
+
+    await db.insert(schema.documentShares).values({
+      id: nextId("share"),
+      resourceId: hiddenBuilder.databaseDocumentId,
+      principalType: "user",
+      principalId: OWNER,
+      role: "viewer",
+      createdBy: COLLABORATOR,
+      createdAt: now,
+    });
+    const viewerResult = await runWithRequestContext({ userEmail: OWNER }, () =>
+      getDocumentAction.run({
+        id: rowDocumentId,
+        databaseId: local.databaseId,
+        databaseDocumentId: local.databaseDocumentId,
+      }),
+    );
+    expect(viewerResult.canEdit).toBe(true);
+    expect(viewerResult.bodyHydration).toEqual({
+      hydration: expect.objectContaining({ status: "pending" }),
+    });
   });
 
   it("does not gate a Page for a non-Builder source membership", async () => {
