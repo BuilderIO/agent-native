@@ -278,61 +278,12 @@ Instrumented agent loops emit server-side tracking events for every run through
 Analytics, Mixpanel, Amplitude, and webhook providers receive them through the
 same best-effort fan-out as other tracking events.
 
-### The PostHog trace tree
-
-PostHog models a run as a tree. The framework emits all three node types, and
-every node shares `$ai_trace_id` (the run id) and links upward via
-`$ai_parent_id`:
-
-| Event            | One per        | Key properties                                                                 |
-| ---------------- | -------------- | ------------------------------------------------------------------------------ |
-| `$ai_trace`      | agent run      | `$ai_span_name: "agent_run"`, `$ai_latency`, `$ai_is_error`, `$ai_error`        |
-| `$ai_generation` | model call     | `$ai_model`, `$ai_provider`, token counts, `$ai_input`/`$ai_output_choices`, `$ai_tools` |
-| `$ai_span`       | tool call      | `$ai_span_id`, `$ai_span_name` (tool name), `$ai_latency`, `$ai_is_error`       |
-
-`$ai_session_id` is the **thread**, grouping traces into a conversation. It is
-explicitly not PostHog's `$session_id`, which is the browser session used for
-session replay — the framework sends that separately, read from the
-`X-Agent-Native-Session-Id` header via `RequestContext.browserSessionId`.
-
-**One generation per run, not per round-trip.** The engine layer reports
-aggregate usage (`onUsage`) with no per-step hook, so a multi-step run collapses
-into a single generation node carrying the whole message list. Per-round-trip
-latency and intermediate assistant turns are not visible. Adding them requires a
-new engine seam in `ai-sdk-engine.ts` / `builder-engine.ts`.
-
-### Content capture
-
-`capturePrompts` (default `false`) gates `$ai_input` and the assistant's text in
-`$ai_output_choices`. `captureToolArgs` gates tool-call arguments and
-`$ai_input_state` on spans.
-
-When a flag is off the field is **omitted**, never sent as `[]` or `""` — an
-empty array is indistinguishable from a run that genuinely had no messages.
-Oversized content is replaced with an explicit truncation marker and
-`$ai_input_truncated` / `$ai_output_truncated`, never silently shortened.
-Runs that exceed the span cap stamp `$ai_spans_dropped` on the trace.
-
-**Tool calls ship even with `capturePrompts` off.** PostHog derives
-`$ai_tools_called` / `$ai_tool_call_count` only from tool-call blocks inside
-`$ai_output_choices`, so the structural call list (names, no arguments) is always
-emitted. The bespoke `tools` array below is kept in parallel because the
-first-party dashboards read it — that duplication is deliberate, not cleanup.
-
-### Errors and feedback
-
-`$ai_error` is a structured object (`message`, `terminal_state`,
-`terminal_code`, `retryable`), absent on healthy runs. Errors captured through
-`captureError({ aiTraceId })` carry a top-level `$ai_trace_id`, so an
-error-tracking issue and the LLM trace resolve to each other.
-
-Feedback emits `$ai_feedback` for all four feedback types; only thumbs carry
-`sentiment`, so a category follow-up to a thumbs-down does not double-count the
-vote. PostHog additionally shows feedback in LLM analytics only via a
-`survey sent` event keyed to a real survey — set
-`POSTHOG_AI_FEEDBACK_SURVEY_ID` (and optionally
-`POSTHOG_AI_FEEDBACK_SURVEY_QUESTION_ID`) to enable it. Unset means no survey
-event; the framework never invents a survey id.
+- Events: `$ai_trace` per run, `$ai_span` per tool call, and `$ai_generation`
+  per model call. Every node carries the run id as `$ai_trace_id` and links
+  upward through `$ai_parent_id` so a backend can rebuild the tree.
+  `$ai_session_id` is the thread; the browser session is separate and ships as
+  `$session_id`, read from `X-Agent-Native-Session-Id` via
+  `RequestContext.browserSessionId`. Emission lives in `posthog-ai.ts`.
 - Agent Native Analytics shape: the same event lands in `analytics_events` with
   mirrored query-friendly properties such as `run_id`, `thread_id`,
   `cost_cents_x100`, `duration_ms`, `tool_calls`, `successful_tools`,
@@ -343,6 +294,30 @@ event; the framework never invents a survey id.
   Delegated runs add `delegation_protocol`, `caller_app`, `a2a_task_id`, and
   `parent_run_id` when available. `parent_turn_id` is separate because one
   logical turn may span multiple concrete runs.
+
+Constraints that are not visible from the emit site:
+
+- **One generation per run, not per model round-trip.** The engine layer reports
+  aggregate usage through `onUsage` and exposes no per-step hook, so a multi-step
+  run collapses into a single generation carrying the whole message list.
+  Per-round-trip latency and intermediate turns are unavailable without a new
+  seam in `ai-sdk-engine.ts` / `builder-engine.ts`. Do not describe the current
+  output as per-step.
+- **Disabled capture omits the field rather than sending an empty one.** An
+  empty array is indistinguishable from a run that genuinely had no messages.
+  Truncated content is marked, and a run over the span cap stamps
+  `$ai_spans_dropped` — a truncated run must not read as a complete one.
+- **The structural tool-call list ships even when content capture is off.**
+  Backends derive their tool tags from tool-call blocks inside the output
+  choices and from nothing else, so tool names (without arguments) are always
+  emitted. The parallel first-party `tools` array stays because the dashboards
+  read it; that duplication is deliberate, not cleanup.
+- **Only thumbs carry `sentiment`.** All four feedback types are reported, but a
+  category follow-up to a thumbs-down is detail about the same vote — counting
+  it again inflates the metric.
+- **Never invent an external id to make an integration light up.** Survey-based
+  feedback is emitted only when a real survey id is configured, and nothing is
+  sent otherwise.
 
 Do not build a separate LLM-observability ingestion API unless there is a clear
 reason the tracking provider registry cannot express the use case. Keep prompt,

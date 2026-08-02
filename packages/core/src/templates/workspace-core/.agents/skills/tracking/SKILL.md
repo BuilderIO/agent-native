@@ -89,56 +89,55 @@ Multiple providers can be active simultaneously. All receive every event.
 
 Browser-side `trackEvent()` also forwards to Agent Native Analytics when `VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY` is present. Use `VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT` to override the default browser endpoint. The built-in Agent Native Analytics sender is quiet on localhost/local dev by default; set `AGENT_NATIVE_ANALYTICS_ALLOW_LOCALHOST=true` only for an intentional local ingestion test.
 
-## PostHog Error Tracking
+## Error Capture
 
-PostHog is a full error-reporting backend, not only an analytics sink. With
-`POSTHOG_API_KEY` set, `captureError()` reaches it whether or not a Sentry DSN
-exists.
+Exceptions fan out through `server/capture-error.ts` to every registered
+backend — Sentry, PostHog, and the tracking providers — from one `captureError()`
+call. Backends are additive: configuring a second one does not displace the
+first, and no backend is required for the others to work.
 
-Three things are specific to PostHog and easy to get wrong:
+Emit through `captureError()` / `captureException()`. Never hand-roll a
+`track("$exception", …)`: each backend needs its own payload shape and the
+providers build it.
 
-- **`$exception` needs `$exception_list`.** PostHog ingests an event named
-  `$exception` with any shape, then renders it as an empty, ungroupable issue —
-  so a broken payload looks like coverage rather than a failure. The PostHog
-  provider in `tracking/providers.ts` reshapes the framework's camelCase
-  exception properties through `tracking/posthog-exception.ts` before sending.
-  Emit exceptions with `captureError()` / `captureException()`; do not hand-roll
-  a `track("$exception", …)` call.
-- **`$exception` and `$ai_*` use `/i/v0/e/`, everything else uses `/capture/`.**
-  Handled by the provider; only relevant if you add a new PostHog event family.
-- **Stack frames are never symbolicated.** Frames ship as
-  `platform: "custom"`, `resolved: false` because the framework uploads no
-  source maps to PostHog. Server stacks are already readable; **minified browser
-  stacks stay minified**. Sentry symbolicates today and PostHog does not — this
-  is a known gap, not a bug to re-diagnose.
+- **Provider-agnostic wiring must not live in a provider plugin.** The Nitro
+  `error` hook is in `core-routes-plugin.ts`, not `sentry-plugin.ts`, because
+  that plugin returns early when no `SENTRY_DSN` is set — hooking route errors
+  there meant an app on any other backend silently reported none.
+- **Every backend applies `server/error-noise-filter.ts`.** It holds
+  production-tuned drop rules (expected 4xx, access-control rejections, Lambda
+  freeze/thaw `socket hang up`). A backend that skips it receives a firehose;
+  the `socket hang up` rule alone is ~10k events/day.
+- **A backend can accept a malformed payload and still show a count.** PostHog
+  ingested the framework's camelCase `$exception` for a long time and rendered
+  empty, ungroupable issues — which reads as coverage, not as breakage. When
+  adding or changing a backend, check what an event looks like in its UI, not
+  just that the request returned 200.
+- **Attribute the error.** Without a user id, server exceptions land under
+  `anonymous` and split one person in two against their browser events. Pass
+  `aiTraceId` for anything inside an agent run so the issue and the LLM trace
+  resolve to each other.
 
-### Where the wiring lives
+Symbolication is per-backend and not automatic: the framework uploads no source
+maps to PostHog, so minified browser stacks stay minified there. Known gap, not
+a bug to re-diagnose.
 
-`core-routes-plugin.ts` owns the Nitro `error` hook and routes it through
-`captureError()`, filtered by `server/error-noise-filter.ts`. It is deliberately
-**not** in `sentry-plugin.ts`: that plugin returns early without a DSN, so
-hooking it there meant a PostHog-only app silently reported no route errors.
+### Browser keys and the SSR shell
 
-The noise filter carries production-tuned drop rules (expected 4xx,
-access-control rejections, Lambda freeze/thaw `socket hang up`). Any new error
-backend must apply it or it receives a firehose — the `socket hang up` rule
-alone accounts for ~10k events/day.
+Public keys (`POSTHOG_PUBLIC_KEY`, the Sentry client DSN) ship inside the
+CDN-cached SSR shell — publishable and identical for every visitor. Server keys
+never do, and are never a fallback for a public one: `POSTHOG_API_KEY` may be a
+private key and this value lands in public HTML.
 
-### Browser exceptions
-
-Set `POSTHOG_PUBLIC_KEY` (or `VITE_POSTHOG_KEY`) to enable browser capture. It
-ships in the CDN-cached SSR shell alongside the Sentry DSN — publishable and
-identical for every visitor. The browser posts straight to PostHog rather than
-relaying through `/_agent-native/track`, because that route requires a resolved
-session and would drop every signed-out crash.
-
-`POSTHOG_API_KEY` is **not** a fallback for the public key: it may be a private
-key, and this value is inlined into public HTML.
+Browser errors post directly to the backend rather than through
+`/_agent-native/track`, because that route requires a resolved session and
+relaying would drop every signed-out crash.
 
 When adding a client config field, update **both** `server/posthog-config.ts`
 and the mirrored worker emitter in `deploy/build.ts` — the worker bundles a
-string copy and cannot import the module, so a one-sided change drops the config
-silently in deployed builds.
+string copy and cannot import the module, so a one-sided edit drops the config
+silently in deployed builds. `posthog-config.spec.ts` pins the two outputs
+together.
 
 ## Default Baseline Events
 
