@@ -27,7 +27,7 @@ write-targets:
     - plans/desktop-sso-intent/work-ledger.md
 governing-artifact:
   path: /Users/alicemoore/Developer/teenylilthoughts/briefs/Agent-Native Desktop workspace SSO canary diagnosis and replacement work plan 2026-08-02.md
-  revision: desktop-sso-diagnosis-plan-r1
+  revision: desktop-sso-diagnosis-plan-r3
 architecture-fingerprint:
   outcome: one Agent Native workspace sign-in begun from the ordinary front door of any canonical first-party app, followed by silent app-local federation
   shipping-surfaces:
@@ -198,6 +198,15 @@ acceptance-state:
     - exact-head CI run 30757701197 and signed canary run 30757699380 passed on 579d5f590cb06fffd807669d2b4ea343b49b13ec; canary .25 passed manifest, signing, notarization, Gatekeeper, bundle identity, version, signer, architecture, isolated-profile, and updater-silence checks while stable profile mtime remained unchanged
     - a reliable local CDP plus CGWindow harness replaced the prior accessibility lease that closed the Electron browser when detaching; canary .25 then passed initial native H1 with Settings readable and both guest slots offscreen, but its unattended four-minute CGWindow capture was blank while React still reported Settings visible, so H2 was not accepted and production remained untouched
     - local compositor hardening removes every guest slot from layout with display:none only while an App-owned shell modal is open, preserves the same two WebContents target ids across close, and restores the active guest without navigation or remount; the four-minute local hold remained readable when the app was activated and independent review found no actionable lifecycle, Code Agents, fullscreen, refresh, or state-preservation defect
+    - exact-head CI run 30759362478 and Desktop SSO Canary run 30759360971 passed on cff2f0a0454c536ada52a045791ec6e62d6ce047; Canary .26 passed signing, notarization, isolated-profile, Settings compositor, updater-silence, normal-quit, process-absence, and relaunch gates
+    - the supervised .26 production attempt reached the correct canonical Dispatch ceremony from ordinary Mail, then stopped before authentication because the promoted Deploy Preview candidate rendered only email/password while Alice's workspace account is Google-only
+    - Deploy Preview candidate 6a6f8bdd884a450856725dfc is exact head cff2f0a0454c536ada52a045791ec6e62d6ce047 and its immutable sign-in document contains password forms but no google-btn element; its Netlify context is deploy-preview
+    - the earlier Dispatch candidate 6a6dfc950e84fea87e565474 that supported Alice's private Google ceremony was built in Netlify production context on the same branch, establishing deployment context as the smallest current diagnosis rather than a Desktop or cross-app protocol defect
+    - exact-head unpublished branch candidates 6a6f90d3d8056b4161659f28 (Dispatch) and 6a6f90fba1156f7c5ab0fa43 (Mail) were rebuilt without cache in branch-deploy context; both are ready at cff2f0a0454c536ada52a045791ec6e62d6ce047 and neither is published
+    - the fresh production-shaped Dispatch candidate still renders three password inputs and no google-btn, disproving build context alone as the repair; valid Mail callback authorize remains 302 and a hostile callback remains 400
+    - canonical-host-only Dispatch repair passes 4 focused resolver tests, all 45 Dispatch template tests, template typecheck, formatting, diff hygiene, and credential-pattern scan
+    - independent read-only auth review found no actionable issue in exact-origin matching, environment precedence, local/self-hosted preservation, startup evaluation, or test coverage
+    - the failed window rolled back Mail then Dispatch to normal main@9258da4 deploys 6a6f49a689f67900088bb2ea and 6a6f49a6474bd80008d64fff; both sites are unlocked with auto-publishing on, identity routes baseline 401, Mail root normal 302, no Canary/updater process, and stable profile mtime unchanged
   implementation:
     - authenticated nonce-only app-local completion route in Core
     - dedicated persistent Dispatch identity partition in packaged Desktop
@@ -214,7 +223,7 @@ acceptance-state:
     - Desktop quit waits for Multi-Frontier cleanup but reissues application quit after synchronous failure or a five-second bound so optional collaboration disposal cannot leave a windowless process indefinitely
     - every App-owned shell modal makes ordinary and Code Agents guest webviews inactive and removes their native slots from layout, then restores the same mounted guests and deferred refresh behavior without navigation or reload
   blockers:
-    - the strengthened native guest-compositing repair must pass exact-head CI, a newly signed isolated canary, and an activated Settings-over-slow-loading-webview observation held beyond four minutes before another production window; committed completion, updater isolation, and normal quit/relaunch gates are otherwise complete
+    - commit and push the canonical-host-only Dispatch repair, then rebuild unpublished exact-head candidates and prove the immutable Dispatch sign-in document contains google-btn before any production publication
     - a renewed short Mail and Dispatch window must prove H1-H10, including same-account continuity, restart, provider separation, workspace sign-out, and safe cancellation/concurrency; the prior H1-H2 evidence is informative but cannot complete acceptance for the repaired artifact
     - Alice requires an explicit notification and agent stop before any next production test or Netlify production mutation
   latest-production-result: https://github.com/BuilderIO/agent-native/pull/2290#issuecomment-5158731013
@@ -245,14 +254,14 @@ return-to-shape:
     risk-strategy: unchanged system-ready, production validation before merge
   replacement-acceptance-story: desktop-first-party-sso-committed-completion-v3 approved
 production-safety-preflight:
-  verified-at: 2026-08-01T11:24:00-04:00
-  mail: normal unlocked auto-publishing main deploy 6a6ddd1e966031000859bd7e at 3e89c5e5aea6752beea0849fbd62c5a1d58b986d, identity route baseline 401, root normal 302
-  dispatch: normal unlocked auto-publishing main deploy 6a6ddd1e8eef7d00084f719e at 3e89c5e5aea6752beea0849fbd62c5a1d58b986d, identity authorize baseline 401
-  local: no SSO Canary, ShipIt, or Squirrel process remains; stable Desktop untouched
+  verified-at: 2026-08-02T14:46:39-04:00
+  mail: normal unlocked auto-publishing main deploy 6a6f49a689f67900088bb2ea at 9258da46f4b0291860913b1ec05743b6330a92e2, identity route baseline 401, root normal 302
+  dispatch: normal unlocked auto-publishing main deploy 6a6f49a6474bd80008d64fff at 9258da46f4b0291860913b1ec05743b6330a92e2, identity authorize baseline 401
+  local: no SSO Canary, ShipIt, Squirrel, or updater process remains; stable Desktop profile mtime unchanged at 1785439008
 work-constraints:
   production-test-custody: notify Alice and stop before any production canary or Netlify production mutation
   pr-cleanup: remove agent-authored progress-comment clutter after preserving durable truth locally; retain human review and concise reviewer-facing information
-ledger-revision: desktop-sso-work-r28
+ledger-revision: desktop-sso-work-r31
 status: active
 ```
 
