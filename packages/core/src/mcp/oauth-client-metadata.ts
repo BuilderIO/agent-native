@@ -100,6 +100,54 @@ export function isAllowedOAuthRedirectUri(value: unknown): value is string {
   }
 }
 
+function isLoopbackRedirectHost(hostname: string): boolean {
+  return (
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "::1" ||
+    hostname === "[::1]"
+  );
+}
+
+/**
+ * RFC 8252 section 7.3: a native client's loopback redirect URI uses a port
+ * chosen at request time, so the authorization server must ignore the port when
+ * comparing loopback redirect URIs against the registered set. Non-loopback
+ * redirects keep exact matching, so this cannot widen into an open redirect.
+ */
+export function matchesRegisteredRedirectUri(
+  registered: readonly string[],
+  redirectUri: string,
+): boolean {
+  if (registered.includes(redirectUri)) return true;
+  let candidate: URL;
+  try {
+    candidate = new URL(redirectUri);
+  } catch {
+    return false;
+  }
+  if (
+    candidate.protocol !== "http:" ||
+    !isLoopbackRedirectHost(candidate.hostname)
+  ) {
+    return false;
+  }
+  return registered.some((value) => {
+    let allowed: URL;
+    try {
+      allowed = new URL(value);
+    } catch {
+      return false;
+    }
+    return (
+      allowed.protocol === candidate.protocol &&
+      allowed.hostname === candidate.hostname &&
+      allowed.pathname === candidate.pathname &&
+      allowed.search === candidate.search
+    );
+  });
+}
+
 export function applicationTypeForRedirectUris(
   redirectUris: string[],
 ): "native" | "web" {

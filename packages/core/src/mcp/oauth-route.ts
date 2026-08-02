@@ -21,6 +21,7 @@ import {
   applicationTypeForRedirectUris,
   isAllowedOAuthRedirectUri,
   isUrlBasedOAuthClientId,
+  matchesRegisteredRedirectUri,
   resolveOAuthClientMetadataDocument,
 } from "./oauth-client-metadata.js";
 import {
@@ -744,7 +745,10 @@ async function handleAuthorize(
   const client = isUrlBasedOAuthClientId(clientId)
     ? await resolveOAuthClientMetadataDocument(clientId).catch(() => null)
     : await getOAuthClient(clientId);
-  if (!client || !client.redirectUris.includes(redirectUri)) {
+  if (
+    !client ||
+    !matchesRegisteredRedirectUri(client.redirectUris, redirectUri)
+  ) {
     return oauthError("invalid_client", "Unknown client or redirect_uri");
   }
 
