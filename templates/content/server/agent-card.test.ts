@@ -19,6 +19,7 @@ const REQUIRED_CONTENT_ACTIONS = [
   "update-document",
   "move-document",
   "navigate",
+  "upsert-database-item-by-key",
 ];
 
 const ACTION_REGISTRY_TEST_TIMEOUT_MS = 60_000;
