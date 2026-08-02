@@ -232,7 +232,9 @@ describe("document editor layout", () => {
       },
     );
 
-    expect(source).toContain("const documentQuery = useDocument(documentId)");
+    expect(source).toContain("const documentQuery = useDocument(documentId, {");
+    expect(source).toContain("databaseId,");
+    expect(source).toContain("databaseDocumentId,");
     expect(source).toContain("isFetchedAfterMount");
     expect(source).toContain("isFetching");
     expect(source).toContain("queriedDocument?.id === documentId");

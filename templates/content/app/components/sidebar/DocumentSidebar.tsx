@@ -126,6 +126,7 @@ import {
   useUpdateDocument,
   buildDocumentTree,
   filterDocumentTreeDocuments,
+  documentQueryFilter,
 } from "@/hooks/use-documents";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import {
@@ -1191,16 +1192,12 @@ export function DocumentSidebar({
           created,
         );
         if (nextId !== id) {
-          queryClient.removeQueries({
-            queryKey: ["action", "get-document", { id }],
-          });
+          queryClient.removeQueries(documentQueryFilter(id));
           navigateToDocument(nextId);
         }
         // Replace optimistic doc with real server doc + clear any 404 error
         // state from the in-flight fetch that ran before create completed.
-        queryClient.invalidateQueries({
-          queryKey: ["action", "get-document", { id: nextId }],
-        });
+        queryClient.invalidateQueries(documentQueryFilter(nextId));
         queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
@@ -1214,9 +1211,7 @@ export function DocumentSidebar({
         queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
-        queryClient.removeQueries({
-          queryKey: ["action", "get-document", { id }],
-        });
+        queryClient.removeQueries(documentQueryFilter(id));
         if (rootFilesDatabaseId) {
           queryClient.setQueryData<ContentDatabaseResponse>(
             contentDatabaseByIdQueryKey(rootFilesDatabaseId),
@@ -1300,9 +1295,7 @@ export function DocumentSidebar({
         );
       });
       for (const deletedId of deletedIds) {
-        queryClient.removeQueries({
-          queryKey: ["action", "get-document", { id: deletedId }],
-        });
+        queryClient.removeQueries(documentQueryFilter(deletedId));
       }
 
       if (activeDeleted) {

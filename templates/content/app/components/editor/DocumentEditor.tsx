@@ -64,6 +64,7 @@ import {
 import {
   isDocumentUpdateConflict,
   patchDocumentCaches,
+  documentQueryFilter,
   useDocument,
   useDeleteDocument,
   useDocuments,
@@ -247,7 +248,10 @@ export function DocumentEditor({
   databaseId,
   databaseDocumentId,
 }: DocumentEditorProps) {
-  const documentQuery = useDocument(documentId);
+  const documentQuery = useDocument(documentId, {
+    databaseId,
+    databaseDocumentId,
+  });
   const {
     data: queriedDocument,
     isError,
@@ -536,7 +540,7 @@ function DocumentEditorBody({
   const deleteDocument = useDeleteDocument();
   const queryClient = useQueryClient();
   const processBuilderBodies = useProcessBuilderBodyHydration(
-    document.databaseMembership?.databaseDocumentId ?? documentId,
+    document.bodyHydration?.databaseDocumentId ?? documentId,
   );
   const canEdit = document.canEdit ?? true;
   const canEditRef = useRef(canEdit);
@@ -661,24 +665,24 @@ function DocumentEditorBody({
   );
 
   useEffect(() => {
-    const membership = document.databaseMembership;
-    const hydration = membership?.bodyHydration;
+    const hydrationContext = document.bodyHydration;
+    const hydration = hydrationContext?.hydration;
     if (
-      !membership?.sourceId ||
+      !hydrationContext?.sourceId ||
       !hydration ||
       (hydration.status !== "pending" && hydration.status !== "error")
     ) {
       return;
     }
-    const promotionKey = `${membership.sourceId}:${documentId}:${hydration.status}:${hydration.version ?? ""}`;
+    const promotionKey = `${hydrationContext.sourceId}:${documentId}:${hydration.status}:${hydration.version ?? ""}`;
     if (promotedBuilderBodyRef.current === promotionKey) return;
     promotedBuilderBodyRef.current = promotionKey;
     processBuilderBodies.mutate({
-      sourceId: membership.sourceId,
+      sourceId: hydrationContext.sourceId,
       documentId,
       limit: 1,
     });
-  }, [document.databaseMembership, documentId, processBuilderBodies.mutate]);
+  }, [document.bodyHydration, documentId, processBuilderBodies.mutate]);
   const titleFocusedRef = useRef(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const titleInputRef = useRef<HTMLTextAreaElement>(null);
@@ -973,8 +977,8 @@ function DocumentEditorBody({
           description:
             error instanceof Error ? error.message : t("empty.genericError"),
         });
-        queryClient.setQueryData(
-          ["action", "get-document", { id: documentId }],
+        queryClient.setQueriesData(
+          documentQueryFilter(documentId),
           fileFirstDocument,
         );
         queryClient.invalidateQueries({
@@ -1887,9 +1891,15 @@ function DocumentEditorBody({
                       if (bodyHydrationPending) {
                         return (
                           <BuilderBodySyncingNotice
-                            title={t("editor.builderBodySyncing")}
+                            title={t(
+                              document.bodyHydration?.provider === "builder"
+                                ? "editor.builderBodySyncing"
+                                : "editor.pageBodySyncing",
+                            )}
                             description={t(
-                              "editor.builderBodySyncingDescription",
+                              document.bodyHydration?.provider === "builder"
+                                ? "editor.builderBodySyncingDescription"
+                                : "editor.pageBodySyncingDescription",
                             )}
                           />
                         );

@@ -104,9 +104,10 @@ describe("useSetDocumentProperty", () => {
             { documentId: "row-1", databaseId: "database-1" },
           ],
         },
-        {
-          queryKey: ["action", "get-document", { id: "row-1" }],
-        },
+        expect.objectContaining({
+          queryKey: ["action", "get-document"],
+          predicate: expect.any(Function),
+        }),
         {
           queryKey: [
             "action",

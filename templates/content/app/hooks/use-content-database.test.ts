@@ -932,9 +932,15 @@ describe("invalidateBuilderBodyHydrationQueries", () => {
   });
 
   it("invalidates the opened row document only for priority hydration", () => {
-    const calls: Array<{ queryKey?: readonly unknown[] }> = [];
+    const calls: Array<{
+      queryKey?: readonly unknown[];
+      predicate?: (query: { queryKey: readonly unknown[] }) => boolean;
+    }> = [];
     const queryClient = {
-      invalidateQueries: (options: { queryKey?: readonly unknown[] }) => {
+      invalidateQueries: (options: {
+        queryKey?: readonly unknown[];
+        predicate?: (query: { queryKey: readonly unknown[] }) => boolean;
+      }) => {
         calls.push(options);
       },
     };
@@ -953,7 +959,21 @@ describe("invalidateBuilderBodyHydrationQueries", () => {
           { documentId: "database-page" },
         ],
       },
-      { queryKey: ["action", "get-document", { id: "row-page" }] },
+      {
+        queryKey: ["action", "get-document"],
+        predicate: expect.any(Function),
+      },
     ]);
+    const documentFilter = calls[calls.length - 1]?.predicate;
+    expect(
+      documentFilter?.({
+        queryKey: ["action", "get-document", { id: "row-page" }],
+      }),
+    ).toBe(true);
+    expect(
+      documentFilter?.({
+        queryKey: ["action", "get-document", { id: "other-page" }],
+      }),
+    ).toBe(false);
   });
 });

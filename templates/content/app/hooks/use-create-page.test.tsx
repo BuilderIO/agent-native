@@ -135,7 +135,8 @@ describe("useCreatePage", () => {
     );
     expect(isDatabaseChoicePending(persistedDocument, false)).toBe(false);
     expect(mocks.invalidateQueries).toHaveBeenCalledWith({
-      queryKey: ["action", "get-document", { id: documentId }],
+      queryKey: ["action", "get-document"],
+      predicate: expect.any(Function),
     });
   });
 });
