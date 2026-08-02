@@ -964,7 +964,7 @@ export default function App() {
         <div
           className={`content-area${
             isCodeAgentsActive ? " content-area--code-agents" : ""
-          }`}
+          }${shellModalOpen ? " content-area--shell-modal-open" : ""}`}
         >
           {shouldRenderCodeAgents && (
             <div

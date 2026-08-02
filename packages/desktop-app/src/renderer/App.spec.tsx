@@ -86,6 +86,10 @@ describe("Desktop shell Settings boundary", () => {
 
     const slowWebview = container.querySelector('[data-testid="slow-webview"]');
     expect(slowWebview?.getAttribute("data-active")).toBe("true");
+    const contentArea = container.querySelector(".content-area");
+    expect(
+      contentArea?.classList.contains("content-area--shell-modal-open"),
+    ).toBe(false);
     const settings = container.querySelector<HTMLButtonElement>(
       'button[aria-label="Settings"]',
     );
@@ -97,6 +101,9 @@ describe("Desktop shell Settings boundary", () => {
       "App SettingsClose Settings",
     );
     expect(slowWebview?.getAttribute("data-active")).toBe("false");
+    expect(
+      contentArea?.classList.contains("content-area--shell-modal-open"),
+    ).toBe(true);
 
     const closeSettings = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent === "Close Settings",
@@ -109,5 +116,8 @@ describe("Desktop shell Settings boundary", () => {
       slowWebview,
     );
     expect(slowWebview?.getAttribute("data-active")).toBe("true");
+    expect(
+      contentArea?.classList.contains("content-area--shell-modal-open"),
+    ).toBe(false);
   });
 });

@@ -195,6 +195,9 @@ acceptance-state:
     - canary .23 H3 failed because normal Cmd+Q removed the window while the main and helper processes remained alive; root terminated only the exact Canary process tree and verified process absence, identifying the pre-existing Multi-Frontier quit guard as a signed-candidate blocker rather than entering production
     - exact-head CI run 30756794521 and signed canary run 30756792323 passed on d6607b41c64451e82cf1ab6f9214759af9bfe86c; canary .24 passed manifest, signing, notarization, Gatekeeper, isolated-profile, updater-silence, normal-quit, process-absence, and relaunch checks while stable profile mtime remained unchanged
     - independent canary .24 H1 proved Settings functionally opens over slow-loading Mail, but its native guest backdrop became blank gray and the modal content later blanked during H2; H3 relaunch restored normal rendering, localizing the remaining gate to macOS native-guest compositing rather than React state or quit lifecycle
+    - exact-head CI run 30757701197 and signed canary run 30757699380 passed on 579d5f590cb06fffd807669d2b4ea343b49b13ec; canary .25 passed manifest, signing, notarization, Gatekeeper, bundle identity, version, signer, architecture, isolated-profile, and updater-silence checks while stable profile mtime remained unchanged
+    - a reliable local CDP plus CGWindow harness replaced the prior accessibility lease that closed the Electron browser when detaching; canary .25 then passed initial native H1 with Settings readable and both guest slots offscreen, but its unattended four-minute CGWindow capture was blank while React still reported Settings visible, so H2 was not accepted and production remained untouched
+    - local compositor hardening removes every guest slot from layout with display:none only while an App-owned shell modal is open, preserves the same two WebContents target ids across close, and restores the active guest without navigation or remount; the four-minute local hold remained readable when the app was activated and independent review found no actionable lifecycle, Code Agents, fullscreen, refresh, or state-preservation defect
   implementation:
     - authenticated nonce-only app-local completion route in Core
     - dedicated persistent Dispatch identity partition in packaged Desktop
@@ -209,9 +212,9 @@ acceptance-state:
     - the ordinary sign-in entry in a canonical first-party app starts the app-targeted workspace ceremony; Settings exposes status and workspace sign-out but no separate authority sign-in command
     - exact nonce-bound app-local completion must commit with HTTP 200 before isolated app-session transfer, followed only by bounded allowlisted-cookie synchronization and value-free diagnostics
     - Desktop quit waits for Multi-Frontier cleanup but reissues application quit after synchronous failure or a five-second bound so optional collaboration disposal cannot leave a windowless process indefinitely
-    - every App-owned shell modal makes ordinary and Code Agents guest webviews inactive through the existing offscreen/background path, then restores the same mounted guest and deferred refresh behavior without navigation or reload
+    - every App-owned shell modal makes ordinary and Code Agents guest webviews inactive and removes their native slots from layout, then restores the same mounted guests and deferred refresh behavior without navigation or reload
   blockers:
-    - the native guest-compositing repair must pass exact-head CI, a newly signed isolated canary, and a Settings-over-slow-loading-webview observation held beyond four minutes before another production window; committed completion, updater isolation, and normal quit/relaunch gates are otherwise complete
+    - the strengthened native guest-compositing repair must pass exact-head CI, a newly signed isolated canary, and an activated Settings-over-slow-loading-webview observation held beyond four minutes before another production window; committed completion, updater isolation, and normal quit/relaunch gates are otherwise complete
     - a renewed short Mail and Dispatch window must prove H1-H10, including same-account continuity, restart, provider separation, workspace sign-out, and safe cancellation/concurrency; the prior H1-H2 evidence is informative but cannot complete acceptance for the repaired artifact
     - Alice requires an explicit notification and agent stop before any next production test or Netlify production mutation
   latest-production-result: https://github.com/BuilderIO/agent-native/pull/2290#issuecomment-5158731013
@@ -249,7 +252,7 @@ production-safety-preflight:
 work-constraints:
   production-test-custody: notify Alice and stop before any production canary or Netlify production mutation
   pr-cleanup: remove agent-authored progress-comment clutter after preserving durable truth locally; retain human review and concise reviewer-facing information
-ledger-revision: desktop-sso-work-r27
+ledger-revision: desktop-sso-work-r28
 status: active
 ```
 
