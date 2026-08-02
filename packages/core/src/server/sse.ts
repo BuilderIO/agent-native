@@ -1,5 +1,7 @@
 import { defineEventHandler, createEventStream } from "h3";
 
+import { startSseKeepAlive } from "./sse-keep-alive.js";
+
 // Re-export the wire protocol so server consumers (the hosted Realtime Gateway
 // in ai-services) get the frame contract from the same `./server/sse` subpath.
 // The browser client imports it directly from `../realtime-protocol.js`.
@@ -105,8 +107,11 @@ export function createSSEHandler(options: SSEHandlerOptions = {}) {
       });
     }
 
+    const stopKeepAlive = startSseKeepAlive(stream);
+
     stream.onClosed(() => {
       closed = true;
+      stopKeepAlive();
       if (flushTimer) clearTimeout(flushTimer);
       pending.length = 0;
       for (const cleanup of cleanups) cleanup();

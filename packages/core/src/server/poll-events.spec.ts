@@ -13,7 +13,9 @@ vi.mock("h3", () => ({
     event.status = status;
   },
   createEventStream: (event: any) => ({
-    push: (data: string) => {
+    push: (data: string | { event: string; data: string }) => {
+      // Keep-alives are named frames, not change data — see sse-keep-alive.ts.
+      if (typeof data !== "string") return;
       event.pushed.push(data);
     },
     onClosed: (callback: () => void) => {

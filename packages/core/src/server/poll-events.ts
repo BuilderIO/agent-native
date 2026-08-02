@@ -13,6 +13,7 @@ import {
   getDefaultAppSyncState,
   POLL_CHANGE_EVENT,
 } from "./poll.js";
+import { startSseKeepAlive } from "./sse-keep-alive.js";
 
 export function canSeeAwarenessChangeForUser(
   change: Pick<
@@ -96,8 +97,11 @@ export function createPollEventsHandler(
       getAwarenessEmitter().on(AWARENESS_CHANGE_EVENT, pushAwareness);
     }
 
+    const stopKeepAlive = startSseKeepAlive(stream);
+
     stream.onClosed(() => {
       closed = true;
+      stopKeepAlive();
       state.getPollEmitter().off(POLL_CHANGE_EVENT, push);
       if (forwardAwareness) {
         getAwarenessEmitter().off(AWARENESS_CHANGE_EVENT, pushAwareness);
