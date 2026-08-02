@@ -11,7 +11,14 @@ vi.mock("sonner", () => ({
 }));
 
 vi.mock("./components/AppSettings.js", () => ({
-  default: () => <div role="dialog">App Settings</div>,
+  default: ({ onClose }: { onClose: () => void }) => (
+    <div role="dialog">
+      App Settings
+      <button type="button" onClick={onClose}>
+        Close Settings
+      </button>
+    </div>
+  ),
   AddAppDialog: () => null,
   AppEditForm: () => null,
 }));
@@ -19,8 +26,10 @@ vi.mock("./components/AppSettings.js", () => ({
 vi.mock("./components/AppWebview.js", async () => {
   const react = await import("react");
   return {
-    default: react.forwardRef(() => (
-      <div data-testid="slow-webview">Still loading</div>
+    default: react.forwardRef(({ isActive }: { isActive: boolean }) => (
+      <div data-active={String(isActive)} data-testid="slow-webview">
+        Still loading
+      </div>
     )),
   };
 });
@@ -75,9 +84,8 @@ describe("Desktop shell Settings boundary", () => {
       await Promise.resolve();
     });
 
-    expect(
-      container.querySelector('[data-testid="slow-webview"]'),
-    ).not.toBeNull();
+    const slowWebview = container.querySelector('[data-testid="slow-webview"]');
+    expect(slowWebview?.getAttribute("data-active")).toBe("true");
     const settings = container.querySelector<HTMLButtonElement>(
       'button[aria-label="Settings"]',
     );
@@ -86,7 +94,20 @@ describe("Desktop shell Settings boundary", () => {
     act(() => settings?.click());
 
     expect(container.querySelector('[role="dialog"]')?.textContent).toBe(
-      "App Settings",
+      "App SettingsClose Settings",
     );
+    expect(slowWebview?.getAttribute("data-active")).toBe("false");
+
+    const closeSettings = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Close Settings",
+    );
+    expect(closeSettings).not.toBeNull();
+    act(() => closeSettings?.click());
+
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(container.querySelector('[data-testid="slow-webview"]')).toBe(
+      slowWebview,
+    );
+    expect(slowWebview?.getAttribute("data-active")).toBe("true");
   });
 });

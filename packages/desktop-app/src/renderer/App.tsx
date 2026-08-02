@@ -839,6 +839,8 @@ export default function App() {
     showCodeAgentsTab && activeSidebarAppId === CODE_AGENTS_SURFACE_ID;
   const shouldRenderCodeAgents =
     showCodeAgentsTab && (isCodeAgentsActive || hasMountedCodeAgents);
+  const shellModalOpen =
+    showSettings || showAddApp || editingSidebarAppId !== null;
 
   // Keep app webviews warm once visited so switching apps feels like browser
   // tabs: the guest page remains alive offscreen and keeps its runtime state.
@@ -973,7 +975,7 @@ export default function App() {
             >
               <CodeAgentsHub
                 apps={apps}
-                isActive={isCodeAgentsActive}
+                isActive={isCodeAgentsActive && !shellModalOpen}
                 openRequest={codeAgentsOpenRequest}
                 refreshKey={refreshKey}
                 onOpenSettings={() => setShowSettings(true)}
@@ -990,11 +992,11 @@ export default function App() {
                 }}
                 app={appDef}
                 appConfig={app}
-                isActive={isActive}
+                isActive={isActive && !shellModalOpen}
                 urlOpenNonce={tab.urlOpenNonce}
                 urlPath={tab.urlPath}
                 urlOpenSoft={tab.urlOpenSoft}
-                refreshKey={isActive ? refreshKey : 0}
+                refreshKey={isActive && !shellModalOpen ? refreshKey : 0}
                 onTitleChange={(title) => handleTabTitleChange(tab.id, title)}
                 onAppsChanged={handleAppsChanged}
               />
