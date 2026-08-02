@@ -36,6 +36,7 @@ import {
   stripAppBasePath as canonicalStripAppBasePath,
 } from "./app-base-path.js";
 import { captureError } from "./capture-error.js";
+import { getPostHogClientConfigScript } from "./posthog-config.js";
 import { runWithRequestContext } from "./request-context.js";
 import {
   getRealtimeClientConfigScript,
@@ -357,7 +358,11 @@ async function rewriteMountedResponse(
   requestUrl: string,
 ): Promise<Response> {
   const clientConfigScript =
-    [getSentryClientConfigScript(), getRealtimeClientConfigScript()]
+    [
+      getSentryClientConfigScript(),
+      getPostHogClientConfigScript(),
+      getRealtimeClientConfigScript(),
+    ]
       .filter(Boolean)
       .join("") || null;
   const headers = new Headers(response.headers);

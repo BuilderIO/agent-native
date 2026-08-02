@@ -232,6 +232,7 @@ All tables are dialect-agnostic (SQLite + Postgres) and strictly additive.
 | `packages/core/src/observability/types.ts` | Shared type definitions |
 | `packages/core/src/observability/store.ts` | SQL tables + CRUD |
 | `packages/core/src/observability/traces.ts` | Auto-instrumentation |
+| `packages/core/src/observability/posthog-ai.ts` | `$ai_trace` / `$ai_span` / `survey sent` emission, content bounding, `$ai_error` |
 | `packages/core/src/observability/feedback.ts` | Feedback + Frustration Index |
 | `packages/core/src/observability/evals.ts` | Eval engine (3 layers) |
 | `packages/core/src/observability/experiments.ts` | A/B testing system |
@@ -272,16 +273,66 @@ The loop emits `agent.run` (with `agent.run_id`, `agent.thread_id`, `agent.user_
 
 ## Tracking Bridge
 
-Instrumented agent loops also emit one server-side tracking event per completed
-LLM generation:
+Instrumented agent loops emit server-side tracking events for every run through
+`track()` from `@agent-native/core/tracking`, so configured PostHog, Agent Native
+Analytics, Mixpanel, Amplitude, and webhook providers receive them through the
+same best-effort fan-out as other tracking events.
 
-- Event name: `$ai_generation`
-- Provider path: `track()` from `@agent-native/core/tracking`, so configured
-  PostHog, Agent Native Analytics, Mixpanel, Amplitude, and webhook providers
-  receive it through the same best-effort fan-out as other tracking events.
-- PostHog shape: uses AI Observability properties such as `$ai_trace_id`,
-  `$ai_session_id`, `$ai_model`, `$ai_provider`, `$ai_input_tokens`,
-  `$ai_output_tokens`, `$ai_latency`, `$ai_total_cost_usd`, and `$ai_is_error`.
+### The PostHog trace tree
+
+PostHog models a run as a tree. The framework emits all three node types, and
+every node shares `$ai_trace_id` (the run id) and links upward via
+`$ai_parent_id`:
+
+| Event            | One per        | Key properties                                                                 |
+| ---------------- | -------------- | ------------------------------------------------------------------------------ |
+| `$ai_trace`      | agent run      | `$ai_span_name: "agent_run"`, `$ai_latency`, `$ai_is_error`, `$ai_error`        |
+| `$ai_generation` | model call     | `$ai_model`, `$ai_provider`, token counts, `$ai_input`/`$ai_output_choices`, `$ai_tools` |
+| `$ai_span`       | tool call      | `$ai_span_id`, `$ai_span_name` (tool name), `$ai_latency`, `$ai_is_error`       |
+
+`$ai_session_id` is the **thread**, grouping traces into a conversation. It is
+explicitly not PostHog's `$session_id`, which is the browser session used for
+session replay — the framework sends that separately, read from the
+`X-Agent-Native-Session-Id` header via `RequestContext.browserSessionId`.
+
+**One generation per run, not per round-trip.** The engine layer reports
+aggregate usage (`onUsage`) with no per-step hook, so a multi-step run collapses
+into a single generation node carrying the whole message list. Per-round-trip
+latency and intermediate assistant turns are not visible. Adding them requires a
+new engine seam in `ai-sdk-engine.ts` / `builder-engine.ts`.
+
+### Content capture
+
+`capturePrompts` (default `false`) gates `$ai_input` and the assistant's text in
+`$ai_output_choices`. `captureToolArgs` gates tool-call arguments and
+`$ai_input_state` on spans.
+
+When a flag is off the field is **omitted**, never sent as `[]` or `""` — an
+empty array is indistinguishable from a run that genuinely had no messages.
+Oversized content is replaced with an explicit truncation marker and
+`$ai_input_truncated` / `$ai_output_truncated`, never silently shortened.
+Runs that exceed the span cap stamp `$ai_spans_dropped` on the trace.
+
+**Tool calls ship even with `capturePrompts` off.** PostHog derives
+`$ai_tools_called` / `$ai_tool_call_count` only from tool-call blocks inside
+`$ai_output_choices`, so the structural call list (names, no arguments) is always
+emitted. The bespoke `tools` array below is kept in parallel because the
+first-party dashboards read it — that duplication is deliberate, not cleanup.
+
+### Errors and feedback
+
+`$ai_error` is a structured object (`message`, `terminal_state`,
+`terminal_code`, `retryable`), absent on healthy runs. Errors captured through
+`captureError({ aiTraceId })` carry a top-level `$ai_trace_id`, so an
+error-tracking issue and the LLM trace resolve to each other.
+
+Feedback emits `$ai_feedback` for all four feedback types; only thumbs carry
+`sentiment`, so a category follow-up to a thumbs-down does not double-count the
+vote. PostHog additionally shows feedback in LLM analytics only via a
+`survey sent` event keyed to a real survey — set
+`POSTHOG_AI_FEEDBACK_SURVEY_ID` (and optionally
+`POSTHOG_AI_FEEDBACK_SURVEY_QUESTION_ID`) to enable it. Unset means no survey
+event; the framework never invents a survey id.
 - Agent Native Analytics shape: the same event lands in `analytics_events` with
   mirrored query-friendly properties such as `run_id`, `thread_id`,
   `cost_cents_x100`, `duration_ms`, `tool_calls`, `successful_tools`,

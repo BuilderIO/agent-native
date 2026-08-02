@@ -79,7 +79,7 @@ Set the env var and the provider auto-registers at startup. No SDK dependencies 
 
 | Provider               | Env vars                                                                                                                                           |
 | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| PostHog                | `POSTHOG_API_KEY` (required), `POSTHOG_HOST` (optional, defaults to `https://us.i.posthog.com`)                                                    |
+| PostHog                | `POSTHOG_API_KEY` (required), `POSTHOG_HOST` (optional, defaults to `https://us.i.posthog.com`), `POSTHOG_ERROR_TRACKING=false` (optional opt-out) |
 | Mixpanel               | `MIXPANEL_TOKEN`                                                                                                                                   |
 | Amplitude              | `AMPLITUDE_API_KEY`                                                                                                                                |
 | Agent Native Analytics | `AGENT_NATIVE_ANALYTICS_PUBLIC_KEY` (server), `AGENT_NATIVE_ANALYTICS_ENDPOINT` (optional, defaults to `https://analytics.agent-native.com/track`) |
@@ -88,6 +88,57 @@ Set the env var and the provider auto-registers at startup. No SDK dependencies 
 Multiple providers can be active simultaneously. All receive every event.
 
 Browser-side `trackEvent()` also forwards to Agent Native Analytics when `VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY` is present. Use `VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT` to override the default browser endpoint. The built-in Agent Native Analytics sender is quiet on localhost/local dev by default; set `AGENT_NATIVE_ANALYTICS_ALLOW_LOCALHOST=true` only for an intentional local ingestion test.
+
+## PostHog Error Tracking
+
+PostHog is a full error-reporting backend, not only an analytics sink. With
+`POSTHOG_API_KEY` set, `captureError()` reaches it whether or not a Sentry DSN
+exists.
+
+Three things are specific to PostHog and easy to get wrong:
+
+- **`$exception` needs `$exception_list`.** PostHog ingests an event named
+  `$exception` with any shape, then renders it as an empty, ungroupable issue —
+  so a broken payload looks like coverage rather than a failure. The PostHog
+  provider in `tracking/providers.ts` reshapes the framework's camelCase
+  exception properties through `tracking/posthog-exception.ts` before sending.
+  Emit exceptions with `captureError()` / `captureException()`; do not hand-roll
+  a `track("$exception", …)` call.
+- **`$exception` and `$ai_*` use `/i/v0/e/`, everything else uses `/capture/`.**
+  Handled by the provider; only relevant if you add a new PostHog event family.
+- **Stack frames are never symbolicated.** Frames ship as
+  `platform: "custom"`, `resolved: false` because the framework uploads no
+  source maps to PostHog. Server stacks are already readable; **minified browser
+  stacks stay minified**. Sentry symbolicates today and PostHog does not — this
+  is a known gap, not a bug to re-diagnose.
+
+### Where the wiring lives
+
+`core-routes-plugin.ts` owns the Nitro `error` hook and routes it through
+`captureError()`, filtered by `server/error-noise-filter.ts`. It is deliberately
+**not** in `sentry-plugin.ts`: that plugin returns early without a DSN, so
+hooking it there meant a PostHog-only app silently reported no route errors.
+
+The noise filter carries production-tuned drop rules (expected 4xx,
+access-control rejections, Lambda freeze/thaw `socket hang up`). Any new error
+backend must apply it or it receives a firehose — the `socket hang up` rule
+alone accounts for ~10k events/day.
+
+### Browser exceptions
+
+Set `POSTHOG_PUBLIC_KEY` (or `VITE_POSTHOG_KEY`) to enable browser capture. It
+ships in the CDN-cached SSR shell alongside the Sentry DSN — publishable and
+identical for every visitor. The browser posts straight to PostHog rather than
+relaying through `/_agent-native/track`, because that route requires a resolved
+session and would drop every signed-out crash.
+
+`POSTHOG_API_KEY` is **not** a fallback for the public key: it may be a private
+key, and this value is inlined into public HTML.
+
+When adding a client config field, update **both** `server/posthog-config.ts`
+and the mirrored worker emitter in `deploy/build.ts` — the worker bundles a
+string copy and cannot import the module, so a one-sided change drops the config
+silently in deployed builds.
 
 ## Default Baseline Events
 
@@ -199,6 +250,10 @@ interface TrackingEvent {
 | `packages/core/src/tracking/registry.ts`  | `track()`, `identify()`, `registerTrackingProvider()`, `flushTracking()`                                            |
 | `packages/core/src/tracking/providers.ts` | Built-in providers (PostHog, Mixpanel, Amplitude, Agent Native Analytics, Webhook) and `registerBuiltinProviders()` |
 | `packages/core/src/tracking/types.ts`     | `TrackingEvent` and `TrackingProvider` interfaces                                                                   |
+| `packages/core/src/tracking/posthog-exception.ts` | `$exception_list` builder + stack-frame parser (isomorphic: server and browser)                             |
+| `packages/core/src/tracking/redaction.ts` | Shared bounding/redaction helpers used by every exception emitter                                                   |
+| `packages/core/src/server/error-noise-filter.ts` | Provider-agnostic drop rules, applied by both Sentry `beforeSend` and the route error hook                   |
+| `packages/core/src/server/posthog-config.ts` | Public browser PostHog config (mirrored in `deploy/build.ts`)                                                    |
 
 ## Related Skills
 
