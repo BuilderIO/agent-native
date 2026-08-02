@@ -2,7 +2,7 @@
 
 ```yaml
 stage: work
-authority-source: "Alice: Yes, you can work it, approving desktop-first-party-sso-front-door-v2."
+authority-source: "Alice invoked /work on 2026-08-02 against desktop-sso-diagnosis-plan-r1, then required an explicit stop before the next production test."
 authorized-scope:
   repositories:
     - BuilderIO/agent-native
@@ -26,8 +26,8 @@ write-targets:
     - .agents/skills/authentication/SKILL.md
     - plans/desktop-sso-intent/work-ledger.md
 governing-artifact:
-  path: plans/desktop-sso-intent/work-ledger.md
-  revision: desktop-sso-work-r20
+  path: /Users/alicemoore/Developer/teenylilthoughts/briefs/Agent-Native Desktop workspace SSO canary diagnosis and replacement work plan 2026-08-02.md
+  revision: desktop-sso-diagnosis-plan-r1
 architecture-fingerprint:
   outcome: one Agent Native workspace sign-in begun from the ordinary front door of any canonical first-party app, followed by silent app-local federation
   shipping-surfaces:
@@ -55,10 +55,10 @@ architecture-fingerprint:
       constituency: supervised pre-merge canary testers
       durable-destination: exact candidate and rollback receipts recorded in the ledger, with canonical production restored after the test
       integration-action: deploy
-  governing-architecture: Electron main keeps one dedicated Dispatch identity partition, intercepts the ordinary sign-in entry of an eligible canonical app, and uses existing app-local federation; Settings is status, sign-out, and recovery rather than the primary identity front door; local development retains its loopback file broker; custom apps and Builder Connect remain outside the boundary
+  governing-architecture: Electron main keeps one dedicated Dispatch identity partition, intercepts the ordinary sign-in entry of an eligible canonical app, and lets the exact nonce-bound authenticated completion navigation commit with HTTP 200 before copying only that app's allowlisted session; Settings remains status, sign-out, and recovery; local development retains its loopback file broker; custom apps and Builder Connect remain outside the boundary
   acceptance-story:
-    id: desktop-first-party-sso-front-door-v2
-    summary: signing in normally from any eligible canonical first-party app establishes the shared Agent Native workspace identity, returns to that initiating app without exposing Dispatch home, and lets every later canonical app open as the same verified account while preserving app-local sessions, databases, authorization, and data isolation
+    id: desktop-first-party-sso-committed-completion-v3
+    summary: signing in normally from any eligible canonical first-party app commits an authenticated nonce-bound completion before Desktop transfers that app's session, returns to the initiating app without exposing Dispatch home, and lets every later canonical app open as the same verified account while preserving app-local sessions, databases, authorization, and data isolation
     required-assertions:
       - signed packaged Desktop and real canary deployment pass before merge
       - the ordinary sign-in entry in each enabled canonical first-party app, including Dispatch, can initiate the shared workspace ceremony and returns to the initiating app without using Dispatch home as a completion screen
@@ -66,6 +66,7 @@ architecture-fingerprint:
       - every enabled canonical first-party app resolves the correct existing account and data without another credential ceremony
       - restart, workspace sign-out, account switch, standalone browser, custom app, and local-development behavior pass
       - hostile redirect, nonce, origin, cookie, concurrency, cancellation, and logging cases fail closed
+      - the Settings H1 miss is deterministically classified before production, and Settings code changes only if the failure is reproduced and localized
       - Agent Native identity sign-in remains separate from app-specific provider connection and consent
       - Builder internal and Builder credentials do not participate
   risk-strategy:
@@ -98,7 +99,7 @@ architecture-grounding:
     - workspace sign-in means Agent Native identity federation, not provider connection sharing
     - app front door means the app's ordinary sign-in entry, not a hidden Dispatch account page
     - Settings account card is a secondary status, sign-out, and recovery surface
-  smallest-compatible-delta: remove the Settings-only authority sign-in command, make an eligible canonical app's ordinary sign-in entry the sole workspace front door, reflect authority status and workspace sign-out in Settings, and retain Dispatch's generic sign-in only as the identity-provider step inside the app-led ceremony
+  smallest-compatible-delta: keep the eligible app's ordinary sign-in entry as the workspace front door, allow only its exact nonce-bound completion navigation to commit, require authenticated HTTP 200 before cookie transfer, and leave Settings unchanged unless deterministic evidence localizes its H1 failure
   deferred-capabilities:
     - custom and third-party app federation
     - shared provider OAuth grants or automatic provider-scope expansion
@@ -109,6 +110,8 @@ architecture-grounding:
     - pre-fix source routed Settings directly to signInAuthority(dispatch) and used Dispatch root as its completion observation
     - current source already intercepts exact sign-in navigation for eligible canonical apps and completes app-local federation in the dedicated identity partition
     - Core documentation defines federation as happening at the app front door and preserves app-local sessions
+    - canary .21 completed Alice's private Google ceremony but logged a value-free Mail session-transfer failure after Desktop cancelled the announced completion redirect and polled for two seconds
+    - Electron navigation ordering makes did-navigate with its response code the first committed main-frame completion boundary
   inferences:
     - the Clip's immediate root redirect is consistent with a pre-existing Dispatch session in the identity partition, but the Clip does not expose cookie or IPC status evidence
     - Dispatch self-federation is source-supported but still requires current signed-runtime acceptance
@@ -117,7 +120,7 @@ product-boundary-gates:
   agent-native-public-constituency: source-blind developers packaging Desktop with standard Core and Dispatch apps receive the reusable identity boundary without Alice-specific infrastructure
 acceptance-state:
   status: pending
-  summary: Alice approved the app-front-door replacement story; current main is integrated, the branch canary now has a fail-closed profile distinct from stable Desktop, and exact-head CI, signed-canary, and native acceptance must be regenerated while production remains on normal unlocked main deployments
+  summary: Alice approved committed-completion v3; Work is active locally on PR #2290, while production must remain normal until Alice is notified and the task stops for the supervised canary
   verified:
     - Core identity protocol suite: 210 tests passed
     - Desktop main, renderer, shared, broker, and preload suites: 202 tests passed
@@ -181,6 +184,12 @@ acceptance-state:
     - the completion handler can observe Mail's redirect before Chromium commits its Set-Cookie result; the broker now waits up to two seconds for only the exact allowlisted target cookie, preserves cancellation fencing, and reloads to a recoverable app state with a value-free diagnostic if transfer still fails
     - cookie-commit repair verification: all 240 Desktop tests passed; Desktop TypeScript, production build, formatting, and git diff checks passed
     - final independent read-only re-review confirmed the prior cancellation and hung-cookie-read findings are resolved, the new close/timeout/read-stall coverage is sufficient, and no remaining source-level correctness or credential-handling defect was found
+    - committed-completion repair verification: all 244 Desktop tests across 26 files passed; Desktop TypeScript and production build passed; formatting and git diff checks passed
+    - focused shared-seam verification: Core identity protocol and store 27 tests, Dispatch primary-auth forwarding 1 test, and Dispatch identity library 24 tests passed
+    - a renderer-level regression mounted the real Desktop App and Sidebar around an active slow-loading webview and proved the Settings dialog opens; the prior H1 symptom is therefore not reproduced in the renderer event path and no Settings product code changed
+    - Electron 41.9 runtime proof observed an exact completion navigation commit with HTTP 200 and one obvious-fake target cookie becoming available afterward; no task Electron or updater process remained
+    - completion regressions prove will-redirect is not cancelled, no cookie read begins before did-navigate with HTTP 200, 401 completion fails closed without reading or copying cookies, a wrong nonce is ignored, direct Dispatch completion uses the same committed boundary, and diagnostics contain app id plus status only
+    - independent review found and the implementation repaired a cancellation race: every new ceremony now drains tracked prior session-copy cleanup before opening, and immediate reauthentication cannot lose its new target cookie to a late cleanup; re-review found no remaining actionable source defect
   implementation:
     - authenticated nonce-only app-local completion route in Core
     - dedicated persistent Dispatch identity partition in packaged Desktop
@@ -193,10 +202,11 @@ acceptance-state:
     - branch-scoped signed macOS canary workflow with no publishing, tags, releases, or updater feed
     - Dispatch primary-auth public-route configuration eliminating concurrent auth-initializer pre-emption
     - the ordinary sign-in entry in a canonical first-party app starts the app-targeted workspace ceremony; Settings exposes status and workspace sign-out but no separate authority sign-in command
-    - bounded target-cookie commit synchronization before isolated app-session transfer, with value-free diagnostics and recoverable reload on failure
+    - exact nonce-bound app-local completion must commit with HTTP 200 before isolated app-session transfer, followed only by bounded allowlisted-cookie synchronization and value-free diagnostics
   blockers:
-    - the cookie-commit repair must pass exact-head CI and a newly signed isolated canary before another production window
+    - the committed-completion repair must pass exact-head CI and a newly signed isolated canary before another production window; local runtime and test proof are complete
     - a renewed short Mail and Dispatch window must prove H1-H10, including same-account continuity, restart, provider separation, workspace sign-out, and safe cancellation/concurrency; the prior H1-H2 evidence is informative but cannot complete acceptance for the repaired artifact
+    - Alice requires an explicit notification and agent stop before any next production test or Netlify production mutation
   last-land-packet: https://github.com/BuilderIO/agent-native/pull/2290#issuecomment-5062742844
 deployment-boundary:
   allowed:
@@ -210,8 +220,8 @@ deployment-boundary:
     - enabling arbitrary preview hosts, custom apps, or Builder credentials
 vault-brief: /Users/alicemoore/Developer/teenylilthoughts/briefs/Agent-Native Desktop workspace SSO canary implementation plan 2026-07-21.md
 return-to-shape:
-  banner: resolved by Alice's explicit Work approval
-  invalidated-field: acceptance story
+  banner: resolved by Alice's explicit 2026-08-02 Work approval
+  invalidated-field: governing architecture and acceptance story
   old-fingerprint:
     outcome: one Desktop workspace identity ceremony followed by silent app-local federation
     governing-architecture: dedicated Dispatch identity partition plus app-local federation, with Settings able to start a direct authority ceremony
@@ -222,13 +232,16 @@ return-to-shape:
     governing-architecture: dedicated Dispatch identity partition plus existing app-targeted federation; Settings is secondary status, sign-out, and recovery and never exposes Dispatch home as completion
     acceptance-story: desktop-first-party-sso-front-door-v2
     risk-strategy: unchanged system-ready, production validation before merge
-  replacement-acceptance-story: desktop-first-party-sso-front-door-v2 approved
+  replacement-acceptance-story: desktop-first-party-sso-committed-completion-v3 approved
 production-safety-preflight:
   verified-at: 2026-08-01T11:24:00-04:00
   mail: normal unlocked auto-publishing main deploy 6a6ddd1e966031000859bd7e at 3e89c5e5aea6752beea0849fbd62c5a1d58b986d, identity route baseline 401, root normal 302
   dispatch: normal unlocked auto-publishing main deploy 6a6ddd1e8eef7d00084f719e at 3e89c5e5aea6752beea0849fbd62c5a1d58b986d, identity authorize baseline 401
   local: no SSO Canary, ShipIt, or Squirrel process remains; stable Desktop untouched
-ledger-revision: desktop-sso-work-r21
+work-constraints:
+  production-test-custody: notify Alice and stop before any production canary or Netlify production mutation
+  pr-cleanup: remove agent-authored progress-comment clutter after preserving durable truth locally; retain human review and concise reviewer-facing information
+ledger-revision: desktop-sso-work-r24
 status: active
 ```
 

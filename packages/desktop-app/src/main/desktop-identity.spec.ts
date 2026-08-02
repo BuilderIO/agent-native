@@ -458,15 +458,20 @@ describe("DesktopIdentityBroker", () => {
 
     const nonce = new URL(loadedUrl).searchParams.get("return")!;
     const completion = new URL(nonce, app.origin).toString();
+    const redirectHandler = webContents.on.mock.calls.find(
+      ([event]) => event === "will-redirect",
+    )?.[1];
     const navigationHandler = webContents.on.mock.calls.find(
-      ([event]) => event === "will-navigate",
+      ([event]) => event === "did-navigate",
     )?.[1];
     const preventDefault = vi.fn();
-    navigationHandler({ preventDefault }, completion);
+    redirectHandler({ preventDefault }, completion);
+    expect(identityCookies.get).not.toHaveBeenCalled();
+    expect(preventDefault).not.toHaveBeenCalled();
+    navigationHandler({}, completion, 200, "OK");
 
     await expect(first).resolves.toBe(true);
     expect(identityCookies.get).toHaveBeenCalledTimes(2);
-    expect(preventDefault).toHaveBeenCalled();
     expect(app.session.cookies.set).toHaveBeenCalledTimes(1);
     expect(app.session.cookies.set).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -480,6 +485,110 @@ describe("DesktopIdentityBroker", () => {
       "an_session_mail",
     );
     expect(closedListener).toBeDefined();
+  });
+
+  it("requires an authenticated committed completion before copying", async () => {
+    const app = appFixture();
+    const identityCookies = cookieStore([
+      sessionCookie("an_session_mail", app.origin),
+    ]);
+    const webContents = {
+      on: vi.fn(),
+      setWindowOpenHandler: vi.fn(),
+    };
+    let loadedUrl = "";
+    const identityWindow = {
+      webContents,
+      loadURL: vi.fn(async (url: string) => {
+        loadedUrl = url;
+      }),
+      isDestroyed: vi.fn(() => false),
+      close: vi.fn(),
+      on: vi.fn(),
+    };
+    const reloadApp = vi.fn();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: identityCookies,
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      resolveApp: (id) => (id === app.id ? app : null),
+      createWindow: () => identityWindow as never,
+      reloadApp,
+      clearLocalBroker: vi.fn(),
+    });
+
+    const ceremony = broker.ensureAppSession(app.id);
+    await vi.waitFor(() => expect(loadedUrl).not.toBe(""));
+    const returnPath = new URL(loadedUrl).searchParams.get("return")!;
+    const completion = new URL(returnPath, app.origin).toString();
+    const navigationHandler = webContents.on.mock.calls.find(
+      ([event]) => event === "did-navigate",
+    )?.[1];
+    navigationHandler({}, completion, 401, "Unauthorized");
+
+    await expect(ceremony).resolves.toBe(false);
+    expect(identityCookies.get).not.toHaveBeenCalled();
+    expect(app.session.cookies.set).not.toHaveBeenCalled();
+    expect(reloadApp).toHaveBeenCalledWith(app);
+    expect(broker.getStatus()).toBe("failed");
+    expect(warn).toHaveBeenCalledWith(
+      "[desktop-identity] authenticated completion failed",
+      { appId: "mail", statusCode: 401 },
+    );
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("session-value");
+    warn.mockRestore();
+  });
+
+  it("ignores a committed completion with the wrong nonce", async () => {
+    const app = appFixture();
+    const identityCookies = cookieStore([
+      sessionCookie("an_session_mail", app.origin),
+    ]);
+    const webContents = {
+      on: vi.fn(),
+      setWindowOpenHandler: vi.fn(),
+    };
+    let loadedUrl = "";
+    let closedListener: (() => void) | undefined;
+    const identityWindow = {
+      webContents,
+      loadURL: vi.fn(async (url: string) => {
+        loadedUrl = url;
+      }),
+      isDestroyed: vi.fn(() => false),
+      close: vi.fn(),
+      on: vi.fn((event: string, listener: () => void) => {
+        if (event === "closed") closedListener = listener;
+      }),
+    };
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: identityCookies,
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      resolveApp: (id) => (id === app.id ? app : null),
+      createWindow: () => identityWindow as never,
+      reloadApp: vi.fn(),
+      clearLocalBroker: vi.fn(),
+    });
+
+    const ceremony = broker.ensureAppSession(app.id);
+    await vi.waitFor(() => expect(loadedUrl).not.toBe(""));
+    const wrongCompletion = new URL(
+      `${DESKTOP_IDENTITY_COMPLETE_PATH}?nonce=wrong`,
+      app.origin,
+    ).toString();
+    const navigationHandler = webContents.on.mock.calls.find(
+      ([event]) => event === "did-navigate",
+    )?.[1];
+    navigationHandler({}, wrongCompletion, 200, "OK");
+    expect(identityCookies.get).not.toHaveBeenCalled();
+    closedListener?.();
+
+    await expect(ceremony).resolves.toBe(false);
+    expect(app.session.cookies.set).not.toHaveBeenCalled();
   });
 
   it("recovers from a missing target cookie without logging session details", async () => {
@@ -517,9 +626,9 @@ describe("DesktopIdentityBroker", () => {
     const returnPath = new URL(loadedUrl).searchParams.get("return")!;
     const completion = new URL(returnPath, app.origin).toString();
     const navigationHandler = webContents.on.mock.calls.find(
-      ([event]) => event === "will-navigate",
+      ([event]) => event === "did-navigate",
     )?.[1];
-    navigationHandler({ preventDefault: vi.fn() }, completion);
+    navigationHandler({}, completion, 200, "OK");
 
     await expect(ceremony).resolves.toBe(false);
     expect(reloadApp).toHaveBeenCalledWith(app);
@@ -570,9 +679,9 @@ describe("DesktopIdentityBroker", () => {
     const returnPath = new URL(loadedUrl).searchParams.get("return")!;
     const completion = new URL(returnPath, app.origin).toString();
     const navigationHandler = webContents.on.mock.calls.find(
-      ([event]) => event === "will-navigate",
+      ([event]) => event === "did-navigate",
     )?.[1];
-    navigationHandler({ preventDefault: vi.fn() }, completion);
+    navigationHandler({}, completion, 200, "OK");
     await vi.waitFor(() => expect(identityCookies.get).toHaveBeenCalled());
 
     closedListener?.();
@@ -629,9 +738,9 @@ describe("DesktopIdentityBroker", () => {
     const returnPath = new URL(loadedUrl).searchParams.get("return")!;
     const completion = new URL(returnPath, app.origin).toString();
     const navigationHandler = webContents.on.mock.calls.find(
-      ([event]) => event === "will-navigate",
+      ([event]) => event === "did-navigate",
     )?.[1];
-    navigationHandler({ preventDefault: vi.fn() }, completion);
+    navigationHandler({}, completion, 200, "OK");
 
     await expect(ceremony).resolves.toBe(false);
     await new Promise((resolve) => setTimeout(resolve, 40));
@@ -679,9 +788,9 @@ describe("DesktopIdentityBroker", () => {
     const returnPath = new URL(loadedUrl).searchParams.get("return")!;
     const completion = new URL(returnPath, app.origin).toString();
     const navigationHandler = webContents.on.mock.calls.find(
-      ([event]) => event === "will-navigate",
+      ([event]) => event === "did-navigate",
     )?.[1];
-    navigationHandler({ preventDefault: vi.fn() }, completion);
+    navigationHandler({}, completion, 200, "OK");
 
     await expect(ceremony).resolves.toBe(false);
     expect(reloadApp).toHaveBeenCalledWith(app);
@@ -699,7 +808,21 @@ describe("DesktopIdentityBroker", () => {
       const returnPath = new URL(loginUrl).searchParams.get("return")!;
       return new URL(returnPath, dispatch.origin).toString();
     });
-    const createWindow = vi.fn();
+    const webContents = {
+      on: vi.fn(),
+      setWindowOpenHandler: vi.fn(),
+    };
+    let loadedUrl = "";
+    const identityWindow = {
+      webContents,
+      loadURL: vi.fn(async (url: string) => {
+        loadedUrl = url;
+      }),
+      isDestroyed: vi.fn(() => false),
+      close: vi.fn(),
+      on: vi.fn(),
+    };
+    const createWindow = vi.fn(() => identityWindow as never);
     const reloadApp = vi.fn();
     const broker = new DesktopIdentityBroker({
       identitySession: {
@@ -713,14 +836,23 @@ describe("DesktopIdentityBroker", () => {
       clearLocalBroker: vi.fn(),
     });
 
-    await expect(broker.ensureAppSession(dispatch.id)).resolves.toBe(true);
+    const ceremony = broker.ensureAppSession(dispatch.id);
+    await vi.waitFor(() => expect(loadedUrl).not.toBe(""));
     const loginUrl = String(resolveLoginRedirect.mock.calls[0]?.[0]);
     const returnPath = new URL(loginUrl).searchParams.get("return")!;
     const completion = new URL(returnPath, dispatch.origin).toString();
+    const navigationHandler = webContents.on.mock.calls.find(
+      ([event]) => event === "did-navigate",
+    )?.[1];
+    expect(identityCookies.get).not.toHaveBeenCalled();
+    navigationHandler({}, completion, 200, "OK");
+
+    await expect(ceremony).resolves.toBe(true);
 
     expect(new URL(loginUrl).pathname).toBe("/_agent-native/identity/login");
     expect(new URL(completion).pathname).toBe(DESKTOP_IDENTITY_COMPLETE_PATH);
-    expect(createWindow).not.toHaveBeenCalled();
+    expect(createWindow).toHaveBeenCalledOnce();
+    expect(identityWindow.loadURL).toHaveBeenCalledWith(completion);
     expect(dispatch.session.cookies.set).toHaveBeenCalledTimes(1);
     expect(dispatch.session.cookies.set).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1106,9 +1238,9 @@ describe("DesktopIdentityBroker", () => {
     const returnPath = new URL(loadedUrl).searchParams.get("return")!;
     const completion = new URL(returnPath, app.origin).toString();
     const navigationHandler = webContents.on.mock.calls.find(
-      ([event]) => event === "will-navigate",
+      ([event]) => event === "did-navigate",
     )?.[1];
-    navigationHandler({ preventDefault: vi.fn() }, completion);
+    navigationHandler({}, completion, 200, "OK");
     await vi.waitFor(() => expect(targetCookies.set).toHaveBeenCalledOnce());
 
     let signOutResolved = false;
@@ -1134,5 +1266,115 @@ describe("DesktopIdentityBroker", () => {
     expect(closedListeners).toHaveLength(1);
     expect(createWindow).toHaveBeenCalledOnce();
     expect(reloadApp).toHaveBeenCalledTimes(1);
+  });
+
+  it("drains cancelled cookie cleanup before starting an immediate reauthentication", async () => {
+    const app = appFixture();
+    const identityCookies = cookieStore([
+      {
+        name: "an_session_mail",
+        value: "example-session-value",
+        domain: "mail.agent-native.com",
+        hostOnly: true,
+        path: "/",
+        secure: true,
+        httpOnly: true,
+        session: true,
+        sameSite: "lax",
+      },
+    ]);
+    const firstCookieWrite = deferred<void>();
+    const targetCookies = cookieStore();
+    targetCookies.set
+      .mockImplementationOnce(async () => firstCookieWrite.promise)
+      .mockImplementation(async () => {});
+    app.session = {
+      cookies: targetCookies,
+      fetch: vi.fn(async () => new Response(null, { status: 200 })),
+    } as unknown as Electron.Session;
+    const windows: Array<{
+      loadedUrl: string;
+      webContents: {
+        on: ReturnType<typeof vi.fn>;
+        setWindowOpenHandler: ReturnType<typeof vi.fn>;
+      };
+      closed: () => void;
+    }> = [];
+    const createWindow = vi.fn(() => {
+      const webContents = {
+        on: vi.fn(),
+        setWindowOpenHandler: vi.fn(),
+      };
+      let loadedUrl = "";
+      let closed = () => {};
+      const identityWindow = {
+        webContents,
+        loadURL: vi.fn(async (url: string) => {
+          loadedUrl = url;
+          windows[windows.length - 1]!.loadedUrl = url;
+        }),
+        isDestroyed: vi.fn(() => false),
+        close: vi.fn(),
+        on: vi.fn((event: string, listener: () => void) => {
+          if (event === "closed") closed = listener;
+          windows[windows.length - 1]!.closed = listener;
+        }),
+      };
+      windows.push({
+        loadedUrl,
+        webContents,
+        closed: () => closed(),
+      });
+      return identityWindow as never;
+    });
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: identityCookies,
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      resolveApp: (id) => (id === app.id ? app : null),
+      createWindow,
+      reloadApp: vi.fn(),
+      clearLocalBroker: vi.fn(),
+    });
+
+    const firstCeremony = broker.signIn(app.id);
+    await vi.waitFor(() => {
+      expect(windows).toHaveLength(1);
+      expect(windows[0]!.loadedUrl).not.toBe("");
+    });
+    const firstReturnPath = new URL(windows[0]!.loadedUrl).searchParams.get(
+      "return",
+    )!;
+    const firstCompletion = new URL(firstReturnPath, app.origin).toString();
+    const firstNavigation = windows[0]!.webContents.on.mock.calls.find(
+      ([event]) => event === "did-navigate",
+    )?.[1];
+    firstNavigation({}, firstCompletion, 200, "OK");
+    await vi.waitFor(() => expect(targetCookies.set).toHaveBeenCalledOnce());
+
+    windows[0]!.closed();
+    await expect(firstCeremony).resolves.toBe(false);
+    const secondCeremony = broker.signIn(app.id);
+    await Promise.resolve();
+    expect(createWindow).toHaveBeenCalledOnce();
+
+    firstCookieWrite.resolve();
+    await vi.waitFor(() => expect(createWindow).toHaveBeenCalledTimes(2));
+    expect(targetCookies.remove).toHaveBeenCalledWith(
+      app.origin,
+      "an_session_mail",
+    );
+    const secondReturnPath = new URL(windows[1]!.loadedUrl).searchParams.get(
+      "return",
+    )!;
+    const secondCompletion = new URL(secondReturnPath, app.origin).toString();
+    const secondNavigation = windows[1]!.webContents.on.mock.calls.find(
+      ([event]) => event === "did-navigate",
+    )?.[1];
+    secondNavigation({}, secondCompletion, 200, "OK");
+
+    await expect(secondCeremony).resolves.toBe(true);
+    expect(targetCookies.set).toHaveBeenCalledTimes(2);
   });
 });

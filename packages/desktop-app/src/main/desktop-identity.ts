@@ -266,6 +266,7 @@ export class DesktopIdentityBroker {
     const generation = this.ceremonyGeneration;
     const operation = this.queue.then(async () => {
       await this.signOutOperation;
+      await this.waitForActiveSessionCopies();
       return this.runCeremony(appId, generation);
     });
     this.queue = operation.then(
@@ -592,28 +593,17 @@ export class DesktopIdentityBroker {
         return false;
       }
       initialUrl = redirectUrl;
-      if (isDesktopIdentityCompletion(initialUrl, app, nonce)) {
-        try {
-          await this.trackSessionCopy(this.copyTargetSession(app, generation));
-          if (!this.isCeremonyCurrent(generation)) return false;
+      if (!isDesktopIdentityCompletion(initialUrl, app, nonce)) {
+        const authorityApp = this.options.resolveApp("dispatch");
+        if (
+          !authorityApp ||
+          !isDesktopIdentityAuthorizeNavigation(initialUrl, authorityApp, app)
+        ) {
+          this.unsupportedAppIds.add(app.id);
+          this.setStatus("failed");
           this.options.reloadApp(app);
-          this.setStatus("signed-in");
-          return true;
-        } catch {
-          this.recoverFromSessionCopyFailure(app, generation);
-          if (this.isCeremonyCurrent(generation)) this.setStatus("failed");
           return false;
         }
-      }
-      const authorityApp = this.options.resolveApp("dispatch");
-      if (
-        !authorityApp ||
-        !isDesktopIdentityAuthorizeNavigation(initialUrl, authorityApp, app)
-      ) {
-        this.unsupportedAppIds.add(app.id);
-        this.setStatus("failed");
-        this.options.reloadApp(app);
-        return false;
       }
     }
 
@@ -637,6 +627,7 @@ export class DesktopIdentityBroker {
     return new Promise<boolean>((resolve) => {
       const ceremonyAbort = new AbortController();
       let settled = false;
+      let completionStarted = false;
       let timer: ReturnType<typeof setTimeout> | undefined;
       const finish = (ok: boolean, status: DesktopIdentityStatus) => {
         if (settled) return;
@@ -651,9 +642,41 @@ export class DesktopIdentityBroker {
 
       const inspectNavigation = (event: Electron.Event, url: string) => {
         if (isDesktopIdentityCompletion(url, app, nonce)) {
+          return;
+        }
+        if (
+          this.options.handleOAuthNavigation?.(url, identityWindow.webContents)
+        ) {
           event.preventDefault();
+        }
+      };
+
+      identityWindow.webContents.on("will-navigate", inspectNavigation);
+      identityWindow.webContents.on("will-redirect", (event, url) =>
+        inspectNavigation(event, url),
+      );
+      identityWindow.webContents.on(
+        "did-navigate",
+        (_event, url, httpResponseCode) => {
+          if (
+            settled ||
+            completionStarted ||
+            !isDesktopIdentityCompletion(url, app, nonce)
+          ) {
+            return;
+          }
+          completionStarted = true;
           if (!this.isCeremonyCurrent(generation)) {
             finish(false, "sign-in-required");
+            return;
+          }
+          if (httpResponseCode !== 200) {
+            console.warn("[desktop-identity] authenticated completion failed", {
+              appId: app.id,
+              statusCode: httpResponseCode,
+            });
+            this.options.reloadApp(app);
+            finish(false, "failed");
             return;
           }
           void this.trackSessionCopy(
@@ -673,18 +696,7 @@ export class DesktopIdentityBroker {
               finish(false, "failed");
             },
           );
-          return;
-        }
-        if (
-          this.options.handleOAuthNavigation?.(url, identityWindow.webContents)
-        ) {
-          event.preventDefault();
-        }
-      };
-
-      identityWindow.webContents.on("will-navigate", inspectNavigation);
-      identityWindow.webContents.on("will-redirect", (event, url) =>
-        inspectNavigation(event, url),
+        },
       );
       identityWindow.webContents.setWindowOpenHandler(({ url }) =>
         this.options.handleWindowOpen
