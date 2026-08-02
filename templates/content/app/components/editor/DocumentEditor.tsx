@@ -62,6 +62,7 @@ import {
   type ContentSpaceSummary,
 } from "@/hooks/use-content-spaces";
 import {
+  mergeDocumentIntoDocumentCache,
   isDocumentUpdateConflict,
   patchDocumentCaches,
   documentQueryFilter,
@@ -668,6 +669,7 @@ function DocumentEditorBody({
     const hydrationContext = document.bodyHydration;
     const hydration = hydrationContext?.hydration;
     if (
+      !canEdit ||
       !hydrationContext?.sourceId ||
       !hydration ||
       (hydration.status !== "pending" && hydration.status !== "error")
@@ -682,7 +684,12 @@ function DocumentEditorBody({
       documentId,
       limit: 1,
     });
-  }, [document.bodyHydration, documentId, processBuilderBodies.mutate]);
+  }, [
+    canEdit,
+    document.bodyHydration,
+    documentId,
+    processBuilderBodies.mutate,
+  ]);
   const titleFocusedRef = useRef(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const titleInputRef = useRef<HTMLTextAreaElement>(null);
@@ -977,9 +984,8 @@ function DocumentEditorBody({
           description:
             error instanceof Error ? error.message : t("empty.genericError"),
         });
-        queryClient.setQueriesData(
-          documentQueryFilter(documentId),
-          fileFirstDocument,
+        queryClient.setQueriesData(documentQueryFilter(documentId), (old) =>
+          mergeDocumentIntoDocumentCache(old, fileFirstDocument),
         );
         queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],

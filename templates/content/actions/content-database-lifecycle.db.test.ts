@@ -425,7 +425,7 @@ describe("database-scoped document properties", () => {
         databaseId: builder.databaseId,
         documentId: rowDocumentId,
         position: 0,
-        bodyHydrationStatus: "pending",
+        bodyHydrationStatus: "complete" as any,
         createdAt: now,
         updatedAt: now,
       },
@@ -449,6 +449,18 @@ describe("database-scoped document properties", () => {
       sourceRowId: "example-row",
       sourceQualifiedId: "example-model:example-row",
       sourceDisplayKey: "Example row",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.contentDatabaseBodyHydrationQueue).values({
+      id: nextId("builder_body_queue"),
+      ownerEmail: OWNER,
+      sourceId: builderSourceId,
+      databaseItemId: builderItemId,
+      documentId: rowDocumentId,
+      sourceRowId: "example-row",
+      sourceTable: "example-model",
+      sourceEntryJson: "{}",
       createdAt: now,
       updatedAt: now,
     });

@@ -1303,7 +1303,7 @@ export async function getBuilderBodyHydrationMembershipByDocumentId(
       database: schema.contentDatabases,
       sourceId: schema.contentDatabaseSourceRows.sourceId,
       sourceRowId: schema.contentDatabaseSourceRows.sourceRowId,
-      queueId: schema.contentDatabaseBodyHydrationQueue.id,
+      bodyHydrationQueueId: schema.contentDatabaseBodyHydrationQueue.id,
       queueSourceId: schema.contentDatabaseBodyHydrationQueue.sourceId,
       queueSourceRowId: schema.contentDatabaseBodyHydrationQueue.sourceRowId,
     })
@@ -1344,7 +1344,7 @@ export async function getBuilderBodyHydrationMembershipByDocumentId(
 
   const boundRows = rows.filter(
     (row) =>
-      !row.queueId ||
+      !row.bodyHydrationQueueId ||
       (row.queueSourceId === row.sourceId &&
         row.queueSourceRowId === row.sourceRowId),
   );
@@ -1352,7 +1352,7 @@ export async function getBuilderBodyHydrationMembershipByDocumentId(
 
   const priority = (row: (typeof boundRows)[number]) => {
     if (
-      row.queueId ||
+      row.bodyHydrationQueueId ||
       row.item.bodyHydrationStatus === "pending" ||
       row.item.bodyHydrationStatus === "hydrating"
     ) {
