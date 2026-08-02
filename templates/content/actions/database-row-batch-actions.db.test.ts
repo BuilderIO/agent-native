@@ -324,6 +324,9 @@ describe("database row batch actions", () => {
     ).resolves.toEqual([{ spaceId }, { spaceId }]);
     expect(result.duplicatedItemId).toBe(result.duplicatedItemIds?.[0]);
     expect(result.duplicatedDocumentId).toBe(result.duplicatedDocumentIds?.[0]);
+    expect(result.duplicatedItems?.map((item) => item.id)).toEqual(
+      result.duplicatedItemIds,
+    );
     expect(result.sourceItemIds).toEqual([rows[1].itemId, rows[2].itemId]);
     expect(result.sourceDocumentIds).toEqual([
       rows[1].documentId,
@@ -398,6 +401,49 @@ describe("database row batch actions", () => {
 
     expect(await orderedRows(first.databaseId)).toHaveLength(2);
     expect(await orderedRows(second.databaseId)).toHaveLength(1);
+  });
+
+  it("returns exact duplicate projections when stored positions are sparse", async () => {
+    const db = getDb();
+    const { databaseId, rows } = await createDatabaseWithRows(3);
+    await Promise.all(
+      rows.map((row, index) =>
+        db
+          .update(schema.contentDatabaseItems)
+          .set({ position: [10, 30, 50][index] })
+          .where(eq(schema.contentDatabaseItems.id, row.itemId)),
+      ),
+    );
+    await Promise.all(
+      rows.map((row, index) =>
+        db
+          .update(schema.documents)
+          .set({ position: [10, 30, 50][index] })
+          .where(eq(schema.documents.id, row.documentId)),
+      ),
+    );
+
+    const single = await runWithRequestContext({ userEmail: OWNER }, () =>
+      duplicateDatabaseItemAction.run({ itemId: rows[0].itemId }),
+    );
+    expect(single.duplicatedItems).toHaveLength(1);
+    expect(single.duplicatedItems?.[0]).toMatchObject({
+      id: single.duplicatedItemId,
+      document: { id: single.duplicatedDocumentId },
+    });
+
+    const batch = await runWithRequestContext({ userEmail: OWNER }, () =>
+      duplicateDatabaseItemsAction.run({
+        databaseId,
+        itemIds: [rows[1].itemId, rows[2].itemId],
+      }),
+    );
+    expect(batch.duplicatedItems?.map((item) => item.id)).toEqual(
+      batch.duplicatedItemIds,
+    );
+    expect(batch.duplicatedItems?.map((item) => item.document.id)).toEqual(
+      batch.duplicatedDocumentIds,
+    );
   });
 
   it("removes memberships and database-local values while preserving pages", async () => {
@@ -1168,6 +1214,10 @@ describe("database row batch actions", () => {
     const createdItemIds = results.map((result) => result.createdItemId);
     expect(new Set(createdItemIds).size).toBe(concurrentAdds);
     for (const result of results) {
+      expect(result.createdItem).toMatchObject({
+        id: result.createdItemId,
+        document: { id: result.createdDocumentId },
+      });
       const [createdDocument] = await getDb()
         .select({ updatedAt: schema.documents.updatedAt })
         .from(schema.documents)

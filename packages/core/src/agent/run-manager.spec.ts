@@ -149,10 +149,13 @@ import {
   resolveErroredRunRetentionMs,
   resolveRunSoftTimeoutMs,
   resolveSqlSubscriptionPollMs,
+  resolveSqlSubscriptionRetryMs,
   startRun,
   subscribeToRun,
   SQL_SUBSCRIPTION_ACTIVE_POLL_MS,
   SQL_SUBSCRIPTION_IDLE_POLL_MS,
+  SQL_SUBSCRIPTION_MAX_CONSECUTIVE_FAILURES,
+  SQL_SUBSCRIPTION_RETRY_BASE_MS,
   TERMINAL_RUN_RECONNECT_WINDOW_MS,
   type ActiveRun,
 } from "./run-manager.js";
@@ -288,6 +291,19 @@ describe("run manager soft timeout", () => {
     expect(resolveSqlSubscriptionPollMs(1_000, 999)).toBe(
       SQL_SUBSCRIPTION_IDLE_POLL_MS,
     );
+  });
+
+  it("uses bounded exponential backoff for SQL subscription retries", () => {
+    expect(resolveSqlSubscriptionRetryMs(1)).toBe(
+      SQL_SUBSCRIPTION_RETRY_BASE_MS,
+    );
+    expect(resolveSqlSubscriptionRetryMs(2)).toBe(
+      SQL_SUBSCRIPTION_RETRY_BASE_MS * 2,
+    );
+    expect(resolveSqlSubscriptionRetryMs(3)).toBe(
+      SQL_SUBSCRIPTION_RETRY_BASE_MS * 4,
+    );
+    expect(resolveSqlSubscriptionRetryMs(100)).toBe(2_000);
   });
 
   it("registers the run with the explicit request waitUntil callback", () => {
@@ -1907,7 +1923,7 @@ describe("run manager soft timeout", () => {
     });
   });
 
-  it("does not capture provider connection failures while preserving the terminal event", async () => {
+  it("does not capture provider connection failures and marks them recoverable", async () => {
     const provider = vi.fn(() => "evt_run");
     const unregister = registerErrorCaptureProvider(
       "run-manager-provider-connection-test",
@@ -1941,6 +1957,48 @@ describe("run manager soft timeout", () => {
     expect(events).toContainEqual({
       type: "error",
       error: "Connection error.",
+      errorCode: "provider_network_error",
+    });
+  });
+
+  it("classifies raw retry-wrapped OpenAI TLS failures as provider network errors", async () => {
+    const provider = vi.fn(() => "evt_run");
+    const unregister = registerErrorCaptureProvider(
+      "run-manager-provider-tls-test",
+      provider,
+    );
+    const events: AgentChatEvent[] = [];
+    const message =
+      "Failed after 2 attempts. Last error: Cannot connect to API: " +
+      "ERR_SSL_TLSV1_ALERT_INTERNAL_ERROR tlsv1 alert internal error";
+
+    try {
+      const run = startRun(
+        "run-provider-tls-no-capture",
+        "thread-provider-tls-no-capture",
+        async () => {
+          throw new Error(message);
+        },
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+      run.subscribers.add((event) => events.push(event.event));
+
+      await vi.waitFor(() =>
+        expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+          "run-provider-tls-no-capture",
+          "errored",
+        ),
+      );
+    } finally {
+      unregister();
+    }
+
+    expect(provider).not.toHaveBeenCalled();
+    expect(events).toContainEqual({
+      type: "error",
+      error: message,
+      errorCode: "provider_network_error",
     });
   });
 
@@ -2102,6 +2160,107 @@ describe("run manager soft timeout", () => {
 
     expect(abortReason).toBe("user");
     expect(run.abortReason).toBe("user");
+  });
+
+  it("retries a transient SQL subscription polling failure and preserves terminal events", async () => {
+    vi.mocked(getRunEventsSince)
+      .mockClear()
+      .mockRejectedValueOnce(new Error("transient pool timeout"))
+      .mockResolvedValueOnce([
+        {
+          seq: 0,
+          eventData: JSON.stringify({ type: "text", text: "recovered" }),
+        },
+        {
+          seq: 1,
+          eventData: JSON.stringify({ type: "done" }),
+        },
+      ]);
+
+    const stream = subscribeToRun("run-sql-retry", 0);
+    const reader = stream!.getReader();
+    const decoder = new TextDecoder();
+    const chunks: string[] = [];
+
+    const first = await reader.read();
+    if (!first.done) chunks.push(decoder.decode(first.value));
+    await vi.waitFor(() => expect(getRunEventsSince).toHaveBeenCalledTimes(1));
+    await vi.advanceTimersByTimeAsync(SQL_SUBSCRIPTION_RETRY_BASE_MS);
+
+    for (let i = 0; i < 3; i++) {
+      const next = await reader.read();
+      if (next.done) break;
+      chunks.push(decoder.decode(next.value));
+    }
+
+    const output = chunks.join("");
+    expect(getRunEventsSince).toHaveBeenCalledTimes(2);
+    expect(output).toContain(
+      'data: {"type":"text","text":"recovered","seq":0}',
+    );
+    expect(output).toContain('data: {"type":"done","seq":1}');
+    expect(output).not.toContain("run_subscription_poll_failed");
+  });
+
+  it("fails a SQL subscription loudly after bounded consecutive polling failures", async () => {
+    const capture = vi.fn();
+    const unregister = registerErrorCaptureProvider(
+      "run-manager-sql-subscription-test",
+      capture,
+    );
+    vi.mocked(getRunEventsSince)
+      .mockClear()
+      .mockRejectedValue(new Error("database unavailable"));
+
+    try {
+      const stream = subscribeToRun("run-sql-persistent-failure", 4);
+      const reader = stream!.getReader();
+      const decoder = new TextDecoder();
+      const chunks: string[] = [];
+
+      const first = await reader.read();
+      if (!first.done) chunks.push(decoder.decode(first.value));
+      await vi.waitFor(() =>
+        expect(getRunEventsSince).toHaveBeenCalledTimes(1),
+      );
+      await vi.advanceTimersByTimeAsync(
+        SQL_SUBSCRIPTION_RETRY_BASE_MS +
+          SQL_SUBSCRIPTION_RETRY_BASE_MS * 2 +
+          SQL_SUBSCRIPTION_RETRY_BASE_MS * 4,
+      );
+
+      for (let i = 0; i < 3; i++) {
+        const next = await reader.read();
+        if (next.done) break;
+        chunks.push(decoder.decode(next.value));
+      }
+
+      expect(getRunEventsSince).toHaveBeenCalledTimes(
+        SQL_SUBSCRIPTION_MAX_CONSECUTIVE_FAILURES,
+      );
+      expect(chunks.join("")).toContain(
+        '"errorCode":"run_subscription_poll_failed"',
+      );
+      expect(chunks.join("")).toContain('"recoverable":true');
+      expect(capture).toHaveBeenCalledWith(
+        expect.any(Error),
+        expect.objectContaining({
+          tags: expect.objectContaining({
+            phase: "sql-subscription-poll",
+            consecutiveFailures: String(
+              SQL_SUBSCRIPTION_MAX_CONSECUTIVE_FAILURES,
+            ),
+          }),
+          extra: expect.objectContaining({
+            runId: "run-sql-persistent-failure",
+            fromSeq: 4,
+            lastSeq: 4,
+          }),
+        }),
+      );
+    } finally {
+      unregister();
+    }
   });
 
   it("closes SQL subscriptions cleanly for aborted runs without terminal events", async () => {
@@ -3025,6 +3184,40 @@ describe("run manager soft timeout", () => {
     );
   });
 
+  // checkSqlAbort must fail closed: a rejected getRunAbortState read used to
+  // be swallowed as "not aborted", so a real cross-isolate Stop could go
+  // unseen for the rest of the run. Sustained read failures must self-abort
+  // instead of retrying silently forever.
+  it("fails closed and self-aborts after sustained getRunAbortState read failures", async () => {
+    vi.mocked(getRunAbortState).mockRejectedValue(new Error("read timeout"));
+
+    let abortFired = false;
+    const run = startRun(
+      "run-abort-check-unreadable",
+      "thread-abort-check-unreadable",
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => {
+            abortFired = true;
+            resolve();
+          });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    // First two failed checks (at the 3s poll interval) stay below the
+    // heartbeat handler's own escalation threshold — no self-abort yet.
+    await vi.advanceTimersByTimeAsync(4500);
+    expect(abortFired).toBe(false);
+
+    // Third consecutive failure crosses the threshold: fail closed.
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(abortFired).toBe(true);
+    expect(run.abortReason).toBe("abort_check_unavailable");
+  });
+
   // Fix 3: ordered event persistence
   it("chains event persistence so inserts commit in seq order", async () => {
     const persistOrder: number[] = [];
@@ -3076,7 +3269,9 @@ describe("run manager soft timeout", () => {
   describe("no-progress backstop", () => {
     it("exports foreground and background backstop constants", () => {
       expect(RUN_NO_PROGRESS_HARD_TIMEOUT_MS).toBe(150_000);
-      expect(DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS).toBe(12 * 60_000);
+      expect(DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS).toBe(
+        RUN_NO_PROGRESS_HARD_TIMEOUT_MS,
+      );
       expect(DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS).toBeLessThan(
         BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
       );
@@ -3125,7 +3320,7 @@ describe("run manager soft timeout", () => {
       ).toBe(12_000);
     });
 
-    it("keeps the background regime on its own budget and its own override", () => {
+    it("uses the server-owned bound for background no-progress while preserving its override", () => {
       expect(
         resolveRunNoProgressTimeoutMs({
           softTimeoutMs: BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
@@ -3407,7 +3602,7 @@ describe("run manager soft timeout", () => {
       expect(run.status).toBe("completed");
     });
 
-    it("uses the wider durable-background no-progress window by default", async () => {
+    it("stops a stalled durable-background run at the server-owned no-progress bound", async () => {
       let aborted = false;
       let abortReason: unknown;
 
@@ -3436,13 +3631,6 @@ describe("run manager soft timeout", () => {
       run.subscribers.add(() => {});
 
       await vi.advanceTimersByTimeAsync(RUN_NO_PROGRESS_HARD_TIMEOUT_MS + 1);
-      expect(aborted).toBe(false);
-
-      await vi.advanceTimersByTimeAsync(
-        DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS -
-          RUN_NO_PROGRESS_HARD_TIMEOUT_MS +
-          1_500,
-      );
 
       expect(aborted).toBe(true);
       expect(abortReason).toBe("no_progress");

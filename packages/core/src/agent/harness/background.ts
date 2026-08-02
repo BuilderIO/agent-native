@@ -1,3 +1,4 @@
+import { redactArgsToValue, redactTextToSummary } from "../../audit/redact.js";
 import type {
   BackgroundAgentControlInput,
   BackgroundAgentControlResult,
@@ -233,13 +234,22 @@ function summarizeAgentChatEvent(event: AgentChatEvent): {
       return {
         kind: "status",
         message: `Running ${event.tool}`,
-        metadata: { type: "tool_start", tool: event.tool, input: event.input },
+        metadata: {
+          type: "tool_start",
+          tool: event.tool,
+          input: redactArgsToValue(event.input),
+        },
       };
     case "tool_done":
       return {
         kind: "artifact",
         message: event.result,
-        metadata: { type: "tool_done", tool: event.tool },
+        metadata: {
+          type: "tool_done",
+          tool: event.tool,
+          input: redactArgsToValue(event.input),
+          result: redactTextToSummary(event.result),
+        },
       };
     case "error":
       return {

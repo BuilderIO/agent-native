@@ -351,9 +351,7 @@ describe("document database layout", () => {
     expect(source).toContain(
       "const effectiveCanEdit = canEdit && document.canEdit === true",
     );
-    expect(source).toContain(
-      "canManageDatabase={canEdit && document.canManage === true}",
-    );
+    expect(source).toContain("effectiveCanEdit && document.canManage === true");
     expect(source).toContain("canRemoveSelected={canRemoveSelected}");
     expect(source).toContain("Clear");
   });

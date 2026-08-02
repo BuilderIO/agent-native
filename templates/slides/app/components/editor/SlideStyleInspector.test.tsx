@@ -79,21 +79,39 @@ vi.mock("@agent-native/toolkit/design-tweaks", () => ({
     mixed,
     mixedLabel,
     onChange,
+    icon: Icon,
+    labelClassName,
+    prefix,
   }: {
     label: string;
     value: number;
     mixed?: boolean;
     mixedLabel?: string;
     onChange: (value: number) => void;
+    icon?: React.ElementType;
+    labelClassName?: string;
+    prefix?: "label" | "icon";
   }) => (
-    <input
-      aria-label={label}
-      type="number"
-      value={value}
-      data-mixed={mixed || undefined}
-      data-mixed-label={mixedLabel}
-      onChange={(event) => onChange(Number(event.currentTarget.value))}
-    />
+    <div>
+      <label
+        data-testid={`scrub-label-${label}`}
+        data-prefix={prefix}
+        className={labelClassName}
+      >
+        {Icon ? <Icon /> : null}
+        <span className={prefix === "icon" ? "sr-only" : undefined}>
+          {label}
+        </span>
+      </label>
+      <input
+        aria-label={label}
+        type="number"
+        value={value}
+        data-mixed={mixed || undefined}
+        data-mixed-label={mixedLabel}
+        onChange={(event) => onChange(Number(event.currentTarget.value))}
+      />
+    </div>
   ),
   VisualSegmentedControl: ({
     options,
@@ -120,6 +138,7 @@ vi.mock("@agent-native/toolkit/design-tweaks", () => ({
 
 import {
   SlideStyleInspector,
+  type SlideBackgroundStyleSnapshot,
   type SlideStyleSnapshot,
 } from "./SlideStyleInspector";
 
@@ -150,6 +169,12 @@ const snapshot: SlideStyleSnapshot = {
   borderColor: "#111111",
   paddingX: 16,
   paddingY: 12,
+  zIndex: 0,
+};
+
+const backgroundSnapshot: SlideBackgroundStyleSnapshot = {
+  mode: "background",
+  backgroundColor: "#f5f5f5",
 };
 
 function renderInspector(onChange = vi.fn()) {
@@ -188,6 +213,64 @@ describe("SlideStyleInspector", () => {
       "styleInspector.typography",
       "styleInspector.spacing",
     ].forEach((section) => expect(screen.getByText(section)).toBeTruthy());
+  });
+
+  it("renders only fill controls for a slide background snapshot", () => {
+    render(
+      <SlideStyleInspector
+        snapshot={backgroundSnapshot}
+        onChange={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("styleInspector.background")).toBeTruthy();
+    expect(screen.getByText("styleInspector.fill")).toBeTruthy();
+    expect(
+      screen
+        .getByTestId("color-styleInspector.fill")
+        .getAttribute("data-value"),
+    ).toBe("#f5f5f5");
+    expect(screen.queryByText("styleInspector.position")).toBeNull();
+    expect(screen.queryByText("styleInspector.layoutDimensions")).toBeNull();
+    expect(screen.queryByText("styleInspector.appearance")).toBeNull();
+    expect(screen.queryByText("styleInspector.stroke")).toBeNull();
+    expect(screen.queryByText("styleInspector.typography")).toBeNull();
+    expect(screen.queryByText("styleInspector.spacing")).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "styleInspector.bringToFront" }),
+    ).toBeNull();
+    expect(screen.queryAllByRole("spinbutton")).toHaveLength(0);
+  });
+
+  it("uses compact icon prefixes for long numeric labels", () => {
+    renderInspector();
+
+    [
+      "styleInspector.rotation",
+      "styleInspector.width",
+      "styleInspector.height",
+      "styleInspector.opacity",
+      "styleInspector.cornerRadius",
+      "styleInspector.strokeWeight",
+      "styleInspector.size",
+      "styleInspector.line",
+      "styleInspector.horizontal",
+      "styleInspector.vertical",
+    ].forEach((label) => {
+      const prefix = screen.getByTestId(`scrub-label-${label}`);
+      expect(prefix.querySelector("svg")).toBeTruthy();
+      expect(prefix.getAttribute("data-prefix")).toBe("icon");
+      expect(prefix.querySelector("span")?.className).toContain("sr-only");
+      expect(screen.getByRole("spinbutton", { name: label })).toBeTruthy();
+    });
+
+    ["styleInspector.x", "styleInspector.y"].forEach((label) => {
+      const prefix = screen.getByTestId(`scrub-label-${label}`);
+      expect(prefix.querySelector("svg")).toBeNull();
+      expect(prefix.className).toContain("w-8");
+      expect(prefix.className).toContain("justify-center");
+    });
   });
 
   it("emits pixel alignment, dimensions, and rotation patches", () => {
@@ -246,5 +329,46 @@ describe("SlideStyleInspector", () => {
         .getByRole("button", { name: "styleInspector.regular" })
         .parentElement?.getAttribute("data-segmented-value"),
     ).toBe("mixed");
+  });
+
+  it("shows bring-to-front / send-to-back only for a selected freeform object", () => {
+    const onArrange = vi.fn();
+    render(
+      <SlideStyleInspector
+        snapshot={snapshot}
+        onChange={vi.fn()}
+        onArrange={onArrange}
+        onClose={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "styleInspector.bringToFront" }),
+    );
+    expect(onArrange).toHaveBeenLastCalledWith("front");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "styleInspector.sendToBack" }),
+    );
+    expect(onArrange).toHaveBeenLastCalledWith("back");
+  });
+
+  it("hides the Arrange row when there is no onArrange handler or the object isn't freeform", () => {
+    renderInspector();
+    expect(
+      screen.queryByRole("button", { name: "styleInspector.bringToFront" }),
+    ).toBeNull();
+
+    render(
+      <SlideStyleInspector
+        snapshot={{ ...snapshot, isAbsolute: false }}
+        onChange={vi.fn()}
+        onArrange={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(
+      screen.queryByRole("button", { name: "styleInspector.sendToBack" }),
+    ).toBeNull();
   });
 });

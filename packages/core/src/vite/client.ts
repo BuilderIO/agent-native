@@ -2190,6 +2190,7 @@ function ssrStubPlugin(packages: string[]): Plugin | null {
     "getIsolationScope",
     "init",
     "isChangeOrigin",
+    "isNodeEmpty",
     "mergeAttributes",
     "renderToString",
     "applyUpdate",

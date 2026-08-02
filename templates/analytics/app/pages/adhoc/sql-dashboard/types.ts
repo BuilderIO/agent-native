@@ -15,6 +15,7 @@ export type ChartType =
   | "table"
   | "pie"
   | "section"
+  | "funnel"
   | "heatmap"
   | "callout"
   | "extension";

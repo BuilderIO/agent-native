@@ -225,28 +225,30 @@ El camino desde "Quiero mi propio SaaS" hasta "Tengo mi propio SaaS" es corto:
 
 1. **Elija una app de ejemplo.** Utilice el selector CLI o explore los documentos y elija una para comenzar.
 2. **Marca.** Cambia el nombre, los colores, el logotipo y el texto. La mayoría de las apps de ejemplo exponen esto en un único archivo de configuración.
-3. **Personalízalo.** Pídele al agente que agregue la columna que necesitas, cambia la forma en que se agrupa la bandeja de entrada, conéctate a tu API interno, agrega una nueva vista. El agente edita el código; revisas la diferencia.
+3. **Personalízalo.** Haz cambios de código fuente en tu repositorio y flujo de desarrollo. Un agente puede ayudar cuando su frame recibe intencionalmente herramientas de workspace y escritura; de lo contrario, el agente integrado opera la app mediante actions, datos e integraciones configuradas.
 4. **Envíelo.** Ejecute el comando de implementación. Ahora tienes tu propio SaaS de producción en tu propio dominio.
 
-Los pasos 2 a 4 suelen tardar días, no meses. El paso 3 es abierto: su SaaS bifurcado evoluciona con el tiempo, en términos sencillos, al hablar con el agente.
+Los pasos 2 a 4 suelen tardar días, no meses. El paso 3 es abierto porque la app es tuya para evolucionarla, mientras el agente integrado sigue disponible para operar el producto desplegado y puede ayudar con cambios de código fuente cuando se habilita explícitamente el acceso al código.
 
 ## Por qué esto es práctico {#why}
 
 Un modelo tradicional de bifurcación del código base se desmorona a escala: cada usuario que mantiene su propia bandeja de entrada suena como una pesadilla de mantenimiento. Dos decisiones marco lo hacen funcionar:
 
-1. **El agente realiza el mantenimiento.** No escribe código para agregar una columna ni conectar una nueva integración: se lo pregunta al agente. Así que "tu propia bandeja de entrada bifurcada" es una característica, no una carga.
+1. **La app mantiene el contrato del framework.** Tu código fuente posee el comportamiento del dominio, mientras Core mantiene coherentes actions, SQL, estado y sincronización a medida que la app evoluciona.
 2. **Personalización por usuario sin código por usuario.** Skills, memoria, instrucciones, servidores MCP conectados y subagentes, todos viven en SQL. Cada usuario obtiene su propia capa de personalización; el código base compartido los aloja todos a la vez.
 
 El resultado: Claude: flexibilidad a nivel de código para cada usuario, con una economía de implementación normal de SaaS.
 
-<Diagram id="doc-block-18s9hur" title={"Por qué escala la personalización por usuario"} summary={"Dos ideas mantienen práctico el modelo de empezar con una app funcional: el agente realiza el mantenimiento y la personalización por usuario reside en SQL, no en el código por usuario."}>
+<Diagram id="doc-block-18s9hur" title={"Por qué escala la personalización por usuario"} summary={"Dos ideas mantienen práctico el modelo de empezar con una app funcional: la app mantiene el contrato del framework y la personalización por usuario reside en SQL, no en el código por usuario."}>
 
 ```html
 <div class="diagram-why">
   <div class="diagram-panel" data-rough>
     <strong>Compartird codebase</strong
     ><small class="diagram-muted">una app, desplegada una vez</small>
-    <div class="diagram-pill accent">agent does the maintenance</div>
+    <div class="diagram-pill accent">
+      la app mantiene el contrato del framework
+    </div>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
   <div class="diagram-panel" data-rough>

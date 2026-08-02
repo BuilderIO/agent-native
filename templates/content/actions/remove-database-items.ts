@@ -48,7 +48,10 @@ export default defineAction({
       );
       await writeAppState("refresh-signal", { ts: Date.now() });
       return {
-        ...(await getContentDatabaseResponse(database.id)),
+        ...(await getContentDatabaseResponse(database.id, {
+          limit: 100,
+          offset: 0,
+        })),
         removedItemIds,
         removedDocumentIds,
         removedCount: removedItemIds.length,
@@ -168,7 +171,10 @@ export default defineAction({
     await writeAppState("refresh-signal", { ts: Date.now() });
 
     return {
-      ...(await getContentDatabaseResponse(database.id)),
+      ...(await getContentDatabaseResponse(database.id, {
+        limit: 100,
+        offset: 0,
+      })),
       removedItemIds,
       removedDocumentIds,
       removedCount: removedItemIds.length,

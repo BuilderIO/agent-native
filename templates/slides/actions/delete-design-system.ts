@@ -1,10 +1,11 @@
 import { defineAction } from "@agent-native/core";
+import { getRequestOrgId } from "@agent-native/core/server/request-context";
 import {
   assertAccess,
   resolveAccess,
   type ShareRole,
 } from "@agent-native/core/sharing";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -73,6 +74,7 @@ export default defineAction({
     const access = await assertAccess("design-system", id, "admin");
 
     const db = getDb();
+    const orgId = getRequestOrgId();
 
     const linkedDeckIds = (
       await db
@@ -103,7 +105,21 @@ export default defineAction({
           .select({ id: schema.designSystems.id })
           .from(schema.designSystems)
           .where(
-            eq(schema.designSystems.ownerEmail, access.resource.ownerEmail),
+            orgId
+              ? and(
+                  eq(
+                    schema.designSystems.ownerEmail,
+                    access.resource.ownerEmail,
+                  ),
+                  eq(schema.designSystems.orgId, orgId),
+                )
+              : and(
+                  eq(
+                    schema.designSystems.ownerEmail,
+                    access.resource.ownerEmail,
+                  ),
+                  isNull(schema.designSystems.orgId),
+                ),
           )
           .orderBy(desc(schema.designSystems.updatedAt))
           .limit(1);

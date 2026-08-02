@@ -26,6 +26,7 @@ const databaseMessages = {
   addingDetailsMatchedOn: "Adding details matched on {{field}}.",
   addingItems: "Adding items",
   addingItemsAsRows: "Adding items as their own rows in this database.",
+  attachingReadOnly: "Attaching · read-only",
   addMoreItemsToThisList: "Add more items to this list",
   addProperty: "Add property",
   allAvailableDetailFieldsAlreadyVisible:
@@ -9092,6 +9093,7 @@ export const messagesByLocale = {
       builderRowsFetchedSoFar: "目前已获取 {{count}} 行。",
       builderRowsFinishingUp: "Builder 行即将完成加载。",
       builderRowsLoadingBackground: "Builder 仍在后台加载行。",
+      attachingReadOnly: "正在附加 · 只读",
       builderRowsLoadingHitSnag: "Builder 行加载遇到问题。",
       opening: "正在打开...",
     },
@@ -9277,6 +9279,7 @@ export const messagesByLocale = {
         "Las filas de Builder están terminando de cargarse.",
       builderRowsLoadingBackground:
         "Builder sigue cargando filas en segundo plano.",
+      attachingReadOnly: "Adjuntando · solo lectura",
       builderRowsLoadingHitSnag:
         "La carga de filas de Builder tuvo un problema.",
       opening: "Abriendo...",
@@ -9474,6 +9477,7 @@ export const messagesByLocale = {
       builderRowsFinishingUp: "Les lignes Builder terminent leur chargement.",
       builderRowsLoadingBackground:
         "Builder charge encore des lignes en arrière-plan.",
+      attachingReadOnly: "Ajout en cours · lecture seule",
       builderRowsLoadingHitSnag:
         "Le chargement des lignes Builder a rencontré un problème.",
       opening: "Ouverture...",
@@ -9670,6 +9674,7 @@ export const messagesByLocale = {
       builderRowsFinishingUp: "Builder-Zeilen werden fertig geladen.",
       builderRowsLoadingBackground:
         "Builder lädt weiterhin Zeilen im Hintergrund.",
+      attachingReadOnly: "Wird angehängt · schreibgeschützt",
       builderRowsLoadingHitSnag:
         "Beim Laden der Builder-Zeilen ist ein Problem aufgetreten.",
       opening: "Wird geöffnet...",
@@ -9866,6 +9871,7 @@ export const messagesByLocale = {
       builderRowsFinishingUp: "Builder 行の読み込みを完了しています。",
       builderRowsLoadingBackground:
         "Builder はバックグラウンドで行を読み込み続けています。",
+      attachingReadOnly: "接続中 · 読み取り専用",
       builderRowsLoadingHitSnag: "Builder 行の読み込みで問題が発生しました。",
       opening: "開いています...",
     },
@@ -10058,6 +10064,7 @@ export const messagesByLocale = {
       builderRowsFinishingUp: "Builder 행 로드를 마무리하는 중입니다.",
       builderRowsLoadingBackground:
         "Builder가 백그라운드에서 행을 계속 로드하고 있습니다.",
+      attachingReadOnly: "연결 중 · 읽기 전용",
       builderRowsLoadingHitSnag: "Builder 행 로드 중 문제가 발생했습니다.",
       opening: "여는 중...",
     },
@@ -10245,6 +10252,7 @@ export const messagesByLocale = {
         "As linhas do Builder estão terminando de carregar.",
       builderRowsLoadingBackground:
         "O Builder ainda está carregando linhas em segundo plano.",
+      attachingReadOnly: "Anexando · somente leitura",
       builderRowsLoadingHitSnag:
         "O carregamento de linhas do Builder encontrou um problema.",
       opening: "Abrindo...",
@@ -10437,6 +10445,7 @@ export const messagesByLocale = {
       builderRowsFinishingUp: "Builder पंक्तियां लोड होना पूरा कर रही हैं।",
       builderRowsLoadingBackground:
         "Builder अभी भी पृष्ठभूमि में पंक्तियां लोड कर रहा है।",
+      attachingReadOnly: "संलग्न किया जा रहा है · केवल पढ़ने के लिए",
       builderRowsLoadingHitSnag: "Builder पंक्तियां लोड करने में समस्या आई।",
       opening: "खोला जा रहा है...",
     },
@@ -10618,6 +10627,7 @@ export const messagesByLocale = {
       builderRowsFetchedSoFar: "تم جلب {{count}} صفًا حتى الآن.",
       builderRowsFinishingUp: "صفوف Builder توشك على إكمال التحميل.",
       builderRowsLoadingBackground: "لا يزال Builder يحمّل الصفوف في الخلفية.",
+      attachingReadOnly: "جارٍ الإرفاق · للقراءة فقط",
       builderRowsLoadingHitSnag: "واجه تحميل صفوف Builder مشكلة.",
       opening: "جارٍ الفتح...",
     },

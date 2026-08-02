@@ -1,4 +1,7 @@
-import type { AgentLoopUsage } from "../agent/production-agent.js";
+import type {
+  AgentLoopOutcome,
+  AgentLoopUsage,
+} from "../agent/production-agent.js";
 import type { AgentChatEvent, AgentToolInput } from "../agent/types.js";
 import { type AgentSpan, endAgentSpan, startAgentSpan } from "./tracing.js";
 import { trackingIdentityProperties } from "./tracking-identity.js";
@@ -100,6 +103,7 @@ function emitLlmGenerationTrackingEvent(args: {
   failedTools: number;
   tools: GenerationToolCall[];
   toolsTruncated: boolean;
+  terminalOutcome?: AgentLoopOutcome;
   delegation?: {
     protocol: "a2a" | "mcp";
     callerApp?: string;
@@ -149,6 +153,16 @@ function emitLlmGenerationTrackingEvent(args: {
     failed_tools: args.failedTools,
     tools: args.tools,
     tools_truncated: args.toolsTruncated,
+    terminal_state: args.terminalOutcome?.state,
+    terminal_code:
+      args.terminalOutcome?.state === "failed" ||
+      args.terminalOutcome?.state === "input_required"
+        ? args.terminalOutcome.code
+        : undefined,
+    terminal_retryable:
+      args.terminalOutcome?.state === "failed"
+        ? args.terminalOutcome.retryable
+        : undefined,
     delegated: args.delegation ? true : undefined,
     delegation_protocol: args.delegation?.protocol,
     caller_app: args.delegation?.callerApp,
@@ -269,6 +283,7 @@ export async function instrumentAgentLoop(opts: {
     send: (event: AgentChatEvent) => void;
     signal: AbortSignal;
     onUsage?: (usage: AgentLoopUsage) => void;
+    onOutcome?: (outcome: AgentLoopOutcome) => void;
     providerOptions?: any;
     runId?: string;
   }) => Promise<AgentLoopUsage>;
@@ -282,6 +297,7 @@ export async function instrumentAgentLoop(opts: {
     send: (event: AgentChatEvent) => void;
     signal: AbortSignal;
     onUsage?: (usage: AgentLoopUsage) => void;
+    onOutcome?: (outcome: AgentLoopOutcome) => void;
     providerOptions?: any;
     runId?: string;
   };
@@ -381,9 +397,62 @@ export async function instrumentAgentLoop(opts: {
   // Track in-flight OTel tool spans so they're all ended even if the loop
   // throws before a matching `tool_done` arrives.
   const openOtelToolSpans = new Set<AgentSpan>();
+  let usage: AgentLoopUsage | undefined;
+  let runStatus: "success" | "error" = "success";
+  let errorMessage: string | null = null;
+  let runMetadata: Record<string, unknown> | null = opts.metadata ?? null;
+  let terminalOutcome: AgentLoopOutcome | undefined;
+
+  const instrumentedOutcome = (outcome: AgentLoopOutcome): void => {
+    terminalOutcome = outcome;
+    if (outcome.state === "completed") {
+      runStatus = "success";
+      errorMessage = null;
+    } else {
+      runStatus = "error";
+      errorMessage =
+        outcome.state === "canceled"
+          ? (outcome.message ?? "Agent run was canceled.")
+          : outcome.message;
+    }
+    runMetadata = {
+      ...(runMetadata ?? {}),
+      terminal_state: outcome.state,
+      ...("code" in outcome ? { terminal_code: outcome.code } : {}),
+      ...(outcome.state === "failed"
+        ? { terminal_retryable: outcome.retryable }
+        : {}),
+    };
+    try {
+      loopOpts.onOutcome?.(outcome);
+    } catch {
+      // Observability adapters cannot alter the agent run.
+    }
+  };
 
   const instrumentedSend = (event: AgentChatEvent): void => {
     try {
+      // Some guardrails intentionally stop the loop by emitting a terminal
+      // event and returning usage instead of throwing. Preserve that terminal
+      // state in telemetry so a tripwire/loop-limit/provider error cannot be
+      // counted as a successful delegated generation. A later clear/done means
+      // the wrapper recovered and finished cleanly, so reset in that case.
+      if (event.type === "clear" || event.type === "done") {
+        runStatus = "success";
+        errorMessage = null;
+      } else if (event.type === "error") {
+        runStatus = "error";
+        errorMessage = event.error;
+      } else if (event.type === "tripwire") {
+        runStatus = "error";
+        errorMessage = event.reason;
+      } else if (event.type === "loop_limit") {
+        runStatus = "error";
+        errorMessage = "Agent stopped at the loop limit";
+      } else if (event.type === "missing_api_key") {
+        runStatus = "error";
+        errorMessage = "Missing API key";
+      }
       if (event.type === "tool_start") {
         const counter = toolInvocationCounter++;
         const sid = spanId();
@@ -554,15 +623,12 @@ export async function instrumentAgentLoop(opts: {
     loopOpts.send(event);
   };
 
-  let usage: AgentLoopUsage | undefined;
-  let runStatus: "success" | "error" = "success";
-  let errorMessage: string | null = null;
-  let runMetadata: Record<string, unknown> | null = opts.metadata ?? null;
   try {
     usage = await runAgentLoop({
       ...loopOpts,
       runId,
       send: instrumentedSend,
+      onOutcome: instrumentedOutcome,
     });
   } catch (err: any) {
     const classification = opts.classifyError?.(err) ?? null;
@@ -727,6 +793,7 @@ export async function instrumentAgentLoop(opts: {
           .map(([, detail]) => detail),
         toolsTruncated:
           toolInvocationCounter > MAX_TRACKED_GENERATION_TOOL_CALLS,
+        terminalOutcome,
         delegation: opts.delegation,
         createdAt: runStart,
         experimentAssignments: opts.experimentAssignments,
@@ -811,6 +878,12 @@ export async function instrumentAgentLoop(opts: {
           "agent.input_tokens": usage?.inputTokens ?? 0,
           "agent.output_tokens": usage?.outputTokens ?? 0,
           "agent.cost_cents_x100": costCentsX100,
+          "agent.terminal_state": terminalOutcome?.state,
+          "agent.terminal_code":
+            terminalOutcome?.state === "failed" ||
+            terminalOutcome?.state === "input_required"
+              ? terminalOutcome.code
+              : undefined,
         },
       });
     } catch {

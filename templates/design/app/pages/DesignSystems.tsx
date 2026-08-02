@@ -220,7 +220,7 @@ export default function DesignSystems() {
   }, []);
 
   const handleSetDefault = useCallback(
-    (id: string) => {
+    (id: string, isDefault: boolean) => {
       // Optimistic update
       queryClient.setQueryData(
         ["action", "list-design-systems", undefined],
@@ -230,13 +230,17 @@ export default function DesignSystems() {
             ...old,
             designSystems: old.designSystems.map((ds: DesignSystem) => ({
               ...ds,
-              isDefault: ds.id === id,
+              isDefault: isDefault
+                ? ds.id === id
+                : ds.id === id
+                  ? false
+                  : ds.isDefault,
             })),
           };
         },
       );
 
-      setDefaultMutation.mutate({ id } as any, {
+      setDefaultMutation.mutate({ id, isDefault } as any, {
         onError: () => {
           queryClient.invalidateQueries({
             queryKey: ["action", "list-design-systems"],
@@ -645,7 +649,9 @@ export default function DesignSystems() {
                               <Tooltip>
                                 <TooltipTrigger asChild>
                                   <button
-                                    onClick={() => handleSetDefault(ds.id)}
+                                    onClick={() =>
+                                      handleSetDefault(ds.id, !ds.isDefault)
+                                    }
                                     className="absolute top-2 end-2 opacity-0 group-hover:opacity-100 w-7 h-7 flex items-center justify-center rounded-md bg-black/60 hover:bg-black/80 cursor-pointer"
                                   >
                                     {ds.isDefault ? (

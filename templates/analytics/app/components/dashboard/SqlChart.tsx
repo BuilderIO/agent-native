@@ -64,6 +64,8 @@ import {
 import { useChartTooltipPortalPosition } from "@/hooks/use-chart-tooltip-portal";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
+import { resolveDashboardFunnelRows } from "@shared/dashboard-funnel";
+
 import { createDemoChartTrendRows } from "@/lib/demo-chart-trend";
 import { useSqlQuery } from "@/lib/sql-query";
 import {
@@ -1454,6 +1456,12 @@ export function SqlChart({
     );
   }
 
+  if (chartType === "funnel") {
+    return withConfigWarning(
+      <FunnelRenderer rows={rows} panel={panel} colors={colors} />,
+    );
+  }
+
   if (chartType === "heatmap") {
     return withConfigWarning(<HeatmapRenderer rows={rows} panel={panel} />);
   }
@@ -2347,6 +2355,80 @@ function TimeSeriesRenderer({
         )}
       </ChartResponsiveContainer>
     </ChartFrame>
+  );
+}
+
+function FunnelRenderer({
+  rows,
+  panel,
+  colors,
+}: {
+  rows: Record<string, unknown>[];
+  panel: SqlPanel;
+  colors: string[];
+}) {
+  const t = useT();
+  const funnel = useMemo(
+    () =>
+      resolveDashboardFunnelRows(rows, panel.config?.xKey, panel.config?.yKey),
+    [rows, panel.config?.xKey, panel.config?.yKey],
+  );
+
+  if (funnel.items.length === 0) {
+    return (
+      <div
+        className={`flex items-center justify-center py-8 ${TABLE_PANEL_MIN_HEIGHT_CLASS}`}
+      >
+        <p className="text-sm text-muted-foreground text-center">
+          {t("common.noData")}
+        </p>
+      </div>
+    );
+  }
+
+  const maxValue = Math.max(...funnel.items.map((item) => item.value), 1);
+  const formatter = panel.config?.yFormatter;
+  const funnelColors = colors.length > 0 ? colors : DEFAULT_COLORS;
+
+  return (
+    <div
+      className="space-y-3 py-2"
+      role="img"
+      aria-label={panel.title}
+      data-dashboard-funnel="true"
+    >
+      {funnel.items.map((item, index) => {
+        const width =
+          item.value > 0 ? Math.max(2, (item.value / maxValue) * 100) : 0;
+        const dropOff =
+          item.dropOffPercent === null
+            ? null
+            : `${item.dropOffPercent < 0 ? "↑" : "↓"} ${Math.abs(item.dropOffPercent).toFixed(1)}%`;
+        return (
+          <div key={`${item.label}-${index}`} className="space-y-1">
+            <div className="flex items-baseline justify-between gap-3 text-xs">
+              <span className="min-w-0 truncate font-medium text-foreground">
+                {item.label}
+              </span>
+              <span className="shrink-0 tabular-nums text-muted-foreground">
+                {formatYValue(item.value, formatter)} ·{" "}
+                {item.percentOfFirst.toFixed(1)}%
+                {dropOff ? ` · ${dropOff}` : ""}
+              </span>
+            </div>
+            <div className="h-5 overflow-hidden rounded-sm bg-muted/60">
+              <div
+                className="h-full rounded-sm transition-[width]"
+                style={{
+                  width: `${width}%`,
+                  backgroundColor: funnelColors[index % funnelColors.length],
+                }}
+              />
+            </div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 

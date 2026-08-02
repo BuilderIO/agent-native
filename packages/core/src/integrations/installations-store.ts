@@ -675,3 +675,33 @@ export async function getActiveIntegrationInstallationForTenant(
     ? toSafeInstallation(rowToRaw(rows[0] as Record<string, unknown>))
     : null;
 }
+
+/**
+ * Every connected installation for a tenant, newest first.
+ *
+ * A workspace can legitimately have several apps of the same platform
+ * connected at once (e.g. a product-specific Slack app alongside a generic
+ * one). Callers that cannot name an app id must see that ambiguity rather
+ * than receive an arbitrary winner — picking the most recently updated row
+ * silently sends as whichever app happened to reconnect last.
+ */
+export async function listActiveIntegrationInstallationsForTenant(
+  platform: string,
+  tenantId: string,
+): Promise<IntegrationInstallation[]> {
+  await ensureTable();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT * FROM ${TABLE}
+      WHERE platform = ? AND (team_id = ? OR enterprise_id = ?)
+        AND status = 'connected'
+      ORDER BY updated_at DESC`,
+    args: [
+      normalizePlatform(platform),
+      required(tenantId, "tenantId"),
+      required(tenantId, "tenantId"),
+    ],
+  });
+  return rows.map((row) =>
+    toSafeInstallation(rowToRaw(row as Record<string, unknown>)),
+  );
+}

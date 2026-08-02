@@ -1,6 +1,7 @@
 import {
   createContext,
   useContext,
+  useMemo,
   type ComponentType,
   type ReactNode,
 } from "react";
@@ -251,18 +252,22 @@ export function ComposerRuntimeAdaptersProvider({
   adapters: ComposerRuntimeAdapters;
   children: ReactNode;
 }) {
+  // Consumers key effects off this value; a fresh identity per render re-runs
+  // every one of them (app-state reads, event subscriptions) on each render.
+  const value = useMemo(
+    () => ({
+      ...fallbackAdapters,
+      ...adapters,
+      models: { ...fallbackModels, ...adapters.models },
+      agentChat: { ...fallbackAdapters.agentChat, ...adapters.agentChat },
+      builder: { ...fallbackAdapters.builder, ...adapters.builder },
+      resources: { ...fallbackAdapters.resources, ...adapters.resources },
+      voice: { ...fallbackAdapters.voice, ...adapters.voice },
+    }),
+    [adapters],
+  );
   return (
-    <ComposerRuntimeAdaptersContext.Provider
-      value={{
-        ...fallbackAdapters,
-        ...adapters,
-        models: { ...fallbackModels, ...adapters.models },
-        agentChat: { ...fallbackAdapters.agentChat, ...adapters.agentChat },
-        builder: { ...fallbackAdapters.builder, ...adapters.builder },
-        resources: { ...fallbackAdapters.resources, ...adapters.resources },
-        voice: { ...fallbackAdapters.voice, ...adapters.voice },
-      }}
-    >
+    <ComposerRuntimeAdaptersContext.Provider value={value}>
       {children}
     </ComposerRuntimeAdaptersContext.Provider>
   );

@@ -1,5 +1,10 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { marked, type RendererThis, type Tokens } from "marked";
+import {
+  marked,
+  type MarkedExtension,
+  type RendererThis,
+  type Tokens,
+} from "marked";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { codeToHtml } from "shiki";
 
@@ -265,6 +270,30 @@ function isSafeUrl(rawUrl: string, kind: "link" | "image"): boolean {
 function imageDimensionsForHref(href: string): ImageDimensions | undefined {
   return DOCS_IMAGE_DIMENSIONS[decodeHtmlEntities(href).trim()];
 }
+
+/**
+ * Marked tokenizer extension: `[[Ctrl+K]]` → `<kbd>Ctrl+K</kbd>`
+ * Lets authors write keyboard shortcuts inline without raw HTML.
+ */
+const kbdExtension: MarkedExtension = {
+  extensions: [
+    {
+      name: "kbd",
+      level: "inline",
+      start: (src: string) => src.indexOf("[["),
+      tokenizer(src: string) {
+        const match = /^\[\[([^\]]+?)\]\]/.exec(src);
+        if (!match) return;
+        return { type: "kbd", raw: match[0], text: match[1] };
+      },
+      renderer(token: Tokens.Generic) {
+        return `<kbd class="docs-kbd">${escapeHtml(token.text as string)}</kbd>`;
+      },
+    },
+  ],
+};
+
+marked.use(kbdExtension);
 
 // Custom renderer to add IDs to headings and handle {#custom-id} syntax
 function createRenderer() {

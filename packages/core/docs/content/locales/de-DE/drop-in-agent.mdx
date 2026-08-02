@@ -203,7 +203,7 @@ import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 - **`newTab`** – Erstellen Sie einen separaten Chat-Thread für diese Eingabeaufforderung.
 - **`background`** – mit `newTab` ausführen, ohne den neuen Thread zu fokussieren. Der versteckte Lauf wird in `RunsTray` verfolgt.
 - **`openSidebar`** – für Hintergrund-/stille Sendungen auf `false` eingestellt. Standardmäßig wird die Seitenleiste geöffnet, sodass der Benutzer die Antwort sieht.
-- **`type`** – `"content"` (Standard) behält die Arbeit im eingebetteten App-Agent. `"code"` leitet zum Codebearbeitungsrahmen weiter (für vom Agenten geschriebene Codeänderungen siehe [Frames](/docs/frames)).
+- **`type`** – `"content"` (Standard) behält die Arbeit im eingebetteten App-Agent, der App-Werkzeuge nutzt. `"code"` leitet für Repository-Quelländerungen zu einem separaten codefähigen Frame weiter; Schreibzugriff besteht nur, wenn der Host bewusst Repository-/Workspace-Werkzeuge bereitstellt. Siehe [Frames](/docs/frames).
 
 `sendToAgentChat` gibt ein stabiles `tabId` zurück, mit dem Sie den Chat-Lauf verfolgen können.
 

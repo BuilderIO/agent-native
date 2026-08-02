@@ -178,6 +178,15 @@ type DashboardTabGroup = {
   tabs: Array<{ value: string; label: string }>;
 };
 
+function sameFilterMap(
+  a: Record<string, string> | undefined,
+  b: Record<string, string>,
+): boolean {
+  const aKeys = Object.keys(a ?? {});
+  if (aKeys.length !== Object.keys(b).length) return false;
+  return aKeys.every((key) => a![key] === b[key]);
+}
+
 function groupDashboardTabs(tabs: string[]): {
   groups: DashboardTabGroup[];
   hasNestedTabs: boolean;
@@ -1013,6 +1022,10 @@ function SqlDashboardPageContent({
           currentFilters[k] = v;
         }
       });
+      // Opening a dashboard restores the saved filters into the URL, so
+      // without this the mere act of loading a page writes the value back —
+      // one round-trip plus a sync event that invalidates every mounted query.
+      if (sameFilterMap(savedFilters?.filters, currentFilters)) return;
       saveFilterPref({ filters: currentFilters });
     }, 1500);
     return () => clearTimeout(saveTimer.current);
@@ -1021,6 +1034,7 @@ function SqlDashboardPageContent({
     loaded,
     dashboard?.filters,
     dashboardId,
+    savedFilters,
     saveFilterPref,
     reportScreenshot,
   ]);

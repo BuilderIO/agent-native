@@ -26,7 +26,7 @@ Agent-native est destiné aux personnes qui souhaitent qu'une véritable applica
 
 ### En quoi est-ce différent de l'ajout de l'IA à une application existante ? {#how-is-this-different}
 
-La plupart des applications intègrent l'IA après coup, ce qui ne permet pas réellement de _faire_ des choses dans l'application. Dans une application native d'agent, l'agent est un citoyen de première classe qui partage le même actions, la même base de données et le même état que le UI, il peut donc faire tout ce que les boutons peuvent faire - et modifier le propre code de l'application. Voir [What Is Agent-Native?](/docs/what-is-agent-native#the-ladder).
+La plupart des applications intègrent l'IA après coup, ce qui ne permet pas réellement de _faire_ des choses dans l'application. Dans une application native d'agent, l'agent est un citoyen de première classe qui partage le même actions, la même base de données et le même état que le UI, il peut donc faire tout ce que les boutons peuvent faire. Voir [What Is Agent-Native?](/docs/what-is-agent-native#the-ladder).
 
 <Diagram id="doc-block-1vp9cj1" title={"IA intégrée contre agent-native"} summary={"Une barre latérale de discussion intégrée vit dans son propre monde. Un agent agent-native partage les mêmes actions, base de données et état que l'interface utilisateur."}>
 
@@ -126,7 +126,7 @@ Le framework est livré avec des modèles prêts pour la production, notamment [
 
 ### Puis-je personnaliser les modèles ? {#can-i-customize-templates}
 
-C'est là tout l'intérêt. Créez un modèle et personnalisez-le en le demandant à l'agent. "Ajouter un champ prioritaire aux formulaires." "Connectez-vous à notre instance Salesforce." "Changez la palette de couleurs pour qu'elle corresponde à notre marque." L'agent modifie le code et votre application évolue au fil du temps.
+C'est là tout l'intérêt. Partez d'un template et personnalisez-le dans votre propre dépôt et votre flux de développement. L'agent intégré exploite ensuite l'application obtenue via ses actions et ses données.
 
 ### Puis-je créer quelque chose que les modèles ne couvrent pas ? {#build-from-scratch}
 
@@ -138,9 +138,9 @@ Oui : installez une compétence dans un agent de codage que vous utilisez déj�
 
 ## Capacités de l'agent {#agent-capabilities}
 
-### L'agent peut-il réellement modifier le code de l'application ? {#can-the-agent-modify-code}
+### L'agent intégré modifie-t-il le code source de l'application ? {#can-the-agent-modify-code}
 
-Oui, et c'est une fonctionnalité. L'agent peut modifier en toute sécurité les composants, les itinéraires, les styles et actions. Vous demandez "ajouter un graphique d'analyse de cohorte" et l'agent le construit. Vous demandez "Connectez-vous à notre compte Stripe" et l'agent rédige l'intégration. Tout est du code normal suivi par Git, donc les mauvaises modifications sont faciles à annuler.
+Pas par défaut. Il ne peut modifier le code source que si l'hôte lui accorde intentionnellement des outils d'écriture repository/workspace. Sinon, il agit via les actions, l'état stocké en SQL et les intégrations configurées. Pour modifier les composants, itinéraires, styles ou actions, utilisez le flux normal de votre dépôt ou un frame de développement/Builder capable de modifier le code.
 
 ### Les utilisateurs peuvent-ils parler à l'agent depuis l'extérieur de l'application ? {#external-channels}
 

@@ -722,6 +722,7 @@ const messages = {
     builderRowsFetchedSoFar: "目前已擷取 {{count}} 列。",
     builderRowsFinishingUp: "Builder 列即將完成載入。",
     builderRowsLoadingBackground: "Builder 仍在背景載入列。",
+    attachingReadOnly: "正在附加 · 唯讀",
     builderRowsLoadingHitSnag: "Builder 列載入遇到問題。",
     closeDatabaseSettings: "關閉資料庫設定",
     closeSearch: "關閉搜尋",

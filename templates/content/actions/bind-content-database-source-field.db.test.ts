@@ -469,6 +469,139 @@ describe("bind-content-database-source-field (row-union)", () => {
 });
 
 describe("add-content-database-source-field-property Builder refresh", () => {
+  it("creates an explicitly empty projected field without rereading Builder", async () => {
+    const f = await seedStaleBuilderTopicsSnapshot();
+    const db = getDb();
+    const rows = await db
+      .select()
+      .from(schema.contentDatabaseSourceRows)
+      .where(eq(schema.contentDatabaseSourceRows.sourceId, f.sourceId));
+    await Promise.all(
+      rows.map((row) =>
+        db
+          .update(schema.contentDatabaseSourceRows)
+          .set({
+            sourceValuesJson: JSON.stringify({
+              ...JSON.parse(row.sourceValuesJson),
+              "data.topics": null,
+            }),
+          })
+          .where(eq(schema.contentDatabaseSourceRows.id, row.id)),
+      ),
+    );
+    const readBuilderEntries = vi.spyOn(
+      await import("./_builder-cms-read-client.js"),
+      "readBuilderCmsContentEntries",
+    );
+
+    const result = await asOwner(() =>
+      addSourceFieldPropertyAction.run({
+        documentId: f.databaseDocId,
+        sourceFieldId: f.fieldId,
+      }),
+    );
+
+    expect(readBuilderEntries).not.toHaveBeenCalled();
+    expect(result.itemValues).toEqual([]);
+    const properties = await db
+      .select()
+      .from(schema.documentPropertyDefinitions)
+      .where(eq(schema.documentPropertyDefinitions.databaseId, f.databaseId));
+    expect(properties).toHaveLength(1);
+  });
+
+  it("materializes a projected field without returning unrelated source content", async () => {
+    const f = await seedStaleBuilderTopicsSnapshot();
+    const db = getDb();
+    const rows = await db
+      .select()
+      .from(schema.contentDatabaseSourceRows)
+      .where(eq(schema.contentDatabaseSourceRows.sourceId, f.sourceId));
+    await Promise.all(
+      rows.map((row, index) =>
+        db
+          .update(schema.contentDatabaseSourceRows)
+          .set({
+            sourceValuesJson: JSON.stringify({
+              ...JSON.parse(row.sourceValuesJson),
+              "data.topics": [
+                index === 0 ? "Agent Native" : "Developer Experience",
+              ],
+              "_builder.bodyContent": "unrelated".repeat(5_000),
+            }),
+          })
+          .where(eq(schema.contentDatabaseSourceRows.id, row.id)),
+      ),
+    );
+    const readBuilderEntries = vi.spyOn(
+      await import("./_builder-cms-read-client.js"),
+      "readBuilderCmsContentEntries",
+    );
+
+    const result = await asOwner(() =>
+      addSourceFieldPropertyAction.run({
+        documentId: f.databaseDocId,
+        sourceFieldId: f.fieldId,
+      }),
+    );
+
+    expect(readBuilderEntries).not.toHaveBeenCalled();
+    expect(result.itemValues).toEqual([
+      {
+        itemId: f.rows[0].itemId,
+        documentId: f.rows[0].documentId,
+        value: ["agent-native"],
+      },
+      {
+        itemId: f.rows[1].itemId,
+        documentId: f.rows[1].documentId,
+        value: ["developer-experience"],
+      },
+    ]);
+    expect(JSON.stringify(result)).not.toContain("_builder.bodyContent");
+    expect(JSON.stringify(result)).not.toContain("unrelated");
+  });
+
+  it("materializes 584 already-projected rows without rereading Builder", async () => {
+    const f = await seedStaleBuilderTopicsSnapshot(584);
+    const db = getDb();
+    await db
+      .update(schema.contentDatabaseSourceRows)
+      .set({
+        sourceValuesJson: JSON.stringify({
+          "data.topics": ["Agent Native"],
+          "_builder.bodyContent": "unrelated".repeat(500),
+        }),
+      })
+      .where(eq(schema.contentDatabaseSourceRows.sourceId, f.sourceId));
+    const readBuilderEntries = vi.spyOn(
+      await import("./_builder-cms-read-client.js"),
+      "readBuilderCmsContentEntries",
+    );
+
+    const result = await asOwner(() =>
+      addSourceFieldPropertyAction.run({
+        documentId: f.databaseDocId,
+        sourceFieldId: f.fieldId,
+      }),
+    );
+
+    expect(readBuilderEntries).not.toHaveBeenCalled();
+    expect(result.itemValues).toHaveLength(584);
+    expect(result.itemValues[0]?.value).toEqual(["agent-native"]);
+    expect(JSON.stringify(result)).not.toContain("_builder.bodyContent");
+    const propertyValues = await db
+      .select()
+      .from(schema.documentPropertyValues)
+      .where(
+        eq(
+          schema.documentPropertyValues.propertyId,
+          result.property.definition.id,
+        ),
+      );
+    expect(propertyValues).toHaveLength(584);
+  });
+
   it("refreshes a stale Builder snapshot before creating and populating a Topics property", async () => {
     const f = await seedStaleBuilderTopicsSnapshot();
     const readBuilderEntries = vi

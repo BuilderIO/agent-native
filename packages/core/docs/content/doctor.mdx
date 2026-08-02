@@ -5,7 +5,14 @@ description: "agent-native doctor scans a generated app's source for the framewo
 
 # Doctor (Code Checks)
 
-The agent can write this app's own source code. `agent-native doctor` is the automated check for that: it scans app source for the framework's security-critical code-safety invariants — the same class of check that lives in this framework's own CI as `scripts/guard-*.mjs` — ported to run against a single generated app instead of the framework's multi-template monorepo layout. It's read-only: doctor never edits your code, it only reports.
+Generated apps contain source code that can be changed through the repository's
+development workflow, including by an agent frame intentionally granted
+workspace and write tooling. `agent-native doctor` is the automated check for that: it
+scans app source for the framework's security-critical code-safety invariants —
+the same class of check that lives in this framework's own CI as
+`scripts/guard-*.mjs` — ported to run against a single generated app instead of
+the framework's multi-template monorepo layout. It's read-only: doctor never
+edits your code, it only reports.
 
 ## Quick start {#quick-start}
 

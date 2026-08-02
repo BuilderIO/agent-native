@@ -222,6 +222,18 @@ const SIDEBAR_SECTION_COLLAPSE_STORAGE_KEY =
 const TRASH_COLLAPSED_DEFAULT_MIGRATION_KEY =
   "content-sidebar-trash-collapsed-default-v2";
 const CONTENT_SIDEBAR_STATE_VERSION = 1 as const;
+
+function afterBodyPointerUnlock(callback: () => void) {
+  const run = () => {
+    if (document.body.style.pointerEvents === "none") {
+      window.requestAnimationFrame(run);
+      return;
+    }
+    callback();
+  };
+  window.requestAnimationFrame(run);
+}
+
 interface ContentSidebarStateSnapshot {
   version: typeof CONTENT_SIDEBAR_STATE_VERSION;
   expandedWorkspaceIds: string[];
@@ -309,10 +321,80 @@ function withPersonalSidebarOrder(
   };
 }
 
+const INITIAL_EXPANDED_WORKSPACE_READ_DELAY_MS = 250;
+const DATABASE_PAGE_READY_FALLBACK_MS = 15_000;
+const DATABASE_ROWS_VISIBLE_EVENT = "content-database-rows-visible";
+
+function useDeferredFilesDatabaseId(
+  databaseId: string,
+  expanded: boolean,
+  deferUntilDocumentId: string | null,
+) {
+  const previouslyExpanded = useRef(expanded);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    const wasExpanded = previouslyExpanded.current;
+    previouslyExpanded.current = expanded;
+    if (!expanded) {
+      setReady(false);
+      return;
+    }
+    if (!wasExpanded) {
+      setReady(true);
+      return;
+    }
+
+    if (deferUntilDocumentId) {
+      if (
+        window.document.documentElement.dataset
+          .contentDatabaseRowsVisibleDocumentId === deferUntilDocumentId
+      ) {
+        setReady(true);
+        return;
+      }
+      setReady(false);
+      const handleRowsVisible = (event: Event) => {
+        if (
+          (event as CustomEvent<{ documentId?: string }>).detail?.documentId ===
+          deferUntilDocumentId
+        ) {
+          setReady(true);
+        }
+      };
+      window.addEventListener(DATABASE_ROWS_VISIBLE_EVENT, handleRowsVisible);
+      const fallback = window.setTimeout(
+        () => setReady(true),
+        DATABASE_PAGE_READY_FALLBACK_MS,
+      );
+      return () => {
+        window.removeEventListener(
+          DATABASE_ROWS_VISIBLE_EVENT,
+          handleRowsVisible,
+        );
+        window.clearTimeout(fallback);
+      };
+    }
+
+    // An already-expanded workspace can contain thousands of files. Give the
+    // selected page's critical read one turn before starting that inventory;
+    // direct expansion remains immediate.
+    setReady(false);
+    const timeout = window.setTimeout(
+      () => setReady(true),
+      INITIAL_EXPANDED_WORKSPACE_READ_DELAY_MS,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [databaseId, deferUntilDocumentId, expanded]);
+
+  return expanded && ready ? databaseId : null;
+}
+
 function WorkspaceSidebarItem({
   space,
   selected,
   expanded,
+  deferInitialReadUntilDocumentId,
   reorder,
   createDocumentPending,
   activeDocumentId,
@@ -329,6 +411,7 @@ function WorkspaceSidebarItem({
   space: ContentSpaceSummary;
   selected: boolean;
   expanded: boolean;
+  deferInitialReadUntilDocumentId: string | null;
   reorder?: ContentFilesSidebarRenderReorder;
   createDocumentPending: boolean;
   activeDocumentId: string | null;
@@ -349,7 +432,11 @@ function WorkspaceSidebarItem({
   onToggleFavorite: (item: ContentDatabaseItem) => void;
 }) {
   const t = useT();
-  const activeFilesDatabaseId = expanded ? space.filesDatabaseId : null;
+  const activeFilesDatabaseId = useDeferredFilesDatabaseId(
+    space.filesDatabaseId,
+    expanded,
+    deferInitialReadUntilDocumentId,
+  );
   const filesDatabase = useContentDatabaseById(activeFilesDatabaseId);
   const filesDatabaseData = isContentDatabaseUnavailable(filesDatabase.data)
     ? undefined
@@ -906,6 +993,11 @@ export function DocumentSidebar({
   }, [setStoredCollapsedSections]);
   const [removeLocalFilesDialogOpen, setRemoveLocalFilesDialogOpen] =
     useState(false);
+  const [pendingDelete, setPendingDelete] = useState<{
+    id: string;
+    title: string;
+  } | null>(null);
+  const confirmedDeleteIdRef = useRef<string | null>(null);
   const settingsActive = location.pathname.startsWith("/settings");
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -1258,6 +1350,12 @@ export function DocumentSidebar({
     ],
   );
 
+  const requestDelete = useCallback((id: string, title: string) => {
+    afterBodyPointerUnlock(() => {
+      setPendingDelete({ id, title });
+    });
+  }, []);
+
   const handleReorderPage = useCallback(
     async (id: string, overId: string) => {
       if (id === overId) return;
@@ -1520,7 +1618,7 @@ export function DocumentSidebar({
           }}
           onCreateChildPage={(parentId) => handleCreatePage(parentId)}
           onCreateChildDatabase={(parentId) => handleCreateDatabase(parentId)}
-          onDelete={handleDelete}
+          onDelete={requestDelete}
           onToggleFavorite={handleToggleFavorite}
         />
       ))}
@@ -1616,6 +1714,38 @@ export function DocumentSidebar({
       side="right"
       className={collapsed ? "size-8" : "h-8 min-w-0"}
     />
+  );
+  const brandButton = (isCollapsed: boolean) => (
+    <button
+      type="button"
+      onClick={onToggleCollapsed}
+      aria-label={isCollapsed ? t("sidebar.expand") : t("sidebar.collapse")}
+      className={cn(
+        "flex items-center gap-2 rounded outline-none text-foreground transition-colors hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring",
+        isCollapsed ? "size-8 justify-center" : "min-w-0 text-start",
+      )}
+      data-sidebar-brand-toggle
+    >
+      <img
+        src={appPath("/agent-native-icon-light.svg")}
+        alt=""
+        aria-hidden="true"
+        width={28}
+        height={16}
+        className="block h-4 w-7 shrink-0 object-contain object-center dark:hidden"
+      />
+      <img
+        src={appPath("/agent-native-icon-dark.svg")}
+        alt=""
+        aria-hidden="true"
+        width={28}
+        height={16}
+        className="hidden h-4 w-7 shrink-0 object-contain object-center dark:block"
+      />
+      {!isCollapsed && (
+        <span className="text-base font-semibold tracking-tight">Content</span>
+      )}
+    </button>
   );
 
   const toggleSection = (id: SidebarSectionId) => {
@@ -1773,6 +1903,12 @@ export function DocumentSidebar({
       space={space}
       selected={selectedSpace?.id === space.id}
       expanded={expandedWorkspaceIds.includes(space.id)}
+      deferInitialReadUntilDocumentId={
+        activeDocumentId &&
+        databaseDocuments.some((document) => document.id === activeDocumentId)
+          ? activeDocumentId
+          : null
+      }
       reorder={reorder}
       createDocumentPending={createDocument.isPending}
       activeDocumentId={activeDocumentId}
@@ -1800,7 +1936,12 @@ export function DocumentSidebar({
       onCreateChildDatabase={(nextSpace, item) =>
         void handleCreateDatabase(item.document.id, nextSpace.id)
       }
-      onDeleteItem={(item) => void handleDelete(item.document.id)}
+      onDeleteItem={(item) =>
+        requestDelete(
+          item.document.id,
+          item.document.title || t("sidebar.untitled"),
+        )
+      }
       onToggleFavorite={(item) =>
         handleToggleFavorite(item.document.id, !item.document.isFavorite)
       }
@@ -2118,6 +2259,7 @@ export function DocumentSidebar({
   if (collapsed) {
     return (
       <div className="agent-layout-left-drawer flex h-full w-12 flex-col items-center gap-1 border-e border-border bg-sidebar py-3 transition-[width] duration-200 ease-out">
+        {brandButton(true)}
         {renderCollapsedNewButton()}
         <Tooltip>
           <TooltipTrigger asChild>
@@ -2156,23 +2298,7 @@ export function DocumentSidebar({
     >
       {/* Header */}
       <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-3">
-        <div className="flex items-center gap-2 min-w-0">
-          <img
-            src={appPath("/agent-native-icon-light.svg")}
-            alt=""
-            aria-hidden="true"
-            className="block h-4 w-auto shrink-0 dark:hidden"
-          />
-          <img
-            src={appPath("/agent-native-icon-dark.svg")}
-            alt=""
-            aria-hidden="true"
-            className="hidden h-4 w-auto shrink-0 dark:block"
-          />
-          <span className="text-base font-semibold tracking-tight text-foreground">
-            Content
-          </span>
-        </div>
+        {brandButton(false)}
       </div>
 
       {/* Search */}
@@ -2331,7 +2457,10 @@ export function DocumentSidebar({
                           void handleCreateDatabase(item.document.id)
                         }
                         onDeleteItem={(item) =>
-                          void handleDelete(item.document.id)
+                          requestDelete(
+                            item.document.id,
+                            item.document.title || t("sidebar.untitled"),
+                          )
                         }
                         onToggleFavorite={(item) =>
                           handleToggleFavorite(item.document.id, false)
@@ -2399,6 +2528,49 @@ export function DocumentSidebar({
           onMouseDown={handleMouseDown}
         />
       )}
+      <AlertDialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => {
+          if (open) return;
+          setPendingDelete(null);
+          const confirmedDeleteId = confirmedDeleteIdRef.current;
+          confirmedDeleteIdRef.current = null;
+          if (confirmedDeleteId) {
+            afterBodyPointerUnlock(() => {
+              void handleDelete(confirmedDeleteId);
+            });
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("sidebar.deletePageQuestion")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingDelete
+                ? t("sidebar.deletePageDescription", {
+                    title: pendingDelete.title,
+                  })
+                : null}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("comments.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={
+                deleteDocument.isPending || deleteContentDatabase.isPending
+              }
+              onClick={() => {
+                confirmedDeleteIdRef.current = pendingDelete?.id ?? null;
+              }}
+            >
+              {t("database.delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <AlertDialog
         open={removeLocalFilesDialogOpen}
         onOpenChange={setRemoveLocalFilesDialogOpen}

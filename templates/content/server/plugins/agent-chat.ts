@@ -31,6 +31,7 @@ const INITIAL_TOOL_NAMES = [
 
 export default createAgentChatPlugin({
   appId: "content",
+  durableBackgroundRuns: true,
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INITIAL_TOOL_NAMES,
   anonymousOwner: resolvePublicViewerOwner,

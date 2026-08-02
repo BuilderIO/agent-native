@@ -1633,6 +1633,7 @@ const zhCN = {
     formsOverview: "概览",
     formsBuildingPublishing: "构建与发布",
     formsResponses: "回复与洞察",
+    docsComponents: "Docs Components",
     formsDevelopers: "开发者指南",
   },
 } satisfies typeof enUS;
