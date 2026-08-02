@@ -213,6 +213,33 @@ export default defineAction({
         .returning({ id: schema.contentDatabases.id });
       if (!lockedDatabase) throw new Error("Database is no longer active.");
 
+      const [lockedProperty] = await tx
+        .update(schema.documentPropertyDefinitions)
+        .set({
+          updatedAt: sql`${schema.documentPropertyDefinitions.updatedAt}`,
+        })
+        .where(
+          and(
+            eq(schema.documentPropertyDefinitions.id, property.id),
+            eq(schema.documentPropertyDefinitions.databaseId, database.id),
+            eq(
+              schema.documentPropertyDefinitions.ownerEmail,
+              database.ownerEmail,
+            ),
+          ),
+        )
+        .returning();
+      if (
+        !lockedProperty ||
+        lockedProperty.type !== property.type ||
+        lockedProperty.systemRole !== property.systemRole ||
+        lockedProperty.name !== property.name
+      ) {
+        throw new Error(
+          "Target column changed or was deleted before the source field could be bound.",
+        );
+      }
+
       const [activeClaim] = await tx
         .select({ id: schema.contentDatabaseItemKeyClaims.id })
         .from(schema.contentDatabaseItemKeyClaims)
@@ -258,7 +285,7 @@ export default defineAction({
         const itemValues = sourceFieldPropertyValuesFromRows(
           sourceRows,
           field.sourceFieldKey,
-          property.type as DocumentPropertyType,
+          lockedProperty.type as DocumentPropertyType,
         );
         // Clear this column's values for ALL of this source's rows first — not
         // just the rows that now have a value — so a row whose new bound field is

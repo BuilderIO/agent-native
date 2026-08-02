@@ -630,6 +630,49 @@ describe("upsert-database-item-by-key", () => {
     expect(b.documentId).toBe(created.documentId);
   });
 
+  it("serializes a real concurrent ordinary write with stable-key upsert", async () => {
+    const { databaseId, propertyId } = await fixture();
+    const created = await asOwner(() =>
+      upsert.run({ databaseId, keyPropertyId: propertyId, keyValue: "A" }),
+    );
+
+    await Promise.allSettled([
+      asOwner(() =>
+        upsert.run({ databaseId, keyPropertyId: propertyId, keyValue: "A" }),
+      ),
+      asOwner(() =>
+        setProperty.run({
+          documentId: created.documentId,
+          databaseId,
+          propertyId,
+          value: "B",
+        }),
+      ),
+    ]);
+
+    const aValues = await getDb()
+      .select({ documentId: schema.documentPropertyValues.documentId })
+      .from(schema.documentPropertyValues)
+      .where(
+        and(
+          eq(schema.documentPropertyValues.propertyId, propertyId),
+          eq(schema.documentPropertyValues.valueJson, '"A"'),
+        ),
+      );
+    const aClaims = await getDb()
+      .select({ documentId: schema.contentDatabaseItemKeyClaims.documentId })
+      .from(schema.contentDatabaseItemKeyClaims)
+      .where(
+        and(
+          eq(schema.contentDatabaseItemKeyClaims.databaseId, databaseId),
+          eq(schema.contentDatabaseItemKeyClaims.propertyId, propertyId),
+          eq(schema.contentDatabaseItemKeyClaims.keyValueJson, '"A"'),
+        ),
+      );
+    expect(aValues.length).toBeLessThanOrEqual(1);
+    expect(aClaims).toEqual(aValues);
+  });
+
   it("serializes a real concurrent type change and retires old-type claims", async () => {
     const { databaseId, propertyId } = await fixture();
     const [database] = await getDb()

@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, ne } from "drizzle-orm";
+import { and, eq, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -114,6 +114,61 @@ export default defineAction({
 
     const valueJson = normalizedValueJson(type, value);
     await db.transaction(async (tx) => {
+      const [lockedDatabase] = await tx
+        .update(schema.contentDatabases)
+        .set({ updatedAt: sql`${schema.contentDatabases.updatedAt}` })
+        .where(
+          and(
+            eq(schema.contentDatabases.id, database.id),
+            eq(schema.contentDatabases.documentId, database.documentId),
+            eq(schema.contentDatabases.ownerEmail, database.ownerEmail),
+            isNull(schema.contentDatabases.deletedAt),
+          ),
+        )
+        .returning({ id: schema.contentDatabases.id });
+      if (!lockedDatabase) throw new Error("Database is no longer active.");
+      const [lockedDefinition] = await tx
+        .update(schema.documentPropertyDefinitions)
+        .set({
+          updatedAt: sql`${schema.documentPropertyDefinitions.updatedAt}`,
+        })
+        .where(
+          and(
+            eq(schema.documentPropertyDefinitions.id, propertyId),
+            eq(schema.documentPropertyDefinitions.databaseId, database.id),
+            eq(
+              schema.documentPropertyDefinitions.ownerEmail,
+              database.ownerEmail,
+            ),
+          ),
+        )
+        .returning({
+          type: schema.documentPropertyDefinitions.type,
+          systemRole: schema.documentPropertyDefinitions.systemRole,
+        });
+      if (
+        !lockedDefinition ||
+        lockedDefinition.type !== definition.type ||
+        lockedDefinition.systemRole
+      ) {
+        throw new Error(
+          `Property "${propertyId}" changed or was deleted before its value could be written.`,
+        );
+      }
+      const [lockedMembership] = await tx
+        .update(schema.contentDatabaseItems)
+        .set({ updatedAt: sql`${schema.contentDatabaseItems.updatedAt}` })
+        .where(
+          and(
+            eq(schema.contentDatabaseItems.id, membership.id),
+            eq(schema.contentDatabaseItems.databaseId, database.id),
+            eq(schema.contentDatabaseItems.documentId, documentId),
+          ),
+        )
+        .returning({ id: schema.contentDatabaseItems.id });
+      if (!lockedMembership)
+        throw new Error("Document is no longer part of this database.");
+
       const [existing] = await tx
         .select({ id: schema.documentPropertyValues.id })
         .from(schema.documentPropertyValues)

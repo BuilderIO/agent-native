@@ -211,6 +211,18 @@ export default defineAction({
         }
 
         if (lockedExisting.type !== type) {
+          const [mappedSourceField] = await tx
+            .select({ id: schema.contentDatabaseSourceFields.id })
+            .from(schema.contentDatabaseSourceFields)
+            .where(
+              eq(schema.contentDatabaseSourceFields.propertyId, propertyId),
+            )
+            .limit(1);
+          if (mappedSourceField) {
+            throw new Error(
+              "A property bound to a source field must be unbound before changing its type.",
+            );
+          }
           await tx
             .delete(schema.documentPropertyValues)
             .where(

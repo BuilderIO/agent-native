@@ -28,6 +28,7 @@ let getDb: () => any;
 let schema: typeof import("../server/db/schema.js");
 let bindAction: typeof import("./bind-content-database-source-field.js").default;
 let addSourceFieldPropertyAction: typeof import("./add-content-database-source-field-property.js").default;
+let configureProperty: typeof import("./configure-document-property.js").default;
 
 const OWNER = "owner@example.com";
 
@@ -39,6 +40,8 @@ beforeAll(async () => {
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
   bindAction = (await import("./bind-content-database-source-field.js"))
+    .default;
+  configureProperty = (await import("./configure-document-property.js"))
     .default;
   const addSourceFieldPropertyModule =
     await import("./add-content-database-source-field-property.js");
@@ -464,6 +467,52 @@ describe("bind-content-database-source-field (row-union)", () => {
       .from(schema.contentDatabaseSourceFields)
       .where(eq(schema.contentDatabaseSourceFields.id, f.fields.fieldACat));
     expect(field.propertyId).toBeNull();
+  });
+
+  it("serializes a real concurrent source binding and property type change", async () => {
+    const f = await seedRowUnion();
+    const [database] = await getDb()
+      .select()
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, f.databaseId));
+    const [bindResult, configureResult] = await Promise.allSettled([
+      asOwner(() =>
+        bindAction.run({
+          databaseId: f.databaseId,
+          sourceFieldId: f.fields.fieldACat,
+          propertyId: f.tagPropertyId,
+        }),
+      ),
+      asOwner(() =>
+        configureProperty.run({
+          id: f.tagPropertyId,
+          documentId: database.documentId,
+          databaseId: f.databaseId,
+          name: "Tag",
+          type: "number",
+        }),
+      ),
+    ]);
+    expect(
+      [bindResult, configureResult].filter(
+        (result) => result.status === "fulfilled",
+      ),
+    ).toHaveLength(1);
+
+    const [field] = await getDb()
+      .select({ propertyId: schema.contentDatabaseSourceFields.propertyId })
+      .from(schema.contentDatabaseSourceFields)
+      .where(eq(schema.contentDatabaseSourceFields.id, f.fields.fieldACat));
+    const [property] = await getDb()
+      .select({ type: schema.documentPropertyDefinitions.type })
+      .from(schema.documentPropertyDefinitions)
+      .where(eq(schema.documentPropertyDefinitions.id, f.tagPropertyId));
+    if (field.propertyId) {
+      expect(field.propertyId).toBe(f.tagPropertyId);
+      expect(property.type).toBe("text");
+    } else {
+      expect(property.type).toBe("number");
+    }
   });
 
   it("allows two different sources to feed one column, then unbinds", async () => {
