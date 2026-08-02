@@ -579,6 +579,9 @@ describe("database-scoped document properties", () => {
         documentId: rowDocumentId,
         position: 0,
         bodyHydrationStatus: "pending",
+        bodyHydrationAttemptedAt: now,
+        bodyHydrationError: "Private Builder diagnostic",
+        bodyHydrationVersion: "private-builder-version",
         createdAt: now,
         updatedAt: now,
       },
@@ -616,7 +619,12 @@ describe("database-scoped document properties", () => {
 
     expect(result.databaseMembership?.databaseId).toBe(local.databaseId);
     expect(result.bodyHydration).toEqual({
-      hydration: expect.objectContaining({ status: "pending" }),
+      hydration: {
+        status: "pending",
+        attemptedAt: null,
+        error: null,
+        version: null,
+      },
     });
     await expect(
       runWithRequestContext({ userEmail: OWNER }, () =>
@@ -646,7 +654,12 @@ describe("database-scoped document properties", () => {
     );
     expect(viewerResult.canEdit).toBe(true);
     expect(viewerResult.bodyHydration).toEqual({
-      hydration: expect.objectContaining({ status: "pending" }),
+      hydration: {
+        status: "pending",
+        attemptedAt: now,
+        error: "Private Builder diagnostic",
+        version: "private-builder-version",
+      },
     });
   });
 

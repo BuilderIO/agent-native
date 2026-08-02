@@ -135,6 +135,9 @@ export default defineAction({
           bodyHydrationMembership!.database.documentId,
         )
       : null;
+    const bodyHydration = bodyHydrationMembership
+      ? serializeDatabaseMembership(bodyHydrationMembership).bodyHydration
+      : null;
     const userEmail = getRequestUserEmail();
     const favoriteIds = userEmail
       ? await favoriteDocumentIds(getDb(), userEmail, [doc.id])
@@ -168,8 +171,14 @@ export default defineAction({
         : undefined,
       bodyHydration: bodyHydrationMembership
         ? {
-            hydration: serializeDatabaseMembership(bodyHydrationMembership)
-              .bodyHydration,
+            hydration: bodyHydrationAccess
+              ? bodyHydration!
+              : {
+                  status: bodyHydration!.status,
+                  attemptedAt: null,
+                  error: null,
+                  version: null,
+                },
             ...(bodyHydrationAccess &&
             canEditRole(bodyHydrationAccess.role) &&
             bodyHydrationTarget?.hydrationSourceId
