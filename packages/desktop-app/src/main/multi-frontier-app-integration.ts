@@ -24,6 +24,7 @@ const execFileAsync = promisify(execFile);
 const MAX_EVIDENCE_BYTES = 16 * 1024;
 const MAX_GIT_OUTPUT_BYTES = 8 * 1024;
 const MAX_SNAPSHOT_PATCH_BYTES = 256 * 1024;
+const DEFAULT_QUIT_DISPOSE_TIMEOUT_MS = 5_000;
 const SAFE_WORKSPACE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,191}$/;
 const NULL_DEVICE = process.platform === "win32" ? "NUL" : "/dev/null";
 
@@ -149,6 +150,7 @@ export function initializeMultiFrontierAppIntegration(
 export function createMultiFrontierQuitGuard(options: {
   dispose(): Promise<void>;
   reissueQuit(): void;
+  disposeTimeoutMs?: number;
 }): (event: MultiFrontierQuitEvent) => boolean {
   let reissued = false;
   let disposing: Promise<void> | undefined;
@@ -156,13 +158,21 @@ export function createMultiFrontierQuitGuard(options: {
     if (reissued) return false;
     event.preventDefault();
     if (!disposing) {
-      disposing = options
-        .dispose()
-        .catch(() => undefined)
-        .finally(() => {
-          reissued = true;
-          options.reissueQuit();
-        });
+      const disposal = Promise.resolve()
+        .then(() => options.dispose())
+        .catch(() => undefined);
+      let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+      const timeout = new Promise<void>((resolve) => {
+        timeoutHandle = setTimeout(
+          resolve,
+          options.disposeTimeoutMs ?? DEFAULT_QUIT_DISPOSE_TIMEOUT_MS,
+        );
+      });
+      disposing = Promise.race([disposal, timeout]).finally(() => {
+        if (timeoutHandle) clearTimeout(timeoutHandle);
+        reissued = true;
+        options.reissueQuit();
+      });
     }
     return true;
   };

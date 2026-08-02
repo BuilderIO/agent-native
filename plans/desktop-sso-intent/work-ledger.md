@@ -190,6 +190,9 @@ acceptance-state:
     - Electron 41.9 runtime proof observed an exact completion navigation commit with HTTP 200 and one obvious-fake target cookie becoming available afterward; no task Electron or updater process remained
     - completion regressions prove will-redirect is not cancelled, no cookie read begins before did-navigate with HTTP 200, 401 completion fails closed without reading or copying cookies, a wrong nonce is ignored, direct Dispatch completion uses the same committed boundary, and diagnostics contain app id plus status only
     - independent review found and the implementation repaired a cancellation race: every new ceremony now drains tracked prior session-copy cleanup before opening, and immediate reauthentication cannot lose its new target cookie to a late cleanup; re-review found no remaining actionable source defect
+    - exact-head CI run 30755672926 and signed canary run 30755671927 passed on 6426bcad3d98bda7e13e774137d257886f675cab; canary .23 matched all four manifest hashes and passed strict signing, notarization, Gatekeeper, bundle identity, version, signer, and arm64 checks
+    - independent native canary .23 H1 passed Settings over a slow-loading Mail webview and H2 passed more than four minutes of updater isolation; stable profile mtime remained unchanged and no credential or production mutation occurred
+    - canary .23 H3 failed because normal Cmd+Q removed the window while the main and helper processes remained alive; root terminated only the exact Canary process tree and verified process absence, identifying the pre-existing Multi-Frontier quit guard as a signed-candidate blocker rather than entering production
   implementation:
     - authenticated nonce-only app-local completion route in Core
     - dedicated persistent Dispatch identity partition in packaged Desktop
@@ -203,8 +206,9 @@ acceptance-state:
     - Dispatch primary-auth public-route configuration eliminating concurrent auth-initializer pre-emption
     - the ordinary sign-in entry in a canonical first-party app starts the app-targeted workspace ceremony; Settings exposes status and workspace sign-out but no separate authority sign-in command
     - exact nonce-bound app-local completion must commit with HTTP 200 before isolated app-session transfer, followed only by bounded allowlisted-cookie synchronization and value-free diagnostics
+    - Desktop quit waits for Multi-Frontier cleanup but reissues application quit after synchronous failure or a five-second bound so optional collaboration disposal cannot leave a windowless process indefinitely
   blockers:
-    - the committed-completion repair must pass exact-head CI and a newly signed isolated canary before another production window; local runtime and test proof are complete
+    - the bounded quit-lifecycle repair must pass exact-head CI, a newly signed isolated canary, and a repeated normal quit/process-absence/relaunch check before another production window; the committed-completion code and canary .23 H1-H2 gates are otherwise complete
     - a renewed short Mail and Dispatch window must prove H1-H10, including same-account continuity, restart, provider separation, workspace sign-out, and safe cancellation/concurrency; the prior H1-H2 evidence is informative but cannot complete acceptance for the repaired artifact
     - Alice requires an explicit notification and agent stop before any next production test or Netlify production mutation
   latest-production-result: https://github.com/BuilderIO/agent-native/pull/2290#issuecomment-5158731013
@@ -242,7 +246,7 @@ production-safety-preflight:
 work-constraints:
   production-test-custody: notify Alice and stop before any production canary or Netlify production mutation
   pr-cleanup: remove agent-authored progress-comment clutter after preserving durable truth locally; retain human review and concise reviewer-facing information
-ledger-revision: desktop-sso-work-r25
+ledger-revision: desktop-sso-work-r26
 status: active
 ```
 
