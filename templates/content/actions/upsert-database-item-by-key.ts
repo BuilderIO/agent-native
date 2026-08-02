@@ -110,8 +110,26 @@ export default defineAction({
         `Key property "${keyPropertyId}" does not belong to database "${databaseId}".`,
       );
     const keyType = keyDefinition.type as DocumentPropertyType;
+    const [sourceManagedKey] = await db
+      .select({ id: schema.contentDatabaseSourceFields.id })
+      .from(schema.contentDatabaseSourceFields)
+      .innerJoin(
+        schema.contentDatabaseSources,
+        eq(
+          schema.contentDatabaseSources.id,
+          schema.contentDatabaseSourceFields.sourceId,
+        ),
+      )
+      .where(
+        and(
+          eq(schema.contentDatabaseSources.databaseId, databaseId),
+          eq(schema.contentDatabaseSourceFields.propertyId, keyPropertyId),
+        ),
+      )
+      .limit(1);
     if (
       keyDefinition.systemRole ||
+      sourceManagedKey ||
       isComputedPropertyType(keyType) ||
       isBlocksPropertyType(keyType)
     ) {
@@ -166,6 +184,59 @@ export default defineAction({
       () =>
         withPositionLock(databaseItemsPositionScope(databaseId), () =>
           db.transaction(async (tx) => {
+            // Serialize against trash/permanent-delete transactions and
+            // revalidate the exact database after acquiring the row lock. A
+            // pre-transaction access check alone can become stale while an
+            // unattended projection is waiting to write.
+            const [lockedDatabase] = await tx
+              .update(schema.contentDatabases)
+              .set({
+                updatedAt: sql`${schema.contentDatabases.updatedAt}`,
+              })
+              .where(
+                and(
+                  eq(schema.contentDatabases.id, databaseId),
+                  eq(schema.contentDatabases.documentId, database.documentId),
+                  eq(schema.contentDatabases.ownerEmail, database.ownerEmail),
+                  isNull(schema.contentDatabases.deletedAt),
+                ),
+              )
+              .returning({
+                id: schema.contentDatabases.id,
+                systemRole: schema.contentDatabases.systemRole,
+              });
+            if (!lockedDatabase || lockedDatabase.systemRole) {
+              throw new Error(
+                `Database "${databaseId}" is no longer an active ordinary Content database.`,
+              );
+            }
+
+            const [transactionSourceManagedKey] = await tx
+              .select({ id: schema.contentDatabaseSourceFields.id })
+              .from(schema.contentDatabaseSourceFields)
+              .innerJoin(
+                schema.contentDatabaseSources,
+                eq(
+                  schema.contentDatabaseSources.id,
+                  schema.contentDatabaseSourceFields.sourceId,
+                ),
+              )
+              .where(
+                and(
+                  eq(schema.contentDatabaseSources.databaseId, databaseId),
+                  eq(
+                    schema.contentDatabaseSourceFields.propertyId,
+                    keyPropertyId,
+                  ),
+                ),
+              )
+              .limit(1);
+            if (transactionSourceManagedKey) {
+              throw new Error(
+                `Property "${keyDefinition.name}" cannot be used as a stable key.`,
+              );
+            }
+
             const matches = await tx
               .select({
                 itemId: schema.contentDatabaseItems.id,
@@ -457,10 +528,20 @@ export default defineAction({
               );
             }
             await assertAccess("document", identity.documentId, "editor");
+            // Serialize full-document writes with SQL-backed editor saves. The
+            // Content editor reconciles genuinely newer SQL snapshots into the
+            // live Y.Doc; taking this row lock and advancing updatedAt
+            // monotonically prevents a stale open editor from later winning.
             const [document] = await tx
-              .select()
-              .from(schema.documents)
-              .where(eq(schema.documents.id, identity.documentId));
+              .update(schema.documents)
+              .set({ updatedAt: sql`${schema.documents.updatedAt}` })
+              .where(
+                and(
+                  eq(schema.documents.id, identity.documentId),
+                  isNull(schema.documents.trashedAt),
+                ),
+              )
+              .returning();
             if (!document || document.trashedAt)
               throw new Error(
                 "Stable key claim does not resolve to an active document.",
@@ -495,15 +576,23 @@ export default defineAction({
               (body !== undefined && document.content !== body);
             if (!documentChanged && changedValues.length === 0)
               return { status: "unchanged" as const, ...identity };
-            if (documentChanged)
+            if (documentChanged) {
+              const mutationTime = new Date().toISOString();
+              const updatedAt =
+                mutationTime > document.updatedAt
+                  ? mutationTime
+                  : new Date(
+                      new Date(document.updatedAt).getTime() + 1,
+                    ).toISOString();
               await tx
                 .update(schema.documents)
                 .set({
                   ...(title !== undefined ? { title: title.trim() } : {}),
                   ...(body !== undefined ? { content: body } : {}),
-                  updatedAt: now,
+                  updatedAt,
                 })
                 .where(eq(schema.documents.id, identity.documentId));
+            }
             for (const [propertyId, valueJson] of changedValues) {
               const existing = existingByProperty.get(propertyId);
               if (existing)

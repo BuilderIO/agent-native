@@ -2,6 +2,7 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -170,6 +171,42 @@ describe("upsert-database-item-by-key", () => {
     ).rejects.toThrow();
   });
 
+  it("advances updatedAt monotonically for an existing-row body projection", async () => {
+    const { databaseId, propertyId } = await fixture();
+    const created = await asOwner(() =>
+      upsert.run({
+        databaseId,
+        keyPropertyId: propertyId,
+        keyValue: "body-refresh",
+        body: "before",
+      }),
+    );
+    const futureUpdatedAt = "2099-01-01T00:00:00.000Z";
+    await getDb()
+      .update(schema.documents)
+      .set({ updatedAt: futureUpdatedAt })
+      .where(eq(schema.documents.id, created.documentId));
+
+    await asOwner(() =>
+      upsert.run({
+        databaseId,
+        keyPropertyId: propertyId,
+        keyValue: "body-refresh",
+        body: "after",
+      }),
+    );
+
+    const [document] = await getDb()
+      .select({
+        content: schema.documents.content,
+        updatedAt: schema.documents.updatedAt,
+      })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, created.documentId));
+    expect(document?.content).toBe("after");
+    expect(document?.updatedAt > futureUpdatedAt).toBe(true);
+  });
+
   it("serializes concurrent writes when an existing row is missing a requested property", async () => {
     const { databaseId, propertyId } = await fixture();
     const created = await asOwner(() =>
@@ -234,6 +271,54 @@ describe("upsert-database-item-by-key", () => {
       );
     expect(stored).toHaveLength(1);
     expect(stored[0]?.valueJson).toBe('"same-value"');
+  });
+
+  it("recollects rows created at the database-lock boundary before trashing", async () => {
+    const { databaseId, propertyId } = await fixture();
+    const [database] = await getDb()
+      .select()
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, databaseId));
+    const suffix = databaseId.replace(/[^a-zA-Z0-9_]/g, "_");
+    const triggerName = `late_upsert_${suffix}`;
+    const documentId = `late_doc_${suffix}`;
+    const itemId = `late_item_${suffix}`;
+    const now = new Date().toISOString();
+    await getDbExec().execute(
+      `CREATE TRIGGER ${triggerName}
+       BEFORE UPDATE ON content_databases
+       WHEN NEW.id = '${databaseId}'
+         AND NOT EXISTS (SELECT 1 FROM documents WHERE id = '${documentId}')
+       BEGIN
+         INSERT INTO documents
+           (id, owner_email, parent_id, title, content, position, created_at, updated_at)
+         VALUES
+           ('${documentId}', '${OWNER}', '${database.documentId}', 'Late row', '', 0, '${now}', '${now}');
+         INSERT INTO content_database_items
+           (id, owner_email, database_id, document_id, position, created_at, updated_at)
+         VALUES
+           ('${itemId}', '${OWNER}', '${databaseId}', '${documentId}', 0, '${now}', '${now}');
+         INSERT INTO document_property_values
+           (id, owner_email, document_id, property_id, value_json, created_at, updated_at)
+         VALUES
+           ('late_value_${suffix}', '${OWNER}', '${documentId}', '${propertyId}', '"late-key"', '${now}', '${now}');
+       END`,
+    );
+    try {
+      await asOwner(() => deleteDocument.run({ id: database.documentId }));
+    } finally {
+      await getDbExec().execute(`DROP TRIGGER IF EXISTS ${triggerName}`);
+    }
+
+    const [lateDocument] = await getDb()
+      .select({
+        trashedAt: schema.documents.trashedAt,
+        trashRootId: schema.documents.trashRootId,
+      })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, documentId));
+    expect(lateDocument?.trashedAt).toBeTruthy();
+    expect(lateDocument?.trashRootId).toBe(database.documentId);
   });
 
   it("verifies every requested property by canonical serialized readback, including arrays and objects", async () => {
@@ -352,6 +437,48 @@ describe("upsert-database-item-by-key", () => {
         }),
       ),
     ).rejects.toThrow("ordinary Content databases");
+  });
+
+  it("rejects a source-managed property as the stable key", async () => {
+    const { databaseId, propertyId } = await fixture();
+    const now = new Date().toISOString();
+    await getDb().insert(schema.contentDatabaseSources).values({
+      id: "source-managed-key-source",
+      ownerEmail: OWNER,
+      databaseId,
+      sourceType: "test",
+      sourceName: "Test source",
+      sourceTable: "test_rows",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await getDb().insert(schema.contentDatabaseSourceFields).values({
+      id: "source-managed-key-field",
+      ownerEmail: OWNER,
+      sourceId: "source-managed-key-source",
+      propertyId,
+      localFieldKey: propertyId,
+      sourceFieldKey: "external_id",
+      sourceFieldLabel: "External ID",
+      sourceFieldType: "text",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await expect(
+      asOwner(() =>
+        upsert.run({
+          databaseId,
+          keyPropertyId: propertyId,
+          keyValue: "source-owned",
+        }),
+      ),
+    ).rejects.toThrow("cannot be used as a stable key");
+    const claims = await getDb()
+      .select()
+      .from(schema.contentDatabaseItemKeyClaims)
+      .where(eq(schema.contentDatabaseItemKeyClaims.databaseId, databaseId));
+    expect(claims).toHaveLength(0);
   });
 
   it("does not mutate an existing row when the caller can edit only the database page", async () => {

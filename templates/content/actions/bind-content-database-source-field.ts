@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, inArray, ne } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -8,7 +8,10 @@ import type {
   BindContentDatabaseSourceFieldRequest,
   ContentDatabaseResponse,
 } from "../shared/api.js";
-import { serializePropertyValue } from "../shared/properties.js";
+import {
+  serializePropertyValue,
+  type DocumentPropertyType,
+} from "../shared/properties.js";
 import { chunks } from "./_batch-utils.js";
 import { resolveDatabaseForSourceMutation } from "./_database-source-utils.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
@@ -183,23 +186,6 @@ export default defineAction({
       );
     }
 
-    await db
-      .update(schema.contentDatabaseSourceFields)
-      .set({
-        propertyId: property.id,
-        localFieldKey: property.id,
-        mappingType: "property",
-        updatedAt: now,
-      })
-      .where(eq(schema.contentDatabaseSourceFields.id, field.id));
-    await db
-      .update(schema.contentDatabaseSources)
-      .set({ updatedAt: now })
-      .where(eq(schema.contentDatabaseSources.id, source.id));
-
-    // Backfill the column with this source's per-row values. A federated
-    // secondary's rows carry no local document (the read path overlays them),
-    // so only materialize for document-backed sources.
     let federationRole: string | null = null;
     try {
       const parsed = JSON.parse(source.metadataJson ?? "{}") as {
@@ -209,57 +195,109 @@ export default defineAction({
     } catch {
       federationRole = null;
     }
-    if (federationRole !== "secondary") {
-      const sourceRows = await db
-        .select({
-          databaseItemId: schema.contentDatabaseSourceRows.databaseItemId,
-          documentId: schema.contentDatabaseSourceRows.documentId,
-          sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
-        })
-        .from(schema.contentDatabaseSourceRows)
-        .where(eq(schema.contentDatabaseSourceRows.sourceId, source.id));
-      const itemValues = sourceFieldPropertyValuesFromRows(
-        sourceRows,
-        field.sourceFieldKey,
-        property.type,
-      );
-      // Clear this column's values for ALL of this source's rows first — not
-      // just the rows that now have a value — so a row whose new bound field is
-      // empty doesn't keep showing a stale/previous value. Then write the
-      // non-empty ones. (This source owns these documents' values for the row-
-      // union, so clearing them is safe.)
-      const sourceDocumentIds = sourceRows
-        .map((row) => row.documentId)
-        .filter((id): id is string => Boolean(id));
-      if (sourceDocumentIds.length > 0) {
-        await db
-          .delete(schema.documentPropertyValues)
-          .where(
-            and(
-              eq(schema.documentPropertyValues.propertyId, property.id),
-              inArray(
-                schema.documentPropertyValues.documentId,
-                sourceDocumentIds,
-              ),
-            ),
-          );
+    await db.transaction(async (tx) => {
+      // Share the database-row lock used by stable-key upserts. This makes the
+      // claim check and source binding one atomic ownership transition: either
+      // the property remains caller-managed, or binding fails before backfill.
+      const [lockedDatabase] = await tx
+        .update(schema.contentDatabases)
+        .set({ updatedAt: sql`${schema.contentDatabases.updatedAt}` })
+        .where(
+          and(
+            eq(schema.contentDatabases.id, database.id),
+            eq(schema.contentDatabases.documentId, database.documentId),
+            eq(schema.contentDatabases.ownerEmail, database.ownerEmail),
+            isNull(schema.contentDatabases.deletedAt),
+          ),
+        )
+        .returning({ id: schema.contentDatabases.id });
+      if (!lockedDatabase) throw new Error("Database is no longer active.");
+
+      const [activeClaim] = await tx
+        .select({ id: schema.contentDatabaseItemKeyClaims.id })
+        .from(schema.contentDatabaseItemKeyClaims)
+        .where(
+          and(
+            eq(schema.contentDatabaseItemKeyClaims.databaseId, database.id),
+            eq(schema.contentDatabaseItemKeyClaims.propertyId, property.id),
+          ),
+        )
+        .limit(1);
+      if (activeClaim) {
+        throw new Error(
+          "A property with active stable-key claims cannot be bound to a source field.",
+        );
       }
-      if (itemValues.length > 0) {
-        for (const chunk of chunks(itemValues, 200)) {
-          await db.insert(schema.documentPropertyValues).values(
-            chunk.map((row) => ({
-              id: nanoid(),
-              ownerEmail: database.ownerEmail,
-              documentId: row.documentId,
-              propertyId: property.id,
-              valueJson: serializePropertyValue(row.value),
-              createdAt: now,
-              updatedAt: now,
-            })),
-          );
+
+      await tx
+        .update(schema.contentDatabaseSourceFields)
+        .set({
+          propertyId: property.id,
+          localFieldKey: property.id,
+          mappingType: "property",
+          updatedAt: now,
+        })
+        .where(eq(schema.contentDatabaseSourceFields.id, field.id));
+      await tx
+        .update(schema.contentDatabaseSources)
+        .set({ updatedAt: now })
+        .where(eq(schema.contentDatabaseSources.id, source.id));
+
+      // Backfill the column with this source's per-row values. A federated
+      // secondary's rows carry no local document (the read path overlays them),
+      // so only materialize for document-backed sources.
+      if (federationRole !== "secondary") {
+        const sourceRows = await tx
+          .select({
+            databaseItemId: schema.contentDatabaseSourceRows.databaseItemId,
+            documentId: schema.contentDatabaseSourceRows.documentId,
+            sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
+          })
+          .from(schema.contentDatabaseSourceRows)
+          .where(eq(schema.contentDatabaseSourceRows.sourceId, source.id));
+        const itemValues = sourceFieldPropertyValuesFromRows(
+          sourceRows,
+          field.sourceFieldKey,
+          property.type as DocumentPropertyType,
+        );
+        // Clear this column's values for ALL of this source's rows first — not
+        // just the rows that now have a value — so a row whose new bound field is
+        // empty doesn't keep showing a stale/previous value. Then write the
+        // non-empty ones. (This source owns these documents' values for the row-
+        // union, so clearing them is safe.)
+        const sourceDocumentIds = sourceRows
+          .map((row) => row.documentId)
+          .filter((id): id is string => Boolean(id));
+        if (sourceDocumentIds.length > 0) {
+          await tx
+            .delete(schema.documentPropertyValues)
+            .where(
+              and(
+                eq(schema.documentPropertyValues.propertyId, property.id),
+                inArray(
+                  schema.documentPropertyValues.documentId,
+                  sourceDocumentIds,
+                ),
+              ),
+            );
+        }
+        if (itemValues.length > 0) {
+          for (const chunk of chunks(itemValues, 200)) {
+            await tx.insert(schema.documentPropertyValues).values(
+              chunk.map((row) => ({
+                id: nanoid(),
+                ownerEmail: database.ownerEmail,
+                documentId: row.documentId,
+                propertyId: property.id,
+                valueJson: serializePropertyValue(row.value),
+                createdAt: now,
+                updatedAt: now,
+              })),
+            );
+          }
         }
       }
-    }
+    });
 
     return getContentDatabaseResponse(database.id, { limit: 100, offset: 0 });
   },

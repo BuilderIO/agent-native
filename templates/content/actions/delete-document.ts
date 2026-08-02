@@ -1,7 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, inArray, isNotNull, isNull, ne, or } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -162,6 +162,24 @@ export async function trashDocumentSubtree(
   ownerEmail: string,
   trashedAt = new Date().toISOString(),
 ): Promise<string[]> {
+  const initial = await collectDocumentSubtreeForDelete(db, id, ownerEmail);
+  // Stable-key upserts lock their canonical database row before creating or
+  // updating children. Acquire the same locks, then collect again: an upsert
+  // that won the lock before this transaction may have added a child after the
+  // first traversal, while one that arrives later must wait until the database
+  // has been marked deleted and will fail closed.
+  for (const batch of chunks(initial.ownedDatabaseIds, DELETE_BATCH_SIZE)) {
+    await db
+      .update(schema.contentDatabases)
+      .set({ updatedAt: sql`${schema.contentDatabases.updatedAt}` })
+      .where(
+        and(
+          inArray(schema.contentDatabases.id, batch),
+          eq(schema.contentDatabases.ownerEmail, ownerEmail),
+          isNull(schema.contentDatabases.deletedAt),
+        ),
+      );
+  }
   const { documentIds } = await collectDocumentSubtreeForDelete(
     db,
     id,

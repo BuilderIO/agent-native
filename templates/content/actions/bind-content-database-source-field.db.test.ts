@@ -429,6 +429,43 @@ describe("bind-content-database-source-field (row-union)", () => {
     ).rejects.toThrow(/multi-value/i);
   });
 
+  it("rejects binding a property that already owns stable-key claims", async () => {
+    const f = await seedRowUnion();
+    const db = getDb();
+    const [item] = await db
+      .select({ id: schema.contentDatabaseItems.id })
+      .from(schema.contentDatabaseItems)
+      .where(eq(schema.contentDatabaseItems.documentId, f.docs.a1));
+    const now = new Date().toISOString();
+    await db.insert(schema.contentDatabaseItemKeyClaims).values({
+      id: `claim_${f.databaseId}`,
+      ownerEmail: OWNER,
+      orgId: null,
+      databaseId: f.databaseId,
+      propertyId: f.tagPropertyId,
+      keyValueJson: '"claimed"',
+      itemId: item.id,
+      documentId: f.docs.a1,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await expect(
+      asOwner(() =>
+        bindAction.run({
+          databaseId: f.databaseId,
+          sourceFieldId: f.fields.fieldACat,
+          propertyId: f.tagPropertyId,
+        }),
+      ),
+    ).rejects.toThrow(/active stable-key claims/i);
+    const [field] = await db
+      .select({ propertyId: schema.contentDatabaseSourceFields.propertyId })
+      .from(schema.contentDatabaseSourceFields)
+      .where(eq(schema.contentDatabaseSourceFields.id, f.fields.fieldACat));
+    expect(field.propertyId).toBeNull();
+  });
+
   it("allows two different sources to feed one column, then unbinds", async () => {
     const f = await seedRowUnion();
     await asOwner(() =>
