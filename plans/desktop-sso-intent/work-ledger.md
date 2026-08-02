@@ -207,7 +207,8 @@ acceptance-state:
     - the committed-completion repair must pass exact-head CI and a newly signed isolated canary before another production window; local runtime and test proof are complete
     - a renewed short Mail and Dispatch window must prove H1-H10, including same-account continuity, restart, provider separation, workspace sign-out, and safe cancellation/concurrency; the prior H1-H2 evidence is informative but cannot complete acceptance for the repaired artifact
     - Alice requires an explicit notification and agent stop before any next production test or Netlify production mutation
-  last-land-packet: https://github.com/BuilderIO/agent-native/pull/2290#issuecomment-5062742844
+  latest-production-result: https://github.com/BuilderIO/agent-native/pull/2290#issuecomment-5158731013
+  pr-cleanup-receipt: ten archived intermediate progress comments were deleted on 2026-08-02; human discussion, all review threads, concise finding-resolution replies, and the latest production failure/rollback result remain
 deployment-boundary:
   allowed:
     - branch-scoped GitHub Actions macOS canary build with publish disabled
@@ -241,7 +242,7 @@ production-safety-preflight:
 work-constraints:
   production-test-custody: notify Alice and stop before any production canary or Netlify production mutation
   pr-cleanup: remove agent-authored progress-comment clutter after preserving durable truth locally; retain human review and concise reviewer-facing information
-ledger-revision: desktop-sso-work-r24
+ledger-revision: desktop-sso-work-r25
 status: active
 ```
 
