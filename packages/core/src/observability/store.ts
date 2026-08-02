@@ -17,6 +17,7 @@ import {
   ensureColumnExists,
   ensureIndexExists,
 } from "../db/ddl-guard.js";
+import { createInitMemo, type InitMemo } from "../db/init-memo.js";
 import { isDuplicateColumnError } from "../db/migrations.js";
 import type {
   TraceSpan,
@@ -68,14 +69,14 @@ function withUserFilter(
   };
 }
 
-let _initPromise: Promise<void> | undefined;
+// `core-routes-plugin` fires this at plugin-init time, outside any request.
+// On Workers that init can never settle, so the memo must not let a later
+// request inherit it — see `createInitMemo`.
+export const ensureObservabilityTables: InitMemo = createInitMemo(
+  async (): Promise<void> => {
+    const client = getDbExec();
 
-export async function ensureObservabilityTables(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const client = getDbExec();
-
-      const traceSpansCreateSql = `
+    const traceSpansCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_trace_spans (
           id TEXT PRIMARY KEY,
           run_id TEXT NOT NULL,
@@ -97,7 +98,7 @@ export async function ensureObservabilityTables(): Promise<void> {
         )
       `;
 
-      const traceSummariesCreateSql = `
+    const traceSummariesCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_trace_summaries (
           run_id TEXT PRIMARY KEY,
           thread_id TEXT,
@@ -116,7 +117,7 @@ export async function ensureObservabilityTables(): Promise<void> {
         )
       `;
 
-      const feedbackCreateSql = `
+    const feedbackCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_feedback (
           id TEXT PRIMARY KEY,
           run_id TEXT,
@@ -129,7 +130,7 @@ export async function ensureObservabilityTables(): Promise<void> {
         )
       `;
 
-      const satisfactionScoresCreateSql = `
+    const satisfactionScoresCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_satisfaction_scores (
           id TEXT PRIMARY KEY,
           thread_id TEXT NOT NULL,
@@ -143,7 +144,7 @@ export async function ensureObservabilityTables(): Promise<void> {
         )
       `;
 
-      const evalsCreateSql = `
+    const evalsCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_evals (
           id TEXT PRIMARY KEY,
           run_id TEXT NOT NULL,
@@ -158,7 +159,7 @@ export async function ensureObservabilityTables(): Promise<void> {
         )
       `;
 
-      const evalDatasetsCreateSql = `
+    const evalDatasetsCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_eval_datasets (
           id TEXT PRIMARY KEY,
           name TEXT NOT NULL,
@@ -169,7 +170,7 @@ export async function ensureObservabilityTables(): Promise<void> {
         )
       `;
 
-      const experimentsCreateSql = `
+    const experimentsCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_experiments (
           id TEXT PRIMARY KEY,
           name TEXT NOT NULL,
@@ -184,7 +185,7 @@ export async function ensureObservabilityTables(): Promise<void> {
         )
       `;
 
-      const experimentAssignmentsCreateSql = `
+    const experimentAssignmentsCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_experiment_assignments (
           experiment_id TEXT NOT NULL,
           user_id TEXT NOT NULL,
@@ -194,7 +195,7 @@ export async function ensureObservabilityTables(): Promise<void> {
         )
       `;
 
-      const experimentResultsCreateSql = `
+    const experimentResultsCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_experiment_results (
           id TEXT PRIMARY KEY,
           experiment_id TEXT NOT NULL,
@@ -208,188 +209,180 @@ export async function ensureObservabilityTables(): Promise<void> {
         )
       `;
 
-      if (isPostgres()) {
-        // PG guard: probe → guarded DDL → re-probe; skips lock on already-migrated path
-        await ensureTableExists("agent_trace_spans", traceSpansCreateSql);
-        await ensureTableExists(
-          "agent_trace_summaries",
-          traceSummariesCreateSql,
-        );
-        await ensureTableExists("agent_feedback", feedbackCreateSql);
-        await ensureTableExists(
-          "agent_satisfaction_scores",
-          satisfactionScoresCreateSql,
-        );
-        await ensureTableExists("agent_evals", evalsCreateSql);
-        await ensureTableExists("agent_eval_datasets", evalDatasetsCreateSql);
-        await ensureTableExists("agent_experiments", experimentsCreateSql);
-        await ensureTableExists(
-          "agent_experiment_assignments",
-          experimentAssignmentsCreateSql,
-        );
-        await ensureTableExists(
-          "agent_experiment_results",
-          experimentResultsCreateSql,
-        );
-        await ensureColumnExists(
-          "agent_experiments",
-          "owner_email",
-          `ALTER TABLE agent_experiments ADD COLUMN IF NOT EXISTS owner_email TEXT`,
-        );
-        for (const table of USER_SCOPED_TABLES) {
-          await ensureColumnExists(
-            table,
-            "user_id",
-            `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS user_id TEXT`,
-          );
-        }
-        await ensureIndexExists(
-          "idx_trace_spans_run",
-          `CREATE INDEX IF NOT EXISTS idx_trace_spans_run ON agent_trace_spans (run_id)`,
-        );
-        await ensureIndexExists(
-          "idx_trace_spans_thread",
-          `CREATE INDEX IF NOT EXISTS idx_trace_spans_thread ON agent_trace_spans (thread_id)`,
-        );
-        await ensureIndexExists(
-          "idx_trace_spans_created",
-          `CREATE INDEX IF NOT EXISTS idx_trace_spans_created ON agent_trace_spans (created_at)`,
-        );
-        await ensureIndexExists(
-          "idx_trace_summaries_created",
-          `CREATE INDEX IF NOT EXISTS idx_trace_summaries_created ON agent_trace_summaries (created_at)`,
-        );
-        await ensureIndexExists(
-          "idx_trace_summaries_user",
-          `CREATE INDEX IF NOT EXISTS idx_trace_summaries_user ON agent_trace_summaries (user_id, created_at)`,
-        );
-        await ensureIndexExists(
-          "idx_trace_summaries_thread_user_created",
-          `CREATE INDEX IF NOT EXISTS idx_trace_summaries_thread_user_created ON agent_trace_summaries (thread_id, user_id, created_at)`,
-        );
-        await ensureIndexExists(
-          "idx_trace_spans_user",
-          `CREATE INDEX IF NOT EXISTS idx_trace_spans_user ON agent_trace_spans (user_id)`,
-        );
-        await ensureIndexExists(
-          "idx_feedback_thread",
-          `CREATE INDEX IF NOT EXISTS idx_feedback_thread ON agent_feedback (thread_id)`,
-        );
-        await ensureIndexExists(
-          "idx_feedback_created",
-          `CREATE INDEX IF NOT EXISTS idx_feedback_created ON agent_feedback (created_at)`,
-        );
-        await ensureIndexExists(
-          "idx_feedback_user",
-          `CREATE INDEX IF NOT EXISTS idx_feedback_user ON agent_feedback (user_id, created_at)`,
-        );
-        await ensureIndexExists(
-          "idx_satisfaction_thread",
-          `CREATE INDEX IF NOT EXISTS idx_satisfaction_thread ON agent_satisfaction_scores (thread_id)`,
-        );
-        await ensureIndexExists(
-          "idx_satisfaction_user",
-          `CREATE INDEX IF NOT EXISTS idx_satisfaction_user ON agent_satisfaction_scores (user_id, computed_at)`,
-        );
-        await ensureIndexExists(
-          "idx_evals_run",
-          `CREATE INDEX IF NOT EXISTS idx_evals_run ON agent_evals (run_id)`,
-        );
-        await ensureIndexExists(
-          "idx_evals_created",
-          `CREATE INDEX IF NOT EXISTS idx_evals_created ON agent_evals (created_at)`,
-        );
-        await ensureIndexExists(
-          "idx_evals_user",
-          `CREATE INDEX IF NOT EXISTS idx_evals_user ON agent_evals (user_id, created_at)`,
-        );
-        await ensureIndexExists(
-          "idx_experiment_results_exp",
-          `CREATE INDEX IF NOT EXISTS idx_experiment_results_exp ON agent_experiment_results (experiment_id)`,
-        );
-        return;
-      }
-
-      // SQLite (local dev): no lock problem — keep the original behaviour.
-      await retryOnDdlRace(() => client.execute(traceSpansCreateSql));
-
-      await retryOnDdlRace(() => client.execute(traceSummariesCreateSql));
-
-      await retryOnDdlRace(() => client.execute(feedbackCreateSql));
-
-      await retryOnDdlRace(() => client.execute(satisfactionScoresCreateSql));
-
-      await retryOnDdlRace(() => client.execute(evalsCreateSql));
-
-      await retryOnDdlRace(() => client.execute(evalDatasetsCreateSql));
-
-      await retryOnDdlRace(() => client.execute(experimentsCreateSql));
-
-      // Additive migration for DBs created before the owner column shipped
-      // (any pre-existing rows have NULL owner — see `updateExperiment` for
-      // the migration semantics). Mutations on those rows fall back to the
-      // standard authentication gate but cannot enforce per-owner scoping
-      // until they're re-saved.
-      try {
-        await client.execute(
-          `ALTER TABLE agent_experiments ADD COLUMN owner_email TEXT`,
-        );
-      } catch {
-        // Column already exists — expected after first run.
-      }
-
-      await retryOnDdlRace(() =>
-        client.execute(experimentAssignmentsCreateSql),
+    if (isPostgres()) {
+      // PG guard: probe → guarded DDL → re-probe; skips lock on already-migrated path
+      await ensureTableExists("agent_trace_spans", traceSpansCreateSql);
+      await ensureTableExists("agent_trace_summaries", traceSummariesCreateSql);
+      await ensureTableExists("agent_feedback", feedbackCreateSql);
+      await ensureTableExists(
+        "agent_satisfaction_scores",
+        satisfactionScoresCreateSql,
       );
-
-      await retryOnDdlRace(() => client.execute(experimentResultsCreateSql));
-
-      // Idempotent column upgrades for DBs created before per-user
-      // isolation. SQLite has no `ADD COLUMN IF NOT EXISTS`; Postgres
-      // surfaces "column ... already exists". `isDuplicateColumnError`
-      // (from db/migrations.ts) recognizes both shapes.
+      await ensureTableExists("agent_evals", evalsCreateSql);
+      await ensureTableExists("agent_eval_datasets", evalDatasetsCreateSql);
+      await ensureTableExists("agent_experiments", experimentsCreateSql);
+      await ensureTableExists(
+        "agent_experiment_assignments",
+        experimentAssignmentsCreateSql,
+      );
+      await ensureTableExists(
+        "agent_experiment_results",
+        experimentResultsCreateSql,
+      );
+      await ensureColumnExists(
+        "agent_experiments",
+        "owner_email",
+        `ALTER TABLE agent_experiments ADD COLUMN IF NOT EXISTS owner_email TEXT`,
+      );
       for (const table of USER_SCOPED_TABLES) {
-        try {
-          await client.execute(`ALTER TABLE ${table} ADD COLUMN user_id TEXT`);
-        } catch (err) {
-          if (isDuplicateColumnError(err)) continue;
-          throw err;
-        }
+        await ensureColumnExists(
+          table,
+          "user_id",
+          `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS user_id TEXT`,
+        );
       }
-
-      // Indexes for common query patterns
-      const indexes = [
+      await ensureIndexExists(
+        "idx_trace_spans_run",
         `CREATE INDEX IF NOT EXISTS idx_trace_spans_run ON agent_trace_spans (run_id)`,
+      );
+      await ensureIndexExists(
+        "idx_trace_spans_thread",
         `CREATE INDEX IF NOT EXISTS idx_trace_spans_thread ON agent_trace_spans (thread_id)`,
+      );
+      await ensureIndexExists(
+        "idx_trace_spans_created",
         `CREATE INDEX IF NOT EXISTS idx_trace_spans_created ON agent_trace_spans (created_at)`,
+      );
+      await ensureIndexExists(
+        "idx_trace_summaries_created",
         `CREATE INDEX IF NOT EXISTS idx_trace_summaries_created ON agent_trace_summaries (created_at)`,
+      );
+      await ensureIndexExists(
+        "idx_trace_summaries_user",
         `CREATE INDEX IF NOT EXISTS idx_trace_summaries_user ON agent_trace_summaries (user_id, created_at)`,
+      );
+      await ensureIndexExists(
+        "idx_trace_summaries_thread_user_created",
         `CREATE INDEX IF NOT EXISTS idx_trace_summaries_thread_user_created ON agent_trace_summaries (thread_id, user_id, created_at)`,
+      );
+      await ensureIndexExists(
+        "idx_trace_spans_user",
         `CREATE INDEX IF NOT EXISTS idx_trace_spans_user ON agent_trace_spans (user_id)`,
+      );
+      await ensureIndexExists(
+        "idx_feedback_thread",
         `CREATE INDEX IF NOT EXISTS idx_feedback_thread ON agent_feedback (thread_id)`,
+      );
+      await ensureIndexExists(
+        "idx_feedback_created",
         `CREATE INDEX IF NOT EXISTS idx_feedback_created ON agent_feedback (created_at)`,
+      );
+      await ensureIndexExists(
+        "idx_feedback_user",
         `CREATE INDEX IF NOT EXISTS idx_feedback_user ON agent_feedback (user_id, created_at)`,
+      );
+      await ensureIndexExists(
+        "idx_satisfaction_thread",
         `CREATE INDEX IF NOT EXISTS idx_satisfaction_thread ON agent_satisfaction_scores (thread_id)`,
+      );
+      await ensureIndexExists(
+        "idx_satisfaction_user",
         `CREATE INDEX IF NOT EXISTS idx_satisfaction_user ON agent_satisfaction_scores (user_id, computed_at)`,
+      );
+      await ensureIndexExists(
+        "idx_evals_run",
         `CREATE INDEX IF NOT EXISTS idx_evals_run ON agent_evals (run_id)`,
+      );
+      await ensureIndexExists(
+        "idx_evals_created",
         `CREATE INDEX IF NOT EXISTS idx_evals_created ON agent_evals (created_at)`,
+      );
+      await ensureIndexExists(
+        "idx_evals_user",
         `CREATE INDEX IF NOT EXISTS idx_evals_user ON agent_evals (user_id, created_at)`,
+      );
+      await ensureIndexExists(
+        "idx_experiment_results_exp",
         `CREATE INDEX IF NOT EXISTS idx_experiment_results_exp ON agent_experiment_results (experiment_id)`,
-      ];
-      for (const sql of indexes) {
-        try {
-          await client.execute(sql);
-        } catch {
-          // Index might already exist
-        }
+      );
+      return;
+    }
+
+    // SQLite (local dev): no lock problem — keep the original behaviour.
+    await retryOnDdlRace(() => client.execute(traceSpansCreateSql));
+
+    await retryOnDdlRace(() => client.execute(traceSummariesCreateSql));
+
+    await retryOnDdlRace(() => client.execute(feedbackCreateSql));
+
+    await retryOnDdlRace(() => client.execute(satisfactionScoresCreateSql));
+
+    await retryOnDdlRace(() => client.execute(evalsCreateSql));
+
+    await retryOnDdlRace(() => client.execute(evalDatasetsCreateSql));
+
+    await retryOnDdlRace(() => client.execute(experimentsCreateSql));
+
+    // Additive migration for DBs created before the owner column shipped
+    // (any pre-existing rows have NULL owner — see `updateExperiment` for
+    // the migration semantics). Mutations on those rows fall back to the
+    // standard authentication gate but cannot enforce per-owner scoping
+    // until they're re-saved.
+    try {
+      await client.execute(
+        `ALTER TABLE agent_experiments ADD COLUMN owner_email TEXT`,
+      );
+    } catch {
+      // coercion-ok: pre-existing idempotent DDL swallow; only reindented here.
+      // Column already exists — expected after first run.
+    }
+
+    await retryOnDdlRace(() => client.execute(experimentAssignmentsCreateSql));
+
+    await retryOnDdlRace(() => client.execute(experimentResultsCreateSql));
+
+    // Idempotent column upgrades for DBs created before per-user
+    // isolation. SQLite has no `ADD COLUMN IF NOT EXISTS`; Postgres
+    // surfaces "column ... already exists". `isDuplicateColumnError`
+    // (from db/migrations.ts) recognizes both shapes.
+    for (const table of USER_SCOPED_TABLES) {
+      try {
+        await client.execute(`ALTER TABLE ${table} ADD COLUMN user_id TEXT`);
+      } catch (err) {
+        if (isDuplicateColumnError(err)) continue;
+        throw err;
       }
-    })().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
-}
+    }
+
+    // Indexes for common query patterns
+    const indexes = [
+      `CREATE INDEX IF NOT EXISTS idx_trace_spans_run ON agent_trace_spans (run_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_trace_spans_thread ON agent_trace_spans (thread_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_trace_spans_created ON agent_trace_spans (created_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_trace_summaries_created ON agent_trace_summaries (created_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_trace_summaries_user ON agent_trace_summaries (user_id, created_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_trace_summaries_thread_user_created ON agent_trace_summaries (thread_id, user_id, created_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_trace_spans_user ON agent_trace_spans (user_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_feedback_thread ON agent_feedback (thread_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_feedback_created ON agent_feedback (created_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_feedback_user ON agent_feedback (user_id, created_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_satisfaction_thread ON agent_satisfaction_scores (thread_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_satisfaction_user ON agent_satisfaction_scores (user_id, computed_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_evals_run ON agent_evals (run_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_evals_created ON agent_evals (created_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_evals_user ON agent_evals (user_id, created_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_experiment_results_exp ON agent_experiment_results (experiment_id)`,
+    ];
+    for (const sql of indexes) {
+      try {
+        await client.execute(sql);
+      } catch {
+        // coercion-ok: pre-existing idempotent DDL swallow; only reindented here.
+        // Index might already exist
+      }
+    }
+  },
+);
 
 // ─── Trace span CRUD ─────────────────────────────────────────────────
 

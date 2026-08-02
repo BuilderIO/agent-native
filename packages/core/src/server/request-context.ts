@@ -293,6 +293,17 @@ export function getRequestContext(): RequestContext | undefined {
 }
 
 /**
+ * The active context object as an opaque identity token, without recording an
+ * auth-context access. Use this when all you need is "which invocation am I
+ * in" — `getRequestContext` marks the request as auth-dependent, and that flag
+ * feeds decisions (SSR cache shell, ambient-identity warnings) that a memo key
+ * has no business influencing.
+ */
+export function peekRequestScope(): object | undefined {
+  return als.getStore();
+}
+
+/**
  * True when AsyncLocalStorage has an active context for this call chain.
  * Useful for helpers that support both HTTP requests and standalone CLI runs.
  */
