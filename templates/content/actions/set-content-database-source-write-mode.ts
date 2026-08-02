@@ -121,6 +121,6 @@ export default defineAction({
         "Builder source settings changed repeatedly while saving write mode.",
     });
 
-    return getContentDatabaseResponse(database.id);
+    return getContentDatabaseResponse(database.id, { limit: 100, offset: 0 });
   },
 });

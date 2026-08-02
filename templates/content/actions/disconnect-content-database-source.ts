@@ -71,7 +71,7 @@ export default defineAction({
           ),
         );
       if (target) await deleteSourceRecords(target.id);
-      return getContentDatabaseResponse(database.id);
+      return getContentDatabaseResponse(database.id, { limit: 100, offset: 0 });
     }
 
     const source = await getExistingSource(database.id);
@@ -79,6 +79,6 @@ export default defineAction({
       await deleteSourceRecords(source.id);
     }
 
-    return getContentDatabaseResponse(database.id);
+    return getContentDatabaseResponse(database.id, { limit: 100, offset: 0 });
   },
 });

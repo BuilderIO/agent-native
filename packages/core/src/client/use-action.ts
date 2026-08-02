@@ -207,6 +207,12 @@ function appendActionQueryParam(
     }
     return;
   }
+  if (typeof value === "object") {
+    // defineAction restores JSON strings when the schema expects an object.
+    // Preserve nested GET params instead of collapsing them to "[object Object]".
+    qs.append(key, JSON.stringify(value));
+    return;
+  }
   qs.append(key, String(value));
 }
 
