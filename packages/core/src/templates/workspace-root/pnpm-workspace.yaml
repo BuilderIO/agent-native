@@ -13,7 +13,7 @@ overrides:
   # together, never per app.
   "@types/node": "^25.8.0"
   esbuild: "^0.28.1"
-  srvx: "^0.11.17"
+  srvx: "^0.12.4"
   zod: "^4.4.3"
 
 onlyBuiltDependencies:

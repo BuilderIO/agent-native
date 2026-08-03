@@ -130,6 +130,11 @@ function deckCallCount(fetchMock: ReturnType<typeof setupFetch>["fetchMock"]) {
   ).length;
 }
 
+async function lastEventSource(): Promise<MockEventSource> {
+  await waitFor(() => expect(MockEventSource.lastInstance).not.toBeNull());
+  return MockEventSource.lastInstance!;
+}
+
 describe("DeckContext optimistic create", () => {
   beforeEach(() => {
     _resetSyncTransportRegistryForTests();
@@ -160,8 +165,8 @@ describe("DeckContext optimistic create", () => {
     // A list refresh starts while the user still has zero decks (here via the
     // SSE reconnect resync; the fallback poll issues the same request).
     api.holdNextList();
+    const source = await lastEventSource();
     act(() => {
-      const source = MockEventSource.lastInstance!;
       source.simulateOpen();
       source.simulateOpen();
     });
@@ -228,6 +233,7 @@ describe("DeckContext optimistic create", () => {
 
 describe("DeckContext fallback polling", () => {
   beforeEach(() => {
+    _resetSyncTransportRegistryForTests();
     // Fake timers must be installed BEFORE the provider mounts, otherwise the
     // poll's first setTimeout is a real timer that advanceTimersByTime cannot
     // move. `shouldAdvanceTime` keeps `waitFor` usable.
@@ -238,6 +244,7 @@ describe("DeckContext fallback polling", () => {
   });
 
   afterEach(() => {
+    _resetSyncTransportRegistryForTests();
     vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
@@ -260,8 +267,9 @@ describe("DeckContext fallback polling", () => {
     const { result } = renderHook(() => useDecks(), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
 
+    const source = await lastEventSource();
     act(() => {
-      MockEventSource.lastInstance!.simulateOpen();
+      source.simulateOpen();
     });
 
     const listBefore = listCallCount(api.fetchMock);
@@ -291,8 +299,9 @@ describe("DeckContext fallback polling", () => {
     const { result } = renderHook(() => useDecks(), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
 
+    const source = await lastEventSource();
     act(() => {
-      MockEventSource.lastInstance!.simulateOpen();
+      source.simulateOpen();
     });
 
     await act(async () => {
@@ -301,7 +310,7 @@ describe("DeckContext fallback polling", () => {
     const deckBefore = deckCallCount(api.fetchMock);
 
     act(() => {
-      MockEventSource.lastInstance!.simulateFatalError();
+      source.simulateFatalError();
     });
     // Losing the live channel must resume fast polling immediately rather than
     // waiting out the idle interval.
