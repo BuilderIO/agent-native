@@ -861,7 +861,11 @@ function findScriptDefect(
     parseJavaScript(source, {
       ecmaVersion: "latest",
       sourceType,
-      allowReturnOutsideFunction: sourceType === "script",
+      // A <script> body is a Program, not a function body: a browser rejects a
+      // top-level `return` with "Illegal return statement" and never runs the
+      // element. Alpine expressions are the opposite case — Alpine compiles them
+      // inside a function — which is why the expression parser allows it.
+      allowReturnOutsideFunction: false,
       allowAwaitOutsideFunction: sourceType === "module",
       allowHashBang: true,
     });

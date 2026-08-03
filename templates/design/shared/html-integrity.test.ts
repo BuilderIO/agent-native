@@ -615,6 +615,28 @@ describe("Design HTML structural integrity", () => {
     ).not.toThrow();
   });
 
+  it("rejects a top-level return in a classic script", () => {
+    // A <script> body is a Program, so the browser refuses it with "Illegal
+    // return statement" and the element never runs.
+    expect(() =>
+      assertDesignHtmlWellFormed({
+        content: `<div><script>return; initUi()</script></div>`,
+      }),
+    ).toThrow(DESIGN_HTML_INTEGRITY_ERROR_CODE);
+  });
+
+  it.each([
+    ["inside a function", `<script>function go(){ return 1; } go();</script>`],
+    [
+      "an Alpine handler, which Alpine compiles inside a function",
+      `<button @click="doThing(); return"></button>`,
+    ],
+  ])("still accepts a return %s", (_label, markup) => {
+    expect(() =>
+      assertDesignHtmlWellFormed({ content: `<div>${markup}</div>` }),
+    ).not.toThrow();
+  });
+
   it.each([
     ["nested inline elements", "<div><span>x"],
     ["block inside block", "<section><article>x"],
