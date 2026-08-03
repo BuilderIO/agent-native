@@ -28,6 +28,10 @@ const messages = {
   settings: {
     title: "Settings",
     description: "Language and workspace preferences for this app.",
+    emailNotifications: "Email notifications",
+    emailNotificationsDescription:
+      "Get an email when someone comments on or replies in your deck.",
+    saveFailed: "Failed to save",
     languageTitle: "Language",
     languageDescription:
       "Choose the interface language. This preference is saved for your account.",

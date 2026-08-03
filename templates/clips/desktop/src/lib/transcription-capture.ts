@@ -19,7 +19,10 @@ import {
   startTranscriptionEngine,
   stopTranscriptionEngine,
   TranscriptionEngine,
+  transcriptFullText,
+  transcriptSegments,
   type SourcedTranscriptSegment,
+  type TranscriptLine,
 } from "./transcription-engine";
 
 /** Grace period after stop for whisper to emit any flushed trailing finals. */
@@ -307,8 +310,7 @@ export async function startTranscriptionCapture(
     voiceProcessing?: boolean;
   },
 ): Promise<TranscriptionCapture | null> {
-  const lines: string[] = [];
-  const segments: SourcedTranscriptSegment[] = [];
+  const lines: TranscriptLine[] = [];
   let disposed = false;
   let paused = false;
   let desiredPaused = false;
@@ -331,8 +333,8 @@ export async function startTranscriptionCapture(
   };
 
   const captured = (): CapturedTranscript => ({
-    text: lines.join("\n\n").trim(),
-    segments,
+    text: transcriptFullText(lines),
+    segments: transcriptSegments(lines),
   });
 
   let engine: TranscriptionEngine;
@@ -340,7 +342,7 @@ export async function startTranscriptionCapture(
     unlistens.push(
       await onFinalTranscript((event) => {
         if (disposed) return;
-        appendFinalTranscript(event, lines, segments);
+        appendFinalTranscript(event, lines);
       }),
     );
 

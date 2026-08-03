@@ -3,6 +3,8 @@ import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
 import { TeamPage } from "@agent-native/core/client/org";
 import {
   AccountSettingsCard,
+  SettingsGroup,
+  SettingsRow,
   SettingsTabsPage,
   useAgentSettingsTabs,
   type SettingsTabItem,
@@ -68,47 +70,41 @@ export default function Settings() {
       generalSearchEntries={generalSearchEntries}
       general={
         <div className="mx-auto w-full max-w-2xl space-y-6">
-          <Card
-            id="credentials"
-            className="bg-card border-border/50 scroll-mt-16"
-          >
-            <CardHeader>
-              <CardTitle className="text-base">
-                {t("settings.credentials")}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground mb-3">
-                {t("settings.credentialsDescription")}
-              </p>
-              <Button variant="outline" size="sm" asChild>
-                <Link to="/data-sources">
-                  {t("settings.manageDataSources")}
-                </Link>
-              </Button>
-            </CardContent>
-          </Card>
-
-          <Card
-            id="dashboard-templates"
-            className="bg-card border-border/50 scroll-mt-16"
-          >
-            <CardHeader>
-              <CardTitle className="text-base">
-                {t("settings.dashboardTemplates")}
-              </CardTitle>
-              <CardDescription>
-                {t("settings.dashboardTemplatesDescription")}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button variant="outline" size="sm" asChild>
-                <Link to="/catalog">
-                  {t("settings.openDashboardTemplates")}
-                </Link>
-              </Button>
-            </CardContent>
-          </Card>
+          <SettingsGroup className="bg-card border-border/50">
+            <SettingsRow
+              id="credentials"
+              label={t("settings.credentials")}
+              description={t("settings.credentialsDescription")}
+              control={
+                <Button variant="outline" size="sm" asChild>
+                  <Link to="/data-sources">
+                    {t("settings.manageDataSources")}
+                  </Link>
+                </Button>
+              }
+            />
+            <SettingsRow
+              id="dashboard-templates"
+              label={t("settings.dashboardTemplates")}
+              description={t("settings.dashboardTemplatesDescription")}
+              control={
+                <Button variant="outline" size="sm" asChild>
+                  <Link to="/catalog">
+                    {t("settings.openDashboardTemplates")}
+                  </Link>
+                </Button>
+              }
+            />
+            <SettingsRow
+              id="language"
+              label={t("settings.languageTitle")}
+              control={
+                <div className="w-56">
+                  <LanguagePicker label={t("settings.languageLabel")} />
+                </div>
+              }
+            />
+          </SettingsGroup>
 
           {replayStorageStatus.data?.configured ? (
             <Card
@@ -128,18 +124,6 @@ export default function Settings() {
               </CardContent>
             </Card>
           ) : null}
-
-          <Card id="language" className="bg-card border-border/50 scroll-mt-16">
-            <CardHeader>
-              <CardTitle className="text-base">
-                {t("settings.languageTitle")}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="max-w-xs space-y-1.5">
-              <Label>{t("settings.languageLabel")}</Label>
-              <LanguagePicker label={t("settings.languageLabel")} />
-            </CardContent>
-          </Card>
 
           <Card id="about" className="bg-card border-border/50 scroll-mt-16">
             <CardHeader>

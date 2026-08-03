@@ -105,7 +105,7 @@ export default defineAction({
         .update(schema.contentDatabaseSources)
         .set({ updatedAt: now })
         .where(eq(schema.contentDatabaseSources.id, source.id));
-      return getContentDatabaseResponse(database.id);
+      return getContentDatabaseResponse(database.id, { limit: 100, offset: 0 });
     }
 
     // ── Bind to an existing column ─────────────────────────────────────────
@@ -261,6 +261,6 @@ export default defineAction({
       }
     }
 
-    return getContentDatabaseResponse(database.id);
+    return getContentDatabaseResponse(database.id, { limit: 100, offset: 0 });
   },
 });

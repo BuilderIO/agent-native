@@ -89,6 +89,31 @@ Set an env var and the provider auto-registers at server startup. No code change
 
 Multiple providers can be active simultaneously. Every event goes to all of them.
 
+## PostHog error tracking {#posthog-error-tracking}
+
+With `POSTHOG_API_KEY` set, PostHog also receives server exceptions — no Sentry
+DSN required. Server errors are captured automatically from the framework's
+route error hook and attributed to the signed-in user, with production-tuned
+noise filtering (expected 4xx responses, permission rejections, and serverless
+socket churn are dropped rather than reported).
+
+| Env var                  | Purpose                                                             |
+| ------------------------ | ------------------------------------------------------------------- |
+| `POSTHOG_ERROR_TRACKING` | Set to `false` to keep analytics but send exceptions somewhere else |
+| `POSTHOG_PUBLIC_KEY`     | Enables browser exception capture (also read as `VITE_POSTHOG_KEY`) |
+| `POSTHOG_PUBLIC_HOST`    | Browser ingest host (defaults to `POSTHOG_HOST`)                    |
+
+`POSTHOG_PUBLIC_KEY` is separate from `POSTHOG_API_KEY` on purpose: the public
+key is inlined into the HTML served to every visitor, so the server key is never
+used as a fallback for it.
+
+<Callout tone="info">
+  PostHog does not symbolicate stack traces without uploaded source maps, so
+  **minified browser stacks stay minified**. Server-side stacks are unaffected.
+  If you need symbolicated browser traces today, keep Sentry configured
+  alongside PostHog — both receive every captured error.
+</Callout>
+
 ## API {#api}
 
 ### `track(name, properties?, meta?)` {#track}

@@ -3,6 +3,8 @@ import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
 import { TeamPage } from "@agent-native/core/client/org";
 import {
   AccountSettingsCard,
+  SettingsGroup,
+  SettingsRow,
   SettingsTabsPage,
   useAgentSettingsTabs,
   type SettingsSearchEntry,
@@ -10,8 +12,10 @@ import {
 import { CreativeContextSettingsLink } from "@agent-native/creative-context/client";
 import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
 import { useMemo } from "react";
+import { toast } from "sonner";
 
-import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { useContentPrefs } from "@/hooks/use-content-prefs";
 import { messagesByLocale } from "@/i18n-data";
 
 import changelog from "../../CHANGELOG.md?raw";
@@ -24,6 +28,7 @@ export default function SettingsRoute() {
   const t = useT();
   const agentSettingsTabs = useAgentSettingsTabs();
   useSetPageTitle(t("settings.title"));
+  const { prefs, loading: prefsLoading, save: savePrefs } = useContentPrefs();
 
   const generalSearchEntries = useMemo<SettingsSearchEntry[]>(
     () => [
@@ -32,6 +37,12 @@ export default function SettingsRoute() {
         label: t("settings.languageTitle"),
         keywords: "language locale translation i18n",
         hash: "language",
+      },
+      {
+        id: "content-notifications",
+        label: t("settings.emailNotifications"),
+        keywords: "email notifications comments replies mentions alerts",
+        hash: "notifications",
       },
     ],
     [t],
@@ -52,23 +63,41 @@ export default function SettingsRoute() {
 
             <CreativeContextSettingsLink />
 
-            <section
-              id="language"
-              className="scroll-mt-16 rounded-lg border border-border bg-card p-5"
-            >
-              <div className="space-y-1">
-                <h2 className="text-base font-semibold">
-                  {t("settings.languageTitle")}
-                </h2>
-                <p className="text-sm leading-6 text-muted-foreground">
-                  {t("settings.languageDescription")}
-                </p>
-              </div>
-              <div className="mt-4 max-w-xs space-y-1.5">
-                <Label>{t("settings.languageLabel")}</Label>
-                <LanguagePicker label={t("settings.languageLabel")} />
-              </div>
-            </section>
+            <SettingsGroup>
+              <SettingsRow
+                id="language"
+                label={t("settings.languageTitle")}
+                description={t("settings.languageDescription")}
+                control={
+                  <div className="w-56">
+                    <LanguagePicker label={t("settings.languageLabel")} />
+                  </div>
+                }
+              />
+              <SettingsRow
+                id="notifications"
+                label={t("settings.emailNotifications")}
+                description={t("settings.emailNotificationsDescription")}
+                control={
+                  <Switch
+                    aria-label={t("settings.emailNotifications")}
+                    checked={prefs.emailNotifications !== false}
+                    disabled={prefsLoading}
+                    onCheckedChange={(checked) => {
+                      savePrefs({ emailNotifications: checked }).catch(
+                        (err) => {
+                          toast.error(
+                            err instanceof Error
+                              ? err.message
+                              : t("settings.saveFailed"),
+                          );
+                        },
+                      );
+                    }}
+                  />
+                }
+              />
+            </SettingsGroup>
           </main>
         }
         team={

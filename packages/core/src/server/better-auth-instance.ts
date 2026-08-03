@@ -1069,11 +1069,11 @@ async function createBetterAuthInstance(
           ""
         ).replace(/\/$/, "");
         const resetUrl = `${appUrl}${appBasePath}/_agent-native/auth/reset?token=${encodeURIComponent(token)}`;
-        const { subject, html, text } = renderResetPasswordEmail({
+        const { subject, html, text, appSender } = renderResetPasswordEmail({
           email: user.email,
           resetUrl,
         });
-        await sendEmail({ to: user.email, subject, html, text });
+        await sendEmail({ to: user.email, subject, html, text, appSender });
       },
     },
     emailVerification: {
@@ -1095,11 +1095,11 @@ async function createBetterAuthInstance(
         const verifyUrl = verifyBasePath
           ? url.replace(/(\/\/[^/]+)(\/)/, `$1${verifyBasePath}$2`)
           : url;
-        const { subject, html, text } = renderVerifySignupEmail({
+        const { subject, html, text, appSender } = renderVerifySignupEmail({
           email: user.email,
           verifyUrl,
         });
-        await sendEmail({ to: user.email, subject, html, text });
+        await sendEmail({ to: user.email, subject, html, text, appSender });
       },
     },
     socialProviders,

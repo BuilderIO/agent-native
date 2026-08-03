@@ -155,7 +155,7 @@ export default defineAction({
       timing.record("gate_preparation_and_dry_run_validation", gateStartedAt);
 
       const response = await timing.measure("response_load", () =>
-        getContentDatabaseResponse(database.id),
+        getContentDatabaseResponse(database.id, { limit: 100, offset: 0 }),
       );
       const result = { ...response, timings: timing.finish() };
       timing.log("succeeded");

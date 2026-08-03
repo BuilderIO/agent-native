@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.132.2",
+  "version": "0.135.3",
   "description": "Framework for agent-native application development — where AI agents and UI share SQL state, actions, and context",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -63,6 +63,7 @@
       "default": "./dist/index.js"
     },
     "./vite": "./dist/vite/index.js",
+    "./vitest-config": "./dist/vitest-config.js",
     "./server": "./dist/server/index.js",
     "./server/edge": "./dist/server/edge.js",
     "./server/entry-server": "./dist/server/entry-server.js",
@@ -330,7 +331,7 @@
     "build": "tsc && tsc -p tsconfig.cli.json && node scripts/finalize-build.mjs && node scripts/check-dist-imports.mjs",
     "dev": "tsc --watch",
     "typecheck": "tsc --noEmit",
-    "test": "vitest --run --dir src --maxWorkers=25%",
+    "test": "vitest --run --dir src",
     "prepack": "tsx ../../scripts/sync-core-first-party-templates.ts && tsx ../../scripts/sync-workspace-core-skills.ts --check && npm run build && cp ../../README.md ./README.md",
     "postpack": "tsx ../../scripts/sync-core-first-party-templates.ts --clean",
     "prepublishOnly": "npm run build"

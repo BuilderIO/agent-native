@@ -35,6 +35,12 @@ export {
 } from "./useBuilderStatus.js";
 export { SecretsSection, type SecretsSectionProps } from "./SecretsSection.js";
 export {
+  SettingsGroup,
+  SettingsRow,
+  type SettingsGroupProps,
+  type SettingsRowProps,
+} from "./SettingsRow.js";
+export {
   normalizeSettingsSection,
   settingsSectionDomId,
   useSettingsPanelController,

@@ -560,17 +560,28 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       renderRuntimeInteractionStatePreviews();
     }
-    function runtimeHeadHtmlWithoutEditorChrome() {
-      if (!document.head) return "";
-      var clone = document.head.cloneNode(true);
-      Array.prototype.slice.call(
-        clone.querySelectorAll(
-          "[data-agent-native-editor-chrome-style], [data-agent-native-editing-safety-style]"
-        )
-      ).forEach(function(node) {
+    var lastSourceHeadHtml = null;
+    function replaceSourceHeadNodes(previousSourceHtml, nextSourceHtml) {
+      if (!document.head) return;
+      var stale = document.createElement("head");
+      stale.innerHTML = previousSourceHtml || "";
+      var staleCounts = {};
+      Array.prototype.forEach.call(stale.children, function(node) {
+        var key = node.outerHTML;
+        staleCounts[key] = (staleCounts[key] || 0) + 1;
+      });
+      Array.prototype.slice.call(document.head.children).forEach(function(node) {
+        var key = node.outerHTML;
+        if (!staleCounts[key]) return;
+        staleCounts[key] -= 1;
         if (node.parentNode) node.parentNode.removeChild(node);
       });
-      return clone.innerHTML;
+      var next = document.createElement("head");
+      next.innerHTML = nextSourceHtml || "";
+      var anchor = document.head.firstChild;
+      Array.prototype.slice.call(next.children).forEach(function(node) {
+        document.head.insertBefore(document.importNode(node, true), anchor);
+      });
     }
     function chromeScaleX() {
       return 1 / Math.max(0.05, editorChromeScaleX);
@@ -2536,7 +2547,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       var nextHeadHtml = nextDoc.head ? nextDoc.head.innerHTML : "";
       ensureEditorChromeStyle();
-      var currentHeadHtml = runtimeHeadHtmlWithoutEditorChrome();
+      if (lastSourceHeadHtml === null) {
+        lastSourceHeadHtml = nextHeadHtml;
+      }
+      var currentHeadHtml = lastSourceHeadHtml;
       if (nextHeadHtml === currentHeadHtml && activeCandidates.length > 0) {
         var currentMatch = null;
         var nextMatch = null;
@@ -2598,8 +2612,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
       }
       if (currentHeadHtml !== nextHeadHtml) {
-        document.head.innerHTML = nextHeadHtml;
+        replaceSourceHeadNodes(currentHeadHtml, nextHeadHtml);
         ensureEditorChromeStyle();
+        lastSourceHeadHtml = nextHeadHtml;
       }
       Array.prototype.slice.call(document.body.attributes).forEach(function(attribute) {
         document.body.removeAttribute(attribute.name);

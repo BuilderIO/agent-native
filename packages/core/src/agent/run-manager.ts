@@ -735,6 +735,7 @@ export function startRun(
   ) => {
     captureError(error, {
       route: "/_agent-native/agent-chat",
+      aiTraceId: runId,
       tags: {
         source: "agent-run-manager",
         phase,
@@ -1022,6 +1023,7 @@ export function startRun(
               phase: "abort-check",
               consecutiveFailures: String(consecutiveAbortCheckFailures),
             },
+            aiTraceId: runId,
             extra: { runId, threadId },
           });
           if (!abort.signal.aborted) {
@@ -1065,6 +1067,7 @@ export function startRun(
                 phase: "heartbeat",
                 consecutiveFailures: String(consecutiveHeartbeatFailures),
               },
+              aiTraceId: runId,
               extra: { runId, threadId },
             });
           }
@@ -1108,6 +1111,7 @@ export function startRun(
     const errorCode = getRunErrorCode(error);
     captureError(error, {
       route: "/_agent-native/agent-chat",
+      aiTraceId: runId,
       tags: {
         source: "agent-run-manager",
         phase,
@@ -1686,6 +1690,7 @@ function subscribeFromSQL(
         };
         captureError(error, {
           route: "/_agent-native/agent-chat/runs/:id/events",
+          aiTraceId: runId,
           tags: {
             source: "agent-run-manager",
             phase: "sql-subscription-poll",
@@ -2313,6 +2318,7 @@ export async function abortRunDurably(
     // the request report the abort it did complete.
     captureError(error, {
       route: "/_agent-native/agent-chat/runs/:id/abort",
+      aiTraceId: runId,
       tags: {
         source: "agent-run-manager",
         phase: "abort-run",
@@ -2356,6 +2362,7 @@ export async function abortTurnDurably(
     // visible rather than silent.
     captureError(error, {
       route: "/_agent-native/agent-chat/runs/:id/abort",
+      aiTraceId: runId,
       tags: { source: "agent-run-manager", phase: "abort-turn" },
       extra: { runId, reason, ...ref },
     });

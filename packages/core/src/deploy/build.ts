@@ -1158,6 +1158,39 @@ function getSentryClientConfigScript() {
   );
 }
 
+function getPostHogClientConfigScript() {
+  // MUST stay consistent with resolvePublicPostHogConfig in
+  // server/posthog-config.ts (worker bundles a string copy; it can't import it).
+  // Never falls back to POSTHOG_API_KEY — that key can be a private one and
+  // this string is inlined into the public, CDN-cached HTML shell.
+  const env = globalThis.process?.env || {};
+  const posthogKey = firstNonEmpty(
+    env.POSTHOG_PUBLIC_KEY,
+    env.VITE_POSTHOG_KEY,
+    env.VITE_POSTHOG_PUBLIC_KEY,
+  );
+  if (!posthogKey) return null;
+  const posthogHost = (
+    firstNonEmpty(
+      env.POSTHOG_PUBLIC_HOST,
+      env.VITE_POSTHOG_HOST,
+      env.POSTHOG_HOST,
+    ) || "https://us.i.posthog.com"
+  ).replace(/\\/+$/, "");
+  const config = {
+    posthogKey,
+    posthogHost,
+    posthogErrorTracking:
+      (env.POSTHOG_ERROR_TRACKING || "").trim().toLowerCase() !== "false",
+  };
+  return (
+    '<script data-agent-native-posthog-config>' +
+    'window.__AGENT_NATIVE_CONFIG__=Object.assign({},window.__AGENT_NATIVE_CONFIG__,' +
+    JSON.stringify(config) +
+    ");</script>"
+  );
+}
+
 function getRealtimeClientConfigScript() {
   // MUST stay byte-for-byte consistent with resolveRealtimeClientConfig in
   // server/sentry-config.ts (worker bundles a string copy; it can't import it).
@@ -1331,7 +1364,11 @@ function applyImmutableAssetCacheHeaders(response, request) {
 
 async function rewriteMountedResponse(response, basePath, pathname, request) {
   const clientConfigScript =
-    [getSentryClientConfigScript(), getRealtimeClientConfigScript()]
+    [
+      getSentryClientConfigScript(),
+      getPostHogClientConfigScript(),
+      getRealtimeClientConfigScript(),
+    ]
       .filter(Boolean)
       .join("") || null;
   const headers = new Headers(response.headers);

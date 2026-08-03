@@ -101,3 +101,5 @@ export {
 } from "./app-roles-handlers.js";
 
 export { isFreeEmailProvider } from "./free-email-providers.js";
+
+export { isOrgMember } from "./membership.js";

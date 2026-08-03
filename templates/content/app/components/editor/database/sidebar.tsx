@@ -21,16 +21,7 @@ import {
 import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
 import { Link } from "react-router";
 
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { documentSidebarActionAvailability } from "@/components/sidebar/document-sidebar-actions";
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
@@ -727,15 +718,12 @@ function DatabaseSidebarRow({
   };
 }) {
   const t = useT();
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const canEdit = item.document.canEdit !== false;
-  const canManage =
-    item.document.canManage === true ||
-    item.document.accessRole === "owner" ||
-    item.document.accessRole === "admin";
+  const { canEdit, canManage, canFavorite, hasMenuActions } =
+    documentSidebarActionAvailability(item.document, {
+      favoriteAvailable: Boolean(onToggleFavorite),
+      manageAvailable: Boolean(onDeleteItem),
+    });
   const canCreateChild = canEdit && Boolean(onCreateChildPage);
-  const hasMenuActions =
-    Boolean(onToggleFavorite) || (canManage && Boolean(onDeleteItem));
   function handleClick(event: MouseEvent<HTMLAnchorElement>) {
     if (
       event.defaultPrevented ||
@@ -839,7 +827,7 @@ function DatabaseSidebarRow({
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-48">
-                  {onToggleFavorite ? (
+                  {canFavorite && onToggleFavorite ? (
                     <DropdownMenuItem onSelect={() => onToggleFavorite(item)}>
                       <IconStar
                         className={cn(
@@ -852,13 +840,16 @@ function DatabaseSidebarRow({
                         : t("sidebar.pinToSidebar")}
                     </DropdownMenuItem>
                   ) : null}
-                  {onToggleFavorite && canManage && onDeleteItem ? (
+                  {canFavorite &&
+                  onToggleFavorite &&
+                  canManage &&
+                  onDeleteItem ? (
                     <DropdownMenuSeparator />
                   ) : null}
                   {canManage && onDeleteItem ? (
                     <DropdownMenuItem
                       className="text-destructive focus:text-destructive"
-                      onSelect={() => setDeleteDialogOpen(true)}
+                      onSelect={() => onDeleteItem(item)}
                     >
                       <IconTrash className="me-2 size-4" />
                       {t("database.delete")}
@@ -868,7 +859,7 @@ function DatabaseSidebarRow({
               </DropdownMenu>
             )}
 
-            {canCreateChild && (
+            {canCreateChild ? (
               <DropdownMenu>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -877,6 +868,7 @@ function DatabaseSidebarRow({
                         type="button"
                         className="flex size-6 items-center justify-center rounded text-foreground hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         aria-label={t("sidebar.addChildTo", { title })}
+                        data-sidebar-add-child
                       >
                         <IconPlus size={14} />
                       </button>
@@ -899,32 +891,20 @@ function DatabaseSidebarRow({
                   ) : null}
                 </DropdownMenuContent>
               </DropdownMenu>
+            ) : (
+              <button
+                type="button"
+                className="flex size-6 cursor-not-allowed items-center justify-center rounded text-muted-foreground/50"
+                aria-label={t("sidebar.addChildTo", { title })}
+                data-sidebar-add-child
+                disabled
+              >
+                <IconPlus size={14} />
+              </button>
             )}
           </div>
         )}
       </div>
-
-      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {t("sidebar.deletePageQuestion")}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {t("sidebar.deletePageDescription", { title })}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t("comments.cancel")}</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={() => onDeleteItem?.(item)}
-            >
-              {t("database.delete")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </>
   );
 }

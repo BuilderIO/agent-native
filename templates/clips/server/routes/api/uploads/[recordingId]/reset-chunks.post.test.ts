@@ -1,16 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockWriteAppState = vi.hoisted(() => vi.fn());
-const mockDeleteAppStateByPrefix = vi.hoisted(() => vi.fn());
+const mockReadAppState = vi.hoisted(() => vi.fn());
+const mockCompareAndSetAppState = vi.hoisted(() => vi.fn());
+const mockDeleteRecordingChunks = vi.hoisted(() => vi.fn());
 const mockGetActiveFileUploadProviderForRequest = vi.hoisted(() => vi.fn());
 const mockGetRouterParam = vi.hoisted(() => vi.fn());
 const mockReadBody = vi.hoisted(() => vi.fn());
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
+const mockIsFeatureFlagEnabled = vi.hoisted(() => vi.fn());
 const mockGetEventOwnerContext = vi.hoisted(() => vi.fn());
 const mockOwnerEmailMatches = vi.hoisted(() => vi.fn());
 const mockDeleteResumableSession = vi.hoisted(() => vi.fn());
 const mockSetResumableSession = vi.hoisted(() => vi.fn());
 const mockStartSession = vi.hoisted(() => vi.fn());
+const mockAbortSession = vi.hoisted(() => vi.fn());
+const mockRenewUploadLease = vi.hoisted(() => vi.fn());
 const mockShouldEnableStreamingUpload = vi.hoisted(() => vi.fn());
 const mockAllowsSqlRecordingChunkScratch = vi.hoisted(() => vi.fn());
 const mockIsMediaVerificationPending = vi.hoisted(() => vi.fn());
@@ -20,6 +25,8 @@ const mockExistingRecording = vi.hoisted(() => ({
     id: "rec-1",
     status: "uploading",
     videoUrl: null as string | null,
+    uploadAttemptId: null as string | null,
+    uploadGenerationId: null as string | null,
   },
 }));
 const mockDb = vi.hoisted(() => ({
@@ -30,23 +37,34 @@ const mockDb = vi.hoisted(() => ({
     };
     return builder;
   }),
-  update: vi.fn(() => ({
-    set: vi.fn((values: Record<string, unknown>) => {
-      mockUpdateSets.push(values);
-      return { where: vi.fn(async () => undefined) };
-    }),
-  })),
+  update: vi.fn(() => {
+    const builder = {
+      set: vi.fn((values: Record<string, unknown>) => {
+        mockUpdateSets.push(values);
+        return builder;
+      }),
+      where: vi.fn(() => builder),
+      returning: vi.fn(async () => [{ id: "rec-1" }]),
+    };
+    return builder;
+  }),
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
+  compareAndSetAppState: (...args: unknown[]) =>
+    mockCompareAndSetAppState(...args),
+  readAppState: (...args: unknown[]) => mockReadAppState(...args),
   writeAppState: (...args: unknown[]) => mockWriteAppState(...args),
-  deleteAppStateByPrefix: (...args: unknown[]) =>
-    mockDeleteAppStateByPrefix(...args),
 }));
 
 vi.mock("@agent-native/core/file-upload", () => ({
   getActiveFileUploadProviderForRequest: (...args: unknown[]) =>
     mockGetActiveFileUploadProviderForRequest(...args),
+}));
+
+vi.mock("@agent-native/core/feature-flags", () => ({
+  isFeatureFlagEnabled: (...args: unknown[]) =>
+    mockIsFeatureFlagEnabled(...args),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -56,6 +74,7 @@ vi.mock("@agent-native/core/server", () => ({
 vi.mock("drizzle-orm", () => ({
   and: vi.fn(() => "and"),
   eq: vi.fn(() => "eq"),
+  isNull: vi.fn(() => "is-null"),
 }));
 
 vi.mock("h3", () => ({
@@ -73,6 +92,8 @@ vi.mock("../../../../db/index.js", () => ({
       ownerEmail: "recordings.ownerEmail",
       status: "recordings.status",
       videoUrl: "recordings.videoUrl",
+      uploadAttemptId: "recordings.uploadAttemptId",
+      uploadGenerationId: "recordings.uploadGenerationId",
       failureReason: "recordings.failureReason",
       uploadProgress: "recordings.uploadProgress",
       updatedAt: "recordings.updatedAt",
@@ -84,6 +105,11 @@ vi.mock("../../../../lib/recordings.js", () => ({
   getEventOwnerContext: (...args: unknown[]) =>
     mockGetEventOwnerContext(...args),
   ownerEmailMatches: (...args: unknown[]) => mockOwnerEmailMatches(...args),
+}));
+
+vi.mock("../../../../lib/recording-upload-state.js", () => ({
+  deleteRecordingChunks: (...args: unknown[]) =>
+    mockDeleteRecordingChunks(...args),
 }));
 
 vi.mock("../../../../lib/media-verification-state.js", () => ({
@@ -100,6 +126,11 @@ vi.mock("../../../../lib/resumable-session.js", () => ({
 vi.mock("../../../../lib/streaming-upload-mode.js", () => ({
   shouldEnableStreamingUpload: (...args: unknown[]) =>
     mockShouldEnableStreamingUpload(...args),
+}));
+
+vi.mock("../../../../lib/upload-lease.js", () => ({
+  renewUploadLease: (...args: unknown[]) => mockRenewUploadLease(...args),
+  uploadLeaseExpiry: () => "2099-01-01T00:00:00.000Z",
 }));
 
 vi.mock("../../../../lib/video-storage.js", () => ({
@@ -119,17 +150,27 @@ describe("/api/uploads/:recordingId/reset-chunks route", () => {
       orgId: "org-1",
     });
     mockOwnerEmailMatches.mockReturnValue("owner-match");
-    mockDeleteAppStateByPrefix.mockResolvedValue(3);
+    mockDeleteRecordingChunks.mockResolvedValue(3);
     mockDeleteResumableSession.mockResolvedValue(undefined);
     mockSetResumableSession.mockResolvedValue(undefined);
     mockWriteAppState.mockResolvedValue(undefined);
+    mockReadAppState.mockResolvedValue({
+      recordingId: "rec-1",
+      status: "uploading",
+    });
+    mockCompareAndSetAppState.mockResolvedValue(true);
+    mockRenewUploadLease.mockResolvedValue({ held: true });
+    mockAbortSession.mockResolvedValue(undefined);
     mockAllowsSqlRecordingChunkScratch.mockReturnValue(false);
     mockShouldEnableStreamingUpload.mockReturnValue(true);
     mockIsMediaVerificationPending.mockResolvedValue(false);
+    mockIsFeatureFlagEnabled.mockResolvedValue(true);
     mockExistingRecording.current = {
       id: "rec-1",
       status: "uploading",
       videoUrl: null,
+      uploadAttemptId: null,
+      uploadGenerationId: null,
     };
     mockStartSession.mockResolvedValue({
       sessionId: "session-1",
@@ -137,14 +178,38 @@ describe("/api/uploads/:recordingId/reset-chunks route", () => {
     });
     mockGetActiveFileUploadProviderForRequest.mockResolvedValue({
       id: "test-provider",
-      resumable: { startSession: mockStartSession },
+      resumable: {
+        startSession: mockStartSession,
+        abortSession: mockAbortSession,
+      },
     });
+  });
+
+  it("clears a recovery claim when the flag is disabled mid-retry", async () => {
+    mockIsFeatureFlagEnabled.mockResolvedValue(false);
+    mockExistingRecording.current.uploadAttemptId = "old-attempt";
+    mockReadBody.mockResolvedValue({
+      requestStreaming: true,
+      mimeType: "video/webm",
+      useGenerationFence: true,
+    });
+
+    await expect(handler({} as any)).resolves.toEqual(
+      expect.objectContaining({ ok: true, uploadGenerationId: null }),
+    );
+    expect(mockUpdateSets).toContainEqual(
+      expect.objectContaining({
+        uploadAttemptId: null,
+        uploadGenerationId: null,
+      }),
+    );
   });
 
   it("recreates a resumable session for a browser backup retry", async () => {
     mockReadBody.mockResolvedValue({
       requestStreaming: true,
       mimeType: "video/webm;codecs=vp9,opus",
+      useGenerationFence: true,
     });
 
     await expect(handler({} as any)).resolves.toEqual(
@@ -153,22 +218,64 @@ describe("/api/uploads/:recordingId/reset-chunks route", () => {
         recordingId: "rec-1",
         uploadMode: "streaming",
         chunksCleared: 3,
+        uploadGenerationId: expect.any(String),
       }),
     );
 
-    expect(mockDeleteResumableSession).toHaveBeenCalledWith("rec-1");
+    expect(mockDeleteResumableSession).toHaveBeenCalledWith("rec-1", null);
     expect(mockStartSession).toHaveBeenCalledWith(
       "rec-1.webm",
       "video/webm",
       expect.any(Number),
     );
-    expect(mockSetResumableSession).toHaveBeenCalledWith("rec-1", {
-      providerId: "test-provider",
-      sessionId: "session-1",
-      meta: { provider: "test", stableUrl: true, recordAsset: false },
-      bytesUploaded: 0,
-      lastCommittedIndex: -1,
+    expect(mockSetResumableSession).toHaveBeenCalledWith(
+      "rec-1",
+      {
+        providerId: "test-provider",
+        sessionId: "session-1",
+        meta: { provider: "test", stableUrl: true, recordAsset: false },
+        bytesUploaded: 0,
+        lastCommittedIndex: -1,
+      },
+      expect.any(String),
+    );
+  });
+
+  it("fences a claimed retry even without the browser opt-in", async () => {
+    mockExistingRecording.current.uploadAttemptId = "attempt-1";
+    mockReadBody.mockResolvedValue({ attemptId: "attempt-1" });
+
+    await expect(handler({} as any)).resolves.toEqual(
+      expect.objectContaining({ uploadGenerationId: expect.any(String) }),
+    );
+
+    expect(mockUpdateSets).toContainEqual(
+      expect.objectContaining({ uploadGenerationId: expect.any(String) }),
+    );
+  });
+
+  it("keeps legacy native resets on the unfenced generation contract", async () => {
+    mockReadBody.mockResolvedValue({
+      requestStreaming: true,
+      mimeType: "video/mp4",
     });
+
+    await expect(handler({} as any)).resolves.toEqual(
+      expect.objectContaining({
+        ok: true,
+        uploadMode: "streaming",
+        uploadGenerationId: null,
+      }),
+    );
+
+    expect(mockUpdateSets).toContainEqual(
+      expect.objectContaining({ uploadGenerationId: null }),
+    );
+    expect(mockSetResumableSession).toHaveBeenCalledWith(
+      "rec-1",
+      expect.any(Object),
+      null,
+    );
   });
 
   it("keeps an explicitly buffered reset on the buffered path", async () => {
@@ -183,12 +290,54 @@ describe("/api/uploads/:recordingId/reset-chunks route", () => {
     expect(mockSetResumableSession).not.toHaveBeenCalled();
   });
 
+  it("fails before claiming reset when upload state is unreadable", async () => {
+    mockReadBody.mockResolvedValue({});
+    mockReadAppState.mockRejectedValue(new Error("state store unavailable"));
+
+    await expect(handler({} as any)).rejects.toThrow("state store unavailable");
+
+    expect(mockDb.update).not.toHaveBeenCalled();
+    expect(mockDeleteRecordingChunks).not.toHaveBeenCalled();
+    expect(mockStartSession).not.toHaveBeenCalled();
+  });
+
+  it("compensates a provider session when abort wins during startup", async () => {
+    mockReadBody.mockResolvedValue({
+      requestStreaming: true,
+      mimeType: "video/webm",
+      useGenerationFence: true,
+    });
+    mockRenewUploadLease.mockResolvedValue({
+      held: false,
+      staleAttempt: true,
+      status: "failed",
+    });
+
+    await expect(handler({} as any)).resolves.toEqual({
+      error: "Recording upload changed while its retry was starting.",
+      staleAttempt: true,
+    });
+
+    expect(mockAbortSession).toHaveBeenCalledWith({
+      sessionId: "session-1",
+      meta: { provider: "test" },
+    });
+    expect(mockDeleteResumableSession).toHaveBeenLastCalledWith(
+      "rec-1",
+      expect.any(String),
+    );
+    expect(mockCompareAndSetAppState).not.toHaveBeenCalled();
+    expect(mockWriteAppState).not.toHaveBeenCalled();
+  });
+
   it("does not reset a recording that is already ready", async () => {
     mockReadBody.mockResolvedValue({});
     mockExistingRecording.current = {
       id: "rec-1",
       status: "ready",
       videoUrl: "https://cdn.example/video.webm",
+      uploadAttemptId: null,
+      uploadGenerationId: null,
     };
 
     await expect(handler({} as any)).resolves.toEqual({
@@ -196,7 +345,7 @@ describe("/api/uploads/:recordingId/reset-chunks route", () => {
     });
 
     expect(mockSetResponseStatus).toHaveBeenCalledWith(expect.anything(), 409);
-    expect(mockDeleteAppStateByPrefix).not.toHaveBeenCalled();
+    expect(mockDeleteRecordingChunks).not.toHaveBeenCalled();
     expect(mockDeleteResumableSession).not.toHaveBeenCalled();
     expect(mockUpdateSets).toHaveLength(0);
   });
@@ -207,6 +356,8 @@ describe("/api/uploads/:recordingId/reset-chunks route", () => {
       id: "rec-1",
       status: "processing",
       videoUrl: "https://cdn.example/video.webm",
+      uploadAttemptId: null,
+      uploadGenerationId: null,
     };
     mockIsMediaVerificationPending.mockResolvedValue(true);
 
@@ -220,7 +371,7 @@ describe("/api/uploads/:recordingId/reset-chunks route", () => {
       recordingStatus: "processing",
     });
     expect(mockSetResponseStatus).toHaveBeenCalledWith(expect.anything(), 409);
-    expect(mockDeleteAppStateByPrefix).not.toHaveBeenCalled();
+    expect(mockDeleteRecordingChunks).not.toHaveBeenCalled();
     expect(mockDeleteResumableSession).not.toHaveBeenCalled();
     expect(mockUpdateSets).toHaveLength(0);
   });
