@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.135.1
+
+### Patch Changes
+
+- ed51b3d: Grant org-visibility access on shareable resources based on the caller's real organization membership, instead of only their currently active organization. Fixes real org members being denied access to org-shared resources (e.g. recordings) when a different org happened to be active in their session.
+
 ## 0.135.0
 
 ### Minor Changes

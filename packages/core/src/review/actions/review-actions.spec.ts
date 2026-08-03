@@ -22,6 +22,7 @@ const rawClient = {
 vi.mock("../../db/client.js", () => ({
   getDbExec: () => rawClient,
   isPostgres: () => false,
+  getDialect: () => "sqlite",
   intType: () => "INTEGER",
 }));
 
