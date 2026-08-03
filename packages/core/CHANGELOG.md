@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.135.3
+
+### Patch Changes
+
+- d0bbe62: Rewrite what-is-agent-native doc for clarity and scannability
+
 ## 0.135.2
 
 ### Patch Changes
