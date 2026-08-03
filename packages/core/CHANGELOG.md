@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.135.2
+
+### Patch Changes
+
+- 60749ec: Split Getting Started into a focused four-page series with visual improvements
+
 ## 0.135.1
 
 ### Patch Changes
