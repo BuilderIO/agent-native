@@ -3468,6 +3468,9 @@ importers:
         specifier: 10.62.0
         version: 10.62.0
     devDependencies:
+      '@agent-native/core':
+        specifier: workspace:*
+        version: link:../../../packages/core
       '@types/chrome':
         specifier: ^0.2.0
         version: 0.2.0
@@ -3526,6 +3529,9 @@ importers:
         specifier: 19.2.7
         version: 19.2.7(react@19.2.7)
     devDependencies:
+      '@agent-native/core':
+        specifier: workspace:*
+        version: link:../../../packages/core
       '@tauri-apps/cli':
         specifier: ^2.11.2
         version: 2.11.3

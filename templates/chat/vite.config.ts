@@ -1,23 +1,19 @@
 import { agentNative } from "@agent-native/core/vite";
-import baseConfig from "@agent-native/core/vitest-config";
 import { reactRouter } from "@react-router/dev/vite";
-import { defineConfig, mergeConfig } from "vitest/config";
+import { defineConfig } from "vite";
 
 const reactRouterPlugins = reactRouter as unknown as () => any[];
 const agentNativePlugins = agentNative as unknown as (
   options?: Parameters<typeof agentNative>[0],
 ) => any[];
 
-export default mergeConfig(
-  baseConfig,
-  defineConfig({
-    plugins: [
-      ...reactRouterPlugins(),
-      ...agentNativePlugins({
-        // shiki only runs in AssistantChat's useEffect — keep it out of the
-        // CF Pages Functions bundle (25 MiB limit).
-        ssrStubs: ["shiki"],
-      }),
-    ],
-  }),
-);
+export default defineConfig({
+  plugins: [
+    ...reactRouterPlugins(),
+    ...agentNativePlugins({
+      // shiki only runs in AssistantChat's useEffect — keep it out of the
+      // CF Pages Functions bundle (25 MiB limit).
+      ssrStubs: ["shiki"],
+    }),
+  ],
+});

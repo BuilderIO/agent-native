@@ -15,6 +15,7 @@
     "@sentry/browser": "10.62.0"
   },
   "devDependencies": {
+    "@agent-native/core": "workspace:*",
     "@types/chrome": "^0.2.0",
     "tsx": "catalog:",
     "typescript-7": "catalog:",
