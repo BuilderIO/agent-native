@@ -22,7 +22,7 @@ import {
   type ActionContext,
 } from "./automation-actions.js";
 import {
-  resolveDefaultAutomationModel,
+  resolveAutomationModelSettings,
   type AutomationModelSettings,
 } from "./automation-model.js";
 import {
@@ -488,17 +488,12 @@ async function getAutomationModelSettings(
   ownerEmail: string,
 ): Promise<AutomationModelSettings> {
   const autoSettings = await getUserSetting(ownerEmail, "automation-settings");
-  if (
-    autoSettings &&
-    typeof autoSettings === "object" &&
-    ((autoSettings as any).engine || (autoSettings as any).model)
-  ) {
-    return {
-      engine: (autoSettings as any).engine,
-      model: (autoSettings as any).model,
-    };
-  }
-  return resolveDefaultAutomationModel(ownerEmail);
+  return resolveAutomationModelSettings(
+    ownerEmail,
+    autoSettings && typeof autoSettings === "object"
+      ? (autoSettings as AutomationModelSettings)
+      : null,
+  );
 }
 
 async function evaluateRules(

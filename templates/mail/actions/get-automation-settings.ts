@@ -3,7 +3,7 @@ import { getRequestUserEmail } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
 import { z } from "zod";
 
-import { resolveDefaultAutomationModel } from "../server/lib/automation-model.js";
+import { resolveAutomationModelSettings } from "../server/lib/automation-model.js";
 
 export default defineAction({
   description:
@@ -19,9 +19,6 @@ export default defineAction({
       engine?: string;
       model?: string;
     } | null;
-    if (data?.engine || data?.model) {
-      return { engine: data.engine, model: data.model };
-    }
-    return resolveDefaultAutomationModel(ownerEmail);
+    return resolveAutomationModelSettings(ownerEmail, data);
   },
 });
