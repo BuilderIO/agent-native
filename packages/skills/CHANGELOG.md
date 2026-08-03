@@ -1,5 +1,20 @@
 # @agent-native/skills
 
+## 0.2.461
+
+### Patch Changes
+
+- f499dff: Add `@agent-native/core/vitest-config`, a base vitest config that caps a suite's
+  worker pool so concurrent test runs no longer oversubscribe the CPU. Defaults to
+  25% of cores; override with `VITEST_CONCURRENCY`. Every template and package
+  config merges it in.
+- 72d7c5b: Prevent unreadable MCP client configuration files from being overwritten during setup.
+- Updated dependencies [41544d8]
+- Updated dependencies [8c37661]
+- Updated dependencies [f499dff]
+- Updated dependencies [72d7c5b]
+  - @agent-native/core@0.135.0
+
 ## 0.2.460
 
 ### Patch Changes
