@@ -11,10 +11,9 @@ import {
   IconScale,
   IconScribble,
   IconSquare,
-  IconTypography,
   IconX,
 } from "@tabler/icons-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { createCoreCommands } from "@/components/design/code-workbench/commands";
 import {
@@ -27,14 +26,19 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { isApplePlatform } from "@/hooks/useDesignHotkeys";
 
+import { IconText } from "./inspector/design-icons";
+
 interface KeyboardShortcutsPanelProps {
   onClose: () => void;
 }
 
-const TOOL_ICON_BY_SHORTCUT: Record<string, typeof IconPointer> = {
+const TOOL_ICON_BY_SHORTCUT: Record<
+  string,
+  (props: { className?: string }) => ReactNode
+> = {
   "move-tool": IconPointer,
   "frame-tool": IconFrame,
-  "text-tool": IconTypography,
+  "text-tool": IconText,
   "pen-tool": IconPencil,
   "hand-tool": IconHandStop,
   "scale-tool": IconScale,

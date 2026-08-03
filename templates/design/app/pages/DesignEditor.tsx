@@ -158,7 +158,6 @@ import {
   IconChevronUp,
   IconCheck,
   IconPointer,
-  IconTypography,
   IconHandStop,
   IconSquare,
   IconLine,
@@ -271,6 +270,7 @@ import {
   hasEyeDropperSupport,
   type ExportSettingsValue,
 } from "@/components/design/inspector";
+import { IconText } from "@/components/design/inspector/design-icons";
 import {
   isShaderWriteInFlight,
   waitForShaderWriteToSettle,
@@ -802,6 +802,7 @@ import {
   renderExportDocumentCanvas,
   resolveExportCropRect,
   sanitizeSerializedXmlForSvg,
+  type PngCaptureScope,
 } from "./design-editor/png-export-render";
 import {
   applyPortableStyles,
@@ -1925,13 +1926,13 @@ function DesignBottomToolbar({
       key: "text",
       active: activeTool === "text",
       label: t("designEditor.tools.text"),
-      icon: <IconTypography className="size-[18px]" />,
+      icon: <IconText className="size-[18px]" />,
       onClick: onText,
       options: [
         {
           key: "text",
           label: t("designEditor.tools.text"),
-          icon: <IconTypography className="size-4" />,
+          icon: <IconText className="size-4" />,
           shortcut: "T",
           active: activeTool === "text",
           onSelect: onText,
@@ -24414,10 +24415,10 @@ function DesignEditor() {
   }, [activeCodeLayerProjection.nodes, selectedElement, selectedLayerIdsState]);
 
   const resolvePngCaptureTarget = useCallback(
-    (selectionOnly: boolean) => {
+    (scope: PngCaptureScope) => {
       let iframe = canvasIframeRef.current;
       let cropSelection: ElementInfo | readonly ElementInfo[] | null =
-        viewMode === "single"
+        viewMode === "single" || scope === "element"
           ? pngSelectedElements.length > 0
             ? pngSelectedElements
             : selectedElement
@@ -24426,7 +24427,7 @@ function DesignEditor() {
       // In overview, Copy as PNG targets the one selected screen instead of
       // whichever iframe happens to be first in DOM order. The download action
       // still targets the active screen through canvasIframeRef.
-      if (selectionOnly && viewMode === "overview") {
+      if (scope !== "document" && viewMode === "overview") {
         const screenId =
           selectedScreenIds.length === 1 ? selectedScreenIds[0] : null;
         iframe = screenId
@@ -24434,7 +24435,7 @@ function DesignEditor() {
               `iframe[data-design-preview-iframe][data-screen-iframe-id="${CSS.escape(screenId)}"]`,
             )
           : null;
-        cropSelection = null;
+        if (scope === "screens") cropSelection = null;
       }
 
       if (!iframe) throw new PngCaptureError("no-preview");
@@ -24477,11 +24478,11 @@ function DesignEditor() {
    * Copy as PNG from drifting visually from the existing PNG export. */
   const renderPngBlob = useCallback(
     async ({
-      selectionOnly,
+      scope,
       settings,
       format = "png",
     }: {
-      selectionOnly: boolean;
+      scope: PngCaptureScope;
       settings?: Partial<ExportSettingsValue>;
       format?: "png" | "jpg" | "webp";
     }): Promise<Blob> => {
@@ -24491,7 +24492,7 @@ function DesignEditor() {
       let outputCanvas: HTMLCanvasElement;
 
       if (
-        selectionOnly &&
+        scope === "screens" &&
         viewMode === "overview" &&
         selectedScreenIds.length > 0
       ) {
@@ -24598,8 +24599,7 @@ function DesignEditor() {
           context.restore();
         }
       } else {
-        const { cropSelection, doc, iframe } =
-          resolvePngCaptureTarget(selectionOnly);
+        const { cropSelection, doc, iframe } = resolvePngCaptureTarget(scope);
         const rendered = await renderExportDocumentCanvas({
           doc,
           iframe,
@@ -24607,12 +24607,18 @@ function DesignEditor() {
           render: html2canvas,
         });
         const cropRect = resolveExportCropRect(doc, cropSelection);
+        const cropped = cropRect
+          ? cropCanvasToRect(rendered.canvas, cropRect, rendered.scale)
+          : null;
+        // An element capture that silently widens to the whole document is a
+        // preview of something the user did not ask to export, and nothing
+        // downstream can tell it apart from a real one.
+        if (scope === "element" && !cropped) {
+          throw new PngCaptureError("no-preview");
+        }
         // Render the whole page first, then crop, so ancestor backgrounds show
         // through every selected frame exactly as they do on screen.
-        outputCanvas = cropRect
-          ? (cropCanvasToRect(rendered.canvas, cropRect, rendered.scale) ??
-            rendered.canvas)
-          : rendered.canvas;
+        outputCanvas = cropped ?? rendered.canvas;
       }
       const mimeType =
         format === "jpg"
@@ -24676,7 +24682,7 @@ function DesignEditor() {
       setPngExporting(true);
       try {
         const blob = await renderPngBlob({
-          selectionOnly: false,
+          scope: "document",
           settings,
           format,
         });
@@ -24704,7 +24710,8 @@ function DesignEditor() {
       pngExportingRef.current = true;
       setPngExporting(true);
       try {
-        const { cropSelection, doc, iframe } = resolvePngCaptureTarget(false);
+        const { cropSelection, doc, iframe } =
+          resolvePngCaptureTarget("document");
         const crop = resolveExportCropRect(doc, cropSelection);
         const pageWidth = Math.max(
           1,
@@ -24734,7 +24741,7 @@ function DesignEditor() {
           settings?.scale ?? PDF_MIN_PRINT_RASTER_SCALE,
         );
         const png = await renderPngBlob({
-          selectionOnly: false,
+          scope: "document",
           settings: { ...settings, scale: pdfScale },
           format: "png",
         });
@@ -24871,7 +24878,7 @@ function DesignEditor() {
     try {
       // Do not await this before clipboard.write: ClipboardItem accepts the
       // pending Blob representation, preserving the initiating user gesture.
-      const pngBlob = renderPngBlob({ selectionOnly: true });
+      const pngBlob = renderPngBlob({ scope: "screens" });
       await copyPngPromiseToClipboard(pngBlob);
       toast.success(t("designEditor.toasts.pngCopied"));
     } catch (error) {
@@ -25221,7 +25228,7 @@ function DesignEditor() {
    *  renderer the export itself uses, at scale 1 since it paints into a ~7rem
    *  box. Rejections propagate so the preview can show a failure. */
   const handleRenderExportPreview = useCallback(
-    () => renderPngBlob({ selectionOnly: true, settings: { scale: 1 } }),
+    () => renderPngBlob({ scope: "element", settings: { scale: 1 } }),
     [renderPngBlob],
   );
 
@@ -31110,7 +31117,10 @@ function DesignEditor() {
 
         {/* Canvas */}
         {questionFlowActive ? (
-          <div className="relative mx-1 h-full min-w-0 flex-1 overflow-hidden rounded-xl bg-[var(--design-editor-canvas-bg)]">
+          /* Panel background, not canvas: these are the agent's own follow-up
+             questions, and on the canvas grey they read as an unrelated object
+             parked beside the chat rather than a continuation of it. */
+          <div className="relative mx-1 h-full min-w-0 flex-1 overflow-hidden rounded-xl bg-[var(--design-editor-panel-bg)]">
             <QuestionFlow
               questions={pendingQuestions ?? []}
               onSubmit={handleQuestionsSubmit}
