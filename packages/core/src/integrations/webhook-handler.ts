@@ -2274,6 +2274,13 @@ function isQueuedA2AContinuationDeferral(text: string): boolean {
   if (!normalized) return true;
   if (hasSubstantiveA2APartialAnswer(text)) return false;
   if (normalized.includes(A2A_CONTINUATION_QUEUED_MARKER)) return true;
+  if (
+    /\bwill\b[^.!?]{0,160}\bpost\b[^.!?]{0,160}\b(?:thread|result|link|content id)\b/i.test(
+      normalized,
+    )
+  ) {
+    return true;
+  }
   return /\b(?:still (?:working|processing)|is working on|taking longer than expected|will (?:post|update|surface|show up)|(?:it'?ll|it will|the result will|the final result will) (?:post|be posted|update|be updated|surface|show up)|will be (?:posted|updated|sent|shared)|final result when it finishes|while you wait|as soon as (?:it|it'?s|it is|the result|the artifact) (?:comes back|is ready|ready)|hang tight|relay from the .* agent)\b/i.test(
     normalized,
   );

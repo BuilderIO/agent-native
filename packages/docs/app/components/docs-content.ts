@@ -107,7 +107,19 @@ function extractHeadings(
 ): { id: string; label: string; level: number }[] {
   const headings: { id: string; label: string; level: number }[] = [];
   const pattern = /^(#{2,4})\s+(.+?)(?:\s+\{#([\w-]+)\})?\s*$/;
+  let inMdxBlock = false;
   for (const line of nonFencedMarkdownLines(body)) {
+    if (/^<[A-Z][A-Za-z]*[\s>]/.test(line.text)) {
+      // Self-closing on one line (<Foo ... />) — don't enter block mode
+      if (!line.text.trimEnd().endsWith("/>")) inMdxBlock = true;
+      continue;
+    }
+    // Closing tag or standalone /> (end of multi-line self-closing tag)
+    if (/^<\/[A-Z][A-Za-z]*>/.test(line.text) || /^\s*\/>/.test(line.text)) {
+      inMdxBlock = false;
+      continue;
+    }
+    if (inMdxBlock) continue;
     const match = line.text.match(pattern);
     if (!match) continue;
     const level = match[1].length; // 2, 3, or 4

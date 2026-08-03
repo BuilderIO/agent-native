@@ -4,6 +4,7 @@ import { accessFilter } from "@agent-native/core/sharing";
 import { and, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 
 import { schema } from "../server/db/index.js";
+import { bulkChunkSizeForColumnCount, chunks } from "./_batch-utils.js";
 import {
   listContentOrganizationMemberships,
   normalizeContentSpaceEmail,
@@ -32,23 +33,29 @@ export function contentFilesItemId(databaseId: string, documentId: string) {
 
 async function remapItemReferences(db: Db, replacements: Map<string, string>) {
   if (!replacements.size) return;
-  const duplicateIds = [...replacements.keys()];
-  const remap = (column: any) => {
-    let expression = sql`CASE ${column}`;
-    for (const [duplicateId, canonicalId] of replacements)
-      expression = sql`${expression} WHEN ${duplicateId} THEN ${canonicalId}`;
-    return sql`${expression} ELSE ${column} END`;
-  };
-  for (const table of [
-    schema.contentSpaceCatalogItems,
-    schema.contentDatabaseBodyHydrationQueue,
-    schema.contentDatabaseSourceRows,
-    schema.contentDatabaseSourceChangeSets,
-  ]) {
-    await db
-      .update(table)
-      .set({ databaseItemId: remap(table.databaseItemId) })
-      .where(inArray(table.databaseItemId, duplicateIds));
+  for (const replacementBatch of chunks(
+    [...replacements.entries()],
+    bulkChunkSizeForColumnCount(3),
+  )) {
+    const batchReplacements = new Map(replacementBatch);
+    const duplicateIds = [...batchReplacements.keys()];
+    const remap = (column: any) => {
+      let expression = sql`CASE ${column}`;
+      for (const [duplicateId, canonicalId] of batchReplacements)
+        expression = sql`${expression} WHEN ${duplicateId} THEN ${canonicalId}`;
+      return sql`${expression} ELSE ${column} END`;
+    };
+    for (const table of [
+      schema.contentSpaceCatalogItems,
+      schema.contentDatabaseBodyHydrationQueue,
+      schema.contentDatabaseSourceRows,
+      schema.contentDatabaseSourceChangeSets,
+    ]) {
+      await db
+        .update(table)
+        .set({ databaseItemId: remap(table.databaseItemId) })
+        .where(inArray(table.databaseItemId, duplicateIds));
+    }
   }
 }
 
@@ -170,15 +177,18 @@ async function reconcileDocuments(args: {
     }
   }
   await remapItemReferences(args.db, replacements);
-  if (deleteIds.size) {
+  for (const deleteBatch of chunks(
+    [...deleteIds],
+    bulkChunkSizeForColumnCount(1),
+  )) {
     await args.db
       .delete(schema.contentDatabaseItems)
-      .where(inArray(schema.contentDatabaseItems.id, [...deleteIds]));
+      .where(inArray(schema.contentDatabaseItems.id, deleteBatch));
   }
-  if (inserts.length) {
+  for (const insertBatch of chunks(inserts, bulkChunkSizeForColumnCount(8))) {
     await args.db
       .insert(schema.contentDatabaseItems)
-      .values(inserts)
+      .values(insertBatch)
       .onConflictDoNothing();
   }
   return { inserted: inserts.length, removed: deleteIds.size };

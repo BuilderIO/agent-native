@@ -1,3 +1,4 @@
+import { IconMessage2Filled } from "@tabler/icons-react";
 import { useMemo, useRef, useState } from "react";
 
 import { cn } from "@/lib/utils";
@@ -225,10 +226,17 @@ export function Scrubber(props: ScrubberProps) {
               e.stopPropagation();
               onSeek(ms);
             }}
-            className="absolute -top-1 -translate-x-1/2 h-3.5 w-3.5 rounded-full bg-yellow-400 border-2 border-black/50 hover:scale-125 transition-transform"
+            className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-md ring-2 ring-background transition-transform hover:scale-125"
             style={{ left: (ms / Math.max(1, durationMs)) * 100 + "%" }}
             aria-label={`${list.length} comment${list.length > 1 ? "s" : ""}`}
-          />
+          >
+            <IconMessage2Filled className="h-2.5 w-2.5" />
+            {list.length > 1 && (
+              <span className="absolute -top-1.5 -right-1.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-primary px-0.5 text-[8px] font-bold leading-none text-primary-foreground ring-2 ring-background">
+                {list.length}
+              </span>
+            )}
+          </button>
         ))}
 
         {/* Reaction dots */}

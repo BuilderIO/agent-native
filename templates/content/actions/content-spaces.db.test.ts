@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const TEST_DB_PATH = join(
@@ -31,7 +31,7 @@ let updateDocumentAction: typeof import("./update-document.js").default;
 let setDocumentPropertyAction: typeof import("./set-document-property.js").default;
 let deleteContentDatabaseAction: typeof import("./delete-content-database.js").default;
 let deleteDocumentAction: typeof import("./delete-document.js").default;
-let deleteDatabaseItemsAction: typeof import("./delete-database-items.js").default;
+let removeDatabaseItemsAction: typeof import("./remove-database-items.js").default;
 let addDatabaseItemAction: typeof import("./add-database-item.js").default;
 let duplicateDatabaseItemAction: typeof import("./duplicate-database-item.js").default;
 let duplicateDatabaseItemsAction: typeof import("./duplicate-database-items.js").default;
@@ -40,6 +40,7 @@ const OWNER = "owner@example.com";
 const MEMBER = "member@example.com";
 const OUTSIDER = "outsider@example.com";
 const WORKSPACE_OWNER = "workspace-owner@example.com";
+const LARGE_DATABASE_OWNER = "large-database-owner@example.com";
 
 beforeAll(async () => {
   process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
@@ -70,7 +71,7 @@ beforeAll(async () => {
   deleteContentDatabaseAction = (await import("./delete-content-database.js"))
     .default;
   deleteDocumentAction = (await import("./delete-document.js")).default;
-  deleteDatabaseItemsAction = (await import("./delete-database-items.js"))
+  removeDatabaseItemsAction = (await import("./remove-database-items.js"))
     .default;
   addDatabaseItemAction = (await import("./add-database-item.js")).default;
   duplicateDatabaseItemAction = (await import("./duplicate-database-item.js"))
@@ -112,6 +113,49 @@ async function addMember(
 }
 
 describe("Content space provisioning", () => {
+  it("batches Files reconciliation for databases with 5,000 row documents", async () => {
+    const provisioned = await runWithRequestContext(
+      { userEmail: LARGE_DATABASE_OWNER },
+      () => provisionContentSpaces(getDb(), LARGE_DATABASE_OWNER),
+    );
+    const now = new Date().toISOString();
+    const documents = Array.from({ length: 5_000 }, (_, index) => ({
+      id: `large-database-document-${index}`,
+      ownerEmail: LARGE_DATABASE_OWNER,
+      orgId: null,
+      spaceId: provisioned.personalSpaceId,
+      parentId: null,
+      title: `Large database row ${index}`,
+      content: "Synthetic row",
+      position: index,
+      visibility: "private" as const,
+      createdAt: now,
+      updatedAt: now,
+    }));
+    for (let start = 0; start < documents.length; start += 250) {
+      await getDb()
+        .insert(schema.documents)
+        .values(documents.slice(start, start + 250));
+    }
+
+    await expect(
+      runWithRequestContext({ userEmail: LARGE_DATABASE_OWNER }, () =>
+        ensureContentSpacesAction.run({}),
+      ),
+    ).resolves.toBeDefined();
+
+    const [membershipCount] = await getDb()
+      .select({ count: sql<number>`count(*)` })
+      .from(schema.contentDatabaseItems)
+      .where(
+        eq(
+          schema.contentDatabaseItems.databaseId,
+          provisioned.personalFilesDatabaseId,
+        ),
+      );
+    expect(Number(membershipCount.count)).toBe(5_000);
+  });
+
   it("creates an idempotent private named workspace with canonical Files", async () => {
     const provisioned = await runWithRequestContext(
       { userEmail: WORKSPACE_OWNER },
@@ -251,11 +295,13 @@ describe("Content space provisioning", () => {
         deleteDocumentAction.run({ id: first.catalogDocumentId }),
       ).rejects.toThrow("Workspace references cannot be deleted as pages");
       await expect(
-        deleteDatabaseItemsAction.run({
+        removeDatabaseItemsAction.run({
           databaseId: first.catalogDatabaseId,
           itemIds: [first.catalogItemId],
         }),
-      ).rejects.toThrow("Workspace references cannot be deleted as pages");
+      ).rejects.toThrow(
+        "Workspace references cannot be removed from a database as pages",
+      );
       await expect(
         duplicateDatabaseItemAction.run({ itemId: first.catalogItemId }),
       ).rejects.toThrow("Workspace references cannot be duplicated as pages");
@@ -853,6 +899,11 @@ describe("Content space provisioning", () => {
     );
     expect(ids).not.toContain("private-org-a");
     expect(ids).not.toContain("favorite-unrelated");
+    expect(
+      result.documents.find(
+        (document) => document.id === memberProvisioned.favoritesDocumentId,
+      )?.database,
+    ).toMatchObject({ systemRole: "favorites" });
     const favorites = await runWithRequestContext(
       { userEmail: favoritesMember, orgId: "org-favorites-a" },
       () =>

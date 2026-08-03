@@ -83,6 +83,13 @@ export interface OrgSwitcherProps {
   settingsPath?: string | null;
   /** Path to navigate to when the user clicks "Profile". Defaults to the shared Account settings section. */
   profilePath?: string | null;
+  /**
+   * Path to the Manage agent page. Settings links here too, but the switcher
+   * is the only always-visible surface, so omitting it leaves Files,
+   * Instructions, Memory, Skills and Automations reachable only from Settings.
+   * Pass `null` for apps that do not mount the Agent page.
+   */
+  agentPath?: string | null;
 }
 
 function personalLabelFromEmail(email: string | null | undefined): string {
@@ -119,6 +126,7 @@ const COMPACT_SWITCHER_BUTTON_CLASS =
 
 const DEFAULT_ORGANIZATION_SETTINGS_PATH = "/settings#organization";
 const DEFAULT_PROFILE_PATH = "/settings#account";
+const DEFAULT_AGENT_PATH = "/agent";
 
 const APP_ICON_MAP: Record<string, typeof IconApps> = {
   Mail: IconMail,
@@ -311,6 +319,7 @@ export function OrgSwitcher({
   compact,
   settingsPath = DEFAULT_ORGANIZATION_SETTINGS_PATH,
   profilePath = DEFAULT_PROFILE_PATH,
+  agentPath = DEFAULT_AGENT_PATH,
 }: OrgSwitcherProps) {
   const { data: org, isLoading } = useOrg();
   const { session } = useSession();
@@ -604,6 +613,23 @@ export function OrgSwitcher({
                   <IconUserCircle className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                   <span className="flex-1 text-start">
                     {t("settings.profileMenuItem")}
+                  </span>
+                </button>
+              )}
+              {agentPath && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpen(false);
+                    navigate(agentPath);
+                  }}
+                  className={`${ITEM_CLASS} cursor-pointer`}
+                >
+                  <IconBrain className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <span className="flex-1 text-start">
+                    {t("settings.manageAgentMenuItem", {
+                      defaultValue: "Manage agent",
+                    })}
                   </span>
                 </button>
               )}

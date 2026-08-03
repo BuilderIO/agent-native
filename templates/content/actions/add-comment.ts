@@ -4,6 +4,7 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { notifyDocumentComment } from "../server/lib/comment-notifications.js";
 
 type Mention = { email: string; name: string };
 
@@ -115,6 +116,19 @@ export default defineAction({
       authorName: name,
     });
 
-    return { id, threadId };
+    const notified = await notifyDocumentComment({
+      documentId,
+      documentTitle: (access.resource.title as string | null) ?? "",
+      orgId: (access.resource.orgId as string | null) ?? null,
+      threadId,
+      ownerEmail,
+      authorEmail: email,
+      authorName: name,
+      content,
+      mentions,
+      isReply: Boolean(parentId ?? args.threadId),
+    });
+
+    return { id, threadId, notified };
   },
 });
