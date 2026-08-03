@@ -18,6 +18,7 @@ import { setFavoriteMembership } from "./_content-favorites.js";
 import { ensureDocumentsFilesMembership } from "./_content-files.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
 import { provisionContentSpaces } from "./_content-spaces.js";
+import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import { LOCAL_FOLDER_SOURCE_TYPE } from "./_local-folder-source.js";
 
 const MAX_SOURCE_FILES = 500;
@@ -614,6 +615,12 @@ export default defineAction({
           filesItems.map(
             (item: typeof schema.contentDatabaseItems.$inferSelect) =>
               [item.documentId, item] as const,
+          ),
+        );
+        await lockDatabaseMemberships(
+          tx,
+          filesItems.map(
+            (item: typeof schema.contentDatabaseItems.$inferSelect) => item.id,
           ),
         );
         for (const plan of plans.filter((candidate) => !candidate.conflict)) {

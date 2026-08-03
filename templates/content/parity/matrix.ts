@@ -311,20 +311,19 @@ export const parityMatrix: ParityRow[] = [
   {
     id: "database.rows",
     surface: "database",
-    label: "Add, duplicate, move, open, and delete database rows",
+    label: "Add, duplicate, move, open, edit, and remove database rows",
     uiEntrypoints: [
       "app/components/editor/DocumentDatabase.tsx",
       "app/components/editor/database/DatabaseView.tsx",
     ],
     durableEffect:
-      "Database row backing documents and row ordering are created, duplicated, moved, edited, and deleted.",
+      "Database row memberships and ordering are created, duplicated, moved, edited, and removed without deleting the backing page.",
     uiImplementation:
-      "Row controls call row actions; selected-row duplicate/delete call bounded batch actions, while bulk property edits remain a later reliability slice.",
+      "Row controls call row actions; selected-row duplicate/removal call bounded batch actions, while bulk property edits remain a later reliability slice.",
     status: "action-backed",
     actions: [
       "add-database-item",
-      "delete-database-items",
-      "delete-document",
+      "remove-database-items",
       "duplicate-database-items",
       "duplicate-database-item",
       "move-database-item",

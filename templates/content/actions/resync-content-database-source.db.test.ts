@@ -1922,6 +1922,7 @@ it("records freshly imported Builder row identities even when title and URL keys
   const entries = read.state === "live" ? read.entries : [];
   const importResult = await importBuilderEntries({
     database,
+    sourceId: "src-duplicates",
     entries,
     now,
     sourceTable: "collection-duplicates",
@@ -1933,6 +1934,14 @@ it("records freshly imported Builder row identities even when title and URL keys
 
   expect(importResult.imported).toBe(2);
   expect(importedIds.sort()).toEqual(["entry-dup-1", "entry-dup-2"]);
+  const importedSourceRows = await db
+    .select({ sourceRowId: schema.contentDatabaseSourceRows.sourceRowId })
+    .from(schema.contentDatabaseSourceRows)
+    .where(eq(schema.contentDatabaseSourceRows.sourceId, "src-duplicates"));
+  expect(importedSourceRows.map((row) => row.sourceRowId).sort()).toEqual([
+    "entry-dup-1",
+    "entry-dup-2",
+  ]);
   const documents = await db
     .select({ title: schema.documents.title })
     .from(schema.documents)
@@ -1963,6 +1972,7 @@ it("records freshly imported Builder row identities even when title and URL keys
   }));
   const retryResult = await importBuilderEntries({
     database,
+    sourceId: "src-duplicates",
     entries,
     now,
     sourceTable: "collection-duplicates",
@@ -1987,6 +1997,7 @@ it("records freshly imported Builder row identities even when title and URL keys
   await Promise.all([
     importBuilderEntries({
       database,
+      sourceId: "src-duplicates",
       entries,
       now,
       sourceTable: "collection-duplicates",
@@ -1995,6 +2006,7 @@ it("records freshly imported Builder row identities even when title and URL keys
     }),
     importBuilderEntries({
       database,
+      sourceId: "src-duplicates",
       entries,
       now,
       sourceTable: "collection-duplicates",
@@ -2018,6 +2030,7 @@ it("records freshly imported Builder row identities even when title and URL keys
 
   const interruptedAttachRecovery = await importBuilderEntries({
     database,
+    sourceId: "src-duplicates",
     entries,
     now,
     sourceTable: "collection-duplicates",
@@ -2210,6 +2223,7 @@ it("repairs a legacy organization database into its organization space", async (
   await runWithRequestContext({ userEmail: OWNER, orgId }, () =>
     importBuilderEntries({
       database,
+      sourceId: "src-legacy-org",
       entries,
       now,
       sourceTable: "collection-duplicates",
