@@ -298,7 +298,7 @@ export default defineAction({
         );
       }
 
-      await tx
+      const [updatedField] = await tx
         .update(schema.contentDatabaseSourceFields)
         .set({
           propertyId: property.id,
@@ -306,11 +306,28 @@ export default defineAction({
           mappingType: "property",
           updatedAt: now,
         })
-        .where(eq(schema.contentDatabaseSourceFields.id, lockedField.id));
-      await tx
+        .where(eq(schema.contentDatabaseSourceFields.id, lockedField.id))
+        .returning({ id: schema.contentDatabaseSourceFields.id });
+      if (!updatedField) {
+        throw new Error(
+          "Source field was deleted before its binding could be saved.",
+        );
+      }
+      const [updatedSource] = await tx
         .update(schema.contentDatabaseSources)
         .set({ updatedAt: now })
-        .where(eq(schema.contentDatabaseSources.id, source.id));
+        .where(
+          and(
+            eq(schema.contentDatabaseSources.id, source.id),
+            eq(schema.contentDatabaseSources.databaseId, database.id),
+          ),
+        )
+        .returning({ id: schema.contentDatabaseSources.id });
+      if (!updatedSource) {
+        throw new Error(
+          "Source was deleted before its field binding could be saved.",
+        );
+      }
 
       // Backfill the column with this source's per-row values. A federated
       // secondary's rows carry no local document (the read path overlays them),

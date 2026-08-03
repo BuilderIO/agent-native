@@ -7,6 +7,7 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq, inArray } from "drizzle-orm";
 import {
@@ -29,6 +30,7 @@ let schema: typeof import("../server/db/schema.js");
 let bindAction: typeof import("./bind-content-database-source-field.js").default;
 let addSourceFieldPropertyAction: typeof import("./add-content-database-source-field-property.js").default;
 let configureProperty: typeof import("./configure-document-property.js").default;
+let removeRowsOwnedOnlyBySource: typeof import("./change-content-database-source-role.js").removeRowsOwnedOnlyBySource;
 
 const OWNER = "owner@example.com";
 
@@ -46,6 +48,9 @@ beforeAll(async () => {
   const addSourceFieldPropertyModule =
     await import("./add-content-database-source-field-property.js");
   addSourceFieldPropertyAction = addSourceFieldPropertyModule.default;
+  removeRowsOwnedOnlyBySource = (
+    await import("./change-content-database-source-role.js")
+  ).removeRowsOwnedOnlyBySource;
 }, 60000);
 
 afterEach(() => {
@@ -326,6 +331,73 @@ async function seedStaleBuilderTopicsSnapshot(rowCount = 2) {
 }
 
 describe("bind-content-database-source-field (row-union)", () => {
+  it("fails closed when the source field disappears before the bind update", async () => {
+    const f = await seedRowUnion();
+    const triggerName = `delete_bound_field_${counter}`;
+    await getDbExec().execute(
+      `CREATE TRIGGER ${triggerName}
+       BEFORE UPDATE OF property_id ON content_database_source_fields
+       WHEN OLD.id = '${f.fields.fieldACat}' AND NEW.property_id IS NOT NULL
+       BEGIN
+         DELETE FROM content_database_source_fields WHERE id = OLD.id;
+       END`,
+    );
+    try {
+      await expect(
+        asOwner(() =>
+          bindAction.run({
+            databaseId: f.databaseId,
+            sourceFieldId: f.fields.fieldACat,
+            propertyId: f.tagPropertyId,
+          }),
+        ),
+      ).rejects.toThrow(/deleted before its binding could be saved/i);
+    } finally {
+      await getDbExec().execute(`DROP TRIGGER IF EXISTS ${triggerName}`);
+    }
+  });
+
+  it("removes stable-key claims with memberships owned only by a converted source", async () => {
+    const f = await seedRowUnion();
+    const db = getDb();
+    const [claimedItem] = await db
+      .select({ id: schema.contentDatabaseItems.id })
+      .from(schema.contentDatabaseItems)
+      .where(eq(schema.contentDatabaseItems.documentId, f.docs.a1));
+    const now = new Date().toISOString();
+    await db.insert(schema.contentDatabaseItemKeyClaims).values({
+      id: `claim_${claimedItem.id}`,
+      ownerEmail: OWNER,
+      orgId: null,
+      databaseId: f.databaseId,
+      propertyId: f.tagPropertyId,
+      keyValueJson: JSON.stringify("external-a1"),
+      itemId: claimedItem.id,
+      documentId: f.docs.a1,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await removeRowsOwnedOnlyBySource({
+      databaseId: f.databaseId,
+      sourceId: f.sourceA,
+    });
+
+    expect(
+      await db
+        .select({ id: schema.contentDatabaseItemKeyClaims.id })
+        .from(schema.contentDatabaseItemKeyClaims)
+        .where(
+          eq(schema.contentDatabaseItemKeyClaims.id, `claim_${claimedItem.id}`),
+        ),
+    ).toEqual([]);
+    const remainingItems = await db
+      .select({ documentId: schema.contentDatabaseItems.documentId })
+      .from(schema.contentDatabaseItems)
+      .where(eq(schema.contentDatabaseItems.databaseId, f.databaseId));
+    expect(remainingItems).toEqual([{ documentId: f.docs.b1 }]);
+  });
+
   it("backfills only the bound source's rows into the column", async () => {
     const f = await seedRowUnion();
     await asOwner(() =>
