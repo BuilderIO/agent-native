@@ -55,9 +55,12 @@ change the numbers.
   filters, row count/sample size, join method, caveats.
 - Use actions for sources, queries, charts, dashboards, and sharing. Don't bypass
   access checks with raw SQL for ownable resources.
-- Provider actions are shortcuts, not limits — escalate to
+- Provider actions are bounded shortcuts, not limits — escalate to
   `provider-api-catalog` / `provider-api-docs` / `provider-api-request` when a
-  canned action is too narrow. See `provider-api`.
+  canned action is too narrow. For broad or absence-sensitive Gong text work,
+  stage the raw API response and use `query-staged-dataset` or a Data Program;
+  use `provider-corpus-job` when raw transcript bodies are required. See
+  `provider-api`, `data-programs`, and `gong`.
 - Create dashboards, panels, or saved artifacts only when explicitly asked;
   suggest and wait otherwise. Scope them to the question, avoid decorative
   metrics, and never modify existing dashboards without a directive.

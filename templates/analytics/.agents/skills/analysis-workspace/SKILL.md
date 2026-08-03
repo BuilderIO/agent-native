@@ -59,9 +59,13 @@ operation. The child must read that staged input before making provider calls.
   not re-page the provider endpoint to recreate the same corpus.
 - If the named staged input is missing or unreadable, stop with an explicit
   missing-input error. Do not silently fall back to a full provider sweep.
-- For more than 500 Gong records, do not use `gong-calls(exhaustive=true)` or a
-  single `provider-api-request` `fetchAllPages` call. Use `provider-corpus-job`
-  with a staged call-id input and continue it in bounded, checkpointed calls.
+- For more than 500 Gong records, do not use `gong-calls(exhaustive=true)`, a
+  per-call transcript loop, or a single `provider-api-request` `fetchAllPages`
+  call as the analysis itself. If the term is a configured keyword tracker,
+  stage `/calls/extensive` tracker results and reduce them with a Data Program
+  or `query-staged-dataset`. Otherwise use `provider-corpus-job` with a staged
+  call-id input and continue raw transcript retrieval in bounded, checkpointed
+  batches.
 - Write a compact result or progress marker after every completed chunk. A
   final answer written only after the whole corpus is processed is not a
   checkpoint.
@@ -123,11 +127,12 @@ narrow, where records must be joined across systems, or where absence matters:
 
 1. Discover the provider surface with `provider-api-catalog` and
    `provider-api-docs` when endpoint/filter/pagination details are uncertain.
-2. For a broad or absence-sensitive corpus, start `provider-corpus-job` before
-   any transcript/body scan. Use its paginated or batch mode so each page or
-   batch is checkpointed durably. Use `provider-api-request` with `stageAs` or
-   `saveToFile` only for bounded pulls or when the exact staged path is part of
-   the handoff.
+2. For a broad or absence-sensitive corpus, start with the provider's native
+   search or indexed tracker surface when one exists. Otherwise use
+   `provider-api-request` as the raw ingestion step with `stageAs` or
+   `saveToFile`, then reduce the staged data with `query-staged-dataset` or a
+   Data Program. Use `provider-corpus-job` for durable paginated or batched
+   transcript/body scans so each page or batch is checkpointed durably.
 3. Use `run-code` to read staged data, write intermediate files, normalize
    records, join identity fields, and aggregate. For long code, use
    `background: true` and persist progress after each chunk.
