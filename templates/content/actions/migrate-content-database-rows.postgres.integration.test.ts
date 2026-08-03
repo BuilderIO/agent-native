@@ -234,7 +234,7 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
       let releaseGate = () => {};
       let gateHolder: Promise<unknown> | undefined;
       let concurrentWriter: Promise<unknown> | undefined;
-      let migration: Promise<unknown> | undefined;
+      let migrationExpectation: Promise<unknown> | undefined;
       try {
         const gateReleased = new Promise<void>((resolve) => {
           releaseGate = resolve;
@@ -266,18 +266,21 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
               }),
         );
         await waitForPostgresLockWait(1);
-        migration = runWithRequestContext({ userEmail: OWNER }, () =>
+        const migration = runWithRequestContext({ userEmail: OWNER }, () =>
           action.run({ phase: "apply", plan: seed.plan }),
+        );
+        migrationExpectation = Promise.resolve(
+          expect(migration).rejects.toThrow(
+            writer === "value"
+              ? "Protected property values no longer match persisted values"
+              : "New property definition collides with an existing definition",
+          ),
         );
         await waitForPostgresLockWait(2);
         releaseGate();
         await gateHolder;
         await concurrentWriter;
-        await expect(migration).rejects.toThrow(
-          writer === "value"
-            ? "Protected property values no longer match persisted values"
-            : "New property definition collides with an existing definition",
-        );
+        await migrationExpectation;
         expect(
           await getDb()
             .select()
@@ -292,7 +295,7 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
       } finally {
         releaseGate();
         await Promise.allSettled(
-          [gateHolder, concurrentWriter, migration].filter(
+          [gateHolder, concurrentWriter, migrationExpectation].filter(
             (pending): pending is Promise<unknown> => Boolean(pending),
           ),
         );
