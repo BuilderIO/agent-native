@@ -1,0 +1,366 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const state = vi.hoisted(() => ({
+  rows: new Map<
+    string,
+    {
+      tokens: Record<string, unknown>;
+      owner: string;
+      revision: number;
+    }
+  >(),
+  settings: new Map<string, Record<string, unknown>>(),
+  revision: 1,
+}));
+
+function rowKey(provider: string, accountId: string): string {
+  return `${provider}:${accountId}`;
+}
+
+vi.mock("./store.js", () => ({
+  saveOAuthTokens: vi.fn(
+    async (
+      provider: string,
+      accountId: string,
+      tokens: Record<string, unknown>,
+      owner: string,
+    ) => {
+      state.rows.set(rowKey(provider, accountId), {
+        tokens,
+        owner,
+        revision: state.revision++,
+      });
+    },
+  ),
+  getOAuthTokenSnapshot: vi.fn(
+    async (provider: string, accountId: string, owner: string) => {
+      const row = state.rows.get(rowKey(provider, accountId));
+      return row?.owner === owner ? structuredClone(row) : null;
+    },
+  ),
+  replaceOAuthTokensIfRevision: vi.fn(
+    async (
+      provider: string,
+      accountId: string,
+      owner: string,
+      expectedRevision: number,
+      tokens: Record<string, unknown>,
+    ) => {
+      const key = rowKey(provider, accountId);
+      const row = state.rows.get(key);
+      if (row?.owner !== owner || row.revision !== expectedRevision) {
+        return false;
+      }
+      state.rows.set(key, {
+        tokens,
+        owner,
+        revision: state.revision++,
+      });
+      return true;
+    },
+  ),
+  deleteOAuthTokensIfRevision: vi.fn(
+    async (
+      provider: string,
+      accountId: string,
+      owner: string,
+      expectedRevision: number,
+    ) => {
+      const key = rowKey(provider, accountId);
+      const row = state.rows.get(key);
+      if (row?.owner !== owner || row.revision !== expectedRevision) {
+        return false;
+      }
+      state.rows.delete(key);
+      return true;
+    },
+  ),
+}));
+
+vi.mock("../settings/store.js", () => ({
+  mutateSetting: vi.fn(
+    async (
+      key: string,
+      updater: (
+        current: Record<string, unknown> | null,
+      ) => Record<string, unknown> | Promise<Record<string, unknown>>,
+    ) => {
+      const next = await updater(state.settings.get(key) ?? null);
+      state.settings.set(key, structuredClone(next));
+      return structuredClone(next);
+    },
+  ),
+}));
+
+import {
+  readOAuthCredentialState,
+  resolveOAuthCredentialAccess,
+  revokeOAuthCredential,
+  saveOAuthCredential,
+  type OAuthCredential,
+  type OAuthCredentialIdentity,
+} from "./lifecycle.js";
+
+const identity: OAuthCredentialIdentity = {
+  provider: "builder",
+  accountId: "managed-ai",
+  resource: "https://api.builder.io",
+  owner: { scope: "user", id: "Alice@Example.com" },
+};
+
+function credential(
+  options: {
+    access?: string;
+    refresh?: string;
+    expiresAt?: number;
+  } = {},
+): OAuthCredential {
+  return {
+    tokens: {
+      access_token: options.access ?? "<ACCESS_TOKEN>",
+      ...(options.refresh === undefined
+        ? { refresh_token: "<REFRESH_TOKEN>" }
+        : options.refresh
+          ? { refresh_token: options.refresh }
+          : {}),
+    },
+    tokenExpiresAt: options.expiresAt ?? Date.now() + 3_600_000,
+  };
+}
+
+beforeEach(() => {
+  state.rows.clear();
+  state.settings.clear();
+  state.revision = 1;
+  vi.clearAllMocks();
+});
+
+describe("OAuth credential lifecycle", () => {
+  it("binds custody to provider, resource, and normalized owner", async () => {
+    await saveOAuthCredential(identity, credential());
+
+    await expect(readOAuthCredentialState(identity)).resolves.toMatchObject({
+      kind: "connected",
+      credential: {
+        oauthLifecycle: {
+          version: 1,
+          provider: "builder",
+          resource: "https://api.builder.io",
+          owner: "user:alice@example.com",
+        },
+      },
+    });
+    await expect(
+      readOAuthCredentialState({
+        ...identity,
+        resource: "https://mcp.builder.io/mcp/fusion",
+      }),
+    ).resolves.toEqual({ kind: "missing" });
+    await expect(
+      readOAuthCredentialState({
+        ...identity,
+        owner: { scope: "user", id: "bob@example.com" },
+      }),
+    ).resolves.toEqual({ kind: "missing" });
+  });
+
+  it("keeps credentials for two resources with the same provider and account independently retrievable", async () => {
+    const fusionIdentity = {
+      ...identity,
+      resource: "https://api.builder.io/mcp/fusion",
+    };
+    await saveOAuthCredential(
+      identity,
+      credential({ access: "<MANAGED_AI_TOKEN>" }),
+    );
+    await saveOAuthCredential(
+      fusionIdentity,
+      credential({ access: "<FUSION_TOKEN>" }),
+    );
+
+    await expect(readOAuthCredentialState(identity)).resolves.toMatchObject({
+      kind: "connected",
+      credential: { tokens: { access_token: "<MANAGED_AI_TOKEN>" } },
+    });
+    await expect(
+      readOAuthCredentialState(fusionIdentity),
+    ).resolves.toMatchObject({
+      kind: "connected",
+      credential: { tokens: { access_token: "<FUSION_TOKEN>" } },
+    });
+    expect(state.rows.size).toBe(2);
+  });
+
+  it("distinguishes missing, malformed, expired, and reconnect-required custody", async () => {
+    await expect(readOAuthCredentialState(identity)).resolves.toEqual({
+      kind: "missing",
+    });
+
+    await saveOAuthCredential(identity, credential());
+    const malformedRow = [...state.rows.values()][0];
+    malformedRow.tokens = { tokens: {} };
+    await expect(readOAuthCredentialState(identity)).resolves.toMatchObject({
+      kind: "malformed",
+    });
+
+    await saveOAuthCredential(
+      identity,
+      credential({ expiresAt: Date.now() - 1 }),
+    );
+    await expect(readOAuthCredentialState(identity)).resolves.toMatchObject({
+      kind: "expired",
+    });
+
+    const row = [...state.rows.values()][0];
+    row.tokens = {
+      ...row.tokens,
+      oauthLifecycle: {
+        ...(row.tokens.oauthLifecycle as Record<string, unknown>),
+        reconnectReason: "refresh_failed",
+      },
+    };
+    await expect(readOAuthCredentialState(identity)).resolves.toMatchObject({
+      kind: "reconnect_required",
+    });
+  });
+
+  it("redeems one rotating refresh token and makes concurrent waiters reload the winner", async () => {
+    await saveOAuthCredential(
+      identity,
+      credential({ expiresAt: Date.now() - 1 }),
+    );
+    let finishRefresh!: () => void;
+    const refreshGate = new Promise<void>((resolve) => {
+      finishRefresh = resolve;
+    });
+    const refresh = vi.fn(async ({ credential: current }) => {
+      await refreshGate;
+      return {
+        ...current,
+        tokens: {
+          ...current.tokens,
+          access_token: "<ROTATED_ACCESS_TOKEN>",
+          refresh_token: "<ROTATED_REFRESH_TOKEN>",
+        },
+        tokenExpiresAt: Date.now() + 3_600_000,
+      };
+    });
+    const options = {
+      refresh,
+      waitMs: 1,
+      maxWaitMs: 1_000,
+      dependencies: {
+        sleep: (ms: number) => new Promise((r) => setTimeout(r, ms)),
+      },
+    };
+
+    const first = resolveOAuthCredentialAccess(identity, options);
+    await Promise.resolve();
+    const second = resolveOAuthCredentialAccess(identity, options);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    finishRefresh();
+
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      expect.objectContaining({ accessToken: "<ROTATED_ACCESS_TOKEN>" }),
+      expect.objectContaining({ accessToken: "<ROTATED_ACCESS_TOKEN>" }),
+    ]);
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("renews the lease while a slow rotating refresh is in flight", async () => {
+    await saveOAuthCredential(
+      identity,
+      credential({ expiresAt: Date.now() - 1 }),
+    );
+    const refresh = vi.fn(async ({ credential: current }) => {
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      return {
+        ...current,
+        tokens: {
+          ...current.tokens,
+          access_token: "<SLOW_ROTATED_ACCESS_TOKEN>",
+          refresh_token: "<SLOW_ROTATED_REFRESH_TOKEN>",
+        },
+        tokenExpiresAt: Date.now() + 3_600_000,
+      };
+    });
+    const options = {
+      refresh,
+      leaseMs: 12,
+      waitMs: 1,
+      maxWaitMs: 1_000,
+    };
+
+    const first = resolveOAuthCredentialAccess(identity, options);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const second = resolveOAuthCredentialAccess(identity, options);
+
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      expect.objectContaining({ accessToken: "<SLOW_ROTATED_ACCESS_TOKEN>" }),
+      expect.objectContaining({ accessToken: "<SLOW_ROTATED_ACCESS_TOKEN>" }),
+    ]);
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("marks an expired credential for reconnect after refresh fails", async () => {
+    await saveOAuthCredential(
+      identity,
+      credential({ expiresAt: Date.now() - 1 }),
+    );
+
+    await expect(
+      resolveOAuthCredentialAccess(identity, {
+        refresh: async () => {
+          throw new Error("refresh token rejected");
+        },
+      }),
+    ).resolves.toMatchObject({
+      accessToken: null,
+      state: { kind: "reconnect_required" },
+    });
+  });
+
+  it("attempts remote revocation, deletes local custody, and reports failure honestly", async () => {
+    await saveOAuthCredential(identity, credential());
+
+    await expect(
+      revokeOAuthCredential(identity, {
+        revoke: async () => {
+          throw new Error("provider unavailable");
+        },
+      }),
+    ).resolves.toEqual({ remote: "failed", local: "deleted" });
+    await expect(readOAuthCredentialState(identity)).resolves.toEqual({
+      kind: "missing",
+    });
+  });
+
+  it("does not delete a newer authorization that lands during revocation", async () => {
+    await saveOAuthCredential(identity, credential());
+    let finishRevocation!: () => void;
+    const revocationGate = new Promise<void>((resolve) => {
+      finishRevocation = resolve;
+    });
+    const revocation = revokeOAuthCredential(identity, {
+      revoke: async () => {
+        await revocationGate;
+        return "succeeded";
+      },
+    });
+    await Promise.resolve();
+    await saveOAuthCredential(
+      identity,
+      credential({ access: "<NEW_AUTHORIZATION>" }),
+    );
+    finishRevocation();
+
+    await expect(revocation).resolves.toEqual({
+      remote: "succeeded",
+      local: "replaced",
+    });
+    await expect(readOAuthCredentialState(identity)).resolves.toMatchObject({
+      kind: "connected",
+      credential: { tokens: { access_token: "<NEW_AUTHORIZATION>" } },
+    });
+  });
+});

@@ -22,11 +22,18 @@ import {
   OAuthTokens,
 } from "@modelcontextprotocol/client";
 
+import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import {
-  deleteOAuthTokens,
-  getOAuthTokens,
-  saveOAuthTokens,
-} from "../oauth-tokens/store.js";
+  readOAuthCredentialState,
+  resolveOAuthCredentialAccess,
+  revokeOAuthCredential,
+  saveOAuthCredential,
+  type OAuthCredential,
+  type OAuthCredentialIdentity,
+  type OAuthCredentialState,
+  type OAuthRevocationResult,
+} from "../oauth-tokens/lifecycle.js";
+import { deleteOAuthTokens, getOAuthTokens } from "../oauth-tokens/store.js";
 import { validateRemoteUrl } from "./remote-url.js";
 
 const TOKEN_EXPIRY_SKEW_MS = 60_000;
@@ -100,6 +107,23 @@ function guardedOAuthFetch(): GuardedFetch {
   };
 }
 
+async function guardedRevocationFetch(
+  url: string,
+  init: RequestInit,
+): Promise<Response> {
+  const endpoint = checkedRemoteUrl(url, "revocation endpoint");
+  return ssrfSafeFetch(endpoint.href, init, {
+    maxRedirects: 0,
+    httpsOnly: true,
+    assertUrlAllowed: (candidate) => {
+      const checked = checkedRemoteUrl(candidate, "revocation redirect");
+      if (checked.origin !== endpoint.origin) {
+        throw new Error("MCP OAuth revocation redirect changed origin.");
+      }
+    },
+  });
+}
+
 function validateDiscoveryUrls(state: {
   authorizationServerUrl: string;
   authorizationServerMetadata?: AuthorizationServerMetadata;
@@ -129,13 +153,9 @@ function validateDiscoveryUrls(state: {
   }
 }
 
-function credentialOwner(options: { scope: "user" | "org"; scopeId: string }) {
-  return `${options.scope}:${options.scopeId}`;
-}
-
 export type McpOAuthDiscoveryState = OAuthDiscoveryState;
 
-export interface McpOAuthCredentialBundle {
+export interface McpOAuthCredentialBundle extends OAuthCredential {
   serverUrl: string;
   clientInformation: StoredOAuthClientInformation;
   discoveryState?: McpOAuthDiscoveryState;
@@ -169,6 +189,20 @@ function issuerForDiscovery(
 ): string | undefined {
   const issuer = discovery?.authorizationServerMetadata?.issuer;
   return typeof issuer === "string" && issuer ? issuer : undefined;
+}
+
+function credentialIdentity(options: {
+  key: string;
+  scope: "user" | "org";
+  scopeId: string;
+  serverUrl: string;
+}): OAuthCredentialIdentity {
+  return {
+    provider: "mcp",
+    accountId: options.key,
+    resource: options.serverUrl,
+    owner: { scope: options.scope, id: options.scopeId },
+  };
 }
 
 function withIssuer<T extends { issuer?: string }>(
@@ -421,11 +455,13 @@ export async function saveMcpOAuthCredentials(options: {
   if (options.credentials.discoveryState) {
     validateDiscoveryUrls(options.credentials.discoveryState);
   }
-  await saveOAuthTokens(
-    "mcp",
-    options.key,
-    options.credentials as unknown as Record<string, unknown>,
-    `${options.scope}:${options.scopeId}`,
+  await saveOAuthCredential(
+    credentialIdentity({
+      ...options,
+      serverUrl: options.credentials.serverUrl,
+    }),
+    options.credentials,
+    { legacyAccountKey: true },
   );
 }
 
@@ -433,22 +469,33 @@ export async function readMcpOAuthCredentials(options: {
   key: string;
   scope: "user" | "org";
   scopeId: string;
+  serverUrl?: string;
 }): Promise<McpOAuthCredentialBundle | null> {
-  const stored = await getOAuthTokens(
-    "mcp",
-    options.key,
-    credentialOwner(options),
-  );
-  if (!stored) return null;
-  const parsed = stored as Partial<McpOAuthCredentialBundle>;
-  if (
-    typeof parsed.serverUrl !== "string" ||
-    !parsed.clientInformation ||
-    !parsed.tokens ||
-    typeof parsed.tokens.access_token !== "string"
-  ) {
-    return null;
+  if (!options.serverUrl) {
+    const stored = await getOAuthTokens(
+      "mcp",
+      options.key,
+      `${options.scope}:${options.scope === "user" ? options.scopeId.toLowerCase() : options.scopeId}`,
+    );
+    if (!stored) return null;
+    const parsed = stored as Partial<McpOAuthCredentialBundle>;
+    if (
+      typeof parsed.serverUrl !== "string" ||
+      !parsed.clientInformation ||
+      !parsed.tokens ||
+      typeof parsed.tokens.access_token !== "string"
+    ) {
+      return null;
+    }
+    return parsed as McpOAuthCredentialBundle;
   }
+  const state = await getMcpOAuthConnectionState({
+    ...options,
+    serverUrl: options.serverUrl,
+  });
+  if (state.kind === "missing" || state.kind === "malformed") return null;
+  const parsed = state.credential;
+  if (parsed.serverUrl !== options.serverUrl) return null;
   if (!validateRemoteUrl(parsed.serverUrl).ok) return null;
   if (parsed.discoveryState) {
     try {
@@ -457,17 +504,101 @@ export async function readMcpOAuthCredentials(options: {
       return null;
     }
   }
-  return parsed as McpOAuthCredentialBundle;
+  return parsed;
+}
+
+export async function getMcpOAuthConnectionState(options: {
+  key: string;
+  scope: "user" | "org";
+  scopeId: string;
+  serverUrl: string;
+}): Promise<OAuthCredentialState<McpOAuthCredentialBundle>> {
+  return readOAuthCredentialState<McpOAuthCredentialBundle>(
+    credentialIdentity(options),
+    {
+      allowLegacy: true,
+      legacyAccountKey: true,
+      validateCredential: (credential) =>
+        credential.serverUrl === options.serverUrl,
+    },
+  );
 }
 
 export async function deleteMcpOAuthCredentials(options: {
   key: string;
   scope: "user" | "org";
   scopeId: string;
+  serverUrl?: string;
 }): Promise<boolean> {
-  return (
-    (await deleteOAuthTokens("mcp", options.key, credentialOwner(options))) > 0
-  );
+  if (!options.serverUrl) {
+    return (
+      (await deleteOAuthTokens(
+        "mcp",
+        options.key,
+        `${options.scope}:${options.scope === "user" ? options.scopeId.toLowerCase() : options.scopeId}`,
+      )) > 0
+    );
+  }
+  const current = await readMcpOAuthCredentials(options);
+  if (!current) return false;
+  const identity = credentialIdentity({
+    ...options,
+    serverUrl: options.serverUrl,
+  });
+  const result = await revokeOAuthCredential(identity, {
+    allowLegacy: true,
+    legacyAccountKey: true,
+    validateCredential: (credential: McpOAuthCredentialBundle) =>
+      credential.serverUrl === options.serverUrl,
+  });
+  return result.local === "deleted";
+}
+
+export async function revokeMcpOAuthCredentials(options: {
+  key: string;
+  scope: "user" | "org";
+  scopeId: string;
+  serverUrl: string;
+}): Promise<OAuthRevocationResult> {
+  const identity = credentialIdentity(options);
+  const current = await readMcpOAuthCredentials(options);
+  if (!current) {
+    return { remote: "not_attempted", local: "missing" };
+  }
+  return revokeOAuthCredential<McpOAuthCredentialBundle>(identity, {
+    allowLegacy: true,
+    legacyAccountKey: true,
+    validateCredential: (credential) =>
+      credential.serverUrl === options.serverUrl,
+    revoke: async ({ credential }) => {
+      const endpoint = (
+        credential.discoveryState?.authorizationServerMetadata as
+          | (AuthorizationServerMetadata & { revocation_endpoint?: string })
+          | undefined
+      )?.revocation_endpoint;
+      if (!endpoint) return "unsupported";
+      const token =
+        credential.tokens.refresh_token ?? credential.tokens.access_token;
+      const body = new URLSearchParams({
+        token,
+        token_type_hint: credential.tokens.refresh_token
+          ? "refresh_token"
+          : "access_token",
+        client_id: credential.clientInformation.client_id,
+      });
+      const response = await guardedRevocationFetch(endpoint, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body,
+      });
+      if (!response.ok) {
+        await response.body?.cancel().catch(() => undefined);
+        throw new Error("MCP OAuth revocation failed.");
+      }
+      await response.body?.cancel().catch(() => undefined);
+      return "succeeded";
+    },
+  });
 }
 
 /**
@@ -482,72 +613,60 @@ export async function getMcpOAuthAccessToken(options: {
   serverUrl: string;
 }): Promise<string | null> {
   if (!validateRemoteUrl(options.serverUrl).ok) return null;
-  const credentials = await readMcpOAuthCredentials(options);
-  if (!credentials || credentials.serverUrl !== options.serverUrl) return null;
-
-  const accessToken = credentials.tokens.access_token;
-  const now = Date.now();
-  if (
-    typeof credentials.tokenExpiresAt !== "number" ||
-    credentials.tokenExpiresAt - now > TOKEN_EXPIRY_SKEW_MS
-  ) {
-    return accessToken;
-  }
-  const tokenIsExpired = credentials.tokenExpiresAt <= now;
-
-  const refreshToken = credentials.tokens.refresh_token;
-  const discovery = credentials.discoveryState;
-  if (!refreshToken || !discovery?.authorizationServerUrl) {
-    return tokenIsExpired ? null : accessToken;
-  }
-
-  try {
-    const expectedIssuer = issuerForDiscovery(discovery);
-    if (
-      !expectedIssuer ||
-      credentials.clientInformation.issuer !== expectedIssuer ||
-      credentials.tokens.issuer !== expectedIssuer
-    ) {
-      return null;
-    }
-    const resource = discovery.resourceMetadata?.resource
-      ? checkedRemoteUrl(discovery.resourceMetadata.resource, "resource")
-      : undefined;
-    const authorizationServerUrl = checkedRemoteUrl(
-      discovery.authorizationServerUrl,
-      "authorization server",
-    );
-    const refreshed = await refreshAuthorization(authorizationServerUrl, {
-      metadata: discovery.authorizationServerMetadata,
-      clientInformation: credentials.clientInformation,
-      refreshToken,
-      resource,
-      fetchFn: guardedOAuthFetch(),
-    });
-    const nextTokens: StoredOAuthTokens = {
-      ...credentials.tokens,
-      ...refreshed,
-      issuer: expectedIssuer,
-      ...(refreshed.refresh_token
-        ? { refresh_token: refreshed.refresh_token }
-        : credentials.tokens.refresh_token
-          ? { refresh_token: credentials.tokens.refresh_token }
-          : {}),
-    };
-    const next: McpOAuthCredentialBundle = {
-      ...credentials,
-      tokens: nextTokens,
-      tokenExpiresAt: tokenExpiresAt(nextTokens),
-    };
-    await saveMcpOAuthCredentials({
-      ...options,
-      credentials: next,
-    });
-    return nextTokens.access_token;
-  } catch {
-    // A still-valid token can survive a transient refresh failure. Once it has
-    // expired, omit it so callers surface reauthorization instead of retrying
-    // a credential that can never authenticate.
-    return tokenIsExpired ? null : accessToken;
-  }
+  const result = await resolveOAuthCredentialAccess<McpOAuthCredentialBundle>(
+    credentialIdentity(options),
+    {
+      allowLegacy: true,
+      legacyAccountKey: true,
+      validateCredential: (credential) =>
+        credential.serverUrl === options.serverUrl,
+      expirySkewMs: TOKEN_EXPIRY_SKEW_MS,
+      refresh: async ({ credential: credentials }) => {
+        const refreshToken = credentials.tokens.refresh_token;
+        const discovery = credentials.discoveryState;
+        if (!refreshToken || !discovery?.authorizationServerUrl) {
+          throw new Error("MCP OAuth refresh is unavailable.");
+        }
+        const expectedIssuer = issuerForDiscovery(discovery);
+        if (
+          !expectedIssuer ||
+          credentials.clientInformation.issuer !== expectedIssuer ||
+          credentials.tokens.issuer !== expectedIssuer
+        ) {
+          throw new Error("MCP OAuth refresh issuer binding is invalid.");
+        }
+        const resource = discovery.resourceMetadata?.resource
+          ? checkedRemoteUrl(discovery.resourceMetadata.resource, "resource")
+          : undefined;
+        const authorizationServerUrl = checkedRemoteUrl(
+          discovery.authorizationServerUrl,
+          "authorization server",
+        );
+        const refreshed = await refreshAuthorization(authorizationServerUrl, {
+          metadata: discovery.authorizationServerMetadata,
+          clientInformation: credentials.clientInformation,
+          refreshToken,
+          resource,
+          fetchFn: guardedOAuthFetch(),
+        });
+        const nextTokens: StoredOAuthTokens = {
+          ...credentials.tokens,
+          ...refreshed,
+          issuer: expectedIssuer,
+          ...(refreshed.refresh_token
+            ? { refresh_token: refreshed.refresh_token }
+            : credentials.tokens.refresh_token
+              ? { refresh_token: credentials.tokens.refresh_token }
+              : {}),
+        };
+        const next: McpOAuthCredentialBundle = {
+          ...credentials,
+          tokens: nextTokens,
+          tokenExpiresAt: tokenExpiresAt(nextTokens),
+        };
+        return next;
+      },
+    },
+  );
+  return result.accessToken;
 }

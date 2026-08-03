@@ -157,6 +157,83 @@ export async function getOAuthTokens(
   return parseStoredTokens(rows[0].tokens as string);
 }
 
+export interface OAuthTokenSnapshot {
+  tokens: Record<string, unknown>;
+  owner: string | null;
+  revision: number;
+}
+
+/**
+ * Read one credential bundle together with the row revision used by
+ * refresh/revocation compare-and-swap writes.
+ */
+export async function getOAuthTokenSnapshot(
+  provider: string,
+  accountId: string,
+  owner: string,
+): Promise<OAuthTokenSnapshot | null> {
+  await ensureTable();
+  const client = getDbExec();
+  const table = oauthTokensTable();
+  const { rows } = await client.execute({
+    sql: `SELECT owner, tokens, updated_at FROM ${table} WHERE provider = ? AND account_id = ? AND owner = ?`,
+    args: [provider, accountId, owner],
+  });
+  if (rows.length === 0) return null;
+  return {
+    tokens: parseStoredTokens(rows[0].tokens as string),
+    owner: (rows[0].owner as string) ?? null,
+    revision: Number(rows[0].updated_at),
+  };
+}
+
+/**
+ * Replace an existing credential bundle only when the caller still owns the
+ * revision it read. This prevents a slow refresh/revoke flow from overwriting
+ * a newer authorization completed in another process.
+ */
+export async function replaceOAuthTokensIfRevision(
+  provider: string,
+  accountId: string,
+  owner: string,
+  expectedRevision: number,
+  tokens: Record<string, unknown>,
+): Promise<boolean> {
+  await ensureTable();
+  const client = getDbExec();
+  const table = oauthTokensTable();
+  const nextRevision = Math.max(Date.now(), expectedRevision + 1);
+  const result = await client.execute({
+    sql: `UPDATE ${table} SET tokens = ?, updated_at = ? WHERE provider = ? AND account_id = ? AND owner = ? AND updated_at = ?`,
+    args: [
+      serializeTokens(tokens),
+      nextRevision,
+      provider,
+      accountId,
+      owner,
+      expectedRevision,
+    ],
+  });
+  return result.rowsAffected === 1;
+}
+
+/** Delete only the exact credential revision the caller inspected. */
+export async function deleteOAuthTokensIfRevision(
+  provider: string,
+  accountId: string,
+  owner: string,
+  expectedRevision: number,
+): Promise<boolean> {
+  await ensureTable();
+  const client = getDbExec();
+  const table = oauthTokensTable();
+  const result = await client.execute({
+    sql: `DELETE FROM ${table} WHERE provider = ? AND account_id = ? AND owner = ? AND updated_at = ?`,
+    args: [provider, accountId, owner, expectedRevision],
+  });
+  return result.rowsAffected === 1;
+}
+
 /**
  * Thrown when an OAuth save would re-bind an `(provider, account_id)` row
  * to a different owner than already holds it. Callers should catch this and
@@ -258,8 +335,8 @@ export async function saveOAuthTokens(
 
   await client.execute({
     sql: isPostgres()
-      ? `INSERT INTO ${table} (provider, account_id, owner, display_name, tokens, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (provider, account_id) DO UPDATE SET owner=EXCLUDED.owner, display_name=COALESCE(EXCLUDED.display_name, ${table}.display_name), tokens=EXCLUDED.tokens, updated_at=EXCLUDED.updated_at`
-      : `INSERT OR REPLACE INTO ${table} (provider, account_id, owner, display_name, tokens, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
+      ? `INSERT INTO ${table} (provider, account_id, owner, display_name, tokens, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (provider, account_id) DO UPDATE SET owner=EXCLUDED.owner, display_name=COALESCE(EXCLUDED.display_name, ${table}.display_name), tokens=EXCLUDED.tokens, updated_at=GREATEST(${table}.updated_at + 1, EXCLUDED.updated_at)`
+      : `INSERT INTO ${table} (provider, account_id, owner, display_name, tokens, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (provider, account_id) DO UPDATE SET owner=excluded.owner, display_name=COALESCE(excluded.display_name, ${table}.display_name), tokens=excluded.tokens, updated_at=MAX(${table}.updated_at + 1, excluded.updated_at)`,
     args: [
       provider,
       accountId,

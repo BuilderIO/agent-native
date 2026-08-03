@@ -42,6 +42,7 @@ import type { McpHttpServerConfig } from "./config.js";
 import {
   deleteMcpOAuthCredentials,
   getMcpOAuthAccessToken,
+  revokeMcpOAuthCredentials,
   saveMcpOAuthCredentials,
   type McpOAuthCredentialBundle,
 } from "./oauth-client.js";
@@ -270,6 +271,7 @@ export async function addOAuthRemoteServer(
         key: oauthSecretKey,
         scope,
         scopeId,
+        serverUrl: input.credentials.serverUrl,
       });
     }
     return result;
@@ -278,6 +280,7 @@ export async function addOAuthRemoteServer(
       key: oauthSecretKey,
       scope,
       scopeId,
+      serverUrl: input.credentials.serverUrl,
     }).catch(() => {});
     return {
       ok: false,
@@ -496,11 +499,17 @@ export async function removeRemoteServer(
   }
   if (removed?.oauthSecretKey) {
     try {
-      await deleteMcpOAuthCredentials({
+      const result = await revokeMcpOAuthCredentials({
         key: removed.oauthSecretKey,
         scope,
         scopeId,
+        serverUrl: removed.url,
       });
+      if (result.remote === "failed") {
+        console.warn(
+          `[mcp-client] MCP OAuth revocation failed for ${removed.name}; local credentials were removed.`,
+        );
+      }
     } catch (err: any) {
       // eslint-disable-next-line no-console
       console.warn(
