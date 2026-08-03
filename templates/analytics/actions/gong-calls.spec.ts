@@ -95,7 +95,7 @@ describe("gong-calls action", () => {
     expect(result.guidance).toContain("Loaded transcript excerpts");
   });
 
-  it("searches matching transcripts server-side for phrase evidence", async () => {
+  it("searches matching transcripts locally after batched retrieval", async () => {
     searchCalls.mockResolvedValue({
       calls: [
         {

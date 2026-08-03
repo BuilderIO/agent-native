@@ -71,7 +71,7 @@ export async function resolveDefaultAutomationModel(
     }
   }
 
-  const agentEngine = (await getSetting("agent-engine").catch(() => null)) as {
+  const agentEngine = (await getSetting("agent-engine")) as {
     engine?: string;
     model?: string;
   } | null;

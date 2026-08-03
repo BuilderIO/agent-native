@@ -74,7 +74,7 @@ fn store_tray_anchor(app: &tauri::AppHandle, rect: tauri::Rect) -> bool {
     true
 }
 
-pub fn refresh_tray_anchor(app: &tauri::AppHandle) -> bool {
+fn refresh_tray_anchor_on_main_thread(app: &tauri::AppHandle) -> bool {
     let Some(rect) = app
         .tray_by_id("main")
         .and_then(|tray| tray.rect().ok().flatten())
@@ -82,6 +82,26 @@ pub fn refresh_tray_anchor(app: &tauri::AppHandle) -> bool {
         return false;
     };
     store_tray_anchor(app, rect)
+}
+
+/// Tray geometry and the monitor APIs used to validate it are AppKit-bound on
+/// macOS, so keep the complete lookup and store on Tauri's main thread.
+pub fn refresh_tray_anchor(app: &tauri::AppHandle) -> bool {
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    let app = app.clone();
+    if app
+        .clone()
+        .run_on_main_thread(move || {
+            let _ = sender.send(refresh_tray_anchor_on_main_thread(&app));
+        })
+        .is_err()
+    {
+        return false;
+    }
+    match receiver.recv() {
+        Ok(success) => success,
+        Err(_) => false,
+    }
 }
 
 /// Build the full tray menu with the given upcoming-meetings list. Used both
