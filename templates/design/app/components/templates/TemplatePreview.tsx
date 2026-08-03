@@ -63,6 +63,8 @@ export function TemplatePreview({
         className,
       )}
     >
+      {/* The empty sandbox blocks scripts, so the CDN runtimes stay inert here;
+          a styled preview needs precompiled CSS, not a runtime swap. */}
       <iframe
         title={`${title} preview`}
         srcDoc={html}

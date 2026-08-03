@@ -338,4 +338,21 @@ describe("document database layout", () => {
     expect(source).toContain("group-hover/footer:opacity-100");
     expect(source).toContain("quietUntilHover");
   });
+
+  it("keeps selection controls visible and hides mutations without permission", () => {
+    const source = readDatabaseSource();
+    const selectionBarIndex = source.indexOf("<DatabaseSelectionBar");
+    const scrollSurfaceIndex = source.indexOf(
+      'data-database-scroll-surface="table"',
+    );
+
+    expect(selectionBarIndex).toBeGreaterThan(-1);
+    expect(scrollSurfaceIndex).toBeGreaterThan(selectionBarIndex);
+    expect(source).toContain(
+      "const effectiveCanEdit = canEdit && document.canEdit === true",
+    );
+    expect(source).toContain("effectiveCanEdit && document.canManage === true");
+    expect(source).toContain("canRemoveSelected={canRemoveSelected}");
+    expect(source).toContain("Clear");
+  });
 });

@@ -11,17 +11,25 @@
  * Route: GET /api/uploads/:recordingId/resume
  */
 
+import {
+  compareAndSetAppState,
+  readAppState,
+  writeAppState,
+} from "@agent-native/core/application-state";
+import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import { runWithRequestContext } from "@agent-native/core/server";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import {
   createError,
   defineEventHandler,
   getRouterParam,
+  getQuery,
   setResponseHeader,
   setResponseStatus,
   type H3Event,
 } from "h3";
 
+import { UPLOAD_RETRY_RESUME_FLAG } from "../../../../../shared/feature-flags.js";
 import { getDb, schema } from "../../../../db/index.js";
 import {
   listRecordingChunkKeys,
@@ -33,13 +41,32 @@ import {
   ownerEmailMatches,
 } from "../../../../lib/recordings.js";
 import { getResumableSession } from "../../../../lib/resumable-session.js";
-import { renewUploadLease } from "../../../../lib/upload-lease.js";
+import {
+  isRetryableUploadInterruption,
+  RETRYABLE_UPLOAD_INTERRUPTION_REASON,
+} from "../../../../lib/upload-interruption.js";
+import { uploadLeaseExpiry } from "../../../../lib/upload-lease.js";
 
 export default defineEventHandler(async (event: H3Event) => {
   setResponseHeader(event, "Cache-Control", "private, max-age=0, no-store");
   const recordingId = getRouterParam(event, "recordingId");
   if (!recordingId) {
     throw createError({ statusCode: 400, message: "Missing recordingId" });
+  }
+  const requestedAttemptIdValue = getQuery(event).attemptId;
+  const requestedAttemptId = Array.isArray(requestedAttemptIdValue)
+    ? requestedAttemptIdValue[0]
+    : requestedAttemptIdValue;
+  if (
+    typeof requestedAttemptId !== "string" ||
+    requestedAttemptId.length < 16 ||
+    requestedAttemptId.length > 128 ||
+    !/^[A-Za-z0-9_-]+$/.test(requestedAttemptId)
+  ) {
+    throw createError({
+      statusCode: 400,
+      message: "A valid upload retry attemptId is required",
+    });
   }
 
   let ownerEmail: string;
@@ -52,6 +79,21 @@ export default defineEventHandler(async (event: H3Event) => {
     throw createError({ statusCode: 401, message: "Unauthorized" });
   }
 
+  const recoveryEnabled = await isFeatureFlagEnabled(UPLOAD_RETRY_RESUME_FLAG, {
+    userEmail: ownerEmail,
+    userKey: ownerEmail,
+    orgId,
+  });
+  if (!recoveryEnabled) {
+    return {
+      recoveryEnabled: false,
+      resumable: false,
+      recordingId,
+      status: null,
+      reason: "feature_disabled",
+    };
+  }
+
   return runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
     const [recording] = await getDb()
       .select({
@@ -59,6 +101,9 @@ export default defineEventHandler(async (event: H3Event) => {
         status: schema.recordings.status,
         failureReason: schema.recordings.failureReason,
         videoUrl: schema.recordings.videoUrl,
+        uploadProgress: schema.recordings.uploadProgress,
+        uploadAttemptId: schema.recordings.uploadAttemptId,
+        uploadGenerationId: schema.recordings.uploadGenerationId,
       })
       .from(schema.recordings)
       .where(
@@ -73,31 +118,160 @@ export default defineEventHandler(async (event: H3Event) => {
       return { error: "Recording not found" };
     }
 
-    const lease = await renewUploadLease(recordingId);
-    if (!lease.held) {
+    // Legacy rows keep their null generation and unscoped scratch. A reset
+    // upgrades them by installing a fresh generation before it deletes data.
+    const existingGenerationId = recording.uploadGenerationId ?? null;
+    const generationId = existingGenerationId;
+    const session = generationId
+      ? await getResumableSession(recordingId, generationId)
+      : await getResumableSession(recordingId);
+    const retryableFailure =
+      recording.status === "failed" &&
+      isRetryableUploadInterruption(recording.failureReason);
+    const existingAttemptId = recording.uploadAttemptId ?? null;
+    if (
+      recording.status === "uploading" &&
+      existingAttemptId !== null &&
+      existingAttemptId !== requestedAttemptId
+    ) {
+      setResponseStatus(event, 409);
       return {
         resumable: false,
+        recoveryEnabled: true,
         recordingId,
-        status: lease.status,
-        failureReason: lease.failureReason,
-        videoUrl: lease.videoUrl,
+        status: "uploading",
+        reason: "retry_already_active",
+      };
+    }
+    if (recording.status !== "uploading" && !retryableFailure) {
+      return {
+        resumable: false,
+        recoveryEnabled: true,
+        recordingId,
+        status: recording.status,
+        failureReason: recording.failureReason,
+        videoUrl: recording.videoUrl,
       };
     }
 
-    const session = await getResumableSession(recordingId).catch(() => null);
+    const uploadStateKey = `recording-upload-${recordingId}`;
+    const uploadStateRaw = await readAppState(uploadStateKey);
+    const uploadState = uploadStateRaw ?? {};
+    const attemptId = requestedAttemptId;
+    const now = new Date().toISOString();
+    const claimed = await getDb()
+      .update(schema.recordings)
+      .set({
+        status: "uploading",
+        failureReason: null,
+        uploadAttemptId: attemptId,
+        ...(generationId ? { uploadGenerationId: generationId } : {}),
+        uploadLeaseExpiresAt: uploadLeaseExpiry(),
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(schema.recordings.id, recordingId),
+          ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+          retryableFailure
+            ? eq(schema.recordings.status, "failed")
+            : eq(schema.recordings.status, "uploading"),
+          retryableFailure
+            ? eq(
+                schema.recordings.failureReason,
+                RETRYABLE_UPLOAD_INTERRUPTION_REASON,
+              )
+            : undefined,
+          existingAttemptId === null
+            ? isNull(schema.recordings.uploadAttemptId)
+            : eq(schema.recordings.uploadAttemptId, existingAttemptId),
+          existingGenerationId === null
+            ? isNull(schema.recordings.uploadGenerationId)
+            : eq(schema.recordings.uploadGenerationId, existingGenerationId),
+        ),
+      )
+      .returning({ id: schema.recordings.id });
+
+    if (claimed.length !== 1) {
+      setResponseStatus(event, 409);
+      return {
+        resumable: false,
+        recoveryEnabled: true,
+        recordingId,
+        status: "uploading",
+        reason: "retry_already_active",
+      };
+    }
+
+    const uploadStateUpdated = await compareAndSetAppState(
+      uploadStateKey,
+      uploadStateRaw,
+      {
+        ...uploadState,
+        recordingId,
+        status: "uploading",
+        failureReason: null,
+        retryableInterruption: false,
+        progress: recording.uploadProgress,
+        uploadAttemptId: attemptId,
+        uploadGenerationId: generationId,
+        ...(session ? { bytesReceived: session.bytesUploaded } : {}),
+        updatedAt: now,
+      },
+    );
+    if (!uploadStateUpdated) {
+      const [current] = await getDb()
+        .select({
+          status: schema.recordings.status,
+          uploadAttemptId: schema.recordings.uploadAttemptId,
+          uploadGenerationId: schema.recordings.uploadGenerationId,
+        })
+        .from(schema.recordings)
+        .where(
+          and(
+            eq(schema.recordings.id, recordingId),
+            ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+          ),
+        );
+      if (
+        current?.status !== "uploading" ||
+        (current.uploadAttemptId ?? null) !== attemptId ||
+        (current.uploadGenerationId ?? null) !== generationId
+      ) {
+        setResponseStatus(event, 409);
+        return {
+          resumable: false,
+          recoveryEnabled: true,
+          recordingId,
+          status: current?.status ?? null,
+          reason: "upload_state_changed",
+        };
+      }
+      console.info(
+        `[upload-resume] upload state advanced under the same claim; preserving newer progress for ${recordingId}`,
+      );
+    }
+    await writeAppState("refresh-signal", { ts: Date.now() });
+
     if (session) {
       return {
         resumable: true,
+        recoveryEnabled: true,
         recordingId,
-        status: recording.status,
+        status: "uploading",
         uploadMode: "streaming" as const,
+        attemptId,
+        ...(generationId ? { uploadGenerationId: generationId } : {}),
         bytesReceived: session.bytesUploaded,
         nextChunkIndex: (session.lastCommittedIndex ?? -1) + 1,
       };
     }
 
     const stored = new Set(
-      (await listRecordingChunkKeys(ownerEmail, recordingId))
+      (generationId
+        ? await listRecordingChunkKeys(ownerEmail, recordingId, generationId)
+        : await listRecordingChunkKeys(ownerEmail, recordingId)
+      )
         .map(recordingChunkIndexFromKey)
         .filter((index): index is number => index !== null),
     );
@@ -108,10 +282,15 @@ export default defineEventHandler(async (event: H3Event) => {
 
     return {
       resumable: true,
+      recoveryEnabled: true,
       recordingId,
-      status: recording.status,
+      status: "uploading",
       uploadMode: "buffered" as const,
-      bytesReceived: await sumRecordingChunkBytes(ownerEmail, recordingId),
+      attemptId,
+      ...(generationId ? { uploadGenerationId: generationId } : {}),
+      bytesReceived: generationId
+        ? await sumRecordingChunkBytes(ownerEmail, recordingId, generationId)
+        : await sumRecordingChunkBytes(ownerEmail, recordingId),
       nextChunkIndex,
     };
   });

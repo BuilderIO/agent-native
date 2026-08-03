@@ -219,8 +219,22 @@ export default defineAction({
       // SQLite writer briefly blocks this best-effort refresh hint.
     });
 
+    const response = await getContentDatabaseResponse(databaseId, {
+      limit: 100,
+      offset: 0,
+    });
+    const createdItem =
+      response.items.find((item) => item.id === itemId) ??
+      (
+        await getContentDatabaseResponse(databaseId, {
+          limit: 1,
+          offset: 0,
+          documentIds: [documentId],
+        })
+      ).items.find((item) => item.id === itemId);
     return {
-      ...(await getContentDatabaseResponse(databaseId)),
+      ...response,
+      createdItem,
       createdItemId: itemId,
       createdDocumentId: documentId,
       createdDocumentUpdatedAt: now,
