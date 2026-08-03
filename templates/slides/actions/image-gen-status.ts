@@ -1,8 +1,5 @@
 import { defineAction } from "@agent-native/core";
-import {
-  resolveBuilderCredentials,
-  resolveSecret,
-} from "@agent-native/core/server";
+import { resolveSecret } from "@agent-native/core/server";
 import { z } from "zod";
 
 export default defineAction({
@@ -14,11 +11,6 @@ export default defineAction({
     const { getConfiguredProviders } =
       await import("../server/handlers/image-providers/index.js");
     const configured = await getConfiguredProviders();
-    const builderCreds = await resolveBuilderCredentials();
-    const builderStatus =
-      builderCreds.privateKey && builderCreds.publicKey
-        ? "Configured"
-        : "Not connected";
     const geminiStatus = (await resolveSecret("GEMINI_API_KEY"))
       ? "Configured"
       : "Not configured";
@@ -32,7 +24,8 @@ export default defineAction({
 
     return `Image Generation Status:
 ========================
-Builder.io: ${builderStatus}
+Primary: Assets app (via A2A)
+Local fallback providers:
 Gemini: ${geminiStatus}
 OpenAI: ${openaiStatus}
 ${autoProvider}

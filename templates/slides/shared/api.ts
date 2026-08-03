@@ -22,12 +22,6 @@ export interface ImageGenRequest {
   uploadedReferenceImages?: string[]; // base64 data URLs
 }
 
-export interface ImageGenResponse {
-  url: string; // Hosted URL of generated image
-  model: string;
-  prompt: string;
-}
-
 export interface ImageGenStatusResponse {
   gemini: boolean;
   openai: boolean;
