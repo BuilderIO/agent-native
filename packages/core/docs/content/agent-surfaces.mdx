@@ -74,15 +74,15 @@ The four main product shapes sit on a spectrum from most interactive to fully he
 
 Chat is the most common entry point. Apps typically grow inline UI as output gets richer, then add full app pages when users need persistent objects to browse and share. The same actions power the buttons, scheduled jobs, and external agents that come later. Use the Embedded sidecar when adding an agent to a product you already own, or Automation-first for work that runs without a browser. Here's the full picture:
 
-| Surface | Use it when | Start with |
-| --- | --- | --- |
-| **[Rich chat](#rich-chat)** | Users talk to the agent, see tool calls, and keep a thread history. | [Chat template](/docs/template-chat), `<AgentChatSurface>` |
-| **[Native inline UI](#native-inline-ui)** | Action results should render as tables, charts, cards, or approvals in chat. | [Native Chat UI](/docs/native-chat-ui), `chatUI.renderer` |
-| **[Generated inline UI](#generated-inline-ui)** | The agent should create temporary or reusable controls inside chat on the fly. | [Generative UI](/docs/generative-ui), `render-inline-extension` |
-| **[Full application](#full-application)** | Users need durable screens, shared data, navigation, and collaboration. | Templates, actions, SQL state, context awareness |
-| **[Embedded sidecar](#embedded-sidecar)** | You already have a SaaS app and want an agent beside it with page context. | `createAgentNativeEmbeddedPlugin()`, `AgentNativeEmbedded` |
-| **[Automation-first](#headless)** | Jobs, scripts, or other agents call the work directly with no browser UI. | `agent-native create --headless`, `defineAction`, HTTP, CLI, MCP, A2A |
-| **[Rich chat on your agent](#byo-agent)** | You built the agent elsewhere and want Agent-Native's chat UI around it. | `AgentChatRuntime`, `<AssistantChat runtime={runtime}>` |
+| Surface                                         | Use it when                                                                    | Start with                                                            |
+| ----------------------------------------------- | ------------------------------------------------------------------------------ | --------------------------------------------------------------------- |
+| **[Rich chat](#rich-chat)**                     | Users talk to the agent, see tool calls, and keep a thread history.            | [Chat template](/docs/template-chat), `<AgentChatSurface>`            |
+| **[Native inline UI](#native-inline-ui)**       | Action results should render as tables, charts, cards, or approvals in chat.   | [Native Chat UI](/docs/native-chat-ui), `chatUI.renderer`             |
+| **[Generated inline UI](#generated-inline-ui)** | The agent should create temporary or reusable controls inside chat on the fly. | [Generative UI](/docs/generative-ui), `render-inline-extension`       |
+| **[Full application](#full-application)**       | Users need durable screens, shared data, navigation, and collaboration.        | Templates, actions, SQL state, context awareness                      |
+| **[Embedded sidecar](#embedded-sidecar)**       | You already have a SaaS app and want an agent beside it with page context.     | `createAgentNativeEmbeddedPlugin()`, `AgentNativeEmbedded`            |
+| **[Automation-first](#headless)**               | Jobs, scripts, or other agents call the work directly with no browser UI.      | `agent-native create --headless`, `defineAction`, HTTP, CLI, MCP, A2A |
+| **[Rich chat on your agent](#byo-agent)**       | You built the agent elsewhere and want Agent-Native's chat UI around it.       | `AgentChatRuntime`, `<AssistantChat runtime={runtime}>`               |
 
 ## Rich chat on Agent-Native {#rich-chat}
 
