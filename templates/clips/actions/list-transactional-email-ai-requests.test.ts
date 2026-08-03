@@ -30,8 +30,7 @@ vi.mock("../server/lib/recordings.js", () => ({
 }));
 vi.mock("../server/lib/transactional-email-store.js", () => ({
   AI_DISPATCH_STALE_MS: 30 * 60 * 1000,
-  isAiBackedType: (type: string) =>
-    type === "two-clips" || type === "monthly-recap",
+  isAiBackedType: (type: string) => type === "two-clips",
   transactionalEmailStore: {
     listJobs: (...args: unknown[]) => mocks.listJobs(...args),
     readConfig: (...args: unknown[]) => mocks.readConfig(...args),

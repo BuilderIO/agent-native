@@ -882,8 +882,10 @@ async function reconcileMonthlyRecaps(
 ): Promise<number> {
   if (now.getUTCHours() < RECAP_SEND_HOUR_UTC) return 0;
   const month = previousRecapMonth(now);
-  // Never recap a month that closed before transactional email was switched on.
-  if (recapMonthRange(month).startAt < enabledAt) return 0;
+  // Never recap a month that closed before transactional email was switched
+  // on. A month still open at that point does get a recap: the audience it
+  // reports is the owner's own, and skipping it would cost them a full month.
+  if (recapMonthRange(month).endAt <= enabledAt) return 0;
 
   let enqueued = 0;
   for (const ownerEmail of await repository.listOwnersWithMonthlyAudience(
@@ -916,46 +918,14 @@ async function makeSendInput(
 ): Promise<ClipsTransactionalEmailInput | null> {
   const recipient = normalizedEmail(job.recipient);
   if (!recipient || isSuppressedTransactionalRecipient(recipient)) return null;
-  const recordings = await Promise.all(
-    job.recordingIds.map((recordingId) => repository.getRecording(recordingId)),
-  );
-  if (!recordings.every(isActiveReadyRecording)) return null;
-
-  if (job.type === "unviewed-reminder") {
-    if (
-      !job.shareId ||
-      !(await repository.recipientHasShare(
-        recipient,
-        job.recordingIds[0],
-        job.shareId,
-      )) ||
-      (await repository.recipientHasCountedView(recipient, job.recordingIds[0]))
-    ) {
-      return null;
-    }
-    const senderEmail =
-      normalizedEmail(job.requestedBy) ??
-      normalizedEmail(recordings[0].ownerEmail);
-    const [senderName, brandLogoUrl] = await Promise.all([
-      senderEmail ? repository.getUserDisplayName(senderEmail) : null,
-      repository.getOrganizationBrandLogoUrl(recordings[0].organizationId),
-    ]);
-    return {
-      kind: "unviewed-reminder",
-      to: recipient,
-      recordingId: recordings[0].id,
-      title: recordings[0].title,
-      senderEmail,
-      senderName,
-      brandLogoUrl,
-    };
-  }
 
   if (job.type === "monthly-recap") {
-    // Recomputed at send time: a clip trashed after enqueue must not headline.
+    // Ranked again at send time instead of trusting the queued clip: a month
+    // whose top clip was trashed or overtaken still deserves its recap, and
+    // the analytics already exclude clips the owner can no longer open.
     if (!job.month) return null;
     const recap = await repository.computeMonthlyRecap(recipient, job.month);
-    if (!recap || recap.topClip.recordingId !== recordings[0].id) return null;
+    if (!recap) return null;
     return {
       kind: "monthly-recap",
       to: recipient,
@@ -988,6 +958,41 @@ async function makeSendInput(
           })),
         },
       }),
+    };
+  }
+
+  const recordings = await Promise.all(
+    job.recordingIds.map((recordingId) => repository.getRecording(recordingId)),
+  );
+  if (!recordings.every(isActiveReadyRecording)) return null;
+
+  if (job.type === "unviewed-reminder") {
+    if (
+      !job.shareId ||
+      !(await repository.recipientHasShare(
+        recipient,
+        job.recordingIds[0],
+        job.shareId,
+      )) ||
+      (await repository.recipientHasCountedView(recipient, job.recordingIds[0]))
+    ) {
+      return null;
+    }
+    const senderEmail =
+      normalizedEmail(job.requestedBy) ??
+      normalizedEmail(recordings[0].ownerEmail);
+    const [senderName, brandLogoUrl] = await Promise.all([
+      senderEmail ? repository.getUserDisplayName(senderEmail) : null,
+      repository.getOrganizationBrandLogoUrl(recordings[0].organizationId),
+    ]);
+    return {
+      kind: "unviewed-reminder",
+      to: recipient,
+      recordingId: recordings[0].id,
+      title: recordings[0].title,
+      senderEmail,
+      senderName,
+      brandLogoUrl,
     };
   }
 

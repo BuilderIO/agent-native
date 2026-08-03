@@ -859,6 +859,51 @@ describe("transactional email worker", () => {
     expect(second.enqueued).toBe(0);
   });
 
+  it("recaps a month that was still open when email was enabled", async () => {
+    const clock = await setup("2026-07-10T00:00:00.000Z");
+    const ownerEmail = "owner@example.com";
+    const top = recording("recap-top", ownerEmail);
+    const repository = createRepository({
+      shares: [],
+      recordings: new Map([[top.id, top]]),
+      monthlyAudience: new Map([["2026-07", [ownerEmail]]]),
+      recaps: new Map([
+        [
+          `${ownerEmail}:2026-07`,
+          {
+            month: "2026-07",
+            humanViews: 2,
+            agentSessions: 1,
+            topClip: {
+              recordingId: top.id,
+              title: top.title,
+              thumbnailUrl: null,
+              durationMs: 1_000,
+              recordedAt: top.createdAt,
+              humanViews: 2,
+              agentSessions: 1,
+              completedPct: 50,
+              dropOffMs: null,
+              agentBreakdown: [],
+            },
+          } satisfies MonthlyRecap,
+        ],
+      ]),
+    });
+
+    clock.setNow("2026-08-01T14:00:00.000Z");
+    await runTransactionalEmailsOnce({
+      store: clock.store,
+      repository,
+      now: clock.now,
+      emailConfigured: async () => false,
+    });
+
+    expect(
+      await clock.store.readJob(`monthly-recap:${ownerEmail}:2026-07`),
+    ).toMatchObject({ state: "ready", month: "2026-07" });
+  });
+
   it("stops recomputing a recap once its job exists", async () => {
     const clock = await setup("2026-07-01T00:00:00.000Z");
     const ownerEmail = "owner@example.com";
@@ -967,7 +1012,7 @@ describe("transactional email worker", () => {
     });
   });
 
-  it("cancels a recap whose top clip changed after it was queued", async () => {
+  it("sends the current top clip when the ranking changed after queueing", async () => {
     const clock = await setup("2026-07-01T00:00:00.000Z");
     const ownerEmail = "owner@example.com";
     const enqueued = recording("recap-old-top", ownerEmail);
@@ -1020,9 +1065,15 @@ describe("transactional email worker", () => {
       send,
     });
 
-    expect(send).not.toHaveBeenCalled();
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "monthly-recap",
+        to: ownerEmail,
+        topClip: expect.objectContaining({ recordingId: usurper.id }),
+      }),
+    );
     expect(await clock.store.readJob(logicalKey)).toMatchObject({
-      state: "cancelled",
+      state: "sent",
     });
   });
 

@@ -9,7 +9,7 @@
  * so a recap covers the same wall-clock window for everyone.
  */
 
-import { and, asc, desc, eq, gte, inArray, lt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lt, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 import { UNKNOWN_AGENT_LABEL } from "./agent-views.js";
@@ -77,11 +77,23 @@ export function recapMonthLabel(month: string): string {
   });
 }
 
+/**
+ * Trashed, archived, and unfinished clips are excluded so the top clip is
+ * always one the recap can link to — the ranking is recomputed at send time,
+ * and a clip the owner deleted must not headline it.
+ */
 async function ownerRecordingIds(ownerEmail: string): Promise<string[]> {
   const rows = await getDb()
     .select({ id: schema.recordings.id })
     .from(schema.recordings)
-    .where(ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail));
+    .where(
+      and(
+        ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+        eq(schema.recordings.status, "ready"),
+        isNull(schema.recordings.archivedAt),
+        isNull(schema.recordings.trashedAt),
+      ),
+    );
   return rows.map((row) => row.id);
 }
 
