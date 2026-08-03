@@ -899,6 +899,11 @@ describe("Content space provisioning", () => {
     );
     expect(ids).not.toContain("private-org-a");
     expect(ids).not.toContain("favorite-unrelated");
+    expect(
+      result.documents.find(
+        (document) => document.id === memberProvisioned.favoritesDocumentId,
+      )?.database,
+    ).toMatchObject({ systemRole: "favorites" });
     const favorites = await runWithRequestContext(
       { userEmail: favoritesMember, orgId: "org-favorites-a" },
       () =>

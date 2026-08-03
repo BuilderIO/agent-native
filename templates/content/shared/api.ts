@@ -36,6 +36,7 @@ export interface Document {
   properties?: DocumentProperty[];
   database?: ContentDatabase;
   databaseMembership?: ContentDatabaseMembership;
+  bodyHydration?: ContentDocumentBodyHydration;
   contextPath?: ContentContextPathEntry[];
   createdAt: string;
   updatedAt: string;
@@ -405,6 +406,13 @@ export interface ContentDatabaseMembership {
   position: number;
   sourceId?: string | null;
   bodyHydration?: ContentDatabaseBodyHydration;
+}
+
+export interface ContentDocumentBodyHydration {
+  provider?: "builder";
+  hydration?: ContentDatabaseBodyHydration;
+  sourceId?: string;
+  databaseDocumentId?: string;
 }
 
 export type ContentDatabaseBodyHydrationState =

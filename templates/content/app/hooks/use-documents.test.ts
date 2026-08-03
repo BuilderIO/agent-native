@@ -30,6 +30,39 @@ describe("document query freshness", () => {
       retry: false,
     });
   });
+
+  it("keeps membership contexts in separate Page query keys", () => {
+    expect(
+      documentQueryKey("shared-page", {
+        databaseId: "local-database",
+        databaseDocumentId: "local-database-page",
+      }),
+    ).toEqual([
+      "action",
+      "get-document",
+      {
+        id: "shared-page",
+        databaseId: "local-database",
+        databaseDocumentId: "local-database-page",
+      },
+    ]);
+    expect(
+      documentQueryKey("shared-page", {
+        databaseId: "builder-database",
+        databaseDocumentId: "builder-database-page",
+      }),
+    ).not.toEqual(
+      documentQueryKey("shared-page", {
+        databaseId: "local-database",
+        databaseDocumentId: "local-database-page",
+      }),
+    );
+    expect(documentQueryKey("shared-page")).toEqual([
+      "action",
+      "get-document",
+      { id: "shared-page" },
+    ]);
+  });
 });
 
 function doc(id: string, parentId: string | null, position = 0): Document {
@@ -397,6 +430,53 @@ describe("optimistic document titles", () => {
       queryClient.getQueryData<any>(databaseKey)?.items[0].document.content,
     ).toBe("Saved body");
   });
+
+  it("patches Page-owned fields across contexts without exchanging memberships", () => {
+    const queryClient = new QueryClient();
+    const localKey = documentQueryKey("shared-page", {
+      databaseId: "local-database",
+      databaseDocumentId: "local-database-page",
+    });
+    const builderKey = documentQueryKey("shared-page", {
+      databaseId: "builder-database",
+      databaseDocumentId: "builder-database-page",
+    });
+    queryClient.setQueryData(localKey, {
+      ...doc("shared-page", null),
+      databaseMembership: {
+        databaseId: "local-database",
+        databaseDocumentId: "local-database-page",
+        databaseTitle: "Local",
+        position: 0,
+      },
+    });
+    queryClient.setQueryData(builderKey, {
+      ...doc("shared-page", null),
+      databaseMembership: {
+        databaseId: "builder-database",
+        databaseDocumentId: "builder-database-page",
+        databaseTitle: "Builder",
+        position: 0,
+        sourceId: "builder-source",
+      },
+    });
+
+    patchDocumentCaches(queryClient, "shared-page", {
+      title: "Shared title",
+      content: "Shared body",
+    });
+
+    expect(queryClient.getQueryData<Document>(localKey)).toMatchObject({
+      title: "Shared title",
+      content: "Shared body",
+      databaseMembership: { databaseId: "local-database" },
+    });
+    expect(queryClient.getQueryData<Document>(builderKey)).toMatchObject({
+      title: "Shared title",
+      content: "Shared body",
+      databaseMembership: { databaseId: "builder-database" },
+    });
+  });
 });
 
 describe("mergeDocumentIntoDocumentCache", () => {
@@ -426,6 +506,46 @@ describe("mergeDocumentIntoDocumentCache", () => {
         updated,
       ),
     ).toEqual({ ...updated, database });
+  });
+
+  it("never copies membership or hydration context between query variants", () => {
+    const localMembership = {
+      databaseId: "local-database",
+      databaseDocumentId: "local-database-page",
+      databaseTitle: "Local",
+      position: 0,
+    };
+    const merged = mergeDocumentIntoDocumentCache(
+      {
+        ...doc("shared-page", null),
+        databaseMembership: localMembership,
+      },
+      {
+        ...doc("shared-page", null),
+        title: "Server title",
+        databaseMembership: {
+          databaseId: "builder-database",
+          databaseDocumentId: "builder-database-page",
+          databaseTitle: "Builder",
+          position: 0,
+        },
+        bodyHydration: {
+          provider: "builder",
+          hydration: {
+            status: "pending",
+            attemptedAt: null,
+            error: null,
+            version: null,
+          },
+        },
+      },
+    );
+
+    expect(merged).toMatchObject({
+      title: "Server title",
+      databaseMembership: localMembership,
+    });
+    expect(merged).not.toHaveProperty("bodyHydration");
   });
 });
 
