@@ -409,7 +409,13 @@ import {
 } from "@/components/visual-editor/DrawOverlay";
 import { NodeRewriteProposal as NodeRewriteProposalPanel } from "@/components/visual-editor/NodeRewriteProposal";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
+import {
+  designPerf,
+  useDesignPerf,
+  usePerfRender,
+} from "@/hooks/use-design-perf";
 import { useDesignSystems } from "@/hooks/use-design-systems";
+import { useEditorPreferences } from "@/hooks/use-editor-preferences";
 import {
   designEditorCommandKey,
   designSelectionStateKeysForTab,
@@ -730,6 +736,10 @@ import {
   motionTimelineFingerprint,
 } from "./design-editor/motion-state";
 import {
+  resolveElementNudgeIntent,
+  resolveNudgeIntent,
+} from "./design-editor/nudge-intent";
+import {
   collectOverviewAnnotationViewportMap,
   formatOverviewAnnotationMessage,
 } from "./design-editor/overview-annotation-context";
@@ -755,6 +765,7 @@ import {
   shouldPopToOverviewOnZoomChange,
   shouldResetExplicitOverviewZoomOnBasisChange,
 } from "./design-editor/overview-camera";
+import { resolvePastePlacementForSelection } from "./design-editor/paste-placement";
 import {
   applyInteractionStateStyleCommit,
   applyScopedVisualStyleEdit,
@@ -851,7 +862,7 @@ import {
   getSidebarCodeLayerSelectionState,
   hasSelectableCodeLayerParent,
   isScreenRootElementInfo,
-  overviewDeleteTargetsElement,
+  overviewSelectionTargetsElement,
   pendingEditTargetsSelectedElement,
   resolveAvailableActiveFileId,
   resolveEscapePopSelectionAction,
@@ -2056,6 +2067,8 @@ export default function DesignEditorRoute() {
 }
 
 function DesignEditor() {
+  useDesignPerf();
+  usePerfRender("DesignEditor");
   const t = useT();
   const { id } = useParams<{ id: string }>();
   const { session, isLoading: sessionLoading } = useSession();
@@ -4869,6 +4882,10 @@ function DesignEditor() {
     defaultSystem,
     isLoading: designSystemsLoading,
   } = useDesignSystems(isSignedIn);
+  const {
+    preferences: editorPreferences,
+    setPreferences: setEditorPreferences,
+  } = useEditorPreferences();
 
   useEffect(() => {
     if (!id || !design || !isSignedIn || !postAuthIntent) return;
@@ -9289,10 +9306,12 @@ function DesignEditor() {
     () => getBodyInlineStyles(activeContent),
     [activeContent],
   );
-  const activeCodeLayerProjection = useMemo(
-    () => buildCodeLayerProjection(activeProjectionContent),
-    [activeProjectionContent],
-  );
+  const activeCodeLayerProjection = useMemo(() => {
+    const end = designPerf.start("buildCodeLayerProjection:active");
+    const projection = buildCodeLayerProjection(activeProjectionContent);
+    end();
+    return projection;
+  }, [activeProjectionContent]);
   const activeMotionTimeline = motionTimelineResult?.timelines?.[0] ?? null;
   const activeMotionHydrationFingerprint = activeFile?.id
     ? motionTimelineFingerprint(activeFile.id, activeMotionTimeline)
@@ -16143,8 +16162,25 @@ function DesignEditor() {
     ],
   );
 
+  // Paste has five entry points guarded by one condition; this counts which
+  // of them fire for a single gesture. Gated on the perf flag, so it is inert
+  // unless ?perf=1 / __designPerf.enable().
+  const tracePaste = useCallback(
+    (event: string, detail?: Record<string, unknown>) => {
+      if (!designPerf.isEnabled()) return;
+      designPerf.count(`paste:${event}`);
+      console.log(`[paste] ${event}`, detail ?? {});
+    },
+    [],
+  );
+
   const handlePasteSelection = useCallback(
     async (position?: { x: number; y: number }) => {
+      tracePaste("invoke", {
+        position: position ? `${position.x},${position.y}` : null,
+        activeFileId: activeFile?.id ?? null,
+        selected: selectedElement?.selector ?? null,
+      });
       // U19: paste is a discrete one-shot action, never a continuous gesture
       // like a slider drag. Without stopCapturing(), a paste that happens to
       // land within 800ms of the previous Yjs-tracked edit (captureTimeout)
@@ -16153,6 +16189,11 @@ function DesignEditor() {
       undoManagerRef.current?.stopCapturing();
       await refreshClipboardFromSystemClipboard();
       const entries = getCanvasClipboardEntries();
+      tracePaste("entries", {
+        count: entries.length,
+        sourceFileIds: entries.map((entry) => entry.sourceFileId).join(","),
+        rootNodeIds: entries.map((entry) => entry.rootNodeId).join(","),
+      });
       const targetFileId =
         viewModeRef.current === "overview" && position && boardFileId
           ? boardFileId
@@ -16336,24 +16377,30 @@ function DesignEditor() {
         return true;
       };
 
-      // B7 fix: when an element is selected and no explicit canvas position was
-      // given, insert the clone as an in-flow sibling right AFTER the selected
-      // element.  Strip any position/left/top from the clone so it participates
-      // in normal document flow instead of being an absolutely-positioned body
-      // child.  Fall back to the old position-based clone when nothing is
-      // selected or a "Paste here" position is provided.
+      // Inside a frame, after an object — but always into normal flow: a
+      // container is not a free canvas, so carrying the source's left/top
+      // across drops the clone on top of the target's content.
       if (
         !position &&
         targetFileId !== boardFileId &&
         selectedElement?.selector
       ) {
         const selector = selectedCanvasSelector ?? selectedElement.selector;
+        const decision = resolvePastePlacementForSelection({
+          content: baseContent,
+          selectedElement,
+        });
         const result = insertClonedHtmlLayers(baseContent, layerHtmls, {
           targetSelectors: [selector],
-          placement: "after",
+          placement: decision?.placement ?? "after",
           stripRootPosition: true,
           styleSnapshots,
           managedStyleSnapshots,
+        });
+        tracePaste("inserted", {
+          nodes: result?.rootNodeIds.length ?? 0,
+          placement: decision?.placement ?? "after",
+          anchor: selector,
         });
         if (result) {
           pasteCascadeRef.current += 1;
@@ -16949,6 +16996,7 @@ function DesignEditor() {
         clipboardPlainText === lastWrittenClipboardPlainTextRef.current;
       if (clipboardResult || (hasCanvasClipboard && matchesInMemoryClipboard)) {
         event.preventDefault();
+        tracePaste("from:native-paste-event");
         void handlePasteSelection();
       }
     },
@@ -16996,6 +17044,7 @@ function DesignEditor() {
       });
       selectInsertedLayers(activeFile.id, result.content, result.rootNodeIds);
     } else {
+      tracePaste("from:image-paste-fallback");
       void handlePasteSelection();
     }
   }, [
@@ -20322,6 +20371,21 @@ function DesignEditor() {
     ],
   );
 
+  // MultiScreenCanvas consumes arrow keys in the capture phase while a frame
+  // is selected, and an in-screen element selection keeps its screen there.
+  const handleOverviewNudgeSelection = useCallback(() => {
+    if (
+      overviewSelectionTargetsElement({
+        selectedElement,
+        selectedLayerIds: selectedLayerIdsState,
+        fileIds: files.map((file) => file.id),
+      })
+    ) {
+      return false;
+    }
+    return true;
+  }, [files, selectedElement, selectedLayerIdsState]);
+
   // Gate screen deletion behind confirmation, then record the deleted rows as
   // one grouped history entry so Cmd+Z can recreate every selected screen.
   // Always returns false to MultiScreenCanvas so it never performs its own
@@ -20336,7 +20400,7 @@ function DesignEditor() {
       // onDelete hotkey never ran. Route to the element delete instead; the
       // screen-delete confirmation is only for a real frame selection.
       if (
-        overviewDeleteTargetsElement({
+        overviewSelectionTargetsElement({
           selectedElement,
           selectedLayerIds: selectedLayerIdsState,
           fileIds: files.map((file) => file.id),
@@ -20758,20 +20822,26 @@ function DesignEditor() {
   const handleNudgeSelection = useCallback(
     (direction: "up" | "right" | "down" | "left", largeStep: boolean) => {
       if (!canEditDesign) return;
-      const step = largeStep ? 10 : 1;
-      const dx =
-        direction === "left" ? -step : direction === "right" ? step : 0;
-      const dy = direction === "up" ? -step : direction === "down" ? step : 0;
+      const nudgeAmounts = editorPreferences.nudge;
+      const freeTranslation = resolveNudgeIntent({
+        direction,
+        largeStep,
+        amounts: nudgeAmounts,
+      });
+      const dx = freeTranslation.kind === "translate" ? freeTranslation.dx : 0;
+      const dy = freeTranslation.kind === "translate" ? freeTranslation.dy : 0;
 
-      // Overview mode, one or more screen frames selected: arrow keys nudge
-      // the selected screens' canvas frame geometry (Figma nudges whatever is
-      // selected, including top-level frames) through the same
-      // geometry-commit path mouse-drag uses, so undo/redo and the
-      // rapid-repeat coalescing in handleGeometryCommit (~800ms window) apply
-      // identically to a held arrow key as they do to a drag gesture.
+      // Screen frames nudge through the same geometry-commit path mouse-drag
+      // uses, so a held arrow key gets handleGeometryCommit's ~800ms undo
+      // coalescing instead of one history entry per keypress.
       if (
         viewModeRef.current === "overview" &&
-        overviewSelectedScreenIds.length > 0
+        overviewSelectedScreenIds.length > 0 &&
+        !overviewSelectionTargetsElement({
+          selectedElement,
+          selectedLayerIds: selectedLayerIdsState,
+          fileIds: files.map((file) => file.id),
+        })
       ) {
         const before = getCanvasFrameGeometry(designDataJsonRef.current);
         const after = cloneCanvasFrameGeometry(before);
@@ -20807,6 +20877,36 @@ function DesignEditor() {
       }
 
       if (!selectedElement?.selector) return;
+
+      const intent = resolveElementNudgeIntent({
+        content: activeFile ? getFreshActiveContent() : "",
+        selectedElement,
+        direction,
+        largeStep,
+        amounts: nudgeAmounts,
+      });
+      if (intent.kind === "none") return;
+      if (intent.kind === "reorder") {
+        const patch = applyVisualEdit(intent.content, {
+          kind: "moveNode",
+          target: { nodeId: intent.targetNodeId },
+          anchor: { nodeId: intent.anchorNodeId },
+          placement: intent.placement,
+        } satisfies MoveNodeEditIntent);
+        if (patch.result.status !== "applied") return;
+        applyLocalContentUpdate(patch.content, { skipPreview: true });
+        const movedNode = patch.projection.nodes.find(
+          (node) =>
+            node.id === intent.targetNodeId ||
+            node.dataAttributes["data-agent-native-node-id"] ===
+              intent.targetNodeId,
+        );
+        if (movedNode) {
+          setSelectedElement(elementInfoFromCodeLayerNode(movedNode));
+        }
+        return;
+      }
+
       hideSelectionChromeForNudge();
       const left = parseFloat(selectedElement.computedStyles.left || "0") || 0;
       const top = parseFloat(selectedElement.computedStyles.top || "0") || 0;
@@ -20815,20 +20915,26 @@ function DesignEditor() {
           selectedElement.computedStyles.position === "static"
             ? "relative"
             : selectedElement.computedStyles.position || "relative",
-        left: `${Math.round(left + dx)}px`,
-        top: `${Math.round(top + dy)}px`,
+        left: `${Math.round(left + intent.dx)}px`,
+        top: `${Math.round(top + intent.dy)}px`,
       });
     },
     [
+      activeFile,
+      applyLocalContentUpdate,
       boardFileId,
       boardFrameGeometry,
       canEditDesign,
       commitVisualStyles,
+      editorPreferences.nudge,
+      files,
+      getFreshActiveContent,
       handleGeometryCommit,
       hideSelectionChromeForNudge,
       overviewScreens,
       overviewSelectedScreenIds,
       selectedElement,
+      selectedLayerIdsState,
     ],
   );
 
@@ -23572,7 +23678,12 @@ function DesignEditor() {
     // from a copy made in another tab/window (see U4). handlePasteSelection
     // checks the live clipboard first and no-ops safely if there is nothing
     // to paste from either source.
-    onPaste: canEditDesign ? () => void handlePasteSelection() : undefined,
+    onPaste: canEditDesign
+      ? () => {
+          tracePaste("from:hotkey");
+          void handlePasteSelection();
+        }
+      : undefined,
     onCut: canEditDesign ? handleCutSelection : undefined,
     onPasteOver: canEditDesign ? handlePasteOverSelection : undefined,
     onPasteToReplace: canEditDesign ? handlePasteToReplace : undefined,
@@ -31105,7 +31216,13 @@ function DesignEditor() {
           )}
 
         {!embedded && keyboardShortcutsOpen ? (
-          <KeyboardShortcutsPanel onClose={handleCloseKeyboardShortcuts} />
+          <KeyboardShortcutsPanel
+            onClose={handleCloseKeyboardShortcuts}
+            nudgeAmounts={editorPreferences.nudge}
+            onNudgeAmountsChange={(nudge) =>
+              setEditorPreferences({ ...editorPreferences, nudge })
+            }
+          />
         ) : null}
 
         {/* Canvas */}
@@ -31280,14 +31397,15 @@ function DesignEditor() {
             isUiHidden={uiHidden}
             isCommentsHidden={commentsHidden}
             getCanvasPoint={getContextCanvasPoint}
-            onPasteHere={(details) =>
+            onPasteHere={(details) => {
+              tracePaste("from:context-menu-paste-here");
               void handlePasteSelection(
                 details.point?.canvasX !== undefined &&
                   details.point.canvasY !== undefined
                   ? { x: details.point.canvasX, y: details.point.canvasY }
                   : undefined,
-              )
-            }
+              );
+            }}
             onSelectAll={handleSelectAllFrames}
             onZoomToFit={handleZoomToFit}
             onZoomToSelection={() => {
@@ -31300,7 +31418,10 @@ function DesignEditor() {
             onZoomIn={handleZoomIn}
             onZoomOut={handleZoomOut}
             onCopy={handleCopySelection}
-            onPaste={() => void handlePasteSelection()}
+            onPaste={() => {
+              tracePaste("from:context-menu");
+              void handlePasteSelection();
+            }}
             onPasteOver={handlePasteOverSelection}
             onDuplicate={handleDuplicateSelection}
             onDelete={handleDeleteSelection}
@@ -31655,6 +31776,7 @@ function DesignEditor() {
                         }
                         onCreateScreenFrame={handleCreateScreenFrame}
                         onDeleteSelection={handleDeleteOverviewSelection}
+                        onNudgeSelection={handleOverviewNudgeSelection}
                         onSelectionChange={handleOverviewScreenSelectionChange}
                         onLayerMarqueeSelectionChange={
                           handleLayerMarqueeSelectionChange
