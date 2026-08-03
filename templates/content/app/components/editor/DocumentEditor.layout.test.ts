@@ -15,7 +15,10 @@ import {
   shouldAwaitAuthoritativeDocument,
   titleMatchConfirmsSave,
 } from "./DocumentEditor";
-import { compactToolbarBreadcrumbItems } from "./DocumentToolbar";
+import {
+  compactToolbarBreadcrumbItems,
+  firstSelectableBreadcrumbMenuItemId,
+} from "./DocumentToolbar";
 
 describe("document editor layout", () => {
   it("waits for the first authoritative document fetch, then stays mounted", () => {
@@ -307,6 +310,7 @@ describe("document editor layout", () => {
       "relative z-10 flex h-12 shrink-0 items-center gap-3 bg-background px-4",
     );
     expect(source).toContain("ToolbarBreadcrumb");
+    expect(source).toContain("disabled={menuItem.id === currentDocumentId}");
     expect(source).toContain("formatEditedLabel");
     expect(source).toContain("editor.toolbar.copyPageLink");
     expect(source).toContain("editor.toolbar.info");
@@ -680,6 +684,19 @@ describe("document editor layout", () => {
     ).toEqual(["Personal", "…", "Page 2", "Draft"]);
   });
 
+  it("focuses the first real breadcrumb destination on keyboard open", () => {
+    expect(
+      firstSelectableBreadcrumbMenuItemId(
+        [
+          { id: "draft", title: "Draft" },
+          { id: "notes", title: "Notes" },
+        ],
+        "draft",
+      ),
+    ).toBe("notes");
+    expect(firstSelectableBreadcrumbMenuItemId([], "draft")).toBeNull();
+  });
+
   it("offers workspace and same-level page choices from breadcrumbs", () => {
     const items = documentEditorBreadcrumbNavigationItems(
       [
@@ -732,6 +749,110 @@ describe("document editor layout", () => {
     expect(items[1].menuItems?.map((item) => item.title)).toEqual([
       "Draft",
       "Notes",
+    ]);
+  });
+
+  it("excludes system documents from top-level breadcrumb peers", () => {
+    const items = documentEditorBreadcrumbNavigationItems(
+      [{ id: "draft", title: "Draft" }],
+      [
+        {
+          id: "draft",
+          parentId: null,
+          title: "Draft",
+          icon: null,
+          position: 0,
+          databaseMembership: {
+            databaseId: "personal",
+            databaseDocumentId: "personal-files",
+            databaseTitle: "Personal",
+            position: 0,
+          },
+        },
+        {
+          id: "notes",
+          parentId: null,
+          title: "Notes",
+          icon: null,
+          position: 1,
+          databaseMembership: {
+            databaseId: "personal",
+            databaseDocumentId: "personal-files",
+            databaseTitle: "Personal",
+            position: 1,
+          },
+        },
+        {
+          id: "trash",
+          parentId: null,
+          title: "Trash",
+          icon: null,
+          position: 2,
+          databaseMembership: {
+            databaseId: "personal",
+            databaseDocumentId: "personal-files",
+            databaseTitle: "Personal",
+            position: 2,
+          },
+          database: {
+            id: "trash-database",
+            documentId: "trash",
+            title: "Trash",
+            systemRole: "trash",
+            viewConfig: {
+              activeViewId: "default",
+              views: [],
+              sorts: [],
+              filters: [],
+              columnWidths: {},
+            },
+            createdAt: "2026-07-30T00:00:00.000Z",
+            updatedAt: "2026-07-30T00:00:00.000Z",
+          },
+        },
+      ],
+      [],
+    );
+
+    expect(items[0].menuItems?.map((item) => item.title)).toEqual([
+      "Draft",
+      "Notes",
+    ]);
+  });
+
+  it("keeps local-file folders as breadcrumb anchors but not peer destinations", () => {
+    const items = documentEditorBreadcrumbNavigationItems(
+      [{ id: "guides-folder", title: "Guides" }],
+      [
+        {
+          id: "guides-folder",
+          parentId: "docs-folder",
+          title: "Guides",
+          icon: null,
+          position: 0,
+          source: { mode: "local-files", kind: "folder", path: "docs/guides" },
+        },
+        {
+          id: "setup-page",
+          parentId: "docs-folder",
+          title: "Setup",
+          icon: null,
+          position: 1,
+        },
+        {
+          id: "reference-page",
+          parentId: "docs-folder",
+          title: "Reference",
+          icon: null,
+          position: 2,
+        },
+      ],
+      [],
+    );
+
+    expect(items[0].menuItems?.map((item) => item.title)).toEqual([
+      "Setup",
+      "Reference",
     ]);
   });
 

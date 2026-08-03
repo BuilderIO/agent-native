@@ -445,6 +445,7 @@ export function documentEditorBreadcrumbNavigationItems(
     | "title"
     | "icon"
     | "position"
+    | "database"
     | "databaseMembership"
     | "source"
   >[], // i18n-ignore type expression
@@ -457,6 +458,9 @@ export function documentEditorBreadcrumbNavigationItems(
     workspacesTitle: string;
   },
 ): ToolbarBreadcrumbItem[] {
+  const peerDocuments = documents.filter(
+    (item) => !item.database?.systemRole && item.source?.kind !== "folder",
+  );
   const documentById = new Map(documents.map((item) => [item.id, item]));
   const workspaceDocumentIds = new Set(
     spaces.map((space) => space.filesDocumentId),
@@ -480,9 +484,8 @@ export function documentEditorBreadcrumbNavigationItems(
     if (!current) return item;
     const membershipDocumentId =
       current.databaseMembership?.databaseDocumentId ?? null;
-    const siblings = documents
+    const siblings = peerDocuments
       .filter((candidate) => {
-        if (candidate.source?.kind === "folder") return false;
         if (candidate.parentId !== current.parentId) return false;
         if (current.parentId) return true;
         return (
