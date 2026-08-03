@@ -12,16 +12,18 @@
  *      recordings in order.
  *   2. It fetches each source video via `/api/video/:id`, concatenates them
  *      using ffmpeg.wasm (see `app/lib/ffmpeg-export.ts` for the wasm init).
- *   3. It uploads the resulting blob through the configured file-upload provider.
- *   4. It calls THIS action to create the new recording row, passing
- *      `sourceRecordingIds` for provenance, the uploaded `videoUrl`, and the
- *      new `durationMs`.
+ *   3. It reserves a destination `recordingId` and uploads the resulting blob
+ *      as `<recordingId>.mp4` through the configured file-upload provider.
+ *   4. It calls THIS action to create the new recording row, passing that
+ *      `recordingId`, `sourceRecordingIds` for provenance, the uploaded
+ *      `videoUrl`, and the new `durationMs`.
  *
  * If the caller omits `videoUrl`/`durationMs` we create a row in `processing`
  * state — the UI can then upload and finalize via `/api/uploads/:id/complete`.
  *
  * Usage (from the UI after the concat completes):
  *   pnpm action stitch-recordings \
+ *     --recordingId="550e8400-e29b-41d4-a716-446655440000" \
  *     --title="Combined walkthrough" \
  *     --sourceRecordingIds='["rec_a","rec_b"]' \
  *     --videoUrl="/api/video/..." --durationMs=124000
@@ -37,7 +39,6 @@ import { getDb, schema } from "../server/db/index.js";
 import {
   getCurrentOwnerEmail,
   getOrganizationDefaultVisibility,
-  nanoid,
   ownerEmailMatches,
 } from "../server/lib/recordings.js";
 import { isS3ObjectUrlBoundToRecording } from "../server/lib/s3-upload-provider.js";
@@ -50,7 +51,6 @@ export default defineAction({
     recordingId: z
       .string()
       .regex(/^[a-zA-Z0-9_-]{8,128}$/)
-      .optional()
       .describe("Pre-reserved destination ID used to bind the uploaded media"),
     sourceRecordingIds: z
       .union([z.string(), z.array(z.string())])
@@ -139,7 +139,7 @@ export default defineAction({
     const height =
       args.height ?? Math.max(...ordered.map((r) => r.height || 0), 0);
 
-    const id = args.recordingId ?? nanoid();
+    const id = args.recordingId;
     if (videoUrl) {
       const isBound = await isS3ObjectUrlBoundToRecording(videoUrl, id);
       if (isBound === false) {
