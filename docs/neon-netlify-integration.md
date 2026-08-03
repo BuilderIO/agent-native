@@ -7,9 +7,9 @@ deploys, we use Neon's schema-only branching via GitHub Actions.
 ## How it works
 
 1. **PR opened/updated** — `.github/workflows/neon-preview-branches.yml`
-   creates a Neon schema-only branch (`preview-schema-only/pr-<number>`) for
-   each hosted template's Neon project, then sets `DATABASE_URL` on the
-   corresponding Netlify site's deploy-preview context. Schema-only is
+creates a Neon schema-only branch (`preview-schema-only/pr-<number>`) for
+each Git-connected hosted template's Neon project, then sets `DATABASE_URL` on
+the corresponding Netlify site's deploy-preview context. Schema-only is
    deliberate: preview URLs are public, so they must never receive a
    copy-on-write clone containing production or another user's rows.
 
@@ -24,7 +24,9 @@ deploys, we use Neon's schema-only branching via GitHub Actions.
 
 `@agent-native/core` stays provider-agnostic — it only reads `DATABASE_URL`.
 The Neon/Netlify specifics live in the workflow and each template's
-`netlify.toml`.
+`netlify.toml`. Factory is intentionally excluded from this workflow because
+its production Netlify site is manually deployed and is not Git-connected,
+so it does not support branch deploy previews.
 
 ## Preview access requirements
 
@@ -75,7 +77,6 @@ Defined in the workflow's matrix. Update it when adding a new hosted template.
 | mail      | patient-cake-44789837   | dee98bb0-6143-4205-8c04-afe7bf83d5b5 |
 | plan      | late-pine-39936033      | 9d0d7a73-385d-4da1-ba10-1581ffc4d413 |
 | slides    | hidden-thunder-16834477 | fd5deb5b-5539-47e1-830c-e5fb5e105efd |
-| factory   | flat-mountain-45852069  | 6bffaa23-ad14-480c-8954-99f53ecabf05 |
 | videos    | soft-pine-75308618      | 3f0c2cd2-06cd-4ab8-bfb4-c199430d1dac |
 
 ## Schema changes
