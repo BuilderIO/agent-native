@@ -16,6 +16,7 @@ vi.mock("@agent-native/core/server", async (importOriginal) => {
 });
 
 import {
+  composeRecapCopy,
   formatClipDuration,
   normalizeEmailDisplayName,
   renderClipsTransactionalEmail,
@@ -377,6 +378,67 @@ describe("renderClipsTransactionalEmail", () => {
     expect(result.html).toContain('href="https://clips.example/record"');
     expect(result.text).toContain("View more Clips Analytics");
     expect(result.text).toContain("Record a new Clip");
+  });
+
+  it("composes every recap module from the metrics alone", () => {
+    expect(
+      composeRecapCopy({
+        humanViews: 9,
+        agentSessions: 4,
+        topClip: {
+          humanViews: 9,
+          completedPct: 71,
+          dropOffMs: 252_000,
+          agentBreakdown: [
+            { agentLabel: "Claude", sessions: 3 },
+            { agentLabel: "ChatGPT", sessions: 1 },
+          ],
+        },
+      }),
+    ).toEqual({
+      heroLine: "Your clips were watched 9 times. 4 agents read them.",
+      completionNote: "71% average completion \u00b7 most stopped at 4:12",
+      agentBreakdown: "3 from Claude \u00b7 1 from ChatGPT",
+    });
+  });
+
+  it("says so plainly when a side of the recap is empty", () => {
+    expect(
+      composeRecapCopy({
+        humanViews: 0,
+        agentSessions: 8,
+        topClip: {
+          humanViews: 0,
+          completedPct: 0,
+          dropOffMs: null,
+          agentBreakdown: [
+            { agentLabel: null, sessions: 6 },
+            { agentLabel: "Claude", sessions: 2 },
+          ],
+        },
+      }),
+    ).toEqual({
+      heroLine: "8 agents read your clips.",
+      completionNote: "No human views on this one yet",
+      agentBreakdown: "6 unidentified \u00b7 2 from Claude",
+    });
+
+    expect(
+      composeRecapCopy({
+        humanViews: 1,
+        agentSessions: 0,
+        topClip: {
+          humanViews: 1,
+          completedPct: 40,
+          dropOffMs: null,
+          agentBreakdown: [],
+        },
+      }),
+    ).toEqual({
+      heroLine: "Your clips were watched 1 time.",
+      completionNote: "40% average completion",
+      agentBreakdown: "No agent reads yet",
+    });
   });
 
   it("omits the thumbnail rather than emitting a broken image", () => {

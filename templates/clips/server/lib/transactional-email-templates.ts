@@ -232,6 +232,58 @@ export function renderRecapSubject(
   return `${reads} on your clips in ${monthLabel}`;
 }
 
+export interface RecapCopySource {
+  humanViews: number;
+  agentSessions: number;
+  topClip: {
+    humanViews: number;
+    completedPct: number;
+    dropOffMs: number | null;
+    /** A null `agentLabel` is an agent we could not identify by product. */
+    agentBreakdown: { agentLabel: string | null; sessions: number }[];
+  };
+}
+
+/**
+ * Builds every recap module from the metrics themselves.
+ *
+ * Deliberately not agent-written: a recap that waited on the owner opening
+ * Clips would silently never arrive for the owners least likely to open it.
+ * Each module is mechanical, so nothing is lost by composing it here.
+ */
+export function composeRecapCopy(recap: RecapCopySource): RecapCopy {
+  const views = countLabel(recap.humanViews, "time", "times");
+  const reads = countLabel(recap.agentSessions, "agent", "agents");
+  const heroLine =
+    recap.humanViews > 0 && recap.agentSessions > 0
+      ? `Your clips were watched ${views}. ${reads} read them.`
+      : recap.humanViews > 0
+        ? `Your clips were watched ${views}.`
+        : `${reads} read your clips.`;
+
+  const completionNote =
+    recap.topClip.humanViews === 0
+      ? "No human views on this one yet"
+      : `${recap.topClip.completedPct}% average completion${
+          recap.topClip.dropOffMs === null
+            ? ""
+            : ` · most stopped at ${formatClipDuration(recap.topClip.dropOffMs)}`
+        }`;
+
+  const agentBreakdown =
+    recap.topClip.agentBreakdown.length === 0
+      ? "No agent reads yet"
+      : recap.topClip.agentBreakdown
+          .map((entry) =>
+            entry.agentLabel
+              ? `${entry.sessions} from ${entry.agentLabel}`
+              : `${entry.sessions} unidentified`,
+          )
+          .join(" · ");
+
+  return { heroLine, completionNote, agentBreakdown };
+}
+
 export function formatClipDuration(durationMs: number): string {
   const totalSeconds = Math.max(0, Math.round(durationMs / 1000));
   const minutes = Math.floor(totalSeconds / 60);

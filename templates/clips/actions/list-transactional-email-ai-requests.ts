@@ -4,7 +4,6 @@ import { and, eq, gte, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { computeMonthlyRecap } from "../server/lib/recap-metrics.js";
 import {
   getCurrentOwnerEmail,
   ownerEmailMatches,
@@ -29,39 +28,15 @@ export type TransactionalEmailContextPacket = {
   transcriptExcerpt: string;
 };
 
-export type RecapContextPacket = {
-  month: string;
-  humanViews: number;
-  agentSessions: number;
-  topClip: {
-    recordingId: string;
-    title: string;
-    description: string;
-    transcriptExcerpt: string;
-    humanViews: number;
-    agentSessions: number;
-    completedPct: number;
-    dropOffMs: number | null;
-    agentBreakdown: { agentLabel: string; sessions: number }[];
-  };
+export type ClaimedTransactionalEmailAiRequest = {
+  kind: "two-clips";
+  jobId: string;
+  logicalKey: string;
+  contextPackets: [
+    TransactionalEmailContextPacket,
+    TransactionalEmailContextPacket,
+  ];
 };
-
-export type ClaimedTransactionalEmailAiRequest =
-  | {
-      kind: "two-clips";
-      jobId: string;
-      logicalKey: string;
-      contextPackets: [
-        TransactionalEmailContextPacket,
-        TransactionalEmailContextPacket,
-      ];
-    }
-  | {
-      kind: "monthly-recap";
-      jobId: string;
-      logicalKey: string;
-      recap: RecapContextPacket;
-    };
 
 function normalizeEmail(value: string | null | undefined): string {
   return value?.trim().toLowerCase() ?? "";
@@ -216,56 +191,6 @@ async function loadContextPackets(
     : null;
 }
 
-async function loadRecapPacket(
-  job: TransactionalEmailJob,
-): Promise<RecapContextPacket | null> {
-  if (job.type !== "monthly-recap" || !job.month) return null;
-  const recap = await computeMonthlyRecap(job.recipient, job.month);
-  if (!recap) return null;
-
-  const [recording] = await getDb()
-    .select({
-      id: schema.recordings.id,
-      title: schema.recordings.title,
-      description: schema.recordings.description,
-    })
-    .from(schema.recordings)
-    .where(
-      and(
-        eq(schema.recordings.id, recap.topClip.recordingId),
-        accessFilter(schema.recordings, schema.recordingShares),
-      ),
-    );
-  if (!recording) return null;
-
-  const [transcript] = await getDb()
-    .select({ fullText: schema.recordingTranscripts.fullText })
-    .from(schema.recordingTranscripts)
-    .where(
-      eq(schema.recordingTranscripts.recordingId, recap.topClip.recordingId),
-    );
-
-  return {
-    month: recap.month,
-    humanViews: recap.humanViews,
-    agentSessions: recap.agentSessions,
-    topClip: {
-      recordingId: recap.topClip.recordingId,
-      title: boundedText(recording.title, MAX_TITLE_LENGTH),
-      description: boundedText(recording.description, MAX_DESCRIPTION_LENGTH),
-      transcriptExcerpt: boundedText(
-        transcript?.fullText,
-        MAX_TRANSCRIPT_EXCERPT_LENGTH,
-      ),
-      humanViews: recap.topClip.humanViews,
-      agentSessions: recap.topClip.agentSessions,
-      completedPct: recap.topClip.completedPct,
-      dropOffMs: recap.topClip.dropOffMs,
-      agentBreakdown: recap.topClip.agentBreakdown,
-    },
-  };
-}
-
 export async function claimTransactionalEmailAiRequests(
   claimantEmail: string,
   limit = MAX_CLAIMS,
@@ -282,24 +207,18 @@ export async function claimTransactionalEmailAiRequests(
         (job.state === "ai_dispatched" &&
           Date.parse(job.aiDispatchedAt ?? job.updatedAt) <=
             staleBefore.getTime())) &&
-      (job.type === "two-clips"
-        ? job.recordingIds.length === 2
-        : job.recordingIds.length === 1),
+      job.recordingIds.length === 2,
   );
   const requests: ClaimedTransactionalEmailAiRequest[] = [];
 
   for (const candidate of candidates) {
     if (requests.length >= claimLimit) break;
     if (!(await claimantMayClaim(candidate, claimant))) continue;
-    const contextPackets =
-      candidate.type === "two-clips"
-        ? await loadContextPackets(candidate, config.enabledAt)
-        : null;
-    const recap =
-      candidate.type === "monthly-recap"
-        ? await loadRecapPacket(candidate)
-        : null;
-    if (!contextPackets && !recap) continue;
+    const contextPackets = await loadContextPackets(
+      candidate,
+      config.enabledAt,
+    );
+    if (!contextPackets) continue;
     const claimed =
       candidate.state === "awaiting_ai"
         ? await transactionalEmailStore.claimAwaitingAi(
@@ -312,21 +231,12 @@ export async function claimTransactionalEmailAiRequests(
             staleBefore,
           );
     if (!claimed) continue;
-    requests.push(
-      recap
-        ? {
-            kind: "monthly-recap",
-            jobId: claimed.logicalKey,
-            logicalKey: claimed.logicalKey,
-            recap,
-          }
-        : {
-            kind: "two-clips",
-            jobId: claimed.logicalKey,
-            logicalKey: claimed.logicalKey,
-            contextPackets: contextPackets!,
-          },
-    );
+    requests.push({
+      kind: "two-clips",
+      jobId: claimed.logicalKey,
+      logicalKey: claimed.logicalKey,
+      contextPackets,
+    });
   }
 
   return { requests };
@@ -334,7 +244,7 @@ export async function claimTransactionalEmailAiRequests(
 
 export default defineAction({
   description:
-    "Claim bounded two-Clip and monthly-recap transactional email copy work for the signed-in Clips UI.",
+    "Claim bounded two-Clip transactional email summary work for the signed-in Clips UI.",
   schema: z.object({}),
   http: { method: "GET" },
   agentTool: false,

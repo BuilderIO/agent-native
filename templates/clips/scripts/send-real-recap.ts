@@ -2,17 +2,18 @@
  * Send the monthly recap for a real account using live Clips data.
  *
  * Talks to the database directly with a read-only driver instead of booting
- * the app, so it cannot run a migration against a shared database. The four
- * agent-written modules are passed in, mirroring what the AI handoff supplies
- * in production.
+ * the app, so it cannot run a migration against a shared database. Copy is
+ * composed exactly as the worker composes it, so this sends the real thing.
  *
- *   npx tsx scripts/send-real-recap.ts --owner a@b.com --to a@b.com \
- *     --month 2026-07 --hero "..." --completion "..." --agents "..."
+ *   npx tsx scripts/send-real-recap.ts --owner a@b.com --to a@b.com --month 2026-07
  */
 
 import postgres from "postgres";
 
-import { sendClipsTransactionalEmail } from "../server/lib/transactional-email-templates.js";
+import {
+  composeRecapCopy,
+  sendClipsTransactionalEmail,
+} from "../server/lib/transactional-email-templates.js";
 
 function arg(args: string[], name: string): string | undefined {
   const index = args.indexOf(`--${name}`);
@@ -87,8 +88,41 @@ async function main(args: string[]): Promise<void> {
           left.row.id.localeCompare(right.row.id),
       )[0].row;
 
+    const monthViewerIds = (
+      await sql<{ viewer_id: string }[]>`
+        select distinct viewer_id from recording_views
+         where recording_id = ${top.id}
+           and viewed_at >= ${startAt} and viewed_at < ${endAt}`
+    ).map((row) => row.viewer_id);
+    let completedPct = 0;
+    let dropOffMs: number | null = null;
+    if (monthViewerIds.length > 0) {
+      const [completion] = await sql<{ mean: string | null }[]>`
+        select avg(completed_pct) mean from recording_viewers
+         where recording_id = ${top.id} and id in ${sql(monthViewerIds)}`;
+      completedPct = Math.round(Number(completion?.mean ?? 0));
+      const [progress] = await sql<{ timestamp_ms: number }[]>`
+        select timestamp_ms from recording_events
+         where recording_id = ${top.id} and viewer_id in ${sql(monthViewerIds)}
+           and kind in ('watch-progress', 'pause')
+           and created_at >= ${startAt} and created_at < ${endAt}
+         order by timestamp_ms desc limit 1`;
+      dropOffMs = progress ? Number(progress.timestamp_ms) : null;
+    }
+    const agentBreakdown = (
+      await sql<{ agent_label: string | null; n: number }[]>`
+        select agent_label, count(*)::int n from recording_agent_views
+         where recording_id = ${top.id}
+           and first_seen_at >= ${startAt} and first_seen_at < ${endAt}
+         group by agent_label order by n desc, agent_label asc`
+    ).map((row) => ({
+      // "Agent" is the agent-views fallback label, not a product name.
+      agentLabel: row.agent_label === "Agent" ? null : row.agent_label,
+      sessions: row.n,
+    }));
+
     console.log(
-      `Account totals for ${month}: ${humanViews} human viewers, ${agentSessions} agent sessions`,
+      `Account totals for ${month}: ${humanViews} human views, ${agentSessions} agent sessions`,
     );
     console.log(
       `Top clip: ${top.title} (${humanByClip.get(top.id) ?? 0} human / ${agentByClip.get(top.id) ?? 0} agent)`,
@@ -109,11 +143,16 @@ async function main(args: string[]): Promise<void> {
         humanViews: humanByClip.get(top.id) ?? 0,
         agentSessions: agentByClip.get(top.id) ?? 0,
       },
-      copy: {
-        heroLine: required(args, "hero"),
-        completionNote: required(args, "completion"),
-        agentBreakdown: required(args, "agents"),
-      },
+      copy: composeRecapCopy({
+        humanViews,
+        agentSessions,
+        topClip: {
+          humanViews: humanByClip.get(top.id) ?? 0,
+          completedPct,
+          dropOffMs,
+          agentBreakdown,
+        },
+      }),
     });
     console.log(`Sent monthly-recap for ${owner} to ${to}`);
   } finally {

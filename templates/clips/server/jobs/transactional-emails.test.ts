@@ -844,7 +844,7 @@ describe("transactional email worker", () => {
       emailConfigured: async () => false,
     });
     expect(await clock.store.readJob(logicalKey)).toMatchObject({
-      state: "awaiting_ai",
+      state: "ready",
       month: "2026-07",
       recordingIds: [top.id],
     });
@@ -859,7 +859,58 @@ describe("transactional email worker", () => {
     expect(second.enqueued).toBe(0);
   });
 
-  it("does not send a recap until the agent supplies its copy", async () => {
+  it("stops recomputing a recap once its job exists", async () => {
+    const clock = await setup("2026-07-01T00:00:00.000Z");
+    const ownerEmail = "owner@example.com";
+    const top = recording("recap-top", ownerEmail);
+    const computeMonthlyRecap = vi.fn(async () => ({
+      month: "2026-07",
+      humanViews: 9,
+      agentSessions: 4,
+      topClip: {
+        recordingId: top.id,
+        title: top.title,
+        thumbnailUrl: null,
+        durationMs: 252_000,
+        recordedAt: top.createdAt,
+        humanViews: 9,
+        agentSessions: 4,
+        completedPct: 71,
+        dropOffMs: 252_000,
+        agentBreakdown: [{ agentLabel: "Claude", sessions: 4 }],
+      },
+    }));
+    const repository = {
+      ...createRepository({
+        shares: [],
+        recordings: new Map([[top.id, top]]),
+        monthlyAudience: new Map([["2026-07", [ownerEmail]]]),
+      }),
+      computeMonthlyRecap,
+    };
+
+    clock.setNow("2026-08-01T14:00:00.000Z");
+    await runTransactionalEmailsOnce({
+      store: clock.store,
+      repository,
+      now: clock.now,
+      emailConfigured: async () => false,
+    });
+    const afterEnqueue = computeMonthlyRecap.mock.calls.length;
+    expect(afterEnqueue).toBeGreaterThan(0);
+
+    clock.setNow("2026-08-01T15:00:00.000Z");
+    await runTransactionalEmailsOnce({
+      store: clock.store,
+      repository,
+      now: clock.now,
+      emailConfigured: async () => false,
+    });
+
+    expect(computeMonthlyRecap.mock.calls.length).toBe(afterEnqueue);
+  });
+
+  it("sends a recap without any agent involvement", async () => {
     const clock = await setup("2026-07-01T00:00:00.000Z");
     const ownerEmail = "owner@example.com";
     const top = recording("recap-top", ownerEmail);
@@ -897,26 +948,6 @@ describe("transactional email worker", () => {
       emailConfigured: async () => true,
       send,
     });
-    expect(send).not.toHaveBeenCalled();
-    expect(await clock.store.readJob(logicalKey)).toMatchObject({
-      state: "awaiting_ai",
-    });
-
-    await clock.store.claimAwaitingAi(logicalKey, ownerEmail);
-    await clock.store.completeClaimedRecapCopy(logicalKey, ownerEmail, {
-      heroLine: "9 people watched your clip. 4 agents read it.",
-      agentBreakdown: "Claude 4",
-      completionNote: "71% average completion · most stopped at 4:12",
-    });
-
-    await runTransactionalEmailsOnce({
-      store: clock.store,
-      repository,
-      now: clock.now,
-      emailConfigured: async () => true,
-      send,
-    });
-
     expect(send).toHaveBeenCalledWith(
       expect.objectContaining({
         kind: "monthly-recap",
@@ -924,6 +955,11 @@ describe("transactional email worker", () => {
         month: "2026-07",
         humanViews: 9,
         agentSessions: 4,
+        copy: {
+          heroLine: "Your clips were watched 9 times. 4 agents read them.",
+          completionNote: "71% average completion \u00b7 most stopped at 4:12",
+          agentBreakdown: "4 from Claude",
+        },
       }),
     );
     expect(await clock.store.readJob(logicalKey)).toMatchObject({
@@ -931,7 +967,7 @@ describe("transactional email worker", () => {
     });
   });
 
-  it("cancels a recap whose top clip changed after the copy was written", async () => {
+  it("cancels a recap whose top clip changed after it was queued", async () => {
     const clock = await setup("2026-07-01T00:00:00.000Z");
     const ownerEmail = "owner@example.com";
     const enqueued = recording("recap-old-top", ownerEmail);
@@ -939,22 +975,12 @@ describe("transactional email worker", () => {
     const logicalKey = `monthly-recap:${ownerEmail}:2026-07`;
     const send = vi.fn();
 
-    await clock.store.enqueue(
-      logicalKey,
-      {
-        type: "monthly-recap",
-        recipient: ownerEmail,
-        recordingIds: [enqueued.id],
-        requestedBy: ownerEmail,
-        month: "2026-07",
-      },
-      "awaiting_ai",
-    );
-    await clock.store.claimAwaitingAi(logicalKey, ownerEmail);
-    await clock.store.completeClaimedRecapCopy(logicalKey, ownerEmail, {
-      heroLine: "9 people watched your clip.",
-      agentBreakdown: "Claude 4",
-      completionNote: "71% average completion",
+    await clock.store.enqueue(logicalKey, {
+      type: "monthly-recap",
+      recipient: ownerEmail,
+      recordingIds: [enqueued.id],
+      requestedBy: ownerEmail,
+      month: "2026-07",
     });
 
     clock.setNow("2026-08-01T14:00:00.000Z");

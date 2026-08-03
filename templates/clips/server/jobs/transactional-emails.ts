@@ -34,6 +34,7 @@ import {
   type TransactionalEmailJob,
 } from "../lib/transactional-email-store.js";
 import {
+  composeRecapCopy,
   sendClipsTransactionalEmail,
   type ClipsTransactionalEmailInput,
 } from "../lib/transactional-email-templates.js";
@@ -129,6 +130,7 @@ export type TransactionalEmailStore = Pick<
   | "transitionSending"
   | "updateReconciliationCursor"
   | "enqueueOrConvergeFirstImport"
+  | "readJob"
 >;
 
 export interface TransactionalEmailRepository {
@@ -889,19 +891,19 @@ async function reconcileMonthlyRecaps(
   )) {
     const recipient = normalizedEmail(ownerEmail);
     if (!recipient || isSuppressedTransactionalRecipient(recipient)) continue;
+    const logicalKey = `monthly-recap:${recipient}:${month}`;
+    // Checked before the analytics work: this pass reruns every minute for the
+    // rest of the month, and recomputing a recap already queued is pure waste.
+    if (await store.readJob(logicalKey)) continue;
     const recap = await repository.computeMonthlyRecap(recipient, month);
     if (!recap) continue;
-    const result = await store.enqueue(
-      `monthly-recap:${recipient}:${month}`,
-      {
-        type: "monthly-recap",
-        recipient,
-        recordingIds: [recap.topClip.recordingId],
-        requestedBy: recipient,
-        month,
-      },
-      "awaiting_ai",
-    );
+    const result = await store.enqueue(logicalKey, {
+      type: "monthly-recap",
+      recipient,
+      recordingIds: [recap.topClip.recordingId],
+      requestedBy: recipient,
+      month,
+    });
     if (result.created) enqueued += 1;
   }
   return enqueued;
@@ -951,7 +953,7 @@ async function makeSendInput(
 
   if (job.type === "monthly-recap") {
     // Recomputed at send time: a clip trashed after enqueue must not headline.
-    if (!job.month || !job.generatedRecapCopy) return null;
+    if (!job.month) return null;
     const recap = await repository.computeMonthlyRecap(recipient, job.month);
     if (!recap || recap.topClip.recordingId !== recordings[0].id) return null;
     return {
@@ -969,7 +971,23 @@ async function makeSendInput(
         humanViews: recap.topClip.humanViews,
         agentSessions: recap.topClip.agentSessions,
       },
-      copy: job.generatedRecapCopy,
+      copy: composeRecapCopy({
+        humanViews: recap.humanViews,
+        agentSessions: recap.agentSessions,
+        topClip: {
+          humanViews: recap.topClip.humanViews,
+          completedPct: recap.topClip.completedPct,
+          dropOffMs: recap.topClip.dropOffMs,
+          agentBreakdown: recap.topClip.agentBreakdown.map((entry) => ({
+            // "Agent" is the agent-views fallback label, not a product name.
+            agentLabel:
+              entry.agentLabel === UNKNOWN_AGENT_LABEL
+                ? null
+                : entry.agentLabel,
+            sessions: entry.sessions,
+          })),
+        },
+      }),
     };
   }
 
@@ -1163,6 +1181,7 @@ export async function runTransactionalEmailsOnce(
           (job.type === "first-view" ||
             job.type === "first-agent-view" ||
             job.type === "first-import" ||
+            job.type === "monthly-recap" ||
             job.type === "unviewed-reminder"),
       ),
       (job) => store.transition(job.logicalKey, ["pending"], "ready"),

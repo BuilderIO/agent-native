@@ -143,7 +143,6 @@ export const transactionalEmailJobSchema = z
     requestedBy: nonEmptyStringSchema.optional(),
     month: recapMonthSchema.optional(),
     generatedSummary: z.string().max(20_000).optional(),
-    generatedRecapCopy: recapCopySchema.optional(),
     attempts: z.number().int().nonnegative(),
     createdAt: timestampSchema,
     updatedAt: timestampSchema,
@@ -210,7 +209,7 @@ export type RecapCopy = z.infer<typeof recapCopySchema>;
 
 /** Job types whose copy is written by the agent before they can be sent. */
 export function isAiBackedType(type: TransactionalEmailJob["type"]): boolean {
-  return type === "two-clips" || type === "monthly-recap";
+  return type === "two-clips";
 }
 
 export type TransactionalEmailStoreOptions = {
@@ -740,36 +739,6 @@ export function createTransactionalEmailStore(
     });
   }
 
-  async function completeClaimedRecapCopy(
-    logicalKey: string,
-    claimantEmail: string,
-    generatedRecapCopy: RecapCopy,
-  ): Promise<TransactionalEmailJob | null> {
-    const claimant = recipientSchema.parse(claimantEmail.trim().toLowerCase());
-    const parsedCopy = recapCopySchema.parse(generatedRecapCopy);
-    return withJobLock(logicalKey, async () => {
-      const job = await readJob(logicalKey);
-      if (
-        !job ||
-        job.type !== "monthly-recap" ||
-        job.state !== "ai_dispatched" ||
-        job.aiClaimedBy !== claimant
-      ) {
-        return null;
-      }
-      const timestamp = now().toISOString();
-      const completed = transactionalEmailJobSchema.parse({
-        ...job,
-        state: "ready",
-        generatedRecapCopy: parsedCopy,
-        readyAt: timestamp,
-        updatedAt: timestamp,
-      });
-      await writeJsonAtomic(jobFile(logicalKey), completed);
-      return completed;
-    });
-  }
-
   async function claimNextAwaitingAi(): Promise<TransactionalEmailJob | null> {
     const candidates = (await listJobs()).filter(
       (job) => job.state === "awaiting_ai",
@@ -933,7 +902,6 @@ export function createTransactionalEmailStore(
     claimAwaitingAi,
     reclaimStaleAiDispatch,
     completeClaimedAi,
-    completeClaimedRecapCopy,
     claimNextAwaitingAi,
     acquireSendingLease,
     transitionSending,
