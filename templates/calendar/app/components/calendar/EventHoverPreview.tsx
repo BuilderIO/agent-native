@@ -9,6 +9,7 @@ import {
 } from "@tabler/icons-react";
 import { format, isSameDay, parseISO } from "date-fns";
 import {
+  cloneElement,
   forwardRef,
   useEffect,
   useMemo,
@@ -25,10 +26,11 @@ import {
   HoverCardTrigger,
 } from "@/components/ui/hover-card";
 import { extractMeetingLink } from "@/lib/event-meeting";
+import { cn } from "@/lib/utils";
 
 interface EventHoverPreviewProps extends HTMLAttributes<HTMLElement> {
   event: CalendarEvent;
-  children: ReactElement;
+  children: ReactElement<{ className?: string }>;
   disabled?: boolean;
 }
 
@@ -91,6 +93,13 @@ export const EventHoverPreview = forwardRef<
           ? t("eventForm.joinTeams")
           : t("eventForm.joinMeeting")
     : null;
+  const previewOpen = open && !disabled && !pointerDown;
+  const trigger = cloneElement(children, {
+    className: cn(
+      children.props.className,
+      previewOpen && "ring-2 ring-ring/50 ring-offset-1 ring-offset-background",
+    ),
+  });
 
   return (
     <HoverCard
@@ -115,7 +124,7 @@ export const EventHoverPreview = forwardRef<
         }}
         {...triggerProps}
       >
-        {children}
+        {trigger}
       </HoverCardTrigger>
       <HoverCardPortal>
         <HoverCardContent

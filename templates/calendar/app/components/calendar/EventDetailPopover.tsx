@@ -1409,7 +1409,7 @@ export function EventDetailPopover({
             event={event}
             disabled={hoverPreviewDisabled || detailsOpen}
           >
-            {children as React.ReactElement}
+            {children as React.ReactElement<{ className?: string }>}
           </EventHoverPreview>
         ) : (
           children

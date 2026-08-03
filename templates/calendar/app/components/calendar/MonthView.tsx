@@ -271,33 +271,33 @@ export const MonthView = memo(function MonthView({
                   dayOccurrences
                     .slice(0, isMobile ? 2 : 3)
                     .map(({ event, isStart, continuesNext }) => (
-                      <EventDetailPopover
+                      <div
                         key={event.id}
-                        event={event}
-                        onDelete={onDeleteEvent ?? (() => {})}
-                        isDraft={draftEventIds.includes(event.id)}
-                        onDraftUpdate={onDraftUpdate}
-                        onDraftCreate={onDraftCreate}
-                        onDraftDiscard={onDraftDiscard}
-                        showHoverPreview
-                        hoverPreviewDisabled={draggingId !== null}
+                        onClick={(e) => e.stopPropagation()}
+                        onDragStart={(e) => {
+                          if (!isStart) return;
+                          const ghost = e.currentTarget.querySelector(
+                            "button",
+                          ) as HTMLElement | null;
+                          if (ghost) {
+                            e.dataTransfer.setDragImage(ghost, 12, 12);
+                          }
+                        }}
+                        className={cn(
+                          "relative rounded-sm",
+                          !isStart &&
+                            "-ml-1 -mr-1 border-l-2 border-dashed border-current pl-[calc(0.25rem-2px)] opacity-90 sm:-ml-1.5 sm:-mr-1.5 sm:pl-[calc(0.375rem-2px)]",
+                        )}
                       >
-                        <div
-                          onClick={(e) => e.stopPropagation()}
-                          onDragStart={(e) => {
-                            if (!isStart) return;
-                            const ghost = e.currentTarget.querySelector(
-                              "button",
-                            ) as HTMLElement | null;
-                            if (ghost) {
-                              e.dataTransfer.setDragImage(ghost, 12, 12);
-                            }
-                          }}
-                          className={cn(
-                            "relative rounded-sm data-[state=open]:ring-2 data-[state=open]:ring-ring/50 data-[state=open]:ring-offset-1",
-                            !isStart &&
-                              "-ml-1 -mr-1 border-l-2 border-dashed border-current pl-[calc(0.25rem-2px)] opacity-90 sm:-ml-1.5 sm:-mr-1.5 sm:pl-[calc(0.375rem-2px)]",
-                          )}
+                        <EventDetailPopover
+                          event={event}
+                          onDelete={onDeleteEvent ?? (() => {})}
+                          isDraft={draftEventIds.includes(event.id)}
+                          onDraftUpdate={onDraftUpdate}
+                          onDraftCreate={onDraftCreate}
+                          onDraftDiscard={onDraftDiscard}
+                          showHoverPreview
+                          hoverPreviewDisabled={draggingId !== null}
                         >
                           <EventCard
                             event={event}
@@ -311,16 +311,16 @@ export const MonthView = memo(function MonthView({
                             }}
                             dimmed={draggingId === event.id}
                           />
-                          {continuesNext && (
-                            <span
-                              aria-hidden="true"
-                              className="pointer-events-none absolute right-0.5 top-1/2 -translate-y-1/2 text-[9px] leading-none text-current opacity-60"
-                            >
-                              &rsaquo;
-                            </span>
-                          )}
-                        </div>
-                      </EventDetailPopover>
+                        </EventDetailPopover>
+                        {continuesNext && (
+                          <span
+                            aria-hidden="true"
+                            className="pointer-events-none absolute right-0.5 top-1/2 -translate-y-1/2 text-[9px] leading-none text-current opacity-60"
+                          >
+                            &rsaquo;
+                          </span>
+                        )}
+                      </div>
                     ))}
                 {!isLoading && dayOccurrences.length > (isMobile ? 2 : 3) && (
                   <button
