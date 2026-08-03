@@ -228,7 +228,7 @@ describe("buildGongSearchResult", () => {
     expect(result.matchedCallCount).toBe(3);
   });
 
-  it("returns every match newest-first and untruncated when exhaustive", () => {
+  it("returns every match newest-first and flags an incomplete exhaustive page cap", () => {
     const result = buildGongSearchResult(matched, 2, {
       searchedCallCount: 50,
       queryCount: 1,
@@ -240,8 +240,8 @@ describe("buildGongSearchResult", () => {
     expect(result.calls.map((c) => c.id)).toEqual(["b", "c", "a"]);
     expect(result.calls).toHaveLength(3);
     expect(result.limit).toBe(3);
-    expect(result.truncated).toBe(false);
-    expect(result.coverageTruncated).toBe(false);
+    expect(result.truncated).toBe(true);
+    expect(result.coverageTruncated).toBe(true);
     expect(result.matchedCallCount).toBe(3);
   });
 });

@@ -634,11 +634,11 @@ export function buildGongSearchResult(
     return {
       calls: sorted,
       limit: sorted.length,
-      truncated: false,
+      truncated: Boolean(meta.cursor),
       searchedCallCount: meta.searchedCallCount,
       matchedCallCount: matchedCalls.length,
       queryCount: meta.queryCount,
-      coverageTruncated: false,
+      coverageTruncated: Boolean(meta.cursor),
     };
   }
   const limited = limitGongCalls(matchedCalls, normalizedLimit);
