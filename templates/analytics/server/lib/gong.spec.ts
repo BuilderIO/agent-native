@@ -181,6 +181,30 @@ describe("Gong call search matching", () => {
     expect(result.searchedCallCount).toBe(2);
     expect(result.coverageTruncated).toBe(false);
   });
+
+  it("routes oversized exhaustive scans to the checkpointed corpus workflow", async () => {
+    const requests: Array<Record<string, any>> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        requests.push(JSON.parse(String(init?.body)));
+        return new Response(
+          JSON.stringify({
+            records: { totalRecords: 501, cursor: "next-page" },
+            calls: [],
+          }),
+          { status: 200 },
+        );
+      }),
+    );
+
+    await expect(
+      searchCallsForQueries(["Edmunds"], 90, 8, { exhaustive: true }),
+    ).rejects.toThrow(
+      "Use provider-corpus-job with staged call IDs for searches larger than 500 records",
+    );
+    expect(requests).toHaveLength(1);
+  });
 });
 
 describe("buildGongSearchResult", () => {
