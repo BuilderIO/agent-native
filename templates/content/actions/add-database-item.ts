@@ -10,6 +10,7 @@ import {
   isComputedPropertyType,
   type DocumentPropertyType,
 } from "../shared/properties.js";
+import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { ensureDocumentFilesMembership } from "./_content-files.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
 import {
@@ -145,6 +146,11 @@ export default defineAction({
       () =>
         withPositionLock(databaseItemsPositionScope(databaseId), async () => {
           await db.transaction(async (tx) => {
+            await lockContentDatabaseMutation(
+              tx as unknown as ReturnType<typeof getDb>,
+              databaseId,
+              now,
+            );
             const [maxDocPos] = await tx
               .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
               .from(schema.documents)

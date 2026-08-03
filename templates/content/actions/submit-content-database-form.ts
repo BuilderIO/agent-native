@@ -25,6 +25,7 @@ import {
   type DocumentPropertyType,
   type DocumentPropertyValue,
 } from "../shared/properties.js";
+import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { ensureDocumentFilesMembership } from "./_content-files.js";
 import { nanoid, parseDatabaseViewConfig } from "./_property-utils.js";
 
@@ -310,6 +311,11 @@ export default defineAction({
     const createdBy = getRequestUserEmail() ?? database.ownerEmail;
 
     await db.transaction(async (tx) => {
+      await lockContentDatabaseMutation(
+        tx as unknown as ReturnType<typeof getDb>,
+        databaseId,
+        now,
+      );
       const [maxDocumentPosition] = await tx
         .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
         .from(schema.documents)

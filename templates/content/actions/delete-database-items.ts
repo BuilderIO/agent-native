@@ -4,6 +4,7 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { inArray } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
+import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { assertNotWorkspaceCatalogDocuments } from "./_content-space-catalog-guards.js";
 import {
   databaseRowBatchSchema,
@@ -27,6 +28,11 @@ export default defineAction({
       const removedDocumentIds = rows.map((row) => row.document.id);
       const now = new Date().toISOString();
       await db.transaction(async (tx) => {
+        await lockContentDatabaseMutation(
+          tx as unknown as ReturnType<typeof getDb>,
+          database.id,
+          now,
+        );
         await tx
           .delete(schema.contentDatabaseItems)
           .where(inArray(schema.contentDatabaseItems.id, removedItemIds));
@@ -56,6 +62,11 @@ export default defineAction({
     const now = new Date().toISOString();
 
     await db.transaction(async (tx) => {
+      await lockContentDatabaseMutation(
+        tx as unknown as ReturnType<typeof getDb>,
+        database.id,
+        now,
+      );
       for (const row of rows) {
         await trashDocumentSubtree(
           tx as unknown as ReturnType<typeof getDb>,

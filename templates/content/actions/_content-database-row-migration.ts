@@ -9,6 +9,7 @@ import {
   normalizePropertyValue,
   serializePropertyOptions,
 } from "../shared/properties.js";
+import { chunks } from "./_batch-utils.js";
 
 const propertyType = z.enum(["text", "url", "date", "multi_select"]);
 const option = z.object({
@@ -176,6 +177,11 @@ export async function snapshotMigration(tx: any, databaseId: string) {
       ),
     )
     .orderBy(asc(schema.contentDatabaseSourceFields.id));
+  const sources = await tx
+    .select({ id: schema.contentDatabaseSources.id })
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.databaseId, databaseId))
+    .orderBy(asc(schema.contentDatabaseSources.id));
   return {
     database,
     databaseDocument,
@@ -184,12 +190,14 @@ export async function snapshotMigration(tx: any, databaseId: string) {
     values,
     shares,
     sourceFields,
+    sources,
   };
 }
 
 export function validatePlan(
   plan: MigrationPlan,
   snapshot: Awaited<ReturnType<typeof snapshotMigration>>,
+  options: { checkTimestamps?: boolean } = {},
 ) {
   if (
     plan.databaseId !== snapshot.database.id ||
@@ -197,6 +205,10 @@ export function validatePlan(
   )
     throw new Error(
       "Plan database identity does not match the active database.",
+    );
+  if (snapshot.database.systemRole || snapshot.sources.length > 0)
+    throw new Error(
+      "Migration requires an ordinary database that is not mapped to a source.",
     );
   if (
     plan.rows.length !== plan.expectedRowCount ||
@@ -273,7 +285,10 @@ export function validatePlan(
     const persisted = snapshot.rows.find(
       (candidate: any) => candidate.item.id === row.itemId,
     )!;
-    if (persisted.document.updatedAt !== row.expectedUpdatedAt)
+    if (
+      options.checkTimestamps !== false &&
+      persisted.document.updatedAt !== row.expectedUpdatedAt
+    )
       throw new Error(`Stale row ${row.documentId}.`);
     if (
       duplicate(row.propertyValues.map((v) => v.propertyId)) ||
@@ -442,6 +457,7 @@ export function snapshotDigest(
       provenance: field.provenance,
       freshness: field.freshness,
     })),
+    sources: snapshot.sources,
   });
 }
 
@@ -452,7 +468,12 @@ export async function applyMigration(
   receiptId: string,
   now: string,
 ) {
-  const versions: Array<{ documentId: string; versionId: string }> = [];
+  const versions: Array<{
+    documentId: string;
+    versionId: string;
+    appliedUpdatedAt: string;
+  }> = [];
+  const versionRows: Array<typeof schema.documentVersions.$inferInsert> = [];
   for (const row of plan.rows) {
     const persisted = snapshot.rows.find(
       (candidate: any) => candidate.item.id === row.itemId,
@@ -462,8 +483,12 @@ export async function applyMigration(
       receiptId,
       row.documentId,
     );
-    versions.push({ documentId: row.documentId, versionId });
-    await tx.insert(schema.documentVersions).values({
+    versions.push({
+      documentId: row.documentId,
+      versionId,
+      appliedUpdatedAt: now,
+    });
+    versionRows.push({
       id: versionId,
       ownerEmail: persisted.document.ownerEmail,
       documentId: row.documentId,
@@ -471,6 +496,10 @@ export async function applyMigration(
       content: persisted.document.content,
       createdAt: now,
     });
+  }
+  for (const batch of chunks(versionRows, 100))
+    await tx.insert(schema.documentVersions).values(batch);
+  for (const row of plan.rows) {
     const updated = await tx
       .update(schema.documents)
       .set({ content: row.content, updatedAt: now })
@@ -483,41 +512,37 @@ export async function applyMigration(
       .returning({ id: schema.documents.id });
     if (updated.length !== 1) throw new Error(`Stale row ${row.documentId}.`);
   }
-  for (let index = 0; index < plan.propertyDefinitions.length; index += 1) {
-    const definition = plan.propertyDefinitions[index];
-    await tx.insert(schema.documentPropertyDefinitions).values({
-      id: definition.id,
-      ownerEmail: snapshot.database.ownerEmail,
-      orgId: snapshot.database.orgId,
-      databaseId: plan.databaseId,
-      name: definition.name.trim(),
-      type: definition.type,
-      visibility: definition.visibility,
-      optionsJson: serializePropertyOptions(
-        definition.type === "multi_select"
-          ? { options: definition.options }
-          : {},
-      ),
-      position:
-        Math.max(
-          -1,
-          ...snapshot.definitions.map((item: any) => item.position),
-        ) +
-        1 +
-        index,
-      createdAt: now,
-      updatedAt: now,
-    });
-  }
+  const definitionRows = plan.propertyDefinitions.map((definition, index) => ({
+    id: definition.id,
+    ownerEmail: snapshot.database.ownerEmail,
+    orgId: snapshot.database.orgId,
+    databaseId: plan.databaseId,
+    name: definition.name.trim(),
+    type: definition.type,
+    visibility: definition.visibility,
+    optionsJson: serializePropertyOptions(
+      definition.type === "multi_select" ? { options: definition.options } : {},
+    ),
+    position:
+      Math.max(-1, ...snapshot.definitions.map((item: any) => item.position)) +
+      1 +
+      index,
+    createdAt: now,
+    updatedAt: now,
+  }));
+  for (const batch of chunks(definitionRows, 100))
+    await tx.insert(schema.documentPropertyDefinitions).values(batch);
   const definitionById = new Map(
     plan.propertyDefinitions.map((definition) => [definition.id, definition]),
   );
+  const valueRows: Array<typeof schema.documentPropertyValues.$inferInsert> =
+    [];
   for (const row of plan.rows) {
     const persisted = snapshot.rows.find(
       (candidate: any) => candidate.item.id === row.itemId,
     )!;
     for (const entry of row.propertyValues)
-      await tx.insert(schema.documentPropertyValues).values({
+      valueRows.push({
         id: valueId(row.documentId, entry.propertyId),
         ownerEmail: persisted.document.ownerEmail,
         documentId: row.documentId,
@@ -530,6 +555,8 @@ export async function applyMigration(
         updatedAt: now,
       });
   }
+  for (const batch of chunks(valueRows, 100))
+    await tx.insert(schema.documentPropertyValues).values(batch);
   if (plan.rows.length || plan.propertyDefinitions.length)
     await tx
       .update(schema.contentDatabases)

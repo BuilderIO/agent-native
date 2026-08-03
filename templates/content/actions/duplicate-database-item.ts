@@ -6,6 +6,7 @@ import { and, eq, gte, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { ensureDocumentFilesMembership } from "./_content-files.js";
 import { assertNotWorkspaceCatalogDocuments } from "./_content-space-catalog-guards.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
@@ -88,6 +89,11 @@ export default defineAction({
       .where(eq(schema.documentShares.resourceId, row.database.documentId));
 
     await db.transaction(async (tx) => {
+      await lockContentDatabaseMutation(
+        tx as unknown as ReturnType<typeof getDb>,
+        row.database.id,
+        now,
+      );
       await tx
         .update(schema.contentDatabaseItems)
         .set({

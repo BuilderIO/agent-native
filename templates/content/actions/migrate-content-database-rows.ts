@@ -6,6 +6,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
+  lockContentDatabaseMutation,
+  withContentDatabaseMutationLock,
+} from "./_content-database-mutation-lock.js";
+import {
   applyMigration,
   deterministicId,
   digest,
@@ -66,7 +70,7 @@ function receiptResult(receipt: any, replayed: boolean) {
 
 export default defineAction({
   description:
-    "Atomically migrate every active row in one Content database: validates an exact bounded plan, snapshots bodies, writes only new safe properties, and supports guarded rollback or legacy-property finalization.",
+    "Atomically migrate every active row in one ordinary Content database without attached Sources: validates an exact bounded plan, snapshots bodies, writes only new safe properties, and supports guarded rollback or legacy-property finalization.",
   schema: operationalSchema,
   audit: {
     recordInputs: false,
@@ -87,64 +91,297 @@ export default defineAction({
       args.phase === "apply" || args.phase === "validate"
         ? args.plan.databaseId
         : args.databaseId;
-    const [database] = await db
-      .select()
-      .from(schema.contentDatabases)
-      .where(eq(schema.contentDatabases.id, databaseId));
-    if (!database) throw new Error("Database not found.");
-    await assertAccess("document", database.documentId, "admin");
-    if (args.phase === "apply") {
-      const replay = await db.transaction(async (tx) => {
-        const [existing] = await tx
+    return withContentDatabaseMutationLock(databaseId, async () => {
+      const [database] = await db
+        .select()
+        .from(schema.contentDatabases)
+        .where(eq(schema.contentDatabases.id, databaseId));
+      if (!database) throw new Error("Database not found.");
+      await assertAccess("document", database.documentId, "admin");
+      if (args.phase === "apply") {
+        const replay = await db.transaction(async (tx) => {
+          const [existing] = await tx
+            .select()
+            .from(schema.contentDatabaseMigrationReceipts)
+            .where(
+              and(
+                eq(
+                  schema.contentDatabaseMigrationReceipts.databaseId,
+                  args.plan.databaseId,
+                ),
+                eq(
+                  schema.contentDatabaseMigrationReceipts.idempotencyKey,
+                  args.plan.idempotencyKey,
+                ),
+              ),
+            );
+          const planHash = digest(args.plan);
+          if (existing) {
+            if (existing.planHash !== planHash)
+              throw new Error(
+                "Idempotency key was already used with a different migration plan.",
+              );
+            if (existing.state !== "applied" && existing.state !== "verified")
+              throw new Error(
+                `Migration receipt is already ${existing.state}.`,
+              );
+            if (
+              snapshotDigest(
+                await snapshotMigration(tx, args.plan.databaseId),
+              ) !== existing.postDigest
+            )
+              throw new Error(
+                "Applied migration has drifted; replay is refused.",
+              );
+            return receiptResult(existing, true);
+          }
+          validatePlan(
+            args.plan,
+            await snapshotMigration(tx, args.plan.databaseId),
+            { checkTimestamps: false },
+          );
+          return null;
+        });
+        if (replay) return replay;
+        for (const row of args.plan.rows) {
+          const access = await assertAccess(
+            "document",
+            row.documentId,
+            "editor",
+          );
+          await flushOpenDocumentEditorToSql({
+            documentId: row.documentId,
+            ownerEmail: access.resource.ownerEmail,
+          });
+        }
+      }
+      if (args.phase === "rollback") {
+        const preflight = await db.transaction(async (tx) => {
+          const [receipt] = await tx
+            .select()
+            .from(schema.contentDatabaseMigrationReceipts)
+            .where(
+              and(
+                eq(
+                  schema.contentDatabaseMigrationReceipts.databaseId,
+                  args.databaseId,
+                ),
+                eq(
+                  schema.contentDatabaseMigrationReceipts.idempotencyKey,
+                  args.idempotencyKey,
+                ),
+              ),
+            );
+          if (!receipt) throw new Error("Migration receipt not found.");
+          const result = parseJson(receipt.resultJson);
+          const current = await snapshotMigration(tx, args.databaseId);
+          if (receipt.state === "rolled_back") {
+            if (
+              result.transitionExpectedPostDigest !== args.expectedPostDigest ||
+              snapshotDigest(current) !== receipt.postDigest
+            )
+              throw new Error(
+                "Terminal migration result has drifted; replay is refused.",
+              );
+            return { replay: receiptResult(receipt, true), versions: [] };
+          }
+          if (receipt.state !== "applied" && receipt.state !== "verified")
+            throw new Error(`Migration receipt is already ${receipt.state}.`);
+          if (
+            receipt.postDigest !== args.expectedPostDigest ||
+            snapshotDigest(current) !== receipt.postDigest
+          )
+            throw new Error(
+              "Migration has drifted; guarded operation is refused.",
+            );
+          return {
+            replay: null,
+            versions: parseJson(receipt.rollbackJson).versions ?? [],
+          };
+        });
+        if (preflight.replay) return preflight.replay;
+        for (const prior of preflight.versions) {
+          const access = await assertAccess(
+            "document",
+            prior.documentId,
+            "editor",
+          );
+          await flushOpenDocumentEditorToSql({
+            documentId: prior.documentId,
+            ownerEmail: access.resource.ownerEmail,
+          });
+        }
+      }
+      if (args.phase === "verify" || args.phase === "finalize") {
+        const [receipt] = await db
           .select()
           .from(schema.contentDatabaseMigrationReceipts)
           .where(
             and(
               eq(
                 schema.contentDatabaseMigrationReceipts.databaseId,
-                args.plan.databaseId,
+                args.databaseId,
               ),
               eq(
                 schema.contentDatabaseMigrationReceipts.idempotencyKey,
-                args.plan.idempotencyKey,
+                args.idempotencyKey,
               ),
             ),
           );
-        const planHash = digest(args.plan);
-        if (existing) {
-          if (existing.planHash !== planHash)
-            throw new Error(
-              "Idempotency key was already used with a different migration plan.",
+        if (!receipt) throw new Error("Migration receipt not found.");
+        if (receipt.state === "applied" || receipt.state === "verified") {
+          const plan = parseJson(receipt.resultJson).plan;
+          if (!plan)
+            throw new Error("Migration receipt lacks its verification plan.");
+          for (const row of plan.rows)
+            await assertAccess(
+              "document",
+              row.documentId,
+              args.phase === "finalize" ? "editor" : "viewer",
             );
-          if (existing.state !== "applied" && existing.state !== "verified")
-            throw new Error(`Migration receipt is already ${existing.state}.`);
-          if (
-            snapshotDigest(
-              await snapshotMigration(tx, args.plan.databaseId),
-            ) !== existing.postDigest
-          )
-            throw new Error(
-              "Applied migration has drifted; replay is refused.",
-            );
-          return receiptResult(existing, true);
         }
-        validatePlan(
-          args.plan,
-          await snapshotMigration(tx, args.plan.databaseId),
-        );
-        return null;
-      });
-      if (replay) return replay;
-      for (const row of args.plan.rows) {
-        const access = await assertAccess("document", row.documentId, "editor");
-        await flushOpenDocumentEditorToSql({
-          documentId: row.documentId,
-          ownerEmail: access.resource.ownerEmail,
-        });
       }
-    }
-    if (args.phase === "rollback") {
-      const preflight = await db.transaction(async (tx) => {
+      let mutated = false;
+      const result = await db.transaction(async (tx) => {
+        if (args.phase !== "validate")
+          await lockContentDatabaseMutation(
+            tx as unknown as ReturnType<typeof getDb>,
+            databaseId,
+          );
+        if (args.phase === "validate" || args.phase === "apply") {
+          const planHash = digest(args.plan);
+          if (args.phase === "apply") {
+            const [existing] = await tx
+              .select()
+              .from(schema.contentDatabaseMigrationReceipts)
+              .where(
+                and(
+                  eq(
+                    schema.contentDatabaseMigrationReceipts.databaseId,
+                    args.plan.databaseId,
+                  ),
+                  eq(
+                    schema.contentDatabaseMigrationReceipts.idempotencyKey,
+                    args.plan.idempotencyKey,
+                  ),
+                ),
+              );
+            if (existing) {
+              if (existing.planHash !== planHash)
+                throw new Error(
+                  "Idempotency key was already used with a different migration plan.",
+                );
+              if (existing.state !== "applied" && existing.state !== "verified")
+                throw new Error(
+                  `Migration receipt is already ${existing.state}.`,
+                );
+              const current = await snapshotMigration(tx, args.plan.databaseId);
+              if (snapshotDigest(current) !== existing.postDigest)
+                throw new Error(
+                  "Applied migration has drifted; replay is refused.",
+                );
+              return receiptResult(existing, true);
+            }
+          }
+          const snapshot = await snapshotMigration(tx, args.plan.databaseId);
+          validatePlan(args.plan, snapshot);
+          const preDigest = snapshotDigest(snapshot);
+          const orderedIds = snapshot.rows.map((row: any) => ({
+            itemId: row.item.id,
+            documentId: row.document.id,
+          }));
+          if (args.phase === "validate")
+            return {
+              phase: "validate",
+              planHash,
+              preDigest,
+              counts: {
+                rows: snapshot.rows.length,
+                properties: args.plan.propertyDefinitions.length,
+              },
+              orderedIds,
+              written: 0,
+              replayed: false,
+              verified: false,
+            };
+          const receiptId = deterministicId(
+            "migration_receipt",
+            args.plan.databaseId,
+            args.plan.idempotencyKey,
+          );
+          const now = new Date().toISOString();
+          await tx.insert(schema.contentDatabaseMigrationReceipts).values({
+            id: receiptId,
+            ownerEmail: snapshot.database.ownerEmail,
+            orgId: snapshot.database.orgId,
+            databaseId: args.plan.databaseId,
+            databaseDocumentId: args.plan.databaseDocumentId,
+            idempotencyKey: args.plan.idempotencyKey,
+            planHash,
+            state: "applying",
+            preDigest,
+            postDigest: preDigest,
+            rollbackJson: "{}",
+            resultJson: JSON.stringify({ phase: "apply", plan: args.plan }),
+            createdAt: now,
+            updatedAt: now,
+          });
+          const rollback = await applyMigration(
+            tx,
+            args.plan,
+            snapshot,
+            receiptId,
+            now,
+          );
+          const current = await snapshotMigration(tx, args.plan.databaseId);
+          const postDigest = snapshotDigest(current);
+          const resultJson = {
+            phase: "apply",
+            planHash,
+            legacyPropertyIds: args.plan.legacyPropertyIds,
+            counts: {
+              rows: args.plan.rows.length,
+              properties: args.plan.propertyDefinitions.length,
+            },
+            orderedIds,
+            written: args.plan.rows.length,
+            verified: false,
+            plan: args.plan,
+          };
+          const claimed = await tx
+            .update(schema.contentDatabaseMigrationReceipts)
+            .set({
+              state: "applied",
+              postDigest,
+              rollbackJson: JSON.stringify(rollback),
+              resultJson: JSON.stringify(resultJson),
+              updatedAt: now,
+            })
+            .where(
+              and(
+                eq(schema.contentDatabaseMigrationReceipts.id, receiptId),
+                eq(schema.contentDatabaseMigrationReceipts.state, "applying"),
+              ),
+            )
+            .returning({ id: schema.contentDatabaseMigrationReceipts.id });
+          if (claimed.length !== 1)
+            throw new Error("Migration receipt claim was lost.");
+          mutated = true;
+          return {
+            phase: "apply",
+            planHash,
+            legacyPropertyIds: args.plan.legacyPropertyIds,
+            counts: resultJson.counts,
+            orderedIds,
+            written: args.plan.rows.length,
+            verified: false,
+            receiptId,
+            state: "applied",
+            preDigest,
+            postDigest,
+            replayed: false,
+          };
+        }
         const [receipt] = await tx
           .select()
           .from(schema.contentDatabaseMigrationReceipts)
@@ -161,238 +398,167 @@ export default defineAction({
             ),
           );
         if (!receipt) throw new Error("Migration receipt not found.");
-        const result = parseJson(receipt.resultJson);
-        const current = await snapshotMigration(tx, args.databaseId);
-        if (receipt.state === "rolled_back") {
+        const storedResult = parseJson(receipt.resultJson);
+        if (args.phase === "verify" && receipt.state === "verified") {
+          if (receipt.postDigest !== args.expectedPostDigest)
+            throw new Error(
+              "Expected post-migration digest does not match receipt.",
+            );
           if (
-            result.transitionExpectedPostDigest !== args.expectedPostDigest ||
-            snapshotDigest(current) !== receipt.postDigest
+            snapshotDigest(await snapshotMigration(tx, args.databaseId)) !==
+            receipt.postDigest
+          )
+            throw new Error("Migration has drifted; verification is refused.");
+          return receiptResult(receipt, true);
+        }
+        if (
+          (args.phase === "rollback" && receipt.state === "rolled_back") ||
+          (args.phase === "finalize" && receipt.state === "finalized")
+        ) {
+          if (
+            storedResult.transitionExpectedPostDigest !==
+            args.expectedPostDigest
+          )
+            throw new Error(
+              "Expected post-migration digest does not match receipt.",
+            );
+          if (
+            snapshotDigest(await snapshotMigration(tx, args.databaseId)) !==
+            receipt.postDigest
           )
             throw new Error(
               "Terminal migration result has drifted; replay is refused.",
             );
-          return { replay: receiptResult(receipt, true), versions: [] };
+          return receiptResult(receipt, true);
         }
-        if (receipt.state !== "applied" && receipt.state !== "verified")
-          throw new Error(`Migration receipt is already ${receipt.state}.`);
-        if (
-          receipt.postDigest !== args.expectedPostDigest ||
-          snapshotDigest(current) !== receipt.postDigest
-        )
-          throw new Error(
-            "Migration has drifted; guarded operation is refused.",
+        if (args.phase === "verify") {
+          if (receipt.state !== "applied" && receipt.state !== "verified")
+            throw new Error(`Migration receipt is already ${receipt.state}.`);
+          if (receipt.postDigest !== args.expectedPostDigest)
+            throw new Error(
+              "Expected post-migration digest does not match receipt.",
+            );
+          const current = await snapshotMigration(tx, args.databaseId);
+          if (snapshotDigest(current) !== receipt.postDigest)
+            throw new Error("Migration has drifted; verification is refused.");
+          const plan = parseJson(receipt.resultJson).plan;
+          if (!plan)
+            throw new Error("Migration receipt lacks its verification plan.");
+          const newDefinitions = new Map(
+            plan.propertyDefinitions.map((definition: any) => [
+              definition.id,
+              definition,
+            ]),
           );
-        return {
-          replay: null,
-          versions: parseJson(receipt.rollbackJson).versions ?? [],
-        };
-      });
-      if (preflight.replay) return preflight.replay;
-      for (const prior of preflight.versions) {
-        const access = await assertAccess(
-          "document",
-          prior.documentId,
-          "editor",
-        );
-        await flushOpenDocumentEditorToSql({
-          documentId: prior.documentId,
-          ownerEmail: access.resource.ownerEmail,
-        });
-      }
-    }
-    if (args.phase === "verify") {
-      const [receipt] = await db
-        .select()
-        .from(schema.contentDatabaseMigrationReceipts)
-        .where(
-          and(
-            eq(
-              schema.contentDatabaseMigrationReceipts.databaseId,
-              args.databaseId,
-            ),
-            eq(
-              schema.contentDatabaseMigrationReceipts.idempotencyKey,
-              args.idempotencyKey,
-            ),
-          ),
-        );
-      if (!receipt) throw new Error("Migration receipt not found.");
-      if (receipt.state === "applied" || receipt.state === "verified") {
-        const plan = parseJson(receipt.resultJson).plan;
-        if (!plan)
-          throw new Error("Migration receipt lacks its verification plan.");
-        for (const row of plan.rows)
-          await assertAccess("document", row.documentId, "viewer");
-      }
-    }
-    let mutated = false;
-    const result = await db.transaction(async (tx) => {
-      if (args.phase === "validate" || args.phase === "apply") {
-        const planHash = digest(args.plan);
-        if (args.phase === "apply") {
-          const [existing] = await tx
-            .select()
-            .from(schema.contentDatabaseMigrationReceipts)
+          if (
+            current.definitions.filter((definition: any) =>
+              newDefinitions.has(definition.id),
+            ).length !== plan.propertyDefinitions.length
+          )
+            throw new Error(
+              "Migration verification found a property definition count mismatch.",
+            );
+          for (const definition of plan.propertyDefinitions) {
+            const actual = current.definitions.find(
+              (candidate: any) => candidate.id === definition.id,
+            );
+            const optionsJson = JSON.stringify(
+              definition.type === "multi_select"
+                ? { options: definition.options }
+                : {},
+            );
+            if (
+              !actual ||
+              actual.name !== definition.name.trim() ||
+              actual.type !== definition.type ||
+              actual.visibility !== definition.visibility ||
+              actual.optionsJson !== optionsJson
+            )
+              throw new Error(
+                "Migration verification found a property definition mismatch.",
+              );
+          }
+          for (const row of plan.rows) {
+            const persisted = current.rows.find(
+              (candidate: any) =>
+                candidate.item.id === row.itemId &&
+                candidate.document.id === row.documentId,
+            );
+            if (!persisted || persisted.document.content !== row.content)
+              throw new Error(
+                "Migration verification found a row body mismatch.",
+              );
+            for (const value of row.propertyValues) {
+              const actual = current.values.find(
+                (candidate: any) =>
+                  candidate.documentId === row.documentId &&
+                  candidate.propertyId === value.propertyId,
+              )?.valueJson;
+              if (
+                actual !==
+                serializeMigrationValue(
+                  newDefinitions.get(value.propertyId) as any,
+                  value.value,
+                )
+              )
+                throw new Error(
+                  "Migration verification found a new property mismatch.",
+                );
+            }
+            for (const protectedValue of row.protectedPropertyValues) {
+              const actual =
+                current.values.find(
+                  (candidate: any) =>
+                    candidate.documentId === row.documentId &&
+                    candidate.propertyId === protectedValue.propertyId,
+                )?.valueJson ?? "null";
+              if (actual !== protectedValue.valueJson)
+                throw new Error(
+                  "Migration verification found a protected property mismatch.",
+                );
+            }
+          }
+          const now = new Date().toISOString();
+          const resultJson = {
+            ...parseJson(receipt.resultJson),
+            phase: "verify",
+            verified: true,
+          };
+          const transitioned = await tx
+            .update(schema.contentDatabaseMigrationReceipts)
+            .set({
+              state: "verified",
+              resultJson: JSON.stringify(resultJson),
+              updatedAt: now,
+            })
             .where(
               and(
-                eq(
-                  schema.contentDatabaseMigrationReceipts.databaseId,
-                  args.plan.databaseId,
-                ),
-                eq(
-                  schema.contentDatabaseMigrationReceipts.idempotencyKey,
-                  args.plan.idempotencyKey,
-                ),
+                eq(schema.contentDatabaseMigrationReceipts.id, receipt.id),
+                eq(schema.contentDatabaseMigrationReceipts.state, "applied"),
               ),
-            );
-          if (existing) {
-            if (existing.planHash !== planHash)
-              throw new Error(
-                "Idempotency key was already used with a different migration plan.",
-              );
-            if (existing.state !== "applied" && existing.state !== "verified")
-              throw new Error(
-                `Migration receipt is already ${existing.state}.`,
-              );
-            const current = await snapshotMigration(tx, args.plan.databaseId);
-            if (snapshotDigest(current) !== existing.postDigest)
-              throw new Error(
-                "Applied migration has drifted; replay is refused.",
-              );
-            return receiptResult(existing, true);
-          }
-        }
-        const snapshot = await snapshotMigration(tx, args.plan.databaseId);
-        validatePlan(args.plan, snapshot);
-        const preDigest = snapshotDigest(snapshot);
-        const orderedIds = snapshot.rows.map((row: any) => ({
-          itemId: row.item.id,
-          documentId: row.document.id,
-        }));
-        if (args.phase === "validate")
+            )
+            .returning({ id: schema.contentDatabaseMigrationReceipts.id });
+          if (transitioned.length !== 1)
+            throw new Error("Migration receipt state changed during verify.");
+          mutated = true;
           return {
-            phase: "validate",
-            planHash,
-            preDigest,
-            counts: {
-              rows: snapshot.rows.length,
-              properties: args.plan.propertyDefinitions.length,
-            },
-            orderedIds,
-            written: 0,
+            receiptId: receipt.id,
+            state: "verified",
+            preDigest: receipt.preDigest,
+            postDigest: receipt.postDigest,
             replayed: false,
-            verified: false,
+            verified: true,
           };
-        const receiptId = deterministicId(
-          "migration_receipt",
-          args.plan.databaseId,
-          args.plan.idempotencyKey,
-        );
-        const now = new Date().toISOString();
-        const rollback = await applyMigration(
-          tx,
-          args.plan,
-          snapshot,
-          receiptId,
-          now,
-        );
-        const current = await snapshotMigration(tx, args.plan.databaseId);
-        const postDigest = snapshotDigest(current);
-        const resultJson = {
-          phase: "apply",
-          planHash,
-          legacyPropertyIds: args.plan.legacyPropertyIds,
-          counts: {
-            rows: args.plan.rows.length,
-            properties: args.plan.propertyDefinitions.length,
-          },
-          orderedIds,
-          written: args.plan.rows.length,
-          verified: false,
-          plan: args.plan,
-        };
-        await tx.insert(schema.contentDatabaseMigrationReceipts).values({
-          id: receiptId,
-          ownerEmail: snapshot.database.ownerEmail,
-          orgId: snapshot.database.orgId,
-          databaseId: args.plan.databaseId,
-          databaseDocumentId: args.plan.databaseDocumentId,
-          idempotencyKey: args.plan.idempotencyKey,
-          planHash,
-          state: "applied",
-          preDigest,
-          postDigest,
-          rollbackJson: JSON.stringify(rollback),
-          resultJson: JSON.stringify(resultJson),
-          createdAt: now,
-          updatedAt: now,
-        });
-        mutated = true;
-        return {
-          phase: "apply",
-          planHash,
-          legacyPropertyIds: args.plan.legacyPropertyIds,
-          counts: resultJson.counts,
-          orderedIds,
-          written: args.plan.rows.length,
-          verified: false,
-          receiptId,
-          state: "applied",
-          preDigest,
-          postDigest,
-          replayed: false,
-        };
-      }
-      const [receipt] = await tx
-        .select()
-        .from(schema.contentDatabaseMigrationReceipts)
-        .where(
-          and(
-            eq(
-              schema.contentDatabaseMigrationReceipts.databaseId,
-              args.databaseId,
-            ),
-            eq(
-              schema.contentDatabaseMigrationReceipts.idempotencyKey,
-              args.idempotencyKey,
-            ),
-          ),
-        );
-      if (!receipt) throw new Error("Migration receipt not found.");
-      const storedResult = parseJson(receipt.resultJson);
-      if (args.phase === "verify" && receipt.state === "verified") {
-        if (receipt.postDigest !== args.expectedPostDigest)
+        }
+        if (args.phase === "finalize" && receipt.state !== "verified")
           throw new Error(
-            "Expected post-migration digest does not match receipt.",
+            "Migration receipt must be verified before finalization.",
           );
         if (
-          snapshotDigest(await snapshotMigration(tx, args.databaseId)) !==
-          receipt.postDigest
+          args.phase === "rollback" &&
+          receipt.state !== "applied" &&
+          receipt.state !== "verified"
         )
-          throw new Error("Migration has drifted; verification is refused.");
-        return receiptResult(receipt, true);
-      }
-      if (
-        (args.phase === "rollback" && receipt.state === "rolled_back") ||
-        (args.phase === "finalize" && receipt.state === "finalized")
-      ) {
-        if (
-          storedResult.transitionExpectedPostDigest !== args.expectedPostDigest
-        )
-          throw new Error(
-            "Expected post-migration digest does not match receipt.",
-          );
-        if (
-          snapshotDigest(await snapshotMigration(tx, args.databaseId)) !==
-          receipt.postDigest
-        )
-          throw new Error(
-            "Terminal migration result has drifted; replay is refused.",
-          );
-        return receiptResult(receipt, true);
-      }
-      if (args.phase === "verify") {
-        if (receipt.state !== "applied" && receipt.state !== "verified")
           throw new Error(`Migration receipt is already ${receipt.state}.`);
         if (receipt.postDigest !== args.expectedPostDigest)
           throw new Error(
@@ -400,260 +566,172 @@ export default defineAction({
           );
         const current = await snapshotMigration(tx, args.databaseId);
         if (snapshotDigest(current) !== receipt.postDigest)
-          throw new Error("Migration has drifted; verification is refused.");
-        const plan = parseJson(receipt.resultJson).plan;
-        if (!plan)
-          throw new Error("Migration receipt lacks its verification plan.");
-        const newDefinitions = new Map(
-          plan.propertyDefinitions.map((definition: any) => [
-            definition.id,
-            definition,
-          ]),
-        );
-        if (
-          current.definitions.filter((definition: any) =>
-            newDefinitions.has(definition.id),
-          ).length !== plan.propertyDefinitions.length
-        )
           throw new Error(
-            "Migration verification found a property definition count mismatch.",
+            "Migration has drifted; guarded operation is refused.",
           );
-        for (const definition of plan.propertyDefinitions) {
-          const actual = current.definitions.find(
-            (candidate: any) => candidate.id === definition.id,
-          );
-          const optionsJson = JSON.stringify(
-            definition.type === "multi_select"
-              ? { options: definition.options }
-              : {},
-          );
-          if (
-            !actual ||
-            actual.name !== definition.name.trim() ||
-            actual.type !== definition.type ||
-            actual.visibility !== definition.visibility ||
-            actual.optionsJson !== optionsJson
-          )
-            throw new Error(
-              "Migration verification found a property definition mismatch.",
-            );
-        }
-        for (const row of plan.rows) {
-          const persisted = current.rows.find(
-            (candidate: any) =>
-              candidate.item.id === row.itemId &&
-              candidate.document.id === row.documentId,
-          );
-          if (!persisted || persisted.document.content !== row.content)
-            throw new Error(
-              "Migration verification found a row body mismatch.",
-            );
-          for (const value of row.propertyValues) {
-            const actual = current.values.find(
-              (candidate: any) =>
-                candidate.documentId === row.documentId &&
-                candidate.propertyId === value.propertyId,
-            )?.valueJson;
-            if (
-              actual !==
-              serializeMigrationValue(
-                newDefinitions.get(value.propertyId) as any,
-                value.value,
-              )
-            )
-              throw new Error(
-                "Migration verification found a new property mismatch.",
-              );
-          }
-          for (const protectedValue of row.protectedPropertyValues) {
-            const actual =
-              current.values.find(
-                (candidate: any) =>
-                  candidate.documentId === row.documentId &&
-                  candidate.propertyId === protectedValue.propertyId,
-              )?.valueJson ?? "null";
-            if (actual !== protectedValue.valueJson)
-              throw new Error(
-                "Migration verification found a protected property mismatch.",
-              );
-          }
-        }
+        const rollback = parseJson(receipt.rollbackJson);
         const now = new Date().toISOString();
-        const resultJson = {
-          ...parseJson(receipt.resultJson),
-          phase: "verify",
-          verified: true,
-        };
-        await tx
-          .update(schema.contentDatabaseMigrationReceipts)
-          .set({
-            state: "verified",
-            resultJson: JSON.stringify(resultJson),
-            updatedAt: now,
-          })
-          .where(eq(schema.contentDatabaseMigrationReceipts.id, receipt.id));
-        mutated = true;
-        return {
-          receiptId: receipt.id,
-          state: "verified",
-          preDigest: receipt.preDigest,
-          postDigest: receipt.postDigest,
-          replayed: false,
-          verified: true,
-        };
-      }
-      if (args.phase === "finalize" && receipt.state !== "verified")
-        throw new Error(
-          "Migration receipt must be verified before finalization.",
-        );
-      if (
-        args.phase === "rollback" &&
-        receipt.state !== "applied" &&
-        receipt.state !== "verified"
-      )
-        throw new Error(`Migration receipt is already ${receipt.state}.`);
-      if (receipt.postDigest !== args.expectedPostDigest)
-        throw new Error(
-          "Expected post-migration digest does not match receipt.",
-        );
-      const current = await snapshotMigration(tx, args.databaseId);
-      if (snapshotDigest(current) !== receipt.postDigest)
-        throw new Error("Migration has drifted; guarded operation is refused.");
-      const rollback = parseJson(receipt.rollbackJson);
-      const now = new Date().toISOString();
-      if (args.phase === "rollback") {
-        for (const prior of rollback.versions ?? []) {
-          const [version] = await tx
-            .select()
-            .from(schema.documentVersions)
-            .where(eq(schema.documentVersions.id, prior.versionId));
-          if (!version) throw new Error("Rollback snapshot is missing.");
+        if (args.phase === "rollback") {
+          for (const prior of rollback.versions ?? []) {
+            const [version] = await tx
+              .select()
+              .from(schema.documentVersions)
+              .where(eq(schema.documentVersions.id, prior.versionId));
+            if (!version) throw new Error("Rollback snapshot is missing.");
+            const restoredRows = await tx
+              .update(schema.documents)
+              .set({
+                title: version.title,
+                content: version.content,
+                updatedAt: now,
+              })
+              .where(
+                and(
+                  eq(schema.documents.id, prior.documentId),
+                  eq(schema.documents.updatedAt, prior.appliedUpdatedAt),
+                ),
+              )
+              .returning({ id: schema.documents.id });
+            if (restoredRows.length !== 1)
+              throw new Error(
+                `Rollback row ${prior.documentId} changed concurrently.`,
+              );
+          }
+          const ids = rollback.createdPropertyIds ?? [];
+          if (ids.length) {
+            await tx
+              .delete(schema.documentPropertyValues)
+              .where(inArray(schema.documentPropertyValues.propertyId, ids));
+            await tx
+              .delete(schema.documentPropertyDefinitions)
+              .where(inArray(schema.documentPropertyDefinitions.id, ids));
+          }
           await tx
-            .update(schema.documents)
+            .update(schema.contentDatabases)
+            .set({ updatedAt: now })
+            .where(eq(schema.contentDatabases.id, args.databaseId));
+          const restored = await snapshotMigration(tx, args.databaseId);
+          const postDigest = snapshotDigest(restored);
+          if (postDigest !== receipt.preDigest)
+            throw new Error("Rollback verification failed.");
+          const resultJson = {
+            phase: "rollback",
+            transitionExpectedPostDigest: receipt.postDigest,
+            counts: {
+              rows: (rollback.versions ?? []).length,
+              properties: ids.length,
+            },
+            verified: true,
+          };
+          const transitioned = await tx
+            .update(schema.contentDatabaseMigrationReceipts)
             .set({
-              title: version.title,
-              content: version.content,
+              state: "rolled_back",
+              postDigest,
+              resultJson: JSON.stringify(resultJson),
               updatedAt: now,
             })
-            .where(eq(schema.documents.id, prior.documentId));
+            .where(
+              and(
+                eq(schema.contentDatabaseMigrationReceipts.id, receipt.id),
+                inArray(schema.contentDatabaseMigrationReceipts.state, [
+                  "applied",
+                  "verified",
+                ]),
+              ),
+            )
+            .returning({ id: schema.contentDatabaseMigrationReceipts.id });
+          if (transitioned.length !== 1)
+            throw new Error("Migration receipt state changed during rollback.");
+          mutated = true;
+          return {
+            receiptId: receipt.id,
+            state: "rolled_back",
+            preDigest: receipt.preDigest,
+            postDigest,
+            counts: {
+              rows: (rollback.versions ?? []).length,
+              properties: ids.length,
+            },
+            replayed: false,
+            verified: true,
+          };
         }
-        const ids = rollback.createdPropertyIds ?? [];
-        if (ids.length) {
+        const planResult = parseJson(receipt.resultJson);
+        // Legacy ids are deliberately copied into the receipt result only after apply validation.
+        const legacyIds: string[] = planResult.legacyPropertyIds ?? [];
+        const legacy = current.definitions.filter((definition: any) =>
+          legacyIds.includes(definition.id),
+        );
+        if (
+          legacy.length !== legacyIds.length ||
+          legacy.some(
+            (definition: any) =>
+              definition.systemRole || definition.type === "blocks",
+          )
+        )
+          throw new Error("Legacy property is missing or unsafe to finalize.");
+        if (legacyIds.length) {
           await tx
             .delete(schema.documentPropertyValues)
-            .where(inArray(schema.documentPropertyValues.propertyId, ids));
+            .where(
+              inArray(schema.documentPropertyValues.propertyId, legacyIds),
+            );
           await tx
             .delete(schema.documentPropertyDefinitions)
-            .where(inArray(schema.documentPropertyDefinitions.id, ids));
+            .where(inArray(schema.documentPropertyDefinitions.id, legacyIds));
         }
-        await tx
-          .update(schema.contentDatabases)
-          .set({ updatedAt: now })
-          .where(eq(schema.contentDatabases.id, args.databaseId));
-        await tx
-          .update(schema.contentDatabaseMigrationReceipts)
-          .set({ state: "rolled_back", updatedAt: now })
-          .where(eq(schema.contentDatabaseMigrationReceipts.id, receipt.id));
-        const restored = await snapshotMigration(tx, args.databaseId);
-        const postDigest = snapshotDigest(restored);
-        if (postDigest !== receipt.preDigest)
-          throw new Error("Rollback verification failed.");
+        const finalized = await snapshotMigration(tx, args.databaseId);
+        if (
+          finalized.definitions.some((definition: any) =>
+            legacyIds.includes(definition.id),
+          ) ||
+          finalized.values.some((value: any) =>
+            legacyIds.includes(value.propertyId),
+          )
+        )
+          throw new Error("Legacy property finalization verification failed.");
+        const postDigest = snapshotDigest(finalized);
         const resultJson = {
-          phase: "rollback",
+          phase: "finalize",
           transitionExpectedPostDigest: receipt.postDigest,
-          counts: {
-            rows: (rollback.versions ?? []).length,
-            properties: ids.length,
-          },
+          counts: { rows: 0, properties: legacyIds.length },
           verified: true,
         };
-        await tx
+        const transitioned = await tx
           .update(schema.contentDatabaseMigrationReceipts)
           .set({
-            state: "rolled_back",
+            state: "finalized",
             postDigest,
             resultJson: JSON.stringify(resultJson),
             updatedAt: now,
           })
-          .where(eq(schema.contentDatabaseMigrationReceipts.id, receipt.id));
+          .where(
+            and(
+              eq(schema.contentDatabaseMigrationReceipts.id, receipt.id),
+              eq(schema.contentDatabaseMigrationReceipts.state, "verified"),
+            ),
+          )
+          .returning({ id: schema.contentDatabaseMigrationReceipts.id });
+        if (transitioned.length !== 1)
+          throw new Error("Migration receipt state changed during finalize.");
         mutated = true;
         return {
           receiptId: receipt.id,
-          state: "rolled_back",
+          state: "finalized",
           preDigest: receipt.preDigest,
           postDigest,
-          counts: {
-            rows: (rollback.versions ?? []).length,
-            properties: ids.length,
-          },
+          counts: { rows: 0, properties: legacyIds.length },
           replayed: false,
           verified: true,
         };
-      }
-      const planResult = parseJson(receipt.resultJson);
-      // Legacy ids are deliberately copied into the receipt result only after apply validation.
-      const legacyIds: string[] = planResult.legacyPropertyIds ?? [];
-      const legacy = current.definitions.filter((definition: any) =>
-        legacyIds.includes(definition.id),
-      );
-      if (
-        legacy.length !== legacyIds.length ||
-        legacy.some(
-          (definition: any) =>
-            definition.systemRole || definition.type === "blocks",
-        )
-      )
-        throw new Error("Legacy property is missing or unsafe to finalize.");
-      if (legacyIds.length) {
-        await tx
-          .delete(schema.documentPropertyValues)
-          .where(inArray(schema.documentPropertyValues.propertyId, legacyIds));
-        await tx
-          .delete(schema.documentPropertyDefinitions)
-          .where(inArray(schema.documentPropertyDefinitions.id, legacyIds));
-      }
-      await tx
-        .update(schema.contentDatabaseMigrationReceipts)
-        .set({ state: "finalized", updatedAt: now })
-        .where(eq(schema.contentDatabaseMigrationReceipts.id, receipt.id));
-      const finalized = await snapshotMigration(tx, args.databaseId);
-      if (
-        finalized.definitions.some((definition: any) =>
-          legacyIds.includes(definition.id),
-        ) ||
-        finalized.values.some((value: any) =>
-          legacyIds.includes(value.propertyId),
-        )
-      )
-        throw new Error("Legacy property finalization verification failed.");
-      const postDigest = snapshotDigest(finalized);
-      const resultJson = {
-        phase: "finalize",
-        transitionExpectedPostDigest: receipt.postDigest,
-        counts: { rows: 0, properties: legacyIds.length },
-        verified: true,
-      };
-      await tx
-        .update(schema.contentDatabaseMigrationReceipts)
-        .set({
-          state: "finalized",
-          postDigest,
-          resultJson: JSON.stringify(resultJson),
-          updatedAt: now,
-        })
-        .where(eq(schema.contentDatabaseMigrationReceipts.id, receipt.id));
-      mutated = true;
-      return {
-        receiptId: receipt.id,
-        state: "finalized",
-        preDigest: receipt.preDigest,
-        postDigest,
-        counts: { rows: 0, properties: legacyIds.length },
-        replayed: false,
-        verified: true,
-      };
+      });
+      if (mutated)
+        await writeAppState("refresh-signal", { ts: Date.now() }).catch(() => {
+          // The receipt is already committed; polling reconciles this optional
+          // UI hint when a concurrent SQLite writer briefly holds the database.
+        });
+      return result;
     });
-    if (mutated) await writeAppState("refresh-signal", { ts: Date.now() });
-    return result;
   },
 });

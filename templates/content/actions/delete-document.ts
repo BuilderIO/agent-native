@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { chunks } from "./_batch-utils.js";
+import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { assertNotWorkspaceCatalogDocuments } from "./_content-space-catalog-guards.js";
 import { renumberDatabaseRows } from "./_database-row-batch.js";
 
@@ -616,9 +617,15 @@ export default defineAction({
         if (!membership) {
           throw new Error("Document is not part of Favorites");
         }
-        await db
-          .delete(schema.contentDatabaseItems)
-          .where(eq(schema.contentDatabaseItems.id, membership.id));
+        await db.transaction(async (tx) => {
+          await lockContentDatabaseMutation(
+            tx as unknown as ReturnType<typeof getDb>,
+            contextDatabase.id,
+          );
+          await tx
+            .delete(schema.contentDatabaseItems)
+            .where(eq(schema.contentDatabaseItems.id, membership.id));
+        });
         await writeAppState("refresh-signal", { ts: Date.now() });
         return { success: true, deleted: 0, removed: 1 };
       }
@@ -633,13 +640,25 @@ export default defineAction({
     if (systemDatabase?.systemRole) {
       throw new Error("System Content database documents cannot be deleted");
     }
-    const deleted = await db.transaction((tx) =>
-      trashDocumentSubtree(
+    const memberships = await db
+      .select({ databaseId: schema.contentDatabaseItems.databaseId })
+      .from(schema.contentDatabaseItems)
+      .where(eq(schema.contentDatabaseItems.documentId, id));
+    const databaseIds = [
+      ...new Set(memberships.map((membership) => membership.databaseId)),
+    ].sort();
+    const deleted = await db.transaction(async (tx) => {
+      for (const databaseId of databaseIds)
+        await lockContentDatabaseMutation(
+          tx as unknown as ReturnType<typeof getDb>,
+          databaseId,
+        );
+      return trashDocumentSubtree(
         tx as unknown as ReturnType<typeof getDb>,
         id,
         existing.ownerEmail as string,
-      ),
-    );
+      );
+    });
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 

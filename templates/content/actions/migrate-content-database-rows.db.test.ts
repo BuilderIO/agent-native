@@ -15,6 +15,7 @@ const OUTSIDER = "synthetic-migration-outsider@example.test";
 let getDb: () => any;
 let schema: typeof import("../server/db/schema.js");
 let action: typeof import("./migrate-content-database-rows.js").default;
+let lockContentDatabaseMutation: typeof import("./_content-database-mutation-lock.js").lockContentDatabaseMutation;
 let serializeMigrationValue: typeof import("./_content-database-row-migration.js").serializeMigrationValue;
 const now = () => new Date().toISOString();
 
@@ -27,6 +28,9 @@ beforeAll(async () => {
     await import("./_content-database-row-migration.js")
   ).serializeMigrationValue;
   action = (await import("./migrate-content-database-rows.js")).default;
+  lockContentDatabaseMutation = (
+    await import("./_content-database-mutation-lock.js")
+  ).lockContentDatabaseMutation;
   await (await import("../server/plugins/db.js")).default(undefined as any);
 }, 60_000);
 
@@ -37,7 +41,7 @@ afterAll(() => {
     expect(existsSync(`${TEST_DB_PATH}${suffix}`)).toBe(false);
 });
 
-async function fixture() {
+async function fixture(rowCount = 20) {
   const db = getDb();
   const stamp = now();
   const key = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
@@ -80,7 +84,7 @@ async function fixture() {
     })),
   );
   const rows = [] as any[];
-  for (let index = 0; index < 20; index += 1) {
+  for (let index = 0; index < rowCount; index += 1) {
     const documentId = `synthetic_row_doc_${key}_${index}`;
     const itemId = `synthetic_row_item_${key}_${index}`;
     const updatedAt = `2026-01-01T00:00:${String(index).padStart(2, "0")}.000Z`;
@@ -178,7 +182,7 @@ function plan(seed: Awaited<ReturnType<typeof fixture>>) {
     databaseId: seed.databaseId,
     databaseDocumentId: seed.databaseDocumentId,
     idempotencyKey: `synthetic-key-${seed.key}`,
-    expectedRowCount: 20,
+    expectedRowCount: seed.rows.length,
     legacyPropertyIds: [seed.definitions[1].id, seed.definitions[2].id],
     propertyDefinitions: [
       {
@@ -510,6 +514,160 @@ describe("migrate-content-database-rows", () => {
     expect(applied.state).toBe("applied");
   });
 
+  it("serializes simultaneous same-key applies into one commit and one replay", async () => {
+    const seed = await fixture();
+    const input = plan(seed);
+    const results = await Promise.all([
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        action.run({ phase: "apply", plan: input }),
+      ),
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        action.run({ phase: "apply", plan: input }),
+      ),
+    ]);
+
+    expect(results.map((result: any) => result.replayed).sort()).toEqual([
+      false,
+      true,
+    ]);
+    expect(
+      await getDb()
+        .select()
+        .from(schema.contentDatabaseMigrationReceipts)
+        .where(
+          eq(
+            schema.contentDatabaseMigrationReceipts.databaseId,
+            seed.databaseId,
+          ),
+        ),
+    ).toHaveLength(1);
+    expect(
+      await getDb()
+        .select()
+        .from(schema.documentVersions)
+        .where(
+          inArray(
+            schema.documentVersions.documentId,
+            seed.rows.map((row: any) => row.documentId),
+          ),
+        ),
+    ).toHaveLength(seed.rows.length);
+  });
+
+  it("serializes an ordinary row addition against the exact migration snapshot", async () => {
+    const seed = await fixture();
+    const input = plan(seed);
+    const concurrentDocumentId = `concurrent_document_${seed.key}`;
+    const [migration, addition] = await Promise.allSettled([
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        action.run({ phase: "apply", plan: input }),
+      ),
+      getDb().transaction(async (tx: any) => {
+        const stamp = now();
+        await lockContentDatabaseMutation(tx, seed.databaseId, stamp);
+        await tx.insert(schema.documents).values({
+          id: concurrentDocumentId,
+          ownerEmail: OWNER,
+          spaceId: "synthetic_space",
+          parentId: seed.databaseDocumentId,
+          title: "Concurrent synthetic row",
+          content: "",
+          visibility: "private",
+          position: 20,
+          createdAt: stamp,
+          updatedAt: stamp,
+        });
+        await tx.insert(schema.contentDatabaseItems).values({
+          id: `concurrent_item_${seed.key}`,
+          ownerEmail: OWNER,
+          databaseId: seed.databaseId,
+          documentId: concurrentDocumentId,
+          position: 20,
+          createdAt: stamp,
+          updatedAt: stamp,
+        });
+      }),
+    ]);
+
+    if (addition.status === "rejected") throw addition.reason;
+    expect(
+      await getDb()
+        .select()
+        .from(schema.contentDatabaseItems)
+        .where(eq(schema.contentDatabaseItems.databaseId, seed.databaseId)),
+    ).toHaveLength(21);
+    const receipts = await getDb()
+      .select()
+      .from(schema.contentDatabaseMigrationReceipts)
+      .where(
+        eq(schema.contentDatabaseMigrationReceipts.databaseId, seed.databaseId),
+      );
+    const newDefinitions = await getDb()
+      .select()
+      .from(schema.documentPropertyDefinitions)
+      .where(
+        inArray(
+          schema.documentPropertyDefinitions.id,
+          input.propertyDefinitions.map((definition) => definition.id),
+        ),
+      );
+    const [firstRow] = await getDb()
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, seed.rows[0].documentId));
+    if (migration.status === "fulfilled") {
+      expect(receipts).toHaveLength(1);
+      expect(newDefinitions).toHaveLength(input.propertyDefinitions.length);
+      expect(firstRow.content).toBe(input.rows[0].content);
+    } else {
+      expect(receipts).toHaveLength(0);
+      expect(newDefinitions).toHaveLength(0);
+      expect(firstRow.content).toBe("# Synthetic heading 0");
+    }
+  });
+
+  it("applies the declared 100-row by 100-property ceiling in bounded batches", async () => {
+    const seed = await fixture(100);
+    const input: any = {
+      ...plan(seed),
+      legacyPropertyIds: [],
+      propertyDefinitions: Array.from({ length: 100 }, (_, index) => ({
+        id: `bounded_property_${seed.key}_${index}`,
+        name: `Bounded property ${index}`,
+        type: "text",
+        visibility: "always_show",
+      })),
+    };
+    input.rows = seed.rows.map((row: any) => ({
+      ...row,
+      propertyValues: input.propertyDefinitions.map((definition: any) => ({
+        propertyId: definition.id,
+        value: `${row.documentId}:${definition.id}`,
+      })),
+    }));
+
+    const applied: any = await runWithRequestContext({ userEmail: OWNER }, () =>
+      action.run({ phase: "apply", plan: input }),
+    );
+    expect(applied).toMatchObject({
+      state: "applied",
+      counts: { rows: 100, properties: 100 },
+    });
+    expect(
+      await getDb()
+        .select()
+        .from(schema.documentPropertyValues)
+        .where(
+          inArray(
+            schema.documentPropertyValues.propertyId,
+            input.propertyDefinitions.map((definition: any) =>
+              String(definition.id),
+            ),
+          ),
+        ),
+    ).toHaveLength(10_000);
+  }, 60_000);
+
   it("rejects source-mapped legacy fields and detects property-description drift", async () => {
     const db = getDb();
     const mappedSeed = await fixture();
@@ -573,6 +731,73 @@ describe("migrate-content-database-rows", () => {
         }),
       ),
     ).rejects.toThrow("drifted");
+  });
+
+  it("requires current editor access to every row before legacy cleanup", async () => {
+    const seed = await fixture();
+    const input = plan(seed);
+    const stamp = now();
+    await getDb()
+      .insert(schema.documentShares)
+      .values([
+        {
+          id: `synthetic_database_admin_${seed.key}`,
+          resourceId: seed.databaseDocumentId,
+          principalType: "user",
+          principalId: OUTSIDER,
+          role: "admin",
+          createdBy: OWNER,
+          createdAt: stamp,
+        },
+        ...seed.rows.map((row: any, index: number) => ({
+          id: `synthetic_row_editor_${seed.key}_${index}`,
+          resourceId: row.documentId,
+          principalType: "user",
+          principalId: OUTSIDER,
+          role: "editor",
+          createdBy: OWNER,
+          createdAt: stamp,
+        })),
+      ]);
+    const applied: any = await runWithRequestContext(
+      { userEmail: OUTSIDER },
+      () => action.run({ phase: "apply", plan: input }),
+    );
+    await runWithRequestContext({ userEmail: OUTSIDER }, () =>
+      action.run({
+        phase: "verify",
+        databaseId: seed.databaseId,
+        idempotencyKey: input.idempotencyKey,
+        expectedPostDigest: applied.postDigest,
+      }),
+    );
+    await getDb()
+      .delete(schema.documentShares)
+      .where(
+        eq(schema.documentShares.id, `synthetic_row_editor_${seed.key}_0`),
+      );
+
+    await expect(
+      runWithRequestContext({ userEmail: OUTSIDER }, () =>
+        action.run({
+          phase: "finalize",
+          databaseId: seed.databaseId,
+          idempotencyKey: input.idempotencyKey,
+          expectedPostDigest: applied.postDigest,
+        }),
+      ),
+    ).rejects.toThrow();
+    expect(
+      await getDb()
+        .select()
+        .from(schema.documentPropertyDefinitions)
+        .where(
+          inArray(
+            schema.documentPropertyDefinitions.id,
+            input.legacyPropertyIds,
+          ),
+        ),
+    ).toHaveLength(input.legacyPropertyIds.length);
   });
 
   it("performs guarded rollback/finalize and refuses drift", async () => {
@@ -791,5 +1016,54 @@ describe("migrate-content-database-rows", () => {
         }),
       ),
     ).rejects.toThrow("drifted");
+  });
+
+  it("allows only one competing terminal transition from a verified receipt", async () => {
+    const seed = await fixture();
+    const input = plan(seed);
+    const applied: any = await runWithRequestContext({ userEmail: OWNER }, () =>
+      action.run({ phase: "apply", plan: input }),
+    );
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      action.run({
+        phase: "verify",
+        databaseId: seed.databaseId,
+        idempotencyKey: input.idempotencyKey,
+        expectedPostDigest: applied.postDigest,
+      }),
+    );
+
+    const transitions = await Promise.allSettled([
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        action.run({
+          phase: "rollback",
+          databaseId: seed.databaseId,
+          idempotencyKey: input.idempotencyKey,
+          expectedPostDigest: applied.postDigest,
+        }),
+      ),
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        action.run({
+          phase: "finalize",
+          databaseId: seed.databaseId,
+          idempotencyKey: input.idempotencyKey,
+          expectedPostDigest: applied.postDigest,
+        }),
+      ),
+    ]);
+
+    expect(
+      transitions.filter((transition) => transition.status === "fulfilled"),
+    ).toHaveLength(1);
+    expect(
+      transitions.filter((transition) => transition.status === "rejected"),
+    ).toHaveLength(1);
+    const [receipt] = await getDb()
+      .select()
+      .from(schema.contentDatabaseMigrationReceipts)
+      .where(
+        eq(schema.contentDatabaseMigrationReceipts.databaseId, seed.databaseId),
+      );
+    expect(["rolled_back", "finalized"]).toContain(receipt.state);
   });
 });

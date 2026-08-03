@@ -242,7 +242,10 @@ the database and every row independently after apply, then call its separate
 `verify` phase with the saved post-apply digest. Only a verified receipt may
 `finalize` the exact legacy property IDs stored in that receipt. `rollback` is
 available before finalize only while the saved post-apply digest still matches,
-so it never overwrites a later edit.
+so it never overwrites a later edit. The bounded migration accepts ordinary
+databases without attached Sources; source-backed and system databases retain
+their dedicated synchronization actions. If flushing a live row editor changes
+its persisted revision, read the rows again and build a fresh plan.
 
 When targeting more than one database row, call `duplicate-database-items` or
 `delete-database-items` once with a native JSON array of `itemIds` or
