@@ -18,6 +18,7 @@ import {
   clearActiveRun,
   setPendingTurn,
 } from "./active-run-state.js";
+import { getOrCreateAnalyticsSessionId } from "./analytics-session.js";
 import { captureError } from "./analytics.js";
 import { agentNativePath } from "./api-path.js";
 import { formatChatErrorText, normalizeChatError } from "./error-format.js";
@@ -2074,6 +2075,15 @@ export function createAgentChatAdapter(
           if (tz) headers["x-user-timezone"] = tz;
         } catch {
           // Non-browser or Intl unavailable — tool calls will fall back to UTC.
+        }
+        try {
+          // Lets the run's `$ai_*` events carry PostHog's `$session_id`, so an
+          // agent trace joins to the session replay it happened in.
+          const sessionId = getOrCreateAnalyticsSessionId();
+          if (sessionId) headers["x-agent-native-session-id"] = sessionId;
+          // coercion-ok: replay linkage must not block sending the message
+        } catch {
+          // Analytics session unavailable — traces just lose replay linkage.
         }
         // Surface hint — the server uses this to keep code-editing dev tools
         // out of the app-rendered sidebar. The outer dev frame passes

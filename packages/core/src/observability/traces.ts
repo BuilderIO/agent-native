@@ -3,6 +3,15 @@ import type {
   AgentLoopUsage,
 } from "../agent/production-agent.js";
 import type { AgentChatEvent, AgentToolInput } from "../agent/types.js";
+import { getRequestContext } from "../server/request-context.js";
+import {
+  MAX_AI_CONTENT_BYTES,
+  MAX_AI_SPANS_PER_RUN,
+  boundAiContent,
+  emitAiSpanEvent,
+  emitAiTraceEvent,
+  toAiErrorDetail,
+} from "./posthog-ai.js";
 import { type AgentSpan, endAgentSpan, startAgentSpan } from "./tracing.js";
 import { trackingIdentityProperties } from "./tracking-identity.js";
 import type { TraceSpan, TraceSummary, ObservabilityConfig } from "./types.js";
@@ -117,6 +126,17 @@ function emitLlmGenerationTrackingEvent(args: {
     variantId: string;
   }>;
   modelSelectionSource?: string;
+  /**
+   * PostHog content fields. Each is `undefined` unless the matching capture
+   * flag is on, and is then OMITTED from the event — never sent as `[]`, which
+   * PostHog would render as "the model was called with no messages".
+   */
+  aiInput?: unknown;
+  aiOutputChoices?: unknown;
+  aiTools?: unknown;
+  aiInputTruncated?: boolean;
+  aiOutputTruncated?: boolean;
+  browserSessionId?: string;
 }): void {
   const provider = llmProviderFromEngine(args.engineName, args.model);
   const costUsd =
@@ -128,6 +148,15 @@ function emitLlmGenerationTrackingEvent(args: {
       ? args.inputTokens + args.outputTokens
       : undefined;
   const error = args.errorMessage ?? undefined;
+  const terminalCode =
+    args.terminalOutcome?.state === "failed" ||
+    args.terminalOutcome?.state === "input_required"
+      ? args.terminalOutcome.code
+      : undefined;
+  const terminalRetryable =
+    args.terminalOutcome?.state === "failed"
+      ? args.terminalOutcome.retryable
+      : undefined;
   const properties: Record<string, unknown> = {
     ...trackingIdentityProperties(),
     source: "agent_observability",
@@ -154,15 +183,8 @@ function emitLlmGenerationTrackingEvent(args: {
     tools: args.tools,
     tools_truncated: args.toolsTruncated,
     terminal_state: args.terminalOutcome?.state,
-    terminal_code:
-      args.terminalOutcome?.state === "failed" ||
-      args.terminalOutcome?.state === "input_required"
-        ? args.terminalOutcome.code
-        : undefined,
-    terminal_retryable:
-      args.terminalOutcome?.state === "failed"
-        ? args.terminalOutcome.retryable
-        : undefined,
+    terminal_code: terminalCode,
+    terminal_retryable: terminalRetryable,
     delegated: args.delegation ? true : undefined,
     delegation_protocol: args.delegation?.protocol,
     caller_app: args.delegation?.callerApp,
@@ -175,19 +197,36 @@ function emitLlmGenerationTrackingEvent(args: {
     $ai_trace_id: args.runId,
     $ai_session_id: args.threadId ?? undefined,
     $ai_span_id: args.llmSpanId,
-    $ai_span_name: "agent_run",
-    $ai_parent_id: args.parentSpanId,
+    $ai_span_name: args.model,
+    // Parent is the run's trace, not the internal `agent_run` span id — the
+    // latter is never emitted to PostHog, so pointing at it orphaned the
+    // generation and PostHog rendered a placeholder trace around it.
+    $ai_parent_id: args.runId,
     $ai_model: args.model,
     $ai_provider: provider,
     $ai_input_tokens: args.inputTokens,
     $ai_output_tokens: args.outputTokens,
     $ai_latency: Math.round((args.durationMs / 1000) * 1000) / 1000,
     $ai_is_error: args.status === "error",
-    $ai_error: error,
+    $ai_error:
+      args.status === "error"
+        ? toAiErrorDetail(error, {
+            state: args.terminalOutcome?.state,
+            code: terminalCode,
+            retryable: terminalRetryable,
+          })
+        : undefined,
     $ai_cache_read_input_tokens: args.cacheReadTokens,
     $ai_cache_creation_input_tokens: args.cacheWriteTokens,
     $ai_request_count: 1,
     $ai_total_cost_usd: costUsd,
+    $ai_input: args.aiInput,
+    $ai_output_choices: args.aiOutputChoices,
+    $ai_tools: args.aiTools,
+    $ai_input_truncated: args.aiInputTruncated || undefined,
+    $ai_output_truncated: args.aiOutputTruncated || undefined,
+    $ai_time_to_first_token: args.firstTokenMs,
+    $session_id: args.browserSessionId,
   };
   if (args.experimentAssignments?.length) {
     properties.experiment_ids = args.experimentAssignments
@@ -218,6 +257,96 @@ function emitLlmGenerationTrackingEvent(args: {
   } catch {
     // Tracking must never affect the agent run or trace persistence.
   }
+}
+
+/**
+ * Build the PostHog content fields for a run's `$ai_generation`.
+ *
+ * This is one generation per run carrying the run's whole message list, not one
+ * per model round-trip: the engine layer reports aggregate usage only
+ * (`onUsage`) and exposes no per-step hook. Consequence to know when reading a
+ * trace — per-round-trip latency and intermediate assistant turns are not
+ * visible; a multi-step run collapses into a single generation node.
+ *
+ * `$ai_output_choices` is emitted whenever tool calls happened even with
+ * `capturePrompts` off, because PostHog derives `$ai_tools_called` /
+ * `$ai_tool_call_count` from tool-call blocks inside it and nothing else. The
+ * assistant's text content stays gated; only the structural call list ships.
+ */
+function buildGenerationContent(args: {
+  config: ObservabilityConfig;
+  messages: unknown;
+  tools: unknown;
+  assistantText: string;
+  toolSpans: TraceSpan[];
+}): {
+  aiInput?: unknown;
+  aiOutputChoices?: unknown;
+  aiTools?: unknown;
+  aiInputTruncated?: boolean;
+  aiOutputTruncated?: boolean;
+} {
+  const { config } = args;
+
+  const input = config.capturePrompts
+    ? boundAiContent(redactSensitiveFields(args.messages))
+    : undefined;
+
+  const toolCalls = args.toolSpans
+    .slice(0, MAX_TRACKED_GENERATION_TOOL_CALLS)
+    .map((span) => ({
+      type: "function" as const,
+      id: span.id,
+      function: {
+        name: span.name,
+        // Already redacted at span construction, and only present when
+        // `captureToolArgs` is on.
+        ...((span.metadata as { input?: unknown } | null)?.input !== undefined
+          ? { arguments: (span.metadata as { input?: unknown }).input }
+          : {}),
+      },
+    }));
+
+  const hasChoice = config.capturePrompts || toolCalls.length > 0;
+  const output = hasChoice
+    ? boundAiContent([
+        {
+          role: "assistant",
+          ...(config.capturePrompts
+            ? { content: redactToolErrorMessage(args.assistantText) }
+            : {}),
+          ...(toolCalls.length ? { tool_calls: toolCalls } : {}),
+        },
+      ])
+    : undefined;
+
+  const toolList = Array.isArray(args.tools)
+    ? args.tools
+        .filter(
+          (tool): tool is { name: string; description?: string } =>
+            !!tool && typeof (tool as { name?: unknown }).name === "string",
+        )
+        .map((tool) => ({
+          type: "function" as const,
+          function: {
+            name: tool.name,
+            ...(typeof tool.description === "string"
+              ? { description: tool.description }
+              : {}),
+          },
+        }))
+    : [];
+
+  return {
+    aiInput: input?.value,
+    aiOutputChoices: output?.value,
+    // Tool definitions are app configuration rather than user content, so they
+    // are not gated — without them a trace shows calls to tools nobody can
+    // identify. Schemas are excluded to keep the event small.
+    aiTools: toolList.length ? toolList : undefined,
+    aiInputTruncated: input?.truncated,
+    aiOutputTruncated: output?.truncated,
+  };
 }
 
 /** Keys whose values are stripped from persisted tool inputs when
@@ -324,6 +453,15 @@ export async function instrumentAgentLoop(opts: {
   };
   /** Raw user-authored message before prompt/context enrichment. */
   sentimentInput?: string;
+  /**
+   * Browser session id of the request that started this run, when it came from
+   * a page. Emitted as PostHog's `$session_id` so agent traces join to session
+   * replay — distinct from `$ai_session_id`, which is the thread.
+   *
+   * Defaults to the in-flight request context, which the agent-chat route
+   * populates from the `X-Agent-Native-Session-Id` header.
+   */
+  browserSessionId?: string;
   classifyError?: (error: unknown) =>
     | {
         status?: "success" | "error";
@@ -347,6 +485,11 @@ export async function instrumentAgentLoop(opts: {
           )
           .catch(() => null)
       : Promise.resolve(null);
+
+  // Falls back to the in-flight request so callers deep in the agent stack
+  // don't have to thread it down by hand.
+  const browserSessionId =
+    opts.browserSessionId ?? getRequestContext()?.browserSessionId;
 
   // Optional OpenTelemetry root span for this run. No-ops unless a host has
   // installed `@opentelemetry/api` and registered a provider. The promise is
@@ -389,6 +532,10 @@ export async function instrumentAgentLoop(opts: {
   const toolNameToCounters = new Map<string, number[]>();
   const toolCallIdToCounter = new Map<string, number>();
   const generationToolCalls = new Map<number, GenerationToolCall>();
+  // Assistant text, accumulated only when prompt capture is on so a disabled
+  // config never holds message content in memory in the first place.
+  const assistantTextParts: string[] = [];
+  let assistantTextLength = 0;
 
   let toolCallCount = 0;
   let successfulTools = 0;
@@ -432,6 +579,14 @@ export async function instrumentAgentLoop(opts: {
 
   const instrumentedSend = (event: AgentChatEvent): void => {
     try {
+      if (
+        config.capturePrompts &&
+        event.type === "text" &&
+        assistantTextLength < MAX_AI_CONTENT_BYTES
+      ) {
+        assistantTextParts.push(event.text);
+        assistantTextLength += event.text.length;
+      }
       // Some guardrails intentionally stop the loop by emitting a terminal
       // event and returning usage instead of throwing. Preserve that terminal
       // state in telemetry so a tripwire/loop-limit/provider error cannot be
@@ -741,6 +896,13 @@ export async function instrumentAgentLoop(opts: {
           ? Math.max(0, usage.firstEngineEventAtMs - runStart)
           : undefined;
       const llmSpanId = spanId();
+      const generationContent = buildGenerationContent({
+        config,
+        messages: loopOpts.messages,
+        tools: loopOpts.tools,
+        assistantText: assistantTextParts.join(""),
+        toolSpans: spans.filter((s) => s.spanType === "tool_call"),
+      });
       const llmSpan: TraceSpan = {
         id: llmSpanId,
         runId,
@@ -798,6 +960,8 @@ export async function instrumentAgentLoop(opts: {
         createdAt: runStart,
         experimentAssignments: opts.experimentAssignments,
         modelSelectionSource: opts.modelSelectionSource,
+        browserSessionId,
+        ...generationContent,
       });
     }
 
@@ -821,6 +985,117 @@ export async function instrumentAgentLoop(opts: {
       createdAt: runStart,
     };
     spans.push(parentSpan);
+
+    // PostHog LLM analytics: the run is a `$ai_trace`, each tool call an
+    // `$ai_span` under it. Emitted from the collected spans rather than from a
+    // second instrumentation pass, so the tree PostHog shows and the tree we
+    // persist cannot drift apart.
+    try {
+      const aiError =
+        runStatus === "error"
+          ? toAiErrorDetail(errorMessage, {
+              state: terminalOutcome?.state,
+              code:
+                terminalOutcome?.state === "failed" ||
+                terminalOutcome?.state === "input_required"
+                  ? terminalOutcome.code
+                  : undefined,
+              retryable:
+                terminalOutcome?.state === "failed"
+                  ? terminalOutcome.retryable
+                  : undefined,
+            })
+          : undefined;
+      const provider = llmProviderFromEngine(
+        typeof loopOpts.engine?.name === "string"
+          ? loopOpts.engine.name
+          : undefined,
+        usage?.model ?? loopOpts.model,
+      );
+
+      const toolSpans = config.captureLlmSpans
+        ? spans.filter((s) => s.spanType === "tool_call")
+        : [];
+      const emittedToolSpans = toolSpans.slice(0, MAX_AI_SPANS_PER_RUN);
+      const droppedToolSpans = toolSpans.length - emittedToolSpans.length;
+
+      emitAiTraceEvent({
+        runId,
+        threadId,
+        userId,
+        spanName: "agent_run",
+        model: usage?.model ?? loopOpts.model,
+        provider,
+        latencySeconds: Math.round(totalDurationMs) / 1000,
+        isError: runStatus === "error",
+        error: aiError,
+        inputTokens: usage?.usageReported ? usage.inputTokens : undefined,
+        outputTokens: usage?.usageReported ? usage.outputTokens : undefined,
+        costUsd: usage?.usageReported
+          ? costUsdFromCenticents(costCentsX100)
+          : undefined,
+        createdAt: runStart,
+        browserSessionId,
+        extraProperties: {
+          ...trackingIdentityProperties(),
+          source: "agent_observability",
+          run_id: runId,
+          thread_id: threadId,
+          // A truncated run must not read as a complete one.
+          ...(droppedToolSpans > 0
+            ? {
+                $ai_spans_dropped: droppedToolSpans,
+                $ai_spans_emitted: emittedToolSpans.length,
+              }
+            : {}),
+        },
+      });
+
+      for (const span of emittedToolSpans) {
+        // `span.errorMessage` is the raw tool result. It routinely contains
+        // upstream response bodies with Authorization headers and standalone
+        // API keys, so it gets the same redaction + bounding the generation
+        // event's `tools[].error_message` already applies, and the same
+        // `captureToolResults` gate — exporting it here otherwise reintroduced
+        // the leak that gate exists to prevent. `$ai_is_error` still marks the
+        // failure when the content is withheld.
+        const toolErrorMessage =
+          span.status === "error" &&
+          span.errorMessage &&
+          config.captureToolResults
+            ? truncateToolErrorMessage(
+                redactToolErrorMessage(span.errorMessage),
+              )
+            : undefined;
+
+        emitAiSpanEvent({
+          runId,
+          threadId,
+          userId,
+          spanId: span.id,
+          spanName: span.name,
+          latencySeconds: Math.round(span.durationMs) / 1000,
+          isError: span.status === "error",
+          error: toolErrorMessage
+            ? toAiErrorDetail(toolErrorMessage)
+            : undefined,
+          createdAt: span.createdAt,
+          browserSessionId,
+          // `metadata.input` is already redacted and only present when
+          // `captureToolArgs` is on; absent stays absent.
+          inputState: (span.metadata as { input?: unknown } | null)?.input,
+          outputState: toolErrorMessage,
+          extraProperties: {
+            ...trackingIdentityProperties(),
+            source: "agent_observability",
+            span_type: "tool_call",
+          },
+        });
+      }
+      // coercion-ok: a throw here would skip trace persistence below
+    } catch {
+      // LLM analytics must never affect the run or trace persistence.
+    }
 
     const summary: TraceSummary = {
       runId,

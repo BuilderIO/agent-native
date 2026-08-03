@@ -5,6 +5,7 @@ import {
   llmConnectionTrackingProperties,
   type LlmConnectionStatus,
 } from "../shared/llm-connection.js";
+import { toPostHogExceptionProperties } from "../tracking/posthog-exception.js";
 import {
   getOrCreateAnalyticsAnonymousId,
   getOrCreateAnalyticsSessionId,
@@ -54,6 +55,14 @@ declare global {
     __AGENT_NATIVE_CONFIG__?: {
       sentryDsn?: string;
       sentryEnvironment?: string;
+      /**
+       * Public PostHog project key + host. Publishable and identical for every
+       * visitor, so it ships inside the CDN-cached SSR shell alongside the
+       * Sentry DSN. Absent when no public key is configured.
+       */
+      posthogKey?: string;
+      posthogHost?: string;
+      posthogErrorTracking?: boolean;
       /**
        * Hosted Realtime Gateway config. Impersonal (same for every visitor),
        * so it is safe inside the CDN-cached SSR shell — unlike the per-user
@@ -440,6 +449,15 @@ function applyTrackingIdentity(
   assign("userName", identity.userName);
   assign("orgId", identity.orgId);
   return next;
+}
+
+/**
+ * The signed-in user id used to attribute browser events, or `undefined` when
+ * signed out. Same value the server attributes its events to (email, falling
+ * back to the auth user id), so a person is one person across both.
+ */
+function getTrackingUserId(): string | undefined {
+  return _trackingIdentity?.userId;
 }
 
 function getOrCreateAnonymousId(): string | undefined {
@@ -1313,6 +1331,89 @@ function exceptionEventProperties(
   };
 }
 
+/**
+ * Resolve browser PostHog config, or `undefined` when error capture should not
+ * reach PostHog. Reads the SSR-injected shell config first, then Vite env for
+ * static/SPA builds that never render through the SSR handler.
+ */
+function posthogErrorConfig(): { key: string; host: string } | undefined {
+  const shell = window.__AGENT_NATIVE_CONFIG__;
+  if (shell?.posthogErrorTracking === false) return undefined;
+  const env = import.meta.env as Record<string, string | undefined>;
+  // Static/SPA builds never render through the SSR handler, so they never see
+  // the shell config that carries the server-side opt-out. Without this a
+  // Vite-only deployment could not honour `POSTHOG_ERROR_TRACKING=false`
+  // short of deleting the public key.
+  if (env?.VITE_POSTHOG_ERROR_TRACKING?.trim().toLowerCase() === "false") {
+    return undefined;
+  }
+  const key = shell?.posthogKey || env?.VITE_POSTHOG_KEY;
+  if (!key) return undefined;
+  const host = (
+    shell?.posthogHost ||
+    env?.VITE_POSTHOG_HOST ||
+    "https://us.i.posthog.com"
+  ).replace(/\/+$/, "");
+  return { key, host };
+}
+
+/**
+ * Send the exception straight to PostHog's event endpoint.
+ *
+ * Not relayed through `/_agent-native/track`: that route requires a resolved
+ * session, so every signed-out crash would be dropped without a trace.
+ *
+ * `distinct_id` uses the signed-in user id when we have one so browser events
+ * join the server's events for the same person; otherwise the stable anonymous
+ * id, which `$identify` later aliases on login.
+ */
+function sendPostHogExceptionEvent(event: CapturedExceptionEvent): void {
+  const config = posthogErrorConfig();
+  if (!config) return;
+
+  try {
+    const session = errorCaptureSessionContext();
+    const body = JSON.stringify({
+      api_key: config.key,
+      event: AGENT_NATIVE_EXCEPTION_EVENT_NAME,
+      properties: {
+        distinct_id: getTrackingUserId() || session.anonymousId || "anonymous",
+        ...toPostHogExceptionProperties({
+          type: event.type,
+          value: event.message,
+          stack: event.stack,
+          handled: event.handled,
+          level: event.level,
+        }),
+        $current_url: event.url,
+        $session_id: session.sessionId,
+        ...(session.replayId ? { $replay_id: session.replayId } : {}),
+        ...(event.release ? { release: event.release } : {}),
+        ...(event.environment ? { environment: event.environment } : {}),
+        ...(event.tags ? { exceptionTags: event.tags } : {}),
+        source: "browser",
+      },
+      timestamp: event.occurredAt,
+    });
+    const endpoint = `${config.host}/i/v0/e/`;
+
+    if (navigator.sendBeacon) {
+      // text/plain avoids a CORS preflight the page may not survive.
+      const blob = new Blob([body], { type: "text/plain;charset=UTF-8" });
+      if (navigator.sendBeacon(endpoint, blob)) return;
+    }
+    fetch(endpoint, {
+      method: "POST",
+      body,
+      keepalive: true,
+      headers: { "Content-Type": "text/plain;charset=UTF-8" },
+    }).catch(() => {});
+    // coercion-ok: throwing would replace the page's real error
+  } catch {
+    // Error reporting must never mask the original failure.
+  }
+}
+
 function sendExceptionEvent(event: CapturedExceptionEvent): void {
   // Route through the existing first-party analytics ingest as a dedicated
   // `$exception` event. This reuses the public-key auth + sendBeacon/keepalive
@@ -1322,6 +1423,7 @@ function sendExceptionEvent(event: CapturedExceptionEvent): void {
     AGENT_NATIVE_EXCEPTION_EVENT_NAME,
     exceptionEventProperties(event),
   );
+  sendPostHogExceptionEvent(event);
 }
 
 function emitExceptionToReplay(event: CapturedExceptionEvent): void {
@@ -1339,7 +1441,9 @@ function errorCaptureAutoEnabled(): boolean {
     _agentNativeAnalyticsPublicKey ||
     (import.meta.env as Record<string, string | undefined>)
       ?.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY;
-  return !!publicKey;
+  // A PostHog public key is an equally explicit opt-in — an app running
+  // PostHog and no Agent Native Analytics should still report browser crashes.
+  return !!publicKey || !!posthogErrorConfig();
 }
 
 function maybeInstallErrorCapture(
