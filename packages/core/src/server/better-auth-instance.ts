@@ -772,10 +772,10 @@ export function getBetterAuthSync(): BetterAuthInstance | undefined {
 /**
  * The subset of Better Auth's internal adapter we use for federated-SSO
  * JIT account linking. Better Auth owns these writes (id + timestamp +
- * schema handling), so callers never hand-roll SQL against `user`/`account`.
- * Read-only lookups plus account-linking, account-replacement, and
- * profile-update operations used by shared Core surfaces. Better Auth owns the
- * actual identity writes.
+ * schema handling), so callers never hand-roll SQL against `user`/`account`
+ * for ordinary identity writes. The transactional claimant replacement uses
+ * the shared database boundary so its delete, promotion, and link commit
+ * together.
  */
 export interface BetterAuthInternalAdapter {
   findUserByEmail: (
@@ -808,7 +808,11 @@ export interface BetterAuthInternalAdapter {
     accountId: string,
     providerId: string,
   ) => Promise<{ id: string; userId: string } | null>;
-  deleteAccount: (id: string) => Promise<void>;
+  replaceUnverifiedCredentialWithGoogle: (input: {
+    userId: string;
+    email: string;
+    accountId: string;
+  }) => Promise<void>;
   updateUser?: (
     userId: string,
     data: {
@@ -817,6 +821,107 @@ export interface BetterAuthInternalAdapter {
       emailVerified?: boolean;
     },
   ) => Promise<unknown>;
+}
+
+/**
+ * Replace the only unverified credential account and add Google in one
+ * database transaction. The read in ensureGoogleAuthIdentityWithAdapter is
+ * only a fast path check; this method revalidates the account set while the
+ * transaction owns the user row so a stale lookup cannot delete a different
+ * identity.
+ */
+async function replaceUnverifiedCredentialWithGoogle(input: {
+  userId: string;
+  email: string;
+  accountId: string;
+}): Promise<void> {
+  const db = getDbExec();
+  if (!db.transaction) {
+    throw new Error(
+      "Cannot replace an unverified credential identity without a database transaction",
+    );
+  }
+
+  const postgres = isPostgres();
+  const timestamp = postgres ? new Date().toISOString() : Date.now();
+  const unverified = postgres ? false : 0;
+
+  await db.transaction(async (tx) => {
+    // Serialize the same Google subject across users on Postgres. SQLite's
+    // write transaction already serializes this replacement path.
+    if (postgres) {
+      await tx.execute({
+        sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
+        args: [`google:${input.accountId}`],
+      });
+    }
+
+    const currentUser = await tx.execute({
+      sql: 'SELECT id FROM "user" WHERE id = ? AND email = ? AND email_verified = ?',
+      args: [input.userId, input.email, unverified],
+    });
+    if (currentUser.rows.length !== 1) {
+      throw new Error(
+        "The unverified credential identity changed before Google linking",
+      );
+    }
+
+    const linkedGoogle = await tx.execute({
+      sql:
+        'SELECT user_id FROM "account" WHERE provider_id = ? AND account_id = ?' +
+        (postgres ? " FOR UPDATE" : ""),
+      args: ["google", input.accountId],
+    });
+    const linkedUserId = linkedGoogle.rows[0]?.user_id;
+    if (linkedUserId && linkedUserId !== input.userId) {
+      throw new Error("Google account is already linked to another user");
+    }
+    if (linkedUserId === input.userId) return;
+
+    const accounts = await tx.execute({
+      sql: 'SELECT id, provider_id FROM "account" WHERE user_id = ?',
+      args: [input.userId],
+    });
+    if (
+      accounts.rows.length !== 1 ||
+      accounts.rows[0]?.provider_id !== "credential"
+    ) {
+      throw new Error("Cannot link Google to an ambiguous unverified identity");
+    }
+
+    const credentialId = accounts.rows[0]?.id;
+    const deleted = await tx.execute({
+      sql: 'DELETE FROM "account" WHERE id = ? AND user_id = ? AND provider_id = ?',
+      args: [credentialId, input.userId, "credential"],
+    });
+    if (deleted.rowsAffected !== 1) {
+      throw new Error(
+        "The unverified credential identity changed before Google linking",
+      );
+    }
+
+    const updated = await tx.execute({
+      sql: 'UPDATE "user" SET email_verified = ?, updated_at = ? WHERE id = ? AND email = ? AND email_verified = ?',
+      args: [true, timestamp, input.userId, input.email, unverified],
+    });
+    if (updated.rowsAffected !== 1) {
+      throw new Error(
+        "The unverified credential identity changed before Google linking",
+      );
+    }
+
+    await tx.execute({
+      sql: 'INSERT INTO "account" (id, account_id, provider_id, user_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+      args: [
+        crypto.randomUUID(),
+        input.accountId,
+        "google",
+        input.userId,
+        timestamp,
+        timestamp,
+      ],
+    });
+  });
 }
 
 /**
@@ -831,7 +936,12 @@ export async function getBetterAuthInternalAdapter(
   config?: BetterAuthConfig,
 ): Promise<BetterAuthInternalAdapter | undefined> {
   const auth = (await getBetterAuth(config)) as unknown as {
-    $context?: Promise<{ internalAdapter?: BetterAuthInternalAdapter }>;
+    $context?: Promise<{
+      internalAdapter?: Omit<
+        BetterAuthInternalAdapter,
+        "replaceUnverifiedCredentialWithGoogle"
+      >;
+    }>;
   };
   try {
     const ctx = await auth.$context;
@@ -841,10 +951,12 @@ export async function getBetterAuthInternalAdapter(
       typeof ia.findUserByEmail === "function" &&
       typeof ia.linkAccount === "function" &&
       typeof ia.createUser === "function" &&
-      typeof ia.findAccountByProviderId === "function" &&
-      typeof ia.deleteAccount === "function"
+      typeof ia.findAccountByProviderId === "function"
     ) {
-      return ia;
+      return {
+        ...ia,
+        replaceUnverifiedCredentialWithGoogle,
+      } as BetterAuthInternalAdapter;
     }
   } catch {
     // Context resolution failed — caller falls back to the signup path.
@@ -949,23 +1061,15 @@ export async function ensureGoogleAuthIdentityWithAdapter(
     const hasOtherAccounts = existing.accounts.some(
       (account) => account.providerId !== "credential",
     );
-    const credentialAccount = credentialAccounts[0];
-    if (
-      credentialAccounts.length !== 1 ||
-      hasOtherAccounts ||
-      !credentialAccount?.id ||
-      !adapter.updateUser
-    ) {
+    if (credentialAccounts.length !== 1 || hasOtherAccounts) {
       throw new Error(
         "Cannot link Google to an unverified email/password identity",
       );
     }
 
-    await adapter.deleteAccount(credentialAccount.id);
-    await adapter.updateUser(existing.user.id, { emailVerified: true });
-    await adapter.linkAccount({
+    await adapter.replaceUnverifiedCredentialWithGoogle({
       userId: existing.user.id,
-      providerId: "google",
+      email,
       accountId,
     });
     return;

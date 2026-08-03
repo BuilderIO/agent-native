@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: neon-preview-branches-pr-${{ github.event.pull_request.number || github.event.number }}
+  cancel-in-progress: true
+
 # Map each Netlify site to its Neon project. When a PR opens, we create a Neon
 # branch per project and set the site's DATABASE_URL(_UNPOOLED) as a
 # BRANCH-scoped value for the PR's head branch (context: branch). Netlify uses a
@@ -201,45 +205,45 @@ jobs:
             neon_project: flat-mountain-45852069
             netlify_site: 6bffaa23-ad14-480c-8954-99f53ecabf05
     steps:
-      - name: Delete Neon branch
-        uses: neondatabase/delete-branch-action@4468d825d5a88ef4012f1705a82f02ec3072f776 # v3
-        with:
-          project_id: ${{ matrix.neon_project }}
-          branch: preview-schema-only/pr-${{ github.event.number }}
-          api_key: ${{ secrets.NEON_API_KEY }}
-
-      - name: Delete legacy Neon branch if present
+      - name: Delete Neon branches if present
         env:
           NEON_PROJECT_ID: ${{ matrix.neon_project }}
           PR_NUMBER: ${{ github.event.number }}
         run: |
           set -euo pipefail
           API="https://console.neon.tech/api/v2"
-          LEGACY_BRANCH="preview/pr-$PR_NUMBER"
-          response=$(curl -sS -w $'\n%{http_code}' -G \
-            -H "Authorization: Bearer $NEON_API_KEY" \
-            --data-urlencode "search=$LEGACY_BRANCH" \
-            --data-urlencode "limit=100" \
-            "$API/projects/$NEON_PROJECT_ID/branches")
-          http=$(printf '%s' "$response" | tail -n1)
-          body=$(printf '%s' "$response" | sed '$d')
-          if [[ ! "$http" =~ ^2[0-9][0-9]$ ]]; then
-            echo "::error::Failed to look up legacy Neon branch $LEGACY_BRANCH (HTTP $http)"
-            exit 1
-          fi
-          branch_id=$(jq -r --arg name "$LEGACY_BRANCH" \
-            'first(.branches[]? | select(.name == $name) | .id) // empty' <<< "$body")
-          if [[ -z "$branch_id" ]]; then
-            echo "Legacy Neon branch $LEGACY_BRANCH is already absent"
-            exit 0
-          fi
-          http=$(curl -sS -o /dev/null -w "%{http_code}" -X DELETE \
-            -H "Authorization: Bearer $NEON_API_KEY" \
-            "$API/projects/$NEON_PROJECT_ID/branches/$branch_id")
-          if [[ ! "$http" =~ ^(2[0-9][0-9]|404)$ ]]; then
-            echo "::error::Failed to delete legacy Neon branch $LEGACY_BRANCH (HTTP $http)"
-            exit 1
-          fi
+
+          delete_branch_if_present() {
+            local branch_name="$1"
+            local response http body branch_id
+            response=$(curl -sS -w $'\n%{http_code}' -G \
+              -H "Authorization: Bearer $NEON_API_KEY" \
+              --data-urlencode "search=$branch_name" \
+              --data-urlencode "limit=100" \
+              "$API/projects/$NEON_PROJECT_ID/branches")
+            http=$(printf '%s' "$response" | tail -n1)
+            body=$(printf '%s' "$response" | sed '$d')
+            if [[ ! "$http" =~ ^2[0-9][0-9]$ ]]; then
+              echo "::error::Failed to look up Neon branch $branch_name (HTTP $http)"
+              exit 1
+            fi
+            branch_id=$(jq -r --arg name "$branch_name" \
+              'first(.branches[]? | select(.name == $name) | .id) // empty' <<< "$body")
+            if [[ -z "$branch_id" ]]; then
+              echo "Neon branch $branch_name is already absent"
+              return 0
+            fi
+            http=$(curl -sS -o /dev/null -w "%{http_code}" -X DELETE \
+              -H "Authorization: Bearer $NEON_API_KEY" \
+              "$API/projects/$NEON_PROJECT_ID/branches/$branch_id")
+            if [[ ! "$http" =~ ^(2[0-9][0-9]|404)$ ]]; then
+              echo "::error::Failed to delete Neon branch $branch_name (HTTP $http)"
+              exit 1
+            fi
+          }
+
+          delete_branch_if_present "preview-schema-only/pr-$PR_NUMBER"
+          delete_branch_if_present "preview/pr-$PR_NUMBER"
 
       - name: Remove preview DB URL branch overrides
         env:
