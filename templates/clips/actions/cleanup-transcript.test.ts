@@ -81,6 +81,28 @@ describe("cleanup-transcript", () => {
     vi.unstubAllGlobals();
   });
 
+  it("uses GPT-5.6 Luna through Builder when the managed path succeeds", async () => {
+    mockBuilderStream.mockImplementation(async function* () {
+      yield { type: "text-delta", text: "Cleaned transcript from Luna." };
+      yield { type: "stop", reason: "end_turn" };
+    });
+
+    const result = await cleanupTranscript.run({
+      transcript: "raw transcript",
+      task: "cleanup",
+    });
+
+    expect(result).toMatchObject({
+      task: "cleanup",
+      cleanedText: "Cleaned transcript from Luna.",
+      provider: "builder",
+    });
+    expect(mockBuilderStream).toHaveBeenCalledWith(
+      expect.objectContaining({ model: "gpt-5-6-luna" }),
+    );
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("falls back to BYOK Gemini when Builder credits are exhausted", async () => {
     const result = await cleanupTranscript.run({
       transcript: "raw transcript",

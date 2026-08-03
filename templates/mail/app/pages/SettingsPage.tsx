@@ -906,7 +906,7 @@ function AutomationsSection() {
           { method: "GET" },
         );
       } catch {
-        return { engine: "anthropic", model: defaultModel };
+        return { engine: "builder", model: "gpt-5-6-luna" };
       }
     },
     staleTime: 30_000,

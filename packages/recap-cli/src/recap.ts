@@ -3521,8 +3521,16 @@ type PlaywrightModule = { chromium: import("playwright").BrowserType };
 async function defaultImportPlaywright(): Promise<PlaywrightModule> {
   try {
     return (await import("playwright")) as unknown as PlaywrightModule;
-  } catch {
-    return (await import("@playwright/test")) as unknown as PlaywrightModule;
+  } catch (err) {
+    // `@playwright/test` is an undeclared courtesy fallback for consumers that
+    // only have the test runner. Rethrow the `playwright` failure when it also
+    // misses, so a broken-but-present `playwright` is never reported as a
+    // missing `@playwright/test`.
+    try {
+      return (await import("@playwright/test")) as unknown as PlaywrightModule;
+    } catch {
+      throw err;
+    }
   }
 }
 

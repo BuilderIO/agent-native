@@ -111,6 +111,13 @@ When the user asks for a dashboard:
 6. Persist with `update-dashboard`, not raw SQL or settings writes.
 7. Navigate to it with `pnpm action navigate --view=adhoc --dashboardId=<id>`.
 
+An explicit dashboard request authorizes the complete non-destructive build in
+the same turn. After querying or scaffolding, continue through extension-data
+seeding/refresh, dashboard save/embed, and navigation; do not ask whether to
+proceed or leave an empty Custom Block shell. Ask only when metric scope/grain
+is materially ambiguous, the change is destructive, or it has an external side
+effect such as sending email or outreach.
+
 Layout is always **1 column when the available content width is below the `md` threshold** (panels stack), then expands to the configured column count at/above it. The grid uses a container query, so it also stacks when the agent sidebar narrows the content pane — not only at narrow viewports. So picking 3 or 4 columns is fine — the renderer keeps narrow layouts readable automatically.
 
 ```bash

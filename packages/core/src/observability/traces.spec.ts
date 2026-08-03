@@ -786,6 +786,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
       delegated: true,
       delegation_protocol: "a2a",
       caller_app: "slides",
+      delegation_task_id: "task-analytics",
       a2a_task_id: "task-analytics",
       parent_run_id: "run-slides",
     });

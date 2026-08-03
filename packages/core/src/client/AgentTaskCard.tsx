@@ -12,6 +12,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { agentNativePath } from "./api-path.js";
+import { useT } from "./i18n.js";
 import { cn } from "./utils.js";
 
 export interface AgentTaskCardProps {
@@ -31,6 +32,7 @@ export function AgentTaskCard({
   description,
   onOpen,
 }: AgentTaskCardProps) {
+  const t = useT();
   const [expanded, setExpanded] = useState(true);
   const [status, setStatus] = useState<"running" | "completed" | "errored">(
     "running",
@@ -191,7 +193,7 @@ export function AgentTaskCard({
       >
         <span className="inline-flex h-5 shrink-0 items-center gap-1 rounded-md border border-border/60 bg-background/70 px-1.5 text-[10px] font-medium text-muted-foreground">
           <IconSubtask className="h-3 w-3" />
-          Sub-agent
+          {t("agentTask.backgroundTask")}
         </span>
 
         <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">
@@ -252,7 +254,7 @@ export function AgentTaskCard({
               <button
                 onClick={handleStop}
                 className="inline-flex cursor-pointer items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground hover:bg-muted hover:text-destructive"
-                aria-label="Stop sub-agent"
+                aria-label={t("agentTask.stop")}
               >
                 <IconPlayerStop className="h-3 w-3" />
                 Stop
@@ -262,7 +264,7 @@ export function AgentTaskCard({
               onClick={handleOpen}
               className="inline-flex cursor-pointer items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
             >
-              Open thread
+              {t("agentTask.openThread")}
               <IconExternalLink className="h-3 w-3" />
             </button>
           </div>

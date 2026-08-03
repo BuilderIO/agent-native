@@ -1,4 +1,5 @@
 import {
+  isResolvedEngineUsableForRequest,
   registerBuiltinEngines,
   resolveEngine,
 } from "@agent-native/core/agent/engine";
@@ -21,6 +22,10 @@ import {
   type ActionContext,
 } from "./automation-actions.js";
 import {
+  resolveDefaultAutomationModel,
+  type AutomationModelSettings,
+} from "./automation-model.js";
+import {
   createOAuth2Client,
   gmailListMessages,
   gmailGetMessage,
@@ -30,7 +35,6 @@ import {
 } from "./google-api.js";
 import { getOAuth2Credentials } from "./google-auth.js";
 
-const DEFAULT_MODEL = "claude-haiku-4-5-20251001";
 const MAX_EMAILS_PER_RUN = 50;
 const MAX_PROCESSED_IDS = 500;
 const PROCESSED_IDS_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
@@ -338,11 +342,6 @@ interface RuleMatch {
   match: boolean;
 }
 
-interface AutomationModelSettings {
-  engine?: string;
-  model?: string;
-}
-
 const MODEL_AVAILABILITY_CACHE_TTL_MS = 5 * 60 * 1000;
 const modelAvailabilityCache = new Map<
   string,
@@ -370,10 +369,17 @@ async function canUseAutomationModel(
         !settings.engine || settings.engine === "anthropic"
           ? await resolveAnthropicKey(ownerEmail)
           : undefined;
-      await resolveEngine({
+      const engine = await resolveEngine({
         engineOption: settings.engine,
         apiKey: anthropicKey,
       });
+      if (
+        !(await isResolvedEngineUsableForRequest(engine, {
+          apiKey: anthropicKey,
+        }))
+      ) {
+        throw new Error("No LLM provider is connected");
+      }
     });
     modelAvailabilityCache.set(cacheKey, {
       ok: true,
@@ -482,13 +488,17 @@ async function getAutomationModelSettings(
   ownerEmail: string,
 ): Promise<AutomationModelSettings> {
   const autoSettings = await getUserSetting(ownerEmail, "automation-settings");
-  if (autoSettings && typeof autoSettings === "object") {
+  if (
+    autoSettings &&
+    typeof autoSettings === "object" &&
+    ((autoSettings as any).engine || (autoSettings as any).model)
+  ) {
     return {
       engine: (autoSettings as any).engine,
       model: (autoSettings as any).model,
     };
   }
-  return { model: DEFAULT_MODEL };
+  return resolveDefaultAutomationModel(ownerEmail);
 }
 
 async function evaluateRules(

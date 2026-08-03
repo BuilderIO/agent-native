@@ -1,7 +1,9 @@
 import { defineAction } from "@agent-native/core";
 import { getRequestUserEmail } from "@agent-native/core/server";
-import { getSetting, getUserSetting } from "@agent-native/core/settings";
+import { getUserSetting } from "@agent-native/core/settings";
 import { z } from "zod";
+
+import { resolveDefaultAutomationModel } from "../server/lib/automation-model.js";
 
 export default defineAction({
   description:
@@ -17,16 +19,9 @@ export default defineAction({
       engine?: string;
       model?: string;
     } | null;
-    const agentEngine = (await getSetting("agent-engine").catch(
-      () => null,
-    )) as {
-      engine?: string;
-      model?: string;
-    } | null;
-
-    return {
-      engine: data?.engine || agentEngine?.engine || "anthropic",
-      model: data?.model || agentEngine?.model || "claude-haiku-4-5-20251001",
-    };
+    if (data?.engine || data?.model) {
+      return { engine: data.engine, model: data.model };
+    }
+    return resolveDefaultAutomationModel(ownerEmail);
   },
 });

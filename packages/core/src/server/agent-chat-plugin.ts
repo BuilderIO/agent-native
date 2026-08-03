@@ -2681,6 +2681,7 @@ export function createAgentChatPlugin(
         },
         getModel: () => getRequestRunContext()?.model ?? resolvedModel,
         getParentThreadId: () => getRequestRunContext()?.threadId ?? "",
+        getParentRunId: () => getRequestRunContext()?.runId ?? "",
         getSend: () => {
           // Return the send for the current run's thread
           const threadId = getRequestRunContext()?.threadId ?? "";
@@ -3185,11 +3186,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         onRunStart: async (
           send: (event: import("../agent/types.js").AgentChatEvent) => void,
           threadId: string,
+          runId: string,
         ) => {
           await recordPreRunGitStatus(threadId);
           _runSendByThread.set(threadId, send);
           const runCtx = ensureRequestRunContext();
-          if (runCtx) runCtx.threadId = threadId;
+          if (runCtx) {
+            runCtx.threadId = threadId;
+            runCtx.runId = runId;
+          }
         },
         onRunComplete: async (run: any, threadId: string | undefined) => {
           if (threadId) _runSendByThread.delete(threadId);
@@ -3237,11 +3242,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   event: import("../agent/types.js").AgentChatEvent,
                 ) => void,
                 threadId: string,
+                runId: string,
               ) => {
                 await recordPreRunGitStatus(threadId);
                 _runSendByThread.set(threadId, send);
                 const runCtx = ensureRequestRunContext();
-                if (runCtx) runCtx.threadId = threadId;
+                if (runCtx) {
+                  runCtx.threadId = threadId;
+                  runCtx.runId = runId;
+                }
               },
               onRunComplete: async (run: any, threadId: string | undefined) => {
                 if (threadId) _runSendByThread.delete(threadId);
@@ -3414,11 +3423,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           onRunStart: async (
             send: (event: import("../agent/types.js").AgentChatEvent) => void,
             threadId: string,
+            runId: string,
           ) => {
             await recordPreRunGitStatus(threadId);
             _runSendByThread.set(threadId, send);
             const runCtx = ensureRequestRunContext();
-            if (runCtx) runCtx.threadId = threadId;
+            if (runCtx) {
+              runCtx.threadId = threadId;
+              runCtx.runId = runId;
+            }
           },
           onRunComplete: async (run: any, threadId: string | undefined) => {
             if (threadId) _runSendByThread.delete(threadId);

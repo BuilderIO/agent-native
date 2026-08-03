@@ -102,6 +102,8 @@ export interface RequestRunContext {
   userApiKey?: string;
   /** Thread ID for the current run (set by onRunStart). */
   threadId?: string;
+  /** Run ID for the current run (set by onRunStart). */
+  runId?: string;
   /** System prompt actually sent to the model for this run. */
   systemPrompt?: string;
   /** Engine instance for this run (set by onEngineResolved). */
