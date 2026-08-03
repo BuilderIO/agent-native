@@ -93,26 +93,19 @@ export type PastePlacement = "inside" | "after";
 
 export interface PastePlacementDecision {
   placement: PastePlacement;
-  /** The target lays its children out; the paste joins that flow and must not
-   * keep the source's absolute coordinates. */
-  flow: boolean;
   targetNodeId: string;
 }
 
-export function resolvePastePlacement(
+function resolvePastePlacement(
   node: PasteTargetNode & { targetNodeId: string },
 ): PastePlacementDecision {
-  if (!isPasteContainer(node)) {
-    return { placement: "after", flow: false, targetNodeId: node.targetNodeId };
-  }
   return {
-    placement: "inside",
-    flow: node.container.kind !== "none",
+    placement: isPasteContainer(node) ? "inside" : "after",
     targetNodeId: node.targetNodeId,
   };
 }
 
-export function pasteTargetFromCodeLayerNode(
+function pasteTargetFromCodeLayerNode(
   node: CodeLayerNode,
 ): PasteTargetNode & { targetNodeId: string } {
   return {

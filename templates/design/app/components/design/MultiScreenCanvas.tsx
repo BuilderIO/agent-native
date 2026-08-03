@@ -180,7 +180,6 @@ const MAX_WHEEL_PAN_DELTA = 140;
  *  number as the var's fallback, so first paint and SSR are unaffected. */
 const CHROME_SCALE_CSS_VAR = "--an-chrome-scale";
 const PIXEL_GRID_ZOOM = 800;
-import { designPerf, usePerfRender } from "@/hooks/use-design-perf";
 
 import {
   BOARD_SURFACE_BACKGROUND,
@@ -499,7 +498,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   onDropFiles,
   cameraCommand,
 }: MultiScreenCanvasProps) {
-  usePerfRender("MultiScreenCanvas");
   const t = useT();
   const surfaceRef = useRef<HTMLDivElement>(null);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -1294,11 +1292,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     // Only compensate when this is a genuinely external change (toolbar
     // buttons, keyboard shortcuts) that never touched zoomRef/panRef.
     const previousZoom = zoomRef.current;
-    if (zoom === previousZoom) {
-      designPerf.count("zoom:external-apply:skipped");
-      return;
-    }
-    const endZoomApply = designPerf.start("zoom:external-apply");
+    if (zoom === previousZoom) return;
     // External zoom changes otherwise anchor at world origin (0,0) since
     // only canvasZoom is updated here — content visibly jumps diagonally
     // instead of zooming in place. Mirror the wheel/pinch cursor-anchored
@@ -1386,7 +1380,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     // P18: an externally-driven zoom change (toolbar/keyboard) also moves
     // the canvas-space mapping the pen ghost preview was computed from.
     recomputePenPointerForViewChangeRef.current();
-    endZoomApply();
   }, [zoom, activeId, renderedScreens, selectedIds]);
 
   useEffect(() => {
@@ -1593,7 +1586,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       const nextZoom = nextScale * 100;
       zoomRef.current = nextZoom;
       setCanvasZoom(nextZoom);
-      designPerf.count("zoom:gesture-emit");
       onZoomChange?.(nextZoom);
     }
     const visualLeft = Math.max(24, (rect.width - totalWidth * nextScale) / 2);
@@ -6733,7 +6725,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     }
     setCanvasZoom(zoomRef.current);
     setPan(panRef.current);
-    designPerf.count("zoom:gesture-emit");
     onZoomChange?.(zoomRef.current);
     // P18: the wheel/pinch gesture just settled (pan/zoom state is
     // reconciled into React here) — resync the pen ghost preview from the
@@ -9451,7 +9442,6 @@ const Screen = memo(function Screen({
   onChangeBreakpointWidth,
   onEditBreakpoint,
 }: ScreenProps) {
-  usePerfRender("Screen");
   const t = useT();
   const display = metadata.title ?? prettyScreenName(screen.filename);
   const previewUrl = metadata.previewUrl ?? getPreviewUrl(screen.content);

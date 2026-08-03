@@ -27,7 +27,6 @@ describe("describeFlowContainer", () => {
       axis: "horizontal",
       reversed: false,
       wraps: false,
-      wrapReversed: false,
       lineLength: null,
     });
   });
@@ -57,13 +56,13 @@ describe("describeFlowContainer", () => {
       describeFlowContainer({
         style: { display: "flex", "flex-wrap": "wrap" },
       }),
-    ).toMatchObject({ wraps: true, wrapReversed: false });
+    ).toMatchObject({ wraps: true });
     expect(
       describeFlowContainer({
         style: {},
         classes: ["flex", "flex-wrap-reverse"],
       }),
-    ).toMatchObject({ wraps: true, wrapReversed: true });
+    ).toMatchObject({ wraps: true });
   });
 
   it("counts grid columns from a template and from grid-cols-N", () => {
@@ -319,22 +318,6 @@ describe("resolveNudgeIntent — wrapping and grid", () => {
     ).toEqual({ kind: "reorder", fromIndex: 5, toIndex: 6 });
   });
 
-  it("uses the measured line length for a wrapping flex row", () => {
-    const wrapRow = describeFlowContainer({
-      style: { display: "flex", "flex-wrap": "wrap" },
-    });
-    expect(
-      resolveNudgeIntent({
-        direction: "down",
-        largeStep: false,
-        container: wrapRow,
-        siblingIndex: 0,
-        siblingCount: 8,
-        measuredLineLength: 4,
-      }),
-    ).toEqual({ kind: "reorder", fromIndex: 0, toIndex: 4 });
-  });
-
   it("does nothing across lines when the line length cannot be measured", () => {
     const wrapRow = describeFlowContainer({
       style: { display: "flex", "flex-wrap": "wrap" },
@@ -348,22 +331,6 @@ describe("resolveNudgeIntent — wrapping and grid", () => {
         siblingCount: 8,
       }),
     ).toEqual({ kind: "none" });
-  });
-
-  it("inverts cross-axis movement under wrap-reverse", () => {
-    const wrapReverse = describeFlowContainer({
-      style: { display: "flex", "flex-wrap": "wrap-reverse" },
-    });
-    expect(
-      resolveNudgeIntent({
-        direction: "down",
-        largeStep: false,
-        container: wrapReverse,
-        siblingIndex: 4,
-        siblingCount: 8,
-        measuredLineLength: 4,
-      }),
-    ).toEqual({ kind: "reorder", fromIndex: 4, toIndex: 0 });
   });
 });
 

@@ -409,11 +409,6 @@ import {
 } from "@/components/visual-editor/DrawOverlay";
 import { NodeRewriteProposal as NodeRewriteProposalPanel } from "@/components/visual-editor/NodeRewriteProposal";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
-import {
-  designPerf,
-  useDesignPerf,
-  usePerfRender,
-} from "@/hooks/use-design-perf";
 import { useDesignSystems } from "@/hooks/use-design-systems";
 import { useEditorPreferences } from "@/hooks/use-editor-preferences";
 import {
@@ -2067,8 +2062,6 @@ export default function DesignEditorRoute() {
 }
 
 function DesignEditor() {
-  useDesignPerf();
-  usePerfRender("DesignEditor");
   const t = useT();
   const { id } = useParams<{ id: string }>();
   const { session, isLoading: sessionLoading } = useSession();
@@ -9306,12 +9299,10 @@ function DesignEditor() {
     () => getBodyInlineStyles(activeContent),
     [activeContent],
   );
-  const activeCodeLayerProjection = useMemo(() => {
-    const end = designPerf.start("buildCodeLayerProjection:active");
-    const projection = buildCodeLayerProjection(activeProjectionContent);
-    end();
-    return projection;
-  }, [activeProjectionContent]);
+  const activeCodeLayerProjection = useMemo(
+    () => buildCodeLayerProjection(activeProjectionContent),
+    [activeProjectionContent],
+  );
   const activeMotionTimeline = motionTimelineResult?.timelines?.[0] ?? null;
   const activeMotionHydrationFingerprint = activeFile?.id
     ? motionTimelineFingerprint(activeFile.id, activeMotionTimeline)
@@ -16162,25 +16153,8 @@ function DesignEditor() {
     ],
   );
 
-  // Paste has five entry points guarded by one condition; this counts which
-  // of them fire for a single gesture. Gated on the perf flag, so it is inert
-  // unless ?perf=1 / __designPerf.enable().
-  const tracePaste = useCallback(
-    (event: string, detail?: Record<string, unknown>) => {
-      if (!designPerf.isEnabled()) return;
-      designPerf.count(`paste:${event}`);
-      console.log(`[paste] ${event}`, detail ?? {});
-    },
-    [],
-  );
-
   const handlePasteSelection = useCallback(
     async (position?: { x: number; y: number }) => {
-      tracePaste("invoke", {
-        position: position ? `${position.x},${position.y}` : null,
-        activeFileId: activeFile?.id ?? null,
-        selected: selectedElement?.selector ?? null,
-      });
       // U19: paste is a discrete one-shot action, never a continuous gesture
       // like a slider drag. Without stopCapturing(), a paste that happens to
       // land within 800ms of the previous Yjs-tracked edit (captureTimeout)
@@ -16189,11 +16163,6 @@ function DesignEditor() {
       undoManagerRef.current?.stopCapturing();
       await refreshClipboardFromSystemClipboard();
       const entries = getCanvasClipboardEntries();
-      tracePaste("entries", {
-        count: entries.length,
-        sourceFileIds: entries.map((entry) => entry.sourceFileId).join(","),
-        rootNodeIds: entries.map((entry) => entry.rootNodeId).join(","),
-      });
       const targetFileId =
         viewModeRef.current === "overview" && position && boardFileId
           ? boardFileId
@@ -16396,11 +16365,6 @@ function DesignEditor() {
           stripRootPosition: true,
           styleSnapshots,
           managedStyleSnapshots,
-        });
-        tracePaste("inserted", {
-          nodes: result?.rootNodeIds.length ?? 0,
-          placement: decision?.placement ?? "after",
-          anchor: selector,
         });
         if (result) {
           pasteCascadeRef.current += 1;
@@ -16996,7 +16960,6 @@ function DesignEditor() {
         clipboardPlainText === lastWrittenClipboardPlainTextRef.current;
       if (clipboardResult || (hasCanvasClipboard && matchesInMemoryClipboard)) {
         event.preventDefault();
-        tracePaste("from:native-paste-event");
         void handlePasteSelection();
       }
     },
@@ -17044,7 +17007,6 @@ function DesignEditor() {
       });
       selectInsertedLayers(activeFile.id, result.content, result.rootNodeIds);
     } else {
-      tracePaste("from:image-paste-fallback");
       void handlePasteSelection();
     }
   }, [
@@ -23678,12 +23640,7 @@ function DesignEditor() {
     // from a copy made in another tab/window (see U4). handlePasteSelection
     // checks the live clipboard first and no-ops safely if there is nothing
     // to paste from either source.
-    onPaste: canEditDesign
-      ? () => {
-          tracePaste("from:hotkey");
-          void handlePasteSelection();
-        }
-      : undefined,
+    onPaste: canEditDesign ? () => void handlePasteSelection() : undefined,
     onCut: canEditDesign ? handleCutSelection : undefined,
     onPasteOver: canEditDesign ? handlePasteOverSelection : undefined,
     onPasteToReplace: canEditDesign ? handlePasteToReplace : undefined,
@@ -31397,15 +31354,14 @@ function DesignEditor() {
             isUiHidden={uiHidden}
             isCommentsHidden={commentsHidden}
             getCanvasPoint={getContextCanvasPoint}
-            onPasteHere={(details) => {
-              tracePaste("from:context-menu-paste-here");
+            onPasteHere={(details) =>
               void handlePasteSelection(
                 details.point?.canvasX !== undefined &&
                   details.point.canvasY !== undefined
                   ? { x: details.point.canvasX, y: details.point.canvasY }
                   : undefined,
-              );
-            }}
+              )
+            }
             onSelectAll={handleSelectAllFrames}
             onZoomToFit={handleZoomToFit}
             onZoomToSelection={() => {
@@ -31418,10 +31374,7 @@ function DesignEditor() {
             onZoomIn={handleZoomIn}
             onZoomOut={handleZoomOut}
             onCopy={handleCopySelection}
-            onPaste={() => {
-              tracePaste("from:context-menu");
-              void handlePasteSelection();
-            }}
+            onPaste={() => void handlePasteSelection()}
             onPasteOver={handlePasteOverSelection}
             onDuplicate={handleDuplicateSelection}
             onDelete={handleDeleteSelection}

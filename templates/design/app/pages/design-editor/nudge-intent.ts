@@ -29,7 +29,6 @@ export interface FlowContainerInfo {
   /** Visual order runs opposite to DOM order (`*-reverse`). */
   reversed: boolean;
   wraps: boolean;
-  wrapReversed: boolean;
   /** Items per line when statically knowable (grid tracks); null otherwise. */
   lineLength: number | null;
 }
@@ -39,7 +38,6 @@ export const NO_FLOW_CONTAINER: FlowContainerInfo = {
   axis: "horizontal",
   reversed: false,
   wraps: false,
-  wrapReversed: false,
   lineLength: null,
 };
 
@@ -159,7 +157,6 @@ export function describeFlowContainer(
       axis: direction.startsWith("column") ? "vertical" : "horizontal",
       reversed: direction.endsWith("-reverse"),
       wraps: wrap === "wrap" || wrap === "wrap-reverse",
-      wrapReversed: wrap === "wrap-reverse",
       lineLength: null,
     };
   }
@@ -181,7 +178,6 @@ export function describeFlowContainer(
       // A grid always continues onto the next track line; there is no
       // grid equivalent of `flex-wrap: nowrap`.
       wraps: true,
-      wrapReversed: false,
       lineLength: columnFlow
         ? countGridTracks(templateRows)
         : countGridTracks(templateColumns),
@@ -231,9 +227,6 @@ export interface ResolveNudgeIntentArgs {
   siblingIndex?: number;
   /** How many siblings share the container, including the selection. */
   siblingCount?: number;
-  /** Measured items-per-line, for wrapping flex rows whose line length can
-   * only be known from geometry. Overrides `container.lineLength`. */
-  measuredLineLength?: number | null;
 }
 
 export function resolveNudgeIntent(args: ResolveNudgeIntentArgs): NudgeIntent {
@@ -271,11 +264,11 @@ export function resolveNudgeIntent(args: ResolveNudgeIntentArgs): NudgeIntent {
   if (arrowAxis === container.axis) {
     delta = (forward ? 1 : -1) * (container.reversed ? -1 : 1);
   } else {
-    const lineLength = args.measuredLineLength ?? container.lineLength;
+    const lineLength = container.lineLength;
     if (!container.wraps || !lineLength || lineLength < 1) {
       return { kind: "none" };
     }
-    delta = (forward ? 1 : -1) * (container.wrapReversed ? -1 : 1) * lineLength;
+    delta = (forward ? 1 : -1) * lineLength;
   }
 
   const toIndex = Math.min(Math.max(fromIndex + delta, 0), siblingCount - 1);
@@ -323,8 +316,6 @@ export interface ResolveElementNudgeIntentArgs {
   direction: NudgeDirection;
   largeStep: boolean;
   amounts?: NudgeAmounts;
-  /** Items per line for a wrapping flex row, which only geometry can know. */
-  measuredLineLength?: number | null;
 }
 
 /** Resolve an arrow key against a selected element's real position in its
@@ -369,7 +360,6 @@ export function resolveElementNudgeIntent(
     position,
     siblingIndex,
     siblingCount: siblingIds.length,
-    measuredLineLength: args.measuredLineLength,
   });
 
   if (intent.kind !== "reorder") return intent;

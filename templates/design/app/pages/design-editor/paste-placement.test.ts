@@ -92,7 +92,7 @@ describe("resolvePastePlacementForSelection", () => {
         content: SCREEN,
         selectedElement: elementInfoFor("card-section", "section"),
       }),
-    ).toMatchObject({ placement: "inside", flow: true });
+    ).toMatchObject({ placement: "inside" });
   });
 
   it("pastes into a selected free container without joining a flow", () => {
@@ -101,7 +101,7 @@ describe("resolvePastePlacementForSelection", () => {
         content: SCREEN,
         selectedElement: elementInfoFor("free-frame"),
       }),
-    ).toMatchObject({ placement: "inside", flow: false });
+    ).toMatchObject({ placement: "inside" });
   });
 
   it("pastes after a selected text object", () => {
@@ -128,7 +128,7 @@ describe("resolvePastePlacementForSelection", () => {
         content: SCREEN,
         selectedElement: elementInfoFor("card", "article"),
       }),
-    ).toMatchObject({ placement: "inside", flow: false });
+    ).toMatchObject({ placement: "inside" });
   });
 
   it("returns null when there is no selection or no source to resolve", () => {
