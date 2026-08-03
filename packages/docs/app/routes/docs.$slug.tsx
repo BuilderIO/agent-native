@@ -29,6 +29,21 @@ const SLUG_REDIRECTS: Record<string, string> = {
   "migration-workbench": "code-agents-ui",
 };
 
+function DraftBanner() {
+  return (
+    <div
+      className="mb-6 rounded-md border p-4 text-sm"
+      style={{
+        borderColor: "var(--approaches-warn)",
+        color: "var(--approaches-warn)",
+      }}
+    >
+      <strong>Draft</strong> — This page is a work in progress. Content may be
+      incomplete or subject to change before publication.
+    </div>
+  );
+}
+
 export async function loader({ params }: LoaderFunctionArgs) {
   const slug = params.slug!;
   if (isDocsLocale(slug)) {
@@ -41,6 +56,9 @@ export async function loader({ params }: LoaderFunctionArgs) {
   }
   const doc = await loadDoc(slug);
   if (!doc) {
+    throw new Response("Not Found", { status: 404 });
+  }
+  if (doc.draft && import.meta.env.VITE_SHOW_DRAFTS !== "true") {
     throw new Response("Not Found", { status: 404 });
   }
   return doc;
@@ -84,6 +102,7 @@ export default function DocPage() {
         docsMarkdownPathForDoc(doc.slug, DEFAULT_DOCS_LOCALE) ?? undefined
       }
     >
+      {doc.draft && <DraftBanner />}
       <DocContent markdown={doc.body} />
     </DocsLayout>
   );

@@ -50,6 +50,7 @@ export interface DocEntry {
   title: string;
   description: string;
   search: string;
+  draft?: boolean;
   body: string; // markdown body (without frontmatter)
   headings: { id: string; label: string; level: number }[];
 }
@@ -150,6 +151,7 @@ function docEntryFromPath(path: string, raw: string): DocEntry {
     title: data.title || slug,
     description: data.description || "",
     search: data.search || "",
+    draft: data.draft === "true" || undefined,
     body,
     headings,
   };
