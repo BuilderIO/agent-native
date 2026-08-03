@@ -315,19 +315,49 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     renderRuntimeInteractionStatePreviews();
   }
 
-  function runtimeHeadHtmlWithoutEditorChrome(): string {
-    if (!document.head) return "";
-    var clone = document.head.cloneNode(true) as HTMLElement;
-    Array.prototype.slice
-      .call(
-        clone.querySelectorAll(
-          "[data-agent-native-editor-chrome-style], [data-agent-native-editing-safety-style]",
-        ),
-      )
-      .forEach(function (node) {
-        if (node.parentNode) node.parentNode.removeChild(node);
-      });
-    return clone.innerHTML;
+  /**
+   * The last source <head> this bridge applied. Compared against instead of the
+   * live head, which also carries nodes the page's own runtime injected —
+   * @tailwindcss/browser's compiled sheet above all. Against the live head the
+   * comparison always differs, the head gets wiped, the compiled CSS goes with
+   * it, and the re-inserted `<script src>` cannot rebuild it because innerHTML
+   * never executes scripts. The screen then renders unstyled for good.
+   */
+  var lastSourceHeadHtml: string | null = null;
+
+  /**
+   * Swaps only the nodes the previous source head contributed. Assigning
+   * `document.head.innerHTML` instead destroys whatever the page's own runtime
+   * injected — @tailwindcss/browser's compiled sheet above all — and the
+   * `<script src>` re-inserted in its place can never rebuild it, because
+   * innerHTML does not execute scripts.
+   */
+  function replaceSourceHeadNodes(
+    previousSourceHtml: string | null,
+    nextSourceHtml: string,
+  ): void {
+    if (!document.head) return;
+    var stale = document.createElement("head");
+    stale.innerHTML = previousSourceHtml || "";
+    var staleCounts: Record<string, number> = {};
+    Array.prototype.forEach.call(stale.children, function (node: Element) {
+      var key = node.outerHTML;
+      staleCounts[key] = (staleCounts[key] || 0) + 1;
+    });
+    Array.prototype.slice.call(document.head.children).forEach(function (
+      node: Element,
+    ) {
+      var key = node.outerHTML;
+      if (!staleCounts[key]) return;
+      staleCounts[key] -= 1;
+      if (node.parentNode) node.parentNode.removeChild(node);
+    });
+    var next = document.createElement("head");
+    next.innerHTML = nextSourceHtml || "";
+    var anchor = document.head.firstChild;
+    Array.prototype.slice.call(next.children).forEach(function (node: Element) {
+      document.head.insertBefore(document.importNode(node, true), anchor);
+    });
   }
 
   function chromeScaleX(): number {
@@ -3123,8 +3153,8 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
   // Both layer states are painted here, from the one `layer-states` message,
   // so every call site that re-runs after a runtime document swap restores
   // hide AND lock together. Locked paints an attribute only; the hairline
-  // treatment lives in the editor chrome stylesheet so it is stripped from
-  // runtimeHeadHtmlWithoutEditorChrome and never reaches source or export.
+  // treatment lives in the editor chrome stylesheet, which is never part of
+  // the source head and so never reaches source or export.
   function applyLayerStateSelectors(): void {
     document
       .querySelectorAll("[data-agent-native-runtime-hidden]")
@@ -3248,7 +3278,13 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
 
     var nextHeadHtml = nextDoc.head ? nextDoc.head.innerHTML : "";
     ensureEditorChromeStyle();
-    var currentHeadHtml = runtimeHeadHtmlWithoutEditorChrome();
+    if (lastSourceHeadHtml === null) {
+      // First patch after a srcdoc build, so the document already carries this
+      // source head. Forced replacements adopt too: treating the live head as
+      // the baseline is what wipes the runtime's own nodes.
+      lastSourceHeadHtml = nextHeadHtml;
+    }
+    var currentHeadHtml = lastSourceHeadHtml;
     if (nextHeadHtml === currentHeadHtml && activeCandidates.length > 0) {
       var currentMatch = null;
       var nextMatch = null;
@@ -3326,8 +3362,9 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       }
     }
     if (currentHeadHtml !== nextHeadHtml) {
-      document.head.innerHTML = nextHeadHtml;
+      replaceSourceHeadNodes(currentHeadHtml, nextHeadHtml);
       ensureEditorChromeStyle();
+      lastSourceHeadHtml = nextHeadHtml;
     }
     Array.prototype.slice.call(document.body.attributes).forEach(function (
       attribute: Attr,

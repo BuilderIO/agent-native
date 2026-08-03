@@ -88,6 +88,7 @@ import {
   type ContentSizeSample,
 } from "./design-canvas/content-size-report";
 import { appendHitTestResponder } from "./design-canvas/hit-test";
+import { withLocalRuntimes } from "./design-canvas/local-runtime";
 import { DesignCanvas } from "./DesignCanvas";
 import { dndHostLog } from "./dnd-debug";
 import {
@@ -9499,7 +9500,9 @@ const Screen = memo(function Screen({
     // editable DesignCanvas is supplied) still report their own height and
     // content-fit. The editable DesignCanvas path injects its own reporter.
     return injectSessionReplayIframeBootstrap(
-      appendContentSizeReporter(appendHitTestResponder(screen.content)),
+      appendContentSizeReporter(
+        appendHitTestResponder(withLocalRuntimes(screen.content)),
+      ),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen.content]);
