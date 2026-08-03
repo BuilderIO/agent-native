@@ -253,6 +253,35 @@ describe("detectUpgradeProject + doctor", () => {
     ]);
   });
 
+  it("discovers standard Yarn workspaces from package.json", () => {
+    const root = makeTempProject({
+      kind: "workspace",
+      rootPkg: {
+        name: "ws",
+        workspaces: ["apps/*"],
+      },
+      apps: {
+        mail: {
+          name: "mail",
+          dependencies: { "@agent-native/core": "^0.8.0" },
+        },
+      },
+    });
+    fs.rmSync(path.join(root, "pnpm-workspace.yaml"));
+
+    const project = detectUpgradeProject(root);
+    expect(project).toMatchObject({ root, kind: "workspace" });
+    expect(
+      project?.packageFiles.map((file) => path.relative(root, file)),
+    ).toEqual(["package.json", "apps/mail/package.json"]);
+    expect(buildUpgradeDoctorReport(project!).bumps).toEqual([
+      expect.objectContaining({
+        name: "@agent-native/core",
+        file: path.join(root, "apps/mail/package.json"),
+      }),
+    ]);
+  });
+
   it("reports a manifest it could not parse instead of scanning around it", () => {
     const root = makeTempProject({
       kind: "workspace",

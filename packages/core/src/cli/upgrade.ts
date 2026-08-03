@@ -61,6 +61,7 @@ export interface PackageJsonLike {
   overrides?: Record<string, string>;
   resolutions?: Record<string, string>;
   scripts?: Record<string, string>;
+  workspaces?: string[] | { packages?: string[] };
 }
 
 export interface FrameworkOverrideFinding {
@@ -404,15 +405,21 @@ export function detectUpgradeProject(cwd: string): UpgradeProject | null {
         Boolean(pkg?.dependencies?.["@agent-native/core"]) ||
         Boolean(pkg?.devDependencies?.["@agent-native/core"]);
       const workspaceYaml = path.join(dir, "pnpm-workspace.yaml");
-      const isWorkspace = fs.existsSync(workspaceYaml);
+      const hasWorkspaceYaml = fs.existsSync(workspaceYaml);
+      const workspacePatterns = packageWorkspacePatterns(pkg);
+      const isWorkspace = hasWorkspaceYaml || workspacePatterns.length > 0;
       // A manifest we cannot parse cannot be ruled out as the project root:
       // stop here so the doctor reports the parse error instead of walking past
       // it and claiming no Agent Native project exists.
       const unreadable = !read.ok && read.reason === "unreadable";
       if (hasCore || isWorkspace || unreadable) {
         const packageFiles = [pkgPath];
-        if (isWorkspace) {
+        if (hasWorkspaceYaml) {
           packageFiles.push(...workspacePackageFiles(dir, workspaceYaml));
+        } else if (workspacePatterns.length > 0) {
+          packageFiles.push(
+            ...workspacePackageFilesForPatterns(dir, workspacePatterns),
+          );
         }
         return {
           root: dir,
@@ -428,8 +435,22 @@ export function detectUpgradeProject(cwd: string): UpgradeProject | null {
   return null;
 }
 
+function packageWorkspacePatterns(pkg: PackageJsonLike | undefined): string[] {
+  if (!pkg?.workspaces) return [];
+  return Array.isArray(pkg.workspaces)
+    ? pkg.workspaces
+    : (pkg.workspaces.packages ?? []);
+}
+
 function workspacePackageFiles(root: string, workspaceYaml: string): string[] {
   const patterns = parseWorkspacePackagePatterns(workspaceYaml);
+  return workspacePackageFilesForPatterns(root, patterns);
+}
+
+function workspacePackageFilesForPatterns(
+  root: string,
+  patterns: string[],
+): string[] {
   const included = new Set<string>();
   const excluded = new Set<string>();
   for (const rawPattern of patterns) {
