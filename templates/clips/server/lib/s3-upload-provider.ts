@@ -54,14 +54,18 @@ async function fetchWithTimeout(
     });
   } catch (err) {
     if (err instanceof Error && err.name === "TimeoutError") {
-      throw new Error(
+      const timeoutError = new Error(
         `S3 request timed out after ${timeoutMs}ms: ${init.method ?? "GET"} ${url}`,
       );
+      timeoutError.name = "TimeoutError";
+      throw timeoutError;
     }
     if (err instanceof Error && err.name === "AbortError") {
-      throw new Error(
+      const abortError = new Error(
         `S3 request aborted (timeout ${timeoutMs}ms): ${init.method ?? "GET"} ${url}`,
       );
+      abortError.name = "AbortError";
+      throw abortError;
     }
     throw err;
   }

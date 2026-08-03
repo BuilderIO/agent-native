@@ -71,6 +71,7 @@ import { verifySharePassword } from "../../../lib/share-password.js";
 interface RecordingRow {
   expiresAt?: string | null;
   organizationId?: string | null;
+  ownerEmail?: string | null;
   password?: string | null;
   sourceAppName?: string | null;
   sourceWindowTitle?: string | null;
@@ -455,12 +456,19 @@ export default defineEventHandler(async (event: H3Event) => {
         let upstream: Response | { error: string; status: number };
         try {
           upstream =
-            (await fetchS3ObjectByUrl(sourceUrl, {
-              range: rangeHeader?.startsWith("bytes=")
-                ? rangeHeader
-                : undefined,
-              timeoutMs: PROVIDER_MEDIA_FETCH_TIMEOUT_MS,
-            })) ?? (await fetchProviderMedia(sourceUrl, rangeHeader));
+            (await runWithRequestContext(
+              {
+                userEmail: rec.ownerEmail ?? undefined,
+                orgId: rec.organizationId ?? undefined,
+              },
+              () =>
+                fetchS3ObjectByUrl(sourceUrl, {
+                  range: rangeHeader?.startsWith("bytes=")
+                    ? rangeHeader
+                    : undefined,
+                  timeoutMs: PROVIDER_MEDIA_FETCH_TIMEOUT_MS,
+                }),
+            )) ?? (await fetchProviderMedia(sourceUrl, rangeHeader));
         } catch (err) {
           setResponseStatus(event, statusCodeForProviderFetchError(err));
           return { error: messageForProviderFetchError(err) };

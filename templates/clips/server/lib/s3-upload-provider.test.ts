@@ -178,6 +178,31 @@ describe("s3FileUploadProvider", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("preserves timeout classification for signed reads", async () => {
+    const values: Record<string, string> = {
+      S3_BUCKET: "clips-bucket",
+      S3_ACCESS_KEY_ID: "access",
+      S3_SECRET_ACCESS_KEY: "secret",
+      S3_ENDPOINT: "https://s3.example.com",
+    };
+    mockResolveSecret.mockImplementation(async (key: string) => {
+      return values[key] ?? null;
+    });
+    const timeoutError = new Error("timed out");
+    timeoutError.name = "TimeoutError";
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(timeoutError));
+
+    await expect(
+      fetchS3ObjectByUrl(
+        "https://s3.example.com/clips-bucket/clips/recording.webm",
+        { timeoutMs: 25 },
+      ),
+    ).rejects.toMatchObject({
+      name: "TimeoutError",
+      message: expect.stringContaining("S3 request timed out after 25ms"),
+    });
+  });
+
   it("coalesces Netlify-safe chunks into valid S3 multipart parts", async () => {
     const values: Record<string, string> = {
       S3_BUCKET: "clips-bucket",

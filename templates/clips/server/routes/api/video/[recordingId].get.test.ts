@@ -201,6 +201,8 @@ describe("/api/video/:recordingId route", () => {
         visibility: "public",
         password: null,
         expiresAt: null,
+        ownerEmail: "owner@example.com",
+        organizationId: "owner-org",
         videoUrl: sourceUrl,
       },
     });
@@ -231,8 +233,27 @@ describe("/api/video/:recordingId route", () => {
       range: "bytes=0-31",
       timeoutMs: 30_000,
     });
+    expect(mockRunWithRequestContext).toHaveBeenCalledWith(
+      {
+        userEmail: "owner@example.com",
+        orgId: "owner-org",
+      },
+      expect.any(Function),
+    );
     expect(mockIsBlockedExtensionUrlWithDns).not.toHaveBeenCalled();
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("maps signed S3 read timeouts to the media timeout response", async () => {
+    const timeoutError = new Error("S3 request timed out");
+    timeoutError.name = "TimeoutError";
+    mockFetchS3ObjectByUrl.mockRejectedValue(timeoutError);
+
+    const event = makeEvent();
+    const result = await handler(event as any);
+
+    expect(event.status).toBe(504);
+    expect(result).toEqual({ error: "Recording media fetch timed out." });
   });
 
   it("serves only the persisted media URL until compression is published", async () => {
