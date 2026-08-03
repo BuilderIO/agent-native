@@ -90,6 +90,8 @@ describe("resolveAuthSecret", () => {
 describe("ensureGoogleAuthIdentityWithAdapter", () => {
   function adapterFor(user: any = null) {
     const linkAccount = vi.fn(async () => undefined);
+    const deleteAccount = vi.fn(async () => undefined);
+    const updateUser = vi.fn(async () => undefined);
     const createOAuthUser = vi.fn(async () => ({
       user: { id: "google-user" },
       account: {},
@@ -99,8 +101,11 @@ describe("ensureGoogleAuthIdentityWithAdapter", () => {
       linkAccount,
       createUser: vi.fn(async () => ({ id: "created-user" })),
       createOAuthUser,
+      findAccountByProviderId: vi.fn(async () => null),
+      deleteAccount,
+      updateUser,
     };
-    return { adapter, linkAccount, createOAuthUser };
+    return { adapter, linkAccount, createOAuthUser, deleteAccount, updateUser };
   }
 
   it("creates a verified canonical user and Google account", async () => {
@@ -149,9 +154,53 @@ describe("ensureGoogleAuthIdentityWithAdapter", () => {
         email: "owner@example.com",
         emailVerified: false,
       },
-      accounts: [],
+      accounts: [
+        {
+          id: "credential-account",
+          providerId: "credential",
+          accountId: "existing-user",
+        },
+      ],
     };
-    const { adapter, linkAccount } = adapterFor(existing);
+    const { adapter, linkAccount, deleteAccount, updateUser } =
+      adapterFor(existing);
+
+    await ensureGoogleAuthIdentityWithAdapter(adapter, {
+      email: "owner@example.com",
+      accountId: "google-sub-1",
+    });
+    expect(deleteAccount).toHaveBeenCalledWith("credential-account");
+    expect(updateUser).toHaveBeenCalledWith("existing-user", {
+      emailVerified: true,
+    });
+    expect(linkAccount).toHaveBeenCalledWith({
+      userId: "existing-user",
+      providerId: "google",
+      accountId: "google-sub-1",
+    });
+  });
+
+  it("keeps account-claim protection for an unverified user with another account", async () => {
+    const existing = {
+      user: {
+        id: "existing-user",
+        email: "owner@example.com",
+        emailVerified: false,
+      },
+      accounts: [
+        {
+          id: "credential-account",
+          providerId: "credential",
+          accountId: "existing-user",
+        },
+        {
+          id: "github-account",
+          providerId: "github",
+          accountId: "github-sub-1",
+        },
+      ],
+    };
+    const { adapter, linkAccount, deleteAccount } = adapterFor(existing);
 
     await expect(
       ensureGoogleAuthIdentityWithAdapter(adapter, {
@@ -159,6 +208,7 @@ describe("ensureGoogleAuthIdentityWithAdapter", () => {
         accountId: "google-sub-1",
       }),
     ).rejects.toThrow("unverified email/password identity");
+    expect(deleteAccount).not.toHaveBeenCalled();
     expect(linkAccount).not.toHaveBeenCalled();
   });
 });

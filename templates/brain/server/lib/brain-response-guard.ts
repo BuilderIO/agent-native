@@ -105,8 +105,9 @@ function parseAskBrainResult(content: string): ParsedAskBrainResult | null {
       return result as ParsedAskBrainResult;
     }
     return record as ParsedAskBrainResult;
-  } catch {
-    return null;
+  } catch (error) {
+    if (error instanceof SyntaxError) return null;
+    throw error;
   }
 }
 

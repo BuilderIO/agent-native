@@ -118,6 +118,51 @@ jobs:
           set_netlify_branch_env "DATABASE_URL" "$NEON_DB_URL_POOLED"
           set_netlify_branch_env "DATABASE_URL_UNPOOLED" "$NEON_DB_URL_UNPOOLED"
 
+      - name: Cancel in-flight Netlify deploys for this branch
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          SITE="${{ matrix.netlify_site }}"
+          API="https://api.netlify.com/api/v1"
+          AUTH="Authorization: Bearer $NETLIFY_AUTH_TOKEN"
+          deploys=$(curl -fsS -G -H "$AUTH" \
+            --data-urlencode "branch=$HEAD_BRANCH" \
+            --data-urlencode "per_page=100" \
+            "$API/sites/$SITE/deploys")
+
+          # The Git provider can start Netlify's automatic deploy before the
+          # branch-scoped database values are written. Cancel only deploys
+          # that have not become ready, then trigger one fresh build below.
+          while IFS= read -r deploy_id; do
+            [[ -z "$deploy_id" ]] && continue
+            http=$(curl -sS -o /dev/null -w "%{http_code}" -X POST \
+              -H "$AUTH" "$API/deploys/$deploy_id/cancel")
+            if [[ ! "$http" =~ ^2[0-9][0-9]$ ]]; then
+              echo "::error::Failed to cancel Netlify deploy $deploy_id for site $SITE (HTTP $http)"
+              exit 1
+            fi
+          done < <(jq -r '.[] | select(.state == "new" or .state == "pending_review" or .state == "enqueued" or .state == "building" or .state == "uploading" or .state == "preparing" or .state == "processing" or .state == "retrying") | .id' <<< "$deploys")
+
+      - name: Trigger Netlify deploy with preview DB values
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          SITE="${{ matrix.netlify_site }}"
+          API="https://api.netlify.com/api/v1"
+          AUTH="Authorization: Bearer $NETLIFY_AUTH_TOKEN"
+          body=$(jq -n --arg branch "$HEAD_BRANCH" '{branch: $branch}')
+          http=$(curl -sS -o /dev/null -w "%{http_code}" -X POST \
+            -H "$AUTH" -H "Content-Type: application/json" \
+            "$API/sites/$SITE/builds" -d "$body")
+          if [[ ! "$http" =~ ^2[0-9][0-9]$ ]]; then
+            echo "::error::Failed to trigger Netlify deploy for branch $HEAD_BRANCH on site $SITE (HTTP $http)"
+            exit 1
+          fi
+
   delete-branches:
     if: github.event.action == 'closed' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
@@ -162,6 +207,39 @@ jobs:
           project_id: ${{ matrix.neon_project }}
           branch: preview-schema-only/pr-${{ github.event.number }}
           api_key: ${{ secrets.NEON_API_KEY }}
+
+      - name: Delete legacy Neon branch if present
+        env:
+          NEON_PROJECT_ID: ${{ matrix.neon_project }}
+          PR_NUMBER: ${{ github.event.number }}
+        run: |
+          set -euo pipefail
+          API="https://console.neon.tech/api/v2"
+          LEGACY_BRANCH="preview/pr-$PR_NUMBER"
+          response=$(curl -sS -w $'\n%{http_code}' -G \
+            -H "Authorization: Bearer $NEON_API_KEY" \
+            --data-urlencode "search=$LEGACY_BRANCH" \
+            --data-urlencode "limit=100" \
+            "$API/projects/$NEON_PROJECT_ID/branches")
+          http=$(printf '%s' "$response" | tail -n1)
+          body=$(printf '%s' "$response" | sed '$d')
+          if [[ ! "$http" =~ ^2[0-9][0-9]$ ]]; then
+            echo "::error::Failed to look up legacy Neon branch $LEGACY_BRANCH (HTTP $http)"
+            exit 1
+          fi
+          branch_id=$(jq -r --arg name "$LEGACY_BRANCH" \
+            'first(.branches[]? | select(.name == $name) | .id) // empty' <<< "$body")
+          if [[ -z "$branch_id" ]]; then
+            echo "Legacy Neon branch $LEGACY_BRANCH is already absent"
+            exit 0
+          fi
+          http=$(curl -sS -o /dev/null -w "%{http_code}" -X DELETE \
+            -H "Authorization: Bearer $NEON_API_KEY" \
+            "$API/projects/$NEON_PROJECT_ID/branches/$branch_id")
+          if [[ ! "$http" =~ ^(2[0-9][0-9]|404)$ ]]; then
+            echo "::error::Failed to delete legacy Neon branch $LEGACY_BRANCH (HTTP $http)"
+            exit 1
+          fi
 
       - name: Remove preview DB URL branch overrides
         env:

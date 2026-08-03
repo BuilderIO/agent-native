@@ -773,8 +773,9 @@ export function getBetterAuthSync(): BetterAuthInstance | undefined {
  * The subset of Better Auth's internal adapter we use for federated-SSO
  * JIT account linking. Better Auth owns these writes (id + timestamp +
  * schema handling), so callers never hand-roll SQL against `user`/`account`.
- * Read-only lookups plus account-linking and profile-update operations used by
- * shared Core surfaces. Better Auth owns the actual identity writes.
+ * Read-only lookups plus account-linking, account-replacement, and
+ * profile-update operations used by shared Core surfaces. Better Auth owns the
+ * actual identity writes.
  */
 export interface BetterAuthInternalAdapter {
   findUserByEmail: (
@@ -787,7 +788,7 @@ export interface BetterAuthInternalAdapter {
       name?: string;
       emailVerified?: boolean;
     };
-    accounts: Array<{ providerId: string; accountId: string }>;
+    accounts: Array<{ id: string; providerId: string; accountId: string }>;
   } | null>;
   linkAccount: (account: {
     userId: string;
@@ -803,14 +804,18 @@ export interface BetterAuthInternalAdapter {
     user: { email: string; name: string; emailVerified?: boolean },
     account: { providerId: string; accountId: string },
   ) => Promise<{ user: { id: string }; account: unknown }>;
-  findAccountByProviderId?: (
+  findAccountByProviderId: (
     accountId: string,
     providerId: string,
-  ) => Promise<{ userId: string } | null>;
-  /** Optional because older/custom adapter shapes may not expose mutations. */
+  ) => Promise<{ id: string; userId: string } | null>;
+  deleteAccount: (id: string) => Promise<void>;
   updateUser?: (
     userId: string,
-    data: { name?: string; image?: string | null },
+    data: {
+      name?: string;
+      image?: string | null;
+      emailVerified?: boolean;
+    },
   ) => Promise<unknown>;
 }
 
@@ -835,7 +840,9 @@ export async function getBetterAuthInternalAdapter(
       ia &&
       typeof ia.findUserByEmail === "function" &&
       typeof ia.linkAccount === "function" &&
-      typeof ia.createUser === "function"
+      typeof ia.createUser === "function" &&
+      typeof ia.findAccountByProviderId === "function" &&
+      typeof ia.deleteAccount === "function"
     ) {
       return ia;
     }
@@ -881,9 +888,10 @@ export async function ensureGoogleAuthIdentityWithAdapter(
     adapter.findUserByEmail(email, { includeAccounts: true });
   let existing = await findExisting();
 
-  const linkedAccount = adapter.findAccountByProviderId
-    ? await adapter.findAccountByProviderId(accountId, "google")
-    : null;
+  const linkedAccount = await adapter.findAccountByProviderId(
+    accountId,
+    "google",
+  );
   if (linkedAccount) {
     if (!existing || linkedAccount.userId !== existing.user.id) {
       throw new Error("Google account is already linked to another user");
@@ -930,12 +938,37 @@ export async function ensureGoogleAuthIdentityWithAdapter(
   );
   if (alreadyLinked) return;
 
-  // Do not silently bless an unverified password-created identity. The user
-  // must verify it through the configured email provider before linking.
+  // A password signup reserves the email before verification. If that row is
+  // credential-only, remove the unverified credential and promote the same
+  // canonical user to the verified Google identity. Any other linked account
+  // makes the claimant ambiguous, so keep the account-claim protection.
   if (existing.user.emailVerified !== true) {
-    throw new Error(
-      "Cannot link Google to an unverified email/password identity",
+    const credentialAccounts = existing.accounts.filter(
+      (account) => account.providerId === "credential",
     );
+    const hasOtherAccounts = existing.accounts.some(
+      (account) => account.providerId !== "credential",
+    );
+    const credentialAccount = credentialAccounts[0];
+    if (
+      credentialAccounts.length !== 1 ||
+      hasOtherAccounts ||
+      !credentialAccount?.id ||
+      !adapter.updateUser
+    ) {
+      throw new Error(
+        "Cannot link Google to an unverified email/password identity",
+      );
+    }
+
+    await adapter.deleteAccount(credentialAccount.id);
+    await adapter.updateUser(existing.user.id, { emailVerified: true });
+    await adapter.linkAccount({
+      userId: existing.user.id,
+      providerId: "google",
+      accountId,
+    });
+    return;
   }
   await adapter.linkAccount({
     userId: existing.user.id,
