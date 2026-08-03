@@ -322,7 +322,7 @@ pnpm action db-check-scoping --require-org  # Erfordert außerdem org_id
 | OAuth-Tokens (Google, GitHub)                      | `oauth_tokens`-Speicher über `saveOAuthTokens()`                      |
 | Sitzungstoken                                      | Automatisch (Better Auth erledigt dies)                               |
 
-Anmeldeinformationen pro Benutzer/pro Organisation und der Tresor werden im Ruhezustand mit AES-256-GCM verschlüsselt, verschlüsselt durch `SECRETS_ENCRYPTION_KEY` (Rückfall auf `BETTER_AUTH_SECRET`); Die Produktion weigert sich, ohne sie anzufangen. Um alle bereits vorhandenen Klartext-Anmeldeinformationszeilen zu verschlüsseln, führen Sie `pnpm action db-migrate-encrypt-credentials` (idempotent, nicht destruktiv) aus.
+Benutzer-/organisationsbezogene Anmeldeinformationen und der Vault werden im Ruhezustand mit AES-256-GCM verschlüsselt. Der gemeinsame Workspace-Vault bevorzugt `WORKSPACE_SECRETS_ENCRYPTION_KEY`, danach Legacy-Kandidaten aus `SECRETS_ENCRYPTION_KEY`, `A2A_SECRET` und `BETTER_AUTH_SECRET`; während einer Rotation hält `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS` alte Zeilen lesbar, bis Zugriffe sie migriert haben. Um vorhandene Klartextzeilen zu verschlüsseln, führen Sie `pnpm action db-migrate-encrypt-credentials` (idempotent, nicht destruktiv) aus.
 
 Speichern Sie niemals Geheimnisse in `settings`, `application_state`, Quellcode oder Aktionsantworten. Verwenden Sie die oben genannten APIs für Anmeldeinformationen/Tresor – sie übernehmen sowohl die Verschlüsselung als auch die Festlegung des Scopings pro Benutzer.
 
@@ -365,7 +365,7 @@ Dies war zuvor eine „Warnen und Akzeptieren“-Haltung – legen Sie das Gehei
 - [ ] `BETTER_AUTH_SECRET` ist auf eine zufällige Zeichenfolge mit mehr als 32 Zeichen (`openssl rand -hex 32`) festgelegt, es sei denn, es handelt sich um eine gehostete Arbeitsbereichsbereitstellung, die von `A2A_SECRET` abgeleitet wird
 - [ ] `OAUTH_STATE_SECRET` wird auf eine separate zufällige Zeichenfolge mit mehr als 32 Zeichen gesetzt (`BETTER_AUTH_SECRET` nicht wiederverwenden) – siehe [OAuth State Signing](#oauth-state)
 - [ ] `A2A_SECRET` wird für jede App festgelegt, die A2A-Verkehr aufruft oder empfängt – siehe [A2A Identity Verification](#a2a-identity)
-- [ ] `SECRETS_ENCRYPTION_KEY`-Set (oder verlassen Sie sich auf den `BETTER_AUTH_SECRET`-Fallback) – siehe [Secrets Management](#secrets)
+- [ ] `WORKSPACE_SECRETS_ENCRYPTION_KEY` für gemeinsam genutzte Multi-App-Vaults konsistent gesetzt; app-lokale Verschlüsselung nutzt weiterhin `SECRETS_ENCRYPTION_KEY`/`BETTER_AUTH_SECRET` – siehe [Secrets Management](#secrets)
 - [ ] `AUTH_SKIP_EMAIL_VERIFICATION` ist **nicht** in der Produktion festgelegt (oder nur bei QA-Vorschaubereitstellungen festgelegt)
 
 ### Webhook-Geheimnisse (legen Sie diejenigen für die von Ihnen verwendeten Integrationen fest)

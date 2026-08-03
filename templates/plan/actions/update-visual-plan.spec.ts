@@ -685,6 +685,106 @@ describe("update-visual-plan comments", () => {
     );
   });
 
+  it("returns a compact write acknowledgement to agent callers", async () => {
+    request.email = "editor@example.com";
+    useSuccessfulDb();
+    loadPlanBundleMock.mockResolvedValue(planBundle());
+
+    const result = await (
+      updateVisualPlan as {
+        run: (args: unknown, ctx?: unknown) => Promise<Record<string, unknown>>;
+      }
+    ).run(
+      {
+        planId: "plan_public",
+        contentPatches: [],
+        sections: [],
+        comments: [],
+        consumedCommentIds: [],
+      },
+      { caller: "tool" },
+    );
+
+    expect(result).toMatchObject({
+      planId: "plan_public",
+      plan: { updatedAt: baseUpdatedAt },
+      changed: {
+        contentPatchOps: [],
+        commentCount: 0,
+      },
+    });
+    expect(result).not.toHaveProperty("html");
+    expect(JSON.stringify(result)).not.toContain("Original intro.");
+  });
+
+  it("handles a 13-task amendment as three incremental writes", async () => {
+    request.email = "editor@example.com";
+    useSuccessfulDb();
+    const thirteenTaskContent = {
+      ...structuredContent,
+      blocks: Array.from({ length: 13 }, (_, index) => ({
+        id: `task-${index + 1}`,
+        type: "rich-text" as const,
+        title: `Task ${index + 1}`,
+        data: { markdown: `- [ ] Original task ${index + 1}` },
+      })),
+    };
+    loadPlanBundleMock.mockResolvedValue(
+      planBundle({ content: thirteenTaskContent }),
+    );
+
+    const result = await (
+      updateVisualPlan as {
+        run: (args: unknown, ctx?: unknown) => Promise<Record<string, unknown>>;
+      }
+    ).run(
+      {
+        planId: "plan_public",
+        contentPatches: [
+          {
+            op: "append-block",
+            block: {
+              id: "task-14",
+              type: "rich-text",
+              title: "Task 14",
+              data: { markdown: "- [ ] Add payment intent tracking" },
+            },
+          },
+          {
+            op: "append-block",
+            block: {
+              id: "task-15",
+              type: "rich-text",
+              title: "Task 15",
+              data: { markdown: "- [ ] Update refund handling" },
+            },
+          },
+          {
+            op: "append-block",
+            block: {
+              id: "task-16",
+              type: "rich-text",
+              title: "Task 16",
+              data: { markdown: "- [ ] Add registration coverage" },
+            },
+          },
+        ],
+        sections: [],
+        comments: [],
+        consumedCommentIds: [],
+      },
+      { caller: "tool" },
+    );
+
+    expect(result).toMatchObject({
+      planId: "plan_public",
+      changed: {
+        contentPatchOps: ["append-block", "append-block", "append-block"],
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain("Original task 1");
+  });
+
   it("records compact before/after details for targeted content patches", async () => {
     request.email = "editor@example.com";
     const txUpdateMock = vi.fn(() => ({

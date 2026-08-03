@@ -21,7 +21,6 @@ export default defineConfig({
         "dom-to-pptx",
         "@excalidraw/excalidraw",
         "@excalidraw/mermaid-to-excalidraw",
-        "@agent-native/pinpoint",
       ],
     }),
   ],

@@ -1564,6 +1564,39 @@ describe("SSE event processor no-progress recovery", () => {
     ]);
   });
 
+  // `error-detail.ts` now names two deterministic failures that used to persist
+  // as `unknown` (a model/tools config rejection and a missing auth header) so
+  // they stop reaching users as raw provider text. Naming them must not make
+  // them auto-continue — a retry cannot fix either one, and this is the check
+  // that keeps a future addition to the recoverable list from doing so.
+  it("names a deterministic failure without making it recoverable", async () => {
+    for (const [errorCode, error] of [
+      [
+        "provider_config_error",
+        "Function tools with reasoning_effort are not supported for gpt-5.6-luna in /v1/chat/completions. To use function tools, use /v1/responses or set reasoning_effort to 'none'.",
+      ],
+      ["authentication_error", "Missing Authentication header"],
+    ]) {
+      const caught = await (async () => {
+        try {
+          for await (const _ of readSSEStream(
+            eventStream([{ type: "error", error, errorCode }]),
+            [],
+            { value: 0 },
+            undefined,
+          )) {
+            // no-op
+          }
+        } catch (err) {
+          return err;
+        }
+        return undefined;
+      })();
+
+      expect(caught).not.toBeInstanceOf(AgentAutoContinueSignal);
+    }
+  });
+
   it("carries activity trail on auto-continuation signals", async () => {
     const err = await (async () => {
       try {
@@ -3298,6 +3331,40 @@ describe("SSE event processor error classification", () => {
     expect((err as AgentAutoContinueSignal).errorInfo).toMatchObject({
       errorCode: "builder_gateway_network_error",
       message: "Builder gateway network error: socket hang up",
+      recoverable: true,
+    });
+  });
+
+  it("auto-continues provider network errors", async () => {
+    const message =
+      "Failed after 2 attempts. Last error: Cannot connect to API: " +
+      "ERR_SSL_TLSV1_ALERT_INTERNAL_ERROR tlsv1 alert internal error";
+    const err = await readSSEStream(
+      eventStream([
+        {
+          type: "error",
+          error: message,
+          errorCode: "provider_network_error",
+        },
+      ]),
+      [],
+      { value: 0 },
+      "tab-provider-network",
+    )
+      [Symbol.asyncIterator]()
+      .next()
+      .then(
+        () => undefined,
+        (caught) => caught,
+      );
+
+    expect(err).toBeInstanceOf(AgentAutoContinueSignal);
+    expect((err as AgentAutoContinueSignal).reason).toBe("stream_ended");
+    expect((err as AgentAutoContinueSignal).errorInfo).toMatchObject({
+      errorCode: "provider_network_error",
+      message:
+        "The model provider could not be reached. Check your connection and retry.",
+      details: message,
       recoverable: true,
     });
   });

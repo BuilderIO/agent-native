@@ -1,5 +1,9 @@
 import type { ActionChatUIConfig } from "../action-ui.js";
 import {
+  formatChatErrorText,
+  normalizeChatError,
+} from "../client/error-format.js";
+import {
   isCredentialGapCodeAgentEvent,
   normalizeCodeAgentTranscript,
   type CodeAgentTranscriptEvent as CoreCodeAgentTranscriptEvent,
@@ -140,12 +144,29 @@ export function buildAssistantMessage(
     }
   };
 
+  // Index of the last event that is not a `clear`. Everything after it is a
+  // trailing run of clears with no successor chunk to re-emit what they wipe.
+  let lastNonClearIndex = events.length - 1;
+  while (
+    lastNonClearIndex >= 0 &&
+    events[lastNonClearIndex]?.event.type === "clear"
+  ) {
+    lastNonClearIndex -= 1;
+  }
+
   for (const [index, { event }] of events.entries()) {
     if (event.type === "clear") {
       // A live stream always follows `clear` with the chunk that re-emits the
       // wiped content. A rebuild has no successor, so applying a TRAILING
       // clear can only destroy the transcript permanently.
-      if (index === events.length - 1) continue;
+      //
+      // The whole trailing RUN has to be skipped, not just the final element:
+      // each failed engine attempt emits one `clear`, so three failed attempts
+      // in a row is the common shape, and skipping only the last still applied
+      // the other two. When the run made no tool calls that emptied `content`
+      // entirely and this builder returned null — the user's message was left
+      // with no assistant reply at all.
+      if (index > lastNonClearIndex) continue;
       clearAssistantDraftContent(content);
       continue;
     }
@@ -248,13 +269,24 @@ export function buildAssistantMessage(
       if (event.errorCode === "run_timeout" && event.recoverable) {
         continue;
       }
+      // Mirror the live client (client/sse-event-processor.ts): route the raw
+      // provider/engine string through the same friendly-copy layer before it
+      // ever becomes persisted chat text, and keep the raw text only in
+      // `details`. Without this, a rebuild (background run, reconnect, poller,
+      // webhook turn) dumps whatever the provider sent — a JSON error body, an
+      // SSL handshake failure — straight into the user-visible transcript.
+      const normalized = normalizeChatError(event.error, event.errorCode);
       runError = {
-        message: event.error,
+        message: normalized.message,
         ...(event.errorCode ? { errorCode: event.errorCode } : {}),
-        ...(event.details ? { details: event.details } : {}),
+        ...((event.details ?? normalized.details)
+          ? { details: event.details ?? normalized.details }
+          : {}),
         ...(event.recoverable ? { recoverable: event.recoverable } : {}),
       };
-      appendText(`${content.length > 0 ? "\n\n" : ""}Error: ${event.error}`);
+      appendText(
+        `${content.length > 0 ? "\n\n" : ""}${formatChatErrorText(event.error, event.upgradeUrl, event.errorCode)}`,
+      );
       continue;
     }
 

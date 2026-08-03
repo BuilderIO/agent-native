@@ -32,7 +32,36 @@ describe("computeSlideFitTransform", () => {
         viewportWidth: 740,
         viewportHeight: 380,
       }),
-    ).toEqual({ scale: 1, x: 0, y: 0, fitted: false, verticalOverflow: 0 });
+    ).toEqual({
+      scale: 1,
+      x: 0,
+      y: 0,
+      fitted: false,
+      verticalOverflow: 0,
+      horizontalOverflow: 0,
+    });
+  });
+
+  it("ignores a small layout-wrapper spill", () => {
+    expect(
+      computeSlideFitTransform({
+        contentWidth: 700,
+        contentHeight: 386,
+        viewportWidth: 740,
+        viewportHeight: 380,
+      }).verticalOverflow,
+    ).toBe(0);
+  });
+
+  it("ignores a small horizontal layout-wrapper spill", () => {
+    expect(
+      computeSlideFitTransform({
+        contentWidth: 746,
+        contentHeight: 300,
+        viewportWidth: 740,
+        viewportHeight: 380,
+      }),
+    ).toMatchObject({ scale: 1, fitted: false, horizontalOverflow: 0 });
   });
 
   it("does not scale for vertical overflow but reports it for the LLM to fix", () => {
@@ -49,6 +78,7 @@ describe("computeSlideFitTransform", () => {
       y: 0,
       fitted: false,
       verticalOverflow: 120,
+      horizontalOverflow: 0,
     });
   });
 
@@ -66,6 +96,7 @@ describe("computeSlideFitTransform", () => {
       y: 0,
       fitted: true,
       verticalOverflow: 0,
+      horizontalOverflow: 260,
     });
   });
 
@@ -83,6 +114,7 @@ describe("computeSlideFitTransform", () => {
       y: 0,
       fitted: true,
       verticalOverflow: 380,
+      horizontalOverflow: 260,
     });
   });
 
@@ -102,6 +134,7 @@ describe("computeSlideFitTransform", () => {
       y: 10,
       fitted: false,
       verticalOverflow: 0,
+      horizontalOverflow: 0,
     });
   });
 });
@@ -185,6 +218,12 @@ describe("SlideInner autofit", () => {
         ) {
           return rect(110, 80, 740, 380);
         }
+        if (this.textContent?.includes("Horizontally fitted")) {
+          return rect(110, 80, 1000, 500);
+        }
+        if (this.classList.contains("fmd-freeform-object")) {
+          return rect(156, 254, 740, 200);
+        }
         return rect(110, 80, 740, 500);
       },
     );
@@ -247,6 +286,25 @@ describe("SlideInner autofit", () => {
     });
   });
 
+  it("reports overflow from both columns of a two-column slide", async () => {
+    const slide: Slide = {
+      id: "two-column",
+      layout: "two-column",
+      notes: "",
+      content: "Left column\n\n---\n\nRight column",
+    };
+
+    const onOverflowChange = vi.fn();
+    render(<SlideInner slide={slide} onOverflowChange={onOverflowChange} />);
+
+    await waitFor(() => {
+      expect(onOverflowChange.mock.calls.length).toBeGreaterThanOrEqual(2);
+      expect(onOverflowChange).toHaveBeenCalledWith(
+        expect.objectContaining({ verticalOverflow: 120 }),
+      );
+    });
+  });
+
   it("keeps the current fit transform stable while a raw slide text block is edited", async () => {
     const slide: Slide = {
       id: "raw-editing",
@@ -285,7 +343,8 @@ describe("SlideInner autofit", () => {
         '<div class="fmd-slide" style="padding: 80px 110px;"><h2>Flow title</h2><div class="fmd-freeform-object" data-slide-object-id="freeform-1" style="position: absolute; left: 46px; top: 174px; width: 740px;">Moved freeform object</div></div>',
     };
 
-    render(<SlideInner slide={slide} />);
+    const onOverflowChange = vi.fn();
+    render(<SlideInner slide={slide} onOverflowChange={onOverflowChange} />);
 
     await waitFor(() => {
       const fitLayer = document.querySelector<HTMLElement>(
@@ -298,6 +357,9 @@ describe("SlideInner autofit", () => {
       expect(fitLayer?.style.getPropertyValue("--fmd-fit-x")).toBe("0px");
       expect(fitLayer?.style.getPropertyValue("--fmd-fit-y")).toBe("0px");
       expect(fitLayer?.getAttribute("data-fmd-autofit-active")).toBeNull();
+      expect(onOverflowChange).toHaveBeenCalledWith(
+        expect.objectContaining({ horizontalOverflow: 46 }),
+      );
     });
   });
 });

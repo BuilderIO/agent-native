@@ -11,6 +11,14 @@ export interface CaptureErrorContext {
   extra?: Record<string, unknown>;
   /** Grouped diagnostic cards shown on the captured event. */
   contexts?: Record<string, Record<string, unknown>>;
+  /**
+   * The agent run this error belongs to, when it belongs to one.
+   *
+   * Emitted as a top-level `$ai_trace_id` so an error-tracking issue and the
+   * LLM trace it came from resolve to each other. Nesting the run id inside
+   * `extra` (as callers did before) puts it somewhere no backend can join on.
+   */
+  aiTraceId?: string;
 }
 
 export type CaptureErrorProvider = (

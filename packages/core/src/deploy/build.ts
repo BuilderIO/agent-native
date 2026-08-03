@@ -30,7 +30,7 @@ import {
   AGENT_BACKGROUND_PROCESSOR_ROUTE,
   AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
-  isDurableBackgroundFlagEnabled,
+  isDurableBackgroundFlagExplicitlyDisabled,
 } from "../agent/durable-background.js";
 import {
   INTEGRATION_RECOVERY_RUNTIME_MARKER,
@@ -1157,6 +1157,39 @@ function getSentryClientConfigScript() {
   );
 }
 
+function getPostHogClientConfigScript() {
+  // MUST stay consistent with resolvePublicPostHogConfig in
+  // server/posthog-config.ts (worker bundles a string copy; it can't import it).
+  // Never falls back to POSTHOG_API_KEY — that key can be a private one and
+  // this string is inlined into the public, CDN-cached HTML shell.
+  const env = globalThis.process?.env || {};
+  const posthogKey = firstNonEmpty(
+    env.POSTHOG_PUBLIC_KEY,
+    env.VITE_POSTHOG_KEY,
+    env.VITE_POSTHOG_PUBLIC_KEY,
+  );
+  if (!posthogKey) return null;
+  const posthogHost = (
+    firstNonEmpty(
+      env.POSTHOG_PUBLIC_HOST,
+      env.VITE_POSTHOG_HOST,
+      env.POSTHOG_HOST,
+    ) || "https://us.i.posthog.com"
+  ).replace(/\\/+$/, "");
+  const config = {
+    posthogKey,
+    posthogHost,
+    posthogErrorTracking:
+      (env.POSTHOG_ERROR_TRACKING || "").trim().toLowerCase() !== "false",
+  };
+  return (
+    '<script data-agent-native-posthog-config>' +
+    'window.__AGENT_NATIVE_CONFIG__=Object.assign({},window.__AGENT_NATIVE_CONFIG__,' +
+    JSON.stringify(config) +
+    ");</script>"
+  );
+}
+
 function getRealtimeClientConfigScript() {
   // MUST stay byte-for-byte consistent with resolveRealtimeClientConfig in
   // server/sentry-config.ts (worker bundles a string copy; it can't import it).
@@ -1330,7 +1363,11 @@ function applyImmutableAssetCacheHeaders(response, request) {
 
 async function rewriteMountedResponse(response, basePath, pathname, request) {
   const clientConfigScript =
-    [getSentryClientConfigScript(), getRealtimeClientConfigScript()]
+    [
+      getSentryClientConfigScript(),
+      getPostHogClientConfigScript(),
+      getRealtimeClientConfigScript(),
+    ]
       .filter(Boolean)
       .join("") || null;
   const headers = new Headers(response.headers);
@@ -2576,29 +2613,14 @@ export function findInstalledResvgPackages(
 
 /**
  * Deploy-time gate for emitting the second `-background` Netlify function.
- * Reads the same env flag the runtime gate uses
- * (`AGENT_CHAT_DURABLE_BACKGROUND`).
- *
- * DEFAULT-OFF (opt-in). It IS the runtime gate's flag parse
- * (`isDurableBackgroundFlagEnabled`), so the two can no longer drift:
- * unset/empty/unknown means DISABLED; an app opts IN
- * only with an explicit truthy value (`true`/`1`/`yes`/`on`). A premature
- * fleet-wide default-on caused real-user incidents (2026-06-24) before the
- * async worker path was proven, so durable is opt-in until verified live. This
- * gate is what emits the 15-min `-background` function so the `_process-run`
- * dispatch lands on it (async 202 → the worker runs with the real 15-min budget
- * → its ~13-min soft-timeout fits). The deploy gate and runtime gate MUST agree:
- * if the deploy emitted no `-background` function but the runtime still routed
- * the worker into the ~13-min timeout regime, the worker would overshoot the
- * ~60s synchronous wall and re-dispatch in a loop. (The runtime now also guards
- * the ~13-min budget on the real function name via `isInBackgroundFunctionRuntime`,
- * so a missing emit does not loop.) A missing emit is NOT benign, though: the
- * app then runs every turn on the ~60s synchronous wall for the life of the
- * deploy, so an opted-in build that cannot emit the function FAILS rather than
- * warning.
+ * Netlify deploys are default-on; an explicit falsy
+ * `AGENT_CHAT_DURABLE_BACKGROUND` value opts out. This is called only from the
+ * Netlify preset, so non-Netlify builds remain unaffected. The gate and runtime
+ * default must agree: otherwise the runtime could target a worker that the
+ * deploy did not emit.
  */
 export function isDurableBackgroundDeployEnabled(): boolean {
-  return isDurableBackgroundFlagEnabled();
+  return !isDurableBackgroundFlagExplicitlyDisabled();
 }
 
 /**
@@ -2649,9 +2671,15 @@ export function emitSingleTemplateNetlifyKeepWarmFunction(
   // dispatch (18.4s observed to reach the agent loop). A POST with no runId is
   // rejected by the `_process-run` route before any DB work, so this only keeps
   // the container alive.
-  const backgroundWarmPath = isDurableBackgroundEmitRequired()
-    ? JSON.stringify(AGENT_BACKGROUND_FUNCTION_URL_PATH)
-    : "null";
+  const backgroundEntryPath = path.join(
+    internalDir,
+    AGENT_BACKGROUND_FUNCTION_NAME,
+    `${AGENT_BACKGROUND_FUNCTION_NAME}.mjs`,
+  );
+  const backgroundWarmPath =
+    isDurableBackgroundEmitRequired() && fs.existsSync(backgroundEntryPath)
+      ? JSON.stringify(AGENT_BACKGROUND_FUNCTION_URL_PATH)
+      : "null";
   const entry = `const HEALTH_PATH = "/_agent-native/health";
 const BACKGROUND_WARM_PATH = ${backgroundWarmPath};
 const REQUEST_TIMEOUT_MS = 25_000;
@@ -4148,20 +4176,22 @@ export default bundle;
   }
 
   if (preset === "netlify") {
-    emitSingleTemplateNetlifyKeepWarmFunction(cwd);
-
-    // Durable background agent runs (default-OFF / opt-in; enable with a truthy
-    // AGENT_CHAT_DURABLE_BACKGROUND). Additive ONLY: emits a SECOND Netlify
-    // function whose name ends in `-background` re-exporting the same handler
-    // bundle, so the chat `_process-run` POST lands on Netlify's async (15-min)
-    // function. When not opted in this is a no-op and the single-function
-    // deploy is byte-for-byte unchanged.
+    // Durable background agent runs are default-on for Netlify; a falsy
+    // AGENT_CHAT_DURABLE_BACKGROUND value opts out. Additive ONLY: emits a
+    // SECOND Netlify function whose name ends in `-background` re-exporting the
+    // same handler bundle, so the chat `_process-run` POST lands on Netlify's
+    // async (15-min) function. When opted out this is a no-op and the
+    // single-function deploy is byte-for-byte unchanged.
     // NOT wrapped in try/catch: this block only runs when the runtime depends
     // on the function, and a swallowed failure ships an app that loses the
     // background budget for the life of the deploy with nothing in the log.
     if (isDurableBackgroundEmitRequired()) {
       emitSingleTemplateNetlifyBackgroundFunction(cwd);
     }
+
+    // Emit keep-warm after the background artifact so it only pings a function
+    // that this build actually produced.
+    emitSingleTemplateNetlifyKeepWarmFunction(cwd);
 
     if (isIntegrationDurableDispatchDeployEnabled()) {
       try {

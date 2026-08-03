@@ -1,3 +1,5 @@
+import { resolveDeployEnvironment } from "./deploy-environment.js";
+
 function firstNonEmpty(
   ...values: Array<string | undefined>
 ): string | undefined {
@@ -25,15 +27,9 @@ function resolveSentryDsnFromKeyProject(): string | undefined {
   return `https://${key}@${host}/${projectId}`;
 }
 
+/** @deprecated Use `resolveDeployEnvironment()` — it is not Sentry-specific. */
 export function resolveSentryEnvironment(): string {
-  return (
-    firstNonEmpty(
-      process.env.SENTRY_ENVIRONMENT,
-      process.env.NETLIFY_CONTEXT,
-      process.env.VERCEL_ENV,
-      process.env.NODE_ENV,
-    ) ?? "production"
-  );
+  return resolveDeployEnvironment();
 }
 
 export function resolveServerSentryDsn(): string | undefined {

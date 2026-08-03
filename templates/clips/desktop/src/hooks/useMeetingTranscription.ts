@@ -8,11 +8,14 @@ import {
   appendFinalTranscript,
   onFinalTranscript,
   restartTranscriptionEngine,
-  speakerFor,
   startTranscriptionEngine,
   stopTranscriptionEngine,
+  transcriptFullText,
+  transcriptLineFromSegment,
+  transcriptSegments,
   type SourcedTranscriptSegment,
   type TranscriptionEngine,
+  type TranscriptLine,
 } from "../lib/transcription-engine";
 import { normalizeServerUrl } from "../lib/url";
 
@@ -31,8 +34,7 @@ export interface MeetingTranscriptionPayload {
 interface MeetingTranscriptionSession {
   meetingId: string;
   recordingId: string;
-  lines: string[];
-  segments: SourcedTranscriptSegment[];
+  lines: TranscriptLine[];
   unlisten: Array<() => void>;
   flushTimer: ReturnType<typeof setTimeout> | null;
   stopping: boolean;
@@ -50,6 +52,22 @@ interface MeetingTranscriptionSession {
   flushInFlight: Promise<void> | null;
   flushSeq: number;
   dirtySeq: number;
+}
+
+/** What the pill overlay needs to render a line: text, side, and timestamp.
+ *  The verbatim segments stay behind in the session. */
+interface PillTranscriptLine {
+  text: string;
+  source: "mic" | "system";
+  startMs?: number;
+}
+
+function pillTranscriptLines(lines: TranscriptLine[]): PillTranscriptLine[] {
+  return lines.map((line) => ({
+    text: line.text,
+    source: line.source,
+    startMs: line.startMs ?? undefined,
+  }));
 }
 
 type CallClipsAction = <T>(
@@ -79,11 +97,7 @@ export function useMeetingTranscription({
   const pendingPillInitRef = useRef<{
     meetingId: string;
     initialNotes: string;
-    preloadedLines?: Array<{
-      text: string;
-      source: "mic" | "system";
-      startMs?: number;
-    }>;
+    preloadedLines?: PillTranscriptLine[];
   } | null>(null);
 
   const normalizedServerUrl = useMemo(
@@ -119,8 +133,8 @@ export function useMeetingTranscription({
     const run = (async () => {
       await callClipsAction("save-browser-transcript", {
         recordingId: session.recordingId,
-        fullText: session.lines.join("\n\n"),
-        segments: session.segments,
+        fullText: transcriptFullText(session.lines),
+        segments: transcriptSegments(session.lines),
         source: session.engine,
         overwriteReady: true,
       });
@@ -314,7 +328,6 @@ export function useMeetingTranscription({
           meetingId: resolvedMeetingId,
           recordingId,
           lines: [],
-          segments: [],
           unlisten: [],
           flushTimer: null,
           stopping: false,
@@ -363,13 +376,7 @@ export function useMeetingTranscription({
                   })),
                 }
               : event;
-            if (
-              appendFinalTranscript(
-                timelineEvent,
-                session.lines,
-                session.segments,
-              )
-            ) {
+            if (appendFinalTranscript(timelineEvent, session.lines)) {
               scheduleFlush();
             }
           }),
@@ -539,11 +546,7 @@ export function useMeetingTranscription({
             pendingPillInitRef.current = {
               meetingId: resolvedMeetingId,
               initialNotes,
-              preloadedLines: session.segments.map((segment) => ({
-                text: segment.text,
-                source: segment.source,
-                startMs: segment.startMs,
-              })),
+              preloadedLines: pillTranscriptLines(session.lines),
             };
             emit("clips:meeting-notes-init", {
               meetingId: resolvedMeetingId,
@@ -561,25 +564,16 @@ export function useMeetingTranscription({
                   source?: "mic" | "system";
                 }>;
                 if (segs.length > 0) {
-                  const preloadedLineStrings = segs.map(
-                    (s) => `${speakerFor(s.source)}: ${s.text}`,
+                  const storedLines = segs.map((s) =>
+                    transcriptLineFromSegment({
+                      startMs: s.startMs ?? 0,
+                      endMs: s.endMs ?? 0,
+                      text: s.text,
+                      source: s.source ?? "mic",
+                    }),
                   );
-                  const preloadedSegments = segs.map((s) => ({
-                    startMs: s.startMs ?? 0,
-                    endMs: s.endMs ?? 0,
-                    text: s.text,
-                    source: s.source ?? ("mic" as const),
-                  }));
-                  session.lines = [...preloadedLineStrings, ...session.lines];
-                  session.segments = [
-                    ...preloadedSegments,
-                    ...session.segments,
-                  ];
-                  const preloadedLines = session.segments.map((s) => ({
-                    text: s.text,
-                    source: s.source,
-                    startMs: s.startMs,
-                  }));
+                  session.lines = [...storedLines, ...session.lines];
+                  const preloadedLines = pillTranscriptLines(session.lines);
                   // Store in ref so clips:pill-ready can re-emit if the
                   // pill window mounts after this fetch resolves.
                   if (
@@ -648,15 +642,10 @@ export function useMeetingTranscription({
             .then((history) => {
               if (sessionRef.current !== session) return;
               const historyLines = history.segments.map(
-                (segment) => `${speakerFor(segment.source)}: ${segment.text}`,
+                transcriptLineFromSegment,
               );
               session.lines = [...historyLines, ...session.lines];
-              session.segments = [...history.segments, ...session.segments];
-              const preloadedLines = session.segments.map((segment) => ({
-                text: segment.text,
-                source: segment.source,
-                startMs: segment.startMs,
-              }));
+              const preloadedLines = pillTranscriptLines(session.lines);
               if (pendingPillInitRef.current?.meetingId === resolvedMeetingId) {
                 pendingPillInitRef.current = {
                   ...pendingPillInitRef.current,

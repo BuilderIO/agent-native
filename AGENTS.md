@@ -61,6 +61,35 @@ when the requested coding/work unit is finished on the current branch, even if
 routine commit/PR/deploy/CI remains. Use `🟡` when non-routine work or a manual
 step is still pending. Use `🔴` only when blocked on user input.
 
+## Checks
+
+Rules here are carried by skills, not by blocking your tools. Two exceptions
+exist, and both are narrow on purpose.
+
+**Guards** (`pnpm guards`, and CI on every PR — these apply to Codex, Claude
+Code, and a human equally): `no-secret-literals`, `additive-migrations`,
+`no-silent-coercion`, `no-raw-colors`, alongside the existing 37. The last two
+check only lines this branch added, so the pre-existing backlog stays a separate
+cleanup. Each has a documented opt-out pragma, and every opt-out is a decision a
+reviewer should see.
+
+**One hook** (`scripts/hooks/file-lease.mjs`): denies a write when another live
+session holds the file, or when it changed on disk under you. It exists because
+this is the only rule you cannot follow by reading instructions — no amount of
+guidance tells you that a peer session is mid-edit in the same file right now.
+Re-read and build on their change; never force past it. Read
+`concurrent-agents` before working in a shared checkout.
+
+Everything else is guidance, because guidance is what actually worked: unasked
+branch creation went to zero within days of `new-branch` gaining its activation
+guard, and a tool-level block there would only have blocked the correct
+post-merge workflow. When a rule keeps getting broken, the first move is to find
+the situation where the agent is tempted and write the positive workflow for it
+— not to add a wall.
+
+Spawning a read-only investigator? Use `/sidecar <task>` instead of retyping the
+contract.
+
 ## Architecture Contract
 
 - Data lives in SQL via Drizzle by default. Explicit Local File Mode artifacts

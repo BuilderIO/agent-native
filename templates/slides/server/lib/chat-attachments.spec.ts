@@ -120,6 +120,8 @@ describe("prepareSlidesChatAttachments", () => {
     expect(result?.message).toContain("reference.png");
     expect(result?.message).toContain("data/uploads/user/reference.png");
     expect(result?.message).not.toContain("embeddable URL:");
+    expect(result?.message).toContain("NO embeddable URL");
+    expect(result?.message).toContain("Do not silently skip these images");
     expect(result?.attachments?.[0]?.data).toBe(
       "data:image/png;base64,iVBORw0KGgo=",
     );

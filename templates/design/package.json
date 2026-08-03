@@ -20,7 +20,6 @@
   "dependencies": {
     "@agent-native/core": "workspace:*",
     "@agent-native/creative-context": "workspace:*",
-    "@agent-native/pinpoint": "workspace:*",
     "@agent-native/toolkit": "workspace:*",
     "@fontsource-variable/inter": "^5.2.8",
     "@libsql/client": "^0.15.8",

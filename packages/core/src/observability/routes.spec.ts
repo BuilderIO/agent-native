@@ -185,7 +185,7 @@ describe("observability routes", () => {
     },
   );
 
-  it("does not double-count a thumbs-down category as sentiment", async () => {
+  it("reports a category follow-up without counting it as a second sentiment", async () => {
     mockReadBody.mockResolvedValue({
       threadId: "thread-1",
       runId: "run-1",
@@ -198,7 +198,36 @@ describe("observability routes", () => {
     await handler(createEvent("/feedback", "POST"));
 
     expect(mockInsertFeedback).toHaveBeenCalledOnce();
-    expect(mockGetTraceSummary).not.toHaveBeenCalled();
-    expect(mockTrack).not.toHaveBeenCalled();
+    // The submission is visible...
+    expect(mockTrack).toHaveBeenCalledOnce();
+    const [name, properties] = mockTrack.mock.calls[0];
+    expect(name).toBe("$ai_feedback");
+    expect(properties).toMatchObject({
+      feedback_type: "category",
+      run_id: "run-1",
+      $ai_trace_id: "run-1",
+    });
+    // ...but carries no sentiment: the thumbs-down it follows already counted.
+    expect(properties).not.toHaveProperty("sentiment");
+  });
+
+  it("reports free-text feedback, which previously emitted nothing", async () => {
+    mockReadBody.mockResolvedValue({
+      threadId: "thread-1",
+      runId: "run-1",
+      feedbackType: "text",
+      value: "the answer cited the wrong doc",
+    });
+    const handler = createObservabilityHandler() as any;
+
+    await handler(createEvent("/feedback", "POST"));
+
+    expect(mockTrack).toHaveBeenCalledOnce();
+    const [, properties] = mockTrack.mock.calls[0];
+    expect(properties).toMatchObject({ feedback_type: "text" });
+    expect(properties).not.toHaveProperty("sentiment");
+    // The first-party event stays content-free; the text itself is persisted
+    // and, when a survey is configured, sent as the survey response.
+    expect(JSON.stringify(properties)).not.toContain("wrong doc");
   });
 });

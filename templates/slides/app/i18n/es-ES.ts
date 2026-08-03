@@ -363,6 +363,8 @@ const messages = {
   styleInspector: {
     title: "Style",
     close: "Cerrar inspector de estilo",
+    slideBackground: "Fondo de la diapositiva",
+    slide: "Diapositiva",
     deckStyle: "Estilo de la presentación",
     designSystemTweaks: "Ajustes del sistema de diseño",
     closeTweaks: "Cerrar ajustes",
@@ -422,6 +424,10 @@ const messages = {
     emerald: "Emerald",
     amber: "Amber",
     rose: "Rose",
+    arrange: "Organizar",
+    order: "Orden",
+    bringToFront: "Traer al frente",
+    sendToBack: "Enviar al fondo",
   },
   animations: {
     appear: "Aparecer",
@@ -542,6 +548,7 @@ const messages = {
     deckHasNoSlides: "El deck no tiene diapositivas.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",
+    dismissLayoutWarning: "Descartar advertencia de diseño",
     slidesAdded_one: "{{count}} diapositiva añadida",
     slidesAdded_other: "{{count}} diapositivas añadidas",
     slidesAdded_many: "{{count}} diapositivas añadidas",
@@ -554,6 +561,31 @@ const messages = {
     figParseFailed:
       "No se pudo iniciar la indexación de Builder para ese archivo de Figma.",
     updated: "Sistema de diseño actualizado",
+    sourceLabel: "Fuente",
+    sourceFigma: "Archivo de Figma",
+    sourceCode: "Archivos de código",
+    sourceGitHub: "Repositorio de GitHub",
+    sourceMixed: "Varias fuentes",
+    sourceBuilder: "Inteligencia de sistemas de diseño de Builder",
+    sourceIndexing: "Indexando",
+    sourceIndexed: "Indexado",
+    sourceUnavailable: "Resultados no disponibles",
+    sourceIndexingDescription:
+      "Builder sigue procesando esta fuente. Los resultados aparecerán aquí cuando estén listos.",
+    sourceIndexedDescription:
+      "{{docs}} documentos · {{tokens}} tokens indexados",
+    sourceIndexedDocsOnly: "{{docs}} documentos indexados",
+    sourceIndexedTokensOnly: "{{tokens}} tokens indexados",
+    sourceUnavailableDescription:
+      "Builder no pudo cargar los resultados más recientes de la fuente.",
+    sourceOpenInBuilder: "Abrir en Builder",
+    loadFailed:
+      "No se pudo cargar este sistema de diseño. Ciérralo y vuelve a intentarlo.",
+    otherSources: "Otros",
+    otherSourcesDescription:
+      "Conecta desde un sitio web, código, archivos o un sistema de diseño existente.",
+    chooseSourcePrompt: "Elige una fuente para configurar",
+    loading: "Cargando sistema de diseño",
     updateFailed: "No se pudo actualizar",
     generationStarted: "Generación del sistema de diseño iniciada",
     generationStartedDescription:
@@ -652,6 +684,7 @@ const messages = {
       "Establecido como predeterminado del espacio de trabajo",
     workspaceDefaultCleared:
       "Se quitó el predeterminado del espacio de trabajo",
+    duplicateFailed: "No se pudo duplicar esa presentación",
     workspaceDefaultFailed:
       "No se pudo actualizar el predeterminado del espacio de trabajo",
     workspaceDefaultConfirmTitle:

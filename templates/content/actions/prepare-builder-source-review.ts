@@ -34,7 +34,6 @@ import {
   serializeSourceRowRecord,
   sourceChangeSetKey,
 } from "./_database-source-utils.js";
-import { getContentDatabaseResponse } from "./_database-utils.js";
 
 export const BUILDER_SOURCE_REVIEW_PREPARE_LIMIT = 100;
 
@@ -763,18 +762,16 @@ export default defineAction({
         approvalStartedAt,
       );
 
-      const { reviewedSnapshot, response } = await timing.measure(
-        "reconciliation_and_response_load",
-        async () => ({
-          reviewedSnapshot: await getContentDatabaseSourceSnapshotForWrite(
+      const reviewedSnapshot = await timing.measure(
+        "reconciliation_snapshot_load",
+        () =>
+          getContentDatabaseSourceSnapshotForWrite(
             database,
             args.sourceId,
             reviewableChanges.every((changeSet) => changeSet.documentId)
               ? reviewableChanges.map((changeSet) => changeSet.documentId!)
               : args.documentIds,
           ),
-          response: await getContentDatabaseResponse(database.id),
-        }),
       );
       if (!reviewedSnapshot) throw new Error("Builder source disappeared.");
       // Build the review payload from the TARGET source snapshot, not
@@ -797,7 +794,6 @@ export default defineAction({
       review.preparedRowLimit = reviewableChanges.length;
 
       const result = {
-        ...response,
         review,
         preparedChangeSetMappings,
         timings: timing.finish(),

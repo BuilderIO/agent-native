@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mockGetSession = vi.fn();
 const mockResolveHasCompleteBuilderConnection = vi.fn();
 const mockResolveSecret = vi.fn();
+const mockPrefetchSecrets = vi.fn();
 const mockGetOrgContext = vi.fn();
 const mockResolveGoogleRealtimeCredentials = vi.fn();
 
@@ -21,6 +22,7 @@ vi.mock("./auth.js", () => ({
 }));
 
 vi.mock("./credential-provider.js", () => ({
+  prefetchSecrets: (...args: any[]) => mockPrefetchSecrets(...args),
   resolveHasCompleteBuilderConnection: (...args: any[]) =>
     mockResolveHasCompleteBuilderConnection(...args),
   resolveSecret: (...args: any[]) => mockResolveSecret(...args),
@@ -54,6 +56,7 @@ describe("voice providers status route", () => {
     delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
     mockGetSession.mockResolvedValue({ email: "voice+qa@example.com" });
     mockResolveSecret.mockResolvedValue(null);
+    mockPrefetchSecrets.mockResolvedValue(undefined);
     mockResolveHasCompleteBuilderConnection.mockResolvedValue(false);
     mockGetOrgContext.mockResolvedValue({ orgId: "org-123" });
     mockResolveGoogleRealtimeCredentials.mockResolvedValue(null);

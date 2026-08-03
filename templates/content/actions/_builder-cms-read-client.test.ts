@@ -428,6 +428,7 @@ describe("Builder CMS read client", () => {
           "data.customModelField",
           "data.Status",
           "data.status",
+          "data.optionalField",
           "data.blocks",
         ],
         fetchImpl: fetchImpl as unknown as typeof fetch,
@@ -448,9 +449,90 @@ describe("Builder CMS read client", () => {
             "data.customModelField": "Preserved",
             "data.Status": "Editorial",
             "data.status": "published",
+            "data.optionalField": null,
           },
         },
       ],
+    });
+  });
+
+  it("allows the read-only attach preview to use Builder's cached projection", async () => {
+    process.env.BUILDER_CONTENT_API_HOST = "https://cdn.test.builder.io";
+    resolveBuilderCredentialMock.mockImplementation(async (key) =>
+      key === "BUILDER_PUBLIC_KEY" ? "public-key" : null,
+    );
+    const fetchImpl = vi.fn(async (input: URL) => {
+      expect(input.searchParams.get("noCache")).toBeNull();
+      expect(input.searchParams.get("cachebust")).toBeNull();
+      expect(input.searchParams.get("includeUnpublished")).toBe("true");
+      expect(input.searchParams.get("fields")).toContain("data.title");
+      return new Response(
+        JSON.stringify({
+          results: [
+            {
+              id: "builder-preview-entry",
+              data: { title: "Cached preview" },
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    });
+
+    await expect(
+      readBuilderCmsContentEntries({
+        model: "blog_article",
+        fieldPaths: ["data.title"],
+        allowCached: true,
+        maxPages: 1,
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).resolves.toMatchObject({
+      state: "live",
+      entries: [{ id: "builder-preview-entry", title: "Cached preview" }],
+      progress: { partial: false },
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("can project Builder bodies in paged list reads for bulk hydration", async () => {
+    process.env.BUILDER_CONTENT_API_HOST = "https://cdn.test.builder.io";
+    resolveBuilderCredentialMock.mockImplementation(async (key) =>
+      key === "BUILDER_PUBLIC_KEY" ? "public-key" : null,
+    );
+    const fetchImpl = vi.fn(async (input: URL) => {
+      expect(input.searchParams.get("enrich")).toBe("true");
+      expect(input.searchParams.get("fields")?.split(",")).toEqual(
+        expect.arrayContaining([
+          "data.title",
+          "data.blocks",
+          "data.blocksString",
+        ]),
+      );
+      return new Response(
+        JSON.stringify({
+          results: [
+            {
+              id: "builder-entry-with-body",
+              data: {
+                title: "Builder body",
+                blocks: [{ id: "block-1" }],
+              },
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    });
+
+    const result = await readBuilderCmsContentEntries({
+      model: "blog-article",
+      includeBodies: true,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    expect(result.entries[0]?.rawEntry?.data).toMatchObject({
+      blocks: [{ id: "block-1" }],
     });
   });
 
@@ -944,7 +1026,7 @@ describe("Builder CMS read client", () => {
     });
 
     expect(requests.map((request) => request.offset)).toEqual([
-      0, 100, 200, 300, 400, 500,
+      0, 100, 200, 300, 400, 500, 600, 700, 800,
     ]);
     expect(requests.every((request) => request.limit > 0)).toBe(true);
     expect(result.entries).toHaveLength(597);
@@ -953,6 +1035,167 @@ describe("Builder CMS read client", () => {
       fetchedEntryCount: 597,
       hasMore: false,
       partial: false,
+    });
+  });
+
+  it("reads projected Content API pages in bounded parallel windows and preserves offset order", async () => {
+    process.env.BUILDER_CONTENT_API_HOST = "https://cdn.test.builder.io";
+    resolveBuilderCredentialMock.mockImplementation(async (key) =>
+      key === "BUILDER_PUBLIC_KEY" ? "public-key" : null,
+    );
+    let activeRequests = 0;
+    let maxActiveRequests = 0;
+    const resolvers = new Map<number, () => void>();
+    const fetchImpl = vi.fn(async (input: URL) => {
+      const offset = Number(input.searchParams.get("offset"));
+      activeRequests += 1;
+      maxActiveRequests = Math.max(maxActiveRequests, activeRequests);
+      return await new Promise<Response>((resolve) => {
+        resolvers.set(offset, () => {
+          resolvers.delete(offset);
+          activeRequests -= 1;
+          resolve(
+            new Response(
+              JSON.stringify({
+                results: Array.from({ length: 100 }, (_, index) => ({
+                  id: `builder-entry-${offset + index + 1}`,
+                  data: { title: `Builder title ${offset + index + 1}` },
+                })),
+              }),
+              { status: 200 },
+            ),
+          );
+        });
+      });
+    });
+
+    const read = readBuilderCmsContentEntries({
+      model: "blog_article",
+      limit: 900,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    await vi.waitFor(() => expect(resolvers.size).toBe(1));
+    resolvers.get(0)?.();
+    await vi.waitFor(() => expect(resolvers.size).toBe(8));
+    expect(maxActiveRequests).toBe(8);
+    for (const offset of [800, 700, 600, 500, 400, 300, 200, 100]) {
+      resolvers.get(offset)?.();
+    }
+
+    const result = await read;
+
+    expect(result.entries.map((entry) => entry.id)).toEqual(
+      Array.from({ length: 900 }, (_, index) => `builder-entry-${index + 1}`),
+    );
+    expect(maxActiveRequests).toBeLessThanOrEqual(8);
+  });
+
+  it("stops at the first short projected page and ignores later in-flight pages", async () => {
+    process.env.BUILDER_CONTENT_API_HOST = "https://cdn.test.builder.io";
+    resolveBuilderCredentialMock.mockImplementation(async (key) =>
+      key === "BUILDER_PUBLIC_KEY" ? "public-key" : null,
+    );
+    const requestedOffsets: number[] = [];
+    const fetchImpl = vi.fn(async (input: URL) => {
+      const offset = Number(input.searchParams.get("offset"));
+      requestedOffsets.push(offset);
+      const resultCount = offset === 100 ? 10 : 100;
+      return new Response(
+        JSON.stringify({
+          results: Array.from({ length: resultCount }, (_, index) => ({
+            id: `builder-entry-${offset + index + 1}`,
+            data: { title: `Builder title ${offset + index + 1}` },
+          })),
+        }),
+        { status: 200 },
+      );
+    });
+
+    const result = await readBuilderCmsContentEntries({
+      model: "blog_article",
+      limit: 400,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    expect(requestedOffsets).toEqual([0, 100, 200, 300]);
+    expect(result.entries.map((entry) => entry.id)).toEqual(
+      Array.from({ length: 110 }, (_, index) => `builder-entry-${index + 1}`),
+    );
+    expect(result.progress).toMatchObject({
+      nextOffset: 110,
+      fetchedEntryCount: 110,
+      hasMore: false,
+      partial: false,
+    });
+  });
+
+  it("keeps stable-ID deduplication across projected Content API windows", async () => {
+    process.env.BUILDER_CONTENT_API_HOST = "https://cdn.test.builder.io";
+    resolveBuilderCredentialMock.mockImplementation(async (key) =>
+      key === "BUILDER_PUBLIC_KEY" ? "public-key" : null,
+    );
+    const fetchImpl = vi.fn(async (input: URL) => {
+      const offset = Number(input.searchParams.get("offset"));
+      const ids =
+        offset === 0
+          ? Array.from({ length: 100 }, (_, index) => index + 1)
+          : offset === 100
+            ? Array.from({ length: 100 }, (_, index) => index + 51)
+            : Array.from({ length: 50 }, (_, index) => index + 151);
+      return new Response(
+        JSON.stringify({
+          results: ids.map((id) => ({
+            id: `builder-entry-${id}`,
+            data: { title: `Builder title ${id}` },
+          })),
+        }),
+        { status: 200 },
+      );
+    });
+
+    const result = await readBuilderCmsContentEntries({
+      model: "blog_article",
+      limit: 200,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    expect(result.entries.map((entry) => entry.id)).toEqual(
+      Array.from({ length: 200 }, (_, index) => `builder-entry-${index + 1}`),
+    );
+  });
+
+  it("returns a typed error when a required projected page fails", async () => {
+    process.env.BUILDER_CONTENT_API_HOST = "https://cdn.test.builder.io";
+    resolveBuilderCredentialMock.mockImplementation(async (key) =>
+      key === "BUILDER_PUBLIC_KEY" ? "public-key" : null,
+    );
+    const fetchImpl = vi.fn(async (input: URL) => {
+      if (input.searchParams.get("offset") === "100") {
+        return new Response("bad request", { status: 400 });
+      }
+      return new Response(
+        JSON.stringify({
+          results: Array.from({ length: 100 }, (_, index) => ({
+            id: `builder-entry-${index + 1}`,
+            data: { title: `Builder title ${index + 1}` },
+          })),
+        }),
+        { status: 200 },
+      );
+    });
+
+    await expect(
+      readBuilderCmsContentEntries({
+        model: "blog_article",
+        limit: 400,
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).resolves.toMatchObject({
+      state: "error",
+      entries: [],
+      message: "Builder CMS read failed with HTTP 400.",
+      progress: { readMode: "builder-api" },
     });
   });
 

@@ -11,7 +11,7 @@ import { consumeIntegrationAwaitingInput } from "../awaiting-input-store.js";
 import { createIntegrationControl } from "../controls-store.js";
 import {
   getActiveIntegrationInstallationByKey,
-  getActiveIntegrationInstallationForTenant,
+  listActiveIntegrationInstallationsForTenant,
   listIntegrationInstallations,
   resolveIntegrationTokenBundle,
 } from "../installations-store.js";
@@ -666,13 +666,18 @@ export function slackAdapter(
           channelId: target.destination,
           threadTs: target.threadRef,
           teamId: target.tenantId,
+          installationKey: target.installationKey,
         },
         tenantId: target.tenantId,
         timestamp: Date.now(),
       };
       const token = await resolveBotToken(targetContext);
       if (!token) {
-        console.error("[slack] SLACK_BOT_TOKEN not configured");
+        console.error(
+          "[slack] no bot token for outbound target" +
+            (target.tenantId ? ` (tenant ${target.tenantId})` : "") +
+            "; set SLACK_BOT_TOKEN or pass installationKey to name the app",
+        );
         return;
       }
 
@@ -808,25 +813,42 @@ async function resolveManagedSlackBotToken(
     typeof incoming.platformContext.enterpriseId === "string"
       ? incoming.platformContext.enterpriseId
       : undefined;
+  const installationKeyHint =
+    typeof incoming.platformContext.installationKey === "string"
+      ? incoming.platformContext.installationKey
+      : undefined;
   if (!teamId && !enterpriseId) return undefined;
   try {
-    let installation = apiAppId
+    let installation = installationKeyHint
       ? await getActiveIntegrationInstallationByKey(
           "slack",
-          slackInstallationKey({ teamId, enterpriseId, apiAppId }),
+          installationKeyHint,
         )
       : null;
-    if (!installation && !apiAppId && teamId) {
-      installation = await getActiveIntegrationInstallationForTenant(
+    if (!installation && apiAppId) {
+      installation = await getActiveIntegrationInstallationByKey(
         "slack",
-        teamId,
+        slackInstallationKey({ teamId, enterpriseId, apiAppId }),
       );
     }
-    if (!installation && !apiAppId && enterpriseId) {
-      installation = await getActiveIntegrationInstallationForTenant(
+    if (!installation && !apiAppId) {
+      // Without an app id the tenant can match several connected Slack apps.
+      // Sending as an arbitrary one posts under the wrong bot identity, so
+      // only proceed when the tenant resolves to exactly one installation.
+      const tenant = teamId ?? enterpriseId!;
+      const candidates = await listActiveIntegrationInstallationsForTenant(
         "slack",
-        enterpriseId,
+        tenant,
       );
+      if (candidates.length > 1) {
+        console.error(
+          `[slack] ${candidates.length} connected Slack apps for tenant ${tenant}; ` +
+            `cannot choose one without an app id. Pass installationKey on the outbound target. ` +
+            `Candidates: ${candidates.map((c) => c.installationKey).join(", ")}`,
+        );
+        return undefined;
+      }
+      installation = candidates[0] ?? null;
     }
     const key =
       installation?.installationKey ??
@@ -2067,7 +2089,9 @@ function createSlackRunProgress(
             ? "in_progress"
             : event.status === "done"
               ? "complete"
-              : "error";
+              : event.status === "pending"
+                ? "in_progress"
+                : "error";
         const title = delegatedTaskTitle(event.agent);
         tasks.set(id, { title, status });
         await append({
@@ -2075,9 +2099,12 @@ function createSlackRunProgress(
           id,
           title,
           status,
-          ...(event.status === "start"
+          ...(event.status === "start" || event.status === "pending"
             ? {
-                details: `I’m contacting ${shortTaskTitle(event.agent)} for an answer.`,
+                details:
+                  event.status === "pending"
+                    ? `${shortTaskTitle(event.agent)} is still working and will need another status check.`
+                    : `I’m contacting ${shortTaskTitle(event.agent)} for an answer.`,
               }
             : {}),
         });

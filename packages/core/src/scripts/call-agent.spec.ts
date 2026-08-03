@@ -1,8 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+  registerTrackingProvider,
+  unregisterTrackingProvider,
+} from "../tracking/registry.js";
+import type { TrackingEvent } from "../tracking/types.js";
+
 const callAgentMock = vi.hoisted(() => vi.fn());
 const invokeActionMock = vi.hoisted(() => vi.fn());
 const insertA2AContinuationMock = vi.hoisted(() => vi.fn());
+const getA2AContinuationsMock = vi.hoisted(() => vi.fn());
 const dispatchA2AContinuationMock = vi.hoisted(() => vi.fn());
 const bumpRunProgressMock = vi.hoisted(() => vi.fn(async () => {}));
 const integrationRequestContextMock = vi.hoisted(() => vi.fn());
@@ -31,6 +38,7 @@ vi.mock("../server/agent-discovery.js", () => ({
 }));
 
 vi.mock("../a2a/client.js", () => ({
+  MAX_A2A_CALLER_RESPONSE_CHARS: 32_768,
   A2ATaskTimeoutError: class A2ATaskTimeoutError extends Error {
     taskId: string;
     constructor(taskId: string) {
@@ -54,13 +62,14 @@ vi.mock("../org/context.js", () => ({
 vi.mock("../server/request-context.js", () => ({
   getRequestUserEmail: () => "alice+qa@agent-native.test",
   getRequestOrgId: () => "org-qa",
+  getRequestRunContext: () => ({ model: "claude-opus-4-8" }),
   isIntegrationCallerRequest: () => true,
   getIntegrationRequestContext: integrationRequestContextMock,
 }));
 
 vi.mock("../integrations/a2a-continuations-store.js", () => ({
   insertA2AContinuation: insertA2AContinuationMock,
-  getA2AContinuationsForIntegrationTaskAgent: vi.fn(async () => []),
+  getA2AContinuationsForIntegrationTaskAgent: getA2AContinuationsMock,
 }));
 
 vi.mock("../integrations/a2a-continuation-processor.js", () => ({
@@ -127,9 +136,27 @@ describe("call-agent action", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     delete process.env.NETLIFY;
+    delete process.env.NETLIFY_LOCAL;
+    delete process.env.SITE_ID; // guard:allow-env-credential -- tests isolate Netlify's public runtime host marker.
+    delete process.env.AWS_LAMBDA_FUNCTION_NAME;
+    delete process.env.VERCEL;
+    delete process.env.AGENT_NATIVE_INTEGRATION_A2A_TIMEOUT_MS;
     integrationRequestContextMock.mockReturnValue(slackIntegrationContext);
     insertA2AContinuationMock.mockResolvedValue({ id: "cont-1" });
+    getA2AContinuationsMock.mockResolvedValue([]);
     dispatchA2AContinuationMock.mockResolvedValue(undefined);
+  });
+
+  it("defaults cross-app work to the receiving specialist agent", async () => {
+    const { tool } = await import("./call-agent.js");
+
+    expect(tool.description).toContain("Use message by default");
+    expect(tool.description).toContain(
+      "The receiver owns provider, schema, query, join, and SQL decisions",
+    );
+    expect(tool.description).toContain(
+      "never expose or call a direct action to work around",
+    );
   });
 
   it("forwards the user's exact downstream action authorization", async () => {
@@ -153,6 +180,8 @@ describe("call-agent action", () => {
     expect(callAgentMock.mock.calls[0]?.[1]).toContain(
       "Return a concise caller-ready synthesis rather than raw tool output or full transcripts",
     );
+    expect(callAgentMock.mock.calls[0]?.[1]).toContain("<a2a-caller-hint>");
+    expect(callAgentMock.mock.calls[0]?.[1]).toContain("</a2a-caller-hint>");
   });
 
   it("forwards Slack source context as structured A2A data", async () => {
@@ -258,11 +287,58 @@ describe("call-agent action", () => {
         callerThreadId: "thread-qa",
         parentRunId: "run-qa",
         parentTurnId: "turn-qa",
+        delegationDepth: 1,
+        visitedApps: ["mail"],
+        // Preference hint: the receiver only uses it when it has no model.
+        callerModel: "claude-opus-4-8",
       },
       idempotencyKey: expect.stringMatching(/^v1:[a-f0-9]{64}$/),
     });
     expect(duplicateOptions.idempotencyKey).toBe(firstOptions.idempotencyKey);
     expect(changedOptions.idempotencyKey).not.toBe(firstOptions.idempotencyKey);
+  });
+
+  it("preserves and increments nested delegation lineage", async () => {
+    callAgentMock.mockResolvedValueOnce("done");
+    const { run } = await import("./call-agent.js");
+
+    await run(
+      { agent: "slides", message: "make a deck" },
+      {
+        threadId: "thread-qa",
+        runId: "run-qa",
+        turnId: "turn-qa",
+        delegationDepth: 1,
+        visitedApps: ["dispatch"],
+      } as any,
+      "mail",
+    );
+
+    expect(callAgentMock.mock.calls[0]?.[2]?.correlation).toMatchObject({
+      callerApp: "mail",
+      delegationDepth: 2,
+      visitedApps: ["dispatch", "mail"],
+    });
+  });
+
+  it("blocks repeated apps and excessive delegation depth before dispatch", async () => {
+    const { run } = await import("./call-agent.js");
+
+    await expect(
+      run(
+        { agent: "slides", message: "loop" },
+        { delegationDepth: 1, visitedApps: ["slides"] } as any,
+        "mail",
+      ),
+    ).resolves.toContain("delegation cycle blocked");
+    await expect(
+      run(
+        { agent: "slides", message: "too deep" },
+        { delegationDepth: 3, visitedApps: ["dispatch", "mail"] } as any,
+        "analytics",
+      ),
+    ).resolves.toContain("3-hop limit");
+    expect(callAgentMock).not.toHaveBeenCalled();
   });
 
   it("polls a returned task id without sending another downstream message", async () => {
@@ -325,6 +401,9 @@ describe("call-agent action", () => {
           parentRunId: "run-qa",
           parentTurnId: "turn-qa",
           invocationId: expect.any(String),
+          delegationDepth: 1,
+          visitedApps: ["mail"],
+          callerModel: "claude-opus-4-8",
         },
       }),
     );
@@ -385,7 +464,164 @@ describe("call-agent action", () => {
       'taskId="remote-task-keep" (omit message) to continue waiting',
     );
     expect(result).toContain("Do not send Slides a new check-in");
+    expect((result.match(/remote-task-keep/g) ?? []).length).toBeGreaterThan(0);
     consoleError.mockRestore();
+  });
+
+  it.each([
+    {
+      state: "failed",
+      expectedStatus: "error",
+      responseText: "provider retries exhausted",
+    },
+    {
+      state: "input-required",
+      expectedStatus: "pending",
+      responseText: "Open https://analytics.agent-native.test/approve/1",
+    },
+  ])(
+    "emits $expectedStatus when the remote task ends $state",
+    async ({ state, expectedStatus, responseText }) => {
+      callAgentMock.mockRejectedValueOnce(
+        Object.assign(new Error(`remote ${state}`), {
+          name: "A2ATaskTerminalError",
+          taskId: `task-${state}`,
+          state,
+          responseText,
+          errorCode: `a2a_task_${state.replace(/-/g, "_")}`,
+        }),
+      );
+      const { run } = await import("./call-agent.js");
+      const send = vi.fn();
+
+      const result = await run(
+        { agent: "analytics", message: "analyze customers" },
+        { send } as any,
+      );
+
+      expect(result).toContain(responseText);
+      if (state === "failed") expect(result).toMatch(/^Error:/);
+      expect(send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "agent_call",
+          status: expectedStatus,
+        }),
+      );
+      expect(send).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: "agent_call", status: "done" }),
+      );
+      if (state === "input-required") {
+        expect(result).toContain(`taskId "task-${state}"`);
+        expect(result).toContain(`taskId="task-${state}" (omit message)`);
+        expect(send).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: "agent_call",
+            status: "pending",
+            taskId: `task-${state}`,
+          }),
+        );
+      }
+    },
+  );
+
+  it("emits error when a direct semantic read returns a failed status", async () => {
+    invokeActionMock.mockResolvedValueOnce({
+      action: "gong-calls",
+      status: "failed",
+      output: "Gong unavailable",
+    });
+    const { run } = await import("./call-agent.js");
+    const send = vi.fn();
+
+    const result = await run(
+      {
+        agent: "analytics",
+        action: "gong-calls",
+        input: { company: "Edmunds" },
+      },
+      { send } as any,
+      "mail",
+    );
+
+    expect(result).toMatch(/^Error calling Slides action gong-calls:/);
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "agent_call", status: "error" }),
+    );
+    expect(send).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "agent_call", status: "done" }),
+    );
+  });
+
+  it("tracks a content-free sender outcome for failed delegated tasks", async () => {
+    const tracked: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-a2a-invocation",
+      track(event) {
+        tracked.push(event);
+      },
+    });
+    try {
+      callAgentMock.mockRejectedValueOnce(
+        Object.assign(new Error("remote failed"), {
+          name: "A2ATaskTerminalError",
+          taskId: "task-failed-telemetry",
+          state: "failed",
+          responseText: "provider retries exhausted",
+          errorCode: "provider_network_error",
+        }),
+      );
+      const { run } = await import("./call-agent.js");
+
+      await run(
+        { agent: "analytics", message: "private customer request" },
+        {
+          send: vi.fn(),
+          threadId: "thread-qa",
+          runId: "run-qa",
+          turnId: "turn-qa",
+        } as any,
+        "mail",
+      );
+
+      const event = tracked.find(
+        (candidate) => candidate.name === "$a2a_invocation",
+      );
+      expect(event?.properties).toMatchObject({
+        source: "a2a_delegation",
+        caller_app: "mail",
+        target_app: "slides",
+        mode: "message",
+        status: "error",
+        task_id: "task-failed-telemetry",
+        terminal_code: "provider_network_error",
+        delegation_depth: 1,
+        parent_run_id: "run-qa",
+        parent_turn_id: "turn-qa",
+      });
+      expect(JSON.stringify(event)).not.toContain("private customer request");
+      expect(JSON.stringify(event)).not.toContain("provider retries exhausted");
+    } finally {
+      unregisterTrackingProvider("qa-a2a-invocation");
+    }
+  });
+
+  it("does not report an empty delegated response as success", async () => {
+    callAgentMock.mockResolvedValueOnce("");
+    const { run } = await import("./call-agent.js");
+    const send = vi.fn();
+
+    const result = await run(
+      { agent: "analytics", message: "analyze customers" },
+      { send } as any,
+    );
+
+    expect(result).toBe("Error: The Slides agent returned no result.");
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "agent_call", status: "error" }),
+    );
+    expect(send).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "agent_call", status: "done" }),
+    );
   });
 
   it("queues an integration continuation for structurally equivalent timeout errors", async () => {
@@ -430,6 +666,135 @@ describe("call-agent action", () => {
       expect.any(Object),
     );
   });
+
+  it("uses the bounded Netlify handoff when SITE_ID is the only runtime marker", async () => {
+    process.env.SITE_ID = "00000000-0000-0000-0000-000000000000"; // guard:allow-env-credential -- fake value exercises Netlify's public runtime host marker.
+    const timeout = Object.assign(
+      new Error(
+        "A2A task remote-task-site-id did not complete within 2000ms (last state: processing)",
+      ),
+      {
+        name: "A2ATaskTimeoutError",
+        taskId: "remote-task-site-id",
+      },
+    );
+    callAgentMock.mockRejectedValueOnce(timeout);
+    const { run } = await import("./call-agent.js");
+
+    const result = await run(
+      { agent: "content", message: "create the QA design ask" },
+      { send: vi.fn() } as any,
+    );
+
+    expect(callAgentMock).toHaveBeenCalledWith(
+      "https://slides.agent-native.test",
+      expect.any(String),
+      expect.objectContaining({
+        timeoutMs: 2_000,
+        submissionTimeoutMs: 15_000,
+      }),
+    );
+    expect(insertA2AContinuationMock).toHaveBeenCalledTimes(1);
+    expect(insertA2AContinuationMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        integrationTaskId: "integration-task-1",
+        externalThreadId: "C123:123.456",
+        a2aTaskId: "remote-task-site-id",
+        dedupeKey: expect.any(String),
+        progressRef: {
+          kind: "slack-stream",
+          streamTs: "1719000000.000001",
+        },
+      }),
+    );
+    expect(dispatchA2AContinuationMock).toHaveBeenCalledTimes(1);
+    expect(dispatchA2AContinuationMock).toHaveBeenCalledWith("cont-1");
+    expect(result).toContain("[agent-native:a2a-continuation-queued]");
+  });
+
+  it("reuses an existing SITE_ID continuation without calling the downstream agent again", async () => {
+    process.env.SITE_ID = "00000000-0000-0000-0000-000000000000"; // guard:allow-env-credential -- fake value exercises Netlify's public runtime host marker.
+    integrationRequestContextMock.mockReturnValue({
+      ...slackIntegrationContext,
+      attempts: 2,
+    });
+    getA2AContinuationsMock.mockResolvedValueOnce([
+      { id: "cont-existing", status: "pending" },
+    ]);
+    const { run } = await import("./call-agent.js");
+
+    const result = await run(
+      { agent: "content", message: "create the QA design ask" },
+      { send: vi.fn() } as any,
+    );
+
+    expect(getA2AContinuationsMock).toHaveBeenCalledWith(
+      "integration-task-1",
+      "https://slides.agent-native.test",
+      expect.any(String),
+    );
+    expect(result).toContain("[agent-native:a2a-continuation-queued]");
+    expect(result).toContain("already accepted this delegated subtask");
+    expect(callAgentMock).not.toHaveBeenCalled();
+    expect(insertA2AContinuationMock).not.toHaveBeenCalled();
+    expect(dispatchA2AContinuationMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["explicit NETLIFY=false with SITE_ID", "NETLIFY", "false", true],
+    ["NETLIFY_LOCAL=true with SITE_ID", "NETLIFY_LOCAL", "true", true],
+    ["explicit NETLIFY=false without SITE_ID", "NETLIFY", "false", false],
+    ["NETLIFY_LOCAL=true without SITE_ID", "NETLIFY_LOCAL", "true", false],
+  ])(
+    "lets %s suppress Netlify and compatibility-host timeouts",
+    async (_label, key, value, withSiteId) => {
+      if (withSiteId) {
+        process.env.SITE_ID = "00000000-0000-0000-0000-000000000000"; // guard:allow-env-credential -- fake value exercises Netlify's public runtime host marker.
+      }
+      process.env.AWS_LAMBDA_FUNCTION_NAME = "server";
+      process.env[key] = value;
+      callAgentMock.mockResolvedValueOnce("Handled");
+      const { run } = await import("./call-agent.js");
+
+      await run({ agent: "content", message: "create the QA design ask" }, {
+        send: vi.fn(),
+      } as any);
+
+      expect(callAgentMock).toHaveBeenCalledWith(
+        "https://slides.agent-native.test",
+        expect.any(String),
+        expect.not.objectContaining({
+          timeoutMs: expect.any(Number),
+          submissionTimeoutMs: expect.any(Number),
+        }),
+      );
+    },
+  );
+
+  it.each([
+    ["AWS Lambda", "AWS_LAMBDA_FUNCTION_NAME", "server"],
+    ["Vercel", "VERCEL", "1"],
+  ])(
+    "keeps the existing non-Netlify timeout on %s",
+    async (_label, key, value) => {
+      process.env[key] = value;
+      callAgentMock.mockResolvedValueOnce("Handled");
+      const { run } = await import("./call-agent.js");
+
+      await run({ agent: "content", message: "create the QA design ask" }, {
+        send: vi.fn(),
+      } as any);
+
+      expect(callAgentMock).toHaveBeenCalledWith(
+        "https://slides.agent-native.test",
+        expect.any(String),
+        expect.objectContaining({ timeoutMs: 18_000 }),
+      );
+      expect(callAgentMock.mock.calls[0]?.[2]).not.toHaveProperty(
+        "submissionTimeoutMs",
+      );
+    },
+  );
 
   it("returns receiver-verified artifacts when continuation enqueue fails", async () => {
     process.env.NETLIFY = "true";

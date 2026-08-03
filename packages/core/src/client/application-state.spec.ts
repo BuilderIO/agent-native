@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   deleteClientAppState,
   readClientAppState,
+  readClientAppStateMany,
   setClientAppState,
   writeClientAppState,
 } from "./application-state.js";
@@ -23,9 +24,12 @@ describe("client application-state helpers", () => {
     vi.stubGlobal("window", {
       location: { pathname: "/plans/_agent-native/auth/session" },
     });
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue(jsonResponse({ view: "detail" }));
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        values: { navigation: { view: "detail" } },
+        missing: [],
+      }),
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(readClientAppState("navigation")).resolves.toEqual({
@@ -33,13 +37,86 @@ describe("client application-state helpers", () => {
     });
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "/plans/_agent-native/application-state/navigation",
+      "/plans/_agent-native/application-state?keys=navigation",
       {
         method: "GET",
         cache: "no-store",
         signal: undefined,
       },
     );
+  });
+
+  it("coalesces same-tick reads into one batched request", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        values: { navigation: { view: "detail" }, selection: { ids: ["a"] } },
+        missing: ["__url__"],
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const [navigation, selection, url, duplicate] = await Promise.all([
+      readClientAppState("navigation"),
+      readClientAppState("selection"),
+      readClientAppState("__url__"),
+      readClientAppState("navigation"),
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      "/_agent-native/application-state?keys=navigation,selection,__url__",
+    );
+    expect(navigation).toEqual({ view: "detail" });
+    expect(selection).toEqual({ ids: ["a"] });
+    expect(duplicate).toEqual({ view: "detail" });
+    // Absent keys still read as `null` through the single-key helper, matching
+    // the pre-batching contract.
+    expect(url).toBeNull();
+  });
+
+  it("keeps absent keys distinguishable from stored null or empty values", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        values: { "stored-null": null, "stored-empty": {} },
+        missing: ["never-written"],
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const batch = await readClientAppStateMany([
+      "stored-null",
+      "stored-empty",
+      "never-written",
+    ]);
+
+    expect(batch.missing).toEqual(["never-written"]);
+    expect("never-written" in batch.values).toBe(false);
+    expect("stored-null" in batch.values).toBe(true);
+    expect(batch.values["stored-null"]).toBeNull();
+    expect(batch.values["stored-empty"]).toEqual({});
+  });
+
+  it("rejects a queued read when its caller aborts", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse({ values: { navigation: {} }, missing: [] }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const controller = new AbortController();
+    const first = readClientAppState("navigation");
+    const queued = readClientAppState("selection", {
+      signal: controller.signal,
+    });
+
+    controller.abort(new Error("caller cancelled"));
+    await expect(queued).rejects.toThrow("caller cancelled");
+
+    await vi.runAllTimersAsync();
+    await expect(first).resolves.toEqual({});
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
   });
 
   it("writes app state with JSON, keepalive, request source, and safe scoped keys", async () => {
@@ -87,7 +164,10 @@ describe("client application-state helpers", () => {
       "/_agent-native/application-state/selection",
       {
         method: "DELETE",
-        headers: { "X-Request-Source": "tab-1" },
+        headers: {
+          "X-Agent-Native-CSRF": "1",
+          "X-Request-Source": "tab-1",
+        },
         keepalive: undefined,
         signal: undefined,
       },
@@ -97,7 +177,7 @@ describe("client application-state helpers", () => {
       "/_agent-native/application-state/selection",
       {
         method: "DELETE",
-        headers: undefined,
+        headers: { "X-Agent-Native-CSRF": "1" },
         keepalive: true,
         signal: undefined,
       },
@@ -107,7 +187,7 @@ describe("client application-state helpers", () => {
       "/_agent-native/application-state/selection",
       {
         method: "DELETE",
-        headers: undefined,
+        headers: { "X-Agent-Native-CSRF": "1" },
         keepalive: undefined,
         signal: undefined,
       },
@@ -128,7 +208,7 @@ describe("client application-state helpers", () => {
     );
 
     await expect(readClientAppState("navigation")).rejects.toMatchObject({
-      message: 'Read application state "navigation" failed: Unauthenticated',
+      message: "Read application state [navigation] failed: Unauthenticated",
       status: 401,
     });
   });

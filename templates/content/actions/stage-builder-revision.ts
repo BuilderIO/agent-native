@@ -114,6 +114,6 @@ export default defineAction({
       .set({ updatedAt: now })
       .where(eq(schema.contentDatabaseSources.id, source.id));
 
-    return getContentDatabaseResponse(database.id);
+    return getContentDatabaseResponse(database.id, { limit: 100, offset: 0 });
   },
 });
