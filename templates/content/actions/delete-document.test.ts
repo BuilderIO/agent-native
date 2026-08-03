@@ -127,18 +127,24 @@ describe("deleteDocumentRecursive", () => {
   let deleteCalls: DeleteCall[];
   let selectRows: Record<string, Record<string, unknown>[]>;
   let db: any;
+  let transactionDepth: number;
+  let operationsOutsideTransaction: string[];
 
   beforeEach(() => {
     deleteCalls = [];
     selectRows = {
       documents: [],
     };
+    transactionDepth = 0;
+    operationsOutsideTransaction = [];
 
     db = {
       select: () => ({
         from: (table: Record<string, string>) => ({
           where: async (cond: any) => {
             const name = tableNameFor(Object.values(table)[0] as string);
+            if (transactionDepth === 0)
+              operationsOutsideTransaction.push(`select:${name}`);
             const rows = selectRows[name] ?? [];
             return rows.filter((row) => matches(row, cond));
           },
@@ -147,6 +153,8 @@ describe("deleteDocumentRecursive", () => {
       delete: (table: Record<string, string>) => ({
         where: async (cond: any) => {
           const name = tableNameFor(Object.values(table)[0] as string);
+          if (transactionDepth === 0)
+            operationsOutsideTransaction.push(`delete:${name}`);
           deleteCalls.push({ table: name, cond });
         },
       }),
@@ -155,7 +163,22 @@ describe("deleteDocumentRecursive", () => {
           where: async () => [],
         }),
       }),
+      transaction: async (run: (tx: unknown) => Promise<unknown>) => {
+        transactionDepth += 1;
+        try {
+          return await run(db);
+        } finally {
+          transactionDepth -= 1;
+        }
+      },
     };
+  });
+
+  it("keeps lock, final recollection, and cleanup on one transaction handle", async () => {
+    await deleteDocumentRecursive(db, "doc-1", "owner-a@example.com");
+
+    expect(operationsOutsideTransaction).toEqual([]);
+    expect(transactionDepth).toBe(0);
   });
 
   it("deletes document_comments rows for the document being deleted (n38)", async () => {
@@ -261,6 +284,8 @@ describe("deleteDocumentRecursive", () => {
     db.update = () => ({
       set: () => ({
         where: async () => {
+          if (transactionDepth === 0)
+            operationsOutsideTransaction.push("update:contentDatabases");
           selectRows.contentDatabaseItems.push({
             databaseId: "database-1",
             documentId: "late-row-doc",
@@ -283,6 +308,7 @@ describe("deleteDocumentRecursive", () => {
     expect(deleted.sort()).toEqual(
       ["database-doc", "late-row-doc", "row-doc-1"].sort(),
     );
+    expect(operationsOutsideTransaction).toEqual([]);
   });
 
   it("does not collect foreign-owned database item documents", async () => {

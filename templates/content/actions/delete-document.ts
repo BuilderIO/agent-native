@@ -192,6 +192,22 @@ export async function trashDocumentSubtree(
   ownerEmail: string,
   trashedAt = new Date().toISOString(),
 ): Promise<string[]> {
+  return db.transaction((tx) =>
+    trashDocumentSubtreeInTransaction(
+      tx as unknown as ReturnType<typeof getDb>,
+      id,
+      ownerEmail,
+      trashedAt,
+    ),
+  );
+}
+
+async function trashDocumentSubtreeInTransaction(
+  db: ReturnType<typeof getDb>,
+  id: string,
+  ownerEmail: string,
+  trashedAt: string,
+): Promise<string[]> {
   // Stable-key upserts lock their canonical database row before creating or
   // updating children. Acquire the same locks, then collect again: an upsert
   // that won the lock before this transaction may have added a child after the
@@ -349,17 +365,20 @@ export async function deleteDocumentRecursive(
   id: string,
   ownerEmail: string,
 ): Promise<string[]> {
-  const { documentIds, ownedDatabaseIds } = await lockDatabasesAndRecollect(
-    db,
-    ownerEmail,
-    () => collectDocumentSubtreeForDelete(db, id, ownerEmail),
-  );
-  return deleteCollectedDocuments(
-    db,
-    documentIds,
-    ownedDatabaseIds,
-    ownerEmail,
-  );
+  return db.transaction(async (tx) => {
+    const scopedDb = tx as unknown as ReturnType<typeof getDb>;
+    const { documentIds, ownedDatabaseIds } = await lockDatabasesAndRecollect(
+      scopedDb,
+      ownerEmail,
+      () => collectDocumentSubtreeForDelete(scopedDb, id, ownerEmail),
+    );
+    return deleteCollectedDocuments(
+      scopedDb,
+      documentIds,
+      ownedDatabaseIds,
+      ownerEmail,
+    );
+  });
 }
 
 async function deleteCollectedDocuments(
@@ -576,6 +595,20 @@ export async function deleteTrashedDocumentSubtree(
   id: string,
   ownerEmail: string,
 ): Promise<string[]> {
+  return db.transaction((tx) =>
+    deleteTrashedDocumentSubtreeInTransaction(
+      tx as unknown as ReturnType<typeof getDb>,
+      id,
+      ownerEmail,
+    ),
+  );
+}
+
+async function deleteTrashedDocumentSubtreeInTransaction(
+  db: ReturnType<typeof getDb>,
+  id: string,
+  ownerEmail: string,
+): Promise<string[]> {
   const [root] = await db
     .select({ id: schema.documents.id })
     .from(schema.documents)
@@ -700,12 +733,10 @@ export default defineAction({
     if (systemDatabase?.systemRole) {
       throw new Error("System Content database documents cannot be deleted");
     }
-    const deleted = await db.transaction((tx) =>
-      trashDocumentSubtree(
-        tx as unknown as ReturnType<typeof getDb>,
-        id,
-        existing.ownerEmail as string,
-      ),
+    const deleted = await trashDocumentSubtree(
+      db,
+      id,
+      existing.ownerEmail as string,
     );
 
     await writeAppState("refresh-signal", { ts: Date.now() });

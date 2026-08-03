@@ -15,12 +15,10 @@ export default defineAction({
   run: async ({ id }) => {
     const access = await assertAccess("document", id, "admin");
     const db = getDb();
-    const deleted = await db.transaction((tx) =>
-      deleteTrashedDocumentSubtree(
-        tx as unknown as ReturnType<typeof getDb>,
-        id,
-        access.resource.ownerEmail as string,
-      ),
+    const deleted = await deleteTrashedDocumentSubtree(
+      db,
+      id,
+      access.resource.ownerEmail as string,
     );
     await writeAppState("refresh-signal", { ts: Date.now() });
     return { success: true, deleted: deleted.length };
