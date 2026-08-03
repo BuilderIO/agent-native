@@ -10,7 +10,10 @@ import {
   isComputedPropertyType,
   type DocumentPropertyType,
 } from "../shared/properties.js";
-import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
+import {
+  lockContentDatabaseMutation,
+  touchContentDatabase,
+} from "./_content-database-mutation-lock.js";
 import { ensureDocumentFilesMembership } from "./_content-files.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
 import {
@@ -98,48 +101,6 @@ export default defineAction({
       .where(eq(schema.documentShares.resourceId, database.documentId));
 
     const initialValues = Object.entries(propertyValues ?? {});
-    const propertyValueRows: Array<
-      typeof schema.documentPropertyValues.$inferInsert
-    > = [];
-    if (initialValues.length > 0) {
-      const requestedPropertyIds = initialValues.map(
-        ([propertyId]) => propertyId,
-      );
-      const definitions = await db
-        .select()
-        .from(schema.documentPropertyDefinitions)
-        .where(
-          and(
-            eq(
-              schema.documentPropertyDefinitions.ownerEmail,
-              database.ownerEmail,
-            ),
-            eq(schema.documentPropertyDefinitions.databaseId, databaseId),
-            inArray(
-              schema.documentPropertyDefinitions.id,
-              requestedPropertyIds,
-            ),
-          ),
-        );
-      const definitionById = new Map(
-        definitions.map((definition) => [definition.id, definition]),
-      );
-
-      for (const [propertyId, value] of initialValues) {
-        const definition = definitionById.get(propertyId);
-        const type = definition?.type as DocumentPropertyType | undefined;
-        if (!definition || !type || isComputedPropertyType(type)) continue;
-        propertyValueRows.push({
-          id: nanoid(),
-          ownerEmail: database.ownerEmail,
-          documentId,
-          propertyId,
-          valueJson: normalizedValueJson(type, value),
-          createdAt: now,
-          updatedAt: now,
-        });
-      }
-    }
 
     await withPositionLock(
       documentsPositionScope(database.ownerEmail, database.documentId),
@@ -149,8 +110,59 @@ export default defineAction({
             await lockContentDatabaseMutation(
               tx as unknown as ReturnType<typeof getDb>,
               databaseId,
+            );
+            await touchContentDatabase(
+              tx as unknown as ReturnType<typeof getDb>,
+              databaseId,
               now,
             );
+            const propertyValueRows: Array<
+              typeof schema.documentPropertyValues.$inferInsert
+            > = [];
+            if (initialValues.length > 0) {
+              const requestedPropertyIds = initialValues.map(
+                ([propertyId]) => propertyId,
+              );
+              const definitions = await tx
+                .select()
+                .from(schema.documentPropertyDefinitions)
+                .where(
+                  and(
+                    eq(
+                      schema.documentPropertyDefinitions.ownerEmail,
+                      database.ownerEmail,
+                    ),
+                    eq(
+                      schema.documentPropertyDefinitions.databaseId,
+                      databaseId,
+                    ),
+                    inArray(
+                      schema.documentPropertyDefinitions.id,
+                      requestedPropertyIds,
+                    ),
+                  ),
+                );
+              const definitionById = new Map(
+                definitions.map((definition) => [definition.id, definition]),
+              );
+              for (const [propertyId, value] of initialValues) {
+                const definition = definitionById.get(propertyId);
+                const type = definition?.type as
+                  | DocumentPropertyType
+                  | undefined;
+                if (!definition || !type || isComputedPropertyType(type))
+                  continue;
+                propertyValueRows.push({
+                  id: nanoid(),
+                  ownerEmail: database.ownerEmail,
+                  documentId,
+                  propertyId,
+                  valueJson: normalizedValueJson(type, value),
+                  createdAt: now,
+                  updatedAt: now,
+                });
+              }
+            }
             const [maxDocPos] = await tx
               .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
               .from(schema.documents)

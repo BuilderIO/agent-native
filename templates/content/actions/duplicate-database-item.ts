@@ -6,7 +6,10 @@ import { and, eq, gte, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
+import {
+  lockContentDatabaseMutation,
+  touchContentDatabase,
+} from "./_content-database-mutation-lock.js";
 import { ensureDocumentFilesMembership } from "./_content-files.js";
 import { assertNotWorkspaceCatalogDocuments } from "./_content-space-catalog-guards.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
@@ -70,15 +73,6 @@ export default defineAction({
     const now = new Date().toISOString();
     const nextDocumentId = nanoid();
     const nextItemId = nanoid();
-    const nextTitle =
-      title?.trim() || `Copy of ${row.document.title.trim() || "Untitled"}`;
-    const nextPosition = row.item.position + 1;
-
-    const values = await db
-      .select()
-      .from(schema.documentPropertyValues)
-      .where(eq(schema.documentPropertyValues.documentId, row.document.id));
-
     const inheritedShares = await db
       .select({
         principalType: schema.documentShares.principalType,
@@ -92,8 +86,49 @@ export default defineAction({
       await lockContentDatabaseMutation(
         tx as unknown as ReturnType<typeof getDb>,
         row.database.id,
+      );
+      await touchContentDatabase(
+        tx as unknown as ReturnType<typeof getDb>,
+        row.database.id,
         now,
       );
+      const [lockedRow] = await tx
+        .select({
+          item: schema.contentDatabaseItems,
+          document: schema.documents,
+        })
+        .from(schema.contentDatabaseItems)
+        .innerJoin(
+          schema.documents,
+          eq(schema.documents.id, schema.contentDatabaseItems.documentId),
+        )
+        .where(
+          and(
+            eq(schema.contentDatabaseItems.id, row.item.id),
+            eq(schema.contentDatabaseItems.databaseId, row.database.id),
+            eq(schema.contentDatabaseItems.documentId, row.document.id),
+            isNull(schema.documents.trashedAt),
+          ),
+        );
+      if (!lockedRow) {
+        throw new Error("Database row changed while duplication was waiting.");
+      }
+      if (lockedRow.document.spaceId !== row.database.spaceId) {
+        throw new Error(
+          "Cannot duplicate a database row across Content spaces.",
+        );
+      }
+
+      const nextTitle =
+        title?.trim() ||
+        `Copy of ${lockedRow.document.title.trim() || "Untitled"}`;
+      const nextPosition = lockedRow.item.position + 1;
+      const values = await tx
+        .select()
+        .from(schema.documentPropertyValues)
+        .where(
+          eq(schema.documentPropertyValues.documentId, lockedRow.document.id),
+        );
       await tx
         .update(schema.contentDatabaseItems)
         .set({
@@ -102,7 +137,10 @@ export default defineAction({
         })
         .where(
           and(
-            eq(schema.contentDatabaseItems.databaseId, row.item.databaseId),
+            eq(
+              schema.contentDatabaseItems.databaseId,
+              lockedRow.item.databaseId,
+            ),
             gte(schema.contentDatabaseItems.position, nextPosition),
           ),
         );
@@ -115,7 +153,7 @@ export default defineAction({
         })
         .where(
           and(
-            eq(schema.documents.ownerEmail, row.document.ownerEmail),
+            eq(schema.documents.ownerEmail, lockedRow.document.ownerEmail),
             eq(schema.documents.parentId, row.database.documentId),
             gte(schema.documents.position, nextPosition),
           ),
@@ -124,25 +162,25 @@ export default defineAction({
       await tx.insert(schema.documents).values({
         id: nextDocumentId,
         spaceId: row.database.spaceId,
-        ownerEmail: row.document.ownerEmail,
-        orgId: row.document.orgId,
+        ownerEmail: lockedRow.document.ownerEmail,
+        orgId: lockedRow.document.orgId,
         parentId: row.database.documentId,
         title: nextTitle,
-        content: row.document.content,
-        icon: row.document.icon,
+        content: lockedRow.document.content,
+        icon: lockedRow.document.icon,
         position: nextPosition,
         isFavorite: 0,
-        hideFromSearch: row.document.hideFromSearch,
-        visibility: row.document.visibility,
+        hideFromSearch: lockedRow.document.hideFromSearch,
+        visibility: lockedRow.document.visibility,
         createdAt: now,
         updatedAt: now,
       });
 
       await tx.insert(schema.contentDatabaseItems).values({
         id: nextItemId,
-        ownerEmail: row.item.ownerEmail,
-        orgId: row.item.orgId,
-        databaseId: row.item.databaseId,
+        ownerEmail: lockedRow.item.ownerEmail,
+        orgId: lockedRow.item.orgId,
+        databaseId: lockedRow.item.databaseId,
         documentId: nextDocumentId,
         position: nextPosition,
         createdAt: now,
@@ -157,7 +195,7 @@ export default defineAction({
             principalType: share.principalType,
             principalId: share.principalId,
             role: share.role,
-            createdBy: getRequestUserEmail() ?? row.document.ownerEmail,
+            createdBy: getRequestUserEmail() ?? lockedRow.document.ownerEmail,
             createdAt: now,
           })),
         );
@@ -167,7 +205,7 @@ export default defineAction({
         await tx.insert(schema.documentPropertyValues).values(
           values.map((value) => ({
             id: nanoid(),
-            ownerEmail: row.document.ownerEmail,
+            ownerEmail: lockedRow.document.ownerEmail,
             documentId: nextDocumentId,
             propertyId: value.propertyId,
             valueJson: value.valueJson,

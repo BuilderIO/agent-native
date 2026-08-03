@@ -4,7 +4,10 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, inArray } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
-import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
+import {
+  lockContentDatabaseMutation,
+  touchContentDatabase,
+} from "./_content-database-mutation-lock.js";
 import { assertNotWorkspaceCatalogDocuments } from "./_content-space-catalog-guards.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import {
@@ -82,6 +85,10 @@ export default defineAction({
     await withPositionLock(databaseItemsPositionScope(database.id), () =>
       db.transaction(async (tx) => {
         await lockContentDatabaseMutation(
+          tx as unknown as ReturnType<typeof getDb>,
+          database.id,
+        );
+        await touchContentDatabase(
           tx as unknown as ReturnType<typeof getDb>,
           database.id,
           now,

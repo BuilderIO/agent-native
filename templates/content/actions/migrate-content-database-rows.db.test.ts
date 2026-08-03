@@ -16,6 +16,7 @@ let getDb: () => any;
 let schema: typeof import("../server/db/schema.js");
 let action: typeof import("./migrate-content-database-rows.js").default;
 let lockContentDatabaseMutation: typeof import("./_content-database-mutation-lock.js").lockContentDatabaseMutation;
+let touchContentDatabase: typeof import("./_content-database-mutation-lock.js").touchContentDatabase;
 let serializeMigrationValue: typeof import("./_content-database-row-migration.js").serializeMigrationValue;
 const now = () => new Date().toISOString();
 
@@ -28,9 +29,8 @@ beforeAll(async () => {
     await import("./_content-database-row-migration.js")
   ).serializeMigrationValue;
   action = (await import("./migrate-content-database-rows.js")).default;
-  lockContentDatabaseMutation = (
-    await import("./_content-database-mutation-lock.js")
-  ).lockContentDatabaseMutation;
+  ({ lockContentDatabaseMutation, touchContentDatabase } =
+    await import("./_content-database-mutation-lock.js"));
   await (await import("../server/plugins/db.js")).default(undefined as any);
 }, 60_000);
 
@@ -269,6 +269,68 @@ async function readFixtureState(seed: Awaited<ReturnType<typeof fixture>>) {
       .map(({ updatedAt: _updatedAt, ...value }: any) => value)
       .sort(byId),
     shares: shares.sort(byId),
+  };
+}
+
+/**
+ * Terminal replays must be observationally inert. Keep timestamps and the
+ * receipt here: stripping them would hide a lock or receipt rewrite.
+ */
+async function readDurableMigrationState(
+  seed: Awaited<ReturnType<typeof fixture>>,
+) {
+  const db = getDb();
+  const documentIds = [
+    seed.databaseDocumentId,
+    ...seed.rows.map((row: any) => row.documentId),
+  ];
+  const byId = (left: any, right: any) => left.id.localeCompare(right.id);
+  const [databases, documents, items, definitions, values, versions, receipts] =
+    await Promise.all([
+      db
+        .select()
+        .from(schema.contentDatabases)
+        .where(eq(schema.contentDatabases.id, seed.databaseId)),
+      db
+        .select()
+        .from(schema.documents)
+        .where(inArray(schema.documents.id, documentIds)),
+      db
+        .select()
+        .from(schema.contentDatabaseItems)
+        .where(eq(schema.contentDatabaseItems.databaseId, seed.databaseId)),
+      db
+        .select()
+        .from(schema.documentPropertyDefinitions)
+        .where(
+          eq(schema.documentPropertyDefinitions.databaseId, seed.databaseId),
+        ),
+      db
+        .select()
+        .from(schema.documentPropertyValues)
+        .where(inArray(schema.documentPropertyValues.documentId, documentIds)),
+      db
+        .select()
+        .from(schema.documentVersions)
+        .where(inArray(schema.documentVersions.documentId, documentIds)),
+      db
+        .select()
+        .from(schema.contentDatabaseMigrationReceipts)
+        .where(
+          eq(
+            schema.contentDatabaseMigrationReceipts.databaseId,
+            seed.databaseId,
+          ),
+        ),
+    ]);
+  return {
+    databases: databases.sort(byId),
+    documents: documents.sort(byId),
+    items: items.sort(byId),
+    definitions: definitions.sort(byId),
+    values: values.sort(byId),
+    versions: versions.sort(byId),
+    receipts: receipts.sort(byId),
   };
 }
 
@@ -564,7 +626,8 @@ describe("migrate-content-database-rows", () => {
       ),
       getDb().transaction(async (tx: any) => {
         const stamp = now();
-        await lockContentDatabaseMutation(tx, seed.databaseId, stamp);
+        await lockContentDatabaseMutation(tx, seed.databaseId);
+        await touchContentDatabase(tx, seed.databaseId, stamp);
         await tx.insert(schema.documents).values({
           id: concurrentDocumentId,
           ownerEmail: OWNER,
@@ -823,15 +886,8 @@ describe("migrate-content-database-rows", () => {
       postDigest: applied.preDigest,
     });
     expect(await readFixtureState(rollbackSeed)).toEqual(beforeRollback);
-    const rollbackReceiptBeforeReplay = await db
-      .select()
-      .from(schema.contentDatabaseMigrationReceipts)
-      .where(
-        eq(
-          schema.contentDatabaseMigrationReceipts.databaseId,
-          rollbackSeed.databaseId,
-        ),
-      );
+    const rollbackStateBeforeReplay =
+      await readDurableMigrationState(rollbackSeed);
     const rollbackReplay: any = await runWithRequestContext(
       { userEmail: OWNER },
       () =>
@@ -848,17 +904,9 @@ describe("migrate-content-database-rows", () => {
       postDigest: applied.preDigest,
     });
     expect(await readFixtureState(rollbackSeed)).toEqual(beforeRollback);
-    expect(
-      await db
-        .select()
-        .from(schema.contentDatabaseMigrationReceipts)
-        .where(
-          eq(
-            schema.contentDatabaseMigrationReceipts.databaseId,
-            rollbackSeed.databaseId,
-          ),
-        ),
-    ).toEqual(rollbackReceiptBeforeReplay);
+    expect(await readDurableMigrationState(rollbackSeed)).toEqual(
+      rollbackStateBeforeReplay,
+    );
     await expect(
       runWithRequestContext({ userEmail: OWNER }, () =>
         action.run({
@@ -908,6 +956,8 @@ describe("migrate-content-database-rows", () => {
         }),
     );
     expect(verified.state).toBe("verified");
+    const verifyStateBeforeReplay =
+      await readDurableMigrationState(finalizeSeed);
     const verifyReplay: any = await runWithRequestContext(
       { userEmail: OWNER },
       () =>
@@ -923,6 +973,9 @@ describe("migrate-content-database-rows", () => {
       replayed: true,
       verified: true,
     });
+    expect(await readDurableMigrationState(finalizeSeed)).toEqual(
+      verifyStateBeforeReplay,
+    );
     const finalized: any = await runWithRequestContext(
       { userEmail: OWNER },
       () =>
@@ -934,15 +987,8 @@ describe("migrate-content-database-rows", () => {
         }),
     );
     expect(finalized.state).toBe("finalized");
-    const finalizedReceiptBeforeReplay = await db
-      .select()
-      .from(schema.contentDatabaseMigrationReceipts)
-      .where(
-        eq(
-          schema.contentDatabaseMigrationReceipts.databaseId,
-          finalizeSeed.databaseId,
-        ),
-      );
+    const finalizeStateBeforeReplay =
+      await readDurableMigrationState(finalizeSeed);
     const finalizeReplay: any = await runWithRequestContext(
       { userEmail: OWNER },
       () =>
@@ -958,17 +1004,9 @@ describe("migrate-content-database-rows", () => {
       replayed: true,
       verified: true,
     });
-    expect(
-      await db
-        .select()
-        .from(schema.contentDatabaseMigrationReceipts)
-        .where(
-          eq(
-            schema.contentDatabaseMigrationReceipts.databaseId,
-            finalizeSeed.databaseId,
-          ),
-        ),
-    ).toEqual(finalizedReceiptBeforeReplay);
+    expect(await readDurableMigrationState(finalizeSeed)).toEqual(
+      finalizeStateBeforeReplay,
+    );
     expect(
       await db
         .select()

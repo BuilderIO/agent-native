@@ -7,6 +7,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import {
   lockContentDatabaseMutation,
+  touchContentDatabase,
   withContentDatabaseMutationLock,
 } from "./_content-database-mutation-lock.js";
 import {
@@ -19,6 +20,7 @@ import {
   serializeMigrationValue,
   validatePlan,
 } from "./_content-database-row-migration.js";
+import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import { flushOpenDocumentEditorToSql } from "./_document-flush.js";
 
 const operationalSchema = z.discriminatedUnion("phase", [
@@ -66,6 +68,17 @@ function receiptResult(receipt: any, replayed: boolean) {
     replayed,
     verified: result.verified === true,
   };
+}
+
+async function lockCurrentDatabaseMemberships(tx: any, databaseId: string) {
+  const memberships = await tx
+    .select({ id: schema.contentDatabaseItems.id })
+    .from(schema.contentDatabaseItems)
+    .where(eq(schema.contentDatabaseItems.databaseId, databaseId));
+  await lockDatabaseMemberships(
+    tx,
+    memberships.map((membership: { id: string }) => membership.id),
+  );
 }
 
 export default defineAction({
@@ -241,13 +254,59 @@ export default defineAction({
             );
         }
       }
+      if (args.phase === "verify" || args.phase === "finalize") {
+        const replay = await db.transaction(async (tx) => {
+          const [receipt] = await tx
+            .select()
+            .from(schema.contentDatabaseMigrationReceipts)
+            .where(
+              and(
+                eq(
+                  schema.contentDatabaseMigrationReceipts.databaseId,
+                  args.databaseId,
+                ),
+                eq(
+                  schema.contentDatabaseMigrationReceipts.idempotencyKey,
+                  args.idempotencyKey,
+                ),
+              ),
+            );
+          if (!receipt) throw new Error("Migration receipt not found.");
+          const storedResult = parseJson(receipt.resultJson);
+          const isTerminalReplay =
+            (args.phase === "verify" && receipt.state === "verified") ||
+            (args.phase === "finalize" && receipt.state === "finalized");
+          if (!isTerminalReplay) return null;
+          const expectedDigest =
+            args.phase === "verify"
+              ? receipt.postDigest
+              : storedResult.transitionExpectedPostDigest;
+          if (expectedDigest !== args.expectedPostDigest)
+            throw new Error(
+              "Expected post-migration digest does not match receipt.",
+            );
+          if (
+            snapshotDigest(await snapshotMigration(tx, args.databaseId)) !==
+            receipt.postDigest
+          )
+            throw new Error(
+              args.phase === "verify"
+                ? "Migration has drifted; verification is refused."
+                : "Terminal migration result has drifted; replay is refused.",
+            );
+          return receiptResult(receipt, true);
+        });
+        if (replay) return replay;
+      }
       let mutated = false;
       const result = await db.transaction(async (tx) => {
-        if (args.phase !== "validate")
+        if (args.phase !== "validate") {
           await lockContentDatabaseMutation(
             tx as unknown as ReturnType<typeof getDb>,
             databaseId,
           );
+          await lockCurrentDatabaseMemberships(tx, databaseId);
+        }
         if (args.phase === "validate" || args.phase === "apply") {
           const planHash = digest(args.plan);
           if (args.phase === "apply") {
@@ -681,6 +740,11 @@ export default defineAction({
             .delete(schema.documentPropertyDefinitions)
             .where(inArray(schema.documentPropertyDefinitions.id, legacyIds));
         }
+        await touchContentDatabase(
+          tx as unknown as ReturnType<typeof getDb>,
+          args.databaseId,
+          now,
+        );
         const finalized = await snapshotMigration(tx, args.databaseId);
         if (
           finalized.definitions.some((definition: any) =>

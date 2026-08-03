@@ -6,7 +6,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { chunks } from "./_batch-utils.js";
-import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
+import {
+  lockContentDatabaseMutation,
+  touchContentDatabase,
+} from "./_content-database-mutation-lock.js";
 import { assertNotWorkspaceCatalogDocuments } from "./_content-space-catalog-guards.js";
 import { renumberDatabaseRows } from "./_database-row-batch.js";
 
@@ -622,6 +625,10 @@ export default defineAction({
             tx as unknown as ReturnType<typeof getDb>,
             contextDatabase.id,
           );
+          await touchContentDatabase(
+            tx as unknown as ReturnType<typeof getDb>,
+            contextDatabase.id,
+          );
           await tx
             .delete(schema.contentDatabaseItems)
             .where(eq(schema.contentDatabaseItems.id, membership.id));
@@ -650,6 +657,11 @@ export default defineAction({
     const deleted = await db.transaction(async (tx) => {
       for (const databaseId of databaseIds)
         await lockContentDatabaseMutation(
+          tx as unknown as ReturnType<typeof getDb>,
+          databaseId,
+        );
+      for (const databaseId of databaseIds)
+        await touchContentDatabase(
           tx as unknown as ReturnType<typeof getDb>,
           databaseId,
         );
