@@ -1,13 +1,18 @@
-import { defineConfig } from "vitest/config";
+import { defineConfig, mergeConfig } from "vitest/config";
 
-export default defineConfig({
-  test: {
-    passWithNoTests: true,
-    exclude: [
-      "**/node_modules/**",
-      "**/dist/**",
-      "**/.output/**",
-      "**/.{idea,git,cache,output,temp}/**",
-    ],
-  },
-});
+import baseConfig from "../../vitest.shared";
+
+export default mergeConfig(
+  baseConfig,
+  defineConfig({
+    test: {
+      passWithNoTests: true,
+      exclude: [
+        "**/node_modules/**",
+        "**/dist/**",
+        "**/.output/**",
+        "**/.{idea,git,cache,output,temp}/**",
+      ],
+    },
+  }),
+);

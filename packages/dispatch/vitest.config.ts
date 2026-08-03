@@ -1,11 +1,16 @@
 import path from "node:path";
 
-import { defineConfig } from "vitest/config";
+import { defineConfig, mergeConfig } from "vitest/config";
 
-export default defineConfig({
-  resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "src"),
+import baseConfig from "../../vitest.shared";
+
+export default mergeConfig(
+  baseConfig,
+  defineConfig({
+    resolve: {
+      alias: {
+        "@": path.resolve(__dirname, "src"),
+      },
     },
-  },
-});
+  }),
+);

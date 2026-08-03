@@ -119,6 +119,28 @@ Run these from the repo root:
 | `pnpm run guards`    | Run all security/consistency guard scripts (see Guards below)          |
 | `pnpm run lint`      | Format check + typecheck                                               |
 
+## Concurrency
+
+Each runner sizes itself off the whole machine, which oversubscribes the CPU
+when several agent sessions or checkouts run checks at once. Every lid has an
+env override:
+
+| Variable                                                | Controls                            | Default                         |
+| ------------------------------------------------------- | ----------------------------------- | ------------------------------- |
+| `VITEST_CONCURRENCY`, `AGENT_NATIVE_VITEST_CONCURRENCY` | Workers per vitest suite            | `25%` of cores                  |
+| `GUARD_CONCURRENCY`, `AGENT_NATIVE_GUARD_CONCURRENCY`   | Guards running in parallel          | `cores / 2`, clamped to 2--6    |
+| `WORKSPACE_CONCURRENCY`, `PNPM_WORKSPACE_CONCURRENCY`   | Packages running a task in parallel | per-profile, derived from cores |
+
+`VITEST_CONCURRENCY` takes a percentage (`25%`) or a worker count (`2`), and is
+applied by `vitest.shared.ts`, which every package's vitest config merges in. A
+package that needs a different value sets `test.maxWorkers` in its own config;
+that wins the merge.
+
+Vitest's own `VITEST_MAX_WORKERS` still works for a one-off integer, but never
+give it a percentage: vitest applies it as `Number.parseInt`, so `25%` becomes
+25 workers rather than a quarter of the machine (vitest#9631). The config
+throws rather than let that through.
+
 ## Guards
 
 The `guards` script (`scripts/run-guards.ts`) runs the fixed list of checks
