@@ -6,6 +6,7 @@ import {
   withDeckLock,
   type Operation,
 } from "./patch-deck";
+import patchDeckAction from "./patch-deck";
 
 // ---------------------------------------------------------------------------
 // normalizeSlidePadding is a pass-through in tests
@@ -249,6 +250,35 @@ describe("applyOperation — patch-deck-fields", () => {
       fields: { designSystemId: null },
     });
     expect(deck.designSystemId).toBeNull();
+  });
+});
+
+describe("patch-deck agent schema", () => {
+  it("advertises only bounded deck and slide patch operations", () => {
+    const parameters = patchDeckAction.tool.parameters as any;
+    const operations = parameters.properties.operations.items.anyOf;
+    const deckFields = operations.find(
+      (operation: any) =>
+        operation.properties?.op?.const === "patch-deck-fields",
+    );
+    const slidePatch = operations.find(
+      (operation: any) => operation.properties?.op?.const === "patch-slide",
+    );
+
+    expect(operations).toHaveLength(2);
+    expect(deckFields.properties.fields.properties.title).toMatchObject({
+      type: "string",
+    });
+    expect(deckFields.properties.fields.properties).not.toHaveProperty(
+      "aspectRatio",
+    );
+    expect(deckFields.properties.fields.properties).not.toHaveProperty(
+      "visibility",
+    );
+    expect(slidePatch.properties.slideId).toMatchObject({ type: "string" });
+    expect(slidePatch.properties.fields.properties.content).toMatchObject({
+      type: "string",
+    });
   });
 });
 

@@ -18,6 +18,7 @@ const DASHBOARD_CONTEXT_KEY = "analytics-selected-dashboard";
 const DASHBOARD_PANEL_CONTEXT_KEY = "analytics-selected-dashboard-panel";
 const SELECTED_OBJECT_STATE_KEY = "selected-object";
 const SELECTED_OBJECT_SOURCE_FIELD = "__agentNativeSelectedObjectSource";
+const CONTEXT_PUBLISH_DELAY_MS = 250;
 
 export interface DashboardChatContextArgs {
   id: string | null | undefined;
@@ -233,56 +234,61 @@ export function useDashboardChatContext(
       );
   }, []);
 
+  // Dashboard metadata lands in pieces — title first, then panel count, then
+  // the access role. Publishing each piece costs a round-trip and a sync event
+  // that invalidates every mounted query, so only the settled value is sent.
   useEffect(() => {
     if (!id) return;
     const displayTitle = title?.trim() || id;
-
-    setAgentChatContextItem({
-      key: DASHBOARD_CONTEXT_KEY,
-      title: `Dashboard: ${displayTitle}`,
-      context: dashboardContext({
-        id,
-        kind,
-        title: displayTitle,
-        panelCount,
-        canEdit,
-      }),
-      openSidebar: false,
-      focus: false,
-    });
-
-    return () => {
-      removeAgentChatContextItem({
+    const timer = setTimeout(() => {
+      setAgentChatContextItem({
         key: DASHBOARD_CONTEXT_KEY,
+        title: `Dashboard: ${displayTitle}`,
+        context: dashboardContext({
+          id,
+          kind,
+          title: displayTitle,
+          panelCount,
+          canEdit,
+        }),
         openSidebar: false,
+        focus: false,
       });
-    };
+    }, CONTEXT_PUBLISH_DELAY_MS);
+    return () => clearTimeout(timer);
   }, [canEdit, id, kind, panelCount, title]);
 
   useEffect(() => {
     if (!id || hasSelectedPanel) return;
     const displayTitle = title?.trim() || id;
-    setClientAppState(
-      SELECTED_OBJECT_STATE_KEY,
-      {
-        type: "dashboard",
-        id,
-        kind,
-        title: displayTitle,
-        panelCount,
-        canEdit,
-        [SELECTED_OBJECT_SOURCE_FIELD]: TAB_ID,
-      },
-      {
-        keepalive: true,
-        requestSource: TAB_ID,
-      },
-    ).catch(() => {});
+    const timer = setTimeout(() => {
+      setClientAppState(
+        SELECTED_OBJECT_STATE_KEY,
+        {
+          type: "dashboard",
+          id,
+          kind,
+          title: displayTitle,
+          panelCount,
+          canEdit,
+          [SELECTED_OBJECT_SOURCE_FIELD]: TAB_ID,
+        },
+        {
+          keepalive: true,
+          requestSource: TAB_ID,
+        },
+      ).catch(() => {});
+    }, CONTEXT_PUBLISH_DELAY_MS);
+    return () => clearTimeout(timer);
   }, [canEdit, hasSelectedPanel, id, kind, panelCount, title]);
 
   useEffect(() => {
     if (!id) return;
     return () => {
+      removeAgentChatContextItem({
+        key: DASHBOARD_CONTEXT_KEY,
+        openSidebar: false,
+      });
       removeAgentChatContextItem({
         key: DASHBOARD_PANEL_CONTEXT_KEY,
         openSidebar: false,

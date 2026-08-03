@@ -1451,6 +1451,58 @@ describe("VisualEditor markdown round-tripping", () => {
     }
   });
 
+  it("keeps the empty-line placeholder on only the focused block", () => {
+    const editor = new Editor({
+      extensions: createVisualEditorExtensions(),
+      content: {
+        type: "doc",
+        content: [
+          { type: "paragraph" },
+          { type: "paragraph" },
+          { type: "paragraph" },
+        ],
+      },
+    });
+
+    const placeholderParagraphs = () =>
+      Array.from(editor.view.dom.querySelectorAll("p"))
+        .map((paragraph, index) => ({ paragraph, index }))
+        .filter(
+          ({ paragraph }) =>
+            paragraph.getAttribute("data-placeholder") ===
+            "Press ‘/’ for commands",
+        )
+        .map(({ index }) => index);
+
+    try {
+      editor.commands.setTextSelection(1);
+      expect(placeholderParagraphs()).toEqual([]);
+
+      editor.view.dom.dispatchEvent(new FocusEvent("focus"));
+      expect(placeholderParagraphs()).toEqual([0]);
+
+      editor.commands.setTextSelection(3);
+      expect(placeholderParagraphs()).toEqual([1]);
+
+      editor.commands.setTextSelection(5);
+      expect(placeholderParagraphs()).toEqual([2]);
+
+      editor.commands.setTextSelection(3);
+      expect(placeholderParagraphs()).toEqual([1]);
+
+      editor.commands.setTextSelection(1);
+      expect(placeholderParagraphs()).toEqual([0]);
+
+      editor.view.dom.dispatchEvent(new FocusEvent("blur"));
+      expect(placeholderParagraphs()).toEqual([]);
+
+      editor.view.dom.dispatchEvent(new FocusEvent("focus"));
+      expect(placeholderParagraphs()).toEqual([0]);
+    } finally {
+      editor.destroy();
+    }
+  });
+
   it.each([4, 5, 6] as const)("round-trips heading %s blocks", (level) => {
     const editor = new Editor({
       extensions: createVisualEditorExtensions(),

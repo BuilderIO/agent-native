@@ -19,6 +19,15 @@ vi.mock("../db/client.js", () => ({
   }),
 }));
 
+// A caller with no `ctx.orgId` (CLI, cron) still needs its actual org
+// resolved before the probe can run — mocked separately from the org-scoped
+// SQL probes above so a test can say "no membership anywhere" without also
+// faking rows for the Personal/cross-org queries.
+let resolveOrgIdForEmailResult: string | null = null;
+vi.mock("../org/context.js", () => ({
+  resolveOrgIdForEmail: async () => resolveOrgIdForEmailResult,
+}));
+
 vi.mock("../settings/store.js", () => ({
   getSetting: vi.fn(async () => null),
   putSetting: vi.fn(async () => {}),
@@ -39,6 +48,7 @@ describe("describeCredentialScopeGap", () => {
   beforeEach(() => {
     execCalls.length = 0;
     execute = async () => ({ rows: [] });
+    resolveOrgIdForEmailResult = null;
   });
 
   it("names the scope found and the scope the run needed", async () => {
@@ -88,6 +98,7 @@ describe("describeCredentialScopeGap", () => {
 
   it("declines to answer without an org boundary to bound the probe to", async () => {
     execute = async () => ({ rows: [{ 1: 1 }] });
+    resolveOrgIdForEmailResult = null; // caller truly has no memberships
 
     const message = await describeCredentialScopeGap(["SLACK_BOT_TOKEN"], {
       userEmail: "owner@example.com",
@@ -95,6 +106,17 @@ describe("describeCredentialScopeGap", () => {
 
     expect(message).toBeNull();
     expect(execCalls).toHaveLength(0);
+  });
+
+  it("resolves the org from the caller's email when ctx.orgId is unset, like a CLI or cron run", async () => {
+    execute = async () => ({ rows: [{ 1: 1 }] });
+    resolveOrgIdForEmailResult = "org-1"; // the caller's only membership
+
+    const message = await describeCredentialScopeGap(["SLACK_BOT_TOKEN"], {
+      userEmail: "owner@example.com",
+    });
+
+    expect(message).toContain("Personal scope");
   });
 
   it("stays quiet when the key is missing everywhere in the org", async () => {
@@ -138,6 +160,7 @@ describe("describeCredentialScopeGap across organizations", () => {
   beforeEach(() => {
     execCalls.length = 0;
     execute = async () => ({ rows: [] });
+    resolveOrgIdForEmailResult = null;
   });
 
   it("names the organization holding the key and the mismatch as the cause", async () => {

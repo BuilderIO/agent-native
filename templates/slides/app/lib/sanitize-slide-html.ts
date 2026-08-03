@@ -197,16 +197,40 @@ function sanitizeStyle(style: string): string {
     .join("; ");
 }
 
-function sanitizeStyleSheet(css: string): string {
+function scopeCssSelector(selector: string, scopeSelector?: string): string {
+  const trimmed = selector.trim();
+  if (!scopeSelector || !trimmed || trimmed.startsWith("@")) return trimmed;
+
+  return trimmed
+    .split(",")
+    .map((part) => {
+      const item = part.trim();
+      if (!item) return "";
+      if (item === "*") return `${scopeSelector}, ${scopeSelector} *`;
+      if (/^(?:html|body|:root)\b/i.test(item)) {
+        return item.replace(/^(?:html|body|:root)\b/i, scopeSelector);
+      }
+      return `${scopeSelector} ${item}`;
+    })
+    .filter(Boolean)
+    .join(", ");
+}
+
+function sanitizeStyleSheet(css: string, scopeSelector?: string): string {
   return css
     .replace(/@import[^;]+;?/gi, "")
     .replace(/([^{}]+)\{([^{}]*)\}/g, (_match, selector, body) => {
       const safeBody = sanitizeStyle(String(body));
-      return safeBody ? `${String(selector).trim()} { ${safeBody}; }` : "";
+      const safeSelector = scopeCssSelector(String(selector), scopeSelector);
+      return safeBody && safeSelector ? `${safeSelector} { ${safeBody}; }` : "";
     });
 }
 
-function cleanNode(node: Node, doc: Document): Node | null {
+function cleanNode(
+  node: Node,
+  doc: Document,
+  scopeSelector?: string,
+): Node | null {
   if (node.nodeType === Node.TEXT_NODE) {
     return doc.createTextNode(node.textContent ?? "");
   }
@@ -218,7 +242,7 @@ function cleanNode(node: Node, doc: Document): Node | null {
   if (DROP_WITH_CHILDREN.has(tag)) return null;
 
   if (tag === "style") {
-    const safeCss = sanitizeStyleSheet(el.textContent ?? "");
+    const safeCss = sanitizeStyleSheet(el.textContent ?? "", scopeSelector);
     if (!safeCss.trim()) return null;
     const out = doc.createElement("style");
     out.textContent = safeCss;
@@ -268,17 +292,17 @@ function cleanNode(node: Node, doc: Document): Node | null {
   }
 
   for (const child of Array.from(el.childNodes)) {
-    const cleaned = cleanNode(child, doc);
+    const cleaned = cleanNode(child, doc, scopeSelector);
     if (cleaned) out.appendChild(cleaned);
   }
 
   return out;
 }
 
-function sanitizeHtmlString(html: string): string {
+function sanitizeHtmlString(html: string, scopeSelector?: string): string {
   return html
     .replace(/<style\b[^>]*>([\s\S]*?)<\/style>/gi, (_match, css) => {
-      const safeCss = sanitizeStyleSheet(String(css));
+      const safeCss = sanitizeStyleSheet(String(css), scopeSelector);
       return safeCss
         ? `<style>${safeCss.replace(/<\/style/gi, "<\\/style")}</style>`
         : "";
@@ -314,19 +338,23 @@ function sanitizeHtmlString(html: string): string {
     );
 }
 
-export function sanitizeSlideHtml(html: string): string {
+export function sanitizeSlideHtml(
+  html: string,
+  options?: { scopeSelector?: string },
+): string {
+  const scopeSelector = options?.scopeSelector;
   if (typeof DOMParser === "undefined") {
-    return sanitizeHtmlString(html);
+    return sanitizeHtmlString(html, scopeSelector);
   }
 
   const doc = new DOMParser().parseFromString(html, "text/html");
   const fragment = doc.createDocumentFragment();
   for (const style of Array.from(doc.head.querySelectorAll("style"))) {
-    const cleaned = cleanNode(style, doc);
+    const cleaned = cleanNode(style, doc, scopeSelector);
     if (cleaned) fragment.appendChild(cleaned);
   }
   for (const child of Array.from(doc.body.childNodes)) {
-    const cleaned = cleanNode(child, doc);
+    const cleaned = cleanNode(child, doc, scopeSelector);
     if (cleaned) fragment.appendChild(cleaned);
   }
 

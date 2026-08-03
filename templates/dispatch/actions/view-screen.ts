@@ -18,6 +18,20 @@ function stripUndefined(args: Record<string, unknown>) {
   );
 }
 
+function threadDebugLookbackHours(value: unknown): number {
+  if (value === "7d") return 168;
+  if (value === "30d") return 720;
+  return 24;
+}
+
+function threadDebugFailureStatus(
+  value: unknown,
+): "all" | "errored" | "aborted" | "truncated" {
+  return value === "errored" || value === "aborted" || value === "truncated"
+    ? value
+    : "all";
+}
+
 function optionalTimestamp(source: object, key: string) {
   if (!Object.prototype.hasOwnProperty.call(source, key)) return undefined;
   const value = (source as Record<string, unknown>)[key];
@@ -186,7 +200,18 @@ export default defineAction({
           "list-agent-thread-sources",
           {},
         );
-        if (nav.query) {
+        if (nav.threadDebugMode !== "threads") {
+          screen.agentRunFailures = await runDispatchAction(
+            "list-agent-run-failures",
+            {
+              sourceId: nav.sourceId ?? "all",
+              ownerEmail: nav.ownerEmail,
+              status: threadDebugFailureStatus(nav.failureStatus),
+              lookbackHours: threadDebugLookbackHours(nav.range),
+              limit: 10,
+            },
+          );
+        } else if (nav.query) {
           screen.threadDebugResults = await runDispatchAction(
             "search-agent-threads",
             {
@@ -199,7 +224,10 @@ export default defineAction({
         }
         if (nav.threadId || nav.runId) {
           const detail = (await runDispatchAction("get-agent-thread-debug", {
-            sourceId: nav.sourceId,
+            sourceId:
+              nav.runId && nav.inspectSourceId
+                ? nav.inspectSourceId
+                : nav.sourceId,
             threadId: nav.runId ? undefined : nav.threadId,
             runId: nav.runId,
             ownerEmail: nav.ownerEmail,
@@ -215,6 +243,10 @@ export default defineAction({
             debug: detail.debug,
             debugRuns: detail.debugRuns?.slice(-5) ?? [],
             messages: detail.messages?.slice(-6) ?? [],
+            runs:
+              detail.runs
+                ?.slice(0, 5)
+                .map(({ events: _events, ...run }: any) => run) ?? [],
           };
         }
       } catch (error) {

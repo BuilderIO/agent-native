@@ -367,6 +367,8 @@ const messages = {
   styleInspector: {
     title: "Style",
     close: "Fermer l’inspecteur de style",
+    slideBackground: "Arrière-plan de la diapositive",
+    slide: "Diapositive",
     deckStyle: "Style du deck",
     designSystemTweaks: "Réglages du système de design",
     closeTweaks: "Fermer les réglages",
@@ -426,6 +428,10 @@ const messages = {
     emerald: "Emerald",
     amber: "Amber",
     rose: "Rose",
+    arrange: "Disposition",
+    order: "Ordre",
+    bringToFront: "Mettre au premier plan",
+    sendToBack: "Mettre à l'arrière-plan",
   },
   animations: {
     appear: "Aparecer",
@@ -546,6 +552,7 @@ const messages = {
     deckHasNoSlides: "El deck no tiene diapositivas.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",
+    dismissLayoutWarning: "Ignorer l’avertissement de mise en page",
     slidesAdded_one: "{{count}} diapositiva añadida",
     slidesAdded_other: "{{count}} diapositivas añadidas",
     slidesAdded_many: "{{count}} diapositivas añadidas",
@@ -558,6 +565,30 @@ const messages = {
     figParseFailed:
       "Impossible de lancer l’indexation Builder pour ce fichier Figma.",
     updated: "Système de design mis à jour",
+    sourceLabel: "Source",
+    sourceFigma: "Fichier Figma",
+    sourceCode: "Fichiers de code",
+    sourceGitHub: "Dépôt GitHub",
+    sourceMixed: "Sources multiples",
+    sourceBuilder: "Intelligence des systèmes de design Builder",
+    sourceIndexing: "Indexation en cours",
+    sourceIndexed: "Indexé",
+    sourceUnavailable: "Résultats indisponibles",
+    sourceIndexingDescription:
+      "Builder traite encore cette source. Les résultats apparaîtront ici dès qu'ils seront prêts.",
+    sourceIndexedDescription: "{{docs}} documents · {{tokens}} jetons indexés",
+    sourceIndexedDocsOnly: "{{docs}} documents indexés",
+    sourceIndexedTokensOnly: "{{tokens}} jetons indexés",
+    sourceUnavailableDescription:
+      "Builder n'a pas pu charger les derniers résultats de la source.",
+    sourceOpenInBuilder: "Ouvrir dans Builder",
+    loadFailed:
+      "Impossible de charger ce système de design. Fermez-le et réessayez.",
+    otherSources: "Autre",
+    otherSourcesDescription:
+      "Connectez-vous depuis un site web, du code, des fichiers ou un système de conception existant.",
+    chooseSourcePrompt: "Choisissez une source à configurer",
+    loading: "Chargement du système de design",
     updateFailed: "Échec de la mise à jour",
     generationStarted: "Génération du système de design lancée",
     generationStartedDescription:
@@ -653,6 +684,7 @@ const messages = {
     clearWorkspaceDefault: "Retirer le deck par défaut de l'espace de travail",
     workspaceDefaultSet: "Défini par défaut pour l'espace de travail",
     workspaceDefaultCleared: "Valeur par défaut de l'espace de travail retirée",
+    duplicateFailed: "Impossible de dupliquer ce deck",
     workspaceDefaultFailed:
       "Impossible de mettre à jour le deck par défaut de l'espace de travail",
     workspaceDefaultConfirmTitle:

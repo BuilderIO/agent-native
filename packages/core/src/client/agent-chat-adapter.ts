@@ -18,6 +18,7 @@ import {
   clearActiveRun,
   setPendingTurn,
 } from "./active-run-state.js";
+import { getOrCreateAnalyticsSessionId } from "./analytics-session.js";
 import { captureError } from "./analytics.js";
 import { agentNativePath } from "./api-path.js";
 import { formatChatErrorText, normalizeChatError } from "./error-format.js";
@@ -174,7 +175,8 @@ const BACKGROUND_FOLLOW_POLL_INTERVAL_MS = 1_000;
 //   UNCLAIMED_BACKGROUND_RUN_GRACE_MS            (25s)
 // + UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS       (20s)
 // = ~45-65s worst-case time-to-first-redispatch-attempt
-// < BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS            (150s, this constant)
+// < RUN_NO_PROGRESS_HARD_TIMEOUT_MS              (150s, run-manager.ts)
+// < BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS            (210s, this constant)
 // < UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS (300s, run-store.ts)
 // On top of that margin, the follow loop below never counts a tick against
 // this timeout at all while `/runs/active` reports `awaitingRedispatch:
@@ -184,7 +186,7 @@ const BACKGROUND_FOLLOW_POLL_INTERVAL_MS = 1_000;
 // paper over a slow sweep; fix the sweep timing (run-store.ts /
 // agent-chat-plugin.ts) instead, and keep this comment's inequality chain
 // accurate if any of the four numbers change.
-export const BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS = 150_000;
+export const BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS = 210_000;
 
 // Per-TURN follow budgets. BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS above is a
 // per-idle-WINDOW bound and resets every time a successor run appears, so a
@@ -1773,6 +1775,11 @@ export function createAgentChatAdapter(
       let lastAutoContinueReason: string | null = null;
       let lastRecoverableRunError: AgentAutoContinueErrorInfo | null = null;
       let lastActivityTrail: AgentActivityTrailEntry[] = [];
+      let backgroundFollowNoProgressDetaches = 0;
+      let backgroundFollowConsecutiveNoProgressDetaches = 0;
+      let backgroundFollowLastDetachReason: string | null = null;
+      let backgroundFollowLastDetachWasClientWatchdog: boolean | null = null;
+      let backgroundFollowLastServerProgressAt: number | null = null;
       const attemptedRunIds: string[] = [];
       let authRecoveryAttempted = false;
       let continuationToolCallCounter = 0;
@@ -1828,6 +1835,21 @@ export function createAgentChatAdapter(
             ? `activity_trail: ${formatActivityTrail(lastActivityTrail)}`
             : "",
           `total_transient_continuations: ${totalTransientContinuationAttempts}`,
+          `background_follow_no_progress_detaches: ${backgroundFollowNoProgressDetaches}`,
+          `background_follow_consecutive_no_progress_detaches: ${backgroundFollowConsecutiveNoProgressDetaches}`,
+          backgroundFollowLastDetachReason
+            ? `background_follow_last_detach_reason: ${backgroundFollowLastDetachReason}`
+            : "",
+          backgroundFollowLastDetachWasClientWatchdog !== null
+            ? `background_follow_last_detach_source: ${
+                backgroundFollowLastDetachWasClientWatchdog
+                  ? "client_watchdog"
+                  : "server"
+              }`
+            : "",
+          backgroundFollowLastServerProgressAt !== null
+            ? `background_follow_last_server_progress_at: ${backgroundFollowLastServerProgressAt}`
+            : "",
         ]
           .filter(Boolean)
           .join("\n");
@@ -2053,6 +2075,15 @@ export function createAgentChatAdapter(
           if (tz) headers["x-user-timezone"] = tz;
         } catch {
           // Non-browser or Intl unavailable — tool calls will fall back to UTC.
+        }
+        try {
+          // Lets the run's `$ai_*` events carry PostHog's `$session_id`, so an
+          // agent trace joins to the session replay it happened in.
+          const sessionId = getOrCreateAnalyticsSessionId();
+          if (sessionId) headers["x-agent-native-session-id"] = sessionId;
+          // coercion-ok: replay linkage must not block sending the message
+        } catch {
+          // Analytics session unavailable — traces just lose replay linkage.
         }
         // Surface hint — the server uses this to keep code-editing dev tools
         // out of the app-rendered sidebar. The outer dev frame passes
@@ -2451,6 +2482,8 @@ export function createAgentChatAdapter(
         > {
           if (!runId) return "gone";
           let attached = false;
+          backgroundFollowLastDetachReason = null;
+          backgroundFollowLastDetachWasClientWatchdog = null;
           try {
             const eventsRes = await fetch(
               `${apiUrl}/runs/${encodeURIComponent(runId)}/events?after=${lastSeq + 1}`,
@@ -2488,6 +2521,9 @@ export function createAgentChatAdapter(
             }
             if (attachErr instanceof AgentAutoContinueSignal) {
               lastAutoContinueReason = attachErr.reason;
+              backgroundFollowLastDetachReason = attachErr.reason;
+              backgroundFollowLastDetachWasClientWatchdog =
+                attachErr.clientWatchdog;
               if (attachErr.activityTrail.length > 0) {
                 lastActivityTrail = [...attachErr.activityTrail];
               }
@@ -2641,6 +2677,9 @@ export function createAgentChatAdapter(
 
           let idleSince: number | null = null;
           let lastSeenActive: Record<string, unknown> | null = null;
+          let lastObservedActiveRunId = runId;
+          let lastObservedServerProgressAt: number | null = null;
+          let noProgressPollAttempts = 0;
           // Terminal runs already replayed once. A recoverable terminal error
           // event replays as an auto-continue signal (isAutoRecoverableError),
           // which used to re-drive a POST in foreground mode. In follow mode
@@ -2826,6 +2865,25 @@ export function createAgentChatAdapter(
                 });
                 return "completed";
               }
+              const activeProgressAt =
+                typeof active?.lastProgressAt === "number" &&
+                Number.isFinite(active.lastProgressAt)
+                  ? active.lastProgressAt
+                  : null;
+              const runChanged = activeRunId !== lastObservedActiveRunId;
+              const serverProgressAdvanced =
+                activeProgressAt !== null &&
+                lastObservedServerProgressAt !== null &&
+                activeProgressAt > lastObservedServerProgressAt;
+              lastObservedActiveRunId = activeRunId;
+              if (activeProgressAt !== null) {
+                lastObservedServerProgressAt =
+                  lastObservedServerProgressAt === null || runChanged
+                    ? activeProgressAt
+                    : Math.max(lastObservedServerProgressAt, activeProgressAt);
+                backgroundFollowLastServerProgressAt =
+                  lastObservedServerProgressAt;
+              }
               // Server-authoritative "silently deferred, recovery in
               // progress" signal (see `awaitingRedispatch` on
               // `getActiveRunForThreadAsync`, run-manager.ts): a
@@ -2839,19 +2897,29 @@ export function createAgentChatAdapter(
               // resumes, so a truly stuck deferral still fails loud via the
               // existing timeout below.
               const awaitingRedispatch = active?.awaitingRedispatch === true;
-              if (attach === "detached" || awaitingRedispatch) {
-                // We really attached to a live stream (chunk boundary or
-                // transport blip), or the server told us recovery is
-                // in-flight — the run demonstrably exists; keep following
-                // with a fresh idle window.
+              const madeProgress = runChanged || serverProgressAdvanced;
+              if (madeProgress || awaitingRedispatch) {
+                // Only server-authoritative progress resets the idle window:
+                // a successor run or a newer lastProgressAt timestamp. Raw
+                // sequence advancement is not enough — keepalives and retry
+                // `clear` events are sequenced too, but the run manager
+                // deliberately excludes both from lastProgressAt because they
+                // do not move the user's task forward.
                 idleSince = null;
+                noProgressPollAttempts = 0;
+                backgroundFollowConsecutiveNoProgressDetaches = 0;
               } else {
-                // "gone": /runs/active reported the run but its event stream
-                // 404s (reaped row / cross-isolate lag). Let the idle window
-                // ACCUMULATE instead of resetting, so a persistently
-                // inconsistent state still terminates loudly instead of
-                // hot-looping for the whole reconnect window.
+                // An absent stream and an attached stream with no newer
+                // server-authoritative progress are the same no-progress
+                // observation. Keep accumulating one idle window and back off
+                // repeat attaches so a broken SQL tail cannot become a
+                // reconnect storm.
                 if (idleSince === null) idleSince = Date.now();
+                noProgressPollAttempts += 1;
+                if (attach === "detached") {
+                  backgroundFollowNoProgressDetaches += 1;
+                  backgroundFollowConsecutiveNoProgressDetaches += 1;
+                }
                 if (
                   Date.now() - idleSince >=
                   BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS
@@ -2889,7 +2957,27 @@ export function createAgentChatAdapter(
                 return "completed";
               }
             }
-            await delay(BACKGROUND_FOLLOW_POLL_INTERVAL_MS, abortSignal);
+            const backedOffPollDelayMs =
+              noProgressPollAttempts > 0
+                ? Math.min(
+                    BACKGROUND_FOLLOW_POLL_INTERVAL_MS *
+                      2 ** Math.min(noProgressPollAttempts - 1, 3),
+                    5_000,
+                  )
+                : BACKGROUND_FOLLOW_POLL_INTERVAL_MS;
+            const idleRemainingMs =
+              idleSince === null
+                ? Number.POSITIVE_INFINITY
+                : Math.max(
+                    0,
+                    BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS -
+                      (Date.now() - idleSince),
+                  );
+            const nextPollDelayMs = Math.min(
+              backedOffPollDelayMs,
+              idleRemainingMs,
+            );
+            await delay(nextPollDelayMs, abortSignal);
             if (abortSignal.aborted) {
               clearActiveRun();
               return "completed";

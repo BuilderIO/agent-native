@@ -295,6 +295,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
       },
       { id: "embedding-sdk", labelKey: "embeddingSdk", slug: "embedding-sdk" },
       { id: "frames", labelKey: "frames", slug: "frames" },
+      {
+        id: "docs-components",
+        labelKey: "docsComponents",
+        slug: "docs-components",
+      },
     ],
   },
   {

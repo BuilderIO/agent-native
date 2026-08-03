@@ -21,7 +21,7 @@ import {
   MCP_EMBED_CORS_ALLOW_HEADERS,
   shouldAllowMcpEmbedCredentials,
 } from "../shared/mcp-embed-headers.js";
-import { notifyActionChange } from "./action-change.js";
+import { actionCallIsReadOnly, notifyActionChange } from "./action-change.js";
 import {
   seedAgentRunOwnerContext,
   type AgentRunOwnerContext,
@@ -603,14 +603,16 @@ export function mountActionRoutes(
               // their action queries. The calling tab already refetches via
               // useActionMutation's onSuccess, so this is mainly cross-tab
               // sync (and parity with the agent's tool-call path).
-              // Explicit entry.readOnly (true OR false) wins over the method
-              // heuristic. defineAction already auto-infers GET → readOnly=true,
-              // so for actions registered through that path entry.readOnly is
-              // always set and the fallback just guards legacy wrap paths.
-              const isReadOnly =
-                typeof entry.readOnly === "boolean"
-                  ? entry.readOnly
-                  : method === "GET";
+              // A per-call Plan-mode effect wins over entry.readOnly, which
+              // wins (true OR false) over the method heuristic. defineAction
+              // already auto-infers GET → readOnly=true, so for actions
+              // registered through that path entry.readOnly is always set and
+              // the fallback just guards legacy wrap paths.
+              const isReadOnly = actionCallIsReadOnly(
+                entry,
+                params,
+                method === "GET",
+              );
               if (!isReadOnly) {
                 try {
                   await notifyActionChange({

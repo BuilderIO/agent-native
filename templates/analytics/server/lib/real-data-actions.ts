@@ -7,6 +7,7 @@ const INJECTED_CONTEXT_BLOCKS = [
   "available-skills",
   "available-agents",
   "available-jobs",
+  "a2a-caller-hint",
   "plan-mode-note",
   "non-analytics-retry",
   "response-guard",
@@ -233,6 +234,15 @@ export function stripInjectedAnalyticsGuardContext(text: string): string {
       "",
     );
   }
+  // Compatibility with callers deployed before A2A hints were wrapped in the
+  // structured block above. The legacy transport note includes words such as
+  // "full transcripts" and "create ... dashboard"; allowing those framework
+  // words into intent classification falsely triggered corpus and dashboard
+  // guards for ordinary delegated metric questions.
+  requestText = requestText.replace(
+    /\n*\[Note:\s*this request comes from another app via A2A\.[\s\S]*\]\s*$/i,
+    "",
+  );
   return requestText.trim();
 }
 

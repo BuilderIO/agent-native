@@ -48,6 +48,7 @@ import {
   databaseSearchExpandedItemLimit,
   databaseSearchExpansionIsPending,
   databaseAttachedBuilderSources,
+  databaseActiveBuilderReview,
   databaseNextBuilderContinuationSource,
   databaseNextBuilderContinuationWatchdogSource,
   databaseNextBuilderHydrationSource,
@@ -55,6 +56,9 @@ import {
   databaseItemPagePath,
   databaseRecordBuilderContinuationAttempt,
   databaseSourceOperationIsPending,
+  databaseSourceChangeSetsAreComplete,
+  databaseTableShouldShowBlockingLoader,
+  databaseViewRequiresCompleteClientDataset,
   pendingMutationSourceId,
   previewDocumentSaveResult,
   releaseDatabaseSourceOperation,
@@ -62,6 +66,81 @@ import {
   previewDraftMissingCasRecovery,
   preparedBuilderReviewMatches,
 } from "./DatabaseView";
+
+describe("database source page projections", () => {
+  it("does not present page-scoped review counts as complete", () => {
+    expect(
+      databaseSourceChangeSetsAreComplete({
+        projection: { rows: "page", changeSets: "page" },
+      } as ContentDatabaseSource),
+    ).toBe(false);
+    expect(
+      databaseSourceChangeSetsAreComplete({
+        projection: { rows: "complete", changeSets: "complete" },
+      } as ContentDatabaseSource),
+    ).toBe(true);
+    expect(databaseSourceChangeSetsAreComplete(null)).toBe(true);
+  });
+
+  it("shows page review changes while the complete review loads", () => {
+    const page = {
+      sourceId: "source-1",
+    } as unknown as ContentDatabaseSourceReviewPayload;
+    const complete = {
+      sourceId: "source-1",
+      preparedRowLimit: 100,
+    } as unknown as ContentDatabaseSourceReviewPayload;
+    expect(
+      databaseActiveBuilderReview({
+        prepared: null,
+        complete: null,
+        page,
+        open: true,
+      }),
+    ).toBe(page);
+    expect(
+      databaseActiveBuilderReview({
+        prepared: null,
+        complete,
+        page,
+        open: true,
+      }),
+    ).toBe(complete);
+  });
+});
+
+describe("database table loading", () => {
+  it("keeps useful rows visible while a constrained result refetches", () => {
+    expect(databaseTableShouldShowBlockingLoader(true, 100)).toBe(false);
+    expect(databaseTableShouldShowBlockingLoader(true, 0)).toBe(true);
+    expect(databaseTableShouldShowBlockingLoader(false, 0)).toBe(false);
+  });
+
+  it("keeps constrained tables bounded while preserving complete calendar data", () => {
+    expect(
+      databaseViewRequiresCompleteClientDataset({
+        viewType: "table",
+        activeConstraintCount: 1,
+        grouped: false,
+      }),
+    ).toBe(false);
+    expect(
+      databaseViewRequiresCompleteClientDataset({
+        viewType: "calendar",
+        activeConstraintCount: 0,
+        grouped: false,
+      }),
+    ).toBe(true);
+    expect(
+      databaseViewRequiresCompleteClientDataset({
+        viewType: "table",
+        activeConstraintCount: 1,
+        grouped: false,
+        tableQueryMode: "client-required",
+      }),
+    ).toBe(true);
+  });
+});
 
 describe("database preview property saves", () => {
   it("carries the database and its page through full-page navigation", () => {

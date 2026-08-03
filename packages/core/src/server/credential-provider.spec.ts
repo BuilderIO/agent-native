@@ -1024,6 +1024,46 @@ describe("resolveBuilderCredentialsDetailed", () => {
     expect(result.lookupFailed).toBe(false);
   });
 
+  it("skips a user-scoped credential the gateway already rejected and falls through to a working org-scoped one", async () => {
+    // Root-cause regression: once a Builder credential is marked bad, every
+    // subsequent resolution must skip it instead of resending it forever.
+    mockGetRequestUserEmail.mockReturnValue("member@b.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    mockReadAppSecret.mockImplementation(async ({ key, scope }) => {
+      if (
+        scope === "user" &&
+        (key === "BUILDER_PRIVATE_KEY" || key === "BUILDER_PUBLIC_KEY")
+      ) {
+        return { value: `user-${key}`, last4: "-key", updatedAt: 1 };
+      }
+      if (
+        scope === "org" &&
+        (key === "BUILDER_PRIVATE_KEY" || key === "BUILDER_PUBLIC_KEY")
+      ) {
+        return { value: `org-${key}`, last4: "-key", updatedAt: 1 };
+      }
+      return null;
+    });
+    const rejectedFingerprint = builderCredentialFingerprint(
+      "user-BUILDER_PRIVATE_KEY",
+      "user-BUILDER_PUBLIC_KEY",
+    );
+    mockGetSetting.mockImplementation(async (settingKey: string) =>
+      settingKey === `builder-auth-failure:${rejectedFingerprint}`
+        ? {
+            message: "Invalid key",
+            status: 401,
+            code: "unauthorized",
+            at: Date.now(),
+          }
+        : null,
+    );
+
+    const result = await resolveBuilderCredentialsDetailed();
+    expect(result.source).toBe("org");
+    expect(result.privateKey).toBe("org-BUILDER_PRIVATE_KEY");
+  });
+
   it("does not use a solo row when the org membership lookup fails", async () => {
     mockGetRequestUserEmail.mockReturnValue("member@b.com");
     mockGetRequestOrgId.mockReturnValue(undefined);
@@ -1206,6 +1246,11 @@ describe("resolveSecret (generic)", () => {
     expect(mockReadAppSecret.mock.calls.map((c) => c[0])).toEqual([
       { key: "ACADEMY_CONVEX_SITE_URL", scope: "user", scopeId: "tim@b.com" },
       { key: "ACADEMY_CONVEX_SITE_URL", scope: "org", scopeId: "builder_io" },
+      {
+        key: "ACADEMY_CONVEX_SITE_URL",
+        scope: "workspace",
+        scopeId: "builder_io",
+      },
     ]);
   });
 

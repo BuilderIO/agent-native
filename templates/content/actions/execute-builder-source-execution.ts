@@ -854,7 +854,8 @@ export function realExecutionDeps(
     executeWrite: (args) => executeBuilderCmsWrite(args),
     readLiveEntry: (args) => readBuilderCmsEntryLiveState(args),
     reconcileWrite: reconcileBuilderCmsWrite,
-    getResponse: (databaseId) => getContentDatabaseResponse(databaseId),
+    getResponse: (databaseId) =>
+      getContentDatabaseResponse(databaseId, { limit: 100, offset: 0 }),
     lookupSafeModelIntent: lookupBuilderCmsSafeModelIntent,
   };
 }

@@ -167,6 +167,21 @@ function normalizeLookupHostname(hostname: string): string {
   return hostname.toLowerCase().replace(/^\[|\]$/g, "");
 }
 
+function loopbackHostnameVariants(hostname: string): string[] {
+  const normalized = normalizeLookupHostname(hostname);
+  if (
+    normalized !== "localhost" &&
+    normalized !== "127.0.0.1" &&
+    normalized !== "::1"
+  ) {
+    return [normalized];
+  }
+  // Local workspace manifests can identify the same child server as
+  // localhost, 127.0.0.1, or ::1. They are equivalent only for loopback; do
+  // not alias arbitrary private or public hostnames.
+  return ["localhost", "127.0.0.1", "::1"];
+}
+
 function normalizeAllowedPrivateOriginKeys(
   origins: readonly string[],
 ): Set<string> {
@@ -178,7 +193,30 @@ function normalizeAllowedPrivateOriginKeys(
         continue;
       }
       const port = parsed.port || (parsed.protocol === "https:" ? "443" : "80");
-      keys.add(`${normalizeLookupHostname(parsed.hostname)}:${port}`);
+      for (const hostname of loopbackHostnameVariants(parsed.hostname)) {
+        keys.add(`${hostname}:${port}`);
+      }
+    } catch {
+      // coercion-ok: malformed deployment configuration is omitted, preserving the fail-closed private-IP guard.
+    }
+  }
+  return keys;
+}
+
+function normalizeAllowedPrivateOriginOriginKeys(
+  origins: readonly string[],
+): Set<string> {
+  const keys = new Set<string>();
+  for (const origin of origins) {
+    try {
+      const parsed = new URL(origin);
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        continue;
+      }
+      const port = parsed.port || (parsed.protocol === "https:" ? "443" : "80");
+      for (const hostname of loopbackHostnameVariants(parsed.hostname)) {
+        keys.add(`${parsed.protocol}//${hostname}:${port}`);
+      }
     } catch {
       // Ignore malformed deployment configuration and retain the private-IP guard.
     }
@@ -309,21 +347,17 @@ export async function ssrfSafeFetch(
   const dispatcher =
     (await createSsrfSafeDispatcher(options.allowedPrivateOrigins)) ??
     undefined;
-  const allowedPrivateOrigins = new Set(
-    (options.allowedPrivateOrigins ?? [])
-      .map((origin) => {
-        try {
-          return new URL(origin).origin;
-        } catch {
-          return "";
-        }
-      })
-      .filter(Boolean),
+  const allowedPrivateOrigins = normalizeAllowedPrivateOriginOriginKeys(
+    options.allowedPrivateOrigins ?? [],
   );
   const isAllowedPrivateOrigin = (candidate: string): boolean => {
     if (allowedPrivateOrigins.size === 0) return false;
     try {
-      return allowedPrivateOrigins.has(new URL(candidate).origin);
+      const parsed = new URL(candidate);
+      const port = parsed.port || (parsed.protocol === "https:" ? "443" : "80");
+      return allowedPrivateOrigins.has(
+        `${parsed.protocol}//${normalizeLookupHostname(parsed.hostname)}:${port}`,
+      );
     } catch {
       return false;
     }

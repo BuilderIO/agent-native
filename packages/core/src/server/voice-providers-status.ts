@@ -22,6 +22,7 @@ import {
 import { getOrgContext } from "../org/context.js";
 import { getSession } from "./auth.js";
 import {
+  prefetchSecrets,
   resolveHasCompleteBuilderConnection,
   resolveSecret,
 } from "./credential-provider.js";
@@ -74,10 +75,14 @@ export function createVoiceProvidersStatusHandler() {
     async function hasKey(key: string): Promise<boolean> {
       try {
         if (key === "GOOGLE_APPLICATION_CREDENTIALS") {
-          const resolved = await resolveGoogleRealtimeCredentials({
-            userEmail: session?.email,
-            orgId: orgCtx?.orgId ?? undefined,
-          });
+          // Same identity, passed explicitly — the context is here only so this
+          // scope sweep shares the prefetched per-request memo below.
+          const resolved = await withRequestContext(() =>
+            resolveGoogleRealtimeCredentials({
+              userEmail: session?.email,
+              orgId: orgCtx?.orgId ?? undefined,
+            }),
+          );
           return typeof resolved === "string" && resolved.length > 0;
         }
         const resolved = await withRequestContext(() => resolveSecret(key));
@@ -86,6 +91,16 @@ export function createVoiceProvidersStatusHandler() {
         return false;
       }
     }
+
+    // One read per scope for every key below, instead of one per key per scope.
+    await withRequestContext(() =>
+      prefetchSecrets([
+        "GEMINI_API_KEY",
+        "OPENAI_API_KEY",
+        "GROQ_API_KEY",
+        "GOOGLE_APPLICATION_CREDENTIALS",
+      ]),
+    );
 
     let builder = false;
     try {

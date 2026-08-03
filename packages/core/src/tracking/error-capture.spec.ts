@@ -45,4 +45,50 @@ describe("tracking captureException", () => {
     expect(properties.exceptionMessage).not.toContain("secret-token");
     expect(properties.exceptionStack.length).toBeLessThanOrEqual(8000);
   });
+
+  it("keeps tags after an undefined one instead of dropping the rest", () => {
+    const track = vi.fn();
+    registerTrackingProvider({ name: "qa-exception", track });
+
+    captureException(new Error("boom"), {
+      // `undefined` sits before the rest — a `break` here silently lost every
+      // following tag, including route/method.
+      tags: { first: "kept", missing: undefined, second: "also-kept" },
+      route: "/api/things",
+      method: "POST",
+    });
+
+    const [event] = track.mock.calls[0];
+    expect(event.properties.exceptionTags).toEqual({
+      first: "kept",
+      second: "also-kept",
+      route: "/api/things",
+      method: "POST",
+    });
+  });
+
+  it("attributes the exception to the caller when a user is known", () => {
+    const track = vi.fn();
+    registerTrackingProvider({ name: "qa-exception", track });
+
+    captureException(new Error("boom"), {
+      userId: "person@example.test",
+      orgId: "org_1",
+    });
+
+    const [event] = track.mock.calls[0];
+    expect(event.userId).toBe("person@example.test");
+    expect(event.properties.orgId).toBe("org_1");
+  });
+
+  it("leaves the exception unattributed rather than guessing", () => {
+    const track = vi.fn();
+    registerTrackingProvider({ name: "qa-exception", track });
+
+    captureException(new Error("boom"));
+
+    const [event] = track.mock.calls[0];
+    expect(event.userId).toBeUndefined();
+    expect(event.properties).not.toHaveProperty("orgId");
+  });
 });

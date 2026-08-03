@@ -396,14 +396,16 @@ Las variables de conexión de la base de datos (`DATABASE_URL`, `DATABASE_AUTH_T
 
 Estos deben configurarse antes de promocionar una aplicación para una implementación de producción real. Los valores faltantes se cierran fallidamente (el marco se niega a iniciar/se niega a manejar solicitudes) o recurren a un comportamiento más débil con una advertencia fuerte.
 
-| Variable                 | Descripción                                                                                                                                                                                                                                                                                              |
-| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BETTER_AUTH_SECRET`     | Cadena aleatoria de más de 32 caracteres. Las cookies de sesión de signos AND son la alternativa HMAC para `OAUTH_STATE_SECRET` y `SECRETS_ENCRYPTION_KEY`. Requerido: el marco se inicia al inicio si falta en producción.                                                                              |
-| `BETTER_AUTH_URL`        | Origen público de esta aplicación (por ejemplo, `https://mail.example.com`). Se utiliza para el dominio de cookies y la construcción de redirecciones OAuth.                                                                                                                                             |
-| `ANTHROPIC_API_KEY`      | Clave API para el agente de producción integrado. **En implementaciones multiinquilino**, el marco se niega a recurrir a esto cuando el usuario no tiene una clave por usuario; es necesario traer su propia clave. Las instalaciones autohospedadas de un solo inquilino la utilizan como clave global. |
-| `OAUTH_STATE_SECRET`     | Clave HMAC dedicada para sobres de estado OAuth (Google, Atlassian, Zoom). Vuelve a `BETTER_AUTH_SECRET` cuando no está configurado, pero se recomienda un valor dedicado para que rotar uno no invalide el otro. Generar a través de `openssl rand -hex 32`.                                            |
-| `A2A_SECRET`             | HMAC compartido para A2A JSON-RPC entre aplicaciones. Sin él, cada terminal A2A y el terminal automático `/_agent-native/integrations/process-task` devuelven 503 en producción.                                                                                                                         |
-| `SECRETS_ENCRYPTION_KEY` | Clave AES-256-GCM para la bóveda de secretos cifrados en reposo. Vuelve a `BETTER_AUTH_SECRET`. Se producen fallos graves en producción cuando ambos están desarmados.                                                                                                                                   |
+| Variable                                    | Descripción                                                                                                                                                                                                                                                                                              |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET`                        | Cadena aleatoria de más de 32 caracteres. Firma cookies de sesión y es el fallback de `OAUTH_STATE_SECRET` y valores cifrados locales de la app. También es candidato de lectura heredado para ciphertext existente de la bóveda compartida. Obligatorio en producción.                                  |
+| `BETTER_AUTH_URL`                           | Origen público de esta aplicación (por ejemplo, `https://mail.example.com`). Se utiliza para el dominio de cookies y la construcción de redirecciones OAuth.                                                                                                                                             |
+| `ANTHROPIC_API_KEY`                         | Clave API para el agente de producción integrado. **En implementaciones multiinquilino**, el marco se niega a recurrir a esto cuando el usuario no tiene una clave por usuario; es necesario traer su propia clave. Las instalaciones autohospedadas de un solo inquilino la utilizan como clave global. |
+| `OAUTH_STATE_SECRET`                        | Clave HMAC dedicada para sobres de estado OAuth (Google, Atlassian, Zoom). Vuelve a `BETTER_AUTH_SECRET` cuando no está configurado, pero se recomienda un valor dedicado para que rotar uno no invalide el otro. Generar a través de `openssl rand -hex 32`.                                            |
+| `A2A_SECRET`                                | HMAC compartido para A2A JSON-RPC entre apps. Si no se define una clave de espacio de trabajo dedicada, la bóveda compartida usa una clave derivada para este propósito; rotar este valor también rota la clave de la bóveda.                                                                            |
+| `WORKSPACE_SECRETS_ENCRYPTION_KEY`          | Clave AES-256-GCM estable y preferida para la bóveda compartida del espacio de trabajo. Usa el mismo valor en cada app que la lea; es independiente del cifrado OAuth local.                                                                                                                             |
+| `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS` | Clave anterior opcional durante una rotación. Despliega ambas claves, deja que las lecturas migren las filas y elimina la anterior después de la migración.                                                                                                                                              |
+| `SECRETS_ENCRYPTION_KEY`                    | Clave heredada combinada para el cifrado local y la bóveda. Sigue siendo compatible, pero las nuevas implementaciones multiapp deben usar la clave dedicada del espacio de trabajo.                                                                                                                      |
 
 ### Autenticación e identidad {#env-auth}
 
@@ -423,7 +425,7 @@ Dentro de un espacio de trabajo, la raíz `.env` se carga automáticamente en ca
 
 ### Generando secretos fuertes {#env-generate-secrets}
 
-Para cualquier secreto marcado como "32+ caracteres aleatorios" (`BETTER_AUTH_SECRET`, `OAUTH_STATE_SECRET`, `A2A_SECRET`, `SECRETS_ENCRYPTION_KEY`, `AGENT_NATIVE_BUILDER_RELAY_SECRET`), genere valores nuevos con:
+Para cualquier secreto marcado como "32+ caracteres aleatorios" (`BETTER_AUTH_SECRET`, `OAUTH_STATE_SECRET`, `A2A_SECRET`, `WORKSPACE_SECRETS_ENCRYPTION_KEY`, `SECRETS_ENCRYPTION_KEY`, `AGENT_NATIVE_BUILDER_RELAY_SECRET`), genere valores nuevos con:
 
 ```bash
 openssl rand -hex 32
@@ -490,13 +492,13 @@ El entorno limitado `run-code` es un aislamiento a nivel de proceso, no un conte
 
 ## Actualizando UI en producción {#updating-ui-in-production}
 
-Una de las características principales del agente nativo es que el agente puede modificar el código fuente de su aplicación: componentes, rutas, estilos, actions. Durante el desarrollo local, esto funciona perfectamente porque el agente tiene acceso total al sistema de archivos.
+El agente ordinario de una app desplegada trabaja mediante herramientas de la app - actions, base de datos, MCP e integraciones configuradas - en vez de recibir acceso implícito al código fuente. Los cambios de código pertenecen al flujo de desarrollo del repositorio. Un frame integrado, local o de Builder puede editarlo cuando se le conceden intencionalmente herramientas de workspace y escritura.
 
 En una implementación de producción estándar con [production code execution](#production-code-execution) excluido, el agente tiene acceso a las herramientas de la aplicación (actions, base de datos, MCP), pero no al sistema de archivos. Esto significa que el agente puede leer y escribir datos, ejecutar actions e interactuar con servicios externos, pero no puede editar los componentes de React ni agregar nuevas rutas en una instancia implementada.
 
 ### Builder.io: Edición visual en producción {#builderio}
 
-[Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) resuelve este problema proporcionando un entorno de nube administrado donde el agente conserva la capacidad de modificar el UI de su aplicación en producción. Conecte su repositorio a Builder.io y solicite los cambios de UI directamente, sin necesidad de volver a implementarlo.
+[Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) es un flujo administrado independiente con capacidad de código donde un agente puede modificar la UI de tu app en producción. Conecta el repositorio y solicita cambios de UI directamente, sin volver a desplegar.
 
 **Cómo funciona:**
 
