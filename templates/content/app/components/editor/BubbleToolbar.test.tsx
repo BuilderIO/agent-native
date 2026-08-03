@@ -34,7 +34,15 @@ vi.mock("@/components/ui/tooltip", () => ({
   TooltipTrigger: ({ children }: { children: ReactNode }) => children,
 }));
 
-describe("BubbleToolbar link shortcut", () => {
+vi.mock("@/components/ui/popover", () => ({
+  Popover: ({ children }: { children: ReactNode }) => children,
+  PopoverTrigger: ({ children }: { children: ReactNode }) => children,
+  PopoverContent: ({ children }: { children: ReactNode }) => (
+    <div>{children}</div>
+  ),
+}));
+
+describe("BubbleToolbar", () => {
   let editor: Editor | null = null;
   let root: Root | null = null;
   let editorElement: HTMLDivElement | null = null;
@@ -146,5 +154,69 @@ describe("BubbleToolbar link shortcut", () => {
     expect(
       toolbarElement.querySelector('input[aria-label="editor.pasteLink"]'),
     ).not.toBeNull();
+  });
+
+  it("shows the active text style and converts a heading to Text by keyboard", () => {
+    editorElement = document.createElement("div");
+    toolbarElement = document.createElement("div");
+    document.body.append(editorElement, toolbarElement);
+    editor = new Editor({
+      element: editorElement,
+      extensions: [StarterKit],
+      content: "<h2>Selected heading</h2>",
+    });
+    editor.commands.setTextSelection({ from: 1, to: 9 });
+
+    root = createRoot(toolbarElement);
+    act(() => root!.render(<BubbleToolbar editor={editor!} />));
+
+    const trigger = toolbarElement.querySelector<HTMLButtonElement>(
+      'button[aria-label="editor.slash.turnInto: editor.heading2"]',
+    );
+    expect(trigger?.textContent).toContain("H2");
+
+    const textOption = [
+      ...toolbarElement.querySelectorAll<HTMLButtonElement>(
+        'button[role="menuitemradio"]',
+      ),
+    ].find((button) => button.textContent?.includes("editor.slash.text"));
+    act(() => {
+      textOption!.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+
+    expect(editor.getHTML()).toContain("<p>Selected heading</p>");
+    expect(editor.getHTML()).not.toContain("<h2>Selected heading</h2>");
+  });
+
+  it("sets an exact heading level without toggling the current style off", () => {
+    editorElement = document.createElement("div");
+    toolbarElement = document.createElement("div");
+    document.body.append(editorElement, toolbarElement);
+    editor = new Editor({
+      element: editorElement,
+      extensions: [StarterKit],
+      content: "<h3>Stable heading</h3>",
+    });
+    editor.commands.setTextSelection({ from: 1, to: 7 });
+
+    root = createRoot(toolbarElement);
+    act(() => root!.render(<BubbleToolbar editor={editor!} />));
+
+    const headingOption = [
+      ...toolbarElement.querySelectorAll<HTMLButtonElement>(
+        'button[role="menuitemradio"]',
+      ),
+    ].find((button) => button.textContent?.includes("editor.heading3"));
+    expect(headingOption?.getAttribute("aria-checked")).toBe("true");
+    act(() => headingOption!.click());
+
+    expect(editor.getHTML()).toContain("<h3>Stable heading</h3>");
+    expect(editor.getHTML()).not.toContain("<p>Stable heading</p>");
   });
 });
