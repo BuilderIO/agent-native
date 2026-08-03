@@ -7,9 +7,9 @@ deploys, we use Neon's schema-only branching via GitHub Actions.
 ## How it works
 
 1. **PR opened/updated** — `.github/workflows/neon-preview-branches.yml`
-creates a Neon schema-only branch (`preview-schema-only/pr-<number>`) for
-each Git-connected hosted template's Neon project, then sets `DATABASE_URL` on
-the corresponding Netlify site's deploy-preview context. Schema-only is
+   creates a Neon schema-only branch (`preview-schema-only/pr-<number>`) for
+   each Git-connected hosted template's Neon project, then sets `DATABASE_URL` on
+   the corresponding Netlify site's deploy-preview context. Schema-only is
    deliberate: preview URLs are public, so they must never receive a
    copy-on-write clone containing production or another user's rows.
 
