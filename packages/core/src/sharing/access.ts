@@ -15,6 +15,7 @@
 
 import { and, eq, or, sql, type SQL } from "drizzle-orm";
 
+import { orgMembers } from "../org/schema.js";
 import {
   getRequestAuthCapability,
   getRequestUserEmail,
@@ -85,6 +86,35 @@ function normalizeEmailForAccess(email: string | undefined): string | null {
 
 function emailColumnMatches(column: any, email: string): SQL {
   return sql`lower(${column}) = ${email}`;
+}
+
+/**
+ * Real `org_members` membership, independent of the caller's currently
+ * active org (`ctx.orgId`). `org`-visibility access must key off actual
+ * membership — a user's active-org selection is a UI convenience, not a
+ * statement of which orgs they belong to.
+ *
+ * Queries through the resource's own `reg.getDb()` — the same connection
+ * every other lookup in this file uses — not the ambient `getDbExec()`,
+ * since `org_members` lives in that same app database.
+ */
+async function isOrgMember(
+  reg: ShareableResourceRegistration,
+  memberOrgId: string,
+  email: string,
+): Promise<boolean> {
+  const db = reg.getDb() as any;
+  const rows = await db
+    .select({ id: orgMembers.id })
+    .from(orgMembers)
+    .where(
+      and(
+        eq(orgMembers.orgId, memberOrgId),
+        emailColumnMatches(orgMembers.email, email),
+      ),
+    )
+    .limit(1);
+  return rows.length > 0;
 }
 
 /**
@@ -470,7 +500,7 @@ async function resolveAccessImpl(
   const resource = await loadResourceForAccess(reg, resourceId, options);
   if (!resource) return null;
 
-  const { userEmail, orgId } = ctx;
+  const { userEmail } = ctx;
   const normalizedUserEmail = normalizeEmailForAccess(userEmail);
 
   if (
@@ -491,7 +521,19 @@ async function resolveAccessImpl(
   // `visibility === "public"` on an `allowPublic: false` resource is treated
   // as private: only owner + explicit shares grant access. Falls through to
   // the explicit-share lookup below.
-  if (resource.visibility === "org" && orgId && resource.orgId === orgId) {
+  //
+  // Membership in the resource's own org, not equality with the caller's
+  // currently active org: a caller can be a genuine member of the
+  // resource's org while a *different* org is their active selection, and
+  // `org` visibility should still admit them. Still requires some active
+  // org to be set at all (`orgId`), matching the pre-existing behavior for
+  // a caller with no active org.
+  if (
+    resource.visibility === "org" &&
+    resource.orgId &&
+    normalizedUserEmail &&
+    (await isOrgMember(reg, resource.orgId, normalizedUserEmail))
+  ) {
     const role = await highestShareRole(reg, resourceId, ctx, resource);
     return { role: role ?? "viewer", resource };
   }
