@@ -912,6 +912,9 @@ export function App() {
     [],
   );
   const [retryingUploadId, setRetryingUploadId] = useState<string | null>(null);
+  const [retryingUploadStatus, setRetryingUploadStatus] = useState<
+    string | null
+  >(null);
   const [exportingUploadId, setExportingUploadId] = useState<string | null>(
     null,
   );
@@ -2635,6 +2638,15 @@ export function App() {
           recordingId: upload.recordingId,
           serverUrl: targetServerUrl,
           authToken,
+          onRecoveryDecision: ({ action, progress }) => {
+            setRetryingUploadStatus(
+              action === "resume"
+                ? `Resuming · ${Math.round(progress * 100)}% already uploaded`
+                : action === "restart"
+                  ? "Restarting upload"
+                  : "Finishing upload",
+            );
+          },
         });
       }
       await loadPendingUploads();
@@ -2655,6 +2667,7 @@ export function App() {
       await loadPendingUploads();
     } finally {
       setRetryingUploadId(null);
+      setRetryingUploadStatus(null);
     }
   }
 
@@ -3281,6 +3294,7 @@ export function App() {
     <PendingUploadBanner
       uploads={pendingUploads}
       retryingUploadId={retryingUploadId}
+      retryingUploadStatus={retryingUploadStatus}
       exportingUploadId={exportingUploadId}
       dismissingUploadId={dismissingUploadId}
       onExport={exportPendingUpload}
@@ -4053,6 +4067,7 @@ function StorageConnectionBanner({ onConnect }: { onConnect: () => void }) {
 function PendingUploadBanner({
   uploads,
   retryingUploadId,
+  retryingUploadStatus,
   exportingUploadId,
   dismissingUploadId,
   onExport,
@@ -4063,6 +4078,7 @@ function PendingUploadBanner({
 }: {
   uploads: PendingDesktopUpload[];
   retryingUploadId: string | null;
+  retryingUploadStatus: string | null;
   exportingUploadId: string | null;
   dismissingUploadId: string | null;
   onExport: (upload: PendingDesktopUpload) => void;
@@ -4185,7 +4201,7 @@ function PendingUploadBanner({
               onClick={() => onRetry(latest)}
             >
               <IconRefresh size={14} stroke={2} />
-              {retrying ? "Retrying" : "Retry"}
+              {retrying ? (retryingUploadStatus ?? "Retrying") : "Retry"}
             </button>
           </>
         )}

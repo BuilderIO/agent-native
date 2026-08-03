@@ -12,7 +12,7 @@
  */
 
 import { getDbExec, isPostgres } from "@agent-native/core/db";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 
@@ -37,6 +37,7 @@ export type UploadLeaseResult =
   | { held: true }
   | {
       held: false;
+      staleAttempt: boolean;
       status: string | null;
       failureReason: string | null;
       videoUrl: string | null;
@@ -53,7 +54,12 @@ export type UploadLeaseResult =
  */
 export async function renewUploadLease(
   recordingId: string,
-  options: { now?: number; uploadProgress?: number } = {},
+  options: {
+    now?: number;
+    uploadProgress?: number;
+    attemptId?: string | null;
+    generationId?: string | null;
+  } = {},
 ): Promise<UploadLeaseResult> {
   const now = options.now ?? Date.now();
   const held = await getDb()
@@ -72,6 +78,23 @@ export async function renewUploadLease(
       and(
         eq(schema.recordings.id, recordingId),
         inArray(schema.recordings.status, [...IN_PROGRESS_STATUSES]),
+        ...(options.attemptId === undefined
+          ? []
+          : [
+              options.attemptId === null
+                ? isNull(schema.recordings.uploadAttemptId)
+                : eq(schema.recordings.uploadAttemptId, options.attemptId),
+            ]),
+        ...(options.generationId === undefined
+          ? []
+          : [
+              options.generationId === null
+                ? isNull(schema.recordings.uploadGenerationId)
+                : eq(
+                    schema.recordings.uploadGenerationId,
+                    options.generationId,
+                  ),
+            ]),
       ),
     )
     .returning({ id: schema.recordings.id });
@@ -87,12 +110,23 @@ export async function renewUploadLease(
       videoUrl: schema.recordings.videoUrl,
       videoSizeBytes: schema.recordings.videoSizeBytes,
       durationMs: schema.recordings.durationMs,
+      uploadAttemptId: schema.recordings.uploadAttemptId,
+      uploadGenerationId: schema.recordings.uploadGenerationId,
     })
     .from(schema.recordings)
     .where(eq(schema.recordings.id, recordingId));
 
   return {
     held: false,
+    staleAttempt:
+      (options.attemptId !== undefined || options.generationId !== undefined) &&
+      IN_PROGRESS_STATUSES.includes(
+        row?.status as (typeof IN_PROGRESS_STATUSES)[number],
+      ) &&
+      ((options.attemptId !== undefined &&
+        row?.uploadAttemptId !== options.attemptId) ||
+        (options.generationId !== undefined &&
+          row?.uploadGenerationId !== options.generationId)),
     status: row?.status ?? null,
     failureReason: row?.failureReason ?? null,
     videoUrl: row?.videoUrl ?? null,
@@ -106,6 +140,7 @@ export interface ReapedUpload {
   ownerEmail: string;
   status: string;
   leaseExpiresAt: string;
+  uploadGenerationId: string | null;
 }
 
 export interface ReapResult {
@@ -137,7 +172,7 @@ export async function reapExpiredUploads(
 
   // guard:allow-unscoped — system upload reaper, owner-agnostic by design.
   const probe = await exec.execute({
-    sql: `SELECT id, owner_email, status, upload_lease_expires_at
+    sql: `SELECT id, owner_email, status, upload_lease_expires_at, upload_generation_id
           FROM recordings
           WHERE status IN ('uploading', 'processing')
             AND upload_lease_expires_at IS NOT NULL
@@ -154,6 +189,10 @@ export async function reapExpiredUploads(
     ownerEmail: String(row.owner_email ?? ""),
     status: String(row.status ?? ""),
     leaseExpiresAt: String(row.upload_lease_expires_at ?? ""),
+    uploadGenerationId:
+      typeof row.upload_generation_id === "string"
+        ? row.upload_generation_id
+        : null,
   }));
 
   let failed = 0;
@@ -184,9 +223,16 @@ export async function reapExpiredUploads(
     failed = terminated.size;
 
     for (const id of terminated) {
+      const generationId = expired.find(
+        (row) => row.id === id,
+      )?.uploadGenerationId;
       await exec.execute({
         sql: `DELETE FROM application_state WHERE key = ${p(1)}`,
-        args: [`resumable-session-${id}`],
+        args: [
+          generationId
+            ? `resumable-session-${id}-${generationId}`
+            : `resumable-session-${id}`,
+        ],
       });
     }
   }

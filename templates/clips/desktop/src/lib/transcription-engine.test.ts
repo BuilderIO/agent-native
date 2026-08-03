@@ -8,10 +8,23 @@ vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 import {
   appendFinalTranscript,
   recordingTranscriptionLanguage,
+  isMicEcho,
   restartTranscriptionEngine,
-  type SourcedTranscriptSegment,
   startTranscriptionEngine,
+  transcriptFullText,
+  transcriptSegments,
+  type TranscriptLine,
 } from "./transcription-engine";
+
+/** A final-transcript event carrying one segment of `text`. */
+function said(
+  source: "mic" | "system",
+  text: string,
+  startMs: number,
+  endMs = startMs + 2_000,
+) {
+  return { text, source, segments: [{ startMs, endMs, text }] } as const;
+}
 
 beforeEach(() => {
   invokeMock.mockReset();
@@ -22,88 +35,286 @@ describe("recording transcription language", () => {
   it("leaves local Whisper recordings on auto-detect instead of forcing the UI locale", () => {
     expect(recordingTranscriptionLanguage()).toBeNull();
   });
+});
 
-  it("drops overlapping duplicate speech from the other audio source", () => {
-    const lines: string[] = [];
-    const segments: SourcedTranscriptSegment[] = [];
+describe("transcript echo suppression", () => {
+  it("drops mic speech that only echoes system audio already captured", () => {
+    const lines: TranscriptLine[] = [];
 
+    appendFinalTranscript(
+      said("system", "Send the pull request button", 1_000),
+      lines,
+    );
     expect(
       appendFinalTranscript(
-        {
-          text: "Send the pull request button",
-          source: "mic",
-          segments: [
-            {
-              startMs: 1_000,
-              endMs: 2_000,
-              text: "Send the pull request button",
-            },
-          ],
-        },
+        said("mic", "Send the pull request button", 1_100),
         lines,
-        segments,
-      ),
-    ).toBe(true);
-
-    expect(
-      appendFinalTranscript(
-        {
-          text: "Send the pull request button",
-          source: "system",
-          segments: [
-            {
-              startMs: 1_100,
-              endMs: 2_100,
-              text: "Send the pull request button",
-            },
-          ],
-        },
-        lines,
-        segments,
       ),
     ).toBe(false);
 
-    expect(lines).toEqual(["Me: Send the pull request button"]);
-    expect(segments).toHaveLength(1);
+    expect(transcriptFullText(lines)).toBe(
+      "Them: Send the pull request button",
+    );
+    expect(transcriptSegments(lines)).toHaveLength(1);
   });
 
-  it("keeps matching speech when it happens at a different time", () => {
-    const lines: string[] = [];
-    const segments: SourcedTranscriptSegment[] = [];
-    const event = {
-      text: "Please review the changes",
-      segments: [
-        {
-          startMs: 1_000,
-          endMs: 2_000,
-          text: "Please review the changes",
-        },
-      ],
-    };
+  it("retracts a mic echo once the system copy of it arrives", () => {
+    const lines: TranscriptLine[] = [];
 
-    expect(
-      appendFinalTranscript({ ...event, source: "mic" }, lines, segments),
-    ).toBe(true);
+    // The mic finalizes first, so without retraction the remote speaker's
+    // words would stay attributed to the user.
+    appendFinalTranscript(
+      said("mic", "Send the pull request button", 1_100),
+      lines,
+    );
+    appendFinalTranscript(
+      said("system", "Send the pull request button", 1_000),
+      lines,
+    );
+
+    expect(transcriptFullText(lines)).toBe(
+      "Them: Send the pull request button",
+    );
+    expect(transcriptSegments(lines)).toHaveLength(1);
+  });
+
+  it("treats mangled echo as echo", () => {
+    const lines: TranscriptLine[] = [];
+
+    appendFinalTranscript(
+      said("system", "So I think we should ship the redesign on Friday", 4_000),
+      lines,
+    );
+    // Whisper transcribes speaker bleed badly: words drop out and change.
     expect(
       appendFinalTranscript(
-        {
-          ...event,
-          source: "system",
-          segments: [
-            {
-              startMs: 3_000,
-              endMs: 4_000,
-              text: "Please review the changes",
-            },
-          ],
-        },
+        said("mic", "So I think we should ship a redesign Friday", 4_300),
         lines,
-        segments,
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps the user talking over the remote side", () => {
+    const lines: TranscriptLine[] = [];
+
+    appendFinalTranscript(
+      said("system", "So I think we should ship the redesign on Friday", 4_000),
+      lines,
+    );
+    expect(
+      appendFinalTranscript(
+        said("mic", "Wait, can we talk about QA first", 4_500),
+        lines,
+      ),
+    ).toBe(true);
+    expect(lines).toHaveLength(2);
+  });
+
+  it("keeps matching speech once the conversation has moved on", () => {
+    const lines: TranscriptLine[] = [];
+
+    appendFinalTranscript(
+      said("system", "Please review the changes", 1_000),
+      lines,
+    );
+    for (let index = 0; index < 6; index++) {
+      appendFinalTranscript(
+        said("system", `Unrelated remark number ${index}`, 5_000 + index),
+        lines,
+      );
+    }
+    expect(
+      appendFinalTranscript(
+        said("mic", "Please review the changes", 30_000),
+        lines,
       ),
     ).toBe(true);
 
+    expect(lines).toHaveLength(8);
+    expect(transcriptSegments(lines)).toHaveLength(8);
+  });
+
+  it("keeps a deliberate repeat after the loose echo time window", () => {
+    const lines: TranscriptLine[] = [];
+
+    appendFinalTranscript(
+      said("system", "So seventy five centimetres, got it", 1_000),
+      lines,
+    );
+
+    expect(
+      appendFinalTranscript(
+        said("mic", "So seventy five centimetres, got it", 30_000),
+        lines,
+      ),
+    ).toBe(true);
     expect(lines).toHaveLength(2);
-    expect(segments).toHaveLength(2);
+  });
+
+  it("does not use or retract preloaded history as live echo evidence", () => {
+    const lines: TranscriptLine[] = [
+      {
+        source: "system",
+        text: "Please review the changes",
+        startMs: 1_000,
+        segments: [],
+        historical: true,
+      },
+      {
+        source: "mic",
+        text: "Send the pull request button",
+        startMs: 2_000,
+        segments: [],
+        historical: true,
+      },
+    ];
+
+    expect(
+      appendFinalTranscript(
+        said("mic", "Please review the changes", 1_200),
+        lines,
+      ),
+    ).toBe(true);
+    appendFinalTranscript(
+      said("system", "Send the pull request button", 2_200),
+      lines,
+    );
+
+    expect(lines.filter((line) => line.historical)).toHaveLength(2);
+    expect(lines).toHaveLength(4);
+  });
+
+  it("keeps short agreements that merely repeat a common word", () => {
+    const lines: TranscriptLine[] = [];
+
+    appendFinalTranscript(
+      said("system", "Does that work for everyone", 2_000),
+      lines,
+    );
+    expect(
+      appendFinalTranscript(said("mic", "Yeah that works", 2_400), lines),
+    ).toBe(true);
+  });
+
+  // Echo repeats a whole utterance. A brief interjection whose words all
+  // happen to appear, in order, somewhere in a long remote passage is the user
+  // talking, and silently deleting that is far worse than keeping echo.
+  it.each([
+    ["Sorry, go ahead", "Right, go ahead and start whenever you are ready"],
+    ["Yeah, I think so", "I don't think so, we should just ship it"],
+    [
+      "I think we should do that",
+      "So I was thinking we should not do the second one, that is my take",
+    ],
+  ])("keeps %j spoken over the remote side", (mine, theirs) => {
+    const lines: TranscriptLine[] = [];
+
+    appendFinalTranscript(said("system", theirs, 5_000, 12_000), lines);
+    expect(appendFinalTranscript(said("mic", mine, 6_000, 8_000), lines)).toBe(
+      true,
+    );
+    expect(lines).toHaveLength(2);
+  });
+
+  // Captured off a real speaker-mode call. Whisper hears the bleed well enough
+  // to keep the sentence structure but mangles the nouns and the digits, which
+  // is why both exact and set-based matching let it through.
+  it("matches a real mangled echo of a long utterance", () => {
+    const lines: TranscriptLine[] = [];
+
+    appendFinalTranscript(
+      said(
+        "system",
+        "I'm going to test it out on my garden hedge. This particular model is the 751 and the 75 just means it's got a 75 centimetre cut in blade.",
+        0,
+        10_000,
+      ),
+      lines,
+    );
+    expect(
+      appendFinalTranscript(
+        said(
+          "mic",
+          "I'm going to test it out on my garden page. This particular model is the 751 and the 752 has a 75% to me to cut in blade.",
+          200,
+          10_200,
+        ),
+        lines,
+      ),
+    ).toBe(false);
+  });
+
+  it("matches echo that straddles two system lines", () => {
+    const lines: TranscriptLine[] = [];
+
+    appendFinalTranscript(
+      said("system", "Let us start with the", 1_000),
+      lines,
+    );
+    appendFinalTranscript(
+      said("system", "roadmap for next quarter", 3_000),
+      lines,
+    );
+    expect(
+      appendFinalTranscript(
+        said(
+          "mic",
+          "Let us start with the roadmap for next quarter",
+          1_200,
+          5_000,
+        ),
+        lines,
+      ),
+    ).toBe(false);
+  });
+
+  it("does not let an unrelated neighbouring line bury the match", () => {
+    const lines: TranscriptLine[] = [];
+
+    appendFinalTranscript(
+      said("system", "Anyway that is everything from my side today", 1_000),
+      lines,
+    );
+    appendFinalTranscript(
+      said("system", "Any questions before we go", 3_000),
+      lines,
+    );
+    expect(
+      appendFinalTranscript(
+        said("mic", "Any questions before we go", 3_300),
+        lines,
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("in-flight partials", () => {
+  it("suppresses a mic partial that mirrors the system partial", () => {
+    const inFlight: TranscriptLine[] = [
+      {
+        source: "system",
+        text: "so the next thing on the list is the pricing page rewrite",
+        startMs: null,
+        segments: [],
+      },
+    ];
+
+    expect(
+      isMicEcho("so the next thing on the list is the pricing page", inFlight),
+    ).toBe(true);
+  });
+
+  it("keeps a mic partial of the user answering", () => {
+    const inFlight: TranscriptLine[] = [
+      {
+        source: "system",
+        text: "so the next thing on the list is the pricing page rewrite",
+        startMs: null,
+        segments: [],
+      },
+    ];
+
+    expect(isMicEcho("right, who is picking that up", inFlight)).toBe(false);
   });
 });
 

@@ -8,6 +8,7 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js"; // ensure registerShareableResource runs
+import { notifyDeckComment } from "../server/lib/comment-notifications.js";
 
 function displayNameFromEmail(email: string): string {
   const local = email.split("@")[0] || email;
@@ -56,6 +57,16 @@ export default defineAction({
       authorName,
     });
 
-    return { id, threadId };
+    const notified = await notifyDeckComment({
+      deckId,
+      slideId,
+      threadId,
+      authorEmail,
+      authorName,
+      content,
+      isReply: Boolean(parentId ?? args.threadId),
+    });
+
+    return { id, threadId, notified };
   },
 });

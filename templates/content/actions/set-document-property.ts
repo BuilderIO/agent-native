@@ -13,13 +13,12 @@ import {
   type DocumentPropertyType,
 } from "../shared/properties.js";
 import { resolveContentDocumentAccess } from "./_content-document-access.js";
+import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import {
   getDatabaseById,
   listPropertiesForDatabaseDocuments,
   nanoid,
   normalizedValueJson,
-  writeBlockFieldContent,
-  writePrimaryBlocksContent,
 } from "./_property-utils.js";
 
 export default defineAction({
@@ -84,17 +83,34 @@ export default defineAction({
       const target = blocksStorageTarget(
         parsePropertyOptions(definition.optionsJson),
       );
-      if (target === "document_body") {
-        await writePrimaryBlocksContent({ documentId, content, now });
-      } else {
-        await writeBlockFieldContent({
-          documentId,
-          propertyId,
-          ownerEmail: database.ownerEmail,
-          content,
-          now,
-        });
-      }
+      await db.transaction(async (tx) => {
+        await lockDatabaseMemberships(tx, [membership.id]);
+        if (target === "document_body") {
+          await tx
+            .update(schema.documents)
+            .set({ content, updatedAt: now })
+            .where(eq(schema.documents.id, documentId));
+        } else {
+          await tx
+            .insert(schema.documentBlockFieldContents)
+            .values({
+              id: nanoid(),
+              ownerEmail: database.ownerEmail,
+              documentId,
+              propertyId,
+              content,
+              createdAt: now,
+              updatedAt: now,
+            })
+            .onConflictDoUpdate({
+              target: [
+                schema.documentBlockFieldContents.documentId,
+                schema.documentBlockFieldContents.propertyId,
+              ],
+              set: { content, updatedAt: now },
+            });
+        }
+      });
       return {
         documentId,
         databaseId: database.id,
@@ -155,20 +171,7 @@ export default defineAction({
           `Property "${propertyId}" changed or was deleted before its value could be written.`,
         );
       }
-      const [lockedMembership] = await tx
-        .update(schema.contentDatabaseItems)
-        .set({ updatedAt: sql`${schema.contentDatabaseItems.updatedAt}` })
-        .where(
-          and(
-            eq(schema.contentDatabaseItems.id, membership.id),
-            eq(schema.contentDatabaseItems.databaseId, database.id),
-            eq(schema.contentDatabaseItems.documentId, documentId),
-          ),
-        )
-        .returning({ id: schema.contentDatabaseItems.id });
-      if (!lockedMembership)
-        throw new Error("Document is no longer part of this database.");
-
+      await lockDatabaseMemberships(tx, [membership.id]);
       const [existing] = await tx
         .select({ id: schema.documentPropertyValues.id })
         .from(schema.documentPropertyValues)
@@ -178,7 +181,6 @@ export default defineAction({
             eq(schema.documentPropertyValues.propertyId, propertyId),
           ),
         );
-
       if (existing) {
         await tx
           .update(schema.documentPropertyValues)

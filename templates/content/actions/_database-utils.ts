@@ -191,11 +191,11 @@ async function contentDatabaseTableQueryMode(
   return usesSecondaryField ? "client-required" : "server";
 }
 
-function canManageRole(role: string) {
+function canManageRole(role: string | undefined) {
   return role === "owner" || role === "admin";
 }
 
-function canEditRole(role: string) {
+function canEditRole(role: string | undefined) {
   return role === "owner" || role === "admin" || role === "editor";
 }
 
@@ -399,7 +399,15 @@ function serializeDocument(
   const isOwner =
     doc.ownerEmail.trim().toLowerCase() ===
     getRequestUserEmail()?.trim().toLowerCase();
-  const accessRole = isOwner ? ("owner" as const) : (shareRole ?? "viewer");
+  const hasVisibilityAccess =
+    doc.visibility === "public" ||
+    (doc.visibility === "org" &&
+      !!doc.orgId &&
+      doc.orgId === getRequestOrgId());
+  const canView = isOwner || hasVisibilityAccess || shareRole !== undefined;
+  const accessRole = isOwner
+    ? ("owner" as const)
+    : (shareRole ?? (hasVisibilityAccess ? ("viewer" as const) : undefined));
   return {
     id: doc.id,
     parentId: doc.parentId,
@@ -414,6 +422,7 @@ function serializeDocument(
     hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
     visibility: doc.visibility,
     accessRole,
+    canView,
     canEdit: canEditRole(accessRole),
     canManage: canManageRole(accessRole),
     databaseMembership: membership

@@ -146,6 +146,7 @@ mod macos {
     use crate::capture_audio_bus::{
         try_subscribe, AudioSources, AudioSubscription, SubscriptionAttempt,
     };
+    use crate::echo_guard::EchoGuard;
     use crate::native_speech::macos::{
         start_raw_mic_capture, MicVoiceProcessingMode, RawMicCapture,
     };
@@ -441,6 +442,11 @@ mod macos {
         /// Recording capture only persists finals and disables this expensive
         /// repeated inference; meeting capture keeps it enabled.
         emit_partials: bool,
+        /// Shared speaker-bleed reference, present only while both streams are
+        /// capturing. The system stream records what the speakers played into
+        /// it; the mic stream reads it back to drop its own echo of that
+        /// playback before inference. See `echo_guard`.
+        echo_guard: Option<Arc<EchoGuard>>,
     }
 
     impl WhisperStream {
@@ -452,6 +458,7 @@ mod macos {
             ctx: Arc<WhisperContext>,
             stream_start: Instant,
             emit_partials: bool,
+            echo_guard: Option<Arc<EchoGuard>>,
         ) -> Arc<Self> {
             let done = Arc::new(AtomicBool::new(false));
             let stream = Arc::new(WhisperStream {
@@ -468,6 +475,7 @@ mod macos {
                 }),
                 reset_generation: AtomicU32::new(0),
                 emit_partials,
+                echo_guard,
             });
             let worker_stream = stream.clone();
             std::thread::spawn(move || {
@@ -492,6 +500,11 @@ mod macos {
             if !self.running.load(Ordering::SeqCst) {
                 return;
             }
+            if self.source == "system" {
+                if let Some(guard) = &self.echo_guard {
+                    guard.note_playback(frames, self.src_rate.load(Ordering::SeqCst) as f64);
+                }
+            }
             if let Ok(mut buf) = self.buf.lock() {
                 buf.extend_from_slice(frames);
             }
@@ -514,13 +527,46 @@ mod macos {
                 .unwrap_or(0)
         }
 
-        /// Mark the start of a fresh buffer (called when the buffer is cleared
+        /// Mark the start of a fresh buffer (called when the buffer is drained
         /// on finalize) so the next utterance's whisper timestamps offset
-        /// correctly onto the meeting timeline.
-        fn reset_buffer_start(&self) {
+        /// correctly onto the meeting timeline. `pending` is how much audio
+        /// survived the drain, which is how far before now the buffer begins.
+        fn reset_buffer_start(&self, pending: Duration) {
+            let now = Instant::now();
             if let Ok(mut timeline) = self.timeline.lock() {
-                timeline.buffer_start = Instant::now();
+                timeline.buffer_start = buffer_start_after_drain(now, pending);
             }
+        }
+
+        /// Wall-clock start of the audio currently sitting in `buf`, used to
+        /// line that audio up against the playback reference.
+        fn buffer_start(&self) -> Instant {
+            self.timeline
+                .lock()
+                .map(|timeline| timeline.buffer_start)
+                .unwrap_or_else(|_| Instant::now())
+        }
+
+        /// Whether `samples` (16 kHz mono) is the speakers bleeding into the
+        /// microphone rather than someone talking. Only the mic can be
+        /// contaminated: a call app never plays the local user back.
+        fn is_playback_echo(&self, samples: &[f32]) -> bool {
+            if self.source != "mic" {
+                return false;
+            }
+            self.echo_guard
+                .as_ref()
+                .is_some_and(|guard| guard.is_playback_echo(samples, self.buffer_start()))
+        }
+
+        /// Clear whichever live partial this stream last rendered. Suppressed
+        /// echo emits no final, so without this the overlay would keep showing
+        /// the partial that led up to it.
+        fn clear_partial(&self) {
+            let _ = self.app.emit(
+                "voice:partial-transcript",
+                serde_json::json!({ "text": "", "source": self.source }),
+            );
         }
 
         /// Rebase timestamps to "now" and discard any audio captured while the
@@ -682,6 +728,10 @@ mod macos {
         sum / count as f32
     }
 
+    fn buffer_start_after_drain(now: Instant, pending: Duration) -> Instant {
+        now.checked_sub(pending).unwrap_or(now)
+    }
+
     fn partial_inference_due(
         emit_partials: bool,
         had_voice: bool,
@@ -692,6 +742,18 @@ mod macos {
             && had_voice
             && have_secs > 0.5
             && since_last_infer > Duration::from_millis(1200)
+    }
+
+    fn partial_inference_timestamp(
+        previous: Instant,
+        inference_ran: bool,
+        now: Instant,
+    ) -> Instant {
+        if inference_ran {
+            now
+        } else {
+            previous
+        }
     }
 
     fn utterance_finalize_due(have_secs: f32, silence: Duration) -> bool {
@@ -790,20 +852,32 @@ mod macos {
                     if stream.reset_generation.load(Ordering::SeqCst) != seen_reset_generation {
                         continue;
                     }
-                    let segs = infer(&mut state, resample_state.samples(), lang);
-                    stream.emit_transcript("voice:final-transcript", &segs, stream.offset_ms());
+                    if stream.is_playback_echo(resample_state.samples()) {
+                        // A dropped utterance is indistinguishable from silence
+                        // in the transcript, so say so here: this log is the
+                        // only way a false positive is diagnosable afterwards.
+                        eprintln!("[whisper-mic] suppressed {have_secs:.1}s of speaker bleed");
+                        stream.clear_partial();
+                    } else {
+                        let segs = infer(&mut state, resample_state.samples(), lang);
+                        stream.emit_transcript("voice:final-transcript", &segs, stream.offset_ms());
+                    }
                 }
+                let mut pending = 0usize;
                 if let Ok(mut b) = stream.buf.lock() {
                     let to_drain = n_processed.min(b.len());
                     b.drain(..to_drain);
+                    pending = b.len();
                 }
                 // Raw indices shift after the drain above (front-truncated),
                 // so the resample cache is invalid regardless of whether this
                 // utterance ran inference — rebuild fresh from whatever's left.
                 resample_state.drop_all();
-                // New buffer begins now — advance the timeline offset so the
-                // next utterance's whisper timestamps map correctly.
-                stream.reset_buffer_start();
+                // Advance the timeline offset so the next utterance's whisper
+                // timestamps map correctly. Inference can take seconds, and
+                // audio kept arriving throughout it, so the new buffer starts
+                // as far back as the audio it already holds — not at "now".
+                stream.reset_buffer_start(Duration::from_secs_f32(pending as f32 / src_rate));
                 last_raw_len = 0;
                 had_voice = false;
                 last_infer = Instant::now();
@@ -825,9 +899,15 @@ mod macos {
                 if stream.reset_generation.load(Ordering::SeqCst) != seen_reset_generation {
                     continue;
                 }
-                let segs = infer(&mut state, resample_state.samples(), lang);
-                stream.emit_transcript("voice:partial-transcript", &segs, stream.offset_ms());
-                last_infer = Instant::now();
+                let inference_ran = if stream.is_playback_echo(resample_state.samples()) {
+                    stream.clear_partial();
+                    false
+                } else {
+                    let segs = infer(&mut state, resample_state.samples(), lang);
+                    stream.emit_transcript("voice:partial-transcript", &segs, stream.offset_ms());
+                    true
+                };
+                last_infer = partial_inference_timestamp(last_infer, inference_ran, Instant::now());
             }
         }
 
@@ -835,7 +915,10 @@ mod macos {
         let raw = stream.buf.lock().map(|b| b.clone()).unwrap_or_default();
         let src_rate = stream.src_rate.load(Ordering::SeqCst) as f64;
         let samples = resample_to_16k(&raw, src_rate);
-        if had_voice && samples.len() as f32 / SAMPLE_RATE_16K > 0.3 {
+        if had_voice
+            && samples.len() as f32 / SAMPLE_RATE_16K > 0.3
+            && !stream.is_playback_echo(&samples)
+        {
             let segs = infer(&mut state, &samples, lang);
             stream.emit_transcript("voice:final-transcript", &segs, stream.offset_ms());
         }
@@ -1028,6 +1111,9 @@ mod macos {
         // competing VoiceProcessingIO mic input. Older macOS versions (and a
         // failed SCK start) keep the existing split-capture fallback.
         let session_start = Instant::now();
+        // Only a session that captures both streams can tell speaker bleed
+        // from speech, so a mic-only session leaves the guard unarmed.
+        let echo_guard = capture_system.then(|| Arc::new(EchoGuard::new()));
         let mic_stream = WhisperStream::new(
             app.clone(),
             "mic",
@@ -1036,6 +1122,7 @@ mod macos {
             ctx.clone(),
             session_start,
             emit_partials,
+            echo_guard.clone(),
         );
         let sys_stream = capture_system.then(|| {
             WhisperStream::new(
@@ -1046,6 +1133,7 @@ mod macos {
                 ctx.clone(),
                 session_start,
                 emit_partials,
+                echo_guard.clone(),
             )
         });
         let mic_for_cb = mic_stream.clone();
@@ -1311,11 +1399,12 @@ mod macos {
 
     #[cfg(test)]
     mod tests {
-        use std::time::Duration;
+        use std::time::{Duration, Instant};
 
         use super::{
-            partial_inference_due, resample_to_16k, should_use_combined_sck_capture,
-            split_mic_capture_options, utterance_finalize_due, IncrementalResample, SessionOwner,
+            buffer_start_after_drain, partial_inference_due, partial_inference_timestamp,
+            resample_to_16k, should_use_combined_sck_capture, split_mic_capture_options,
+            utterance_finalize_due, IncrementalResample, SessionOwner,
         };
         use crate::native_speech::macos::MicVoiceProcessingMode;
 
@@ -1365,6 +1454,17 @@ mod macos {
         }
 
         #[test]
+        fn buffer_start_accounts_for_audio_captured_during_inference() {
+            let now = Instant::now();
+            let pending = Duration::from_millis(750);
+
+            assert_eq!(
+                buffer_start_after_drain(now, pending),
+                now.checked_sub(pending).unwrap()
+            );
+        }
+
+        #[test]
         fn recording_mode_never_runs_live_partial_inference() {
             assert!(!partial_inference_due(
                 false,
@@ -1388,6 +1488,15 @@ mod macos {
                 1.0,
                 Duration::from_millis(1200)
             ));
+        }
+
+        #[test]
+        fn echo_suppressed_partial_does_not_reset_retry_cadence() {
+            let previous = Instant::now();
+            let now = previous + Duration::from_secs(2);
+
+            assert_eq!(partial_inference_timestamp(previous, false, now), previous);
+            assert_eq!(partial_inference_timestamp(previous, true, now), now);
         }
 
         #[test]

@@ -1,4 +1,5 @@
 import {
+  resourceGetByPath,
   resourceListAllOwners,
   resourcePut,
   type Resource,
@@ -11,7 +12,12 @@ import {
   type BackgroundAutomationContext,
   type BackgroundAutomationDeps,
 } from "./background-automation-runner.js";
-import { nextOccurrence, isValidCron, describeCron } from "./cron.js";
+import {
+  nextOccurrence,
+  isValidCron,
+  describeCron,
+  effectiveTimezone,
+} from "./cron.js";
 import {
   buildJobResourceContent,
   parseJobResource,
@@ -138,7 +144,7 @@ export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
         // Stuck — reset so the next check can re-run it
         meta.lastStatus = "error";
         meta.lastError = "Job timed out or server crashed mid-run";
-        const next = nextOccurrence(meta.schedule, now);
+        const next = nextOccurrence(meta.schedule, now, meta.timezone);
         meta.nextRun = next.toISOString();
         await updateResource(resource, meta, body);
         continue;
@@ -153,7 +159,7 @@ export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
         // real next occurrence. Computing from new Date(0) (the epoch) always
         // returns a 1970 date, which is < now, so the job would fire
         // immediately on first sight regardless of its schedule.
-        const next = nextOccurrence(meta.schedule, now);
+        const next = nextOccurrence(meta.schedule, now, meta.timezone);
         meta.nextRun = next.toISOString();
         await updateResource(resource, meta, body);
         continue;
@@ -216,10 +222,16 @@ async function executeJob(
         `User/membership no longer valid — leaving cron entry for admin review.`,
     );
     // Mark as skipped without resetting nextRun so an admin can find it.
-    meta.lastRun = now.toISOString();
+    // `lastRun` is deliberately untouched: the job did not run, and stamping
+    // it here made a permanently blocked job look like it ran every minute.
+    // Re-writing an unchanged resource on every tick also churns the poll
+    // stream, so only persist when the failure state actually changed.
+    const alreadyRecorded =
+      meta.lastStatus === "skipped" && meta.lastError === identity.reason;
+    meta.lastCheck = now.toISOString();
     meta.lastStatus = "skipped";
     meta.lastError = identity.reason;
-    await updateResource(resource, meta, body);
+    if (!alreadyRecorded) await updateResource(resource, meta, body);
     return;
   }
   const jobUserEmail = identity.identity.userEmail;
@@ -263,7 +275,7 @@ async function executeJob(
         automation: jobContext,
         ownerEmail: jobUserEmail,
         orgId: jobOrgId,
-        prompt: `[Recurring Job: ${jobName}]\nSchedule: ${describeCron(meta.schedule)}\n\nExecute the following job instructions:\n\n${body}`,
+        prompt: `[Recurring Job: ${jobName}]\nSchedule: ${describeCron(meta.schedule, effectiveTimezone(meta.timezone))}\n\nExecute the following job instructions:\n\n${body}`,
         threadTitle: `Job: ${jobName} — ${now.toLocaleDateString()}`,
         runIdPrefix: `job-${jobName}`,
         usageLabel: `recurring-job:${jobName}`,
@@ -272,20 +284,21 @@ async function executeJob(
       deps,
     );
 
-    // Compute from completion time so long runs cannot immediately re-fire.
-    meta.lastStatus = "success";
-    meta.nextRun = nextOccurrence(meta.schedule, new Date()).toISOString();
-    await updateResource(resource, meta, body);
-    console.log(
-      `[recurring-jobs] Job "${jobName}" completed. Next run: ${meta.nextRun}`,
-    );
+    await recordExecutionOutcome(resource, {
+      lastRun: meta.lastRun,
+      lastStatus: "success",
+      lastError: undefined,
+    });
+    console.log(`[recurring-jobs] Job "${jobName}" completed.`);
   } catch (err) {
-    meta.lastStatus = "error";
-    meta.lastError =
+    const lastError =
       err instanceof Error ? err.message.slice(0, 200) : "Unknown error";
-    meta.nextRun = nextOccurrence(meta.schedule, new Date()).toISOString();
-    await updateResource(resource, meta, body);
-    console.error(`[recurring-jobs] Job "${jobName}" failed:`, meta.lastError);
+    await recordExecutionOutcome(resource, {
+      lastRun: meta.lastRun,
+      lastStatus: "error",
+      lastError,
+    });
+    console.error(`[recurring-jobs] Job "${jobName}" failed:`, lastError);
   }
 }
 
@@ -296,4 +309,46 @@ async function updateResource(
 ): Promise<void> {
   const content = buildJobContent(meta, body);
   await resourcePut(resource.owner, resource.path, content);
+}
+
+/** Execution bookkeeping the scheduler owns; the rest belongs to the editor. */
+type ExecutionOutcome = Pick<
+  JobFrontmatter,
+  "lastRun" | "lastCheck" | "lastStatus" | "lastError"
+>;
+
+/**
+ * Persist the result of a run without clobbering a concurrent edit.
+ *
+ * A run holds its `meta` for as long as the job takes, so writing that whole
+ * snapshot back on completion would silently revert a schedule, timezone or
+ * instruction change made while it was running. Only the execution fields are
+ * ours to write, and `nextRun` is recomputed from whatever schedule is stored
+ * now, so an edit mid-run takes effect on the next tick.
+ */
+async function recordExecutionOutcome(
+  resource: Resource,
+  outcome: ExecutionOutcome,
+): Promise<void> {
+  const latest = await resourceGetByPath(resource.owner, resource.path);
+  if (!latest) {
+    // Deleted while it was running. Writing the pre-run snapshot back would
+    // resurrect the automation and schedule it again.
+    console.log(
+      `[recurring-jobs] "${resource.path}" was deleted mid-run; dropping its outcome.`,
+    );
+    return;
+  }
+  const current = parseJobResource(latest.content);
+
+  const meta: JobFrontmatter = { ...current.meta, ...outcome };
+  if (meta.schedule && isValidCron(meta.schedule)) {
+    // Measured from completion so a long run cannot immediately re-fire.
+    meta.nextRun = nextOccurrence(
+      meta.schedule,
+      new Date(),
+      meta.timezone,
+    ).toISOString();
+  }
+  await updateResource(resource, meta, current.body);
 }

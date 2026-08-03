@@ -5,9 +5,21 @@ const resourceDeleteMock = vi.hoisted(() => vi.fn());
 const resourceGetByPathMock = vi.hoisted(() => vi.fn());
 const resourceListMock = vi.hoisted(() => vi.fn());
 const resourcePutMock = vi.hoisted(() => vi.fn());
+const getUserSettingMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: executeMock }),
+  intType: () => "INTEGER",
+  isPostgres: () => false,
+}));
+
+vi.mock("../db/ddl-guard.js", () => ({
+  ensureTableExists: vi.fn(),
+  ensureIndexExists: vi.fn(),
+}));
+
+vi.mock("../settings/user-settings.js", () => ({
+  getUserSetting: getUserSettingMock,
 }));
 
 vi.mock("../resources/store.js", () => ({
@@ -78,6 +90,31 @@ describe("automation domain service", () => {
     resourceGetByPathMock.mockResolvedValue(null);
     resourceListMock.mockResolvedValue([]);
     resourcePutMock.mockResolvedValue(undefined);
+    getUserSettingMock.mockResolvedValue(null);
+  });
+
+  it("schedules a new automation in the timezone the creator saved", async () => {
+    getUserSettingMock.mockResolvedValue({ timezone: "America/New_York" });
+    resourceGetByPathMock
+      .mockResolvedValueOnce(null)
+      .mockImplementation(async (owner: string) =>
+        resource(resourcePutMock.mock.calls.at(-1)?.[2] as string, owner),
+      );
+
+    const definition = await defineAutomation(actor, {
+      name: "digest",
+      scope: "organization",
+      triggerType: "schedule",
+      schedule: "0 8 * * *",
+      body: "Send the digest.",
+    });
+
+    expect(definition.meta.timezone).toBe("America/New_York");
+    // 8am Eastern is 12:00 or 13:00 UTC depending on DST, never 08:00 UTC.
+    expect(definition.meta.nextRun).toBeTruthy();
+    expect(new Date(definition.meta.nextRun as string).getUTCHours()).not.toBe(
+      8,
+    );
   });
 
   it("creates an organization event automation owned by the org but run as its creator", async () => {

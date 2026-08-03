@@ -18,7 +18,7 @@ import {
   type AutomationScope,
 } from "../automations/service.js";
 import { listEvents } from "../event-bus/index.js";
-import { describeCron } from "../jobs/cron.js";
+import { describeCron, effectiveTimezone } from "../jobs/cron.js";
 import {
   getIntegrationRequestContext,
   getRequestOrgId,
@@ -71,7 +71,10 @@ async function handleList(
       triggerType: meta.triggerType,
       event: meta.event ?? null,
       schedule: meta.schedule || null,
-      scheduleDescription: meta.schedule ? describeCron(meta.schedule) : null,
+      timezone: meta.timezone ? effectiveTimezone(meta.timezone) : null,
+      scheduleDescription: meta.schedule
+        ? describeCron(meta.schedule, effectiveTimezone(meta.timezone))
+        : null,
       condition: meta.condition ?? null,
       mode: meta.mode,
       domain: meta.domain ?? null,
@@ -127,6 +130,7 @@ async function handleDefine(
         triggerType: automationTriggerType(args.trigger_type),
         body: typeof args.body === "string" ? args.body : "",
         schedule: typeof args.schedule === "string" ? args.schedule : undefined,
+        timezone: typeof args.timezone === "string" ? args.timezone : undefined,
         event: typeof args.event === "string" ? args.event : undefined,
         condition:
           typeof args.condition === "string" ? args.condition : undefined,
@@ -164,6 +168,7 @@ async function handleDefine(
       triggerType: definition.meta.triggerType,
       event: definition.meta.event ?? null,
       schedule: definition.meta.schedule || null,
+      timezone: definition.meta.timezone ?? null,
       nextRun: definition.meta.nextRun ?? null,
       createdBy: definition.meta.createdBy,
       runAs: definition.meta.runAs,
@@ -208,6 +213,7 @@ async function handleUpdate(
               : null,
         body: typeof args.body === "string" ? args.body : undefined,
         schedule: typeof args.schedule === "string" ? args.schedule : undefined,
+        timezone: typeof args.timezone === "string" ? args.timezone : undefined,
         model:
           args.model === undefined
             ? undefined
@@ -225,6 +231,7 @@ async function handleUpdate(
       triggerType: definition.meta.triggerType,
       enabled: definition.meta.enabled,
       schedule: definition.meta.schedule || null,
+      timezone: definition.meta.timezone ?? null,
       nextRun: definition.meta.nextRun ?? null,
       createdBy: definition.meta.createdBy,
       runAs: definition.meta.runAs,
@@ -305,8 +312,8 @@ export function createAutomationToolEntries(
 
 - **list-events**: List all registered event types that automations can subscribe to. Returns event names, descriptions, and payload schemas. Call this BEFORE defining an automation to discover available events.
 - **list**: List all automations (triggers). Shows trigger, status, model, MCP allowlist, and delivery metadata. Optional params: scope, domain, enabled_only.
-- **define**: Create a new automation. IMPORTANT: Always confirm with the user before calling — show them a summary of what will be created. Required params: name, trigger_type, body. Optional: scope, event, schedule, condition, mode, domain, delegated_policy_id, model, mcpTools.
-- **update**: Update an existing automation's settings without changing its creator (enabled, schedule, condition, body, policy, model, MCP allowlist). Required param: name. Use the same scope it was created in.
+- **define**: Create a new automation. IMPORTANT: Always confirm with the user before calling — show them a summary of what will be created. Required params: name, trigger_type, body. Optional: scope, event, schedule, timezone, condition, mode, domain, delegated_policy_id, model, mcpTools.
+- **update**: Update an existing automation's settings without changing its creator (enabled, schedule, timezone, condition, body, policy, model, MCP allowlist). Required param: name. Use the same scope it was created in.
 - **delete**: Delete an automation. Always confirm with the user first. Required param: name.
 - **fire-test**: Fire a test event to validate automations. Emits a test.event.fired event. Optional param: data (JSON string).`,
         parameters: {
@@ -338,6 +345,11 @@ export function createAutomationToolEntries(
               type: "string",
               description:
                 "For event triggers: the event name to subscribe to. Call with action=list-events first to see available events.",
+            },
+            timezone: {
+              type: "string",
+              description:
+                "IANA timezone the cron clock time is read in, e.g. 'America/New_York'. Optional; defaults to the user's saved scheduling timezone, then the caller's browser zone. Always pass this when the user names a time of day.",
             },
             schedule: {
               type: "string",

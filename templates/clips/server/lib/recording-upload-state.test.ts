@@ -47,10 +47,13 @@ describe("recording upload state helpers", () => {
     expect(query.args).toEqual([
       "owner@example.com",
       "recording-chunks-rec!_1-%",
+      "recording-chunks-rec_1-".length + 6,
+      "recording-chunks-rec_1-000000",
+      "recording-chunks-rec_1-999999",
     ]);
   });
 
-  it("sums chunk bytes in SQL instead of reading chunk payloads", async () => {
+  it("sums exact legacy chunk bytes in SQL without reading chunk payloads", async () => {
     dbMock.execute.mockResolvedValue({
       rows: [{ bytes: 7_340_032 }],
       rowsAffected: 0,
@@ -62,23 +65,30 @@ describe("recording upload state helpers", () => {
 
     const query = dbMock.execute.mock.calls[0]?.[0];
     expect(query.sql).toContain("SUM(json_extract(value, '$.bytes'))");
+    expect(query.sql).toContain("length(key) = ?");
     expect(query.sql).not.toContain("SELECT key, value");
   });
 
-  it("deletes all chunks for one recording by scoped prefix", async () => {
-    dbMock.execute.mockResolvedValue({ rows: [], rowsAffected: 3 });
+  it("deletes exact legacy chunks without matching a fenced generation", async () => {
+    dbMock.execute.mockResolvedValue({ rows: [], rowsAffected: 1 });
 
     await expect(
       deleteRecordingChunks("owner@example.com", "rec_1"),
-    ).resolves.toBe(3);
+    ).resolves.toBe(1);
 
     expect(dbMock.execute).toHaveBeenCalledWith({
       sql: expect.stringContaining("DELETE FROM application_state"),
-      args: ["owner@example.com", "recording-chunks-rec!_1-%"],
+      args: [
+        "owner@example.com",
+        "recording-chunks-rec!_1-%",
+        "recording-chunks-rec_1-".length + 6,
+        "recording-chunks-rec_1-000000",
+        "recording-chunks-rec_1-999999",
+      ],
     });
   });
 
-  it("uses the Postgres JSON aggregate when deployed on Postgres", async () => {
+  it("uses the Postgres JSON extraction when deployed on Postgres", async () => {
     dbMock.isPostgres.mockReturnValue(true);
     dbMock.execute.mockResolvedValue({
       rows: [{ bytes: "4194304" }],
