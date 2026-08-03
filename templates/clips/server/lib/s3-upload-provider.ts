@@ -383,6 +383,10 @@ function isRecordingObjectKey(key: string, recordingId: string): boolean {
   return /^[a-zA-Z0-9_-]+$/.test(extension);
 }
 
+function isLegacyUnscopedObjectKey(key: string): boolean {
+  return /^clips\/\d{13}-[a-z0-9]{8}\.[a-zA-Z0-9_-]+$/.test(key);
+}
+
 async function deleteObject(cfg: S3Config, key: string): Promise<void> {
   const res = await signedS3Request(cfg, key, {
     method: "DELETE",
@@ -596,10 +600,11 @@ export async function deleteS3ObjectByUrl(url: string): Promise<boolean> {
 
 export async function fetchS3ObjectByUrl(
   url: string,
-  options?: {
+  options: {
     range?: string;
     timeoutMs?: number;
-    recordingId?: string;
+    recordingId: string;
+    allowLegacyObjectKey?: boolean;
   },
 ): Promise<Response | null> {
   const cfg = await readS3Config();
@@ -608,14 +613,16 @@ export async function fetchS3ObjectByUrl(
   if (
     !key ||
     !isCompletedClipObjectKey(key) ||
-    (options?.recordingId && !isRecordingObjectKey(key, options.recordingId))
+    !options.recordingId ||
+    (!isRecordingObjectKey(key, options.recordingId) &&
+      !(options.allowLegacyObjectKey && isLegacyUnscopedObjectKey(key)))
   ) {
     return null;
   }
   return signedS3Request(cfg, key, {
     method: "GET",
-    range: options?.range,
-    timeoutMs: options?.timeoutMs ?? S3_PUT_TIMEOUT_MS,
+    range: options.range,
+    timeoutMs: options.timeoutMs ?? S3_PUT_TIMEOUT_MS,
   });
 }
 

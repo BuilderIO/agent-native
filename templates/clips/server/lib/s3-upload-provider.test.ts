@@ -139,7 +139,7 @@ describe("s3FileUploadProvider", () => {
     await expect(
       fetchS3ObjectByUrl(
         "https://clips.example.com/api/storage/clips/recording.webm",
-        { range: "bytes=0-31" },
+        { range: "bytes=0-31", recordingId: "recording" },
       ),
     ).resolves.toEqual(expect.objectContaining({ status: 206 }));
 
@@ -172,6 +172,7 @@ describe("s3FileUploadProvider", () => {
     await expect(
       fetchS3ObjectByUrl(
         "https://clips.example.com/api/storage/clips/.multipart/recording.webm.pending",
+        { recordingId: "recording" },
       ),
     ).resolves.toBeNull();
 
@@ -220,6 +221,35 @@ describe("s3FileUploadProvider", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("allows only explicitly authorized legacy unscoped recording keys", async () => {
+    const values: Record<string, string> = {
+      S3_BUCKET: "clips-bucket",
+      S3_ACCESS_KEY_ID: "access",
+      S3_SECRET_ACCESS_KEY: "secret",
+      S3_ENDPOINT: "https://s3.example.com",
+      S3_PUBLIC_BASE_URL: "https://clips.example.com/api/storage",
+    };
+    mockResolveSecret.mockImplementation(async (key: string) => {
+      return values[key] ?? null;
+    });
+    const fetchMock = vi.fn(async () => new Response("legacy media"));
+    vi.stubGlobal("fetch", fetchMock);
+    const legacyUrl =
+      "https://clips.example.com/api/storage/clips/1722720000000-abc123xy.webm";
+
+    await expect(
+      fetchS3ObjectByUrl(legacyUrl, { recordingId: "rec_1" }),
+    ).resolves.toBeNull();
+    await expect(
+      fetchS3ObjectByUrl(legacyUrl, {
+        recordingId: "rec_1",
+        allowLegacyObjectKey: true,
+      }),
+    ).resolves.toEqual(expect.objectContaining({ status: 200 }));
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("preserves timeout classification for signed reads", async () => {
     const values: Record<string, string> = {
       S3_BUCKET: "clips-bucket",
@@ -237,7 +267,7 @@ describe("s3FileUploadProvider", () => {
     await expect(
       fetchS3ObjectByUrl(
         "https://s3.example.com/clips-bucket/clips/recording.webm",
-        { timeoutMs: 25 },
+        { timeoutMs: 25, recordingId: "recording" },
       ),
     ).rejects.toMatchObject({
       name: "TimeoutError",

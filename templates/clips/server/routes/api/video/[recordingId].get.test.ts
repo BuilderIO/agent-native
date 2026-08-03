@@ -245,6 +245,34 @@ describe("/api/video/:recordingId route", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it("authorizes the legacy S3 object layout only for pre-migration recordings", async () => {
+    const sourceUrl =
+      "https://clips.example.com/api/storage/clips/1722720000000-abc123xy.webm";
+    mockResolveAccess.mockResolvedValue({
+      role: "owner",
+      resource: {
+        createdAt: "2026-08-03T21:00:00.000Z",
+        visibility: "private",
+        password: null,
+        expiresAt: null,
+        ownerEmail: "owner@example.com",
+        organizationId: "owner-org",
+        videoUrl: sourceUrl,
+      },
+    });
+    mockFetchS3ObjectByUrl.mockResolvedValue(new Response("legacy media"));
+
+    const result = await handler(makeEvent() as any);
+
+    expect(result).toBeInstanceOf(Response);
+    expect(mockFetchS3ObjectByUrl).toHaveBeenCalledWith(sourceUrl, {
+      range: undefined,
+      timeoutMs: 30_000,
+      recordingId: "rec-1",
+      allowLegacyObjectKey: true,
+    });
+  });
+
   it("maps signed S3 read timeouts to the media timeout response", async () => {
     const timeoutError = new Error("S3 request timed out");
     timeoutError.name = "TimeoutError";
