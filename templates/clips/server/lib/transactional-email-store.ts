@@ -40,9 +40,6 @@ export const recapCopySchema = z
     heroLine: nonEmptyStringSchema.max(400),
     agentBreakdown: nonEmptyStringSchema.max(400),
     completionNote: nonEmptyStringSchema.max(400),
-    // Must name something specific from the clip's own topic, so it cannot be
-    // templated from metadata the way the counts can.
-    nextClipSuggestion: nonEmptyStringSchema.max(400),
   })
   .strict();
 

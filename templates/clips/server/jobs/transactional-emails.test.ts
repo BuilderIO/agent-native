@@ -907,7 +907,6 @@ describe("transactional email worker", () => {
       heroLine: "9 people watched your clip. 4 agents read it.",
       agentBreakdown: "Claude 4",
       completionNote: "71% average completion · most stopped at 4:12",
-      nextClipSuggestion: "walk through the rollback path.",
     });
 
     await runTransactionalEmailsOnce({
@@ -956,7 +955,6 @@ describe("transactional email worker", () => {
       heroLine: "9 people watched your clip.",
       agentBreakdown: "Claude 4",
       completionNote: "71% average completion",
-      nextClipSuggestion: "walk through the rollback path.",
     });
 
     clock.setNow("2026-08-01T14:00:00.000Z");

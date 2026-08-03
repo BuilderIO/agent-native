@@ -13,7 +13,6 @@ const RECAP_MODULE_LABELS: Record<keyof RecapCopy, string> = {
   heroLine: "Hero line",
   agentBreakdown: "Agent breakdown",
   completionNote: "Completion note",
-  nextClipSuggestion: "Next clip suggestion",
 };
 
 export function validateRecapModule(
@@ -39,10 +38,6 @@ export function validateRecapCopy(copy: RecapCopy): RecapCopy {
     heroLine: validateRecapModule("heroLine", copy.heroLine),
     agentBreakdown: validateRecapModule("agentBreakdown", copy.agentBreakdown),
     completionNote: validateRecapModule("completionNote", copy.completionNote),
-    nextClipSuggestion: validateRecapModule(
-      "nextClipSuggestion",
-      copy.nextClipSuggestion,
-    ),
   };
 }
 
@@ -54,7 +49,6 @@ export default defineAction({
     heroLine: z.string().max(2_000),
     agentBreakdown: z.string().max(2_000),
     completionNote: z.string().max(2_000),
-    nextClipSuggestion: z.string().max(2_000),
   }),
   run: async ({ jobId, ...copy }) => {
     const claimantEmail = getCurrentOwnerEmail().trim().toLowerCase();

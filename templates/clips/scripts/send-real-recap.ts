@@ -7,8 +7,7 @@
  * in production.
  *
  *   npx tsx scripts/send-real-recap.ts --owner a@b.com --to a@b.com \
- *     --month 2026-07 --hero "..." --completion "..." --agents "..." \
- *     --suggestion "..."
+ *     --month 2026-07 --hero "..." --completion "..." --agents "..."
  */
 
 import postgres from "postgres";
@@ -114,7 +113,6 @@ async function main(args: string[]): Promise<void> {
         heroLine: required(args, "hero"),
         completionNote: required(args, "completion"),
         agentBreakdown: required(args, "agents"),
-        nextClipSuggestion: required(args, "suggestion"),
       },
     });
     console.log(`Sent monthly-recap for ${owner} to ${to}`);

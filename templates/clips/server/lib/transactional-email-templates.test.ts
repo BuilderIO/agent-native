@@ -333,7 +333,7 @@ describe("renderClipsTransactionalEmail", () => {
     expect(formatClipDuration(252_000)).toBe("4:12");
   });
 
-  it("renders the recap card, both numbers, and the forward link", () => {
+  it("renders the recap card, both numbers, and both calls to action", () => {
     const result = render({
       kind: "monthly-recap",
       to: "owner@example.test",
@@ -351,9 +351,8 @@ describe("renderClipsTransactionalEmail", () => {
       },
       copy: {
         heroLine: "9 people watched your clip. 4 agents read it.",
-        agentBreakdown: "Claude 3 · ChatGPT 1",
+        agentBreakdown: "3 from Claude · 1 from ChatGPT",
         completionNote: "71% average completion · most stopped at 4:12",
-        nextClipSuggestion: "walk through the rollback path you mentioned.",
       },
     });
 
@@ -371,12 +370,13 @@ describe("renderClipsTransactionalEmail", () => {
     expect(result.html).toContain(
       "71% average completion · most stopped at 4:12",
     );
-    expect(result.html).toContain("Claude 3 · ChatGPT 1");
-    expect(result.html).toContain(
-      "Record the next one — walk through the rollback path you mentioned.",
-    );
+    expect(result.html).toContain("3 from Claude · 1 from ChatGPT");
+    expect(result.html).toContain("Here’s your top Clip of the month:");
+    expect(result.html).not.toContain("Record the next one");
     expect(result.html).toContain('href="https://clips.example/r/rec-top"');
-    expect(result.text).toContain("Open your top Clip");
+    expect(result.html).toContain('href="https://clips.example/record"');
+    expect(result.text).toContain("View more Clips Analytics");
+    expect(result.text).toContain("Record a new Clip");
   });
 
   it("omits the thumbnail rather than emitting a broken image", () => {
@@ -399,7 +399,6 @@ describe("renderClipsTransactionalEmail", () => {
         heroLine: "2 agents read your clip.",
         agentBreakdown: "Claude 2",
         completionNote: "No human viewers yet",
-        nextClipSuggestion: "record the follow-up on rollout gating.",
       },
     });
 
@@ -428,7 +427,6 @@ describe("renderClipsTransactionalEmail", () => {
         heroLine: "1 person watched.",
         agentBreakdown: '<img src=x onerror="steal()">',
         completionNote: "50% completion",
-        nextClipSuggestion: "</span><script>bad()</script>",
       },
     });
 

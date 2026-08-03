@@ -52,10 +52,8 @@ export default async function main(args: string[]): Promise<void> {
     },
     copy: {
       heroLine: "9 people watched your clip. 4 agents read it.",
-      agentBreakdown: "Claude 3 · ChatGPT 1",
+      agentBreakdown: "3 from Claude · 1 from ChatGPT",
       completionNote: "71% average completion · most stopped at 4:12",
-      nextClipSuggestion:
-        "walk through the rollback path you mentioned at the end.",
     },
   });
   console.log(`Sent monthly-recap to ${to}`);

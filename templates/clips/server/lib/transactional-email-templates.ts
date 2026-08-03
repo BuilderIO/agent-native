@@ -391,13 +391,11 @@ export function renderClipsTransactionalEmail(
       const rendered = renderEmail({
         brandName: CLIPS_BRAND_NAME,
         preheader: subject,
-        heading: input.copy.heroLine,
+        heading: `${input.copy.heroLine} Here’s your top Clip of the month:`,
         paragraphs: [],
         heroHtml: recapHeroHtml(input.topClip, input.copy, url),
-        cta: { label: "Open your top Clip", url },
-        closingParagraphs: [
-          `<span style="font-size:14px; color:${CARD_MUTED};">Record the next one — ${escapeHtml(input.copy.nextClipSuggestion)}</span>`,
-        ],
+        cta: { label: "View more Clips Analytics", url },
+        secondaryCta: { label: "Record a new Clip", url: recordUrl(options) },
         footer: `You received this because your Clips were watched in ${recapMonthLabel(input.month)}. Recaps arrive once a month; ask your agent for a Clips recap any time.`,
       });
       return { subject, ...rendered };

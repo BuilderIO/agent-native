@@ -8,9 +8,8 @@ import {
 
 const validCopy = {
   heroLine: "9 people watched your clip. 4 agents read it.",
-  agentBreakdown: "Claude 3 · ChatGPT 1",
+  agentBreakdown: "3 from Claude · 1 from ChatGPT",
   completionNote: "71% average completion · most stopped at 4:12",
-  nextClipSuggestion: "walk through the rollback path you mentioned.",
 };
 
 describe("validateRecapModule", () => {
@@ -31,13 +30,13 @@ describe("validateRecapModule", () => {
       ),
     ).toThrow(/Agent breakdown must be at most/);
     expect(() =>
-      validateRecapModule("nextClipSuggestion", "<script>bad()</script>"),
-    ).toThrow(/Next clip suggestion must be plain text/);
+      validateRecapModule("completionNote", "<script>bad()</script>"),
+    ).toThrow(/Completion note must be plain text/);
   });
 });
 
 describe("validateRecapCopy", () => {
-  it("returns all four normalized modules", () => {
+  it("returns all three normalized modules", () => {
     expect(validateRecapCopy(validCopy)).toEqual(validCopy);
   });
 
