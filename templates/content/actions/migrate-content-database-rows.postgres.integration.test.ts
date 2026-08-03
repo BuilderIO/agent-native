@@ -200,7 +200,8 @@ async function waitForPostgresLockWait(minimum: number) {
         "SELECT count(*)::int AS waiting FROM pg_locks WHERE NOT granted AND locktype IN ('advisory', 'transactionid')",
       ),
     );
-    if (Number(result.rows[0]?.waiting) >= minimum) return;
+    const rows = Array.isArray(result) ? result : (result.rows ?? []);
+    if (Number(rows[0]?.waiting) >= minimum) return;
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   throw new Error("Migration did not enter the expected PostgreSQL lock wait.");
@@ -232,6 +233,8 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
       );
       let releaseGate = () => {};
       let gateHolder: Promise<unknown> | undefined;
+      let concurrentWriter: Promise<unknown> | undefined;
+      let migration: Promise<unknown> | undefined;
       try {
         const gateReleased = new Promise<void>((resolve) => {
           releaseGate = resolve;
@@ -246,26 +249,24 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
           await gateReleased;
         });
         await gateAcquired;
-        const concurrentWriter = runWithRequestContext(
-          { userEmail: OWNER },
-          () =>
-            writer === "value"
-              ? setDocumentProperty.run({
-                  documentId: seed.documentId,
-                  databaseId: seed.databaseId,
-                  propertyId: seed.protectedPropertyId,
-                  value: "closed",
-                })
-              : configureDocumentProperty.run({
-                  documentId: seed.documentId,
-                  databaseId: seed.databaseId,
-                  name: "Reported by",
-                  type: "text",
-                  visibility: "always_show",
-                }),
+        concurrentWriter = runWithRequestContext({ userEmail: OWNER }, () =>
+          writer === "value"
+            ? setDocumentProperty.run({
+                documentId: seed.documentId,
+                databaseId: seed.databaseId,
+                propertyId: seed.protectedPropertyId,
+                value: "closed",
+              })
+            : configureDocumentProperty.run({
+                documentId: seed.documentId,
+                databaseId: seed.databaseId,
+                name: "Reported by",
+                type: "text",
+                visibility: "always_show",
+              }),
         );
         await waitForPostgresLockWait(1);
-        const migration = runWithRequestContext({ userEmail: OWNER }, () =>
+        migration = runWithRequestContext({ userEmail: OWNER }, () =>
           action.run({ phase: "apply", plan: seed.plan }),
         );
         await waitForPostgresLockWait(2);
@@ -290,7 +291,11 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
         ).toHaveLength(0);
       } finally {
         releaseGate();
-        await gateHolder;
+        await Promise.allSettled(
+          [gateHolder, concurrentWriter, migration].filter(
+            (pending): pending is Promise<unknown> => Boolean(pending),
+          ),
+        );
         await getDb().execute(
           sql.raw(`DROP TRIGGER IF EXISTS ${trigger} ON ${table}`),
         );
