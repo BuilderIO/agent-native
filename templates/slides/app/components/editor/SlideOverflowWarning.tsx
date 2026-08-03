@@ -31,7 +31,7 @@ export function SlideOverflowWarning({
     <div
       role="status"
       aria-live="polite"
-      className="absolute -top-7 left-0 z-20 flex items-center gap-2 text-xs text-amber-400"
+      className="absolute -top-8 left-0 z-20 flex items-center gap-2 rounded-md border border-amber-400/40 px-2 py-1 text-xs text-amber-400"
       onPointerDown={(event) => event.stopPropagation()}
       onClick={(event) => event.stopPropagation()}
     >

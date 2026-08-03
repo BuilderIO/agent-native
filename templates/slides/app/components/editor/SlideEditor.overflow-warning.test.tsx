@@ -29,9 +29,9 @@ describe("SlideEditor layout overflow warning", () => {
 
     const status = screen.getByRole("status");
     expect(status.className).toContain("text-amber-400");
-    expect(status.className).not.toContain("border-amber-400/70");
+    expect(status.className).toContain("border-amber-400/40");
     expect(status.className).not.toContain("bg-amber-950/95");
-    expect(status.className).toContain("-top-7");
+    expect(status.className).toContain("-top-8");
     expect(screen.getByText("Layout overflows by 59px")).toBeTruthy();
   });
 
