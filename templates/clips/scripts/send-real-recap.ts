@@ -67,9 +67,9 @@ async function main(args: string[]): Promise<void> {
 
     const humanByClip = new Map(humans.map((row) => [row.recording_id, row.n]));
     const agentByClip = new Map(agents.map((row) => [row.recording_id, row.n]));
-    const humanViewers = [...humanByClip.values()].reduce((a, b) => a + b, 0);
+    const humanViews = [...humanByClip.values()].reduce((a, b) => a + b, 0);
     const agentSessions = [...agentByClip.values()].reduce((a, b) => a + b, 0);
-    if (humanViewers === 0 && agentSessions === 0) {
+    if (humanViews === 0 && agentSessions === 0) {
       throw new Error(`${owner} had no audience in ${month}; no recap is due`);
     }
 
@@ -88,7 +88,7 @@ async function main(args: string[]): Promise<void> {
       )[0].row;
 
     console.log(
-      `Account totals for ${month}: ${humanViewers} human viewers, ${agentSessions} agent sessions`,
+      `Account totals for ${month}: ${humanViews} human viewers, ${agentSessions} agent sessions`,
     );
     console.log(
       `Top clip: ${top.title} (${humanByClip.get(top.id) ?? 0} human / ${agentByClip.get(top.id) ?? 0} agent)`,
@@ -98,7 +98,7 @@ async function main(args: string[]): Promise<void> {
       kind: "monthly-recap",
       to,
       month,
-      humanViewers,
+      humanViews,
       agentSessions,
       topClip: {
         recordingId: top.id,
@@ -106,7 +106,7 @@ async function main(args: string[]): Promise<void> {
         thumbnailUrl: top.thumbnail_url,
         durationMs: Number(top.duration_ms),
         recordedAt: top.created_at,
-        humanViewers: humanByClip.get(top.id) ?? 0,
+        humanViews: humanByClip.get(top.id) ?? 0,
         agentSessions: agentByClip.get(top.id) ?? 0,
       },
       copy: {

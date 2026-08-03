@@ -31,14 +31,14 @@ export type TransactionalEmailContextPacket = {
 
 export type RecapContextPacket = {
   month: string;
-  humanViewers: number;
+  humanViews: number;
   agentSessions: number;
   topClip: {
     recordingId: string;
     title: string;
     description: string;
     transcriptExcerpt: string;
-    humanViewers: number;
+    humanViews: number;
     agentSessions: number;
     completedPct: number;
     dropOffMs: number | null;
@@ -247,7 +247,7 @@ async function loadRecapPacket(
 
   return {
     month: recap.month,
-    humanViewers: recap.humanViewers,
+    humanViews: recap.humanViews,
     agentSessions: recap.agentSessions,
     topClip: {
       recordingId: recap.topClip.recordingId,
@@ -257,7 +257,7 @@ async function loadRecapPacket(
         transcript?.fullText,
         MAX_TRANSCRIPT_EXCERPT_LENGTH,
       ),
-      humanViewers: recap.topClip.humanViewers,
+      humanViews: recap.topClip.humanViews,
       agentSessions: recap.topClip.agentSessions,
       completedPct: recap.topClip.completedPct,
       dropOffMs: recap.topClip.dropOffMs,

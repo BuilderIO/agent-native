@@ -57,7 +57,7 @@ export type ClipsTransactionalEmailInput =
   | (TransactionalEmailBase & {
       kind: "monthly-recap";
       month: string;
-      humanViewers: number;
+      humanViews: number;
       agentSessions: number;
       topClip: RecapTopClipInput;
       copy: RecapCopy;
@@ -92,7 +92,7 @@ export interface RecapTopClipInput {
   thumbnailUrl?: string | null;
   durationMs: number;
   recordedAt: string;
-  humanViewers: number;
+  humanViews: number;
   agentSessions: number;
 }
 
@@ -218,18 +218,18 @@ function countLabel(count: number, singular: string, plural: string): string {
 }
 
 export function renderRecapSubject(
-  humanViewers: number,
+  humanViews: number,
   agentSessions: number,
   month: string,
 ): string {
   const monthLabel = recapMonthLabel(month);
-  if (humanViewers > 0 && agentSessions > 0) {
-    return `${countLabel(humanViewers, "person", "people")} and ${countLabel(agentSessions, "agent", "agents")} watched your clips in ${monthLabel}`;
+  const views = countLabel(humanViews, "human view", "human views");
+  const reads = countLabel(agentSessions, "agent read", "agent reads");
+  if (humanViews > 0 && agentSessions > 0) {
+    return `${views} and ${reads} on your clips in ${monthLabel}`;
   }
-  if (humanViewers > 0) {
-    return `${countLabel(humanViewers, "person", "people")} watched your clips in ${monthLabel}`;
-  }
-  return `${countLabel(agentSessions, "agent", "agents")} read your clips in ${monthLabel}`;
+  if (humanViews > 0) return `${views} on your clips in ${monthLabel}`;
+  return `${reads} on your clips in ${monthLabel}`;
 }
 
 export function formatClipDuration(durationMs: number): string {
@@ -296,7 +296,7 @@ function recapHeroHtml(
         <tr><td style="padding:0 0 16px; font-size:13px; color:${CARD_MUTED};">${escapeHtml(meta)}</td></tr>
         <tr><td style="border-top:1px solid ${CARD_DIVIDER}; padding-top:16px;">
           <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"><tr>
-            ${numberCell("Watched", clip.humanViewers, copy.completionNote)}
+            ${numberCell("Watched", clip.humanViews, copy.completionNote)}
             ${numberCell("Read", clip.agentSessions, copy.agentBreakdown)}
           </tr></table>
         </td></tr>
@@ -429,7 +429,7 @@ export function renderClipsTransactionalEmail(
 
     case "monthly-recap": {
       const subject = renderRecapSubject(
-        input.humanViewers,
+        input.humanViews,
         input.agentSessions,
         input.month,
       );

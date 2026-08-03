@@ -39,7 +39,7 @@ export default async function main(args: string[]): Promise<void> {
     kind: "monthly-recap",
     to,
     month: "2026-07",
-    humanViewers: 9,
+    humanViews: 9,
     agentSessions: 4,
     topClip: {
       recordingId: "demo-recap-top",
@@ -47,7 +47,7 @@ export default async function main(args: string[]): Promise<void> {
       thumbnailUrl: null,
       durationMs: 252_000,
       recordedAt: "2026-07-12T00:00:00.000Z",
-      humanViewers: 9,
+      humanViews: 9,
       agentSessions: 4,
     },
     copy: {

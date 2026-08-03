@@ -804,7 +804,7 @@ describe("transactional email worker", () => {
     const top = recording("recap-top", ownerEmail);
     const recap: MonthlyRecap = {
       month: "2026-07",
-      humanViewers: 9,
+      humanViews: 9,
       agentSessions: 4,
       topClip: {
         recordingId: top.id,
@@ -812,7 +812,7 @@ describe("transactional email worker", () => {
         thumbnailUrl: null,
         durationMs: 252_000,
         recordedAt: top.createdAt,
-        humanViewers: 9,
+        humanViews: 9,
         agentSessions: 4,
         completedPct: 71,
         dropOffMs: 252_000,
@@ -865,7 +865,7 @@ describe("transactional email worker", () => {
     const top = recording("recap-top", ownerEmail);
     const recap: MonthlyRecap = {
       month: "2026-07",
-      humanViewers: 9,
+      humanViews: 9,
       agentSessions: 4,
       topClip: {
         recordingId: top.id,
@@ -873,7 +873,7 @@ describe("transactional email worker", () => {
         thumbnailUrl: null,
         durationMs: 252_000,
         recordedAt: top.createdAt,
-        humanViewers: 9,
+        humanViews: 9,
         agentSessions: 4,
         completedPct: 71,
         dropOffMs: 252_000,
@@ -922,7 +922,7 @@ describe("transactional email worker", () => {
         kind: "monthly-recap",
         to: ownerEmail,
         month: "2026-07",
-        humanViewers: 9,
+        humanViews: 9,
         agentSessions: 4,
       }),
     );
@@ -971,7 +971,7 @@ describe("transactional email worker", () => {
             `${ownerEmail}:2026-07`,
             {
               month: "2026-07",
-              humanViewers: 9,
+              humanViews: 9,
               agentSessions: 4,
               topClip: {
                 recordingId: usurper.id,
@@ -979,7 +979,7 @@ describe("transactional email worker", () => {
                 thumbnailUrl: null,
                 durationMs: 1_000,
                 recordedAt: usurper.createdAt,
-                humanViewers: 9,
+                humanViews: 9,
                 agentSessions: 4,
                 completedPct: 71,
                 dropOffMs: null,

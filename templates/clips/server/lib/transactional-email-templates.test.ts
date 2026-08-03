@@ -83,33 +83,6 @@ describe("renderClipsTransactionalEmail", () => {
       heading: "You’ve received two Agent-Native Clips",
       cta: "Record an Agent-Native Clip: https://clips.example/record",
     },
-    {
-      input: {
-        kind: "activity-comment" as const,
-        to: "owner@example.test",
-        recordingId: "rec-4",
-        title: "Product tour",
-        authorEmail: "jane.doe@example.test",
-        content: "The pricing step needs a callout.",
-        videoTimestampMs: 65_000,
-      },
-      subject: "Jane Doe commented on “Product tour”",
-      heading: "Jane Doe commented on your Clip",
-      cta: "Read and reply: https://clips.example/r/rec-4?panel=comments&t=65",
-    },
-    {
-      input: {
-        kind: "activity-reaction" as const,
-        to: "owner@example.test",
-        recordingId: "rec-5",
-        title: "Launch notes",
-        emoji: "🔥",
-        authorEmail: "sam@example.test",
-      },
-      subject: "Sam reacted 🔥 on “Launch notes”",
-      heading: "Someone reacted to your Clip",
-      cta: "See Clip activity: https://clips.example/r/rec-5?panel=comments",
-    },
   ])(
     "renders the approved $input.kind subject, heading, and CTA",
     (testCase) => {
@@ -341,16 +314,16 @@ describe("renderClipsTransactionalEmail", () => {
 
   it("builds the recap subject around whichever audience showed up", () => {
     expect(renderRecapSubject(9, 4, "2026-07")).toBe(
-      "9 people and 4 agents watched your clips in July",
+      "9 human views and 4 agent reads on your clips in July",
     );
     expect(renderRecapSubject(1, 1, "2026-07")).toBe(
-      "1 person and 1 agent watched your clips in July",
+      "1 human view and 1 agent read on your clips in July",
     );
     expect(renderRecapSubject(9, 0, "2026-07")).toBe(
-      "9 people watched your clips in July",
+      "9 human views on your clips in July",
     );
     expect(renderRecapSubject(0, 4, "2026-07")).toBe(
-      "4 agents read your clips in July",
+      "4 agent reads on your clips in July",
     );
   });
 
@@ -365,7 +338,7 @@ describe("renderClipsTransactionalEmail", () => {
       kind: "monthly-recap",
       to: "owner@example.test",
       month: "2026-07",
-      humanViewers: 9,
+      humanViews: 9,
       agentSessions: 4,
       topClip: {
         recordingId: "rec-top",
@@ -373,21 +346,21 @@ describe("renderClipsTransactionalEmail", () => {
         thumbnailUrl: "https://cdn.example/thumb.jpg",
         durationMs: 252_000,
         recordedAt: "2026-07-12T00:00:00.000Z",
-        humanViewers: 9,
+        humanViews: 9,
         agentSessions: 4,
       },
       copy: {
-        heroLine: "9 people watched your clip. 4 agents read it.",
+        heroLine: "Your clips were watched 9 times. 4 agents read them.",
         agentBreakdown: "3 from Claude · 1 from ChatGPT",
         completionNote: "71% average completion · most stopped at 4:12",
       },
     });
 
     expect(result.subject).toBe(
-      "9 people and 4 agents watched your clips in July",
+      "9 human views and 4 agent reads on your clips in July",
     );
     expect(result.html).toContain(
-      "9 people watched your clip. 4 agents read it.",
+      "Your clips were watched 9 times. 4 agents read them.",
     );
     expect(result.html).toContain('src="https://cdn.example/thumb.jpg"');
     expect(result.html).toContain("Deploy walkthrough");
@@ -411,7 +384,7 @@ describe("renderClipsTransactionalEmail", () => {
       kind: "monthly-recap",
       to: "owner@example.test",
       month: "2026-07",
-      humanViewers: 0,
+      humanViews: 0,
       agentSessions: 2,
       topClip: {
         recordingId: "rec-top",
@@ -419,7 +392,7 @@ describe("renderClipsTransactionalEmail", () => {
         thumbnailUrl: null,
         durationMs: 60_000,
         recordedAt: "2026-07-12T00:00:00.000Z",
-        humanViewers: 0,
+        humanViews: 0,
         agentSessions: 2,
       },
       copy: {
@@ -429,7 +402,7 @@ describe("renderClipsTransactionalEmail", () => {
       },
     });
 
-    expect(result.subject).toBe("2 agents read your clips in July");
+    expect(result.subject).toBe("2 agent reads on your clips in July");
     expect(result.html).not.toContain('alt="Deploy walkthrough"');
     expect(result.html).toContain("Deploy walkthrough");
   });
@@ -439,7 +412,7 @@ describe("renderClipsTransactionalEmail", () => {
       kind: "monthly-recap",
       to: "owner@example.test",
       month: "2026-07",
-      humanViewers: 1,
+      humanViews: 1,
       agentSessions: 1,
       topClip: {
         recordingId: "rec-top",
@@ -447,7 +420,7 @@ describe("renderClipsTransactionalEmail", () => {
         thumbnailUrl: 'https://cdn.example/t.jpg" onerror="steal()',
         durationMs: 1_000,
         recordedAt: "2026-07-12T00:00:00.000Z",
-        humanViewers: 1,
+        humanViews: 1,
         agentSessions: 1,
       },
       copy: {

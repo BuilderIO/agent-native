@@ -32,7 +32,7 @@ export interface RecapTopClip {
   thumbnailUrl: string | null;
   durationMs: number;
   recordedAt: string;
-  humanViewers: number;
+  humanViews: number;
   agentSessions: number;
   /** Mean completion across the humans who watched it this month, 0-100. */
   completedPct: number;
@@ -43,7 +43,7 @@ export interface RecapTopClip {
 
 export interface MonthlyRecap {
   month: string;
-  humanViewers: number;
+  humanViews: number;
   agentSessions: number;
   topClip: RecapTopClip;
 }
@@ -77,15 +77,6 @@ export function recapMonthLabel(month: string): string {
   });
 }
 
-/**
- * A viewer identity that stays stable across a month. `viewerKey` is the
- * canonical column but is nullable on rows predating it, so fall back to email
- * and finally to the row's own viewer id rather than collapsing distinct
- * anonymous people into one bucket.
- */
-const humanViewerIdentity = () =>
-  sql<string>`coalesce(${schema.recordingViews.viewerKey}, lower(${schema.recordingViews.viewerEmail}), ${schema.recordingViews.viewerId})`;
-
 async function ownerRecordingIds(ownerEmail: string): Promise<string[]> {
   const rows = await getDb()
     .select({ id: schema.recordings.id })
@@ -94,7 +85,14 @@ async function ownerRecordingIds(ownerEmail: string): Promise<string[]> {
   return rows.map((row) => row.id);
 }
 
-async function humanViewerCounts(
+/**
+ * Counts view rows, not distinct people. Deduping an identity across a month
+ * was both ambiguous — `viewerKey` is nullable on rows predating it — and
+ * expensive, so the recap reports human views and leaves unique audience out
+ * of scope. Summing these per-recording counts is therefore correct: one
+ * person watching two clips is genuinely two views.
+ */
+async function humanViewCounts(
   recordingIds: string[],
   range: RecapMonthRange,
 ): Promise<Map<string, number>> {
@@ -102,7 +100,7 @@ async function humanViewerCounts(
   const rows = await getDb()
     .select({
       recordingId: schema.recordingViews.recordingId,
-      viewers: sql<number>`count(distinct ${humanViewerIdentity()})`,
+      views: sql<number>`count(*)`,
     })
     .from(schema.recordingViews)
     .where(
@@ -113,7 +111,7 @@ async function humanViewerCounts(
       ),
     )
     .groupBy(schema.recordingViews.recordingId);
-  return new Map(rows.map((row) => [row.recordingId, Number(row.viewers)]));
+  return new Map(rows.map((row) => [row.recordingId, Number(row.views)]));
 }
 
 async function agentSessionCounts(
@@ -221,7 +219,7 @@ async function watchDepth(
 }
 
 /**
- * Rank by total distinct audience (human uniques + agent sessions), breaking
+ * Rank by total audience (human views + agent sessions), breaking
  * ties on the more recently recorded clip.
  */
 export function rankTopClip<
@@ -250,11 +248,11 @@ export async function computeMonthlyRecap(
   if (recordingIds.length === 0) return null;
 
   const [humansByRecording, agentsByRecording] = await Promise.all([
-    humanViewerCounts(recordingIds, range),
+    humanViewCounts(recordingIds, range),
     agentSessionCounts(recordingIds, range),
   ]);
 
-  const humanViewers = [...humansByRecording.values()].reduce(
+  const humanViews = [...humansByRecording.values()].reduce(
     (total, value) => total + value,
     0,
   );
@@ -262,7 +260,7 @@ export async function computeMonthlyRecap(
     (total, value) => total + value,
     0,
   );
-  if (humanViewers === 0 && agentSessions === 0) return null;
+  if (humanViews === 0 && agentSessions === 0) return null;
 
   const watchedIds = [
     ...new Set([...humansByRecording.keys(), ...agentsByRecording.keys()]),
@@ -302,7 +300,7 @@ export async function computeMonthlyRecap(
 
   return {
     month,
-    humanViewers,
+    humanViews,
     agentSessions,
     topClip: {
       recordingId: ranked.recordingId,
@@ -310,7 +308,7 @@ export async function computeMonthlyRecap(
       thumbnailUrl: ranked.recording.thumbnailUrl,
       durationMs: ranked.recording.durationMs,
       recordedAt: ranked.recording.createdAt,
-      humanViewers: humansByRecording.get(ranked.recordingId) ?? 0,
+      humanViews: humansByRecording.get(ranked.recordingId) ?? 0,
       agentSessions: agentsByRecording.get(ranked.recordingId) ?? 0,
       completedPct: depth.completedPct,
       dropOffMs: depth.dropOffMs,

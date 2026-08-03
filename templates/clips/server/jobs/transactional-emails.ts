@@ -958,7 +958,7 @@ async function makeSendInput(
       kind: "monthly-recap",
       to: recipient,
       month: job.month,
-      humanViewers: recap.humanViewers,
+      humanViews: recap.humanViews,
       agentSessions: recap.agentSessions,
       topClip: {
         recordingId: recap.topClip.recordingId,
@@ -966,7 +966,7 @@ async function makeSendInput(
         thumbnailUrl: recap.topClip.thumbnailUrl,
         durationMs: recap.topClip.durationMs,
         recordedAt: recap.topClip.recordedAt,
-        humanViewers: recap.topClip.humanViewers,
+        humanViews: recap.topClip.humanViews,
         agentSessions: recap.topClip.agentSessions,
       },
       copy: job.generatedRecapCopy,
