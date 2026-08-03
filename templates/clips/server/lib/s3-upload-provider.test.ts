@@ -200,12 +200,24 @@ describe("s3FileUploadProvider", () => {
     ).resolves.toBeNull();
     await expect(
       fetchS3ObjectByUrl(
+        "https://clips.example.com/api/storage/clips/rec.1.webm",
+        { recordingId: "rec" },
+      ),
+    ).resolves.toBeNull();
+    await expect(
+      fetchS3ObjectByUrl(
         "https://clips.example.com/api/storage/clips/rec_1/video.webm",
         { recordingId: "rec_1" },
       ),
     ).resolves.toEqual(expect.objectContaining({ status: 200 }));
+    await expect(
+      fetchS3ObjectByUrl(
+        "https://clips.example.com/api/storage/clips/rec.1.webm",
+        { recordingId: "rec.1" },
+      ),
+    ).resolves.toEqual(expect.objectContaining({ status: 200 }));
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("preserves timeout classification for signed reads", async () => {

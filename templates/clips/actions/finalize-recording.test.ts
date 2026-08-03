@@ -332,6 +332,7 @@ describe("finalize-recording media serve verification", () => {
     expect(mockFetchS3ObjectByUrl).toHaveBeenCalledWith(videoUrl, {
       range: "bytes=0-1023",
       timeoutMs: 8_000,
+      recordingId: "rec_1",
     });
     expect(fetch).not.toHaveBeenCalled();
   });

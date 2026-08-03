@@ -182,7 +182,10 @@ function servedMediaSizeBytes(response: Response): number | null {
   return null;
 }
 
-async function verifyServedMediaUrl(videoUrl: string): Promise<number | null> {
+async function verifyServedMediaUrl(
+  recordingId: string,
+  videoUrl: string,
+): Promise<number | null> {
   if (!shouldVerifyServedMediaUrl(videoUrl)) return null;
 
   let lastFailure = "media URL did not serve readable bytes";
@@ -200,6 +203,7 @@ async function verifyServedMediaUrl(videoUrl: string): Promise<number | null> {
       const signedS3Response = await fetchS3ObjectByUrl(videoUrl, {
         range: "bytes=0-1023",
         timeoutMs: MEDIA_SERVE_VERIFICATION_TIMEOUT_MS,
+        recordingId,
       });
       let response = signedS3Response;
       if (response?.status !== 200 && response?.status !== 206) {
@@ -763,7 +767,7 @@ async function retryPendingMediaVerification(params: {
     videoUrl: recording.videoUrl || media.videoUrl,
   };
   try {
-    const servedBytes = await verifyServedMediaUrl(candidate.videoUrl);
+    const servedBytes = await verifyServedMediaUrl(id, candidate.videoUrl);
     const result = await markRecordingReady({
       id,
       ownerEmail,
@@ -1132,7 +1136,7 @@ export default defineAction({
           debugLog("[finalize] resumable upload completed", { id, videoUrl });
           let servedBytes: number | null;
           try {
-            servedBytes = await verifyServedMediaUrl(videoUrl);
+            servedBytes = await verifyServedMediaUrl(id, videoUrl);
           } catch (err) {
             const failureReason =
               err instanceof Error ? err.message : String(err);
@@ -1676,7 +1680,7 @@ export default defineAction({
       });
       let servedBytes: number | null;
       try {
-        servedBytes = await verifyServedMediaUrl(upload.url);
+        servedBytes = await verifyServedMediaUrl(id, upload.url);
       } catch (err) {
         const failureReason = err instanceof Error ? err.message : String(err);
         return await leaveRecordingProcessingForMediaVerification({

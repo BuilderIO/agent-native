@@ -370,12 +370,17 @@ function isCompletedClipObjectKey(key: string): boolean {
   return !key.startsWith("clips/.multipart/") && !key.endsWith(".pending");
 }
 
+function safeClipFilename(value: string): string {
+  return value.replace(/[^a-zA-Z0-9._-]/g, "-");
+}
+
 function isRecordingObjectKey(key: string, recordingId: string): boolean {
-  const safeRecordingId = recordingId.replace(/[^a-zA-Z0-9_-]/g, "-");
-  return (
-    key.startsWith(`clips/${safeRecordingId}/`) ||
-    key.startsWith(`clips/${safeRecordingId}.`)
-  );
+  const safeRecordingId = safeClipFilename(recordingId);
+  if (key.startsWith(`clips/${safeRecordingId}/`)) return true;
+  const directObjectPrefix = `clips/${safeRecordingId}.`;
+  if (!key.startsWith(directObjectPrefix)) return false;
+  const extension = key.slice(directObjectPrefix.length);
+  return /^[a-zA-Z0-9_-]+$/.test(extension);
 }
 
 async function deleteObject(cfg: S3Config, key: string): Promise<void> {
@@ -627,7 +632,7 @@ export const s3FileUploadProvider: FileUploadProvider = {
 
     const ext = filename?.split(".").pop() ?? "bin";
     const basename = filename?.slice(0, -(ext.length + 1)) || "file";
-    const safeBasename = basename.replace(/[^a-zA-Z0-9_-]/g, "-");
+    const safeBasename = safeClipFilename(basename);
     const stamp = Date.now();
     const rand = Math.random().toString(36).slice(2, 10);
     const objectKey = `clips/${safeBasename}/${stamp}-${rand}.${ext}`;
@@ -646,7 +651,7 @@ export const s3FileUploadProvider: FileUploadProvider = {
       const cfg = await readS3Config();
       if (!cfg) throw new Error("S3 credentials are not configured");
 
-      const safeFilename = filename.replace(/[^a-zA-Z0-9._-]/g, "-");
+      const safeFilename = safeClipFilename(filename);
       if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) {
         throw new Error("S3 resumable upload requires a positive byte limit");
       }
