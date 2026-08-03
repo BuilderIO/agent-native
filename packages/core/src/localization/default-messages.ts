@@ -705,6 +705,11 @@ const messages = {
     updatedDate: "Updated {{date}}",
     finishedDate: "Finished {{date}}",
   },
+  agentTask: {
+    backgroundTask: "Background task",
+    stop: "Stop background task",
+    openThread: "Open task thread",
+  },
   codeRequired: {
     fallbackDetail:
       "Edit locally or use Builder.io to edit this code in the cloud and continue customizing the app any way you like.",
