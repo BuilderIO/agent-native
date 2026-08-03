@@ -40,6 +40,7 @@ import {
   nanoid,
   ownerEmailMatches,
 } from "../server/lib/recordings.js";
+import { isS3ObjectUrlBoundToRecording } from "../server/lib/s3-upload-provider.js";
 import { assertNativeRecordingMedia } from "./lib/native-media.js";
 
 export default defineAction({
@@ -139,6 +140,14 @@ export default defineAction({
       args.height ?? Math.max(...ordered.map((r) => r.height || 0), 0);
 
     const id = args.recordingId ?? nanoid();
+    if (videoUrl) {
+      const isBound = await isS3ObjectUrlBoundToRecording(videoUrl, id);
+      if (isBound === false) {
+        throw new Error(
+          "The stitched upload is not bound to its destination recording.",
+        );
+      }
+    }
     const now = new Date().toISOString();
 
     // Seed editsJson with provenance so the editor/player can link back.

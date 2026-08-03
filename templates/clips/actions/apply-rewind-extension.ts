@@ -13,6 +13,7 @@ import {
   getCurrentOwnerEmail,
   ownerEmailMatches,
 } from "../server/lib/recordings.js";
+import { isS3ObjectUrlBoundToRecording } from "../server/lib/s3-upload-provider.js";
 import { parseTranscriptSegments } from "../shared/transcript-segments.js";
 import { assertNoDirectRecordingShares } from "./make-recording-private-for-rewind.js";
 import {
@@ -111,6 +112,13 @@ export default defineAction({
     const expectedDuration = recording.durationMs + args.addedMs;
     if (Math.abs(args.durationMs - expectedDuration) > 2_000) {
       throw new Error("The combined Clip duration does not match its sources.");
+    }
+    const rewindMediaIsBound = await isS3ObjectUrlBoundToRecording(
+      args.videoUrl,
+      args.recordingId,
+    );
+    if (rewindMediaIsBound === false) {
+      throw new Error("The Rewind upload is not bound to its recording.");
     }
 
     const edits = parseEdits(recording.editsJson);

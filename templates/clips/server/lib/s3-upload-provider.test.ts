@@ -9,6 +9,7 @@ vi.mock("@agent-native/core/server", () => ({
 import {
   deleteS3ObjectByUrl,
   fetchS3ObjectByUrl,
+  isS3ObjectUrlBoundToRecording,
   s3FileUploadProvider,
 } from "./s3-upload-provider.js";
 
@@ -248,6 +249,38 @@ describe("s3FileUploadProvider", () => {
     ).resolves.toEqual(expect.objectContaining({ status: 200 }));
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("validates recording-bound S3 URLs without reading the object", async () => {
+    const values: Record<string, string> = {
+      S3_BUCKET: "clips-bucket",
+      S3_ACCESS_KEY_ID: "access",
+      S3_SECRET_ACCESS_KEY: "secret",
+      S3_ENDPOINT: "https://s3.example.com",
+      S3_PUBLIC_BASE_URL: "https://clips.example.com/api/storage",
+    };
+    mockResolveSecret.mockImplementation(async (key: string) => {
+      return values[key] ?? null;
+    });
+
+    await expect(
+      isS3ObjectUrlBoundToRecording(
+        "https://clips.example.com/api/storage/clips/rec_1/video.mp4",
+        "rec_1",
+      ),
+    ).resolves.toBe(true);
+    await expect(
+      isS3ObjectUrlBoundToRecording(
+        "https://clips.example.com/api/storage/clips/other/video.mp4",
+        "rec_1",
+      ),
+    ).resolves.toBe(false);
+    await expect(
+      isS3ObjectUrlBoundToRecording(
+        "https://builder.io/uploads/video.mp4",
+        "rec_1",
+      ),
+    ).resolves.toBeNull();
   });
 
   it("preserves timeout classification for signed reads", async () => {

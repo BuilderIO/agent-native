@@ -598,6 +598,19 @@ export async function deleteS3ObjectByUrl(url: string): Promise<boolean> {
   return true;
 }
 
+export async function isS3ObjectUrlBoundToRecording(
+  url: string,
+  recordingId: string,
+): Promise<boolean | null> {
+  const cfg = await readS3Config();
+  if (!cfg) return null;
+  const key = objectKeyFromUrl(cfg, url);
+  if (!key) return null;
+  return (
+    isCompletedClipObjectKey(key) && isRecordingObjectKey(key, recordingId)
+  );
+}
+
 export async function fetchS3ObjectByUrl(
   url: string,
   options: {
