@@ -92,6 +92,7 @@ Read the matching skill before deeper work in that area:
 | `move-recording` | Move `id` or `ids` to a folder or root |
 | `archive-`, `trash-`, `restore-recording` | Lifecycle |
 | `reprocess-recording` | Repair unseekable/frozen media |
+| `generate-filmstrip` | Editor timeline frame sprite; `all` backfills |
 | `request-transcript`, `cleanup-transcript` | Transcribe; `force`/`regenerate` |
 | `regenerate-title`, `-summary`, `-chapters` | AI metadata |
 | `trim-`, `split-recording`, `remove-silences`, `remove-filler-words` | Edits |

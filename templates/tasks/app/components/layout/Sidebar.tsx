@@ -263,6 +263,8 @@ export function Sidebar({
         >
           <OrgSwitcher
             reserveSpace
+            // Tasks does not mount /agent, so the default link would 404.
+            agentPath={null}
             className={
               collapsed
                 ? "h-8 justify-center px-0 [&>span]:sr-only [&>svg:last-child]:hidden"

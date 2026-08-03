@@ -71,6 +71,8 @@ import {
   writePendingGeneration,
 } from "@/lib/pending-generation";
 
+import { withLocalRuntimes } from "../components/design/design-canvas/local-runtime";
+
 type ProjectType = "prototype" | "other";
 interface Design {
   id: string;
@@ -1176,7 +1178,7 @@ function DesignThumbnail({ html }: { html: string | null }) {
     >
       <iframe
         {...{ [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }}
-        srcDoc={injectSessionReplayIframeBootstrap(html)}
+        srcDoc={injectSessionReplayIframeBootstrap(withLocalRuntimes(html))}
         sandbox="allow-scripts"
         loading="lazy"
         tabIndex={-1}

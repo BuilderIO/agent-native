@@ -321,10 +321,80 @@ function withPersonalSidebarOrder(
   };
 }
 
+const INITIAL_EXPANDED_WORKSPACE_READ_DELAY_MS = 250;
+const DATABASE_PAGE_READY_FALLBACK_MS = 15_000;
+const DATABASE_ROWS_VISIBLE_EVENT = "content-database-rows-visible";
+
+function useDeferredFilesDatabaseId(
+  databaseId: string,
+  expanded: boolean,
+  deferUntilDocumentId: string | null,
+) {
+  const previouslyExpanded = useRef(expanded);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    const wasExpanded = previouslyExpanded.current;
+    previouslyExpanded.current = expanded;
+    if (!expanded) {
+      setReady(false);
+      return;
+    }
+    if (!wasExpanded) {
+      setReady(true);
+      return;
+    }
+
+    if (deferUntilDocumentId) {
+      if (
+        window.document.documentElement.dataset
+          .contentDatabaseRowsVisibleDocumentId === deferUntilDocumentId
+      ) {
+        setReady(true);
+        return;
+      }
+      setReady(false);
+      const handleRowsVisible = (event: Event) => {
+        if (
+          (event as CustomEvent<{ documentId?: string }>).detail?.documentId ===
+          deferUntilDocumentId
+        ) {
+          setReady(true);
+        }
+      };
+      window.addEventListener(DATABASE_ROWS_VISIBLE_EVENT, handleRowsVisible);
+      const fallback = window.setTimeout(
+        () => setReady(true),
+        DATABASE_PAGE_READY_FALLBACK_MS,
+      );
+      return () => {
+        window.removeEventListener(
+          DATABASE_ROWS_VISIBLE_EVENT,
+          handleRowsVisible,
+        );
+        window.clearTimeout(fallback);
+      };
+    }
+
+    // An already-expanded workspace can contain thousands of files. Give the
+    // selected page's critical read one turn before starting that inventory;
+    // direct expansion remains immediate.
+    setReady(false);
+    const timeout = window.setTimeout(
+      () => setReady(true),
+      INITIAL_EXPANDED_WORKSPACE_READ_DELAY_MS,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [databaseId, deferUntilDocumentId, expanded]);
+
+  return expanded && ready ? databaseId : null;
+}
+
 function WorkspaceSidebarItem({
   space,
   selected,
   expanded,
+  deferInitialReadUntilDocumentId,
   reorder,
   createDocumentPending,
   activeDocumentId,
@@ -341,6 +411,7 @@ function WorkspaceSidebarItem({
   space: ContentSpaceSummary;
   selected: boolean;
   expanded: boolean;
+  deferInitialReadUntilDocumentId: string | null;
   reorder?: ContentFilesSidebarRenderReorder;
   createDocumentPending: boolean;
   activeDocumentId: string | null;
@@ -361,7 +432,11 @@ function WorkspaceSidebarItem({
   onToggleFavorite: (item: ContentDatabaseItem) => void;
 }) {
   const t = useT();
-  const activeFilesDatabaseId = expanded ? space.filesDatabaseId : null;
+  const activeFilesDatabaseId = useDeferredFilesDatabaseId(
+    space.filesDatabaseId,
+    expanded,
+    deferInitialReadUntilDocumentId,
+  );
   const filesDatabase = useContentDatabaseById(activeFilesDatabaseId);
   const filesDatabaseData = isContentDatabaseUnavailable(filesDatabase.data)
     ? undefined
@@ -1828,6 +1903,12 @@ export function DocumentSidebar({
       space={space}
       selected={selectedSpace?.id === space.id}
       expanded={expandedWorkspaceIds.includes(space.id)}
+      deferInitialReadUntilDocumentId={
+        activeDocumentId &&
+        databaseDocuments.some((document) => document.id === activeDocumentId)
+          ? activeDocumentId
+          : null
+      }
       reorder={reorder}
       createDocumentPending={createDocument.isPending}
       activeDocumentId={activeDocumentId}

@@ -15,6 +15,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { notifyRecordingComment } from "../server/lib/activity-notifications.js";
 import { nanoid } from "../server/lib/recordings.js";
 
 export default defineAction({
@@ -58,12 +59,22 @@ export default defineAction({
       updatedAt: now,
     });
 
+    const notified = await notifyRecordingComment({
+      recordingId: parent.recordingId,
+      threadId: parent.threadId,
+      authorEmail,
+      authorName: args.authorName,
+      content: args.content,
+      videoTimestampMs: parent.videoTimestampMs,
+      isReply: true,
+    });
+
     await writeAppState("refresh-signal", { ts: Date.now() });
 
     console.log(
       `Replied to comment ${args.commentId} (thread: ${parent.threadId})`,
     );
 
-    return { id, threadId: parent.threadId, parentId: parent.id };
+    return { id, threadId: parent.threadId, parentId: parent.id, notified };
   },
 });

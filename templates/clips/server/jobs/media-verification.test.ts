@@ -7,7 +7,11 @@ const mockRunWithRequestContext = vi.hoisted(() =>
 );
 const mockOwnerEmailMatches = vi.hoisted(() => vi.fn());
 const mockRecordingRows = vi.hoisted(() => ({
-  rows: [] as Array<{ ownerEmail: string; orgId: string | null }>,
+  rows: [] as Array<{
+    ownerEmail: string;
+    orgId: string | null;
+    uploadGenerationId?: string | null;
+  }>,
 }));
 const mockLimit = vi.hoisted(() => vi.fn(async () => mockRecordingRows.rows));
 const mockWhere = vi.hoisted(() => vi.fn(() => ({ limit: mockLimit })));
@@ -38,6 +42,7 @@ vi.mock("../db/index.js", () => ({
       orgId: "recordings.orgId",
       status: "recordings.status",
       trashedAt: "recordings.trashedAt",
+      uploadGenerationId: "recordings.uploadGenerationId",
     },
   },
 }));
@@ -70,7 +75,11 @@ describe("media verification recovery sweep", () => {
     mockFinalizeRun.mockResolvedValue({ status: "processing" });
     mockOwnerEmailMatches.mockReturnValue("owner-match");
     mockRecordingRows.rows = [
-      { ownerEmail: "owner@example.com", orgId: "org-1" },
+      {
+        ownerEmail: "owner@example.com",
+        orgId: "org-1",
+        uploadGenerationId: "generation-1",
+      },
     ];
   });
 
@@ -101,6 +110,7 @@ describe("media verification recovery sweep", () => {
     expect(mockFinalizeRun).toHaveBeenCalledWith({
       id: "rec-1",
       mediaVerificationRetryAttempt: 3,
+      uploadGenerationId: "generation-1",
     });
   });
 
@@ -160,6 +170,7 @@ describe("media verification recovery sweep", () => {
     expect(mockFinalizeRun).toHaveBeenCalledWith({
       id: "rec-1",
       mediaVerificationRetryAttempt: 3,
+      uploadGenerationId: "generation-1",
     });
   });
 

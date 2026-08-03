@@ -224,9 +224,9 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain("<WorkspaceSidebarItem");
     expect(sidebar).toContain("<IconArrowsSort size={14} />");
     expect(sidebar).toContain("<DropdownMenuRadioGroup");
-    expect(sidebar).toContain(
-      "const activeFilesDatabaseId = expanded ? space.filesDatabaseId : null",
-    );
+    expect(sidebar).toContain("useDeferredFilesDatabaseId(");
+    expect(sidebar).toContain("INITIAL_EXPANDED_WORKSPACE_READ_DELAY_MS");
+    expect(sidebar).toContain("if (!wasExpanded)");
     expect(sidebar).not.toContain("<SidebarDragHandle");
     expect(sidebar).not.toContain("<SidebarReorderMenuItems");
     expect(sidebar).toContain(

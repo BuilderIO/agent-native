@@ -635,6 +635,7 @@ const messages = {
     title: "Ajustes",
     pageTitle: "Ajustes · Clips",
     intro: "Preferencias y servicios conectados para este espacio de Clips.",
+    preferencesTitle: "Preferencias",
     languageTitle: "Idioma",
     languageDescription:
       "Elige el idioma de la interfaz para esta cuenta. Clips lo recordará en todos tus dispositivos.",
@@ -672,9 +673,16 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     transcriptCleanupDescription:
       "Muestra la transcripción nativa de inmediato y luego la mejora en segundo plano cuando esté disponible.",
     notifications: "Notificaciones",
+    sharing: "Compartir",
+    defaultVisibility: "Visibilidad predeterminada de las nuevas grabaciones",
+    defaultVisibilityDescription:
+      "Se aplica a cada grabación que crees. Puedes cambiar la visibilidad en cada grabación.",
+    visibilityPrivate: "Privado - solo tú",
+    visibilityOrg: "Organización - cualquiera de tu espacio",
+    visibilityPublic: "Público - cualquiera con el enlace",
     emailNotifications: "Notificaciones por correo",
     emailNotificationsDescription:
-      "Recibe un correo cuando alguien comenta, reacciona o comparte una grabación contigo.",
+      "Recibe un correo cuando alguien comente o reaccione a tu grabación.",
     saved: "Ajustes guardados",
     saveFailed: "No se pudo guardar",
     builderConnectedToast: "Builder.io conectado",
