@@ -1,6 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
-import { configureLocalSqlite, getAuthSecret } from "./better-auth-instance.js";
+import {
+  configureLocalSqlite,
+  ensureGoogleAuthIdentityWithAdapter,
+  getAuthSecret,
+  type BetterAuthInternalAdapter,
+} from "./better-auth-instance.js";
 import { deriveServerSecret } from "./derived-secret.js";
 
 describe("configureLocalSqlite", () => {
@@ -79,5 +84,81 @@ describe("resolveAuthSecret", () => {
     delete process.env.ACCESS_TOKEN;
     const secret = getAuthSecret();
     expect(secret).not.toBe("agent-native-local-dev-secret-k9x2m7q4w8");
+  });
+});
+
+describe("ensureGoogleAuthIdentityWithAdapter", () => {
+  function adapterFor(user: any = null) {
+    const linkAccount = vi.fn(async () => undefined);
+    const createOAuthUser = vi.fn(async () => ({
+      user: { id: "google-user" },
+      account: {},
+    }));
+    const adapter: BetterAuthInternalAdapter = {
+      findUserByEmail: vi.fn(async () => user),
+      linkAccount,
+      createUser: vi.fn(async () => ({ id: "created-user" })),
+      createOAuthUser,
+    };
+    return { adapter, linkAccount, createOAuthUser };
+  }
+
+  it("creates a verified canonical user and Google account", async () => {
+    const { adapter, createOAuthUser } = adapterFor();
+
+    await ensureGoogleAuthIdentityWithAdapter(adapter, {
+      email: "  Owner@Example.com ",
+      accountId: "google-sub-1",
+      name: "Owner",
+    });
+
+    expect(createOAuthUser).toHaveBeenCalledWith(
+      { email: "owner@example.com", name: "Owner", emailVerified: true },
+      { providerId: "google", accountId: "google-sub-1" },
+    );
+  });
+
+  it("links an already verified canonical user", async () => {
+    const existing = {
+      user: {
+        id: "existing-user",
+        email: "owner@example.com",
+        emailVerified: true,
+      },
+      accounts: [],
+    };
+    const { adapter, linkAccount, createOAuthUser } = adapterFor(existing);
+
+    await ensureGoogleAuthIdentityWithAdapter(adapter, {
+      email: "owner@example.com",
+      accountId: "google-sub-1",
+    });
+
+    expect(linkAccount).toHaveBeenCalledWith({
+      userId: "existing-user",
+      providerId: "google",
+      accountId: "google-sub-1",
+    });
+    expect(createOAuthUser).not.toHaveBeenCalled();
+  });
+
+  it("refuses to bless an unverified password identity", async () => {
+    const existing = {
+      user: {
+        id: "existing-user",
+        email: "owner@example.com",
+        emailVerified: false,
+      },
+      accounts: [],
+    };
+    const { adapter, linkAccount } = adapterFor(existing);
+
+    await expect(
+      ensureGoogleAuthIdentityWithAdapter(adapter, {
+        email: "owner@example.com",
+        accountId: "google-sub-1",
+      }),
+    ).rejects.toThrow("unverified email/password identity");
+    expect(linkAccount).not.toHaveBeenCalled();
   });
 });

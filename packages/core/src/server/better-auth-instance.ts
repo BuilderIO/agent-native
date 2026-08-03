@@ -337,6 +337,27 @@ export function shouldSkipEmailVerification(): boolean {
   return normalized !== "" && normalized !== "0" && normalized !== "false";
 }
 
+export function isDeployPreview(): boolean {
+  const deployContext =
+    process.env.AGENT_NATIVE_BUILD_DEPLOY_CONTEXT || process.env.CONTEXT;
+  return deployContext === "deploy-preview";
+}
+
+export function resolveEmailPasswordAuthPolicy(emailConfigured: boolean): {
+  requireEmailVerification: boolean;
+  disableSignUp: boolean;
+} {
+  const hosted = process.env.NODE_ENV === "production" || isDeployPreview();
+  return {
+    requireEmailVerification:
+      emailConfigured && (hosted || !shouldSkipEmailVerification()),
+    // A hosted deployment without an email provider cannot prove ownership of
+    // an email address. Keeping password signup enabled there turns an email
+    // into an account-claim credential.
+    disableSignUp: hosted && !emailConfigured,
+  };
+}
+
 /** Read-only accessor for the resolved auth secret. */
 export function getAuthSecret(): string {
   return resolveAuthSecret();
@@ -756,7 +777,12 @@ export interface BetterAuthInternalAdapter {
     email: string,
     options?: { includeAccounts: boolean },
   ) => Promise<{
-    user: { id: string; email: string; name?: string };
+    user: {
+      id: string;
+      email: string;
+      name?: string;
+      emailVerified?: boolean;
+    };
     accounts: Array<{ providerId: string; accountId: string }>;
   } | null>;
   linkAccount: (account: {
@@ -769,6 +795,14 @@ export interface BetterAuthInternalAdapter {
     name: string;
     emailVerified?: boolean;
   }) => Promise<{ id: string }>;
+  createOAuthUser?: (
+    user: { email: string; name: string; emailVerified?: boolean },
+    account: { providerId: string; accountId: string },
+  ) => Promise<{ user: { id: string }; account: unknown }>;
+  findAccountByProviderId?: (
+    accountId: string,
+    providerId: string,
+  ) => Promise<{ userId: string } | null>;
   /** Optional because older/custom adapter shapes may not expose mutations. */
   updateUser?: (
     userId: string,
@@ -805,6 +839,105 @@ export async function getBetterAuthInternalAdapter(
     // Context resolution failed — caller falls back to the signup path.
   }
   return undefined;
+}
+
+export interface GoogleAuthIdentity {
+  email: string;
+  accountId: string;
+  name?: string;
+}
+
+/**
+ * Ensure a verified Google identity has a canonical Better Auth user/account
+ * before the legacy email-keyed session is issued. This prevents a later
+ * password signup from becoming the first canonical identity for that email.
+ */
+export async function ensureGoogleAuthIdentity(
+  identity: GoogleAuthIdentity,
+): Promise<void> {
+  const adapter = await getBetterAuthInternalAdapter();
+  if (!adapter) {
+    throw new Error("Better Auth internal adapter is unavailable");
+  }
+  await ensureGoogleAuthIdentityWithAdapter(adapter, identity);
+}
+
+export async function ensureGoogleAuthIdentityWithAdapter(
+  adapter: BetterAuthInternalAdapter,
+  identity: GoogleAuthIdentity,
+): Promise<void> {
+  const email = identity.email.trim().toLowerCase();
+  const accountId = identity.accountId.trim();
+  if (!email || !accountId) {
+    throw new Error("Google identity is missing an email or account id");
+  }
+
+  const name = identity.name?.trim() || email.split("@")[0] || "User";
+  const findExisting = () =>
+    adapter.findUserByEmail(email, { includeAccounts: true });
+  let existing = await findExisting();
+
+  const linkedAccount = adapter.findAccountByProviderId
+    ? await adapter.findAccountByProviderId(accountId, "google")
+    : null;
+  if (linkedAccount) {
+    if (!existing || linkedAccount.userId !== existing.user.id) {
+      throw new Error("Google account is already linked to another user");
+    }
+    return;
+  }
+
+  if (!existing) {
+    if (adapter.createOAuthUser) {
+      try {
+        await adapter.createOAuthUser(
+          { email, name, emailVerified: true },
+          { providerId: "google", accountId },
+        );
+        return;
+      } catch (error) {
+        // A concurrent first sign-in may have won the unique-email race. Only
+        // continue if the canonical row now exists; otherwise preserve the
+        // real adapter error and do not issue a legacy session.
+        existing = await findExisting();
+        if (!existing) throw error;
+      }
+    } else {
+      const created = await adapter.createUser({
+        email,
+        name,
+        emailVerified: true,
+      });
+      await adapter.linkAccount({
+        userId: created.id,
+        providerId: "google",
+        accountId,
+      });
+      return;
+    }
+  }
+
+  if (!existing) {
+    throw new Error("Could not resolve the canonical Google user");
+  }
+  const alreadyLinked = existing.accounts.some(
+    (account) =>
+      account.providerId === "google" && account.accountId === accountId,
+  );
+  if (alreadyLinked) return;
+
+  // Do not silently bless an unverified password-created identity. The user
+  // must verify it through the configured email provider before linking.
+  if (existing.user.emailVerified !== true) {
+    throw new Error(
+      "Cannot link Google to an unverified email/password identity",
+    );
+  }
+  await adapter.linkAccount({
+    userId: existing.user.id,
+    providerId: "google",
+    accountId,
+  });
 }
 
 /** Reset for testing */
@@ -904,8 +1037,8 @@ async function createBetterAuthInstance(
 
   const appUrl = getAppProductionUrl();
   const cookieNamespace = resolveAuthCookieNamespace();
-  const requireEmailVerification =
-    (await isEmailConfigured()) && !shouldSkipEmailVerification();
+  const { requireEmailVerification, disableSignUp } =
+    resolveEmailPasswordAuthPolicy(await isEmailConfigured());
 
   const shouldMirrorGoogleAccountTokens =
     (config?.googleScopes?.length ?? 0) > 0;
@@ -917,12 +1050,11 @@ async function createBetterAuthInstance(
     secret,
     emailAndPassword: {
       enabled: true,
+      disableSignUp,
       minPasswordLength: 8,
-      // Only require email verification when an email provider is configured.
-      // Without a provider, verification emails can't be sent, so requiring
-      // verification would lock users out of signup entirely. Local dev/test
-      // skip verification by default so +qa accounts can be created quickly;
-      // hosted QA deployments can opt out with AUTH_SKIP_EMAIL_VERIFICATION=1.
+      // Hosted deployments always require a working email provider before
+      // password signup can create a session. Local dev/test retain the fast
+      // path; hosted deployments without a provider disable password signup.
       requireEmailVerification,
       sendResetPassword: async ({ user, token }) => {
         // APP_BASE_PATH lets this app mount under a prefix (e.g. /mail). The
@@ -942,8 +1074,7 @@ async function createBetterAuthInstance(
     },
     emailVerification: {
       // Fire verification email right after signup, before the user has a
-      // session — pairs with requireEmailVerification above. Only enabled
-      // when an email provider is configured.
+      // session — pairs with requireEmailVerification above.
       sendOnSignUp: requireEmailVerification,
       // Auto-create a session once the user clicks the link. Without this,
       // verified users would have to go back and sign in manually, which is

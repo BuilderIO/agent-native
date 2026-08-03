@@ -110,7 +110,11 @@ import {
   readAnalyticsAnonymousId,
   signupAttributionFromCookieHeader,
 } from "./attribution.js";
-import { getBetterAuth, getBetterAuthSync } from "./better-auth-instance.js";
+import {
+  ensureGoogleAuthIdentity,
+  getBetterAuth,
+  getBetterAuthSync,
+} from "./better-auth-instance.js";
 import type { BetterAuthConfig } from "./better-auth-instance.js";
 import {
   BUILDER_CONNECT_OWNER_COOKIE,
@@ -2917,6 +2921,16 @@ async function mountBetterAuthRoutes(
               "Google account email is not verified. Please verify your email with Google and try again.",
             );
           }
+          const googleAccountId =
+            typeof user.id === "string" ? user.id.trim() : "";
+          if (!googleAccountId) {
+            throw new Error("Could not get Google account id");
+          }
+          await ensureGoogleAuthIdentity({
+            email,
+            accountId: googleAccountId,
+            name: typeof user.name === "string" ? user.name : undefined,
+          });
           if (typeof user.picture === "string" && user.picture.trim()) {
             await putSetting(`avatar:${email}`, {
               image: user.picture,

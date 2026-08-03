@@ -67,7 +67,10 @@ jobs:
         id: neon
         with:
           project_id: ${{ matrix.neon_project }}
-          branch_name: preview/pr-${{ github.event.number }}
+          # Never copy the default branch's rows into a public preview. Neon
+          # creates the branch from the parent schema without its data.
+          branch_name: preview-schema-only/pr-${{ github.event.number }}
+          branch_type: schema-only
           api_key: ${{ secrets.NEON_API_KEY }}
 
       - name: Set preview DB URLs on Netlify site
@@ -157,7 +160,7 @@ jobs:
         uses: neondatabase/delete-branch-action@4468d825d5a88ef4012f1705a82f02ec3072f776 # v3
         with:
           project_id: ${{ matrix.neon_project }}
-          branch: preview/pr-${{ github.event.number }}
+          branch: preview-schema-only/pr-${{ github.event.number }}
           api_key: ${{ secrets.NEON_API_KEY }}
 
       - name: Remove preview DB URL branch overrides
