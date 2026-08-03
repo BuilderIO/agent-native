@@ -199,6 +199,28 @@ function gridTemplateFromUtilities(
   return undefined;
 }
 
+/** A declared flex/grid `order`, or null when the child leaves it at the
+ * default. Tailwind's `order-first`/`order-last` map to the sentinels the
+ * utility generates. */
+export function declaredFlexOrder(
+  source: FlowContainerStyleSource,
+): number | null {
+  const inline = source.style?.order;
+  if (inline !== undefined && inline !== "") {
+    const parsed = Number.parseInt(inline, 10);
+    return Number.isSafeInteger(parsed) ? parsed : null;
+  }
+  for (const token of utilitySet(source.classes)) {
+    if (token === "order-first") return -9999;
+    if (token === "order-last") return 9999;
+    if (token === "order-none") return 0;
+    if (!token.startsWith("order-")) continue;
+    const parsed = Number.parseInt(token.slice("order-".length), 10);
+    if (Number.isSafeInteger(parsed)) return parsed;
+  }
+  return null;
+}
+
 /** `position: absolute|fixed` takes a child out of its parent's flow — Figma
  * calls the same escape hatch "Ignore auto layout". `sticky` and `relative`
  * still occupy a flow slot, so they keep reordering. */
@@ -365,6 +387,20 @@ export function resolveElementNudgeIntent(
     args.selectedElement.computedStyles?.position;
 
   const container = describeFlowContainer(parent);
+  // Flex/grid paint children in `order` sequence, so a DOM move cannot change
+  // where a child with a declared order appears. Reordering here would write
+  // a source change that produces no visible movement.
+  if (
+    container.kind !== "none" &&
+    siblingIds.some((id) => {
+      const sibling = projection.nodes.find((candidate) => candidate.id === id);
+      const order = sibling ? declaredFlexOrder(sibling) : null;
+      return order !== null && order !== 0;
+    })
+  ) {
+    return { kind: "none" };
+  }
+
   // A `.row { display: flex }` parent parses as no container. Translating
   // would write left/top onto a flex child and detach it from its
   // neighbours, so do nothing rather than corrupt the layout.

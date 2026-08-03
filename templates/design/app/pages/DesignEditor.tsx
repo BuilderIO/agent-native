@@ -20857,17 +20857,22 @@ function DesignEditor() {
         } satisfies MoveNodeEditIntent);
         if (patch.result.status !== "applied") return;
         applyLocalContentUpdate(patch.content, { skipPreview: true });
-        const movedNode = patch.projection.nodes.find(
-          (node) =>
-            node.id === intent.targetNodeId ||
-            node.dataAttributes["data-agent-native-node-id"] ===
-              intent.targetNodeId,
-        );
+        // A node with no stable `data-agent-native-node-id` has its id derived
+        // from path/offset, and the move changes both — so the pre-move id
+        // finds nothing and the selection has to be re-resolved by identity.
+        const movedNode =
+          patch.projection.nodes.find(
+            (node) =>
+              node.id === intent.targetNodeId ||
+              node.dataAttributes["data-agent-native-node-id"] ===
+                intent.targetNodeId,
+          ) ??
+          resolveCodeLayerNodeFromElementInfo(
+            patch.projection,
+            selectedElement,
+          );
         if (movedNode) {
           setSelectedElement(elementInfoFromCodeLayerNode(movedNode));
-          // A node without a stable source attribute gets its id derived from
-          // path/offset, which the move itself changes — leaving the Layers
-          // selection pointing at an id that no longer exists.
           setSelectedLayerIdsState([movedNode.id]);
         }
         return;

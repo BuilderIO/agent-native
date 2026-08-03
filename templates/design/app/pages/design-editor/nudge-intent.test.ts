@@ -5,6 +5,7 @@ import type { ElementInfo } from "@/components/design/types";
 
 import {
   countGridTracks,
+  declaredFlexOrder,
   DEFAULT_NUDGE_AMOUNTS,
   describeFlowContainer,
   escapesFlow,
@@ -350,6 +351,30 @@ describe("reorderAnchorFor", () => {
   });
 });
 
+describe("declaredFlexOrder", () => {
+  it("reads an inline order", () => {
+    expect(declaredFlexOrder({ style: { order: "3" } })).toBe(3);
+  });
+
+  it("reads Tailwind order utilities", () => {
+    expect(declaredFlexOrder({ style: {}, classes: ["order-2"] })).toBe(2);
+    expect(declaredFlexOrder({ style: {}, classes: ["order-first"] })).toBe(
+      -9999,
+    );
+    expect(declaredFlexOrder({ style: {}, classes: ["order-last"] })).toBe(
+      9999,
+    );
+    expect(declaredFlexOrder({ style: {}, classes: ["order-none"] })).toBe(0);
+  });
+
+  it("is null when the child leaves order at the default", () => {
+    expect(declaredFlexOrder({ style: {} })).toBeNull();
+    expect(
+      declaredFlexOrder({ style: {}, classes: ["flex", "p-4"] }),
+    ).toBeNull();
+  });
+});
+
 describe("DEFAULT_NUDGE_AMOUNTS", () => {
   it("matches Figma's 1px / 10px defaults", () => {
     expect(DEFAULT_NUDGE_AMOUNTS).toEqual({ small: 1, big: 10 });
@@ -543,6 +568,41 @@ describe("resolveElementNudgeIntent", () => {
         largeStep: false,
       }),
     ).toEqual({ kind: "translate", dx: 1, dy: 0 });
+  });
+
+  it("does nothing when a sibling declares a CSS order the DOM move cannot express", () => {
+    const content = `<!doctype html><html><body>
+      <section data-agent-native-node-id="row" style="display:flex">
+        <div data-agent-native-node-id="alpha" style="order:2">Alpha</div>
+        <div data-agent-native-node-id="beta" style="order:1">Beta</div>
+        <div data-agent-native-node-id="gamma">Gamma</div>
+      </section>
+    </body></html>`;
+    expect(
+      resolveElementNudgeIntent({
+        content,
+        selectedElement: elementInfoFor("alpha"),
+        direction: "right",
+        largeStep: false,
+      }),
+    ).toEqual({ kind: "none" });
+  });
+
+  it("still reorders when order-none is the only declaration", () => {
+    const content = `<!doctype html><html><body>
+      <section data-agent-native-node-id="row" style="display:flex">
+        <div data-agent-native-node-id="alpha" class="order-none">Alpha</div>
+        <div data-agent-native-node-id="beta">Beta</div>
+      </section>
+    </body></html>`;
+    expect(
+      resolveElementNudgeIntent({
+        content,
+        selectedElement: elementInfoFor("alpha"),
+        direction: "right",
+        largeStep: false,
+      }),
+    ).toMatchObject({ kind: "reorder" });
   });
 
   it("translates when there is no authored source to reorder against", () => {
