@@ -13,6 +13,8 @@ import {
   _getClientDedupe,
   _getDefaultOptimizeDeps,
   _getReactRouterAliases,
+  _installReactRouterVirtualInvalidationMirror,
+  _mirrorReactRouterVirtualInvalidation,
   _nitroModuleGraphSignature,
   _nitroStartupGate,
   _nitroStartupRecovery,
@@ -1539,6 +1541,157 @@ describe("Nitro dev full-reload debounce", () => {
   it("leaves plugins without a hotUpdate hook unchanged", () => {
     const plugin = { name: "nitro:env" } as any;
     expect(_debounceNitroFullReloadHotUpdate(plugin)).toBe(plugin);
+  });
+});
+
+describe("React Router virtual-module invalidation mirror", () => {
+  const SERVER_BUILD_ID = "\0virtual:react-router/server-build";
+  const BROWSER_MANIFEST_ID = "\0virtual:react-router/browser-manifest";
+
+  // These fakes mirror the shapes both sides of the bug actually use:
+  // react-router's framework plugin calls `server.moduleGraph.invalidateModule`
+  // (Vite's back-compat graph, which proxies only client + ssr), while requests
+  // are served from Nitro's own environment.
+  function fakeEnvironment(
+    name: string,
+    { ids = [] as string[], consumer = "server" } = {},
+  ) {
+    const modules = new Map(
+      ids.map((id) => [id, { id, transformResult: {}, lastHMRTimestamp: 0 }]),
+    );
+    return {
+      name,
+      config: { consumer },
+      hot: { send: vi.fn() },
+      moduleGraph: {
+        idToModuleMap: modules,
+        getModuleById: (id: string) => modules.get(id) ?? null,
+        invalidateModule: vi.fn(
+          (mod: any, _seen: unknown, timestamp: number, isHmr: boolean) => {
+            mod.transformResult = null;
+            if (isHmr) mod.lastHMRTimestamp = timestamp;
+          },
+        ),
+      },
+    };
+  }
+
+  function fakeServer(environments: ReturnType<typeof fakeEnvironment>[]) {
+    return {
+      environments: Object.fromEntries(environments.map((e) => [e.name, e])),
+      // Vite's deprecated back-compat graph. Only its `invalidateModule` matters
+      // here — react-router calls it, and it never reaches `nitro`.
+      moduleGraph: { invalidateModule: vi.fn(() => "original-result") },
+    } as any;
+  }
+
+  it("invalidates the server build in Nitro's environment when react-router only invalidated ssr", () => {
+    vi.useFakeTimers();
+    try {
+      const ssr = fakeEnvironment("ssr", { ids: [SERVER_BUILD_ID] });
+      const nitro = fakeEnvironment("nitro", { ids: [SERVER_BUILD_ID] });
+      const server = fakeServer([ssr, nitro]);
+
+      expect(_installReactRouterVirtualInvalidationMirror(server)).toBe(true);
+      server.moduleGraph.invalidateModule({ id: SERVER_BUILD_ID });
+      vi.advanceTimersByTime(300);
+
+      expect(nitro.moduleGraph.invalidateModule).toHaveBeenCalledTimes(1);
+      expect(nitro.hot.send).toHaveBeenCalledWith({ type: "full-reload" });
+      expect(
+        nitro.moduleGraph.getModuleById(SERVER_BUILD_ID)?.transformResult,
+      ).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("coalesces a burst of route-file changes into a single reload", () => {
+    vi.useFakeTimers();
+    try {
+      const nitro = fakeEnvironment("nitro", { ids: [SERVER_BUILD_ID] });
+      const server = fakeServer([nitro]);
+      _installReactRouterVirtualInvalidationMirror(server);
+
+      for (let i = 0; i < 8; i++) {
+        server.moduleGraph.invalidateModule({ id: SERVER_BUILD_ID });
+      }
+
+      expect(nitro.hot.send).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(299);
+      expect(nitro.hot.send).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1);
+      expect(nitro.hot.send).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("passes the original invalidation through untouched", () => {
+    const server = fakeServer([fakeEnvironment("nitro")]);
+    const original = server.moduleGraph.invalidateModule;
+    _installReactRouterVirtualInvalidationMirror(server);
+
+    const mod = { id: SERVER_BUILD_ID };
+    expect(server.moduleGraph.invalidateModule(mod, "seen")).toBe(
+      "original-result",
+    );
+    expect(original).toHaveBeenCalledWith(mod, "seen");
+  });
+
+  it("ignores invalidations of modules react-router does not own", () => {
+    vi.useFakeTimers();
+    try {
+      const nitro = fakeEnvironment("nitro", { ids: [SERVER_BUILD_ID] });
+      const server = fakeServer([nitro]);
+      _installReactRouterVirtualInvalidationMirror(server);
+
+      server.moduleGraph.invalidateModule({ id: "/app/root.tsx" });
+      server.moduleGraph.invalidateModule({ id: undefined });
+      vi.advanceTimersByTime(300);
+
+      expect(nitro.moduleGraph.invalidateModule).not.toHaveBeenCalled();
+      expect(nitro.hot.send).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("never broadcasts a server reload to a client environment", () => {
+    const client = fakeEnvironment("client", {
+      ids: [BROWSER_MANIFEST_ID],
+      consumer: "client",
+    });
+    const nitro = fakeEnvironment("nitro", { ids: [SERVER_BUILD_ID] });
+
+    expect(
+      _mirrorReactRouterVirtualInvalidation(fakeServer([client, nitro])),
+    ).toEqual(["client", "nitro"]);
+    expect(client.moduleGraph.invalidateModule).toHaveBeenCalledTimes(1);
+    expect(client.hot.send).not.toHaveBeenCalled();
+    expect(nitro.hot.send).toHaveBeenCalledWith({ type: "full-reload" });
+  });
+
+  it("leaves environments with no react-router virtual modules alone", () => {
+    const nitro = fakeEnvironment("nitro", { ids: ["/app/server.ts"] });
+
+    expect(_mirrorReactRouterVirtualInvalidation(fakeServer([nitro]))).toEqual(
+      [],
+    );
+    expect(nitro.hot.send).not.toHaveBeenCalled();
+  });
+
+  it("warns loudly instead of silently doing nothing when Vite drops the back-compat graph", () => {
+    const warn = vi.fn();
+
+    expect(
+      _installReactRouterVirtualInvalidationMirror(
+        { environments: {} } as any,
+        { warn },
+      ),
+    ).toBe(false);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toContain("dev server restart");
   });
 });
 
