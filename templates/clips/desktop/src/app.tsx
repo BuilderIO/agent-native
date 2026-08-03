@@ -90,6 +90,7 @@ import {
   type PendingBrowserRecordingUpload,
   type RecorderHandle,
   type RecorderStopResult,
+  type RestartHandoff,
 } from "./lib/recorder";
 import {
   copyRecordingShareLink,
@@ -375,6 +376,12 @@ const DEFAULT_URL = import.meta.env.DEV
 function normalizeCaptureSource(value: string): CaptureSource {
   if (value === "region" && isMacPlatform()) return "region";
   return value === "window" ? "window" : "full-screen";
+}
+
+function stopRestartHandoff(handoff: RestartHandoff): void {
+  [handoff.displayStream, handoff.audioStream].forEach((stream) =>
+    stream?.getTracks().forEach((track) => track.stop()),
+  );
 }
 
 type FetchInput = Parameters<typeof fetch>[0];
@@ -1039,6 +1046,12 @@ export function App() {
     refreshHomeScreenMemoryStatus,
   ]);
   const recordShortcutHandlerRef = useRef<() => void>(() => {});
+  const handleStartRecordingRef = useRef<
+    (options?: {
+      ignoreActiveRecorder?: boolean;
+      resumeCapture?: RestartHandoff;
+    }) => Promise<RecorderHandle | null>
+  >(async () => null);
   // Mirrors `bubbleActive` (assigned below once it is computed) so device
   // probes can synchronously tell whether the camera bubble owns the grant.
   const bubbleActiveRef = useRef(false);
@@ -2197,6 +2210,11 @@ export function App() {
   // bubble effect re-acquires even if bubbleActive/cameraId are unchanged
   // (post-stop reopen with a blank "Default Camera" preview).
   const [bubbleSessionEpoch, setBubbleSessionEpoch] = useState(0);
+  // Bumped when a session tears the recording chrome down without leaving the
+  // recording flow, which only a restart does. `toolbarActive` stays true
+  // across that handoff, so without an epoch the toolbar effect never re-runs
+  // and the closed toolbar window is never rebuilt.
+  const [recordingChromeEpoch, setRecordingChromeEpoch] = useState(0);
   const wantsCamera = mode !== "screen" && cameraOn;
   const nativeFullscreenRecordingActive =
     mode !== "camera" && shouldUseNativeFullscreenRecording(source);
@@ -2252,7 +2270,7 @@ export function App() {
         }).catch(() => {});
       }
     };
-  }, [toolbarActive]);
+  }, [toolbarActive, recordingChromeEpoch]);
 
   useEffect(() => {
     if (!bubbleActive) return;
@@ -2759,7 +2777,9 @@ export function App() {
 
   async function handleStartRecording(options?: {
     ignoreActiveRecorder?: boolean;
-  }) {
+    /** Live capture inherited from the take a restart is replacing. */
+    resumeCapture?: RestartHandoff;
+  }): Promise<RecorderHandle | null> {
     if (recorder && !options?.ignoreActiveRecorder) {
       console.warn(
         "[clips-popover] handleStartRecording ignored — recorder already active",
@@ -2767,7 +2787,7 @@ export function App() {
       setRecError(
         "Still finishing the last recording. Wait a moment, then try again.",
       );
-      return;
+      return null;
     }
     const bubbleTracks = bubbleStreamRef.current?.getTracks() ?? [];
     const bubbleStreamDead =
@@ -2782,11 +2802,11 @@ export function App() {
     if (localRecordingMode === "off") {
       if (videoStorageStatus === "checking") {
         setRecError("Checking video storage. Try again in a moment.");
-        return;
+        return null;
       }
       if (videoStorageStatus === "missing") {
         openVideoStorageSetup();
-        return;
+        return null;
       }
     }
     setRecError(null);
@@ -2810,12 +2830,12 @@ export function App() {
           setReadinessOpen(true);
           setRecError(MACOS_SCREEN_PERMISSION_MESSAGE);
           openPrivacySettings("screen");
-          return;
+          return null;
         }
       } catch (err) {
         setReadinessOpen(true);
         setRecError(err instanceof Error ? err.message : String(err));
-        return;
+        return null;
       }
     }
 
@@ -2901,6 +2921,8 @@ export function App() {
         systemAudioOn,
         localRecordingMode,
         preAcquiredCameraStream,
+        preAcquiredDisplayStream: options?.resumeCapture?.displayStream ?? null,
+        preAcquiredAudioStream: options?.resumeCapture?.audioStream ?? null,
       });
       // macOS: park the popover to its 2×2 pinhole IMMEDIATELY so it
       // doesn't appear in the screen picker window list. The native
@@ -2967,7 +2989,7 @@ export function App() {
 
     if (handle) {
       setRecorder(handle);
-      return;
+      return handle;
     }
 
     // Failure path — the recorder never came up. Side-effects (recording
@@ -2988,13 +3010,13 @@ export function App() {
       errName === "AbortError" ||
       /was cancelled|dismissed|region selection cancelled/i.test(message)
     ) {
-      return;
+      return null;
     }
     if (
       errName === "NotAllowedError" &&
       !isHardCapturePermissionError(message)
     ) {
-      return;
+      return null;
     }
     if (isHardCapturePermissionError(message)) {
       // If an update has finished downloading and is waiting to install, the
@@ -3009,15 +3031,21 @@ export function App() {
             ? MACOS_CAPTURE_PERMISSION_MESSAGE
             : DESKTOP_CAPTURE_PERMISSION_MESSAGE,
       );
-      return;
+      return null;
     }
     if (isStorageSetupFailureMessage(message)) {
       setRecError(STORAGE_SETUP_HELP_TEXT);
       openVideoStorageSetup();
-      return;
+      return null;
     }
     setRecError(message);
+    return null;
   }
+
+  // The restart listener lives in an effect keyed on `recorder`; calling the
+  // start flow through this ref keeps that dependency list from having to
+  // include a function that is recreated every render.
+  handleStartRecordingRef.current = handleStartRecording;
 
   recordShortcutHandlerRef.current = () => {
     if (recorder) {
@@ -3206,27 +3234,39 @@ export function App() {
     );
     track(
       listen("clips:recorder-restart", async () => {
+        if (recordingStopFinalizingRef.current) return;
+        let handoff: RestartHandoff;
         try {
-          await recorder.cancel();
-        } finally {
-          if (!cancelled) {
-            (
-              window as unknown as { clipsForceAlive?: boolean }
-            ).clipsForceAlive = false;
-            bubbleStreamTransferredToRecorder.current = false;
-            bubbleStreamRef.current = null;
-            recordingFlowGateRef.current = false;
-            setRecorder(null);
-            setRecordingFlowActive(false);
-            setBubbleSessionEpoch((epoch) => epoch + 1);
-            invoke("set_recording_state", { active: false }).catch(() => {});
-            // Starting a new browser capture must come from a fresh click in
-            // this webview. The toolbar click arrives here through async Tauri
-            // IPC, so reopen the popover and let the next Start click provide
-            // the required user activation.
-            invoke("show_popover").catch(() => {});
-          }
+          handoff = await recorder.discardForRestart();
+        } catch (err) {
+          console.error("[clips-popover] restart discard failed:", err);
+          setRecError(err instanceof Error ? err.message : String(err));
+          return;
         }
+        if (cancelled) {
+          stopRestartHandoff(handoff);
+          return;
+        }
+        // The recording flow stays latched across the restart. Releasing
+        // `clipsForceAlive` / `recordingFlowGateRef` / `recordingFlowActive` /
+        // `set_recording_state` the way cancel does would let the popover's
+        // blur auto-hide fire and flicker the pill between the two takes. The
+        // camera also stays owned by the popover, so the bubble session epoch
+        // is deliberately not bumped and the stream is re-handed unchanged.
+        //
+        // The discard did close the countdown and toolbar windows. The recorder
+        // rebuilds the countdown on every start, but the toolbar is owned by an
+        // effect keyed on the flow latches we just kept held — so it has to be
+        // told the chrome is gone.
+        setRecordingChromeEpoch((epoch) => epoch + 1);
+        setRecorder(null);
+        const restarted = await handleStartRecordingRef.current({
+          ignoreActiveRecorder: true,
+          resumeCapture: handoff,
+        });
+        // The new session owns the handed-off capture only once it exists.
+        // Without this the screen would stay captured with nothing recording.
+        if (!restarted) stopRestartHandoff(handoff);
       }),
     );
     return () => {
