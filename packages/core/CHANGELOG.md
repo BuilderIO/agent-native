@@ -1,5 +1,218 @@
 # @agent-native/core
 
+## 0.135.2
+
+### Patch Changes
+
+- 60749ec: Split Getting Started into a focused four-page series with visual improvements
+
+## 0.135.1
+
+### Patch Changes
+
+- ed51b3d: Grant org-visibility access on shareable resources based on the caller's real organization membership, instead of only their currently active organization. Fixes real org members being denied access to org-shared resources (e.g. recordings) when a different org happened to be active in their session.
+
+## 0.135.0
+
+### Minor Changes
+
+- 41544d8: Fix the Automations page reporting runs that never happened, and add run history and schedule editing.
+
+  A scheduler or dispatcher tick that declined to run an automation used to stamp
+  `lastRun` with the current time, so a permanently blocked automation reported a
+  fresh run every minute while its `nextRun` stayed frozen in the past. Skipped
+  ticks now record `lastCheck` instead, leave `lastRun` alone, and only rewrite the
+  resource when the failure state actually changes. The failure reason
+  (`lastError`) is surfaced on the row and in the details view instead of being
+  swallowed behind a bare `skipped` chip.
+
+  Schedules are also timezone-aware. Cron expressions used to be read in the
+  server's zone, so an automation created as "every day at 8am" ran at 8am UTC.
+  A schedule now stores the IANA zone it was written in, taken from a new
+  scheduling timezone preference in Account settings and falling back to the
+  caller's browser zone. Descriptions name their zone ("Every day at 8 AM
+  (America/New_York)"), and both the agent tools and the schedule editor accept a
+  timezone. Existing schedules keep their current host-relative meaning until
+  edited.
+
+  Also adds:
+  - `automation_runs` history for real executions, exposed through a new
+    `list-automation-runs` action and a Past runs section in the details view.
+  - A Details view that shows more than the list row: schedule, next/last run,
+    last checked, last status, scope, creator and model.
+  - An Edit affordance for changing a scheduled automation's cron expression and
+    timezone.
+  - A "Manage agent" entry in the sidebar organization switcher.
+
+  Run history is bounded and honest about interrupted runs: a row left `running`
+  past the point a run could still be alive is reported as `interrupted` rather
+  than shown as permanently in-flight, and rows are pruned per automation so a
+  frequent schedule cannot grow the table without limit. Recording a run's
+  outcome also re-reads the automation first, so a schedule edited while it was
+  running is no longer reverted by the completion write.
+
+  Also from review: a completion write no longer recreates an automation deleted
+  mid-run, a run-history write failure can no longer reclassify a completed
+  automation as failed, deleting an automation forgets its run history so a new
+  one reusing the name does not inherit it, an unusable `X-User-Timezone` header
+  is rejected rather than persisted, and a settings read failure surfaces instead
+  of silently pinning a schedule to the host zone.
+
+  Run history never blocks the automation it describes: opening the record,
+  attaching its thread and closing it out are all non-fatal, so an unwritable
+  history table costs the record rather than the run.
+
+- 8c37661: Add shared settings and activity-notification primitives.
+  - `SettingsGroup` / `SettingsRow` (`@agent-native/core/client/settings`) render
+    several one-line settings inside a single card instead of one card per
+    control. Each row keeps its own `id`, so existing settings-search hashes
+    still resolve after a card collapses into a row.
+  - `resolveActivityRecipients` and `notifyActivity`
+    (`@agent-native/core/server`) resolve who should receive a collaboration
+    email — owner, thread participants, mentions, never the actor — filter them
+    by an app-owned preference key, and report delivery as `delivered`,
+    `delivery-failed`, `no-recipients`, `email-not-configured`, or
+    `notification-error` rather than collapsing them into an empty success. A
+    batch where every send threw is reported as `delivery-failed`, never as a
+    delivery.
+  - `runActivityNotification` (`@agent-native/core/server`) runs a notification
+    without letting it reject the write that caused it. The comment is already
+    persisted when notification runs, so throwing made the client retry and
+    duplicate the row; the failure now surfaces as `notification-error`.
+  - `filterRecipientsByResourceAccess` (`@agent-native/core/sharing`) keeps only
+    the addresses that can open a resource right now. Notification recipients
+    come from history — stored mentions, past thread authors — and none of that
+    is an access grant, so mentioning an arbitrary address no longer mails it the
+    comment body and a revoked collaborator stops receiving the thread.
+  - `isOrgMember` (`@agent-native/core/org`) is now one exported resolver instead
+    of two private copies of the same query.
+  - Review threads now send comment, reply, and mention emails from core
+    (`notifyReviewComment`), so every app built on the review surface gets them.
+    `ReviewableResourceRegistration` gained an optional `resolveUrl` so those
+    emails can deep-link to the resource instead of the app root.
+
+- f499dff: Add `@agent-native/core/vitest-config`, a base vitest config that caps a suite's
+  worker pool so concurrent test runs no longer oversubscribe the CPU. Defaults to
+  25% of cores; override with `VITEST_CONCURRENCY`. Every template and package
+  config merges it in.
+
+### Patch Changes
+
+- 72d7c5b: Prevent unreadable MCP client configuration files from being overwritten during setup.
+- Updated dependencies [f499dff]
+  - @agent-native/recap-cli@0.5.2
+  - @agent-native/toolkit@0.12.2
+
+## 0.134.2
+
+### Patch Changes
+
+- 10a204a: Brand transactional auth emails per app. Signup verification and password
+  reset emails now send from `<app-slug>@agent-native.com` with reply-to
+  agent-native@builder.io and per-app subjects/headings ("Verify your email for
+  Agent-Native <App>" / "Reset your Agent-Native <App> password"). The
+  verification email body also includes the app's one-line description (competitor
+  names reframed as "replacement"); the reset email omits the pitch since it's a
+  security email. Unknown apps fall back to the generic "Agent Native" branding.
+
+  The branded sender and reply-to are applied only when the configured
+  EMAIL_FROM is already on agent-native.com, so self-hosted deployments keep
+  their own verified sender and support mailbox.
+
+## 0.134.1
+
+### Patch Changes
+
+- 6c165cd: Document the permission-aware Content database membership removal action.
+
+## 0.134.0
+
+### Minor Changes
+
+- 46cd162: Make PostHog a first-class error-reporting and LLM-observability backend, and fix
+  the malformed exception events it was already receiving.
+
+  `captureException()` emitted an event named `$exception` carrying camelCase
+  properties. PostHog ingests anything by that name and renders it as an issue, but
+  it groups and symbolicates from `$exception_list` — so every PostHog-configured
+  app was already collecting exceptions that arrived empty and ungroupable, which
+  reads as coverage rather than as a failure. The PostHog provider now reshapes
+  those into a real `$exception_list` with parsed stack frames.
+
+  Route errors no longer depend on Sentry. The Nitro `error` hook lived inside
+  `sentry-plugin.ts`, which returns early when no `SENTRY_DSN` is set, so an app
+  running PostHog alone reported no route errors at all. The hook moved to
+  `core-routes-plugin.ts` and goes through the provider-agnostic `captureError()`
+  registry, so every configured backend receives it. The ~150 lines of
+  production-tuned drop rules (expected 4xx, permission rejections, Lambda
+  freeze/thaw `socket hang up`) moved out of Sentry's `beforeSend` into
+  `server/error-noise-filter.ts` and now apply to every backend — without them a
+  second backend receives a firehose. Server exceptions are also attributed to the
+  in-flight user instead of landing under `anonymous`.
+
+  Browser exceptions go to PostHog when `POSTHOG_PUBLIC_KEY` / `VITE_POSTHOG_KEY`
+  is set, posted directly rather than relayed through `/_agent-native/track`, which
+  requires a session and would drop every signed-out crash. `POSTHOG_API_KEY` is
+  deliberately not a fallback for the public key: that value is inlined into the
+  public HTML shell. Note that PostHog does not symbolicate without uploaded source
+  maps, so minified browser stacks stay minified.
+
+  LLM observability now emits the full PostHog trace tree. Previously a run
+  produced a single `$ai_generation` labelled `agent_run` whose `$ai_parent_id`
+  pointed at a span that was never sent, so PostHog wrapped it in a placeholder
+  trace with no steps. Runs now emit `$ai_trace`, one `$ai_span` per tool call, and
+  a generation parented to the trace. Tool calls ship inside `$ai_output_choices`
+  even with content capture off, because that is the only thing PostHog derives
+  `$ai_tools_called` from. The previously dead `capturePrompts` flag is now wired
+  and gates `$ai_input` and assistant text; disabled fields are omitted rather than
+  sent empty, and oversized content is replaced with an explicit truncation marker
+  instead of being silently shortened. `$ai_error` became a structured object with
+  the terminal code and retryability, and errors captured during a run carry the
+  run's `$ai_trace_id` so an issue and its trace resolve to each other.
+
+  Feedback previously emitted only for thumbs; category and free-text submissions
+  emitted nothing. All four now report, with `sentiment` still limited to thumbs so
+  a category follow-up does not double-count the vote. PostHog surfaces feedback in
+  LLM analytics only through a `survey sent` event, so that is emitted too when
+  `POSTHOG_AI_FEEDBACK_SURVEY_ID` is configured — and not at all when it is unset,
+  rather than inventing a survey id.
+
+  Agent traces carry the browser session as `$session_id` (read from a new
+  `X-Agent-Native-Session-Id` header) so a trace joins its session replay, distinct
+  from `$ai_session_id`, which remains the conversation thread.
+
+## 0.133.3
+
+### Patch Changes
+
+- 9258da4: Preserve nested object parameters when browser clients call GET actions.
+
+## 0.133.2
+
+### Patch Changes
+
+- 3fac05d: Ensure Netlify-hosted integration calls hand off slow cross-app work to durable delivery when only runtime markers are available.
+
+## 0.133.1
+
+### Patch Changes
+
+- 1c08605: Fail closed when an `ai-sdk:*` engine has no provider key, instead of sending an
+  unauthenticated request. The provider factory was previously built with no
+  `apiKey`, so the SDK omitted the Authorization header and the gateway's 401 came
+  back as `http_401` "Missing Authentication header" — a transport error naming the
+  wrong cause, which a scheduled job then retried on every tick forever. It now
+  reports `missing_credentials` and names the env var it wants, matching what
+  `builder-engine` and `anthropic-engine` already did.
+
+  Also stop reaping in-process background automations (scheduler and trigger runs)
+  at the tight 45s post-claim stale window. That window exists to reach a durable
+  successor sooner, but these runs carry no `dispatch_payload` and have no
+  successor to reach, so an early reap killed still-working jobs that nothing could
+  recover. They now get the 90s background window, and the recovery path reports
+  `not_redispatchable` rather than `payload_missing`, which read as data loss for
+  the one case where nothing was ever lost.
+
 ## 0.133.0
 
 ### Minor Changes

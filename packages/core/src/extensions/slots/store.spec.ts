@@ -101,6 +101,16 @@ function shareToUser(resourceId: string, email: string, role = "viewer") {
   });
 }
 
+let memberSeq = 0;
+function addOrgMember(orgId: string, email: string) {
+  sqlite
+    .prepare(
+      `INSERT INTO org_members (id, org_id, email, role, joined_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    )
+    .run(`member-${++memberSeq}`, orgId, email, "member", Date.now());
+}
+
 beforeEach(() => {
   sqlite = new Database(":memory:");
   // Mirror the real extensions/extension_shares tables so accessFilter and
@@ -129,6 +139,13 @@ beforeEach(() => {
       role TEXT NOT NULL DEFAULT 'viewer',
       created_by TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE TABLE org_members (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      email TEXT NOT NULL,
+      role TEXT NOT NULL,
+      joined_at INTEGER NOT NULL
     );
   `);
   sqlite.exec(EXTENSION_SLOTS_CREATE_SQL);
@@ -426,6 +443,7 @@ describe("extension slots: install / uninstall", () => {
       ownerEmail: OWNER,
       visibility: "org",
     });
+    addOrgMember(ORG, VIEWER);
 
     await runWithRequestContext({ userEmail: OWNER, orgId: ORG }, () =>
       installExtensionSlot("ext-a", "mail.sidebar"),
@@ -457,6 +475,7 @@ describe("extension slots: install / uninstall", () => {
       ownerEmail: OWNER,
       visibility: "org",
     });
+    addOrgMember(ORG, VIEWER);
 
     await runWithRequestContext({ userEmail: OWNER, orgId: ORG }, () =>
       installExtensionSlot("ext-a", "mail.sidebar"),

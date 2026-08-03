@@ -1,6 +1,36 @@
 # Existing non-English catalog values that still exactly match English.
 # Keep this file sorted. Remove entries as catalogs get translated.
 # Format: relative/catalog/locale|key|English source string
+packages/docs/app/i18n/ar-SA|nav.gettingStartedActions|Add an Action
+packages/docs/app/i18n/ar-SA|nav.gettingStartedDatabase|Persist Data in SQL
+packages/docs/app/i18n/ar-SA|nav.gettingStartedPages|Add a Page
+packages/docs/app/i18n/de-DE|nav.gettingStartedActions|Add an Action
+packages/docs/app/i18n/de-DE|nav.gettingStartedDatabase|Persist Data in SQL
+packages/docs/app/i18n/de-DE|nav.gettingStartedPages|Add a Page
+packages/docs/app/i18n/es-ES|nav.gettingStartedActions|Add an Action
+packages/docs/app/i18n/es-ES|nav.gettingStartedDatabase|Persist Data in SQL
+packages/docs/app/i18n/es-ES|nav.gettingStartedPages|Add a Page
+packages/docs/app/i18n/fr-FR|nav.gettingStartedActions|Add an Action
+packages/docs/app/i18n/fr-FR|nav.gettingStartedDatabase|Persist Data in SQL
+packages/docs/app/i18n/fr-FR|nav.gettingStartedPages|Add a Page
+packages/docs/app/i18n/hi-IN|nav.gettingStartedActions|Add an Action
+packages/docs/app/i18n/hi-IN|nav.gettingStartedDatabase|Persist Data in SQL
+packages/docs/app/i18n/hi-IN|nav.gettingStartedPages|Add a Page
+packages/docs/app/i18n/ja-JP|nav.gettingStartedActions|Add an Action
+packages/docs/app/i18n/ja-JP|nav.gettingStartedDatabase|Persist Data in SQL
+packages/docs/app/i18n/ja-JP|nav.gettingStartedPages|Add a Page
+packages/docs/app/i18n/ko-KR|nav.gettingStartedActions|Add an Action
+packages/docs/app/i18n/ko-KR|nav.gettingStartedDatabase|Persist Data in SQL
+packages/docs/app/i18n/ko-KR|nav.gettingStartedPages|Add a Page
+packages/docs/app/i18n/pt-BR|nav.gettingStartedActions|Add an Action
+packages/docs/app/i18n/pt-BR|nav.gettingStartedDatabase|Persist Data in SQL
+packages/docs/app/i18n/pt-BR|nav.gettingStartedPages|Add a Page
+packages/docs/app/i18n/zh-CN|nav.gettingStartedActions|Add an Action
+packages/docs/app/i18n/zh-CN|nav.gettingStartedDatabase|Persist Data in SQL
+packages/docs/app/i18n/zh-CN|nav.gettingStartedPages|Add a Page
+packages/docs/app/i18n/zh-TW|nav.gettingStartedActions|Add an Action
+packages/docs/app/i18n/zh-TW|nav.gettingStartedDatabase|Persist Data in SQL
+packages/docs/app/i18n/zh-TW|nav.gettingStartedPages|Add a Page
 templates/assets/app/i18n/ar-SA|brandKitDetail.addReference|Add reference
 templates/assets/app/i18n/ar-SA|brandKitDetail.chooseReferenceImage|Choose from library
 templates/assets/app/i18n/ar-SA|brandKitDetail.couldNotUploadReferenceImage|Could not upload reference image.

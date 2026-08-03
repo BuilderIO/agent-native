@@ -35,6 +35,12 @@ export default defineAction({
       .describe(
         "For paginated Builder CMS or Notion sources, read a bounded multi-page snapshot in this refresh.",
       ),
+    finishBuilderPagination: z
+      .boolean()
+      .optional()
+      .describe(
+        "Internal Builder continuation mode. Read every remaining page from the persisted continuation offset.",
+      ),
     expectedBuilderContinuationOffset: z
       .number()
       .int()
@@ -75,6 +81,7 @@ export default defineAction({
           source: claimedSource.source,
           now,
           runFullRefresh: args.fullRefresh === true,
+          finishPagination: args.finishBuilderPagination === true,
           refreshClaimId: claimedSource.claimId,
         }).catch(async (error: unknown) => {
           await releaseBuilderCmsSourceRefreshClaim({

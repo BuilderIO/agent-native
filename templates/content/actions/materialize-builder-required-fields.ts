@@ -19,6 +19,7 @@ import {
 } from "../shared/properties.js";
 import { chunks } from "./_batch-utils.js";
 import { readBuilderCmsContentEntries } from "./_builder-cms-read-client.js";
+import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import {
   builderReferenceIdSourceValueKey,
   resolveDatabaseForSourceMutation,
@@ -352,6 +353,12 @@ export default defineAction({
         .select()
         .from(schema.contentDatabaseSourceRows)
         .where(eq(schema.contentDatabaseSourceRows.sourceId, source.id));
+      await lockDatabaseMemberships(
+        tx,
+        currentSourceRows
+          .map((row) => row.databaseItemId)
+          .filter((itemId) => itemId.length > 0),
+      );
       const [maxPosition] = await tx
         .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
         .from(schema.documentPropertyDefinitions)

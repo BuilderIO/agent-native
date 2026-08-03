@@ -85,11 +85,10 @@ describe("invalidateDocumentQueries", () => {
       ),
     ).toBe(false);
 
-    expect(calledKeys).toContainEqual([
-      "action",
-      "get-document",
-      { id: "doc-1" },
-    ]);
+    expect(calledKeys).toContainEqual(["action", "get-document"]);
+    expect(invalidateQueries.mock.calls[0]?.[0]?.predicate).toEqual(
+      expect.any(Function),
+    );
     expect(calledKeys).toContainEqual(["action", "list-documents"]);
   });
 });

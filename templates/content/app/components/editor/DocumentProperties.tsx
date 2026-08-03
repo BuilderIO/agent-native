@@ -19,10 +19,8 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type {
-  AddContentDatabaseSourceFieldPropertyRequest,
   BindContentDatabaseSourceFieldRequest,
   ContentDatabaseResponse,
-  ContentDatabaseSourceFieldPropertyResponse,
   ContentDatabaseSource,
   DocumentProperty,
 } from "@shared/api";
@@ -130,7 +128,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { applySourceFieldPropertyToDatabaseResponse } from "@/hooks/use-content-database";
+import { useAddContentDatabaseSourceFieldProperty } from "@/hooks/use-content-database";
 import {
   documentPropertiesResponseMatchesScope,
   useConfigureDocumentProperty,
@@ -3148,25 +3146,8 @@ export function AddProperty({
 }) {
   const t = useT();
   const configure = useConfigureDocumentProperty(documentId, databaseId);
-  const queryClient = useQueryClient();
-  const addSourceFieldProperty = useActionMutation<
-    ContentDatabaseSourceFieldPropertyResponse,
-    AddContentDatabaseSourceFieldPropertyRequest
-  >("add-content-database-source-field-property", {
-    onSuccess: (data) => {
-      queryClient.setQueriesData<ContentDatabaseResponse>(
-        { queryKey: ["action", "get-content-database"] },
-        (current) => applySourceFieldPropertyToDatabaseResponse(current, data),
-      );
-      queryClient.invalidateQueries({
-        queryKey: [
-          "action",
-          "list-document-properties",
-          { documentId, databaseId },
-        ],
-      });
-    },
-  });
+  const addSourceFieldProperty =
+    useAddContentDatabaseSourceFieldProperty(documentId);
   const [open, setOpen] = useState(false);
   const [typeQuery, setTypeQuery] = useState("");
   const filteredPropertyTypes = filterDocumentPropertyTypes(typeQuery);

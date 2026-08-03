@@ -21,6 +21,11 @@ export {
 } from "./identity.js";
 export { extractReviewMentions, normalizeReviewMentions } from "./mentions.js";
 export {
+  notifyReviewComment,
+  REVIEW_NOTIFICATION_PREFS_KEY,
+  type ReviewNotificationResult,
+} from "./notifications.js";
+export {
   __resetReviewableResourcesForTests,
   assertReviewableResourceAccess,
   getReviewableResource,

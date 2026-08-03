@@ -28,6 +28,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { ReviewCanvasPins } from "@/components/visual-editor/ReviewCanvasPins";
 
+import { withLocalRuntimes } from "../components/design/design-canvas/local-runtime";
 import {
   resolvePresentEscapeAction,
   shouldBlockPresentPageNavigation,
@@ -181,7 +182,7 @@ export default function Present() {
       <div className="present-review-canvas h-full w-full">
         <iframe
           {...{ [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }}
-          srcDoc={reviewableContent}
+          srcDoc={withLocalRuntimes(reviewableContent)}
           sandbox="allow-scripts"
           data-design-preview-iframe
           className="h-full w-full border-0"

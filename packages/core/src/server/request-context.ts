@@ -141,6 +141,12 @@ export interface RequestContext {
   authCapability?: string;
   timezone?: string;
   /**
+   * The caller's browser analytics session id, when the request came from a
+   * page. Emitted as PostHog's `$session_id` so agent traces join to session
+   * replay; never used for authorization.
+   */
+  browserSessionId?: string;
+  /**
    * Set when code reads authenticated request context. Public SSR shell/data
    * should not depend on this value; user/org-specific reads belong behind
    * client-side actions/API after hydration.

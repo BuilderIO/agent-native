@@ -1,3 +1,4 @@
+import { notifyWithDelivery } from "@agent-native/core/notifications";
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
 
 import { sendDashboardReportSubscription } from "../lib/dashboard-report";
@@ -52,6 +53,46 @@ async function persistDashboardReportCaptureOutcome(
   } catch (err) {
     console.error(
       `[dashboard-report] Failed to persist capture checkpoint for subscription ${args[0].id}:`,
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+}
+
+/**
+ * Tell the owner when a scheduled report is finally given up on. Retries stay
+ * silent — only an exhausted retry window means the report they expected will
+ * never arrive, and a log line alone leaves them waiting on nothing.
+ */
+async function notifyDashboardReportGaveUp(
+  sub: {
+    id: string;
+    ownerEmail: string;
+    orgId?: string | null;
+    dashboardId?: string;
+  },
+  reason: string,
+): Promise<void> {
+  try {
+    await notifyWithDelivery(
+      {
+        severity: "warning",
+        title: "Scheduled dashboard report failed",
+        body: `The scheduled report for subscription ${sub.id} could not be delivered: ${reason}`,
+        channels: ["inbox", "email"],
+        metadata: {
+          kind: "dashboard_report_failure",
+          subscriptionId: sub.id,
+          path: "/dashboard-reports",
+          // The email channel is a no-op without explicit recipients.
+          emailRecipients: [sub.ownerEmail],
+          emailSubject: "Your scheduled dashboard report did not send",
+        },
+      },
+      { owner: sub.ownerEmail },
+    );
+  } catch (err) {
+    console.error(
+      `[dashboard-report] Could not notify owner of subscription ${sub.id} about the failure:`,
       err instanceof Error ? err.message : String(err),
     );
   }
@@ -127,6 +168,7 @@ export async function runDashboardReportsOnce(): Promise<{
             });
           } else {
             await persistDashboardReportResult(sub, "error", retryMessage);
+            await notifyDashboardReportGaveUp(sub, degradedReason);
           }
           continue;
         }
@@ -155,6 +197,7 @@ export async function runDashboardReportsOnce(): Promise<{
           });
         } else {
           await persistDashboardReportResult(sub, "error", message);
+          await notifyDashboardReportGaveUp(sub, message);
         }
       }
     }

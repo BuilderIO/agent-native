@@ -1,5 +1,9 @@
-import { defineConfig } from "vitest/config";
+import baseConfig from "@agent-native/core/vitest-config";
+import { defineConfig, mergeConfig } from "vitest/config";
 
-export default defineConfig({
-  test: { include: ["**/*.test.ts"], environment: "node" },
-});
+export default mergeConfig(
+  baseConfig,
+  defineConfig({
+    test: { include: ["**/*.test.ts"], environment: "node" },
+  }),
+);

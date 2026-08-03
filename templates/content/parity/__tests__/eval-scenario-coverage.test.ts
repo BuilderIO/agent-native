@@ -138,7 +138,7 @@ describe("Content parity eval scenarios", () => {
       passed: false,
       score: 0,
     });
-    expect(expectedToolsScore?.reason).toContain("delete-database-items");
+    expect(expectedToolsScore?.reason).toContain("remove-database-items");
     expect(row.status).toBe("failed");
   });
 });
