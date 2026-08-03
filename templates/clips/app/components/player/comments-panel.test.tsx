@@ -24,6 +24,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
           ? actionMocks.updateComment
           : actionMocks.otherMutation,
   }),
+  useAvatarUrl: () => null,
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
