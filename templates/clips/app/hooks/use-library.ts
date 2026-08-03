@@ -24,6 +24,7 @@ export interface RecordingSummary {
   spaceIds: string[];
   tags: string[];
   viewCount: number;
+  agentViewCount: number;
   createdAt: string;
   updatedAt: string;
   archivedAt: string | null;
