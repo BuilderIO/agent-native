@@ -235,7 +235,9 @@ describe("document editor layout", () => {
       },
     );
 
-    expect(source).toContain("const documentQuery = useDocument(documentId)");
+    expect(source).toContain("const documentQuery = useDocument(documentId, {");
+    expect(source).toContain("databaseId,");
+    expect(source).toContain("databaseDocumentId,");
     expect(source).toContain("isFetchedAfterMount");
     expect(source).toContain("isFetching");
     expect(source).toContain("queriedDocument?.id === documentId");
@@ -402,8 +404,34 @@ describe("document editor layout", () => {
     expect(documentEditorSource).toContain(
       "(isLocalFileDocument || collabSynced)",
     );
+    expect(documentEditorSource).toContain(
+      "!canEdit ||\n      !hydrationContext?.sourceId",
+    );
     expect(documentEditorSource).not.toContain(
       "(isLocalFileDocument || !collabLoading)",
+    );
+  });
+
+  it("keeps database-local context when local-file history recovery updates caches", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    const fallbackStart = source.indexOf(
+      'toast.warning(t("editor.localFileSavedHistoryNotUpdated")',
+    );
+    const fallbackEnd = source.indexOf(
+      "return fileFirstDocument;",
+      fallbackStart,
+    );
+    const fallback = source.slice(fallbackStart, fallbackEnd);
+
+    expect(fallbackStart).toBeGreaterThan(-1);
+    expect(fallback).toContain(
+      "mergeDocumentIntoDocumentCache(old, fileFirstDocument)",
+    );
+    expect(fallback).not.toContain(
+      "documentQueryFilter(documentId),\n          fileFirstDocument",
     );
   });
 

@@ -3120,9 +3120,12 @@ const enUS = {
     liveDocumentSaveBeforeSyncFailed:
       "The live document could not be saved before syncing.",
     documentTitle: "Document title",
-    builderBodySyncing: "Content is still syncing from Builder",
+    builderBodySyncing: "This page's content is still syncing from Builder",
     builderBodySyncingDescription:
       "Editing is paused until the Builder body finishes syncing, so the existing article content is not overwritten.",
+    pageBodySyncing: "This page's content is still syncing",
+    pageBodySyncingDescription:
+      "Editing is paused until the page body finishes syncing, so existing content is not overwritten.",
     localFileSavedHistoryNotUpdated:
       "Local file saved, but history was not updated",
     reorderField: "Reorder {{name}}",
@@ -5615,6 +5618,9 @@ const editorMessagesByLocale = {
     builderBodySyncing: "内容仍在从 Builder 同步",
     builderBodySyncingDescription:
       "同步 Builder 正文完成前会暂停编辑，避免覆盖现有文章内容。",
+    pageBodySyncing: "此页面的内容仍在同步",
+    pageBodySyncingDescription:
+      "在页面正文完成同步之前，编辑会暂停，以免覆盖现有内容。",
     creatingDatabase: "正在创建内联数据库...",
     databaseCreated: "内联数据库已创建",
     emptyBlockPlaceholder: "按“/”使用命令",
@@ -5960,6 +5966,9 @@ const editorMessagesByLocale = {
     builderBodySyncing: "El contenido aún se está sincronizando desde Builder",
     builderBodySyncingDescription:
       "La edición está en pausa hasta que el cuerpo de Builder termine de sincronizarse, para no sobrescribir el contenido existente del artículo.",
+    pageBodySyncing: "El contenido de esta página aún se está sincronizando",
+    pageBodySyncingDescription:
+      "La edición está en pausa hasta que el contenido de la página termine de sincronizarse, para no sobrescribir el contenido existente.",
     creatingDatabase: "Creando base de datos integrada...",
     databaseCreated: "Base de datos integrada creada",
     emptyBlockPlaceholder: "Pulsa «/» para ver los comandos",
@@ -6317,6 +6326,10 @@ const editorMessagesByLocale = {
       "Le contenu est encore en cours de synchronisation depuis Builder",
     builderBodySyncingDescription:
       "La modification est suspendue jusqu'à la fin de la synchronisation du corps Builder, afin de ne pas écraser le contenu existant de l'article.",
+    pageBodySyncing:
+      "Le contenu de cette page est encore en cours de synchronisation",
+    pageBodySyncingDescription:
+      "La modification est suspendue jusqu'à la fin de la synchronisation du contenu de la page, afin de ne pas écraser le contenu existant.",
     creatingDatabase: "Création d'une base de données intégrée...",
     databaseCreated: "Base de données intégrée créée",
     emptyBlockPlaceholder: "Appuyez sur « / » pour afficher les commandes",
@@ -6676,6 +6689,9 @@ const editorMessagesByLocale = {
     builderBodySyncing: "Inhalte werden noch von Builder synchronisiert",
     builderBodySyncingDescription:
       "Die Bearbeitung ist pausiert, bis der Builder-Textkörper fertig synchronisiert ist, damit der bestehende Artikelinhalt nicht überschrieben wird.",
+    pageBodySyncing: "Der Inhalt dieser Seite wird noch synchronisiert",
+    pageBodySyncingDescription:
+      "Die Bearbeitung ist pausiert, bis der Seiteninhalt fertig synchronisiert ist, damit bestehende Inhalte nicht überschrieben werden.",
     creatingDatabase: "Inline-Datenbank wird erstellt...",
     databaseCreated: "Inline-Datenbank erstellt",
     emptyBlockPlaceholder: "Drücke „/“ für Befehle",
@@ -7040,6 +7056,9 @@ const editorMessagesByLocale = {
     builderBodySyncing: "コンテンツはまだ Builder から同期中です",
     builderBodySyncingDescription:
       "既存の記事内容を上書きしないよう、Builder 本文の同期が完了するまで編集は一時停止されます。",
+    pageBodySyncing: "このページのコンテンツはまだ同期中です",
+    pageBodySyncingDescription:
+      "既存のコンテンツを上書きしないよう、ページ本文の同期が完了するまで編集は一時停止されます。",
     creatingDatabase: "インラインデータベースを作成しています...",
     databaseCreated: "インラインデータベースが作成されました",
     emptyBlockPlaceholder: "「/」でコマンドを表示",
@@ -7393,6 +7412,9 @@ const editorMessagesByLocale = {
     builderBodySyncing: "콘텐츠가 아직 Builder에서 동기화되는 중입니다",
     builderBodySyncingDescription:
       "기존 문서 내용을 덮어쓰지 않도록 Builder 본문 동기화가 완료될 때까지 편집이 일시 중지됩니다.",
+    pageBodySyncing: "이 페이지의 콘텐츠가 아직 동기화 중입니다",
+    pageBodySyncingDescription:
+      "기존 콘텐츠를 덮어쓰지 않도록 페이지 본문 동기화가 완료될 때까지 편집이 일시 중지됩니다.",
     creatingDatabase: "인라인 데이터베이스 생성 중...",
     databaseCreated: "인라인 데이터베이스가 생성되었습니다.",
     emptyBlockPlaceholder: "‘/’를 눌러 명령 사용",
@@ -7745,6 +7767,9 @@ const editorMessagesByLocale = {
     builderBodySyncing: "O conteúdo ainda está sincronizando do Builder",
     builderBodySyncingDescription:
       "A edição fica pausada até o corpo do Builder terminar de sincronizar, para não sobrescrever o conteúdo existente do artigo.",
+    pageBodySyncing: "O conteúdo desta página ainda está sincronizando",
+    pageBodySyncingDescription:
+      "A edição fica pausada até o conteúdo da página terminar de sincronizar, para não sobrescrever o conteúdo existente.",
     creatingDatabase: "Criando banco de dados embutido...",
     databaseCreated: "Banco de dados embutido criado",
     emptyBlockPlaceholder: "Pressione “/” para comandos",
@@ -8103,6 +8128,9 @@ const editorMessagesByLocale = {
     builderBodySyncing: "सामग्री अभी भी Builder से सिंक हो रही है",
     builderBodySyncingDescription:
       "Builder का मुख्य भाग सिंक पूरा होने तक संपादन रोका गया है, ताकि मौजूदा लेख सामग्री अधिलेखित न हो।",
+    pageBodySyncing: "इस पेज की सामग्री अभी भी सिंक हो रही है",
+    pageBodySyncingDescription:
+      "पेज का मुख्य भाग सिंक पूरा होने तक संपादन रोका गया है, ताकि मौजूदा सामग्री अधिलेखित न हो।",
     creatingDatabase: "इनलाइन डेटाबेस बनाया जा रहा है...",
     databaseCreated: "इनलाइन डेटाबेस बनाया गया",
     emptyBlockPlaceholder: "कमांड के लिए '/' दबाएं",
@@ -8450,6 +8478,9 @@ const editorMessagesByLocale = {
     builderBodySyncing: "لا يزال المحتوى قيد المزامنة من Builder",
     builderBodySyncingDescription:
       "يتم إيقاف التحرير مؤقتًا حتى تكتمل مزامنة نص Builder، حتى لا يتم استبدال محتوى المقالة الحالي.",
+    pageBodySyncing: "لا يزال محتوى هذه الصفحة قيد المزامنة",
+    pageBodySyncingDescription:
+      "يتم إيقاف التحرير مؤقتًا حتى تكتمل مزامنة محتوى الصفحة، حتى لا تتم الكتابة فوق المحتوى الحالي.",
     creatingDatabase: "جارٍ إنشاء قاعدة بيانات مضمنة...",
     databaseCreated: "تم إنشاء قاعدة البيانات المضمنة",
     emptyBlockPlaceholder: 'اضغط على "/" للأوامر',

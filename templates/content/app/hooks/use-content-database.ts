@@ -57,6 +57,8 @@ import type {
 import type { Query, QueryClient } from "@tanstack/react-query";
 import { useQueryClient } from "@tanstack/react-query";
 
+import { documentQueryFilter } from "../lib/document-query";
+
 export function contentDatabaseQueryKey(documentId: string) {
   return ["action", "get-content-database", { documentId }] as const;
 }
@@ -421,9 +423,7 @@ export function clearDeletedContentDatabaseFromCache(
   documentId: string,
 ) {
   queryClient.removeQueries(contentDatabaseQueryFilter(documentId));
-  queryClient.removeQueries({
-    queryKey: ["action", "get-document", { id: documentId }],
-  });
+  queryClient.removeQueries(documentQueryFilter(documentId));
   queryClient.invalidateQueries({
     queryKey: ["action", "get-content-database"],
   });
@@ -713,20 +713,14 @@ export function useCreateContentDatabase(documentId: string | null) {
     {
       onSuccess: (data) => {
         if (documentId) {
-          queryClient.invalidateQueries({
-            queryKey: ["action", "get-document", { id: documentId }],
-          });
+          queryClient.invalidateQueries(documentQueryFilter(documentId));
           queryClient.invalidateQueries({
             queryKey: contentDatabaseQueryKey(documentId),
           });
         }
-        queryClient.invalidateQueries({
-          queryKey: [
-            "action",
-            "get-document",
-            { id: data.database.documentId },
-          ],
-        });
+        queryClient.invalidateQueries(
+          documentQueryFilter(data.database.documentId),
+        );
         queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
@@ -743,17 +737,11 @@ export function useCreateInlineContentDatabase(hostDocumentId: string | null) {
   >("create-inline-content-database", {
     onSuccess: (data) => {
       if (hostDocumentId) {
-        queryClient.invalidateQueries({
-          queryKey: ["action", "get-document", { id: hostDocumentId }],
-        });
+        queryClient.invalidateQueries(documentQueryFilter(hostDocumentId));
       }
-      queryClient.invalidateQueries({
-        queryKey: [
-          "action",
-          "get-document",
-          { id: data.block.databaseDocumentId },
-        ],
-      });
+      queryClient.invalidateQueries(
+        documentQueryFilter(data.block.databaseDocumentId),
+      );
       queryClient.invalidateQueries({
         queryKey: contentDatabaseQueryKey(data.block.databaseDocumentId),
       });
@@ -1488,7 +1476,10 @@ export function useProcessBuilderBodyHydration(documentId: string) {
 
 export function invalidateBuilderBodyHydrationQueries(
   queryClient: {
-    invalidateQueries: (filters: { queryKey: readonly unknown[] }) => unknown;
+    invalidateQueries: (filters: {
+      queryKey?: readonly unknown[];
+      predicate?: (query: { queryKey: readonly unknown[] }) => boolean;
+    }) => unknown;
   },
   documentId: string,
   variables?: Pick<ProcessBuilderBodyHydrationRequest, "documentId"> | null,
@@ -1501,9 +1492,7 @@ export function invalidateBuilderBodyHydrationQueries(
     queryKey: ["action", "get-content-database-source", { documentId }],
   });
   if (variables?.documentId) {
-    queryClient.invalidateQueries({
-      queryKey: ["action", "get-document", { id: variables.documentId }],
-    });
+    queryClient.invalidateQueries(documentQueryFilter(variables.documentId));
   }
 }
 

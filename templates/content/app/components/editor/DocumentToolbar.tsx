@@ -90,6 +90,7 @@ import {
   useSearchNotionPages,
   useCreateAndLinkNotionPage,
 } from "@/hooks/use-notion";
+import { documentQueryFilter } from "@/lib/document-query";
 import {
   localSourceAbsolutePath,
   revealLinkedLocalSourceFile,
@@ -572,12 +573,8 @@ export function DocumentToolbar({
       const previous = hideFromSearch;
       setPendingHideFromSearch(next);
 
-      queryClient.setQueryData(
-        ["action", "get-document", { id: documentId }],
-        (old: any) =>
-          old && typeof old === "object"
-            ? { ...old, hideFromSearch: next }
-            : old,
+      queryClient.setQueriesData(documentQueryFilter(documentId), (old: any) =>
+        old && typeof old === "object" ? { ...old, hideFromSearch: next } : old,
       );
       queryClient.setQueryData(
         ["action", "list-documents", undefined],
@@ -601,9 +598,7 @@ export function DocumentToolbar({
         });
       } catch (err) {
         setPendingHideFromSearch(previous);
-        queryClient.invalidateQueries({
-          queryKey: ["action", "get-document", { id: documentId }],
-        });
+        queryClient.invalidateQueries(documentQueryFilter(documentId));
         queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
@@ -614,9 +609,7 @@ export function DocumentToolbar({
         throw err;
       } finally {
         setPendingHideFromSearch(null);
-        queryClient.invalidateQueries({
-          queryKey: ["action", "get-document", { id: documentId }],
-        });
+        queryClient.invalidateQueries(documentQueryFilter(documentId));
         queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
