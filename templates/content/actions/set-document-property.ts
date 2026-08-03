@@ -172,6 +172,23 @@ export default defineAction({
         );
       }
       await lockDatabaseMemberships(tx, [membership.id]);
+      const [conflictingClaim] = await tx
+        .select({ id: schema.contentDatabaseItemKeyClaims.id })
+        .from(schema.contentDatabaseItemKeyClaims)
+        .where(
+          and(
+            eq(schema.contentDatabaseItemKeyClaims.databaseId, database.id),
+            eq(schema.contentDatabaseItemKeyClaims.propertyId, propertyId),
+            eq(schema.contentDatabaseItemKeyClaims.keyValueJson, valueJson),
+            ne(schema.contentDatabaseItemKeyClaims.documentId, documentId),
+          ),
+        )
+        .limit(1);
+      if (conflictingClaim) {
+        throw new Error(
+          "This value is already claimed as another row's stable key.",
+        );
+      }
       const [existing] = await tx
         .select({ id: schema.documentPropertyValues.id })
         .from(schema.documentPropertyValues)

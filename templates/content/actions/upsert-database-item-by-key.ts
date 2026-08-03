@@ -19,6 +19,7 @@ import {
   withPositionLock,
 } from "./_position-utils.js";
 import { nanoid, normalizedValueJson } from "./_property-utils.js";
+import getDocument from "./get-document.js";
 
 const upsertSchema = z.object({
   databaseId: z.string().min(1).describe("Target Content database ID"),
@@ -724,14 +725,11 @@ export default defineAction({
         );
       },
     );
-    const [verifiedDocument] = await db
-      .select({
-        id: schema.documents.id,
-        title: schema.documents.title,
-        content: schema.documents.content,
-      })
-      .from(schema.documents)
-      .where(eq(schema.documents.id, result.documentId));
+    const verifiedDocument = await getDocument.run({
+      id: result.documentId,
+      databaseId,
+      databaseDocumentId: database.documentId,
+    });
     if (
       readback.items.length !== 1 ||
       readbackItem?.id !== result.itemId ||

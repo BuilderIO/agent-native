@@ -7,6 +7,8 @@ import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+// guard:allow-unscoped — isolated SQLite fixtures intentionally inspect rows directly.
+
 const TEST_DB_PATH = join(
   tmpdir(),
   `content-key-upsert-${process.pid}-${Date.now()}.sqlite`,
@@ -671,6 +673,38 @@ describe("upsert-database-item-by-key", () => {
       );
     expect(aValues.length).toBeLessThanOrEqual(1);
     expect(aClaims).toEqual(aValues);
+  });
+
+  it("rejects an ordinary edit that collides with another claimed key", async () => {
+    const { databaseId, propertyId } = await fixture();
+    const a = await asOwner(() =>
+      upsert.run({ databaseId, keyPropertyId: propertyId, keyValue: "A" }),
+    );
+    await asOwner(() =>
+      upsert.run({ databaseId, keyPropertyId: propertyId, keyValue: "B" }),
+    );
+
+    await expect(
+      asOwner(() =>
+        setProperty.run({
+          documentId: a.documentId,
+          databaseId,
+          propertyId,
+          value: "B",
+        }),
+      ),
+    ).rejects.toThrow(/already claimed as another row's stable key/i);
+
+    const values = await getDb()
+      .select({ valueJson: schema.documentPropertyValues.valueJson })
+      .from(schema.documentPropertyValues)
+      .where(
+        and(
+          eq(schema.documentPropertyValues.documentId, a.documentId),
+          eq(schema.documentPropertyValues.propertyId, propertyId),
+        ),
+      );
+    expect(values).toEqual([{ valueJson: '"A"' }]);
   });
 
   it("serializes a real concurrent type change and retires old-type claims", async () => {
