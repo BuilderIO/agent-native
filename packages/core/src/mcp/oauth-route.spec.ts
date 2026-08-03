@@ -457,6 +457,54 @@ describe("MCP OAuth route", () => {
     await expect(response.text()).resolves.toContain("Authorize Claude");
   });
 
+  it.each([
+    "http://localhost:54263/callback#fragment",
+    "http://user@localhost:54263/callback",
+  ])(
+    "rejects a loopback redirect with disallowed URL components: %s",
+    async (redirectUri) => {
+      const clientId = "https://claude.example.com/oauth/client.json";
+      ssrfSafeFetchMock.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            client_id: clientId,
+            client_name: "Claude",
+            redirect_uris: ["http://localhost/callback"],
+            grant_types: ["authorization_code", "refresh_token"],
+            response_types: ["code"],
+            token_endpoint_auth_method: "none",
+            application_type: "native",
+          }),
+          {
+            headers: {
+              "content-type": "application/json",
+              "cache-control": "no-store",
+            },
+          },
+        ),
+      );
+
+      const response = await handleMcpOAuth(
+        event({
+          query: {
+            response_type: "code",
+            client_id: clientId,
+            redirect_uri: redirectUri,
+            resource: "https://mail.agent-native.com/mcp",
+            code_challenge: challenge("v".repeat(50)),
+            code_challenge_method: "S256",
+          },
+        }),
+        "/authorize",
+      );
+
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toMatchObject({
+        error: "invalid_client",
+      });
+    },
+  );
+
   it("rejects a non-loopback redirect that only differs by port", async () => {
     const clientId = "https://cursor.example.com/oauth/client.json";
     ssrfSafeFetchMock.mockResolvedValueOnce(

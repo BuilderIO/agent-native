@@ -119,13 +119,15 @@ export function matchesRegisteredRedirectUri(
   registered: readonly string[],
   redirectUri: string,
 ): boolean {
-  if (registered.includes(redirectUri)) return true;
   let candidate: URL;
   try {
     candidate = new URL(redirectUri);
+    // coercion-ok: a malformed candidate is an invalid redirect, not a runtime failure.
   } catch {
     return false;
   }
+  if (candidate.hash || candidate.username || candidate.password) return false;
+  if (registered.includes(redirectUri)) return true;
   if (
     candidate.protocol !== "http:" ||
     !isLoopbackRedirectHost(candidate.hostname)
@@ -136,9 +138,11 @@ export function matchesRegisteredRedirectUri(
     let allowed: URL;
     try {
       allowed = new URL(value);
+      // coercion-ok: a malformed registration cannot match a valid redirect.
     } catch {
       return false;
     }
+    if (allowed.hash || allowed.username || allowed.password) return false;
     return (
       allowed.protocol === candidate.protocol &&
       allowed.hostname === candidate.hostname &&
