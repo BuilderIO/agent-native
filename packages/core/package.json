@@ -21,11 +21,13 @@
     "agent-native.eject.json",
     "corpus",
     "dist",
+    "!dist/**/*.map",
     "docs",
     "!docs/content/locales/**",
     "migration-manifest.json",
     "tsconfig.base.json",
-    "src",
+    "src/eject",
+    "src/integrations/eject",
     "!src/**/*.spec.ts",
     "!src/**/*.spec.tsx",
     "!src/**/*.test.ts",
@@ -122,6 +124,7 @@
     "./client/resources/runtime": "./dist/client/resources/runtime.js",
     "./client/route-chunk-recovery": "./dist/client/route-chunk-recovery/index.js",
     "./client/settings": "./dist/client/settings/index.js",
+    "./client/use-db-sync": "./dist/client/use-db-sync.js",
     "./client/ui": "./dist/client/ui/index.js",
     "./client/uploads": "./dist/client/uploads/index.js",
     "./client/widgets": "./dist/client/widgets/index.js",
@@ -160,6 +163,7 @@
     "./shared/builder-link-tracking": "./dist/shared/builder-link-tracking.js",
     "./voice": "./dist/voice/index.js",
     "./scripts": "./dist/scripts/index.js",
+    "./deploy/function-bundle": "./dist/deploy/function-bundle.js",
     "./guards": {
       "types": "./dist/guards/index.d.ts",
       "default": "./dist/guards/index.js"
@@ -486,7 +490,6 @@
     "react-dom": ">=19.2.7",
     "react-router": ">=8",
     "tailwindcss": ">=4",
-    "typescript": ">=5",
     "vite": ">=7",
     "ws": ">=8"
   },

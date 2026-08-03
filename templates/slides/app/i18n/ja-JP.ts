@@ -500,6 +500,8 @@ const messages = {
     slides: "幻灯片",
   },
   presentation: {
+    loadFailed: "このプレゼンテーションを読み込めませんでした。",
+    tryAgain: "再試行",
     presenterView: "発表者ビュー",
     speakerNotes: "発表者ノート",
     noNotesForSlide: "このスライドのノートはありません",

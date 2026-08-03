@@ -516,6 +516,8 @@ const messages = {
     slides: "Diapositivas",
   },
   presentation: {
+    loadFailed: "تعذّر تحميل هذا العرض التقديمي.",
+    tryAgain: "إعادة المحاولة",
     presenterView: "عرض مقدّم العرض",
     speakerNotes: "ملاحظات المتحدث",
     noNotesForSlide: "لا توجد ملاحظات لهذه الشريحة",

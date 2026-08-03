@@ -43,6 +43,8 @@ const SSE_FALLBACK_INTERVAL_MS = 60_000;
 const IDLE_POLL_INTERVAL_MS = 60_000;
 const HIDDEN_POLL_INTERVAL_MS = 10_000;
 const POLL_AUTH_FAILURE_COOLDOWN_MS = 60_000;
+const LOCAL_SSE_RECONNECT_BASE_MS = 1_000;
+const LOCAL_SSE_RECONNECT_MAX_MS = 30_000;
 /**
  * Max cadence for SSE/poll-driven query invalidation in `useDbSync`. Events
  * that arrive within this window of the first one in a burst are merged into
@@ -50,6 +52,25 @@ const POLL_AUTH_FAILURE_COOLDOWN_MS = 60_000;
  * `queueInvalidateBatch` comment at the call site.
  */
 const INVALIDATE_COALESCE_MS = 250;
+/**
+ * Web Lock / BroadcastChannel name prefix for cross-tab SSE sharing.
+ *
+ * The browser caps HTTP/1.1 connections at ~6 PER ORIGIN, PER BROWSER PROCESS
+ * — not per tab. Every held stream is one of those six, so N tabs each opening
+ * their own EventSource starves ordinary requests: they queue behind the
+ * streams and only run when one closes. Locally this is far worse than hosted,
+ * because the dev gateway serves every app from a single origin, so the six are
+ * shared across the whole workspace rather than per app subdomain.
+ *
+ * One tab per app holds that app's stream and forwards frames to the rest.
+ */
+const SSE_LEADER_LOCK_PREFIX = "agent-native-sync:";
+
+/** Frames the SSE leader forwards to follower tabs over BroadcastChannel. */
+type SyncBroadcast =
+  | { type: "events"; events: SyncEvent[]; version: number | undefined }
+  | { type: "sse-state"; connected: boolean; capabilities: string[] }
+  | { type: "sse-state-request" };
 
 class HttpStatusError extends Error {
   status: number;
@@ -314,6 +335,8 @@ class SyncTransport {
   private stopped = false;
   private inFlight = false;
   private eventSource: EventSource | null = null;
+  private localReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private localReconnectAttempts = 0;
   private sseConnected = false;
   private authFailureUntil = 0;
   private consecutiveFailures = 0;
@@ -327,6 +350,14 @@ class SyncTransport {
   private tokenMintInFlight: Promise<boolean> | null = null;
   private gatewayReconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private capabilities: string[] = [];
+  // Cross-tab SSE sharing. "unknown" re-elects on the next connectEvents();
+  // "pending" means another tab holds the stream and this one is a follower
+  // until that tab releases the lock (Web Locks promotes the next waiter for
+  // us, so a closed/crashed leader needs no heartbeat or timeout here).
+  private leaderState: "unknown" | "pending" | "leader" = "unknown";
+  private releaseLeadership: (() => void) | null = null;
+  private leaderAbort: AbortController | null = null;
+  private channel: BroadcastChannel | null = null;
 
   constructor(
     private readonly pollUrl: string,
@@ -549,6 +580,11 @@ class SyncTransport {
     if (this.sseConnected === connected) return;
     this.sseConnected = connected;
     this.notifySseState();
+    this.broadcast({
+      type: "sse-state",
+      connected,
+      capabilities: this.capabilities,
+    });
   }
 
   /**
@@ -620,10 +656,155 @@ class SyncTransport {
   }
 
   private closeEvents(): void {
+    if (this.localReconnectTimer) {
+      clearTimeout(this.localReconnectTimer);
+      this.localReconnectTimer = null;
+    }
     if (!this.eventSource) return;
     this.eventSource.close();
     this.eventSource = null;
     this.setSseConnected(false);
+  }
+
+  // -------------------------------------------------------------------------
+  // Cross-tab SSE sharing (see SSE_LEADER_LOCK_PREFIX)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Lock/channel name. Keyed on the browser origin so apps sharing a local
+   * workspace gateway elect one stream holder, while separate ports/origins
+   * remain independent.
+   */
+  private get leaderKey(): string {
+    // Keyed on the poll URL, NOT the origin. Web Locks and BroadcastChannel are
+    // already origin-scoped, and the dev gateway serves every workspace app
+    // from one origin — so an origin key would elect a single leader across
+    // different apps. A follower applies whatever the leader sends into its own
+    // `versionRef` (see openChannel), and that cursor is the `?since=` for its
+    // own poll, so it would skip its own app's events from then on. The poll
+    // URL is app-scoped, which is exactly the granularity a stream serves.
+    return `${SSE_LEADER_LOCK_PREFIX}${this.pollUrl}`;
+  }
+
+  /**
+   * Claim this app's single SSE slot, or fall in behind whoever holds it.
+   *
+   * Web Locks queues the request, so a follower is promoted automatically when
+   * the leader tab navigates away, closes, or crashes — there is no heartbeat
+   * to tune and no stale-leader window to recover from. Browsers without Web
+   * Locks or BroadcastChannel keep the old one-stream-per-tab behavior.
+   */
+  private electLeader(): void {
+    if (this.leaderState === "pending") return;
+    const locks =
+      typeof navigator === "undefined" ? undefined : navigator.locks;
+    if (!locks || typeof BroadcastChannel === "undefined") {
+      this.leaderState = "leader";
+      this.connectEvents();
+      return;
+    }
+
+    this.openChannel();
+    this.leaderState = "pending";
+    const abort = new AbortController();
+    this.leaderAbort = abort;
+    void locks
+      .request(
+        this.leaderKey,
+        { signal: abort.signal },
+        () =>
+          new Promise<void>((resolve) => {
+            if (this.stopped) {
+              resolve();
+              return;
+            }
+            this.releaseLeadership = resolve;
+            this.leaderState = "leader";
+            this.connectEvents();
+          }),
+      )
+      .catch(() => {
+        // Abort (teardown, or going hidden) is the only expected rejection.
+        // Anything else must not strand this tab as a follower of a leader
+        // that may not exist, so own a stream directly instead.
+        if (this.stopped || abort.signal.aborted) return;
+        this.leaderState = "leader";
+        this.connectEvents();
+      });
+  }
+
+  /** Give up the stream slot so another tab can take it; re-elects on demand. */
+  private dropLeadership(): void {
+    this.leaderAbort?.abort();
+    this.leaderAbort = null;
+    this.releaseLeadership?.();
+    this.releaseLeadership = null;
+    this.leaderState = "unknown";
+  }
+
+  private openChannel(): void {
+    if (this.channel || typeof BroadcastChannel === "undefined") return;
+    const channel = new BroadcastChannel(this.leaderKey);
+    channel.onmessage = (message: MessageEvent) => {
+      const frame = message.data as SyncBroadcast | null;
+      if (this.stopped) return;
+      if (frame?.type === "sse-state-request") {
+        if (this.leaderState === "leader") {
+          this.broadcast({
+            type: "sse-state",
+            connected: this.sseConnected,
+            capabilities: this.capabilities,
+          });
+        }
+        return;
+      }
+      // Only followers consume frames; a leader already applied them locally.
+      if (this.leaderState === "leader") return;
+      if (frame?.type === "events") {
+        this.applyVersion(frame.events, frame.version);
+        this.fan(frame.events, frame.version);
+      } else if (frame?.type === "sse-state") {
+        this.capabilities = frame.capabilities;
+        // The leader's stream is this tab's push path too. Tracking its state
+        // lets a follower relax to the fallback cadence instead of polling at
+        // the active rate on top of a stream that is already delivering.
+        this.setSseConnected(frame.connected);
+        this.reschedule();
+      }
+    };
+    this.channel = channel;
+    channel.postMessage({ type: "sse-state-request" });
+  }
+
+  private broadcast(frame: SyncBroadcast): void {
+    if (this.leaderState !== "leader") return;
+    try {
+      this.channel?.postMessage(frame);
+      // postMessage throws only on a channel closed by tab teardown: there is
+      // no reader left to tell, and rethrowing would take the leader's own
+      // event handling down with it. Followers still have their poll.
+      // coercion-ok: no live follower can observe this failure.
+    } catch {
+      /* empty */
+    }
+  }
+
+  private closeChannel(): void {
+    this.channel?.close();
+    this.channel = null;
+  }
+
+  private scheduleLocalReconnect(): void {
+    if (this.stopped || this.localReconnectTimer) return;
+    const delay = Math.min(
+      LOCAL_SSE_RECONNECT_BASE_MS * 2 ** this.localReconnectAttempts,
+      LOCAL_SSE_RECONNECT_MAX_MS,
+    );
+    this.localReconnectAttempts += 1;
+    this.localReconnectTimer = setTimeout(() => {
+      this.localReconnectTimer = null;
+      this.connectEvents();
+    }, delay);
   }
 
   private connectEvents(): void {
@@ -633,6 +814,13 @@ class SyncTransport {
       typeof EventSource === "undefined" ||
       (this.effectivePauseWhenHidden && isDocumentHidden())
     ) {
+      return;
+    }
+
+    // One tab per origin holds the stream; the rest follow it over
+    // BroadcastChannel and keep polling as their safety net.
+    if (this.leaderState !== "leader") {
+      this.electLeader();
       return;
     }
 
@@ -661,7 +849,13 @@ class SyncTransport {
     const source = new EventSource(url);
     this.eventSource = source;
     source.onopen = () => {
+      const wasConnected = this.sseConnected;
+      this.localReconnectAttempts = 0;
       this.setSseConnected(true);
+      // A reconnecting EventSource may emit another open event without a
+      // separate state transition. Subscribers still need that event as the
+      // signal to resync any payloads the stream does not replay.
+      if (wasConnected) this.notifySseState();
       if (this.mode === "hosted") {
         // A live gateway stream is the real health signal: clear failure
         // counts accumulated by mint/stream retries. Local mode keeps main's
@@ -691,7 +885,9 @@ class SyncTransport {
       // Local mode: native EventSource reconnect is fine. Drop a CLOSED ref so a
       // later connectEvents() (focus/visibility) can establish a fresh stream.
       if (source.readyState === EventSource.CLOSED) {
+        source.close();
         this.eventSource = null;
+        this.scheduleLocalReconnect();
       }
       this.schedulePoll();
     };
@@ -703,6 +899,7 @@ class SyncTransport {
           typeof payload?.version === "number" ? payload.version : undefined;
         this.applyVersion(events, version);
         this.fan(events, version);
+        this.broadcast({ type: "events", events, version });
       } catch {
         // Ignore malformed SSE frames; polling is the safety net.
       }
@@ -822,6 +1019,10 @@ class SyncTransport {
       this.pollNow();
     } else if (this.effectivePauseWhenHidden) {
       this.closeEvents();
+      // A hidden leader stops streaming, so it must not keep holding the
+      // origin's stream slot — that would leave every visible tab following a
+      // leader that has gone quiet.
+      this.dropLeadership();
       if (this.timer) {
         clearTimeout(this.timer);
         this.timer = null;
@@ -891,6 +1092,10 @@ class SyncTransport {
   private teardown(): void {
     this.stopped = true;
     this.closeEvents();
+    // Hand this app's stream slot to a waiting tab before dropping the
+    // channel, so the next leader is elected without waiting on a poll.
+    this.dropLeadership();
+    this.closeChannel();
     if (this.timer) {
       clearTimeout(this.timer);
       this.timer = null;
@@ -898,6 +1103,10 @@ class SyncTransport {
     if (this.gatewayReconnectTimer) {
       clearTimeout(this.gatewayReconnectTimer);
       this.gatewayReconnectTimer = null;
+    }
+    if (this.localReconnectTimer) {
+      clearTimeout(this.localReconnectTimer);
+      this.localReconnectTimer = null;
     }
     window.removeEventListener("focus", this.handleFocus);
     window.removeEventListener(
@@ -948,6 +1157,9 @@ function releaseTransport(pollUrl: string, sseUrl: string | false): void {
 // ---------------------------------------------------------------------------
 /** @internal */
 export function _resetSyncTransportRegistryForTests(): void {
+  for (const transport of transportRegistry.values()) {
+    transport["teardown"]();
+  }
   transportRegistry.clear();
 }
 

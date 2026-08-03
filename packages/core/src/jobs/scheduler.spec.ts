@@ -8,6 +8,7 @@ import { classifyJobResource, processRecurringJobs } from "./scheduler.js";
 
 const resourceListAllOwnersMock = vi.hoisted(() => vi.fn());
 const resourcePutMock = vi.hoisted(() => vi.fn());
+const resourcePutIfCurrentMock = vi.hoisted(() => vi.fn());
 const resourceGetByPathMock = vi.hoisted(() => vi.fn());
 const createThreadMock = vi.hoisted(() => vi.fn());
 const runAgentLoopMock = vi.hoisted(() => vi.fn());
@@ -29,6 +30,7 @@ vi.mock("../resources/store.js", () => ({
       : null,
   resourceListAllOwners: resourceListAllOwnersMock,
   resourcePut: resourcePutMock,
+  resourcePutIfCurrent: resourcePutIfCurrentMock,
   resourceGetByPath: resourceGetByPathMock,
   resourceGet: vi.fn(),
 }));
@@ -136,17 +138,36 @@ Summarize the inbox.`,
       },
     ]);
     resourcePutMock.mockResolvedValue(undefined);
+    resourcePutIfCurrentMock.mockImplementation(
+      async (input: { owner: string; path: string; content: string }) => {
+        await resourcePutMock(input.owner, input.path, input.content);
+        return { id: input.owner + input.path };
+      },
+    );
     // Model a real store: a re-read returns whatever was last written. The
     // scheduler re-reads before recording an outcome, and treats a missing
     // resource as deleted mid-run.
     resourceGetByPathMock.mockImplementation(
       async (owner: string, path: string) => {
+        const latestListCall = resourceListAllOwnersMock.mock.results.at(-1);
+        const listedResources = latestListCall?.value
+          ? await latestListCall.value
+          : [];
+        const listed = listedResources.find(
+          (resource: { owner: string; path: string }) =>
+            resource.owner === owner && resource.path === path,
+        );
         const written = resourcePutMock.mock.calls
           .filter((call) => call[0] === owner && call[1] === path)
           .at(-1);
         return written
-          ? { id: "resource-1", owner, path, content: written[2] }
-          : null;
+          ? {
+              id: listed?.id ?? "resource-1",
+              owner,
+              path,
+              content: written[2],
+            }
+          : (listed ?? null);
       },
     );
     createThreadMock.mockResolvedValue({ id: "thread-1" });

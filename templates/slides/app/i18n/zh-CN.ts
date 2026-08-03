@@ -492,6 +492,8 @@ const messages = {
     slides: "幻灯片",
   },
   presentation: {
+    loadFailed: "无法加载此演示文稿。",
+    tryAgain: "重试",
     presenterView: "演讲者视图",
     speakerNotes: "演讲者备注",
     noNotesForSlide: "此幻灯片没有备注",

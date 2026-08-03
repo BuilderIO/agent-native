@@ -1,6 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
-import { configureLocalSqlite, getAuthSecret } from "./better-auth-instance.js";
+import {
+  configureLocalSqlite,
+  ensureGoogleAuthIdentityWithAdapter,
+  getAuthSecret,
+  type BetterAuthInternalAdapter,
+} from "./better-auth-instance.js";
 import { deriveServerSecret } from "./derived-secret.js";
 
 describe("configureLocalSqlite", () => {
@@ -79,5 +84,163 @@ describe("resolveAuthSecret", () => {
     delete process.env.ACCESS_TOKEN;
     const secret = getAuthSecret();
     expect(secret).not.toBe("agent-native-local-dev-secret-k9x2m7q4w8");
+  });
+});
+
+describe("ensureGoogleAuthIdentityWithAdapter", () => {
+  function adapterFor(user: any = null) {
+    const linkAccount = vi.fn(async () => undefined);
+    const replaceUnverifiedCredentialWithGoogle = vi.fn(async () => undefined);
+    const createOAuthUser = vi.fn(async () => ({
+      user: { id: "google-user" },
+      account: {},
+    }));
+    const adapter: BetterAuthInternalAdapter = {
+      findUserByEmail: vi.fn(async () => user),
+      linkAccount,
+      createUser: vi.fn(async () => ({ id: "created-user" })),
+      createOAuthUser,
+      findAccountByProviderId: vi.fn(async () => null),
+      replaceUnverifiedCredentialWithGoogle,
+    };
+    return {
+      adapter,
+      linkAccount,
+      createOAuthUser,
+      replaceUnverifiedCredentialWithGoogle,
+    };
+  }
+
+  it("creates a verified canonical user and Google account", async () => {
+    const { adapter, createOAuthUser } = adapterFor();
+
+    await ensureGoogleAuthIdentityWithAdapter(adapter, {
+      email: "  Owner@Example.com ",
+      accountId: "google-sub-1",
+      name: "Owner",
+    });
+
+    expect(createOAuthUser).toHaveBeenCalledWith(
+      { email: "owner@example.com", name: "Owner", emailVerified: true },
+      { providerId: "google", accountId: "google-sub-1" },
+    );
+  });
+
+  it("rechecks the Google account after a concurrent create race", async () => {
+    const existing = {
+      user: {
+        id: "existing-user",
+        email: "owner@example.com",
+        emailVerified: true,
+      },
+      accounts: [],
+    };
+    const { adapter, createOAuthUser, linkAccount } = adapterFor();
+    vi.mocked(adapter.findUserByEmail)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(existing);
+    vi.mocked(adapter.findAccountByProviderId)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        id: "google-account",
+        userId: "existing-user",
+        providerId: "google",
+        accountId: "google-sub-race",
+      });
+    createOAuthUser.mockRejectedValueOnce(new Error("email already exists"));
+
+    await ensureGoogleAuthIdentityWithAdapter(adapter, {
+      email: "owner@example.com",
+      accountId: "google-sub-race",
+    });
+
+    expect(linkAccount).not.toHaveBeenCalled();
+  });
+
+  it("links an already verified canonical user", async () => {
+    const existing = {
+      user: {
+        id: "existing-user",
+        email: "owner@example.com",
+        emailVerified: true,
+      },
+      accounts: [],
+    };
+    const { adapter, linkAccount, createOAuthUser } = adapterFor(existing);
+
+    await ensureGoogleAuthIdentityWithAdapter(adapter, {
+      email: "owner@example.com",
+      accountId: "google-sub-1",
+    });
+
+    expect(linkAccount).toHaveBeenCalledWith({
+      userId: "existing-user",
+      providerId: "google",
+      accountId: "google-sub-1",
+    });
+    expect(createOAuthUser).not.toHaveBeenCalled();
+  });
+
+  it("refuses to bless an unverified password identity", async () => {
+    const existing = {
+      user: {
+        id: "existing-user",
+        email: "owner@example.com",
+        emailVerified: false,
+      },
+      accounts: [
+        {
+          id: "credential-account",
+          providerId: "credential",
+          accountId: "existing-user",
+        },
+      ],
+    };
+    const { adapter, linkAccount, replaceUnverifiedCredentialWithGoogle } =
+      adapterFor(existing);
+
+    await ensureGoogleAuthIdentityWithAdapter(adapter, {
+      email: "owner@example.com",
+      accountId: "google-sub-1",
+    });
+    expect(replaceUnverifiedCredentialWithGoogle).toHaveBeenCalledWith({
+      userId: "existing-user",
+      email: "owner@example.com",
+      accountId: "google-sub-1",
+    });
+    expect(linkAccount).not.toHaveBeenCalled();
+  });
+
+  it("keeps account-claim protection for an unverified user with another account", async () => {
+    const existing = {
+      user: {
+        id: "existing-user",
+        email: "owner@example.com",
+        emailVerified: false,
+      },
+      accounts: [
+        {
+          id: "credential-account",
+          providerId: "credential",
+          accountId: "existing-user",
+        },
+        {
+          id: "github-account",
+          providerId: "github",
+          accountId: "github-sub-1",
+        },
+      ],
+    };
+    const { adapter, linkAccount, replaceUnverifiedCredentialWithGoogle } =
+      adapterFor(existing);
+
+    await expect(
+      ensureGoogleAuthIdentityWithAdapter(adapter, {
+        email: "owner@example.com",
+        accountId: "google-sub-1",
+      }),
+    ).rejects.toThrow("unverified email/password identity");
+    expect(replaceUnverifiedCredentialWithGoogle).not.toHaveBeenCalled();
+    expect(linkAccount).not.toHaveBeenCalled();
   });
 });

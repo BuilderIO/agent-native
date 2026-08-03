@@ -499,6 +499,8 @@ const messages = {
     slides: "स्लाइड",
   },
   presentation: {
+    loadFailed: "यह प्रस्तुति लोड नहीं हो सकी।",
+    tryAgain: "पुनः प्रयास करें",
     presenterView: "प्रस्तुतकर्ता दृश्य",
     speakerNotes: "वक्ता नोट्स",
     noNotesForSlide: "इस स्लाइड के लिए कोई नोट नहीं है",

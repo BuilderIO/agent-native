@@ -497,6 +497,8 @@ const messages = {
     slides: "幻灯片",
   },
   presentation: {
+    loadFailed: "이 프레젠테이션을 불러오지 못했습니다.",
+    tryAgain: "다시 시도",
     presenterView: "발표자 보기",
     speakerNotes: "발표자 노트",
     noNotesForSlide: "이 슬라이드에는 노트가 없습니다",

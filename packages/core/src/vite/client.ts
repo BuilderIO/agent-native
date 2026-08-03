@@ -891,6 +891,27 @@ const CORE_CLIENT_SUBPATHS = [
 
 const NODE_SSR_NATIVE_EXTERNALS = ["better-sqlite3", "bindings"];
 
+/**
+ * Dep-prebundle sourcemaps are roughly two thirds of `node_modules/.vite/deps`
+ * (65 MB of maps against 37 MB of code in a typical app), and Vite writes the
+ * whole replacement bundle to a sibling `deps_temp_*` before swapping, so a
+ * re-optimize needs twice that free. Whole workspaces have hit ENOSPC while
+ * Vite was writing a `.js.map`.
+ *
+ * Vite 8's optimizer hardcodes `sourcemap: "hidden"` in its `bundle.write()`
+ * call, after spreading `optimizeDeps.rolldownOptions.output` — so the option
+ * cannot be set through config, and `optimizeDeps.esbuildOptions` no longer
+ * feeds the bundler at all. A rolldown `outputOptions` hook is the one seam
+ * that runs late enough to win. Losing these maps only costs stepping into
+ * third-party code in the debugger; app sourcemaps are untouched, and Vite
+ * already treats a missing dep map as a normal state (`vite:optimized-deps`
+ * loads the module with a null map).
+ */
+const disableDepSourcemapsPlugin: Plugin = {
+  name: "agent-native:no-dep-prebundle-sourcemaps",
+  outputOptions: (options) => ({ ...options, sourcemap: false }),
+};
+
 function getDefaultOptimizeDeps(cwd: string): string[] {
   const inMonorepo = findCoreSrcDir(cwd) !== null;
   const entries: Array<{ specifier: string; packageName?: string }> = [
@@ -3340,6 +3361,17 @@ function createAgentNativeConfig(
         ...(userConfig.optimizeDeps?.exclude ?? []),
         ...(options.optimizeDeps?.exclude ?? []),
       ],
+      ...(process.env.AGENT_NATIVE_DEP_SOURCEMAPS === "1"
+        ? {}
+        : {
+            rolldownOptions: {
+              ...(userConfig.optimizeDeps?.rolldownOptions ?? {}),
+              plugins: [
+                ...arrayFrom(userConfig.optimizeDeps?.rolldownOptions?.plugins),
+                disableDepSourcemapsPlugin,
+              ],
+            },
+          }),
     },
     resolve: {
       ...(userConfig.resolve ?? {}),
