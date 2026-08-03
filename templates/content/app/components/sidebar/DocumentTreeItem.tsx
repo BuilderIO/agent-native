@@ -33,6 +33,8 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
+import { documentSidebarActionAvailability } from "./document-sidebar-actions";
+
 interface DocumentTreeItemProps {
   node: DocumentTreeNode;
   depth: number;
@@ -97,12 +99,8 @@ export function DocumentTreeItem({
   const isActive = node.id === activeId;
   const isLocalFileNode = node.source?.mode === "local-files";
   const isLocalFolder = isLocalFileNode && node.source?.kind === "folder";
-  const canEdit = node.canEdit !== false;
-  const canManage =
-    node.canManage === true ||
-    node.accessRole === "owner" ||
-    node.accessRole === "admin";
-  const hasMenuActions = canEdit || canManage;
+  const { canEdit, canManage, canFavorite, hasMenuActions } =
+    documentSidebarActionAvailability(node, { favoriteAvailable: true });
   const canCreateChild = canEdit && !isLocalFileNode;
   const [contextSheetOpen, setContextSheetOpen] = useState(false);
   const indent = depth * 12 + 12;
@@ -224,7 +222,7 @@ export function DocumentTreeItem({
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-48">
-                {canEdit && (
+                {canFavorite && (
                   <DropdownMenuItem
                     onClick={(e) => {
                       e.stopPropagation();
@@ -240,7 +238,7 @@ export function DocumentTreeItem({
                       : t("sidebar.pinToSidebar")}
                   </DropdownMenuItem>
                 )}
-                {canEdit && canManage && <DropdownMenuSeparator />}
+                {canFavorite && canManage && <DropdownMenuSeparator />}
                 {canEdit && !isLocalFileNode && (
                   <DropdownMenuItem
                     onSelect={(event) => {
@@ -269,7 +267,7 @@ export function DocumentTreeItem({
             </DropdownMenu>
           )}
 
-          {canCreateChild && (
+          {canCreateChild ? (
             <DropdownMenu>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -280,6 +278,7 @@ export function DocumentTreeItem({
                       aria-label={t("sidebar.addChildTo", {
                         title: node.title || t("sidebar.untitled"),
                       })}
+                      data-sidebar-add-child
                       onClick={(e) => e.stopPropagation()}
                     >
                       <IconPlus size={14} />
@@ -309,6 +308,18 @@ export function DocumentTreeItem({
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+          ) : (
+            <button
+              type="button"
+              className="flex h-7 w-7 cursor-not-allowed items-center justify-center rounded text-muted-foreground/50"
+              aria-label={t("sidebar.addChildTo", {
+                title: node.title || t("sidebar.untitled"),
+              })}
+              data-sidebar-add-child
+              disabled
+            >
+              <IconPlus size={14} />
+            </button>
           )}
         </div>
       </div>
