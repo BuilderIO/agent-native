@@ -1,5 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { IconLetterT, IconLoader2, IconPlus } from "@tabler/icons-react";
+import { IconLoader2, IconPlus, IconSquareLetterT } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 
 import {
@@ -118,7 +118,7 @@ export function EditorActionCluster({
                   textBoxMode ? ACTIVE_CLASS : IDLE_CLASS,
                 )}
               >
-                <IconLetterT className="size-4" />
+                <IconSquareLetterT className="size-4" />
               </button>
             </TooltipTrigger>
             <TooltipContent>{t("editorToolbar.addTextBox")} (T)</TooltipContent>
