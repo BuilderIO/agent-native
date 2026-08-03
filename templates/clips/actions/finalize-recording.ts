@@ -30,6 +30,7 @@ import {
   applyFaststart,
   hasPlayableMp4Metadata,
 } from "../server/lib/faststart.js";
+import { allowsLegacyS3ObjectForPersistedMedia } from "../server/lib/media-storage-provenance.js";
 import {
   mediaVerificationStateKey,
   parseMediaVerificationMarker,
@@ -185,6 +186,7 @@ function servedMediaSizeBytes(response: Response): number | null {
 async function verifyServedMediaUrl(
   recordingId: string,
   videoUrl: string,
+  allowLegacyObjectKey = false,
 ): Promise<number | null> {
   if (!shouldVerifyServedMediaUrl(videoUrl)) return null;
 
@@ -204,6 +206,7 @@ async function verifyServedMediaUrl(
         range: "bytes=0-1023",
         timeoutMs: MEDIA_SERVE_VERIFICATION_TIMEOUT_MS,
         recordingId,
+        ...(allowLegacyObjectKey ? { allowLegacyObjectKey } : {}),
       });
       let response = signedS3Response;
       if (response?.status !== 200 && response?.status !== 206) {
@@ -740,6 +743,7 @@ async function retryPendingMediaVerification(params: {
     .select({
       status: schema.recordings.status,
       videoUrl: schema.recordings.videoUrl,
+      editsJson: schema.recordings.editsJson,
     })
     .from(schema.recordings)
     .where(
@@ -767,7 +771,15 @@ async function retryPendingMediaVerification(params: {
     videoUrl: recording.videoUrl || media.videoUrl,
   };
   try {
-    const servedBytes = await verifyServedMediaUrl(id, candidate.videoUrl);
+    const servedBytes = await verifyServedMediaUrl(
+      id,
+      candidate.videoUrl,
+      allowsLegacyS3ObjectForPersistedMedia({
+        requestedUrl: candidate.videoUrl,
+        persistedUrl: recording.videoUrl,
+        editsJson: recording.editsJson,
+      }),
+    );
     const result = await markRecordingReady({
       id,
       ownerEmail,
@@ -1136,7 +1148,7 @@ export default defineAction({
           debugLog("[finalize] resumable upload completed", { id, videoUrl });
           let servedBytes: number | null;
           try {
-            servedBytes = await verifyServedMediaUrl(id, videoUrl);
+            servedBytes = await verifyServedMediaUrl(id, videoUrl, true);
           } catch (err) {
             const failureReason =
               err instanceof Error ? err.message : String(err);
@@ -1680,7 +1692,7 @@ export default defineAction({
       });
       let servedBytes: number | null;
       try {
-        servedBytes = await verifyServedMediaUrl(id, upload.url);
+        servedBytes = await verifyServedMediaUrl(id, upload.url, true);
       } catch (err) {
         const failureReason = err instanceof Error ? err.message : String(err);
         return await leaveRecordingProcessingForMediaVerification({

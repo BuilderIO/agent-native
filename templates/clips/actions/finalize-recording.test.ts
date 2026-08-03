@@ -333,6 +333,7 @@ describe("finalize-recording media serve verification", () => {
       range: "bytes=0-1023",
       timeoutMs: 8_000,
       recordingId: "rec_1",
+      allowLegacyObjectKey: true,
     });
     expect(fetch).not.toHaveBeenCalled();
   });

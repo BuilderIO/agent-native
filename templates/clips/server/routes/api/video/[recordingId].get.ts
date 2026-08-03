@@ -64,12 +64,12 @@ import {
   loomEmbedUrlForRecording,
 } from "../../../../shared/loom.js";
 import { getDb, schema } from "../../../db/index.js";
+import { allowsLegacyS3ObjectForPersistedMedia } from "../../../lib/media-storage-provenance.js";
 import { getOrganizationRoleForEmail } from "../../../lib/recordings.js";
 import { fetchS3ObjectByUrl } from "../../../lib/s3-upload-provider.js";
 import { verifySharePassword } from "../../../lib/share-password.js";
 
 interface RecordingRow {
-  createdAt?: string | null;
   expiresAt?: string | null;
   organizationId?: string | null;
   ownerEmail?: string | null;
@@ -89,23 +89,6 @@ const PROXIED_HEADER_NAMES = [
   "last-modified",
 ] as const;
 const PROVIDER_MEDIA_FETCH_TIMEOUT_MS = 30_000;
-// Rows created before recording-scoped object keys were introduced may still
-// reference the old timestamp-random layout. New rows never receive this
-// compatibility allowance, so caller-supplied URLs cannot opt into it.
-const LEGACY_S3_OBJECT_LAYOUT_CUTOFF_MS = Date.parse(
-  "2026-08-03T22:00:00.000Z",
-);
-
-function predatesLegacyS3ObjectLayoutCutoff(
-  createdAt: string | null | undefined,
-): boolean {
-  if (!createdAt) return false;
-  const createdAtMs = Date.parse(createdAt);
-  return (
-    Number.isFinite(createdAtMs) &&
-    createdAtMs <= LEGACY_S3_OBJECT_LAYOUT_CUTOFF_MS
-  );
-}
 const PROTECTED_MEDIA_ACCESS_TTL_SECONDS = 6 * 60 * 60;
 const PROTECTED_MEDIA_COOKIE_PREFIX = "clips_media_";
 
@@ -473,6 +456,20 @@ export default defineEventHandler(async (event: H3Event) => {
 
         let upstream: Response | { error: string; status: number };
         try {
+          const db = getDb();
+          const [persistedMedia] = await db
+            .select({
+              videoUrl: schema.recordings.videoUrl,
+              editsJson: schema.recordings.editsJson,
+            })
+            .from(schema.recordings)
+            .where(eq(schema.recordings.id, recordingId))
+            .limit(1);
+          const allowLegacyObjectKey = allowsLegacyS3ObjectForPersistedMedia({
+            requestedUrl: sourceUrl,
+            persistedUrl: persistedMedia?.videoUrl,
+            editsJson: persistedMedia?.editsJson,
+          });
           const signedS3Response = await runWithRequestContext(
             {
               userEmail: rec.ownerEmail ?? undefined,
@@ -485,9 +482,7 @@ export default defineEventHandler(async (event: H3Event) => {
                   : undefined,
                 timeoutMs: PROVIDER_MEDIA_FETCH_TIMEOUT_MS,
                 recordingId,
-                ...(predatesLegacyS3ObjectLayoutCutoff(rec.createdAt)
-                  ? { allowLegacyObjectKey: true }
-                  : {}),
+                ...(allowLegacyObjectKey ? { allowLegacyObjectKey } : {}),
               }),
           );
           if (

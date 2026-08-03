@@ -80,7 +80,12 @@ vi.mock("drizzle-orm", () => ({
 vi.mock("../../../db/index.js", () => ({
   getDb: (...args: unknown[]) => mockGetDb(...args),
   schema: {
-    recordings: { id: "recordings.id", visibility: "recordings.visibility" },
+    recordings: {
+      id: "recordings.id",
+      visibility: "recordings.visibility",
+      videoUrl: "recordings.videoUrl",
+      editsJson: "recordings.editsJson",
+    },
   },
 }));
 
@@ -251,7 +256,6 @@ describe("/api/video/:recordingId route", () => {
     mockResolveAccess.mockResolvedValue({
       role: "owner",
       resource: {
-        createdAt: "2026-08-03T21:00:00.000Z",
         visibility: "private",
         password: null,
         expiresAt: null,
@@ -260,6 +264,9 @@ describe("/api/video/:recordingId route", () => {
         videoUrl: sourceUrl,
       },
     });
+    mockGetDb.mockReturnValue(
+      createDbWithSelectResult([{ videoUrl: sourceUrl, editsJson: "{}" }]),
+    );
     mockFetchS3ObjectByUrl.mockResolvedValue(new Response("legacy media"));
 
     const result = await handler(makeEvent() as any);

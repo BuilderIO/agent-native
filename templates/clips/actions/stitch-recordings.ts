@@ -139,6 +139,7 @@ export default defineAction({
     // Seed editsJson with provenance so the editor/player can link back.
     const edits = parseEdits("{}");
     edits.stitchedFrom = ids;
+    edits.mediaStorageLayout = "external";
 
     await db.insert(schema.recordings).values({
       id,
